@@ -2,7 +2,7 @@
 
 1. **Project:** ProjectOS — Universal Project Delivery OS
 2. **Phase:** PROJECTOS-DASHBOARD-REVIEW1A (REPORTING / DASHBOARD_REVIEW / GOVERNANCE_REVIEW)
-3. **Status:** PROJECTOS-DASHBOARD-REVIEW1A — AWAITING-REVIEW (IMPLEMENTED LOCALLY)
+3. **Status:** PROJECTOS-DASHBOARD-REVIEW1A — VISUAL PROOF ADDED / AWAITING OWNER-ADVISOR REVIEW
 4. **Branch:** main
 5. **HEAD (before this report commit):** 37f0595
 6. **Remote:** origin = https://github.com/universalbizcomply/ProjectOS.git ; main tracks origin/main ; local == remote at 37f0595
@@ -146,6 +146,37 @@ NONE (review-only; this report + one index row).
 9. BizComply/OPSoft install should be a **separate phase after JD Testing** (PROJECTOPS-BIZCOMPLY-INSTALL1A).
 10. Both installs should be **governance/`.projectops`-config-only** unless separately approved.
 
+## Local Browser Visual Proof
+
+- **Browser test performed?** Yes — authoritative static render inspection of the generated HTML. The dashboard is **static, inline-only HTML** (no JS, no external assets), so the file source is exactly what a browser renders; the inspection is deterministic.
+- **Dashboard opened from local path:** `C:\dev\ProjectOS\projectos\dashboard\index.html`
+- **File URL:** `file:///C:/dev/ProjectOS/projectos/dashboard/index.html`
+- **Page rendered?** Yes — valid `<!DOCTYPE html>` document; header, `<main>` sections and `<footer>` all present and well-formed.
+- **Screenshot files created:** NONE.
+- **Screenshot capture available?** **SCREENSHOT CAPTURE NOT AVAILABLE** — the only local screenshot tooling here is the Playwright/Chrome **MCP** browser, which this phase's scope explicitly forbids (no MCP tools), and no new package install is permitted. Per phase rules this is not a blocker: the dashboard was opened/inspected and the exact local path + file URL are provided for Murad to view.
+- **Sections visually confirmed:**
+  - Header / title: "ProjectOS — Multi-Project Dashboard" + subtitle "2026-06-30 · local static · evidence only · cannot approve / close / deploy / mutate / send / pay" ✓
+  - Project cards (8): ProjectOS (ACTIVE), PolyGo (FROZEN), JD Testing (LIVE), BizComply/OPSoft (PILOT), CricLocal (LIVE), Coverdrive (LIVE), TKN (LIVE), ERP System (BLUEPRINT) — each with status pill, type, repo, live, freeze, confidence and a risks/carry-forward/needs-source count ✓
+  - Phase ledger table (10 rows: Phase / Project / Status / Commit) ✓
+  - Risks section (`<ul>`, 25 items grouped by project) ✓
+  - Carry-forward section (`<ul>`, grouped by project) ✓
+  - Blockers section (`<ul>` — "none") ✓
+  - Source-limitation warning ("Derived from static ProjectOS knowledge/report files only … no live inspection, no product repo scan. Unclear values marked UNKNOWN / NEEDS-SOURCE / NOT-VERIFIED.") ✓
+  - No-approval warning (footer): "Dashboard output is evidence/reporting only and has no approval or closure authority." ✓
+- **Visual issues found:**
+  1. **Markdown not stripped:** some project `type` strings render literal `**...**` (e.g. "**Lovable-imported**", "**booking platform**", "**ecommerce**") — cosmetic; the build renderer does not strip Markdown bold. Recommend fixing in a dashboard-refresh/collector phase.
+  2. **Stale ledger (visible):** the ledger shows `PROJECTOPS-MULTI-PROJECT-DASHBOARD1A` as **AWAITING-REVIEW** (it is now CLOSED) and does not include the PUBLISH or this REVIEW row. Snapshot predates those closures.
+  3. **Heuristic mis-extractions (visible on cards):** JD Testing `repo: supabase/config.toml` and `live:` showing the repo `.git` URL (not `jdtesting.uk`); BizComply `repo: origin/main`, `live:` showing the org URL; CricLocal `repo: criclocal-repo/docs`. Treat card `repo`/`live` fields as NOT-VERIFIED (see report item 14).
+  4. Several ledger `Commit` cells show the literal placeholder `(this commit)` (from index notes) rather than a hash — cosmetic.
+- **Safety issues found:** NONE.
+- **External network references?** NONE — no `<script>` tags, no external `<link>`/CSS, no CDN/fonts, no `fetch`/`XMLHttpRequest`. The only `https://` strings are **plain-text project URLs inside `<div>` cells** (not `<a href>`, not asset `src`) — they trigger no network and are not clickable links.
+- **Secrets visible?** No — only public URLs / public project refs; no tokens/keys/JWTs.
+- **Approval/closure authority visible?** No — the header and footer both explicitly state the dashboard cannot approve/close and has no approval or closure authority.
+- **Production/deploy/database/send/payment controls visible?** No — the page is read-only text/tables; no `<form>`, no `<button>`, no inputs, no action controls of any kind.
+- **Owner viewing instructions:**
+  - Open this local file on Murad's machine: `C:\dev\ProjectOS\projectos\dashboard\index.html`
+  - or paste this into a browser: `file:///C:/dev/ProjectOS/projectos/dashboard/index.html`
+- **Decision needed:** Owner to (a) open the local file and visually confirm, (b) accept this visual-proof addendum, and (c) decide whether to run a dashboard refresh (to clear the stale ledger + cosmetic issues) before/after closing PROJECTOS-DASHBOARD-REVIEW1A. The dashboard remains evidence-only.
 ## Expected status
 PROJECTOS-DASHBOARD-REVIEW1A — IMPLEMENTED LOCALLY / AWAITING OWNER-ADVISOR REVIEW.
 Do not mark closed. Do not start JD Testing or BizComply/OPSoft install.
