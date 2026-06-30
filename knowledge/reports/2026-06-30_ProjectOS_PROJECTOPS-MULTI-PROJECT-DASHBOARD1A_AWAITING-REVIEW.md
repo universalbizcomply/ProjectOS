@@ -1,8 +1,17 @@
 # PROJECTOPS-MULTI-PROJECT-DASHBOARD1A — Phase Report (Evidence Pack)
 
+> **CLOSURE DECISION: ACCEPTED FOR CLOSURE — 2026-06-30 (owner/advisor approved).**
+> Final status: **PROJECTOPS-MULTI-PROJECT-DASHBOARD1A — CLOSED.** Status updated from AWAITING-REVIEW to CLOSED per owner decision.
+
+## 0. Closure decision (owner/advisor)
+- **Decision:** ACCEPTED FOR CLOSURE.
+- **Date:** 2026-06-30.
+- **Basis:** local-only static multi-project dashboard built inside `C:\dev\ProjectOS`; reads ProjectOS knowledge/report files only; no product repo modified/scanned; no PolyGo branch switch/merge/push; no `.projectops` in any other project; no `.github/workflows`; no live CI; no GitHub Actions; no GitHub CLI/API; no production touched; no deploy attempted; no production target allowed; no DB connection/mutation/seed; no deploy/DB/email/SMS/WhatsApp/payment; no Supabase/Vercel/Netlify CLI; no external APIs; no MCP; no ECC agents run; no secrets; no remote; no push; dashboard has no approval/closure authority; commit `0de70a5`; validation: validate-all 31/31 PASS, validate:dashboard PASS, dashboard:safety PASS, report:check PASS, runtime collect/build/report PASS, path guard PASS; clean tree.
+- **Accepted non-blocking carry-forward:** dashboard statuses are heuristic static parses; UNKNOWN / NEEDS-SOURCE items require owner confirmation; validators are shape/scan checks (not full semantic validation); future per-project dashboards remain separate owner-approved work.
+
 - **Project:** ProjectOS — Universal Project Delivery OS
 - **Phase:** PROJECTOPS-MULTI-PROJECT-DASHBOARD1A (REPORTING / MULTI_PROJECT_DASHBOARD / GOVERNANCE_FRAMEWORK)
-- **Status:** IMPLEMENTED LOCALLY / AWAITING OWNER-ADVISOR REVIEW
+- **Status:** CLOSED (owner-approved 2026-06-30). Previously: IMPLEMENTED LOCALLY / AWAITING OWNER-ADVISOR REVIEW.
 - **Branch:** main
 - **Commit:** this phase commit; HEAD before work was `36052ba`.
 
@@ -127,6 +136,6 @@ No.
 ## Dashboard approval authority?
 None — the dashboard cannot approve closure or any gated action (config dashboardCanApprove=false, dashboardCanClose=false).
 
-## Expected status
-PROJECTOPS-MULTI-PROJECT-DASHBOARD1A — IMPLEMENTED LOCALLY / AWAITING OWNER-ADVISOR REVIEW.
+## Final status
+PROJECTOPS-MULTI-PROJECT-DASHBOARD1A — CLOSED (owner/advisor approved 2026-06-30).
 Do not mark closed. Do not start any new phase or PolyGo carry-forward.
