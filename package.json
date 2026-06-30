@@ -2,7 +2,7 @@
   "name": "projectos",
   "version": "0.1.0",
   "private": true,
-  "description": "ProjectOS — Universal Project Delivery OS (framework + validators + reporter + deploy guard + proof factory).",
+  "description": "ProjectOS — Universal Project Delivery OS (framework + validators + reporter + deploy guard + proof factory + drift detector).",
   "type": "commonjs",
   "scripts": {
     "validate": "node projectos/validators/validate-all.cjs",
@@ -15,6 +15,7 @@
     "validate:reporter": "node projectos/validators/validate-report-request.cjs && node projectos/validators/validate-report-index.cjs && node projectos/validators/validate-report-output.cjs && node projectos/validators/validate-phase-reporter.cjs",
     "validate:deployguard": "node projectos/validators/validate-staging-deploy-request.cjs && node projectos/validators/validate-staging-deploy-guard.cjs && node projectos/validators/validate-staging-deploy-output.cjs",
     "validate:proof": "node projectos/validators/validate-proof-request.cjs && node projectos/validators/validate-proof-plan.cjs && node projectos/validators/validate-proof-output.cjs && node projectos/validators/validate-proof-factory.cjs",
+    "validate:drift": "node projectos/validators/validate-drift-request.cjs && node projectos/validators/validate-drift-snapshot.cjs && node projectos/validators/validate-drift-output.cjs && node projectos/validators/validate-drift-detector.cjs",
     "report:create": "node projectos/scripts/create-phase-report.cjs",
     "report:prepush": "node projectos/scripts/create-pre-push-review-pack.cjs",
     "report:closure": "node projectos/scripts/create-closure-report.cjs",
@@ -30,6 +31,11 @@
     "proof:evidence": "node projectos/scripts/create-proof-evidence-skeleton.cjs",
     "proof:cleanup": "node projectos/scripts/create-cleanup-plan.cjs",
     "proof:target": "node projectos/scripts/check-proof-target.cjs",
+    "drift:check": "node projectos/scripts/check-drift-request.cjs",
+    "drift:snapshot": "node projectos/scripts/check-drift-snapshot.cjs",
+    "drift:compare": "node projectos/scripts/compare-drift-snapshots.cjs",
+    "drift:report": "node projectos/scripts/create-drift-report-skeleton.cjs",
+    "drift:target": "node projectos/scripts/check-drift-target.cjs",
     "summary": "node projectos/scripts/print-framework-summary.cjs",
     "list": "node projectos/scripts/list-projectos-files.cjs"
   },

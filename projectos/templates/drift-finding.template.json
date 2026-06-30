@@ -1,0 +1,15 @@
+{
+  "findingId": "<FINDING_ID>",
+  "category": "<schema-drift|migration-drift|function-drift|edge-function-drift|route-drift|env-config-drift|branch-drift|deploy-target-drift|forbidden-ref-drift|permission-policy-drift|unknown-drift>",
+  "severity": "<INFO|LOW|MEDIUM|HIGH|CRITICAL|BLOCKER>",
+  "status": "<NO-DRIFT|DRIFT-DETECTED|BLOCKED|NEEDS-SOURCE|NOT-VERIFIED|ACCEPTABLE-CARRY-FORWARD|HARD-STOP>",
+  "expected": "<expected value>",
+  "observed": "<observed value>",
+  "impact": "<impact description>",
+  "blocker": false,
+  "recommendedAction": "<advisory only; not executed; not approval>",
+  "approvalRequired": false,
+  "carryForwardAllowed": false,
+  "evidence": "<which snapshot fields differ>",
+  "decisionNeeded": "<exact owner/advisor decision>"
+}

@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "projectos/schemas/drift-finding.schema.json",
+  "title": "ProjectOS Drift Finding",
+  "description": "A single drift finding from a static snapshot comparison.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "findingId", "category", "severity", "status", "expected", "observed", "impact",
+    "blocker", "recommendedAction", "approvalRequired", "carryForwardAllowed", "evidence", "decisionNeeded"
+  ],
+  "properties": {
+    "findingId": { "type": "string" },
+    "category": { "type": "string", "enum": ["schema-drift", "migration-drift", "function-drift", "edge-function-drift", "route-drift", "env-config-drift", "branch-drift", "deploy-target-drift", "forbidden-ref-drift", "permission-policy-drift", "unknown-drift"] },
+    "severity": { "type": "string", "enum": ["INFO", "LOW", "MEDIUM", "HIGH", "CRITICAL", "BLOCKER"] },
+    "status": { "type": "string", "enum": ["NO-DRIFT", "DRIFT-DETECTED", "BLOCKED", "NEEDS-SOURCE", "NOT-VERIFIED", "ACCEPTABLE-CARRY-FORWARD", "HARD-STOP"] },
+    "expected": { "type": "string" },
+    "observed": { "type": "string" },
+    "impact": { "type": "string" },
+    "blocker": { "type": "boolean" },
+    "recommendedAction": { "type": "string", "description": "Advisory only; not executed; not approval." },
+    "approvalRequired": { "type": "boolean" },
+    "carryForwardAllowed": { "type": "boolean" },
+    "evidence": { "type": "string" },
+    "decisionNeeded": { "type": "string" }
+  }
+}

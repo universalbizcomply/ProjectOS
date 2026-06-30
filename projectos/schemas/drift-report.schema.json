@@ -1,0 +1,34 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "projectos/schemas/drift-report.schema.json",
+  "title": "ProjectOS Drift Report",
+  "description": "Drift report output. Evidence only; not approval; does not repair. Demo outputs must have productionTouched/liveInspectionUsed/secretsUsed/repairAttempted all false.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "project", "phase", "status", "targetEnvironment", "expectedSnapshot", "observedSnapshot",
+    "driftSummary", "findings", "blockers", "acceptableCarryForward", "forbiddenRefsDetected",
+    "productionTouched", "liveInspectionUsed", "secretsUsed", "repairAttempted", "risks",
+    "carryForward", "decisionNeeded"
+  ],
+  "properties": {
+    "project": { "type": "string" },
+    "phase": { "type": "string" },
+    "status": { "type": "string", "enum": ["NO-DRIFT", "DRIFT-DETECTED", "BLOCKED", "NEEDS-SOURCE", "NOT-VERIFIED", "ACCEPTABLE-CARRY-FORWARD", "HARD-STOP"] },
+    "targetEnvironment": { "type": "string" },
+    "expectedSnapshot": { "type": "string" },
+    "observedSnapshot": { "type": "string" },
+    "driftSummary": { "type": "string" },
+    "findings": { "type": "array", "items": { "type": "object" } },
+    "blockers": { "type": "array", "items": { "type": "string" } },
+    "acceptableCarryForward": { "type": "array", "items": { "type": "string" } },
+    "forbiddenRefsDetected": { "type": "array", "items": { "type": "string" } },
+    "productionTouched": { "type": "boolean" },
+    "liveInspectionUsed": { "type": "boolean" },
+    "secretsUsed": { "type": "boolean" },
+    "repairAttempted": { "type": "boolean" },
+    "risks": { "type": "array", "items": { "type": "string" } },
+    "carryForward": { "type": "array", "items": { "type": "string" } },
+    "decisionNeeded": { "type": "string" }
+  }
+}

@@ -31,3 +31,7 @@ A local-only staging deploy guard now prepares/validates/evidences staging deplo
 ## Proof factory (delivered in PROJECTOPS-PROOF-FACTORY1A)
 
 A local-only proof factory now prepares/validates/evidences proof plans, evidence skeletons and cleanup plans. It never runs proof or cleanup, refuses production by default, and calls no external service. Real proof execution remains a separate owner-approved phase. See [proof-factory.md](proof-factory.md).
+
+## Staging drift detector (delivered in PROJECTOPS-STAGING-DRIFT-DETECTOR1A)
+
+A local-only staging drift detector now compares supplied static snapshots and reports drift (incl. forbidden-ref hard-stops). It connects to nothing, repairs nothing, and refuses production by default. Live snapshot capture and drift repair remain separate owner-approved phases. See [staging-drift-detector.md](staging-drift-detector.md).

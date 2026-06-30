@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "projectos/schemas/drift-snapshot.schema.json",
+  "title": "ProjectOS Drift Snapshot",
+  "description": "Static project/environment snapshot. Supplied as a file only. No live connection, no secrets, no tokens.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "snapshotId", "project", "environment", "sourceType", "capturedBy", "capturedAt",
+    "sourceLimitations", "branch", "commit", "targetUrl", "hostingProvider", "databaseProvider",
+    "projectRef", "forbiddenRefs", "expectedTables", "expectedColumns", "expectedFunctions",
+    "expectedRoutes", "expectedMigrations", "expectedEnvKeys", "expectedPolicies", "notes"
+  ],
+  "properties": {
+    "snapshotId": { "type": "string" },
+    "project": { "type": "string" },
+    "environment": { "type": "string" },
+    "sourceType": { "type": "string", "enum": ["static-file", "manual-export", "owner-provided"], "description": "No live connection sources." },
+    "capturedBy": { "type": "string" },
+    "capturedAt": { "type": "string" },
+    "sourceLimitations": { "type": "string" },
+    "branch": { "type": "string" },
+    "commit": { "type": "string" },
+    "targetUrl": { "type": "string" },
+    "hostingProvider": { "type": "string" },
+    "databaseProvider": { "type": "string" },
+    "projectRef": { "type": "string", "description": "Public project ref placeholder only; never a secret." },
+    "forbiddenRefs": { "type": "array", "items": { "type": "string" } },
+    "expectedTables": { "type": "array", "items": { "type": "string" } },
+    "expectedColumns": { "type": "array", "items": { "type": "string" } },
+    "expectedFunctions": { "type": "array", "items": { "type": "string" } },
+    "expectedRoutes": { "type": "array", "items": { "type": "string" } },
+    "expectedMigrations": { "type": "array", "items": { "type": "string" } },
+    "expectedEnvKeys": { "type": "array", "items": { "type": "string" }, "description": "Env KEY NAMES only — never values." },
+    "expectedPolicies": { "type": "array", "items": { "type": "string" } },
+    "notes": { "type": "string" }
+  }
+}

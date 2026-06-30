@@ -30,3 +30,7 @@ Before a staging deploy phase, the deploy guard validates the request and target
 ## Proof preparation
 
 Before a controlled staging proof phase, the proof factory validates the request and target and generates a proof plan, evidence skeleton and cleanup plan (no execution). The owner/advisor decides approval; ProjectOS runs no proof or cleanup. See [proof-factory.md](proof-factory.md).
+
+## Drift detection
+
+Before proof or staging work, the drift detector compares expected vs observed static snapshots and produces a drift report (findings, severities, blockers). It runs no live inspection and no repair; the owner/advisor classifies findings. See [staging-drift-detector.md](staging-drift-detector.md).

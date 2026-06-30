@@ -1,0 +1,19 @@
+{
+  "project": "<PROJECT_NAME>",
+  "phase": "<PHASE_ID>",
+  "targetEnvironment": "staging",
+  "expectedSnapshotPath": "projectos/examples/<expected-snapshot>.json",
+  "observedSnapshotPath": "projectos/examples/<observed-snapshot>.json",
+  "driftCategories": ["schema-drift", "route-drift", "env-config-drift", "forbidden-ref-drift", "branch-drift", "deploy-target-drift"],
+  "forbiddenRefs": ["FORBIDDEN_REF_PLACEHOLDER"],
+  "productionTouched": false,
+  "databaseTouched": false,
+  "liveInspectionRequested": false,
+  "secretsAccessed": false,
+  "externalApisRequired": false,
+  "repairRequested": false,
+  "approvalStatus": "DRAFT",
+  "ownerApprovalReference": "none",
+  "decisionNeeded": "<exact owner/advisor decision>",
+  "reportPath": "projectos/examples/generated/<name>-drift-report.md"
+}

@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "projectos/schemas/drift-check-request.schema.json",
+  "title": "ProjectOS Drift Check Request",
+  "description": "Request to compare expected vs observed static snapshots. No live inspection, no repair, no production.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "project", "phase", "targetEnvironment", "expectedSnapshotPath", "observedSnapshotPath",
+    "driftCategories", "forbiddenRefs", "productionTouched", "databaseTouched",
+    "liveInspectionRequested", "secretsAccessed", "externalApisRequired", "repairRequested",
+    "approvalStatus", "ownerApprovalReference", "decisionNeeded", "reportPath"
+  ],
+  "properties": {
+    "project": { "type": "string" },
+    "phase": { "type": "string" },
+    "targetEnvironment": { "type": "string", "enum": ["staging", "preview", "development", "test", "local"], "description": "Must not be production." },
+    "expectedSnapshotPath": { "type": "string" },
+    "observedSnapshotPath": { "type": "string" },
+    "driftCategories": { "type": "array", "items": { "type": "string", "enum": ["schema-drift", "migration-drift", "function-drift", "edge-function-drift", "route-drift", "env-config-drift", "branch-drift", "deploy-target-drift", "forbidden-ref-drift", "permission-policy-drift", "unknown-drift"] } },
+    "forbiddenRefs": { "type": "array", "items": { "type": "string" } },
+    "productionTouched": { "type": "boolean", "description": "Must be false." },
+    "databaseTouched": { "type": "boolean" },
+    "liveInspectionRequested": { "type": "boolean", "description": "Must be false." },
+    "secretsAccessed": { "type": "boolean", "description": "Must be false." },
+    "externalApisRequired": { "type": "boolean" },
+    "repairRequested": { "type": "boolean", "description": "Must be false." },
+    "approvalStatus": { "type": "string", "enum": ["DRAFT", "READY-FOR-REVIEW", "BLOCKED", "NEEDS-SOURCE", "NOT-VERIFIED", "REJECTED"], "description": "Explicit only; never inferred." },
+    "ownerApprovalReference": { "type": "string" },
+    "decisionNeeded": { "type": "string" },
+    "reportPath": { "type": "string" }
+  }
+}

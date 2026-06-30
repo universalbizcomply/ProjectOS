@@ -28,3 +28,7 @@ The deploy guard adds schemas (request/guard/result), templates, local scripts a
 ## Proof factory
 
 The proof factory adds schemas (request/plan/evidence/cleanup/policy), templates, local scripts and validators for preparing safe controlled proofs. It is plan/evidence only — no proof, no cleanup, no external calls. See [proof-factory.md](proof-factory.md).
+
+## Staging drift detector
+
+The drift detector adds schemas (snapshot/request/finding/report/policy), templates, local scripts and validators for static expected-vs-observed comparison. It is compare/evidence only — no live connection, no repair, no external calls. See [staging-drift-detector.md](staging-drift-detector.md).

@@ -1,0 +1,19 @@
+{
+  "project": "Demo SaaS Platform",
+  "phase": "DEMO-DRIFT-PHASE1A",
+  "targetEnvironment": "staging",
+  "expectedSnapshotPath": "projectos/examples/demo-drift-expected-snapshot.json",
+  "observedSnapshotPath": "projectos/examples/demo-drift-observed-snapshot.json",
+  "driftCategories": ["schema-drift", "route-drift", "env-config-drift", "forbidden-ref-drift", "branch-drift", "deploy-target-drift"],
+  "forbiddenRefs": ["FORBIDDEN_REF_PLACEHOLDER"],
+  "productionTouched": false,
+  "databaseTouched": false,
+  "liveInspectionRequested": false,
+  "secretsAccessed": false,
+  "externalApisRequired": false,
+  "repairRequested": false,
+  "approvalStatus": "DRAFT",
+  "ownerApprovalReference": "none",
+  "decisionNeeded": "Owner/advisor: review drift findings; classify acceptable vs blocking. (inert demo)",
+  "reportPath": "projectos/examples/generated/demo-drift-report.md"
+}

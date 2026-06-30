@@ -1,0 +1,29 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "projectos/schemas/drift-detector-policy.schema.json",
+  "title": "ProjectOS Drift Detector Policy",
+  "description": "Central drift detector policy. Compares static files only; never connects, inspects live, repairs, deploys, seeds or mutates.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "policyId", "enabled", "allowedSourceTypes", "forbiddenSourceTypes", "allowedEnvironments",
+    "forbiddenEnvironments", "productionRefuseByDefault", "liveInspectionPolicy", "secretsPolicy",
+    "repairPolicy", "forbiddenRefPolicy", "severityPolicy", "reportPolicy", "approvalPolicy"
+  ],
+  "properties": {
+    "policyId": { "type": "string" },
+    "enabled": { "type": "boolean" },
+    "allowedSourceTypes": { "type": "array", "items": { "type": "string" } },
+    "forbiddenSourceTypes": { "type": "array", "items": { "type": "string" }, "description": "Must include live-connection." },
+    "allowedEnvironments": { "type": "array", "items": { "type": "string" } },
+    "forbiddenEnvironments": { "type": "array", "items": { "type": "string" }, "minItems": 1, "description": "Must include production." },
+    "productionRefuseByDefault": { "type": "boolean", "description": "Must be true." },
+    "liveInspectionPolicy": { "type": "object", "required": ["allowed"], "properties": { "allowed": { "type": "boolean", "description": "Must be false." } } },
+    "secretsPolicy": { "type": "object", "required": ["allowed"], "properties": { "allowed": { "type": "boolean", "description": "Must be false." } } },
+    "repairPolicy": { "type": "object", "required": ["allowed"], "properties": { "allowed": { "type": "boolean", "description": "Must be false." } } },
+    "forbiddenRefPolicy": { "type": "object", "required": ["hardStopOnForbiddenRef"], "properties": { "hardStopOnForbiddenRef": { "type": "boolean" } } },
+    "severityPolicy": { "type": "object", "required": ["blockerSeverities"], "properties": { "blockerSeverities": { "type": "array", "items": { "type": "string" } } } },
+    "reportPolicy": { "type": "object", "required": ["reportRequired", "recommendationIsApproval"], "properties": { "reportRequired": { "type": "boolean" }, "recommendationIsApproval": { "type": "boolean", "description": "Must be false." } } },
+    "approvalPolicy": { "type": "object", "required": ["inferApproval"], "properties": { "inferApproval": { "type": "boolean", "description": "Must be false." } } }
+  }
+}

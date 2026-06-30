@@ -29,3 +29,7 @@ The staging deploy guard (projectos/scripts/*deploy*.cjs) prepares and validates
 ## Proof factory
 
 The proof factory (projectos/scripts/*proof*.cjs, create-cleanup-plan.cjs) prepares and validates proof plans, evidence skeletons and cleanup plans without ever running a proof, seeding data, mutating/cleaning a database, or calling external services. Production is refused by default; approval is never inferred. See [proof-factory.md](proof-factory.md).
+
+## Staging drift detector
+
+The drift detector (projectos/scripts/*drift*.cjs) compares two supplied static snapshots and reports drift without connecting to any service, inspecting live state, or repairing. Production is refused by default; forbidden refs cause a HARD-STOP; approval is never inferred. See [staging-drift-detector.md](staging-drift-detector.md).
