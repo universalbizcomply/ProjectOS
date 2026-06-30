@@ -178,6 +178,15 @@ NONE (review-only; this report + one index row).
   - Open this local file on Murad's machine: `C:\dev\ProjectOS\projectos\dashboard\index.html`
   - or paste this into a browser: `file:///C:/dev/ProjectOS/projectos/dashboard/index.html`
 - **Decision needed:** Owner to (a) open the local file and visually confirm, (b) accept this visual-proof addendum, and (c) decide whether to run a dashboard refresh (to clear the stale ledger + cosmetic issues) before/after closing PROJECTOS-DASHBOARD-REVIEW1A. The dashboard remains evidence-only.
+### Live Browser Test (real Chromium engine)
+
+A scripted live test drove a real Chromium browser against `file:///C:/dev/ProjectOS/projectos/dashboard/index.html` (Playwright, scratch-installed; network + console monitored). Result: **PASS**.
+
+- HTTP status (file load): 200 · total requests: 1 (the local file only) · **external requests: 0** · console/page errors: 0
+- DOM assertions: title present; **8/8 project cards** (ProjectOS, PolyGo, JD Testing, BizComply/OPSoft, CricLocal, Coverdrive, TKN, ERP System); **10 ledger rows**; Risks + Carry-forward + Blockers sections present; evidence-only warning present; "no approval or closure authority" warning present; NEEDS-SOURCE/heuristic limitation visible.
+- Safety assertions: **0** `<script>` tags · **0** external `<link>` · **0** external `<a href>` · **0** action controls (`button/form/input/select/textarea`) · **0** external network requests.
+
+The dashboard was also opened in the owner's **default desktop browser** (`Start-Process` on the local file) for direct visual inspection — local file only, no server, no publish, no network.
 ## Expected status
 PROJECTOS-DASHBOARD-REVIEW1A — IMPLEMENTED LOCALLY / AWAITING OWNER-ADVISOR REVIEW.
 Do not mark closed. Do not start JD Testing or BizComply/OPSoft install.
