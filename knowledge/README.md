@@ -28,6 +28,10 @@ These files are written to be **uploaded into the ChatGPT Project Knowledge area
 | `PolyGo Current State.md` | Current-state summary for PolyGo |
 | `JD Testing Current State.md` | Current-state summary for JD Testing |
 | `BizComply OPSoft Current State.md` | Current-state summary for BizComply/OPSoft |
+| `CricLocal Current State.md` | Current-state summary for CricLocal |
+| `Coverdrive Current State.md` | Current-state summary for Coverdrive Indoor Cricket Centre |
+| `TKN Current State.md` | Current-state summary for TKN (ToKnowNothing) |
+| `ERP System Current State.md` | Current-state summary for ERP System (source not yet extracted) |
 | `ProjectOS Reports Index.md` | Index + naming convention for future ProjectOS reports |
 
 ## How Murad should use this pack
