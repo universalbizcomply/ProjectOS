@@ -1,0 +1,18 @@
+{
+  "name": "projectos",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ProjectOS — Universal Project Delivery OS (local framework + validators).",
+  "type": "commonjs",
+  "scripts": {
+    "validate": "node projectos/validators/validate-all.cjs",
+    "validate:schemas": "node projectos/validators/validate-project-config.cjs && node projectos/validators/validate-phase-manifest.cjs && node projectos/validators/validate-evidence-pack.cjs",
+    "validate:examples": "node projectos/validators/validate-examples.cjs",
+    "validate:forbidden": "node projectos/validators/validate-forbidden-actions.cjs",
+    "validate:secrets": "node projectos/validators/validate-no-secrets.cjs",
+    "report:check": "node projectos/scripts/create-report-skeleton.cjs --check",
+    "summary": "node projectos/scripts/print-framework-summary.cjs",
+    "list": "node projectos/scripts/list-projectos-files.cjs"
+  },
+  "license": "UNLICENSED"
+}

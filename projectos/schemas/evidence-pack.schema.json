@@ -1,0 +1,36 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "projectos/schemas/evidence-pack.schema.json",
+  "title": "ProjectOS Evidence Pack",
+  "description": "Standard evidence pack produced at the end of a phase for owner/advisor review.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "Project", "Phase", "Status", "Branch", "Commit", "FilesChanged", "Scope",
+    "ForbiddenActionsChecked", "Validators", "BuildLintTypecheck", "SecurityReview",
+    "CodeReview", "DatabaseReview", "StagingProof", "ProductionTouched",
+    "ExternalSendsOrPayments", "Residue", "Risks", "CarryForward", "DecisionNeeded"
+  ],
+  "properties": {
+    "Project": { "type": "string" },
+    "Phase": { "type": "string" },
+    "Status": { "type": "string" },
+    "Branch": { "type": "string" },
+    "Commit": { "type": "string" },
+    "FilesChanged": { "type": "array", "items": { "type": "string" } },
+    "Scope": { "type": "string" },
+    "ForbiddenActionsChecked": { "type": "array", "items": { "type": "string" } },
+    "Validators": { "type": "array", "items": { "type": "string" } },
+    "BuildLintTypecheck": { "type": "string", "description": "tsc/build/eslint result or N/A." },
+    "SecurityReview": { "type": "string" },
+    "CodeReview": { "type": "string" },
+    "DatabaseReview": { "type": "string" },
+    "StagingProof": { "type": "string" },
+    "ProductionTouched": { "type": "boolean" },
+    "ExternalSendsOrPayments": { "type": "boolean" },
+    "Residue": { "type": "string" },
+    "Risks": { "type": "array", "items": { "type": "string" } },
+    "CarryForward": { "type": "array", "items": { "type": "string" } },
+    "DecisionNeeded": { "type": "string" }
+  }
+}

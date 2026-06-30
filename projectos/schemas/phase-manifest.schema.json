@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "projectos/schemas/phase-manifest.schema.json",
+  "title": "ProjectOS Phase Manifest",
+  "description": "Declarative definition of a single ProjectOS phase.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "phaseId", "phaseType", "project", "objective", "scope", "allowedPaths",
+    "forbiddenPaths", "allowedActions", "forbiddenActions", "requiredValidators",
+    "requiredReviews", "requiredEvidence", "approvalRequiredFor", "rollbackPlan",
+    "closureCriteria", "reportPath"
+  ],
+  "properties": {
+    "phaseId": { "type": "string" },
+    "phaseType": { "type": "string", "description": "e.g. KNOWLEDGE_SETUP, CI_AUTOMATION, GOVERNANCE_FRAMEWORK, PRODUCT_INSTALL." },
+    "project": { "type": "string" },
+    "objective": { "type": "string" },
+    "scope": { "type": "string" },
+    "allowedPaths": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "forbiddenPaths": { "type": "array", "items": { "type": "string" } },
+    "allowedActions": { "type": "array", "items": { "type": "string" } },
+    "forbiddenActions": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "requiredValidators": { "type": "array", "items": { "type": "string" } },
+    "requiredReviews": { "type": "array", "items": { "type": "string" } },
+    "requiredEvidence": { "type": "array", "items": { "type": "string" } },
+    "approvalRequiredFor": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "rollbackPlan": { "type": "string" },
+    "closureCriteria": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "reportPath": { "type": "string" }
+  }
+}

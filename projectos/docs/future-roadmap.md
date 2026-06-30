@@ -1,0 +1,18 @@
+# ProjectOS Future Roadmap
+
+PROJECTOPS-UNIVERSAL1A delivers the universal framework skeleton. Later phases (each separately
+approved, none started here):
+
+1. **PROJECTOPS-POLYGO-INSTALL1A** — first per-project `.projectops` install (PolyGo).
+2. **PROJECTOPS-PHASE-REPORTER1A** — automated evidence/report generation from phase manifests.
+3. **PROJECTOPS-STAGING-DEPLOY-GUARD1A** — guardrails around staging deploys (still owner-gated).
+4. **PROJECTOPS-PROOF-FACTORY1A** — reusable proof/evidence harness (e.g. no-send proofs).
+5. **PROJECTOPS-STAGING-DRIFT-DETECTOR1A** — detect schema/config drift on staging.
+6. **PROJECTOPS-CI-GOVERNANCE1A** — CI governance gates (GitHub Actions introduced here, not before).
+7. **PROJECTOPS-MULTI-PROJECT-DASHBOARD1A** — cross-project status dashboard.
+
+## Not included yet
+- External adapters with real API calls.
+- GitHub Actions / CI.
+- Deploy wrappers, DB tooling, send/payment tooling.
+- Any production, security-risk, payment, real-send or closure automation (owner-gated).

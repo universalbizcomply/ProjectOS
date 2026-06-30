@@ -1,0 +1,21 @@
+{
+  "projectId": "demo-saas",
+  "projectName": "Demo SaaS Platform",
+  "projectType": "saas",
+  "owner": "OWNER_PLACEHOLDER",
+  "repo": "demo-org/demo-saas",
+  "localPath": "LOCAL_PATH_PLACEHOLDER",
+  "environments": {
+    "production": { "url": "URL_PLACEHOLDER", "supabaseRef": "PROJECT_REF_PLACEHOLDER", "host": "vercel" },
+    "staging": { "url": "URL_PLACEHOLDER", "supabaseRef": "PROJECT_REF_PLACEHOLDER", "host": "vercel" }
+  },
+  "protectedBranches": ["main"],
+  "productionFreeze": true,
+  "allowedActions": ["create-local-files", "run-local-validation", "produce-evidence-report"],
+  "forbiddenActions": ["production-deploy", "production-db-mutation", "real-email-sms-whatsapp", "payment-or-live-charge", "use-secrets", "force-push"],
+  "approvalGates": ["production-deploy", "production-db-mutation", "real-email-sms-whatsapp", "payment-or-live-charge", "secrets-handling", "phase-closure"],
+  "secretsPolicy": { "allowSecretsInRepo": false, "redactionRequired": true, "notes": "placeholders only" },
+  "validators": ["validate-project-config", "validate-no-secrets", "validate-forbidden-actions"],
+  "evidenceRequirements": ["evidence-pack", "validator-results"],
+  "installStatus": "not-installed"
+}

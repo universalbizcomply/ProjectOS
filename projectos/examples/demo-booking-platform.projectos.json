@@ -1,0 +1,20 @@
+{
+  "projectId": "demo-booking",
+  "projectName": "Demo Booking Platform",
+  "projectType": "booking-platform",
+  "owner": "OWNER_PLACEHOLDER",
+  "repo": "demo-org/demo-booking",
+  "localPath": "LOCAL_PATH_PLACEHOLDER",
+  "environments": {
+    "production": { "url": "URL_PLACEHOLDER", "supabaseRef": "PROJECT_REF_PLACEHOLDER", "host": "netlify" }
+  },
+  "protectedBranches": ["main"],
+  "productionFreeze": true,
+  "allowedActions": ["create-local-files", "run-local-validation", "produce-evidence-report"],
+  "forbiddenActions": ["production-deploy", "production-db-mutation", "real-email-sms-whatsapp", "payment-or-live-charge", "use-secrets", "force-push"],
+  "approvalGates": ["production-deploy", "production-db-mutation", "real-email-sms-whatsapp", "payment-or-live-charge", "secrets-handling", "phase-closure"],
+  "secretsPolicy": { "allowSecretsInRepo": false, "redactionRequired": true, "notes": "payment + customer email + booking mutation are high-risk gates" },
+  "validators": ["validate-project-config", "validate-no-secrets", "validate-forbidden-actions"],
+  "evidenceRequirements": ["evidence-pack", "validator-results", "staging-proof"],
+  "installStatus": "not-installed"
+}

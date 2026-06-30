@@ -1,0 +1,20 @@
+{
+  "projectId": "demo-ops",
+  "projectName": "Demo Ops / Compliance Tool",
+  "projectType": "ops-tool",
+  "owner": "OWNER_PLACEHOLDER",
+  "repo": "demo-org/demo-ops",
+  "localPath": "LOCAL_PATH_PLACEHOLDER",
+  "environments": {
+    "production": { "url": "URL_PLACEHOLDER", "supabaseRef": "PROJECT_REF_PLACEHOLDER", "host": "vercel" }
+  },
+  "protectedBranches": ["main"],
+  "productionFreeze": true,
+  "allowedActions": ["create-local-files", "run-local-validation", "produce-evidence-report"],
+  "forbiddenActions": ["production-deploy", "production-db-mutation", "real-email-sms-whatsapp", "payment-or-live-charge", "use-secrets", "force-push"],
+  "approvalGates": ["production-deploy", "production-db-mutation", "tenant-role-rls-change", "secrets-handling", "phase-closure"],
+  "secretsPolicy": { "allowSecretsInRepo": false, "redactionRequired": true, "notes": "multi-tenant RLS + role changes are high-risk gates" },
+  "validators": ["validate-project-config", "validate-no-secrets", "validate-forbidden-actions"],
+  "evidenceRequirements": ["evidence-pack", "validator-results", "database-review"],
+  "installStatus": "not-installed"
+}

@@ -1,0 +1,25 @@
+{
+  "phaseId": "<PHASE_ID>",
+  "phaseType": "<PHASE_TYPE>",
+  "project": "<PROJECT_ID>",
+  "objective": "<ONE_LINE_OBJECTIVE>",
+  "scope": "<SHORT_SCOPE_STATEMENT>",
+  "allowedPaths": ["<ALLOWED_PATH_GLOB>"],
+  "forbiddenPaths": ["<FORBIDDEN_PATH_GLOB>"],
+  "allowedActions": ["create-local-files", "run-local-validation", "produce-evidence-report"],
+  "forbiddenActions": [
+    "production-deploy",
+    "production-db-mutation",
+    "real-email-sms-whatsapp",
+    "payment-or-live-charge",
+    "use-secrets",
+    "force-push"
+  ],
+  "requiredValidators": ["validate-all"],
+  "requiredReviews": ["code-review", "security-review"],
+  "requiredEvidence": ["evidence-pack"],
+  "approvalRequiredFor": ["phase-closure"],
+  "rollbackPlan": "<HOW_TO_REVERT_PLACEHOLDER>",
+  "closureCriteria": ["<CRITERION_1>", "<CRITERION_2>"],
+  "reportPath": "knowledge/reports/<YYYY-MM-DD>_<PROJECT>_<PHASE_ID>_AWAITING-REVIEW.md"
+}

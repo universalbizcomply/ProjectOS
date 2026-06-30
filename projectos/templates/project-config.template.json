@@ -1,0 +1,52 @@
+{
+  "projectId": "<PROJECT_ID>",
+  "projectName": "<PROJECT_NAME>",
+  "projectType": "<PROJECT_TYPE>",
+  "owner": "<OWNER_NAME>",
+  "repo": "<OWNER>/<REPO_OR_none>",
+  "localPath": "<LOCAL_PATH_PLACEHOLDER>",
+  "environments": {
+    "production": { "url": "URL_PLACEHOLDER", "supabaseRef": "PROJECT_REF_PLACEHOLDER", "host": "<HOST_PLACEHOLDER>" },
+    "staging": { "url": "URL_PLACEHOLDER", "supabaseRef": "PROJECT_REF_PLACEHOLDER", "host": "<HOST_PLACEHOLDER>" }
+  },
+  "protectedBranches": ["main"],
+  "productionFreeze": true,
+  "allowedActions": [
+    "create-local-files",
+    "run-local-validation",
+    "produce-evidence-report"
+  ],
+  "forbiddenActions": [
+    "production-deploy",
+    "production-db-mutation",
+    "real-email-sms-whatsapp",
+    "payment-or-live-charge",
+    "use-secrets",
+    "force-push",
+    "push-without-approval"
+  ],
+  "approvalGates": [
+    "production-deploy",
+    "production-db-mutation",
+    "real-email-sms-whatsapp",
+    "payment-or-live-charge",
+    "secrets-handling",
+    "phase-closure"
+  ],
+  "secretsPolicy": {
+    "allowSecretsInRepo": false,
+    "redactionRequired": true,
+    "notes": "Use placeholders only: TOKEN_REDACTED, URL_PLACEHOLDER, PROJECT_REF_PLACEHOLDER."
+  },
+  "validators": [
+    "validate-project-config",
+    "validate-no-secrets",
+    "validate-forbidden-actions"
+  ],
+  "evidenceRequirements": [
+    "evidence-pack",
+    "validator-results",
+    "scope-confirmation"
+  ],
+  "installStatus": "not-installed"
+}

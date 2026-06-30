@@ -1,0 +1,18 @@
+{
+  "phaseId": "DEMO-PHASE1A",
+  "phaseType": "GOVERNANCE_FRAMEWORK",
+  "project": "demo-saas",
+  "objective": "Inert demo phase manifest illustrating the ProjectOS phase shape.",
+  "scope": "Local docs only; no product repo, no deploy, no DB, no sends, no payments.",
+  "allowedPaths": ["projectos/**", "knowledge/reports/**"],
+  "forbiddenPaths": ["../**", "**/.env", "**/*.key", "**/.projectops/**"],
+  "allowedActions": ["create-local-files", "run-local-validation", "produce-evidence-report"],
+  "forbiddenActions": ["production-deploy", "production-db-mutation", "real-email-sms-whatsapp", "payment-or-live-charge", "use-secrets", "force-push"],
+  "requiredValidators": ["validate-all"],
+  "requiredReviews": ["code-review", "security-review"],
+  "requiredEvidence": ["evidence-pack"],
+  "approvalRequiredFor": ["phase-closure"],
+  "rollbackPlan": "Revert the phase commit locally; no external state changed.",
+  "closureCriteria": ["validators pass", "evidence pack filed", "owner approves closure"],
+  "reportPath": "knowledge/reports/2026-06-30_Demo_DEMO-PHASE1A_AWAITING-REVIEW.md"
+}

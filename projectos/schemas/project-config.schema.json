@@ -1,0 +1,56 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "projectos/schemas/project-config.schema.json",
+  "title": "ProjectOS Project Config",
+  "description": "Per-project configuration for a ProjectOS-governed project. Universal shape; project-specific values.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "projectId", "projectName", "projectType", "owner", "repo", "localPath",
+    "environments", "protectedBranches", "productionFreeze", "allowedActions",
+    "forbiddenActions", "approvalGates", "secretsPolicy", "validators",
+    "evidenceRequirements", "installStatus"
+  ],
+  "properties": {
+    "projectId": { "type": "string", "description": "Stable slug, e.g. polygo." },
+    "projectName": { "type": "string" },
+    "projectType": { "type": "string", "description": "e.g. saas, booking-platform, ops-tool, ecommerce, erp." },
+    "owner": { "type": "string", "description": "Owner / final approver." },
+    "repo": { "type": "string", "description": "Canonical repo (owner/name) or 'none'." },
+    "localPath": { "type": "string" },
+    "environments": {
+      "type": "object",
+      "description": "Named environments and their public identifiers (no secrets).",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string" },
+          "supabaseRef": { "type": "string" },
+          "host": { "type": "string" }
+        }
+      }
+    },
+    "protectedBranches": { "type": "array", "items": { "type": "string" } },
+    "productionFreeze": { "type": "boolean" },
+    "allowedActions": { "type": "array", "items": { "type": "string" } },
+    "forbiddenActions": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "approvalGates": {
+      "type": "array",
+      "description": "Actions requiring explicit owner approval.",
+      "items": { "type": "string" },
+      "minItems": 1
+    },
+    "secretsPolicy": {
+      "type": "object",
+      "required": ["allowSecretsInRepo", "redactionRequired"],
+      "properties": {
+        "allowSecretsInRepo": { "type": "boolean" },
+        "redactionRequired": { "type": "boolean" },
+        "notes": { "type": "string" }
+      }
+    },
+    "validators": { "type": "array", "items": { "type": "string" } },
+    "evidenceRequirements": { "type": "array", "items": { "type": "string" } },
+    "installStatus": { "type": "string", "enum": ["not-installed", "planned", "installed", "deferred"] }
+  }
+}
