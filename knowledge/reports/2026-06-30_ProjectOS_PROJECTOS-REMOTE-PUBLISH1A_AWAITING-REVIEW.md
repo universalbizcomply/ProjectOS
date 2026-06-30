@@ -1,8 +1,16 @@
 # PROJECTOS-REMOTE-PUBLISH1A — Publish Report (Evidence Pack)
 
+> **CLOSURE DECISION: ACCEPTED FOR CLOSURE — 2026-06-30 (owner/advisor approved).**
+> Final status: **PROJECTOS-REMOTE-PUBLISH1A — CLOSED.** Status updated from AWAITING-REVIEW to CLOSED per owner decision.
+
+## 0. Closure decision (owner/advisor)
+- **Decision:** ACCEPTED FOR CLOSURE.
+- **Date:** 2026-06-30.
+- **Basis:** ProjectOS framework published to the approved private repo https://github.com/universalbizcomply/ProjectOS.git; branch `main` tracks `origin/main`; local and remote HEAD match (`17c05a8` before this closure commit); initial framework push succeeded with no force push; post-push report commit pushed; git status clean; no product repo modified/scanned; no PolyGo branch switch/merge/push; no production touched; no deploy/database/email/SMS/payment; no Supabase/Vercel/Netlify CLI; no GitHub Actions; no `.github/workflows`; no tokens printed/requested (local Git Credential Manager used); secret scans clean; `.env` NONE; PolyGo `.projectops` install branch remains local-only, unmerged and unpushed.
+
 - **Project:** ProjectOS — Universal Project Delivery OS
 - **Phase:** PROJECTOS-REMOTE-PUBLISH1A (REMOTE_PUBLISH / SOURCE_CONTROL / GOVERNANCE_FRAMEWORK)
-- **Status:** AWAITING-REVIEW (push SUCCEEDED; awaiting owner/advisor closure)
+- **Status:** CLOSED (owner-approved 2026-06-30). Push succeeded; previously AWAITING-REVIEW.
 - **Branch:** main
 - **Pre-publish HEAD:** c813fcb (before this publish-report commit)
 - **Target remote:** https://github.com/universalbizcomply/ProjectOS.git
