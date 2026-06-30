@@ -1,0 +1,34 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "projectos/schemas/proof-plan.schema.json",
+  "title": "ProjectOS Proof Plan",
+  "description": "Reusable proof plan shape. executionSteps are DESCRIPTIVE ONLY; no script executes them in this phase.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "proofPlanId", "project", "phase", "environment", "proofObjective", "preconditions",
+    "setupSteps", "executionSteps", "validators", "expectedEvidence", "dataActions",
+    "forbiddenActions", "rollbackPlan", "cleanupPlan", "residuePlan", "risks",
+    "decisionNeeded", "approvalStatus"
+  ],
+  "properties": {
+    "proofPlanId": { "type": "string" },
+    "project": { "type": "string" },
+    "phase": { "type": "string" },
+    "environment": { "type": "string" },
+    "proofObjective": { "type": "string" },
+    "preconditions": { "type": "array", "items": { "type": "string" } },
+    "setupSteps": { "type": "array", "items": { "type": "string" } },
+    "executionSteps": { "type": "array", "items": { "type": "string" }, "description": "Descriptive only; never executed by ProjectOS in this phase." },
+    "validators": { "type": "array", "items": { "type": "string" } },
+    "expectedEvidence": { "type": "array", "items": { "type": "string" } },
+    "dataActions": { "type": "array", "items": { "type": "string" } },
+    "forbiddenActions": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "rollbackPlan": { "type": "string" },
+    "cleanupPlan": { "type": "string" },
+    "residuePlan": { "type": "string" },
+    "risks": { "type": "array", "items": { "type": "string" } },
+    "decisionNeeded": { "type": "string" },
+    "approvalStatus": { "type": "string" }
+  }
+}

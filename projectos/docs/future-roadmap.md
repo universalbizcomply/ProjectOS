@@ -27,3 +27,7 @@ A reusable local-only phase reporter now generates/validates evidence packs, pre
 ## Staging deploy guard (delivered in PROJECTOPS-STAGING-DEPLOY-GUARD1A)
 
 A local-only staging deploy guard now prepares/validates/evidences staging deploy plans and result skeletons. It never deploys, refuses production by default, and calls no external service. Real deploy execution and production handling remain separate owner-approved phases. See [staging-deploy-guard.md](staging-deploy-guard.md).
+
+## Proof factory (delivered in PROJECTOPS-PROOF-FACTORY1A)
+
+A local-only proof factory now prepares/validates/evidences proof plans, evidence skeletons and cleanup plans. It never runs proof or cleanup, refuses production by default, and calls no external service. Real proof execution remains a separate owner-approved phase. See [proof-factory.md](proof-factory.md).

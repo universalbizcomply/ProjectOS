@@ -26,3 +26,7 @@ pm run validate:reporter. Generation is mechanical and local-only; it does not a
 ## Staging deploy preparation
 
 Before a staging deploy phase, the deploy guard validates the request and target and generates a plan + result skeleton (no deploy). The owner/advisor decides approval; ProjectOS never executes the deploy. See [staging-deploy-guard.md](staging-deploy-guard.md).
+
+## Proof preparation
+
+Before a controlled staging proof phase, the proof factory validates the request and target and generates a proof plan, evidence skeleton and cleanup plan (no execution). The owner/advisor decides approval; ProjectOS runs no proof or cleanup. See [proof-factory.md](proof-factory.md).

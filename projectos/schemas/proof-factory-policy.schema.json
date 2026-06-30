@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "projectos/schemas/proof-factory-policy.schema.json",
+  "title": "ProjectOS Proof Factory Policy",
+  "description": "Central proof factory safety policy. The factory prepares/validates/evidences; it never executes proofs or cleanup.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "policyId", "enabled", "allowedEnvironments", "forbiddenEnvironments",
+    "productionRefuseByDefault", "allowedProofTypes", "forbiddenActions",
+    "requiredSafetyDeclarations", "requiredReviews", "requiredEvidence",
+    "cleanupPolicy", "externalToolsPolicy", "mcpPolicy", "approvalPolicy", "reportPolicy"
+  ],
+  "properties": {
+    "policyId": { "type": "string" },
+    "enabled": { "type": "boolean" },
+    "allowedEnvironments": { "type": "array", "items": { "type": "string" } },
+    "forbiddenEnvironments": { "type": "array", "items": { "type": "string" }, "minItems": 1, "description": "Must include production." },
+    "productionRefuseByDefault": { "type": "boolean", "description": "Must be true unless a later owner-approved phase changes it." },
+    "allowedProofTypes": { "type": "array", "items": { "type": "string" } },
+    "forbiddenActions": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "requiredSafetyDeclarations": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "requiredReviews": { "type": "array", "items": { "type": "string" } },
+    "requiredEvidence": { "type": "array", "items": { "type": "string" } },
+    "cleanupPolicy": { "type": "object", "required": ["cleanupPlanRequiredIfResidue", "executeCleanup"], "properties": { "cleanupPlanRequiredIfResidue": { "type": "boolean" }, "executeCleanup": { "type": "boolean", "description": "Must be false in this phase." } } },
+    "externalToolsPolicy": { "type": "object", "required": ["default", "requiresOwnerApproval"], "properties": { "default": { "type": "string", "enum": ["disabled", "enabled"] }, "requiresOwnerApproval": { "type": "boolean" } } },
+    "mcpPolicy": { "type": "object", "required": ["default", "requiresOwnerApproval"], "properties": { "default": { "type": "string", "enum": ["disabled", "enabled"] }, "requiresOwnerApproval": { "type": "boolean" } } },
+    "approvalPolicy": { "type": "object", "required": ["proofRequiresOwnerApproval", "inferApproval"], "properties": { "proofRequiresOwnerApproval": { "type": "boolean" }, "inferApproval": { "type": "boolean", "description": "Must be false." } } },
+    "reportPolicy": { "type": "object", "required": ["reportRequired", "recommendationIsApproval"], "properties": { "reportRequired": { "type": "boolean" }, "recommendationIsApproval": { "type": "boolean", "description": "Must be false." } } }
+  }
+}

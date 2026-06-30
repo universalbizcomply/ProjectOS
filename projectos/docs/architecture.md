@@ -24,3 +24,7 @@ schemas/templates/validators.
 ## Staging deploy guard
 
 The deploy guard adds schemas (request/guard/result), templates, local scripts and validators for preparing safe staging deploys. It is plan/evidence only — no execution, no external calls. See [staging-deploy-guard.md](staging-deploy-guard.md).
+
+## Proof factory
+
+The proof factory adds schemas (request/plan/evidence/cleanup/policy), templates, local scripts and validators for preparing safe controlled proofs. It is plan/evidence only — no proof, no cleanup, no external calls. See [proof-factory.md](proof-factory.md).

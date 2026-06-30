@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "projectos/schemas/proof-evidence.schema.json",
+  "title": "ProjectOS Proof Evidence",
+  "description": "Proof evidence output shape. In this phase, demo evidence must have proofAttempted=false and proofExecuted=false.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "project", "phase", "status", "environment", "proofAttempted", "proofExecuted",
+    "proofResult", "evidenceItems", "validatorsRun", "databaseTouched",
+    "externalSendsPayments", "productionTouched", "residue", "cleanupStatus",
+    "risks", "carryForward", "decisionNeeded"
+  ],
+  "properties": {
+    "project": { "type": "string" },
+    "phase": { "type": "string" },
+    "status": { "type": "string" },
+    "environment": { "type": "string" },
+    "proofAttempted": { "type": "boolean" },
+    "proofExecuted": { "type": "boolean" },
+    "proofResult": { "type": "string" },
+    "evidenceItems": { "type": "array", "items": { "type": "string" } },
+    "validatorsRun": { "type": "array", "items": { "type": "string" } },
+    "databaseTouched": { "type": "boolean" },
+    "externalSendsPayments": { "type": "boolean" },
+    "productionTouched": { "type": "boolean" },
+    "residue": { "type": "string" },
+    "cleanupStatus": { "type": "string" },
+    "risks": { "type": "array", "items": { "type": "string" } },
+    "carryForward": { "type": "array", "items": { "type": "string" } },
+    "decisionNeeded": { "type": "string" }
+  }
+}

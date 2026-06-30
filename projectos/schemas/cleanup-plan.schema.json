@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "projectos/schemas/cleanup-plan.schema.json",
+  "title": "ProjectOS Cleanup Plan",
+  "description": "Cleanup planning for proof residue. cleanupActions are DESCRIPTIVE ONLY; no script executes cleanup in this phase.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "cleanupPlanId", "project", "phase", "environment", "cleanupRequired", "residueItems",
+    "cleanupActions", "forbiddenCleanupActions", "databaseCleanupPlanned", "fileCleanupPlanned",
+    "externalCleanupPlanned", "approvalRequired", "ownerApprovalReference", "verificationSteps",
+    "cleanupStatus", "decisionNeeded"
+  ],
+  "properties": {
+    "cleanupPlanId": { "type": "string" },
+    "project": { "type": "string" },
+    "phase": { "type": "string" },
+    "environment": { "type": "string" },
+    "cleanupRequired": { "type": "boolean" },
+    "residueItems": { "type": "array", "items": { "type": "string" } },
+    "cleanupActions": { "type": "array", "items": { "type": "string" }, "description": "Descriptive only; never executed by ProjectOS in this phase." },
+    "forbiddenCleanupActions": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "databaseCleanupPlanned": { "type": "boolean" },
+    "fileCleanupPlanned": { "type": "boolean" },
+    "externalCleanupPlanned": { "type": "boolean" },
+    "approvalRequired": { "type": "boolean" },
+    "ownerApprovalReference": { "type": "string" },
+    "verificationSteps": { "type": "array", "items": { "type": "string" } },
+    "cleanupStatus": { "type": "string", "enum": ["CLEANUP-REQUIRED", "CLEANUP-PLANNED", "CLEANUP-VERIFIED", "NOT-REQUIRED"] },
+    "decisionNeeded": { "type": "string" }
+  }
+}

@@ -25,3 +25,7 @@ ECC/named reviewers operate **local-read-only by default**. External tools and M
 ## Staging deploy guard
 
 The staging deploy guard (projectos/scripts/*deploy*.cjs) prepares and validates staging-deploy plans without ever deploying. Production targets are refused by default; approval is never inferred; no hosting CLI or external API is called. Deploy execution stays a separate, owner-approved action. See [staging-deploy-guard.md](staging-deploy-guard.md).
+
+## Proof factory
+
+The proof factory (projectos/scripts/*proof*.cjs, create-cleanup-plan.cjs) prepares and validates proof plans, evidence skeletons and cleanup plans without ever running a proof, seeding data, mutating/cleaning a database, or calling external services. Production is refused by default; approval is never inferred. See [proof-factory.md](proof-factory.md).
