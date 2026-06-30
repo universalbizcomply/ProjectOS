@@ -2,7 +2,7 @@
   "name": "projectos",
   "version": "0.1.0",
   "private": true,
-  "description": "ProjectOS — Universal Project Delivery OS (local framework + validators).",
+  "description": "ProjectOS — Universal Project Delivery OS (local framework + validators + reporter).",
   "type": "commonjs",
   "scripts": {
     "validate": "node projectos/validators/validate-all.cjs",
@@ -12,6 +12,12 @@
     "validate:secrets": "node projectos/validators/validate-no-secrets.cjs",
     "validate:reviews": "node projectos/validators/validate-review-agents.cjs",
     "validate:ecc": "node projectos/validators/validate-ecc-routing.cjs",
+    "validate:reporter": "node projectos/validators/validate-report-request.cjs && node projectos/validators/validate-report-index.cjs && node projectos/validators/validate-report-output.cjs && node projectos/validators/validate-phase-reporter.cjs",
+    "report:create": "node projectos/scripts/create-phase-report.cjs",
+    "report:prepush": "node projectos/scripts/create-pre-push-review-pack.cjs",
+    "report:closure": "node projectos/scripts/create-closure-report.cjs",
+    "report:index": "node projectos/scripts/update-reports-index.cjs",
+    "report:status": "node projectos/scripts/check-report-status.cjs",
     "report:check": "node projectos/scripts/create-report-skeleton.cjs --check",
     "summary": "node projectos/scripts/print-framework-summary.cjs",
     "list": "node projectos/scripts/list-projectos-files.cjs"

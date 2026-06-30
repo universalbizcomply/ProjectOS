@@ -28,3 +28,8 @@ Every phase ends with an evidence pack (see `projectos/templates/evidence-pack.t
 ## Controlled review sections
 
 The evidence pack also captures controlled review outputs: Code Review, Security Review, Database Review, Build/Lint/Typecheck Review, Test Review, Quality Gate Review, Planner Review, Silent Failure Review, plus Review Scope / Limitations, External Tools Used, MCP Used, and Owner Approval Required. Each review records status, scope, limitations and an advisory recommendation (not an approval). See [ecc-review-wiring.md](ecc-review-wiring.md).
+
+## Generating evidence packs
+
+The phase reporter (projectos/scripts/create-phase-report.cjs) renders an evidence pack from a eport-request JSON using exactly these headings, filling gaps with NEEDS SOURCE / NOT VERIFIED. Validate with 
+ode projectos/scripts/check-report-status.cjs --file <report>. See [phase-reporter.md](phase-reporter.md).

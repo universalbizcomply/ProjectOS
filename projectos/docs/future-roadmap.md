@@ -19,3 +19,7 @@ approved, none started here):
 ## Review wiring (delivered in PROJECTOPS-ECC-REVIEW-WIRING1A)
 
 Controlled ECC review wiring is now part of the universal framework: project-config declares review agents; phase manifests declare required reviews; the evidence pack captures review output. External tools, MCP and autonomous behaviour remain disabled by default — enabling any of them is a separate, owner-approved future phase. See [ecc-review-wiring.md](ecc-review-wiring.md).
+
+## Phase reporter (delivered in PROJECTOPS-PHASE-REPORTER1A)
+
+A reusable local-only phase reporter now generates/validates evidence packs, pre-push review packs and closure skeletons, and manages the Reports Index. It approves/closes nothing and calls no external service. See [phase-reporter.md](phase-reporter.md).

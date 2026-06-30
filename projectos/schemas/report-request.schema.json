@@ -1,0 +1,56 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "projectos/schemas/report-request.schema.json",
+  "title": "ProjectOS Report Request",
+  "description": "Input shape for the ProjectOS phase reporter. Local-only; no secrets.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "project", "phase", "phaseType", "status", "branch", "commit", "filesChanged",
+    "scope", "forbiddenActionsChecked", "validators", "buildLintTypecheck", "reviews",
+    "stagingProof", "productionTouched", "databaseTouched", "externalSendsPayments",
+    "residue", "risks", "carryForward", "decisionNeeded", "outputPath", "reportDate",
+    "generatedBy", "sourceLimitations"
+  ],
+  "properties": {
+    "project": { "type": "string" },
+    "phase": { "type": "string" },
+    "phaseType": { "type": "string" },
+    "status": { "type": "string", "enum": ["IMPLEMENTED LOCALLY / AWAITING OWNER-ADVISOR REVIEW", "BLOCKED", "DO NOT CLOSE", "ACCEPTED FOR CLOSURE", "CLOSED"] },
+    "branch": { "type": "string" },
+    "commit": { "type": "string" },
+    "filesChanged": { "type": "array", "items": { "type": "string" } },
+    "scope": { "type": "string" },
+    "forbiddenActionsChecked": { "type": "array", "items": { "type": "string" } },
+    "validators": { "type": "array", "items": { "type": "string" } },
+    "buildLintTypecheck": { "type": "string" },
+    "reviews": {
+      "type": "object",
+      "properties": {
+        "codeReview": { "type": "string" },
+        "securityReview": { "type": "string" },
+        "databaseReview": { "type": "string" },
+        "buildLintTypecheckReview": { "type": "string" },
+        "testReview": { "type": "string" },
+        "qualityGateReview": { "type": "string" },
+        "silentFailureReview": { "type": "string" },
+        "reviewScopeLimitations": { "type": "string" },
+        "externalToolsUsed": { "type": "boolean" },
+        "mcpUsed": { "type": "boolean" },
+        "ownerApprovalRequired": { "type": "string" }
+      }
+    },
+    "stagingProof": { "type": "string" },
+    "productionTouched": { "type": "boolean" },
+    "databaseTouched": { "type": "boolean" },
+    "externalSendsPayments": { "type": "boolean" },
+    "residue": { "type": "string" },
+    "risks": { "type": "array", "items": { "type": "string" } },
+    "carryForward": { "type": "array", "items": { "type": "string" } },
+    "decisionNeeded": { "type": "string" },
+    "outputPath": { "type": "string", "description": "Must resolve inside C:\\dev\\ProjectOS." },
+    "reportDate": { "type": "string", "description": "YYYY-MM-DD." },
+    "generatedBy": { "type": "string" },
+    "sourceLimitations": { "type": "string" }
+  }
+}
