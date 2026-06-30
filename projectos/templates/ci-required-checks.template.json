@@ -1,0 +1,19 @@
+{
+  "requiredChecks": [
+    { "category": "validate-project-config", "defaultStatus": "NOT-VERIFIED", "blocking": true },
+    { "category": "validate-no-secrets", "defaultStatus": "NOT-VERIFIED", "blocking": true },
+    { "category": "validate-forbidden-actions", "defaultStatus": "NOT-VERIFIED", "blocking": true },
+    { "category": "validate-report-status", "defaultStatus": "NOT-VERIFIED", "blocking": true },
+    { "category": "validate-no-production-auto-deploy", "defaultStatus": "NOT-VERIFIED", "blocking": true },
+    { "category": "validate-no-live-payment", "defaultStatus": "NOT-VERIFIED", "blocking": true },
+    { "category": "validate-no-real-send", "defaultStatus": "NOT-VERIFIED", "blocking": true },
+    { "category": "validate-owner-gates", "defaultStatus": "NOT-VERIFIED", "blocking": true }
+  ],
+  "optionalChecks": [
+    { "category": "validate-deploy-guard", "defaultStatus": "NOT-VERIFIED", "blocking": false },
+    { "category": "validate-proof-factory", "defaultStatus": "NOT-VERIFIED", "blocking": false },
+    { "category": "validate-drift-detector", "defaultStatus": "NOT-VERIFIED", "blocking": false },
+    { "category": "validate-review-agents", "defaultStatus": "NOT-VERIFIED", "blocking": false }
+  ],
+  "resultStatuses": ["PASS", "WARN", "FAIL", "BLOCKED", "SKIPPED", "NEEDS-SOURCE", "NOT-VERIFIED"]
+}

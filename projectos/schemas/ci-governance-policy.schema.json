@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "projectos/schemas/ci-governance-policy.schema.json",
+  "title": "ProjectOS CI Governance Policy",
+  "description": "Central CI governance policy. Templates only in this phase. CI can block/warn/report; it cannot approve closure, production deploy, DB mutation, real sends or payments.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "policyId", "enabled", "scope", "allowedCiProviders", "forbiddenCiProviders",
+    "requiredChecks", "optionalChecks", "forbiddenActions", "secretPolicy",
+    "deploymentPolicy", "databasePolicy", "sendPaymentPolicy", "reviewEvidencePolicy",
+    "branchProtectionRecommendations", "ownerApprovalPolicy", "reportPolicy",
+    "externalToolsPolicy", "mcpPolicy"
+  ],
+  "properties": {
+    "policyId": { "type": "string" },
+    "enabled": { "type": "boolean" },
+    "scope": { "type": "string" },
+    "allowedCiProviders": { "type": "array", "items": { "type": "string" } },
+    "forbiddenCiProviders": { "type": "array", "items": { "type": "string" } },
+    "requiredChecks": { "type": "array", "items": { "type": "string", "enum": ["validate-project-config", "validate-phase-manifest", "validate-evidence-pack", "validate-report-status", "validate-no-secrets", "validate-forbidden-actions", "validate-review-agents", "validate-deploy-guard", "validate-proof-factory", "validate-drift-detector", "validate-no-production-auto-deploy", "validate-no-live-payment", "validate-no-real-send", "validate-owner-gates"] } },
+    "optionalChecks": { "type": "array", "items": { "type": "string" } },
+    "forbiddenActions": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "secretPolicy": { "type": "object", "required": ["secretsInTemplates"], "properties": { "secretsInTemplates": { "type": "string", "enum": ["prohibited"] } } },
+    "deploymentPolicy": { "type": "object", "required": ["productionAutoDeploy", "requiresOwnerApproval"], "properties": { "productionAutoDeploy": { "type": "boolean", "description": "Must be false." }, "requiresOwnerApproval": { "type": "boolean" } } },
+    "databasePolicy": { "type": "object", "required": ["liveMutation"], "properties": { "liveMutation": { "type": "boolean", "description": "Must be false." } } },
+    "sendPaymentPolicy": { "type": "object", "required": ["realSend", "payment"], "properties": { "realSend": { "type": "boolean", "description": "Must be false." }, "payment": { "type": "boolean", "description": "Must be false." } } },
+    "reviewEvidencePolicy": { "type": "object", "required": ["reviewEvidenceRequired"], "properties": { "reviewEvidenceRequired": { "type": "boolean" } } },
+    "branchProtectionRecommendations": { "type": "array", "items": { "type": "string" } },
+    "ownerApprovalPolicy": { "type": "object", "required": ["ownerApprovalRequiredFor", "inferApproval"], "properties": { "ownerApprovalRequiredFor": { "type": "array", "items": { "type": "string" } }, "inferApproval": { "type": "boolean", "description": "Must be false." } } },
+    "reportPolicy": { "type": "object", "required": ["reportRequired", "recommendationIsApproval"], "properties": { "reportRequired": { "type": "boolean" }, "recommendationIsApproval": { "type": "boolean", "description": "Must be false." } } },
+    "externalToolsPolicy": { "type": "object", "required": ["default", "requiresOwnerApproval"], "properties": { "default": { "type": "string", "enum": ["disabled", "enabled"] }, "requiresOwnerApproval": { "type": "boolean" } } },
+    "mcpPolicy": { "type": "object", "required": ["default", "requiresOwnerApproval"], "properties": { "default": { "type": "string", "enum": ["disabled", "enabled"] }, "requiresOwnerApproval": { "type": "boolean" } } }
+  }
+}

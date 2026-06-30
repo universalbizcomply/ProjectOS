@@ -1,0 +1,78 @@
+# =====================================================================
+# ProjectOS CI Workflow — INERT TEMPLATE ONLY
+# ---------------------------------------------------------------------
+# template only        : this file is a ProjectOS template, not a live workflow
+# not installed        : it is NOT under .github/workflows and is NOT active CI
+# not active CI         : nothing here runs until an owner-approved install phase
+# no deploy             : no deployment commands of any kind
+# no database mutation  : no DB connect/mutate/seed
+# no real send/payment  : no email/SMS/WhatsApp/payment
+# no secrets required   : no secrets referenced by default
+# owner approval required before project installation
+# ---------------------------------------------------------------------
+# Placeholder commands only. Replace nothing with deploy/secret commands.
+# Installing this requires PROJECTOPS-<PROJECT>-CI-INSTALL (a later, owner-approved phase).
+# =====================================================================
+
+name: projectos-ci-governance-INERT-TEMPLATE
+
+# triggerModel: descriptive only; not wired to live CI in this phase.
+on: []   # intentionally empty — this template does not trigger
+
+permissions:
+  contents: read   # read-only; no write, no deploy
+
+jobs:
+  validate:
+    name: validate (local validators only)
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout (placeholder)
+        run: echo "PLACEHOLDER — owner installs real checkout in an approved phase"
+      - name: run validators
+        run: npm run validate
+
+  report-check:
+    name: report-check
+    runs-on: ubuntu-latest
+    steps:
+      - name: report status check
+        run: npm run report:check
+
+  secret-scan:
+    name: secret-scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: no-secrets validator
+        run: npm run validate:secrets
+
+  forbidden-action-check:
+    name: forbidden-action-check
+    runs-on: ubuntu-latest
+    steps:
+      - name: forbidden actions validator
+        run: npm run validate:forbidden
+
+  deploy-guard-check:
+    name: deploy-guard-check
+    runs-on: ubuntu-latest
+    steps:
+      - name: deploy guard validator (no deploy performed)
+        run: npm run validate:deployguard
+
+  proof-factory-check:
+    name: proof-factory-check
+    runs-on: ubuntu-latest
+    steps:
+      - name: proof factory validator (no proof run)
+        run: npm run validate:proof
+
+  drift-detector-check:
+    name: drift-detector-check
+    runs-on: ubuntu-latest
+    steps:
+      - name: drift detector validator (no live inspection)
+        run: npm run validate:drift
+
+# NOTE: CI can block / warn / report. CI cannot approve closure, production deploy,
+# database mutation, real sends or payments. Those remain owner-gated (Murad/ChatGPT).

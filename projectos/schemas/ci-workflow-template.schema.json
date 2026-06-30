@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "projectos/schemas/ci-workflow-template.schema.json",
+  "title": "ProjectOS CI Workflow Template (inert)",
+  "description": "Metadata for an INERT CI workflow template. Not installed, not live. Demo booleans must all be false.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "templateId", "provider", "status", "triggerModel", "jobs", "requiredChecks",
+    "forbiddenActions", "secretsRequired", "externalToolsRequired", "deploysAnything",
+    "mutatesDatabase", "sendsExternalMessages", "touchesPayments", "ownerApprovalRequiredFor",
+    "installInstructions", "limitations"
+  ],
+  "properties": {
+    "templateId": { "type": "string" },
+    "provider": { "type": "string", "description": "e.g. github-actions (inert template only)." },
+    "status": { "type": "string", "enum": ["DRAFT", "READY-FOR-REVIEW", "BLOCKED", "ACTIVE-TEMPLATE", "INSTALLED-IN-PROJECT", "REJECTED"] },
+    "triggerModel": { "type": "string", "description": "Descriptive only; not wired to live CI." },
+    "jobs": { "type": "array", "items": { "type": "string" } },
+    "requiredChecks": { "type": "array", "items": { "type": "string" } },
+    "forbiddenActions": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "secretsRequired": { "type": "boolean", "description": "Must be false in demo templates." },
+    "externalToolsRequired": { "type": "boolean" },
+    "deploysAnything": { "type": "boolean", "description": "Must be false in demo templates." },
+    "mutatesDatabase": { "type": "boolean", "description": "Must be false in demo templates." },
+    "sendsExternalMessages": { "type": "boolean", "description": "Must be false in demo templates." },
+    "touchesPayments": { "type": "boolean", "description": "Must be false in demo templates." },
+    "ownerApprovalRequiredFor": { "type": "array", "items": { "type": "string" } },
+    "installInstructions": { "type": "string" },
+    "limitations": { "type": "string" }
+  }
+}

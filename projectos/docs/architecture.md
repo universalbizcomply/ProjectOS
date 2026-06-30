@@ -32,3 +32,7 @@ The proof factory adds schemas (request/plan/evidence/cleanup/policy), templates
 ## Staging drift detector
 
 The drift detector adds schemas (snapshot/request/finding/report/policy), templates, local scripts and validators for static expected-vs-observed comparison. It is compare/evidence only — no live connection, no repair, no external calls. See [staging-drift-detector.md](staging-drift-detector.md).
+
+## CI governance
+
+CI governance adds schemas (policy/workflow-template/check-result/report), an inert GitHub Actions template (under projectos/templates, never .github/workflows), local scripts and validators. Template/evidence only — no live CI, no deploy, no external calls. See [ci-governance.md](ci-governance.md).

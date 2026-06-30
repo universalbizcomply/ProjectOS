@@ -2,7 +2,7 @@
   "name": "projectos",
   "version": "0.1.0",
   "private": true,
-  "description": "ProjectOS — Universal Project Delivery OS (framework + validators + reporter + deploy guard + proof factory + drift detector).",
+  "description": "ProjectOS — Universal Project Delivery OS (framework + validators + reporter + deploy guard + proof factory + drift detector + CI governance).",
   "type": "commonjs",
   "scripts": {
     "validate": "node projectos/validators/validate-all.cjs",
@@ -16,6 +16,7 @@
     "validate:deployguard": "node projectos/validators/validate-staging-deploy-request.cjs && node projectos/validators/validate-staging-deploy-guard.cjs && node projectos/validators/validate-staging-deploy-output.cjs",
     "validate:proof": "node projectos/validators/validate-proof-request.cjs && node projectos/validators/validate-proof-plan.cjs && node projectos/validators/validate-proof-output.cjs && node projectos/validators/validate-proof-factory.cjs",
     "validate:drift": "node projectos/validators/validate-drift-request.cjs && node projectos/validators/validate-drift-snapshot.cjs && node projectos/validators/validate-drift-output.cjs && node projectos/validators/validate-drift-detector.cjs",
+    "validate:ci": "node projectos/validators/validate-ci-governance-policy.cjs && node projectos/validators/validate-ci-workflow-template.cjs && node projectos/validators/validate-ci-output.cjs && node projectos/validators/validate-ci-governance.cjs",
     "report:create": "node projectos/scripts/create-phase-report.cjs",
     "report:prepush": "node projectos/scripts/create-pre-push-review-pack.cjs",
     "report:closure": "node projectos/scripts/create-closure-report.cjs",
@@ -36,6 +37,11 @@
     "drift:compare": "node projectos/scripts/compare-drift-snapshots.cjs",
     "drift:report": "node projectos/scripts/create-drift-report-skeleton.cjs",
     "drift:target": "node projectos/scripts/check-drift-target.cjs",
+    "ci:policy": "node projectos/scripts/check-ci-governance-policy.cjs",
+    "ci:workflow": "node projectos/scripts/check-ci-workflow-template.cjs",
+    "ci:report": "node projectos/scripts/create-ci-governance-report.cjs",
+    "ci:result": "node projectos/scripts/check-ci-result.cjs",
+    "ci:target": "node projectos/scripts/check-ci-target.cjs",
     "summary": "node projectos/scripts/print-framework-summary.cjs",
     "list": "node projectos/scripts/list-projectos-files.cjs"
   },

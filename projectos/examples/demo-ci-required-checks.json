@@ -1,0 +1,14 @@
+{
+  "requiredChecks": [
+    { "checkId": "rc-001", "category": "validate-project-config", "defaultStatus": "NOT-VERIFIED", "blocking": true },
+    { "checkId": "rc-002", "category": "validate-no-secrets", "defaultStatus": "NOT-VERIFIED", "blocking": true },
+    { "checkId": "rc-003", "category": "validate-forbidden-actions", "defaultStatus": "NOT-VERIFIED", "blocking": true },
+    { "checkId": "rc-004", "category": "validate-no-production-auto-deploy", "defaultStatus": "NOT-VERIFIED", "blocking": true },
+    { "checkId": "rc-005", "category": "validate-owner-gates", "defaultStatus": "NOT-VERIFIED", "blocking": true }
+  ],
+  "optionalChecks": [
+    { "checkId": "oc-001", "category": "validate-deploy-guard", "defaultStatus": "NOT-VERIFIED", "blocking": false },
+    { "checkId": "oc-002", "category": "validate-drift-detector", "defaultStatus": "NOT-VERIFIED", "blocking": false }
+  ],
+  "resultStatuses": ["PASS", "WARN", "FAIL", "BLOCKED", "SKIPPED", "NEEDS-SOURCE", "NOT-VERIFIED"]
+}

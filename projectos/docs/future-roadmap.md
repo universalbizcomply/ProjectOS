@@ -35,3 +35,7 @@ A local-only proof factory now prepares/validates/evidences proof plans, evidenc
 ## Staging drift detector (delivered in PROJECTOPS-STAGING-DRIFT-DETECTOR1A)
 
 A local-only staging drift detector now compares supplied static snapshots and reports drift (incl. forbidden-ref hard-stops). It connects to nothing, repairs nothing, and refuses production by default. Live snapshot capture and drift repair remain separate owner-approved phases. See [staging-drift-detector.md](staging-drift-detector.md).
+
+## CI governance (delivered in PROJECTOPS-CI-GOVERNANCE1A)
+
+A local-only CI governance baseline now defines CI gates, an inert workflow template, required checks, CI reports and branch-protection recommendations. It installs no CI, creates no GitHub Actions, and keeps production deploy / live DB / send / payment owner-gated. Per-project CI install remains a separate owner-approved phase. See [ci-governance.md](ci-governance.md).

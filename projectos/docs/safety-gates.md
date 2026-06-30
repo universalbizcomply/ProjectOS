@@ -33,3 +33,7 @@ The proof factory (projectos/scripts/*proof*.cjs, create-cleanup-plan.cjs) prepa
 ## Staging drift detector
 
 The drift detector (projectos/scripts/*drift*.cjs) compares two supplied static snapshots and reports drift without connecting to any service, inspecting live state, or repairing. Production is refused by default; forbidden refs cause a HARD-STOP; approval is never inferred. See [staging-drift-detector.md](staging-drift-detector.md).
+
+## CI governance
+
+CI governance (projectos/scripts/check-ci-*.cjs, inert workflow template) defines CI gates that can block/warn/report but never approve. Production auto-deploy, live DB mutation and real send/payment are disabled by default; .github/workflows is forbidden in this phase; approval is never inferred. See [ci-governance.md](ci-governance.md).

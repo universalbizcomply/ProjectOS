@@ -1,0 +1,19 @@
+{
+  "checkId": "demo-check-001",
+  "category": "validate-no-secrets",
+  "status": "PASS",
+  "summary": "Inert demo CI check result. No secrets found.",
+  "filesChecked": ["projectos/**"],
+  "command": "npm run validate:secrets",
+  "externalToolsUsed": false,
+  "secretsUsed": false,
+  "productionTouched": false,
+  "databaseTouched": false,
+  "deployAttempted": false,
+  "sendsOrPaymentsTouched": false,
+  "mcpUsed": false,
+  "blockers": [],
+  "warnings": [],
+  "evidence": "validate-no-secrets PASS (local-only).",
+  "decisionNeeded": "none (inert demo)"
+}

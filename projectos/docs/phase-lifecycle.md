@@ -34,3 +34,7 @@ Before a controlled staging proof phase, the proof factory validates the request
 ## Drift detection
 
 Before proof or staging work, the drift detector compares expected vs observed static snapshots and produces a drift report (findings, severities, blockers). It runs no live inspection and no repair; the owner/advisor classifies findings. See [staging-drift-detector.md](staging-drift-detector.md).
+
+## CI gates
+
+Future project phases may run ProjectOS validators as CI gates (validation, secret-scan, forbidden-action, report/evidence, deploy-guard/proof-factory/drift-detector). CI can block/warn/report; it cannot approve closure or any gated action. Templates are inert until an owner-approved install. See [ci-governance.md](ci-governance.md).

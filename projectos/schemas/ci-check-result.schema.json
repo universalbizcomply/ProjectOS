@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "projectos/schemas/ci-check-result.schema.json",
+  "title": "ProjectOS CI Check Result",
+  "description": "Output of a single CI check. CI can PASS/WARN/FAIL/BLOCK; it never approves.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "checkId", "category", "status", "summary", "filesChecked", "command",
+    "externalToolsUsed", "secretsUsed", "productionTouched", "databaseTouched",
+    "deployAttempted", "sendsOrPaymentsTouched", "blockers", "warnings", "evidence", "decisionNeeded"
+  ],
+  "properties": {
+    "checkId": { "type": "string" },
+    "category": { "type": "string", "enum": ["validate-project-config", "validate-phase-manifest", "validate-evidence-pack", "validate-report-status", "validate-no-secrets", "validate-forbidden-actions", "validate-review-agents", "validate-deploy-guard", "validate-proof-factory", "validate-drift-detector", "validate-no-production-auto-deploy", "validate-no-live-payment", "validate-no-real-send", "validate-owner-gates"] },
+    "status": { "type": "string", "enum": ["PASS", "WARN", "FAIL", "BLOCKED", "SKIPPED", "NEEDS-SOURCE", "NOT-VERIFIED"] },
+    "summary": { "type": "string" },
+    "filesChecked": { "type": "array", "items": { "type": "string" } },
+    "command": { "type": "string" },
+    "externalToolsUsed": { "type": "boolean" },
+    "secretsUsed": { "type": "boolean" },
+    "productionTouched": { "type": "boolean" },
+    "databaseTouched": { "type": "boolean" },
+    "deployAttempted": { "type": "boolean" },
+    "sendsOrPaymentsTouched": { "type": "boolean" },
+    "blockers": { "type": "array", "items": { "type": "string" } },
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "evidence": { "type": "string" },
+    "decisionNeeded": { "type": "string" }
+  }
+}

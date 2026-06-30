@@ -1,0 +1,36 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "projectos/schemas/ci-governance-report.schema.json",
+  "title": "ProjectOS CI Governance Report",
+  "description": "CI governance report output. Evidence only; not approval. Demo outputs must have production/deploy/database/sends/secrets/externalTools all false.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "project", "phase", "status", "policy", "workflowTemplates", "checks", "blockers",
+    "warnings", "requiredOwnerDecisions", "productionTouched", "deployAttempted",
+    "databaseTouched", "externalSendsPayments", "secretsUsed", "externalToolsUsed",
+    "mcpUsed", "residue", "risks", "carryForward", "decisionNeeded"
+  ],
+  "properties": {
+    "project": { "type": "string" },
+    "phase": { "type": "string" },
+    "status": { "type": "string", "enum": ["DRAFT", "READY-FOR-REVIEW", "BLOCKED", "ACTIVE-TEMPLATE", "INSTALLED-IN-PROJECT", "REJECTED"] },
+    "policy": { "type": "string" },
+    "workflowTemplates": { "type": "array", "items": { "type": "string" } },
+    "checks": { "type": "array", "items": { "type": "object" } },
+    "blockers": { "type": "array", "items": { "type": "string" } },
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "requiredOwnerDecisions": { "type": "array", "items": { "type": "string" } },
+    "productionTouched": { "type": "boolean" },
+    "deployAttempted": { "type": "boolean" },
+    "databaseTouched": { "type": "boolean" },
+    "externalSendsPayments": { "type": "boolean" },
+    "secretsUsed": { "type": "boolean" },
+    "externalToolsUsed": { "type": "boolean" },
+    "mcpUsed": { "type": "boolean" },
+    "residue": { "type": "string" },
+    "risks": { "type": "array", "items": { "type": "string" } },
+    "carryForward": { "type": "array", "items": { "type": "string" } },
+    "decisionNeeded": { "type": "string" }
+  }
+}

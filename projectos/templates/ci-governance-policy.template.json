@@ -1,0 +1,20 @@
+{
+  "policyId": "<POLICY_ID>",
+  "enabled": true,
+  "scope": "<project or org scope>",
+  "allowedCiProviders": ["github-actions"],
+  "forbiddenCiProviders": [],
+  "requiredChecks": ["validate-project-config", "validate-no-secrets", "validate-forbidden-actions", "validate-report-status", "validate-no-production-auto-deploy", "validate-owner-gates"],
+  "optionalChecks": ["validate-deploy-guard", "validate-proof-factory", "validate-drift-detector", "validate-review-agents"],
+  "forbiddenActions": ["production-auto-deploy", "live-db-mutation", "real-send", "payment", "secrets-in-templates", "force-push"],
+  "secretPolicy": { "secretsInTemplates": "prohibited" },
+  "deploymentPolicy": { "productionAutoDeploy": false, "requiresOwnerApproval": true },
+  "databasePolicy": { "liveMutation": false },
+  "sendPaymentPolicy": { "realSend": false, "payment": false },
+  "reviewEvidencePolicy": { "reviewEvidenceRequired": true },
+  "branchProtectionRecommendations": ["protect main", "require local validators", "no force push", "no production auto-deploy"],
+  "ownerApprovalPolicy": { "ownerApprovalRequiredFor": ["production-deploy", "db-mutation", "real-send", "payment", "ci-install", "closure"], "inferApproval": false },
+  "reportPolicy": { "reportRequired": true, "recommendationIsApproval": false },
+  "externalToolsPolicy": { "default": "disabled", "requiresOwnerApproval": true },
+  "mcpPolicy": { "default": "disabled", "requiresOwnerApproval": true }
+}

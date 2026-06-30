@@ -6,7 +6,8 @@ const MODULES = [
   "validate-report-request", "validate-report-index", "validate-report-output", "validate-phase-reporter",
   "validate-staging-deploy-request", "validate-staging-deploy-guard", "validate-staging-deploy-output",
   "validate-proof-request", "validate-proof-plan", "validate-proof-output", "validate-proof-factory",
-  "validate-drift-request", "validate-drift-snapshot", "validate-drift-output", "validate-drift-detector"
+  "validate-drift-request", "validate-drift-snapshot", "validate-drift-output", "validate-drift-detector",
+  "validate-ci-governance-policy", "validate-ci-workflow-template", "validate-ci-output", "validate-ci-governance"
 ];
 let total = 0;
 for (const m of MODULES) {
