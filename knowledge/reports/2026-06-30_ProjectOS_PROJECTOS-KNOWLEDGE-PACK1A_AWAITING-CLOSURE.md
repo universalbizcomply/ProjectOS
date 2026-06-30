@@ -1,10 +1,21 @@
 # PROJECTOS-KNOWLEDGE-PACK1A — Final Closure Report
 
+> **CLOSURE DECISION: ACCEPTED FOR CLOSURE — 2026-06-30 (owner/advisor approved).**
+> Final status: **PROJECTOS-KNOWLEDGE-PACK1A — CLOSED.**
+> Status updated from AWAITING-CLOSURE to CLOSED per owner decision. Filename retains its original timestamp for history.
+
+## 0. Closure decision (owner/advisor)
+
+- **Decision:** ACCEPTED FOR CLOSURE.
+- **Date:** 2026-06-30.
+- **Basis:** knowledge pack created under `C:\dev\ProjectOS\knowledge`; original six files exist; additional four owner-authorised current-state files exist; closure report filed; reports index updated; git clean at `main`/`408cccc`; no untracked files; no product repo modified; no production touched; no deploy/DB/email/SMS/WhatsApp/payment; no Supabase/Vercel CLI; no framework implementation files; no secrets; secret scan clean.
+- **Recorded exception:** `MEMORY.md`, `dev-projects-inventory.md`, `project-bizcomply-v2.md` were created as Claude-local memory artefacts under `.claude\...\memory`, outside the ProjectOS repo and not tracked. They are **NOT accepted as ProjectOS deliverables** and **must not be uploaded into ChatGPT Project Knowledge unless manually reviewed**.
+- **Carry-forward:** remains recorded only; not actioned in this phase.
+
 ## 1. Phase name and status
 
 - **Phase:** PROJECTOS-KNOWLEDGE-PACK1A (KNOWLEDGE_SETUP)
-- **Status:** IMPLEMENTED LOCALLY / AWAITING OWNER-ADVISOR CLOSURE DECISION
-- **Not marked closed.** Closure requires Murad / ChatGPT approval.
+- **Status:** **CLOSED** (owner-approved 2026-06-30). Previously: IMPLEMENTED LOCALLY / AWAITING OWNER-ADVISOR CLOSURE DECISION.
 - The additional project current-state files are recorded as **owner-authorised extended scope** for this knowledge-pack phase.
 
 ## 2. Folder used
@@ -196,7 +207,7 @@ reports/2026-06-30_ProjectOS_PROJECTOS-KNOWLEDGE-PACK1A_AWAITING-CLOSURE.md  (th
 5. CricLocal: confirm canonical copy.
 6. BizComply: reconfirm branch/remote posture before deploy.
 
-## Expected status
+## Final status
 
-**PROJECTOS-KNOWLEDGE-PACK1A — IMPLEMENTED LOCALLY / AWAITING OWNER-ADVISOR CLOSURE DECISION.**
-Do not mark closed. Do not start PROJECTOPS-UNIVERSAL1A until approved.
+**PROJECTOS-KNOWLEDGE-PACK1A — CLOSED** (owner/advisor approved 2026-06-30).
+PROJECTOPS-UNIVERSAL1A not started; awaits the next-phase prompt from Murad / ChatGPT.
