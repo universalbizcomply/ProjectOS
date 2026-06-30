@@ -1,10 +1,20 @@
 # PROJECTOPS-UNIVERSAL1A — Phase Report (Evidence Pack)
 
+> **CLOSURE DECISION: ACCEPTED FOR CLOSURE — 2026-06-30 (owner/advisor approved).**
+> Final status: **PROJECTOPS-UNIVERSAL1A — CLOSED.** Status updated from AWAITING-REVIEW to CLOSED per owner decision.
+
 - **Project:** ProjectOS — Universal Project Delivery OS
 - **Phase:** PROJECTOPS-UNIVERSAL1A (CI_AUTOMATION / PRODUCT_BLUEPRINT / GOVERNANCE_FRAMEWORK)
-- **Status:** IMPLEMENTED LOCALLY / AWAITING OWNER-ADVISOR REVIEW
+- **Status:** CLOSED (owner-approved 2026-06-30). Previously: IMPLEMENTED LOCALLY / AWAITING OWNER-ADVISOR REVIEW.
 - **Branch:** main
-- **Commit:** baseline added in commit `PROJECTOPS-UNIVERSAL1A universal framework baseline` (this phase commit); HEAD before work was `7d78c0a`.
+- **Commit:** baseline `4373ffd` ("PROJECTOPS-UNIVERSAL1A universal framework baseline"); HEAD before work was `7d78c0a`. Closure status update committed on top.
+
+## 0. Closure decision (owner/advisor)
+
+- **Decision:** ACCEPTED FOR CLOSURE.
+- **Date:** 2026-06-30.
+- **Basis:** universal framework baseline created inside `C:\dev\ProjectOS` only; root `README.md`/`package.json`/`.gitignore` + `projectos/{schemas,templates,validators,scripts,adapters,examples,docs}` created; report filed; Reports Index updated; commit `4373ffd`; `npm run validate` ALL PASS; clean tree; no product repo modified; no `.projectops` install; no production touched; no deploy/DB/email/SMS/payment; no external APIs; no secrets; no real adapter API calls; no GitHub Actions; no remote; no push.
+- **Accepted non-blocking carry-forward:** validators are basic shape/heading/secret checks (not full JSON-Schema); no real product config tested (by scope); two empty example dirs (`projectos/examples/jdtesting`, `projectos/examples/polygo`) — not to be populated with real configs in this phase.
 
 ## Files changed (created)
 
@@ -124,7 +134,7 @@ One read-only `BLUEPRINT.md` copy from a prior phase remains in the session scra
 2. Approve (or request changes to) schemas, templates, validators and docs.
 3. Approve moving to PROJECTOPS-POLYGO-INSTALL1A (separate phase).
 
-## Expected status
+## Final status
 
-PROJECTOPS-UNIVERSAL1A — IMPLEMENTED LOCALLY / AWAITING OWNER-ADVISOR REVIEW.
-Do not mark closed. Do not start PROJECTOPS-POLYGO-INSTALL1A until approved.
+**PROJECTOPS-UNIVERSAL1A — CLOSED** (owner/advisor approved 2026-06-30).
+PROJECTOPS-ECC-REVIEW-WIRING1A and PROJECTOPS-POLYGO-INSTALL1A not started; await their own prompts.
