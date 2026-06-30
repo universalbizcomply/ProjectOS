@@ -1,10 +1,20 @@
 # PROJECTOPS-ECC-REVIEW-WIRING1A — Phase Report (Evidence Pack)
 
+> **CLOSURE DECISION: ACCEPTED FOR CLOSURE — 2026-06-30 (owner/advisor approved).**
+> Final status: **PROJECTOPS-ECC-REVIEW-WIRING1A — CLOSED.** Status updated from AWAITING-REVIEW to CLOSED per owner decision.
+
 - **Project:** ProjectOS — Universal Project Delivery OS
 - **Phase:** PROJECTOPS-ECC-REVIEW-WIRING1A (GOVERNANCE_FRAMEWORK / REVIEW_AUTOMATION / CI_AUTOMATION)
-- **Status:** IMPLEMENTED LOCALLY / AWAITING OWNER-ADVISOR REVIEW
+- **Status:** CLOSED (owner-approved 2026-06-30). Previously: IMPLEMENTED LOCALLY / AWAITING OWNER-ADVISOR REVIEW.
 - **Branch:** main
-- **Commit:** added in this phase commit `PROJECTOPS-ECC-REVIEW-WIRING1A controlled ECC review wiring`; HEAD before work was `bc62153`.
+- **Commit:** baseline `85254e3` ("PROJECTOPS-ECC-REVIEW-WIRING1A controlled ECC review wiring"); HEAD before work was `bc62153`. Closure status update committed on top.
+
+## 0. Closure decision (owner/advisor)
+
+- **Decision:** ACCEPTED FOR CLOSURE.
+- **Date:** 2026-06-30.
+- **Basis:** ECC wired as a controlled, optional review/evidence layer; ProjectOS remains the authority; ECC is not owner/approver/closure authority; ECC output is evidence only; output template states recommendation is not approval; external tools / MCP / autonomous behaviour disabled by default; validators enforce review-agent mapping + safe defaults; work stayed inside `C:\dev\ProjectOS`; no product repo modified; no `.projectops` install; no production touched; no deploy/DB/email/SMS/payment; no external APIs; no MCP; no ECC agents run; no secrets; commit `85254e3`; clean tree; no remote; no push.
+- **Accepted non-blocking carry-forward:** validators are shape/mapping/default checks (not full JSON-Schema); no actual review dispatch executed (by scope); a later phase may run a manual review-dispatch pilot; any external/MCP enablement requires a separate owner-approved phase.
 
 ## Files changed
 
@@ -122,6 +132,6 @@ No.
 ## Autonomous ECC behaviour enabled?
 No — `autonomousReviewAllowed` / `autonomousBehaviourPolicy.default` are false everywhere; validators enforce it.
 
-## Expected status
-PROJECTOPS-ECC-REVIEW-WIRING1A — IMPLEMENTED LOCALLY / AWAITING OWNER-ADVISOR REVIEW.
-Do not mark closed. Do not start PROJECTOPS-POLYGO-INSTALL1A until approved.
+## Final status
+**PROJECTOPS-ECC-REVIEW-WIRING1A — CLOSED** (owner/advisor approved 2026-06-30).
+PROJECTOPS-POLYGO-INSTALL1A and any manual review-dispatch pilot not started; await their own prompts.
