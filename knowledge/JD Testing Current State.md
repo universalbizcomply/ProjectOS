@@ -29,7 +29,7 @@
 - **Payments (current):** Stripe (Checkout + webhook) — partially wired, **not active in booking flow**.
 - **Payments (target):** TrueLayer primary / Stripe secondary.
 - **Email:** Resend (from Supabase Edge Functions). **PDF:** jsPDF (result certificates). **Test:** Vitest + jsdom + Testing Library. Dev port 8080.
-- **Supabase project ref (current live):** `rawfqlvnylobdnwwxraz` (services/content re-targeted here per JD-CONTENT1). **Older ref:** `nmqhqlzxaticlbificos` (still in `supabase/config.toml` — confirm which is authoritative before any DB action).
+- **Supabase project (current live, owner-confirmed 2026-06-30):** ref `rawfqlvnylobdnwwxraz` — `https://rawfqlvnylobdnwwxraz.supabase.co`. **Older/superseded ref:** `nmqhqlzxaticlbificos` (still referenced in `supabase/config.toml` — config is stale; do not target it for DB actions).
 
 ## Roles / access
 
@@ -76,7 +76,7 @@
 - Health-adjacent personal data → GDPR exposure risk on any data handling.
 - Lovable-imported app: theme/design and shadcn primitives must not be changed without client approval.
 - Migrations are immutable; only add new timestamped migrations.
-- **Two Supabase projects in play** (`rawfqlvnylobdnwwxraz` current vs `nmqhqlzxaticlbificos` in config) — DB actions must target the right one.
+- **`supabase/config.toml` points at the stale ref** `nmqhqlzxaticlbificos` while live is `rawfqlvnylobdnwwxraz` — config should be corrected so tooling/CLI cannot target the wrong project.
 - **Two role systems coexist** (`profiles.role` + `user_roles` table) — RLS inconsistency risk.
 - Hardcoded `lovable.app` origin in `send-booking-reminders`; ~1.3 MB main JS bundle (pre-launch code-split needed).
 - Compliance/claims risk: Shopify audit flagged unsafe marketing claims (ISO accreditation, "2,000+ reviews", medical-outcome claims) — must not be imported unreviewed.
@@ -100,6 +100,6 @@
 
 - **Confirmed from owner/project memory:** Domain `jdtesting.uk`; live booking/payment/customer platform; payment, customer email, booking mutation high-risk; folder `C:\dev\JD Project` under `C:\dev` (owner-confirmed 2026-06-30).
 - **Confirmed from local repo docs (read-only, authorised):** Name JD Testing / JD Project; client Jon; Lovable-imported intolerance-testing booking app; stack (Vite5/React18/TS, Supabase, Stripe current + TrueLayer target, Resend, jsPDF); repo `jdonlinetesting/JDtesting` (`main`@`ef4e851`); Supabase ref `nmqhqlzxaticlbificos`; role tiers + edge functions; payment-safety + no-redesign + phased-delivery rules; 34 immutable migrations.
-- **Confirmed from local ledger (read-only, authorised):** Live host Netlify `jdonlinetesting.netlify.app`; current Supabase ref `rawfqlvnylobdnwwxraz` (older `nmqhqlzxaticlbificos`); closed-phase list; carry-forward (Stripe-wiring/TrueLayer/SMS drafts); dual role systems; Shopify-claims risk. Status snapshot 2026-05-11; git HEAD `ef4e851` newer.
+- **Confirmed from local ledger (read-only, authorised):** Live host Netlify `jdonlinetesting.netlify.app`; current Supabase project `rawfqlvnylobdnwwxraz` (owner-confirmed; older `nmqhqlzxaticlbificos` superseded); closed-phase list; carry-forward (Stripe-wiring/TrueLayer/SMS drafts); dual role systems; Shopify-claims risk. Status snapshot 2026-05-11; git HEAD `ef4e851` newer.
 - **Not verified:** Single current completion %; current deploy hash; whether the awaiting-acceptance backlog has since been accepted.
-- **Needs source:** Up-to-date status newer than git HEAD; confirmation of authoritative Supabase project; current % if owner tracks one.
+- **Needs source:** Up-to-date status newer than git HEAD; current % if owner tracks one.
