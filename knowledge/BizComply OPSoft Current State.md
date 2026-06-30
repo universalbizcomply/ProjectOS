@@ -13,6 +13,7 @@
 
 ## Repo / domain
 
+- **GitHub org/account:** `https://github.com/universalbizcomply` (owner-confirmed 2026-06-30).
 - **Source repo (origin):** `https://github.com/universalbizcomply/opsoft-ios-lab.git`
   - Local `Source` on branch `main`, HEAD `897569d` ("close SECURITY-ACCESS-HARDEN1A in tracker + link master audit").
 - **Full-product mirror (private):** `https://github.com/universalbizcomply/Opsoft-full-Product` (snapshot, 693 files, commit `ecaf149...`).
