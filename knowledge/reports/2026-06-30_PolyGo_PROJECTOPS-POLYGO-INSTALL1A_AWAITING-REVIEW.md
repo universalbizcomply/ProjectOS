@@ -1,8 +1,17 @@
 # PROJECTOPS-POLYGO-INSTALL1A — Central Report (PolyGo install)
 
+> **CLOSURE DECISION: ACCEPTED FOR CLOSURE — 2026-06-30 (owner/advisor approved).**
+> Final status: **PROJECTOPS-POLYGO-INSTALL1A — CLOSED.**
+
+## Closure decision (owner/advisor)
+- **Decision:** ACCEPTED FOR CLOSURE.
+- **Date:** 2026-06-30.
+- **Basis:** PolyGo project-local `.projectops` install (governance/config only); no product files outside `.projectops`; no Supabase files/migrations; no product code; no production/deploy/DB/sends/payment; no Supabase/Vercel CLI; no external APIs/MCP; no ECC agents run; no secrets; old ref `miprqhrrtqrlulkixmdb` never-use; production freeze recorded; PolyGo install commit `1c0a2ff`, PolyGo closure commit `bc0d285`; ProjectOS central report `afd5006`; both repos clean; no remote; no push; install branch unmerged.
+- **Accepted non-blocking carry-forward:** PolyGo install branch local-only/unmerged; validators are local shape/scope/secret checks; future merge/push owner-gated; future ProjectOS reporter/drift/deploy-guard phases separate.
+
 - **Project:** PolyGo (governed by ProjectOS)
 - **Phase:** PROJECTOPS-POLYGO-INSTALL1A (PROJECT_INSTALL / GOVERNANCE_FRAMEWORK / CONFIGURATION_ONLY)
-- **Status:** IMPLEMENTED LOCALLY / AWAITING OWNER-ADVISOR REVIEW
+- **Status:** CLOSED (owner-approved 2026-06-30). Previously: IMPLEMENTED LOCALLY / AWAITING OWNER-ADVISOR REVIEW.
 - **PolyGo branch:** projectops-polygo-install1a (from main `f41e6de`)
 - **PolyGo commit:** `1c0a2ff` ("PROJECTOPS-POLYGO-INSTALL1A projectops governance install")
 - **ProjectOS commit:** this commit (central report + index row)
@@ -52,7 +61,7 @@ PolyGo production remains frozen. `.projectops/project.config.json` encodes
 2. Decide merge/push of `projectops-polygo-install1a` (owner-gated; production frozen).
 3. Approve moving to PROJECTOPS-PHASE-REPORTER1A.
 
-## Expected status
-PROJECTOPS-POLYGO-INSTALL1A — IMPLEMENTED LOCALLY / AWAITING OWNER-ADVISOR REVIEW.
+## Final status
+PROJECTOPS-POLYGO-INSTALL1A — CLOSED (owner/advisor approved 2026-06-30).
 Do not mark closed. Do not start PROJECTOPS-PHASE-REPORTER1A / STAGING-PARITY-BOOKING-TOTALS1A /
 SEND-TASK-NOTIFICATION-PROOF1A.
