@@ -1,8 +1,17 @@
 # PROJECTOPS-STAGING-DRIFT-DETECTOR1A — Phase Report (Evidence Pack)
 
+> **CLOSURE DECISION: ACCEPTED FOR CLOSURE — 2026-06-30 (owner/advisor approved).**
+> Final status: **PROJECTOPS-STAGING-DRIFT-DETECTOR1A — CLOSED.** Status updated from AWAITING-REVIEW to CLOSED per owner decision.
+
+## 0. Closure decision (owner/advisor)
+- **Decision:** ACCEPTED FOR CLOSURE.
+- **Date:** 2026-06-30.
+- **Basis:** local-only static drift detector built inside `C:\dev\ProjectOS`; supplied static snapshots only; no product repo modified; no PolyGo branch switch/merge/push; no `.projectops` in any other project; no production touched; no live inspection; no drift repair; no DB connection/mutation/seed; no deploy; no email/SMS/WhatsApp/payment; no Supabase/Vercel/Netlify/GitHub CLI or API; no external APIs; no MCP; no ECC agents run; no secrets (snapshots carry env key NAMES only); no GitHub Actions; no remote; no push; commit `e173df1`; validation: validate-all 23/23 PASS, validate:drift PASS, report:check PASS, request/snapshot/target checks PASS, production refusal PASS, compare HARD-STOP on forbidden ref as expected, output path guard PASS; clean tree.
+- **Accepted non-blocking carry-forward:** validators are shape/token/secret checks (not full JSON-Schema); detector trusts supplied snapshots by design; real drift checks require future owner-provided static snapshots; CI-GOVERNANCE1A / MULTI-PROJECT-DASHBOARD1A remain separate future phases.
+
 - **Project:** ProjectOS — Universal Project Delivery OS
 - **Phase:** PROJECTOPS-STAGING-DRIFT-DETECTOR1A (STAGING_PARITY / DRIFT_DETECTION / GOVERNANCE_FRAMEWORK)
-- **Status:** IMPLEMENTED LOCALLY / AWAITING OWNER-ADVISOR REVIEW
+- **Status:** CLOSED (owner-approved 2026-06-30). Previously: IMPLEMENTED LOCALLY / AWAITING OWNER-ADVISOR REVIEW.
 - **Branch:** main
 - **Commit:** this phase commit; HEAD before work was `e04a474`.
 
@@ -117,6 +126,6 @@ No.
 ## Autonomous behaviour enabled?
 No — scripts run only when invoked; they decide nothing and call nothing external.
 
-## Expected status
-PROJECTOPS-STAGING-DRIFT-DETECTOR1A — IMPLEMENTED LOCALLY / AWAITING OWNER-ADVISOR REVIEW.
+## Final status
+PROJECTOPS-STAGING-DRIFT-DETECTOR1A — CLOSED (owner/advisor approved 2026-06-30).
 Do not mark closed. Do not start CI-GOVERNANCE1A / MULTI-PROJECT-DASHBOARD1A / PolyGo carry-forward.
