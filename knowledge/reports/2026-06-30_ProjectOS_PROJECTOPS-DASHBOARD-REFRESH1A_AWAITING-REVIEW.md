@@ -1,8 +1,14 @@
 # PROJECTOPS-DASHBOARD-REFRESH1A — Owner Dashboard Redesign Refresh
 
+> **CLOSURE DECISION: ACCEPTED FOR CLOSURE — 2026-06-30 (owner/advisor approved).**
+> Final status: **PROJECTOPS-DASHBOARD-REFRESH1A — CLOSED.** Status updated from AWAITING-REVIEW to CLOSED per owner decision.
+> **Closure basis:** dashboard redesigned into meaningful owner command centre; interactive remote-ready addendum completed; single self-contained `index.html` (inline CSS + vanilla JS only); no external JS/CSS/CDN; 0 external requests; 0 console errors; 0 deploy/DB/send/payment/install action controls. 8 tabbed views (Command Centre, Projects, Install Readiness, Risk Gates, Phase Ledger, Needs Source, Carry Forward, Evidence/Remote); search/filters; expand/collapse cards; ledger search/filter; risk-matrix high-risk toggle; copy-text buttons; local decision-pack export; localStorage owner notes (clearly NOT approval); remote-ready hosting-plan panel with Options A-D shown as options only and "No remote hosting is approved in this phase"; JD Testing + BizComply/OPSoft install-readiness visible; dashboard has no approval/closure/deploy/DB/send/payment/install authority. Browser proof PASS in real Chromium; screenshots under `projectos/dashboard/screenshots/`. validate-all 31/31 PASS; dashboard:safety PASS; report:check PASS; index.html external-reference checks PASS. Latest dashboard commit `716cd31`. No product repo modified/scanned; no JD/BizComply install started; no PolyGo branch switch/merge/push; no production/deploy/DB/email/SMS/payment; no external APIs/MCP/ECC agents; no secrets.
+> **Carry-forward (non-blocking):** statuses/risk remain static overrides; NOT-VERIFIED items await owner confirmation; no auth/hosting implemented (by scope) — private/gated hosting is a separate owner-approved future phase.
+# PROJECTOPS-DASHBOARD-REFRESH1A — Owner Dashboard Redesign Refresh
+
 1. **Project:** ProjectOS — Universal Project Delivery OS
 2. **Phase:** PROJECTOPS-DASHBOARD-REFRESH1A (REPORTING / DASHBOARD_REFRESH / UX_POLISH / OWNER_COMMAND_CENTRE)
-3. **Status:** PROJECTOPS-DASHBOARD-REFRESH1A — INTERACTIVE REMOTE-READY / AWAITING OWNER-ADVISOR REVIEW
+3. **Status:** PROJECTOPS-DASHBOARD-REFRESH1A — CLOSED (owner/advisor approved 2026-06-30). Previously: INTERACTIVE REMOTE-READY / AWAITING OWNER-ADVISOR REVIEW.
 4. **Branch:** main
 5. **HEAD (before this commit):** 06bfbfa
 6. **Remote:** origin = github.com/universalbizcomply/ProjectOS (private); main tracks origin/main; local ahead (unpushed)

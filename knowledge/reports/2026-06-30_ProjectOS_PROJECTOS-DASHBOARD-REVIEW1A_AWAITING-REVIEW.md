@@ -1,8 +1,14 @@
 # PROJECTOS-DASHBOARD-REVIEW1A — Dashboard Owner-Review Pack
 
+> **CLOSURE DECISION: ACCEPTED FOR CLOSURE — 2026-06-30 (owner/advisor approved).**
+> Final status: **PROJECTOS-DASHBOARD-REVIEW1A — CLOSED.** Status updated from AWAITING-REVIEW to CLOSED per owner decision.
+> **Closure basis:** dashboard review pack completed; local browser proof completed; heuristic repo/liveUrl mis-extractions, stale ledger and UNKNOWN risk severities all flagged and subsequently resolved under PROJECTOPS-DASHBOARD-REFRESH1A; JD Testing + BizComply/OPSoft install-readiness surfaced as evidence only. Read-only review; no product repo modified or scanned; no install; no production/deploy/DB/send/payment; no external APIs/MCP/ECC agents; no secrets. Latest dashboard commit `716cd31`.
+> **Carry-forward (non-blocking):** remaining NOT-VERIFIED items (JD host/deploy hash; BizComply marketing domain; CricLocal/Coverdrive live URLs+risk registers; TKN git remote/history; ERP repo/build) confirmed under future owner-instructed phases. JD/BizComply `.projectops` installs and any private hosting phase remain separate, not started.
+# PROJECTOS-DASHBOARD-REVIEW1A — Dashboard Owner-Review Pack
+
 1. **Project:** ProjectOS — Universal Project Delivery OS
 2. **Phase:** PROJECTOS-DASHBOARD-REVIEW1A (REPORTING / DASHBOARD_REVIEW / GOVERNANCE_REVIEW)
-3. **Status:** PROJECTOS-DASHBOARD-REVIEW1A — VISUAL PROOF ADDED / AWAITING OWNER-ADVISOR REVIEW
+3. **Status:** PROJECTOS-DASHBOARD-REVIEW1A — CLOSED (owner/advisor approved 2026-06-30). Previously: VISUAL PROOF ADDED / AWAITING OWNER-ADVISOR REVIEW.
 4. **Branch:** main
 5. **HEAD (before this report commit):** 37f0595
 6. **Remote:** origin = https://github.com/universalbizcomply/ProjectOS.git ; main tracks origin/main ; local == remote at 37f0595
