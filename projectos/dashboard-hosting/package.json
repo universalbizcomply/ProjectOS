@@ -1,0 +1,10 @@
+{
+  "name": "projectos-dashboard-hosting",
+  "version": "0.0.0",
+  "private": true,
+  "description": "ProjectOS interactive owner dashboard — static, read-only hosting wrapper (Vercel protected). Evidence/reporting only; no backend, no API, no DB, no secrets.",
+  "license": "UNLICENSED",
+  "scripts": {
+    "noop": "node -e \"console.log('static dashboard hosting wrapper; nothing to build')\""
+  }
+}
