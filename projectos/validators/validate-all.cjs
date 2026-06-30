@@ -3,7 +3,8 @@ const MODULES = [
   "validate-no-secrets", "validate-project-config", "validate-phase-manifest",
   "validate-evidence-pack", "validate-forbidden-actions", "validate-examples",
   "validate-review-agents", "validate-ecc-routing",
-  "validate-report-request", "validate-report-index", "validate-report-output", "validate-phase-reporter"
+  "validate-report-request", "validate-report-index", "validate-report-output", "validate-phase-reporter",
+  "validate-staging-deploy-request", "validate-staging-deploy-guard", "validate-staging-deploy-output"
 ];
 let total = 0;
 for (const m of MODULES) {

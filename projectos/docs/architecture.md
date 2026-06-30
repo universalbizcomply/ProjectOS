@@ -21,3 +21,6 @@ schemas/templates/validators.
 - **Local-first:** everything runs locally with no external calls in this phase.
 - **Evidence over assertion:** phases end with an evidence pack, not a claim.
 - **Owner-gated risk:** production, DB, real sends, payment and closure stay with the owner.
+## Staging deploy guard
+
+The deploy guard adds schemas (request/guard/result), templates, local scripts and validators for preparing safe staging deploys. It is plan/evidence only — no execution, no external calls. See [staging-deploy-guard.md](staging-deploy-guard.md).

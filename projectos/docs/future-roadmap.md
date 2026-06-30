@@ -23,3 +23,7 @@ Controlled ECC review wiring is now part of the universal framework: project-con
 ## Phase reporter (delivered in PROJECTOPS-PHASE-REPORTER1A)
 
 A reusable local-only phase reporter now generates/validates evidence packs, pre-push review packs and closure skeletons, and manages the Reports Index. It approves/closes nothing and calls no external service. See [phase-reporter.md](phase-reporter.md).
+
+## Staging deploy guard (delivered in PROJECTOPS-STAGING-DEPLOY-GUARD1A)
+
+A local-only staging deploy guard now prepares/validates/evidences staging deploy plans and result skeletons. It never deploys, refuses production by default, and calls no external service. Real deploy execution and production handling remain separate owner-approved phases. See [staging-deploy-guard.md](staging-deploy-guard.md).

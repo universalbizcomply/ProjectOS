@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "projectos/schemas/staging-deploy-guard.schema.json",
+  "title": "ProjectOS Staging Deploy Guard Policy",
+  "description": "Project-level deploy guard policy. The guard prepares/validates/evidences; it never executes deploys.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "guardId", "enabled", "allowedTargetEnvironments", "forbiddenTargetEnvironments",
+    "productionRefuseByDefault", "allowedHostingProviders", "forbiddenActions",
+    "requiredPreDeployChecks", "requiredReviews", "requiredEvidence",
+    "externalToolsPolicy", "mcpPolicy", "approvalPolicy", "rollbackPolicy", "reportPolicy"
+  ],
+  "properties": {
+    "guardId": { "type": "string" },
+    "enabled": { "type": "boolean" },
+    "allowedTargetEnvironments": { "type": "array", "items": { "type": "string" } },
+    "forbiddenTargetEnvironments": { "type": "array", "items": { "type": "string" }, "minItems": 1, "description": "Must include production." },
+    "productionRefuseByDefault": { "type": "boolean", "description": "Must be true unless a later owner-approved phase changes it." },
+    "allowedHostingProviders": { "type": "array", "items": { "type": "string" } },
+    "forbiddenActions": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "requiredPreDeployChecks": { "type": "array", "items": { "type": "string" } },
+    "requiredReviews": { "type": "array", "items": { "type": "string" } },
+    "requiredEvidence": { "type": "array", "items": { "type": "string" } },
+    "externalToolsPolicy": { "type": "object", "required": ["default", "requiresOwnerApproval"], "properties": { "default": { "type": "string", "enum": ["disabled", "enabled"] }, "requiresOwnerApproval": { "type": "boolean" } } },
+    "mcpPolicy": { "type": "object", "required": ["default", "requiresOwnerApproval"], "properties": { "default": { "type": "string", "enum": ["disabled", "enabled"] }, "requiresOwnerApproval": { "type": "boolean" } } },
+    "approvalPolicy": { "type": "object", "required": ["deployRequiresOwnerApproval", "inferApproval"], "properties": { "deployRequiresOwnerApproval": { "type": "boolean" }, "inferApproval": { "type": "boolean", "description": "Must be false." } } },
+    "rollbackPolicy": { "type": "object", "required": ["rollbackPlanRequired"], "properties": { "rollbackPlanRequired": { "type": "boolean" } } },
+    "reportPolicy": { "type": "object", "required": ["reportRequired", "recommendationIsApproval"], "properties": { "reportRequired": { "type": "boolean" }, "recommendationIsApproval": { "type": "boolean", "description": "Must be false." } } }
+  }
+}

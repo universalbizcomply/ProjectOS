@@ -21,3 +21,7 @@ Defined canonically in `projectos/schemas/safety-gates.schema.json`.
 ## ECC review layer and the gates
 
 ECC/named reviewers operate **local-read-only by default**. External tools and MCP/live tools are **disabled by default** and require explicit owner approval in a later phase (subject to the External service / API gate). ECC can never trigger a gated action and can never close a phase. Review findings are evidence that informs — but does not replace — the owner gate decision. See [ecc-review-wiring.md](ecc-review-wiring.md).
+
+## Staging deploy guard
+
+The staging deploy guard (projectos/scripts/*deploy*.cjs) prepares and validates staging-deploy plans without ever deploying. Production targets are refused by default; approval is never inferred; no hosting CLI or external API is called. Deploy execution stays a separate, owner-approved action. See [staging-deploy-guard.md](staging-deploy-guard.md).

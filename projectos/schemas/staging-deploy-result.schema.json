@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "projectos/schemas/staging-deploy-result.schema.json",
+  "title": "ProjectOS Staging Deploy Result",
+  "description": "Shape of a future staging deploy result report. In this phase, examples must have deployAttempted=false and deployExecuted=false.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "project", "phase", "targetEnvironment", "deployAttempted", "deployExecuted",
+    "deployCommand", "deployedCommit", "deployStatus", "deployUrl", "validationBefore",
+    "validationAfter", "stagingProof", "rollbackRequired", "residue", "risks", "decisionNeeded"
+  ],
+  "properties": {
+    "project": { "type": "string" },
+    "phase": { "type": "string" },
+    "targetEnvironment": { "type": "string" },
+    "deployAttempted": { "type": "boolean" },
+    "deployExecuted": { "type": "boolean" },
+    "deployCommand": { "type": "string" },
+    "deployedCommit": { "type": "string" },
+    "deployStatus": { "type": "string" },
+    "deployUrl": { "type": "string" },
+    "validationBefore": { "type": "string" },
+    "validationAfter": { "type": "string" },
+    "stagingProof": { "type": "string" },
+    "rollbackRequired": { "type": "boolean" },
+    "residue": { "type": "string" },
+    "risks": { "type": "array", "items": { "type": "string" } },
+    "decisionNeeded": { "type": "string" }
+  }
+}
