@@ -1,11 +1,18 @@
 # PROJECTOS-DASHBOARD-PRIVATE-HOSTING1A — Private Hosting Decision Pack
 
+> **CLOSURE DECISION: ACCEPTED FOR CLOSURE — 2026-06-30 (owner/advisor approved).**
+> Final status: **PROJECTOS-DASHBOARD-PRIVATE-HOSTING1A — CLOSED.** Status updated from AWAITING-REVIEW to CLOSED per owner decision.
+> **Selected route:** **Option B — Private Vercel protected static dashboard.** Closure does **not** approve a deploy; actual hosting/config is a separate gated phase `PROJECTOS-DASHBOARD-PRIVATE-HOSTING-DEPLOY1B` (not started).
+> **Closure basis:** decision pack created + published to private ProjectOS repo; recommended route = private/gated Vercel static dashboard; public GitHub Pages rejected; internal authenticated dashboard deferred; local-only/private-repo access remains fallback. No hosting configured; no deploy attempted; no GitHub Pages/Vercel/Netlify configured; no GitHub Actions / `.github/workflows`; no product repo modified or scanned; no JD/BizComply install started; no PolyGo branch switch/merge/push; no production touched; no DB connect/mutate/seed; no deploy/DB/email/SMS/payment action; no external APIs/MCP/ECC agents; no secrets read/printed/committed; no force push. Decision-pack commit `ed6ca83`; local==remote after fast-forward push. Validators: validate-all ALL PASS; dashboard:check PASS; dashboard:safety PASS; report:check PASS.
+> **Accepted next-phase boundary (1B, when approved):** must verify Vercel protection settings before exposing any URL; must not make the dashboard public; no GitHub Pages; no deployment-protection exceptions / public bypass links without separate owner approval; keep dashboard read-only; no backend write actions; no deploy/DB/email/SMS/payment/install triggers.
+# PROJECTOS-DASHBOARD-PRIVATE-HOSTING1A — Private Hosting Decision Pack
+
 > **Decision/prep phase only. No hosting configured. No deploy attempted.**
 > Dashboard is evidence/reporting only — no approval/closure/deploy/DB/send/payment/install authority.
 
 1. **Project:** ProjectOS — Universal Project Delivery OS
 2. **Phase:** PROJECTOS-DASHBOARD-PRIVATE-HOSTING1A (REMOTE_ACCESS / PRIVATE_HOSTING / DASHBOARD_GOVERNANCE / OWNER_CONTROL)
-3. **Status:** PROJECTOS-DASHBOARD-PRIVATE-HOSTING1A — AWAITING-REVIEW (decision pack; implemented locally)
+3. **Status:** PROJECTOS-DASHBOARD-PRIVATE-HOSTING1A — CLOSED (owner/advisor approved 2026-06-30). Previously: AWAITING-REVIEW (decision pack; implemented locally).
 4. **Branch:** main
 5. **HEAD (before this commit):** 94a6fd8
 6. **Remote:** origin = https://github.com/universalbizcomply/ProjectOS.git (private); main tracks origin/main; local == remote at 94a6fd8 before this commit.
@@ -119,4 +126,4 @@ No. No MCP tools invoked; no ECC agents run.
 Owner/advisor: pick the hosting route (recommended **B — private Vercel, gated, deferred**), confirm no public exposure, and decide whether to open `PROJECTOS-DASHBOARD-PRIVATE-HOSTING-DEPLOY1B`. No hosting/deploy happens until that separate phase is approved.
 
 ## Final status
-**PROJECTOS-DASHBOARD-PRIVATE-HOSTING1A — AWAITING-REVIEW.** Not closed. No hosting configured. No deploy. JD/BizComply installs not started.
+**PROJECTOS-DASHBOARD-PRIVATE-HOSTING1A — CLOSED** (owner/advisor approved 2026-06-30). Selected route: Option B (private Vercel protected static dashboard). No hosting configured. No deploy. JD/BizComply installs not started.
