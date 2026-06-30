@@ -1,8 +1,17 @@
 # PROJECTOPS-CI-GOVERNANCE1A — Phase Report (Evidence Pack)
 
+> **CLOSURE DECISION: ACCEPTED FOR CLOSURE — 2026-06-30 (owner/advisor approved).**
+> Final status: **PROJECTOPS-CI-GOVERNANCE1A — CLOSED.** Status updated from AWAITING-REVIEW to CLOSED per owner decision.
+
+## 0. Closure decision (owner/advisor)
+- **Decision:** ACCEPTED FOR CLOSURE.
+- **Date:** 2026-06-30.
+- **Basis:** local-only CI governance baseline built inside `C:\dev\ProjectOS`; CI templates inert under `projectos/templates` only; no `.github/workflows` anywhere; no live CI installed; no GitHub Actions; no GitHub CLI/API; no product repo modified; no PolyGo branch switch/merge/push; no `.projectops` in any other project; no production touched; no deploy attempted; no production target allowed; no DB connection/mutation/seed; no deploy/DB/email/SMS/WhatsApp/payment; no Supabase/Vercel/Netlify CLI; no external APIs; no MCP; no ECC agents run; no secrets; no remote; no push; commit `3338397`; validation: validate-all 27/27 PASS, validate:ci PASS, report:check PASS, ci:policy/workflow/result PASS, ci:target refused bad target (.github/workflows + live install + production auto-deploy), path guard PASS; clean tree.
+- **Accepted non-blocking carry-forward:** validators are shape/token/secret checks (not full JSON-Schema/YAML semantics); workflow template inert until a later owner-approved install; per-project CI install remains separate; MULTI-PROJECT-DASHBOARD1A is the next planned phase.
+
 - **Project:** ProjectOS — Universal Project Delivery OS
 - **Phase:** PROJECTOPS-CI-GOVERNANCE1A (CI_AUTOMATION / GOVERNANCE_FRAMEWORK / QUALITY_GATE)
-- **Status:** IMPLEMENTED LOCALLY / AWAITING OWNER-ADVISOR REVIEW
+- **Status:** CLOSED (owner-approved 2026-06-30). Previously: IMPLEMENTED LOCALLY / AWAITING OWNER-ADVISOR REVIEW.
 - **Branch:** main
 - **Commit:** this phase commit; HEAD before work was `c54f666`.
 
@@ -117,6 +126,6 @@ No.
 ## Autonomous behaviour enabled?
 No — scripts run only when invoked; they decide nothing and call nothing external.
 
-## Expected status
-PROJECTOPS-CI-GOVERNANCE1A — IMPLEMENTED LOCALLY / AWAITING OWNER-ADVISOR REVIEW.
+## Final status
+PROJECTOPS-CI-GOVERNANCE1A — CLOSED (owner/advisor approved 2026-06-30).
 Do not mark closed. Do not start PROJECTOPS-MULTI-PROJECT-DASHBOARD1A / PolyGo carry-forward.
