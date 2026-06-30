@@ -2,7 +2,7 @@
 
 > Current-state summary for the TKN project, for ProjectOS Project Knowledge.
 > Sourced read-only from `C:\dev\TKN` on 2026-06-30 with owner authorisation. Unknowns marked clearly.
-> Owner referred to this as "TKH"; the folder/package is **TKN (ToKnowNothing)** — treated as the same project.
+> Project name is **TKN (ToKnowNothing)** — owner-confirmed 2026-06-30.
 
 ## Project identity
 
@@ -60,7 +60,7 @@
 
 ## Source discipline
 
-- **Confirmed from owner/project memory:** TKN (owner wrote "TKH") is a Murad project under `C:\dev` (owner-confirmed 2026-06-30).
+- **Confirmed from owner/project memory:** Project name is **TKN** (ToKnowNothing); a Murad project under `C:\dev` (owner-confirmed 2026-06-30).
 - **Confirmed from local repo docs (read-only, authorised):** Package `toknownothing`; Next.js 14 + TS + Supabase + Stripe + PayPal + Resend + Tailwind; premium streetwear ecommerce; no local git.
 - **Not verified:** Git remote; live URL/deploy; closed phases; current status.
 - **Needs source:** Git remote (if any); live URL + deploy status; closed-phase history; carry-forward; risk register.
