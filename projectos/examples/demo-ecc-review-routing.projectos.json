@@ -1,0 +1,35 @@
+{
+  "projectId": "demo-review-routing",
+  "projectName": "Demo Review-Routing Project",
+  "projectType": "saas",
+  "owner": "OWNER_PLACEHOLDER",
+  "repo": "demo-org/demo-review-routing",
+  "localPath": "LOCAL_PATH_PLACEHOLDER",
+  "environments": {
+    "production": { "url": "URL_PLACEHOLDER", "supabaseRef": "PROJECT_REF_PLACEHOLDER", "host": "vercel" }
+  },
+  "protectedBranches": ["main"],
+  "productionFreeze": true,
+  "allowedActions": ["create-local-files", "run-local-validation", "produce-evidence-report"],
+  "forbiddenActions": ["production-deploy", "production-db-mutation", "real-email-sms-whatsapp", "payment-or-live-charge", "use-secrets", "force-push"],
+  "approvalGates": ["production-deploy", "production-db-mutation", "secrets-handling", "phase-closure"],
+  "secretsPolicy": { "allowSecretsInRepo": false, "redactionRequired": true, "notes": "placeholders only" },
+  "validators": ["validate-project-config", "validate-no-secrets", "validate-forbidden-actions", "validate-review-agents", "validate-ecc-routing"],
+  "evidenceRequirements": ["evidence-pack", "validator-results"],
+  "installStatus": "not-installed",
+  "reviewAgents": [
+    { "id": "code-reviewer", "provider": "ecc", "category": "code-review", "displayName": "Code Reviewer", "allowedModes": ["local-read-only"], "externalToolsAllowed": false, "requiresOwnerApprovalForExternalTools": true, "evidencePackSection": "Code Review", "enabledByDefault": true },
+    { "id": "security-reviewer", "provider": "ecc", "category": "security-review", "displayName": "Security Reviewer", "allowedModes": ["local-read-only"], "externalToolsAllowed": false, "requiresOwnerApprovalForExternalTools": true, "evidencePackSection": "Security Review", "enabledByDefault": true },
+    { "id": "silent-failure-hunter", "provider": "ecc", "category": "silent-failure-review", "displayName": "Silent Failure Hunter", "allowedModes": ["local-read-only"], "externalToolsAllowed": false, "requiresOwnerApprovalForExternalTools": true, "evidencePackSection": "Silent Failure Review", "enabledByDefault": false }
+  ],
+  "reviewAgentGroups": { "standard": ["code-reviewer", "security-reviewer"] },
+  "defaultRequiredReviews": ["code-review", "security-review"],
+  "externalToolsPolicy": { "default": "disabled", "requiresOwnerApproval": true, "notes": "off by default" },
+  "mcpPolicy": { "default": "disabled", "requiresOwnerApproval": true, "notes": "forbidden unless owner-approved later" },
+  "autonomousBehaviourPolicy": { "default": "disabled", "notes": "ECC never autonomous under ProjectOS" },
+  "reviewEvidenceTargets": {
+    "code-review": "Code Review",
+    "security-review": "Security Review",
+    "silent-failure-review": "Silent Failure Review"
+  }
+}

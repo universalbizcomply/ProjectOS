@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "projectos/schemas/phase-manifest.schema.json",
   "title": "ProjectOS Phase Manifest",
-  "description": "Declarative definition of a single ProjectOS phase.",
+  "description": "Declarative definition of a single ProjectOS phase. Extended in PROJECTOPS-ECC-REVIEW-WIRING1A with required/optional review wiring.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -13,7 +13,7 @@
   ],
   "properties": {
     "phaseId": { "type": "string" },
-    "phaseType": { "type": "string", "description": "e.g. KNOWLEDGE_SETUP, CI_AUTOMATION, GOVERNANCE_FRAMEWORK, PRODUCT_INSTALL." },
+    "phaseType": { "type": "string", "description": "e.g. KNOWLEDGE_SETUP, CI_AUTOMATION, GOVERNANCE_FRAMEWORK, PRODUCT_INSTALL, REVIEW_AUTOMATION." },
     "project": { "type": "string" },
     "objective": { "type": "string" },
     "scope": { "type": "string" },
@@ -22,11 +22,57 @@
     "allowedActions": { "type": "array", "items": { "type": "string" } },
     "forbiddenActions": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
     "requiredValidators": { "type": "array", "items": { "type": "string" } },
-    "requiredReviews": { "type": "array", "items": { "type": "string" } },
+    "requiredReviews": {
+      "type": "array",
+      "description": "Reviews that must produce evidence for this phase. Dispatched only on owner/advisor instruction; never auto-run by ProjectOS.",
+      "items": { "$ref": "#/definitions/reviewRequest" }
+    },
+    "optionalReviews": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/reviewRequest" }
+    },
+    "reviewDispatchPolicy": {
+      "type": "string",
+      "enum": ["manual-owner-or-advisor", "manual-claude-on-request"],
+      "description": "How reviews are triggered. No autonomous dispatch."
+    },
+    "reviewEvidenceRequired": { "type": "boolean" },
+    "externalToolsAllowed": { "type": "boolean", "description": "Phase-level default; must be false unless a later owner-approved phase enables it." },
+    "mcpAllowed": { "type": "boolean", "description": "Must be false unless owner-approved in a later phase." },
+    "autonomousReviewAllowed": { "type": "boolean", "description": "Must be false. ECC is never autonomous under ProjectOS." },
     "requiredEvidence": { "type": "array", "items": { "type": "string" } },
     "approvalRequiredFor": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
     "rollbackPlan": { "type": "string" },
     "closureCriteria": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
     "reportPath": { "type": "string" }
+  },
+  "definitions": {
+    "reviewRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reviewId", "category", "required", "agentRef", "evidenceTarget",
+        "blocking", "externalToolsAllowed", "mcpAllowed",
+        "ownerApprovalRequiredForExternalTools"
+      ],
+      "properties": {
+        "reviewId": { "type": "string" },
+        "category": {
+          "type": "string",
+          "enum": [
+            "code-review", "security-review", "database-review",
+            "build-lint-typecheck-review", "test-review",
+            "quality-gate-review", "planner-review", "silent-failure-review"
+          ]
+        },
+        "required": { "type": "boolean" },
+        "agentRef": { "type": "string", "description": "id of a reviewAgent declared in project-config." },
+        "evidenceTarget": { "type": "string", "description": "Evidence pack section heading." },
+        "blocking": { "type": "boolean", "description": "If true, unresolved findings block the owner closure recommendation (still owner-decided)." },
+        "externalToolsAllowed": { "type": "boolean", "description": "Must default to false." },
+        "mcpAllowed": { "type": "boolean", "description": "Must default to false." },
+        "ownerApprovalRequiredForExternalTools": { "type": "boolean" }
+      }
+    }
   }
 }

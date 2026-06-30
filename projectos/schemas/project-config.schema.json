@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "projectos/schemas/project-config.schema.json",
   "title": "ProjectOS Project Config",
-  "description": "Per-project configuration for a ProjectOS-governed project. Universal shape; project-specific values.",
+  "description": "Per-project configuration for a ProjectOS-governed project. Universal shape; project-specific values. Extended in PROJECTOPS-ECC-REVIEW-WIRING1A with controlled review-agent wiring.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -51,6 +51,83 @@
     },
     "validators": { "type": "array", "items": { "type": "string" } },
     "evidenceRequirements": { "type": "array", "items": { "type": "string" } },
-    "installStatus": { "type": "string", "enum": ["not-installed", "planned", "installed", "deferred"] }
+    "installStatus": { "type": "string", "enum": ["not-installed", "planned", "installed", "deferred"] },
+
+    "reviewAgents": {
+      "type": "array",
+      "description": "Named review providers (e.g. ECC agents). Configuration only — ProjectOS does not auto-run them.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id", "provider", "category", "displayName", "allowedModes",
+          "externalToolsAllowed", "requiresOwnerApprovalForExternalTools",
+          "evidencePackSection", "enabledByDefault"
+        ],
+        "properties": {
+          "id": { "type": "string", "description": "e.g. code-reviewer, security-reviewer." },
+          "provider": { "type": "string", "description": "e.g. ecc, manual, none." },
+          "category": {
+            "type": "string",
+            "enum": [
+              "code-review", "security-review", "database-review",
+              "build-lint-typecheck-review", "test-review",
+              "quality-gate-review", "planner-review", "silent-failure-review"
+            ]
+          },
+          "displayName": { "type": "string" },
+          "allowedModes": {
+            "type": "array",
+            "description": "Permitted modes; default local-read-only. External/MCP modes require owner approval in a later phase.",
+            "items": { "type": "string", "enum": ["local-read-only", "external-tools", "mcp"] }
+          },
+          "externalToolsAllowed": { "type": "boolean", "description": "Must default to false." },
+          "requiresOwnerApprovalForExternalTools": { "type": "boolean" },
+          "evidencePackSection": { "type": "string" },
+          "enabledByDefault": { "type": "boolean" }
+        }
+      }
+    },
+    "reviewAgentGroups": {
+      "type": "object",
+      "description": "Named groups of reviewAgent ids, e.g. 'standard': [code-reviewer, security-reviewer].",
+      "additionalProperties": { "type": "array", "items": { "type": "string" } }
+    },
+    "defaultRequiredReviews": {
+      "type": "array",
+      "description": "Review categories required by default for this project's phases.",
+      "items": { "type": "string" }
+    },
+    "externalToolsPolicy": {
+      "type": "object",
+      "required": ["default", "requiresOwnerApproval"],
+      "properties": {
+        "default": { "type": "string", "enum": ["disabled", "enabled"] },
+        "requiresOwnerApproval": { "type": "boolean" },
+        "notes": { "type": "string" }
+      }
+    },
+    "mcpPolicy": {
+      "type": "object",
+      "required": ["default", "requiresOwnerApproval"],
+      "properties": {
+        "default": { "type": "string", "enum": ["disabled", "enabled"] },
+        "requiresOwnerApproval": { "type": "boolean" },
+        "notes": { "type": "string" }
+      }
+    },
+    "autonomousBehaviourPolicy": {
+      "type": "object",
+      "required": ["default"],
+      "properties": {
+        "default": { "type": "string", "enum": ["disabled", "enabled"] },
+        "notes": { "type": "string", "description": "ECC is never an autonomous runner under ProjectOS." }
+      }
+    },
+    "reviewEvidenceTargets": {
+      "type": "object",
+      "description": "Maps review category -> evidence pack section heading.",
+      "additionalProperties": { "type": "string" }
+    }
   }
 }

@@ -1,0 +1,19 @@
+{
+  "routingId": "<ROUTING_ID>",
+  "description": "Generic ECC review routing. Configuration only — ProjectOS never auto-runs these. Recommendation is not approval.",
+  "externalToolsDefault": false,
+  "mcpDefault": false,
+  "autonomousBehaviourDefault": false,
+  "ownerApprovalRequiredForExternalTools": true,
+  "ownerApprovalRequiredForMcp": true,
+  "categories": [
+    { "category": "code-review", "agentRef": "code-reviewer", "evidenceTarget": "Code Review", "enabledByDefault": true },
+    { "category": "security-review", "agentRef": "security-reviewer", "evidenceTarget": "Security Review", "enabledByDefault": true },
+    { "category": "database-review", "agentRef": "database-reviewer", "evidenceTarget": "Database Review", "enabledByDefault": false },
+    { "category": "build-lint-typecheck-review", "agentRef": "build-error-resolver", "evidenceTarget": "Build/Lint/Typecheck Review", "enabledByDefault": false },
+    { "category": "test-review", "agentRef": "tdd-guide", "evidenceTarget": "Test Review", "enabledByDefault": false },
+    { "category": "quality-gate-review", "agentRef": "quality-gate", "evidenceTarget": "Quality Gate Review", "enabledByDefault": false },
+    { "category": "planner-review", "agentRef": "planner", "evidenceTarget": "Planner Review", "enabledByDefault": false },
+    { "category": "silent-failure-review", "agentRef": "silent-failure-hunter", "evidenceTarget": "Silent Failure Review", "enabledByDefault": false }
+  ]
+}

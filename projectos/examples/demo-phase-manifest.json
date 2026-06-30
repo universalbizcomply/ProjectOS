@@ -2,14 +2,25 @@
   "phaseId": "DEMO-PHASE1A",
   "phaseType": "GOVERNANCE_FRAMEWORK",
   "project": "demo-saas",
-  "objective": "Inert demo phase manifest illustrating the ProjectOS phase shape.",
+  "objective": "Inert demo phase manifest illustrating the ProjectOS phase shape with review wiring.",
   "scope": "Local docs only; no product repo, no deploy, no DB, no sends, no payments.",
   "allowedPaths": ["projectos/**", "knowledge/reports/**"],
   "forbiddenPaths": ["../**", "**/.env", "**/*.key", "**/.projectops/**"],
   "allowedActions": ["create-local-files", "run-local-validation", "produce-evidence-report"],
   "forbiddenActions": ["production-deploy", "production-db-mutation", "real-email-sms-whatsapp", "payment-or-live-charge", "use-secrets", "force-push"],
   "requiredValidators": ["validate-all"],
-  "requiredReviews": ["code-review", "security-review"],
+  "requiredReviews": [
+    { "reviewId": "demo-code-review", "category": "code-review", "required": true, "agentRef": "code-reviewer", "evidenceTarget": "Code Review", "blocking": true, "externalToolsAllowed": false, "mcpAllowed": false, "ownerApprovalRequiredForExternalTools": true },
+    { "reviewId": "demo-security-review", "category": "security-review", "required": true, "agentRef": "security-reviewer", "evidenceTarget": "Security Review", "blocking": true, "externalToolsAllowed": false, "mcpAllowed": false, "ownerApprovalRequiredForExternalTools": true }
+  ],
+  "optionalReviews": [
+    { "reviewId": "demo-silent-failure", "category": "silent-failure-review", "required": false, "agentRef": "silent-failure-hunter", "evidenceTarget": "Silent Failure Review", "blocking": false, "externalToolsAllowed": false, "mcpAllowed": false, "ownerApprovalRequiredForExternalTools": true }
+  ],
+  "reviewDispatchPolicy": "manual-owner-or-advisor",
+  "reviewEvidenceRequired": true,
+  "externalToolsAllowed": false,
+  "mcpAllowed": false,
+  "autonomousReviewAllowed": false,
   "requiredEvidence": ["evidence-pack"],
   "approvalRequiredFor": ["phase-closure"],
   "rollbackPlan": "Revert the phase commit locally; no external state changed.",

@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "projectos/schemas/evidence-pack.schema.json",
   "title": "ProjectOS Evidence Pack",
-  "description": "Standard evidence pack produced at the end of a phase for owner/advisor review.",
+  "description": "Standard evidence pack produced at the end of a phase for owner/advisor review. Extended in PROJECTOPS-ECC-REVIEW-WIRING1A to capture controlled review outputs. Existing standard fields are retained.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -31,6 +31,45 @@
     "Residue": { "type": "string" },
     "Risks": { "type": "array", "items": { "type": "string" } },
     "CarryForward": { "type": "array", "items": { "type": "string" } },
-    "DecisionNeeded": { "type": "string" }
+    "DecisionNeeded": { "type": "string" },
+
+    "Reviews": {
+      "type": "array",
+      "description": "Controlled review outputs captured as evidence. Recommendation != approval.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["category", "status"],
+        "properties": {
+          "category": {
+            "type": "string",
+            "enum": [
+              "code-review", "security-review", "database-review",
+              "build-lint-typecheck-review", "test-review",
+              "quality-gate-review", "planner-review", "silent-failure-review"
+            ]
+          },
+          "agentRef": { "type": "string" },
+          "provider": { "type": "string" },
+          "status": { "type": "string", "enum": ["not-run", "passed", "findings", "blocked", "n/a"] },
+          "output": { "type": "string", "description": "Summary or path to review output (ecc-review-output format)." },
+          "limitations": { "type": "string" },
+          "scope": { "type": "string", "description": "Reviewer / tooling scope." },
+          "externalToolsUsed": { "type": "boolean" },
+          "mcpUsed": { "type": "boolean" },
+          "ownerApprovalRequired": { "type": "boolean" },
+          "recommendation": { "type": "string", "description": "Advisory only; not an approval." }
+        }
+      }
+    },
+    "TestReview": { "type": "string" },
+    "QualityGateReview": { "type": "string" },
+    "PlannerReview": { "type": "string" },
+    "SilentFailureReview": { "type": "string" },
+    "ReviewLimitations": { "type": "string" },
+    "ReviewerScope": { "type": "string" },
+    "ExternalToolsUsed": { "type": "boolean" },
+    "McpUsed": { "type": "boolean" },
+    "OwnerApprovalRequired": { "type": "boolean" }
   }
 }

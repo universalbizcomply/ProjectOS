@@ -10,6 +10,8 @@
     "validate:examples": "node projectos/validators/validate-examples.cjs",
     "validate:forbidden": "node projectos/validators/validate-forbidden-actions.cjs",
     "validate:secrets": "node projectos/validators/validate-no-secrets.cjs",
+    "validate:reviews": "node projectos/validators/validate-review-agents.cjs",
+    "validate:ecc": "node projectos/validators/validate-ecc-routing.cjs",
     "report:check": "node projectos/scripts/create-report-skeleton.cjs --check",
     "summary": "node projectos/scripts/print-framework-summary.cjs",
     "list": "node projectos/scripts/list-projectos-files.cjs"

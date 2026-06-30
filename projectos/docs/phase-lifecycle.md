@@ -14,3 +14,6 @@ prompt -> implement -> local validate -> evidence pack -> owner/advisor review -
 
 A phase that touches a gated action (deploy/DB/real-send/payment) must stop and request explicit
 owner approval before performing it.
+## Reviews in the lifecycle
+
+Between **implement** and **evidence pack**, a phase may declare equiredReviews (e.g. code/security/database/test/quality-gate/silent-failure). Reviews are dispatched only on owner/advisor instruction (eviewDispatchPolicy: manual-owner-or-advisor), never autonomously. Their output is captured in the evidence pack as evidence — recommendation is not approval. Closure still requires Murad/ChatGPT. See [ecc-review-wiring.md](ecc-review-wiring.md).

@@ -11,42 +11,41 @@
   },
   "protectedBranches": ["main"],
   "productionFreeze": true,
-  "allowedActions": [
-    "create-local-files",
-    "run-local-validation",
-    "produce-evidence-report"
+  "allowedActions": ["create-local-files", "run-local-validation", "produce-evidence-report"],
+  "forbiddenActions": ["production-deploy", "production-db-mutation", "real-email-sms-whatsapp", "payment-or-live-charge", "use-secrets", "force-push", "push-without-approval"],
+  "approvalGates": ["production-deploy", "production-db-mutation", "real-email-sms-whatsapp", "payment-or-live-charge", "secrets-handling", "phase-closure"],
+  "secretsPolicy": { "allowSecretsInRepo": false, "redactionRequired": true, "notes": "Use placeholders only: TOKEN_REDACTED, URL_PLACEHOLDER, PROJECT_REF_PLACEHOLDER." },
+  "validators": ["validate-project-config", "validate-no-secrets", "validate-forbidden-actions", "validate-review-agents"],
+  "evidenceRequirements": ["evidence-pack", "validator-results", "scope-confirmation"],
+  "installStatus": "not-installed",
+
+  "reviewAgents": [
+    { "id": "code-reviewer", "provider": "ecc", "category": "code-review", "displayName": "Code Reviewer", "allowedModes": ["local-read-only"], "externalToolsAllowed": false, "requiresOwnerApprovalForExternalTools": true, "evidencePackSection": "Code Review", "enabledByDefault": true },
+    { "id": "security-reviewer", "provider": "ecc", "category": "security-review", "displayName": "Security Reviewer", "allowedModes": ["local-read-only"], "externalToolsAllowed": false, "requiresOwnerApprovalForExternalTools": true, "evidencePackSection": "Security Review", "enabledByDefault": true },
+    { "id": "database-reviewer", "provider": "ecc", "category": "database-review", "displayName": "Database Reviewer", "allowedModes": ["local-read-only"], "externalToolsAllowed": false, "requiresOwnerApprovalForExternalTools": true, "evidencePackSection": "Database Review", "enabledByDefault": false },
+    { "id": "build-error-resolver", "provider": "ecc", "category": "build-lint-typecheck-review", "displayName": "Build / Lint / Typecheck Reviewer", "allowedModes": ["local-read-only"], "externalToolsAllowed": false, "requiresOwnerApprovalForExternalTools": true, "evidencePackSection": "Build/Lint/Typecheck Review", "enabledByDefault": false },
+    { "id": "tdd-guide", "provider": "ecc", "category": "test-review", "displayName": "Test Reviewer", "allowedModes": ["local-read-only"], "externalToolsAllowed": false, "requiresOwnerApprovalForExternalTools": true, "evidencePackSection": "Test Review", "enabledByDefault": false },
+    { "id": "quality-gate", "provider": "ecc", "category": "quality-gate-review", "displayName": "Quality Gate", "allowedModes": ["local-read-only"], "externalToolsAllowed": false, "requiresOwnerApprovalForExternalTools": true, "evidencePackSection": "Quality Gate Review", "enabledByDefault": false },
+    { "id": "planner", "provider": "ecc", "category": "planner-review", "displayName": "Planner", "allowedModes": ["local-read-only"], "externalToolsAllowed": false, "requiresOwnerApprovalForExternalTools": true, "evidencePackSection": "Planner Review", "enabledByDefault": false },
+    { "id": "silent-failure-hunter", "provider": "ecc", "category": "silent-failure-review", "displayName": "Silent Failure Hunter", "allowedModes": ["local-read-only"], "externalToolsAllowed": false, "requiresOwnerApprovalForExternalTools": true, "evidencePackSection": "Silent Failure Review", "enabledByDefault": false }
   ],
-  "forbiddenActions": [
-    "production-deploy",
-    "production-db-mutation",
-    "real-email-sms-whatsapp",
-    "payment-or-live-charge",
-    "use-secrets",
-    "force-push",
-    "push-without-approval"
-  ],
-  "approvalGates": [
-    "production-deploy",
-    "production-db-mutation",
-    "real-email-sms-whatsapp",
-    "payment-or-live-charge",
-    "secrets-handling",
-    "phase-closure"
-  ],
-  "secretsPolicy": {
-    "allowSecretsInRepo": false,
-    "redactionRequired": true,
-    "notes": "Use placeholders only: TOKEN_REDACTED, URL_PLACEHOLDER, PROJECT_REF_PLACEHOLDER."
+  "reviewAgentGroups": {
+    "standard": ["code-reviewer", "security-reviewer"],
+    "data-sensitive": ["code-reviewer", "security-reviewer", "database-reviewer"],
+    "full": ["code-reviewer", "security-reviewer", "database-reviewer", "build-error-resolver", "tdd-guide", "quality-gate", "planner", "silent-failure-hunter"]
   },
-  "validators": [
-    "validate-project-config",
-    "validate-no-secrets",
-    "validate-forbidden-actions"
-  ],
-  "evidenceRequirements": [
-    "evidence-pack",
-    "validator-results",
-    "scope-confirmation"
-  ],
-  "installStatus": "not-installed"
+  "defaultRequiredReviews": ["code-review", "security-review"],
+  "externalToolsPolicy": { "default": "disabled", "requiresOwnerApproval": true, "notes": "External tools off by default; enabling needs an owner-approved phase." },
+  "mcpPolicy": { "default": "disabled", "requiresOwnerApproval": true, "notes": "MCP/live tools forbidden unless owner-approved in a later phase." },
+  "autonomousBehaviourPolicy": { "default": "disabled", "notes": "ECC is never an autonomous runner under ProjectOS." },
+  "reviewEvidenceTargets": {
+    "code-review": "Code Review",
+    "security-review": "Security Review",
+    "database-review": "Database Review",
+    "build-lint-typecheck-review": "Build/Lint/Typecheck Review",
+    "test-review": "Test Review",
+    "quality-gate-review": "Quality Gate Review",
+    "planner-review": "Planner Review",
+    "silent-failure-review": "Silent Failure Review"
+  }
 }

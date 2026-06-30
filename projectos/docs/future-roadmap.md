@@ -16,3 +16,6 @@ approved, none started here):
 - GitHub Actions / CI.
 - Deploy wrappers, DB tooling, send/payment tooling.
 - Any production, security-risk, payment, real-send or closure automation (owner-gated).
+## Review wiring (delivered in PROJECTOPS-ECC-REVIEW-WIRING1A)
+
+Controlled ECC review wiring is now part of the universal framework: project-config declares review agents; phase manifests declare required reviews; the evidence pack captures review output. External tools, MCP and autonomous behaviour remain disabled by default — enabling any of them is a separate, owner-approved future phase. See [ecc-review-wiring.md](ecc-review-wiring.md).

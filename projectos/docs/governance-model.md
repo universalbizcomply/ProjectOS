@@ -20,3 +20,6 @@ Claude is **not** the owner, **not** the approver, **not** the closure authority
 5. Murad/ChatGPT review and decide closure.
 
 Automation collects facts, runs checks and generates reports. It does not make owner decisions.
+## ECC as controlled review layer
+
+ECC is an optional review/execution layer **under** ProjectOS governance. It is not the owner, not the approver, not the closure authority. ECC output is evidence only; Murad/ChatGPT still make all gate and closure decisions. ECC runs only when a phase manifest requires it; it is never autonomous. See [ecc-review-wiring.md](ecc-review-wiring.md).

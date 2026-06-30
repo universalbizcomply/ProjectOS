@@ -5,7 +5,9 @@ const MODULES = [
   "validate-phase-manifest",
   "validate-evidence-pack",
   "validate-forbidden-actions",
-  "validate-examples"
+  "validate-examples",
+  "validate-review-agents",
+  "validate-ecc-routing"
 ];
 let total = 0;
 for (const m of MODULES) {

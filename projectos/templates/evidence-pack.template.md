@@ -27,17 +27,44 @@
 ## tsc / build / eslint
 <result or N/A>
 
-## Security review
+## Controlled reviews (ECC or other named providers)
+> Recommendation is not approval. Reviews are evidence only; closure stays with Murad/ChatGPT.
+
+### Code Review
+<result / path to ecc-review-output / N/A>
+
+### Security Review
 <result or N/A>
 
-## Code review
+### Database Review
 <result or N/A>
 
-## Database review
+### Build/Lint/Typecheck Review
 <result or N/A>
 
-## Staging proof
+### Test Review
 <result or N/A>
+
+### Quality Gate Review
+<result or N/A>
+
+### Planner Review
+<result or N/A>
+
+### Silent Failure Review
+<result or N/A>
+
+### Review Scope / Limitations
+<what the reviews covered and what they could not verify>
+
+### External Tools Used
+no
+
+### MCP Used
+no
+
+### Owner Approval Required
+<yes/no — for any gated action surfaced by reviews>
 
 ## Production touched?
 <yes/no — must be no unless owner-approved>

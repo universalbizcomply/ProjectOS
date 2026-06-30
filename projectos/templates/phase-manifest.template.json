@@ -7,16 +7,20 @@
   "allowedPaths": ["<ALLOWED_PATH_GLOB>"],
   "forbiddenPaths": ["<FORBIDDEN_PATH_GLOB>"],
   "allowedActions": ["create-local-files", "run-local-validation", "produce-evidence-report"],
-  "forbiddenActions": [
-    "production-deploy",
-    "production-db-mutation",
-    "real-email-sms-whatsapp",
-    "payment-or-live-charge",
-    "use-secrets",
-    "force-push"
-  ],
+  "forbiddenActions": ["production-deploy", "production-db-mutation", "real-email-sms-whatsapp", "payment-or-live-charge", "use-secrets", "force-push"],
   "requiredValidators": ["validate-all"],
-  "requiredReviews": ["code-review", "security-review"],
+  "requiredReviews": [
+    { "reviewId": "<REVIEW_ID_1>", "category": "code-review", "required": true, "agentRef": "code-reviewer", "evidenceTarget": "Code Review", "blocking": true, "externalToolsAllowed": false, "mcpAllowed": false, "ownerApprovalRequiredForExternalTools": true },
+    { "reviewId": "<REVIEW_ID_2>", "category": "security-review", "required": true, "agentRef": "security-reviewer", "evidenceTarget": "Security Review", "blocking": true, "externalToolsAllowed": false, "mcpAllowed": false, "ownerApprovalRequiredForExternalTools": true }
+  ],
+  "optionalReviews": [
+    { "reviewId": "<REVIEW_ID_3>", "category": "silent-failure-review", "required": false, "agentRef": "silent-failure-hunter", "evidenceTarget": "Silent Failure Review", "blocking": false, "externalToolsAllowed": false, "mcpAllowed": false, "ownerApprovalRequiredForExternalTools": true }
+  ],
+  "reviewDispatchPolicy": "manual-owner-or-advisor",
+  "reviewEvidenceRequired": true,
+  "externalToolsAllowed": false,
+  "mcpAllowed": false,
+  "autonomousReviewAllowed": false,
   "requiredEvidence": ["evidence-pack"],
   "approvalRequiredFor": ["phase-closure"],
   "rollbackPlan": "<HOW_TO_REVERT_PLACEHOLDER>",

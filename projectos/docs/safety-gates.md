@@ -18,3 +18,6 @@ Defined canonically in `projectos/schemas/safety-gates.schema.json`.
 - Templates/configs must declare the forbidden actions explicitly.
 - Adapters are inert; no code path can reach an external service yet.
 - No secrets are stored; placeholders only (`TOKEN_REDACTED`, `URL_PLACEHOLDER`, `PROJECT_REF_PLACEHOLDER`).
+## ECC review layer and the gates
+
+ECC/named reviewers operate **local-read-only by default**. External tools and MCP/live tools are **disabled by default** and require explicit owner approval in a later phase (subject to the External service / API gate). ECC can never trigger a gated action and can never close a phase. Review findings are evidence that informs — but does not replace — the owner gate decision. See [ecc-review-wiring.md](ecc-review-wiring.md).
