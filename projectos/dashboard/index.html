@@ -1,55 +1,159 @@
 <!DOCTYPE html>
-<!-- ProjectOS Multi-Project Dashboard — LOCAL STATIC TEMPLATE.
-     Inline CSS only. No external CDN / JS / CSS / fonts / analytics / tracking.
-     Evidence/reporting only. The dashboard cannot approve closure or any gated action.
-     Rendered by projectos/scripts/build-static-dashboard.cjs from dashboard-data.json. -->
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ProjectOS — Multi-Project Dashboard (local static)</title>
-<style>
-  :root{--bg:#0f1216;--card:#1a1f26;--ink:#e8edf2;--muted:#9aa6b2;--line:#2a313a;--ok:#3fb950;--warn:#d29922;--bad:#f85149;--info:#58a6ff;}
-  *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 system-ui,Segoe UI,Arial,sans-serif}
-  header{padding:20px 24px;border-bottom:1px solid var(--line)}
-  h1{margin:0;font-size:20px}
-  .sub{color:var(--muted);font-size:12px;margin-top:4px}
-  main{padding:24px;max-width:1200px;margin:0 auto}
-  h2{font-size:15px;margin:28px 0 12px;border-left:3px solid var(--info);padding-left:8px}
-  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
-  .card h3{margin:0 0 6px;font-size:14px}
-  .pill{display:inline-block;font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
-  .k{color:var(--muted)}
-  table{width:100%;border-collapse:collapse;font-size:12px}
-  th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
-  .unknown{color:var(--warn)}
-  .note{color:var(--muted);font-size:12px;margin-top:8px}
-  footer{padding:18px 24px;color:var(--muted);font-size:12px;border-top:1px solid var(--line)}
-</style>
-</head>
-<body>
-<header>
-  <h1>ProjectOS — Multi-Project Dashboard</h1>
-  <div class="sub">2026-06-30 · local static · evidence only · cannot approve / close / deploy / mutate / send / pay</div>
-</header>
-<main>
-  <h2>Projects</h2>
-  <div class="grid"><div class="card"><h3>ProjectOS <span class="pill">ACTIVE</span></h3><div><span class="k">type:</span> Universal Project Delivery OS (framework)</div><div><span class="k">repo:</span> local-only (no remote)</div><div><span class="k">live:</span> NEEDS-SOURCE</div><div><span class="k">freeze:</span> n/a</div><div><span class="k">confidence:</span> framework self-entry</div><div class="note">risks: 0 · carry-forward: 0 · needs-source: 0</div></div><div class="card"><h3>PolyGo <span class="pill">FROZEN</span></h3><div><span class="k">type:</span> Client project (staffing / booking / scheduling platform — based on observed edge functions for offers, assignments, bookings, invoices, job sheets).</div><div><span class="k">repo:</span> polygonia-apres/polygo</div><div><span class="k">live:</span> https://polygo-jet.vercel.app</div><div><span class="k">freeze:</span> true</div><div><span class="k">confidence:</span> static-knowledge-file (heuristic parse)</div><div class="note">risks: 3 · carry-forward: 2 · needs-source: 0</div></div><div class="card"><h3>JD Testing <span class="pill">LIVE</span></h3><div><span class="k">type:</span> Controlled completion + improvement of an existing **Lovable-imported** web app.</div><div><span class="k">repo:</span> supabase/config.toml</div><div><span class="k">live:</span> https://github.com/jdonlinetesting/JDtesting.git</div><div><span class="k">freeze:</span> NEEDS-SOURCE</div><div><span class="k">confidence:</span> static-knowledge-file (heuristic parse)</div><div class="note">risks: 6 · carry-forward: 6 · needs-source: 1</div></div><div class="card"><h3>BizComply/OPSoft <span class="pill">PILOT</span></h3><div><span class="k">type:</span> NEEDS-SOURCE</div><div><span class="k">repo:</span> origin/main</div><div><span class="k">live:</span> https://github.com/universalbizcomply</div><div><span class="k">freeze:</span> NEEDS-SOURCE</div><div><span class="k">confidence:</span> static-knowledge-file (heuristic parse)</div><div class="note">risks: 5 · carry-forward: 5 · needs-source: 1</div></div><div class="card"><h3>CricLocal <span class="pill">LIVE</span></h3><div><span class="k">type:</span> Local cricket league / club management + live-scoring platform (SaaS-style).</div><div><span class="k">repo:</span> criclocal-repo/docs</div><div><span class="k">live:</span> https://github.com/muraddevbuild-maker/criclocal</div><div><span class="k">freeze:</span> NEEDS-SOURCE</div><div><span class="k">confidence:</span> static-knowledge-file (heuristic parse)</div><div class="note">risks: 3 · carry-forward: 1 · needs-source: 4</div></div><div class="card"><h3>Coverdrive <span class="pill">LIVE</span></h3><div><span class="k">type:</span> Production SaaS-style **booking platform** for Coverdrive Indoor Cricket Centre, Manchester.</div><div><span class="k">repo:</span> coverdrivemanchester-art/Coverdrive</div><div><span class="k">live:</span> https://github.com/coverdrivemanchester-art/Coverdrive.git</div><div><span class="k">freeze:</span> NEEDS-SOURCE</div><div><span class="k">confidence:</span> static-knowledge-file (heuristic parse)</div><div class="note">risks: 2 · carry-forward: 1 · needs-source: 4</div></div><div class="card"><h3>TKN <span class="pill">LIVE</span></h3><div><span class="k">type:</span> Independent, production-ready **ecommerce** storefront.</div><div><span class="k">repo:</span> NEEDS-SOURCE</div><div><span class="k">live:</span> NEEDS-SOURCE</div><div><span class="k">freeze:</span> NEEDS-SOURCE</div><div><span class="k">confidence:</span> static-knowledge-file (heuristic parse)</div><div class="note">risks: 3 · carry-forward: 1 · needs-source: 5</div></div><div class="card"><h3>ERP System <span class="pill">BLUEPRINT</span></h3><div><span class="k">type:</span> AI-powered Auto Parts ERP for the UK market. Stated goal: absolute lowest cost, maximum accuracy.</div><div><span class="k">repo:</span> NEEDS-SOURCE</div><div><span class="k">live:</span> NEEDS-SOURCE</div><div><span class="k">freeze:</span> NEEDS-SOURCE</div><div><span class="k">confidence:</span> static-knowledge-file (heuristic parse)</div><div class="note">risks: 3 · carry-forward: 1 · needs-source: 4</div></div></div>
-  <h2>Phase ledger</h2>
-  <table><thead><tr><th>Phase</th><th>Project</th><th>Status</th><th>Commit</th></tr></thead><tbody><tr><td>PROJECTOS-KNOWLEDGE-PACK1A</td><td>ProjectOS</td><td>CLOSED</td><td>408cccc (report)</td></tr><tr><td>PROJECTOPS-UNIVERSAL1A</td><td>ProjectOS</td><td>CLOSED</td><td>4373ffd (baseline)</td></tr><tr><td>PROJECTOPS-ECC-REVIEW-WIRING1A</td><td>ProjectOS</td><td>CLOSED</td><td>85254e3 (baseline)</td></tr><tr><td>PROJECTOPS-POLYGO-INSTALL1A</td><td>PolyGo</td><td>CLOSED</td><td>PolyGo bc0d285 (branch projectops-polygo-install1a; install 1c0a2ff)</td></tr><tr><td>PROJECTOPS-PHASE-REPORTER1A</td><td>ProjectOS</td><td>CLOSED</td><td>(this commit)</td></tr><tr><td>PROJECTOPS-STAGING-DEPLOY-GUARD1A</td><td>ProjectOS</td><td>CLOSED</td><td>(this commit)</td></tr><tr><td>PROJECTOPS-PROOF-FACTORY1A</td><td>ProjectOS</td><td>CLOSED</td><td>(this commit)</td></tr><tr><td>PROJECTOPS-STAGING-DRIFT-DETECTOR1A</td><td>ProjectOS</td><td>CLOSED</td><td>(this commit)</td></tr><tr><td>PROJECTOPS-CI-GOVERNANCE1A</td><td>ProjectOS</td><td>CLOSED</td><td>(this commit)</td></tr><tr><td>PROJECTOPS-MULTI-PROJECT-DASHBOARD1A</td><td>ProjectOS</td><td>AWAITING-REVIEW</td><td>(this commit)</td></tr></tbody></table>
-  <h2>Risks</h2>
-  <ul><li>PolyGo: Staging drift on `bookings.venue_id` and `recalculate_booking_totals` blocks `send-availability-enquiry` and `send-schedule` proofs.</li><li>PolyGo: `send-task-notification` blocked by pre-existing auth/users/profile guard.</li><li>PolyGo: Production freeze must be respected; no production action without explicit owner approval.</li><li>JD Testing: Live payment platform: any production action carries financial + customer risk.</li><li>JD Testing: Health-adjacent personal data → GDPR exposure risk on any data handling.</li><li>JD Testing: Lovable-imported app: theme/design and shadcn primitives must not be changed without client approval.</li><li>JD Testing: Migrations are immutable; only add new timestamped migrations.</li><li>JD Testing: `supabase/config.toml` points at the stale ref `nmqhqlzxaticlbificos` while live is `rawfqlvnylobdnwwxraz` — config should be corrected so tooling/CLI cannot target the wrong project.</li><li>JD Testing: Two role systems coexist (`profiles.role` + `user_roles` table) — RLS inconsistency risk.</li><li>BizComply/OPSoft: Live multi-tenant production: any RLS/role error risks cross-tenant data exposure on a real pilot tenant.</li><li>BizComply/OPSoft: Payment paths are live (Stripe Connect / deposits / refunds) — no live charge/refund without explicit owner approval.</li><li>BizComply/OPSoft: Single-file React monolith + critical locks → high regression risk; surgical edits only.</li><li>BizComply/OPSoft: Branch/remote posture (main vs `source-import-2026-05-16`) must be reconfirmed before any deploy.</li><li>BizComply/OPSoft: Compliance evidence integrity is a regulated concern (Home Office RTW, food safety, allergen/PPDS).</li><li>CricLocal: Multiple local copies (`criclocal-repo` vs `CricLocal-Source` vs `CricLocal-Cowork`) → drift / source-of-truth risk; `criclocal-repo` (git) is canonical.</li><li>CricLocal: Payment (Stripe) and any production deploy are high-risk.</li><li>CricLocal: Detailed risk register: NEEDS SOURCE.</li><li>Coverdrive: Live payments + customer PII on a single-tenant booking site.</li><li>Coverdrive: Detailed risk register: NEEDS SOURCE.</li><li>TKN: No local git → no version history / source-of-truth tracking; establish a repo before any controlled delivery.</li><li>TKN: Dual live payment providers (Stripe + PayPal) increase financial surface.</li><li>TKN: Detailed risk register: NEEDS SOURCE.</li><li>ERP System: Only a blueprint + 4 scaffold files; everything beyond is unbuilt.</li><li>ERP System: Paid VRM API + AI routing → live cost exposure once active.</li><li>ERP System: pgvector embedding pipeline + RLS need careful security review.</li></ul>
-  <h2>Carry-forward</h2>
-  <ul><li>PolyGo: STAGING-PARITY-BOOKING-TOTALS1A — resolve staging `bookings.venue_id` / `recalculate_booking_totals` drift.</li><li>PolyGo: SEND-TASK-NOTIFICATION-PROOF1A — prove `send-task-notification` once its pre-existing auth/users/profile guard is addressed.</li><li>JD Testing: Stripe not wired to booking flow — `create-checkout-session` exists but `BookService.tsx` bypasses it (currently pay-on-site); webhook security already fixed (JD-STRIPE1A).</li><li>JD Testing: TrueLayer (target primary payment) — two Edge Function drafts created (`create-truelayer-payment-link`, `truelayer-webhook`), not deployed, not wired.</li><li>JD Testing: SMS — `send-sms-reminder` Edge Function + migration drafts created; needs provider account + activation (JD-SMS1).</li><li>JD Testing: Branded email sender `noreply@jdtestingonline.com` blocked on Resend domain DNS verification (owner-side); currently sends from `onboarding@resend.dev`.</li><li>JD Testing: Site-specific payment routing / finance module — `sites` lacks payment fields; single global Stripe key; no per-site finance.</li><li>JD Testing: Owner acceptance backlog: many phases sit &quot;COMPLETE — awaiting acceptance&quot;.</li><li>BizComply/OPSoft: 137 queued phases. Notable:</li><li>BizComply/OPSoft: Stage 18 — SEO, Marketing, Reputation &amp; Growth (all QUEUED, 0% started).</li><li>BizComply/OPSoft: ANDROID-HW-SMOKE1A / IOS-HW-SMOKE1A — physical printer + cash-drawer certification on mobile NOT done (Windows/local-bridge proof only so far).</li><li>BizComply/OPSoft: Marketplace (Uber Eats / Deliveroo / Just Eat) — PARKED (source-of-truth only).</li><li>BizComply/OPSoft: Open audit items: C2 (device-revoke owner-floor), C3 (allergen save-path — LOCKED exception), C4 (stripe2e validator HMAC), H1–H21, plus MEDIUMs.</li><li>CricLocal: NEEDS SOURCE.</li><li>Coverdrive: NEEDS SOURCE.</li><li>TKN: NEEDS SOURCE.</li><li>ERP System: Build-out from blueprint (schema apply, FastAPI service, Next.js frontend, OCR pipeline). Not yet phased. `NEEDS SOURCE`.</li></ul>
-  <h2>Blockers</h2>
-  <ul><li class="unknown">none</li></ul>
-  <p class="note">Derived from static ProjectOS knowledge/report files only via heuristic parsing; no live inspection, no product repo scan. Unclear values marked UNKNOWN / NEEDS-SOURCE / NOT-VERIFIED.</p>
-</main>
-<footer>
-  ProjectOS multi-project dashboard. Local static HTML, inline CSS only, no external assets, no network.
-  Dashboard output is evidence/reporting only and has no approval or closure authority.
-</footer>
-</body>
-</html>
+<!-- ProjectOS Owner Command Centre - LOCAL STATIC. Inline CSS only. No external CDN/JS/CSS/fonts/icons/analytics/network. Evidence/reporting only; cannot approve or close anything. -->
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>ProjectOS - Owner Command Centre (local static)</title><style>*{box-sizing:border-box}body{margin:0;background:#0b0e13;color:#e9eef5;font:14px/1.55 system-ui,Segoe UI,Arial,sans-serif}.wrap{max-width:1280px;margin:0 auto;padding:0 22px 60px}header.cmd{position:sticky;top:0;z-index:5;background:rgba(11,14,19,.95);border-bottom:1px solid #283242;padding:16px 22px}.cmd-in{max-width:1280px;margin:0 auto;display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;align-items:flex-start}.brand{font-size:18px;font-weight:700}.brand small{display:block;font-weight:400;font-size:11px;color:#9bb0c3;margin-top:2px}.cmd-meta{font-size:11px;color:#9bb0c3;text-align:right;line-height:1.7}.warnbar{background:#2a1418;border:1px solid #5e2630;color:#ffc2c8;font-size:12px;padding:6px 10px;border-radius:8px;display:inline-block;margin-top:6px}h2{font-size:13px;letter-spacing:.6px;text-transform:uppercase;color:#9bb0c3;margin:30px 0 12px;border-left:3px solid #5aa2ff;padding-left:9px}.strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}.kpi{background:#141923;border:1px solid #283242;border-radius:12px;padding:13px 14px}.kpi .n{font-size:24px;font-weight:700}.kpi .l{font-size:11px;color:#9bb0c3;text-transform:uppercase}.kpi.big{grid-column:span 2}.kpi.warn{border-color:#5e2630}.kpi.warn .n{color:#ff5d6c}.next{display:flex;gap:12px;flex-wrap:wrap}.step{flex:1;min-width:240px;background:#1a2130;border:1px solid #283242;border-left:3px solid #5aa2ff;border-radius:10px;padding:12px}.step .s{font-size:11px;color:#5aa2ff;font-weight:700}.two{display:grid;grid-template-columns:1fr 1fr;gap:14px}@media(max-width:820px){.two{grid-template-columns:1fr}}.ready{background:#141923;border:1px solid #283242;border-radius:12px;padding:16px}.ready h3{margin:0 0 6px;font-size:15px}.tag{display:inline-block;font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;border:1px solid #283242;margin:2px 4px 2px 0}.tag.ready{background:#102a1c;color:#7ee2a8}.tag.queued{background:#2a230f;color:#ffd866}.tag.notappr{background:#2a1418;color:#ffc2c8}.kv{font-size:12px;margin-top:7px}.kv b{color:#9bb0c3}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:14px}.pc{background:#1a2130;border:1px solid #283242;border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:5px}.pc-h{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}.pc-h h3{margin:0;font-size:15px}.badges{display:flex;gap:6px;flex-wrap:wrap}.badge{font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px}.s-live{background:#0f2a1c;color:#7ee2a8}.s-pilot{background:#2a230f;color:#ffd866}.s-frozen{background:#10243a;color:#8cc2ff}.s-bp{background:#241a2e;color:#d9a6ff}.s-active{background:#0f2030;color:#8cd0ff}.s-ns{background:#262b35;color:#b9c4d2}.r-crit{background:#2a1014;color:#ff8a94}.r-high{background:#2a1c0f;color:#ffb877}.r-med{background:#2a260f;color:#ffe08a}.r-low{background:#0f2a1c;color:#7ee2a8}.r-ns{background:#262b35;color:#b9c4d2}.pc .row{font-size:12px}.pc .row b{color:#9bb0c3}.vb{font-size:9px;font-weight:700;padding:1px 5px;border-radius:5px;margin-left:5px}.vb.ok{background:#0f2a1c;color:#7ee2a8}.vb.ns{background:#2a1418;color:#ffc2c8}.gates{font-size:11px;color:#9bb0c3}.na{font-size:11px;color:#8cd0ff;margin-top:auto;border-top:1px dashed #283242;padding-top:7px}table{width:100%;border-collapse:collapse;font-size:12px;background:#141923;border:1px solid #283242;border-radius:10px;overflow:hidden}th,td{text-align:left;padding:8px 10px;border-bottom:1px solid #283242}th{color:#9bb0c3;text-transform:uppercase;font-size:10px;background:#11161f}.mtx td{text-align:center;font-size:10px;font-weight:700}.mtx td.lead{text-align:left}.c-gated{color:#ff8a94}.c-owner{color:#ffd866}.c-ns{color:#ffc2c8}.c-na{color:#6b7686}.st-CLOSED{color:#7ee2a8;font-weight:700}.st-AWAITING-REVIEW{color:#ffd866;font-weight:700}.st-BLOCKED{color:#ff8a94;font-weight:700}.board{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}.bcard{background:#1a2130;border:1px solid #283242;border-radius:10px;padding:12px}.bcard h4{margin:0 0 6px;font-size:13px}.bcard ul{margin:0;padding-left:16px;font-size:12px}.muted{color:#9bb0c3}.panel{background:#141923;border:1px solid #283242;border-radius:12px;padding:16px}ul.tight{margin:6px 0;padding-left:18px}footer{margin-top:34px;border-top:1px solid #283242;padding-top:16px;color:#9bb0c3;font-size:12px}</style></head><body>
+<header class="cmd"><div class="cmd-in"><div class="brand">ProjectOS - Universal Project Delivery OS<small>Owner Command Centre - local static dashboard - evidence only</small><div class="warnbar">Dashboard cannot approve closure, production deploy, DB mutation, real sends, payments or installs.</div></div><div class="cmd-meta">generated: 2026-06-30<br>source mode: local-static<br>framework: ACTIVE — framework build complete (10 phases CLOSED) + published<br>remote: PUBLISHED — github.com/universalbizcomply/ProjectOS (private); origin/main</div></div></header>
+<div class="wrap">
+<h2>Executive summary</h2><div class="strip">
+<div class="kpi "><div class="n">8</div><div class="l">Projects</div></div>
+<div class="kpi "><div class="n">13</div><div class="l">Phases</div></div>
+<div class="kpi "><div class="n">11</div><div class="l">Closed</div></div>
+<div class="kpi "><div class="n">2</div><div class="l">Open / awaiting</div></div>
+<div class="kpi warn"><div class="n">6</div><div class="l">High-risk projects</div></div>
+<div class="kpi "><div class="n">4</div><div class="l">Needs-source</div></div>
+<div class="kpi "><div class="n">0</div><div class="l">Blockers</div></div>
+<div class="kpi big"><div class="l">Next owner decision</div><div style="font-size:13px;margin-top:4px">PROJECTOPS-DASHBOARD-REFRESH1A — Owner review + closure of this dashboard refresh.</div></div></div>
+<h2>Next action queue</h2><div class="next">
+<div class="step"><div class="s">STEP 1</div><div style="font-weight:700;margin:3px 0">PROJECTOPS-DASHBOARD-REFRESH1A</div><div class="muted" style="font-size:12px">Owner review + closure of this dashboard refresh.</div></div>
+<div class="step"><div class="s">STEP 2</div><div style="font-weight:700;margin:3px 0">PROJECTOPS-JDTESTING-INSTALL1A</div><div class="muted" style="font-size:12px">.projectops-only governance install for JD Testing (separate, owner-approved phase).</div></div>
+<div class="step"><div class="s">STEP 3</div><div style="font-weight:700;margin:3px 0">PROJECTOPS-BIZCOMPLY-INSTALL1A</div><div class="muted" style="font-size:12px">.projectops-only governance install for BizComply/OPSoft (after JD).</div></div>
+</div><div class="warnbar" style="margin-top:10px">Dashboard does not approve installs. Each install is a separate, owner-approved phase.</div>
+<h2>Install readiness</h2><div class="two">
+<div class="ready"><h3>JD Testing</h3><span class="tag ready">READY FOR GOVERNANCE INSTALL AFTER DASHBOARD REFRESH CLOSURE</span><span class="tag notappr">NOT APPROVED BY DASHBOARD</span><div class="kv"><b>scope:</b> .projectops-only (governance/config only)</div><div class="kv"><b>high-risk gates:</b> payments (Stripe + TrueLayer) - customer/health-adjacent data (GDPR) - customer email - booking mutation - production deploy</div><div class="kv"><b>prohibited:</b> product code, Supabase migrations, Edge Functions, payments, emails, bookings, deploy config</div></div>
+<div class="ready"><h3>BizComply/OPSoft</h3><span class="tag queued">QUEUED AFTER JD TESTING</span><span class="tag notappr">NOT APPROVED BY DASHBOARD</span><div class="kv"><b>scope:</b> .projectops-only (governance/config only)</div><div class="kv"><b>high-risk gates:</b> tenant/RLS/role - compliance evidence - payments/POS - production deploy - owner access - live tenant/customer data</div><div class="kv"><b>prohibited:</b> product code, tenant data, RLS, migrations, payments/POS, compliance evidence, deploy config, live tenant data</div></div>
+</div>
+<h2>Project portfolio</h2><div class="grid">
+<div class="pc"><div class="pc-h"><h3>ProjectOS</h3><div class="badges"><span class="badge s-active">ACTIVE</span><span class="badge r-low">RISK LOW</span></div></div><div class="row muted">Universal Project Delivery OS (framework)</div><div class="row"><b>repo:</b> local-only (no product remote); published to universalbizcomply/ProjectOS<span class="vb ok">VERIFIED</span></div><div class="row"><b>live:</b> N/A (local framework)<span class="vb ok">VERIFIED</span></div><div class="row"><b>path:</b> C:\dev\ProjectOS</div><div class="row"><b>phase:</b> PROJECTOPS-DASHBOARD-REFRESH1A - <b>freeze:</b> n/a</div><div class="row"><b>confidence:</b> VERIFIED (framework self)</div><div class="gates"><b style="color:#9bb0c3">gates:</b> production deploy - db mutation - real send - payment</div><div class="row muted">carry-forward: 0 - needs-source: 0</div><div class="na">next: Owner review of dashboard refresh.</div></div>
+<div class="pc"><div class="pc-h"><h3>PolyGo</h3><div class="badges"><span class="badge s-frozen">FROZEN</span><span class="badge r-high">RISK HIGH</span></div></div><div class="row muted">Client project (staffing / booking / scheduling platform — based on observed edge functions for offers, assignments, bookings, invoices, job sheets).</div><div class="row"><b>repo:</b> polygonia-apres/polygo<span class="vb ok">VERIFIED</span></div><div class="row"><b>live:</b> https://polygo-jet.vercel.app<span class="vb ok">VERIFIED</span></div><div class="row"><b>path:</b> NEEDS-SOURCE</div><div class="row"><b>phase:</b> NEEDS-SOURCE - <b>freeze:</b> FROZEN</div><div class="row"><b>confidence:</b> VERIFIED (knowledge pack)</div><div class="gates"><b style="color:#9bb0c3">gates:</b> production deploy (FROZEN) - production DB mutation - real sends (no-send discipline) - staging drift</div><div class="row muted">carry-forward: 2 - needs-source: 0</div><div class="na">next: Carry-forward: STAGING-PARITY-BOOKING-TOTALS1A; SEND-TASK-NOTIFICATION-PROOF1A.</div></div>
+<div class="pc"><div class="pc-h"><h3>JD Testing</h3><div class="badges"><span class="badge s-live">LIVE</span><span class="badge r-crit">RISK CRITICAL</span></div></div><div class="row muted">Controlled completion + improvement of an existing Lovable-imported web app.</div><div class="row"><b>repo:</b> jdonlinetesting/JDtesting<span class="vb ok">VERIFIED</span></div><div class="row"><b>live:</b> jdtesting.uk<span class="vb ok">VERIFIED</span></div><div class="row"><b>path:</b> C:\dev\JD Project</div><div class="row"><b>phase:</b> NEEDS-SOURCE - <b>freeze:</b> NEEDS-SOURCE</div><div class="row"><b>confidence:</b> VERIFIED (knowledge pack)</div><div class="gates"><b style="color:#9bb0c3">gates:</b> payments (Stripe + TrueLayer) - customer/health-adjacent data (GDPR) - customer email (Resend) - booking mutation</div><div class="row muted">carry-forward: 6 - needs-source: 1</div><div class="na">next: PROJECTOPS-JDTESTING-INSTALL1A (.projectops-only, separate phase).</div></div>
+<div class="pc"><div class="pc-h"><h3>BizComply/OPSoft</h3><div class="badges"><span class="badge s-pilot">PILOT</span><span class="badge r-crit">RISK CRITICAL</span></div></div><div class="row muted">NEEDS-SOURCE</div><div class="row"><b>repo:</b> universalbizcomply/opsoft-ios-lab (+ Opsoft-full-Product)<span class="vb ok">VERIFIED</span></div><div class="row"><b>live:</b> bizcomply-admin-app.vercel.app<span class="vb ok">VERIFIED</span></div><div class="row"><b>path:</b> C:\dev\BizComply V2</div><div class="row"><b>phase:</b> NEEDS-SOURCE - <b>freeze:</b> NEEDS-SOURCE</div><div class="row"><b>confidence:</b> VERIFIED (knowledge pack)</div><div class="gates"><b style="color:#9bb0c3">gates:</b> tenant/RLS/role - payments/POS (Stripe Connect / deposits / refunds) - compliance evidence integrity - production deploy</div><div class="row muted">carry-forward: 5 - needs-source: 1</div><div class="na">next: PROJECTOPS-BIZCOMPLY-INSTALL1A (.projectops-only, after JD).</div></div>
+<div class="pc"><div class="pc-h"><h3>CricLocal</h3><div class="badges"><span class="badge s-live">LIVE</span><span class="badge r-high">RISK HIGH</span></div></div><div class="row muted">Local cricket league / club management + live-scoring platform (SaaS-style).</div><div class="row"><b>repo:</b> muraddevbuild-maker/criclocal<span class="vb ok">VERIFIED</span></div><div class="row"><b>live:</b> NOT-VERIFIED<span class="vb ns">NOT-VERIFIED</span></div><div class="row"><b>path:</b> C:\dev\CricLocal</div><div class="row"><b>phase:</b> NEEDS-SOURCE - <b>freeze:</b> NEEDS-SOURCE</div><div class="row"><b>confidence:</b> PARTIAL (heuristic; 3 local copies)</div><div class="gates"><b style="color:#9bb0c3">gates:</b> payments (Stripe) - player/trade PII - production deploy - canonical-copy drift</div><div class="row muted">carry-forward: 1 - needs-source: 5</div><div class="na">next: Confirm canonical copy (criclocal-repo) + risk register before any install.</div></div>
+<div class="pc"><div class="pc-h"><h3>Coverdrive</h3><div class="badges"><span class="badge s-live">LIVE</span><span class="badge r-high">RISK HIGH</span></div></div><div class="row muted">Production SaaS-style booking platform for Coverdrive Indoor Cricket Centre, Manchester.</div><div class="row"><b>repo:</b> coverdrivemanchester-art/Coverdrive<span class="vb ok">VERIFIED</span></div><div class="row"><b>live:</b> NOT-VERIFIED<span class="vb ns">NOT-VERIFIED</span></div><div class="row"><b>path:</b> C:\dev\Coverdrive</div><div class="row"><b>phase:</b> NEEDS-SOURCE - <b>freeze:</b> NEEDS-SOURCE</div><div class="row"><b>confidence:</b> PARTIAL (heuristic)</div><div class="gates"><b style="color:#9bb0c3">gates:</b> payments (Stripe) - customer PII + Resend email - booking/lane/pricing mutation - production deploy</div><div class="row muted">carry-forward: 1 - needs-source: 5</div><div class="na">next: Confirm live URL + risk register before any install.</div></div>
+<div class="pc"><div class="pc-h"><h3>TKN</h3><div class="badges"><span class="badge s-ns">NEEDS-SOURCE</span><span class="badge r-high">RISK HIGH</span></div></div><div class="row muted">Independent, production-ready ecommerce storefront.</div><div class="row"><b>repo:</b> NOT-VERIFIED (no local git)<span class="vb ns">NOT-VERIFIED</span></div><div class="row"><b>live:</b> NOT-VERIFIED<span class="vb ns">NOT-VERIFIED</span></div><div class="row"><b>path:</b> C:\dev\TKN</div><div class="row"><b>phase:</b> NEEDS-SOURCE - <b>freeze:</b> NEEDS-SOURCE</div><div class="row"><b>confidence:</b> LOW (no version control)</div><div class="gates"><b style="color:#9bb0c3">gates:</b> payments (Stripe + PayPal, dual) - customer/order PII + Resend - order mutation - production deploy</div><div class="row muted">carry-forward: 1 - needs-source: 7</div><div class="na">next: Initialise a git repo before any controlled delivery.</div></div>
+<div class="pc"><div class="pc-h"><h3>ERP System</h3><div class="badges"><span class="badge s-bp">BLUEPRINT</span><span class="badge r-med">RISK MEDIUM</span></div></div><div class="row muted">AI-powered Auto Parts ERP for the UK market. Stated goal: absolute lowest cost, maximum accuracy.</div><div class="row"><b>repo:</b> NOT-VERIFIED (blueprint; no repo)<span class="vb ns">NOT-VERIFIED</span></div><div class="row"><b>live:</b> N/A (pre-build)<span class="vb ns">NOT-VERIFIED</span></div><div class="row"><b>path:</b> NEEDS-SOURCE</div><div class="row"><b>phase:</b> NEEDS-SOURCE - <b>freeze:</b> NEEDS-SOURCE</div><div class="row"><b>confidence:</b> BLUEPRINT (5-file scaffold)</div><div class="gates"><b style="color:#9bb0c3">gates:</b> finance + supplier PII - paid VRM API + AI key cost/usage - DB mutation - production deploy</div><div class="row muted">carry-forward: 1 - needs-source: 6</div><div class="na">next: Scaffold delivery phases from BLUEPRINT.md; establish a repo first.</div></div>
+</div>
+<h2>High-risk gate matrix</h2><table class="mtx"><thead><tr><th>Project</th><th>Risk</th>
+<th>Production deploy</th>
+<th>Database mutation</th>
+<th>Real email/SMS</th>
+<th>Payments</th>
+<th>PII / customer / health data</th>
+<th>Tenant / RLS / role</th>
+<th>Compliance evidence</th>
+<th>External APIs / secrets</th>
+</tr></thead><tbody>
+<tr><td class="lead">ProjectOS</td><td><span class="badge r-low">LOW</span></td>
+<td class="c-na">N/A</td>
+<td class="c-na">N/A</td>
+<td class="c-na">N/A</td>
+<td class="c-na">N/A</td>
+<td class="c-na">N/A</td>
+<td class="c-na">N/A</td>
+<td class="c-na">N/A</td>
+<td class="c-gated">GATED</td>
+</tr>
+<tr><td class="lead">PolyGo</td><td><span class="badge r-high">HIGH</span></td>
+<td class="c-gated">GATED</td>
+<td class="c-gated">GATED</td>
+<td class="c-gated">GATED</td>
+<td class="c-owner">OWNER APPROVAL REQUIRED</td>
+<td class="c-gated">GATED</td>
+<td class="c-na">N/A</td>
+<td class="c-na">N/A</td>
+<td class="c-gated">GATED</td>
+</tr>
+<tr><td class="lead">JD Testing</td><td><span class="badge r-crit">CRITICAL</span></td>
+<td class="c-gated">GATED</td>
+<td class="c-gated">GATED</td>
+<td class="c-gated">GATED</td>
+<td class="c-gated">GATED</td>
+<td class="c-gated">GATED</td>
+<td class="c-na">N/A</td>
+<td class="c-na">N/A</td>
+<td class="c-gated">GATED</td>
+</tr>
+<tr><td class="lead">BizComply/OPSoft</td><td><span class="badge r-crit">CRITICAL</span></td>
+<td class="c-gated">GATED</td>
+<td class="c-gated">GATED</td>
+<td class="c-gated">GATED</td>
+<td class="c-gated">GATED</td>
+<td class="c-gated">GATED</td>
+<td class="c-gated">GATED</td>
+<td class="c-gated">GATED</td>
+<td class="c-gated">GATED</td>
+</tr>
+<tr><td class="lead">CricLocal</td><td><span class="badge r-high">HIGH</span></td>
+<td class="c-gated">GATED</td>
+<td class="c-gated">GATED</td>
+<td class="c-ns">NOT-VERIFIED</td>
+<td class="c-gated">GATED</td>
+<td class="c-gated">GATED</td>
+<td class="c-na">N/A</td>
+<td class="c-na">N/A</td>
+<td class="c-gated">GATED</td>
+</tr>
+<tr><td class="lead">Coverdrive</td><td><span class="badge r-high">HIGH</span></td>
+<td class="c-gated">GATED</td>
+<td class="c-gated">GATED</td>
+<td class="c-gated">GATED</td>
+<td class="c-gated">GATED</td>
+<td class="c-gated">GATED</td>
+<td class="c-na">N/A</td>
+<td class="c-na">N/A</td>
+<td class="c-gated">GATED</td>
+</tr>
+<tr><td class="lead">TKN</td><td><span class="badge r-high">HIGH</span></td>
+<td class="c-gated">GATED</td>
+<td class="c-gated">GATED</td>
+<td class="c-gated">GATED</td>
+<td class="c-gated">GATED</td>
+<td class="c-gated">GATED</td>
+<td class="c-na">N/A</td>
+<td class="c-na">N/A</td>
+<td class="c-gated">GATED</td>
+</tr>
+<tr><td class="lead">ERP System</td><td><span class="badge r-med">MEDIUM</span></td>
+<td class="c-gated">GATED</td>
+<td class="c-gated">GATED</td>
+<td class="c-na">N/A</td>
+<td class="c-na">N/A</td>
+<td class="c-gated">GATED</td>
+<td class="c-na">N/A</td>
+<td class="c-na">N/A</td>
+<td class="c-gated">GATED</td>
+</tr>
+</tbody></table><div class="muted" style="font-size:11px;margin-top:6px">GATED = owner approval required - OWNER APPROVAL REQUIRED = explicit sign-off - NOT-VERIFIED = needs source - N/A = not applicable.</div>
+<h2>Phase ledger (live from Reports Index)</h2><table><thead><tr><th>Phase</th><th>Project</th><th>Status</th><th>Commit</th></tr></thead><tbody>
+<tr><td>PROJECTOS-KNOWLEDGE-PACK1A</td><td>ProjectOS</td><td class="st-CLOSED">CLOSED</td><td class="muted">408cccc (report)</td></tr>
+<tr><td>PROJECTOPS-UNIVERSAL1A</td><td>ProjectOS</td><td class="st-CLOSED">CLOSED</td><td class="muted">4373ffd (baseline)</td></tr>
+<tr><td>PROJECTOPS-ECC-REVIEW-WIRING1A</td><td>ProjectOS</td><td class="st-CLOSED">CLOSED</td><td class="muted">85254e3 (baseline)</td></tr>
+<tr><td>PROJECTOPS-POLYGO-INSTALL1A</td><td>PolyGo</td><td class="st-CLOSED">CLOSED</td><td class="muted">PolyGo bc0d285 (branch projectops-polygo-install1a; install 1c0a2ff)</td></tr>
+<tr><td>PROJECTOPS-PHASE-REPORTER1A</td><td>ProjectOS</td><td class="st-CLOSED">CLOSED</td><td class="muted">(this commit)</td></tr>
+<tr><td>PROJECTOPS-STAGING-DEPLOY-GUARD1A</td><td>ProjectOS</td><td class="st-CLOSED">CLOSED</td><td class="muted">(this commit)</td></tr>
+<tr><td>PROJECTOPS-PROOF-FACTORY1A</td><td>ProjectOS</td><td class="st-CLOSED">CLOSED</td><td class="muted">(this commit)</td></tr>
+<tr><td>PROJECTOPS-STAGING-DRIFT-DETECTOR1A</td><td>ProjectOS</td><td class="st-CLOSED">CLOSED</td><td class="muted">(this commit)</td></tr>
+<tr><td>PROJECTOPS-CI-GOVERNANCE1A</td><td>ProjectOS</td><td class="st-CLOSED">CLOSED</td><td class="muted">(this commit)</td></tr>
+<tr><td>PROJECTOPS-MULTI-PROJECT-DASHBOARD1A</td><td>ProjectOS</td><td class="st-CLOSED">CLOSED</td><td class="muted">(this commit)</td></tr>
+<tr><td>PROJECTOS-REMOTE-PUBLISH1A</td><td>ProjectOS</td><td class="st-CLOSED">CLOSED</td><td class="muted">(this commit)</td></tr>
+<tr><td>PROJECTOS-DASHBOARD-REVIEW1A</td><td>ProjectOS</td><td class="st-AWAITING-REVIEW">AWAITING-REVIEW</td><td class="muted">(this commit)</td></tr>
+<tr><td>PROJECTOPS-DASHBOARD-REFRESH1A</td><td>ProjectOS</td><td class="st-AWAITING-REVIEW">AWAITING-REVIEW</td><td class="muted">(this commit)</td></tr>
+</tbody></table>
+<h2>Needs-source / not-verified board</h2><div class="board">
+<div class="bcard"><h4>JD Testing</h4><ul><li>Precise current deployment hash / release status and active host (Vercel vs Netlify): NOT VERIFIED — NEEDS SOURCE.</li></ul></div>
+<div class="bcard"><h4>BizComply/OPSoft</h4><ul><li>Marketing/public domain: NOT VERIFIED — NEEDS SOURCE.</li></ul></div>
+<div class="bcard"><h4>CricLocal</h4><ul><li>Vercel-hosted; live URL / current deploy hash NOT VERIFIED — NEEDS SOURCE.</li><li>NEEDS SOURCE — criclocal-repo/docs not enumerated this pass. Latest commit 4ae5eb4 (custom match rules).</li><li>NEEDS SOURCE.</li><li>Detailed risk register: NEEDS SOURCE.</li><li>live URL NOT-VERIFIED</li></ul></div>
+<div class="bcard"><h4>Coverdrive</h4><ul><li>Described as &quot;production-ready&quot;; live URL / current deploy hash NOT VERIFIED — NEEDS SOURCE.</li><li>NEEDS SOURCE — latest commit cfe357f (dashboard revalidate fix).</li><li>NEEDS SOURCE.</li><li>Detailed risk register: NEEDS SOURCE.</li><li>live URL NOT-VERIFIED</li></ul></div>
+<div class="bcard"><h4>TKN</h4><ul><li>No git repository in the source (C:\dev\TKN\streetwear has no .git). Local-only working copy. Remote: NEEDS SOURCE.</li><li>Described as &quot;production-ready&quot;; live URL / deploy status / git remote NOT VERIFIED — NEEDS SOURCE.</li><li>NEEDS SOURCE — no git history available locally; docs/ not enumerated this pass.</li><li>NEEDS SOURCE.</li><li>Detailed risk register: NEEDS SOURCE.</li><li>repo NOT-VERIFIED</li><li>live URL NOT-VERIFIED</li></ul></div>
+<div class="bcard"><h4>ERP System</h4><ul><li>No git / not deployed. Source is a 5-file files.zip archive. Repo / remote: NEEDS SOURCE.</li><li>Pre-build / blueprint — no deployment, no repo. NEEDS SOURCE for any live status.</li><li>None recorded (blueprint stage). NEEDS SOURCE.</li><li>Build-out from blueprint (schema apply, FastAPI service, Next.js frontend, OCR pipeline). Not yet phased. NEEDS SOURCE.</li><li>repo NOT-VERIFIED</li><li>live URL NOT-VERIFIED</li></ul></div>
+</div>
+<h2>Carry-forward board</h2><div class="board">
+<div class="bcard"><h4>PolyGo</h4><ul><li>STAGING-PARITY-BOOKING-TOTALS1A — resolve staging bookings.venue_id / recalculate_booking_totals drift.</li><li>SEND-TASK-NOTIFICATION-PROOF1A — prove send-task-notification once its pre-existing auth/users/profile guard is addressed.</li></ul></div>
+<div class="bcard"><h4>JD Testing</h4><ul><li>Stripe not wired to booking flow — create-checkout-session exists but BookService.tsx bypasses it (currently pay-on-site); webhook security already fixed (JD-STRIPE1A).</li><li>TrueLayer (target primary payment) — two Edge Function drafts created (create-truelayer-payment-link, truelayer-webhook), not deployed, not wired.</li><li>SMS — send-sms-reminder Edge Function + migration drafts created; needs provider account + activation (JD-SMS1).</li><li>Branded email sender noreply@jdtestingonline.com blocked on Resend domain DNS verification (owner-side); currently sends from onboarding@resend.dev.</li><li>Site-specific payment routing / finance module — sites lacks payment fields; single global Stripe key; no per-site finance.</li><li>Owner acceptance backlog: many phases sit &quot;COMPLETE — awaiting acceptance&quot;.</li></ul></div>
+<div class="bcard"><h4>BizComply/OPSoft</h4><ul><li>137 queued phases. Notable:</li><li>Stage 18 — SEO, Marketing, Reputation &amp; Growth (all QUEUED, 0% started).</li><li>ANDROID-HW-SMOKE1A / IOS-HW-SMOKE1A — physical printer + cash-drawer certification on mobile NOT done (Windows/local-bridge proof only so far).</li><li>Marketplace (Uber Eats / Deliveroo / Just Eat) — PARKED (source-of-truth only).</li><li>Open audit items: C2 (device-revoke owner-floor), C3 (allergen save-path — LOCKED exception), C4 (stripe2e validator HMAC), H1–H21, plus MEDIUMs.</li></ul></div>
+<div class="bcard"><h4>CricLocal</h4><ul><li>NEEDS SOURCE.</li></ul></div>
+<div class="bcard"><h4>Coverdrive</h4><ul><li>NEEDS SOURCE.</li></ul></div>
+<div class="bcard"><h4>TKN</h4><ul><li>NEEDS SOURCE.</li></ul></div>
+<div class="bcard"><h4>ERP System</h4><ul><li>Build-out from blueprint (schema apply, FastAPI service, Next.js frontend, OCR pipeline). Not yet phased. NEEDS SOURCE.</li></ul></div>
+</div>
+<h2>Evidence and limitations</h2><div class="panel"><ul class="tight"><li>Reads static ProjectOS knowledge + report files only.</li><li>No product repos scanned. No live services inspected. No external APIs used.</li><li>Fields marked NOT-VERIFIED / NEEDS-SOURCE require owner/source confirmation.</li><li>Dashboard is evidence/reporting only and has no approval or closure authority.</li></ul><div class="warnbar">This dashboard is evidence/reporting only and has no approval or closure authority. It cannot approve closure, production deploy, database mutation, real sends, payment actions or installs.</div></div>
+<footer>ProjectOS Owner Command Centre - local static HTML, inline CSS only, no external assets, no network, no scripts. Derived from static ProjectOS knowledge/report files + curated static overrides. No live inspection, no product-repo scan, no external API. Repo/live values shown only where static knowledge supports them; otherwise NOT-VERIFIED / NEEDS-SOURCE. Dashboard output is evidence/reporting only and has no approval or closure authority.</footer>
+</div></body></html>

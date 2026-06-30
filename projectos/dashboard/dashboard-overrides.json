@@ -1,0 +1,49 @@
+{
+  "note": "Static, owner-knowledge-derived display overrides for the ProjectOS dashboard. No secrets, no live fetch, no product-repo scan. Fields are VERIFIED only where the static knowledge pack clearly supports them; otherwise NOT-VERIFIED / NEEDS-SOURCE.",
+  "meta": {
+    "frameworkStatus": "ACTIVE — framework build complete (10 phases CLOSED) + published",
+    "remotePublish": "PUBLISHED — github.com/universalbizcomply/ProjectOS (private); origin/main",
+    "dashboardCannot": ["approve closure", "approve production deploy", "approve database mutation", "approve real sends", "approve payment actions", "approve project installs"],
+    "evidence": [
+      "Reads static ProjectOS knowledge + report files only.",
+      "No product repos scanned. No live services inspected. No external APIs used.",
+      "Fields marked NOT-VERIFIED / NEEDS-SOURCE require owner/source confirmation.",
+      "Dashboard is evidence/reporting only and has no approval or closure authority."
+    ],
+    "nextActions": [
+      { "step": 1, "phase": "PROJECTOPS-DASHBOARD-REFRESH1A", "action": "Owner review + closure of this dashboard refresh." },
+      { "step": 2, "phase": "PROJECTOPS-JDTESTING-INSTALL1A", "action": ".projectops-only governance install for JD Testing (separate, owner-approved phase)." },
+      { "step": 3, "phase": "PROJECTOPS-BIZCOMPLY-INSTALL1A", "action": ".projectops-only governance install for BizComply/OPSoft (after JD)." }
+    ],
+    "nextActionWarning": "Dashboard does not approve installs. Each install is a separate, owner-approved phase."
+  },
+  "riskMatrixColumns": ["Production deploy", "Database mutation", "Real email/SMS", "Payments", "PII / customer / health data", "Tenant / RLS / role", "Compliance evidence", "External APIs / secrets"],
+  "projects": {
+    "projectos": { "displayStatus": "ACTIVE", "riskLevel": "LOW", "repoDisplay": "local-only (no product remote); published to universalbizcomply/ProjectOS", "repoVerified": true, "liveUrlDisplay": "N/A (local framework)", "liveUrlVerified": true, "sourceConfidence": "VERIFIED (framework self)", "highRiskGates": ["production deploy", "db mutation", "real send", "payment", "closure"], "nextRecommendedAction": "Owner review of dashboard refresh.", "matrix": ["N/A", "N/A", "N/A", "N/A", "N/A", "N/A", "N/A", "GATED"] },
+    "polygo": { "displayStatus": "FROZEN", "riskLevel": "HIGH", "repoDisplay": "polygonia-apres/polygo", "repoVerified": true, "liveUrlDisplay": "https://polygo-jet.vercel.app", "liveUrlVerified": true, "sourceConfidence": "VERIFIED (knowledge pack)", "highRiskGates": ["production deploy (FROZEN)", "production DB mutation", "real sends (no-send discipline)", "staging drift"], "nextRecommendedAction": "Carry-forward: STAGING-PARITY-BOOKING-TOTALS1A; SEND-TASK-NOTIFICATION-PROOF1A.", "matrix": ["GATED", "GATED", "GATED", "OWNER APPROVAL REQUIRED", "GATED", "N/A", "N/A", "GATED"] },
+    "jd-testing": { "displayStatus": "LIVE", "riskLevel": "CRITICAL", "repoDisplay": "jdonlinetesting/JDtesting", "repoVerified": true, "liveUrlDisplay": "jdtesting.uk", "liveUrlVerified": true, "sourceConfidence": "VERIFIED (knowledge pack)", "highRiskGates": ["payments (Stripe + TrueLayer)", "customer/health-adjacent data (GDPR)", "customer email (Resend)", "booking mutation", "production deploy"], "nextRecommendedAction": "PROJECTOPS-JDTESTING-INSTALL1A (.projectops-only, separate phase).", "matrix": ["GATED", "GATED", "GATED", "GATED", "GATED", "N/A", "N/A", "GATED"] },
+    "bizcomply-opsoft": { "displayStatus": "PILOT", "riskLevel": "CRITICAL", "repoDisplay": "universalbizcomply/opsoft-ios-lab (+ Opsoft-full-Product)", "repoVerified": true, "liveUrlDisplay": "bizcomply-admin-app.vercel.app", "liveUrlVerified": true, "sourceConfidence": "VERIFIED (knowledge pack)", "highRiskGates": ["tenant/RLS/role", "payments/POS (Stripe Connect / deposits / refunds)", "compliance evidence integrity", "production deploy", "owner access", "live tenant + customer/business data"], "nextRecommendedAction": "PROJECTOPS-BIZCOMPLY-INSTALL1A (.projectops-only, after JD).", "matrix": ["GATED", "GATED", "GATED", "GATED", "GATED", "GATED", "GATED", "GATED"] },
+    "criclocal": { "displayStatus": "LIVE", "riskLevel": "HIGH", "repoDisplay": "muraddevbuild-maker/criclocal", "repoVerified": true, "liveUrlDisplay": "NOT-VERIFIED", "liveUrlVerified": false, "sourceConfidence": "PARTIAL (heuristic; 3 local copies)", "highRiskGates": ["payments (Stripe)", "player/trade PII", "production deploy", "canonical-copy drift"], "nextRecommendedAction": "Confirm canonical copy (criclocal-repo) + risk register before any install.", "matrix": ["GATED", "GATED", "NOT-VERIFIED", "GATED", "GATED", "N/A", "N/A", "GATED"] },
+    "coverdrive": { "displayStatus": "LIVE", "riskLevel": "HIGH", "repoDisplay": "coverdrivemanchester-art/Coverdrive", "repoVerified": true, "liveUrlDisplay": "NOT-VERIFIED", "liveUrlVerified": false, "sourceConfidence": "PARTIAL (heuristic)", "highRiskGates": ["payments (Stripe)", "customer PII + Resend email", "booking/lane/pricing mutation", "production deploy"], "nextRecommendedAction": "Confirm live URL + risk register before any install.", "matrix": ["GATED", "GATED", "GATED", "GATED", "GATED", "N/A", "N/A", "GATED"] },
+    "tkn": { "displayStatus": "NEEDS-SOURCE", "riskLevel": "HIGH", "repoDisplay": "NOT-VERIFIED (no local git)", "repoVerified": false, "liveUrlDisplay": "NOT-VERIFIED", "liveUrlVerified": false, "sourceConfidence": "LOW (no version control)", "highRiskGates": ["payments (Stripe + PayPal, dual)", "customer/order PII + Resend", "order mutation", "production deploy", "no VCS"], "nextRecommendedAction": "Initialise a git repo before any controlled delivery.", "matrix": ["GATED", "GATED", "GATED", "GATED", "GATED", "N/A", "N/A", "GATED"] },
+    "erp-system": { "displayStatus": "BLUEPRINT", "riskLevel": "MEDIUM", "repoDisplay": "NOT-VERIFIED (blueprint; no repo)", "repoVerified": false, "liveUrlDisplay": "N/A (pre-build)", "liveUrlVerified": false, "sourceConfidence": "BLUEPRINT (5-file scaffold)", "highRiskGates": ["finance + supplier PII", "paid VRM API + AI key cost/usage", "DB mutation", "production deploy"], "nextRecommendedAction": "Scaffold delivery phases from BLUEPRINT.md; establish a repo first.", "matrix": ["GATED", "GATED", "N/A", "N/A", "GATED", "N/A", "N/A", "GATED"] }
+  },
+  "installReadiness": {
+    "jd-testing": {
+      "projectName": "JD Testing",
+      "readiness": "READY FOR GOVERNANCE INSTALL AFTER DASHBOARD REFRESH CLOSURE",
+      "scope": ".projectops-only (governance/config only)",
+      "prohibited": ["product code", "Supabase migrations", "Edge Functions", "payments", "emails", "bookings", "deploy config"],
+      "highRiskGates": ["payments (Stripe + TrueLayer)", "customer/health-adjacent data (GDPR)", "customer email", "booking mutation", "production deploy"],
+      "installApproval": "NOT APPROVED BY DASHBOARD"
+    },
+    "bizcomply-opsoft": {
+      "projectName": "BizComply/OPSoft",
+      "readiness": "QUEUED AFTER JD TESTING",
+      "scope": ".projectops-only (governance/config only)",
+      "prohibited": ["product code", "tenant data", "RLS", "migrations", "payments/POS", "compliance evidence", "deploy config", "live tenant data"],
+      "highRiskGates": ["tenant/RLS/role", "compliance evidence", "payments/POS", "production deploy", "owner access", "live tenant/customer data"],
+      "installApproval": "NOT APPROVED BY DASHBOARD"
+    }
+  }
+}

@@ -19,13 +19,13 @@
 ## Projects parsed
 8
 ## Phases parsed
-10
+13
 
 ## Validation results
 validate:dashboard PASS; check-dashboard-data PASS; check-dashboard-safety PASS.
 
 ## Source limitations
-Derived from static ProjectOS knowledge/report files only via heuristic parsing; no live inspection, no product repo scan. Unclear values marked UNKNOWN / NEEDS-SOURCE / NOT-VERIFIED.
+Derived from static ProjectOS knowledge/report files + curated static overrides. No live inspection, no product-repo scan, no external API. Repo/live values shown only where static knowledge supports them; otherwise NOT-VERIFIED / NEEDS-SOURCE.
 
 ## Unknowns / needs source
 - Project statuses are heuristic; confirm UNKNOWN / NEEDS-SOURCE entries with owner.
