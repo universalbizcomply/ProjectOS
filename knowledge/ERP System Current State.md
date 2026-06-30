@@ -1,56 +1,68 @@
 # ERP System — Current State
 
 > Current-state summary for the ERP System project, for ProjectOS Project Knowledge.
-> Inspected read-only at `C:\dev\ERP system` on 2026-06-30 with owner authorisation. Source not extracted — mostly NEEDS SOURCE.
+> Sourced read-only on 2026-06-30 with owner authorisation. `files.zip` inspected (BLUEPRINT extracted to scratch, original folder unchanged).
 
 ## Project identity
 
-- **Name:** ERP System (working title).
-- **Local folder:** `C:\dev\ERP system`.
-- **Type:** Enterprise resource planning system — `NEEDS SOURCE` (no extracted source to confirm scope).
+- **Name:** UK Auto Parts ERP (folder `C:\dev\ERP system`).
+- **Type:** AI-powered Auto Parts ERP for the UK market. Stated goal: absolute lowest cost, maximum accuracy.
+- **Stage:** Blueprint + initial scaffold only — `files.zip` contains 5 deliverables (`BLUEPRINT.md`, `schema.sql`, `main.py`, `ocr_processor.py`, `SearchParts.tsx`). Not a full running app yet.
 
 ## Repo
 
-- **No extracted source / no git.** Folder currently contains only `files.zip` (unextracted archive). Repo / remote: `NEEDS SOURCE`.
+- **No git / not deployed.** Source is a 5-file `files.zip` archive. Repo / remote: `NEEDS SOURCE`.
 
-## Stack
+## Stack (locked per BLUEPRINT)
 
-- **NOT VERIFIED** — source is zipped and was not opened. `NEEDS SOURCE`.
+- **DB + Auth:** Supabase (PostgreSQL + **pgvector**, RLS).
+- **Backend:** FastAPI (Python 3.11+) — `main.py`: VRM lookup + semantic search + inventory endpoints.
+- **Frontend:** Next.js 14 (App Router, TypeScript) — `SearchParts.tsx` smart search UI.
+- **Embeddings:** sentence-transformers `all-MiniLM-L6-v2` (local, 768-dim, HNSW index).
+- **AI routing:** Claude Haiku (bulk) → Claude Sonnet (escalation).
+- **VRM lookup:** DVLA Vehicle Enquiry Service (free, 150/hr) + UKVehicleData (paid per call) — cached.
+- **OCR:** tiered `pdfplumber` → `pytesseract` → Claude Haiku Vision (`ocr_processor.py` invoice pipeline).
+- **Schema (`schema.sql`):** `suppliers`, `categories` (hierarchy), `inventory` (with `search_embedding vector(768)`), plus more.
 
-## Multi-tenant / security sensitivity
+## Security / data sensitivity
 
-- ERP systems typically handle finance, inventory, HR/payroll and customer data → treat as **high-risk** by default until scope is confirmed.
-- ProjectOS should require strict database/security review and gate production deploy + any financial/HR data mutation.
+- Handles supplier master data, VAT, pricing, inventory, invoice OCR → financial + supplier PII; **high-risk** by default.
+- Paid external API (UKVehicleData) + AI API usage → cost-control + key-management concern.
+- ProjectOS should gate production deploy, DB mutation, and any paid-API/AI key usage.
 
 ## Production status
 
-- **NEEDS SOURCE** — unknown (no source inspected).
+- **Pre-build / blueprint** — no deployment, no repo. `NEEDS SOURCE` for any live status.
 
 ## Recent closed phases
 
-- **NEEDS SOURCE.**
+- None recorded (blueprint stage). `NEEDS SOURCE`.
 
 ## Current carry-forward queue
 
-- **NEEDS SOURCE.**
+- Build-out from blueprint (schema apply, FastAPI service, Next.js frontend, OCR pipeline). Not yet phased. `NEEDS SOURCE`.
 
 ## Known risks / blockers
 
-- Source is an unextracted `files.zip`; nothing verifiable about stack, status or data sensitivity yet.
-- **Needs source / decision:** extract and inspect, or supply a canonical repo path.
+- Only a blueprint + 4 scaffold files; everything beyond is unbuilt.
+- Paid VRM API + AI routing → live cost exposure once active.
+- pgvector embedding pipeline + RLS need careful security review.
 
 ## ProjectOS installation considerations
 
-- Do not install or act until source is extracted and identity/stack/data-sensitivity are confirmed.
-- Default to high-risk gating (finance/HR/customer data, production deploy) pending review.
+- Treat as greenfield: ProjectOS could scaffold the delivery phases from `BLUEPRINT.md`.
+- Gate production deploy, DB mutation, paid-API and AI-key usage.
+- Establish a git repo before any controlled delivery.
+- Install a project-local `.projectops` folder only after owner/advisor approval.
 
 ## Source confidence notes
 
-- Only the folder listing was observed (`files.zip`); no archive opened, no source read.
+- `BLUEPRINT.md` extracted from `files.zip` to scratch and read on 2026-06-30 under owner authorisation; original `C:\dev\ERP system` folder unchanged. Other 4 files listed but not opened.
+- No secrets/keys present in BLUEPRINT (it names services, not keys).
 
 ## Source discipline
 
-- **Confirmed from owner/project memory:** ERP System is a Murad project under `C:\dev`, named "ERP system" (owner-confirmed 2026-06-30).
-- **Confirmed from local repo docs:** None — source not extracted.
-- **Not verified:** Everything (stack, scope, status, repo).
-- **Needs source:** Extracted source or canonical repo path; identity/scope confirmation; stack; status; risk profile.
+- **Confirmed from owner/project memory:** ERP System is a Murad project under `C:\dev`, folder `ERP system` (owner-confirmed 2026-06-30).
+- **Confirmed from local docs (read-only, authorised):** Identity "UK Auto Parts ERP"; locked stack (Supabase+pgvector, FastAPI, Next.js 14, sentence-transformers, Claude Haiku/Sonnet, DVLA/UKVehicleData, tiered OCR); 5-file blueprint scaffold; schema tables incl `inventory.search_embedding vector(768)`.
+- **Not verified:** Any build/deploy beyond blueprint; repo; live status.
+- **Needs source:** Repo/remote; build progress; deployment; phase history.

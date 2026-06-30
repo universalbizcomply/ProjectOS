@@ -19,7 +19,7 @@
 
 - **Origin:** `https://github.com/jdonlinetesting/JDtesting.git`
 - Local on branch `main`, HEAD `ef4e851` ("fix(bookings): load participant attendance status for party-size flows").
-- Hosting artefacts present for both **Vercel** (`.vercel`) and **Netlify** (`.netlify`) — active production host NOT VERIFIED this pass (`NEEDS SOURCE`).
+- Hosting artefacts present for both Vercel and Netlify; **active live host is Netlify** — `https://jdonlinetesting.netlify.app` (per JD-PORTAL2A-FIX1 Auth Site URL). Public domains: `jdtesting.uk` and `jdtestingonline.com` (the latter also hosts a separate **Shopify** at-home mail-order kit store — distinct from this in-person clinic platform).
 
 ## Stack
 
@@ -29,7 +29,7 @@
 - **Payments (current):** Stripe (Checkout + webhook) — partially wired, **not active in booking flow**.
 - **Payments (target):** TrueLayer primary / Stripe secondary.
 - **Email:** Resend (from Supabase Edge Functions). **PDF:** jsPDF (result certificates). **Test:** Vitest + jsdom + Testing Library. Dev port 8080.
-- **Supabase project ref:** `nmqhqlzxaticlbificos` (public ref).
+- **Supabase project ref (current live):** `rawfqlvnylobdnwwxraz` (services/content re-targeted here per JD-CONTENT1). **Older ref:** `nmqhqlzxaticlbificos` (still in `supabase/config.toml` — confirm which is authoritative before any DB action).
 
 ## Roles / access
 
@@ -56,12 +56,19 @@
   - `docs/JD_PROJECT_MASTER_LEDGER.md` (project memory + phase roadmap + handover)
   - `docs/JD_PROJECT_EXECUTION_PLAN.md` (per-phase scope + validation)
   - `docs/JD_PROJECT_AUDIT_LOG.md` (all changes to date)
-- Specific closed-phase list / current completion %: **not enumerated this pass** — `NEEDS SOURCE` (read those ledgers to populate).
+- **Accepted + closed (per master ledger):** JD-BASELINE1, JD-DOMAIN1A, JD-TL1B, JD-STRIPE1A, JD-STAFFNOTIF1, JD-ACCESS5B (+ JD-ACCESS5B-VALIDATE), JD-CONTENT1, JD-PORTAL1, JD-PORTAL2A-FIX1B (portal invite → magic-link → /portal live-verified, 2026-05-12).
+- **COMPLETE — awaiting owner acceptance (many):** JD-SITEPAY1/2A, JD-SOURCEPREP1/1B, JD-WEB1A, JD-TL1A, JD-SMS1A, JD-READY1A, JD-ACCESS1/2, JD-STAFFNAV1, JD-CONTENT2, JD-PORTAL2A, JD-PORTALPAY1, JD-SEC-SECRETS1, JD-SHOPIFYAUDIT1, JD-COOKIE1, JD-PRIVACY1.
+- **Pending / blocked:** JD-DOMAIN1 (blocked on Supabase access), JD-WEB1 (blocked on client content), JD-ADMIN1, JD-LAUNCH1.
+- Current completion %: not published as a single figure in the ledger (status was snapshotted 2026-05-11; git HEAD `ef4e851` is newer — booking party-size work continued after).
 
 ## Current carry-forward queue
 
-- Open-banking **TrueLayer** activation (target primary payment) appears in progress (TrueLayer company/developer checklists in `docs/`).
-- Exact carry-forward items: **NEEDS SOURCE** (from master ledger / execution plan).
+- **Stripe not wired to booking flow** — `create-checkout-session` exists but `BookService.tsx` bypasses it (currently pay-on-site); webhook security already fixed (JD-STRIPE1A).
+- **TrueLayer** (target primary payment) — two Edge Function drafts created (`create-truelayer-payment-link`, `truelayer-webhook`), not deployed, not wired.
+- **SMS** — `send-sms-reminder` Edge Function + migration drafts created; needs provider account + activation (JD-SMS1).
+- **Branded email sender** `noreply@jdtestingonline.com` blocked on Resend domain DNS verification (owner-side); currently sends from `onboarding@resend.dev`.
+- **Site-specific payment routing / finance module** — `sites` lacks payment fields; single global Stripe key; no per-site finance.
+- Owner acceptance backlog: many phases sit "COMPLETE — awaiting acceptance".
 
 ## Known risks / blockers
 
@@ -69,7 +76,10 @@
 - Health-adjacent personal data → GDPR exposure risk on any data handling.
 - Lovable-imported app: theme/design and shadcn primitives must not be changed without client approval.
 - Migrations are immutable; only add new timestamped migrations.
-- Detailed risk register: **NEEDS SOURCE**.
+- **Two Supabase projects in play** (`rawfqlvnylobdnwwxraz` current vs `nmqhqlzxaticlbificos` in config) — DB actions must target the right one.
+- **Two role systems coexist** (`profiles.role` + `user_roles` table) — RLS inconsistency risk.
+- Hardcoded `lovable.app` origin in `send-booking-reminders`; ~1.3 MB main JS bundle (pre-launch code-split needed).
+- Compliance/claims risk: Shopify audit flagged unsafe marketing claims (ISO accreditation, "2,000+ reviews", medical-outcome claims) — must not be imported unreviewed.
 
 ## ProjectOS installation considerations
 
@@ -90,5 +100,6 @@
 
 - **Confirmed from owner/project memory:** Domain `jdtesting.uk`; live booking/payment/customer platform; payment, customer email, booking mutation high-risk; folder `C:\dev\JD Project` under `C:\dev` (owner-confirmed 2026-06-30).
 - **Confirmed from local repo docs (read-only, authorised):** Name JD Testing / JD Project; client Jon; Lovable-imported intolerance-testing booking app; stack (Vite5/React18/TS, Supabase, Stripe current + TrueLayer target, Resend, jsPDF); repo `jdonlinetesting/JDtesting` (`main`@`ef4e851`); Supabase ref `nmqhqlzxaticlbificos`; role tiers + edge functions; payment-safety + no-redesign + phased-delivery rules; 34 immutable migrations.
-- **Not verified:** Current completion %; enumerated closed phases; active production host (Vercel vs Netlify); current deploy hash.
-- **Needs source:** Closed-phase list + current % from master ledger; carry-forward queue; active host/deploy status; risk register.
+- **Confirmed from local ledger (read-only, authorised):** Live host Netlify `jdonlinetesting.netlify.app`; current Supabase ref `rawfqlvnylobdnwwxraz` (older `nmqhqlzxaticlbificos`); closed-phase list; carry-forward (Stripe-wiring/TrueLayer/SMS drafts); dual role systems; Shopify-claims risk. Status snapshot 2026-05-11; git HEAD `ef4e851` newer.
+- **Not verified:** Single current completion %; current deploy hash; whether the awaiting-acceptance backlog has since been accepted.
+- **Needs source:** Up-to-date status newer than git HEAD; confirmation of authoritative Supabase project; current % if owner tracks one.

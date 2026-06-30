@@ -68,6 +68,8 @@
 - **STAGING-PARITY-BOOKING-TOTALS1A** — resolve staging `bookings.venue_id` / `recalculate_booking_totals` drift.
 - **SEND-TASK-NOTIFICATION-PROOF1A** — prove `send-task-notification` once its pre-existing auth/users/profile guard is addressed.
 
+> **Git state (read-only, 2026-06-30):** local `C:\dev\Polygo\polygo` is a git repo on branch **`send-task-notification-proof1a`**, HEAD `90eef9d` ("restore bookings.venue_id on staging; prove deferred NOSEND1D-3 senders") — i.e. the carry-forward work is **actively in progress** on a branch, not yet on `main`. Stack confirmed `vite_react_shadcn_ts` (Vite + React + shadcn + TS). `supabase/config.toml` `project_id = cefrqofhiqnfrckqpckl` (production ref).
+
 ## Known risks / blockers
 
 - Staging drift on `bookings.venue_id` and `recalculate_booking_totals` blocks `send-availability-enquiry` and `send-schedule` proofs.
@@ -97,6 +99,6 @@
 ## Source discipline
 
 - **Confirmed from owner/project memory:** Repo `polygonia-apres/polygo`; production/staging Vercel URLs; production/staging Supabase refs; old unused ref `miprqhrrtqrlulkixmdb`; production frozen; NOSEND1D-3 CLOSED; closure commits `c6022fe`/`9c7ba0d`; NOSEND1D-3 closure basis; carry-forward queue; no post-NOSEND1D-3 product work.
-- **Confirmed from local repo docs:** None read in this phase (no product repo scanned).
+- **Confirmed from local repo (read-only, authorised 2026-06-30):** Repo `polygonia-apres/polygo` (origin); local `polygo/` on branch `send-task-notification-proof1a` @ `90eef9d`; stack `vite_react_shadcn_ts`; `supabase/config.toml` production `project_id = cefrqofhiqnfrckqpckl`.
 - **Not verified:** Live current state of staging/production (not inspected); exact present contents of `bookings.venue_id` / `recalculate_booking_totals` drift; current production deployment hash.
 - **Needs source:** Authoritative product description / scope doc for PolyGo; current PolyGo tracker percentage / status snapshot.
