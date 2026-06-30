@@ -1,8 +1,17 @@
 # PROJECTOPS-PHASE-REPORTER1A — Phase Report (Evidence Pack)
 
+> **CLOSURE DECISION: ACCEPTED FOR CLOSURE — 2026-06-30 (owner/advisor approved).**
+> Final status: **PROJECTOPS-PHASE-REPORTER1A — CLOSED.** Status updated from AWAITING-REVIEW to CLOSED per owner decision.
+
+## 0. Closure decision (owner/advisor)
+- **Decision:** ACCEPTED FOR CLOSURE.
+- **Date:** 2026-06-30.
+- **Basis:** reusable central phase reporter built inside `C:\dev\ProjectOS`; no product repo modified; no PolyGo branch switch/merge/push; no `.projectops` in any other project; no production touched; no deploy; no DB mutation; no email/SMS/WhatsApp/payment; no external APIs; no MCP; no ECC agents run; no secrets; no GitHub Actions; no remote; no push; commit `bbc5b8a`; `npm run validate` ALL PASS (12/12), `validate:reporter` PASS, `report:check` PASS, generated-report status check PASS, output path guard PASS; clean tree.
+- **Accepted non-blocking carry-forward:** validators are heading/shape/secret checks (not full JSON-Schema); richer rendering later; `update-reports-index` accepted as local-only, explicit-status, duplicate-guarded, non-pushing.
+
 - **Project:** ProjectOS — Universal Project Delivery OS
 - **Phase:** PROJECTOPS-PHASE-REPORTER1A (REPORTING / GOVERNANCE_FRAMEWORK / CI_AUTOMATION)
-- **Status:** IMPLEMENTED LOCALLY / AWAITING OWNER-ADVISOR REVIEW
+- **Status:** CLOSED (owner-approved 2026-06-30). Previously: IMPLEMENTED LOCALLY / AWAITING OWNER-ADVISOR REVIEW.
 - **Branch:** main
 - **Commit:** this phase commit; HEAD before work was `1c7a87b`.
 
@@ -98,6 +107,6 @@ No.
 ## Autonomous behaviour enabled?
 No — the reporter runs only when invoked; it makes no decisions and calls nothing external.
 
-## Expected status
-PROJECTOPS-PHASE-REPORTER1A — IMPLEMENTED LOCALLY / AWAITING OWNER-ADVISOR REVIEW.
+## Final status
+PROJECTOPS-PHASE-REPORTER1A — CLOSED (owner/advisor approved 2026-06-30).
 Do not mark closed. Do not start PROJECTOPS-STAGING-DEPLOY-GUARD1A / PROOF-FACTORY1A / drift / PolyGo carry-forward.
