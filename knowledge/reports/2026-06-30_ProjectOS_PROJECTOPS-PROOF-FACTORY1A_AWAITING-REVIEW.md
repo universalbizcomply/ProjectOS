@@ -1,8 +1,17 @@
 # PROJECTOPS-PROOF-FACTORY1A — Phase Report (Evidence Pack)
 
+> **CLOSURE DECISION: ACCEPTED FOR CLOSURE — 2026-06-30 (owner/advisor approved).**
+> Final status: **PROJECTOPS-PROOF-FACTORY1A — CLOSED.** Status updated from AWAITING-REVIEW to CLOSED per owner decision.
+
+## 0. Closure decision (owner/advisor)
+- **Decision:** ACCEPTED FOR CLOSURE.
+- **Date:** 2026-06-30.
+- **Basis:** local-only proof factory built inside `C:\dev\ProjectOS`; no product repo modified; no PolyGo branch switch/merge/push; no `.projectops` in any other project; no production touched; no proof attempted/executed; no cleanup executed; no DB mutation/seed; no deploy; no email/SMS/WhatsApp/payment; no Supabase/Vercel/Netlify/GitHub CLI or API; no external APIs; no MCP; no ECC agents run; no secrets; no GitHub Actions; no remote; no push; commit `cb1aa00`; validation: validate-all 19/19 PASS, validate:proof PASS, report:check PASS, proof request/target checks PASS, production refusal PASS, proof/evidence/cleanup generation PASS, output path guard PASS; clean tree.
+- **Accepted non-blocking carry-forward:** validators are shape/token/secret checks (not full JSON-Schema); proof factory prepares plans only; a real controlled staging proof + cleanup remain later owner-approved work; STAGING-DRIFT-DETECTOR1A / CI-GOVERNANCE1A / MULTI-PROJECT-DASHBOARD1A remain separate future phases.
+
 - **Project:** ProjectOS — Universal Project Delivery OS
 - **Phase:** PROJECTOPS-PROOF-FACTORY1A (PROOF_FACTORY / GOVERNANCE_FRAMEWORK / REPORTING)
-- **Status:** IMPLEMENTED LOCALLY / AWAITING OWNER-ADVISOR REVIEW
+- **Status:** CLOSED (owner-approved 2026-06-30). Previously: IMPLEMENTED LOCALLY / AWAITING OWNER-ADVISOR REVIEW.
 - **Branch:** main
 - **Commit:** this phase commit; HEAD before work was `88c0bd5`.
 
@@ -114,6 +123,6 @@ No.
 ## Autonomous behaviour enabled?
 No — scripts run only when invoked; they decide nothing and call nothing external.
 
-## Expected status
-PROJECTOPS-PROOF-FACTORY1A — IMPLEMENTED LOCALLY / AWAITING OWNER-ADVISOR REVIEW.
+## Final status
+PROJECTOPS-PROOF-FACTORY1A — CLOSED (owner/advisor approved 2026-06-30).
 Do not mark closed. Do not start STAGING-DRIFT-DETECTOR1A / CI-GOVERNANCE1A / MULTI-PROJECT-DASHBOARD1A / PolyGo carry-forward.
