@@ -42,4 +42,4 @@ Reports must follow security discipline: no raw secrets, no service_role keys, n
 
 | Date | Project | Phase | Status | Commit | Report file | Notes |
 |------|---------|-------|--------|--------|-------------|-------|
-| _(none yet)_ | | | | | | First entry to be added when the first report is produced. |
+| 2026-06-30 | ProjectOS | PROJECTOS-KNOWLEDGE-PACK1A | AWAITING-CLOSURE | (this commit) | `reports/2026-06-30_ProjectOS_PROJECTOS-KNOWLEDGE-PACK1A_AWAITING-CLOSURE.md` | Final closure report; awaiting owner-advisor closure decision. |
