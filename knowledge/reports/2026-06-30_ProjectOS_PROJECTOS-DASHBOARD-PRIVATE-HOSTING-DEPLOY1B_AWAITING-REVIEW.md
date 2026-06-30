@@ -1,11 +1,17 @@
 # PROJECTOS-DASHBOARD-PRIVATE-HOSTING-DEPLOY1B — Protected Deploy Attempt (Evidence Pack)
 
+> **CLOSURE DECISION: ACCEPTED AS A SAFE BLOCKED OUTCOME — 2026-06-30 (owner/advisor approved).**
+> Final status: **PROJECTOS-DASHBOARD-PRIVATE-HOSTING-DEPLOY1B — CLOSED AS BLOCKED.** Status updated from BLOCKED / AWAITING-REVIEW to CLOSED AS BLOCKED per owner decision.
+> **Closure basis:** deploy not performed; no public URL; no Vercel project; no dashboard exposure. Vercel MCP deploy correctly refused under phase rules; Vercel CLI/API token path correctly refused (no token available; tokens must not be pasted into chat); browser login impossible in the non-interactive runner; no provable protection path existed; phase correctly blocked before exposure. Prepared ProjectOS-only `projectos/dashboard-hosting/` wrapper + runbook is acceptable carry-forward. No product repo modified/scanned; no JD/BizComply install; no PolyGo branch switch/merge/push; no public exposure; no DB/email/SMS/payment/install action or authority; no GitHub Pages/Actions/`.github/workflows`; no paid add-on; no deployment-protection exception; no share link; no bypass secret; no secrets printed/committed; no force push; no tags. Evidence commit `915bb73`; local==remote synced. Validators: validate-all ALL PASS; dashboard:check PASS; dashboard:safety PASS; report:check PASS.
+> **Accepted carry-forward:** owner performs the actual Vercel deploy/auth setup manually outside chat, or approves a separately scoped deploy phase. Recommended next route: **PROJECTOS-DASHBOARD-OWNER-VERCEL-DEPLOY1C** (owner does Vercel login manually; Claude verifies protection + evidence only). Until protection is proven, dashboard remains local/private only. 1C not started.
+# PROJECTOS-DASHBOARD-PRIVATE-HOSTING-DEPLOY1B — Protected Deploy Attempt (Evidence Pack)
+
 > **Dashboard is evidence/reporting only** — no approval/closure/deploy/DB/send/payment/install authority.
 > **Outcome: BLOCKED before exposure (safe outcome B).** No deploy performed. No public URL created.
 
 1. **Project:** ProjectOS — Universal Project Delivery OS
 2. **Phase:** PROJECTOS-DASHBOARD-PRIVATE-HOSTING-DEPLOY1B (REMOTE_ACCESS / PRIVATE_HOSTING_DEPLOY / VERCEL_PROTECTED_STATIC_DASHBOARD)
-3. **Status:** PROJECTOS-DASHBOARD-PRIVATE-HOSTING-DEPLOY1B — BLOCKED (deploy not performed; protection could not be configured/proven within phase constraints). Hosting wrapper PREPARED for a future owner-authorized deploy.
+3. **Status:** PROJECTOS-DASHBOARD-PRIVATE-HOSTING-DEPLOY1B — CLOSED AS BLOCKED (owner/advisor approved 2026-06-30). Previously: BLOCKED / AWAITING-REVIEW. Hosting wrapper PREPARED for a future owner-authorized deploy.
 4. **Branch:** main
 5. **Pre-deploy HEAD:** 55f78d3
 6. **Post-deploy HEAD:** (this commit) — no deploy occurred; only wrapper/docs/report committed.
@@ -85,4 +91,4 @@ Owner/advisor: choose how to proceed with the actual protected deploy, since thi
 No deploy, no public exposure, until one of these is chosen.
 
 ## Final status
-**PROJECTOS-DASHBOARD-PRIVATE-HOSTING-DEPLOY1B — BLOCKED.** Not closed. No deploy, no hosting, no public URL. JD/BizComply installs not started.
+**PROJECTOS-DASHBOARD-PRIVATE-HOSTING-DEPLOY1B — CLOSED AS BLOCKED** (owner/advisor approved 2026-06-30). No deploy, no hosting, no public URL. JD/BizComply installs not started.
