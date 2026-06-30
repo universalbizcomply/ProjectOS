@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "projectos/schemas/dashboard-report.schema.json",
+  "title": "ProjectOS Dashboard Generation Report",
+  "description": "Report of a dashboard generation run. Evidence only; not approval.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "project", "phase", "status", "inputsRead", "outputsCreated", "projectsParsed",
+    "phasesParsed", "validationResults", "sourceLimitations", "unknowns", "risks",
+    "carryForward", "productionTouched", "externalApisUsed", "productReposScanned",
+    "secretsUsed", "decisionNeeded"
+  ],
+  "properties": {
+    "project": { "type": "string" },
+    "phase": { "type": "string" },
+    "status": { "type": "string" },
+    "inputsRead": { "type": "array", "items": { "type": "string" } },
+    "outputsCreated": { "type": "array", "items": { "type": "string" } },
+    "projectsParsed": { "type": "integer" },
+    "phasesParsed": { "type": "integer" },
+    "validationResults": { "type": "string" },
+    "sourceLimitations": { "type": "string" },
+    "unknowns": { "type": "array", "items": { "type": "string" } },
+    "risks": { "type": "array", "items": { "type": "string" } },
+    "carryForward": { "type": "array", "items": { "type": "string" } },
+    "productionTouched": { "type": "boolean" },
+    "externalApisUsed": { "type": "boolean" },
+    "productReposScanned": { "type": "boolean" },
+    "secretsUsed": { "type": "boolean" },
+    "decisionNeeded": { "type": "string" }
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "dashboardId": "<DASHBOARD_ID>",
+  "title": "ProjectOS — Multi-Project Dashboard (local static)",
+  "generatedBy": "projectos/scripts/collect-dashboard-data.cjs + build-static-dashboard.cjs",
+  "sourceRoot": "C:\\dev\\ProjectOS",
+  "knowledgePath": "knowledge",
+  "reportsPath": "knowledge/reports",
+  "outputPath": "projectos/dashboard",
+  "allowedInputPaths": ["knowledge", "knowledge/reports"],
+  "forbiddenInputPaths": ["..", "src", "supabase", "node_modules", "**/.env", "**/.env.*", "C:\\dev\\Polygo", "C:\\dev\\JD Project", "C:\\dev\\BizComply V2"],
+  "allowedProjects": ["ProjectOS", "PolyGo", "JD Testing", "BizComply/OPSoft", "CricLocal", "Coverdrive", "TKN", "ERP System"],
+  "statusModel": {
+    "project": ["ACTIVE", "LIVE", "FROZEN", "PILOT", "BLUEPRINT", "BLOCKED", "PARKED", "UNKNOWN", "NEEDS-SOURCE", "NOT-VERIFIED"],
+    "phase": ["CLOSED", "AWAITING-REVIEW", "BLOCKED", "IMPLEMENTED-LOCALLY", "ACCEPTED-FOR-CLOSURE", "DO-NOT-CLOSE", "NOT-STARTED", "UNKNOWN"]
+  },
+  "riskModel": ["LOW", "MEDIUM", "HIGH", "CRITICAL", "BLOCKER", "UNKNOWN"],
+  "refreshMode": "local-static",
+  "externalApisAllowed": false,
+  "productRepoScanningAllowed": false,
+  "secretsPolicy": { "secretsAllowed": false },
+  "approvalPolicy": { "dashboardCanApprove": false, "dashboardCanClose": false }
+}

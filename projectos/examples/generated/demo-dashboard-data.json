@@ -1,0 +1,21 @@
+{
+  "dashboard": "Demo ProjectOS Dashboard",
+  "generatedAt": "2026-06-30",
+  "sourceMode": "local-static",
+  "externalApisUsed": false,
+  "liveInspectionUsed": false,
+  "productReposScanned": false,
+  "secretsUsed": false,
+  "projects": [
+    { "projectId": "demo", "projectName": "Demo Project", "projectType": "demo", "sourceFile": "knowledge/Demo.md", "repo": "NEEDS-SOURCE", "localPath": "NEEDS-SOURCE", "liveUrl": "NEEDS-SOURCE", "stagingUrl": "NEEDS-SOURCE", "status": "UNKNOWN", "productionFreeze": "NEEDS-SOURCE", "highRiskGates": [], "currentPhase": "NEEDS-SOURCE", "closedPhases": [], "blockedItems": [], "carryForward": [], "risks": [], "nextRecommendedActions": [], "sourceConfidence": "NEEDS-SOURCE", "needsSource": ["all"], "lastUpdated": "2026-06-30" }
+  ],
+  "phases": [
+    { "phaseId": "DEMO-PHASE1A", "project": "Demo Project", "status": "AWAITING-REVIEW", "closureCommit": "0000000", "reportFile": "reports/demo.md", "date": "2026-06-30" }
+  ],
+  "risks": [],
+  "carryForward": [],
+  "blockers": [],
+  "summary": { "projects": 1, "phasesParsed": 1, "phasesClosed": 0, "phasesOpen": 1 },
+  "sourceLimitations": "Inert demo. Static only; no live inspection; no product scan.",
+  "decisionNeeded": "none (inert demo)"
+}

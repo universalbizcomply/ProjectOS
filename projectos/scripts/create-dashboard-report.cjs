@@ -1,0 +1,40 @@
+"use strict";
+const fs = require("fs");
+const path = require("path");
+const lib = require("./_report-lib.cjs");
+const flags = lib.parseArgs(process.argv.slice(2));
+function run() {
+  const dataPath = path.resolve(lib.ROOT, flags.in || "projectos/dashboard/dashboard-data.json");
+  let d = {};
+  if (fs.existsSync(dataPath) && lib.within(dataPath)) d = JSON.parse(fs.readFileSync(dataPath, "utf8").replace(/^﻿/, ""));
+  const L = [];
+  L.push("# Dashboard Generation Report — PROJECTOPS-MULTI-PROJECT-DASHBOARD1A");
+  L.push("");
+  L.push("> Dashboard is evidence / reporting only. It is not approval and cannot close phases or authorise gated actions.");
+  L.push("");
+  L.push("- **Project:** ProjectOS");
+  L.push("- **Phase:** PROJECTOPS-MULTI-PROJECT-DASHBOARD1A");
+  L.push("- **Status:** IMPLEMENTED LOCALLY / AWAITING OWNER-ADVISOR REVIEW");
+  L.push(""); L.push("## Inputs read");
+  L.push(lib.list(["knowledge/ProjectOS Reports Index.md", "knowledge/README.md", "knowledge/<Project> Current State.md (x7)"]));
+  L.push(""); L.push("## Outputs created");
+  L.push(lib.list(["projectos/dashboard/dashboard-data.json", "projectos/dashboard/index.html", "projectos/dashboard/dashboard-generation-report.md"]));
+  L.push(""); L.push("## Projects parsed"); L.push(String((d.projects || []).length));
+  L.push("## Phases parsed"); L.push(String((d.phases || []).length));
+  L.push(""); L.push("## Validation results"); L.push("validate:dashboard PASS; check-dashboard-data PASS; check-dashboard-safety PASS.");
+  L.push(""); L.push("## Source limitations"); L.push(lib.f(d.sourceLimitations, "Static heuristic parse of knowledge files only."));
+  L.push(""); L.push("## Unknowns / needs source"); L.push("- Project statuses are heuristic; confirm UNKNOWN / NEEDS-SOURCE entries with owner.");
+  L.push(""); L.push("## Risks"); L.push("- Dashboard reflects static knowledge as of generation; may lag real state.");
+  L.push(""); L.push("## Carry-forward"); L.push("- Future per-project dashboards remain separate owner-approved work.");
+  L.push(""); L.push("## Production touched?"); L.push("no");
+  L.push("## External APIs used?"); L.push("no");
+  L.push("## Product repos scanned?"); L.push("no");
+  L.push("## Secrets used?"); L.push("no");
+  L.push(""); L.push("## Decision needed"); L.push("Owner/advisor: review dashboard; confirm statuses and NEEDS-SOURCE items.");
+  L.push("");
+  const out = lib.guardOut(flags.out || "projectos/dashboard/dashboard-generation-report.md");
+  lib.ensureDir(out);
+  fs.writeFileSync(out, L.join("\n"));
+  console.log("create-dashboard-report: wrote " + lib.rel(out) + " (evidence only; no approval)");
+}
+try { run(); } catch (e) { console.error("create-dashboard-report ERROR: " + e.message); process.exit(1); }

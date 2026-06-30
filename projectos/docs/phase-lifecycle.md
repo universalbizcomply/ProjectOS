@@ -38,3 +38,7 @@ Before proof or staging work, the drift detector compares expected vs observed s
 ## CI gates
 
 Future project phases may run ProjectOS validators as CI gates (validation, secret-scan, forbidden-action, report/evidence, deploy-guard/proof-factory/drift-detector). CI can block/warn/report; it cannot approve closure or any gated action. Templates are inert until an owner-approved install. See [ci-governance.md](ci-governance.md).
+
+## Multi-project dashboard
+
+The dashboard summarises project + phase status, risks and carry-forward from static knowledge/report files for owner/advisor visibility. Evidence only; it cannot approve or close. See [multi-project-dashboard.md](multi-project-dashboard.md).

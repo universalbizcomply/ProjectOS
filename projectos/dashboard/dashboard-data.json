@@ -1,0 +1,580 @@
+{
+  "dashboard": "ProjectOS — Multi-Project Dashboard",
+  "generatedAt": "2026-06-30",
+  "sourceMode": "local-static",
+  "externalApisUsed": false,
+  "liveInspectionUsed": false,
+  "productReposScanned": false,
+  "secretsUsed": false,
+  "projects": [
+    {
+      "projectId": "projectos",
+      "projectName": "ProjectOS",
+      "projectType": "Universal Project Delivery OS (framework)",
+      "sourceFile": "knowledge/README.md",
+      "repo": "local-only (no remote)",
+      "localPath": "C:\\dev\\ProjectOS",
+      "liveUrl": "NEEDS-SOURCE",
+      "stagingUrl": "NEEDS-SOURCE",
+      "status": "ACTIVE",
+      "productionFreeze": "n/a",
+      "highRiskGates": [
+        "production deploy",
+        "db mutation",
+        "real send",
+        "payment",
+        "closure"
+      ],
+      "currentPhase": "PROJECTOPS-MULTI-PROJECT-DASHBOARD1A",
+      "closedPhases": [],
+      "blockedItems": [],
+      "carryForward": [],
+      "risks": [],
+      "nextRecommendedActions": [
+        "Owner review of dashboard"
+      ],
+      "sourceConfidence": "framework self-entry",
+      "needsSource": [],
+      "lastUpdated": "2026-06-30"
+    },
+    {
+      "projectId": "polygo",
+      "projectName": "PolyGo",
+      "projectType": "Client project (staffing / booking / scheduling platform — based on observed edge functions for offers, assignments, bookings, invoices, job sheets).",
+      "sourceFile": "knowledge/PolyGo Current State.md",
+      "repo": "polygonia-apres/polygo",
+      "localPath": "NEEDS-SOURCE",
+      "liveUrl": "https://polygo-jet.vercel.app",
+      "stagingUrl": "NEEDS-SOURCE",
+      "status": "FROZEN",
+      "productionFreeze": "true",
+      "highRiskGates": [],
+      "currentPhase": "NEEDS-SOURCE",
+      "closedPhases": [],
+      "blockedItems": [],
+      "carryForward": [
+        "STAGING-PARITY-BOOKING-TOTALS1A — resolve staging `bookings.venue_id` / `recalculate_booking_totals` drift.",
+        "SEND-TASK-NOTIFICATION-PROOF1A — prove `send-task-notification` once its pre-existing auth/users/profile guard is addressed."
+      ],
+      "risks": [
+        "Staging drift on `bookings.venue_id` and `recalculate_booking_totals` blocks `send-availability-enquiry` and `send-schedule` proofs.",
+        "`send-task-notification` blocked by pre-existing auth/users/profile guard.",
+        "Production freeze must be respected; no production action without explicit owner approval."
+      ],
+      "nextRecommendedActions": [
+        "STAGING-PARITY-BOOKING-TOTALS1A (carry-forward).",
+        "SEND-TASK-NOTIFICATION-PROOF1A (carry-forward).",
+        "(Sequencing relative to ProjectOS install to be decided by owner/advisor.)"
+      ],
+      "sourceConfidence": "static-knowledge-file (heuristic parse)",
+      "needsSource": [],
+      "lastUpdated": "2026-06-30"
+    },
+    {
+      "projectId": "jd-testing",
+      "projectName": "JD Testing",
+      "projectType": "Controlled completion + improvement of an existing **Lovable-imported** web app.",
+      "sourceFile": "knowledge/JD Testing Current State.md",
+      "repo": "supabase/config.toml",
+      "localPath": "C:\\dev\\JD Project",
+      "liveUrl": "https://github.com/jdonlinetesting/JDtesting.git",
+      "stagingUrl": "NEEDS-SOURCE",
+      "status": "LIVE",
+      "productionFreeze": "NEEDS-SOURCE",
+      "highRiskGates": [
+        "Stripe + TrueLayer (open banking) payment flows are sensitive (live financial).",
+        "Customer / health-adjacent data: intolerance testing, consultation forms, result certificates → GDPR special-category-adjacent personal data — sensitive.",
+        "Booking / customer emails (Resend) are sensitive.",
+        "Booking mutation is sensitive."
+      ],
+      "currentPhase": "NEEDS-SOURCE",
+      "closedPhases": [],
+      "blockedItems": [],
+      "carryForward": [
+        "Stripe not wired to booking flow — `create-checkout-session` exists but `BookService.tsx` bypasses it (currently pay-on-site); webhook security already fixed (JD-STRIPE1A).",
+        "TrueLayer (target primary payment) — two Edge Function drafts created (`create-truelayer-payment-link`, `truelayer-webhook`), not deployed, not wired.",
+        "SMS — `send-sms-reminder` Edge Function + migration drafts created; needs provider account + activation (JD-SMS1).",
+        "Branded email sender `noreply@jdtestingonline.com` blocked on Resend domain DNS verification (owner-side); currently sends from `onboarding@resend.dev`.",
+        "Site-specific payment routing / finance module — `sites` lacks payment fields; single global Stripe key; no per-site finance.",
+        "Owner acceptance backlog: many phases sit \"COMPLETE — awaiting acceptance\"."
+      ],
+      "risks": [
+        "Live payment platform: any production action carries financial + customer risk.",
+        "Health-adjacent personal data → GDPR exposure risk on any data handling.",
+        "Lovable-imported app: theme/design and shadcn primitives must not be changed without client approval.",
+        "Migrations are immutable; only add new timestamped migrations.",
+        "`supabase/config.toml` points at the stale ref `nmqhqlzxaticlbificos` while live is `rawfqlvnylobdnwwxraz` — config should be corrected so tooling/CLI cannot target the wrong project.",
+        "Two role systems coexist (`profiles.role` + `user_roles` table) — RLS inconsistency risk."
+      ],
+      "nextRecommendedActions": [
+        "Treat payment, customer/health data, customer email, booking mutation and production deploy as high-risk gates.",
+        "No real charge, no real customer/health-data send, no booking mutation, no production deploy without explicit owner approval.",
+        "Enforce the project's payment-safety invariant (no `confirmed` before webhook) and migration-hygiene rule.",
+        "Honour \"no redesign\" and \"phased delivery only\" client rules."
+      ],
+      "sourceConfidence": "static-knowledge-file (heuristic parse)",
+      "needsSource": [
+        "Precise current deployment hash / release status and active host (Vercel vs Netlify): NOT VERIFIED — `NEEDS SOURCE`."
+      ],
+      "lastUpdated": "2026-06-30"
+    },
+    {
+      "projectId": "bizcomply-opsoft",
+      "projectName": "BizComply/OPSoft",
+      "projectType": "NEEDS-SOURCE",
+      "sourceFile": "knowledge/BizComply OPSoft Current State.md",
+      "repo": "origin/main",
+      "localPath": "C:\\dev\\BizComply V2",
+      "liveUrl": "https://github.com/universalbizcomply",
+      "stagingUrl": "NEEDS-SOURCE",
+      "status": "PILOT",
+      "productionFreeze": "NEEDS-SOURCE",
+      "highRiskGates": [
+        "Multi-tenant: tenant isolation is critical (RLS-enforced; cross-tenant exposure is the top risk).",
+        "High-risk gates: role/security/RLS changes, payment/Stripe (live charge/refund), compliance evidence integrity, production deploy.",
+        "ProjectOS rules should require strict database/security review for tenant access, role changes, RLS policies and production deploys.",
+        "An active SECURITY-ACCESS-HARDEN track (Track 0) exists; master audit at `Source/docs/OPSOFT_MASTER_AUDIT_AND_EXECUTION_PLAN.md`."
+      ],
+      "currentPhase": "NEEDS-SOURCE",
+      "closedPhases": [],
+      "blockedItems": [],
+      "carryForward": [
+        "137 queued phases. Notable:",
+        "Stage 18 — SEO, Marketing, Reputation & Growth (all QUEUED, 0% started).",
+        "ANDROID-HW-SMOKE1A / IOS-HW-SMOKE1A — physical printer + cash-drawer certification on mobile NOT done (Windows/local-bridge proof only so far).",
+        "Marketplace (Uber Eats / Deliveroo / Just Eat) — PARKED (source-of-truth only).",
+        "Open audit items: C2 (device-revoke owner-floor), C3 (allergen save-path — LOCKED exception), C4 (stripe2e validator HMAC), H1–H21, plus MEDIUMs."
+      ],
+      "risks": [
+        "Live multi-tenant production: any RLS/role error risks cross-tenant data exposure on a real pilot tenant.",
+        "Payment paths are live (Stripe Connect / deposits / refunds) — no live charge/refund without explicit owner approval.",
+        "Single-file React monolith + critical locks → high regression risk; surgical edits only.",
+        "Branch/remote posture (main vs `source-import-2026-05-16`) must be reconfirmed before any deploy.",
+        "Compliance evidence integrity is a regulated concern (Home Office RTW, food safety, allergen/PPDS)."
+      ],
+      "nextRecommendedActions": [
+        "Require strict database/security review for tenant access, role changes, RLS policies and production deploys.",
+        "No production deploy, no production DB mutation, no live stripe [redacted]/refund, no real email (Resend) send without explicit owner approval.",
+        "Honour the project's existing critical-locks list and approval-gated phase model.",
+        "Reuse the project's existing validator/evidence discipline (`val-*.cjs`, read-only evidence validators, sandbox-tenant smoke) as the proof-factory pattern."
+      ],
+      "sourceConfidence": "static-knowledge-file (heuristic parse)",
+      "needsSource": [
+        "Marketing/public domain: NOT VERIFIED — `NEEDS SOURCE`."
+      ],
+      "lastUpdated": "2026-06-30"
+    },
+    {
+      "projectId": "criclocal",
+      "projectName": "CricLocal",
+      "projectType": "Local cricket league / club management + live-scoring platform (SaaS-style).",
+      "sourceFile": "knowledge/CricLocal Current State.md",
+      "repo": "criclocal-repo/docs",
+      "localPath": "C:\\dev\\CricLocal",
+      "liveUrl": "https://github.com/muraddevbuild-maker/criclocal",
+      "stagingUrl": "NEEDS-SOURCE",
+      "status": "LIVE",
+      "productionFreeze": "NEEDS-SOURCE",
+      "highRiskGates": [
+        "Stripe payments present → sensitive (live financial if activated).",
+        "User/player profiles + trade/marketplace data → personal data, sensitive.",
+        "ProjectOS should treat payment and production deploy as high-risk gates."
+      ],
+      "currentPhase": "NEEDS-SOURCE",
+      "closedPhases": [],
+      "blockedItems": [],
+      "carryForward": [
+        "NEEDS SOURCE."
+      ],
+      "risks": [
+        "Multiple local copies (`criclocal-repo` vs `CricLocal-Source` vs `CricLocal-Cowork`) → drift / source-of-truth risk; `criclocal-repo` (git) is canonical.",
+        "Payment (Stripe) and any production deploy are high-risk.",
+        "Detailed risk register: NEEDS SOURCE."
+      ],
+      "nextRecommendedActions": [
+        "Treat payment and production deploy as high-risk gates; no live charge / production deploy without explicit owner approval.",
+        "Resolve which local copy is canonical before any install (use `criclocal-repo`).",
+        "Install a project-local `.projectops` folder only after owner/advisor approval."
+      ],
+      "sourceConfidence": "static-knowledge-file (heuristic parse)",
+      "needsSource": [
+        "Vercel-hosted; live URL / current deploy hash NOT VERIFIED — `NEEDS SOURCE`.",
+        "NEEDS SOURCE — `criclocal-repo/docs` not enumerated this pass. Latest commit `4ae5eb4` (custom match rules).",
+        "NEEDS SOURCE.",
+        "Detailed risk register: NEEDS SOURCE."
+      ],
+      "lastUpdated": "2026-06-30"
+    },
+    {
+      "projectId": "coverdrive",
+      "projectName": "Coverdrive",
+      "projectType": "Production SaaS-style **booking platform** for Coverdrive Indoor Cricket Centre, Manchester.",
+      "sourceFile": "knowledge/Coverdrive Current State.md",
+      "repo": "coverdrivemanchester-art/Coverdrive",
+      "localPath": "C:\\dev\\Coverdrive",
+      "liveUrl": "https://github.com/coverdrivemanchester-art/Coverdrive.git",
+      "stagingUrl": "NEEDS-SOURCE",
+      "status": "LIVE",
+      "productionFreeze": "NEEDS-SOURCE",
+      "highRiskGates": [
+        "Stripe payments → sensitive (live financial).",
+        "Customer booking + contact data + Resend emails → sensitive.",
+        "Booking mutation + lane/pricing admin → sensitive.",
+        "ProjectOS should treat payment, customer email, booking mutation and production deploy as high-risk gates."
+      ],
+      "currentPhase": "NEEDS-SOURCE",
+      "closedPhases": [],
+      "blockedItems": [],
+      "carryForward": [
+        "NEEDS SOURCE."
+      ],
+      "risks": [
+        "Live payments + customer PII on a single-tenant booking site.",
+        "Detailed risk register: NEEDS SOURCE."
+      ],
+      "nextRecommendedActions": [
+        "Treat payment, customer email, booking mutation and production deploy as high-risk gates; no live charge / real send / production deploy without explicit owner approval.",
+        "Install a project-local `.projectops` folder only after owner/advisor approval."
+      ],
+      "sourceConfidence": "static-knowledge-file (heuristic parse)",
+      "needsSource": [
+        "Described as \"production-ready\"; live URL / current deploy hash NOT VERIFIED — `NEEDS SOURCE`.",
+        "NEEDS SOURCE — latest commit `cfe357f` (dashboard revalidate fix).",
+        "NEEDS SOURCE.",
+        "Detailed risk register: NEEDS SOURCE."
+      ],
+      "lastUpdated": "2026-06-30"
+    },
+    {
+      "projectId": "tkn",
+      "projectName": "TKN",
+      "projectType": "Independent, production-ready **ecommerce** storefront.",
+      "sourceFile": "knowledge/TKN Current State.md",
+      "repo": "NEEDS-SOURCE",
+      "localPath": "C:\\dev\\TKN",
+      "liveUrl": "NEEDS-SOURCE",
+      "stagingUrl": "NEEDS-SOURCE",
+      "status": "LIVE",
+      "productionFreeze": "NEEDS-SOURCE",
+      "highRiskGates": [
+        "Stripe + PayPal checkout → sensitive (live financial; dual provider).",
+        "Customer accounts, orders, addresses + Resend emails → personal data, sensitive.",
+        "ProjectOS should treat payment, customer email, order mutation and production deploy as high-risk gates."
+      ],
+      "currentPhase": "NEEDS-SOURCE",
+      "closedPhases": [],
+      "blockedItems": [],
+      "carryForward": [
+        "NEEDS SOURCE."
+      ],
+      "risks": [
+        "No local git → no version history / source-of-truth tracking; establish a repo before any controlled delivery.",
+        "Dual live payment providers (Stripe + PayPal) increase financial surface.",
+        "Detailed risk register: NEEDS SOURCE."
+      ],
+      "nextRecommendedActions": [
+        "Treat payment (Stripe + PayPal), customer email, order mutation and production deploy as high-risk gates; no live charge / real send / production deploy without explicit owner approval.",
+        "Recommend initialising a git repo / remote before ProjectOS controlled-delivery install.",
+        "Install a project-local `.projectops` folder only after owner/advisor approval."
+      ],
+      "sourceConfidence": "static-knowledge-file (heuristic parse)",
+      "needsSource": [
+        "No git repository in the source (`C:\\dev\\TKN\\streetwear` has no `.git`). Local-only working copy. Remote: `NEEDS SOURCE`.",
+        "Described as \"production-ready\"; live URL / deploy status / git remote NOT VERIFIED — `NEEDS SOURCE`.",
+        "NEEDS SOURCE — no git history available locally; `docs/` not enumerated this pass.",
+        "NEEDS SOURCE.",
+        "Detailed risk register: NEEDS SOURCE."
+      ],
+      "lastUpdated": "2026-06-30"
+    },
+    {
+      "projectId": "erp-system",
+      "projectName": "ERP System",
+      "projectType": "AI-powered Auto Parts ERP for the UK market. Stated goal: absolute lowest cost, maximum accuracy.",
+      "sourceFile": "knowledge/ERP System Current State.md",
+      "repo": "NEEDS-SOURCE",
+      "localPath": "NEEDS-SOURCE",
+      "liveUrl": "NEEDS-SOURCE",
+      "stagingUrl": "NEEDS-SOURCE",
+      "status": "BLUEPRINT",
+      "productionFreeze": "NEEDS-SOURCE",
+      "highRiskGates": [
+        "Handles supplier master data, VAT, pricing, inventory, invoice OCR → financial + supplier PII; high-risk by default.",
+        "Paid external API (UKVehicleData) + AI API usage → cost-control + key-management concern.",
+        "ProjectOS should gate production deploy, DB mutation, and any paid-API/AI key usage."
+      ],
+      "currentPhase": "NEEDS-SOURCE",
+      "closedPhases": [],
+      "blockedItems": [],
+      "carryForward": [
+        "Build-out from blueprint (schema apply, FastAPI service, Next.js frontend, OCR pipeline). Not yet phased. `NEEDS SOURCE`."
+      ],
+      "risks": [
+        "Only a blueprint + 4 scaffold files; everything beyond is unbuilt.",
+        "Paid VRM API + AI routing → live cost exposure once active.",
+        "pgvector embedding pipeline + RLS need careful security review."
+      ],
+      "nextRecommendedActions": [
+        "Treat as greenfield: ProjectOS could scaffold the delivery phases from `BLUEPRINT.md`.",
+        "Gate production deploy, DB mutation, paid-API and AI-key usage.",
+        "Establish a git repo before any controlled delivery.",
+        "Install a project-local `.projectops` folder only after owner/advisor approval."
+      ],
+      "sourceConfidence": "static-knowledge-file (heuristic parse)",
+      "needsSource": [
+        "No git / not deployed. Source is a 5-file `files.zip` archive. Repo / remote: `NEEDS SOURCE`.",
+        "Pre-build / blueprint — no deployment, no repo. `NEEDS SOURCE` for any live status.",
+        "None recorded (blueprint stage). `NEEDS SOURCE`.",
+        "Build-out from blueprint (schema apply, FastAPI service, Next.js frontend, OCR pipeline). Not yet phased. `NEEDS SOURCE`."
+      ],
+      "lastUpdated": "2026-06-30"
+    }
+  ],
+  "phases": [
+    {
+      "date": "2026-06-30",
+      "project": "ProjectOS",
+      "phaseId": "PROJECTOS-KNOWLEDGE-PACK1A",
+      "status": "CLOSED",
+      "closureCommit": "408cccc (report)",
+      "reportFile": "reports/2026-06-30_ProjectOS_PROJECTOS-KNOWLEDGE-PACK1A_AWAITING-CLOSURE.md",
+      "notes": "Closed by owner/advisor 2026-06-30. Memory artefacts excluded from deliverables; carry-forward recorded only."
+    },
+    {
+      "date": "2026-06-30",
+      "project": "ProjectOS",
+      "phaseId": "PROJECTOPS-UNIVERSAL1A",
+      "status": "CLOSED",
+      "closureCommit": "4373ffd (baseline)",
+      "reportFile": "reports/2026-06-30_ProjectOS_PROJECTOPS-UNIVERSAL1A_AWAITING-REVIEW.md",
+      "notes": "Universal framework baseline. Closed by owner/advisor 2026-06-30. `npm run validate` ALL PASS. Carry-forward: basic validators; empty example dirs not to be pop"
+    },
+    {
+      "date": "2026-06-30",
+      "project": "ProjectOS",
+      "phaseId": "PROJECTOPS-ECC-REVIEW-WIRING1A",
+      "status": "CLOSED",
+      "closureCommit": "85254e3 (baseline)",
+      "reportFile": "reports/2026-06-30_ProjectOS_PROJECTOPS-ECC-REVIEW-WIRING1A_AWAITING-REVIEW.md",
+      "notes": "Controlled ECC review wiring. Closed by owner/advisor 2026-06-30. ECC = evidence-only; external tools/MCP/autonomous OFF by default. `npm run validate` ALL PASS"
+    },
+    {
+      "date": "2026-06-30",
+      "project": "PolyGo",
+      "phaseId": "PROJECTOPS-POLYGO-INSTALL1A",
+      "status": "CLOSED",
+      "closureCommit": "PolyGo bc0d285 (branch projectops-polygo-install1a; install 1c0a2ff)",
+      "reportFile": "reports/2026-06-30_PolyGo_PROJECTOPS-POLYGO-INSTALL1A_AWAITING-REVIEW.md",
+      "notes": "First per-project install. Closed by owner/advisor 2026-06-30. `.projectops` config-only, local branch, not pushed/merged. validate-all ALL PASS. No product cod"
+    },
+    {
+      "date": "2026-06-30",
+      "project": "ProjectOS",
+      "phaseId": "PROJECTOPS-PHASE-REPORTER1A",
+      "status": "CLOSED",
+      "closureCommit": "(this commit)",
+      "reportFile": "reports/2026-06-30_ProjectOS_PROJECTOPS-PHASE-REPORTER1A_AWAITING-REVIEW.md",
+      "notes": "Reusable local-only phase reporter (generate/validate evidence, pre-push, closure; index mgmt). validate-all 12/12 PASS. No approval/closure; no external calls;"
+    },
+    {
+      "date": "2026-06-30",
+      "project": "ProjectOS",
+      "phaseId": "PROJECTOPS-STAGING-DEPLOY-GUARD1A",
+      "status": "CLOSED",
+      "closureCommit": "(this commit)",
+      "reportFile": "reports/2026-06-30_ProjectOS_PROJECTOPS-STAGING-DEPLOY-GUARD1A_AWAITING-REVIEW.md",
+      "notes": "Local-only staging deploy guard (validate request/target, generate plan + result skeleton). Never deploys; production refused by default; no hosting CLI/externa"
+    },
+    {
+      "date": "2026-06-30",
+      "project": "ProjectOS",
+      "phaseId": "PROJECTOPS-PROOF-FACTORY1A",
+      "status": "CLOSED",
+      "closureCommit": "(this commit)",
+      "reportFile": "reports/2026-06-30_ProjectOS_PROJECTOPS-PROOF-FACTORY1A_AWAITING-REVIEW.md",
+      "notes": "Local-only proof factory (validate request/target; generate proof plan + evidence skeleton + cleanup plan). Runs no proof/cleanup; production refused by default"
+    },
+    {
+      "date": "2026-06-30",
+      "project": "ProjectOS",
+      "phaseId": "PROJECTOPS-STAGING-DRIFT-DETECTOR1A",
+      "status": "CLOSED",
+      "closureCommit": "(this commit)",
+      "reportFile": "reports/2026-06-30_ProjectOS_PROJECTOPS-STAGING-DRIFT-DETECTOR1A_AWAITING-REVIEW.md",
+      "notes": "Local-only staging drift detector (compare static expected vs observed snapshots; forbidden-ref HARD-STOP). No live inspection/repair/connection; production ref"
+    },
+    {
+      "date": "2026-06-30",
+      "project": "ProjectOS",
+      "phaseId": "PROJECTOPS-CI-GOVERNANCE1A",
+      "status": "CLOSED",
+      "closureCommit": "(this commit)",
+      "reportFile": "reports/2026-06-30_ProjectOS_PROJECTOPS-CI-GOVERNANCE1A_AWAITING-REVIEW.md",
+      "notes": "Local-only CI governance (policy/inert workflow template/required checks/CI report/branch-protection recs). No CI install, no .github/workflows, no GitHub Actio"
+    },
+    {
+      "date": "2026-06-30",
+      "project": "ProjectOS",
+      "phaseId": "PROJECTOPS-MULTI-PROJECT-DASHBOARD1A",
+      "status": "AWAITING-REVIEW",
+      "closureCommit": "(this commit)",
+      "reportFile": "reports/2026-06-30_ProjectOS_PROJECTOPS-MULTI-PROJECT-DASHBOARD1A_AWAITING-REVIEW.md",
+      "notes": "Local-only static multi-project dashboard (reads knowledge/report files; generates dashboard-data.json + inline-only index.html + generation report). No product"
+    }
+  ],
+  "risks": [
+    {
+      "project": "PolyGo",
+      "level": "UNKNOWN",
+      "text": "Staging drift on `bookings.venue_id` and `recalculate_booking_totals` blocks `send-availability-enquiry` and `send-schedule` proofs."
+    },
+    {
+      "project": "PolyGo",
+      "level": "UNKNOWN",
+      "text": "`send-task-notification` blocked by pre-existing auth/users/profile guard."
+    },
+    {
+      "project": "PolyGo",
+      "level": "UNKNOWN",
+      "text": "Production freeze must be respected; no production action without explicit owner approval."
+    },
+    {
+      "project": "JD Testing",
+      "level": "UNKNOWN",
+      "text": "Live payment platform: any production action carries financial + customer risk."
+    },
+    {
+      "project": "JD Testing",
+      "level": "UNKNOWN",
+      "text": "Health-adjacent personal data → GDPR exposure risk on any data handling."
+    },
+    {
+      "project": "JD Testing",
+      "level": "UNKNOWN",
+      "text": "Lovable-imported app: theme/design and shadcn primitives must not be changed without client approval."
+    },
+    {
+      "project": "JD Testing",
+      "level": "UNKNOWN",
+      "text": "Migrations are immutable; only add new timestamped migrations."
+    },
+    {
+      "project": "JD Testing",
+      "level": "UNKNOWN",
+      "text": "`supabase/config.toml` points at the stale ref `nmqhqlzxaticlbificos` while live is `rawfqlvnylobdnwwxraz` — config should be corrected so tooling/CLI cannot target the wrong project."
+    },
+    {
+      "project": "JD Testing",
+      "level": "UNKNOWN",
+      "text": "Two role systems coexist (`profiles.role` + `user_roles` table) — RLS inconsistency risk."
+    },
+    {
+      "project": "BizComply/OPSoft",
+      "level": "UNKNOWN",
+      "text": "Live multi-tenant production: any RLS/role error risks cross-tenant data exposure on a real pilot tenant."
+    },
+    {
+      "project": "BizComply/OPSoft",
+      "level": "UNKNOWN",
+      "text": "Payment paths are live (Stripe Connect / deposits / refunds) — no live charge/refund without explicit owner approval."
+    },
+    {
+      "project": "BizComply/OPSoft",
+      "level": "UNKNOWN",
+      "text": "Single-file React monolith + critical locks → high regression risk; surgical edits only."
+    },
+    {
+      "project": "BizComply/OPSoft",
+      "level": "UNKNOWN",
+      "text": "Branch/remote posture (main vs `source-import-2026-05-16`) must be reconfirmed before any deploy."
+    },
+    {
+      "project": "BizComply/OPSoft",
+      "level": "UNKNOWN",
+      "text": "Compliance evidence integrity is a regulated concern (Home Office RTW, food safety, allergen/PPDS)."
+    },
+    {
+      "project": "CricLocal",
+      "level": "UNKNOWN",
+      "text": "Multiple local copies (`criclocal-repo` vs `CricLocal-Source` vs `CricLocal-Cowork`) → drift / source-of-truth risk; `criclocal-repo` (git) is canonical."
+    },
+    {
+      "project": "CricLocal",
+      "level": "UNKNOWN",
+      "text": "Payment (Stripe) and any production deploy are high-risk."
+    },
+    {
+      "project": "CricLocal",
+      "level": "UNKNOWN",
+      "text": "Detailed risk register: NEEDS SOURCE."
+    },
+    {
+      "project": "Coverdrive",
+      "level": "UNKNOWN",
+      "text": "Live payments + customer PII on a single-tenant booking site."
+    },
+    {
+      "project": "Coverdrive",
+      "level": "UNKNOWN",
+      "text": "Detailed risk register: NEEDS SOURCE."
+    },
+    {
+      "project": "TKN",
+      "level": "UNKNOWN",
+      "text": "No local git → no version history / source-of-truth tracking; establish a repo before any controlled delivery."
+    },
+    {
+      "project": "TKN",
+      "level": "UNKNOWN",
+      "text": "Dual live payment providers (Stripe + PayPal) increase financial surface."
+    },
+    {
+      "project": "TKN",
+      "level": "UNKNOWN",
+      "text": "Detailed risk register: NEEDS SOURCE."
+    },
+    {
+      "project": "ERP System",
+      "level": "UNKNOWN",
+      "text": "Only a blueprint + 4 scaffold files; everything beyond is unbuilt."
+    },
+    {
+      "project": "ERP System",
+      "level": "UNKNOWN",
+      "text": "Paid VRM API + AI routing → live cost exposure once active."
+    },
+    {
+      "project": "ERP System",
+      "level": "UNKNOWN",
+      "text": "pgvector embedding pipeline + RLS need careful security review."
+    }
+  ],
+  "carryForward": [
+    "PolyGo: STAGING-PARITY-BOOKING-TOTALS1A — resolve staging `bookings.venue_id` / `recalculate_booking_totals` drift.",
+    "PolyGo: SEND-TASK-NOTIFICATION-PROOF1A — prove `send-task-notification` once its pre-existing auth/users/profile guard is addressed.",
+    "JD Testing: Stripe not wired to booking flow — `create-checkout-session` exists but `BookService.tsx` bypasses it (currently pay-on-site); webhook security already fixed (JD-STRIPE1A).",
+    "JD Testing: TrueLayer (target primary payment) — two Edge Function drafts created (`create-truelayer-payment-link`, `truelayer-webhook`), not deployed, not wired.",
+    "JD Testing: SMS — `send-sms-reminder` Edge Function + migration drafts created; needs provider account + activation (JD-SMS1).",
+    "JD Testing: Branded email sender `noreply@jdtestingonline.com` blocked on Resend domain DNS verification (owner-side); currently sends from `onboarding@resend.dev`.",
+    "JD Testing: Site-specific payment routing / finance module — `sites` lacks payment fields; single global Stripe key; no per-site finance.",
+    "JD Testing: Owner acceptance backlog: many phases sit \"COMPLETE — awaiting acceptance\".",
+    "BizComply/OPSoft: 137 queued phases. Notable:",
+    "BizComply/OPSoft: Stage 18 — SEO, Marketing, Reputation & Growth (all QUEUED, 0% started).",
+    "BizComply/OPSoft: ANDROID-HW-SMOKE1A / IOS-HW-SMOKE1A — physical printer + cash-drawer certification on mobile NOT done (Windows/local-bridge proof only so far).",
+    "BizComply/OPSoft: Marketplace (Uber Eats / Deliveroo / Just Eat) — PARKED (source-of-truth only).",
+    "BizComply/OPSoft: Open audit items: C2 (device-revoke owner-floor), C3 (allergen save-path — LOCKED exception), C4 (stripe2e validator HMAC), H1–H21, plus MEDIUMs.",
+    "CricLocal: NEEDS SOURCE.",
+    "Coverdrive: NEEDS SOURCE.",
+    "TKN: NEEDS SOURCE.",
+    "ERP System: Build-out from blueprint (schema apply, FastAPI service, Next.js frontend, OCR pipeline). Not yet phased. `NEEDS SOURCE`."
+  ],
+  "blockers": [],
+  "summary": {
+    "projects": 8,
+    "phasesParsed": 10,
+    "phasesClosed": 9,
+    "phasesOpen": 1
+  },
+  "sourceLimitations": "Derived from static ProjectOS knowledge/report files only via heuristic parsing; no live inspection, no product repo scan. Unclear values marked UNKNOWN / NEEDS-SOURCE / NOT-VERIFIED.",
+  "decisionNeeded": "Owner/advisor: review dashboard; confirm project statuses and NEEDS-SOURCE items."
+}

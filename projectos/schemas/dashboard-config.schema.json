@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "projectos/schemas/dashboard-config.schema.json",
+  "title": "ProjectOS Dashboard Config",
+  "description": "Local-static dashboard configuration. Reads ProjectOS knowledge/report files only. No external APIs, no product repo scanning, no secrets.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "dashboardId", "title", "generatedBy", "sourceRoot", "knowledgePath", "reportsPath",
+    "outputPath", "allowedInputPaths", "forbiddenInputPaths", "allowedProjects",
+    "statusModel", "riskModel", "refreshMode", "externalApisAllowed",
+    "productRepoScanningAllowed", "secretsPolicy", "approvalPolicy"
+  ],
+  "properties": {
+    "dashboardId": { "type": "string" },
+    "title": { "type": "string" },
+    "generatedBy": { "type": "string" },
+    "sourceRoot": { "type": "string" },
+    "knowledgePath": { "type": "string" },
+    "reportsPath": { "type": "string" },
+    "outputPath": { "type": "string" },
+    "allowedInputPaths": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "forbiddenInputPaths": { "type": "array", "items": { "type": "string" } },
+    "allowedProjects": { "type": "array", "items": { "type": "string" } },
+    "statusModel": { "type": "object" },
+    "riskModel": { "type": "array", "items": { "type": "string" } },
+    "refreshMode": { "type": "string", "enum": ["local-static"], "description": "Must be local-static." },
+    "externalApisAllowed": { "type": "boolean", "description": "Must be false." },
+    "productRepoScanningAllowed": { "type": "boolean", "description": "Must be false." },
+    "secretsPolicy": { "type": "object", "required": ["secretsAllowed"], "properties": { "secretsAllowed": { "type": "boolean", "description": "Must be false." } } },
+    "approvalPolicy": { "type": "object", "required": ["dashboardCanApprove", "dashboardCanClose"], "properties": { "dashboardCanApprove": { "type": "boolean", "description": "Must be false." }, "dashboardCanClose": { "type": "boolean", "description": "Must be false." } } }
+  }
+}

@@ -37,3 +37,7 @@ The drift detector (projectos/scripts/*drift*.cjs) compares two supplied static 
 ## CI governance
 
 CI governance (projectos/scripts/check-ci-*.cjs, inert workflow template) defines CI gates that can block/warn/report but never approve. Production auto-deploy, live DB mutation and real send/payment are disabled by default; .github/workflows is forbidden in this phase; approval is never inferred. See [ci-governance.md](ci-governance.md).
+
+## Multi-project dashboard
+
+The dashboard (projectos/scripts/*dashboard*.cjs) reads only ProjectOS static knowledge/report files and renders a local static HTML view. It scans no product repos, calls no external API, and has no approval/closure authority (config: dashboardCanApprove=false, dashboardCanClose=false). See [multi-project-dashboard.md](multi-project-dashboard.md).

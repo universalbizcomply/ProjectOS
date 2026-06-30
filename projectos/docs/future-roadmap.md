@@ -39,3 +39,7 @@ A local-only staging drift detector now compares supplied static snapshots and r
 ## CI governance (delivered in PROJECTOPS-CI-GOVERNANCE1A)
 
 A local-only CI governance baseline now defines CI gates, an inert workflow template, required checks, CI reports and branch-protection recommendations. It installs no CI, creates no GitHub Actions, and keeps production deploy / live DB / send / payment owner-gated. Per-project CI install remains a separate owner-approved phase. See [ci-governance.md](ci-governance.md).
+
+## Multi-project dashboard (delivered in PROJECTOPS-MULTI-PROJECT-DASHBOARD1A)
+
+A local-only multi-project dashboard now reads ProjectOS static knowledge/report files and generates dashboard data + a static HTML dashboard (inline CSS only) + a generation report. It scans no product repos, calls no external API, and has no approval/closure authority. Per-project dashboards remain separate owner-approved work. This completes the planned ProjectOS build order. See [multi-project-dashboard.md](multi-project-dashboard.md).

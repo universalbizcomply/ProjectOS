@@ -1,0 +1,19 @@
+{
+  "dashboardId": "demo-dashboard-001",
+  "title": "Demo ProjectOS Dashboard (inert)",
+  "generatedBy": "collect-dashboard-data.cjs + build-static-dashboard.cjs",
+  "sourceRoot": "C:\\dev\\ProjectOS",
+  "knowledgePath": "knowledge",
+  "reportsPath": "knowledge/reports",
+  "outputPath": "projectos/examples/generated",
+  "allowedInputPaths": ["knowledge", "knowledge/reports"],
+  "forbiddenInputPaths": ["..", "src", "supabase", "node_modules", "**/.env"],
+  "allowedProjects": ["ProjectOS", "PolyGo", "JD Testing", "BizComply/OPSoft", "CricLocal", "Coverdrive", "TKN", "ERP System"],
+  "statusModel": { "project": ["ACTIVE", "LIVE", "FROZEN", "PILOT", "BLUEPRINT", "BLOCKED", "PARKED", "UNKNOWN", "NEEDS-SOURCE", "NOT-VERIFIED"], "phase": ["CLOSED", "AWAITING-REVIEW", "BLOCKED", "IMPLEMENTED-LOCALLY", "ACCEPTED-FOR-CLOSURE", "DO-NOT-CLOSE", "NOT-STARTED", "UNKNOWN"] },
+  "riskModel": ["LOW", "MEDIUM", "HIGH", "CRITICAL", "BLOCKER", "UNKNOWN"],
+  "refreshMode": "local-static",
+  "externalApisAllowed": false,
+  "productRepoScanningAllowed": false,
+  "secretsPolicy": { "secretsAllowed": false },
+  "approvalPolicy": { "dashboardCanApprove": false, "dashboardCanClose": false }
+}

@@ -1,0 +1,21 @@
+{
+  "dashboard": "ProjectOS — Multi-Project Dashboard",
+  "generatedAt": "2026-06-30",
+  "sourceMode": "local-static",
+  "externalApisUsed": false,
+  "liveInspectionUsed": false,
+  "productReposScanned": false,
+  "secretsUsed": false,
+  "projects": [
+    { "projectId": "<id>", "projectName": "<name>", "status": "UNKNOWN", "sourceConfidence": "NEEDS-SOURCE", "risks": [], "carryForward": [], "needsSource": [] }
+  ],
+  "phases": [
+    { "phaseId": "<PHASE>", "project": "<project>", "status": "UNKNOWN", "reportFile": "<path>", "closureCommit": "<hash>" }
+  ],
+  "risks": [],
+  "carryForward": [],
+  "blockers": [],
+  "summary": { "projects": 0, "phasesClosed": 0, "phasesOpen": 0 },
+  "sourceLimitations": "Derived from static ProjectOS knowledge/report files only; no live inspection.",
+  "decisionNeeded": "<owner/advisor decision>"
+}

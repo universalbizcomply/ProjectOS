@@ -1,0 +1,36 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "projectos/schemas/dashboard-project.schema.json",
+  "title": "ProjectOS Dashboard Project Summary",
+  "description": "Per-project summary derived from static knowledge files only. Unknowns marked UNKNOWN / NEEDS-SOURCE / NOT-VERIFIED.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "projectId", "projectName", "projectType", "sourceFile", "repo", "localPath",
+    "liveUrl", "stagingUrl", "status", "productionFreeze", "highRiskGates", "currentPhase",
+    "closedPhases", "blockedItems", "carryForward", "risks", "nextRecommendedActions",
+    "sourceConfidence", "needsSource", "lastUpdated"
+  ],
+  "properties": {
+    "projectId": { "type": "string" },
+    "projectName": { "type": "string" },
+    "projectType": { "type": "string" },
+    "sourceFile": { "type": "string" },
+    "repo": { "type": "string" },
+    "localPath": { "type": "string" },
+    "liveUrl": { "type": "string" },
+    "stagingUrl": { "type": "string" },
+    "status": { "type": "string", "enum": ["ACTIVE", "LIVE", "FROZEN", "PILOT", "BLUEPRINT", "BLOCKED", "PARKED", "UNKNOWN", "NEEDS-SOURCE", "NOT-VERIFIED"] },
+    "productionFreeze": { "type": "string" },
+    "highRiskGates": { "type": "array", "items": { "type": "string" } },
+    "currentPhase": { "type": "string" },
+    "closedPhases": { "type": "array", "items": { "type": "string" } },
+    "blockedItems": { "type": "array", "items": { "type": "string" } },
+    "carryForward": { "type": "array", "items": { "type": "string" } },
+    "risks": { "type": "array", "items": { "type": "string" } },
+    "nextRecommendedActions": { "type": "array", "items": { "type": "string" } },
+    "sourceConfidence": { "type": "string" },
+    "needsSource": { "type": "array", "items": { "type": "string" } },
+    "lastUpdated": { "type": "string" }
+  }
+}

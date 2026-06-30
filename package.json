@@ -2,7 +2,7 @@
   "name": "projectos",
   "version": "0.1.0",
   "private": true,
-  "description": "ProjectOS — Universal Project Delivery OS (framework + validators + reporter + deploy guard + proof factory + drift detector + CI governance).",
+  "description": "ProjectOS — Universal Project Delivery OS (framework + validators + reporter + deploy guard + proof factory + drift detector + CI governance + multi-project dashboard).",
   "type": "commonjs",
   "scripts": {
     "validate": "node projectos/validators/validate-all.cjs",
@@ -17,6 +17,7 @@
     "validate:proof": "node projectos/validators/validate-proof-request.cjs && node projectos/validators/validate-proof-plan.cjs && node projectos/validators/validate-proof-output.cjs && node projectos/validators/validate-proof-factory.cjs",
     "validate:drift": "node projectos/validators/validate-drift-request.cjs && node projectos/validators/validate-drift-snapshot.cjs && node projectos/validators/validate-drift-output.cjs && node projectos/validators/validate-drift-detector.cjs",
     "validate:ci": "node projectos/validators/validate-ci-governance-policy.cjs && node projectos/validators/validate-ci-workflow-template.cjs && node projectos/validators/validate-ci-output.cjs && node projectos/validators/validate-ci-governance.cjs",
+    "validate:dashboard": "node projectos/validators/validate-dashboard-config.cjs && node projectos/validators/validate-dashboard-data.cjs && node projectos/validators/validate-dashboard-output.cjs && node projectos/validators/validate-dashboard-safety.cjs && node projectos/validators/validate-dashboard.cjs",
     "report:create": "node projectos/scripts/create-phase-report.cjs",
     "report:prepush": "node projectos/scripts/create-pre-push-review-pack.cjs",
     "report:closure": "node projectos/scripts/create-closure-report.cjs",
@@ -42,6 +43,11 @@
     "ci:report": "node projectos/scripts/create-ci-governance-report.cjs",
     "ci:result": "node projectos/scripts/check-ci-result.cjs",
     "ci:target": "node projectos/scripts/check-ci-target.cjs",
+    "dashboard:collect": "node projectos/scripts/collect-dashboard-data.cjs",
+    "dashboard:build": "node projectos/scripts/build-static-dashboard.cjs",
+    "dashboard:check": "node projectos/scripts/check-dashboard-data.cjs",
+    "dashboard:safety": "node projectos/scripts/check-dashboard-safety.cjs",
+    "dashboard:report": "node projectos/scripts/create-dashboard-report.cjs",
     "summary": "node projectos/scripts/print-framework-summary.cjs",
     "list": "node projectos/scripts/list-projectos-files.cjs"
   },

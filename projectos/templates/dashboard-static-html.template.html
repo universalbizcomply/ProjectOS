@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<!-- ProjectOS Multi-Project Dashboard — LOCAL STATIC TEMPLATE.
+     Inline CSS only. No external CDN / JS / CSS / fonts / analytics / tracking.
+     Evidence/reporting only. The dashboard cannot approve closure or any gated action.
+     Rendered by projectos/scripts/build-static-dashboard.cjs from dashboard-data.json. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ProjectOS — Multi-Project Dashboard (local static)</title>
+<style>
+  :root{--bg:#0f1216;--card:#1a1f26;--ink:#e8edf2;--muted:#9aa6b2;--line:#2a313a;--ok:#3fb950;--warn:#d29922;--bad:#f85149;--info:#58a6ff;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 system-ui,Segoe UI,Arial,sans-serif}
+  header{padding:20px 24px;border-bottom:1px solid var(--line)}
+  h1{margin:0;font-size:20px}
+  .sub{color:var(--muted);font-size:12px;margin-top:4px}
+  main{padding:24px;max-width:1200px;margin:0 auto}
+  h2{font-size:15px;margin:28px 0 12px;border-left:3px solid var(--info);padding-left:8px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
+  .card h3{margin:0 0 6px;font-size:14px}
+  .pill{display:inline-block;font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+  .k{color:var(--muted)}
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+  .unknown{color:var(--warn)}
+  .note{color:var(--muted);font-size:12px;margin-top:8px}
+  footer{padding:18px 24px;color:var(--muted);font-size:12px;border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+<header>
+  <h1>ProjectOS — Multi-Project Dashboard</h1>
+  <div class="sub">{{GENERATED_AT}} · local static · evidence only · cannot approve / close / deploy / mutate / send / pay</div>
+</header>
+<main>
+  <h2>Projects</h2>
+  <div class="grid">{{PROJECT_CARDS}}</div>
+  <h2>Phase ledger</h2>
+  {{PHASE_TABLE}}
+  <h2>Risks</h2>
+  {{RISK_LIST}}
+  <h2>Carry-forward</h2>
+  {{CARRY_LIST}}
+  <h2>Blockers</h2>
+  {{BLOCKER_LIST}}
+  <p class="note">{{SOURCE_LIMITATIONS}}</p>
+</main>
+<footer>
+  ProjectOS multi-project dashboard. Local static HTML, inline CSS only, no external assets, no network.
+  Dashboard output is evidence/reporting only and has no approval or closure authority.
+</footer>
+</body>
+</html>

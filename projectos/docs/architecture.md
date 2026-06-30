@@ -36,3 +36,7 @@ The drift detector adds schemas (snapshot/request/finding/report/policy), templa
 ## CI governance
 
 CI governance adds schemas (policy/workflow-template/check-result/report), an inert GitHub Actions template (under projectos/templates, never .github/workflows), local scripts and validators. Template/evidence only — no live CI, no deploy, no external calls. See [ci-governance.md](ci-governance.md).
+
+## Multi-project dashboard
+
+The dashboard adds schemas (config/project/phase/data/report), templates (incl. an inline-only static HTML), local scripts and validators that read ProjectOS knowledge/report files and emit dashboard JSON + static HTML. Local static, evidence only, no external calls. See [multi-project-dashboard.md](multi-project-dashboard.md).

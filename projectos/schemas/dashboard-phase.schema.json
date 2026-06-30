@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "projectos/schemas/dashboard-phase.schema.json",
+  "title": "ProjectOS Dashboard Phase Summary",
+  "description": "Per-phase summary derived from the Reports Index + report files (static).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "phaseId", "project", "status", "closureCommit", "reportFile", "date", "filesChanged",
+    "validators", "productionTouched", "databaseTouched", "externalSendsPayments",
+    "secretsIncluded", "pushRemote", "risks", "carryForward", "decisionNeeded"
+  ],
+  "properties": {
+    "phaseId": { "type": "string" },
+    "project": { "type": "string" },
+    "status": { "type": "string", "enum": ["CLOSED", "AWAITING-REVIEW", "BLOCKED", "IMPLEMENTED-LOCALLY", "ACCEPTED-FOR-CLOSURE", "DO-NOT-CLOSE", "NOT-STARTED", "UNKNOWN"] },
+    "closureCommit": { "type": "string" },
+    "reportFile": { "type": "string" },
+    "date": { "type": "string" },
+    "filesChanged": { "type": "string" },
+    "validators": { "type": "string" },
+    "productionTouched": { "type": "string" },
+    "databaseTouched": { "type": "string" },
+    "externalSendsPayments": { "type": "string" },
+    "secretsIncluded": { "type": "string" },
+    "pushRemote": { "type": "string" },
+    "risks": { "type": "array", "items": { "type": "string" } },
+    "carryForward": { "type": "array", "items": { "type": "string" } },
+    "decisionNeeded": { "type": "string" }
+  }
+}
