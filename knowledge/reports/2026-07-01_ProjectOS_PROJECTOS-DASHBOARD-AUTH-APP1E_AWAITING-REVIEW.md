@@ -1,11 +1,18 @@
 # PROJECTOS-DASHBOARD-AUTH-APP1E — Server-Gated Single-Owner Dashboard (Evidence Pack)
 
+> **CLOSURE DECISION: ACCEPTED FOR CLOSURE — 2026-07-01 (ChatGPT gatekeeper approved).**
+> Final status: **PROJECTOS-DASHBOARD-AUTH-APP1E — CLOSED.** Accepted commit `34b889f`.
+> **Basis:** protected server-gated dashboard live at https://projectos-dashboard.vercel.app (public URL, login-walled). Verified 8 unauthenticated paths -> login wall with 0 data leak; wrong password -> 401; owner login -> full dashboard. Dashboard embedded in the Vercel Function (no static file); secrets only in Vercel env (sha256 password hash + HMAC session), none committed; `.env*`/`.vercel/` git-ignored. No paid add-on; no bypass/exception/share link; no product project touched; no DB/send/payment/install; no force push. validate-all + dashboard:safety + report:check PASS.
+> **Disposition of prior deploy phases:** DEPLOY1B remains CLOSED AS BLOCKED; OWNER-VERCEL-DEPLOY1C CLOSED AS BLOCKED; AUTH-APP1E supersedes both as the accepted private remote dashboard route.
+> **Carry-forward:** optional login rate-limit/lockout; password rotation via re-hash + redeploy; rebuild the function's embedded base64 from dashboard/index.html on dashboard changes; custom domain would need a paid plan.
+# PROJECTOS-DASHBOARD-AUTH-APP1E — Server-Gated Single-Owner Dashboard (Evidence Pack)
+
 > **Dashboard is evidence/reporting only** — no approval/closure/deploy/DB/send/payment/install authority.
 > **Outcome: AUTH-PROTECTED DEPLOYED.** Public URL, login-walled; dashboard/data served only after owner login. Verified no pre-auth leak.
 
 1. **Project:** ProjectOS — Universal Project Delivery OS
 2. **Phase:** PROJECTOS-DASHBOARD-AUTH-APP1E (REMOTE_ACCESS / SERVER_GATED_AUTH_APP / OWNER_ONLY)
-3. **Status:** PROJECTOS-DASHBOARD-AUTH-APP1E — AUTH-PROTECTED DEPLOYED / AWAITING OWNER-ADVISOR REVIEW
+3. **Status:** PROJECTOS-DASHBOARD-AUTH-APP1E — CLOSED (accepted by ChatGPT gatekeeper 2026-07-01). Previously: AUTH-PROTECTED DEPLOYED / AWAITING-REVIEW.
 4. **Branch:** main
 5. **Pre-deploy HEAD:** bdb04c8
 6. **Post-deploy HEAD:** (this commit)
@@ -40,4 +47,4 @@
 35. **Decision needed:** Owner/advisor: accept the server-gated protected dashboard at https://projectos-dashboard.vercel.app and decide closure of PROJECTOS-DASHBOARD-AUTH-APP1E. Prior open deploy phases (DEPLOY1B closed-as-blocked; OWNER-VERCEL-DEPLOY1C blocked) are superseded by this working result — decide their dispositions too if desired.
 
 ## Final status
-**PROJECTOS-DASHBOARD-AUTH-APP1E — AUTH-PROTECTED DEPLOYED / AWAITING OWNER-ADVISOR REVIEW.** Not closed. No product repo touched. No JD/BizComply install. No secrets committed.
+**PROJECTOS-DASHBOARD-AUTH-APP1E — CLOSED** (accepted by ChatGPT gatekeeper 2026-07-01). Accepted private remote dashboard route; supersedes DEPLOY1B and OWNER-VERCEL-DEPLOY1C. No product repo touched. No JD/BizComply install. No secrets committed.

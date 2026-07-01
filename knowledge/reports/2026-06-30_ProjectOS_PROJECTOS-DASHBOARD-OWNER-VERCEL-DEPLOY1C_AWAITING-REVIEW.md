@@ -1,11 +1,16 @@
 # PROJECTOS-DASHBOARD-OWNER-VERCEL-DEPLOY1C — Owner-Mediated Vercel Deploy (Evidence Pack)
 
+> **CLOSURE DECISION: CLOSED AS BLOCKED — 2026-07-01 (owner/ChatGPT).**
+> Final status: **PROJECTOS-DASHBOARD-OWNER-VERCEL-DEPLOY1C — CLOSED AS BLOCKED.** Safe blocked outcome accepted; **superseded by PROJECTOS-DASHBOARD-AUTH-APP1E** (commit `34b889f`), which delivered the protected private dashboard.
+> **Basis:** at the time, workspace `techcricsmart` was not reachable under local CLI auth; no safe deploy path; blocked before exposure. Later resolved under AUTH-APP1E after owner logged the CLI into techcricsmart and a server-gated auth app was deployed. No product project touched; no secrets committed.
+# PROJECTOS-DASHBOARD-OWNER-VERCEL-DEPLOY1C — Owner-Mediated Vercel Deploy (Evidence Pack)
+
 > **Dashboard is evidence/reporting only** — no approval/closure/deploy/DB/send/payment/install authority.
 > **Outcome: BLOCKED before exposure (safe outcome B).** No deploy performed. No public URL. No wrong-workspace deploy.
 
 1. **Project:** ProjectOS — Universal Project Delivery OS
 2. **Phase:** PROJECTOS-DASHBOARD-OWNER-VERCEL-DEPLOY1C (REMOTE_ACCESS / OWNER_MEDIATED_VERCEL_DEPLOY / PROTECTED_DASHBOARD_VERIFICATION)
-3. **Status:** PROJECTOS-DASHBOARD-OWNER-VERCEL-DEPLOY1C — BLOCKED (target workspace `techcricsmart` not reachable under local auth; only available team is the PolyGo product account, which is out of scope). No deploy, no exposure.
+3. **Status:** PROJECTOS-DASHBOARD-OWNER-VERCEL-DEPLOY1C — CLOSED AS BLOCKED (owner/ChatGPT 2026-07-01). Previously: BLOCKED / AWAITING-REVIEW.
 4. **Branch:** main
 5. **Pre-deploy HEAD:** fe2ba81
 6. **Post-deploy HEAD:** (this commit) — no deploy occurred; report/index only.
@@ -83,4 +88,4 @@ NONE. No Vercel project created; CLI auth/scope unchanged; no temp artifacts. Wr
 Owner/advisor: enable a correct-workspace path — either deploy in the Vercel UI under techcricsmart yourself (then Claude verifies), or log the local Vercel CLI into an account that has techcricsmart access (outside chat, no token pasted) and re-run. No deploy/exposure until techcricsmart is reachable and protection is proven.
 
 ## Final status
-**PROJECTOS-DASHBOARD-OWNER-VERCEL-DEPLOY1C — BLOCKED.** Not closed. No deploy, no hosting, no public URL, no wrong-workspace deploy. JD/BizComply installs not started.
+**PROJECTOS-DASHBOARD-OWNER-VERCEL-DEPLOY1C — CLOSED AS BLOCKED** (owner/ChatGPT 2026-07-01). Superseded by AUTH-APP1E. No deploy, no hosting, no public URL, no wrong-workspace deploy. JD/BizComply installs not started.
