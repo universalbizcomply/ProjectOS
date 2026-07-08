@@ -14,6 +14,7 @@ import { close } from './commands/close.js';
 import { phase } from './commands/phase.js';
 import { approve } from './commands/approve.js';
 import { plan } from './commands/plan.js';
+import { plugins } from './commands/plugins.js';
 import { install } from './commands/install.js';
 import { CORE_VERSION } from '@projectos/core';
 
@@ -66,6 +67,7 @@ export const HELP: readonly string[] = [
   '  phase <new|advance|show|list>  Run/persist a phase through its lifecycle',
   '  approve <request|decide|show|list>  Request/decide approvals (owner-gated)',
   '  plan                         Show the workflow execution plan (worker per step)',
+  '  plugins                      List the integration catalog (inert)',
   '  close --phase <ID>           Refuses — closure is owner-gated',
   '  version                      Print versions',
   '  help                         Show this help',
@@ -80,6 +82,8 @@ export function run(ctx: CommandContext, argv: readonly string[]): CommandResult
       return approve(ctx, flags, positionals);
     case 'plan':
       return plan(ctx);
+    case 'plugins':
+      return plugins(ctx);
     case 'status':
       return status(ctx);
     case 'init':

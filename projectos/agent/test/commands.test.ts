@@ -385,6 +385,18 @@ describe('approve loop', () => {
   });
 });
 
+describe('plugins', () => {
+  it('lists the inert catalog with external flags', () => {
+    const { ctx } = makeCtx();
+    const r = run(ctx, ['plugins']);
+    expect(r.code).toBe(0);
+    const text = r.lines.join('\n');
+    expect(text).toContain('Integration catalog');
+    expect(text).toContain('supabase');
+    expect(text).toContain('external (owner-gated)');
+  });
+});
+
 describe('plan', () => {
   it('shows the execution plan with owner-gated closure', () => {
     const { ctx } = makeCtx();

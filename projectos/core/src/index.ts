@@ -14,6 +14,7 @@ export * from './events.js';
 export * from './config.js';
 export * from './discovery.js';
 export * from './plugins.js';
+export * from './plugin-catalog.js';
 export * from './workflow.js';
 export * from './workers.js';
 export * from './orchestration.js';

@@ -16,3 +16,4 @@ export { close } from './commands/close.js';
 export { phase } from './commands/phase.js';
 export { approve } from './commands/approve.js';
 export { plan } from './commands/plan.js';
+export { plugins } from './commands/plugins.js';
