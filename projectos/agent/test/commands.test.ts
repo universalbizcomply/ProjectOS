@@ -385,6 +385,18 @@ describe('approve loop', () => {
   });
 });
 
+describe('plan', () => {
+  it('shows the execution plan with owner-gated closure', () => {
+    const { ctx } = makeCtx();
+    const r = run(ctx, ['plan']);
+    expect(r.code).toBe(0);
+    const text = r.lines.join('\n');
+    expect(text).toContain('Execution plan');
+    expect(text).toContain('Claude Code');
+    expect(text).toContain('owner-gated');
+  });
+});
+
 describe('close (owner-gated)', () => {
   it('refuses by default with exit 2', () => {
     const { ctx } = makeCtx();

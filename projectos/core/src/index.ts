@@ -16,6 +16,7 @@ export * from './discovery.js';
 export * from './plugins.js';
 export * from './workflow.js';
 export * from './workers.js';
+export * from './orchestration.js';
 
 /** Engine version — bump on breaking changes to the public API. */
 export const CORE_VERSION = '0.1.0';
