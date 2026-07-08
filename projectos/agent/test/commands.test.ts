@@ -225,6 +225,81 @@ describe('report', () => {
   });
 });
 
+describe('phase runtime', () => {
+  it('new creates a persisted draft phase', () => {
+    const { ctx, sys } = makeCtx();
+    const r = run(ctx, ['phase', 'new', '--id', 'RT1A', '--project', 'ProjectOS']);
+    expect(r.code).toBe(0);
+    expect(r.lines.join('\n')).toContain('status: draft');
+    expect(sys.exists('/repo/.projectops/phases/RT1A.json')).toBe(true);
+  });
+
+  it('new requires --id and refuses overwrite without --force', () => {
+    const { ctx } = makeCtx();
+    expect(run(ctx, ['phase', 'new']).code).toBe(1);
+    run(ctx, ['phase', 'new', '--id', 'RT1A']);
+    expect(run(ctx, ['phase', 'new', '--id', 'RT1A']).code).toBe(2);
+    expect(run(ctx, ['phase', 'new', '--id', 'RT1A', '--force']).code).toBe(0);
+  });
+
+  it('advances along the happy path and records history', () => {
+    const { ctx } = makeCtx();
+    run(ctx, ['phase', 'new', '--id', 'RT1A']);
+    for (const to of ['prompted', 'implementing', 'validating', 'evidence', 'awaiting_review', 'awaiting_closure']) {
+      const r = run(ctx, ['phase', 'advance', '--id', 'RT1A', '--to', to]);
+      expect(r.code).toBe(0);
+    }
+    const show = run(ctx, ['phase', 'show', '--id', 'RT1A']);
+    expect(show.lines.join('\n')).toContain('status:    awaiting_closure');
+    expect(show.lines.join('\n')).toContain('-> prompted');
+  });
+
+  it('rejects illegal transitions with exit 1', () => {
+    const { ctx } = makeCtx();
+    run(ctx, ['phase', 'new', '--id', 'RT1A']);
+    const r = run(ctx, ['phase', 'advance', '--id', 'RT1A', '--to', 'closed', '--as', 'owner']);
+    expect(r.code).toBe(1);
+    expect(r.lines.join('\n')).toContain('Illegal transition');
+  });
+
+  it('blocks non-owner closure with exit 2 but allows owner', () => {
+    const { ctx } = makeCtx();
+    run(ctx, ['phase', 'new', '--id', 'RT1A']);
+    for (const to of ['prompted', 'implementing', 'validating', 'evidence', 'awaiting_review', 'awaiting_closure']) {
+      run(ctx, ['phase', 'advance', '--id', 'RT1A', '--to', to]);
+    }
+    const blocked = run(ctx, ['phase', 'advance', '--id', 'RT1A', '--to', 'closed', '--as', 'implementer']);
+    expect(blocked.code).toBe(2);
+    expect(blocked.lines.join('\n')).toContain("requires role 'owner'");
+    const owned = run(ctx, ['phase', 'advance', '--id', 'RT1A', '--to', 'closed', '--as', 'owner', '--note', 'accepted']);
+    expect(owned.code).toBe(0);
+    expect(run(ctx, ['phase', 'show', '--id', 'RT1A']).lines.join('\n')).toContain('accepted');
+  });
+
+  it('validates flags and status names', () => {
+    const { ctx } = makeCtx();
+    run(ctx, ['phase', 'new', '--id', 'RT1A']);
+    expect(run(ctx, ['phase', 'advance', '--id', 'RT1A']).code).toBe(1);
+    expect(run(ctx, ['phase', 'advance', '--id', 'RT1A', '--to', 'bogus']).code).toBe(1);
+    expect(run(ctx, ['phase', 'advance', '--id', 'RT1A', '--to', 'prompted', '--as', 'wizard']).code).toBe(1);
+    expect(run(ctx, ['phase', 'advance', '--id', 'MISSING', '--to', 'prompted']).code).toBe(1);
+  });
+
+  it('list and show handle empty/missing gracefully', () => {
+    const { ctx } = makeCtx();
+    expect(run(ctx, ['phase', 'list']).lines.join('\n')).toContain('No phases');
+    expect(run(ctx, ['phase', 'show', '--id', 'X']).code).toBe(1);
+    run(ctx, ['phase', 'new', '--id', 'A']);
+    run(ctx, ['phase', 'new', '--id', 'B']);
+    expect(run(ctx, ['phase', 'list']).lines.join('\n')).toContain('2 phase(s)');
+  });
+
+  it('rejects unknown subcommands', () => {
+    const { ctx } = makeCtx();
+    expect(run(ctx, ['phase', 'frob']).code).toBe(1);
+  });
+});
+
 describe('close (owner-gated)', () => {
   it('refuses by default with exit 2', () => {
     const { ctx } = makeCtx();

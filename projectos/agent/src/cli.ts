@@ -11,6 +11,7 @@ import { validate } from './commands/validate.js';
 import { prompt } from './commands/prompt.js';
 import { report } from './commands/report.js';
 import { close } from './commands/close.js';
+import { phase } from './commands/phase.js';
 import { CORE_VERSION } from '@projectos/core';
 
 export const AGENT_VERSION = '0.1.0';
@@ -18,26 +19,33 @@ export const AGENT_VERSION = '0.1.0';
 export interface ParsedArgs {
   readonly command: string;
   readonly flags: Flags;
+  /** Non-flag tokens after the command (e.g. a subcommand). */
+  readonly positionals: readonly string[];
 }
 
-/** Parse `cmd --key value --flag` into { command, flags }. */
+/** Parse `cmd sub --key value --flag` into { command, positionals, flags }. */
 export function parseArgs(argv: readonly string[]): ParsedArgs {
   const command = argv[0] ?? 'help';
   const rest = argv.slice(1);
   const flags: Record<string, string | boolean> = {};
+  const positionals: string[] = [];
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i];
-    if (a === undefined || !a.startsWith('--')) continue;
-    const key = a.slice(2);
-    const next = rest[i + 1];
-    if (next !== undefined && !next.startsWith('--')) {
-      flags[key] = next;
-      i++;
+    if (a === undefined) continue;
+    if (a.startsWith('--')) {
+      const key = a.slice(2);
+      const next = rest[i + 1];
+      if (next !== undefined && !next.startsWith('--')) {
+        flags[key] = next;
+        i++;
+      } else {
+        flags[key] = true;
+      }
     } else {
-      flags[key] = true;
+      positionals.push(a);
     }
   }
-  return { command, flags };
+  return { command, flags, positionals };
 }
 
 export const HELP: readonly string[] = [
@@ -51,14 +59,17 @@ export const HELP: readonly string[] = [
   '  validate [--framework]       Validate the project-config (and framework validators)',
   '  prompt --phase <ID> [..]     Render a Claude phase prompt',
   '  report [--phase <ID>]        List reports, or write an evidence skeleton',
+  '  phase <new|advance|show|list>  Run/persist a phase through its lifecycle',
   '  close --phase <ID>           Refuses — closure is owner-gated',
   '  version                      Print versions',
   '  help                         Show this help',
 ];
 
 export function run(ctx: CommandContext, argv: readonly string[]): CommandResult {
-  const { command, flags } = parseArgs(argv);
+  const { command, flags, positionals } = parseArgs(argv);
   switch (command) {
+    case 'phase':
+      return phase(ctx, flags, positionals);
     case 'status':
       return status(ctx);
     case 'init':
