@@ -1,0 +1,29 @@
+{
+  "name": "@projectos/agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ProjectOS Local Agent — the `projectos` CLI over the core engine (status/init/validate/prompt/report/close).",
+  "type": "module",
+  "bin": {
+    "projectos": "./bin/projectos.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "coverage": "vitest run --coverage",
+    "start": "node ./bin/projectos.js"
+  },
+  "dependencies": {
+    "@projectos/core": "file:../core"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8",
+    "@vitest/coverage-v8": "^2.1.8",
+    "@types/node": "^22.10.2"
+  },
+  "license": "UNLICENSED"
+}
