@@ -1,0 +1,31 @@
+{
+  "name": "projectos-vscode",
+  "displayName": "ProjectOS",
+  "description": "Run ProjectOS governance commands (status, plan, plugins, phase report) from VS Code.",
+  "version": "0.1.0",
+  "private": true,
+  "publisher": "universalbizcomply",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": ["Other"],
+  "main": "./dist/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "commands": [
+      { "command": "projectos.status", "title": "ProjectOS: Status" },
+      { "command": "projectos.plan", "title": "ProjectOS: Execution Plan" },
+      { "command": "projectos.plugins", "title": "ProjectOS: Integration Catalog" },
+      { "command": "projectos.reportList", "title": "ProjectOS: List Reports" }
+    ]
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.90.0",
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  }
+}
