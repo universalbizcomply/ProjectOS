@@ -12,6 +12,7 @@ import { prompt } from './commands/prompt.js';
 import { report } from './commands/report.js';
 import { close } from './commands/close.js';
 import { phase } from './commands/phase.js';
+import { install } from './commands/install.js';
 import { CORE_VERSION } from '@projectos/core';
 
 export const AGENT_VERSION = '0.1.0';
@@ -55,7 +56,8 @@ export const HELP: readonly string[] = [
   '',
   'Commands:',
   '  status                       Show project, branch, config, report counts',
-  '  init --id <slug> [--name ..] Scaffold .projectops/project-config.json',
+  '  init --id <slug> [--name ..] Scaffold .projectops/project-config.json (cwd)',
+  '  install --target <path> --id <slug>  Install .projectops into a product repo',
   '  validate [--framework]       Validate the project-config (and framework validators)',
   '  prompt --phase <ID> [..]     Render a Claude phase prompt',
   '  report [--phase <ID>]        List reports, or write an evidence skeleton',
@@ -74,6 +76,8 @@ export function run(ctx: CommandContext, argv: readonly string[]): CommandResult
       return status(ctx);
     case 'init':
       return init(ctx, flags);
+    case 'install':
+      return install(ctx, flags);
     case 'validate':
       return validate(ctx, flags);
     case 'prompt':

@@ -225,6 +225,46 @@ describe('report', () => {
   });
 });
 
+describe('install', () => {
+  it('installs a config-only .projectops into a target, detecting the remote', () => {
+    const { ctx, sys } = makeCtx();
+    sys.execResponses['git -C /proj remote get-url origin'] = {
+      code: 0,
+      stdout: 'https://github.com/universalbizcomply/thing.git\n',
+      stderr: '',
+    };
+    const r = run(ctx, ['install', '--target', '/proj', '--id', 'bizcomply', '--name', 'BizComply V2']);
+    expect(r.code).toBe(0);
+    expect(sys.files.has(configPath('/proj'))).toBe(true);
+    const cfg = JSON.parse(sys.files.get(configPath('/proj')) as string);
+    expect(cfg.installStatus).toBe('installed');
+    expect(cfg.productionFreeze).toBe(true);
+    expect(cfg.repo).toBe('universalbizcomply/thing');
+    expect(sys.files.has('/proj/.projectops/README.md')).toBe(true);
+  });
+
+  it('falls back to repo=none when there is no origin', () => {
+    const { ctx, sys } = makeCtx();
+    // no exec response mocked -> code 1 -> none
+    run(ctx, ['install', '--target', '/proj', '--id', 'x']);
+    const cfg = JSON.parse(sys.files.get(configPath('/proj')) as string);
+    expect(cfg.repo).toBe('none');
+  });
+
+  it('requires --target and --id', () => {
+    const { ctx } = makeCtx();
+    expect(run(ctx, ['install', '--id', 'x']).code).toBe(1);
+    expect(run(ctx, ['install', '--target', '/proj']).code).toBe(1);
+  });
+
+  it('refuses to overwrite an existing install without --force', () => {
+    const { ctx } = makeCtx();
+    run(ctx, ['install', '--target', '/proj', '--id', 'x']);
+    expect(run(ctx, ['install', '--target', '/proj', '--id', 'x']).code).toBe(2);
+    expect(run(ctx, ['install', '--target', '/proj', '--id', 'x', '--force']).code).toBe(0);
+  });
+});
+
 describe('phase runtime', () => {
   it('new creates a persisted draft phase', () => {
     const { ctx, sys } = makeCtx();

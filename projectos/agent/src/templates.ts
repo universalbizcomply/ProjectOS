@@ -102,6 +102,25 @@ Do not mark closed. Do not start the next phase.
 `;
 }
 
+/** Render the .projectops README (mirrors project-install-readme.template.md). */
+export function renderInstallReadme(projectName: string): string {
+  return `# .projectops — ${projectName}
+
+> Per-project ProjectOS installation. Config + evidence only. The universal ProjectOS
+> framework remains the source of truth for schemas/templates/validators.
+
+## Contents
+- \`project-config.json\` — this project's config
+- \`phases/\`  — phase manifests + persisted phase state
+- \`reports/\` — evidence + closure reports for this project
+
+## Rules
+- Production / DB / real-send / payment / closure remain owner-gated.
+- No secrets in this folder. Use placeholders only.
+- ProjectOS never edits product code; it governs the delivery process.
+`;
+}
+
 /** Render an evidence-pack skeleton (mirrors evidence-pack.template.md, trimmed). */
 export function renderEvidenceSkeleton(project: string, phaseId: string, date: string): string {
   return `# ${phaseId} — Evidence Pack
