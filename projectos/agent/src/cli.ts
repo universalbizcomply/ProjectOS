@@ -12,6 +12,7 @@ import { prompt } from './commands/prompt.js';
 import { report } from './commands/report.js';
 import { close } from './commands/close.js';
 import { phase } from './commands/phase.js';
+import { approve } from './commands/approve.js';
 import { install } from './commands/install.js';
 import { CORE_VERSION } from '@projectos/core';
 
@@ -62,6 +63,7 @@ export const HELP: readonly string[] = [
   '  prompt --phase <ID> [..]     Render a Claude phase prompt',
   '  report [--phase <ID>]        List reports, or write an evidence skeleton',
   '  phase <new|advance|show|list>  Run/persist a phase through its lifecycle',
+  '  approve <request|decide|show|list>  Request/decide approvals (owner-gated)',
   '  close --phase <ID>           Refuses — closure is owner-gated',
   '  version                      Print versions',
   '  help                         Show this help',
@@ -72,6 +74,8 @@ export function run(ctx: CommandContext, argv: readonly string[]): CommandResult
   switch (command) {
     case 'phase':
       return phase(ctx, flags, positionals);
+    case 'approve':
+      return approve(ctx, flags, positionals);
     case 'status':
       return status(ctx);
     case 'init':

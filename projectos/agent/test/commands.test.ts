@@ -340,6 +340,51 @@ describe('phase runtime', () => {
   });
 });
 
+describe('approve loop', () => {
+  it('gated request must be decided by owner; non-owner blocked (exit 2)', () => {
+    const { ctx } = makeCtx();
+    const req = run(ctx, ['approve', 'request', '--id', 'A1', '--action', 'production deploy']);
+    expect(req.code).toBe(0);
+    expect(req.lines.join('\n')).toContain('gated:      true');
+    const blocked = run(ctx, ['approve', 'decide', '--id', 'A1', '--decision', 'approved', '--as', 'implementer']);
+    expect(blocked.code).toBe(2);
+    const owned = run(ctx, ['approve', 'decide', '--id', 'A1', '--decision', 'approved', '--as', 'owner', '--note', 'ok']);
+    expect(owned.code).toBe(0);
+    expect(run(ctx, ['approve', 'show', '--id', 'A1']).lines.join('\n')).toContain('state:      approved');
+  });
+
+  it('prohibited action needs --override even for owner', () => {
+    const { ctx } = makeCtx();
+    run(ctx, ['approve', 'request', '--id', 'FP', '--action', 'force push to main']);
+    expect(run(ctx, ['approve', 'decide', '--id', 'FP', '--decision', 'approved', '--as', 'owner']).code).toBe(2);
+    expect(run(ctx, ['approve', 'decide', '--id', 'FP', '--decision', 'approved', '--as', 'owner', '--override']).code).toBe(0);
+  });
+
+  it('ungated action can be self-decided by the requester', () => {
+    const { ctx } = makeCtx();
+    run(ctx, ['approve', 'request', '--id', 'R1', '--action', 'refactor a helper', '--as', 'implementer']);
+    expect(run(ctx, ['approve', 'decide', '--id', 'R1', '--decision', 'approved', '--as', 'implementer']).code).toBe(0);
+  });
+
+  it('validates flags and missing records', () => {
+    const { ctx } = makeCtx();
+    expect(run(ctx, ['approve', 'request', '--id', 'X']).code).toBe(1);
+    expect(run(ctx, ['approve', 'request', '--action', 'x']).code).toBe(1);
+    expect(run(ctx, ['approve', 'decide', '--id', 'X', '--decision', 'maybe', '--as', 'owner']).code).toBe(1);
+    expect(run(ctx, ['approve', 'decide', '--id', 'MISSING', '--decision', 'approved', '--as', 'owner']).code).toBe(1);
+  });
+
+  it('refuses duplicate request without --force; list/show handle empty', () => {
+    const { ctx } = makeCtx();
+    expect(run(ctx, ['approve', 'list']).lines.join('\n')).toContain('No approvals');
+    run(ctx, ['approve', 'request', '--id', 'A1', '--action', 'deploy to prod']);
+    expect(run(ctx, ['approve', 'request', '--id', 'A1', '--action', 'x']).code).toBe(2);
+    expect(run(ctx, ['approve', 'list']).lines.join('\n')).toContain('1 approval(s)');
+    expect(run(ctx, ['approve', 'frob']).code).toBe(1);
+    expect(run(ctx, ['approve', 'show', '--id', 'NOPE']).code).toBe(1);
+  });
+});
+
 describe('close (owner-gated)', () => {
   it('refuses by default with exit 2', () => {
     const { ctx } = makeCtx();
