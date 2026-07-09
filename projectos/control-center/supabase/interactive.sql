@@ -8,9 +8,13 @@ create table if not exists public.phases (
   objective   text not null default '',
   status      text not null default 'draft',
   history     jsonb not null default '[]'::jsonb,
+  advisor_note text not null default '',
   created_at  timestamptz not null default now(),
   unique (project_id, phase_id)
 );
+
+-- (existing databases) add the advisor note column if the table predates it:
+alter table public.phases add column if not exists advisor_note text not null default '';
 
 alter table public.phases enable row level security;
 

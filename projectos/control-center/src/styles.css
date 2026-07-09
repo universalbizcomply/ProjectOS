@@ -195,3 +195,23 @@ body {
 .btn-gated { border-color: #4a3d1a; color: var(--warn); background: rgba(246,196,84,.08); }
 .btn-gated:hover { filter: brightness(1.15); }
 .btn-step:disabled, .btn-gated:disabled { opacity: .5; cursor: default; }
+
+.phase-item { display: flex; flex-direction: column; gap: 0; }
+.btn-chat {
+  border-radius: 6px; padding: 6px 10px; font-size: 12px; font-weight: 600; cursor: pointer;
+  border: 1px solid #24503f; background: rgba(63,214,139,.1); color: var(--ok);
+}
+.btn-chat:hover { filter: brightness(1.15); }
+.advisor-panel {
+  background: var(--bg-elev); border: 1px solid var(--line); border-top: none;
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm); padding: 12px 16px; margin-top: -1px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.advisor-hint { font-size: 12px; color: var(--text-dim); }
+.advisor-panel textarea {
+  width: 100%; min-height: 90px; resize: vertical; background: var(--bg); border: 1px solid var(--line);
+  border-radius: var(--radius-sm); padding: 10px 12px; color: var(--text); font-size: 13px;
+  font-family: var(--sans); outline: none;
+}
+.advisor-panel textarea:focus { border-color: var(--accent); }
+.advisor-actions { display: flex; gap: 8px; justify-content: flex-end; }

@@ -19,6 +19,7 @@ export interface PhaseRow {
   readonly objective: string;
   readonly status: PhaseStatus;
   readonly history: Phase['history'];
+  readonly advisorNote: string;
 }
 
 function rowToPhase(r: PhaseRow): Phase {
@@ -54,7 +55,7 @@ export async function listPhases(projectId: string): Promise<readonly PhaseRow[]
   if (c === null) return [];
   const { data, error } = await c
     .from('phases')
-    .select('project_id,phase_id,objective,status,history')
+    .select('project_id,phase_id,objective,status,history,advisor_note')
     .eq('project_id', projectId)
     .order('created_at', { ascending: true });
   if (error || !data) return [];
@@ -64,7 +65,24 @@ export async function listPhases(projectId: string): Promise<readonly PhaseRow[]
     objective: (d['objective'] as string) ?? '',
     status: d['status'] as PhaseStatus,
     history: (d['history'] as Phase['history']) ?? [],
+    advisorNote: (d['advisor_note'] as string) ?? '',
   }));
+}
+
+/** Save ChatGPT's reply as the phase's advisor note. */
+export async function saveAdvisorNote(
+  projectId: string,
+  phaseId: string,
+  note: string,
+): Promise<{ error: string | null }> {
+  const c = getClient();
+  if (c === null) return { error: 'not configured' };
+  const { error } = await c
+    .from('phases')
+    .update({ advisor_note: note })
+    .eq('project_id', projectId)
+    .eq('phase_id', phaseId);
+  return { error: error ? error.message : null };
 }
 
 export async function createPhaseRow(
