@@ -1,0 +1,152 @@
+/**
+ * DaemonClient — the Control Center's read-only window onto the Bridge Daemon.
+ *
+ * It owns no authoritative state: it subscribes to a transport, mirrors snapshots/events into
+ * the store (redacted), keeps a heartbeat to detect silent drops, and reconnects with backoff.
+ * The UI binds to `store` + the providers; it never talks to the daemon directly.
+ */
+import { ConnectionManager, DaemonConnection, Heartbeat, ReconnectManager } from './connection.js';
+import { EventStream, HealthStream } from './eventStream.js';
+import {
+  DaemonHealthProvider,
+  NotificationProvider,
+  PhaseStatusProvider,
+  WorkerStatusProvider,
+} from './providers.js';
+import { LiveStore } from './store.js';
+import { StatusSynchroniser } from './synchroniser.js';
+import type { DaemonTransport, Scheduler } from './ports.js';
+import type { ConnectionState, TransportMessage } from './types.js';
+
+export interface DaemonClientOptions {
+  readonly heartbeatMs?: number;
+  readonly livenessTimeoutMs?: number;
+  readonly eventBufferSize?: number;
+}
+
+const DEFAULT_HEARTBEAT_MS = 5_000;
+const DEFAULT_LIVENESS_MS = 12_000;
+
+export class DaemonClient {
+  readonly #transport: DaemonTransport;
+  readonly #scheduler: Scheduler;
+  readonly store = new LiveStore();
+  readonly #sync = new StatusSynchroniser();
+  readonly #events: EventStream;
+  readonly #healthStream = new HealthStream();
+  readonly #conn = new ConnectionManager(this.store);
+  readonly #reconnect: ReconnectManager;
+  readonly #heartbeat: Heartbeat;
+  readonly #connection = new DaemonConnection();
+
+  readonly health: DaemonHealthProvider;
+  readonly workers: WorkerStatusProvider;
+  readonly phases: PhaseStatusProvider;
+  readonly notifications: NotificationProvider;
+
+  readonly #heartbeatMs: number;
+  readonly #livenessMs: number;
+  #unsub: (() => void) | null = null;
+  #paused = false;
+  #started = false;
+
+  constructor(transport: DaemonTransport, scheduler: Scheduler, opts: DaemonClientOptions = {}) {
+    this.#transport = transport;
+    this.#scheduler = scheduler;
+    this.#events = new EventStream(opts.eventBufferSize);
+    this.#reconnect = new ReconnectManager(scheduler);
+    this.#heartbeatMs = opts.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
+    this.#livenessMs = opts.livenessTimeoutMs ?? DEFAULT_LIVENESS_MS;
+    this.#heartbeat = new Heartbeat(scheduler, this.#heartbeatMs);
+    this.health = new DaemonHealthProvider(this.store);
+    this.workers = new WorkerStatusProvider(this.store);
+    this.phases = new PhaseStatusProvider(this.store);
+    this.notifications = new NotificationProvider(this.store);
+  }
+
+  /** Connect, subscribe, and begin the heartbeat. Idempotent. */
+  start(): void {
+    if (this.#started) return;
+    this.#started = true;
+    this.#unsub = this.#transport.onMessage((m) => this.#handle(m));
+    this.#conn.connecting(0);
+    this.#transport.connect();
+    this.#heartbeat.start(() => this.#beat());
+  }
+
+  stop(): void {
+    this.#started = false;
+    this.#heartbeat.stop();
+    this.#reconnect.cancel();
+    if (this.#unsub) {
+      this.#unsub();
+      this.#unsub = null;
+    }
+    this.#transport.disconnect();
+    this.#conn.disconnected(0);
+  }
+
+  #handle(message: TransportMessage): void {
+    if (message.kind === 'closed') {
+      this.#down();
+      return;
+    }
+    this.#connection.markMessage(this.#scheduler.now());
+    switch (message.kind) {
+      case 'snapshot':
+        this.#sync.applySnapshot(this.store, message.snapshot);
+        this.#healthStream.set(message.snapshot.health);
+        this.#conn.connected();
+        this.#reconnect.reset();
+        break;
+      case 'event':
+        this.#sync.applyEvent(this.store, this.#events, message.event, this.#paused);
+        break;
+      case 'notification':
+        this.#sync.applyNotification(this.store, message.notification);
+        break;
+      case 'health':
+        this.#healthStream.set(message.health);
+        this.store.update({ health: message.health });
+        break;
+    }
+  }
+
+  #beat(): void {
+    if (this.#connection.isAlive(this.#scheduler.now(), this.#livenessMs)) {
+      this.#transport.requestSnapshot();
+    } else {
+      this.#down();
+    }
+  }
+
+  #down(): void {
+    this.#conn.disconnected(this.#reconnect.attempt);
+    this.#reconnect.schedule(() => this.#reconnect_attempt());
+  }
+
+  #reconnect_attempt(): void {
+    this.#conn.connecting(this.#reconnect.attempt);
+    this.#transport.disconnect();
+    this.#transport.connect();
+  }
+
+  /** Pause/resume the event viewer (buffer keeps filling; visible list freezes). */
+  setPaused(paused: boolean): void {
+    this.#paused = paused;
+    if (!paused) this.store.update({ events: this.#events.snapshot() });
+  }
+
+  get paused(): boolean {
+    return this.#paused;
+  }
+  get eventStream(): EventStream {
+    return this.#events;
+  }
+  get healthStream(): HealthStream {
+    return this.#healthStream;
+  }
+  get connectionState(): ConnectionState {
+    return this.#conn.state;
+  }
+}

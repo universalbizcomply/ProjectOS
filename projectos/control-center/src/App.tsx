@@ -15,12 +15,15 @@ import { ProjectDetail } from './ProjectDetail';
 import { getSession, onAuthChange, signOut, mustChangePassword } from './data/auth';
 import { Login } from './Login';
 import { ChangePassword } from './ChangePassword';
+import { DaemonProvider } from './daemon/DaemonProvider';
+import { LiveMissionControl } from './daemon/LiveMissionControl';
 import type { Session } from '@supabase/supabase-js';
 
-type View = 'overview' | 'workflow' | 'gates' | 'plugins';
+type View = 'overview' | 'live' | 'workflow' | 'gates' | 'plugins';
 
 const NAV: ReadonlyArray<{ id: View; label: string }> = [
   { id: 'overview', label: 'Projects' },
+  { id: 'live', label: 'Mission Control' },
   { id: 'workflow', label: 'Workflow' },
   { id: 'gates', label: 'Safety Gates' },
   { id: 'plugins', label: 'Integrations' },
@@ -60,6 +63,7 @@ export function App() {
   }
 
   return (
+    <DaemonProvider>
     <div className="app">
       <aside className="sidebar">
         <div className="brand">
@@ -98,11 +102,13 @@ export function App() {
       </aside>
       <main className="main">
         {view === 'overview' && <Overview />}
+        {view === 'live' && <LiveMissionControl />}
         {view === 'workflow' && <Workflow />}
         {view === 'gates' && <Gates />}
         {view === 'plugins' && <Plugins />}
       </main>
     </div>
+    </DaemonProvider>
   );
 }
 

@@ -1,0 +1,4 @@
+.vercel
+
+# Node sidecar build output
+node-build/
