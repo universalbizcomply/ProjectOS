@@ -14,10 +14,12 @@ create table if not exists public.projects (
 
 alter table public.projects enable row level security;
 
--- Public, read-only access for the dashboard (anon + authenticated).
+-- Read-only access for signed-in users only (anon cannot read once auth is enabled).
 drop policy if exists "projects public read" on public.projects;
-create policy "projects public read"
+drop policy if exists "projects authenticated read" on public.projects;
+create policy "projects authenticated read"
   on public.projects for select
+  to authenticated
   using (true);
 
 insert into public.projects (id, name, repo, install_status, production_freeze, open_phases) values

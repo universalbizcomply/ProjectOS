@@ -9,7 +9,10 @@ import {
   CORE_VERSION,
 } from '@projectos/core';
 import { PROJECTS, type ProjectRow } from './data/projects';
-import { fetchProjects } from './data/supabase';
+import { fetchProjects, isSupabaseConfigured } from './data/supabase';
+import { getSession, onAuthChange, signOut } from './data/auth';
+import { Login } from './Login';
+import type { Session } from '@supabase/supabase-js';
 
 type View = 'overview' | 'workflow' | 'gates' | 'plugins';
 
@@ -22,6 +25,30 @@ const NAV: ReadonlyArray<{ id: View; label: string }> = [
 
 export function App() {
   const [view, setView] = useState<View>('overview');
+  const [session, setSession] = useState<Session | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    getSession().then((s) => {
+      if (live) {
+        setSession(s);
+        setAuthReady(true);
+      }
+    });
+    const off = onAuthChange((s) => setSession(s));
+    return () => {
+      live = false;
+      off();
+    };
+  }, []);
+
+  // Auth gate: when Supabase is configured, require a session.
+  if (isSupabaseConfigured) {
+    if (!authReady) return <div className="booting">Loading…</div>;
+    if (session === null) return <Login />;
+  }
+
   return (
     <div className="app">
       <aside className="sidebar">
@@ -45,6 +72,14 @@ export function App() {
           Mission Control — read-only.
           <br />
           Execution stays owner-gated.
+          {session && (
+            <>
+              <br />
+              <span className="signout" onClick={() => void signOut()}>
+                Sign out
+              </span>
+            </>
+          )}
         </div>
       </aside>
       <main className="main">

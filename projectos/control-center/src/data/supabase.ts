@@ -16,7 +16,9 @@ const anonKey = import.meta.env['VITE_SUPABASE_ANON_KEY'] as string | undefined;
 export const isSupabaseConfigured = Boolean(url && anonKey);
 
 let client: SupabaseClient | null = null;
-function getClient(): SupabaseClient | null {
+
+/** The shared Supabase client (or null when unconfigured). Used for data + auth. */
+export function getClient(): SupabaseClient | null {
   if (!isSupabaseConfigured) return null;
   if (client === null) client = createClient(url as string, anonKey as string);
   return client;
