@@ -10,6 +10,8 @@ import {
 } from '@projectos/core';
 import { PROJECTS, type ProjectRow } from './data/projects';
 import { fetchProjects, isSupabaseConfigured } from './data/supabase';
+import { createProject } from './data/db';
+import { ProjectDetail } from './ProjectDetail';
 import { getSession, onAuthChange, signOut, mustChangePassword } from './data/auth';
 import { Login } from './Login';
 import { ChangePassword } from './ChangePassword';
@@ -119,6 +121,17 @@ function Head({ title, sub }: { title: string; sub: string }) {
 function Overview() {
   const [projects, setProjects] = useState<readonly ProjectRow[]>(PROJECTS);
   const [source, setSource] = useState<'supabase' | 'seed'>('seed');
+  const [selected, setSelected] = useState<ProjectRow | null>(null);
+  const [showNew, setShowNew] = useState(false);
+  const [np, setNp] = useState({ id: '', name: '', repo: '', type: 'saas' });
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function reload() {
+    const r = await fetchProjects();
+    setProjects(r.rows);
+    setSource(r.source);
+  }
   useEffect(() => {
     let live = true;
     fetchProjects().then((r) => {
@@ -132,46 +145,61 @@ function Overview() {
     };
   }, []);
 
+  async function onCreateProject() {
+    setError(null);
+    if (np.id.trim() === '' || np.name.trim() === '') return setError('Id and name are required.');
+    setBusy(true);
+    const { error } = await createProject({ id: np.id.trim(), name: np.name.trim(), repo: np.repo.trim(), type: np.type });
+    setBusy(false);
+    if (error) return setError(error);
+    setShowNew(false);
+    setNp({ id: '', name: '', repo: '', type: 'saas' });
+    await reload();
+  }
+
+  if (selected) {
+    return <ProjectDetail project={selected} onBack={() => { setSelected(null); void reload(); }} />;
+  }
+
   const installed = projects.filter((p) => p.installStatus === 'installed').length;
   const frozen = projects.filter((p) => p.productionFreeze).length;
   const openPhases = projects.reduce((n, p) => n + p.openPhases, 0);
   return (
     <>
-      <Head
-        title="Projects"
-        sub={`${projects.length} governed by ProjectOS · data: ${source === 'supabase' ? 'live (Supabase)' : 'seed'}`}
-      />
+      <div className="head">
+        <div>
+          <h1>Projects</h1>
+          <p>{projects.length} governed by ProjectOS · data: {source === 'supabase' ? 'live (Supabase)' : 'seed'}</p>
+        </div>
+        <button className="btn-new" onClick={() => setShowNew((v) => !v)}>+ New project</button>
+      </div>
+
+      {showNew && (
+        <div className="newproj">
+          <input placeholder="id (e.g. acme-shop)" value={np.id} onChange={(e) => setNp({ ...np, id: e.target.value })} />
+          <input placeholder="Name" value={np.name} onChange={(e) => setNp({ ...np, name: e.target.value })} />
+          <input placeholder="repo (owner/name or blank)" value={np.repo} onChange={(e) => setNp({ ...np, repo: e.target.value })} />
+          <button onClick={() => void onCreateProject()} disabled={busy}>Create</button>
+          {error && <div className="login-error" style={{ flexBasis: '100%' }}>{error}</div>}
+        </div>
+      )}
+
       <div className="kpis">
-        <div className="kpi accent">
-          <div className="n">{projects.length}</div>
-          <div className="l">Governed projects</div>
-        </div>
-        <div className="kpi">
-          <div className="n">{installed}</div>
-          <div className="l">.projectops installed</div>
-        </div>
-        <div className="kpi">
-          <div className="n">{frozen}</div>
-          <div className="l">Production frozen</div>
-        </div>
-        <div className="kpi">
-          <div className="n">{openPhases}</div>
-          <div className="l">Open phases</div>
-        </div>
+        <div className="kpi accent"><div className="n">{projects.length}</div><div className="l">Governed projects</div></div>
+        <div className="kpi"><div className="n">{installed}</div><div className="l">.projectops installed</div></div>
+        <div className="kpi"><div className="n">{frozen}</div><div className="l">Production frozen</div></div>
+        <div className="kpi"><div className="n">{openPhases}</div><div className="l">Open phases</div></div>
       </div>
       <div className="grid">
         {projects.map((p) => (
-          <div className="card" key={p.id}>
+          <div className="card clickable" key={p.id} onClick={() => setSelected(p)}>
             <h3>{p.name}</h3>
             <div className="repo">{p.repo}</div>
             <div className="row">
               <span className="tag ok">{p.installStatus}</span>
-              {p.productionFreeze ? (
-                <span className="tag warn">freeze on</span>
-              ) : (
-                <span className="tag mut">freeze off</span>
-              )}
+              {p.productionFreeze ? <span className="tag warn">freeze on</span> : <span className="tag mut">freeze off</span>}
               {p.openPhases > 0 && <span className="tag mut">{p.openPhases} phases</span>}
+              <span className="open-hint">open →</span>
             </div>
           </div>
         ))}
