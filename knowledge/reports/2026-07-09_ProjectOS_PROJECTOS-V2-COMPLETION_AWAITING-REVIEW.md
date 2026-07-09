@@ -26,9 +26,11 @@ owner-gated infrastructure.
 | ORCHESTRATION1A | 94cd449 | `planWorkflow` + `projectos plan` | +3 core/+1 agent |
 | PLUGINS1A | 17ca17a | Inert integration catalog + `projectos plugins` | +3 core/+1 agent |
 | VSCODE1A | 34275e2 | VS Code extension (CLI bridge) | compile-only |
+| CONTROL-CENTER1A | f83b54a | Mission Control UI (Vite+React over core) + Tauri shell | browser-verified |
 
 Final test state: **core 53 tests, agent 44 tests**, both ~99% coverage; strict `tsc` +
-build green for both packages; framework `.cjs` validators `validate-all: ALL PASS`.
+build green for all packages; framework `.cjs` validators `validate-all: ALL PASS`. The
+Control Center web UI was verified live (4 views, 0 console errors).
 
 ## 3. CLI surface (verified against the real binary)
 `status · init · install · validate · prompt · report · phase (new/advance/show/list) ·
@@ -41,8 +43,10 @@ owner performs them; `close` refuses (owner-gated).
 boithok-khana, erp-system, firm-flow, tkn, trading-bot). See INSTALL1B for per-target detail.
 
 ## 5. Remaining — OWNER-GATED / BLOCKED (not built, by policy)
-- **Phase 4 Control Center (Tauri):** BLOCKED — no Rust/cargo toolchain on this machine; a
-  Tauri app cannot be built or verified here. Owner installs Rust + `cargo tauri` to proceed.
+- **Phase 4 Control Center:** the Mission Control **web UI is built and browser-verified**
+  (CONTROL-CENTER1A, commit f83b54a). Only the **native desktop compile** is blocked — this
+  machine has no Rust toolchain and no C++ linker. Owner installs Rust + MSVC Build Tools, then
+  `cargo tauri build` produces the desktop binary.
 - **Phase 9 Cloud Dashboard (V2, Next.js + Supabase + Vercel):** owner-gated — creating the
   Supabase project and deploying to Vercel require owner authorisation. An existing static
   owner dashboard is already live (projectos-dashboard.vercel.app); the Supabase-backed V2 is
