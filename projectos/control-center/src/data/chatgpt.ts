@@ -44,7 +44,15 @@ Architect this phase for the implementer (Claude):
 Keep it tight and directly usable as an implementation brief.`;
 }
 
-/** Copy the prompt to the clipboard and open ChatGPT with it prefilled. */
+function isTauri(): boolean {
+  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+}
+
+/**
+ * Copy the prompt to the clipboard and open ChatGPT with it prefilled.
+ * In the desktop app (Tauri) this opens the system browser via the opener plugin;
+ * in a web browser it opens a new tab.
+ */
 export async function openChatGPT(prompt: string): Promise<void> {
   try {
     await navigator.clipboard.writeText(prompt);
@@ -52,5 +60,14 @@ export async function openChatGPT(prompt: string): Promise<void> {
     /* clipboard may be blocked; the URL still carries the prompt */
   }
   const url = 'https://chatgpt.com/?q=' + encodeURIComponent(prompt);
+  if (isTauri()) {
+    try {
+      const { openUrl } = await import('@tauri-apps/plugin-opener');
+      await openUrl(url);
+      return;
+    } catch {
+      /* fall through to window.open */
+    }
+  }
   window.open(url, '_blank', 'noopener');
 }
