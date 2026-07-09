@@ -10,8 +10,9 @@ import {
 } from '@projectos/core';
 import { PROJECTS, type ProjectRow } from './data/projects';
 import { fetchProjects, isSupabaseConfigured } from './data/supabase';
-import { getSession, onAuthChange, signOut } from './data/auth';
+import { getSession, onAuthChange, signOut, mustChangePassword } from './data/auth';
 import { Login } from './Login';
+import { ChangePassword } from './ChangePassword';
 import type { Session } from '@supabase/supabase-js';
 
 type View = 'overview' | 'workflow' | 'gates' | 'plugins';
@@ -27,6 +28,7 @@ export function App() {
   const [view, setView] = useState<View>('overview');
   const [session, setSession] = useState<Session | null>(null);
   const [authReady, setAuthReady] = useState(false);
+  const [showChangePw, setShowChangePw] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -47,6 +49,12 @@ export function App() {
   if (isSupabaseConfigured) {
     if (!authReady) return <div className="booting">Loading…</div>;
     if (session === null) return <Login />;
+    if (mustChangePassword(session)) {
+      return <ChangePassword forced onDone={() => void getSession().then(setSession)} />;
+    }
+    if (showChangePw) {
+      return <ChangePassword forced={false} onDone={() => setShowChangePw(false)} />;
+    }
   }
 
   return (
@@ -75,6 +83,10 @@ export function App() {
           {session && (
             <>
               <br />
+              <span className="signout" onClick={() => setShowChangePw(true)}>
+                Change password
+              </span>
+              {'  ·  '}
               <span className="signout" onClick={() => void signOut()}>
                 Sign out
               </span>

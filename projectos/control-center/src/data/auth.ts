@@ -31,3 +31,19 @@ export async function signOut(): Promise<void> {
   const c = getClient();
   if (c !== null) await c.auth.signOut();
 }
+
+/** Update the signed-in user's password and clear the must-change flag. */
+export async function updatePassword(newPassword: string): Promise<{ error: string | null }> {
+  const c = getClient();
+  if (c === null) return { error: 'Supabase is not configured' };
+  const { error } = await c.auth.updateUser({
+    password: newPassword,
+    data: { must_change_password: false },
+  });
+  return { error: error ? error.message : null };
+}
+
+/** True when the account was flagged to change its password on first login. */
+export function mustChangePassword(session: Session | null): boolean {
+  return session?.user?.user_metadata?.['must_change_password'] === true;
+}
