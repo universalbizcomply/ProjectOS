@@ -1,0 +1,33 @@
+{
+  "name": "@projectos/bridge-daemon",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ProjectOS Bridge Daemon — always-running local runtime that watches .projectops bridge folders, synchronises state, manages workers, packages evidence and maintains the event log. Vendor-independent; no AI/API/browser dependence; never edits business code or bypasses governance.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "projectos-bridge": "./bin/projectos-bridge.mjs"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "coverage": "vitest run --coverage",
+    "start": "node ./bin/projectos-bridge.mjs"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8",
+    "@vitest/coverage-v8": "^2.1.8",
+    "@types/node": "^22.10.2"
+  },
+  "license": "UNLICENSED"
+}
