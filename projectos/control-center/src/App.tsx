@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   planWorkflow,
   DEFAULT_WORKERS,
@@ -8,7 +8,8 @@ import {
   list,
   CORE_VERSION,
 } from '@projectos/core';
-import { PROJECTS } from './data/projects';
+import { PROJECTS, type ProjectRow } from './data/projects';
+import { fetchProjects } from './data/supabase';
 
 type View = 'overview' | 'workflow' | 'gates' | 'plugins';
 
@@ -69,15 +70,33 @@ function Head({ title, sub }: { title: string; sub: string }) {
 }
 
 function Overview() {
-  const installed = PROJECTS.filter((p) => p.installStatus === 'installed').length;
-  const frozen = PROJECTS.filter((p) => p.productionFreeze).length;
-  const openPhases = PROJECTS.reduce((n, p) => n + p.openPhases, 0);
+  const [projects, setProjects] = useState<readonly ProjectRow[]>(PROJECTS);
+  const [source, setSource] = useState<'supabase' | 'seed'>('seed');
+  useEffect(() => {
+    let live = true;
+    fetchProjects().then((r) => {
+      if (live) {
+        setProjects(r.rows);
+        setSource(r.source);
+      }
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  const installed = projects.filter((p) => p.installStatus === 'installed').length;
+  const frozen = projects.filter((p) => p.productionFreeze).length;
+  const openPhases = projects.reduce((n, p) => n + p.openPhases, 0);
   return (
     <>
-      <Head title="Projects" sub={`${PROJECTS.length} governed by ProjectOS`} />
+      <Head
+        title="Projects"
+        sub={`${projects.length} governed by ProjectOS · data: ${source === 'supabase' ? 'live (Supabase)' : 'seed'}`}
+      />
       <div className="kpis">
         <div className="kpi accent">
-          <div className="n">{PROJECTS.length}</div>
+          <div className="n">{projects.length}</div>
           <div className="l">Governed projects</div>
         </div>
         <div className="kpi">
@@ -94,7 +113,7 @@ function Overview() {
         </div>
       </div>
       <div className="grid">
-        {PROJECTS.map((p) => (
+        {projects.map((p) => (
           <div className="card" key={p.id}>
             <h3>{p.name}</h3>
             <div className="repo">{p.repo}</div>
