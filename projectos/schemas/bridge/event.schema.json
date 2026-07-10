@@ -1,0 +1,34 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "projectos/schemas/bridge/event.schema.json",
+  "title": "ProjectOS Bridge Event",
+  "description": "One append-only event line in event-log.jsonl. No secrets in payload.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "seq", "type", "project", "phase", "at", "actor", "source", "decision_required"],
+  "properties": {
+    "id": { "type": "string", "description": "evt_<ulid>" },
+    "seq": { "type": "integer", "minimum": 0 },
+    "type": {
+      "type": "string",
+      "enum": [
+        "TASK_CREATED", "PHASE_CREATED", "PROMPT_GENERATED", "PROMPT_READY", "PROMPT_READ",
+        "IMPLEMENTATION_STARTED", "FILES_CHANGED", "VALIDATION_STARTED", "VALIDATION_COMPLETED",
+        "EVIDENCE_CREATED", "REPORT_CREATED", "REVIEW_READY", "CHATGPT_REVIEW_STARTED",
+        "CHATGPT_REVIEW_COMPLETED", "OWNER_APPROVED", "OWNER_REJECTED", "CHANGES_REQUESTED",
+        "COMMIT_APPROVED", "PUSH_APPROVED", "PHASE_CLOSED", "PHASE_BLOCKED",
+        "SAFETY_VIOLATION_DETECTED"
+      ]
+    },
+    "project": { "type": "string" },
+    "phase": { "type": "string" },
+    "at": { "type": "string", "format": "date-time" },
+    "actor": { "type": "string", "enum": ["owner", "advisor", "implementer", "agent", "core"] },
+    "worker": { "type": "string" },
+    "source": { "type": "string" },
+    "version": { "type": "string" },
+    "payload": { "type": "object", "description": "type-specific, redacted; no secrets" },
+    "related_files": { "type": "array", "items": { "type": "string" } },
+    "decision_required": { "type": "boolean" }
+  }
+}

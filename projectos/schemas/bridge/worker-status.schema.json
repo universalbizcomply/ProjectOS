@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "projectos/schemas/bridge/worker-status.schema.json",
+  "title": "ProjectOS Bridge Worker Status",
+  "description": "Live status of a worker (Claude Code / ChatGPT / future) on a phase. Overwritable snapshot.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "project", "phase", "status", "updated_at", "worker", "workerType", "source", "version", "decision_required"],
+  "properties": {
+    "id": { "type": "string", "description": "wst_<worker>" },
+    "project": { "type": "string" },
+    "phase": { "type": "string" },
+    "status": {
+      "type": "string",
+      "enum": ["idle", "reading", "implementing", "validating", "reporting", "blocked", "waiting-approval", "reviewing", "done"]
+    },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "created_by": { "type": "string" },
+    "worker": { "type": "string", "description": "worker id, e.g. claude-code" },
+    "workerType": { "type": "string", "enum": ["owner", "reviewer", "implementer", "security", "database", "testing", "ux", "documentation", "research", "marketing", "deployment"] },
+    "provider": { "type": "string", "description": "e.g. claude-code | chatgpt | human" },
+    "source": { "type": "string" },
+    "version": { "type": "string" },
+    "currentAction": { "type": "string", "description": "short, no secrets" },
+    "blockers": { "type": "array", "items": { "type": "string" } },
+    "related_files": { "type": "array", "items": { "type": "string" } },
+    "decision_required": { "type": "boolean" }
+  }
+}

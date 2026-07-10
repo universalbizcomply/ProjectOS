@@ -1,0 +1,31 @@
+{
+  "id": "prompt_01JSAMPLE0001",
+  "project": "acme-shop",
+  "phase": "LOGIN1A",
+  "status": "ready",
+  "created_at": "2026-07-09T09:00:00.000Z",
+  "created_by": "advisor",
+  "worker": "chatgpt",
+  "source": "control-center",
+  "version": "1.0.0",
+  "objective": "Add an email + password login screen to the customer web app.",
+  "scope": "Frontend only. No backend/auth changes beyond calling the existing auth client.",
+  "allowedPaths": ["src/auth/**", "src/components/Login.tsx"],
+  "forbiddenPaths": ["supabase/**", "infra/**", ".env*"],
+  "allowedActions": ["create-local-files", "run-local-validation", "produce-evidence-report"],
+  "forbiddenActions": [
+    "production-deploy", "production-db-mutation", "real-email-sms-whatsapp",
+    "payment-or-live-charge", "use-secrets", "force-push", "close-phase"
+  ],
+  "requiredValidators": ["typecheck", "unit-tests", "no-secrets-scan"],
+  "requiredEvidence": ["report.json", "evidence-pack.json"],
+  "approvalGates": ["phase-closure"],
+  "rollbackPlan": "Delete src/components/Login.tsx and revert src/auth changes on the phase branch.",
+  "closureCriteria": [
+    "Login screen renders and validates input",
+    "Typecheck + unit tests pass",
+    "No secrets in the diff"
+  ],
+  "related_files": ["prompt.md"],
+  "decision_required": false
+}

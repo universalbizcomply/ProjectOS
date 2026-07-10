@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "projectos/schemas/bridge/state.schema.json",
+  "title": "ProjectOS Bridge State",
+  "description": "Current phase/worker/git snapshot maintained by the Agent. Derived, overwritable (unlike the append-only event log).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["project", "phase", "status", "updated_at", "worker", "source", "version", "lastSeq"],
+  "properties": {
+    "project": { "type": "string" },
+    "phase": { "type": "string" },
+    "status": {
+      "type": "string",
+      "enum": ["draft", "prompted", "implementing", "validating", "evidence", "awaiting_review", "awaiting_closure", "closed", "closed_as_blocked", "rolled_back", "blocked"]
+    },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "created_by": { "type": "string" },
+    "worker": { "type": "string", "description": "active worker id" },
+    "source": { "type": "string" },
+    "version": { "type": "string" },
+    "lastSeq": { "type": "integer", "minimum": 0, "description": "last event seq applied" },
+    "branch": { "type": "string" },
+    "head": { "type": "string" },
+    "changedFiles": { "type": "array", "items": { "type": "string" } },
+    "validators": { "type": "string", "enum": ["unknown", "running", "pass", "fail"] },
+    "blockers": { "type": "array", "items": { "type": "string" } },
+    "decision_required": { "type": "boolean" },
+    "related_files": { "type": "array", "items": { "type": "string" } }
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "id": "report_01JSAMPLE0001",
+  "project": "acme-shop",
+  "phase": "LOGIN1A",
+  "status": "awaiting-review",
+  "created_at": "2026-07-09T09:07:00.000Z",
+  "created_by": "implementer",
+  "worker": "claude-code",
+  "source": "vscode",
+  "version": "1.0.0",
+  "branch": "phase/LOGIN1A",
+  "head": "not committed",
+  "filesChanged": ["src/components/Login.tsx", "src/auth/login.ts"],
+  "summary": "Added a login screen with email + password fields, client-side validation, and a call to the existing auth client. No backend or schema changes.",
+  "validators": [
+    { "name": "typecheck", "result": "pass" },
+    { "name": "unit-tests", "result": "pass", "detail": "4 tests" },
+    { "name": "no-secrets-scan", "result": "pass" }
+  ],
+  "secretsUsed": false,
+  "gatedActionsPerformed": [],
+  "productionTouched": false,
+  "externalSends": false,
+  "securityReview": "Client-side only; no secrets; auth handled by the existing client. No new attack surface.",
+  "codeReview": "Small, scoped; input validation present; no dead code.",
+  "databaseReview": "N/A — no database touched.",
+  "risks": ["No rate limiting on the login form (carry-forward)."],
+  "carryForward": ["Add login rate limiting", "Add e2e test for the login flow"],
+  "related_files": ["report.md", "evidence-pack.json"],
+  "decision_required": true
+}

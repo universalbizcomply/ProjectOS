@@ -1,0 +1,21 @@
+{
+  "id": "dec_01JSAMPLE0001",
+  "project": "acme-shop",
+  "phase": "LOGIN1A",
+  "status": "final",
+  "created_at": "2026-07-09T09:25:00.000Z",
+  "created_by": "owner",
+  "worker": "murad",
+  "source": "control-center",
+  "version": "1.0.0",
+  "decision": "approved",
+  "decidedBy": "owner",
+  "closureRecommendation": "close",
+  "findings": [
+    "ChatGPT review: objective met; recommend close. Add rate limiting as a follow-up.",
+    "Owner: approved for commit + closure."
+  ],
+  "note": "Advisor recommended close; owner made the binding decision. Rate limiting tracked as carry-forward.",
+  "related_files": ["report.json", "evidence-pack.json"],
+  "decision_required": false
+}

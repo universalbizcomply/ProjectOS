@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "projectos/schemas/bridge/prompt.schema.json",
+  "title": "ProjectOS Bridge Prompt",
+  "description": "A phase implementation brief written by ChatGPT (advisor) for Claude Code (implementer). No secrets — placeholders only.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id", "project", "phase", "status", "created_at", "created_by", "worker",
+    "source", "version", "objective", "scope", "allowedPaths", "forbiddenPaths",
+    "allowedActions", "forbiddenActions", "requiredValidators", "requiredEvidence",
+    "approvalGates", "rollbackPlan", "closureCriteria", "decision_required"
+  ],
+  "properties": {
+    "id": { "type": "string", "description": "prompt_<ulid>" },
+    "project": { "type": "string" },
+    "phase": { "type": "string" },
+    "status": { "type": "string", "enum": ["draft", "ready", "read", "superseded"] },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "created_by": { "type": "string", "enum": ["owner", "advisor"] },
+    "worker": { "type": "string", "description": "e.g. chatgpt" },
+    "source": { "type": "string", "description": "how it was produced, e.g. control-center | manual" },
+    "version": { "type": "string" },
+    "checksum": { "type": "string" },
+    "objective": { "type": "string" },
+    "scope": { "type": "string" },
+    "allowedPaths": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "forbiddenPaths": { "type": "array", "items": { "type": "string" } },
+    "allowedActions": { "type": "array", "items": { "type": "string" } },
+    "forbiddenActions": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "requiredValidators": { "type": "array", "items": { "type": "string" } },
+    "requiredEvidence": { "type": "array", "items": { "type": "string" } },
+    "approvalGates": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "rollbackPlan": { "type": "string" },
+    "closureCriteria": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "related_files": { "type": "array", "items": { "type": "string" } },
+    "decision_required": { "type": "boolean" }
+  }
+}
