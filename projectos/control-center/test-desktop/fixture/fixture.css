@@ -1,0 +1,94 @@
+/* Fixture-only styles. TEST-ONLY — never imported by the production app. Reuses the production
+   design tokens/classes from styles.css; only adds the fixture chrome (markers, safety, gov). */
+
+.fixture-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  border: 1px solid #b45309;
+  border-radius: 10px;
+  background: linear-gradient(90deg, rgba(180, 83, 9, 0.18), rgba(180, 83, 9, 0.05));
+  color: #fbbf24;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.fixture-banner b {
+  color: #fde68a;
+}
+.fixture-banner span {
+  padding: 2px 8px;
+  border: 1px solid rgba(251, 191, 36, 0.45);
+  border-radius: 999px;
+}
+
+.fixture-gov {
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  border-radius: 8px;
+  background: rgba(96, 165, 250, 0.08);
+  color: #cbd5e1;
+  font-size: 12.5px;
+}
+.fixture-gov b {
+  color: #fca5a5;
+}
+
+.fixture-safety {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.safety-cell {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.4);
+}
+.safety-cell .sk {
+  font-size: 12px;
+  color: #94a3b8;
+}
+.safety-cell .sv {
+  font-weight: 700;
+  font-size: 12.5px;
+  color: #e2e8f0;
+}
+.safety-cell .sv.good {
+  color: #4ade80;
+}
+
+.fixture-blocked {
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  border: 1px solid #b91c1c;
+  border-radius: 10px;
+  background: rgba(185, 28, 28, 0.12);
+  color: #fecaca;
+}
+.fixture-blocked .reason {
+  margin: 6px 0 8px;
+  font-size: 13px;
+  color: #fca5a5;
+}
+
+.fixture-scenarios {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 8px 0;
+}
+
+@media (max-width: 640px) {
+  .fixture-safety {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}

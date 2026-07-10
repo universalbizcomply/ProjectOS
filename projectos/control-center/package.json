@@ -13,6 +13,9 @@
     "test": "vitest run",
     "coverage": "vitest run --coverage",
     "test:desktop": "node test-desktop/smoke.mjs",
+    "build:fixture": "vite build --config test-desktop/fixture/vite.config.ts",
+    "test:desktop:mission-control": "node test-desktop/mission-control-smoke.mjs",
+    "validate:fixture-isolation": "node test-desktop/validate-fixture-isolation.cjs",
     "tauri": "tauri"
   },
   "dependencies": {

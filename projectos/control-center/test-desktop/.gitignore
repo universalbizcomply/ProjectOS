@@ -1,0 +1,4 @@
+# Generated desktop-test artefacts (never source).
+fixture-dist/
+fixture-shell/gen/
+fixture-shell/target/

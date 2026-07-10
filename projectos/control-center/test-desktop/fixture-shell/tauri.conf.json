@@ -1,0 +1,25 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "ProjectOS Mission Control Fixture",
+  "version": "0.0.0",
+  "identifier": "com.projectos.control-center.fixture",
+  "build": {
+    "frontendDist": "../fixture-dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "ProjectOS · Mission Control Fixture",
+        "width": 1200,
+        "height": 820,
+        "minWidth": 360,
+        "minHeight": 520
+      }
+    ],
+    "security": { "csp": null }
+  },
+  "bundle": {
+    "active": false,
+    "icon": ["../../src-tauri/icons/icon.ico"]
+  }
+}
