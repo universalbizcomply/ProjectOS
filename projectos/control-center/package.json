@@ -12,6 +12,7 @@
     "build:sidecar": "tsc -p tsconfig.node.json",
     "test": "vitest run",
     "coverage": "vitest run --coverage",
+    "test:desktop": "node test-desktop/smoke.mjs",
     "tauri": "tauri"
   },
   "dependencies": {
