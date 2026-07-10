@@ -1,0 +1,4 @@
+# Downloaded VS Code + test artifacts (@vscode/test-electron). Not source.
+.vscode-test/
+dist/
+node_modules/
