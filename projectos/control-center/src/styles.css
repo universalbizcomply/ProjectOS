@@ -48,8 +48,12 @@ body {
   padding: 9px 12px; border-radius: var(--radius-sm);
   color: var(--text-dim); font-size: 14px; cursor: pointer;
   border: 1px solid transparent; transition: background .14s, color .14s, border-color .14s;
+  /* semantic <button> reset so the sidebar nav is keyboard-operable */
+  width: 100%; text-align: left; background: transparent;
+  font-family: inherit; -webkit-appearance: none; appearance: none;
 }
 .navitem:hover { background: var(--bg-elev); color: var(--text); }
+.navitem:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .navitem.active { background: var(--accent-dim); color: var(--text); border-color: #2b3a63; }
 .navitem .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-faint); }
 .navitem.active .dot { background: var(--accent); box-shadow: 0 0 10px var(--accent); }
@@ -259,3 +263,23 @@ body {
 .ev-time { color: var(--text-faint); }
 
 .notif-row { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+
+/* ---- Mobile / narrow layout (fix: fixed 232px sidebar clipped Mission Control) ---- */
+@media (max-width: 640px) {
+  .app { grid-template-columns: 1fr; height: auto; min-height: 100vh; }
+  .sidebar {
+    flex-direction: row; flex-wrap: wrap; align-items: center;
+    border-right: none; border-bottom: 1px solid var(--line);
+    padding: 12px 14px; gap: 6px;
+  }
+  .brand { padding: 0 10px 0 0; }
+  .navitem { width: auto; padding: 7px 10px; font-size: 13px; }
+  .sidefoot { flex-basis: 100%; margin-top: 8px; }
+  .main { padding: 18px 16px; }
+  /* header wraps so the connection badge stays visible */
+  .head { flex-wrap: wrap; gap: 10px; }
+  /* event stream controls wrap instead of clipping the Pause button / search */
+  .ev-head { flex-wrap: wrap; }
+  .ev-search { flex: 1 1 100%; order: 3; }
+  .ev-row { grid-template-columns: 96px minmax(0, 1fr) 52px; gap: 8px; font-size: 11px; }
+}

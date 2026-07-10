@@ -71,14 +71,16 @@ export function App() {
           <span>Control</span>
         </div>
         {NAV.map((n) => (
-          <div
+          <button
+            type="button"
             key={n.id}
             className={`navitem${view === n.id ? ' active' : ''}`}
+            aria-current={view === n.id ? 'page' : undefined}
             onClick={() => setView(n.id)}
           >
             <span className="dot" />
             {n.label}
-          </div>
+          </button>
         ))}
         <div className="sidefoot">
           core v{CORE_VERSION}
