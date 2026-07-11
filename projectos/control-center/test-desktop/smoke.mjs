@@ -77,6 +77,18 @@ async function waitDriver() {
 const SECRET_RE =
   /sbp_[A-Za-z0-9]{20,}|sb_secret_[A-Za-z0-9_-]{15,}|vcp_[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9]{20,}|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{6,}|password['" ]*[:=]['" ]*\S{4,}/;
 
+// Poll until the WebView has actually painted (title + body + the expected screen) instead of a
+// fixed sleep that can precede first paint on a cold start. Bounded (~12s); returns false on
+// timeout so a genuine no-render still fails the downstream assertions (never masks a failure).
+async function waitRendererReady(readyExpr, tries = 48, intervalMs = 250) {
+  for (let i = 0; i < tries; i += 1) {
+    const ready = await exec(`return (${readyExpr})`).catch(() => false);
+    if (ready === true) return true;
+    await sleep(intervalMs);
+  }
+  return false;
+}
+
 async function main() {
   driverProc = spawn('tauri-driver', ['--port', String(PORT), '--native-driver', DRIVER], { stdio: 'ignore' });
   const up = await waitDriver();
@@ -89,7 +101,10 @@ async function main() {
   sessionId = res && (res.sessionId || res['sessionId']);
   ok('WebDriver session created', !!sessionId);
   ok('ProjectOS Tauri desktop app launched', !!sessionId);
-  await sleep(1800);
+  const ready = await waitRendererReady(
+    '(document.title||"").length>0 && !!document.body && (document.body.innerText||"").length>0 && /sign in/i.test(document.body.innerText)',
+  );
+  ok('renderer became ready (title + DOM + login screen painted)', ready);
 
   const title = await wd('GET', `/session/${sessionId}/title`);
   ok('desktop window has ProjectOS identity', /ProjectOS|Control Center/i.test(String(title || '')));

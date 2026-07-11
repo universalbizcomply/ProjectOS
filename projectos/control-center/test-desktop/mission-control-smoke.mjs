@@ -105,6 +105,18 @@ const SECRET_RE =
 
 const SIZES = [[1440, 900], [1024, 768], [800, 700], [640, 700], [375, 812]];
 
+// Poll until the WebView has actually painted (title + body + fixture marker) instead of a fixed
+// sleep that can precede first paint on a cold start. Bounded (~12s); returns false on timeout so
+// a genuine no-render still fails the downstream assertions (never masks a failure).
+async function waitRendererReady(readyExpr, tries = 48, intervalMs = 250) {
+  for (let i = 0; i < tries; i += 1) {
+    const ready = await exec(`return (${readyExpr})`).catch(() => false);
+    if (ready === true) return true;
+    await sleep(intervalMs);
+  }
+  return false;
+}
+
 async function main() {
   driverProc = spawn('tauri-driver', ['--port', String(PORT), '--native-driver', DRIVER], { stdio: 'ignore' });
   ok('tauri-driver starts + serves on 127.0.0.1 (localhost only)', await waitDriver());
@@ -115,7 +127,10 @@ async function main() {
   sessionId = res && (res.sessionId || res['sessionId']);
   ok('WebDriver session created', !!sessionId);
   ok('fixture Tauri desktop app launched', !!sessionId);
-  await sleep(1800);
+  const ready = await waitRendererReady(
+    '(document.title||"").length>0 && !!document.body && (document.body.innerText||"").length>0 && !!document.querySelector(\'[data-testid="fixture-marker"]\')',
+  );
+  ok('renderer became ready (title + DOM + fixture marker painted)', ready);
 
   // --- identity + isolation markers ---
   const title = await wd('GET', `/session/${sessionId}/title`);

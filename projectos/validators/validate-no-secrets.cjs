@@ -19,7 +19,10 @@ function walk(dir, out) {
   if (!fs.existsSync(dir)) return;
   for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, ent.name);
-    if (ent.isDirectory()) { if (ent.name === "node_modules" || ent.name === ".git") continue; walk(p, out); }
+    // Skip generated/download caches, not tracked source: node_modules, .git, and the
+    // gitignored VS Code Extension Host download (.vscode-test/). Exact path-segment match — a
+    // file merely named "vscode-test" or the tracked projectos/vscode/src/test/ stays scanned.
+    if (ent.isDirectory()) { if (ent.name === "node_modules" || ent.name === ".git" || ent.name === ".vscode-test") continue; walk(p, out); }
     else if (EXTS.includes(path.extname(ent.name))) out.push(p);
   }
 }
