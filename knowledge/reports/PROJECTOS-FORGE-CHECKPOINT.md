@@ -31,8 +31,8 @@
 | F1 | PROJECTOS-FORGE-BLUEPRINT1A | LOCAL IMPLEMENTATION COMPLETE (awaiting advisor/owner review) |
 | F2 | PROJECTOS-FORGE-SCAFFOLD1A | LOCAL IMPLEMENTATION COMPLETE (awaiting advisor/owner review) |
 | F3 | PROJECTOS-FORGE-PROVISIONER1A | LOCAL IMPLEMENTATION COMPLETE (awaiting advisor/owner review) |
-| F4 | PROJECTOS-FORGE-GENERATION1A | **NEXT — not started** |
-| F5 | PROJECTOS-FORGE-VERIFY1A | pending |
+| F4 | PROJECTOS-FORGE-GENERATION1A | LOCAL IMPLEMENTATION COMPLETE (awaiting advisor/owner review) |
+| F5 | PROJECTOS-FORGE-VERIFY1A | **NEXT — not started** |
 | F6 | PROJECTOS-FORGE-SNAPSHOT1A | pending |
 | F7 | PROJECTOS-FORGE-COMMAND-UI1A | pending (user-facing → live proof) |
 | F8 | PROJECTOS-FORGE-SECURE-DEPLOY1A | pending |
@@ -78,7 +78,28 @@ allowedRoot; per-file containment; **symlink-component refusal** + null-byte rej
 (MEDIUM symlink TOCTOU + LOW null-byte — fixed). validate-all ALL PASS (53). Committed
 `feat(projectos): add forge local provisioner (F3)` (local, not pushed).
 
+## F4 result (LOCAL IMPLEMENTATION COMPLETE — awaiting review, not pushed)
+
+`projectos/forge/generation-loop.cjs` + `validators/validate-forge-generation.cjs` (13 invariants,
+registered). Bounded worker loop via the bridge (untrusted-response validated); HARD budget cap (spent
+can never exceed; over-budget tasks blocked); doom-loop halt at threshold; secret redaction; relative-
+path-safe diff apply; deterministic; NO metered API. security (MEDIUM path allowlist) + code (HIGH
+duplicate-id, MEDIUM taxonomy/coverage/extraction) — fixed. validate-all ALL PASS (54). Committed
+`feat(projectos): add forge generation loop (F4)` (local, not pushed).
+
 ## Next exact safe action (resume here)
+
+**Begin F5 — `PROJECTOS-FORGE-VERIFY1A`.** A verification harness that proves a generated app actually
+works before "done" (anti-Potemkin). Model a verifier that runs, against a generated project: build check,
+unit tests, and a browser/route smoke — as a checklist of verification STEPS with pass/fail, driven by a
+synthetic verifier in tests (the real build/browser run is owner-approved and uses the local worker/
+preview, NO metered API). Fail-closed: a task is "done" only when its verification passes; a Potemkin UI
+(renders but not wired) must be caught. Reuse the bridge (untrusted verifier response), redaction,
+approval queue for the owner-approved real run. Zero-dep `.cjs` + validator: verification gates
+completion, Potemkin detected, no secret leak, deterministic, no metered API. Reviews → validators →
+report → index row → one commit `feat(projectos): add forge verification harness (F5)` (no push) → F6.
+
+### OLD F4 note (superseded):
 
 **Begin F4 — `PROJECTOS-FORGE-GENERATION1A`.** Bounded feature-generation loop: hand a scoped task
 (fill a typed slot / add a feature) to the LOCAL Claude Code worker via `bridge/desktop-bridge.cjs`

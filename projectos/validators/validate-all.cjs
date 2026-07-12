@@ -23,7 +23,8 @@ const MODULES = [
   "validate-reliability-hardening",
   "validate-forge-blueprint",
   "validate-forge-scaffold",
-  "validate-forge-provisioner"
+  "validate-forge-provisioner",
+  "validate-forge-generation"
 ];
 let total = 0;
 for (const m of MODULES) {
