@@ -1,0 +1,95 @@
+/**
+ * Safety & Providers — read-only Control Centre surface over the governed chain (Phases 4–11).
+ *
+ * Shows, per project: the owner approval queue (items + status), the provider-guard decisions
+ * (ALLOW / OWNER_GATED / REFUSED with reasons), and the live safety state. Snapshot-driven and inert —
+ * owner-only actions are not performed here; this surface only displays what the backend decided.
+ * Created in PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A.
+ */
+import { useState } from 'react';
+import { PROJECTOS_V3, OWNER_MODELS } from './ownerSnapshot';
+import { chainFor, decisionTone, statusTone, GOVERNED_CHAINS } from './governedChain';
+import { buildOwnerControlView } from './ownerModel';
+
+export function SafetyProviders() {
+  const [projectId, setProjectId] = useState<string>(PROJECTOS_V3.projectId);
+  const chain = chainFor(projectId);
+  const model = OWNER_MODELS.find((m) => m.projectId === projectId) ?? PROJECTOS_V3;
+  const safetyBadges = buildOwnerControlView(model).safetyBadges;
+  const pending = chain.approvalItems.filter((i) => i.status === 'pending').length;
+
+  return (
+    <section className="ocp" aria-labelledby="sp-title">
+      <div className="head">
+        <div>
+          <h1 id="sp-title">Safety &amp; Providers</h1>
+          <p>What the governed chain decided for this project — approvals, provider guards, and safety. Read-only.</p>
+        </div>
+        <label className="ocp-select">
+          <span className="ocp-select-label">Project</span>
+          <select value={projectId} onChange={(e) => setProjectId(e.target.value)} aria-label="Select project">
+            {GOVERNED_CHAINS.map((c) => (
+              <option key={c.projectId} value={c.projectId}>{c.projectName}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      {/* Safety state */}
+      <div className="ocp-panel">
+        <h2>Safety state</h2>
+        <div className="ocp-badges">
+          {safetyBadges.map((b, i) => <span key={i} className={`ocp-badge ${b.tone}`}>{b.label}</span>)}
+        </div>
+      </div>
+
+      {/* Approval queue */}
+      <div className={`ocp-panel decisions${pending > 0 ? ' active' : ''}`}>
+        <h2>Owner approval queue{pending > 0 ? ` · ${pending} pending` : ''}</h2>
+        {chain.approvalItems.length ? (
+          <ul className="ocp-decisions">
+            {chain.approvalItems.map((item) => (
+              <li key={item.id} className="ocp-decision">
+                <div className="ocp-decision-title">
+                  {item.summary} <span className={`ocp-badge ${statusTone(item.status)}`}>{item.status}</span>
+                </div>
+                <div className="ocp-decision-detail">{item.kind} · {item.id}</div>
+                {item.status === 'pending' && (
+                  <div className="ocp-decision-actions">
+                    <button type="button" className="ocp-btn primary">Approve</button>
+                    <button type="button" className="ocp-btn">Return</button>
+                    <button type="button" className="ocp-btn danger">Reject</button>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="ocp-empty">No items are waiting for your approval.</p>
+        )}
+      </div>
+
+      {/* Provider guard decisions */}
+      <div className="ocp-panel">
+        <h2>Provider guard decisions</h2>
+        <div className="sp-table" role="table" aria-label="Provider guard decisions">
+          <div className="sp-row sp-head" role="row">
+            <span role="columnheader">Provider</span>
+            <span role="columnheader">Action</span>
+            <span role="columnheader">Decision</span>
+            <span role="columnheader">Reason</span>
+          </div>
+          {chain.providerDecisions.map((d, i) => (
+            <div className="sp-row" role="row" key={i}>
+              <span role="cell">{d.provider}</span>
+              <span role="cell">{d.action}</span>
+              <span role="cell"><span className={`ocp-badge ${decisionTone(d.decision)}`}>{d.decision}</span></span>
+              <span role="cell" className="sp-reason">{d.reason}</span>
+            </div>
+          ))}
+        </div>
+        <p className="ocp-sub">Provider access defaults to refused. Nothing here contacts a provider — decisions are classified locally and gated actions route to the approval queue.</p>
+      </div>
+    </section>
+  );
+}

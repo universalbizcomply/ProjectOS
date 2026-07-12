@@ -39,8 +39,8 @@
 | 9 | PROJECTOS-V3-E2E-RUNNER1A | LOCAL IMPLEMENTATION COMPLETE (not accepted; report + commit) |
 | 10 | PROJECTOS-V3-APPROVAL-QUEUE1A | LOCAL IMPLEMENTATION COMPLETE (not accepted; report + commit) |
 | 11 | PROJECTOS-V3-PROVIDER-CONTEXT-GUARDS1A | LOCAL IMPLEMENTATION COMPLETE (not accepted; report + commit) |
-| 12 | PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A | **NEXT — not started** |
-| 13 | PROJECTOS-V3-DESKTOP-E2E-PROOF1A | pending |
+| 12 | PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A | LOCAL IMPLEMENTATION COMPLETE (not accepted; report + commit) |
+| 13 | PROJECTOS-V3-DESKTOP-E2E-PROOF1A | **NEXT — not started** |
 | 14 | PROJECTOS-V3-POLYGO-BASELINE-RECONCILE1A | pending (needs a trusted local PolyGo repo; else hard external-input blocker) |
 | 15 | PROJECTOS-V3-POLYGO-INSTALL-REENTRY1A | pending |
 | 16 | PROJECTOS-V3-POLYGO-PILOT1A | pending |
@@ -73,6 +73,17 @@ clearly labelled) — no static mocks, no fabricated evidence.
 - Open defects: none. Last completed action: Phase 2 closure commit `4da4966` (validated; not pushed).
 - Validation completed: `validate-all` ALL PASS (40) · `validate-no-secrets` · `validate-v2-closure-evidence`
   · `validate-report-index` · `git diff --check` clean.
+
+## Phase 12 result (LOCAL IMPLEMENTATION COMPLETE — not accepted, not pushed)
+
+Read-only **Safety & Providers** surface in `projectos/control-center/`: `src/owner/governedChain.ts`
+(TS mirror of approval-queue + provider-guard shapes + synthetic snapshot + tone helpers) +
+`SafetyProviders.tsx` (safety badges, approval queue with status + inert Approve/Return/Reject, provider
+decisions table) + nav view + styles + 6 tests. Inert/snapshot-driven. typecheck PASS; vitest **83
+passed**; build PASS; validate-all ALL PASS (48). Live browser proof localhost:5178 — per-project
+approvals + provider decisions; no console errors/external network; table scrolls in-container, no page
+overflow at 1440/1280/1024/768/390. Committed `feat(projectos): integrate governed chain into control
+centre` (local, not pushed). Completion unchanged (15.8%).
 
 ## Phase 11 result (LOCAL IMPLEMENTATION COMPLETE — not accepted, not pushed)
 
@@ -179,26 +190,30 @@ unchanged (15.8% — local-complete ≠ accepted).
 
 ## Next exact safe action (resume here)
 
-**Begin Phase 12 — `PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A`.** This is a USER-FACING phase → needs
-LIVE browser proof. Concrete first steps:
+**Begin Phase 13 — `PROJECTOS-V3-DESKTOP-E2E-PROOF1A`.** Concrete first steps:
 1. `git status` + verify branch `projectos-v3`, tree clean, remote still `4c3f076` (do NOT push).
-2. Integrate the Phases 4–11 backend into the Control Centre as read-only surfaces (extend
-   `projectos/control-center/`, no second app): a small TypeScript port (or JSON snapshot) of the
-   governed-chain outputs so the Owner Control Plane's decisions region shows real approval-queue items,
-   and add a read-only "Safety & Providers" panel showing provider-guard decisions + the safety state.
-   Keep it snapshot-driven and inert (no real execution; owner-only actions stay inert). NO AI/API/network
-   beyond the localhost dev server.
-3. Implement: a deterministic TS module mirroring the approval-queue / provider-guard shapes with a
-   synthetic snapshot + a component + nav view + unit tests. Reuse the Phase-3 owner model.
-4. Reviews (security/code/ECC/UI-UX/self) → typecheck/vitest/build + validate-all → **live browser proof**
-   (localhost + browser at 1440/1280/1024/768/390, screenshots + console/network checks) → report →
-   index row → one commit `feat(projectos): integrate governed chain into control centre` (no push) →
-   continue Phase 13 (DESKTOP-E2E-PROOF).
+2. Goal: prove the Control Centre runs as the real **Tauri desktop** shell (not just the browser dev
+   server). FIRST inspect `projectos/control-center/src-tauri/` (or equivalent) + `package.json` scripts +
+   any prior desktop harness/fixtures to see what desktop build/run is available WITHOUT network installs.
+   If a Tauri toolchain/build is available locally, build/run it and capture desktop-window proof
+   (screenshot + logs) of the owner surfaces. If the desktop toolchain is NOT locally available (no
+   network installs allowed), record that as an explicit, honest blocker and instead produce the strongest
+   available proof: the production `vite build` artifact served + browser proof clearly labelled as the
+   web build of the same desktop frontend, plus a deterministic validator asserting the desktop entry
+   points/config exist and are render-ready. DO NOT fabricate desktop evidence.
+3. Implement/prove accordingly; if a validator is added, register it in `validate-all.cjs`.
+4. Reviews (self + any relevant) → validators/tests → **proof (desktop if available, else clearly-labelled
+   web build of the desktop frontend)** → report → index row → one commit
+   `test(projectos): add v3 desktop e2e proof` (no push) → continue Phase 14 (POLYGO-BASELINE-RECONCILE).
+
+**Note for Phases 14–16 (PolyGo):** these need a TRUSTED local PolyGo repo. If none is present/authorised
+locally, record a hard external-input blocker (do NOT fetch or touch an external repo) and proceed to
+Phase 17 (RELIABILITY-HARDENING) and 18 (FINAL-E2E-CLOSURE), then produce the final evidence pack.
 
 **Exact command to run next:** `cd C:/dev/ProjectOS && git status && npm run validate`
 
 ## Resumability
 
 Safe to resume: yes. Nothing destructive is running. No misleading phase-complete commit exists
-(Phases 3–11 are genuinely local-implementation-complete with tests/invariants + live proof for UI
+(Phases 3–12 are genuinely local-implementation-complete with tests/invariants + live proof for UI
 phases). Remote stays at `4c3f076`. Local HEAD advances one commit per completed phase.
