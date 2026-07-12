@@ -18,12 +18,14 @@ import { ChangePassword } from './ChangePassword';
 import { DaemonProvider } from './daemon/DaemonProvider';
 import { LiveMissionControl } from './daemon/LiveMissionControl';
 import { OwnerControlPlane } from './owner/OwnerControlPlane';
+import { OwnerChat } from './owner/OwnerChat';
 import type { Session } from '@supabase/supabase-js';
 
-type View = 'control' | 'overview' | 'live' | 'workflow' | 'gates' | 'plugins';
+type View = 'control' | 'chat' | 'overview' | 'live' | 'workflow' | 'gates' | 'plugins';
 
 const NAV: ReadonlyArray<{ id: View; label: string }> = [
   { id: 'control', label: 'Owner Control' },
+  { id: 'chat', label: 'Owner Chat' },
   { id: 'overview', label: 'Projects' },
   { id: 'live', label: 'Mission Control' },
   { id: 'workflow', label: 'Workflow' },
@@ -106,6 +108,7 @@ export function App() {
       </aside>
       <main className="main">
         {view === 'control' && <OwnerControlPlane />}
+        {view === 'chat' && <OwnerChat />}
         {view === 'overview' && <Overview />}
         {view === 'live' && <LiveMissionControl />}
         {view === 'workflow' && <Workflow />}

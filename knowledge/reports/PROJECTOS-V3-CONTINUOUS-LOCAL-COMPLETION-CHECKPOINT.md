@@ -33,8 +33,8 @@
 | 3 | PROJECTOS-V3-OWNER-CONTROL-PLANE-DESIGN1A | LOCAL IMPLEMENTATION COMPLETE (not accepted; report + commit) |
 | 4 | PROJECTOS-V3-LOCAL-SECRET-BROKER1A | LOCAL IMPLEMENTATION COMPLETE (not accepted; report + commit) |
 | 5 | PROJECTOS-V3-SECRET-OPERATION-BROKER1A | LOCAL IMPLEMENTATION COMPLETE (not accepted; report + commit) |
-| 6 | PROJECTOS-V3-OWNER-CHAT1A | **NEXT — not started** |
-| 7 | PROJECTOS-V3-PROJECT-SESSION-LAUNCHER1A | pending |
+| 6 | PROJECTOS-V3-OWNER-CHAT1A | LOCAL IMPLEMENTATION COMPLETE (not accepted; report + commit) |
+| 7 | PROJECTOS-V3-PROJECT-SESSION-LAUNCHER1A | **NEXT — not started** |
 | 8 | PROJECTOS-V3-CLAUDE-DESKTOP-BRIDGE1A | pending |
 | 9 | PROJECTOS-V3-E2E-RUNNER1A | pending |
 | 10 | PROJECTOS-V3-APPROVAL-QUEUE1A | pending |
@@ -74,6 +74,19 @@ clearly labelled) — no static mocks, no fabricated evidence.
 - Validation completed: `validate-all` ALL PASS (40) · `validate-no-secrets` · `validate-v2-closure-evidence`
   · `validate-report-index` · `git diff --check` clean.
 
+## Phase 6 result (LOCAL IMPLEMENTATION COMPLETE — not accepted, not pushed)
+
+Owner Chat in `projectos/control-center/`: plain-language Q&A over the local snapshot. Per **owner
+directive**, handles natural language via a **local deterministic NLU** (scored intent engine
+`src/owner/ownerChatModel.ts` — weighted synonym/phrase lexicon, punctuation-normalised tokenisation,
+ranked intents, compound-question answering) with **NO AI/metered API** (see memory
+`owner-chat-natural-language`). `OwnerChat.tsx` panel + nav view + styles + 20 tests. code-reviewer HIGH
+(substring misclassification) fixed via whole-word/phrase scoring + regression. typecheck PASS; vitest
+**77 passed**; build PASS; validate-all ALL PASS. Live browser proof localhost:5178 — free-form compound
+question answered progress+risks together; owner-only request refused; no console errors/external
+network; no overflow at 1440/1280/1024/768/390. Committed `feat(projectos): implement v3 owner chat`
+(local, not pushed). Completion unchanged (15.8%).
+
 ## Phase 5 result (LOCAL IMPLEMENTATION COMPLETE — not accepted, not pushed)
 
 Secret Operation Broker `projectos/security/operation-broker.cjs` — use a secret inside an operation
@@ -111,24 +124,24 @@ unchanged (15.8% — local-complete ≠ accepted).
 
 ## Next exact safe action (resume here)
 
-**Begin Phase 6 — `PROJECTOS-V3-OWNER-CHAT1A`.** Concrete first steps:
+**Begin Phase 7 — `PROJECTOS-V3-PROJECT-SESSION-LAUNCHER1A`.** Concrete first steps:
 1. `git status` + verify branch `projectos-v3`, tree clean, remote still `4c3f076` (do NOT push).
-2. Design a local owner-facing chat surface in `projectos/control-center/` (extend the app; no second
-   Control Centre): the owner asks about a project and gets plain-language answers derived ONLY from the
-   local snapshot/state (plan status, phase, decisions, risks, next safe action). NO AI/metered API —
-   deterministic, rule/template-based responder over the snapshot. Owner-only actions stay inert/routed
-   to the approval surface. No secret material in chat; if a message would surface a secret, redact.
-3. Implement: a pure deterministic responder module (`src/owner/ownerChat.ts` — intent match →
-   answer built from the snapshot) + a chat panel component + a nav view + unit tests. Reuse the
-   Phase-3 owner model/snapshot.
-4. Reviews (security/code/ECC/UI-UX/self) → typecheck/vitest/build + validate-all → **live browser
-   proof** (user-facing phase: localhost + browser at 1440/1280/1024/768/390) → report → index row →
-   one commit `feat(projectos): implement v3 owner chat` (no push) → continue Phase 7.
+2. Design a local **session launcher**: given a project + a chosen phase/task, deterministically build
+   a launch *plan/spec* (which worker/role, working directory, allowed operations, safety gates that
+   apply, the owner-gated steps) WITHOUT actually spawning anything or contacting a provider. It should
+   fail closed on gated actions and surface exactly what would run for owner approval. Reuse the core
+   workflow/worker/gates model (`@projectos/core`) and the secret/operation brokers where a launch would
+   need a secret (via `broker.use`, never materialising it).
+3. Implement a zero-dependency `.cjs` launcher/spec builder + a registered validator (mirror the
+   convention). If it has a user-facing surface, add a control-center view + live browser proof; if it
+   is a backend planner, prove via validator invariants.
+4. Reviews (security/code/ECC/self) → validators (+ typecheck/vitest/build/live proof if UI) → report →
+   index row → one commit `feat(projectos): implement v3 project session launcher` (no push) → Phase 8.
 
 **Exact command to run next:** `cd C:/dev/ProjectOS && git status && npm run validate`
 
 ## Resumability
 
 Safe to resume: yes. Nothing destructive is running. No misleading phase-complete commit exists
-(Phases 3–5 are genuinely local-implementation-complete with tests/invariants). Remote stays at
-`4c3f076`. Local HEAD advances one commit per completed phase.
+(Phases 3–6 are genuinely local-implementation-complete with tests/invariants + live proof for UI
+phases). Remote stays at `4c3f076`. Local HEAD advances one commit per completed phase.
