@@ -36,8 +36,8 @@
 | F6 | PROJECTOS-FORGE-SNAPSHOT1A | LOCAL IMPLEMENTATION COMPLETE (awaiting advisor/owner review) |
 | F7 | PROJECTOS-FORGE-COMMAND-UI1A | LOCAL IMPLEMENTATION COMPLETE (awaiting advisor/owner review) |
 | F8 | PROJECTOS-FORGE-SECURE-DEPLOY1A | LOCAL IMPLEMENTATION COMPLETE (awaiting advisor/owner review) |
-| F9 | PROJECTOS-FORGE-INTEGRATIONS1A | **NEXT — not started** |
-| F10 | PROJECTOS-FORGE-E2E-CLOSURE1A | pending |
+| F9 | PROJECTOS-FORGE-INTEGRATIONS1A | LOCAL IMPLEMENTATION COMPLETE (awaiting advisor/owner review) |
+| F10 | PROJECTOS-FORGE-E2E-CLOSURE1A | **NEXT — final: E2E + micro-level report** |
 
 ## Reuse map (V3 → Forge)
 
@@ -124,7 +124,30 @@ found the first cut **failed OPEN** (3 CRITICAL: narrow reachability, case-britt
 policy checks) → **inverted to fail-closed**, all fixed + locked by negative fixtures. validate-all ALL
 PASS (57). Committed `feat(projectos): add forge secure deploy gate (F8)` (local, not pushed).
 
+## F9 result (LOCAL IMPLEMENTATION COMPLETE — awaiting review, not pushed)
+
+`projectos/forge/integration-playbooks.cjs` + `validators/validate-forge-integrations.cjs` (10 invariants,
+registered). Verified wiring for stripe/email/storage: placeholders only, keyed clients `server-only`,
+stripe webhook signature-verified, real keys owner-gated. Cross-checked: the emitted wiring (and base+
+playbooks) PASS the F8 fail-closed deploy-gate audit. Self-reviewed. validate-all ALL PASS (58). Committed
+`feat(projectos): add forge integration playbooks (F9)` (local, not pushed).
+
 ## Next exact safe action (resume here)
+
+**Begin F10 — `PROJECTOS-FORGE-E2E-CLOSURE1A` (FINAL).** (1) Build a Forge E2E runner `.cjs` that drives
+the whole chat-to-app chain OFFLINE with a synthetic worker: buildBlueprint → buildScaffold → planProvision
+→ runGenerationLoop → runVerification → snapshot → buildPlaybooks → auditManifest/planDeploy, asserting the
+end-to-end result (app generated, verified, secure, deploy owner-gated, no secret leak, no metered API) +
+each fail-closed path; register `validate-forge-e2e`. (2) Run full `npm run validate` (ALL PASS) +
+`git diff --check`. (3) Write the **MICRO-LEVEL final report**
+`knowledge/reports/PROJECTOS-FORGE-FINAL-MICRO-EVIDENCE.md` for owner + ChatGPT: every phase F1–F10, every
+module + purpose, every file/function, every review finding + fix, every invariant, the full anatomy of a
+generated app (all ~21 files explained), the safety ledger, the commit chain, residual risks/carry-forward.
+(4) Update index + checkpoint. One commit `feat(projectos): add forge e2e + final micro evidence (F10)`
+(no push). Then **STOP** — status "PROJECTOS FORGE LOCALLY COMPLETE AND PROVEN — AWAITING MURAD/CHATGPT
+FINAL REVIEW AND PUSH AUTHORISATION". Do NOT push, accept, or close.
+
+### OLD F9 note (superseded):
 
 **Begin F9 — `PROJECTOS-FORGE-INTEGRATIONS1A`.** Verified integration "playbooks": a deterministic library
 that, given a blueprint integration (stripe/email/storage), emits the wiring FILES (edge function / route
