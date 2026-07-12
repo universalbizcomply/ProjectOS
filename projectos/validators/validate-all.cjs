@@ -22,7 +22,8 @@ const MODULES = [
   "validate-desktop-e2e",
   "validate-reliability-hardening",
   "validate-forge-blueprint",
-  "validate-forge-scaffold"
+  "validate-forge-scaffold",
+  "validate-forge-provisioner"
 ];
 let total = 0;
 for (const m of MODULES) {

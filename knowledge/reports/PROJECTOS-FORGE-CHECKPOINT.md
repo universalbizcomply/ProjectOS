@@ -30,8 +30,8 @@
 | --- | --- | --- |
 | F1 | PROJECTOS-FORGE-BLUEPRINT1A | LOCAL IMPLEMENTATION COMPLETE (awaiting advisor/owner review) |
 | F2 | PROJECTOS-FORGE-SCAFFOLD1A | LOCAL IMPLEMENTATION COMPLETE (awaiting advisor/owner review) |
-| F3 | PROJECTOS-FORGE-PROVISIONER1A | **NEXT — not started** |
-| F4 | PROJECTOS-FORGE-GENERATION1A | pending |
+| F3 | PROJECTOS-FORGE-PROVISIONER1A | LOCAL IMPLEMENTATION COMPLETE (awaiting advisor/owner review) |
+| F4 | PROJECTOS-FORGE-GENERATION1A | **NEXT — not started** |
 | F5 | PROJECTOS-FORGE-VERIFY1A | pending |
 | F6 | PROJECTOS-FORGE-SNAPSHOT1A | pending |
 | F7 | PROJECTOS-FORGE-COMMAND-UI1A | pending (user-facing → live proof) |
@@ -69,7 +69,30 @@ reserved-keyword-safe SQL idents; engine-level path guard; replayable forge.conf
 contract — fixed) + self-caught reserved-keyword bug. validate-all ALL PASS (52). Committed
 `feat(projectos): add forge scaffold engine (F2)` (local, not pushed).
 
+## F3 result (LOCAL IMPLEMENTATION COMPLETE — awaiting review, not pushed)
+
+`projectos/forge/provisioner.cjs` + `validators/validate-forge-provisioner.cjs` (10 invariants,
+registered). `materializeManifest` writes the manifest to a local dir path-guarded (inside a trusted
+allowedRoot; per-file containment; **symlink-component refusal** + null-byte reject after review);
+`planProvision` gates install/migrate/run for owner approval and never runs them. security-reviewer
+(MEDIUM symlink TOCTOU + LOW null-byte — fixed). validate-all ALL PASS (53). Committed
+`feat(projectos): add forge local provisioner (F3)` (local, not pushed).
+
 ## Next exact safe action (resume here)
+
+**Begin F4 — `PROJECTOS-FORGE-GENERATION1A`.** Bounded feature-generation loop: hand a scoped task
+(fill a typed slot / add a feature) to the LOCAL Claude Code worker via `bridge/desktop-bridge.cjs`
+(a local worker — **NO Claude/ChatGPT/metered API**), applying INCREMENTAL diffs (not full-context
+resend), with a per-task token/spend BUDGET CAP + a live cost-per-feature readout, and DOOM-LOOP
+detection (K repeated failures → stop / switch to a fresh-context consultant, don't retry unboundedly).
+Deterministic orchestration in a zero-dep `.cjs` (the generation itself is the worker's job; F4 models
+the loop, budget, diff-application, and stop conditions with a synthetic worker for tests). Reuse the
+bridge (untrusted-response validation), redaction, approval queue. Validator invariants: budget cap
+enforced (never exceeds), doom-loop halts, diffs applied deterministically, no secret leak, worker
+response untrusted (side effects gated), no metered-API. Reviews → validators → report → index row →
+one commit `feat(projectos): add forge generation loop (F4)` (no push) → continue F5.
+
+### OLD F3 note (superseded — kept for context):
 
 **Begin F3 — `PROJECTOS-FORGE-PROVISIONER1A`.** Materialise the F2 manifest to a local project directory
 (inside a synthetic/scratch root, path-guarded), then plan the local run: install deps + run migrations
