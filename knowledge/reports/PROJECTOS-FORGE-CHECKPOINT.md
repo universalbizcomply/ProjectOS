@@ -133,9 +133,27 @@ validate` ALL PASS (59 validators). Committed `feat(projectos): add forge e2e + 
 (F10)` (local, not pushed). **STATUS: PROJECTOS FORGE LOCALLY COMPLETE AND PROVEN — AWAITING MURAD/CHATGPT
 FINAL REVIEW AND PUSH AUTHORISATION.**
 
+## REAL E2E ACTIVATION (owner directive 2026-07-12) — reframes "complete"
+
+Owner adopted a 12-gate REAL E2E plan and clarified: prior "Forge locally complete" = **engine +
+offline-model** completion, NOT real product E2E. **Real-execution activation `…-ACTIVATION1A` done**
+(report + index): Gate 0 baseline frozen (recovery branch `forge-baseline-2026-07-12`); a real Forge app
+was materialised → real `npm install` (caught + fixed a real bug: `typescript@5.6.0` doesn't exist → F2
+now uses caret ranges, commit `44c6dfa`) → real `next build` → real **local Postgres 18.4** (no Docker) →
+real `next start` → real **browser UI → API → Postgres write round-trip** proven (row persisted, `psql`
+verified, UI updated, no console errors) → clean teardown. **ENV-BLOCKED here (need owner machine with
+Docker + `claude` CLI):** real Claude-CLI worker subprocess (Gate 1); Supabase-via-Docker (Gate 2). The
+provable real subset PASSED; the two integration steps are honestly recorded as blockers.
+
+**Gate plan (owner):** 0 baseline✓ · 1 real Claude worker · 2 real local provisioner · 3 one-command
+reference app · 4 conversational enhancement · 5 incident repair · 6 rollback+resume · 7 multi-project
+isolation · 8 remote operation · 9 PolyGo real pilot · 10 reliability/adversarial · 11 competitive
+benchmark · 12 final review+push gate. **Next: `…-ACTIVATION1B`** on an owner machine w/ Docker + `claude`
+CLI — Gates 1–3 (real worker + real Supabase + one-command reference app). Do NOT push. No production.
+
 ## Next exact safe action (resume here)
 
-**HALT — Forge programme locally complete.** F1–F10 all LOCAL COMPLETE + proven; micro-level final report
+**HALT — Forge engine/offline + real-run subset complete; real-worker + Supabase-Docker await owner machine.** F1–F10 all LOCAL COMPLETE + proven; micro-level final report
 delivered. Do NOT push, accept, or close (owner/gatekeeper only). On resume take NO new implementation
 action — await the owner to (a) review + accept F1–F10, (b) authorise the push of the local `projectos-v3`
 chain (V3 + Forge), and/or (c) approve wiring the F4 loop to the real local worker + local Supabase. If the
