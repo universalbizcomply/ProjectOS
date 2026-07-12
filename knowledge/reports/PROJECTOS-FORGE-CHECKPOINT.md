@@ -18,14 +18,19 @@
   CI+tests+governance.
 - Local-only; one commit per phase; no push/deploy/prod/DB/sends/payments/real-secrets without owner
   authorisation; synthetic by default; live proof for user-facing phases; no fabricated evidence.
+- **FINAL DELIVERABLE (owner directive):** at full Forge completion (F10), write a MICRO-LEVEL completion
+  report for owner + ChatGPT review — every phase, every module + its purpose, every file/function,
+  every review finding + fix, every invariant proven, the full anatomy of a generated app (all ~20 files
+  explained), the safety ledger, the commit chain, and residual risks/carry-forward. Path:
+  `knowledge/reports/PROJECTOS-FORGE-FINAL-MICRO-EVIDENCE.md`.
 
 ## Phase status
 
 | Phase | ID | Status |
 | --- | --- | --- |
 | F1 | PROJECTOS-FORGE-BLUEPRINT1A | LOCAL IMPLEMENTATION COMPLETE (awaiting advisor/owner review) |
-| F2 | PROJECTOS-FORGE-SCAFFOLD1A | **NEXT — not started** |
-| F3 | PROJECTOS-FORGE-PROVISIONER1A | pending |
+| F2 | PROJECTOS-FORGE-SCAFFOLD1A | LOCAL IMPLEMENTATION COMPLETE (awaiting advisor/owner review) |
+| F3 | PROJECTOS-FORGE-PROVISIONER1A | **NEXT — not started** |
 | F4 | PROJECTOS-FORGE-GENERATION1A | pending |
 | F5 | PROJECTOS-FORGE-VERIFY1A | pending |
 | F6 | PROJECTOS-FORGE-SNAPSHOT1A | pending |
@@ -53,15 +58,28 @@ validate-all ALL PASS (51). Report:
 `knowledge/reports/2026-07-12_ProjectOS_PROJECTOS-FORGE-BLUEPRINT1A_AWAITING-REVIEW.md`. Committed
 `feat(projectos): add forge blueprint engine (F1)` (local, not pushed).
 
+## F2 result (LOCAL IMPLEMENTATION COMPLETE — awaiting review, not pushed)
+
+`projectos/forge/scaffold-engine.cjs` + `validators/validate-forge-scaffold.cjs` (18 checks, registered).
+Blueprint → deterministic ~21-file secure-by-default Next.js+Supabase+Tailwind monorepo manifest
+(service-role confined to `server-only`; RLS + owner policies + update WITH CHECK; user-scoped
+RLS-enforcing CRUD routes; `.env.example` names-only; no AI dep; `.projectops` governance seeded;
+reserved-keyword-safe SQL idents; engine-level path guard; replayable forge.config + hash). security
+(2 HIGH: comment code-injection, path traversal — fixed) + code (2 HIGH: SQL identifiers, validator
+contract — fixed) + self-caught reserved-keyword bug. validate-all ALL PASS (52). Committed
+`feat(projectos): add forge scaffold engine (F2)` (local, not pushed).
+
 ## Next exact safe action (resume here)
 
-**Begin F2 — `PROJECTOS-FORGE-SCAFFOLD1A`.** Turn a blueprint into a running Next.js+Supabase+Tailwind+
-shadcn monorepo from **versioned templates + typed slots** (no AI free-writing of structure): seed
-`.projectops` governance files, tests, CI, and secure defaults (RLS on, two-client server boundary, no
-secret in client bundle). Emit a replayable `forge.config.json`. Add a validator asserting a generated
-project has the required files + security defaults + governance, and that generation is deterministic
-(same blueprint → same tree). Zero-dep `.cjs`; templates are static files/strings; NO AI, NO network.
-Reviews → validators → report → index row → one commit `feat(projectos): add forge scaffold engine (F2)`
-(no push) → continue F3.
+**Begin F3 — `PROJECTOS-FORGE-PROVISIONER1A`.** Materialise the F2 manifest to a local project directory
+(inside a synthetic/scratch root, path-guarded), then plan the local run: install deps + run migrations
+against a LOCAL Supabase + boot the dev server. Anything touching a real provider/live DB/deploy is
+owner-gated (route through provider guards + approval queue); synthetic/local by default. In F3 the
+"write manifest to disk" is a safe local action; actual `npm install` / DB / server start should be a
+launch SPEC (reuse `launcher/session-launcher.cjs`) that the owner approves — do NOT auto-run network
+installs. Add a validator: manifest → files written to a scratch dir deterministically, path-safe, no
+secret values on disk, and a launch spec that is BLOCKED_AWAITING_OWNER for the install/run steps.
+Reviews → validators (+ live proof if a real local boot is owner-approved) → report → index row → one
+commit `feat(projectos): add forge local provisioner (F3)` (no push) → continue F4.
 
 **Command to run next:** `cd C:/dev/ProjectOS && git status && npm run validate`

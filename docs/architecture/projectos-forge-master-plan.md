@@ -121,7 +121,10 @@ provisioner (Docker/dev-server orchestration)**, **verification harness (Playwri
 - **F9 — Integrations/Playbooks.** Verified wiring for Stripe/email/storage/etc. (placeholders; real keys
   owner-gated). MCP for custom.
 - **F10 — Forge E2E + hardening + final evidence.** Whole chat-to-app chain proven end-to-end offline;
-  adversarial pass; evidence pack.
+  adversarial pass; evidence pack. **Owner directive:** produce a MICRO-LEVEL completion report
+  (`knowledge/reports/PROJECTOS-FORGE-FINAL-MICRO-EVIDENCE.md`) for owner + ChatGPT review — every phase,
+  module, file/function, review finding + fix, invariant, the full generated-app anatomy, safety ledger,
+  commit chain, and residual risks. Then STOP and await review + push authorisation.
 
 ## 6. Differentiators (one line each)
 

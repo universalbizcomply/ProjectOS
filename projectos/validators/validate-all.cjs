@@ -21,7 +21,8 @@ const MODULES = [
   "validate-provider-context-guards",
   "validate-desktop-e2e",
   "validate-reliability-hardening",
-  "validate-forge-blueprint"
+  "validate-forge-blueprint",
+  "validate-forge-scaffold"
 ];
 let total = 0;
 for (const m of MODULES) {
