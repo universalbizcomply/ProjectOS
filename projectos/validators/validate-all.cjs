@@ -14,7 +14,8 @@ const MODULES = [
   "validate-plan-discovery-import",
   "validate-secret-broker",
   "validate-secret-operation-broker",
-  "validate-session-launcher"
+  "validate-session-launcher",
+  "validate-desktop-bridge"
 ];
 let total = 0;
 for (const m of MODULES) {

@@ -35,8 +35,8 @@
 | 5 | PROJECTOS-V3-SECRET-OPERATION-BROKER1A | LOCAL IMPLEMENTATION COMPLETE (not accepted; report + commit) |
 | 6 | PROJECTOS-V3-OWNER-CHAT1A | LOCAL IMPLEMENTATION COMPLETE (not accepted; report + commit) |
 | 7 | PROJECTOS-V3-PROJECT-SESSION-LAUNCHER1A | LOCAL IMPLEMENTATION COMPLETE (not accepted; report + commit) |
-| 8 | PROJECTOS-V3-CLAUDE-DESKTOP-BRIDGE1A | **NEXT — not started** |
-| 9 | PROJECTOS-V3-E2E-RUNNER1A | pending |
+| 8 | PROJECTOS-V3-CLAUDE-DESKTOP-BRIDGE1A | LOCAL IMPLEMENTATION COMPLETE (not accepted; report + commit) |
+| 9 | PROJECTOS-V3-E2E-RUNNER1A | **NEXT — not started** |
 | 10 | PROJECTOS-V3-APPROVAL-QUEUE1A | pending |
 | 11 | PROJECTOS-V3-PROVIDER-CONTEXT-GUARDS1A | pending |
 | 12 | PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A | pending |
@@ -73,6 +73,18 @@ clearly labelled) — no static mocks, no fabricated evidence.
 - Open defects: none. Last completed action: Phase 2 closure commit `4da4966` (validated; not pushed).
 - Validation completed: `validate-all` ALL PASS (40) · `validate-no-secrets` · `validate-v2-closure-evidence`
   · `validate-report-index` · `git diff --check` clean.
+
+## Phase 8 result (LOCAL IMPLEMENTATION COMPLETE — not accepted, not pushed)
+
+Claude Desktop Bridge protocol `projectos/bridge/desktop-bridge.cjs` — local in-process contract to hand
+a launch spec to an UNTRUSTED worker and validate its response; NO AI/API/network. Only READY specs
+dispatchable; side effects ALLOWLISTED (unknown/gated/prohibited/non-string refused); forbidden authority
+fields stripped recursively; response snapshotted once (TOCTOU-safe) + 256KB cap; secrets redacted both
+ways via a REQUIRED redactor; synthetic in-process worker for tests. `validate-desktop-bridge.cjs` = 14
+invariants, registered. security-reviewer CRITICAL (denylist→allowlist) + HIGH (required redactor) + 2
+MEDIUM fixed; code self-review. validate-all ALL PASS. No user-facing surface → proof is the invariants.
+Committed `feat(projectos): implement v3 claude desktop bridge` (local, not pushed). Completion unchanged
+(15.8%).
 
 ## Phase 7 result (LOCAL IMPLEMENTATION COMPLETE — not accepted, not pushed)
 
@@ -135,25 +147,24 @@ unchanged (15.8% — local-complete ≠ accepted).
 
 ## Next exact safe action (resume here)
 
-**Begin Phase 8 — `PROJECTOS-V3-CLAUDE-DESKTOP-BRIDGE1A`.** Concrete first steps:
+**Begin Phase 9 — `PROJECTOS-V3-E2E-RUNNER1A`.** Concrete first steps:
 1. `git status` + verify branch `projectos-v3`, tree clean, remote still `4c3f076` (do NOT push).
-2. Design a local **bridge contract** between ProjectOS and a Claude desktop/CLI worker: a deterministic,
-   schema-validated request/response envelope for handing a launch spec (Phase 7) to a worker and
-   receiving a structured result — WITHOUT calling any AI/metered API or network. Model it as an inert,
-   local, in-process transport contract + validation (redaction of any secret, owner-gated side effects
-   refused, correlation ids, fail closed on malformed/oversized envelopes). No real Claude/API call —
-   the bridge only defines and validates the protocol and simulates with a synthetic echo worker.
-3. Implement a zero-dependency `.cjs` bridge/protocol module (reuse `security/redaction.cjs`,
-   `launcher/session-launcher.cjs`) + a registered validator. Reuse existing `projectos/bridge/` if
-   present (inspect first). If a control-center surface is warranted, add a view + live proof; else prove
-   via validator invariants.
-4. Reviews (security/code/ECC/self) → validators (+ UI proof if any) → report → index row → one commit
-   `feat(projectos): implement v3 claude desktop bridge` (no push) → continue Phase 9.
+2. Design a local **E2E runner** that drives the whole governed chain deterministically and offline:
+   launch spec (Phase 7) → bridge request (Phase 8) → synthetic in-process worker → validated response,
+   with the secret/operation brokers exercised via `broker.use`. It runs SYNTHETIC scenarios only (happy
+   path + each fail-closed path: refused spec, owner-gated hold, disallowed side effect, secret redaction,
+   correlation mismatch) and asserts the end-to-end outcome. NO real provider/AI/network; no real
+   worker spawn — the "worker" is the synthetic handler.
+3. Implement a zero-dependency `.cjs` runner that composes the existing modules (`launcher`, `bridge`,
+   `security/broker`, `operation-broker`) into scenarios + a registered validator asserting each
+   scenario's expected end-to-end result. Reuse; do not duplicate logic.
+4. Reviews (security/code/ECC/self) → validators → report → index row → one commit
+   `feat(projectos): implement v3 e2e runner` (no push) → continue Phase 10 (APPROVAL-QUEUE).
 
 **Exact command to run next:** `cd C:/dev/ProjectOS && git status && npm run validate`
 
 ## Resumability
 
 Safe to resume: yes. Nothing destructive is running. No misleading phase-complete commit exists
-(Phases 3–7 are genuinely local-implementation-complete with tests/invariants + live proof for UI
+(Phases 3–8 are genuinely local-implementation-complete with tests/invariants + live proof for UI
 phases). Remote stays at `4c3f076`. Local HEAD advances one commit per completed phase.
