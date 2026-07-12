@@ -38,8 +38,8 @@
 | 8 | PROJECTOS-V3-CLAUDE-DESKTOP-BRIDGE1A | LOCAL IMPLEMENTATION COMPLETE (not accepted; report + commit) |
 | 9 | PROJECTOS-V3-E2E-RUNNER1A | LOCAL IMPLEMENTATION COMPLETE (not accepted; report + commit) |
 | 10 | PROJECTOS-V3-APPROVAL-QUEUE1A | LOCAL IMPLEMENTATION COMPLETE (not accepted; report + commit) |
-| 11 | PROJECTOS-V3-PROVIDER-CONTEXT-GUARDS1A | **NEXT — not started** |
-| 12 | PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A | pending |
+| 11 | PROJECTOS-V3-PROVIDER-CONTEXT-GUARDS1A | LOCAL IMPLEMENTATION COMPLETE (not accepted; report + commit) |
+| 12 | PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A | **NEXT — not started** |
 | 13 | PROJECTOS-V3-DESKTOP-E2E-PROOF1A | pending |
 | 14 | PROJECTOS-V3-POLYGO-BASELINE-RECONCILE1A | pending (needs a trusted local PolyGo repo; else hard external-input blocker) |
 | 15 | PROJECTOS-V3-POLYGO-INSTALL-REENTRY1A | pending |
@@ -73,6 +73,17 @@ clearly labelled) — no static mocks, no fabricated evidence.
 - Open defects: none. Last completed action: Phase 2 closure commit `4da4966` (validated; not pushed).
 - Validation completed: `validate-all` ALL PASS (40) · `validate-no-secrets` · `validate-v2-closure-evidence`
   · `validate-report-index` · `git diff --check` clean.
+
+## Phase 11 result (LOCAL IMPLEMENTATION COMPLETE — not accepted, not pushed)
+
+Provider Context Guards `projectos/guards/provider-context-guards.cjs` — default-REFUSED gate for
+external-provider intent; classifies only, never contacts. ALLOW (plan-only) / OWNER_GATED (enqueues
+redacted approval item) / REFUSED. Prohibited always REFUSED; production-targeting REFUSED when frozen
+(default true); explicit switch defaults to REFUSED; frozen provider table; no endpoint/credential in
+config. `validate-provider-context-guards.cjs` = 13 invariants, registered. security-reviewer HIGH
+(dispatch fail-open → explicit switch) + 2 MEDIUM fixed. validate-all ALL PASS (48). No user-facing
+surface → proof is the invariants. Committed `feat(projectos): implement v3 provider context guards`
+(local, not pushed). Completion unchanged (15.8%).
 
 ## Phase 10 result (LOCAL IMPLEMENTATION COMPLETE — not accepted, not pushed)
 
@@ -168,26 +179,26 @@ unchanged (15.8% — local-complete ≠ accepted).
 
 ## Next exact safe action (resume here)
 
-**Begin Phase 11 — `PROJECTOS-V3-PROVIDER-CONTEXT-GUARDS1A`.** Concrete first steps:
+**Begin Phase 12 — `PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A`.** This is a USER-FACING phase → needs
+LIVE browser proof. Concrete first steps:
 1. `git status` + verify branch `projectos-v3`, tree clean, remote still `4c3f076` (do NOT push).
-2. Design local **provider-context guards**: before any operation that would touch an external provider
-   (Supabase, Vercel, GitHub, email/SMS/WhatsApp, payments), a deterministic guard evaluates the intended
-   action against the project's production-freeze + governance policy and returns ALLOW / OWNER_GATED /
-   REFUSED — defaulting to REFUSED. It NEVER contacts a provider; it only classifies intent and produces
-   an owner-approval item (Phase 10) or a refusal. Reuse the launcher's PROHIBITED/OWNER_GATED sets and
-   the redaction module; enforce that no provider endpoint/credential is present in the guard's own config
-   (synthetic only). This is the safety net that makes provider access impossible without an explicit
-   owner-approved, unfrozen path.
-3. Implement a zero-dependency `.cjs` guard module + registered validator (classify each provider intent;
-   production-frozen → REFUSED; unknown provider → REFUSED; owner-gated → emits an approval item; secrets
-   redacted; fail closed). Reuse `launcher/session-launcher.cjs`, `approval/approval-queue.cjs`.
-4. Reviews (security/code/ECC/self) → validators → report → index row → one commit
-   `feat(projectos): implement v3 provider context guards` (no push) → continue Phase 12 (CONTROL-CENTRE-INTEGRATION).
+2. Integrate the Phases 4–11 backend into the Control Centre as read-only surfaces (extend
+   `projectos/control-center/`, no second app): a small TypeScript port (or JSON snapshot) of the
+   governed-chain outputs so the Owner Control Plane's decisions region shows real approval-queue items,
+   and add a read-only "Safety & Providers" panel showing provider-guard decisions + the safety state.
+   Keep it snapshot-driven and inert (no real execution; owner-only actions stay inert). NO AI/API/network
+   beyond the localhost dev server.
+3. Implement: a deterministic TS module mirroring the approval-queue / provider-guard shapes with a
+   synthetic snapshot + a component + nav view + unit tests. Reuse the Phase-3 owner model.
+4. Reviews (security/code/ECC/UI-UX/self) → typecheck/vitest/build + validate-all → **live browser proof**
+   (localhost + browser at 1440/1280/1024/768/390, screenshots + console/network checks) → report →
+   index row → one commit `feat(projectos): integrate governed chain into control centre` (no push) →
+   continue Phase 13 (DESKTOP-E2E-PROOF).
 
 **Exact command to run next:** `cd C:/dev/ProjectOS && git status && npm run validate`
 
 ## Resumability
 
 Safe to resume: yes. Nothing destructive is running. No misleading phase-complete commit exists
-(Phases 3–10 are genuinely local-implementation-complete with tests/invariants + live proof for UI
+(Phases 3–11 are genuinely local-implementation-complete with tests/invariants + live proof for UI
 phases). Remote stays at `4c3f076`. Local HEAD advances one commit per completed phase.

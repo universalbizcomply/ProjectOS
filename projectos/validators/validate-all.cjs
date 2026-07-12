@@ -17,7 +17,8 @@ const MODULES = [
   "validate-session-launcher",
   "validate-desktop-bridge",
   "validate-e2e-runner",
-  "validate-approval-queue"
+  "validate-approval-queue",
+  "validate-provider-context-guards"
 ];
 let total = 0;
 for (const m of MODULES) {
