@@ -11,7 +11,8 @@ const MODULES = [
   "validate-dashboard-config", "validate-dashboard-data", "validate-dashboard-output", "validate-dashboard-safety", "validate-dashboard",
   "validate-project-plan", "validate-current-project-state", "validate-active-execution-session",
   "validate-plan-ready-gate", "validate-plan-status", "validate-plan-version", "validate-plan-staleness", "validate-plan-no-secrets",
-  "validate-plan-discovery-import"
+  "validate-plan-discovery-import",
+  "validate-secret-broker"
 ];
 let total = 0;
 for (const m of MODULES) {
