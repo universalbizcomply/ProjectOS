@@ -129,8 +129,8 @@
   },
 
   "staleness": {
-    "lastVerifiedCommit": "de58428a671f26ac9774afe81fe845724254d537",
-    "lastVerifiedDate": "2026-07-11",
+    "lastVerifiedCommit": "6bee874267141673934d5275da418dacd0e87e46",
+    "lastVerifiedDate": "2026-07-12",
     "stalenessStatus": "fresh",
     "stalenessReasons": [],
     "materialPlanInputs": [
