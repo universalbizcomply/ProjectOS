@@ -32,8 +32,8 @@
 | 2 | PROJECTOS-V3-PLAN-DISCOVERY-IMPORT1A | CLOSED (impl `4271489` + fix `4c3f076`; closure `4da4966`) |
 | 3 | PROJECTOS-V3-OWNER-CONTROL-PLANE-DESIGN1A | LOCAL IMPLEMENTATION COMPLETE (not accepted; report + commit) |
 | 4 | PROJECTOS-V3-LOCAL-SECRET-BROKER1A | LOCAL IMPLEMENTATION COMPLETE (not accepted; report + commit) |
-| 5 | PROJECTOS-V3-SECRET-OPERATION-BROKER1A | **NEXT — not started** |
-| 6 | PROJECTOS-V3-OWNER-CHAT1A | pending |
+| 5 | PROJECTOS-V3-SECRET-OPERATION-BROKER1A | LOCAL IMPLEMENTATION COMPLETE (not accepted; report + commit) |
+| 6 | PROJECTOS-V3-OWNER-CHAT1A | **NEXT — not started** |
 | 7 | PROJECTOS-V3-PROJECT-SESSION-LAUNCHER1A | pending |
 | 8 | PROJECTOS-V3-CLAUDE-DESKTOP-BRIDGE1A | pending |
 | 9 | PROJECTOS-V3-E2E-RUNNER1A | pending |
@@ -74,6 +74,18 @@ clearly labelled) — no static mocks, no fabricated evidence.
 - Validation completed: `validate-all` ALL PASS (40) · `validate-no-secrets` · `validate-v2-closure-evidence`
   · `validate-report-index` · `git diff --check` clean.
 
+## Phase 5 result (LOCAL IMPLEMENTATION COMPLETE — not accepted, not pushed)
+
+Secret Operation Broker `projectos/security/operation-broker.cjs` — use a secret inside an operation
+(HMAC-sign / fingerprint / constant-time verify) via `broker.use()` without ever returning the raw
+secret. Allowlisted ops; owner-confirmation for sensitive ops; binding enforced; NO-LEAK (plain-JSON-
+safe result required — functions/Buffers/Maps/Promises/getters/non-enumerable/symbols refused — plus
+verbatim redactor scan, returns re-parsed scanned text; async refused). `validate-secret-operation-
+broker.cjs` = 12 invariants (incl. 6 exfiltration-shape blocks), registered in validate-all. security-
+reviewer (2 CRITICAL fixed) + code-reviewer run. `validate-all` ALL PASS. No user-facing surface →
+proof is the invariants. Committed `feat(projectos): implement v3 secret operation broker` (local, not
+pushed). Completion unchanged (15.8%).
+
 ## Phase 4 result (LOCAL IMPLEMENTATION COMPLETE — not accepted, not pushed)
 
 Local Secret Broker: `projectos/security/broker.cjs` (AES-256-GCM at rest, scrypt N=2^16, opaque
@@ -99,22 +111,24 @@ unchanged (15.8% — local-complete ≠ accepted).
 
 ## Next exact safe action (resume here)
 
-**Begin Phase 5 — `PROJECTOS-V3-SECRET-OPERATION-BROKER1A`.** Concrete first steps:
+**Begin Phase 6 — `PROJECTOS-V3-OWNER-CHAT1A`.** Concrete first steps:
 1. `git status` + verify branch `projectos-v3`, tree clean, remote still `4c3f076` (do NOT push).
-2. Design a secret-OPERATION broker: perform an operation that NEEDS a secret (e.g. sign/authenticate/
-   call a synthetic endpoint stub) via `broker.use(ref, fn)` so the secret is materialized only inside
-   the operation and never returned to or logged by the caller. Per-operation authorization, allowed-
-   operation allowlist, owner confirmation for sensitive operations, audited outcome (metadata only,
-   redacted), fail closed. **No real provider/network — synthetic in-process stubs only.**
-3. Implement a zero-dependency `.cjs` operation-broker library on top of `projectos/security/broker.cjs`
-   + a registered validator (mirror the convention).
-4. Reviews (security/code/ECC/self) → validators → report → index row → one commit
-   `feat(projectos): implement v3 secret operation broker` (no push) → continue Phase 6.
+2. Design a local owner-facing chat surface in `projectos/control-center/` (extend the app; no second
+   Control Centre): the owner asks about a project and gets plain-language answers derived ONLY from the
+   local snapshot/state (plan status, phase, decisions, risks, next safe action). NO AI/metered API —
+   deterministic, rule/template-based responder over the snapshot. Owner-only actions stay inert/routed
+   to the approval surface. No secret material in chat; if a message would surface a secret, redact.
+3. Implement: a pure deterministic responder module (`src/owner/ownerChat.ts` — intent match →
+   answer built from the snapshot) + a chat panel component + a nav view + unit tests. Reuse the
+   Phase-3 owner model/snapshot.
+4. Reviews (security/code/ECC/UI-UX/self) → typecheck/vitest/build + validate-all → **live browser
+   proof** (user-facing phase: localhost + browser at 1440/1280/1024/768/390) → report → index row →
+   one commit `feat(projectos): implement v3 owner chat` (no push) → continue Phase 7.
 
 **Exact command to run next:** `cd C:/dev/ProjectOS && git status && npm run validate`
 
 ## Resumability
 
 Safe to resume: yes. Nothing destructive is running. No misleading phase-complete commit exists
-(Phases 3–4 are genuinely local-implementation-complete with tests/invariants). Remote stays at
+(Phases 3–5 are genuinely local-implementation-complete with tests/invariants). Remote stays at
 `4c3f076`. Local HEAD advances one commit per completed phase.
