@@ -76,8 +76,10 @@ function tplPackageJson(bp) {
     private: true,
     version: "0.1.0",
     scripts: { dev: "next dev", build: "next build", start: "next start", lint: "next lint", test: "vitest run" },
-    dependencies: { next: "15.0.0", react: "18.3.1", "react-dom": "18.3.1", "@supabase/supabase-js": "2.45.0", "server-only": "0.0.1" },
-    devDependencies: { typescript: "5.6.0", tailwindcss: "3.4.0", postcss: "8.4.0", autoprefixer: "10.4.0", vitest: "2.1.0", "@types/react": "18.3.0", "@types/node": "22.0.0" },
+    // Caret ranges (not exact pins) so every version always resolves on the registry — an exact ".0" pin
+    // like typescript@5.6.0 does not exist and breaks `npm install` (found via a real install in F-real-e2e).
+    dependencies: { next: "^15.0.0", react: "^18.3.1", "react-dom": "^18.3.1", "@supabase/supabase-js": "^2.45.0", "server-only": "^0.0.1" },
+    devDependencies: { typescript: "^5.6.3", tailwindcss: "^3.4.0", postcss: "^8.4.0", autoprefixer: "^10.4.0", vitest: "^2.1.0", "@types/react": "^18.3.0", "@types/node": "^22.0.0" },
   };
   return JSON.stringify(pkg, null, 2) + "\n";
 }

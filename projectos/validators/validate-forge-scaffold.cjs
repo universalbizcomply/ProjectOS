@@ -103,6 +103,11 @@ function run() {
   if (pkg) {
     const deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
     for (const bad of ["openai", "@anthropic-ai/sdk", "anthropic"]) if (deps[bad]) errors.push("invariant 8: metered-AI dependency present: " + bad);
+    // Dependency versions must be caret ranges, not fragile exact ".0" pins — an exact pin like
+    // typescript@5.6.0 does not exist on the registry and breaks `npm install` (found via a real install).
+    for (const [name, ver] of Object.entries(deps)) {
+      if (/^\d+\.\d+\.\d+$/.test(ver)) errors.push("invariant 8: dependency '" + name + "' uses an exact pin '" + ver + "' (use a caret range so it resolves)");
+    }
   }
 
   // 9: per entity api route (real slug contract; RLS-enforcing user-scoped client, not service-role).
