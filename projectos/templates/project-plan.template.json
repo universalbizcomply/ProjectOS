@@ -1,0 +1,95 @@
+{
+  "schemaVersion": "1.0.0",
+  "projectId": "<project-id>",
+  "projectName": "<Project Name>",
+  "programmeId": "<programme-id>",
+  "planId": "<plan-id>",
+  "planVersion": "1.0",
+  "planStatus": "PLAN DRAFTED",
+
+  "businessVision": "<one-paragraph business vision>",
+  "definitionOfComplete": "<explicit definition of complete>",
+  "approvedScope": ["<in-scope item>"],
+  "excludedScope": ["<explicitly out-of-scope item>"],
+  "successStandard": "<the standard by which success is judged>",
+
+  "repository": {
+    "repositoryPath": "C:/dev/<project>",
+    "expectedRemote": "origin/<branch>",
+    "protectedBranches": ["main"],
+    "baselineCommit": "0000000000000000000000000000000000000000",
+    "planPersistenceCommit": null,
+    "planSourceBranch": "<branch>"
+  },
+
+  "sourceDocuments": [
+    {
+      "documentPath": "docs/architecture/<project>-master-plan.md",
+      "sourceDocumentType": "human-readable-plan",
+      "sourceDocumentChecksum": "sha256:<hex>",
+      "authoritative": true,
+      "superseded": false
+    }
+  ],
+
+  "phases": [
+    {
+      "phaseId": "<PHASE-ID>",
+      "description": "<what this phase delivers>",
+      "dependsOn": [],
+      "acceptanceCriteria": ["<acceptance criterion>"],
+      "riskLevel": "low",
+      "autonomyLevel": "local-safe",
+      "requiredValidators": ["validate-all"],
+      "requiredReviews": ["code-review", "security-review"],
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": ["phase-closure"]
+    }
+  ],
+
+  "environments": [
+    { "environmentId": "local", "productionFreeze": true }
+  ],
+
+  "providers": [],
+
+  "governance": {
+    "owner": "<owner>",
+    "gatekeeper": "<gatekeeper>",
+    "implementer": "Claude Code",
+    "allowedActions": ["create-local-files", "run-local-validation", "produce-evidence-report"],
+    "forbiddenActions": ["production-deploy", "production-db-mutation", "real-email-sms-whatsapp", "payment-or-live-charge", "force-push", "use-openai-api", "use-anthropic-api"],
+    "ownerOnlyActions": ["approve-plan", "approve-closure", "commit", "push"],
+    "closureAuthority": "<owner>",
+    "noApiPolicy": true
+  },
+
+  "approval": {
+    "approvalStatus": "not-approved",
+    "approvedBy": "",
+    "approvalDate": "",
+    "approvalEvidenceReference": "",
+    "supersedesPlanVersion": null,
+    "approvalBinding": "MANUAL_GOVERNANCE_APPROVAL",
+    "tamperProof": false,
+    "approvalAuthority": "owner",
+    "secureApprovalEvidence": null
+  },
+
+  "staleness": {
+    "lastVerifiedCommit": "0000000000000000000000000000000000000000",
+    "lastVerifiedDate": "<YYYY-MM-DD>",
+    "stalenessStatus": "fresh",
+    "stalenessReasons": [],
+    "materialPlanInputs": [
+      { "inputId": "human-readable-plan", "fingerprint": "sha256:<hex>" }
+    ]
+  },
+
+  "security": {
+    "secretPolicy": "No raw secret values are stored. Providers are referenced by name only.",
+    "rawSecretValuesForbidden": true,
+    "sensitiveDataForbidden": true,
+    "redactionRequired": true
+  }
+}

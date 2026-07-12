@@ -1,0 +1,46 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "projectos/schemas/current-project-state.schema.json",
+  "title": "ProjectOS Current Project State",
+  "description": "Continuously updated factual delivery state (source-of-truth hierarchy level 3). May change as work progresses; must never alter the approved plan and never, by itself, stale the plan. Created in PROJECTOS-V3-MASTER-PLAN-MEMORY1A.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "projectId", "activePlanId", "activePlanVersion", "currentStatus",
+    "completionMethod", "acceptedPhaseCount", "totalPhaseCount",
+    "completionPercentage", "completedPhases", "activePhase", "pendingPhases", "blockedPhases",
+    "deferredPhases", "acceptedCarryForward", "currentBranch", "currentHead", "currentRemoteHead",
+    "workingTreeStatus", "currentRisks", "currentBlockers", "lastEvidenceReference",
+    "nextRecommendedPhase", "lastUpdated", "updatedByRole"
+  ],
+  "properties": {
+    "schemaVersion": { "type": "string" },
+    "projectId": { "type": "string", "minLength": 1 },
+    "activePlanId": { "type": "string", "minLength": 1 },
+    "activePlanVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+$" },
+    "currentStatus": {
+      "type": "string",
+      "enum": ["NO PLAN", "PLAN DISCOVERED", "PLAN CONFLICT", "PLAN DRAFTED", "AWAITING OWNER APPROVAL", "PLAN READY", "PLAN STALE", "PLAN BLOCKED", "IN EXECUTION", "PAUSED", "COMPLETE"]
+    },
+    "completionMethod": { "type": "string", "minLength": 1, "description": "How completionPercentage is derived. Temporary method: accepted V3 phases / total approved V3 phases." },
+    "acceptedPhaseCount": { "type": "integer", "minimum": 0, "description": "Count of formally accepted phases contributing to completion. Excludes active/unaccepted and pre-programme maintenance." },
+    "totalPhaseCount": { "type": "integer", "minimum": 1, "description": "Total approved programme phases (denominator)." },
+    "completionPercentage": { "type": "number", "minimum": 0, "maximum": 100 },
+    "completedPhases": { "type": "array", "items": { "type": "string" } },
+    "activePhase": { "type": ["string", "null"] },
+    "pendingPhases": { "type": "array", "items": { "type": "string" } },
+    "blockedPhases": { "type": "array", "items": { "type": "string" } },
+    "deferredPhases": { "type": "array", "items": { "type": "string" } },
+    "acceptedCarryForward": { "type": "array", "items": { "type": "string" } },
+    "currentBranch": { "type": "string", "minLength": 1 },
+    "currentHead": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "currentRemoteHead": { "type": ["string", "null"] },
+    "workingTreeStatus": { "type": "string", "enum": ["clean", "dirty"] },
+    "currentRisks": { "type": "array", "items": { "type": "string" } },
+    "currentBlockers": { "type": "array", "items": { "type": "string" } },
+    "lastEvidenceReference": { "type": "string" },
+    "nextRecommendedPhase": { "type": ["string", "null"] },
+    "lastUpdated": { "type": "string" },
+    "updatedByRole": { "type": "string", "enum": ["owner", "gatekeeper", "implementer"] }
+  }
+}
