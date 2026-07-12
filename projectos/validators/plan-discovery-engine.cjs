@@ -156,9 +156,11 @@ const INSTRUCTION_INJECTION = [
 ];
 // NOTE: regex injection-detection is best-effort defense-in-depth and is bypassable by paraphrase.
 // It is NOT the security boundary. The boundary is the authority model: untrusted content can only
-// reach AUTHORITATIVE via a trusted repository-backed binding (structured plan-memory JSON, a config
-// at a canonical path with matching identity, or a git-verified source commit), the import NEVER
-// grants PLAN READY, and every binding sets ownerReviewRequired. Evaded content stays at most
+// reach AUTHORITATIVE via a trusted repository-backed binding whose trust origin is OUTSIDE the
+// candidate (structured plan-memory JSON, or a canonical `.projectops/config.json` at the canonical
+// path with matching identity that explicitly references the plan — optionally with a config-SUPPLIED,
+// git-verified commit). A candidate's OWN declared source commit is never an authority path. The
+// import NEVER grants PLAN READY, and every binding sets ownerReviewRequired. Evaded content stays
 // CURRENT_SUPPORTING (owner-review-required) and can never self-elevate or override governance.
 function isUntrustedInstruction(text) { return INSTRUCTION_INJECTION.some((re) => re.test(text)); }
 
@@ -189,9 +191,13 @@ function classifyAuthority(src) {
 }
 
 // Cross-source, evidence-based authority assignment. Upgrades to AUTHORITATIVE ONLY on a strong
-// repository-backed binding (canonical project-config reference, canonical reports-index reference, or
-// a git-verified source commit), recording full evidence; downgrades on contradiction (identity
-// mismatch, unverifiable binding). ctx = { repoEvidence, gitVerify?(commit)->bool }.
+// repository-backed binding whose trust origin is OUTSIDE the candidate: structured plan-memory JSON,
+// or a canonical `.projectops/config.json` (at the canonical path, matching identity) that explicitly
+// references the plan — optionally with a config-SUPPLIED, git-verified `planSourceCommit`. A
+// candidate's OWN declared source commit is NEVER an authority origin (it is at most an unverified
+// document claim and, if it mismatches a config-supplied commit, fails closed). Records full evidence;
+// downgrades on contradiction (identity mismatch, unverifiable binding). ctx = { repoEvidence,
+// gitVerify?(commit)->bool }.
 function assignAuthorities(sources, ctx) {
   ctx = ctx || {};
   const gitVerify = typeof ctx.gitVerify === "function" ? ctx.gitVerify : null;
@@ -214,9 +220,11 @@ function assignAuthorities(sources, ctx) {
       let obj = null; try { obj = JSON.parse(stripBom(s.content || "")); } catch (_) { obj = null; }
       if (obj && typeof obj === "object") {
         const cfgId = typeof obj.projectId === "string" ? obj.projectId.toLowerCase() : null;
+        // An OPTIONAL commit supplied BY the canonical config (trust origin = config, not the candidate).
+        const cfgCommit = (typeof obj.planSourceCommit === "string" && /^[0-9a-f]{7,40}$/i.test(obj.planSourceCommit)) ? obj.planSourceCommit.toLowerCase() : null;
         for (const key of ["canonicalPlan", "masterPlan", "authoritativePlan", "plan", "authoritative"]) {
           const v = obj[key];
-          const add = (x) => { if (typeof x === "string") canonicalPaths.set(normRef(s.relPath, x), { configPath: s.relPath, cfgProjectId: cfgId }); };
+          const add = (x) => { if (typeof x === "string") canonicalPaths.set(normRef(s.relPath, x), { configPath: s.relPath, cfgProjectId: cfgId, cfgCommit: cfgCommit }); };
           if (typeof v === "string") add(v);
           if (Array.isArray(v)) v.forEach(add);
         }
@@ -243,16 +251,23 @@ function assignAuthorities(sources, ctx) {
     // superseded/duplicate/conflicting/unverified sources keep their (trusted or downgraded) category.
     if (s.authority !== "CURRENT_SUPPORTING") { s.contradictoryEvidence = contradictory; continue; }
 
+    // AUTHORITY-FORGERY FIX: a candidate's OWN declared "source commit" is NEVER an authority path
+    // (commit existence proves repository integrity, not owner approval / canonical status / trust).
+    // Authority via a commit is honoured ONLY when the commit is supplied by a trusted CANONICAL
+    // CONFIG (trust origin outside the candidate) and verified; a candidate-declared commit that
+    // mismatches the config-supplied commit fails closed. A candidate-declared commit otherwise
+    // remains only an unverified document claim (available for reconciliation / owner review).
     let binding = null, evSource = null, evRef = null, verification = null;
     const canon = canonicalPaths.get(s.normRelPath);
     if (canon && (!canon.cfgProjectId || !claims.projectId || claims.projectId.toLowerCase() === canon.cfgProjectId)) {
-      binding = "CANONICAL_PROJECT_CONFIG"; evSource = canon.configPath; verification = "canonical-config-reference + identity-consistent";
-    } else {
-      const m = /source\s*commit["\s:]+([0-9a-f]{7,40})/i.exec(s.content || "");
-      if (m) {
-        if (gitVerify && gitVerify(m[1])) { binding = "GIT_SOURCE_COMMIT"; evSource = "local-git"; evRef = m[1]; verification = "commit-exists-in-local-git"; }
-        else contradictory.push("declared source commit not verifiable in local git");
+      let commitOk = true, commitNote = "";
+      if (canon.cfgCommit) {
+        if (gitVerify && gitVerify(canon.cfgCommit)) { commitNote = " + canonical-config-supplied commit verified"; evRef = canon.cfgCommit; }
+        else { commitOk = false; contradictory.push("canonical-config planSourceCommit not verifiable in local git"); }
       }
+      const cm = /source\s*commit["\s:]+([0-9a-f]{7,40})/i.exec(s.content || "");
+      if (canon.cfgCommit && cm && cm[1].toLowerCase() !== canon.cfgCommit) { commitOk = false; contradictory.push("candidate-declared commit mismatches canonical-config commit"); }
+      if (commitOk) { binding = "CANONICAL_PROJECT_CONFIG"; evSource = canon.configPath; verification = "canonical-config-reference + identity-consistent" + commitNote; }
     }
     if (binding) {
       s.authority = "AUTHORITATIVE";

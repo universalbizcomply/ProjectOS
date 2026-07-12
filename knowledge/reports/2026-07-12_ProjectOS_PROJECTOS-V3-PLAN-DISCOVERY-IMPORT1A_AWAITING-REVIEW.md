@@ -351,7 +351,10 @@ evidenceRef, verification, confidenceBasis, contradictoryEvidence, ownerReviewRe
 - `STRUCTURED_PLAN_MEMORY` — parsed owner-approved / PLAN READY plan-memory JSON;
 - `CANONICAL_PROJECT_CONFIG` — a config **at the canonical repo path** (`.projectops/config.json` or a
   caller-declared path) naming the plan canonical, **with matching project identity**;
-- `GIT_SOURCE_COMMIT` — a declared source commit verified to exist in local Git (caller `gitVerify`).
+- ~~`GIT_SOURCE_COMMIT` — a candidate's declared source commit verified to exist in local Git.~~
+  **RETRACTED (see §53):** a candidate's own declared commit is never an authority path. A git-verified
+  commit may only *support* a `CANONICAL_PROJECT_CONFIG` binding when the commit is **supplied by the
+  canonical config** (trust origin outside the candidate).
 Never from prose, filename, location, mtime, or a substring. Contradictions (identity mismatch,
 unverifiable binding) downgrade to CONFLICTING/UNVERIFIED. Every binding sets `ownerReviewRequired:
 true`; the import never grants PLAN READY.
@@ -469,6 +472,54 @@ Derived from `git diff --name-status` + `git ls-files --others --exclude-standar
 
 The earlier report's "4 modified + 31 new = 35 (+report+index = 37)" is **superseded**: the corrective
 pass added 11 authority fixtures and this report grew; the current Git-derived total is **48**.
+
+---
+
+---
+
+## 53. Authority-forgery fix — candidate-declared commits are not a trust origin (post-commit corrective)
+
+**Push gate stopped before push.** After the Phase 2 commit `4271489`, the push gate's authority
+interpretation lock exposed a **HIGH candidate-controlled authority-forgery** defect in the committed
+engine, so no push occurred.
+
+**Defect / PoC.** The committed `assignAuthorities` treated a candidate's **own** declared
+`source commit: <hash>` as a `GIT_SOURCE_COMMIT` authority binding when the commit existed. A candidate
+`plan.md` with `source commit: 746ba49…` (a real commit) + `gitVerify → true`, with no external
+binding, was classified **AUTHORITATIVE**. Commit hashes are public/guessable, so any document could
+self-assert authority. Commit existence proves repository integrity — **not** owner approval, canonical
+status, source trust, plan acceptance, authority, or PLAN READY eligibility.
+
+**Committed-test gap.** Regression test A used `gitVerify: () => false`, covering only the
+*unverifiable* case; the *verifiable* self-declared case was uncovered, so `validate-all` was green
+while the lock was violated.
+
+**Corrected authority semantics.** A candidate's own declared commit is now **never** an authority
+origin — it is retained only as an unverified document claim / reconciliation input / owner-review
+item. Authority via a commit is honoured **only** when a canonical `.projectops/config.json` (canonical
+path, matching identity, explicit plan reference) **supplies** a `planSourceCommit` that `gitVerify`
+confirms; the trust origin is the config, not the candidate. A candidate-declared commit that
+**mismatches** the config-supplied commit fails closed. The standalone `GIT_SOURCE_COMMIT` binding type
+is **removed**; git verification now only *supports* `CANONICAL_PROJECT_CONFIG`, never *creates* a
+binding.
+
+**New/strengthened regression tests** (in `validate-plan-discovery-import.cjs`), all PASS:
+- **A1** verifiable self-declared commit, no binding → NOT AUTHORITATIVE (`CURRENT_SUPPORTING`).
+- **A2** verifiable self-declared commit + `OWNER APPROVED`/`AUTHORITATIVE`/`canonical true` → NOT
+  AUTHORITATIVE.
+- **A3** verifiable self-declared commit in ordinary (non-canonical) JSON → NOT AUTHORITATIVE.
+- **A4** malicious doc naming a real commit → `UNTRUSTED_INSTRUCTION_CONTENT`, contributes nothing.
+- **B** canonical config supplies + verifies the commit → AUTHORITATIVE, evidence origin = the config.
+- **C** config commit X, candidate self-declares Y → mismatch, fail closed (NOT AUTHORITATIVE).
+- **D** config supplies a nonexistent commit → verification fails → NOT AUTHORITATIVE.
+Structured plan-memory (E) and reports-index/CLOSED (F) trust paths unchanged.
+
+**Scope of this fix (corrective commit `fix(projectos): prevent self-declared plan authority`, parent
+`4271489`):** 3 modified files — `projectos/validators/plan-discovery-engine.cjs`,
+`projectos/validators/validate-plan-discovery-import.cjs`, and this report. The original finding is
+preserved (not erased); the implementation commit `4271489` is not amended — the defect and its fix
+remain visible in Git history. Completion unchanged (10.5%); Phase 2 active/unaccepted; Phase 3
+unstarted; Phase 1 + V2 closure intact. No open HIGH/CRITICAL after this fix.
 
 ---
 
