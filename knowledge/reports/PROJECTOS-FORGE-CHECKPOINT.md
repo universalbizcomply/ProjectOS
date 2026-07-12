@@ -35,8 +35,8 @@
 | F5 | PROJECTOS-FORGE-VERIFY1A | LOCAL IMPLEMENTATION COMPLETE (awaiting advisor/owner review) |
 | F6 | PROJECTOS-FORGE-SNAPSHOT1A | LOCAL IMPLEMENTATION COMPLETE (awaiting advisor/owner review) |
 | F7 | PROJECTOS-FORGE-COMMAND-UI1A | LOCAL IMPLEMENTATION COMPLETE (awaiting advisor/owner review) |
-| F8 | PROJECTOS-FORGE-SECURE-DEPLOY1A | **NEXT — not started** |
-| F9 | PROJECTOS-FORGE-INTEGRATIONS1A | pending |
+| F8 | PROJECTOS-FORGE-SECURE-DEPLOY1A | LOCAL IMPLEMENTATION COMPLETE (awaiting advisor/owner review) |
+| F9 | PROJECTOS-FORGE-INTEGRATIONS1A | **NEXT — not started** |
 | F10 | PROJECTOS-FORGE-E2E-CLOSURE1A | pending |
 
 ## Reuse map (V3 → Forge)
@@ -114,7 +114,31 @@ NOT-verified verdict on the unwired run, no console errors, no external network,
 1440/1280/1024/768/390 (DOM-verified; the screenshot capture tool timed out — recorded honestly, no image
 fabricated). Committed `feat(projectos): add forge command UI (F7)` (local, not pushed).
 
+## F8 result (LOCAL IMPLEMENTATION COMPLETE — awaiting review, not pushed)
+
+`projectos/forge/secure-deploy-gate.cjs` + `validators/validate-forge-deploy.cjs` (14 checks, registered).
+Fail-closed pre-deploy gate: scans every non-server-only code file for secrets/service-role key; requires
+RLS + owner policies referencing auth.uid() (rejects `(true)`) + update WITH CHECK; tolerant table parsing;
+production REFUSED / staging OWNER_GATED / never executed; canDeploy validates the plan. security-reviewer
+found the first cut **failed OPEN** (3 CRITICAL: narrow reachability, case-brittle table regex, substring
+policy checks) → **inverted to fail-closed**, all fixed + locked by negative fixtures. validate-all ALL
+PASS (57). Committed `feat(projectos): add forge secure deploy gate (F8)` (local, not pushed).
+
 ## Next exact safe action (resume here)
+
+**Begin F9 — `PROJECTOS-FORGE-INTEGRATIONS1A`.** Verified integration "playbooks": a deterministic library
+that, given a blueprint integration (stripe/email/storage), emits the wiring FILES (edge function / route
++ typed client + env-var NAMES) with placeholders only — real keys stay owner-gated via the secret broker
++ provider guards. NO real provider call, NO metered API, secrets as names only. Zero-dep `.cjs` (emits a
+file manifest fragment like F2) + validator: each playbook emits the expected files, no secret VALUE, real
+keys are env-name placeholders, owner-gated integrations flagged, unknown integration refused, secure
+defaults (webhook signature verification present for stripe; server-only for keyed clients). Reuse the F2
+manifest shape + the deploy gate to audit the emitted fragment. Reviews → validators → report → index row
+→ one commit `feat(projectos): add forge integration playbooks (F9)` (no push) → **F10 — Forge E2E +
+MICRO-LEVEL final evidence report** (`knowledge/reports/PROJECTOS-FORGE-FINAL-MICRO-EVIDENCE.md`), then STOP
+and await review + push authorisation.
+
+### OLD F8 note (superseded):
 
 **Begin F8 — `PROJECTOS-FORGE-SECURE-DEPLOY1A`.** A deterministic pre-deploy security gate over a generated
 project's file manifest + a deploy plan: (a) **bundle secret-grep** — refuse if any client-reachable file
