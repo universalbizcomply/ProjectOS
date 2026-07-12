@@ -33,8 +33,8 @@
 | F3 | PROJECTOS-FORGE-PROVISIONER1A | LOCAL IMPLEMENTATION COMPLETE (awaiting advisor/owner review) |
 | F4 | PROJECTOS-FORGE-GENERATION1A | LOCAL IMPLEMENTATION COMPLETE (awaiting advisor/owner review) |
 | F5 | PROJECTOS-FORGE-VERIFY1A | LOCAL IMPLEMENTATION COMPLETE (awaiting advisor/owner review) |
-| F6 | PROJECTOS-FORGE-SNAPSHOT1A | **NEXT — not started** |
-| F7 | PROJECTOS-FORGE-COMMAND-UI1A | pending (user-facing → live proof) |
+| F6 | PROJECTOS-FORGE-SNAPSHOT1A | LOCAL IMPLEMENTATION COMPLETE (awaiting advisor/owner review) |
+| F7 | PROJECTOS-FORGE-COMMAND-UI1A | **NEXT — not started** (user-facing → live browser proof) |
 | F8 | PROJECTOS-FORGE-SECURE-DEPLOY1A | pending |
 | F9 | PROJECTOS-FORGE-INTEGRATIONS1A | pending |
 | F10 | PROJECTOS-FORGE-E2E-CLOSURE1A | pending |
@@ -95,7 +95,28 @@ round-trip) all pass; fail-closed on fail/throw/malformed/missing; details redac
 metered API/network/exec. Self-reviewed (minimal surface). validate-all ALL PASS (55). Committed
 `feat(projectos): add forge verification harness (F5)` (local, not pushed).
 
+## F6 result (LOCAL IMPLEMENTATION COMPLETE — awaiting review, not pushed)
+
+`projectos/forge/env-snapshot.cjs` + `validators/validate-forge-snapshot.cjs` (10 invariants, registered).
+Deterministic content-addressed snapshot/restore: exact rollback, tamper detection (hash), parent-linked
+chain + cycle guard, deep-frozen records, no metered API. Self-reviewed (pure crypto/freeze, mirrors
+reviewed patterns). validate-all ALL PASS (56). Committed `feat(projectos): add forge env snapshot +
+rollback (F6)` (local, not pushed).
+
 ## Next exact safe action (resume here)
+
+**Begin F7 — `PROJECTOS-FORGE-COMMAND-UI1A` (USER-FACING → needs LIVE browser proof).** A control-center
+surface (extend `projectos/control-center/`, no second app): an owner types a build command → sees the
+deterministic blueprint (F1), the planned scaffold file list (F2), estimated cost + budget (F4), a
+verification checklist (F5), and snapshot/rollback points (F6), with owner-only actions (provision/deploy)
+as inert chips routed to the approval queue. SNAPSHOT-DRIVEN + inert (no real generation/exec in the UI;
+the actual build runs via the local worker, owner-approved). Build a pure TS view model wrapping the F1–F6
+shapes with a synthetic snapshot + a component + nav view + unit tests. Reviews (security/code/ECC/UI-UX)
+→ typecheck/vitest/build + validate-all → **live browser proof** (localhost + browser at
+1440/1280/1024/768/390, screenshots + console/network) → report → index row → one commit
+`feat(projectos): add forge command UI (F7)` (no push) → F8.
+
+### OLD F6 note (superseded):
 
 **Begin F6 — `PROJECTOS-FORGE-SNAPSHOT1A`.** Whole-environment snapshot + rollback = the reversibility
 primitive (code + deps + DB), so a bad generation is undoable — what the incumbents charge for. Model a
