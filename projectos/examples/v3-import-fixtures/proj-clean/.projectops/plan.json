@@ -1,0 +1,7 @@
+{
+  "projectId": "acme-app",
+  "planStatus": "PLAN READY",
+  "approvalStatus": "approved",
+  "approvalAuthority": "owner",
+  "definitionOfComplete": "All phases delivered, validated, evidenced and owner-accepted."
+}

@@ -19,6 +19,7 @@
     "validate:ci": "node projectos/validators/validate-ci-governance-policy.cjs && node projectos/validators/validate-ci-workflow-template.cjs && node projectos/validators/validate-ci-output.cjs && node projectos/validators/validate-ci-governance.cjs",
     "validate:dashboard": "node projectos/validators/validate-dashboard-config.cjs && node projectos/validators/validate-dashboard-data.cjs && node projectos/validators/validate-dashboard-output.cjs && node projectos/validators/validate-dashboard-safety.cjs && node projectos/validators/validate-dashboard.cjs",
     "validate:v3plan": "node projectos/validators/validate-project-plan.cjs && node projectos/validators/validate-current-project-state.cjs && node projectos/validators/validate-active-execution-session.cjs && node projectos/validators/validate-plan-ready-gate.cjs && node projectos/validators/validate-plan-status.cjs && node projectos/validators/validate-plan-version.cjs && node projectos/validators/validate-plan-staleness.cjs && node projectos/validators/validate-plan-no-secrets.cjs",
+    "validate:v3import": "node projectos/validators/validate-plan-discovery-import.cjs",
     "report:create": "node projectos/scripts/create-phase-report.cjs",
     "report:prepush": "node projectos/scripts/create-pre-push-review-pack.cjs",
     "report:closure": "node projectos/scripts/create-closure-report.cjs",
