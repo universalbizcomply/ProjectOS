@@ -15,7 +15,8 @@ const MODULES = [
   "validate-secret-broker",
   "validate-secret-operation-broker",
   "validate-session-launcher",
-  "validate-desktop-bridge"
+  "validate-desktop-bridge",
+  "validate-e2e-runner"
 ];
 let total = 0;
 for (const m of MODULES) {
