@@ -309,3 +309,83 @@ accepted carry-forward, not blockers.
 
 **END STATUS: IMPLEMENTED AND VALIDATED — AWAITING CHATGPT/MURAD COMMIT DECISION.**
 Not committed. Not pushed. Phase not closed.
+
+> Sections §§1–39 are the pre-commit / amended record, accurate as of the pre-commit gate. The
+> implementation was subsequently committed (`de58428`); the plan-persistence metadata binding and the
+> validator lifecycle correction are recorded in §40.
+
+---
+
+## 40. PLAN-PERSISTENCE METADATA BINDING (2026-07-11)
+
+Records distinct later events within the same phase; does not alter the historical evidence above.
+
+**40.1 Implementation commit (already created).** `de58428a671f26ac9774afe81fe845724254d537` ·
+subject `feat(projectos): add v3 plan memory foundation` · parent `1aa36b9d…` (approved baseline).
+Existence: `git cat-file -e de58428…^{commit}` → OK. Content proof (`git cat-file -e de58428:<path>`):
+`docs/architecture/projectos-v3-master-plan.md`, `projectos/state/projectos-v3.{plan,current-state,session}.json`
+all present. Scope 43 paths (40A/3M/0D/0R).
+
+**40.2 Validator lifecycle defect discovered.** The first metadata-binding attempt was correctly
+blocked (STOP-AND-REPORT) because `validate-project-plan.cjs` (committed in `de58428`) asserted
+`planPersistenceCommit` must be `null` **unconditionally** — a pre-persistence-only rule that made a
+truthful post-persistence binding fail `validate-all`.
+
+**40.3 Validator correction (authorised).** `validate-project-plan.cjs` amended to lifecycle-aware,
+Git-verified `checkCommitSemantics`, without removing validation:
+- **Null (pre-persistence) rule:** `planPersistenceCommit` may be `null` only while actual repo `HEAD`
+  equals `baselineCommit`; if HEAD has advanced, a null value FAILS.
+- **Bound (post-persistence) rule:** non-null must be 40-hex; exist in local Git; not equal
+  `baselineCommit`; have `baselineCommit` as an ancestor; be an ancestor-of-or-equal to HEAD; and
+  contain the four required plan-foundation files.
+- **Command safety:** Git invoked via `execFileSync("git", [args])` — argument array, no shell, no
+  interpolation; every hash format-validated before use; any Git error **fails closed**; no remote,
+  no fetch, no credentials.
+- Embedded self-tests exercise pre-persistence valid/invalid and bound valid/malformed/nonexistent/
+  baseline-as-ppc/not-descended/missing-files using real local commits.
+
+**40.4 Local Git existence + ancestry proof.**
+- `baselineCommit` `1aa36b9d…` exists; is an ancestor of `de58428` (`git merge-base --is-ancestor` → 0).
+- `planPersistenceCommit` `de58428…` exists; ≠ baseline; ancestor-of-or-equal HEAD; contains all four
+  plan files.
+- `lastVerifiedCommit` `de58428…` exists; ancestor-of-or-equal HEAD.
+- Live-plan `checkCommitSemantics` → `[]` (valid). Negatives verified: null+advanced, nonexistent,
+  baseline-as-ppc, not-descended, missing-files each rejected with their specific reason.
+- Limitation (not silently skipped): "ppc not an ancestor of HEAD" is guarded by
+  `isAncestorOrEqual(ppc, head)`, but this repo's history is linear (every existing commit is an
+  ancestor of HEAD), so no real existing non-ancestor commit is available to exercise it as a live
+  negative; it is asserted by logic and inspection.
+
+**40.5 Bound values.** `baselineCommit 1aa36b9d…` · `planPersistenceCommit de58428…` (the commit that
+first persisted the approved V3 plan-memory foundation — **not** the future metadata-binding commit) ·
+`lastVerifiedCommit de58428…` · `currentHead de58428…`. Preserved: plan `1.0`, `PLAN READY`, master-plan
+checksum `sha256:7bd6235f…` (unchanged), `MANUAL_GOVERNANCE_APPROVAL`, `tamperProof:false`,
+`approvalAuthority:owner`, `secureApprovalEvidence:null`, `providers:[]`, no-API policy, all owner scope,
+R1 disclosure.
+
+**40.6 Current-state update.** `currentHead de58428…`, `currentRemoteHead null` (no upstream),
+`activePhase PROJECTOS-V3-MASTER-PLAN-MEMORY1A`, `acceptedPhaseCount 1`, `totalPhaseCount 19`,
+`completionPercentage 5.3`, active phase and pre-V3 icon maintenance excluded, next
+`PROJECTOS-V3-PLAN-DISCOVERY-IMPORT1A`. No ahead/behind or remote branch fabricated.
+
+**40.7 Active-session consistency.** The session record was **stale** after the implementation commit
+(`currentHead 1aa36b9d…`, prior `currentAction`/`nextSafeAction`/`decisionRequired`). Minimum fields
+updated: `currentHead → de58428…`, `currentAction →` metadata-binding validation, `nextSafeAction →`
+await metadata-binding commit decision, `decisionRequired →` metadata-binding commit gate.
+`startingHead` retained as the approved baseline (`1aa36b9d…`); all side-effect flags remain `false`.
+
+**40.8 R2 CLOSED.** Carry-forward R2 (commit references format-validated but not proven to exist) is
+**closed**: the validator now proves local Git existence for `baselineCommit`, `planPersistenceCommit`
+(when non-null) and `lastVerifiedCommit`, plus the ancestry relationships. Local repository proof only —
+no remote existence is claimed.
+
+**40.9 R1 remains accepted carry-forward.** Owner approval is `MANUAL_GOVERNANCE_APPROVAL`,
+`tamperProof:false` — not cryptographically bound. Not described as secure/cryptographic; `PLAN READY`
+claims no independent identity proof.
+
+**40.10 State.** Metadata binding + validator correction **implemented and validated but NOT
+COMMITTED**. The future metadata-binding commit hash is not yet known. Remote/upstream absent; not
+pushed. Phase 2 not started; phase not closed.
+
+**END STATUS (§40): METADATA BINDING CORRECTED AND VALIDATED — AWAITING CHATGPT/MURAD COMMIT
+DECISION.** Not committed. Not pushed. Phase not closed.

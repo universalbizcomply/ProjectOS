@@ -30,7 +30,7 @@
     "expectedRemote": "origin/projectos-v3",
     "protectedBranches": ["main", "projectos-v2-core"],
     "baselineCommit": "1aa36b9d05942b7e5168a2e878de775cc0159701",
-    "planPersistenceCommit": null,
+    "planPersistenceCommit": "de58428a671f26ac9774afe81fe845724254d537",
     "planSourceBranch": "projectos-v3"
   },
 
@@ -129,7 +129,7 @@
   },
 
   "staleness": {
-    "lastVerifiedCommit": "1aa36b9d05942b7e5168a2e878de775cc0159701",
+    "lastVerifiedCommit": "de58428a671f26ac9774afe81fe845724254d537",
     "lastVerifiedDate": "2026-07-11",
     "stalenessStatus": "fresh",
     "stalenessReasons": [],
