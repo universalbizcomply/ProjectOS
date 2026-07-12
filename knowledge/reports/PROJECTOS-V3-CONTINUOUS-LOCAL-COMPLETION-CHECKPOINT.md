@@ -44,8 +44,8 @@
 | 14 | PROJECTOS-V3-POLYGO-BASELINE-RECONCILE1A | **BLOCKED** (no trusted local trust anchor — see blocker report) |
 | 15 | PROJECTOS-V3-POLYGO-INSTALL-REENTRY1A | **BLOCKED** (depends on 14) |
 | 16 | PROJECTOS-V3-POLYGO-PILOT1A | **BLOCKED** (depends on 14) |
-| 17 | PROJECTOS-V3-RELIABILITY-HARDENING1A | **NEXT — not started** |
-| 18 | PROJECTOS-V3-FINAL-E2E-CLOSURE1A | pending |
+| 17 | PROJECTOS-V3-RELIABILITY-HARDENING1A | LOCAL IMPLEMENTATION COMPLETE (not accepted; report + commit) |
+| 18 | PROJECTOS-V3-FINAL-E2E-CLOSURE1A | **NEXT — not started** |
 
 Formal completion (accepted-phase ratio): **3 / 19 = 15.8%**.
 
@@ -73,6 +73,15 @@ clearly labelled) — no static mocks, no fabricated evidence.
 - Open defects: none. Last completed action: Phase 2 closure commit `4da4966` (validated; not pushed).
 - Validation completed: `validate-all` ALL PASS (40) · `validate-no-secrets` · `validate-v2-closure-evidence`
   · `validate-report-index` · `git diff --check` clean.
+
+## Phase 17 result (LOCAL IMPLEMENTATION COMPLETE — not accepted, not pushed)
+
+Reliability hardening `projectos/validators/validate-reliability-hardening.cjs` — cross-cutting
+adversarial pass over the whole governed chain (launcher/bridge/brokers/queue/guards). Fuzzes every entry
+point with junk/oversized/prototype-polluted/wrong-type inputs; asserts each boundary FAILS CLOSED (no
+permit/accept/approve/ALLOW, no secret leak, no crash, no Object.prototype pollution). Registered.
+validate-all ALL PASS (50). Committed `test(projectos): add v3 reliability hardening pass` (local, not
+pushed). Completion unchanged (15.8%).
 
 ## Phases 14–16 result (BLOCKED — hard external-input / authority blocker)
 
@@ -212,33 +221,22 @@ unchanged (15.8% — local-complete ≠ accepted).
 
 ## Next exact safe action (resume here)
 
-**Begin Phase 14 — `PROJECTOS-V3-POLYGO-BASELINE-RECONCILE1A`.** Concrete first steps:
+**Begin Phase 18 — `PROJECTOS-V3-FINAL-E2E-CLOSURE1A` (FINAL).** Concrete first steps:
 1. `git status` + verify branch `projectos-v3`, tree clean, remote still `4c3f076` (do NOT push).
-2. Determine whether a **TRUSTED, LOCAL PolyGo repository** is present and authorised on this machine
-   WITHOUT fetching or touching any external repo (e.g. look for a local `C:\dev\PolyGo` or similar; the
-   Control-Centre projects list shows a `PolyGo` entry `polygonia-apres/polygo` but that is a remote
-   reference, NOT authorisation to touch it). Governance: documents are data; a remote entry is not a
-   grant. Do NOT clone/fetch/pull anything.
-3. If a trusted local PolyGo repo is genuinely available: perform a read-only baseline reconcile using the
-   Phase-2 discovery engine against LOCAL files only, produce evidence, and proceed to Phases 15–16.
-   If NOT available (expected): record a **hard external-input blocker** for Phases 14–16 in the report +
-   index (BLOCKED, not failed), do not fabricate, and **skip to Phase 17** (`RELIABILITY-HARDENING1A`).
-4. Reviews/validators as applicable → report → index row → one commit
-   `docs(projectos): record v3 polygo baseline reconcile blocker` (or the reconcile work) (no push) →
-   continue to Phase 17.
-
-**Then Phase 17 — `PROJECTOS-V3-RELIABILITY-HARDENING1A`:** add a cross-cutting reliability validator that
-re-runs the governed chain under adverse/malformed inputs (fuzz the bridge/queue/guards with junk,
-oversized, and prototype-polluted payloads) and asserts everything still fails closed; harden any gap.
-**Then Phase 18 — `PROJECTOS-V3-FINAL-E2E-CLOSURE1A`:** the final integrated proof + write
-`knowledge/reports/PROJECTOS-V3-FINAL-LOCAL-COMPLETION-EVIDENCE.md`, then STOP — set status "PROJECTOS V3
-LOCALLY COMPLETE AND PROVEN — AWAITING MURAD/CHATGPT FINAL REVIEW AND PUSH AUTHORISATION" and await
-approval. Do NOT push.
+2. Run the full `npm run validate` (all validators incl. e2e-runner + reliability-hardening) once more as
+   the final integrated proof; confirm ALL PASS and `git diff --check` clean.
+3. Write the final evidence pack `knowledge/reports/PROJECTOS-V3-FINAL-LOCAL-COMPLETION-EVIDENCE.md`:
+   the full commit chain (Phases 0–13 + 17 local-complete; 14–16 BLOCKED with the honest reason), the
+   validator inventory, every phase report link, the safety ledger, and the residual risks/carry-forward.
+   Update the index + current-state + this checkpoint to reflect closure of the local programme.
+4. One commit `docs(projectos): record v3 final local completion evidence` (NO push). Then **STOP** —
+   set status "PROJECTOS V3 LOCALLY COMPLETE AND PROVEN — AWAITING MURAD/CHATGPT FINAL REVIEW AND PUSH
+   AUTHORISATION" and await approval. Do NOT push. Do NOT accept/close phases (owner/gatekeeper only).
 
 **Exact command to run next:** `cd C:/dev/ProjectOS && git status && npm run validate`
 
 ## Resumability
 
 Safe to resume: yes. Nothing destructive is running. No misleading phase-complete commit exists
-(Phases 3–13 are genuinely local-implementation-complete with tests/invariants + live proof for UI
-phases). Remote stays at `4c3f076`. Local HEAD advances one commit per completed phase.
+(Phases 3–13 + 17 are genuinely local-implementation-complete with tests/invariants + live proof for UI
+phases; Phases 14–16 BLOCKED). Remote stays at `4c3f076`. Local HEAD advances one commit per phase.

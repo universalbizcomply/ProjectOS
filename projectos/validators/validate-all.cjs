@@ -19,7 +19,8 @@ const MODULES = [
   "validate-e2e-runner",
   "validate-approval-queue",
   "validate-provider-context-guards",
-  "validate-desktop-e2e"
+  "validate-desktop-e2e",
+  "validate-reliability-hardening"
 ];
 let total = 0;
 for (const m of MODULES) {
