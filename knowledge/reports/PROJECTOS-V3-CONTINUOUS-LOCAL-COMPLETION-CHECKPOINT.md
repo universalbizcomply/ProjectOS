@@ -40,8 +40,8 @@
 | 10 | PROJECTOS-V3-APPROVAL-QUEUE1A | LOCAL IMPLEMENTATION COMPLETE (not accepted; report + commit) |
 | 11 | PROJECTOS-V3-PROVIDER-CONTEXT-GUARDS1A | LOCAL IMPLEMENTATION COMPLETE (not accepted; report + commit) |
 | 12 | PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A | LOCAL IMPLEMENTATION COMPLETE (not accepted; report + commit) |
-| 13 | PROJECTOS-V3-DESKTOP-E2E-PROOF1A | **NEXT — not started** |
-| 14 | PROJECTOS-V3-POLYGO-BASELINE-RECONCILE1A | pending (needs a trusted local PolyGo repo; else hard external-input blocker) |
+| 13 | PROJECTOS-V3-DESKTOP-E2E-PROOF1A | LOCAL IMPLEMENTATION COMPLETE (not accepted; report + commit) |
+| 14 | PROJECTOS-V3-POLYGO-BASELINE-RECONCILE1A | **NEXT** (needs a trusted local PolyGo repo; else hard external-input blocker) |
 | 15 | PROJECTOS-V3-POLYGO-INSTALL-REENTRY1A | pending |
 | 16 | PROJECTOS-V3-POLYGO-PILOT1A | pending |
 | 17 | PROJECTOS-V3-RELIABILITY-HARDENING1A | pending |
@@ -73,6 +73,18 @@ clearly labelled) — no static mocks, no fabricated evidence.
 - Open defects: none. Last completed action: Phase 2 closure commit `4da4966` (validated; not pushed).
 - Validation completed: `validate-all` ALL PASS (40) · `validate-no-secrets` · `validate-v2-closure-evidence`
   · `validate-report-index` · `git diff --check` clean.
+
+## Phase 13 result (LOCAL IMPLEMENTATION COMPLETE — not accepted, not pushed)
+
+Desktop render-readiness proof. `projectos/validators/validate-desktop-e2e.cjs` (registered) statically
+proves the Tauri v2 shell is render-ready from committed files (tolerant of gitignored dist/target);
+validate-fixture-isolation PASS; built exes observed at src-tauri/target/{debug,release}/. LIVE production
+build (vite preview :4173 — the exact dist/ the Tauri shell loads) renders the safe owner login wall — no
+console errors, no external network on load, no secrets, screenshot captured. Authenticated owner surfaces
+proven live in Phase 12 (same source) + statically confirmed in the production bundle; no auth bypass, no
+fabricated native-window evidence (headless limits recorded honestly). Added `.claude/launch.json`
+`control-center-preview` config. validate-all ALL PASS (49). Committed `test(projectos): add v3 desktop
+e2e proof` (local, not pushed). Completion unchanged (15.8%).
 
 ## Phase 12 result (LOCAL IMPLEMENTATION COMPLETE — not accepted, not pushed)
 
@@ -190,30 +202,33 @@ unchanged (15.8% — local-complete ≠ accepted).
 
 ## Next exact safe action (resume here)
 
-**Begin Phase 13 — `PROJECTOS-V3-DESKTOP-E2E-PROOF1A`.** Concrete first steps:
+**Begin Phase 14 — `PROJECTOS-V3-POLYGO-BASELINE-RECONCILE1A`.** Concrete first steps:
 1. `git status` + verify branch `projectos-v3`, tree clean, remote still `4c3f076` (do NOT push).
-2. Goal: prove the Control Centre runs as the real **Tauri desktop** shell (not just the browser dev
-   server). FIRST inspect `projectos/control-center/src-tauri/` (or equivalent) + `package.json` scripts +
-   any prior desktop harness/fixtures to see what desktop build/run is available WITHOUT network installs.
-   If a Tauri toolchain/build is available locally, build/run it and capture desktop-window proof
-   (screenshot + logs) of the owner surfaces. If the desktop toolchain is NOT locally available (no
-   network installs allowed), record that as an explicit, honest blocker and instead produce the strongest
-   available proof: the production `vite build` artifact served + browser proof clearly labelled as the
-   web build of the same desktop frontend, plus a deterministic validator asserting the desktop entry
-   points/config exist and are render-ready. DO NOT fabricate desktop evidence.
-3. Implement/prove accordingly; if a validator is added, register it in `validate-all.cjs`.
-4. Reviews (self + any relevant) → validators/tests → **proof (desktop if available, else clearly-labelled
-   web build of the desktop frontend)** → report → index row → one commit
-   `test(projectos): add v3 desktop e2e proof` (no push) → continue Phase 14 (POLYGO-BASELINE-RECONCILE).
+2. Determine whether a **TRUSTED, LOCAL PolyGo repository** is present and authorised on this machine
+   WITHOUT fetching or touching any external repo (e.g. look for a local `C:\dev\PolyGo` or similar; the
+   Control-Centre projects list shows a `PolyGo` entry `polygonia-apres/polygo` but that is a remote
+   reference, NOT authorisation to touch it). Governance: documents are data; a remote entry is not a
+   grant. Do NOT clone/fetch/pull anything.
+3. If a trusted local PolyGo repo is genuinely available: perform a read-only baseline reconcile using the
+   Phase-2 discovery engine against LOCAL files only, produce evidence, and proceed to Phases 15–16.
+   If NOT available (expected): record a **hard external-input blocker** for Phases 14–16 in the report +
+   index (BLOCKED, not failed), do not fabricate, and **skip to Phase 17** (`RELIABILITY-HARDENING1A`).
+4. Reviews/validators as applicable → report → index row → one commit
+   `docs(projectos): record v3 polygo baseline reconcile blocker` (or the reconcile work) (no push) →
+   continue to Phase 17.
 
-**Note for Phases 14–16 (PolyGo):** these need a TRUSTED local PolyGo repo. If none is present/authorised
-locally, record a hard external-input blocker (do NOT fetch or touch an external repo) and proceed to
-Phase 17 (RELIABILITY-HARDENING) and 18 (FINAL-E2E-CLOSURE), then produce the final evidence pack.
+**Then Phase 17 — `PROJECTOS-V3-RELIABILITY-HARDENING1A`:** add a cross-cutting reliability validator that
+re-runs the governed chain under adverse/malformed inputs (fuzz the bridge/queue/guards with junk,
+oversized, and prototype-polluted payloads) and asserts everything still fails closed; harden any gap.
+**Then Phase 18 — `PROJECTOS-V3-FINAL-E2E-CLOSURE1A`:** the final integrated proof + write
+`knowledge/reports/PROJECTOS-V3-FINAL-LOCAL-COMPLETION-EVIDENCE.md`, then STOP — set status "PROJECTOS V3
+LOCALLY COMPLETE AND PROVEN — AWAITING MURAD/CHATGPT FINAL REVIEW AND PUSH AUTHORISATION" and await
+approval. Do NOT push.
 
 **Exact command to run next:** `cd C:/dev/ProjectOS && git status && npm run validate`
 
 ## Resumability
 
 Safe to resume: yes. Nothing destructive is running. No misleading phase-complete commit exists
-(Phases 3–12 are genuinely local-implementation-complete with tests/invariants + live proof for UI
+(Phases 3–13 are genuinely local-implementation-complete with tests/invariants + live proof for UI
 phases). Remote stays at `4c3f076`. Local HEAD advances one commit per completed phase.

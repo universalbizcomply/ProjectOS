@@ -18,7 +18,8 @@ const MODULES = [
   "validate-desktop-bridge",
   "validate-e2e-runner",
   "validate-approval-queue",
-  "validate-provider-context-guards"
+  "validate-provider-context-guards",
+  "validate-desktop-e2e"
 ];
 let total = 0;
 for (const m of MODULES) {

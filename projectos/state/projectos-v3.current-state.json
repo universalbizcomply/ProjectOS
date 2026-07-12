@@ -20,8 +20,8 @@
   "workingTreeStatus": "clean",
   "currentRisks": ["R1 (accepted carry-forward): owner approval is MANUAL_GOVERNANCE_APPROVAL, tamperProof:false — not cryptographically bound", "Automated local relay loop not yet implemented; relay is manual/partially automated"],
   "currentBlockers": [],
-  "lastEvidenceReference": "knowledge/reports/2026-07-12_ProjectOS_PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A_AWAITING-REVIEW.md",
-  "nextRecommendedPhase": "PROJECTOS-V3-DESKTOP-E2E-PROOF1A",
+  "lastEvidenceReference": "knowledge/reports/2026-07-12_ProjectOS_PROJECTOS-V3-DESKTOP-E2E-PROOF1A_AWAITING-REVIEW.md",
+  "nextRecommendedPhase": "PROJECTOS-V3-POLYGO-BASELINE-RECONCILE1A",
   "lastUpdated": "2026-07-12",
   "updatedByRole": "implementer"
 }
