@@ -45,7 +45,7 @@
 | 15 | PROJECTOS-V3-POLYGO-INSTALL-REENTRY1A | **BLOCKED** (depends on 14) |
 | 16 | PROJECTOS-V3-POLYGO-PILOT1A | **BLOCKED** (depends on 14) |
 | 17 | PROJECTOS-V3-RELIABILITY-HARDENING1A | LOCAL IMPLEMENTATION COMPLETE (not accepted; report + commit) |
-| 18 | PROJECTOS-V3-FINAL-E2E-CLOSURE1A | **NEXT — not started** |
+| 18 | PROJECTOS-V3-FINAL-E2E-CLOSURE1A | LOCAL COMPLETE — **PROGRAMME LOCALLY COMPLETE & PROVEN; awaiting owner/gatekeeper review + push auth** |
 
 Formal completion (accepted-phase ratio): **3 / 19 = 15.8%**.
 
@@ -73,6 +73,16 @@ clearly labelled) — no static mocks, no fabricated evidence.
 - Open defects: none. Last completed action: Phase 2 closure commit `4da4966` (validated; not pushed).
 - Validation completed: `validate-all` ALL PASS (40) · `validate-no-secrets` · `validate-v2-closure-evidence`
   · `validate-report-index` · `git diff --check` clean.
+
+## Phase 18 result (FINAL — programme locally complete & proven; awaiting owner review + push auth)
+
+Final integrated proof: `npm run validate` ALL PASS (50 validators), `git diff --check` clean, e2e +
+adversarial passes green, live app proof for user-facing phases. Final evidence pack written:
+`knowledge/reports/PROJECTOS-V3-FINAL-LOCAL-COMPLETION-EVIDENCE.md` (commit chain, validator inventory,
+security posture, safety ledger, residual risks). Local `projectos-v3` is **15 commits ahead** of remote
+`4c3f076`, **NOT pushed**. Committed `docs(projectos): record v3 final local completion evidence`.
+**STATUS: PROJECTOS V3 LOCALLY COMPLETE AND PROVEN — AWAITING MURAD/CHATGPT FINAL REVIEW AND PUSH
+AUTHORISATION.** Completion 15.8% (Phases 3–17 await owner/gatekeeper acceptance).
 
 ## Phase 17 result (LOCAL IMPLEMENTATION COMPLETE — not accepted, not pushed)
 
@@ -221,19 +231,19 @@ unchanged (15.8% — local-complete ≠ accepted).
 
 ## Next exact safe action (resume here)
 
-**Begin Phase 18 — `PROJECTOS-V3-FINAL-E2E-CLOSURE1A` (FINAL).** Concrete first steps:
-1. `git status` + verify branch `projectos-v3`, tree clean, remote still `4c3f076` (do NOT push).
-2. Run the full `npm run validate` (all validators incl. e2e-runner + reliability-hardening) once more as
-   the final integrated proof; confirm ALL PASS and `git diff --check` clean.
-3. Write the final evidence pack `knowledge/reports/PROJECTOS-V3-FINAL-LOCAL-COMPLETION-EVIDENCE.md`:
-   the full commit chain (Phases 0–13 + 17 local-complete; 14–16 BLOCKED with the honest reason), the
-   validator inventory, every phase report link, the safety ledger, and the residual risks/carry-forward.
-   Update the index + current-state + this checkpoint to reflect closure of the local programme.
-4. One commit `docs(projectos): record v3 final local completion evidence` (NO push). Then **STOP** —
-   set status "PROJECTOS V3 LOCALLY COMPLETE AND PROVEN — AWAITING MURAD/CHATGPT FINAL REVIEW AND PUSH
-   AUTHORISATION" and await approval. Do NOT push. Do NOT accept/close phases (owner/gatekeeper only).
+**PROGRAMME LOCALLY COMPLETE — HALT.** Phases 3–13 + 17 are LOCAL COMPLETE + proven; 14–16 BLOCKED
+(PolyGo trust anchor); the final evidence pack is written
+(`knowledge/reports/PROJECTOS-V3-FINAL-LOCAL-COMPLETION-EVIDENCE.md`).
 
-**Exact command to run next:** `cd C:/dev/ProjectOS && git status && npm run validate`
+**STATUS: PROJECTOS V3 LOCALLY COMPLETE AND PROVEN — AWAITING MURAD/CHATGPT FINAL REVIEW AND PUSH
+AUTHORISATION.**
+
+Do NOT push. Do NOT accept/close phases (owner/gatekeeper only). On resume, take NO new implementation
+action — wait for the owner to (a) review + accept, (b) authorise the push of the 15-commit local chain,
+and/or (c) provide a trust-anchored local PolyGo repo to unblock Phases 14–16. If the owner authorises a
+push, push `projectos-v3` to `origin/projectos-v3` (no force). Otherwise idle.
+
+**Exact command to run next (verification only):** `cd C:/dev/ProjectOS && git status && npm run validate`
 
 ## Resumability
 
