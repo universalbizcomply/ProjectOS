@@ -28,7 +28,8 @@ const MODULES = [
   "validate-forge-verify",
   "validate-forge-snapshot",
   "validate-forge-deploy",
-  "validate-forge-integrations"
+  "validate-forge-integrations",
+  "validate-forge-e2e"
 ];
 let total = 0;
 for (const m of MODULES) {

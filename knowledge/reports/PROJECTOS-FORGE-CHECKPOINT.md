@@ -37,7 +37,7 @@
 | F7 | PROJECTOS-FORGE-COMMAND-UI1A | LOCAL IMPLEMENTATION COMPLETE (awaiting advisor/owner review) |
 | F8 | PROJECTOS-FORGE-SECURE-DEPLOY1A | LOCAL IMPLEMENTATION COMPLETE (awaiting advisor/owner review) |
 | F9 | PROJECTOS-FORGE-INTEGRATIONS1A | LOCAL IMPLEMENTATION COMPLETE (awaiting advisor/owner review) |
-| F10 | PROJECTOS-FORGE-E2E-CLOSURE1A | **NEXT — final: E2E + micro-level report** |
+| F10 | PROJECTOS-FORGE-E2E-CLOSURE1A | LOCAL COMPLETE — **FORGE LOCALLY COMPLETE & PROVEN; awaiting owner/gatekeeper review + push auth** |
 
 ## Reuse map (V3 → Forge)
 
@@ -124,6 +124,23 @@ found the first cut **failed OPEN** (3 CRITICAL: narrow reachability, case-britt
 policy checks) → **inverted to fail-closed**, all fixed + locked by negative fixtures. validate-all ALL
 PASS (57). Committed `feat(projectos): add forge secure deploy gate (F8)` (local, not pushed).
 
+## F10 result (FINAL — Forge locally complete & proven; awaiting owner review + push auth)
+
+`projectos/forge/forge-e2e.cjs` + `validators/validate-forge-e2e.cjs` (4 scenarios: happy-path,
+insecure-blocked, potemkin-not-verified, budget-cap — all PASS). Whole chat-to-app chain runs OFFLINE.
+Micro-level final report written: `knowledge/reports/PROJECTOS-FORGE-FINAL-MICRO-EVIDENCE.md`. `npm run
+validate` ALL PASS (59 validators). Committed `feat(projectos): add forge e2e + final micro evidence
+(F10)` (local, not pushed). **STATUS: PROJECTOS FORGE LOCALLY COMPLETE AND PROVEN — AWAITING MURAD/CHATGPT
+FINAL REVIEW AND PUSH AUTHORISATION.**
+
+## Next exact safe action (resume here)
+
+**HALT — Forge programme locally complete.** F1–F10 all LOCAL COMPLETE + proven; micro-level final report
+delivered. Do NOT push, accept, or close (owner/gatekeeper only). On resume take NO new implementation
+action — await the owner to (a) review + accept F1–F10, (b) authorise the push of the local `projectos-v3`
+chain (V3 + Forge), and/or (c) approve wiring the F4 loop to the real local worker + local Supabase. If the
+owner authorises a push, push `projectos-v3` to `origin/projectos-v3` (no force). Otherwise idle.
+
 ## F9 result (LOCAL IMPLEMENTATION COMPLETE — awaiting review, not pushed)
 
 `projectos/forge/integration-playbooks.cjs` + `validators/validate-forge-integrations.cjs` (10 invariants,
@@ -133,6 +150,8 @@ playbooks) PASS the F8 fail-closed deploy-gate audit. Self-reviewed. validate-al
 `feat(projectos): add forge integration playbooks (F9)` (local, not pushed).
 
 ## Next exact safe action (resume here)
+
+### OLD F10 note (superseded — done):
 
 **Begin F10 — `PROJECTOS-FORGE-E2E-CLOSURE1A` (FINAL).** (1) Build a Forge E2E runner `.cjs` that drives
 the whole chat-to-app chain OFFLINE with a synthetic worker: buildBlueprint → buildScaffold → planProvision
