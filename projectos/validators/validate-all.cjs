@@ -13,7 +13,8 @@ const MODULES = [
   "validate-plan-ready-gate", "validate-plan-status", "validate-plan-version", "validate-plan-staleness", "validate-plan-no-secrets",
   "validate-plan-discovery-import",
   "validate-secret-broker",
-  "validate-secret-operation-broker"
+  "validate-secret-operation-broker",
+  "validate-session-launcher"
 ];
 let total = 0;
 for (const m of MODULES) {

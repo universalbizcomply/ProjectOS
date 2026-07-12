@@ -34,8 +34,8 @@
 | 4 | PROJECTOS-V3-LOCAL-SECRET-BROKER1A | LOCAL IMPLEMENTATION COMPLETE (not accepted; report + commit) |
 | 5 | PROJECTOS-V3-SECRET-OPERATION-BROKER1A | LOCAL IMPLEMENTATION COMPLETE (not accepted; report + commit) |
 | 6 | PROJECTOS-V3-OWNER-CHAT1A | LOCAL IMPLEMENTATION COMPLETE (not accepted; report + commit) |
-| 7 | PROJECTOS-V3-PROJECT-SESSION-LAUNCHER1A | **NEXT — not started** |
-| 8 | PROJECTOS-V3-CLAUDE-DESKTOP-BRIDGE1A | pending |
+| 7 | PROJECTOS-V3-PROJECT-SESSION-LAUNCHER1A | LOCAL IMPLEMENTATION COMPLETE (not accepted; report + commit) |
+| 8 | PROJECTOS-V3-CLAUDE-DESKTOP-BRIDGE1A | **NEXT — not started** |
 | 9 | PROJECTOS-V3-E2E-RUNNER1A | pending |
 | 10 | PROJECTOS-V3-APPROVAL-QUEUE1A | pending |
 | 11 | PROJECTOS-V3-PROVIDER-CONTEXT-GUARDS1A | pending |
@@ -73,6 +73,17 @@ clearly labelled) — no static mocks, no fabricated evidence.
 - Open defects: none. Last completed action: Phase 2 closure commit `4da4966` (validated; not pushed).
 - Validation completed: `validate-all` ALL PASS (40) · `validate-no-secrets` · `validate-v2-closure-evidence`
   · `validate-report-index` · `git diff --check` clean.
+
+## Phase 7 result (LOCAL IMPLEMENTATION COMPLETE — not accepted, not pushed)
+
+Project Session Launcher `projectos/launcher/session-launcher.cjs` — deterministic launch-spec PLANNER
+that never spawns/executes. Trusted project→root registry (request cannot choose its own root); allowlist
+op classification; case-sensitive working-dir containment; production-frozen refusal; fail-closed
+decision (REFUSED / BLOCKED_AWAITING_OWNER / READY_TO_LAUNCH); secrets by reference only; bounded input.
+`validate-session-launcher.cjs` = 15 invariants, registered. security-reviewer (HIGH untrusted-root →
+trusted registry) + code-reviewer (secret-list refuse-not-truncate fix; helper extraction). validate-all
+ALL PASS. No user-facing surface → proof is the invariants. Committed `feat(projectos): implement v3
+project session launcher` (local, not pushed). Completion unchanged (15.8%).
 
 ## Phase 6 result (LOCAL IMPLEMENTATION COMPLETE — not accepted, not pushed)
 
@@ -124,24 +135,25 @@ unchanged (15.8% — local-complete ≠ accepted).
 
 ## Next exact safe action (resume here)
 
-**Begin Phase 7 — `PROJECTOS-V3-PROJECT-SESSION-LAUNCHER1A`.** Concrete first steps:
+**Begin Phase 8 — `PROJECTOS-V3-CLAUDE-DESKTOP-BRIDGE1A`.** Concrete first steps:
 1. `git status` + verify branch `projectos-v3`, tree clean, remote still `4c3f076` (do NOT push).
-2. Design a local **session launcher**: given a project + a chosen phase/task, deterministically build
-   a launch *plan/spec* (which worker/role, working directory, allowed operations, safety gates that
-   apply, the owner-gated steps) WITHOUT actually spawning anything or contacting a provider. It should
-   fail closed on gated actions and surface exactly what would run for owner approval. Reuse the core
-   workflow/worker/gates model (`@projectos/core`) and the secret/operation brokers where a launch would
-   need a secret (via `broker.use`, never materialising it).
-3. Implement a zero-dependency `.cjs` launcher/spec builder + a registered validator (mirror the
-   convention). If it has a user-facing surface, add a control-center view + live browser proof; if it
-   is a backend planner, prove via validator invariants.
-4. Reviews (security/code/ECC/self) → validators (+ typecheck/vitest/build/live proof if UI) → report →
-   index row → one commit `feat(projectos): implement v3 project session launcher` (no push) → Phase 8.
+2. Design a local **bridge contract** between ProjectOS and a Claude desktop/CLI worker: a deterministic,
+   schema-validated request/response envelope for handing a launch spec (Phase 7) to a worker and
+   receiving a structured result — WITHOUT calling any AI/metered API or network. Model it as an inert,
+   local, in-process transport contract + validation (redaction of any secret, owner-gated side effects
+   refused, correlation ids, fail closed on malformed/oversized envelopes). No real Claude/API call —
+   the bridge only defines and validates the protocol and simulates with a synthetic echo worker.
+3. Implement a zero-dependency `.cjs` bridge/protocol module (reuse `security/redaction.cjs`,
+   `launcher/session-launcher.cjs`) + a registered validator. Reuse existing `projectos/bridge/` if
+   present (inspect first). If a control-center surface is warranted, add a view + live proof; else prove
+   via validator invariants.
+4. Reviews (security/code/ECC/self) → validators (+ UI proof if any) → report → index row → one commit
+   `feat(projectos): implement v3 claude desktop bridge` (no push) → continue Phase 9.
 
 **Exact command to run next:** `cd C:/dev/ProjectOS && git status && npm run validate`
 
 ## Resumability
 
 Safe to resume: yes. Nothing destructive is running. No misleading phase-complete commit exists
-(Phases 3–6 are genuinely local-implementation-complete with tests/invariants + live proof for UI
+(Phases 3–7 are genuinely local-implementation-complete with tests/invariants + live proof for UI
 phases). Remote stays at `4c3f076`. Local HEAD advances one commit per completed phase.
