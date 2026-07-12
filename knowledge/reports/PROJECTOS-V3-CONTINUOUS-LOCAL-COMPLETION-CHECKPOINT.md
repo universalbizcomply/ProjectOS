@@ -29,8 +29,8 @@
 | 0 | PROJECTOS-V3-BASELINE-RECONCILE1A | CLOSED |
 | 1 | PROJECTOS-V3-MASTER-PLAN-MEMORY1A | CLOSED |
 | 2 | PROJECTOS-V3-PLAN-DISCOVERY-IMPORT1A | CLOSED (impl `4271489` + fix `4c3f076`; closure `4da4966`) |
-| 3 | PROJECTOS-V3-OWNER-CONTROL-PLANE-DESIGN1A | **NEXT — not started** |
-| 4 | PROJECTOS-V3-LOCAL-SECRET-BROKER1A | pending |
+| 3 | PROJECTOS-V3-OWNER-CONTROL-PLANE-DESIGN1A | LOCAL IMPLEMENTATION COMPLETE (not accepted; report + commit) |
+| 4 | PROJECTOS-V3-LOCAL-SECRET-BROKER1A | **NEXT — not started** |
 | 5 | PROJECTOS-V3-SECRET-OPERATION-BROKER1A | pending |
 | 6 | PROJECTOS-V3-OWNER-CHAT1A | pending |
 | 7 | PROJECTOS-V3-PROJECT-SESSION-LAUNCHER1A | pending |
@@ -73,23 +73,33 @@ clearly labelled) — no static mocks, no fabricated evidence.
 - Validation completed: `validate-all` ALL PASS (40) · `validate-no-secrets` · `validate-v2-closure-evidence`
   · `validate-report-index` · `git diff --check` clean.
 
+## Phase 3 result (LOCAL IMPLEMENTATION COMPLETE — not accepted, not pushed)
+
+Owner Control Plane implemented in `projectos/control-center/` (extends the existing app; no second
+Control Centre): `src/owner/{ownerModel.ts, ownerSnapshot.ts, OwnerControlPlane.tsx}`, `App.tsx`
+(default "Owner Control" view), `styles.css`, `test/ownerModel.test.ts` (11 tests). typecheck PASS ·
+vitest **57 passed** · vite build PASS · `validate-all` ALL PASS. Live browser proof on `localhost:5178`
+at 1440/1280/1024/768/390 — no overflow, no console errors, no external network; selector + decisions +
+safety badges verified. Report: `.../PROJECTOS-V3-OWNER-CONTROL-PLANE-DESIGN1A_AWAITING-REVIEW.md`.
+Committed `feat(projectos): implement v3 owner control plane` (local, not pushed). Programme completion
+unchanged (15.8% — local-complete ≠ accepted).
+
 ## Next exact safe action (resume here)
 
-**Begin Phase 3 — `PROJECTOS-V3-OWNER-CONTROL-PLANE-DESIGN1A`.** Concrete first steps:
-1. `git status` + verify HEAD `4da4966`, branch `projectos-v3`, tree clean, remote still `4c3f076`.
-2. Read `projectos/control-center/src/App.tsx` + `ProjectDetail.tsx` to map the existing owner surface.
-3. Design the single canonical owner workflow (project selector → programme/phase visibility → plan
-   status → risks/blockers → decisions required → next safe action → restricted actions), plain-language,
-   responsive desktop-first, accessible; reuse the control-center design system.
-4. Implement the Phase 3 surface in `projectos/control-center/` (extend, do not fork).
-5. Reviews (security/code/ECC/UI-UX/self) → tests (typecheck/lint/build/vitest) → **live proof** (Tauri
-   desktop or localhost + browser proof at 1440/1280/1024/768/390 widths, screenshots + logs).
-6. Phase report `knowledge/reports/2026-07-12_ProjectOS_PROJECTOS-V3-OWNER-CONTROL-PLANE-DESIGN1A_AWAITING-REVIEW.md`
-   + index row → one primary commit `feat(projectos): implement v3 owner control plane` (no push) → continue Phase 4.
+**Begin Phase 4 — `PROJECTOS-V3-LOCAL-SECRET-BROKER1A`.** Concrete first steps:
+1. `git status` + verify branch `projectos-v3`, tree clean, remote still `4c3f076` (do NOT push).
+2. Design secure local secret storage/retrieval: no raw secret in app state/reports/logs/prompts;
+   OS-backed secure storage where supported; isolated **synthetic** test namespace; access/project/
+   environment binding; audit events; revoke/delete; fail closed; owner confirmation for sensitive ops.
+   **Never enumerate/read real credentials — synthetic only.**
+3. Implement a zero-dependency `.cjs` broker library + a registered validator (mirror the ProjectOS
+   validator convention), plus UI status in the control-center where applicable.
+4. Reviews (security/code/ECC/self) → tests/validators → report → index row → one commit
+   `feat(projectos): implement v3 local secret broker` (no push) → continue Phase 5.
 
 **Exact command to run next:** `cd C:/dev/ProjectOS && git status && npm run validate`
 
 ## Resumability
 
-Safe to resume: yes. Nothing destructive is running. No misleading phase-complete commit exists. The
-Phase 3 work has not yet begun — start fresh from the steps above.
+Safe to resume: yes. Nothing destructive is running. No misleading phase-complete commit exists (Phase 3
+is genuinely local-implementation-complete with tests + live proof). Remote stays at `4c3f076`.

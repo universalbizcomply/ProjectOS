@@ -17,11 +17,13 @@ import { Login } from './Login';
 import { ChangePassword } from './ChangePassword';
 import { DaemonProvider } from './daemon/DaemonProvider';
 import { LiveMissionControl } from './daemon/LiveMissionControl';
+import { OwnerControlPlane } from './owner/OwnerControlPlane';
 import type { Session } from '@supabase/supabase-js';
 
-type View = 'overview' | 'live' | 'workflow' | 'gates' | 'plugins';
+type View = 'control' | 'overview' | 'live' | 'workflow' | 'gates' | 'plugins';
 
 const NAV: ReadonlyArray<{ id: View; label: string }> = [
+  { id: 'control', label: 'Owner Control' },
   { id: 'overview', label: 'Projects' },
   { id: 'live', label: 'Mission Control' },
   { id: 'workflow', label: 'Workflow' },
@@ -30,7 +32,7 @@ const NAV: ReadonlyArray<{ id: View; label: string }> = [
 ];
 
 export function App() {
-  const [view, setView] = useState<View>('overview');
+  const [view, setView] = useState<View>('control');
   const [session, setSession] = useState<Session | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [showChangePw, setShowChangePw] = useState(false);
@@ -103,6 +105,7 @@ export function App() {
         </div>
       </aside>
       <main className="main">
+        {view === 'control' && <OwnerControlPlane />}
         {view === 'overview' && <Overview />}
         {view === 'live' && <LiveMissionControl />}
         {view === 'workflow' && <Workflow />}

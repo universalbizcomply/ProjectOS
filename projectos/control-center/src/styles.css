@@ -283,3 +283,69 @@ body {
   .ev-search { flex: 1 1 100%; order: 3; }
   .ev-row { grid-template-columns: 96px minmax(0, 1fr) 52px; gap: 8px; font-size: 11px; }
 }
+
+/* ---- Owner Control Plane (PROJECTOS-V3-OWNER-CONTROL-PLANE-DESIGN1A) ---- */
+.ocp { display: flex; flex-direction: column; gap: 16px; }
+.ocp .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.ocp-select { display: flex; flex-direction: column; gap: 4px; }
+.ocp-select-label { font-size: 11px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.12em; }
+.ocp-select select {
+  background: var(--bg-elev); color: var(--text); border: 1px solid var(--line);
+  border-radius: var(--radius-sm); padding: 8px 10px; font-family: inherit; font-size: 14px; min-width: 200px;
+}
+.ocp-select select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.ocp-badge { display: inline-flex; align-items: center; padding: 3px 9px; border-radius: 999px;
+  font-size: 12px; font-weight: 600; border: 1px solid var(--line); background: var(--bg-elev); color: var(--text-dim); }
+.ocp-badge.lg { font-size: 14px; padding: 6px 14px; }
+.ocp-badge.ok { color: var(--ok); border-color: #1e4634; background: #10261c; }
+.ocp-badge.warn { color: var(--warn); border-color: #4a3d14; background: #241d0a; }
+.ocp-badge.crit { color: var(--crit); border-color: #4a1f1f; background: #260f0f; }
+.ocp-badge.mut { color: var(--text-dim); }
+
+.ocp-status { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.ocp-meter { flex: 1 1 260px; min-width: 220px; }
+.ocp-meter-track { height: 10px; border-radius: 999px; background: var(--bg-elev); border: 1px solid var(--line); overflow: hidden; }
+.ocp-meter-fill { height: 100%; background: linear-gradient(90deg, var(--accent), #7aa2ff); border-radius: 999px; transition: width .3s ease; }
+.ocp-meter-label { margin-top: 6px; font-size: 12px; color: var(--text-dim); }
+
+.ocp-panel { background: var(--bg-panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; }
+.ocp-panel h2 { margin: 0 0 10px; font-size: 14px; letter-spacing: -0.01em; }
+.ocp-panel.decisions.active { border-color: #4a3d14; box-shadow: 0 0 0 1px #4a3d14 inset; }
+.ocp-panel.next { border-left: 3px solid var(--accent); }
+.ocp-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+
+.ocp-next { margin: 0; font-size: 15px; color: var(--text); line-height: 1.5; }
+.ocp-sub { margin: -4px 0 12px; font-size: 12px; color: var(--text-dim); }
+.ocp-empty { margin: 0; font-size: 13px; color: var(--text-faint); }
+.ocp-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--text-dim); line-height: 1.5; }
+.ocp-list.warn li { color: var(--warn); }
+
+.ocp-decisions { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.ocp-decision { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px 14px; background: var(--bg-elev); }
+.ocp-decision.warn { border-color: #4a3d14; }
+.ocp-decision.critical { border-color: #4a1f1f; }
+.ocp-decision-title { font-weight: 600; font-size: 14px; }
+.ocp-decision-detail { font-size: 13px; color: var(--text-dim); margin: 4px 0 10px; line-height: 1.5; }
+.ocp-decision-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.ocp-btn { font-family: inherit; font-size: 13px; padding: 7px 13px; border-radius: var(--radius-sm);
+  border: 1px solid var(--line); background: var(--bg-panel); color: var(--text); cursor: pointer; }
+.ocp-btn:hover { background: var(--bg-elev); }
+.ocp-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.ocp-btn.primary { background: var(--accent-dim); border-color: #2b3a63; color: #cdd9ff; }
+.ocp-btn.danger { border-color: #4a1f1f; color: var(--crit); }
+
+.ocp-badges { display: flex; gap: 8px; flex-wrap: wrap; }
+.ocp-chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.ocp-chip { font-size: 12px; padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line);
+  background: var(--bg-elev); color: var(--text-dim); }
+
+/* Responsive: stack the shell and single-column the panels on narrow viewports. */
+@media (max-width: 820px) {
+  .app { grid-template-columns: 1fr; height: auto; min-height: 100vh; }
+  .sidebar { flex-direction: row; flex-wrap: wrap; align-items: center; border-right: none; border-bottom: 1px solid var(--line); padding: 12px; }
+  .sidebar .brand { padding: 0 8px 0 0; }
+  .sidebar .sidefoot { display: none; }
+  .ocp-grid2 { grid-template-columns: 1fr; }
+  .ocp .head { flex-direction: column; }
+}
