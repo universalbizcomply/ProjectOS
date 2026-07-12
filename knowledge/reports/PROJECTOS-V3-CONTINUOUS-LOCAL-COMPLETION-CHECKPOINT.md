@@ -41,10 +41,10 @@
 | 11 | PROJECTOS-V3-PROVIDER-CONTEXT-GUARDS1A | LOCAL IMPLEMENTATION COMPLETE (not accepted; report + commit) |
 | 12 | PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A | LOCAL IMPLEMENTATION COMPLETE (not accepted; report + commit) |
 | 13 | PROJECTOS-V3-DESKTOP-E2E-PROOF1A | LOCAL IMPLEMENTATION COMPLETE (not accepted; report + commit) |
-| 14 | PROJECTOS-V3-POLYGO-BASELINE-RECONCILE1A | **NEXT** (needs a trusted local PolyGo repo; else hard external-input blocker) |
-| 15 | PROJECTOS-V3-POLYGO-INSTALL-REENTRY1A | pending |
-| 16 | PROJECTOS-V3-POLYGO-PILOT1A | pending |
-| 17 | PROJECTOS-V3-RELIABILITY-HARDENING1A | pending |
+| 14 | PROJECTOS-V3-POLYGO-BASELINE-RECONCILE1A | **BLOCKED** (no trusted local trust anchor — see blocker report) |
+| 15 | PROJECTOS-V3-POLYGO-INSTALL-REENTRY1A | **BLOCKED** (depends on 14) |
+| 16 | PROJECTOS-V3-POLYGO-PILOT1A | **BLOCKED** (depends on 14) |
+| 17 | PROJECTOS-V3-RELIABILITY-HARDENING1A | **NEXT — not started** |
 | 18 | PROJECTOS-V3-FINAL-E2E-CLOSURE1A | pending |
 
 Formal completion (accepted-phase ratio): **3 / 19 = 15.8%**.
@@ -73,6 +73,16 @@ clearly labelled) — no static mocks, no fabricated evidence.
 - Open defects: none. Last completed action: Phase 2 closure commit `4da4966` (validated; not pushed).
 - Validation completed: `validate-all` ALL PASS (40) · `validate-no-secrets` · `validate-v2-closure-evidence`
   · `validate-report-index` · `git diff --check` clean.
+
+## Phases 14–16 result (BLOCKED — hard external-input / authority blocker)
+
+PolyGo phases require a trusted, authorised local PolyGo repo carrying the canonical
+`.projectops/config.json` trust anchor. Local `C:/dev/Polygo` exists but has no `.projectops/` anchor
+→ not a verified authoritative source (Phase-2 model). Install was config-only on an unmerged branch;
+a remote reference is not authorisation. No fetch/clone/checkout/write against PolyGo — read-only
+inspection of one local folder only. Recorded BLOCKED (not failed, not fabricated). Report:
+`.../PROJECTOS-V3-POLYGO-PHASES-14-16_BLOCKED.md`. Committed
+`docs(projectos): record v3 polygo baseline reconcile blocker`. Programme proceeds to Phase 17.
 
 ## Phase 13 result (LOCAL IMPLEMENTATION COMPLETE — not accepted, not pushed)
 
