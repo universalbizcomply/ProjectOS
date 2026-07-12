@@ -34,8 +34,8 @@
 | F4 | PROJECTOS-FORGE-GENERATION1A | LOCAL IMPLEMENTATION COMPLETE (awaiting advisor/owner review) |
 | F5 | PROJECTOS-FORGE-VERIFY1A | LOCAL IMPLEMENTATION COMPLETE (awaiting advisor/owner review) |
 | F6 | PROJECTOS-FORGE-SNAPSHOT1A | LOCAL IMPLEMENTATION COMPLETE (awaiting advisor/owner review) |
-| F7 | PROJECTOS-FORGE-COMMAND-UI1A | **NEXT — not started** (user-facing → live browser proof) |
-| F8 | PROJECTOS-FORGE-SECURE-DEPLOY1A | pending |
+| F7 | PROJECTOS-FORGE-COMMAND-UI1A | LOCAL IMPLEMENTATION COMPLETE (awaiting advisor/owner review) |
+| F8 | PROJECTOS-FORGE-SECURE-DEPLOY1A | **NEXT — not started** |
 | F9 | PROJECTOS-FORGE-INTEGRATIONS1A | pending |
 | F10 | PROJECTOS-FORGE-E2E-CLOSURE1A | pending |
 
@@ -103,7 +103,30 @@ chain + cycle guard, deep-frozen records, no metered API. Self-reviewed (pure cr
 reviewed patterns). validate-all ALL PASS (56). Committed `feat(projectos): add forge env snapshot +
 rollback (F6)` (local, not pushed).
 
+## F7 result (LOCAL IMPLEMENTATION COMPLETE — awaiting review, not pushed)
+
+`control-center/src/forge/{forgeModel.ts, ForgeConsole.tsx}` + App nav + styles + `test/forgeModel.test.ts`
+(6 tests). Forge Console: command → 6-stage pipeline (blueprint/scaffold/budget/verify/snapshots/safety),
+inert owner-only chips; deterministic command routing; surfaces the budget hard-cap + anti-Potemkin verdict
++ metered-AI refusal. typecheck PASS; vitest 89 passed; build PASS; validate-all ALL PASS (56). Live browser
+proof (localhost:5178): renders, command booking↔shop routing, "ai-api (no metered AI API)" refused +
+NOT-verified verdict on the unwired run, no console errors, no external network, no overflow at
+1440/1280/1024/768/390 (DOM-verified; the screenshot capture tool timed out — recorded honestly, no image
+fabricated). Committed `feat(projectos): add forge command UI (F7)` (local, not pushed).
+
 ## Next exact safe action (resume here)
+
+**Begin F8 — `PROJECTOS-FORGE-SECURE-DEPLOY1A`.** A deterministic pre-deploy security gate over a generated
+project's file manifest + a deploy plan: (a) **bundle secret-grep** — refuse if any client-reachable file
+would ship a secret-shaped value or the service-role key; (b) **RLS deny-tests** — assert every table has
+RLS + owner policies + update WITH CHECK; (c) CORS-not-`*` / rate-limit / webhook-signature defaults
+present; (d) a deploy PLAN that is REFUSED for production and OWNER_GATED for staging (reuse provider guards
++ approval queue) — deploy is never auto-run. Zero-dep `.cjs` (operate on the F2 manifest shape) + validator:
+secret in a client file blocks deploy, missing RLS blocks, prod deploy refused, staging owner-gated, no
+metered API. Reviews → validators → report → index row → one commit `feat(projectos): add forge secure
+deploy gate (F8)` (no push) → F9 (integrations) → F10 (E2E + MICRO-LEVEL final evidence report).
+
+### OLD F7 note (superseded):
 
 **Begin F7 — `PROJECTOS-FORGE-COMMAND-UI1A` (USER-FACING → needs LIVE browser proof).** A control-center
 surface (extend `projectos/control-center/`, no second app): an owner types a build command → sees the

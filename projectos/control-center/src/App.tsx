@@ -20,12 +20,14 @@ import { LiveMissionControl } from './daemon/LiveMissionControl';
 import { OwnerControlPlane } from './owner/OwnerControlPlane';
 import { OwnerChat } from './owner/OwnerChat';
 import { SafetyProviders } from './owner/SafetyProviders';
+import { ForgeConsole } from './forge/ForgeConsole';
 import type { Session } from '@supabase/supabase-js';
 
-type View = 'control' | 'chat' | 'safety' | 'overview' | 'live' | 'workflow' | 'gates' | 'plugins';
+type View = 'control' | 'forge' | 'chat' | 'safety' | 'overview' | 'live' | 'workflow' | 'gates' | 'plugins';
 
 const NAV: ReadonlyArray<{ id: View; label: string }> = [
   { id: 'control', label: 'Owner Control' },
+  { id: 'forge', label: 'Forge' },
   { id: 'chat', label: 'Owner Chat' },
   { id: 'safety', label: 'Safety & Providers' },
   { id: 'overview', label: 'Projects' },
@@ -110,6 +112,7 @@ export function App() {
       </aside>
       <main className="main">
         {view === 'control' && <OwnerControlPlane />}
+        {view === 'forge' && <ForgeConsole />}
         {view === 'chat' && <OwnerChat />}
         {view === 'safety' && <SafetyProviders />}
         {view === 'overview' && <Overview />}
