@@ -20,7 +20,8 @@ const MODULES = [
   "validate-approval-queue",
   "validate-provider-context-guards",
   "validate-desktop-e2e",
-  "validate-reliability-hardening"
+  "validate-reliability-hardening",
+  "validate-forge-blueprint"
 ];
 let total = 0;
 for (const m of MODULES) {
