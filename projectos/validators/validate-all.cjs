@@ -24,7 +24,8 @@ const MODULES = [
   "validate-forge-blueprint",
   "validate-forge-scaffold",
   "validate-forge-provisioner",
-  "validate-forge-generation"
+  "validate-forge-generation",
+  "validate-forge-verify"
 ];
 let total = 0;
 for (const m of MODULES) {

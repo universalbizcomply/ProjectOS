@@ -32,8 +32,8 @@
 | F2 | PROJECTOS-FORGE-SCAFFOLD1A | LOCAL IMPLEMENTATION COMPLETE (awaiting advisor/owner review) |
 | F3 | PROJECTOS-FORGE-PROVISIONER1A | LOCAL IMPLEMENTATION COMPLETE (awaiting advisor/owner review) |
 | F4 | PROJECTOS-FORGE-GENERATION1A | LOCAL IMPLEMENTATION COMPLETE (awaiting advisor/owner review) |
-| F5 | PROJECTOS-FORGE-VERIFY1A | **NEXT — not started** |
-| F6 | PROJECTOS-FORGE-SNAPSHOT1A | pending |
+| F5 | PROJECTOS-FORGE-VERIFY1A | LOCAL IMPLEMENTATION COMPLETE (awaiting advisor/owner review) |
+| F6 | PROJECTOS-FORGE-SNAPSHOT1A | **NEXT — not started** |
 | F7 | PROJECTOS-FORGE-COMMAND-UI1A | pending (user-facing → live proof) |
 | F8 | PROJECTOS-FORGE-SECURE-DEPLOY1A | pending |
 | F9 | PROJECTOS-FORGE-INTEGRATIONS1A | pending |
@@ -87,7 +87,28 @@ path-safe diff apply; deterministic; NO metered API. security (MEDIUM path allow
 duplicate-id, MEDIUM taxonomy/coverage/extraction) — fixed. validate-all ALL PASS (54). Committed
 `feat(projectos): add forge generation loop (F4)` (local, not pushed).
 
+## F5 result (LOCAL IMPLEMENTATION COMPLETE — awaiting review, not pushed)
+
+`projectos/forge/verify-harness.cjs` + `validators/validate-forge-verify.cjs` (10 invariants, registered).
+Anti-Potemkin verification gate: an app is "verified" only when required kinds (build+unit+**wired**
+round-trip) all pass; fail-closed on fail/throw/malformed/missing; details redacted; deterministic; no
+metered API/network/exec. Self-reviewed (minimal surface). validate-all ALL PASS (55). Committed
+`feat(projectos): add forge verification harness (F5)` (local, not pushed).
+
 ## Next exact safe action (resume here)
+
+**Begin F6 — `PROJECTOS-FORGE-SNAPSHOT1A`.** Whole-environment snapshot + rollback = the reversibility
+primitive (code + deps + DB), so a bad generation is undoable — what the incumbents charge for. Model a
+deterministic snapshot/restore over the in-memory project file-state (Map path→content) + a metadata
+manifest (hash, parent, label): `snapshot(state,label)` → immutable record; `restore(records,id)` → prior
+state; a chain with parent links; rollback returns an EXACT prior state (hash matches). Reuse the
+scaffold's manifest-hash idea; note real git-commit + local-DB snapshot wiring is the F3/provisioner +
+later integration (owner-gated). Zero-dep `.cjs` + validator: snapshot deterministic, restore is exact,
+tamper detected (hash), no secret leak, chain integrity, no metered API. Reviews → validators → report →
+index row → one commit `feat(projectos): add forge env snapshot + rollback (F6)` (no push) → F7 (Forge
+command UI — user-facing, live browser proof).
+
+### OLD F5 note (superseded):
 
 **Begin F5 — `PROJECTOS-FORGE-VERIFY1A`.** A verification harness that proves a generated app actually
 works before "done" (anti-Potemkin). Model a verifier that runs, against a generated project: build check,
