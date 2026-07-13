@@ -17,6 +17,7 @@
 
 const crypto = require("crypto");
 const OBSERVATION_STATUSES = ["OBSERVED", "PARTIALLY OBSERVED", "NOT OBSERVABLE", "NOT EXECUTED"];
+const TERMINATION_STATUSES = ["NOT APPLICABLE", "NOT EXECUTED", "TERMINATED-CONFIRMED", "TERMINATION-UNCONFIRMED", "EMERGENCY-STOP-REQUIRED"];
 
 // --- Environment isolation ---------------------------------------------------------------------------
 const ENV_ALLOW_COMMON = ["PATH", "Path"];
@@ -179,7 +180,12 @@ function buildResult(fields) {
     sandboxPolicy: f.sandboxPolicy || null,
     canonicalVisibility: f.canonicalVisibility || "unknown",
     networkPolicy: f.networkPolicy || "unknown",
-    processTerminationStatus: f.processTerminationStatus || "none",
+    processTerminationStatus: f.processTerminationStatus || "NOT APPLICABLE",
+    operationHandleType: f.operationHandleType || null,
+    operationHandleIdRedacted: f.operationHandleIdRedacted || null,
+    operationProcessCountObserved: f.operationProcessCountObserved === undefined ? null : f.operationProcessCountObserved,
+    processControlProvider: f.processControlProvider || null,
+    processControlEvidenceHash: f.processControlEvidenceHash || null,
     terminationDetail: f.terminationDetail || null,
     // trusted filesystem ledger (NOT git-derived)
     residualDriftStatus: f.residualDriftStatus || "unknown", // "no-residual-drift-detected" | "residual-drift-detected" | "not-evaluated"
@@ -235,7 +241,8 @@ function validateResult(result, opts) {
   const required = [
     "schemaVersion", "operationId", "projectId", "phaseId", "approvalStatus", "repository", "baselineBranch",
     "baselineHead", "finalBranch", "finalHead", "outcome", "reason", "sandboxProvider", "sandboxPolicy",
-    "canonicalVisibility", "networkPolicy", "processTerminationStatus", "residualDriftStatus", "filesChanged",
+    "canonicalVisibility", "networkPolicy", "processTerminationStatus", "operationHandleType",
+    "operationProcessCountObserved", "processControlProvider", "processControlEvidenceHash", "residualDriftStatus", "filesChanged",
     "refusedPaths", "filesInspectionStatus", "changeManifest", "ledgerSummary", "patchHash", "projectOsCommandsExecuted",
     "workerCommandsObserved", "workerCommandsObservationStatus", "workerToolsPermitted", "workerToolsVerified",
     "controls", "timeoutStatus", "cancellationStatus", "killConfirmed", "outputRedactionStatus",
@@ -248,18 +255,19 @@ function validateResult(result, opts) {
   for (const k of FORBIDDEN_RESULT_FIELDS) if (Object.prototype.hasOwnProperty.call(r, k)) errors.push("result: forbidden field '" + k + "'");
   if (r.projectOsDecisionRequired !== true) errors.push("result: projectOsDecisionRequired must be true");
   if (OBSERVATION_STATUSES.indexOf(r.workerCommandsObservationStatus) < 0) errors.push("result: bad workerCommandsObservationStatus");
+  if (Object.prototype.hasOwnProperty.call(r, "processTerminationStatus") && TERMINATION_STATUSES.indexOf(r.processTerminationStatus) < 0) errors.push("result: bad processTerminationStatus enum");
+  // termination control must not be overstated: process-termination-confirm only when CONFIRMED.
+  if (r.controls && (r.controls.technicallyEnforced || []).indexOf("process-termination-confirm") >= 0 && r.processTerminationStatus !== "TERMINATED-CONFIRMED") errors.push("result: process-termination-confirm claimed enforced without TERMINATED-CONFIRMED");
   // controls integrity: a delegated / notVerified / out-of-scope control must NOT be claimed technically enforced.
   const c = r.controls || {};
   const te = new Set((c.technicallyEnforced || []).map(String));
   for (const bucket of ["delegated", "notVerified", "outOfScope"]) {
     for (const x of (c[bucket] || [])) if (te.has(String(x))) errors.push("result: control '" + x + "' is in both technicallyEnforced and " + bucket);
   }
-  // result-hash integrity
-  if (r.resultHash) {
-    const copy = Object.assign({}, r); delete copy.resultHash;
-    const recomputed = crypto.createHash("sha256").update(JSON.stringify(copy)).digest("hex");
-    if (recomputed !== r.resultHash) errors.push("result: resultHash integrity check failed (mutated or serialisation drift; not an HMAC — see report)");
-  }
+  // result-hash integrity — MUST be a well-formed sha256 hex and is ALWAYS compared (a blanked/absent hash
+  // fails; it never skips). Integrity, not authenticity (not an HMAC — see report trust boundary).
+  if (typeof r.resultHash !== "string" || !/^[0-9a-f]{64}$/.test(r.resultHash)) errors.push("result: resultHash missing/invalid");
+  else { const copy = Object.assign({}, r); delete copy.resultHash; if (crypto.createHash("sha256").update(JSON.stringify(copy)).digest("hex") !== r.resultHash) errors.push("result: resultHash integrity check failed (mutated or serialisation drift)"); }
   // real operations require non-null identity
   if (o.real) {
     for (const k of ["operationId", "phaseId", "projectId", "baselineHead"]) if (!r[k]) errors.push("result: real operation requires non-null " + k);
@@ -271,5 +279,5 @@ module.exports = {
   buildMinimalEnv, isTokenishName, promptHasRawSecret, scrubSecrets, isUnsafeShim, resolvePolicy,
   isAllowedPath, allowlistTouchesProjectos, buildResult, validateResult, deepFreeze, normPath,
   CONTROL_FIELDS, FORBIDDEN_WORKER_DECISIONS, FORBIDDEN_RESULT_FIELDS, SECRET_SHAPE, ENV_ALLOW_COMMON,
-  OBSERVATION_STATUSES,
+  OBSERVATION_STATUSES, TERMINATION_STATUSES,
 };

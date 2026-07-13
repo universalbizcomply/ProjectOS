@@ -133,3 +133,24 @@ running + spawnable `claude` CLI + Supabase CLI): wire `claudeBin`/`claudeArgs` 
 adapter (Gate 1), then Gate 2 (real Supabase + auth + RLS + two-user isolation) and Gate 3 (reference-app
 command → blueprint → synthetic-labelled owner approval → real generation via the worker → real
 browser→Supabase round-trip), then Gates 4–12. Do NOT push. No production. Claude does not self-approve/close.
+
+## HARDEN1C (2026-07-13) — provable readiness + operation-bound attestation + safe process ownership (IN PROGRESS)
+
+Replaced declaration-based gates with operation-bound, technically-verified readiness. NEW modules
+(projectos/bridge/): `attestation.cjs` (structured operation-bound attestation contract + verify + synthetic;
+canaries, evidenceHash; boolean {enforced:true} fails), `invocation-detector.cjs` (tool-restriction DETECTION
+record bound to exe content hash + CLI version + provider + policy; negative-capability test DENIED BY
+TECHNICAL CONTROL; manual verified:true fails), `runtime-config.cjs` (SINGLE shared checkReadiness path for
+capability-check + adapter; 9 checks; NO env markers), `owner-readiness-report.cjs` (self-contained offline
+HTML readiness report — designed via ui-ux-pro-max: technical dark/light palette, SVG-not-emoji, icon+text
+badges not colour-only, 4.5:1, security-first hierarchy). REWROTE `sandbox-provider.cjs` (provider-owned
+OPERATION HANDLE lifecycle: spawn/status/enumerate/terminate/confirm/preserve/dispose + probeProcessControl
+readiness + structured attest; PID handle forbidden for real runs), `claude-worker.cjs` (verify attestation +
+detection record; spawn via operation handle; confirm via handle not reused PID; termination ENUM;
+first-proof network-disabled gate; NOT APPLICABLE/NOT EXECUTED on early paths), `owner-capability-check.cjs`
+(9 checks / 11 states via shared path, no env markers, --html). MODIFIED `worker-policy.cjs` (termination
+enum + operationHandle* / processControl* fields; enforce not-overstated). REMOVED dead `invocation-profile.cjs`.
+`validate-claude-worker.cjs` = **42 invariants PASS** (§11 41 + owner-UX). `npm run validate` ALL PASS (61);
+diff-check clean; 0 residue; capability (no config) → BLOCKED-SANDBOX-IMPLEMENTATION. ui-ux-pro-max AVAILABLE +
+used; "Claude Design" (named product) not present → frontend-design equivalent. ECC 3-agent round running.
+END STATUS target: IMPLEMENTED LOCALLY — AWAITING CHATGPT REVIEW. No push/real-worker/Docker/install.
