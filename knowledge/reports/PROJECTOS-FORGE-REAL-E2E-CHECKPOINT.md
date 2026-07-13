@@ -173,3 +173,32 @@ probe with an unrelated sentinel. §11 real-run symlink fallback ⇒ WORKSPACE-M
 **47 invariants PASS (1 env-skip: symlink host)**. `npm run validate` ALL PASS (61); diff-check clean; 0 residue;
 capability → BLOCKED-SANDBOX-IMPLEMENTATION. ui-ux-pro-max used; Claude Design unavailable → frontend-design.
 ECC 3-agent round running. END STATUS target: IMPLEMENTED LOCALLY — AWAITING CHATGPT REVIEW.
+
+## HARDEN1E (2026-07-13) — sandbox execution binding + fail-closed operation finalisation (IMPLEMENTED LOCALLY — AWAITING CHATGPT REVIEW)
+
+Closes executable-identity, workspace-mount, lifecycle, termination, readiness and evidence gaps before any real
+provider. §4 PROVIDER PREPARATION + workspace custody: `sandbox-provider.prepareOperation` returns a prepared-op
+descriptor + `verifyPreparedOperation` (nothing but the workspace mounted, network disabled, every identity+hash
+matches; caller hash alone never proof) ⇒ BLOCKED-WORKSPACE-MOUNT / BLOCKED-PROVIDER-PREPARATION. §5 ACTUAL
+SANDBOX EXECUTABLE IDENTITY: host≠sandbox; resolveExecutable/hashExecutable/getExecutableVersion INSIDE provider +
+`verifyExecutableIdentity`; spawn uses the verified SANDBOX path ⇒ BLOCKED-SANDBOX-EXECUTABLE-IDENTITY. §6 attest
+bound to prepared-op id + sandbox workspace path + mount-policy hash + pre-exec ledger + sandbox exe path/hash/ver.
+§7 EXACT 4-ARG GRAMMAR `verifyGrammar` + mechanism registry bound to exe hash+version+detector+policy. §8 SINGLE
+FAIL-CLOSED FINALISER `finalize()` — every post-spawn result funnels through it (no bypass). §9 provider-error-after
+-handle ≠ NOT EXECUTED. §10 `proveTerminationAndDispose` = confirm + enumeration 0 + terminal + bound handle before
+dispose; confirmed-but-processes-remain ⇒ EMERGENCY-STOP. §11 host-timeout race aborts provider wait (AbortSignal)
++ clears timer. §12/§13 `runtime-config.realProbeLifecycle` = REAL probe workspace (materialise→prepare→attest→
+resolve-exe→argv→handle→terminate→dispose) with unconditional finally cleanup, no placeholders, no default-pass.
+§14/§15 `operation-evidence` op-evidence-2.0 splits capabilityDerived vs operationObserved + strengthened verify.
+§16 deterministic DI symlink failure (`materialize({symlinkSync})`) blocks a real run, no substitute, NO env skip.
+§18 `owner-readiness-report` six-fact owner execution states (ui-ux-pro-max). `validate-claude-worker.cjs` =
+**55 invariants PASS (51 §17 + 4 ECC round-2, 0 skipped)**. `npm run validate` ALL PASS (61); diff-check clean;
+0 residue; capability → BLOCKED-SANDBOX-IMPLEMENTATION; no-secrets + report-index PASS. Full ECC 4-surface ×2
+rounds: 6 round-1 CONFIRMED (2 security incl. CRITICAL non-mock PID false-COMPLETED; 4 silent-failure incl.
+CRITICAL fabricated evidence-preserved, sentinel/realSentinel leaks, workspace-residue ungated) + round-2 (CRITICAL
+canonicalJson DAG hash corruption, HIGH disposal enum drift, MEDIUM false-emergency on post-disposal I/O, dead-code)
+— ALL fixed, locked with regression invariants 52-55; architecture round CLEAN on HIGH/CRITICAL. Claude Design
+(named) unavailable → frontend-design. Honest limits: not itself an OS sandbox; integrity not authenticity; Windows
+.cmd/.ps1 shim refused by design (real-run needs a native binary); hash-util/dup consolidation deferred. Single-file
+bundle = report (all §20) + full source of 11 changed files incl. workspace-ledger.cjs. One corrective commit,
+NOT pushed. Remote frozen at 4c3f076. Next gate: ChatGPT review of HARDEN1E.

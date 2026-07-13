@@ -40,7 +40,57 @@ const ALLOWED_PRINT_FLAGS = ["-p", "--print"];
 // Substrings that must NEVER appear in a final argv element.
 const ARGV_BANNED = /^--?(dangerously-skip-permissions|no-sandbox|allow-all|yolo|permission-mode=bypass|shell|exec|command)/i;
 
+// §7 — the supported restriction-mechanism REGISTRY for the first controlled-change proof. A mechanism outside
+// this set (for the detected CLI version) is refused. The registry is BOUND to the executable content hash, the
+// CLI version, the detector version, and the policy version (via `mechanismRegistry`), so a record cannot claim
+// an unsupported/forged mechanism for a different CLI.
+const SUPPORTED_MECHANISMS = ["--allowedTools"];
+
+function hashObj(o) { return require("crypto").createHash("sha256").update(canonicalJson(o || {})).digest("hex"); }
 function hashTemplate(tpl) { return require("crypto").createHash("sha256").update(canonicalJson(tpl || [])).digest("hex"); }
+
+/** Supported mechanisms + a binding hash for (exe hash, CLI version, detector version, policy version). */
+function mechanismRegistry(bindCtx) {
+  const c = bindCtx || {};
+  const mechanisms = SUPPORTED_MECHANISMS.slice();
+  const registryHash = hashObj({ mechanisms, executableContentHash: c.executableContentHash || null, cliVersion: c.cliVersion || null, detectorVersion: DETECTOR_VERSION, policyVersion: c.policyVersion || null });
+  return { mechanisms, registryHash };
+}
+function isSupportedMechanism(mech, bindCtx) { return mechanismRegistry(bindCtx).mechanisms.indexOf(mech) >= 0; }
+
+/**
+ * §7 EXACT INVOCATION GRAMMAR — for the first controlled-change proof accept ONE argument grammar only:
+ *   [ VERIFIED_RESTRICTION_MECHANISM, EXACT_PERMITTED_TOOLS_VALUE, "-p", PROMPT ]
+ * Requires exactly four arguments, each token exactly once (outside the prompt — the prompt is DATA and is never
+ * scanned), the prompt as the final argument, no empty tool entry, deterministic (sorted) tool ordering, and a
+ * mechanism that is in the supported registry for the detected CLI version. Returns { ok, errors, registryHash }.
+ */
+function verifyGrammar(argv, record, prompt, bindCtx) {
+  const errors = [];
+  const rec = record || {};
+  const mech = rec.restrictionMechanism;
+  const toolList = (rec.permittedTools || []).map(String);
+  const tools = toolList.join(",");
+  if (!Array.isArray(argv) || !argv.every((a) => typeof a === "string")) return { ok: false, errors: ["grammar: argv must be a string array"], registryHash: null };
+  if (argv.length !== 4) errors.push("grammar: expected exactly 4 arguments, got " + argv.length);
+  // positional form
+  if (argv[0] !== mech) errors.push("grammar: arg0 must be the restriction mechanism");
+  if (argv[1] !== tools) errors.push("grammar: arg1 must be the exact permitted-tools value");
+  if (ALLOWED_PRINT_FLAGS.indexOf(argv[2]) < 0) errors.push("grammar: arg2 must be an approved print flag (-p/--print)");
+  if (argv[argv.length - 1] !== String(prompt)) errors.push("grammar: the final argument must be the prompt");
+  // single occurrence each, scanning only the NON-prompt positions (prompt is data, never scanned).
+  const nonPrompt = argv.slice(0, Math.max(0, argv.length - 1));
+  if (nonPrompt.filter((x) => x === mech).length !== 1) errors.push("grammar: restriction mechanism must appear exactly once");
+  if (nonPrompt.filter((x) => x === tools).length !== 1) errors.push("grammar: tools value must appear exactly once");
+  if (nonPrompt.filter((x) => ALLOWED_PRINT_FLAGS.indexOf(x) >= 0).length !== 1) errors.push("grammar: print flag must appear exactly once");
+  // no empty tool entry + deterministic ordering
+  if (toolList.some((t) => t.trim() === "")) errors.push("grammar: empty tool entry");
+  const sorted = toolList.slice().sort();
+  if (JSON.stringify(toolList) !== JSON.stringify(sorted)) errors.push("grammar: permitted tools are not in deterministic (sorted) order");
+  // mechanism must be in the supported registry for the detected CLI version
+  if (!isSupportedMechanism(mech, bindCtx)) errors.push("grammar: restriction mechanism '" + String(mech) + "' is not in the supported registry for this CLI version");
+  return { ok: errors.length === 0, errors, registryHash: mechanismRegistry(bindCtx).registryHash };
+}
 
 function hashRecord(rec) { const c = Object.assign({}, rec); delete c.recordHash; return crypto.createHash("sha256").update(canonicalJson(c)).digest("hex"); }
 
@@ -130,7 +180,7 @@ function syntheticRecord(ctx, opts) {
     resolvedExecutablePath: o.resolvedExecutablePath || "/sandbox/bin/claude",
     executableContentHash: c.executableContentHash || "exe-hash",
     cliVersion: c.cliVersion || "1.9.0", restrictionMechanism: o.restrictionMechanism || "--allowedTools",
-    permittedTools: o.permittedTools || ["Read", "Edit"], forbiddenTools: o.forbiddenTools || ["Bash", "Shell", "WebFetch", "Git"],
+    permittedTools: (o.permittedTools || ["Read", "Edit"]).slice().sort(), forbiddenTools: o.forbiddenTools || ["Bash", "Shell", "WebFetch", "Git"],
     permittedCommands: o.permittedCommands || [],
     shellDisabled: o.shellDisabled !== false, gitWriteDisabled: o.gitWriteDisabled !== false, networkDisabled: o.networkDisabled !== false,
     providerToolsDisabled: o.providerToolsDisabled !== false, databaseToolsDisabled: o.databaseToolsDisabled !== false, deploymentToolsDisabled: o.deploymentToolsDisabled !== false,
@@ -201,4 +251,8 @@ function verifyInvocation(argv, record, prompt) {
   return { status: applied ? INVOCATION_STATUS.APPLIED_VERIFIED : INVOCATION_STATUS.VERIFIED_NOT_APPLIED, argvHash, errors: applied ? [] : ["restriction mechanism '" + mech + "' not applied in argv"] };
 }
 
-module.exports = { verifyDetectionRecord, syntheticRecord, hashRecord, buildArgv, verifyInvocation, hashTemplate, DETECTOR_VERSION, NEGATIVE_TESTS, DENIED, RECORD_FIELDS, INVOCATION_STATUS };
+module.exports = {
+  verifyDetectionRecord, syntheticRecord, hashRecord, buildArgv, verifyInvocation, verifyGrammar,
+  mechanismRegistry, isSupportedMechanism, hashTemplate, DETECTOR_VERSION, NEGATIVE_TESTS, DENIED,
+  RECORD_FIELDS, INVOCATION_STATUS, SUPPORTED_MECHANISMS,
+};

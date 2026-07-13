@@ -21,9 +21,10 @@ const MANDATORY_CANARIES = [
   "emergencyTerminationCanary",
 ];
 const REQUIRED_FIELDS = [
-  "schemaVersion", "providerId", "providerVersion", "providerImplementationHash", "operationId",
-  "projectId", "phaseId", "workspaceId", "workspacePathHash", "materialisationManifestHash",
-  "workspacePathInsideSandbox", "executableResolvedPathInsideSandbox",
+  "schemaVersion", "providerId", "providerVersion", "providerImplementationHash", "preparedOperationId",
+  "operationId", "projectId", "phaseId", "workspaceId", "workspacePathHash", "materialisationManifestHash",
+  "workspacePathInsideSandbox", "mountPolicyHash", "preExecutionLedgerHash",
+  "executableResolvedPathInsideSandbox", "sandboxExecutablePath", "sandboxExecutableHash", "sandboxExecutableVersion",
   "timestamp", "expiry", "overallResult", "evidenceHash",
 ].concat(MANDATORY_CANARIES);
 
@@ -33,16 +34,30 @@ const DENY_CANARIES = ["canonicalPathCanary", "otherProjectPathCanary", "homePat
 // permissive expectation and pass. actual must equal this exact value (and result must be PASS).
 const CANARY_EXPECTED = { canonicalPathCanary: "denied", otherProjectPathCanary: "denied", homePathCanary: "denied", credentialPathCanary: "denied", networkCanary: "denied", writablePathCanary: "allowed", childProcessContainmentCanary: "contained", cleanupCanary: "complete", emergencyTerminationCanary: "confirmed" };
 // Context fields the caller MUST supply for binding — a missing one is a verification failure, never skipped.
-const REQUIRED_CTX = ["providerId", "operationId", "projectId", "phaseId", "workspaceId", "workspacePathHash", "materialisationManifestHash", "executableResolvedPathInsideSandbox"];
+// §6 grows this: the capability attestation is bound to the PREPARED operation, the exact mount policy, the
+// pre-execution ledger, and the ACTUAL SANDBOX executable identity (path/hash/version) — not the host's.
+const REQUIRED_CTX = [
+  "providerId", "providerVersion", "providerImplementationHash", "preparedOperationId", "operationId",
+  "projectId", "phaseId", "workspaceId", "workspacePathHash", "materialisationManifestHash",
+  "workspacePathInsideSandbox", "mountPolicyHash", "preExecutionLedgerHash",
+  "executableResolvedPathInsideSandbox", "sandboxExecutablePath", "sandboxExecutableHash", "sandboxExecutableVersion",
+];
 
 function canonicalJson(obj) {
-  // deterministic stringify (sorted keys) so the hash is stable across key order
-  const seen = new WeakSet();
+  // deterministic stringify (sorted keys) so the hash is stable across key order. Cycle detection tracks only
+  // the CURRENT ancestor chain (add on entry, delete on exit) — a true cycle (a back-edge to an ancestor) still
+  // collapses to null, but a legitimate DAG (the same sub-object referenced twice as siblings) serialises
+  // correctly BOTH times, so two logically-identical inputs never hash differently.
+  const ancestors = new WeakSet();
   const norm = (v) => {
     if (v && typeof v === "object") {
-      if (seen.has(v)) return null; seen.add(v);
-      if (Array.isArray(v)) return v.map(norm);
-      const out = {}; for (const k of Object.keys(v).sort()) out[k] = norm(v[k]); return out;
+      if (ancestors.has(v)) return null; // back-edge to an ancestor ⇒ real cycle
+      ancestors.add(v);
+      let out;
+      if (Array.isArray(v)) out = v.map(norm);
+      else { out = {}; for (const k of Object.keys(v).sort()) out[k] = norm(v[k]); }
+      ancestors.delete(v); // pop: v is no longer on the ancestor chain
+      return out;
     }
     return v;
   };
@@ -112,13 +127,17 @@ function syntheticAttestation(ctx, opts) {
   const c = ctx || {};
   const denied = (what) => makeCanary("access " + what, "denied", o.fail === what ? "reachable" : "denied", "synthetic");
   const contained = (what) => makeCanary(what, "contained", o.fail === what ? "escaped" : "contained", "synthetic");
+  const sandboxExePath = c.sandboxExecutablePath || c.executableResolvedPathInsideSandbox || "/sandbox/bin/claude";
   const att = {
     schemaVersion: SCHEMA_VERSION,
     providerId: c.providerId || null, providerVersion: o.providerVersion || "mock-0", providerImplementationHash: o.providerImplementationHash || "mock-hash",
+    preparedOperationId: c.preparedOperationId || null,
     operationId: c.operationId || null, projectId: c.projectId || null, phaseId: c.phaseId || null,
     workspaceId: c.workspaceId || null, workspacePathHash: c.workspacePathHash || null, materialisationManifestHash: c.materialisationManifestHash || null,
-    workspacePathInsideSandbox: o.workspacePathInsideSandbox || "/sandbox/workspace",
-    executableResolvedPathInsideSandbox: c.executableResolvedPathInsideSandbox || "/sandbox/bin/claude",
+    workspacePathInsideSandbox: c.workspacePathInsideSandbox || o.workspacePathInsideSandbox || "/sandbox/workspace",
+    mountPolicyHash: c.mountPolicyHash || null, preExecutionLedgerHash: c.preExecutionLedgerHash || null,
+    executableResolvedPathInsideSandbox: sandboxExePath, sandboxExecutablePath: sandboxExePath,
+    sandboxExecutableHash: c.sandboxExecutableHash || null, sandboxExecutableVersion: c.sandboxExecutableVersion || null,
     timestamp: now, expiry: now + (o.ttlMs || 300000),
     canonicalPathCanary: denied("canonical-repo"), otherProjectPathCanary: denied("other-projects"),
     homePathCanary: denied("home"), credentialPathCanary: denied("credentials"), networkCanary: denied("network"),

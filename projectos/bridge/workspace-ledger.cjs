@@ -28,8 +28,14 @@ function sha256File(p) { return crypto.createHash("sha256").update(fs.readFileSy
  * `git show` (binary-safe), preserving symlinks (mode 120000) and the executable bit (mode 100755). No `tar`,
  * no shell, no Windows path pitfalls. ProjectOS-side, before the worker runs. Throws on failure (→ BLOCKED).
  * @returns { workspace, tarPath, files:[relpaths] }   (tarPath kept for API compatibility; unused)
+ *
+ * `opts.symlinkSync` is a DEPENDENCY-INJECTED symlink primitive (default `fs.symlinkSync`). A test can supply
+ * one that throws to force the symlink-fallback branch DETERMINISTICALLY — proving the real-run equivalence
+ * guard (§16) without depending on the host's symlink capability, so this security branch is NEVER env-skipped.
  */
 function materialize(repoRoot, baseHead, opts) {
+  const o = opts || {};
+  const symlinkSync = typeof o.symlinkSync === "function" ? o.symlinkSync : fs.symlinkSync;
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "pos-ws-"));
   const files = [];
   const symlinkFallbacks = []; // symlinks we could NOT create as links (e.g. Windows without privilege) — flagged, never silent
@@ -45,8 +51,13 @@ function materialize(repoRoot, baseHead, opts) {
       fs.mkdirSync(path.dirname(dest), { recursive: true });
       const content = execFileSync("git", ["-C", repoRoot, "show", baseHead + ":" + rel], { maxBuffer: GIT_MAXBUF }); // Buffer
       if (mode === "120000") { // symlink: blob content is the target
-        try { fs.symlinkSync(content.toString("utf8"), dest); }
-        catch (e) { fs.writeFileSync(dest, content); symlinkFallbacks.push(rel); } // recorded, not swallowed
+        // For a REAL run, do NOT write a regular-file substitute at all — record the fallback intent and let the
+        // post-loop equivalence guard fail closed. Only synthetic (non-real) runs may materialise the substitute.
+        try { symlinkSync(content.toString("utf8"), dest); }
+        catch (e) {
+          symlinkFallbacks.push(rel); // recorded, not swallowed
+          if (!o.realRun) fs.writeFileSync(dest, content); // synthetic mode only: keep a substitute for local proofs
+        }
       } else {
         fs.writeFileSync(dest, content);
         if (mode === "100755" && process.platform !== "win32") { try { fs.chmodSync(dest, 0o755); } catch (e) { /* best effort */ } }
@@ -58,9 +69,10 @@ function materialize(repoRoot, baseHead, opts) {
     try { fs.rmSync(workspace, { recursive: true, force: true }); } catch (er) { /* best effort */ }
     throw e;
   }
-  // For a REAL run a symlink that could not be created as a link (silently downgraded to a regular file) makes
-  // the workspace NOT type-equivalent to the approved baseline — fail closed (§11).
-  if (opts && opts.realRun && symlinkFallbacks.length) {
+  // For a REAL run a symlink that could not be created as a link (would be a regular-file substitute) makes the
+  // workspace NOT type-equivalent to the approved baseline — fail closed (§11/§16). The substitute was never
+  // written for a real run, so removing the partial workspace leaves nothing executable behind.
+  if (o.realRun && symlinkFallbacks.length) {
     try { fs.rmSync(workspace, { recursive: true, force: true }); } catch (er) { /* best effort */ }
     const err = new Error("WORKSPACE-MATERIALISATION-NOT-EQUIVALENT"); err.symlinkFallbacks = symlinkFallbacks; throw err;
   }

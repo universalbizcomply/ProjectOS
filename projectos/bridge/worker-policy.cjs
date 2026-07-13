@@ -207,6 +207,16 @@ function buildResult(fields) {
     workspaceId: f.workspaceId || null,
     materialisationManifestHash: f.materialisationManifestHash || null,
     preExecutionLedgerHash: f.preExecutionLedgerHash || null,
+    // HARDEN1E provider preparation + ACTUAL sandbox executable identity + mount policy
+    preparedOperationId: f.preparedOperationId || null,
+    preparedOperationVerified: f.preparedOperationVerified === undefined ? null : !!f.preparedOperationVerified,
+    mountPolicyHash: f.mountPolicyHash || null,
+    sandboxWorkspacePath: f.sandboxWorkspacePath || null,
+    sandboxExecutablePath: f.sandboxExecutablePath || null,
+    sandboxExecutableHash: f.sandboxExecutableHash || null,
+    sandboxExecutableVersion: f.sandboxExecutableVersion || null,
+    sandboxExecutableIdentityHash: f.sandboxExecutableIdentityHash || null,
+    invocationGrammarStatus: f.invocationGrammarStatus || "NOT VERIFIED",
     invocationArgvHash: f.invocationArgvHash || null,
     invocationRestrictionStatus: f.invocationRestrictionStatus || "NOT VERIFIED",
     providerCapabilityAttestationHash: f.providerCapabilityAttestationHash || null,
@@ -257,6 +267,7 @@ function validateResult(result, opts) {
     "canonicalVisibility", "networkPolicy", "processTerminationStatus", "operationHandleType",
     "operationProcessCountObserved", "processControlProvider", "processControlEvidenceHash",
     "workspaceId", "invocationRestrictionStatus", "invocationArgvHash", "operationDisposalStatus", "operationResidue",
+    "preparedOperationId", "mountPolicyHash", "sandboxExecutableIdentityHash", "invocationGrammarStatus",
     "actualOperationHandleType", "materialisationManifestHash", "residualDriftStatus", "filesChanged",
     "refusedPaths", "filesInspectionStatus", "changeManifest", "ledgerSummary", "patchHash", "projectOsCommandsExecuted",
     "workerCommandsObserved", "workerCommandsObservationStatus", "workerToolsPermitted", "workerToolsVerified",
@@ -283,6 +294,11 @@ function validateResult(result, opts) {
     if (!r.operationEvidenceHash) errors.push("result: COMPLETED without operationEvidenceHash");
     if (!r.providerCapabilityAttestationHash) errors.push("result: COMPLETED without providerCapabilityAttestationHash");
     if (r.invocationRestrictionStatus !== "APPLIED AND VERIFIED") errors.push("result: COMPLETED without an APPLIED AND VERIFIED invocation restriction");
+    // HARDEN1E: a completed real-model run must have prepared+mounted the workspace and bound the SANDBOX exe.
+    if (!r.preparedOperationId) errors.push("result: COMPLETED without a verified preparedOperationId");
+    if (!r.mountPolicyHash) errors.push("result: COMPLETED without a mountPolicyHash");
+    if (!r.sandboxExecutableIdentityHash) errors.push("result: COMPLETED without a sandboxExecutableIdentityHash");
+    if (r.invocationGrammarStatus !== "PASS") errors.push("result: COMPLETED without an exact-invocation-grammar PASS");
   }
   // controls integrity: a delegated / notVerified / out-of-scope control must NOT be claimed technically enforced.
   const c = r.controls || {};

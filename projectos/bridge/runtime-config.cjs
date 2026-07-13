@@ -1,33 +1,120 @@
 "use strict";
 /**
- * Shared runtime-configuration validation — PROJECTOS-FORGE-REAL-E2E-ACTIVATION1B-HARDEN1C (§3, §10).
+ * Shared runtime-configuration validation — PROJECTOS-FORGE-REAL-E2E-ACTIVATION1B-HARDEN1E (§12, §13).
  *
- * The owner capability checker and the worker adapter share the SAME verifier functions (attestation,
- * detection record, sandbox contract, executable checker) and this module's readiness evaluation. NO
- * environment marker can make any security check PASS — readiness is technically verified or BLOCKED. A
- * `kind:"mock"` provider can prove the verifiers work but can NEVER reach READY-FOR-REAL-WORKER-PROOF (a mock
- * is synthetic, not a real OS implementation) — mirroring the adapter's `requireReal` gate so the two paths
- * cannot report READY where the other would BLOCK.
+ * The owner capability checker and the worker adapter share the SAME verifier functions (prepared-operation,
+ * attestation, sandbox-executable identity, detection record, exact-invocation grammar) and this module's
+ * readiness evaluation. NO environment marker can make any security check PASS — readiness is technically
+ * verified or BLOCKED. A `kind:"mock"` provider can prove the verifiers work but can NEVER reach READY-FOR-REAL.
+ *
+ * §12/§13: readiness runs a REAL LIFECYCLE PROBE — it materialises a harmless temporary probe workspace, prepares
+ * it through the provider, attests the real mounted probe, resolves+hashes the executable inside the provider,
+ * builds the exact restricted argv, creates an actual stable operation handle, verifies the handle type, exercises
+ * process-scope termination, then disposes the operation + probe workspace + sentinel in an UNCONDITIONAL finally.
+ * There are NO placeholder workspace values and NO default-pass path — a null/malformed/crashed probe is BLOCKED,
+ * and any inability to clean the probe blocks readiness and is shown in the readiness evidence.
  */
 
 const fs = require("fs");
-const crypto = require("crypto");
+const os = require("os");
+const path = require("path");
+const { execFileSync } = require("child_process");
 const sandbox = require("./sandbox-provider.cjs");
 const attestation = require("./attestation.cjs");
 const detector = require("./invocation-detector.cjs");
 const execcheck = require("./executable-check.cjs");
+const ledger = require("./workspace-ledger.cjs");
 
 const CHECKS = [
   "sandboxImplementationPresent", "sandboxAttestationPass", "executableValidated", "toolRestrictionVerified",
   "processOwnershipVerified", "processTerminationVerified", "networkDisabled", "dockerReady", "supabaseReady",
 ];
-function sha256File(p) { return crypto.createHash("sha256").update(fs.readFileSync(p)).digest("hex"); }
-function verMatch(detected, want) { if (!detected || !want) return true; const w = String(want).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); return new RegExp("(^|[^0-9.])" + w + "([^0-9.]|$)").test(String(detected)); }
 // A REAL, independently-verifiable sentinel for the process-scope probe (only for real providers): a genuine
 // separate OS process whose liveness is checked via signal-0, so an over-broad provider terminate is caught.
 function realSentinel() {
+  let spawnFailed = false;
   const child = require("child_process").spawn(process.execPath, ["-e", "setTimeout(function(){}, 5000)"], { stdio: "ignore" });
-  return { pid: child.pid, alive: () => { try { process.kill(child.pid, 0); return true; } catch (e) { return e && e.code === "EPERM"; } }, kill: () => { try { child.kill(); } catch (e) {} } };
+  // A spawn failure is delivered asynchronously as an 'error' event; without a listener Node THROWS it and can
+  // crash the host. Record it and report the sentinel as dead so the probe fails closed instead.
+  child.on("error", () => { spawnFailed = true; });
+  return { pid: child.pid, alive: () => { if (spawnFailed) return false; try { process.kill(child.pid, 0); return true; } catch (e) { return e && e.code === "EPERM"; } }, kill: () => { try { child.kill(); } catch (e) {} } };
+}
+
+function git(dir, args) { return execFileSync("git", ["-C", dir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }); }
+
+/**
+ * §12/§13 — run the full readiness lifecycle probe against a REAL temporary workspace. Returns a structured
+ * result; ALL probe resources are torn down in the unconditional finally, and any residue blocks readiness.
+ */
+function realProbeLifecycle(provider, config) {
+  const c = config || {};
+  const st = {
+    materialisedOk: false, preparedOk: false, exeIdentityOk: false, attestationOk: false, argvOk: false,
+    handleType: null, ownershipOk: false, terminationOk: false, terminationReason: null,
+    cleanup: { probeOperation: "n/a", sentinel: "n/a", preparedOperation: "n/a", providerResidue: [], hostWorkspaceResidue: [] },
+    cleanupOk: false, errors: [],
+  };
+  let repo = null, workspace = null, handle = null, prep = null;
+  try {
+    // materialise a real, harmless probe workspace from a throwaway git repo
+    repo = fs.mkdtempSync(path.join(os.tmpdir(), "pos-rp-"));
+    git(repo, ["init", "-q"]); git(repo, ["checkout", "-q", "-B", "probe"]); git(repo, ["config", "user.email", "p@p"]); git(repo, ["config", "user.name", "p"]);
+    fs.mkdirSync(path.join(repo, "app"), { recursive: true }); fs.writeFileSync(path.join(repo, "app", "probe.txt"), "probe\n");
+    git(repo, ["add", "-A"]); git(repo, ["commit", "-q", "-m", "probe"]);
+    const head = git(repo, ["rev-parse", "HEAD"]).trim();
+    const mat = ledger.materialize(repo, head, {}); // synthetic probe workspace (fine on a symlink-incapable host)
+    workspace = mat.workspace; st.materialisedOk = true;
+    const preLedger = ledger.hashSnapshot(ledger.snapshot(workspace));
+    const mountPolicy = sandbox.MOUNT_POLICY_FIRST_PROOF; const mph = sandbox.mountPolicyHash(mountPolicy);
+
+    // prepare + verify the prepared operation against the REAL probe workspace
+    try { prep = provider.prepareOperation({ operationId: "readiness-probe-op", projectId: "readiness", phaseId: "readiness", workspaceId: mat.workspaceId, hostWorkspacePath: workspace, hostWorkspacePathHash: mat.hostWorkspacePathHash, materialisationManifestHash: mat.materialisationManifestHash, preExecutionLedgerHash: preLedger, networkPolicy: provider.networkPolicy, executableIdentity: null, mountPolicy }); } catch (e) { prep = null; }
+    const pv = sandbox.verifyPreparedOperation(prep, { operationId: "readiness-probe-op", workspaceId: mat.workspaceId, hostWorkspacePathHash: mat.hostWorkspacePathHash, materialisationManifestHash: mat.materialisationManifestHash, preExecutionLedgerHash: preLedger, mountPolicyHash: mph, providerId: provider.providerId });
+    st.preparedOk = pv.ok; if (!pv.ok) st.errors.push("prepare:" + (pv.errors[0] || "failed"));
+
+    // resolve/hash/version the executable inside the provider + verify identity
+    let sp = null, sh = null, sv = null;
+    if (prep) { try { sp = provider.resolveExecutable(prep, c.claudeBin); } catch (e) {} try { sh = sp ? provider.hashExecutable(prep, sp) : null; } catch (e) {} try { sv = sp ? provider.getExecutableVersion(prep, sp) : null; } catch (e) {} }
+    const exeId = sandbox.buildExecutableIdentity({ hostRequestedExecutable: c.claudeBin, hostResolvedPath: sp, hostContentHash: null, sandboxResolvedPath: sp, sandboxContentHash: sh, sandboxReportedVersion: sv, providerId: provider.providerId, preparedOperationId: prep && prep.preparedOperationId });
+    const eiv = sandbox.verifyExecutableIdentity(exeId, { expectedContentHash: c.executableContentHash, cliVersion: c.cliVersion, providerId: provider.providerId, preparedOperationId: prep && prep.preparedOperationId });
+    st.exeIdentityOk = eiv.ok; if (!eiv.ok) st.errors.push("exe-identity:" + (eiv.errors[0] || "failed"));
+
+    // attest the REAL mounted probe operation
+    const attCtx = {
+      providerId: provider.providerId, providerVersion: provider.providerVersion, providerImplementationHash: provider.providerImplementationHash,
+      preparedOperationId: prep && prep.preparedOperationId, operationId: "readiness-probe-op", projectId: "readiness", phaseId: "readiness",
+      workspaceId: mat.workspaceId, workspacePathHash: mat.hostWorkspacePathHash, materialisationManifestHash: mat.materialisationManifestHash,
+      workspacePathInsideSandbox: prep && prep.sandboxWorkspacePath, mountPolicyHash: mph, preExecutionLedgerHash: preLedger,
+      executableResolvedPathInsideSandbox: sp, sandboxExecutablePath: sp, sandboxExecutableHash: sh, sandboxExecutableVersion: sv,
+    };
+    let att = null; try { att = typeof provider.attest === "function" ? provider.attest(attCtx) : null; } catch (e) { att = null; }
+    const av = attestation.verifyAttestation(att, attCtx); st.attestationOk = av.ok; if (!av.ok) st.errors.push("attest:" + (av.errors[0] || "failed"));
+
+    // construct the exact restricted argv (proves the invocation constructs cleanly for the probe)
+    try { if (c.detectionRecord) { const b = detector.buildArgv(c.detectionRecord, "readiness-probe"); st.argvOk = detector.verifyGrammar(b.argv, c.detectionRecord, "readiness-probe", { executableContentHash: c.executableContentHash, cliVersion: c.cliVersion, policyVersion: c.policyVersion }).ok && detector.verifyInvocation(b.argv, c.detectionRecord, "readiness-probe").status === detector.INVOCATION_STATUS.APPLIED_VERIFIED; } } catch (e) { st.argvOk = false; }
+
+    // create an actual stable operation handle + verify the handle type (no default-pass)
+    try { handle = provider.spawnOperation({ probe: true, operationId: "readiness-probe-op", bin: sp || "<probe>", argv: [], cwd: workspace, env: {} }); } catch (e) { handle = null; }
+    if (!handle || !handle.handleType) { st.ownershipOk = false; st.errors.push("ownership:no-handle"); }
+    else { st.handleType = handle.handleType; if (handle.handleType === "pid" && provider.kind !== "mock") { st.ownershipOk = false; st.errors.push("ownership:pid-handle-forbidden-for-real-runs"); } else if (provider.pidFallback === true && provider.kind !== "mock") { st.ownershipOk = false; st.errors.push("ownership:pid-only-provider-forbidden-for-real-runs"); } else st.ownershipOk = true; }
+
+    // exercise process-scope termination (real sentinel for a non-mock provider)
+    const probe = sandbox.probeProcessControl(provider, provider.kind === "mock" ? {} : { sentinelFn: realSentinel });
+    st.terminationOk = probe.ok; st.terminationReason = probe.reason; if (!probe.ok) st.errors.push("termination:" + probe.reason);
+    // sentinel cleanup reflects the ACTUAL kill outcome the probe reports (never a hardcoded literal).
+    st.cleanup.sentinel = probe.sentinelCleaned === false ? "cleanup-failed" : "cleaned";
+    if (probe.sentinelCleaned === false) st.errors.push("sentinel:cleanup-failed");
+  } catch (e) { st.errors.push("probe-crashed:" + String(e && e.message).slice(0, 90)); st.ownershipOk = false; }
+  finally {
+    // §13 — unconditional teardown accounting for EVERY probe resource.
+    try { if (handle) { try { provider.terminateOperation(handle); } catch (e) {} let d = null; try { d = provider.disposeOperation(handle); } catch (e) {} st.cleanup.probeOperation = d && d.disposed ? "disposed" : "dispose-failed"; if (d && Array.isArray(d.residue) && d.residue.length) st.cleanup.providerResidue = d.residue; } else st.cleanup.probeOperation = "none"; } catch (e) { st.cleanup.probeOperation = "cleanup-error"; }
+    st.cleanup.preparedOperation = prep ? "released" : "none";
+    try { if (workspace) { const res = ledger.dispose(workspace); if (res && res.length) st.cleanup.hostWorkspaceResidue = res; } } catch (e) { st.cleanup.hostWorkspaceResidue.push(String(workspace)); }
+    try { if (repo) fs.rmSync(repo, { recursive: true, force: true }); } catch (e) { st.cleanup.hostWorkspaceResidue.push(String(repo)); }
+  }
+  st.cleanupOk = (st.cleanup.probeOperation === "disposed" || st.cleanup.probeOperation === "none") && st.cleanup.sentinel === "cleaned" && st.cleanup.providerResidue.length === 0 && st.cleanup.hostWorkspaceResidue.length === 0;
+  if (!st.cleanupOk) st.errors.push("cleanup:probe-residue");
+  return st;
 }
 
 function checkReadiness(config, ctx, opts) {
@@ -42,53 +129,47 @@ function checkReadiness(config, ctx, opts) {
   const provErrors = provider ? sandbox.validateProvider(provider) : ["no-sandbox-provider"];
   provErrors.length ? block("sandboxImplementationPresent", provErrors[0], { errors: provErrors }) : pass("sandboxImplementationPresent");
 
-  // Resolve the executable ONCE (real providers only), guarded — a crash is fail-closed, never a throw escape.
-  let ev = null, exeHash = null;
-  if (provider && !isMock) {
-    try { ev = execcheck.validateExecutable(c.claudeBin, { invoke: true }); } catch (e) { ev = { ok: false, reason: "executable-check-crashed" }; }
-    if (ev && ev.ok && ev.resolvedPath) { try { exeHash = sha256File(ev.resolvedPath); } catch (e) { exeHash = null; } }
-  }
-  const exePathInSandbox = isMock ? "/sandbox/bin/claude" : (ev && ev.resolvedPath) || null;
-  // Readiness attests a PROBE workspace (real readiness materialises one; here a synthetic identity) so the
-  // workspace-bound attestation contract is exercised with a complete context.
-  const attContext = Object.assign({ workspaceId: "readiness-probe-ws", workspacePathHash: "readiness-probe-path", materialisationManifestHash: "readiness-probe-manifest" }, context, { executableResolvedPathInsideSandbox: context.executableResolvedPathInsideSandbox || exePathInSandbox, providerId: (provider && provider.providerId) || context.providerId });
+  // Resolve the HOST executable once (real providers only) — proves a real host binary exists (the CONTENT-HASH
+  // + version binding is enforced against the SANDBOX executable identity in the lifecycle probe, not here).
+  let ev = null;
+  if (provider && !isMock) { try { ev = execcheck.validateExecutable(c.claudeBin, { invoke: true }); } catch (e) { ev = { ok: false, reason: "executable-check-crashed" }; } }
 
-  // 2) sandbox attestation (structured, operation-bound, verified)
+  // §12/§13 — run the REAL lifecycle probe ONCE when a provider object exists (no default-pass path).
+  const probe = provider ? realProbeLifecycle(provider, c) : null;
+
+  // 2) sandbox attestation (structured, operation-bound, verified against the REAL probe workspace)
   if (checks.sandboxImplementationPresent.status !== "PASS") block("sandboxAttestationPass", "no-valid-provider");
-  else { let att = null; try { att = typeof provider.attest === "function" ? provider.attest(attContext) : null; } catch (e) { att = null; } const v = attestation.verifyAttestation(att, attContext); v.ok ? pass("sandboxAttestationPass") : block("sandboxAttestationPass", v.errors[0] || "attestation-failed", { errors: v.errors }); }
+  else if (!probe || !probe.attestationOk) block("sandboxAttestationPass", (probe && probe.errors.find((e) => e.startsWith("attest:"))) || "attestation-failed", { probeErrors: probe && probe.errors });
+  else pass("sandboxAttestationPass");
 
-  // 3) executable validated (mock attests synthetically; real must resolve, be permitted, and hash-match the
-  //    detection record's bound executableContentHash).
+  // 3) executable validated — mock attests synthetically; a real provider must resolve a host binary AND the
+  //    SANDBOX executable identity must match the detection record (verified inside the probe).
   if (isMock) pass("executableValidated");
   else if (!ev || !ev.ok) block("executableValidated", (ev && ev.reason) || "not-validated");
   else if (Array.isArray(provider.permittedExecutables) && provider.permittedExecutables.indexOf(c.claudeBin) < 0) block("executableValidated", "not-in-provider-permitted-executables");
-  else if (c.executableContentHash && exeHash && exeHash !== c.executableContentHash) block("executableValidated", "executable-content-hash-mismatch");
-  else if (c.cliVersion && ev.version && !verMatch(ev.version, c.cliVersion)) block("executableValidated", "cli-version-mismatch"); // §9: detected version must match at token boundaries
+  else if (!probe || !probe.exeIdentityOk) block("executableValidated", (probe && probe.errors.find((e) => e.startsWith("exe-identity:"))) || "sandbox-executable-identity-mismatch");
   else pass("executableValidated");
 
   // 4) tool restriction verified (detection record bound to executable + version + provider + policy) AND the
-  //    ProjectOS-built argv must be APPLIED AND VERIFIED (§9 parity: readiness mirrors the adapter's exact
-  //    invocation gate, so it can never report READY where the adapter would BLOCK on the invocation).
+  //    ProjectOS-built argv must be APPLIED AND VERIFIED under the exact grammar (§9 parity with the adapter).
   const dv = detector.verifyDetectionRecord(c.detectionRecord, { executableContentHash: c.executableContentHash, cliVersion: c.cliVersion, operationMode: "first-controlled-change", sandboxProviderId: provider && provider.providerId, policyVersion: c.policyVersion, now: context.now, firstControlledChange: true });
-  let invOk = false; try { if (dv.ok) { const b = detector.buildArgv(c.detectionRecord, "readiness-probe"); invOk = detector.verifyInvocation(b.argv, c.detectionRecord, "readiness-probe").status === detector.INVOCATION_STATUS.APPLIED_VERIFIED; } } catch (e) { invOk = false; }
+  let invOk = false; try { if (dv.ok) { const b = detector.buildArgv(c.detectionRecord, "readiness-probe"); invOk = detector.verifyGrammar(b.argv, c.detectionRecord, "readiness-probe", { executableContentHash: c.executableContentHash, cliVersion: c.cliVersion, policyVersion: c.policyVersion }).ok && detector.verifyInvocation(b.argv, c.detectionRecord, "readiness-probe").status === detector.INVOCATION_STATUS.APPLIED_VERIFIED; } } catch (e) { invOk = false; }
   if (!dv.ok) block("toolRestrictionVerified", dv.errors[0] || "no-detection-record", { errors: dv.errors });
   else if (!invOk) block("toolRestrictionVerified", "invocation-restriction-not-applied");
   else pass("toolRestrictionVerified");
 
-  // 5) process OWNERSHIP: stable operation handle, not a bare PID. §9: inspect the ACTUAL handle a lifecycle
-  //    probe returns (not only a provider.pidFallback declaration) so readiness matches what the adapter blocks.
+  // 5) process OWNERSHIP — from the REAL probe: a stable operation handle (not a bare PID) AND a clean probe
+  //    teardown. Allowed results are PASS or BLOCKED-PROCESS-OWNERSHIP; a null/crashed probe is BLOCKED.
   if (!provider || sandbox.OPERATION_METHODS.some((m) => typeof provider[m] !== "function")) block("processOwnershipVerified", "no-operation-lifecycle");
-  else {
-    let probeHandleType = null; try { const h = provider.spawnOperation({ probe: true, operationId: "ownership-probe", bin: "<probe>", argv: [], cwd: "<probe>", env: {} }); probeHandleType = h && h.handleType; try { provider.terminateOperation(h); provider.disposeOperation(h); } catch (e) {} } catch (e) { probeHandleType = "probe-crashed"; }
-    if (probeHandleType === "pid" && !isMock) block("processOwnershipVerified", "pid-handle-forbidden-for-real-runs");
-    else if (provider.pidFallback === true && !isMock) block("processOwnershipVerified", "pid-only-provider-forbidden-for-real-runs");
-    else pass("processOwnershipVerified");
-  }
+  else if (!probe || !probe.ownershipOk) block("processOwnershipVerified", (probe && probe.errors.find((e) => e.startsWith("ownership:"))) || "ownership-probe-failed", { handleType: probe && probe.handleType });
+  else if (!probe.cleanupOk) block("processOwnershipVerified", "probe-cleanup-failed", { cleanup: probe.cleanup });
+  else pass("processOwnershipVerified");
 
-  // 6) process TERMINATION: exercise the operation lifecycle (synthetic contained process). For a REAL
-  //    provider, supply a genuine independent sentinel so an over-broad terminate is actually caught.
-  const probe = provider ? sandbox.probeProcessControl(provider, isMock ? {} : { sentinelFn: realSentinel }) : { ok: false, reason: "no-provider" };
-  probe.ok ? pass("processTerminationVerified") : block("processTerminationVerified", probe.reason);
+  // 6) process TERMINATION — from the REAL probe (real sentinel for a real provider).
+  if (!provider) block("processTerminationVerified", "no-provider");
+  else if (!probe || !probe.terminationOk) block("processTerminationVerified", (probe && probe.terminationReason) || "termination-probe-failed");
+  else if (!probe.cleanupOk) block("processTerminationVerified", "probe-cleanup-failed", { cleanup: probe.cleanup });
+  else pass("processTerminationVerified");
 
   // 7) network disabled (first controlled-change proof requires disabled — no allowlist)
   (!provider || provider.networkPolicy !== "disabled") ? block("networkDisabled", provider ? "network-policy-not-disabled:" + provider.networkPolicy : "no-provider") : pass("networkDisabled");
@@ -97,7 +178,7 @@ function checkReadiness(config, ctx, opts) {
   o.docker && o.docker.status === "PASS" ? pass("dockerReady") : block("dockerReady", (o.docker && o.docker.how) || "not-checked");
   o.supabase && o.supabase.status === "PASS" ? pass("supabaseReady") : block("supabaseReady", (o.supabase && o.supabase.how) || "not-checked");
 
-  return { checks, overall: overallState(checks, isMock), realBlockReason: realBlockReason(checks, isMock) };
+  return { checks, overall: overallState(checks, isMock), realBlockReason: realBlockReason(checks, isMock), probeEvidence: probe ? { cleanup: probe.cleanup, cleanupOk: probe.cleanupOk, handleType: probe.handleType, materialisedOk: probe.materialisedOk } : null };
 }
 
 const STATE_ORDER = [
@@ -122,4 +203,4 @@ function overallState(checks, isMock) {
   return r === "READY-FOR-REAL-WORKER-PROOF" ? "READY-FOR-REAL-WORKER-PROOF" : "READY-FOR-SYNTHETIC-VALIDATION";
 }
 
-module.exports = { checkReadiness, realBlockReason, overallState, CHECKS, STATE_ORDER };
+module.exports = { checkReadiness, realProbeLifecycle, realBlockReason, overallState, CHECKS, STATE_ORDER };

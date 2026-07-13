@@ -32,6 +32,11 @@ const INFRA = ["dockerReady", "supabaseReady"];
 const RECOVERY = {
   "no-sandbox-provider": "Configure and approve a real OS sandbox provider (restricted account / VM / container). The real worker is NOT SAFE without it.",
   "pid-only-provider-forbidden-for-real-runs": "Use a provider that owns a stable operation handle (job object / container id), not a bare process id.",
+  "ownership:pid-handle-forbidden-for-real-runs": "The provider returned a bare process id. Use a provider that owns a stable operation handle (job object / container id).",
+  "ownership:pid-only-provider-forbidden-for-real-runs": "The provider only offers a bare process id. Use a provider that owns a stable operation handle.",
+  "sandbox-executable-identity-mismatch": "The executable measured INSIDE the sandbox does not match the approved detection record. Re-verify the sandbox image / executable before any real run.",
+  "probe-cleanup-failed": "The readiness lifecycle probe left residue (an operation or a temporary workspace could not be cleaned). Do NOT run the real worker — investigate the leftover, then re-run readiness.",
+  "invocation-restriction-not-applied": "The restricted command ProjectOS built was not APPLIED AND VERIFIED. Re-derive the detection record so the tool restriction is actually encoded.",
   "docker-not-installed": "Install Docker Desktop and start it.",
   "docker-not-running": "Open Docker Desktop and wait until it shows Running.",
   "supabase-cli-not-installed": "Install the Supabase CLI.",
@@ -108,28 +113,92 @@ function CHECK_TITLES_lookup(checks, cObj) {
   return "prerequisite";
 }
 
-// Execution-outcome recovery guidance (§14: readiness vs EXECUTION). Maps a run result's block/outcome to a
-// plain-language owner recovery step — distinct from readiness (which is "can a real run even start").
-const EXECUTION_RECOVERY = {
-  "INVOCATION-RESTRICTION-NOT-APPLIED": "The worker's tool restriction was not actually encoded in the command that would run. Do not proceed — re-derive the detection record so ProjectOS builds a restricted command, and re-run.",
-  "WORKSPACE-MATERIALISATION-NOT-EQUIVALENT": "The disposable workspace did not exactly match the approved baseline (a symlink could not be reproduced). Do not proceed on this host — use a host/provider that preserves the entry types.",
-  "OPERATION-DISPOSAL-FAILED": "The sandbox operation did not dispose cleanly (leftover state). The run is NOT complete. Investigate the leftover residue and dispose the operation before any further run.",
-  "EMERGENCY-STOP-REQUIRED": "A worker operation could NOT be confirmed terminated. STOP. Do not reconcile or reuse the workspace. Preserve the evidence, resolve the live/uncertain process manually, then re-run readiness.",
-  "BLOCKED-SANDBOX-ATTESTATION": "The sandbox provider could not attest isolation for this exact workspace/operation. Do not proceed — fix the provider's attestation.",
+// Execution-outcome owner guidance (§18). Each blocked/emergency state answers the SIX questions an owner needs:
+// what failed · whether a process may still exist · whether evidence was preserved · whether cleanup occurred ·
+// the single next action · what must NOT be done. Distinct from readiness ("can a real run even start").
+const EXECUTION_STATES = {
+  "BLOCKED-SANDBOX-EXECUTABLE-IDENTITY": { title: "Sandbox executable mismatch", what: "The executable measured INSIDE the sandbox does not match the approved detection record (or could not be resolved / hashed / versioned).", processMayExist: false, evidencePreserved: false, cleanup: "Workspace disposed; no operation was started.", nextAction: "Re-verify the sandbox image and the claude executable inside it, then re-derive the detection record.", doNot: "Do NOT run the worker against an unverified executable." },
+  "BLOCKED-WORKSPACE-MOUNT": { title: "Workspace mount mismatch", what: "The provider did not mount ONLY the exact workspace (or the mount policy / identities / ledger did not match this operation).", processMayExist: false, evidencePreserved: false, cleanup: "Workspace disposed; no operation was started.", nextAction: "Fix the provider so it mounts only the prepared workspace with the network disabled.", doNot: "Do NOT proceed while the canonical repo / home / credentials could be visible." },
+  "BLOCKED-PROVIDER-PREPARATION": { title: "Provider preparation failure", what: "The provider could not return a valid prepared-operation descriptor for this workspace/operation.", processMayExist: false, evidencePreserved: false, cleanup: "Workspace disposed; no operation was started.", nextAction: "Repair the provider's prepareOperation contract, then re-run.", doNot: "Do NOT skip preparation and spawn directly." },
+  "BLOCKED-INVOCATION-GRAMMAR": { title: "Invalid invocation grammar", what: "The exact 4-argument restricted command could not be constructed/verified (wrong shape, extra argument, or unsupported mechanism).", processMayExist: false, evidencePreserved: false, cleanup: "Workspace disposed; no operation was started.", nextAction: "Re-derive the detection record so ProjectOS builds exactly [mechanism, tools, -p, prompt].", doNot: "Do NOT hand-edit or widen the command." },
+  "INVOCATION-RESTRICTION-NOT-APPLIED": { title: "Tool restriction not applied", what: "The tool restriction was not actually encoded in the command that would run.", processMayExist: false, evidencePreserved: false, cleanup: "Workspace disposed; no operation was started.", nextAction: "Re-derive the detection record so the restriction is APPLIED AND VERIFIED, then re-run.", doNot: "Do NOT run an unrestricted worker." },
+  "WORKSPACE-MATERIALISATION-NOT-EQUIVALENT": { title: "Workspace not equivalent to baseline", what: "The disposable workspace did not exactly match the approved baseline (a symlink could not be reproduced).", processMayExist: false, evidencePreserved: false, cleanup: "Partial workspace removed; no substitute file was executed.", nextAction: "Use a host/provider that preserves the entry types (symlinks).", doNot: "Do NOT run against a regular-file substitute for a symlink." },
+  "OPERATION-DISPOSAL-FAILED": { title: "Operation disposal failure", what: "The process was confirmed terminated, but the sandbox operation did not dispose cleanly (leftover operation state).", processMayExist: false, evidencePreserved: true, cleanup: "Process confirmed dead; operation residue remains — see operationResidue.", nextAction: "Investigate and dispose the leftover operation state before any further run.", doNot: "Do NOT treat the run as complete." },
+  "WORKSPACE-DISPOSAL-FAILED": { title: "Workspace disposal failure", what: "The disposable source-tree workspace could not be deleted after the run.", processMayExist: false, evidencePreserved: true, cleanup: "Operation disposed; the host workspace directory remains — see residue.", nextAction: "Remove the leftover workspace directory manually.", doNot: "Do NOT reuse the leftover workspace for another run." },
+  "EMERGENCY-STOP-REQUIRED": { title: "Emergency stop — operation not confirmed terminated", what: "A worker operation could NOT be confirmed terminated (unconfirmed, a termination contradiction, or an unexpected error while a handle existed).", processMayExist: true, evidencePreserved: true, cleanup: "NO destructive cleanup performed; operation + workspace evidence preserved.", nextAction: "Manually resolve the live/uncertain process, confirm it is gone, then re-run readiness.", doNot: "Do NOT reconcile, reuse, or delete the workspace, and do NOT start another run." },
+  "BLOCKED-SANDBOX-ATTESTATION": { title: "Sandbox attestation failure", what: "The provider could not attest isolation for this exact prepared workspace/operation.", processMayExist: false, evidencePreserved: false, cleanup: "Workspace disposed; no operation was started.", nextAction: "Fix the provider's attestation (live canaries for the mounted workspace).", doNot: "Do NOT proceed without a passing attestation." },
+  "BLOCKED-PROCESS-OWNERSHIP": { title: "Process ownership rejected", what: "The provider handle was a bare process id (forbidden for real runs); the operation was terminated and disposed safely.", processMayExist: false, evidencePreserved: true, cleanup: "Operation confirmed terminated and disposed.", nextAction: "Use a provider that owns a stable operation handle (job object / container id).", doNot: "Do NOT run with a bare-PID provider." },
 };
-/** One-line execution-state summary for a run result (terminal/console). Never asserts success falsely. */
+// Back-compat: a flat reason→next-action map some callers still read.
+const EXECUTION_RECOVERY = Object.keys(EXECUTION_STATES).reduce((m, k) => { m[k] = EXECUTION_STATES[k].nextAction; return m; }, {});
+
+function executionStateFor(result, decisionReason) {
+  const r = result || {}; const reason = decisionReason || r.reason || "";
+  if (EXECUTION_STATES[reason]) return { key: reason, state: EXECUTION_STATES[reason] };
+  if (r.processTerminationStatus === "EMERGENCY-STOP-REQUIRED") return { key: "EMERGENCY-STOP-REQUIRED", state: EXECUTION_STATES["EMERGENCY-STOP-REQUIRED"] };
+  return null;
+}
+
+/** Multi-line execution-state summary for a run result (terminal/console). Never asserts success falsely. */
 function renderExecutionState(result, decisionReason) {
-  const r = result || {}; const reason = decisionReason || r.reason || r.outcome || "";
+  const r = result || {}; const found = executionStateFor(r, decisionReason);
   const emergency = r.processTerminationStatus === "EMERGENCY-STOP-REQUIRED";
-  const rec = EXECUTION_RECOVERY[reason];
   const lines = [];
   lines.push("Run outcome: " + (emergency ? "EMERGENCY STOP" : (r.outcome || "unknown")));
   lines.push("  invocation restriction: " + (r.invocationRestrictionStatus || "NOT VERIFIED"));
+  lines.push("  invocation grammar:     " + (r.invocationGrammarStatus || "NOT VERIFIED"));
+  lines.push("  sandbox executable id:  " + (r.sandboxExecutableIdentityHash ? "bound" : "not-bound"));
   lines.push("  process termination:    " + (r.processTerminationStatus || "NOT APPLICABLE"));
   lines.push("  operation disposal:     " + (r.operationDisposalStatus || "not-disposed"));
   if (Array.isArray(r.operationResidue) && r.operationResidue.length) lines.push("  operation residue:      " + r.operationResidue.join(", "));
-  if (rec) { lines.push(""); lines.push("What to do: " + rec); }
+  if (found) {
+    const s = found.state;
+    lines.push("");
+    lines.push("[ " + s.title.toUpperCase() + " ]");
+    lines.push("  what failed:            " + s.what);
+    lines.push("  a process may exist:    " + (s.processMayExist ? "YES — treat as live until proven gone" : "no"));
+    lines.push("  evidence preserved:     " + (s.evidencePreserved ? "yes" : "n/a (nothing ran)"));
+    lines.push("  cleanup:                " + s.cleanup);
+    lines.push("  next owner action:      " + s.nextAction);
+    lines.push("  must NOT do:            " + s.doNot);
+  }
   return lines.join("\n");
 }
 
-module.exports = { renderReadinessHtml, renderExecutionState, esc, CHECK_TITLES, EXECUTION_RECOVERY };
+// Self-contained offline HTML for a single execution-state (reuses the readiness visual system; text+icon, not
+// colour-only). Renders the six owner facts explicitly.
+function renderExecutionHtml(result, decisionReason) {
+  const r = result || {}; const found = executionStateFor(r, decisionReason);
+  const emergency = r.processTerminationStatus === "EMERGENCY-STOP-REQUIRED";
+  const title = found ? found.state.title : (r.outcome === "COMPLETED" ? "Run complete" : "Run outcome");
+  const bannerCls = emergency ? "banner-emergency" : found ? "banner-blocked" : "banner-ready";
+  const fact = (k, v, danger) => '<div class="fact' + (danger ? " fact-danger" : "") + '"><span class="fk">' + esc(k) + '</span><span class="fv">' + esc(v) + '</span></div>';
+  const s = found && found.state;
+  return [
+    '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">',
+    '<title>Worker run — ' + esc(title) + '</title><style>',
+    ':root{--bg:#f4f6fb;--surface:#fff;--text:#0f172a;--muted:#475569;--line:#cbd5e1;--ready:#15803d;--ready-bg:#dcfce7;--warn:#b45309;--warn-bg:#fef3c7;--danger:#b91c1c;--danger-bg:#fee2e2;--accent:#1e293b}',
+    '@media (prefers-color-scheme:dark){:root{--bg:#0f172a;--surface:#1e293b;--text:#f8fafc;--muted:#cbd5e1;--line:#475569;--ready:#4ade80;--ready-bg:#14532d;--warn:#fbbf24;--warn-bg:#4d3707;--danger:#f87171;--danger-bg:#4c1010;--accent:#e2e8f0}}',
+    '*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:ui-sans-serif,system-ui,sans-serif;line-height:1.6;padding:24px}.wrap{max-width:760px;margin:0 auto}',
+    'h1{font-size:20px;margin:0 0 12px}.banner{border-radius:12px;padding:16px 18px;font-weight:600;margin-bottom:20px;border:1px solid var(--line)}',
+    '.banner-ready{background:var(--ready-bg);color:var(--ready)}.banner-blocked{background:var(--warn-bg);color:var(--warn)}.banner-emergency{background:var(--danger-bg);color:var(--danger)}',
+    '.facts{display:grid;gap:10px}.fact{display:grid;grid-template-columns:190px 1fr;gap:12px;background:var(--surface);border:1px solid var(--line);border-left-width:4px;border-left-color:var(--line);border-radius:10px;padding:12px 14px}',
+    '.fact-danger{border-left-color:var(--danger)}.fk{font-weight:700;font-family:ui-monospace,monospace;font-size:13px;color:var(--accent)}.fv{font-size:14px;color:var(--text)}',
+    '@media (max-width:560px){.fact{grid-template-columns:1fr}}@media (prefers-reduced-motion:reduce){*{transition:none!important}}',
+    '</style></head><body><div class="wrap"><h1>Forge worker — run state</h1>',
+    '<div class="banner ' + bannerCls + '" role="alert">' + esc(title) + '</div>',
+    '<div class="facts">',
+    fact("outcome", emergency ? "EMERGENCY STOP" : (r.outcome || "unknown")),
+    fact("process termination", r.processTerminationStatus || "NOT APPLICABLE"),
+    fact("operation disposal", r.operationDisposalStatus || "not-disposed"),
+    s ? fact("what failed", s.what) : "",
+    s ? fact("a process may exist", s.processMayExist ? "YES — treat as live until proven gone" : "no", s.processMayExist) : "",
+    s ? fact("evidence preserved", s.evidencePreserved ? "yes" : "n/a (nothing ran)") : "",
+    s ? fact("cleanup", s.cleanup) : "",
+    s ? fact("next owner action", s.nextAction) : "",
+    s ? fact("must NOT do", s.doNot, true) : "",
+    '</div></div></body></html>',
+  ].join("");
+}
+
+module.exports = { renderReadinessHtml, renderExecutionState, renderExecutionHtml, executionStateFor, esc, CHECK_TITLES, EXECUTION_STATES, EXECUTION_RECOVERY };
