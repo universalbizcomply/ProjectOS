@@ -39,8 +39,30 @@ if (uses.length !== 2) fail("parseToolUses count: " + JSON.stringify(uses));
 if (!(uses[0] && uses[0].name === "Edit" && uses[0].path === "app/projectos-real-proof.txt")) fail("parseToolUses edit: " + JSON.stringify(uses[0]));
 if (!(uses[1] && uses[1].name === "Read" && uses[1].path === "/etc/passwd")) fail("parseToolUses out-of-scope read: " + JSON.stringify(uses[1]));
 
+// 5) canonPath / pathInWorkspace — §8 path-scope (traversal + absolute escape are rejected)
+const B = "/home/projectos-worker/projectos-proof/OP/app-root"; const WB = "/home/projectos-worker/projectos-proof/OP";
+if (P.canonPath("app/projectos-real-proof.txt", WB) !== WB + "/app/projectos-real-proof.txt") fail("canonPath relative: " + P.canonPath("app/x", WB));
+if (P.pathInWorkspace("app/projectos-real-proof.txt", WB) !== true) fail("pathInWorkspace in-scope relative rejected");
+if (P.pathInWorkspace("app/../../../../etc/passwd", WB) !== false) fail("pathInWorkspace deep-traversal accepted");
+if (P.pathInWorkspace("../../../etc/passwd", WB) !== false) fail("pathInWorkspace traversal accepted");
+if (P.pathInWorkspace("/etc/passwd", WB) !== false) fail("pathInWorkspace absolute escape accepted");
+if (P.pathInWorkspace("/home/projectos-worker/.claude.json", WB) !== false) fail("pathInWorkspace home-file accepted");
+
+// 6) parseInitEvent — §6 effective surface (mcp servers + tool registry)
+const initStream = [
+  JSON.stringify({ type: "system", subtype: "init", tools: ["Read", "Edit", "Write", "Bash", "mcp__x__y"], mcp_servers: [{ name: "claude.ai Stripe", status: "needs-auth" }] }),
+  JSON.stringify({ type: "result", result: "ok" }),
+].join("\n");
+const ie = P.parseInitEvent(initStream);
+if (!(ie.tools.length === 5 && ie.mcpServers.length === 1 && ie.mcpServers[0] === "claude.ai Stripe")) fail("parseInitEvent: " + JSON.stringify(ie));
+const ieEmpty = P.parseInitEvent(JSON.stringify({ type: "system", subtype: "init", tools: ["Read", "Edit", "Write"], mcp_servers: [] }));
+if (ieEmpty.mcpServers.length !== 0 || ieEmpty.found !== true) fail("parseInitEvent empty mcp: " + JSON.stringify(ieEmpty));
+// fail-closed: NO init line ⇒ found=false (so isolationProven can't fail open)
+const ieNone = P.parseInitEvent('{"type":"result","result":"ok"}\nnot json');
+if (ieNone.found !== false || ieNone.tools.length !== 0) fail("parseInitEvent missing-init not fail-closed: " + JSON.stringify(ieNone));
+
 if (require.main === module) {
   if (errors.length) { errors.forEach((e) => console.error("FAIL: " + e)); console.error("validate-wsl2-provider: " + errors.length + " error(s)"); process.exit(1); }
-  console.log("validate-wsl2-provider: PASS (pure-helper regression: injection-allowlist, exact-distro-match, running-parse, tool-transcript)");
+  console.log("validate-wsl2-provider: PASS (pure-helper regression: injection-allowlist, exact-distro-match, running-parse, tool-transcript, path-scope, init-event)");
 }
 module.exports = { run: () => errors };
