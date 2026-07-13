@@ -8,6 +8,8 @@
 // it is a read-only bridge; governance stays in the daemon/CLI/core.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod identity;
+
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::Mutex;
@@ -42,6 +44,17 @@ fn daemon_request_snapshot(state: State<DaemonHost>) -> Result<(), String> {
 #[tauri::command]
 fn daemon_status(state: State<DaemonHost>) -> bool {
     state.alive.lock().map(|g| *g).unwrap_or(false)
+}
+
+/// Read-only identity classification (PACKAGED-SIDECAR-IDENTITY1A). No production verifier or
+/// protected-install context is wired in this phase, so this reports DEVELOPMENT_UNVERIFIED here —
+/// never production trust. Returns a JSON string of the safe IdentityOutcome. Mints nothing.
+#[tauri::command]
+fn identity_status() -> String {
+    let outcome = identity::development_identity();
+    serde_json::to_string(&outcome).unwrap_or_else(|_| {
+        "{\"state\":\"IDENTITY_BLOCKED\",\"failure\":\"INTERNAL_ERROR_REDACTED\"}".to_string()
+    })
 }
 
 /// Resolve the sidecar entry: prefer the bundled resource, else common dev locations.
@@ -119,7 +132,8 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             daemon_request_snapshot,
-            daemon_status
+            daemon_status,
+            identity_status
         ])
         .run(tauri::generate_context!())
         .expect("error while running ProjectOS Control Center");
