@@ -46,3 +46,6 @@ export { redact, redactValue, containsSecret } from './utils/redact.js';
 export { Debouncer } from './utils/debounce.js';
 export { uptimeMs } from './utils/clock.js';
 export { parseJsonl, toJsonl, toJsonlLine } from './utils/jsonl.js';
+
+// Owner-attestation storage foundation (OWNER-ATTESTATION-STORE1A).
+export * from './attestation/index.js';
