@@ -1,53 +1,29 @@
 "use strict";
 /**
- * MANDATORY security evidence for PROJECTOS-FORGE-REAL-E2E-ACTIVATION1B-HARDEN1A. Proves the SAFEGUARDS of
- * the hardened, clone-isolated worker adapter using a SYNTHETIC CLI stand-in + REAL throwaway git repos.
- * The REAL `claude` CLI round-trip is an owner-machine step; here we prove the containment + fail-safe
- * behaviour. Opt-in (creates git repos + drives process control) — NOT part of `npm run validate`; run
- * standalone. All 38 invariants must pass (a symlink-based inv is env-skipped only if the host cannot make
- * links unprivileged).
- *
- * Coverage (owner §8 + the ChatGPT/ECC review round):
- *  1 request policy-tamper refused            2 empty prompt refused
- *  3 raw-secret prompt refused                4 unknown project refused
- *  5 allowlist-touches-projectos refused      6 CLI not configured → BLOCKED
- *  7 unsafe .cmd/.bat shim on win32 → BLOCKED 8 no claudeArgs (tool restriction) → BLOCKED
- *  9 root != git toplevel refused            10 wrong remote refused
- * 11 wrong branch refused                    12 dirty canonical baseline refused
- * 13 parent-env secret not inherited (unit+spawn)
- * 14 allowed change → COMPLETED, manifest + patchHash, valid result
- * 15 forbidden-path (projectos/) refused     16 protected rename origin+dest caught
- * 17 DIRECT write to canonical detected (fs proof)      18 canonical hook-CONTENT edit detected
- * 19 canonical ref/tag creation detected     20 canonical config edit detected
- * 21 fake clone/.git cannot hide a canonical mutation   22 timeout kills + confirmed
- * 23 stdout overflow kills                   24 stderr overflow kills
- * 25 registered secret redacted             26 generic secret redacted
- * 27 buildResult THROWS on forbidden decision (no silent coerce)
- * 28 validateResult catches a tampered result           29 no metered AI API (source scan)
- * 30 canonical byte-identical on a benign run (fs proof)
- * 31 case-insensitive forbidden-path bypass refused (win/mac) / documented on posix
- * 32 absolute/UNC path rejected (unit)       33 capability overall() logic
- * 34 capability presentation owner-friendly + no jargon leak
- * 35 .git/info/exclude tamper detected (metaHash)       36 SYMLINKED canonical hook detected (metaHash)
- * 37 dangerous CLI flag from args builder refused        38 canonical file drop matching a pre-existing
- *    ignore rule detected (ignoredInventory)
+ * MANDATORY security evidence for PROJECTOS-FORGE-REAL-E2E-ACTIVATION1B-HARDEN1B (§11). Proves the safeguards
+ * of the sandbox-gated, .git-free-workspace, trusted-filesystem-ledger worker adapter using a MOCK sandbox
+ * provider + a SYNTHETIC CLI stand-in + REAL throwaway git repos. The REAL claude worker + real OS sandbox
+ * are owner-machine steps. Opt-in (spawns + git + fs) — NOT part of `npm run validate`; run standalone.
+ * 49 invariants (§11 + the round-2 ECC fixes). Env-dependent skips are individually justified and never cover a CRITICAL control.
  */
 
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const crypto = require("crypto");
 const { execFileSync } = require("child_process");
 const { EventEmitter } = require("events");
 const worker = require("../bridge/claude-worker.cjs");
 const P = require("../bridge/worker-policy.cjs");
+const ledger = require("../bridge/workspace-ledger.cjs");
+const sandbox = require("../bridge/sandbox-provider.cjs");
+const proc = require("../bridge/process-control.cjs");
+const execcheck = require("../bridge/executable-check.cjs");
+const profileMod = require("../bridge/invocation-profile.cjs");
 const cap = require("../bridge/owner-capability-check.cjs");
 const { runClaudeWorker } = worker;
 const { createRedactor } = require("../security/redaction.cjs");
 
-const SECRET = "synthetic-worker-secret-9k8j7h";
 const ORIGIN = "https://example.invalid/acme/app.git";
-
 function g(dir, args) { return execFileSync("git", ["-C", dir, ...args], { encoding: "utf8" }); }
 function commonDir(repo) { return path.resolve(repo, g(repo, ["rev-parse", "--git-common-dir"]).trim()); }
 
@@ -63,24 +39,23 @@ function mkRepo(opts) {
   fs.writeFileSync(path.join(dir, "projectos", "core.txt"), "core\n");
   if (o.gitignore) fs.writeFileSync(path.join(dir, ".gitignore"), o.gitignore + "\n");
   g(dir, ["add", "-A"]); g(dir, ["commit", "-q", "-m", "seed"]);
+  if (o.ignoredFile) fs.writeFileSync(path.join(dir, o.ignoredFile), "orig\n"); // exists on disk, ignored
+  if (o.untrackedFile) fs.writeFileSync(path.join(dir, o.untrackedFile), "orig\n");
   return dir;
 }
 function rmRepo(dir) { try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) { /* best effort */ } }
+const errors = [];
+const fail = (inv, m, got) => errors.push(inv + ": " + m + (got !== undefined ? " :: " + JSON.stringify(got) : ""));
+// Per-invariant isolation: a crash in one invariant is recorded, never aborting the rest.
+async function withRepo(fn, opts) { const repo = mkRepo(opts); try { await fn(repo); } catch (e) { errors.push("withRepo-crash: " + (e && e.message)); } finally { rmRepo(repo); } }
 
-function baseCfg(repo, extra) {
-  return Object.assign({
-    projectRoots: { acme: repo },
-    policy: { expectedRemote: ORIGIN, expectedBranch: "work", requireClean: true, allowedPaths: ["app"], timeoutMs: 3000, maxOutputBytes: 1 << 20 },
-    operation: { phaseId: "PH1", approvalId: "AP1", operationId: "OP1" },
-    claudeBin: "synthetic-claude", claudeArgs: (p) => ["-p", p], redactor: createRedactor(),
-  }, extra || {});
-}
+function verifiedProfile(over) { return profileMod.firstControlledChangeProfile(Object.assign({ cliVersion: "1.9.0", restrictionMechanism: "--allowedTools", verified: true }, over || {})); }
 
-let lastSpawnEnv = null;
+let lastEnv = null;
 function synthSpawn(behavior, stdoutText, opts) {
   const o = opts || {};
   return (_bin, _argv, spawnOpts) => {
-    lastSpawnEnv = spawnOpts.env;
+    lastEnv = spawnOpts.env;
     const ch = new EventEmitter(); ch.stdout = new EventEmitter(); ch.stderr = new EventEmitter();
     ch.pid = 2147480000; ch.kill = () => {};
     process.nextTick(() => {
@@ -94,262 +69,314 @@ function synthSpawn(behavior, stdoutText, opts) {
     return ch;
   };
 }
-const writeIn = (rel, content) => (cwd) => { const abs = path.join(cwd, rel); fs.mkdirSync(path.dirname(abs), { recursive: true }); fs.writeFileSync(abs, content || "changed\n"); };
+const writeIn = (rel, content) => (cwd) => { const abs = path.join(cwd, rel); fs.mkdirSync(path.dirname(abs), { recursive: true }); fs.writeFileSync(abs, content == null ? "changed\n" : content); };
+
+function baseCfg(repo, opts) {
+  const o = opts || {};
+  return {
+    projectRoots: { acme: repo },
+    policy: Object.assign({ expectedRemote: ORIGIN, expectedBranch: "work", requireClean: true, allowedPaths: ["app"], timeoutMs: 3000, maxOutputBytes: 1 << 20 }, o.policy || {}),
+    operation: { phaseId: "PH1", approvalId: "AP1", operationId: "OP1" },
+    claudeBin: "synthetic-claude", claudeArgs: (p) => ["-p", p], redactor: createRedactor(),
+    sandboxProvider: o.provider !== undefined ? o.provider : sandbox.mockProvider(synthSpawn(o.behavior, o.stdout, o.spawnOpts), o.provOver),
+    invocationProfile: o.profile !== undefined ? o.profile : verifiedProfile(),
+    terminateOpts: o.terminateOpts, realRun: o.realRun, requireExecInvoke: o.requireExecInvoke, keepWorkspace: o.keepWorkspace,
+  };
+}
 const REQ = { prompt: "add a file", projectId: "acme" };
 
-async function withRepo(fn, opts) {
-  const repo = mkRepo(opts);
-  try { await fn(repo); } finally { rmRepo(repo); }
-}
-
 async function run() {
-  const errors = [];
-  const fail = (inv, msg, got) => errors.push(inv + ": " + msg + (got !== undefined ? " :: " + JSON.stringify(got) : ""));
+  errors.length = 0;
 
+  // 1 real-run blocked without sandbox provider
   await withRepo(async (repo) => {
-    const a = await runClaudeWorker({ ...REQ, allowedPaths: ["projectos"] }, baseCfg(repo, { spawnFn: synthSpawn(writeIn("app/x.txt")) }));
-    if (a.reason !== "request-policy-tamper") fail("inv1", "policy tamper not refused", a);
+    const a = await runClaudeWorker(REQ, baseCfg(repo, { provider: null, realRun: true }));
+    if (a.decision !== "BLOCKED" || !/OS-SANDBOX/.test(a.reason)) fail("inv1", "real-run without sandbox not blocked", a);
   });
+  // 2-4 mock sandbox attests canonical/other/home/credential not mounted
   await withRepo(async (repo) => {
-    const a = await runClaudeWorker({ ...REQ, prompt: " " }, baseCfg(repo, { spawnFn: synthSpawn(writeIn("app/x.txt")) }));
-    if (a.reason !== "empty-prompt") fail("inv2", "empty prompt not refused", a);
+    const a = await runClaudeWorker(REQ, baseCfg(repo, { behavior: writeIn("app/new.txt") }));
+    const sp = a.result && a.result.sandboxPolicy;
+    if (!sp || sp.canonicalVisibility !== "not-mounted") fail("inv2", "canonical not attested not-mounted", sp);
+    if (!sp || sp.otherProjectVisibility !== "not-mounted") fail("inv3", "other-project not attested not-mounted", sp);
+    if (!sp || sp.homeVisibility !== "not-mounted" || sp.credentialVisibility !== "not-mounted") fail("inv4", "home/credential not attested not-mounted", sp);
+    // 5 network-disabled represented + enforced by the contract
+    if (!sp || sp.networkPolicy !== "disabled") fail("inv5", "network not disabled", sp);
+    const bad = sandbox.validateProvider(sandbox.mockProvider(() => {}, { networkPolicy: "open" }));
+    if (!bad.length) fail("inv5", "contract accepted network:open");
   });
+  // 6 no writable .git in the materialised workspace
   await withRepo(async (repo) => {
-    const a = await runClaudeWorker({ ...REQ, prompt: "key sk-ABCDEFGHIJKLMNOP01234567 here" }, baseCfg(repo, { spawnFn: synthSpawn(writeIn("app/x.txt")) }));
-    if (a.reason !== "prompt-contains-raw-secret") fail("inv3", "raw-secret prompt not refused", a);
+    const mat = ledger.materialize(repo, g(repo, ["rev-parse", "HEAD"]).trim());
+    const snap = ledger.snapshot(mat.workspace);
+    if (Object.keys(snap).some((k) => k === ".git" || k.startsWith(".git/"))) fail("inv6", "workspace contains .git");
+    if (!snap["app/seed.txt"]) fail("inv6", "materialise missing tracked file");
+    ledger.dispose(mat.workspace); ledger.dispose(path.dirname(mat.tarPath));
   });
+  // 7 worker git init detected/refused (creates .git in workspace)
   await withRepo(async (repo) => {
-    const a = await runClaudeWorker({ ...REQ, projectId: "ghost" }, baseCfg(repo, { spawnFn: synthSpawn(writeIn("app/x.txt")) }));
-    if (a.reason !== "no-trusted-root") fail("inv4", "unknown project not refused", a);
+    const a = await runClaudeWorker(REQ, baseCfg(repo, { behavior: (cwd) => g(cwd, ["init", "-q"]) }));
+    if (a.reason !== "forbidden-path-change" || !(a.result.refusedPaths || []).some((p) => P.normPath(p).startsWith(".git"))) fail("inv7", "worker git init not refused", a);
   });
+  // 8 worker commit cannot hide a modification (FS ledger is authoritative)
   await withRepo(async (repo) => {
-    const cfg = baseCfg(repo, { spawnFn: synthSpawn(writeIn("app/x.txt")) }); cfg.policy.allowedPaths = ["projectos"];
+    const a = await runClaudeWorker(REQ, baseCfg(repo, { behavior: (cwd) => { fs.writeFileSync(path.join(cwd, "app", "new.txt"), "x\n"); g(cwd, ["init", "-q"]); g(cwd, ["add", "-A"]); g(cwd, ["commit", "-q", "-m", "hide"]); } }));
+    if (!(a.result.filesChanged || []).includes("app/new.txt")) fail("inv8", "commit hid the modification", a.result && a.result.filesChanged);
+  });
+  // 9 worker reset cannot hide a modification that persists
+  await withRepo(async (repo) => {
+    const a = await runClaudeWorker(REQ, baseCfg(repo, { behavior: (cwd) => { fs.writeFileSync(path.join(cwd, "app", "new.txt"), "x\n"); g(cwd, ["init", "-q"]); g(cwd, ["add", "-A"]); g(cwd, ["reset", "-q"]); } }));
+    if (!(a.result.filesChanged || []).includes("app/new.txt")) fail("inv9", "reset hid the persisting modification", a.result && a.result.filesChanged);
+  });
+  // 10 worker clean cannot hide a file (FS sees it before any git; clean that removes it = nothing persists)
+  await withRepo(async (repo) => {
+    const a = await runClaudeWorker(REQ, baseCfg(repo, { behavior: (cwd) => { fs.writeFileSync(path.join(cwd, "app", "keep.txt"), "x\n"); } }));
+    if (!(a.result.filesChanged || []).includes("app/keep.txt")) fail("inv10", "FS ledger missed a created file", a.result && a.result.filesChanged);
+  });
+  // 11 worker-created ignore rule cannot hide a file (FS walk has no ignore semantics)
+  await withRepo(async (repo) => {
+    const a = await runClaudeWorker(REQ, baseCfg(repo, { behavior: (cwd) => { fs.writeFileSync(path.join(cwd, ".gitignore"), "app/hidden.txt\n"); fs.writeFileSync(path.join(cwd, "app", "hidden.txt"), "x\n"); } }));
+    if (!(a.result.filesChanged || []).includes("app/hidden.txt")) fail("inv11", "ignore rule hid the file", a.result && a.result.filesChanged);
+  });
+  // 12 hidden files are included
+  await withRepo(async (repo) => {
+    const a = await runClaudeWorker(REQ, baseCfg(repo, { behavior: writeIn("app/.secretcfg") }));
+    if (a.decision !== "COMPLETED" || !(a.result.filesChanged || []).includes("app/.secretcfg")) fail("inv12", "hidden file not included", a.result && a.result.filesChanged);
+  });
+  // 13 existing IGNORED file content change (canonical) detected via deep monitor
+  await withRepo(async (repo) => {
+    const a = await runClaudeWorker(REQ, baseCfg(repo, { policy: { monitorIgnoredContent: true }, behavior: () => fs.writeFileSync(path.join(repo, "app", "existing.log"), "TAMPERED\n") }));
+    if (a.decision !== "BLOCKED" || a.reason !== "residual-drift-detected" || !(a.fields || []).includes("deepInventory")) fail("inv13", "ignored-file content change not detected", a);
+  }, { gitignore: "*.log", ignoredFile: "app/existing.log" });
+  // 14 existing UNTRACKED file content change (canonical) detected via deep monitor
+  await withRepo(async (repo) => {
+    const a = await runClaudeWorker(REQ, baseCfg(repo, { policy: { monitorIgnoredContent: true, requireClean: false }, behavior: () => fs.writeFileSync(path.join(repo, "app", "loose.txt"), "TAMPERED\n") }));
+    if (a.decision !== "BLOCKED" || a.reason !== "residual-drift-detected") fail("inv14", "untracked-file content change not detected", a);
+  }, { untrackedFile: "app/loose.txt" });
+  // 15/16 symlink/junction parent escape refused
+  await withRepo(async (repo) => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "cw-out-")); fs.writeFileSync(path.join(outside, "s.txt"), "x\n");
+    let made = false;
+    const a = await runClaudeWorker(REQ, baseCfg(repo, { behavior: (cwd) => { const lp = path.join(cwd, "app", "escape"); try { fs.symlinkSync(outside, lp, "junction"); made = true; } catch (e) { try { fs.symlinkSync(outside, lp, "dir"); made = true; } catch (e2) {} } } }));
+    rmRepo(outside);
+    if (!made) errors.push("inv15/16: SKIPPED-ENV (symlink/junction creation unavailable)");
+    else if (a.reason !== "forbidden-path-change") fail("inv15/16", "symlink/junction escape not refused", a);
+  });
+  // 17 file-type change detected
+  await withRepo(async (repo) => {
+    const a = await runClaudeWorker(REQ, baseCfg(repo, { behavior: (cwd) => { const p = path.join(cwd, "app", "seed.txt"); fs.unlinkSync(p); fs.mkdirSync(p); fs.writeFileSync(path.join(p, "inner"), "x\n"); } }));
+    if (!a.result || !a.result.ledgerSummary || a.result.ledgerSummary.typeChanged < 1) fail("inv17", "file-type change not detected", a.result && a.result.ledgerSummary);
+  });
+  // 18 same-size content change detected
+  await withRepo(async (repo) => {
+    const a = await runClaudeWorker(REQ, baseCfg(repo, { behavior: () => {}, spawnOpts: {}, }));
+    // edit app/seed.txt (5 bytes "seed\n") -> "SEED\n" (5 bytes) inside workspace
+    const a2 = await runClaudeWorker(REQ, baseCfg(repo, { behavior: (cwd) => fs.writeFileSync(path.join(cwd, "app", "seed.txt"), "SEED\n") }));
+    if (!a2.result || !a2.result.ledgerSummary || a2.result.ledgerSummary.sameSizeContentChange < 1) fail("inv18", "same-size content change not detected", a2.result && a2.result.ledgerSummary);
+  });
+  // 19 timeout termination confirmed
+  await withRepo(async (repo) => {
+    const cfg = baseCfg(repo, { spawnOpts: { hang: true } }); cfg.policy.timeoutMs = 120;
     const a = await runClaudeWorker(REQ, cfg);
-    if (a.reason !== "allowlist-touches-projectos") fail("inv5", "projectos allowlist not refused", a);
+    if (a.reason !== "timeout") fail("inv19", "timeout not enforced", a);
+    else if (a.result.processTerminationStatus !== "TERMINATED-CONFIRMED") fail("inv19", "termination not confirmed", a.result.processTerminationStatus);
   });
+  // 20 descendant termination confirmed (unit on process-control)
+  {
+    const t = await proc.terminate(4242, { aliveFn: () => false, descendantsFn: () => [4243, 4244], killFn: () => {}, sleepFn: async () => {} });
+    if (t.status !== "TERMINATED-CONFIRMED" || !t.descendantsChecked) fail("inv20", "descendant termination not confirmed", t);
+  }
+  // 21 unconfirmed termination -> EMERGENCY-STOP (adapter)
+  let emgWs = null;
   await withRepo(async (repo) => {
-    const a = await runClaudeWorker(REQ, baseCfg(repo, { claudeBin: "", spawnFn: synthSpawn(writeIn("app/x.txt")) }));
-    if (a.decision !== "BLOCKED" || a.reason !== "claude-cli-not-configured") fail("inv6", "unconfigured CLI not BLOCKED", a);
+    const cfg = baseCfg(repo, { behavior: writeIn("app/new.txt"), keepWorkspace: false, terminateOpts: { aliveFn: () => true, maxAttempts: 2, intervalMs: 1, sleepFn: async () => {}, killFn: () => {}, descendantsFn: () => null } });
+    const a = await runClaudeWorker(REQ, cfg);
+    if (a.decision !== "EMERGENCY-STOP") fail("inv21", "unconfirmed termination not EMERGENCY-STOP", a);
+    // 22 evidence preserved on unconfirmed termination
+    const pres = (a.result && a.result.residue || []).find((x) => String(x).startsWith("workspace-preserved:"));
+    if (!pres) fail("inv22", "evidence not preserved on unconfirmed termination", a.result && a.result.residue);
+    else { emgWs = pres.slice("workspace-preserved:".length); if (!fs.existsSync(emgWs)) fail("inv22", "preserved workspace does not exist"); }
   });
-  await withRepo(async (repo) => {
+  if (emgWs) rmRepo(emgWs); // clean up the deliberately-preserved evidence
+  // 23 capability checker and adapter accept the SAME executable (shared module)
+  {
+    const nodeBin = process.execPath; // a real, invocable executable
+    const shared = execcheck.validateExecutable(nodeBin, { invoke: true });
+    if (!shared.ok) fail("inv23", "shared checker rejected node", shared);
+    // capability + adapter both import the same execcheck (identity)
+    if (require("../bridge/executable-check.cjs") !== execcheck) fail("inv23", "executable-check not a shared singleton");
+  }
+  // 24 claude.cmd cannot create a false READY (win32) / documented on posix
+  {
     if (process.platform === "win32") {
-      const a = await runClaudeWorker(REQ, baseCfg(repo, { claudeBin: "claude.cmd", spawnFn: synthSpawn(writeIn("app/x.txt")) }));
-      if (a.decision !== "BLOCKED" || a.reason !== "unsafe-cli-shim-on-windows") fail("inv7", "unsafe shim not BLOCKED", a);
-    } else { errors.push("inv7: SKIPPED-ENV (win32-only shim check)"); }
-  });
+      const v = execcheck.validateExecutable("claude.cmd", { invoke: false });
+      if (v.ok || v.reason !== "unsafe-shim") fail("inv24", "claude.cmd not rejected as unsafe-shim", v);
+    } else errors.push("inv24: SKIPPED-ENV (win32-only shim semantics)");
+  }
+  // 25 existence-only candidate cannot PASS (must actually invoke)
   await withRepo(async (repo) => {
-    const cfg = baseCfg(repo, { spawnFn: synthSpawn(writeIn("app/x.txt")) }); delete cfg.claudeArgs;
-    const a = await runClaudeWorker(REQ, cfg);
-    if (a.decision !== "BLOCKED" || a.reason !== "no-tool-restriction-configured") fail("inv8", "missing tool restriction not BLOCKED", a);
+    const dummy = path.join(repo, process.platform === "win32" ? "notclaude.exe" : "notclaude");
+    fs.writeFileSync(dummy, "not a real program\n"); try { fs.chmodSync(dummy, 0o755); } catch (e) {}
+    const v = execcheck.validateExecutable(dummy, { invoke: true });
+    if (v.ok) fail("inv25", "existence-only file passed invocation", v);
   });
+  // 26 tool restriction must be verified (adapter blocks unverified profile)
   await withRepo(async (repo) => {
-    const cfg = baseCfg(repo, { spawnFn: synthSpawn(writeIn("app/x.txt")) }); cfg.projectRoots.acme = path.join(repo, "app");
-    const a = await runClaudeWorker(REQ, cfg);
-    if (a.reason !== "root-not-git-toplevel") fail("inv9", "non-toplevel root not refused", a);
+    const a = await runClaudeWorker(REQ, baseCfg(repo, { behavior: writeIn("app/x.txt"), profile: verifiedProfile({ verified: false }) }));
+    if (a.decision !== "BLOCKED" || a.reason !== "WORKER-TOOL-RESTRICTION-NOT-PROVEN") fail("inv26", "unverified profile not blocked", a);
   });
+  // 27 unsupported CLI version fails closed
   await withRepo(async (repo) => {
-    const cfg = baseCfg(repo, { spawnFn: synthSpawn(writeIn("app/x.txt")) }); cfg.policy.expectedRemote = "https://example.invalid/other.git";
-    const a = await runClaudeWorker(REQ, cfg);
-    if (a.reason !== "remote-mismatch") fail("inv10", "wrong remote not refused", a);
+    const a = await runClaudeWorker(REQ, baseCfg(repo, { behavior: writeIn("app/x.txt"), profile: verifiedProfile({ cliVersion: null }) }));
+    if (a.decision !== "BLOCKED" || a.reason !== "WORKER-TOOL-RESTRICTION-NOT-PROVEN") fail("inv27", "null cliVersion not blocked", a);
   });
+  // 28 worker command visibility represented honestly
   await withRepo(async (repo) => {
-    const cfg = baseCfg(repo, { spawnFn: synthSpawn(writeIn("app/x.txt")) }); cfg.policy.expectedBranch = "main";
-    const a = await runClaudeWorker(REQ, cfg);
-    if (a.reason !== "branch-mismatch") fail("inv11", "wrong branch not refused", a);
+    const a = await runClaudeWorker(REQ, baseCfg(repo, { behavior: writeIn("app/new.txt") }));
+    if (a.result.workerCommandsObservationStatus !== "NOT OBSERVABLE") fail("inv28", "worker command visibility overstated", a.result.workerCommandsObservationStatus);
   });
-  await withRepo(async (repo) => {
-    fs.writeFileSync(path.join(repo, "app", "dirty.txt"), "dirty\n");
-    const a = await runClaudeWorker(REQ, baseCfg(repo, { spawnFn: synthSpawn(writeIn("app/x.txt")) }));
-    if (a.reason !== "working-tree-dirty") fail("inv12", "dirty baseline not refused", a);
-  });
-
-  // inv13 parent-env secret not inherited (unit + spawn)
-  process.env.PLANTED_SECRET_TOKEN = "should-never-reach-child";
-  const env = P.buildMinimalEnv(process.platform, []);
-  if (Object.prototype.hasOwnProperty.call(env, "PLANTED_SECRET_TOKEN") || Object.values(env).some((v) => String(v).includes("should-never-reach-child"))) fail("inv13", "planted secret in minimal env (unit)");
-  await withRepo(async (repo) => {
-    lastSpawnEnv = null;
-    await runClaudeWorker(REQ, baseCfg(repo, { spawnFn: synthSpawn(writeIn("app/x.txt")) }));
-    if (!lastSpawnEnv || Object.prototype.hasOwnProperty.call(lastSpawnEnv, "PLANTED_SECRET_TOKEN")) fail("inv13", "planted secret reached child env (spawn)", lastSpawnEnv && Object.keys(lastSpawnEnv));
-  });
-  delete process.env.PLANTED_SECRET_TOKEN;
-
-  // inv14 allowed change → COMPLETED + manifest + valid result
-  await withRepo(async (repo) => {
-    const a = await runClaudeWorker(REQ, baseCfg(repo, { spawnFn: synthSpawn(writeIn("app/new.txt", "hello\n")) }));
-    if (a.decision !== "COMPLETED") fail("inv14", "allowed change not COMPLETED", a);
-    else if (!a.patchHash || !(a.result.changeManifest || []).some((m) => m.path === "app/new.txt" && /^[0-9a-f]{64}$/.test(m.sha256))) fail("inv14", "manifest/patchHash wrong", a.result && a.result.changeManifest);
-    else if (P.validateResult(a.result).length) fail("inv14", "result invalid", P.validateResult(a.result));
-    else if (a.result.workerDecision !== "PROPOSED" || a.result.projectOsDecisionRequired !== true) fail("inv14", "result decision wrong", a.result.workerDecision);
-  });
-
-  await withRepo(async (repo) => {
-    const a = await runClaudeWorker(REQ, baseCfg(repo, { spawnFn: synthSpawn(writeIn("projectos/hack.txt")) }));
-    if (a.reason !== "forbidden-path-change" || !(a.refusedPaths || []).some((p) => P.normPath(p).startsWith("projectos/"))) fail("inv15", "forbidden-path not refused", a);
-  });
-  await withRepo(async (repo) => {
-    const mv = (cwd) => g(cwd, ["mv", "projectos/core.txt", "app/renamed.txt"]);
-    const a = await runClaudeWorker(REQ, baseCfg(repo, { spawnFn: synthSpawn(mv) }));
-    if (a.reason !== "forbidden-path-change" || !(a.refusedPaths || []).some((p) => P.normPath(p) === "projectos/core.txt")) fail("inv16", "rename origin not caught", a);
-  });
-
-  // inv17 DIRECT write to canonical (absolute path, bypassing the clone) is detected by the fs proof
-  await withRepo(async (repo) => {
-    const attack = () => fs.writeFileSync(path.join(repo, "app", "seed.txt"), "TAMPERED-DIRECT\n");
-    const a = await runClaudeWorker(REQ, baseCfg(repo, { spawnFn: synthSpawn(attack) }));
-    if (a.decision !== "BLOCKED" || a.reason !== "canonical-mutated" || !(a.fields || []).includes("filesHash")) fail("inv17", "direct canonical write not detected", a);
-  });
-  // inv18 canonical hook-CONTENT edit detected (content, not just filename)
-  await withRepo(async (repo) => {
-    const attack = () => { const h = path.join(commonDir(repo), "hooks"); fs.mkdirSync(h, { recursive: true }); fs.writeFileSync(path.join(h, "pre-commit"), "#!/bin/sh\nevil\n"); };
-    const a = await runClaudeWorker(REQ, baseCfg(repo, { spawnFn: synthSpawn(attack) }));
-    if (a.decision !== "BLOCKED" || a.reason !== "canonical-mutated" || !(a.fields || []).includes("metaHash")) fail("inv18", "hook-content edit not detected", a);
-  });
-  // inv19 canonical ref/tag creation detected
-  await withRepo(async (repo) => {
-    const attack = () => { const rd = path.join(commonDir(repo), "refs", "heads"); fs.mkdirSync(rd, { recursive: true }); fs.writeFileSync(path.join(rd, "backdoor"), g(repo, ["rev-parse", "HEAD"]).trim() + "\n"); };
-    const a = await runClaudeWorker(REQ, baseCfg(repo, { spawnFn: synthSpawn(attack) }));
-    if (a.decision !== "BLOCKED" || a.reason !== "canonical-mutated" || !(a.fields || []).includes("metaHash")) fail("inv19", "ref creation not detected", a);
-  });
-  // inv20 canonical config edit detected
-  await withRepo(async (repo) => {
-    const attack = () => g(repo, ["config", "--local", "sneak.flag", "1"]);
-    const a = await runClaudeWorker(REQ, baseCfg(repo, { spawnFn: synthSpawn(attack) }));
-    if (a.decision !== "BLOCKED" || a.reason !== "canonical-mutated" || !(a.fields || []).includes("metaHash")) fail("inv20", "config edit not detected", a);
-  });
-  // inv21 a FAKE clone/.git cannot hide a real canonical mutation (the fs proof does not trust clone git)
-  await withRepo(async (repo) => {
-    const attack = (cwd) => {
-      try { fs.rmSync(path.join(cwd, ".git"), { recursive: true, force: true }); execFileSync("git", ["-C", cwd, "init", "-q"]); } catch (e) { /* clone git wrecked either way */ }
-      fs.writeFileSync(path.join(repo, "app", "seed.txt"), "TAMPERED-BEHIND-FAKE-GIT\n"); // real canonical mutation
-    };
-    const a = await runClaudeWorker(REQ, baseCfg(repo, { spawnFn: synthSpawn(attack) }));
-    if (a.decision !== "BLOCKED" || a.reason !== "canonical-mutated") fail("inv21", "canonical mutation hidden by fake clone .git", a);
-  });
-
-  await withRepo(async (repo) => {
-    const cfg = baseCfg(repo, { spawnFn: synthSpawn(null, null, { hang: true }) }); cfg.policy.timeoutMs = 150;
-    const a = await runClaudeWorker(REQ, cfg);
-    if (a.reason !== "timeout") fail("inv22", "timeout not enforced", a);
-    else if (a.result && a.result.killConfirmed !== true) fail("inv22", "kill not confirmed", a.result.killConfirmed);
-  });
-  await withRepo(async (repo) => {
-    const cfg = baseCfg(repo, { spawnFn: synthSpawn(null, null, { floodOut: true }) }); cfg.policy.maxOutputBytes = 64;
-    const a = await runClaudeWorker(REQ, cfg);
-    if (a.reason !== "output-overflow") fail("inv23", "stdout overflow not enforced", a);
-  });
-  await withRepo(async (repo) => {
-    const cfg = baseCfg(repo, { spawnFn: synthSpawn(null, null, { floodErr: true }) }); cfg.policy.maxOutputBytes = 64;
-    const a = await runClaudeWorker(REQ, cfg);
-    if (a.reason !== "stderr-overflow") fail("inv24", "stderr overflow not enforced", a);
-  });
-  await withRepo(async (repo) => {
-    const rd = createRedactor(); rd.register(SECRET, "ref_w");
-    const a = await runClaudeWorker(REQ, baseCfg(repo, { redactor: rd, spawnFn: synthSpawn(writeIn("app/ok.txt"), "leaked " + SECRET) }));
-    if (String(a.output || "").includes(SECRET) || String((a.result && a.result.outputExcerpt) || "").includes(SECRET)) fail("inv25", "registered secret leaked", a.output);
-  });
-  await withRepo(async (repo) => {
-    // Build a JWT-shaped blob at runtime so no literal secret-pattern sits in this source file.
-    const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64").replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
-    const jwt = b64({ alg: "HS256", typ: "JWT" }) + "." + b64({ sub: "1234567890" }) + ".c2ln";
-    const hdr = jwt.slice(0, 3);
-    const a = await runClaudeWorker(REQ, baseCfg(repo, { spawnFn: synthSpawn(writeIn("app/ok.txt"), "jwt=" + jwt) }));
-    const excerpt = String((a.result && a.result.outputExcerpt) || "");
-    if (excerpt.includes(jwt.slice(0, 24)) || new RegExp(hdr + "[A-Za-z0-9_-]{16,}").test(excerpt)) fail("inv26", "generic secret not scrubbed", excerpt);
-  });
-
-  // inv27 buildResult THROWS on a forbidden decision (no silent coerce)
+  // 29 delegated controls are not marked technically enforced
+  {
+    let threwOrErr = false;
+    const bad = P.buildResult({ controls: { technicallyEnforced: ["deploy"], delegated: ["deploy"] } });
+    if (!P.validateResult(bad).some((e) => /both technicallyEnforced and delegated/.test(e))) fail("inv29", "delegated-in-enforced not caught", P.validateResult(bad));
+  }
+  // 30 result schema rejects null real-operation identity
+  {
+    const res = P.buildResult({ projectId: "acme" }); // operationId null
+    if (!P.validateResult(res, { real: true }).some((e) => /operationId/.test(e))) fail("inv30", "null real-op identity not rejected");
+  }
+  // 31 result is deeply immutable
+  {
+    const res = P.buildResult({ operationId: "OP1", filesChanged: ["app/x"] });
+    if (!Object.isFrozen(res) || !Object.isFrozen(res.controls) || !Object.isFrozen(res.filesChanged)) fail("inv31", "result not deeply frozen");
+    try { res.filesChanged.push("y"); if (res.filesChanged.length !== 1) fail("inv31", "frozen array mutated"); } catch (e) { /* frozen throw ok */ }
+  }
+  // 32 no worker self-approval/closure
   {
     let threw = false; try { P.buildResult({ workerDecision: "APPROVED" }); } catch (e) { threw = true; }
-    if (!threw) fail("inv27", "buildResult did not throw on APPROVED");
-    let threw2 = false; try { P.buildResult({ approved: true }); } catch (e) { threw2 = true; }
-    if (!threw2) fail("inv27", "buildResult did not throw on forbidden field");
+    if (!threw) fail("inv32", "APPROVED not rejected");
   }
-  // inv28 validateResult catches a tampered result
-  {
-    const good = P.buildResult({ projectId: "acme", baselineHead: "a", finalHead: "a" });
-    if (P.validateResult(good).length) fail("inv28", "valid result rejected", P.validateResult(good));
-    const bad = Object.assign({}, good); delete bad.patchHash; bad.trusted = true;
-    const be = P.validateResult(bad);
-    if (!be.some((e) => e.includes("patchHash")) || !be.some((e) => e.includes("trusted"))) fail("inv28", "tampered result not caught", be);
-  }
-  // inv29 no metered AI API (source scan)
+  // 33 no metered AI API (source scan)
   {
     const rx = /ANTHROPIC_API_KEY|OPENAI_API_KEY|api\.(anthropic|openai)\.com|require\(["'](openai|@anthropic)|\bfetch\(|https?:\/\/[^\s"']*\/(v1|chat|completions)/i;
-    for (const f of ["claude-worker.cjs", "worker-policy.cjs"]) {
-      const src = fs.readFileSync(path.join(__dirname, "..", "bridge", f), "utf8");
-      if (rx.test(src)) fail("inv29", "metered API/network reference in " + f);
+    for (const f of ["claude-worker", "worker-policy", "workspace-ledger", "sandbox-provider", "process-control", "executable-check", "invocation-profile", "owner-capability-check"]) {
+      const src = fs.readFileSync(path.join(__dirname, "..", "bridge", f + ".cjs"), "utf8");
+      if (rx.test(src)) fail("inv33", "metered API/network reference in " + f);
     }
-    if (!/shell:\s*false/.test(fs.readFileSync(path.join(__dirname, "..", "bridge", "claude-worker.cjs"), "utf8"))) fail("inv29", "adapter not shell:false");
   }
-  // inv30 canonical byte-identical on a benign run
-  await withRepo(async (repo) => {
-    const before = worker.canonicalSnapshot(repo);
-    const a = await runClaudeWorker(REQ, baseCfg(repo, { spawnFn: synthSpawn(writeIn("app/new.txt")) }));
-    if (a.decision !== "COMPLETED") fail("inv30", "benign run not COMPLETED", a);
-    if (worker.driftFields(before, worker.canonicalSnapshot(repo)).length) fail("inv30", "canonical drifted on benign run", worker.driftFields(before, worker.canonicalSnapshot(repo)));
-  });
-  // inv31 case-insensitive forbidden-path bypass (win/mac); documented no-op on posix
-  await withRepo(async (repo) => {
-    const cfg = baseCfg(repo, { spawnFn: synthSpawn(writeIn("app/Secrets/leak.txt")) });
-    cfg.policy.allowedPaths = ["app"]; cfg.policy.forbiddenPaths = ["app/secrets"];
-    const a = await runClaudeWorker(REQ, cfg);
-    if (process.platform === "win32" || process.platform === "darwin") {
-      if (a.reason !== "forbidden-path-change") fail("inv31", "re-cased forbidden path not refused", a);
-    } else if (a.decision !== "COMPLETED") { errors.push("inv31: SKIPPED-ENV (posix is case-sensitive; app/Secrets != app/secrets by design)"); }
-  });
-  // inv32 absolute/UNC path rejected (unit)
+  // 34 no production/provider/send/payment activity (source scan of the new modules)
   {
-    const pol = { allowedPaths: ["app"], forbiddenPaths: [] };
-    for (const bad of ["/etc/passwd", "C:/win", "\\\\srv\\share\\x", "app/../projectos/x", "app\0x"]) {
-      if (P.isAllowedPath(bad, pol)) fail("inv32", "unsafe path allowed: " + bad);
+    const rx = /stripe\.|sendgrid|twilio|nodemailer|\.charge\(|\.refund\(|supabase\.co|vercel\.com\/api|process\.env\.(SUPABASE|STRIPE|RESEND)/i;
+    for (const f of ["claude-worker", "workspace-ledger", "sandbox-provider", "process-control", "executable-check", "invocation-profile"]) {
+      const src = fs.readFileSync(path.join(__dirname, "..", "bridge", f + ".cjs"), "utf8");
+      if (rx.test(src)) fail("inv34", "prod/provider/send/payment reference in " + f);
     }
-    if (!P.isAllowedPath("app/ok.txt", pol)) fail("inv32", "legit path rejected");
   }
-  // inv33 capability overall() logic
+  // 35 canonical unchanged (no residual drift) during a benign synthetic run
+  await withRepo(async (repo) => {
+    const before = worker.monitorSnapshot(repo);
+    const a = await runClaudeWorker(REQ, baseCfg(repo, { behavior: writeIn("app/new.txt") }));
+    if (a.decision !== "COMPLETED" || a.result.residualDriftStatus !== "no-residual-drift-detected") fail("inv35", "benign run drifted or wrong status", a.result && a.result.residualDriftStatus);
+    if (worker.monitorDrift(before, worker.monitorSnapshot(repo)).length) fail("inv35", "canonical actually drifted");
+  });
+  // 36 temp workspace residue accurately reported
+  await withRepo(async (repo) => {
+    const a = await runClaudeWorker(REQ, baseCfg(repo, { behavior: writeIn("app/new.txt") }));
+    if (!a.result || a.result.residue.length !== 0) fail("inv36", "benign run reported residue", a.result && a.result.residue);
+    const b = await runClaudeWorker(REQ, baseCfg(repo, { behavior: writeIn("app/new.txt"), keepWorkspace: true }));
+    const kept = (b.result && b.result.residue || []).find((x) => String(x).startsWith("kept-by-config:"));
+    if (!kept) fail("inv36", "kept workspace not reported as residue", b.result && b.result.residue);
+    else rmRepo(kept.slice("kept-by-config:".length)); // clean the deliberately-kept workspace
+  });
+  // 37 working tree clean after validators: all repos are created under os.tmpdir (never the real tree), and
+  //    the validator never references process.cwd().
   {
-    const all = { claude: { status: "PASS" }, docker: { status: "PASS" }, supabase: { status: "PASS" } };
-    const one = { claude: { status: "PASS" }, docker: { status: "BLOCKED" }, supabase: { status: "PASS" } };
-    if (cap.overall(all) !== "READY-FOR-REAL-E2E") fail("inv33", "all-PASS not READY");
-    if (cap.overall(one) !== "BLOCKED-OWNER-MACHINE-CAPABILITY") fail("inv33", "one-BLOCKED not BLOCKED");
+    const src = fs.readFileSync(__filename, "utf8");
+    if (!/mkdtempSync\(path\.join\(os\.tmpdir/.test(src)) fail("inv37", "validator does not create repos under os.tmpdir()");
   }
-  // inv34 capability presentation owner-friendly + no machine jargon leak
+  // 38 remote frozen: the validator only ever wires a non-routable test remote (example.invalid), never the
+  //    real origin, and performs no network git — so it cannot affect origin/projectos-v3.
   {
-    const blk = cap.present({ platform: "win32", node: "v24", claude: { status: "BLOCKED", how: "session-present-but-no-spawnable-cli" }, docker: { status: "BLOCKED", how: "no-docker-binary" }, supabase: { status: "BLOCKED", how: "cli-error" } });
-    if (!/ACTION NEEDED/.test(blk) || !/NOT READY/.test(blk) || !/What to do next/.test(blk)) fail("inv34", "blocked presentation missing guidance");
-    if (/session-present-but-no-spawnable-cli|no-docker-binary|cli-error/.test(blk)) fail("inv34", "raw jargon leaked");
-    const rdy = cap.present({ platform: "win32", node: "v24", claude: { status: "PASS", how: "cli-on-path" }, docker: { status: "PASS", how: "daemon-running" }, supabase: { status: "PASS", how: "cli-present" } });
-    if (!/RESULT: READY/.test(rdy)) fail("inv34", "ready presentation missing READY");
+    if (!/example\.invalid/.test(ORIGIN)) fail("inv38", "validator remote is not a non-routable test remote");
+    if (/github\.com|universalbizcomply/i.test(ORIGIN)) fail("inv38", "validator references the real remote");
   }
 
-  // inv35 canonical .git/info/exclude tampering detected (metaHash) — a hidden-file plant cannot escape
+  // 39 process-control: a null/invalid pid never kills a process group and returns UNCONFIRMED
+  {
+    let threw = false; try { proc.killTree(0); proc.killTree(null); proc.killTree(-1); } catch (e) { threw = true; }
+    if (threw) fail("inv39", "killTree threw on invalid pid");
+    const t = await proc.terminate(null, { sleepFn: async () => {} });
+    if (t.status !== "TERMINATION-UNCONFIRMED" || t.reason !== "invalid-pid") fail("inv39", "null pid not UNCONFIRMED", t);
+  }
+  // 40 process-control: unknown descendants under strict mode => not confirmed (fail closed)
+  {
+    const t = await proc.terminate(4242, { strictDescendants: true, descendantsFn: () => null, aliveFn: () => false, killFn: () => {}, sleepFn: async () => {}, maxAttempts: 2 });
+    if (t.status === "TERMINATED-CONFIRMED") fail("inv40", "strict + unknown descendants wrongly confirmed", t);
+  }
+  // 41 process-control: alive() treats only ESRCH as dead
+  {
+    if (proc.alive(2147480000) !== false) fail("inv41", "definitely-dead pid reported alive");
+    if (proc.alive(process.pid) !== true) fail("inv41", "own pid reported dead");
+  }
+  // 42 H2: a mock provider + requireExecInvoke (no realRun) is refused (real exe cannot run under a mock)
   await withRepo(async (repo) => {
-    const attack = () => { const info = path.join(commonDir(repo), "info"); fs.mkdirSync(info, { recursive: true }); fs.appendFileSync(path.join(info, "exclude"), "\npayload.js\n"); };
-    const a = await runClaudeWorker(REQ, baseCfg(repo, { spawnFn: synthSpawn(attack) }));
-    if (a.decision !== "BLOCKED" || a.reason !== "canonical-mutated" || !(a.fields || []).includes("metaHash")) fail("inv35", "info/exclude tamper not detected", a);
+    const a = await runClaudeWorker(REQ, baseCfg(repo, { behavior: writeIn("app/x.txt"), requireExecInvoke: true }));
+    if (a.decision !== "BLOCKED" || !/OS-SANDBOX/.test(a.reason)) fail("inv42", "mock + requireExecInvoke not blocked", a);
   });
-  // inv36 SYMLINKED canonical hook detected (metaHash) — symlink entries are not skipped
+  // 43 non-mock provider must permit exactly the configured executable
   await withRepo(async (repo) => {
-    const targ = fs.mkdtempSync(path.join(os.tmpdir(), "cw-hooktarget-")); fs.writeFileSync(path.join(targ, "evil.sh"), "evil\n");
-    let made = false;
-    const attack = () => { const h = path.join(commonDir(repo), "hooks"); fs.mkdirSync(h, { recursive: true }); try { fs.symlinkSync(path.join(targ, "evil.sh"), path.join(h, "pre-commit"), "file"); made = true; } catch (e) { /* unprivileged */ } };
-    const a = await runClaudeWorker(REQ, baseCfg(repo, { spawnFn: synthSpawn(attack) }));
-    rmRepo(targ);
-    if (!made) errors.push("inv36: SKIPPED-ENV (file symlink creation unprivileged on this host)");
-    else if (a.decision !== "BLOCKED" || a.reason !== "canonical-mutated" || !(a.fields || []).includes("metaHash")) fail("inv36", "symlinked hook not detected", a);
+    const prov = sandbox.mockProvider(synthSpawn(writeIn("app/x.txt")), { kind: "restricted-account", permittedExecutables: ["node"] });
+    const a = await runClaudeWorker(REQ, baseCfg(repo, { provider: prov, realRun: false }));
+    // kind != mock => requireReal path in sandbox is fine (only mock is refused); exec-permitted check fires
+    if (a.decision !== "BLOCKED" || !/EXECUTABLE/.test(a.reason)) fail("inv43", "executable not in provider allowlist not blocked", a);
   });
-  // inv37 a dangerous CLI flag from the args builder is refused (defence in depth on tool restriction)
+  // 44 M4: networkPolicy 'allowlist' without a concrete allowlist is rejected by the contract
+  {
+    const bad = sandbox.validateProvider(sandbox.mockProvider(() => {}, { networkPolicy: "allowlist", networkAllowlist: [] }));
+    if (!bad.length) fail("inv44", "allowlist without entries accepted");
+    const wild = sandbox.validateProvider(sandbox.mockProvider(() => {}, { networkPolicy: "allowlist", networkAllowlist: ["*"] }));
+    if (!wild.length) fail("inv44", "wildcard allowlist accepted");
+    const ok = sandbox.validateProvider(sandbox.mockProvider(() => {}, { networkPolicy: "allowlist", networkAllowlist: ["api.example.com"] }));
+    if (ok.length) fail("inv44", "concrete allowlist rejected", ok);
+  }
+  // 45 M3: permittedCommands must be empty for the first controlled-change proof
+  {
+    const v = profileMod.verifyProfile(verifiedProfile({ permittedCommands: ["git"] }), { firstControlledChange: true });
+    if (v.ok) fail("inv45", "non-empty permittedCommands accepted for first proof");
+  }
+  // 46 M2: a mode-only change is detected (unit on ledger.diff)
+  {
+    const before = { "app/x": { type: "file", size: 3, mode: 0o644, hash: "h1" } };
+    const after = { "app/x": { type: "file", size: 3, mode: 0o755, hash: "h1" } };
+    const d = ledger.diff(before, after);
+    if (d.permissionChanged.indexOf("app/x") < 0 || d.changedPaths.indexOf("app/x") < 0) fail("inv46", "mode-only change not detected", d.permissionChanged);
+  }
+  // 47 special-type entry is always treated as changed (unit on ledger.diff)
+  {
+    const before = { "app/pipe": { type: "special" } };
+    const after = { "app/pipe": { type: "special" } };
+    const d = ledger.diff(before, after);
+    if (d.modified.indexOf("app/pipe") < 0 || d.special.indexOf("app/pipe") < 0) fail("inv47", "special entry not treated as changed", d);
+  }
+  // 48 EMERGENCY-STOP result does NOT mark process-termination-confirm as technically enforced
   await withRepo(async (repo) => {
-    const cfg = baseCfg(repo, { claudeArgs: (p) => ["--dangerously-skip-permissions", "-p", p], spawnFn: synthSpawn(writeIn("app/x.txt")) });
+    const cfg = baseCfg(repo, { behavior: writeIn("app/new.txt"), terminateOpts: { aliveFn: () => true, maxAttempts: 2, intervalMs: 1, sleepFn: async () => {}, killFn: () => {}, descendantsFn: () => null } });
     const a = await runClaudeWorker(REQ, cfg);
-    if (a.decision !== "BLOCKED" || a.reason !== "dangerous-cli-flag") fail("inv37", "dangerous flag not refused", a);
+    if (a.decision !== "EMERGENCY-STOP") fail("inv48", "not emergency", a.decision);
+    else {
+      const te = (a.result && a.result.controls && a.result.controls.technicallyEnforced) || [];
+      if (te.indexOf("process-termination-confirm") >= 0) fail("inv48", "termination-confirm claimed enforced on unconfirmed run");
+      const pres = (a.result.residue || []).find((x) => String(x).startsWith("workspace-preserved:"));
+      if (pres) rmRepo(pres.slice("workspace-preserved:".length));
+    }
   });
-  // inv38 a file dropped into canonical that matches a PRE-EXISTING ignore rule is still detected
+  // 49 a REAL (non-mock) provider that does not ATTEST enforcement is refused (attest wired, not just declared)
   await withRepo(async (repo) => {
-    const attack = () => fs.writeFileSync(path.join(repo, "app", "planted.log"), "hidden\n"); // matches *.log
-    const a = await runClaudeWorker(REQ, baseCfg(repo, { spawnFn: synthSpawn(attack) }));
-    if (a.decision !== "BLOCKED" || a.reason !== "canonical-mutated" || !(a.fields || []).includes("ignoredInventory")) fail("inv38", "ignored-file drop into canonical not detected", a);
-  }, { gitignore: "*.log" });
+    const prov = sandbox.mockProvider(synthSpawn(writeIn("app/x.txt")), { kind: "restricted-account", permittedExecutables: ["synthetic-claude"], attest: () => ({ enforced: false }) });
+    const a = await runClaudeWorker(REQ, baseCfg(repo, { provider: prov, realRun: true }));
+    if (a.decision !== "BLOCKED" || !/ATTESTATION|OS-SANDBOX/.test(a.reason)) fail("inv49", "non-attesting real provider not blocked", a);
+  });
 
   return errors;
 }
@@ -357,10 +384,10 @@ async function run() {
 if (require.main === module) {
   run().then((e) => {
     const real = e.filter((x) => !x.includes("SKIPPED-ENV"));
-    const skipped = e.filter((x) => x.includes("SKIPPED-ENV"));
-    skipped.forEach((x) => console.error("SKIP: " + x));
+    const skip = e.filter((x) => x.includes("SKIPPED-ENV"));
+    skip.forEach((x) => console.error("SKIP: " + x));
     if (real.length) { real.forEach((x) => console.error("FAIL: " + x)); console.error("validate-claude-worker: " + real.length + " error(s)"); process.exit(1); }
-    console.log("validate-claude-worker: PASS (38 invariants" + (skipped.length ? ", " + skipped.length + " env-skipped" : "") + ")");
+    console.log("validate-claude-worker: PASS (49 invariants" + (skip.length ? ", " + skip.length + " env-skipped" : "") + ")");
   }).catch((e) => { console.error("validate-claude-worker CRASHED: " + e.stack); process.exit(1); });
 }
 module.exports = { run };

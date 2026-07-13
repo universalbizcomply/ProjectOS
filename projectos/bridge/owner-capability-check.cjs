@@ -1,135 +1,125 @@
 "use strict";
 /**
- * Owner-machine capability check for the real Forge E2E (PROJECTOS-FORGE-REAL-E2E-ACTIVATION1B-HARDEN1A,
- * §10). SAFE + read-only: it only DETECTS whether the prerequisites exist. It:
- *   - reveals NO credentials and prints NO token values,
- *   - performs NO installation and NO provider connection,
- *   - makes NO repository change,
- *   - does NOT assume the Claude executable path (probes PATH + common locations + a desktop/session hint).
+ * Owner-machine capability check — PROJECTOS-FORGE-REAL-E2E-ACTIVATION1B-HARDEN1B (§7, §12). SAFE + read-only:
+ * detects prerequisites only. No install, no provider connection, no repo change, no credential read, no
+ * token printed. It uses the SAME shared executable checker as the worker adapter, so it can NEVER report a
+ * Claude executable READY that the adapter would refuse (e.g. a `claude.cmd` shim on Windows).
  *
- * Output: a PASS/BLOCKED capability matrix. Run on the owner machine BEFORE requesting the real round-trip.
- * This module never launches the worker; it is a gate for whether the real run is even possible.
+ * It distinguishes TECHNICAL readiness (can the synthetic validation run) from SECURITY readiness (is a real
+ * worker run even permissible), and reports SANDBOX / TOOL-RESTRICTION / PROCESS-CONTROL explicitly. It never
+ * emits a false READY.
  */
 
 const { execFileSync } = require("child_process");
-const fs = require("fs");
-const path = require("path");
+const execcheck = require("./executable-check.cjs");
 
 function tryExec(bin, args) {
-  try {
-    const out = execFileSync(bin, args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 8000 });
-    return { ok: true, out: String(out).trim().split("\n")[0].slice(0, 80) };
-  } catch (e) { return { ok: false, out: null }; }
+  try { return { ok: true, out: String(execFileSync(bin, args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 8000 })).trim().split("\n")[0].slice(0, 80) }; }
+  catch (e) { return { ok: false, out: null }; }
 }
+function onPath(bin) { return (process.platform === "win32" ? tryExec("where", [bin]) : tryExec("which", [bin])).ok; }
 
-function onPath(bin) {
-  const probe = process.platform === "win32" ? tryExec("where", [bin]) : tryExec("which", [bin]);
-  return probe.ok;
-}
-
-/** Detect a spawnable Claude CLI without assuming its path. Never reads its config/credentials. */
+/** Claude executable via the SHARED checker (rejects shims / existence-only / uninvocable). */
 function detectClaude() {
-  const names = process.platform === "win32" ? ["claude.cmd", "claude.exe", "claude"] : ["claude"];
-  for (const n of names) {
-    if (onPath(n)) { const v = tryExec(n, ["--version"]); if (v.ok) return { status: "PASS", how: "cli-on-path", detail: n }; }
-  }
-  // Common local install dirs (existence only — no content read).
-  const home = process.env.USERPROFILE || process.env.HOME || "";
-  const candidates = [
-    path.join(home, ".claude", "local", "claude"),
-    path.join(home, "AppData", "Local", "Programs", "claude", "claude.exe"),
-    path.join(home, ".local", "bin", "claude"),
-  ];
-  for (const p of candidates) { try { if (fs.existsSync(p)) return { status: "PASS", how: "cli-file", detail: path.basename(p) }; } catch (e) { /* ignore */ } }
-  // No spawnable CLI. Report a desktop/session hint WITHOUT reading any auth material.
-  const desktopHint = !!(process.env.CLAUDE_CODE_SESSION || process.env.CLAUDECODE || process.env.CLAUDE_DESKTOP);
-  return { status: "BLOCKED", how: desktopHint ? "session-present-but-no-spawnable-cli" : "no-cli", detail: null };
+  const names = process.platform === "win32" ? ["claude", "claude.exe"] : ["claude"];
+  for (const n of names) { const v = execcheck.validateExecutable(n, { invoke: true }); if (v.ok) return { status: "PASS", how: "executable-validated", detail: v.version || v.resolvedPath }; }
+  const shim = process.platform === "win32" ? execcheck.validateExecutable("claude.cmd", { invoke: false }) : { ok: false };
+  const session = !!(process.env.CLAUDE_CODE_SESSION || process.env.CLAUDECODE || process.env.CLAUDE_DESKTOP);
+  const how = shim.isShim ? "only-unsafe-shim-found" : session ? "session-present-but-no-safe-executable" : "no-safe-executable";
+  return { status: "BLOCKED", how, detail: null };
 }
-
 function detectDocker() {
   if (!onPath("docker")) return { status: "BLOCKED", how: "no-docker-binary" };
   const info = tryExec("docker", ["info", "--format", "{{.ServerVersion}}"]);
   return info.ok ? { status: "PASS", how: "daemon-running", detail: info.out } : { status: "BLOCKED", how: "binary-present-daemon-down" };
 }
-
 function detectSupabase() {
   if (!onPath("supabase")) return { status: "BLOCKED", how: "no-supabase-cli" };
   const v = tryExec("supabase", ["--version"]);
   return v.ok ? { status: "PASS", how: "cli-present", detail: v.out } : { status: "BLOCKED", how: "cli-error" };
 }
+// Sandbox + tool-restriction are OWNER-CONFIG, not machine facts; the check reports whether one is configured
+// via the environment marker the owner sets after approving a provider/profile. Absent ⇒ BLOCKED (fail-closed).
+function detectSandbox() { return process.env.PROJECTOS_SANDBOX_PROVIDER ? { status: "PASS", how: "provider-configured" } : { status: "BLOCKED", how: "no-approved-sandbox-provider" }; }
+function detectToolRestriction() { return process.env.PROJECTOS_WORKER_PROFILE_VERIFIED === "1" ? { status: "PASS", how: "profile-verified" } : { status: "BLOCKED", how: "tool-restriction-not-proven" }; }
+function detectProcessControl() { return { status: "PASS", how: "bounded-tree-termination-available" }; }
+function detectGit() { const v = tryExec("git", ["--version"]); return v.ok ? { status: "PASS", how: "present", detail: v.out } : { status: "BLOCKED", how: "no-git" }; }
 
 function check() {
   return {
-    platform: process.platform,
-    node: process.version,
-    claude: detectClaude(),
-    docker: detectDocker(),
-    supabase: detectSupabase(),
+    platform: process.platform, node: process.version,
+    git: detectGit(), claude: detectClaude(), docker: detectDocker(), supabase: detectSupabase(),
+    sandbox: detectSandbox(), toolRestriction: detectToolRestriction(), processControl: detectProcessControl(),
   };
 }
 
+/** Overall state. Security gates first (sandbox/executable/tool/process), then real-run infra. */
 function overall(res) {
-  return res.claude.status === "PASS" && res.docker.status === "PASS" && res.supabase.status === "PASS"
-    ? "READY-FOR-REAL-E2E" : "BLOCKED-OWNER-MACHINE-CAPABILITY";
+  const syntheticReady = res.git && res.git.status === "PASS";
+  if (res.sandbox.status !== "PASS") return syntheticReady ? "READY-FOR-SYNTHETIC-VALIDATION" : "BLOCKED-OS-SANDBOX";
+  if (res.claude.status !== "PASS") return "BLOCKED-EXECUTABLE";
+  if (res.toolRestriction.status !== "PASS") return "BLOCKED-TOOL-RESTRICTION";
+  if (res.processControl.status !== "PASS") return "BLOCKED-PROCESS-CONTROL";
+  if (res.docker.status !== "PASS" || res.supabase.status !== "PASS") return "READY-FOR-SYNTHETIC-VALIDATION";
+  return "READY-FOR-REAL-WORKER-PROOF";
+}
+/** The single blocking real-run reason, for owner guidance (distinct from the synthetic-ready state). */
+function realBlockReason(res) {
+  if (res.sandbox.status !== "PASS") return "BLOCKED-OS-SANDBOX";
+  if (res.claude.status !== "PASS") return "BLOCKED-EXECUTABLE";
+  if (res.toolRestriction.status !== "PASS") return "BLOCKED-TOOL-RESTRICTION";
+  if (res.processControl.status !== "PASS") return "BLOCKED-PROCESS-CONTROL";
+  if (res.docker.status !== "PASS") return "BLOCKED-DOCKER";
+  if (res.supabase.status !== "PASS") return "BLOCKED-SUPABASE";
+  return "READY-FOR-REAL-WORKER-PROOF";
 }
 
-// Owner-facing presentation: plain language, one clear next action per item, no machine jargon, no secrets.
-// Each entry maps a machine `how` code to { label, action }. `label` says what the owner has; `action` is
-// the single next step when it is not ready.
 const FRIENDLY = {
-  claude: {
-    title: "Claude Code worker",
-    "cli-on-path": { label: "Ready — Claude command found.", action: null },
-    "cli-file": { label: "Ready — Claude app found.", action: null },
-    "session-present-but-no-spawnable-cli": { label: "A Claude session is signed in, but no runnable `claude` command is on this machine.", action: "Install the Claude Code CLI so a `claude` command exists, then re-run this check." },
-    "no-cli": { label: "No Claude Code worker found.", action: "Install and sign in to the Claude Code CLI on this machine, then re-run this check." },
-  },
-  docker: {
-    title: "Docker (for local Supabase)",
-    "daemon-running": { label: "Ready — Docker is installed and running.", action: null },
-    "no-docker-binary": { label: "Docker is not installed.", action: "Install Docker Desktop and start it, then re-run this check." },
-    "binary-present-daemon-down": { label: "Docker is installed but not running.", action: "Open Docker Desktop and wait until it says Running, then re-run this check." },
-  },
-  supabase: {
-    title: "Supabase CLI",
-    "cli-present": { label: "Ready — Supabase CLI found.", action: null },
-    "no-supabase-cli": { label: "Supabase CLI is not installed.", action: "Install the Supabase CLI, then re-run this check." },
-    "cli-error": { label: "Supabase CLI did not respond.", action: "Reinstall or repair the Supabase CLI, then re-run this check." },
-  },
+  sandbox: { title: "OS security sandbox", "no-approved-sandbox-provider": { label: "No approved OS sandbox is configured. Without one, the real worker is NOT SAFE to run — it would have your account's full access.", action: "Configure and approve an OS sandbox provider (restricted account / Windows Sandbox / VM / container). Until then only synthetic validation runs." } },
+  claude: { title: "Claude Code worker executable", "session-present-but-no-safe-executable": { label: "A Claude session is signed in, but no safe runnable `claude` executable is on this machine.", action: "Install the Claude Code CLI as a real executable (not a .cmd/.bat shim), then re-run this check." }, "only-unsafe-shim-found": { label: "Only an unsafe `claude.cmd`/`.bat` shim was found; the worker refuses shims on Windows.", action: "Install a real `claude` executable (not a shim), then re-run this check." }, "no-safe-executable": { label: "No safe Claude executable found.", action: "Install and sign in to the Claude Code CLI, then re-run this check." } },
+  toolRestriction: { title: "Worker tool restriction", "tool-restriction-not-proven": { label: "The worker's tool restriction is NOT technically proven for this CLI.", action: "Verify the installed CLI version and its supported restriction flags, then mark the profile verified." } },
+  docker: { title: "Docker (for local Supabase)", "no-docker-binary": { label: "Docker is not installed.", action: "Install Docker Desktop and start it." }, "binary-present-daemon-down": { label: "Docker is installed but not running.", action: "Open Docker Desktop and wait until it says Running." } },
+  supabase: { title: "Supabase CLI", "no-supabase-cli": { label: "Supabase CLI is not installed.", action: "Install the Supabase CLI." }, "cli-error": { label: "Supabase CLI did not respond.", action: "Reinstall or repair the Supabase CLI." } },
 };
 
 function present(res) {
-  const lines = [];
-  const items = [["claude", res.claude], ["docker", res.docker], ["supabase", res.supabase]];
-  const actions = [];
-  lines.push("Owner-machine readiness check for the real Forge end-to-end test");
-  lines.push("(read-only — this does not install anything, connect anywhere, or read any password)");
-  lines.push("");
-  for (const [key, r] of items) {
+  const L = [];
+  const item = (key, r) => {
     const f = FRIENDLY[key] || {};
-    const info = f[r.how] || { label: r.how, action: r.status === "PASS" ? null : "Resolve this prerequisite, then re-run this check." };
+    const info = f[r.how] || { label: r.how, action: r.status === "PASS" ? null : "Resolve this prerequisite." };
     const badge = r.status === "PASS" ? "[ READY ]        " : "[ ACTION NEEDED ]";
-    lines.push(badge + " " + (f.title || key) + (r.detail ? "  (" + r.detail + ")" : ""));
-    lines.push("                  " + info.label);
-    if (info.action) actions.push((f.title || key) + ": " + info.action);
-  }
-  lines.push("");
-  const ready = overall(res) === "READY-FOR-REAL-E2E";
-  if (ready) {
-    lines.push("RESULT: READY — all prerequisites are in place. The real Forge worker + Supabase test can run.");
+    L.push(badge + " " + (f.title || key) + (r.detail ? "  (" + r.detail + ")" : ""));
+    L.push("                  " + info.label);
+    return info.action ? (f.title || key) + ": " + info.action : null;
+  };
+  L.push("Owner-machine readiness for the Forge worker (read-only — installs nothing, connects nowhere, reads no password)");
+  L.push("");
+  L.push("SECURITY readiness (required before ANY real worker run):");
+  const a1 = item("sandbox", res.sandbox);
+  const a2 = item("claude", res.claude);
+  const a3 = item("toolRestriction", res.toolRestriction);
+  L.push("");
+  L.push("REAL-RUN infrastructure:");
+  const a4 = item("docker", res.docker);
+  const a5 = item("supabase", res.supabase);
+  const actions = [a1, a2, a3, a4, a5].filter(Boolean);
+  L.push("");
+  const ov = overall(res);
+  L.push("SYNTHETIC validation (offline safety proofs): " + (res.git.status === "PASS" ? "READY" : "BLOCKED (git missing)"));
+  L.push("REAL worker run: " + realBlockReason(res));
+  L.push("");
+  if (ov === "READY-FOR-REAL-WORKER-PROOF") {
+    L.push("RESULT: all security + infrastructure prerequisites are in place. A real worker proof is technically possible (still owner/ChatGPT-gated).");
   } else {
-    lines.push("RESULT: NOT READY — the real Forge worker + Supabase test cannot run on this machine yet.");
-    lines.push("");
-    lines.push("What to do next (in order):");
-    actions.forEach((a, i) => lines.push("  " + (i + 1) + ". " + a));
-    lines.push("");
-    lines.push("Nothing was installed or changed. Re-run this check after each step until every item says READY.");
+    L.push("RESULT: the real worker run is NOT permitted yet. Synthetic validation can still run safely.");
+    L.push("");
+    L.push("What to do next (in order):");
+    actions.forEach((a, i) => L.push("  " + (i + 1) + ". " + a));
+    L.push("");
+    L.push("Nothing was installed or changed. NOT INSTALLED / NOT RUNNING / NOT SAFE are shown separately above.");
   }
-  return lines.join("\n");
+  return L.join("\n");
 }
 
-if (require.main === module) {
-  console.log(present(check()));
-}
-
-module.exports = { check, overall, present, detectClaude, detectDocker, detectSupabase };
+if (require.main === module) console.log(present(check()));
+module.exports = { check, overall, realBlockReason, present, detectClaude, detectDocker, detectSupabase, detectSandbox, detectToolRestriction, detectProcessControl };

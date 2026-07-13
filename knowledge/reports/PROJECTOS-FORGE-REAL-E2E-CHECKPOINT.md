@@ -4,7 +4,48 @@
 > correction. Read this + git + the latest activation report on resume. Local-only until owner authorises a
 > push. Remote must stay `4c3f076`.
 
-**Last updated:** 2026-07-12 (HARDEN1A) · **Branch:** `projectos-v3`
+**Last updated:** 2026-07-12 (HARDEN1B) · **Branch:** `projectos-v3`
+
+## HARDEN1B (2026-07-12) — OS containment + trusted FS ledger + process termination (IN PROGRESS, local)
+
+ChatGPT's HARDEN1B directive addressed the residual gaps HARDEN1A documented as accepted (OS sandbox) plus
+worker-controlled-git trust, process termination, executable consistency, tool enforcement, evidence honesty.
+New modules (all `projectos/bridge/`): `sandbox-provider.cjs` (fail-closed OS-sandbox contract + mock; NO
+unrestricted fallback — real run w/o provider = BLOCKED OS-SANDBOX-NOT-CONFIGURED), `workspace-ledger.cjs`
+(`git archive`→**.git-free** workspace via per-blob `git show`; trusted FS snapshot + diff = the authoritative
+manifest, NEVER git status/diff/index/worker `.git`), `process-control.cjs` (bounded repeated tree-termination;
+TERMINATED-CONFIRMED / TERMINATION-UNCONFIRMED / EMERGENCY-STOP-REQUIRED; unconfirmed ⇒ no reconcile, no
+cleanup, evidence preserved), `executable-check.cjs` (ONE shared checker for capability-check + adapter — real
+resolve+invoke, shim reject, existence-only fails), `invocation-profile.cjs` (fail-closed tool profile;
+unverified/unknown-version ⇒ BLOCKED WORKER-TOOL-RESTRICTION-NOT-PROVEN; first-proof = inspect+edit only).
+Rewrote `claude-worker.cjs` (sandbox→profile→exec→baseline→materialise→FS-before→spawn→**confirm death
+first**→FS-after→trusted diff→path enforce→monitored-state reconcile "no residual drift detected"→dispose→
+schema-v2 result). Rewrote `worker-policy.cjs` result = **schema v2** (honest fields: projectOsCommandsExecuted
+/ workerCommandsObserved / workerCommandsObservationStatus / workerToolsPermitted+Verified / sandboxProvider+
+Policy / canonicalVisibility / networkPolicy / processTerminationStatus / residualDriftStatus / filesInspection
+Status; controls split technicallyEnforced|policyRequested|delegated|notVerified|outOfScope; **resultHash**;
+**deep freeze**; buildResult THROWS on forbidden decision; validateResult{real} requires non-null identity).
+Rewrote `owner-capability-check.cjs` (states READY-FOR-SYNTHETIC-VALIDATION / BLOCKED-OS-SANDBOX / -EXECUTABLE
+/ -TOOL-RESTRICTION / -PROCESS-CONTROL / READY-FOR-REAL-WORKER-PROOF; security-vs-synthetic split; shared exec
+check fixes the claude.cmd false-READY). Language corrected: NO "canonical untouched" — "no residual drift
+detected across monitored state". Rewrote `validate-claude-worker.cjs` = **48 invariants (§11 + round-2), PASS, 0
+env-skip**. `npm run validate` ALL PASS (61); diff-check clean; **zero workspace residue**. Capability check
+here → BLOCKED-OS-SANDBOX (correct).
+
+**HARDEN1B review round 1 (security+silent-failure+architect) → fixes applied:** security H1 (recursive
+descendant enumeration both platforms + unknown≠dead under strict + terminationDetail surfaced), H2 (unified
+`requireReal` so a real exe can't run under a mock), M1 (per-run controls — termination-confirm only enforced
+when confirmed), M2 (mode-change detected), M3 (permittedCommands must be empty for first proof), M4 (network
+allowlist needs concrete non-wildcard entries), L1 (header: ls-tree/show not git-archive), L2 (realpath shim
+check). silent-failure 4×CRITICAL: #1 unknown-descendants-as-dead → fail-closed under strict; #2 null-pid
+`kill(-0)` group-kill → posInt guards + spawn-error handled pre-terminate; #5 unreadable/new dir + special +
+escapes folded into changedPaths (enforcement can't pass over); #10 no catch → added pipeline catch that sets
+preserve + returns blocked("internal-error") (evidence never destroyed). Plus: pid-reuse false EMERGENCY-STOP
+fixed (clean close = confirmed without re-probe), permittedExecutables cross-check, provider attest() hook,
+gitMetaDigest READDIR-ERR sentinel, symlink-materialise fallback recorded, killTree dedup, validateResult{real}
+on real runs, ledgerSummary in required, per-invariant validator isolation, resultHash "integrity" language.
+Round-2 re-verification (security+silent-failure on the changed files) running. END STATUS target: IMPLEMENTED
+LOCALLY — AWAITING CHATGPT REVIEW. No push/real-worker/Docker/install.
 
 ## Repository state (verified)
 

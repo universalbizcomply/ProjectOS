@@ -15,6 +15,9 @@
  * enforcement (a container/VM or a restricted account) on the OWNER machine — see the adapter header.
  */
 
+const crypto = require("crypto");
+const OBSERVATION_STATUSES = ["OBSERVED", "PARTIALLY OBSERVED", "NOT OBSERVABLE", "NOT EXECUTED"];
+
 // --- Environment isolation ---------------------------------------------------------------------------
 const ENV_ALLOW_COMMON = ["PATH", "Path"];
 const ENV_ALLOW_WIN = ["SystemRoot", "windir", "ComSpec", "PATHEXT", "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE", "PROCESSOR_IDENTIFIER", "TEMP", "TMP", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "APPDATA", "LOCALAPPDATA"];
@@ -103,6 +106,7 @@ function resolvePolicy(req, config) {
     maxOutputBytes: Number.isFinite(p.maxOutputBytes) ? p.maxOutputBytes : 2 * 1024 * 1024,
     maxPromptChars: Number.isFinite(p.maxPromptChars) ? p.maxPromptChars : 8000,
     envAllowlist: Array.isArray(p.envAllowlist) ? p.envAllowlist.slice() : [],
+    monitorIgnoredContent: p.monitorIgnoredContent === true,
     mode: typeof p.mode === "string" ? p.mode : "propose",
     phaseId: typeof op.phaseId === "string" ? op.phaseId : null,
     approvalId: typeof op.approvalId === "string" ? op.approvalId : null,
@@ -155,8 +159,10 @@ function buildResult(fields) {
   for (const k of FORBIDDEN_RESULT_FIELDS) {
     if (Object.prototype.hasOwnProperty.call(f, k)) throw new Error("buildResult: forbidden field '" + k + "'");
   }
-  const result = {
-    schemaVersion: "1.0",
+  const arr = (v) => (Array.isArray(v) ? v : []);
+  const controls = f.controls || {};
+  const body = {
+    schemaVersion: "2.0",
     operationId: f.operationId || null,
     projectId: f.projectId || null,
     phaseId: f.phaseId || null,
@@ -168,52 +174,102 @@ function buildResult(fields) {
     finalHead: f.finalHead || null,
     outcome: f.outcome || "unknown",
     reason: f.reason || null,
-    filesInspected: Array.isArray(f.filesInspected) ? f.filesInspected : [],
-    filesProposed: Array.isArray(f.filesProposed) ? f.filesProposed : [],
-    filesChanged: Array.isArray(f.filesChanged) ? f.filesChanged : [],
-    refusedPaths: Array.isArray(f.refusedPaths) ? f.refusedPaths : [],
+    // OS-containment evidence (honest names)
+    sandboxProvider: f.sandboxProvider || null,
+    sandboxPolicy: f.sandboxPolicy || null,
+    canonicalVisibility: f.canonicalVisibility || "unknown",
+    networkPolicy: f.networkPolicy || "unknown",
+    processTerminationStatus: f.processTerminationStatus || "none",
+    terminationDetail: f.terminationDetail || null,
+    // trusted filesystem ledger (NOT git-derived)
+    residualDriftStatus: f.residualDriftStatus || "unknown", // "no-residual-drift-detected" | "residual-drift-detected" | "not-evaluated"
+    filesChanged: arr(f.filesChanged),
+    refusedPaths: arr(f.refusedPaths),
+    filesInspectionStatus: f.filesInspectionStatus || "NOT OBSERVABLE",
+    changeManifest: arr(f.changeManifest),
+    ledgerSummary: f.ledgerSummary || null,
+    materialiseWarnings: arr(f.materialiseWarnings),
     patchHash: f.patchHash || null,
-    changeManifest: Array.isArray(f.changeManifest) ? f.changeManifest : [],
-    commandsRequested: Array.isArray(f.commandsRequested) ? f.commandsRequested : [],
-    commandsExecuted: Array.isArray(f.commandsExecuted) ? f.commandsExecuted : [],
-    controlsEnforced: Array.isArray(f.controlsEnforced) ? f.controlsEnforced : [],
-    outOfScopeDelegated: Array.isArray(f.outOfScopeDelegated) ? f.outOfScopeDelegated : [],
-    validatorResults: Array.isArray(f.validatorResults) ? f.validatorResults : [],
+    // command / tool observation (honest)
+    projectOsCommandsExecuted: arr(f.projectOsCommandsExecuted),
+    workerCommandsObserved: arr(f.workerCommandsObserved),
+    workerCommandsObservationStatus: f.workerCommandsObservationStatus || "NOT OBSERVABLE",
+    workerToolsPermitted: arr(f.workerToolsPermitted),
+    workerToolsVerified: f.workerToolsVerified === true,
+    // controls, split by real enforcement status
+    controls: {
+      technicallyEnforced: arr(controls.technicallyEnforced),
+      policyRequested: arr(controls.policyRequested),
+      delegated: arr(controls.delegated),
+      notVerified: arr(controls.notVerified),
+      outOfScope: arr(controls.outOfScope),
+    },
     timeoutStatus: f.timeoutStatus || "none",
     cancellationStatus: f.cancellationStatus || "none",
     killConfirmed: f.killConfirmed === undefined ? null : !!f.killConfirmed,
     outputRedactionStatus: f.outputRedactionStatus || "applied",
     envRedactionStatus: f.envRedactionStatus || "minimal-allowlist",
     outputExcerpt: typeof f.outputExcerpt === "string" ? f.outputExcerpt : "",
-    residue: Array.isArray(f.residue) ? f.residue : [],
-    risks: Array.isArray(f.risks) ? f.risks : [],
+    residue: arr(f.residue),
+    risks: arr(f.risks),
     workerDecision: decision,
     projectOsDecisionRequired: true,
   };
-  return Object.freeze(result);
+  const resultHash = crypto.createHash("sha256").update(JSON.stringify(body)).digest("hex");
+  return deepFreeze(Object.assign(body, { resultHash }));
 }
 
-/** Validate a result against the contract. Returns an error array (empty = valid). */
-function validateResult(result) {
+function deepFreeze(o) {
+  if (o && typeof o === "object" && !Object.isFrozen(o)) {
+    for (const k of Object.keys(o)) deepFreeze(o[k]);
+    Object.freeze(o);
+  }
+  return o;
+}
+
+/** Validate a result against the v2 contract. `opts.real` requires non-null operation identity. */
+function validateResult(result, opts) {
+  const o = opts || {};
   const errors = [];
   const r = result || {};
   const required = [
     "schemaVersion", "operationId", "projectId", "phaseId", "approvalStatus", "repository", "baselineBranch",
-    "baselineHead", "finalBranch", "finalHead", "outcome", "filesInspected", "filesProposed", "filesChanged",
-    "refusedPaths", "patchHash", "changeManifest", "commandsRequested", "commandsExecuted", "controlsEnforced",
-    "validatorResults", "timeoutStatus", "cancellationStatus", "killConfirmed", "outputRedactionStatus",
+    "baselineHead", "finalBranch", "finalHead", "outcome", "reason", "sandboxProvider", "sandboxPolicy",
+    "canonicalVisibility", "networkPolicy", "processTerminationStatus", "residualDriftStatus", "filesChanged",
+    "refusedPaths", "filesInspectionStatus", "changeManifest", "ledgerSummary", "patchHash", "projectOsCommandsExecuted",
+    "workerCommandsObserved", "workerCommandsObservationStatus", "workerToolsPermitted", "workerToolsVerified",
+    "controls", "timeoutStatus", "cancellationStatus", "killConfirmed", "outputRedactionStatus",
     "envRedactionStatus", "outputExcerpt", "residue", "risks", "workerDecision", "projectOsDecisionRequired",
+    "resultHash",
   ];
   for (const k of required) if (!Object.prototype.hasOwnProperty.call(r, k)) errors.push("result: missing field '" + k + "'");
-  if (r.schemaVersion !== "1.0") errors.push("result: bad schemaVersion");
+  if (r.schemaVersion !== "2.0") errors.push("result: bad schemaVersion");
   if (FORBIDDEN_WORKER_DECISIONS.includes(String(r.workerDecision).toUpperCase())) errors.push("result: workerDecision is an authoritative gate outcome (forbidden)");
   for (const k of FORBIDDEN_RESULT_FIELDS) if (Object.prototype.hasOwnProperty.call(r, k)) errors.push("result: forbidden field '" + k + "'");
   if (r.projectOsDecisionRequired !== true) errors.push("result: projectOsDecisionRequired must be true");
+  if (OBSERVATION_STATUSES.indexOf(r.workerCommandsObservationStatus) < 0) errors.push("result: bad workerCommandsObservationStatus");
+  // controls integrity: a delegated / notVerified / out-of-scope control must NOT be claimed technically enforced.
+  const c = r.controls || {};
+  const te = new Set((c.technicallyEnforced || []).map(String));
+  for (const bucket of ["delegated", "notVerified", "outOfScope"]) {
+    for (const x of (c[bucket] || [])) if (te.has(String(x))) errors.push("result: control '" + x + "' is in both technicallyEnforced and " + bucket);
+  }
+  // result-hash integrity
+  if (r.resultHash) {
+    const copy = Object.assign({}, r); delete copy.resultHash;
+    const recomputed = crypto.createHash("sha256").update(JSON.stringify(copy)).digest("hex");
+    if (recomputed !== r.resultHash) errors.push("result: resultHash integrity check failed (mutated or serialisation drift; not an HMAC — see report)");
+  }
+  // real operations require non-null identity
+  if (o.real) {
+    for (const k of ["operationId", "phaseId", "projectId", "baselineHead"]) if (!r[k]) errors.push("result: real operation requires non-null " + k);
+  }
   return errors;
 }
 
 module.exports = {
   buildMinimalEnv, isTokenishName, promptHasRawSecret, scrubSecrets, isUnsafeShim, resolvePolicy,
-  isAllowedPath, allowlistTouchesProjectos, buildResult, validateResult, normPath,
+  isAllowedPath, allowlistTouchesProjectos, buildResult, validateResult, deepFreeze, normPath,
   CONTROL_FIELDS, FORBIDDEN_WORKER_DECISIONS, FORBIDDEN_RESULT_FIELDS, SECRET_SHAPE, ENV_ALLOW_COMMON,
+  OBSERVATION_STATUSES,
 };
