@@ -28,12 +28,14 @@ const ledger = require("./workspace-ledger.cjs");
 const sandbox = require("./sandbox-provider.cjs");
 const attestation = require("./attestation.cjs");
 const detector = require("./invocation-detector.cjs");
+const opEvidence = require("./operation-evidence.cjs");
 const execcheck = require("./executable-check.cjs");
 
 const GIT_MAXBUF = 64 * 1024 * 1024;
-const DANGEROUS_FLAG = /^--?(dangerously-skip-permissions|no-sandbox|allow-all|yolo|permission-mode=bypass)/i;
 
 function sha256(s) { return crypto.createHash("sha256").update(s).digest("hex"); }
+// Version match at TOKEN boundaries (so "21.9.0" does NOT satisfy a want of "1.9.0").
+function verMatch(detected, want) { if (!detected || !want) return true; const w = String(want).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); return new RegExp("(^|[^0-9.])" + w + "([^0-9.]|$)").test(String(detected)); }
 function gitStrict(repoRoot, args) { return execFileSync("git", ["-C", repoRoot, ...args], { encoding: "utf8", maxBuffer: GIT_MAXBUF }); }
 function gitLine(repoRoot, args) { return gitStrict(repoRoot, args).trim(); }
 function refused(reason, extra) { return Object.assign({ ok: false, decision: "REFUSED", reason }, extra || {}); }
@@ -68,22 +70,6 @@ function gitMetaDigest(repoRoot) {
   return sha256(parts.sort().join("|"));
 }
 function monitorDrift(a, b) { return ["toplevel", "origin", "branch", "head", "status", "ignoredInventory", "deepInventory", "filesHash", "metaHash"].filter((k) => a[k] !== b[k]); }
-
-/** Wire the provider-owned operation's child stream with bounded output + a timeout that terminates the OP. */
-function driveOperation(provider, handle, policy) {
-  const child = handle && handle.child;
-  return new Promise((resolve) => {
-    if (!child) return resolve({ killedFor: "spawn-error", code: null, stdout: "" }); // no process ⇒ NOT EXECUTED
-    let stdout = "", stderrBytes = 0, killedFor = null, doneF = false;
-    const finish = (payload) => { if (doneF) return; doneF = true; clearTimeout(timer); try { child.stdout && child.stdout.removeAllListeners("data"); child.stderr && child.stderr.removeAllListeners("data"); } catch (e) {} resolve(payload); };
-    const abort = (why) => { killedFor = why; try { provider.terminateOperation(handle); } catch (e) {} finish({ stdout, killedFor: why, code: null }); };
-    const timer = setTimeout(() => abort("timeout"), policy.timeoutMs);
-    child.stdout && child.stdout.on("data", (d) => { stdout += d.toString(); if (Buffer.byteLength(stdout, "utf8") > policy.maxOutputBytes) abort("output-overflow"); });
-    child.stderr && child.stderr.on("data", (d) => { stderrBytes += d.length; if (stderrBytes > policy.maxOutputBytes) abort("stderr-overflow"); });
-    child.on && child.on("error", () => finish({ killedFor: killedFor || "worker-error", code: null, stdout }));
-    child.on && child.on("close", (code) => finish({ stdout, killedFor, code }));
-  });
-}
 
 async function runClaudeWorker(req, config) {
   const r = req || {}; const c = config || {};
@@ -132,22 +118,17 @@ async function runClaudeWorker(req, config) {
     // bind the actual binary: hash it and compare to the record/attestation's declared executableContentHash
     let realHash = null; try { realHash = sha256(fs.readFileSync(ev.resolvedPath)); } catch (e) { return na(blocked("BLOCKED-EXECUTABLE", { execReason: "executable-unreadable" })); }
     if (c.executableContentHash && realHash !== c.executableContentHash) return na(blocked("BLOCKED-EXECUTABLE", { execReason: "executable-content-hash-mismatch" }));
-    if (c.cliVersion && ev.version && String(ev.version).indexOf(c.cliVersion) < 0) return na(blocked("BLOCKED-EXECUTABLE", { execReason: "cli-version-mismatch", detail: ev.version }));
+    if (c.cliVersion && ev.version && !verMatch(ev.version, c.cliVersion)) return na(blocked("BLOCKED-EXECUTABLE", { execReason: "cli-version-mismatch", detail: ev.version }));
   }
-  if (typeof c.claudeArgs !== "function") return na(blocked("no-tool-restriction-configured"));
+  // NB: a caller `claudeArgs` function is intentionally NOT consulted — ProjectOS builds the final argv itself
+  // from the verified detection record (§3). An arbitrary callback can never control the real invocation.
 
-  // 5) STRUCTURED operation-bound attestation (not a boolean) — bound to the REAL resolved executable path.
-  const attCtx = { providerId: provider.providerId, operationId: policy.operationId, projectId: r.projectId, phaseId: policy.phaseId, workspaceId: policy.operationId, executableResolvedPathInsideSandbox: exeResolved, now: c.now };
-  let att = null; try { att = typeof provider.attest === "function" ? provider.attest(attCtx) : null; } catch (e) { att = null; }
-  const av = attestation.verifyAttestation(att, attCtx);
-  if (!av.ok) return na(blocked("BLOCKED-SANDBOX-ATTESTATION", { errors: av.errors }));
-
-  // 6) TOOL-RESTRICTION DETECTION RECORD verified (bound to exe hash + version + provider + policy).
+  // 5) TOOL-RESTRICTION DETECTION RECORD verified (bound to exe hash + version + provider + policy + template).
   const dv = detector.verifyDetectionRecord(c.detectionRecord, { executableContentHash: c.executableContentHash, cliVersion: c.cliVersion, operationMode: "first-controlled-change", sandboxProviderId: provider.providerId, policyVersion: c.policyVersion, now: c.now, firstControlledChange: true });
   if (!dv.ok) return na(blocked("WORKER-TOOL-RESTRICTION-NOT-PROVEN", { errors: dv.errors }));
   const permittedTools = (c.detectionRecord && c.detectionRecord.permittedTools) || [];
 
-  // 7) Canonical baseline (strict git; fails closed).
+  // 6) Canonical baseline (strict git; fails closed).
   const repoRoot = policy.repoRoot;
   let before;
   try { const tl = gitLine(repoRoot, ["rev-parse", "--show-toplevel"]); if (path.resolve(tl) !== path.resolve(repoRoot)) return na(refused("root-not-git-toplevel", { toplevel: tl })); before = monitorSnapshot(repoRoot, { deepIgnored: policy.monitorIgnoredContent }); }
@@ -158,87 +139,133 @@ async function runClaudeWorker(req, config) {
   if (policy.requireClean && before.status) return na(refused("working-tree-dirty"));
   Object.assign(base, { toplevel: before.toplevel, origin: before.origin, baselineBranch: before.branch, baselineHead: before.head, finalBranch: before.branch, finalHead: before.head });
 
-  // 8) Materialise the .git-free workspace.
+  // 7) Materialise the .git-free workspace FIRST (before attestation). A real-run symlink fallback that is not
+  //    type-equivalent to the baseline fails closed (§11). workspaceId is UNIQUE and SEPARATE from operationId.
   let mat;
-  try { mat = ledger.materialize(repoRoot, before.head); } catch (e) { return na(blocked("workspace-materialise-failed", { detail: String(e.message).slice(0, 160) })); }
-  const workspace = mat.workspace;
+  try { mat = ledger.materialize(repoRoot, before.head, { realRun: requireReal }); }
+  catch (e) { const eq = /NOT-EQUIVALENT/.test(String(e.message)); return na(blocked(eq ? "WORKSPACE-MATERIALISATION-NOT-EQUIVALENT" : "workspace-materialise-failed", { detail: String(e.message).slice(0, 160) })); }
+  const workspace = mat.workspace; const workspaceId = mat.workspaceId;
   let disposed = false, preserve = false;
   const disposeAll = () => { if (c.keepWorkspace) return ["kept-by-config:" + workspace]; if (disposed || preserve) return []; disposed = true; return ledger.dispose(workspace); };
 
-  const BASE_ENFORCED = ["request-policy-tamper", "trusted-repo-binding", "branch", "remote", "clean-tree", "minimal-env", "workspace-no-dot-git", "trusted-fs-ledger", "path-allowlist", "symlink-escape", "timeout", "output-cap", "fail-closed-sandbox-gate", "operation-bound-attestation", "detection-record-verification", "shared-executable-check", "provider-permitted-executable", "first-proof-network-disabled", "provider-operation-handle"];
-  const controlsFor = (killConfirmed) => ({ technicallyEnforced: BASE_ENFORCED.concat(killConfirmed ? ["process-termination-confirm"] : []), policyRequested: ["worker-tool-restriction"], delegated: ["deploy", "db-mutation", "provider-cli", "send", "payment", "commit", "push"], notVerified: killConfirmed ? [] : ["process-termination-confirm"], outOfScope: [] });
-  const commonBase = { sandboxProvider: sandboxPolicy && sandboxPolicy.provider, sandboxPolicy, canonicalVisibility: provider.canonicalVisibility, networkPolicy: provider.networkPolicy, workerToolsPermitted: permittedTools, workerToolsVerified: true, workerCommandsObserved: [], workerCommandsObservationStatus: "NOT OBSERVABLE", projectOsCommandsExecuted: ["git ls-tree", "git show", "git status", "git ls-files", "git rev-parse"], filesInspectionStatus: "NOT OBSERVABLE", materialiseWarnings: mat.symlinkFallbacks || [], processControlProvider: provider.providerId, operationHandleType: provider.operationHandleType || provider.kind };
-  const commonResult = (kc) => Object.assign({}, commonBase, { controls: controlsFor(kc) });
-  const done = (env, extra, kc) => out(env, Object.assign({}, commonResult(kc !== false), { residue: disposeAll() }, extra || {}));
+  const BASE_ENFORCED = ["request-policy-tamper", "trusted-repo-binding", "branch", "remote", "clean-tree", "minimal-env", "workspace-no-dot-git", "trusted-fs-ledger", "path-allowlist", "symlink-escape", "timeout", "output-cap", "fail-closed-sandbox-gate", "workspace-bound-attestation", "detection-record-verification", "exact-invocation-binding", "shared-executable-check", "provider-permitted-executable", "first-proof-network-disabled", "provider-operation-handle", "mandatory-operation-disposal"];
+  const wsFields = { workspaceId, materialisationManifestHash: mat.materialisationManifestHash, materialiseWarnings: mat.symlinkFallbacks || [] };
+  const controlsFor = (killConfirmed, toolsApplied) => ({ technicallyEnforced: BASE_ENFORCED.concat(killConfirmed ? ["process-termination-confirm"] : []).concat(toolsApplied ? ["exact-invocation-restriction-applied"] : []), policyRequested: ["worker-tool-restriction"], delegated: ["deploy", "db-mutation", "provider-cli", "send", "payment", "commit", "push"], notVerified: killConfirmed ? [] : ["process-termination-confirm"], outOfScope: [] });
+  const commonBase = () => Object.assign({ sandboxProvider: sandboxPolicy && sandboxPolicy.provider, sandboxPolicy, canonicalVisibility: provider.canonicalVisibility, networkPolicy: provider.networkPolicy, workerToolsPermitted: permittedTools, workerCommandsObserved: [], workerCommandsObservationStatus: "NOT OBSERVABLE", projectOsCommandsExecuted: ["git ls-tree", "git show", "git status", "git ls-files", "git rev-parse"], filesInspectionStatus: "NOT OBSERVABLE", processControlProvider: provider.providerId }, wsFields);
+  const commonResult = (kc, toolsApplied) => Object.assign(commonBase(), { controls: controlsFor(kc, toolsApplied), workerToolsVerified: toolsApplied ? "APPLIED AND VERIFIED" : "NOT VERIFIED" });
+  // Post-materialise refusal that always disposes the workspace (no process ran ⇒ termination NOT APPLICABLE).
+  const postMat = (env, extra, toolsApplied) => out(env, Object.assign({}, commonResult(false, toolsApplied), { processTerminationStatus: "NOT APPLICABLE", residue: disposeAll() }, extra || {}));
 
+  // 8) STRUCTURED provider CAPABILITY attestation — bound to the ACTUAL materialised workspace + real exe + op.
+  const attCtx = { providerId: provider.providerId, operationId: policy.operationId, projectId: r.projectId, phaseId: policy.phaseId, workspaceId, workspacePathHash: mat.hostWorkspacePathHash, materialisationManifestHash: mat.materialisationManifestHash, executableResolvedPathInsideSandbox: exeResolved, now: c.now };
+  let att = null; try { att = typeof provider.attest === "function" ? provider.attest(attCtx) : null; } catch (e) { att = null; }
+  const av = attestation.verifyAttestation(att, attCtx);
+  if (!av.ok) return postMat(blocked("BLOCKED-SANDBOX-ATTESTATION", { errors: av.errors }));
+  const providerCapabilityAttestationHash = att && att.evidenceHash;
+
+  // 9) EXACT INVOCATION BINDING: ProjectOS builds the FINAL argv ITSELF from the verified record (never a
+  //    caller function) and verifies it exactly encodes the restriction. Not APPLIED-AND-VERIFIED ⇒ refuse.
+  const built = detector.buildArgv(c.detectionRecord, r.prompt);
+  const inv = detector.verifyInvocation(built.argv, c.detectionRecord, r.prompt);
+  const invocationArgvHash = inv.argvHash; const invocationRestrictionStatus = inv.status;
+  if (inv.status !== detector.INVOCATION_STATUS.APPLIED_VERIFIED) return postMat(blocked("INVOCATION-RESTRICTION-NOT-APPLIED", { invocationRestrictionStatus: inv.status, errors: inv.errors }), { invocationRestrictionStatus: inv.status, invocationArgvHash, providerCapabilityAttestationHash });
+  const argv = built.argv;
+
+  const wsBefore = ledger.snapshot(workspace);
+  const preExecutionLedgerHash = ledger.hashSnapshot(wsBefore);
+  const evBase = { invocationArgvHash, invocationRestrictionStatus, providerCapabilityAttestationHash, preExecutionLedgerHash };
+  const startTs = Date.now();
   let handle = null;
   try {
-    const wsBefore = ledger.snapshot(workspace);
-    const argv = c.claudeArgs(r.prompt, { tools: permittedTools, commands: (c.detectionRecord && c.detectionRecord.permittedCommands) || [], mode: policy.mode });
-    if (!Array.isArray(argv) || !argv.every((a) => typeof a === "string")) return done(blocked("claude-args-not-string-array"), { processTerminationStatus: "NOT EXECUTED" });
-    if (argv.some((a) => DANGEROUS_FLAG.test(a))) return done(blocked("dangerous-cli-flag", { flag: argv.find((a) => DANGEROUS_FLAG.test(a)) }), { processTerminationStatus: "NOT EXECUTED" });
-
-    // 9) Spawn via the provider-owned operation (stable handle).
+    // 10) Spawn via the provider-owned operation (stable handle).
     try { handle = provider.spawnOperation({ bin: c.claudeBin, argv, cwd: workspace, env: P.buildMinimalEnv(process.platform, policy.envAllowlist), operationId: policy.operationId }); }
-    catch (e) { return done(blocked("operation-spawn-failed", { detail: String(e.message).slice(0, 160) }), { processTerminationStatus: "NOT EXECUTED" }); }
+    catch (e) { return postMat(blocked("operation-spawn-failed", { detail: String(e.message).slice(0, 160) }), Object.assign({ processTerminationStatus: "NOT EXECUTED" }, evBase), true); }
     const handleType = handle && handle.handleType;
     const handleIdRedacted = handle && handle.handleId ? "op-" + sha256(String(handle.handleId)).slice(0, 12) : null;
-    // PID-typed handle is forbidden for real runs (labelled synthetic only).
-    if (handleType === "pid" && requireReal) { try { provider.terminateOperation(handle); } catch (e) {} return done(blocked("BLOCKED-PROCESS-OWNERSHIP", { reason2: "pid-handle-forbidden-for-real-runs" }), { processTerminationStatus: "NOT EXECUTED", operationHandleType: handleType });
+    if (handleType === "pid" && requireReal) { try { provider.terminateOperation(handle); } catch (e) {} return postMat(blocked("BLOCKED-PROCESS-OWNERSHIP", { reason2: "pid-handle-forbidden-for-real-runs" }), Object.assign({ processTerminationStatus: "NOT EXECUTED", operationHandleType: handleType }, evBase), true); }
 
-    }
-    const run = await driveOperation(provider, handle, policy);
-    const output = P.scrubSecrets(redactor.redactText(run.stdout || "")).slice(0, 4000);
-    if (run.killedFor === "spawn-error") return done(refused("spawn-error"), { processTerminationStatus: "NOT EXECUTED", outputExcerpt: output, operationHandleType: handleType, operationHandleIdRedacted: handleIdRedacted });
+    // 11) Wait + read output ONLY through the provider streaming contract (never handle.child).
+    // Adapter-side timeout BACKSTOP (defence in depth): even if a provider ignores its own timeoutMs, the
+    // adapter terminates + resolves rather than hanging forever.
+    let run;
+    try {
+      const hostTimeout = new Promise((rz) => setTimeout(() => rz({ exitStatus: null, killedFor: "timeout" }), (policy.timeoutMs || 120000) + 2000));
+      run = await Promise.race([provider.waitForOperationExit(handle, { timeoutMs: policy.timeoutMs, maxOutputBytes: policy.maxOutputBytes }), hostTimeout]);
+      if (run && run.killedFor === "timeout") { try { provider.terminateOperation(handle); } catch (e) {} }
+    } catch (e) { run = { exitStatus: null, killedFor: "provider-error" }; }
+    let rawOut = ""; try { rawOut = provider.readOperationOutput(handle, policy.maxOutputBytes); } catch (e) { /* ignore */ }
+    const output = P.scrubSecrets(redactor.redactText(rawOut || "")).slice(0, 4000);
+    const exitTs = Date.now();
+    const opBase = { operationId: policy.operationId, workspaceId, providerId: provider.providerId, providerVersion: provider.providerVersion, operationHandleType: handleType, operationHandleIdRedacted: handleIdRedacted, executableContentHash: c.executableContentHash, argvHash: invocationArgvHash, startTimestamp: startTs, exitTimestamp: exitTs };
 
-    // 10) CONFIRM termination via the provider-owned operation handle (never a reused PID). Clean exit still
-    //     confirms the whole operation is finished; unconfirmed ⇒ EMERGENCY-STOP.
+    if (run.killedFor === "spawn-error" || run.killedFor === "provider-error") return postMat(refused(run.killedFor), Object.assign({ processTerminationStatus: "NOT EXECUTED", outputExcerpt: output, operationHandleType: handleType, operationHandleIdRedacted: handleIdRedacted }, evBase), true);
+
+    // 12) Terminate (if killed) + CONFIRM via the operation handle.
     if (run.killedFor) { try { provider.terminateOperation(handle); } catch (e) {} }
     let conf; try { conf = provider.confirmOperationTerminated(handle); } catch (e) { conf = { confirmed: false, processCount: null }; }
     const processCount = conf && conf.processCount;
-    // Bind the evidence hash to THIS operation + handle + the provider's own confirmation evidence (canonical
-    // serialisation so it is key-order stable). Integrity, not authenticity (see report trust boundary).
     const pcEvidenceHash = sha256(attestation.canonicalJson({ operationId: policy.operationId, handleIdRedacted, handleType, processCount, confirmed: conf && conf.confirmed, providerEvidence: conf && conf.evidence }));
-    const opFields = { operationHandleType: handleType, operationHandleIdRedacted: handleIdRedacted, operationProcessCountObserved: processCount, processControlEvidenceHash: pcEvidenceHash };
+    const canary = (n) => (att && att[n] && att[n].actual) || "not-evaluated";
 
+    // Unconfirmed ⇒ EMERGENCY-STOP: do NOT dispose destructively; preserve operation + workspace evidence.
     if (!conf || conf.confirmed !== true) {
       preserve = true; try { provider.preserveOperationEvidence(handle); } catch (e) {}
-      return out(emergency("EMERGENCY-STOP-REQUIRED"), Object.assign({}, commonResult(false), opFields, { outputExcerpt: output, processTerminationStatus: "EMERGENCY-STOP-REQUIRED", killConfirmed: false, residualDriftStatus: "not-evaluated", residue: ["workspace-preserved:" + workspace], risks: ["operation termination unconfirmed — external-operation lock; owner resolution required"], cancellationStatus: "unconfirmed" }));
+      const opEv = opEvidence.buildOperationEvidence(Object.assign({}, opBase, { exitStatus: run.exitStatus, terminationStatus: "TERMINATION-UNCONFIRMED", operationProcessCount: processCount, networkDenialResult: canary("networkCanary"), canonicalAccessDenialResult: canary("canonicalPathCanary"), otherProjectAccessDenialResult: canary("otherProjectPathCanary"), credentialAccessDenialResult: canary("credentialPathCanary"), outputRedactionResult: "applied", disposalStatus: "not-disposed-evidence-preserved", residue: ["operation-preserved"] }));
+      return out(emergency("EMERGENCY-STOP-REQUIRED"), Object.assign({}, commonResult(false, true), evBase, { operationHandleType: handleType, operationHandleIdRedacted: handleIdRedacted, operationProcessCountObserved: processCount, processControlEvidenceHash: pcEvidenceHash, operationEvidenceHash: opEv.evidenceHash, operationDisposalStatus: "not-disposed-evidence-preserved", operationResidue: ["operation-preserved"], outputExcerpt: output, processTerminationStatus: "EMERGENCY-STOP-REQUIRED", killConfirmed: false, residualDriftStatus: "not-evaluated", residue: ["workspace-preserved:" + workspace], risks: ["operation termination unconfirmed — external-operation lock; owner resolution required"], cancellationStatus: "unconfirmed" }));
     }
 
-    if (run.killedFor) { const reason = ["timeout", "output-overflow", "stderr-overflow"].includes(run.killedFor) ? run.killedFor : "worker-error"; return done(refused(reason), Object.assign({}, opFields, { outputExcerpt: output, processTerminationStatus: "TERMINATED-CONFIRMED", cancellationStatus: "confirmed", timeoutStatus: run.killedFor === "timeout" ? "killed" : "none", residualDriftStatus: "not-evaluated" })); }
+    // 13) MANDATORY disposal after confirmed termination. A malformed / non-empty-residue disposal is a failure.
+    let descendants = []; try { descendants = provider.enumerateOperationProcesses(handle) || []; } catch (e) { descendants = []; }
+    let disp; try { disp = provider.disposeOperation(handle); } catch (e) { disp = null; }
+    const operationResidue = disp && Array.isArray(disp.residue) ? disp.residue : ["disposal-result-malformed"];
+    const disposalOk = !!disp && disp.disposed === true && Array.isArray(disp.residue) && disp.residue.length === 0;
+    const operationDisposalStatus = disposalOk ? "disposed" : "disposal-failed";
+    const buildOpEv = (term) => opEvidence.buildOperationEvidence(Object.assign({}, opBase, { exitStatus: run.exitStatus, terminationStatus: term, operationProcessCount: processCount, containedDescendants: descendants, networkDenialResult: canary("networkCanary"), canonicalAccessDenialResult: canary("canonicalPathCanary"), otherProjectAccessDenialResult: canary("otherProjectPathCanary"), credentialAccessDenialResult: canary("credentialPathCanary"), outputRedactionResult: "applied", disposalStatus: operationDisposalStatus, residue: operationResidue }));
+    const opFields = () => ({ operationHandleType: handleType, operationHandleIdRedacted: handleIdRedacted, operationProcessCountObserved: processCount, processControlEvidenceHash: pcEvidenceHash, operationEvidenceHash: buildOpEv("TERMINATED-CONFIRMED").evidenceHash, operationDisposalStatus, operationResidue });
+    const done = (env, extra) => out(env, Object.assign({}, commonResult(true, true), evBase, opFields(), { residue: disposeAll() }, extra || {}));
 
-    // 11) Trusted FS diff + path enforcement.
+    // Disposal failure is the HEADLINE outcome on EVERY post-confirmation branch (not buried in metadata behind
+    // a timeout/drift/forbidden reason): a leftover sandbox operation must never be under-reported.
+    if (!disposalOk) return done(blocked("OPERATION-DISPOSAL-FAILED", { operationResidue }), { outputExcerpt: output, processTerminationStatus: "TERMINATED-CONFIRMED", residualDriftStatus: "not-evaluated" });
+
+    // Killed (but confirmed dead + disposed) ⇒ refuse.
+    if (run.killedFor) { const reason = ["timeout", "output-overflow", "stderr-overflow"].includes(run.killedFor) ? run.killedFor : "worker-error"; return done(refused(reason), { outputExcerpt: output, processTerminationStatus: "TERMINATED-CONFIRMED", cancellationStatus: "confirmed", timeoutStatus: run.killedFor === "timeout" ? "killed" : "none", residualDriftStatus: "not-evaluated" }); }
+
+    // 14) Trusted FS diff + path enforcement (clean exit only).
     const wsAfter = ledger.snapshot(workspace); const led = ledger.diff(wsBefore, wsAfter);
     const refusedPaths = [];
     for (const p of led.changedPaths) { const norm = P.normPath(p); if (norm === ".git" || norm.startsWith(".git/")) { refusedPaths.push(p); continue; } if (!P.isAllowedPath(p, policy)) { refusedPaths.push(p); continue; } }
     for (const p of led.escapes) if (refusedPaths.indexOf(p) < 0) refusedPaths.push(p);
 
-    // 12) Monitored-state reconciliation.
-    let after; try { after = monitorSnapshot(repoRoot, { deepIgnored: policy.monitorIgnoredContent }); } catch (e) { return done(blocked("reconcile-snapshot-failed", { detail: String(e.message).slice(0, 160) }), Object.assign({}, opFields, { outputExcerpt: output, processTerminationStatus: "TERMINATED-CONFIRMED" })); }
-    // A tracked file that could not be read cannot be proven unchanged — never let it collapse to "no drift".
-    if (after.unverifiable > 0 || before.unverifiable > 0) return done(blocked("monitored-state-unverifiable", { unverifiable: after.unverifiable + before.unverifiable }), Object.assign({}, opFields, { outputExcerpt: output, processTerminationStatus: "TERMINATED-CONFIRMED", residualDriftStatus: "not-evaluated" }));
+    // 15) Monitored-state reconciliation.
+    let after; try { after = monitorSnapshot(repoRoot, { deepIgnored: policy.monitorIgnoredContent }); } catch (e) { return done(blocked("reconcile-snapshot-failed", { detail: String(e.message).slice(0, 160) }), { outputExcerpt: output, processTerminationStatus: "TERMINATED-CONFIRMED" }); }
+    if (after.unverifiable > 0 || before.unverifiable > 0) return done(blocked("monitored-state-unverifiable", { unverifiable: after.unverifiable + before.unverifiable }), { outputExcerpt: output, processTerminationStatus: "TERMINATED-CONFIRMED", residualDriftStatus: "not-evaluated" });
     const drift = monitorDrift(before, after);
     const residualDriftStatus = drift.length ? "residual-drift-detected" : "no-residual-drift-detected";
     const manifest = ledger.manifest(wsAfter, led);
     const patchHash = manifest.length ? sha256(JSON.stringify(manifest)) : null;
     const ledgerSummary = { added: led.added.length, modified: led.modified.length, deleted: led.deleted.length, typeChanged: led.typeChanged.length, sameSizeContentChange: led.sameSizeContentChange.length, symlinkChanged: led.symlinkChanged.length, permissionChanged: led.permissionChanged.length, renamed: led.renamed.length, escapes: led.escapes.length, hidden: led.hidden.length, unreadable: led.unreadable.length, special: led.special.length };
 
-    if (drift.length) return done(blocked("residual-drift-detected", { fields: drift }), Object.assign({}, opFields, { outputExcerpt: output, processTerminationStatus: "TERMINATED-CONFIRMED", residualDriftStatus, ledgerSummary }));
-    if (refusedPaths.length) return done(refused("forbidden-path-change", { refusedPaths }), Object.assign({}, opFields, { outputExcerpt: output, processTerminationStatus: "TERMINATED-CONFIRMED", residualDriftStatus, filesChanged: led.changedPaths, refusedPaths, changeManifest: manifest, patchHash, ledgerSummary }));
+    if (drift.length) return done(blocked("residual-drift-detected", { fields: drift }), { outputExcerpt: output, processTerminationStatus: "TERMINATED-CONFIRMED", residualDriftStatus, ledgerSummary });
+    if (refusedPaths.length) return done(refused("forbidden-path-change", { refusedPaths }), { outputExcerpt: output, processTerminationStatus: "TERMINATED-CONFIRMED", residualDriftStatus, filesChanged: led.changedPaths, refusedPaths, changeManifest: manifest, patchHash, ledgerSummary });
 
-    // 13) Success.
+    // 16) Dispose the WORKSPACE and gate on it: a workspace that could not be deleted (source-tree left on
+    //     disk) must NOT be reported COMPLETED. `kept-by-config` is an owner-requested keep, not a failure.
     const residue = disposeAll();
+    const realResidue = residue.filter((x) => !String(x).startsWith("kept-by-config:"));
+    if (realResidue.length) return out(blocked("WORKSPACE-DISPOSAL-FAILED", { residue: realResidue }), Object.assign({}, commonResult(true, true), evBase, opFields(), { outputExcerpt: output, processTerminationStatus: "TERMINATED-CONFIRMED", residualDriftStatus, filesChanged: led.changedPaths, changeManifest: manifest, patchHash, ledgerSummary, residue }));
+
+    // 17) Success.
     let res; try {
-      res = P.buildResult(Object.assign({}, commonResult(true), opFields, { operationId: policy.operationId, projectId: r.projectId, phaseId: policy.phaseId, approvalStatus: policy.approvalId ? "referenced" : "none", toplevel: before.toplevel, origin: before.origin, baselineBranch: before.branch, baselineHead: before.head, finalBranch: after.branch, finalHead: after.head, outcome: run.code === 0 ? "COMPLETED" : "FAILED", residualDriftStatus, filesChanged: led.changedPaths, changeManifest: manifest, patchHash, ledgerSummary, processTerminationStatus: "TERMINATED-CONFIRMED", killConfirmed: true, timeoutStatus: "none", cancellationStatus: "none", outputExcerpt: output, residue, workerDecision: run.code === 0 ? "PROPOSED" : "FAILED" }));
-    } catch (e) { const rr = disposeAll(); return out(blocked("result-build-failed", { detail: String(e.message).slice(0, 160) }), Object.assign({}, commonResult(true), { residue: rr })); }
+      res = P.buildResult(Object.assign({}, commonResult(true, true), evBase, opFields(), { operationId: policy.operationId, projectId: r.projectId, phaseId: policy.phaseId, approvalStatus: policy.approvalId ? "referenced" : "none", toplevel: before.toplevel, origin: before.origin, baselineBranch: before.branch, baselineHead: before.head, finalBranch: after.branch, finalHead: after.head, outcome: run.exitStatus === 0 ? "COMPLETED" : "FAILED", residualDriftStatus, filesChanged: led.changedPaths, changeManifest: manifest, patchHash, ledgerSummary, processTerminationStatus: "TERMINATED-CONFIRMED", killConfirmed: true, timeoutStatus: "none", cancellationStatus: "none", outputExcerpt: output, residue, workerDecision: run.exitStatus === 0 ? "PROPOSED" : "FAILED" }));
+    } catch (e) { return out(blocked("result-build-failed", { detail: String(e.message).slice(0, 160) }), Object.assign({}, commonResult(true, true), { residue })); }
     const contractErrors = P.validateResult(res, { real: requireReal });
-    if (contractErrors.length) { const rr = disposeAll(); return out(blocked("result-contract-violation", { contractErrors }), Object.assign({}, commonResult(true), { residue: rr })); }
-    return { ok: run.code === 0, decision: run.code === 0 ? "COMPLETED" : "FAILED", output, patchHash, changedFiles: led.changedPaths, ledger: led, result: res };
+    if (contractErrors.length) return out(blocked("result-contract-violation", { contractErrors }), Object.assign({}, commonResult(true, true), { residue }));
+    return { ok: run.exitStatus === 0, decision: run.exitStatus === 0 ? "COMPLETED" : "FAILED", output, patchHash, changedFiles: led.changedPaths, ledger: led, result: res };
   } catch (e) {
     preserve = true; const wasDisposed = disposed;
     try { if (handle) provider.preserveOperationEvidence(handle); } catch (er) {}
-    return out(blocked("internal-error", { detail: String(e && e.message).slice(0, 200) }), Object.assign({}, commonResult(false), { processTerminationStatus: "TERMINATION-UNCONFIRMED", residualDriftStatus: "not-evaluated", residue: [wasDisposed ? "already-disposed:" + workspace : "workspace-preserved:" + workspace], risks: ["unexpected error — evidence preserved; owner resolution required"] }));
+    return out(blocked("internal-error", { detail: String(e && e.message).slice(0, 200) }), Object.assign({}, commonResult(false, true), { processTerminationStatus: "TERMINATION-UNCONFIRMED", residualDriftStatus: "not-evaluated", residue: [wasDisposed ? "already-disposed:" + workspace : "workspace-preserved:" + workspace], risks: ["unexpected error — evidence preserved; owner resolution required"] }));
   } finally { if (!disposed && !preserve && !c.keepWorkspace) disposeAll(); }
 }
 

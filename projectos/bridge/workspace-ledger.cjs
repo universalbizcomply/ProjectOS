@@ -29,7 +29,7 @@ function sha256File(p) { return crypto.createHash("sha256").update(fs.readFileSy
  * no shell, no Windows path pitfalls. ProjectOS-side, before the worker runs. Throws on failure (→ BLOCKED).
  * @returns { workspace, tarPath, files:[relpaths] }   (tarPath kept for API compatibility; unused)
  */
-function materialize(repoRoot, baseHead) {
+function materialize(repoRoot, baseHead, opts) {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "pos-ws-"));
   const files = [];
   const symlinkFallbacks = []; // symlinks we could NOT create as links (e.g. Windows without privilege) — flagged, never silent
@@ -58,7 +58,21 @@ function materialize(repoRoot, baseHead) {
     try { fs.rmSync(workspace, { recursive: true, force: true }); } catch (er) { /* best effort */ }
     throw e;
   }
-  return { workspace, tarPath: path.join(workspace, ".pos-nonexistent"), files: files.sort(), symlinkFallbacks, empty: files.length === 0 };
+  // For a REAL run a symlink that could not be created as a link (silently downgraded to a regular file) makes
+  // the workspace NOT type-equivalent to the approved baseline — fail closed (§11).
+  if (opts && opts.realRun && symlinkFallbacks.length) {
+    try { fs.rmSync(workspace, { recursive: true, force: true }); } catch (er) { /* best effort */ }
+    const err = new Error("WORKSPACE-MATERIALISATION-NOT-EQUIVALENT"); err.symlinkFallbacks = symlinkFallbacks; throw err;
+  }
+  const sorted = files.sort();
+  // Unique workspace identity, SEPARATE from the operation id (§5). Not from Date/Math (deterministic across
+  // resume): derived from the host path + a per-materialisation nonce.
+  const nonce = crypto.randomBytes(12).toString("hex");
+  const workspaceId = "ws-" + crypto.createHash("sha256").update(workspace + "|" + baseHead + "|" + nonce).digest("hex").slice(0, 24);
+  const hostWorkspacePathHash = crypto.createHash("sha256").update(workspace).digest("hex");
+  const manifest = {}; for (const rel of sorted) { try { manifest[rel] = sha256File(path.join(workspace, rel)); } catch (e) { manifest[rel] = "MISSING"; } }
+  const materialisationManifestHash = crypto.createHash("sha256").update(JSON.stringify(manifest)).digest("hex");
+  return { workspace, workspaceId, hostWorkspacePathHash, materialisationManifestHash, tarPath: path.join(workspace, ".pos-nonexistent"), files: sorted, symlinkFallbacks, empty: sorted.length === 0 };
 }
 
 /**
@@ -178,4 +192,6 @@ function dispose(dir) {
   return residue;
 }
 
-module.exports = { materialize, snapshot, diff, manifest, dispose, sha256File };
+function hashSnapshot(snap) { return crypto.createHash("sha256").update(JSON.stringify(snap || {})).digest("hex"); }
+
+module.exports = { materialize, snapshot, diff, manifest, dispose, sha256File, hashSnapshot };

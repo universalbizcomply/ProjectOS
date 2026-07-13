@@ -154,3 +154,22 @@ enum + operationHandle* / processControl* fields; enforce not-overstated). REMOV
 diff-check clean; 0 residue; capability (no config) → BLOCKED-SANDBOX-IMPLEMENTATION. ui-ux-pro-max AVAILABLE +
 used; "Claude Design" (named product) not present → frontend-design equivalent. ECC 3-agent round running.
 END STATUS target: IMPLEMENTED LOCALLY — AWAITING CHATGPT REVIEW. No push/real-worker/Docker/install.
+
+## HARDEN1D (2026-07-13) — exact invocation binding + real workspace attestation + operation disposal (IN PROGRESS)
+
+Corrects the gap between declared restrictions and the exact operation executed. §3 EXACT INVOCATION: removed
+arbitrary claudeArgs from the real path — ProjectOS builds the final argv ITSELF from the detection record's
+canonical argument template (`invocation-detector.buildArgv` + `verifyInvocation`); not APPLIED AND VERIFIED ⇒
+BLOCKED-INVOCATION-RESTRICTION-NOT-APPLIED; workerToolsVerified is a tri-state (NOT VERIFIED / VERIFIED BUT NOT
+APPLIED / APPLIED AND VERIFIED). §4/§5 TWO-STAGE ATTESTATION: provider CAPABILITY attestation (now workspace-
+bound: workspaceId≠operationId, workspacePathHash, materialisationManifestHash) + NEW `operation-evidence.cjs`
+(post-execution, operation-bound, evidenceHash). §6 provider STREAMING contract (readOperationOutput/
+readOperationError/waitForOperationExit) — adapter never touches handle.child. §7 MANDATORY disposal — failure
+⇒ BLOCKED-OPERATION-DISPOSAL-FAILED (blocks COMPLETED); unconfirmed ⇒ EMERGENCY-STOP (no destructive dispose,
+evidence preserved). §9 readiness/adapter parity (actual probe handle type, version compare). §10 process-scope
+probe with an unrelated sentinel. §11 real-run symlink fallback ⇒ WORKSPACE-MATERIALISATION-NOT-EQUIVALENT.
+§12 evidence fields added. REMOVED dead `invocation-profile`/`process-control` earlier; removed `driveOperation`.
+`owner-readiness-report.cjs` gained execution-state recovery (ui-ux-pro-max). `validate-claude-worker.cjs` =
+**47 invariants PASS (1 env-skip: symlink host)**. `npm run validate` ALL PASS (61); diff-check clean; 0 residue;
+capability → BLOCKED-SANDBOX-IMPLEMENTATION. ui-ux-pro-max used; Claude Design unavailable → frontend-design.
+ECC 3-agent round running. END STATUS target: IMPLEMENTED LOCALLY — AWAITING CHATGPT REVIEW.

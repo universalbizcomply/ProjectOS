@@ -108,4 +108,28 @@ function CHECK_TITLES_lookup(checks, cObj) {
   return "prerequisite";
 }
 
-module.exports = { renderReadinessHtml, esc, CHECK_TITLES };
+// Execution-outcome recovery guidance (§14: readiness vs EXECUTION). Maps a run result's block/outcome to a
+// plain-language owner recovery step — distinct from readiness (which is "can a real run even start").
+const EXECUTION_RECOVERY = {
+  "INVOCATION-RESTRICTION-NOT-APPLIED": "The worker's tool restriction was not actually encoded in the command that would run. Do not proceed — re-derive the detection record so ProjectOS builds a restricted command, and re-run.",
+  "WORKSPACE-MATERIALISATION-NOT-EQUIVALENT": "The disposable workspace did not exactly match the approved baseline (a symlink could not be reproduced). Do not proceed on this host — use a host/provider that preserves the entry types.",
+  "OPERATION-DISPOSAL-FAILED": "The sandbox operation did not dispose cleanly (leftover state). The run is NOT complete. Investigate the leftover residue and dispose the operation before any further run.",
+  "EMERGENCY-STOP-REQUIRED": "A worker operation could NOT be confirmed terminated. STOP. Do not reconcile or reuse the workspace. Preserve the evidence, resolve the live/uncertain process manually, then re-run readiness.",
+  "BLOCKED-SANDBOX-ATTESTATION": "The sandbox provider could not attest isolation for this exact workspace/operation. Do not proceed — fix the provider's attestation.",
+};
+/** One-line execution-state summary for a run result (terminal/console). Never asserts success falsely. */
+function renderExecutionState(result, decisionReason) {
+  const r = result || {}; const reason = decisionReason || r.reason || r.outcome || "";
+  const emergency = r.processTerminationStatus === "EMERGENCY-STOP-REQUIRED";
+  const rec = EXECUTION_RECOVERY[reason];
+  const lines = [];
+  lines.push("Run outcome: " + (emergency ? "EMERGENCY STOP" : (r.outcome || "unknown")));
+  lines.push("  invocation restriction: " + (r.invocationRestrictionStatus || "NOT VERIFIED"));
+  lines.push("  process termination:    " + (r.processTerminationStatus || "NOT APPLICABLE"));
+  lines.push("  operation disposal:     " + (r.operationDisposalStatus || "not-disposed"));
+  if (Array.isArray(r.operationResidue) && r.operationResidue.length) lines.push("  operation residue:      " + r.operationResidue.join(", "));
+  if (rec) { lines.push(""); lines.push("What to do: " + rec); }
+  return lines.join("\n");
+}
+
+module.exports = { renderReadinessHtml, renderExecutionState, esc, CHECK_TITLES, EXECUTION_RECOVERY };

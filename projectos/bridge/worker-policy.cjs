@@ -18,6 +18,7 @@
 const crypto = require("crypto");
 const OBSERVATION_STATUSES = ["OBSERVED", "PARTIALLY OBSERVED", "NOT OBSERVABLE", "NOT EXECUTED"];
 const TERMINATION_STATUSES = ["NOT APPLICABLE", "NOT EXECUTED", "TERMINATED-CONFIRMED", "TERMINATION-UNCONFIRMED", "EMERGENCY-STOP-REQUIRED"];
+const TOOL_VERIFIED_STATUSES = ["NOT VERIFIED", "VERIFIED BUT NOT APPLIED", "APPLIED AND VERIFIED"];
 
 // --- Environment isolation ---------------------------------------------------------------------------
 const ENV_ALLOW_COMMON = ["PATH", "Path"];
@@ -201,7 +202,19 @@ function buildResult(fields) {
     workerCommandsObserved: arr(f.workerCommandsObserved),
     workerCommandsObservationStatus: f.workerCommandsObservationStatus || "NOT OBSERVABLE",
     workerToolsPermitted: arr(f.workerToolsPermitted),
-    workerToolsVerified: f.workerToolsVerified === true,
+    workerToolsVerified: TOOL_VERIFIED_STATUSES.indexOf(f.workerToolsVerified) >= 0 ? f.workerToolsVerified : "NOT VERIFIED",
+    // HARDEN1D exact-invocation + workspace + operation evidence
+    workspaceId: f.workspaceId || null,
+    materialisationManifestHash: f.materialisationManifestHash || null,
+    preExecutionLedgerHash: f.preExecutionLedgerHash || null,
+    invocationArgvHash: f.invocationArgvHash || null,
+    invocationRestrictionStatus: f.invocationRestrictionStatus || "NOT VERIFIED",
+    providerCapabilityAttestationHash: f.providerCapabilityAttestationHash || null,
+    operationEvidenceHash: f.operationEvidenceHash || null,
+    operationDisposalStatus: f.operationDisposalStatus || "not-disposed",
+    operationResidue: arr(f.operationResidue),
+    actualOperationHandleType: f.operationHandleType || null,
+    runtimeReadinessEvidenceHash: f.runtimeReadinessEvidenceHash || null,
     // controls, split by real enforcement status
     controls: {
       technicallyEnforced: arr(controls.technicallyEnforced),
@@ -242,7 +255,9 @@ function validateResult(result, opts) {
     "schemaVersion", "operationId", "projectId", "phaseId", "approvalStatus", "repository", "baselineBranch",
     "baselineHead", "finalBranch", "finalHead", "outcome", "reason", "sandboxProvider", "sandboxPolicy",
     "canonicalVisibility", "networkPolicy", "processTerminationStatus", "operationHandleType",
-    "operationProcessCountObserved", "processControlProvider", "processControlEvidenceHash", "residualDriftStatus", "filesChanged",
+    "operationProcessCountObserved", "processControlProvider", "processControlEvidenceHash",
+    "workspaceId", "invocationRestrictionStatus", "invocationArgvHash", "operationDisposalStatus", "operationResidue",
+    "actualOperationHandleType", "materialisationManifestHash", "residualDriftStatus", "filesChanged",
     "refusedPaths", "filesInspectionStatus", "changeManifest", "ledgerSummary", "patchHash", "projectOsCommandsExecuted",
     "workerCommandsObserved", "workerCommandsObservationStatus", "workerToolsPermitted", "workerToolsVerified",
     "controls", "timeoutStatus", "cancellationStatus", "killConfirmed", "outputRedactionStatus",
@@ -256,8 +271,19 @@ function validateResult(result, opts) {
   if (r.projectOsDecisionRequired !== true) errors.push("result: projectOsDecisionRequired must be true");
   if (OBSERVATION_STATUSES.indexOf(r.workerCommandsObservationStatus) < 0) errors.push("result: bad workerCommandsObservationStatus");
   if (Object.prototype.hasOwnProperty.call(r, "processTerminationStatus") && TERMINATION_STATUSES.indexOf(r.processTerminationStatus) < 0) errors.push("result: bad processTerminationStatus enum");
+  if (Object.prototype.hasOwnProperty.call(r, "workerToolsVerified") && TOOL_VERIFIED_STATUSES.indexOf(r.workerToolsVerified) < 0) errors.push("result: bad workerToolsVerified enum");
   // termination control must not be overstated: process-termination-confirm only when CONFIRMED.
   if (r.controls && (r.controls.technicallyEnforced || []).indexOf("process-termination-confirm") >= 0 && r.processTerminationStatus !== "TERMINATED-CONFIRMED") errors.push("result: process-termination-confirm claimed enforced without TERMINATED-CONFIRMED");
+  // workerToolsVerified must not be APPLIED unless the invocation-restriction control is actually enforced.
+  if (r.workerToolsVerified === "APPLIED AND VERIFIED" && r.controls && (r.controls.technicallyEnforced || []).indexOf("exact-invocation-restriction-applied") < 0) errors.push("result: workerToolsVerified APPLIED without the exact-invocation-restriction-applied control");
+  // A COMPLETED run must have disposed the operation, carry the central HARDEN1D evidence hashes, and have the
+  // exact invocation restriction APPLIED — contract-level backstop for the adapter's control-flow ordering.
+  if (r.outcome === "COMPLETED") {
+    if (r.operationDisposalStatus !== "disposed") errors.push("result: COMPLETED without operationDisposalStatus 'disposed'");
+    if (!r.operationEvidenceHash) errors.push("result: COMPLETED without operationEvidenceHash");
+    if (!r.providerCapabilityAttestationHash) errors.push("result: COMPLETED without providerCapabilityAttestationHash");
+    if (r.invocationRestrictionStatus !== "APPLIED AND VERIFIED") errors.push("result: COMPLETED without an APPLIED AND VERIFIED invocation restriction");
+  }
   // controls integrity: a delegated / notVerified / out-of-scope control must NOT be claimed technically enforced.
   const c = r.controls || {};
   const te = new Set((c.technicallyEnforced || []).map(String));
@@ -279,5 +305,5 @@ module.exports = {
   buildMinimalEnv, isTokenishName, promptHasRawSecret, scrubSecrets, isUnsafeShim, resolvePolicy,
   isAllowedPath, allowlistTouchesProjectos, buildResult, validateResult, deepFreeze, normPath,
   CONTROL_FIELDS, FORBIDDEN_WORKER_DECISIONS, FORBIDDEN_RESULT_FIELDS, SECRET_SHAPE, ENV_ALLOW_COMMON,
-  OBSERVATION_STATUSES, TERMINATION_STATUSES,
+  OBSERVATION_STATUSES, TERMINATION_STATUSES, TOOL_VERIFIED_STATUSES,
 };

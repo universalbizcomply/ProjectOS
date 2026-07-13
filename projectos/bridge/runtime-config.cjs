@@ -22,6 +22,13 @@ const CHECKS = [
   "processOwnershipVerified", "processTerminationVerified", "networkDisabled", "dockerReady", "supabaseReady",
 ];
 function sha256File(p) { return crypto.createHash("sha256").update(fs.readFileSync(p)).digest("hex"); }
+function verMatch(detected, want) { if (!detected || !want) return true; const w = String(want).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); return new RegExp("(^|[^0-9.])" + w + "([^0-9.]|$)").test(String(detected)); }
+// A REAL, independently-verifiable sentinel for the process-scope probe (only for real providers): a genuine
+// separate OS process whose liveness is checked via signal-0, so an over-broad provider terminate is caught.
+function realSentinel() {
+  const child = require("child_process").spawn(process.execPath, ["-e", "setTimeout(function(){}, 5000)"], { stdio: "ignore" });
+  return { pid: child.pid, alive: () => { try { process.kill(child.pid, 0); return true; } catch (e) { return e && e.code === "EPERM"; } }, kill: () => { try { child.kill(); } catch (e) {} } };
+}
 
 function checkReadiness(config, ctx, opts) {
   const c = config || {}; const o = opts || {}; const context = ctx || {};
@@ -42,7 +49,9 @@ function checkReadiness(config, ctx, opts) {
     if (ev && ev.ok && ev.resolvedPath) { try { exeHash = sha256File(ev.resolvedPath); } catch (e) { exeHash = null; } }
   }
   const exePathInSandbox = isMock ? "/sandbox/bin/claude" : (ev && ev.resolvedPath) || null;
-  const attContext = Object.assign({}, context, { executableResolvedPathInsideSandbox: context.executableResolvedPathInsideSandbox || exePathInSandbox, providerId: (provider && provider.providerId) || context.providerId });
+  // Readiness attests a PROBE workspace (real readiness materialises one; here a synthetic identity) so the
+  // workspace-bound attestation contract is exercised with a complete context.
+  const attContext = Object.assign({ workspaceId: "readiness-probe-ws", workspacePathHash: "readiness-probe-path", materialisationManifestHash: "readiness-probe-manifest" }, context, { executableResolvedPathInsideSandbox: context.executableResolvedPathInsideSandbox || exePathInSandbox, providerId: (provider && provider.providerId) || context.providerId });
 
   // 2) sandbox attestation (structured, operation-bound, verified)
   if (checks.sandboxImplementationPresent.status !== "PASS") block("sandboxAttestationPass", "no-valid-provider");
@@ -54,19 +63,31 @@ function checkReadiness(config, ctx, opts) {
   else if (!ev || !ev.ok) block("executableValidated", (ev && ev.reason) || "not-validated");
   else if (Array.isArray(provider.permittedExecutables) && provider.permittedExecutables.indexOf(c.claudeBin) < 0) block("executableValidated", "not-in-provider-permitted-executables");
   else if (c.executableContentHash && exeHash && exeHash !== c.executableContentHash) block("executableValidated", "executable-content-hash-mismatch");
+  else if (c.cliVersion && ev.version && !verMatch(ev.version, c.cliVersion)) block("executableValidated", "cli-version-mismatch"); // §9: detected version must match at token boundaries
   else pass("executableValidated");
 
-  // 4) tool restriction verified (detection record bound to executable + version + provider + policy)
+  // 4) tool restriction verified (detection record bound to executable + version + provider + policy) AND the
+  //    ProjectOS-built argv must be APPLIED AND VERIFIED (§9 parity: readiness mirrors the adapter's exact
+  //    invocation gate, so it can never report READY where the adapter would BLOCK on the invocation).
   const dv = detector.verifyDetectionRecord(c.detectionRecord, { executableContentHash: c.executableContentHash, cliVersion: c.cliVersion, operationMode: "first-controlled-change", sandboxProviderId: provider && provider.providerId, policyVersion: c.policyVersion, now: context.now, firstControlledChange: true });
-  dv.ok ? pass("toolRestrictionVerified") : block("toolRestrictionVerified", dv.errors[0] || "no-detection-record", { errors: dv.errors });
+  let invOk = false; try { if (dv.ok) { const b = detector.buildArgv(c.detectionRecord, "readiness-probe"); invOk = detector.verifyInvocation(b.argv, c.detectionRecord, "readiness-probe").status === detector.INVOCATION_STATUS.APPLIED_VERIFIED; } } catch (e) { invOk = false; }
+  if (!dv.ok) block("toolRestrictionVerified", dv.errors[0] || "no-detection-record", { errors: dv.errors });
+  else if (!invOk) block("toolRestrictionVerified", "invocation-restriction-not-applied");
+  else pass("toolRestrictionVerified");
 
-  // 5) process OWNERSHIP: stable operation handle, not a bare PID (real runs forbid pid handles)
+  // 5) process OWNERSHIP: stable operation handle, not a bare PID. §9: inspect the ACTUAL handle a lifecycle
+  //    probe returns (not only a provider.pidFallback declaration) so readiness matches what the adapter blocks.
   if (!provider || sandbox.OPERATION_METHODS.some((m) => typeof provider[m] !== "function")) block("processOwnershipVerified", "no-operation-lifecycle");
-  else if (provider.pidFallback === true && !isMock) block("processOwnershipVerified", "pid-only-provider-forbidden-for-real-runs");
-  else pass("processOwnershipVerified");
+  else {
+    let probeHandleType = null; try { const h = provider.spawnOperation({ probe: true, operationId: "ownership-probe", bin: "<probe>", argv: [], cwd: "<probe>", env: {} }); probeHandleType = h && h.handleType; try { provider.terminateOperation(h); provider.disposeOperation(h); } catch (e) {} } catch (e) { probeHandleType = "probe-crashed"; }
+    if (probeHandleType === "pid" && !isMock) block("processOwnershipVerified", "pid-handle-forbidden-for-real-runs");
+    else if (provider.pidFallback === true && !isMock) block("processOwnershipVerified", "pid-only-provider-forbidden-for-real-runs");
+    else pass("processOwnershipVerified");
+  }
 
-  // 6) process TERMINATION: exercise the operation lifecycle (synthetic contained process)
-  const probe = provider ? sandbox.probeProcessControl(provider) : { ok: false, reason: "no-provider" };
+  // 6) process TERMINATION: exercise the operation lifecycle (synthetic contained process). For a REAL
+  //    provider, supply a genuine independent sentinel so an over-broad terminate is actually caught.
+  const probe = provider ? sandbox.probeProcessControl(provider, isMock ? {} : { sentinelFn: realSentinel }) : { ok: false, reason: "no-provider" };
   probe.ok ? pass("processTerminationVerified") : block("processTerminationVerified", probe.reason);
 
   // 7) network disabled (first controlled-change proof requires disabled — no allowlist)
