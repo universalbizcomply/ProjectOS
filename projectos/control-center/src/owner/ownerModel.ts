@@ -15,7 +15,13 @@ export type PlanStatus =
   | 'AWAITING OWNER APPROVAL'
   | 'PLAN READY'
   | 'PLAN STALE'
-  | 'PLAN BLOCKED';
+  | 'PLAN BLOCKED'
+  // Execution-lifecycle states — mirror `currentStatus` in
+  // projectos/schemas/current-project-state.schema.json so the owner surface can
+  // represent the real canonical project state (not only the plan-drafting states).
+  | 'IN EXECUTION'
+  | 'PAUSED'
+  | 'COMPLETE';
 
 export interface OwnerDecision {
   readonly id: string;
@@ -70,7 +76,7 @@ export interface OwnerControlView {
   readonly safetyBadges: readonly OwnerBadge[];
 }
 
-const READY_STATUSES: ReadonlySet<PlanStatus> = new Set<PlanStatus>(['PLAN READY']);
+const OK_STATUSES: ReadonlySet<PlanStatus> = new Set<PlanStatus>(['PLAN READY', 'IN EXECUTION', 'COMPLETE']);
 const BLOCKED_STATUSES: ReadonlySet<PlanStatus> = new Set<PlanStatus>(['PLAN CONFLICT', 'PLAN BLOCKED', 'PLAN STALE']);
 
 /** Round accepted/total to a 1-dp percentage (deterministic, matches the ProjectOS completion method). */
@@ -80,7 +86,7 @@ export function completionPercent(accepted: number, total: number): number {
 }
 
 function statusTone(status: PlanStatus): OwnerBadge['tone'] {
-  if (READY_STATUSES.has(status)) return 'ok';
+  if (OK_STATUSES.has(status)) return 'ok';
   if (BLOCKED_STATUSES.has(status)) return 'crit';
   return 'warn';
 }

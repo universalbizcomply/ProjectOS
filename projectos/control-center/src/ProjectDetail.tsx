@@ -74,7 +74,7 @@ export function ProjectDetail({ project, onBack }: { project: ProjectRow; onBack
     <>
       <div className="head">
         <div>
-          <span className="back" onClick={onBack}>← Projects</span>
+          <button type="button" className="linkbtn back" onClick={onBack}>← Projects</button>
           <h1>{project.name}</h1>
           <p>{project.repo} · run phases below</p>
         </div>
@@ -83,12 +83,14 @@ export function ProjectDetail({ project, onBack }: { project: ProjectRow; onBack
 
       <div className="section">
         <h2>New phase</h2>
-        <div className="phaseform">
-          <input placeholder="Phase id (e.g. LOGIN1A)" value={id} onChange={(e) => setId(e.target.value)} />
-          <input placeholder="Objective" value={objective} onChange={(e) => setObjective(e.target.value)} />
-          <button onClick={() => void onCreate()} disabled={busy}>Create phase</button>
-        </div>
-        {error && <div className="login-error" style={{ marginTop: 10 }}>{error}</div>}
+        <form className="phaseform" onSubmit={(e) => { e.preventDefault(); void onCreate(); }}>
+          <label className="vh" htmlFor="ph-id">Phase id</label>
+          <input id="ph-id" placeholder="Phase id (e.g. LOGIN1A)" value={id} onChange={(e) => setId(e.target.value)} />
+          <label className="vh" htmlFor="ph-obj">Objective</label>
+          <input id="ph-obj" placeholder="Objective" value={objective} onChange={(e) => setObjective(e.target.value)} />
+          <button type="submit" disabled={busy}>Create phase</button>
+        </form>
+        {error && <div className="login-error" role="alert" style={{ marginTop: 10 }}>{error}</div>}
       </div>
 
       <div className="section">

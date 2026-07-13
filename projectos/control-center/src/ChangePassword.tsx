@@ -51,15 +51,15 @@ export function ChangePassword({ forced, onDone }: { forced: boolean; onDone: ()
             required
           />
         </label>
-        {error && <div className="login-error">{error}</div>}
+        {error && <div className="login-error" role="alert">{error}</div>}
         <button type="submit" disabled={busy}>
           {busy ? 'Saving…' : 'Save password'}
         </button>
         <div className="login-foot">
           {forced ? (
-            <span className="signout" onClick={() => void signOut()}>Sign out instead</span>
+            <button type="button" className="linkbtn signout" onClick={() => void signOut()}>Sign out instead</button>
           ) : (
-            <span className="signout" onClick={onDone}>Cancel</span>
+            <button type="button" className="linkbtn signout" onClick={onDone}>Cancel</button>
           )}
         </div>
       </form>

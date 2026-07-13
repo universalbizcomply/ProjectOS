@@ -46,7 +46,8 @@ describe('answerOwnerQuestion — intents', () => {
 
   it('surfaces blockers when present and says clear when not', () => {
     expect(answerOwnerQuestion(DEMO_ACME, 'why is this blocked?').intent).toBe('blockers');
-    const clear = answerOwnerQuestion(PROJECTOS_V3, 'is anything blocked?');
+    // PROJECTOS_V3 now surfaces a real canonical blocker (PolyGo 14–16); the "clear" case uses a no-blocker model.
+    const clear = answerOwnerQuestion({ ...PROJECTOS_V3, blockers: [] }, 'is anything blocked?');
     expect(clear.answer.toLowerCase()).toContain('nothing is blocked');
   });
 

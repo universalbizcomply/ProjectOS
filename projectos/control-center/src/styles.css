@@ -6,7 +6,7 @@
   --line-soft: #1a2130;
   --text: #e7ecf4;
   --text-dim: #8a97ad;
-  --text-faint: #5c6880;
+  --text-faint: #7e8ba5;
   --accent: #5b8cff;
   --accent-dim: #1b2540;
   --ok: #3fd68b;
@@ -70,7 +70,7 @@ body {
 }
 
 /* KPIs */
-.kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 26px; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 14px; margin-bottom: 26px; }
 .kpi { background: var(--bg-panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; }
 .kpi .n { font-size: 30px; font-weight: 680; letter-spacing: -0.03em; }
 .kpi .l { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
@@ -143,6 +143,7 @@ body {
   transition: border-color .15s;
 }
 .login-card input:focus { border-color: var(--accent); }
+.login-card input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .login-card button {
   margin-top: 6px; background: var(--accent); color: #06101f; border: none;
   border-radius: var(--radius-sm); padding: 12px; font-size: 14px; font-weight: 700;
@@ -152,15 +153,35 @@ body {
 .login-card button:disabled { opacity: .6; cursor: default; }
 .login-error { color: var(--crit); font-size: 13px; background: rgba(255,107,107,.1); padding: 8px 10px; border-radius: 6px; }
 .login-foot { font-size: 11px; color: var(--text-faint); text-align: center; margin-top: 4px; }
+/* Link-styled button reset: a real <button> that looks like an inline link,
+   so link actions are keyboard-operable and in the tab order. */
+.linkbtn { background: none; border: none; padding: 0; font: inherit; cursor: pointer; }
 .signout { color: var(--accent); cursor: pointer; }
 .signout:hover { text-decoration: underline; }
+.signout:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+
+/* Visually-hidden (screen-reader only) — for form labels that stay visible to AT. */
+.vh {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* Skip-to-content link — hidden until focused. */
+.skip {
+  position: absolute; left: 8px; top: -48px; z-index: 100;
+  background: var(--accent); color: #06101f; padding: 8px 14px; border-radius: var(--radius-sm);
+  font-size: 13px; font-weight: 700; text-decoration: none; transition: top .15s;
+}
+.skip:focus-visible { top: 8px; outline: 2px solid var(--text); outline-offset: 2px; }
 
 /* ---- Interactive ---- */
 .card.clickable { cursor: pointer; }
+.card.clickable:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .open-hint { margin-left: auto; font-size: 11px; color: var(--text-faint); }
 .card.clickable:hover .open-hint { color: var(--accent); }
 .back { font-size: 12px; color: var(--accent); cursor: pointer; display: inline-block; margin-bottom: 8px; }
 .back:hover { text-decoration: underline; }
+.back:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
 
 .btn-new {
   background: var(--accent); color: #06101f; border: none; border-radius: var(--radius-sm);
@@ -178,6 +199,7 @@ body {
   border-radius: var(--radius-sm); padding: 9px 11px; color: var(--text); font-size: 13px; outline: none;
 }
 .newproj input:focus, .phaseform input:focus { border-color: var(--accent); }
+.newproj input:focus-visible, .phaseform input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .newproj button, .phaseform button {
   background: var(--accent); color: #06101f; border: none; border-radius: var(--radius-sm);
   padding: 9px 16px; font-weight: 700; font-size: 13px; cursor: pointer;
@@ -332,6 +354,10 @@ body {
   border: 1px solid var(--line); background: var(--bg-panel); color: var(--text); cursor: pointer; }
 .ocp-btn:hover { background: var(--bg-elev); }
 .ocp-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.ocp-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.ocp-btn:disabled:hover { background: var(--bg-panel); }
+/* Truthful "this control is inert here" marker on preview-only surfaces. */
+.ocp-preview-tag { align-self: center; font-size: 11px; color: var(--text-faint); }
 .ocp-btn.primary { background: var(--accent-dim); border-color: #2b3a63; color: #cdd9ff; }
 .ocp-btn.danger { border-color: #4a1f1f; color: var(--crit); }
 
@@ -403,3 +429,14 @@ body {
 .fg-verdict { font-size: 13px; margin-top: 10px; padding: 8px 12px; border-radius: var(--radius-sm); border: 1px solid var(--line); }
 .fg-verdict.ok { color: var(--ok); border-color: #1f4a2f; }
 .fg-verdict.crit { color: var(--crit); border-color: #4a1f1f; }
+
+/* ---- Reduced motion: honour the OS "reduce motion" setting (WCAG 2.3.3 / motion sensitivity). ---- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .card:hover { transform: none; }
+}

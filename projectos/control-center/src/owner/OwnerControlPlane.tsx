@@ -74,9 +74,10 @@ export function OwnerControlPlane() {
                 <div className="ocp-decision-title">{d.title}</div>
                 <div className="ocp-decision-detail">{d.detail}</div>
                 <div className="ocp-decision-actions">
-                  <button type="button" className="ocp-btn primary">Approve</button>
-                  <button type="button" className="ocp-btn">Return for correction</button>
-                  <button type="button" className="ocp-btn danger">Reject</button>
+                  <button type="button" className="ocp-btn primary" disabled aria-disabled="true">Approve</button>
+                  <button type="button" className="ocp-btn" disabled aria-disabled="true">Return for correction</button>
+                  <button type="button" className="ocp-btn danger" disabled aria-disabled="true">Reject</button>
+                  <span className="ocp-preview-tag" role="note">Preview — record approvals in the ProjectOS desktop app.</span>
                 </div>
               </li>
             ))}

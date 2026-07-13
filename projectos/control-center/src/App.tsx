@@ -73,23 +73,26 @@ export function App() {
   return (
     <DaemonProvider>
     <div className="app">
+      <a className="skip" href="#main">Skip to content</a>
       <aside className="sidebar">
         <div className="brand">
           <b>ProjectOS</b>
           <span>Control</span>
         </div>
-        {NAV.map((n) => (
-          <button
-            type="button"
-            key={n.id}
-            className={`navitem${view === n.id ? ' active' : ''}`}
-            aria-current={view === n.id ? 'page' : undefined}
-            onClick={() => setView(n.id)}
-          >
-            <span className="dot" />
-            {n.label}
-          </button>
-        ))}
+        <nav aria-label="Primary">
+          {NAV.map((n) => (
+            <button
+              type="button"
+              key={n.id}
+              className={`navitem${view === n.id ? ' active' : ''}`}
+              aria-current={view === n.id ? 'page' : undefined}
+              onClick={() => setView(n.id)}
+            >
+              <span className="dot" />
+              {n.label}
+            </button>
+          ))}
+        </nav>
         <div className="sidefoot">
           core v{CORE_VERSION}
           <br />
@@ -99,18 +102,18 @@ export function App() {
           {session && (
             <>
               <br />
-              <span className="signout" onClick={() => setShowChangePw(true)}>
+              <button type="button" className="linkbtn signout" onClick={() => setShowChangePw(true)}>
                 Change password
-              </span>
+              </button>
               {'  ·  '}
-              <span className="signout" onClick={() => void signOut()}>
+              <button type="button" className="linkbtn signout" onClick={() => void signOut()}>
                 Sign out
-              </span>
+              </button>
             </>
           )}
         </div>
       </aside>
-      <main className="main">
+      <main className="main" id="main" tabIndex={-1}>
         {view === 'control' && <OwnerControlPlane />}
         {view === 'forge' && <ForgeConsole />}
         {view === 'chat' && <OwnerChat />}
@@ -133,7 +136,7 @@ function Head({ title, sub }: { title: string; sub: string }) {
         <h1>{title}</h1>
         <p>{sub}</p>
       </div>
-      <span className="pill">projectos-v2-core</span>
+      <span className="pill">projectos-core v{CORE_VERSION}</span>
     </div>
   );
 }
@@ -195,13 +198,16 @@ function Overview() {
       </div>
 
       {showNew && (
-        <div className="newproj">
-          <input placeholder="id (e.g. acme-shop)" value={np.id} onChange={(e) => setNp({ ...np, id: e.target.value })} />
-          <input placeholder="Name" value={np.name} onChange={(e) => setNp({ ...np, name: e.target.value })} />
-          <input placeholder="repo (owner/name or blank)" value={np.repo} onChange={(e) => setNp({ ...np, repo: e.target.value })} />
-          <button onClick={() => void onCreateProject()} disabled={busy}>Create</button>
-          {error && <div className="login-error" style={{ flexBasis: '100%' }}>{error}</div>}
-        </div>
+        <form className="newproj" onSubmit={(e) => { e.preventDefault(); void onCreateProject(); }}>
+          <label className="vh" htmlFor="np-id">Project id</label>
+          <input id="np-id" placeholder="id (e.g. acme-shop)" value={np.id} onChange={(e) => setNp({ ...np, id: e.target.value })} />
+          <label className="vh" htmlFor="np-name">Project name</label>
+          <input id="np-name" placeholder="Name" value={np.name} onChange={(e) => setNp({ ...np, name: e.target.value })} />
+          <label className="vh" htmlFor="np-repo">Repository</label>
+          <input id="np-repo" placeholder="repo (owner/name or blank)" value={np.repo} onChange={(e) => setNp({ ...np, repo: e.target.value })} />
+          <button type="submit" disabled={busy}>Create</button>
+          {error && <div className="login-error" role="alert" style={{ flexBasis: '100%' }}>{error}</div>}
+        </form>
       )}
 
       <div className="kpis">
@@ -212,7 +218,20 @@ function Overview() {
       </div>
       <div className="grid">
         {projects.map((p) => (
-          <div className="card clickable" key={p.id} onClick={() => setSelected(p)}>
+          <div
+            className="card clickable"
+            key={p.id}
+            role="button"
+            tabIndex={0}
+            aria-label={`Open project ${p.name}`}
+            onClick={() => setSelected(p)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                setSelected(p);
+              }
+            }}
+          >
             <h3>{p.name}</h3>
             <div className="repo">{p.repo}</div>
             <div className="row">

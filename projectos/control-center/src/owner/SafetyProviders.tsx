@@ -56,9 +56,10 @@ export function SafetyProviders() {
                 <div className="ocp-decision-detail">{item.kind} · {item.id}</div>
                 {item.status === 'pending' && (
                   <div className="ocp-decision-actions">
-                    <button type="button" className="ocp-btn primary">Approve</button>
-                    <button type="button" className="ocp-btn">Return</button>
-                    <button type="button" className="ocp-btn danger">Reject</button>
+                    <button type="button" className="ocp-btn primary" disabled aria-disabled="true">Approve</button>
+                    <button type="button" className="ocp-btn" disabled aria-disabled="true">Return</button>
+                    <button type="button" className="ocp-btn danger" disabled aria-disabled="true">Reject</button>
+                    <span className="ocp-preview-tag" role="note">Preview — record approvals in the ProjectOS desktop app.</span>
                   </div>
                 )}
               </li>

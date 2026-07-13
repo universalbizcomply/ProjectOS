@@ -24,20 +24,21 @@ describe('whereYouAre', () => {
     expect(whereYouAre(DEMO_ACME)).toContain('working phase ACME-P1A');
   });
   it('points to the next phase when between phases', () => {
-    expect(whereYouAre(PROJECTOS_V3)).toContain('next is PROJECTOS-V3-OWNER-CONTROL-PLANE-DESIGN1A');
+    expect(whereYouAre(PROJECTOS_V3)).toContain('next is PROJECTOS-WHOLE-SYSTEM-UX-FUNCTIONALITY-DUPLICATION-AUDIT1A');
   });
 });
 
 describe('buildOwnerControlView', () => {
-  it('derives a PLAN READY view with green status and no decisions', () => {
+  it('derives an IN EXECUTION view with green status and no decisions', () => {
     const v = buildOwnerControlView(PROJECTOS_V3);
-    expect(v.planStatus).toBe('PLAN READY');
+    expect(v.planStatus).toBe('IN EXECUTION');
     expect(v.statusTone).toBe('ok');
     expect(v.completionPercent).toBe(15.8);
     expect(v.completionLabel).toBe('3 of 19 phases accepted · 15.8%');
     expect(v.hasDecisions).toBe(false);
     expect(v.decisionsRequired).toHaveLength(0);
-    expect(v.blockers).toHaveLength(0);
+    // The ProjectOS seed now surfaces the real canonical PolyGo blocker (V3 not closed).
+    expect(v.blockers).toHaveLength(1);
     expect(v.restrictedActions).toContain('Approve plan');
   });
 
