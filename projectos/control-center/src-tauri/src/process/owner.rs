@@ -14,6 +14,7 @@
 
 use std::io::Write;
 use std::os::windows::io::OwnedHandle;
+use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -24,7 +25,7 @@ use windows::Win32::System::Threading::{
 };
 
 use super::create::{create_in_job, CreatedProcess, ProcessSpec, SpecClassification};
-use super::diagnostics::{drain, BoundedOutput};
+use super::diagnostics::{drain, drain_lines, BoundedOutput};
 use super::errors::ProcessError;
 use super::handles::win32;
 use super::job::JobObject;
@@ -159,7 +160,7 @@ impl SyntheticFixtureSpec {
 }
 
 /// The authoritative owner. Move-only: no `Clone`, no `Copy`.
-pub struct SyntheticProcessOwner {
+pub struct JobBoundProcessOwner {
     state: ProcessState,
     job: JobObject,
     process: OwnedHandle,
@@ -177,13 +178,31 @@ pub struct SyntheticProcessOwner {
     last_failure: Option<ProcessError>,
 }
 
-impl SyntheticProcessOwner {
+/// Where a launched process's stdout goes.
+pub(crate) enum StdoutSink {
+    /// Fixture path: stdout is diagnostics, buffered bounded like stderr.
+    Bounded,
+    /// Real-daemon path: stdout is the lifecycle/transport protocol channel, so every line is
+    /// forwarded for parsing. It is NOT buffered as diagnostics.
+    Lines(Sender<String>),
+}
+
+impl JobBoundProcessOwner {
+    /// Start the REAL ProjectOS daemon, job-bound, with stdout routed to  for lifecycle
+    /// parsing. The spec comes from the sealed authority — never from a caller.
+    pub(crate) fn start_daemon(
+        spec: &ProcessSpec,
+        stdout_tx: Sender<String>,
+    ) -> Result<JobBoundProcessOwner, ProcessError> {
+        Self::start_with_sink(spec, StdoutSink::Lines(stdout_tx))
+    }
+
     /// The ONLY public way to create a process in this crate. It accepts a closed fixture spec, not
     /// an executable path — so no caller, even under `test-fixtures`, can launch anything except the
     /// Cargo-built synthetic child in one of its fixed modes.
     pub fn start_fixture(
         spec: &SyntheticFixtureSpec,
-    ) -> Result<SyntheticProcessOwner, ProcessError> {
+    ) -> Result<JobBoundProcessOwner, ProcessError> {
         Self::start(&spec.to_process_spec())
     }
 
@@ -192,7 +211,14 @@ impl SyntheticProcessOwner {
     /// Order is load-bearing: job created and ARMED first, then pipes, then atomic creation. Any
     /// failure before success leaves no process — and the job (dropped on the error path) would kill
     /// one anyway.
-    pub(crate) fn start(spec: &ProcessSpec) -> Result<SyntheticProcessOwner, ProcessError> {
+    pub(crate) fn start(spec: &ProcessSpec) -> Result<JobBoundProcessOwner, ProcessError> {
+        Self::start_with_sink(spec, StdoutSink::Bounded)
+    }
+
+    fn start_with_sink(
+        spec: &ProcessSpec,
+        sink: StdoutSink,
+    ) -> Result<JobBoundProcessOwner, ProcessError> {
         let job = JobObject::create_kill_on_close()?;
         let CreatedProcess {
             process,
@@ -210,7 +236,12 @@ impl SyntheticProcessOwner {
         let so = stdout.clone();
         let stdout_thread = std::thread::spawn(move || {
             let f = std::fs::File::from(stdout_reader);
-            drain(f, so);
+            match sink {
+                // Diagnostics: bounded + redacted, exactly like stderr.
+                StdoutSink::Bounded => drain(f, so),
+                // Protocol: forward every line for parsing. The receiver bounds and validates.
+                StdoutSink::Lines(tx) => drain_lines(f, tx),
+            }
         });
         let se = stderr.clone();
         let stderr_thread = std::thread::spawn(move || {
@@ -218,7 +249,7 @@ impl SyntheticProcessOwner {
             drain(f, se);
         });
 
-        Ok(SyntheticProcessOwner {
+        Ok(JobBoundProcessOwner {
             state: ProcessState::RunningUntrusted,
             job,
             process,
@@ -302,6 +333,20 @@ impl SyntheticProcessOwner {
         Ok(())
     }
 
+    /// Write a fixed, Rust-authored request to the daemon's stdin.
+    ///
+    /// A broken pipe (daemon already gone) becomes a typed failure — never a panic. The caller has
+    /// already checked lifecycle state; this is the last-line guard.
+    pub(crate) fn write_request(&mut self, bytes: &[u8]) -> Result<(), ProcessError> {
+        let w = self
+            .stdin_writer
+            .as_mut()
+            .ok_or(ProcessError::DaemonNotReady)?;
+        w.write_all(bytes)
+            .map_err(|_| ProcessError::DaemonNotReady)?;
+        w.flush().map_err(|_| ProcessError::DaemonNotReady)
+    }
+
     pub fn stdout_text(&self) -> String {
         self.stdout.lock().map(|g| g.render()).unwrap_or_default()
     }
@@ -368,7 +413,7 @@ impl SyntheticProcessOwner {
     }
 }
 
-impl Drop for SyntheticProcessOwner {
+impl Drop for JobBoundProcessOwner {
     fn drop(&mut self) {
         // Best-effort only. The real guarantee is the JobObject field dropping right after this,
         // which closes the last job handle → kill-on-close → every member dies, even on panic.

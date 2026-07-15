@@ -21,6 +21,10 @@ use super::errors::ProcessError;
 /// The rest are candidates; the caller passes only what it actually needs.
 pub const SYSTEM_ALLOWLIST: &[&str] = &["SystemRoot", "SystemDrive", "windir", "TEMP", "TMP"];
 
+/// The one internally-built, non-secret correlator the adapter is allowed to inject. It is NOT a
+/// secret and NOT trust evidence; it exists so a daemon can announce which launch it belongs to.
+pub(crate) const DAEMON_INSTANCE_ID_VAR: &str = "PROJECTOS_DAEMON_INSTANCE_ID";
+
 /// Variable-name fragments that must never appear in a child environment.
 const SECRET_SHAPED: &[&str] = &[
     "TOKEN",

@@ -22,10 +22,13 @@
 //! not touch the real sidecar — so `dead_code` is allowed module-wide.
 #![allow(dead_code)]
 
+pub(crate) mod authority;
 pub(crate) mod command_line;
+pub(crate) mod dev_runtime;
 pub mod diagnostics;
 pub(crate) mod environment;
 pub mod errors;
+pub(crate) mod readiness;
 pub mod state;
 
 #[cfg(windows)]
@@ -34,6 +37,8 @@ pub(crate) mod create;
 pub(crate) mod handles;
 #[cfg(windows)]
 pub(crate) mod job;
+#[cfg(windows)]
+pub(crate) mod lifecycle;
 #[cfg(windows)]
 pub mod owner;
 #[cfg(windows)]

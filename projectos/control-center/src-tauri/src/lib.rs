@@ -1,18 +1,62 @@
-//! Library surface for the ProjectOS Control Center native crate.
+//! ProjectOS Control Centre — Tauri desktop shell + Bridge Daemon host.
 //!
-//! This exists for exactly one reason (PROJECTOS-WINDOWS-PROCESS-CREATION1A): the process-creation
-//! foundation must be provable against a real synthetic child process, and only an INTEGRATION test
-//! receives `CARGO_BIN_EXE_<name>` — the documented, robust way to locate a Cargo-built fixture.
-//! Integration tests can only import a library target, so the `process` module is exposed here.
+//! The authoritative application runner lives HERE (not in `main.rs`) for one security reason: the
+//! binary is a separate crate, so anything it calls must be `pub`. With the runner inside the
+//! library, the native process layer stays `pub(crate)` and the generic launcher is unreachable from
+//! any other crate **by the compiler** — not by a runtime check. `main.rs` is a thin call into
+//! `run()`.
 //!
-//! The Tauri application itself is unchanged and still lives entirely in `main.rs`: the desktop
-//! shell, the daemon sidecar startup, and the read-only commands are NOT moved, NOT rewired, and
-//! NOT affected by this file.
+//! The window loads the built Vite frontend. On startup the host launches the Node daemon sidecar
+//! (`sidecar/host.mjs`) through the sealed development authority: job-bound at creation, observed by
+//! handle, drained on both streams, and only declared ready on an explicit `lifecycle.ready`.
+//!
+//! Read-only throughout: it projects daemon state and requests fresh snapshots. It edits nothing,
+//! runs no git/shell for the user, deploys nothing, mints no trust, and enables no approvals.
 
-// The native process-creation foundation is available ONLY under the non-default `test-fixtures`
-// feature. In a default/release build this module does not exist at all: there is no ProcessSpec, no
-// owner, no creator, no token, and therefore no way for any normal caller to obtain authority to
-// launch an executable. The `SyntheticTest` label and the fixture token are NOT controls — this
-// feature gate is the control.
-#[cfg(feature = "test-fixtures")]
-pub mod process;
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+// Identity classification. Crate-private: its only consumer is the in-crate `identity_status`
+// command. Left public it would let any external crate inject a fake `IdentityFs` plus the
+// `DeterministicTestVerifier` into `evaluate()` and manufacture an identity outcome — unnecessary
+// authority for zero benefit. Its unit tests live inside the module, so nothing needs it exported.
+#[cfg(windows)]
+pub(crate) mod identity;
+
+// The native process-creation foundation. Crate-private: no other crate can reach ProcessSpec, the
+// generic creator, the job/pipe/handle layer, or the fixture token.
+#[cfg(windows)]
+pub(crate) mod process;
+
+/// Closed re-export used ONLY by the integration lifecycle tests, and only under the non-default
+/// `test-fixtures` feature. Absent from every default and release build.
+///
+/// It exposes the closed fixture surface and nothing else — no `ProcessSpec`, no generic creator, no
+/// executable/argument/environment authority, no token, no raw handles, no job configuration.
+#[cfg(all(windows, feature = "test-fixtures"))]
+pub mod test_fixtures {
+    /// Bounded-diagnostics limits the lifecycle assertions need.
+    pub mod diagnostics_limits {
+        pub use crate::process::diagnostics::{MAX_RETAINED_BYTES, TRUNCATION_MARKER};
+    }
+    pub use crate::process::errors::ProcessError;
+    pub use crate::process::owner::{FixtureMode, JobBoundProcessOwner, SyntheticFixtureSpec};
+    pub use crate::process::state::ProcessState;
+
+    /// The fixture-facing name for the job-bound owner.
+    pub use crate::process::owner::JobBoundProcessOwner as SyntheticProcessOwner;
+}
+
+#[cfg(windows)]
+mod app;
+
+/// Run the ProjectOS Control Centre. The application's sole public entry point.
+#[cfg(windows)]
+pub fn run() {
+    app::run();
+}
+
+/// Non-Windows builds have no native process ownership; the desktop shell is Windows-targeted.
+#[cfg(not(windows))]
+pub fn run() {
+    eprintln!("ProjectOS Control Centre requires Windows.");
+}

@@ -16,12 +16,12 @@
 
 use std::time::{Duration, Instant};
 
-use projectos_control_center::process::diagnostics;
-use projectos_control_center::process::errors::ProcessError;
-use projectos_control_center::process::owner::{
-    FixtureMode, SyntheticFixtureSpec, SyntheticProcessOwner,
+// The closed test adapter is the ONLY external surface: no ProcessSpec, no generic creator, no
+// executable/argument/environment authority, no token, no raw handles.
+use projectos_control_center::test_fixtures::{
+    diagnostics_limits, FixtureMode, ProcessError, ProcessState, SyntheticFixtureSpec,
+    SyntheticProcessOwner,
 };
-use projectos_control_center::process::state::ProcessState;
 
 /// Locate the synthetic child. `CARGO_BIN_EXE_<name>` is set by Cargo for integration tests and is
 /// the documented, exact mechanism — no path guessing, and it guarantees the real bin artifact was
@@ -168,12 +168,12 @@ fn output_flood_does_not_deadlock_and_stays_bounded() {
     let alive_or_done = owner.refresh_state();
     owner.shutdown();
     assert!(
-        out.len() <= diagnostics::MAX_RETAINED_BYTES * 2,
+        out.len() <= diagnostics_limits::MAX_RETAINED_BYTES * 2,
         "stdout unbounded: {}",
         out.len()
     );
-    assert!(err.len() <= diagnostics::MAX_RETAINED_BYTES * 2);
-    assert!(out.contains(diagnostics::TRUNCATION_MARKER));
+    assert!(err.len() <= diagnostics_limits::MAX_RETAINED_BYTES * 2);
+    assert!(out.contains(diagnostics_limits::TRUNCATION_MARKER));
     let _ = alive_or_done;
 }
 
@@ -309,5 +309,11 @@ fn dropping_owner_without_shutdown_still_kills_child() {
 
 #[test]
 fn platform_gate_reports_available_on_windows() {
-    assert!(projectos_control_center::process::native_ownership_available().is_ok());
+    // The generic `process` module is crate-private, so an external crate cannot even name it —
+    // that inaccessibility IS the authority boundary. Only the closed fixture surface is reachable.
+    let spec = SyntheticFixtureSpec::new(child_exe(), FixtureMode::Wait);
+    assert!(
+        spec.is_ok(),
+        "the closed fixture adapter is the only external surface"
+    );
 }

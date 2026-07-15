@@ -131,6 +131,32 @@ impl BoundedOutput {
     }
 }
 
+/// Hard cap on a single protocol line forwarded from stdout. Anything longer is dropped rather than
+/// forwarded — a daemon cannot flood memory through the lifecycle channel.
+pub const MAX_PROTOCOL_LINE_BYTES: usize = 64 * 1024;
+
+/// Drain a reader, forwarding each bounded line to `tx`. Used for the REAL daemon's stdout, which is
+/// a protocol channel rather than diagnostics.
+///
+/// The thread always terminates: on EOF, on a read error, or once the receiver is dropped (which is
+/// how shutdown stops forwarding without blocking).
+pub(crate) fn drain_lines<R: Read>(reader: R, tx: std::sync::mpsc::Sender<String>) {
+    let buf = BufReader::new(reader);
+    for line in buf.lines() {
+        match line {
+            Ok(l) => {
+                if l.len() > MAX_PROTOCOL_LINE_BYTES {
+                    continue; // oversize: never forwarded, never buffered
+                }
+                if tx.send(l).is_err() {
+                    return; // receiver gone (shutdown) — stop forwarding
+                }
+            }
+            Err(_) => return,
+        }
+    }
+}
+
 /// Drain a reader to completion into a bounded buffer. Returns when the pipe reaches EOF, which
 /// happens once the child exits AND the parent has closed its copy of the child-side write end.
 pub fn drain<R: Read>(reader: R, sink: Arc<Mutex<BoundedOutput>>) {
