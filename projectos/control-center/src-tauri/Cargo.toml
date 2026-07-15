@@ -44,10 +44,17 @@ sha2 = "0.10"
 # (transitive via tauri) — this only promotes it to a direct dependency and enables the minimum
 # features actually invoked. Job Objects have no std equivalent.
 [target.'cfg(windows)'.dependencies]
+# WINDOWS-HOST-SINGLE-INSTANCE1A adds two features to this SAME already-locked crate — no new
+# package enters the build graph. `Win32_Security_Authorization` supplies the SDDL/SID-string
+# conversions used to build the instance object's explicit DACL; `Win32_UI_WindowsAndMessaging`
+# supplies `MessageBoxW`, which is required because release builds use the Windows subsystem and
+# therefore have no console — without it a duplicate launch would exit silently.
 windows = { version = "0.61.3", features = [
   "Win32_Foundation",
   "Win32_Security",
+  "Win32_Security_Authorization",
   "Win32_System_JobObjects",
   "Win32_System_Threading",
   "Win32_System_Pipes",
+  "Win32_UI_WindowsAndMessaging",
 ] }

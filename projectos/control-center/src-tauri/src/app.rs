@@ -13,14 +13,27 @@
 
 #![cfg(windows)]
 
+use std::process::ExitCode;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use tauri::{Emitter, Manager, RunEvent, State};
+use windows::core::PCWSTR;
+use windows::Win32::UI::WindowsAndMessaging::{
+    MessageBoxW, MB_ICONINFORMATION, MB_OK, MB_SETFOREGROUND,
+};
 
 use crate::identity;
+use crate::instance::{self, InstanceOutcome};
 use crate::process::lifecycle::{DaemonLifecycleState, SafeDaemonStatus};
+
+/// Returned when another host already owns this account/installation/channel.
+const EXIT_ALREADY_RUNNING: u8 = 2;
+/// Returned when instance authority could not be established at all (access denied, scope
+/// collision, invalid scope material, or any other native failure). Distinct from
+/// `EXIT_ALREADY_RUNNING` so a refusal is never confused with a working duplicate.
+const EXIT_AUTHORITY_UNAVAILABLE: u8 = 3;
 
 /// Monotonic counter making each host instance id unique within a boot.
 static HOST_SEQ: AtomicU64 = AtomicU64::new(0);
@@ -110,7 +123,70 @@ fn spawn_shutdown_worker(app: &tauri::AppHandle, code: Option<i32>) {
     });
 }
 
-pub fn run() {
+/// Show one safe modal. Never carries an object name, SID, hash, path, PID, HANDLE or native error
+/// code — a duplicate launch is an ordinary, controlled refusal, not a crash to be diagnosed by the
+/// owner.
+///
+/// `MessageBoxW` is used because release builds set `windows_subsystem = "windows"` and therefore
+/// have no console: `eprintln!` would be invisible and the refusal silent. There is no parent window
+/// because no window exists yet — instance authority is decided before any Tauri construction.
+fn show_safe_message(text: &str) {
+    let wide_text: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
+    let wide_title: Vec<u16> = "ProjectOS"
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
+    // SAFETY: both buffers are NUL-terminated and live for the duration of the call; a null parent
+    // HWND is the documented way to show an owner-less modal. The return value is deliberately
+    // ignored — see `run()`: a failed dialog must never allow startup.
+    unsafe {
+        MessageBoxW(
+            None,
+            PCWSTR(wide_text.as_ptr()),
+            PCWSTR(wide_title.as_ptr()),
+            MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND,
+        );
+    }
+}
+
+/// The application entry.
+///
+/// Instance authority is established FIRST — before the Tauri builder, managed state, any window,
+/// Node resolution, `host.mjs` resolution, Job creation, daemon launch, readiness, or any ProjectOS
+/// state mutation. A duplicate therefore cannot reach any of them: it returns from here.
+pub fn run() -> ExitCode {
+    let guard = match instance::acquire() {
+        InstanceOutcome::Acquired(guard) => guard,
+        InstanceOutcome::AlreadyRunning => {
+            show_safe_message(
+                "ProjectOS is already running.\nUse the existing Control Centre window.",
+            );
+            // Returned whether or not the dialog succeeded: the refusal is the contract, the message
+            // is only a courtesy.
+            return ExitCode::from(EXIT_ALREADY_RUNNING);
+        }
+        InstanceOutcome::Failed(_) => {
+            // Deliberately does NOT claim another instance is running — authority failure and a real
+            // duplicate are different facts, and only one of them is true here.
+            show_safe_message(
+                "ProjectOS could not establish its local startup guard.\n\
+                 Close other ProjectOS windows and try again.",
+            );
+            return ExitCode::from(EXIT_AUTHORITY_UNAVAILABLE);
+        }
+    };
+
+    run_inner();
+
+    // Dropped only AFTER the Tauri run loop has returned, which happens only after the daemon has
+    // been shut down. Explicit rather than implicit because the ordering is load-bearing: releasing
+    // the authority earlier would let a second host start while this daemon was still alive.
+    drop(guard);
+    ExitCode::SUCCESS
+}
+
+/// The authoritative Tauri runner. Only ever reached by a host holding instance authority.
+fn run_inner() {
     let state = Arc::new(DaemonLifecycleState::new(new_host_instance_id()));
 
     let app = tauri::Builder::default()

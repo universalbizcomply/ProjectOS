@@ -27,6 +27,12 @@ pub(crate) mod identity;
 #[cfg(windows)]
 pub(crate) mod process;
 
+// Per-user, cross-session host uniqueness. Crate-private: the instance guard is an internal startup
+// control, not an API. Left public, another crate could construct or drop the authority — the guard
+// is the only thing standing between one host and two concurrent daemons.
+#[cfg(windows)]
+pub(crate) mod instance;
+
 /// Closed re-export used ONLY by the integration lifecycle tests, and only under the non-default
 /// `test-fixtures` feature. Absent from every default and release build.
 ///
@@ -44,19 +50,38 @@ pub mod test_fixtures {
 
     /// The fixture-facing name for the job-bound owner.
     pub use crate::process::owner::JobBoundProcessOwner as SyntheticProcessOwner;
+
+    /// Narrow instance-uniqueness adapter for the multi-process race proofs, which need an isolated
+    /// object name so they cannot collide with a real Control Centre running on this machine.
+    ///
+    /// It exposes the classification surface and the pure key rules only — no raw handle, no object
+    /// name derivation for the production scope, no descriptor internals, and no way to reach the
+    /// process or identity layers.
+    pub mod instance {
+        pub use crate::instance::guard::ProjectOsInstanceGuard;
+        pub use crate::instance::key::{
+            detect_channel, install_component, install_dir_from_exe, instance_name, user_component,
+            Channel, KeyError,
+        };
+        pub use crate::instance::{acquire_named, InstanceFailure, InstanceOutcome};
+    }
 }
 
 #[cfg(windows)]
 mod app;
 
 /// Run the ProjectOS Control Centre. The application's sole public entry point.
+///
+/// Returns `ExitCode` rather than calling `std::process::exit`, which would bypass every Rust
+/// destructor — including the instance guard's and the daemon owner's.
 #[cfg(windows)]
-pub fn run() {
-    app::run();
+pub fn run() -> std::process::ExitCode {
+    app::run()
 }
 
 /// Non-Windows builds have no native process ownership; the desktop shell is Windows-targeted.
 #[cfg(not(windows))]
-pub fn run() {
+pub fn run() -> std::process::ExitCode {
     eprintln!("ProjectOS Control Centre requires Windows.");
+    std::process::ExitCode::FAILURE
 }
