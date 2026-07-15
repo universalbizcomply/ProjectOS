@@ -4,9 +4,33 @@ version = "0.1.0"
 description = "ProjectOS Control Center desktop shell"
 edition = "2021"
 rust-version = "1.77"
+# Explicit: the Control Centre binary is authoritative. Without this, adding the fixture target would
+# make `cargo run` ambiguous.
+default-run = "projectos-control-center"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+
+[features]
+# Enables the synthetic-child test fixture target ONLY. Never enabled by default, never enabled by
+# Tauri, and not referenced by any production code path — so an ordinary `cargo build [--release]`
+# and every Tauri bundle physically cannot contain the fixture binary.
+test-fixtures = []
+
+[[bin]]
+# The authoritative ProjectOS Control Centre executable. `default-run` names it explicitly so that
+# `cargo run` stays unambiguous once the fixture target exists.
+name = "projectos-control-center"
+path = "src/main.rs"
+
+[[bin]]
+# TEST-ONLY synthetic child for WINDOWS-PROCESS-CREATION1A lifecycle proofs.
+# `required-features` is the packaging boundary: without `test-fixtures` Cargo does not build this
+# target at all, so it cannot be produced by a release build nor bundled. The argv token inside it is
+# only accidental-execution protection and is NOT what keeps it out of production.
+name = "projectos-test-child"
+path = "src/bin/projectos_test_child.rs"
+required-features = ["test-fixtures"]
 
 [dependencies]
 tauri = { version = "2", features = [] }
@@ -15,3 +39,15 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # PACKAGED-SIDECAR-IDENTITY1A: SHA-256 for pinned-runtime and daemon-artefact identity.
 sha2 = "0.10"
+
+# WINDOWS-PROCESS-CREATION1A: atomic job-bound child creation. Already present in Cargo.lock
+# (transitive via tauri) — this only promotes it to a direct dependency and enables the minimum
+# features actually invoked. Job Objects have no std equivalent.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61.3", features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_System_JobObjects",
+  "Win32_System_Threading",
+  "Win32_System_Pipes",
+] }
