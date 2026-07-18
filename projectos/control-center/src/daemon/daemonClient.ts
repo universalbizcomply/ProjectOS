@@ -93,6 +93,13 @@ export class DaemonClient {
     }
     this.#connection.markMessage(this.#scheduler.now());
     switch (message.kind) {
+      case 'lifecycle':
+        // The host's authoritative worker lifecycle. Receiving it proves the native IPC is alive,
+        // so the reconnect ladder resets — but the connection is NOT marked `connected`: that
+        // still means "mirroring live daemon data", which only a snapshot establishes.
+        this.store.update({ lifecycle: message.lifecycle });
+        this.#reconnect.reset();
+        break;
       case 'snapshot':
         this.#sync.applySnapshot(this.store, message.snapshot);
         this.#healthStream.set(message.snapshot.health);
@@ -113,11 +120,22 @@ export class DaemonClient {
   }
 
   #beat(): void {
-    if (this.#connection.isAlive(this.#scheduler.now(), this.#livenessMs)) {
-      this.#transport.requestSnapshot();
-    } else {
+    if (!this.#connection.isAlive(this.#scheduler.now(), this.#livenessMs)) {
       this.#down();
+      return;
     }
+    // Command lock: before the host reports the worker ready there is no daemon to answer, and a
+    // refused snapshot would otherwise be misread as a dropped connection. The host's own
+    // lifecycle poll keeps liveness fresh meanwhile. Transports with no lifecycle (in-process,
+    // null) are unaffected.
+    if (!this.#snapshotPermitted()) return;
+    this.#transport.requestSnapshot();
+  }
+
+  /** Whether the host's lifecycle currently permits a read-only snapshot request. */
+  #snapshotPermitted(): boolean {
+    const lifecycle = this.store.getState().lifecycle;
+    return lifecycle === null || lifecycle.readOnlyAvailable;
   }
 
   #down(): void {

@@ -7,6 +7,7 @@ import { useMemo, useState } from 'react';
 import {
   useDaemon,
   useConnection,
+  useLifecycle,
   useReconnectAttempt,
   useHealth,
   useWorkers,
@@ -16,7 +17,7 @@ import {
   useNotifications,
 } from './DaemonProvider.js';
 import { filterEvents } from './eventStream.js';
-import type { ConnectionState, LivePhase, LiveWorker } from './types.js';
+import type { ConnectionState, LiveLifecycle, LivePhase, LiveWorker } from './types.js';
 
 const CONN_LABEL: Record<ConnectionState, string> = {
   connected: 'Bridge running',
@@ -24,8 +25,40 @@ const CONN_LABEL: Record<ConnectionState, string> = {
   disconnected: 'Disconnected',
 };
 
+/**
+ * Short badge label per host lifecycle state. The full sentence always comes from the host's own
+ * `nextSafeAction` (never rewritten here) — this is only the pill's few words.
+ */
+const LIFECYCLE_LABEL: Record<LiveLifecycle['state'], string> = {
+  NOT_STARTED: 'Worker not started',
+  RECOVERING: 'Finishing recovery…',
+  STARTING: 'Starting worker…',
+  RUNNING_READ_ONLY: 'Bridge running',
+  STOPPING: 'Worker stopping…',
+  STOPPED: 'Worker stopped',
+  CRASHED: 'Worker unavailable',
+  BLOCKED: 'Worker unavailable',
+};
+
+const LIFECYCLE_TONE: Record<LiveLifecycle['state'], string> = {
+  NOT_STARTED: 'warn',
+  RECOVERING: 'warn',
+  STARTING: 'warn',
+  RUNNING_READ_ONLY: 'ok',
+  STOPPING: 'warn',
+  STOPPED: 'warn',
+  CRASHED: 'crit',
+  BLOCKED: 'crit',
+};
+
+/** Pre-ready means: the host owns the truth and no daemon data exists yet. */
+function isPreReady(lifecycle: LiveLifecycle | null): boolean {
+  return lifecycle !== null && !lifecycle.readOnlyAvailable;
+}
+
 export function LiveMissionControl() {
   const connection = useConnection();
+  const lifecycle = useLifecycle();
   return (
     <>
       <div className="head">
@@ -33,7 +66,7 @@ export function LiveMissionControl() {
           <h1>Mission Control</h1>
           <p>Live from the Bridge Daemon · read-only · no refresh needed</p>
         </div>
-        <ConnectionBadge state={connection} />
+        <ConnectionBadge state={connection} lifecycle={lifecycle} />
       </div>
       <HealthPanel />
       <div className="live-grid">
@@ -47,8 +80,24 @@ export function LiveMissionControl() {
   );
 }
 
-function ConnectionBadge({ state }: { state: ConnectionState }) {
+function ConnectionBadge({
+  state,
+  lifecycle,
+}: {
+  state: ConnectionState;
+  lifecycle: LiveLifecycle | null;
+}) {
   const attempt = useReconnectAttempt();
+  // While the host reports a pre-ready worker, its lifecycle is the authority: the transport is
+  // fine, so a connection label would be both wrong and alarming.
+  if (isPreReady(lifecycle) && lifecycle !== null) {
+    return (
+      <span className={`pill conn ${LIFECYCLE_TONE[lifecycle.state]}`}>
+        <span className="conn-dot" />
+        {LIFECYCLE_LABEL[lifecycle.state]}
+      </span>
+    );
+  }
   const cls = state === 'connected' ? 'ok' : state === 'connecting' ? 'warn' : 'crit';
   return (
     <span className={`pill conn ${cls}`}>
@@ -61,6 +110,17 @@ function ConnectionBadge({ state }: { state: ConnectionState }) {
 
 function HealthPanel() {
   const health = useHealth();
+  const lifecycle = useLifecycle();
+  // Before the worker is ready there is no daemon health to show. The host's own safe sentence is
+  // rendered verbatim — recovery, blocked and startup all speak through it, so nothing here needs
+  // to know why. `role="status"` announces the change to assistive technology.
+  if (isPreReady(lifecycle) && lifecycle !== null) {
+    return (
+      <div className="section muted-note lifecycle-note" role="status" aria-live="polite">
+        {lifecycle.nextSafeAction}
+      </div>
+    );
+  }
   if (health === null) {
     return <div className="section muted-note">Waiting for the daemon…</div>;
   }

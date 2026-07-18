@@ -302,6 +302,115 @@ fn real_sidecar_exits_gracefully_on_lifecycle_shutdown_and_leaves_no_process() {
     );
 }
 
+// -------------------------------------------------------------------------------------------------
+// RECOVERY-BARRIER1B: the same real sidecar, driven through the FULL crate pipeline
+// (recovery barrier → suspended Job-bound creation → starting evidence → gated ResumeThread →
+// readiness → running evidence → one-time transfer), plus the replacement-host barrier against a
+// genuinely live daemon.
+// -------------------------------------------------------------------------------------------------
+
+mod full_pipeline {
+    use super::pid_is_alive;
+    use projectos_control_center::test_fixtures::{
+        run_barrier, DaemonLifecycleState, DaemonStatus, EvidenceState, EvidenceStore,
+        ProcessError, ReadOutcome, RecoveryConfig, StartupPhase, Win32RecoveryNative,
+    };
+    use std::sync::atomic::AtomicBool;
+    use std::time::Duration;
+
+    fn temp_dir(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir()
+            .join("projectos-real-pipeline")
+            .join(format!("{}-{}", tag, std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        dir
+    }
+
+    /// Full production pipeline against the REAL daemon: evidence goes starting→running before
+    /// publication, transfer publishes RunningReadOnly, shutdown finalises stopped evidence and
+    /// leaves no process.
+    #[test]
+    fn real_daemon_full_pipeline_records_running_then_stopped() {
+        let dir = temp_dir("pipeline");
+        let st = DaemonLifecycleState::with_evidence_dir("rs-pipe".into(), dir.clone());
+        let store = EvidenceStore::at_dir(dir).expect("scope");
+        match st.run_startup() {
+            Err(e) => {
+                eprintln!("SKIP: real daemon unavailable in this environment: {e:?}");
+                assert_ne!(st.safe_status().state, DaemonStatus::RunningReadOnly);
+            }
+            Ok((_rx, instance)) => {
+                assert_eq!(st.safe_status().state, DaemonStatus::RunningReadOnly);
+                assert_eq!(st.startup_phase(), Some(StartupPhase::Transferred));
+                let pid = match store.read() {
+                    ReadOutcome::Valid(r) => {
+                        assert_eq!(r.state, EvidenceState::Running);
+                        assert_eq!(r.daemon_instance_id, instance);
+                        r.pid.expect("running record carries a process claim")
+                    }
+                    other => panic!("expected running evidence, got {other:?}"),
+                };
+                assert!(pid_is_alive(pid), "recorded pid must be the live daemon");
+
+                st.claim_shutdown();
+                st.run_shutdown();
+                assert_eq!(st.safe_status().state, DaemonStatus::Stopped);
+                match store.read() {
+                    ReadOutcome::Valid(r) => assert_eq!(r.state, EvidenceState::Stopped),
+                    other => panic!("expected stopped evidence, got {other:?}"),
+                }
+                std::thread::sleep(Duration::from_millis(300));
+                assert!(!pid_is_alive(pid), "daemon pid {pid} survived shutdown");
+            }
+        }
+    }
+
+    /// Replacement-host barrier against a GENUINELY live real daemon: a second state sharing the
+    /// evidence store refuses (bounded timeout) while the first host's daemon lives, then
+    /// proceeds once the first host shuts it down. This is the abnormal-overlap core, driven
+    /// deterministically.
+    #[test]
+    fn replacement_barrier_waits_for_the_live_real_daemon() {
+        let dir = temp_dir("replacement");
+        let st = DaemonLifecycleState::with_evidence_dir("rs-repl".into(), dir.clone());
+        let store = EvidenceStore::at_dir(dir).expect("scope");
+        let Ok((_rx, _instance)) = st.run_startup() else {
+            eprintln!("SKIP: real daemon unavailable in this environment");
+            return;
+        };
+
+        // A replacement host would run exactly this barrier before any creation.
+        let cancel = AtomicBool::new(false);
+        let short = RecoveryConfig {
+            total: Duration::from_millis(800),
+        };
+        assert_eq!(
+            run_barrier(&store, &Win32RecoveryNative, &cancel, &short),
+            Err(ProcessError::RecoveryTimeout),
+            "a live evidenced daemon must block a replacement"
+        );
+
+        // First host stops its daemon; the replacement barrier now passes and marks evidence.
+        st.claim_shutdown();
+        st.run_shutdown();
+        assert_eq!(
+            run_barrier(
+                &store,
+                &Win32RecoveryNative,
+                &cancel,
+                &RecoveryConfig {
+                    total: Duration::from_secs(10)
+                }
+            ),
+            Ok(())
+        );
+        assert!(matches!(
+            store.read(),
+            ReadOutcome::Valid(r) if r.state == EvidenceState::Stopped
+        ));
+    }
+}
+
 #[test]
 fn real_sidecar_exits_when_stdin_closes() {
     // Closing stdin is what happens when the host goes away. The Job Object is the hard guarantee;

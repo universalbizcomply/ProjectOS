@@ -76,38 +76,50 @@ fn identity_status() -> String {
     })
 }
 
-/// Start the daemon and route its stdout to the webview.
+/// Start the daemon on a RETAINED startup worker and route its stdout to the webview.
+///
+/// RECOVERY-BARRIER1B: the recovery barrier + suspended launch run on a spawned worker whose
+/// `JoinHandle` is stored in the lifecycle state (never detached), so `setup` returns immediately,
+/// the UI loads and polls status (`RECOVERING` → `STARTING` → `RUNNING_READ_ONLY`), and the
+/// shutdown interlock can always join the worker before any exit decision.
 ///
 /// Ordinary output produced BEFORE readiness is dropped (the incidental startup snapshot is stale by
 /// the time the UI exists); a fresh snapshot is requested after readiness instead.
 fn start_and_route(app: &tauri::AppHandle) {
     let state = app.state::<Arc<DaemonLifecycleState>>().inner().clone();
-    let (rx, instance) = match state.start_daemon() {
-        Ok(v) => v,
-        // Fail closed: status already records the typed failure; the UI shows one safe action.
-        Err(_) => return,
-    };
-
     let handle = app.clone();
-    let routing_state = state.clone();
-    std::thread::spawn(move || {
-        for line in rx {
-            // Stale output from a replaced process must never reach the current UI.
-            if !routing_state.is_current_instance(&instance) {
-                break;
-            }
-            // Stop emitting the moment shutdown begins.
-            if !routing_state.may_emit() {
-                continue;
-            }
-            let _ = handle.emit("daemon://message", line);
-        }
-        // stdout EOF ⇒ the process is gone. Record it against THIS instance only.
-        routing_state.record_exit(&instance);
-    });
+    let worker_state = state.clone();
+    let worker = std::thread::spawn(move || {
+        let (rx, instance) = match worker_state.run_startup() {
+            Ok(v) => v,
+            // Fail closed: status already records the typed failure; the UI shows one safe action.
+            Err(_) => return,
+        };
 
-    // The daemon is ready; ask for a fresh snapshot now that the UI is listening.
-    let _ = state.request_snapshot(None);
+        // The router is the pre-existing stdout consumer, not startup work: the startup worker is
+        // terminal right after spawning it, so the shutdown join is never held open by routing.
+        let routing_state = worker_state.clone();
+        std::thread::spawn(move || {
+            for line in rx {
+                // Stale output from a replaced process must never reach the current UI.
+                if !routing_state.is_current_instance(&instance) {
+                    break;
+                }
+                // Stop emitting the moment shutdown begins.
+                if !routing_state.may_emit() {
+                    continue;
+                }
+                let _ = handle.emit("daemon://message", line);
+            }
+            // stdout EOF ⇒ the process is gone. Record it against THIS instance only.
+            routing_state.record_exit(&instance);
+        });
+
+        // The daemon is ready; ask for a fresh snapshot now that the UI is listening.
+        let _ = worker_state.request_snapshot(None);
+    });
+    // Retain the worker (§9): exit is unreachable until this handle is joined.
+    state.store_startup_worker(worker);
 }
 
 /// Run the bounded shutdown on a dedicated thread, then trigger the one final exit.

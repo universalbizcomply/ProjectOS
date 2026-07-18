@@ -34,6 +34,8 @@ pub mod state;
 #[cfg(windows)]
 pub(crate) mod create;
 #[cfg(windows)]
+pub(crate) mod evidence;
+#[cfg(windows)]
 pub(crate) mod handles;
 #[cfg(windows)]
 pub(crate) mod job;
@@ -43,6 +45,8 @@ pub(crate) mod lifecycle;
 pub mod owner;
 #[cfg(windows)]
 pub(crate) mod pipes;
+#[cfg(windows)]
+pub(crate) mod recovery;
 
 /// Argv token the synthetic test child requires before it will do anything. It exists so the fixture
 /// cannot be repurposed: without this exact token the child exits non-zero immediately.

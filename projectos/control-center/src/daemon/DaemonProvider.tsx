@@ -14,6 +14,7 @@ import { realScheduler } from './realScheduler.js';
 import type {
   ConnectionState,
   LiveHealth,
+  LiveLifecycle,
   LiveNotification,
   LivePhase,
   LiveProjectSummary,
@@ -56,6 +57,8 @@ function useSlice<T>(select: (s: LiveState) => T): T {
 
 export const useConnection = (): ConnectionState => useSlice((s) => s.connection);
 export const useReconnectAttempt = (): number => useSlice((s) => s.reconnectAttempt);
+/** The host's authoritative worker lifecycle; `null` outside the desktop host. */
+export const useLifecycle = (): LiveLifecycle | null => useSlice((s) => s.lifecycle);
 export const useHealth = (): LiveHealth | null => useSlice((s) => s.health);
 export const useWorkers = (): readonly LiveWorker[] => useSlice((s) => s.workers);
 export const usePhases = (): readonly LivePhase[] => useSlice((s) => s.phases);

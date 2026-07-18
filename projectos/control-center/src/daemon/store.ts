@@ -9,6 +9,7 @@ import type { LiveState } from './types.js';
 export const INITIAL_STATE: LiveState = {
   connection: 'disconnected',
   reconnectAttempt: 0,
+  lifecycle: null,
   health: null,
   workers: [],
   phases: [],

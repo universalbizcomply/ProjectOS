@@ -10,13 +10,45 @@
 import { useMemo, useState } from 'react';
 import { OWNER_MODELS, PROJECTOS_V3 } from './ownerSnapshot';
 import { buildOwnerControlView, type OwnerControlModel, type OwnerBadge } from './ownerModel';
+import { useLifecycle } from '../daemon/DaemonProvider';
+import type { LiveLifecycle } from '../daemon/types';
 
 function Badge({ badge }: { badge: OwnerBadge }) {
   return <span className={`ocp-badge ${badge.tone}`}>{badge.label}</span>;
 }
 
+/** Pre-ready = the host owns the truth and there is no live worker yet. */
+function isPreReady(lifecycle: LiveLifecycle | null): lifecycle is LiveLifecycle {
+  return lifecycle !== null && !lifecycle.readOnlyAvailable;
+}
+
+/** A crashed/blocked/failed worker is a problem the owner must not miss; other pre-ready states inform. */
+function lifecycleTone(state: LiveLifecycle['state']): 'crit' | 'warn' {
+  return state === 'BLOCKED' || state === 'CRASHED' ? 'crit' : 'warn';
+}
+
+/**
+ * The authoritative worker-lifecycle banner. It renders ONLY before the local worker is ready, as
+ * the page's primary emphasis, so the owner sees recovery/blocked status on this default landing
+ * surface instead of the (project-planning) seed content below — which would otherwise mask a
+ * failed or still-recovering worker. The message is the host's own `nextSafeAction`, verbatim.
+ */
+function LifecycleBanner({ lifecycle }: { lifecycle: LiveLifecycle }) {
+  return (
+    <div
+      className={`ocp-panel ocp-lifecycle ${lifecycleTone(lifecycle.state)}`}
+      role="status"
+      aria-live="polite"
+    >
+      <h2>Local worker</h2>
+      <p className="ocp-lifecycle-msg">{lifecycle.nextSafeAction}</p>
+    </div>
+  );
+}
+
 export function OwnerControlPlane() {
   const [projectId, setProjectId] = useState<string>(PROJECTOS_V3.projectId);
+  const lifecycle = useLifecycle();
   const model: OwnerControlModel =
     OWNER_MODELS.find((m) => m.projectId === projectId) ?? PROJECTOS_V3;
   const view = useMemo(() => buildOwnerControlView(model), [model]);
@@ -43,6 +75,9 @@ export function OwnerControlPlane() {
           </select>
         </label>
       </div>
+
+      {/* Worker lifecycle — the primary emphasis while the local worker is not yet ready. */}
+      {isPreReady(lifecycle) && <LifecycleBanner lifecycle={lifecycle} />}
 
       {/* Status + completion */}
       <div className="ocp-status">

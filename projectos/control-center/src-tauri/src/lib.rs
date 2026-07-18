@@ -51,6 +51,23 @@ pub mod test_fixtures {
     /// The fixture-facing name for the job-bound owner.
     pub use crate::process::owner::JobBoundProcessOwner as SyntheticProcessOwner;
 
+    /// RECOVERY-BARRIER1B closed test surface: the evidence store, the recovery barrier with its
+    /// injectable native seam, the resume seam, and the lifecycle state with an isolated evidence
+    /// directory. Exposes no generic process authority, no raw handles, and no production paths
+    /// beyond what the integration proofs must drive.
+    pub use crate::process::evidence::{
+        EvidenceRecord, EvidenceScope, EvidenceState, EvidenceStore, ReadOutcome,
+    };
+    pub use crate::process::lifecycle::{
+        DaemonLifecycleState, DaemonStatus, SafeDaemonStatus, StartupPhase,
+    };
+    pub use crate::process::owner::{classify_resume, RealResumeApi, ResumeApi};
+    pub use crate::process::recovery::{
+        run_barrier, PriorProcess, ProbeOutcome, RecoveryConfig, RecoveryNative, WaitSlice,
+        Win32RecoveryNative, RECOVERY_DEFAULT_TIMEOUT, RECOVERY_TIMEOUT_CEILING,
+        RECOVERY_WAIT_SLICE,
+    };
+
     /// Narrow instance-uniqueness adapter for the multi-process race proofs, which need an isolated
     /// object name so they cannot collide with a real Control Centre running on this machine.
     ///

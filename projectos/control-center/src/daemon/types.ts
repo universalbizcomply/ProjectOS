@@ -122,18 +122,56 @@ export interface DaemonSnapshot {
   readonly notifications: readonly LiveNotification[];
 }
 
-/** Messages a transport relays from the daemon to the client. */
+/**
+ * The host's authoritative worker-lifecycle states (Rust `DaemonStatus`). This is a DIFFERENT
+ * concern from `ConnectionState`: connection describes the transport, lifecycle describes the
+ * local worker the host owns. Before readiness the lifecycle is the authority — a snapshot only
+ * ever carries project data.
+ */
+export type DaemonLifecycleState =
+  | 'NOT_STARTED'
+  | 'RECOVERING'
+  | 'STARTING'
+  | 'RUNNING_READ_ONLY'
+  | 'STOPPING'
+  | 'STOPPED'
+  | 'CRASHED'
+  | 'BLOCKED';
+
+/**
+ * The host's redacted lifecycle projection (Rust `SafeDaemonStatus`). It carries no PID, path,
+ * SID, handle, hash or native error code — `nextSafeAction` is the host's own owner-facing
+ * sentence and is rendered verbatim, never rewritten here.
+ */
+export interface LiveLifecycle {
+  readonly state: DaemonLifecycleState;
+  readonly readOnlyAvailable: boolean;
+  readonly protectedApprovalsDisabled: boolean;
+  readonly nextSafeAction: string;
+}
+
+/**
+ * Messages a transport relays to the client.
+ *
+ * `lifecycle` is host-authoritative and synthesised ONLY by the desktop transport from the
+ * `daemon_status` command — it is deliberately absent from the wire protocol's accepted kinds
+ * (`ipcProtocol.MESSAGE_KINDS`), so the daemon can never assert its own lifecycle over the event
+ * channel.
+ */
 export type TransportMessage =
   | { readonly kind: 'snapshot'; readonly snapshot: DaemonSnapshot }
   | { readonly kind: 'event'; readonly event: LiveEvent }
   | { readonly kind: 'notification'; readonly notification: LiveNotification }
   | { readonly kind: 'health'; readonly health: LiveHealth }
+  | { readonly kind: 'lifecycle'; readonly lifecycle: LiveLifecycle }
   | { readonly kind: 'closed' };
 
 /** The complete observable UI state the store holds. */
 export interface LiveState {
   readonly connection: ConnectionState;
   readonly reconnectAttempt: number;
+  /** The host's worker lifecycle; `null` until the first `daemon_status` reply (or in a browser). */
+  readonly lifecycle: LiveLifecycle | null;
   readonly health: LiveHealth | null;
   readonly workers: readonly LiveWorker[];
   readonly phases: readonly LivePhase[];

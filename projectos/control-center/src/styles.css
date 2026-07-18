@@ -335,6 +335,10 @@ body {
 .ocp-panel h2 { margin: 0 0 10px; font-size: 14px; letter-spacing: -0.01em; }
 .ocp-panel.decisions.active { border-color: #4a3d14; box-shadow: 0 0 0 1px #4a3d14 inset; }
 .ocp-panel.next { border-left: 3px solid var(--accent); }
+.ocp-lifecycle { border-left: 3px solid var(--warn); }
+.ocp-lifecycle.crit { border-left-color: var(--crit); }
+.ocp-lifecycle-msg { margin: 0; font-size: 15px; line-height: 1.5; color: var(--text); overflow-wrap: anywhere; }
+.ocp-lifecycle.crit .ocp-lifecycle-msg { color: var(--crit); }
 .ocp-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 
 .ocp-next { margin: 0; font-size: 15px; color: var(--text); line-height: 1.5; }

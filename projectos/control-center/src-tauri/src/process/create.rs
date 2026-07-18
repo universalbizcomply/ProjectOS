@@ -23,9 +23,9 @@ use windows::Win32::Foundation::{FILETIME, HANDLE};
 use windows::Win32::System::Threading::{
     CreateProcessW, DeleteProcThreadAttributeList, GetProcessTimes,
     InitializeProcThreadAttributeList, UpdateProcThreadAttribute, CREATE_NO_WINDOW,
-    CREATE_UNICODE_ENVIRONMENT, EXTENDED_STARTUPINFO_PRESENT, LPPROC_THREAD_ATTRIBUTE_LIST,
-    PROCESS_INFORMATION, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, PROC_THREAD_ATTRIBUTE_JOB_LIST,
-    STARTF_USESTDHANDLES, STARTUPINFOEXW, STARTUPINFOW,
+    CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT, EXTENDED_STARTUPINFO_PRESENT,
+    LPPROC_THREAD_ATTRIBUTE_LIST, PROCESS_INFORMATION, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
+    PROC_THREAD_ATTRIBUTE_JOB_LIST, STARTF_USESTDHANDLES, STARTUPINFOEXW, STARTUPINFOW,
 };
 
 use super::command_line::{build_command_line, to_wide_nul};
@@ -152,6 +152,10 @@ impl Drop for AttributeList {
 /// A successfully created, job-contained process plus the host-side pipe ends.
 pub(crate) struct CreatedProcess {
     pub(crate) process: OwnedHandle,
+    /// The primary-thread handle. For a suspended launch it is the ONLY authority that can make
+    /// the child runnable (`ResumeThread`), so it is retained and consumed exactly once by the
+    /// owner; for a non-suspended launch the owner drops it immediately (nothing to resume).
+    pub(crate) thread: OwnedHandle,
     pub(crate) process_id: u32,
     pub(crate) creation_time: u64,
     pub(crate) stdin_writer: OwnedHandle,
@@ -184,9 +188,16 @@ fn creation_time(process: &OwnedHandle) -> Result<u64, ProcessError> {
 ///
 /// Ordering is the whole point: the job is created and armed by the caller BEFORE this runs, and the
 /// kernel performs the assignment during creation. On any failure no usable process is left behind.
+///
+/// `suspended` adds `CREATE_SUSPENDED` (RECOVERY-BARRIER1B): the primary thread is never scheduled,
+/// so the child executes ZERO instructions until an explicit `ResumeThread`. Job assignment via
+/// `PROC_THREAD_ATTRIBUTE_JOB_LIST` is a creation-time kernel action and remains atomic with the
+/// suspension — the child is contained before it exists as a runnable entity. It is a separate
+/// parameter (not a `ProcessSpec` field) so the sealed authority (`authority.rs`) stays untouched.
 pub(crate) fn create_in_job(
     spec: &ProcessSpec,
     job: &JobObject,
+    suspended: bool,
 ) -> Result<CreatedProcess, ProcessError> {
     spec.validate()?;
 
@@ -237,6 +248,11 @@ pub(crate) fn create_in_job(
 
     let mut pi = PROCESS_INFORMATION::default();
 
+    let mut flags = EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT | CREATE_NO_WINDOW;
+    if suspended {
+        flags |= CREATE_SUSPENDED;
+    }
+
     // SAFETY: application/current_dir/environment are NUL-terminated live buffers; `command_line` is
     // a live MUTABLE buffer (CreateProcessW may write to it); `si` is correctly sized with cb set to
     // the extended size and holds a live attribute list; `pi` is a live local. bInheritHandles=TRUE
@@ -248,7 +264,7 @@ pub(crate) fn create_in_job(
             None,
             None,
             true,
-            EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT | CREATE_NO_WINDOW,
+            flags,
             Some(environment.as_ptr() as *const core::ffi::c_void),
             PCWSTR(current_dir.as_ptr()),
             &si as *const STARTUPINFOEXW as *const STARTUPINFOW,
@@ -264,10 +280,14 @@ pub(crate) fn create_in_job(
 
     // SAFETY: both handles are owned, freshly returned by CreateProcessW, with no other owner.
     let process = unsafe { adopt(pi.hProcess) }.ok_or(ProcessError::ProcessHandleUnavailable)?;
-    let thread = unsafe { adopt(pi.hThread) };
-    // The primary thread handle is not needed once creation succeeded (no CREATE_SUSPENDED, so
-    // nothing to resume): drop it now.
-    drop(thread);
+    // The primary-thread handle is RETAINED (RECOVERY-BARRIER1B): for a suspended launch it is the
+    // only path to `ResumeThread`. Without it a suspended child could never run — terminate the
+    // child via the retained process handle and fail closed rather than leak a frozen process.
+    // SAFETY: freshly returned by CreateProcessW, owned, no other owner.
+    let Some(thread) = (unsafe { adopt(pi.hThread) }) else {
+        super::owner::force_terminate(&process);
+        return Err(ProcessError::ThreadHandleUnavailable);
+    };
 
     // The job MUST already contain the process — verify rather than assume. A false here means the
     // kernel did not honour the JOB_LIST, so the child is unowned: terminate via the retained handle
@@ -302,6 +322,7 @@ pub(crate) fn create_in_job(
 
     Ok(CreatedProcess {
         process,
+        thread,
         process_id: pi.dwProcessId,
         creation_time,
         stdin_writer: pipes.stdin.parent_end,

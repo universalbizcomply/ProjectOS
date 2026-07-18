@@ -43,6 +43,34 @@ pub enum ProcessError {
     /// Packaged identity is unverified, so no packaged daemon may launch. Never falls back to dev.
     ProductionIdentityUnavailable,
 
+    // ---- RECOVERY-BARRIER1B: prior-daemon recovery barrier --------------------------------------
+    /// The persisted lifecycle evidence record was malformed, wrong-scope, or inconsistent.
+    RecoveryEvidenceMalformed,
+    /// The evidence record declares a schema version this build does not speak.
+    RecoveryEvidenceUnsupportedSchema,
+    /// Evidence could not be durably persisted (or the store could not be resolved). Fails closed:
+    /// a daemon whose death would be unrecoverable-in-evidence must never run.
+    RecoveryEvidenceWriteFailed,
+    /// The recorded prior process exists but its identity could not be safely verified.
+    RecoveryIdentityUnverifiable,
+    /// Access was denied while checking the recorded prior process. NEVER read as termination.
+    RecoveryAccessDenied,
+    /// The exact prior process did not terminate within the bounded recovery window.
+    RecoveryTimeout,
+    /// Startup was cancelled by application shutdown before completion. Not an error condition in
+    /// the system — the fail-closed outcome of a deliberate close.
+    RecoveryCancelled,
+
+    // ---- RECOVERY-BARRIER1B: suspended launch ---------------------------------------------------
+    /// `ResumeThread` reported a native failure. The trusted child was terminated.
+    DaemonResumeFailed,
+    /// `ResumeThread` returned a suspend count other than exactly 1 (0 = already running; >1 =
+    /// foreign suspension). The controlled-launch invariant was violated; the trusted child was
+    /// terminated and no foreign suspension was ever force-removed.
+    DaemonUnexpectedSuspendCount,
+    /// `CreateProcessW` returned no usable primary-thread handle for a suspended launch.
+    ThreadHandleUnavailable,
+
     // ---- CREATION1A: native primitive ----------------------------------------------------------
     JobObjectCreateFailed,
     JobObjectConfigurationFailed,
@@ -87,6 +115,17 @@ impl ProcessError {
                 | ProcessError::LifecycleMessageMalformed
                 | ProcessError::LifecycleProtocolMismatch
                 | ProcessError::DaemonInstanceMismatch
+                // A suspended child existed when these were raised; it is terminated on the same
+                // path, and the Job close is the backstop.
+                | ProcessError::RecoveryEvidenceWriteFailed
+                | ProcessError::DaemonResumeFailed
+                | ProcessError::DaemonUnexpectedSuspendCount
+                | ProcessError::ThreadHandleUnavailable
+                // The PRIOR (not our) process may still exist; it is Job-contained by its dead
+                // host and is never ours to terminate.
+                | ProcessError::RecoveryTimeout
+                | ProcessError::RecoveryAccessDenied
+                | ProcessError::RecoveryIdentityUnverifiable
         )
     }
 
@@ -158,6 +197,23 @@ impl ProcessError {
             }
             ProcessError::ShutdownTimeout | ProcessError::ForceTerminationFailed => {
                 "The local worker did not stop cooperatively and was force-stopped."
+            }
+            ProcessError::RecoveryEvidenceMalformed
+            | ProcessError::RecoveryEvidenceUnsupportedSchema
+            | ProcessError::RecoveryEvidenceWriteFailed
+            | ProcessError::RecoveryIdentityUnverifiable
+            | ProcessError::RecoveryAccessDenied
+            | ProcessError::RecoveryTimeout => {
+                "ProjectOS could not safely confirm that the previous local worker has stopped. \
+                 No new worker was started."
+            }
+            ProcessError::RecoveryCancelled => {
+                "ProjectOS was closed before startup finished. No new worker was started."
+            }
+            ProcessError::DaemonResumeFailed
+            | ProcessError::DaemonUnexpectedSuspendCount
+            | ProcessError::ThreadHandleUnavailable => {
+                "The local worker did not start correctly and was stopped. Restart ProjectOS."
             }
             ProcessError::InvalidStateTransition | ProcessError::InternalErrorRedacted => {
                 "Restart ProjectOS; the local worker was left stopped."

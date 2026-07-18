@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 
 use windows::Win32::Foundation::{WAIT_OBJECT_0, WAIT_TIMEOUT};
 use windows::Win32::System::Threading::{
-    GetExitCodeProcess, TerminateProcess, WaitForSingleObject,
+    GetExitCodeProcess, ResumeThread, TerminateProcess, WaitForSingleObject,
 };
 
 use super::create::{create_in_job, CreatedProcess, ProcessSpec, SpecClassification};
@@ -159,11 +159,49 @@ impl SyntheticFixtureSpec {
     }
 }
 
+/// The exact expected `ResumeThread` prior-suspend-count for a child we created with exactly one
+/// `CREATE_SUSPENDED` suspension. Anything else is rejected (RECOVERY-BARRIER1B §6).
+const EXPECTED_PRIOR_SUSPEND_COUNT: u32 = 1;
+
+/// Native seam for `ResumeThread` (RECOVERY-BARRIER1B). Exists so the rejected return values
+/// (0, >1, DWORD(-1)) are deterministically testable without manipulating real suspend counts.
+/// The production implementation is [`RealResumeApi`]; nothing else in the crate calls the API.
+pub trait ResumeApi {
+    /// Returns the thread's PREVIOUS suspend count, or `u32::MAX` (`DWORD(-1)`) on failure.
+    fn resume_thread(&self, thread: &OwnedHandle) -> u32;
+}
+
+/// The production `ResumeThread` implementation.
+pub struct RealResumeApi;
+
+impl ResumeApi for RealResumeApi {
+    fn resume_thread(&self, thread: &OwnedHandle) -> u32 {
+        // SAFETY: `thread` is a valid owned primary-thread handle from our own CreateProcessW;
+        // ResumeThread does not consume it and only decrements the target's suspend count.
+        unsafe { ResumeThread(win32(thread)) }
+    }
+}
+
+/// Classify a `ResumeThread` prior-suspend-count. ONLY exactly 1 is accepted: 0 means the thread
+/// was already running (controlled-launch integrity violated by an unknown actor), >1 means a
+/// foreign suspension remains (never force-removed by looping), `u32::MAX` is a native failure.
+pub fn classify_resume(prior_suspend_count: u32) -> Result<(), ProcessError> {
+    match prior_suspend_count {
+        EXPECTED_PRIOR_SUSPEND_COUNT => Ok(()),
+        u32::MAX => Err(ProcessError::DaemonResumeFailed),
+        _ => Err(ProcessError::DaemonUnexpectedSuspendCount),
+    }
+}
+
 /// The authoritative owner. Move-only: no `Clone`, no `Copy`.
 pub struct JobBoundProcessOwner {
     state: ProcessState,
     job: JobObject,
     process: OwnedHandle,
+    /// Retained primary-thread handle. `Some` ONLY between a suspended creation and the single
+    /// `resume_with` call, which takes it (so it is closed exactly once on every path). Always
+    /// `None` for non-suspended launches.
+    thread: Option<OwnedHandle>,
     process_id: u32,
     process_creation_time: u64,
     /// Safe `File` view of the stdin pipe. Dropping it (via `= None` in shutdown) closes the pipe —
@@ -188,13 +226,16 @@ pub(crate) enum StdoutSink {
 }
 
 impl JobBoundProcessOwner {
-    /// Start the REAL ProjectOS daemon, job-bound, with stdout routed to  for lifecycle
+    /// Start the REAL ProjectOS daemon SUSPENDED, job-bound, with stdout routed for lifecycle
     /// parsing. The spec comes from the sealed authority — never from a caller.
-    pub(crate) fn start_daemon(
+    ///
+    /// RECOVERY-BARRIER1B launch contract: the child executes ZERO instructions until the caller
+    /// has durably persisted its identity evidence and then calls [`Self::resume_with`].
+    pub(crate) fn start_daemon_suspended(
         spec: &ProcessSpec,
         stdout_tx: Sender<String>,
     ) -> Result<JobBoundProcessOwner, ProcessError> {
-        Self::start_with_sink(spec, StdoutSink::Lines(stdout_tx))
+        Self::start_with_sink(spec, StdoutSink::Lines(stdout_tx), true)
     }
 
     /// The ONLY public way to create a process in this crate. It accepts a closed fixture spec, not
@@ -206,28 +247,39 @@ impl JobBoundProcessOwner {
         Self::start(&spec.to_process_spec())
     }
 
+    /// TEST-ONLY suspended fixture launch, for deterministic suspended-launch and resume-contract
+    /// proofs. Same closed fixture surface as `start_fixture`; nothing broader is expressible.
+    #[cfg(any(test, feature = "test-fixtures"))]
+    pub fn start_fixture_suspended(
+        spec: &SyntheticFixtureSpec,
+    ) -> Result<JobBoundProcessOwner, ProcessError> {
+        Self::start_with_sink(&spec.to_process_spec(), StdoutSink::Bounded, true)
+    }
+
     /// Start a synthetic child already contained in a fresh kill-on-close job.
     ///
     /// Order is load-bearing: job created and ARMED first, then pipes, then atomic creation. Any
     /// failure before success leaves no process — and the job (dropped on the error path) would kill
     /// one anyway.
     pub(crate) fn start(spec: &ProcessSpec) -> Result<JobBoundProcessOwner, ProcessError> {
-        Self::start_with_sink(spec, StdoutSink::Bounded)
+        Self::start_with_sink(spec, StdoutSink::Bounded, false)
     }
 
     fn start_with_sink(
         spec: &ProcessSpec,
         sink: StdoutSink,
+        suspended: bool,
     ) -> Result<JobBoundProcessOwner, ProcessError> {
         let job = JobObject::create_kill_on_close()?;
         let CreatedProcess {
             process,
+            thread,
             process_id,
             creation_time,
             stdin_writer,
             stdout_reader,
             stderr_reader,
-        } = create_in_job(spec, &job)?;
+        } = create_in_job(spec, &job, suspended)?;
 
         let stdout = Arc::new(Mutex::new(BoundedOutput::default()));
         let stderr = Arc::new(Mutex::new(BoundedOutput::default()));
@@ -250,9 +302,16 @@ impl JobBoundProcessOwner {
         });
 
         Ok(JobBoundProcessOwner {
-            state: ProcessState::RunningUntrusted,
+            state: if suspended {
+                ProcessState::CreatedSuspended
+            } else {
+                ProcessState::RunningUntrusted
+            },
             job,
             process,
+            // For a non-suspended launch there is nothing to resume: dropping the handle here
+            // preserves the pre-existing behaviour exactly.
+            thread: suspended.then_some(thread),
             process_id,
             process_creation_time: creation_time,
             // SAFE conversion: OwnedHandle -> File transfers ownership, no unsafe needed.
@@ -286,6 +345,39 @@ impl JobBoundProcessOwner {
     /// Confirm containment in this owner's job. Verification, never assumption.
     pub fn is_contained(&self) -> Result<bool, ProcessError> {
         self.job.contains(&self.process)
+    }
+
+    /// Remove OUR single controlled suspension (RECOVERY-BARRIER1B §6).
+    ///
+    /// Accepts ONLY a prior suspend count of exactly 1. On any rejected result the child is left
+    /// exactly as it was (0 = already running through an integrity violation; >1 = still suspended
+    /// under a foreign suspension that is deliberately never force-removed) and the caller MUST
+    /// terminate it via [`Self::shutdown`] — which this method does not do itself, so that the
+    /// launch interlock held around this call is never held across process-exit waiting.
+    ///
+    /// The thread handle is taken before the native call and dropped on EVERY path, so it is
+    /// closed exactly once regardless of outcome.
+    pub fn resume_with(&mut self, api: &dyn ResumeApi) -> Result<(), ProcessError> {
+        if self.state != ProcessState::CreatedSuspended {
+            return Err(ProcessError::InvalidStateTransition);
+        }
+        let Some(thread) = self.thread.take() else {
+            return Err(ProcessError::InvalidStateTransition);
+        };
+        let prior = api.resume_thread(&thread);
+        drop(thread); // exactly once, all paths
+        match classify_resume(prior) {
+            Ok(()) => {
+                self.state = ProcessState::RunningUntrusted;
+                Ok(())
+            }
+            Err(e) => {
+                self.last_failure = Some(e);
+                // State stays CreatedSuspended: `shutdown()` then force-terminates immediately
+                // (no cooperative wait — a suspended or integrity-violated child gets no grace).
+                Err(e)
+            }
+        }
     }
 
     /// Refresh state from the OS. This is the ONLY liveness authority: a boolean that merely
@@ -364,13 +456,19 @@ impl JobBoundProcessOwner {
         if self.state.is_terminal() {
             return self.state;
         }
+        // A suspended child cannot read stdin, so a cooperative request and grace period would
+        // only stall shutdown: skip straight to bounded force-termination. This is also the
+        // rejected-`ResumeThread` cleanup path (the child never legitimately ran).
+        let suspended = self.state == ProcessState::CreatedSuspended;
         self.state = ProcessState::ShutdownRequested;
 
-        // 1. Cooperative request, stdin still open.
-        let _ = self.send_cooperative_shutdown();
+        // 1. Cooperative request, stdin still open (skipped for a suspended child).
+        if !suspended {
+            let _ = self.send_cooperative_shutdown();
+        }
 
-        // 2. Bounded grace.
-        let exited = wait_for_exit(&self.process, self.graceful_shutdown);
+        // 2. Bounded grace (zero for a suspended child — nothing can respond).
+        let exited = !suspended && wait_for_exit(&self.process, self.graceful_shutdown);
 
         // 3. Force if still alive.
         if !exited {

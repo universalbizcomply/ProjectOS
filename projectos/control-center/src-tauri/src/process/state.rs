@@ -17,6 +17,10 @@ pub enum ProcessState {
     CreatingProcess,
     /// Process exists AND `IsProcessInJob` confirmed membership AND handles are retained.
     CreatedInJob,
+    /// Process was created `CREATE_SUSPENDED`, is Job-contained with handles retained, and its
+    /// primary thread has NEVER been scheduled — zero child instructions have executed. It leaves
+    /// this state only through an accepted `ResumeThread` (→ `RunningUntrusted`) or termination.
+    CreatedSuspended,
     /// Output drains + exit observer are active. Highest state reachable in this phase.
     RunningUntrusted,
     ShutdownRequested,
@@ -40,6 +44,7 @@ impl ProcessState {
         matches!(
             self,
             ProcessState::CreatedInJob
+                | ProcessState::CreatedSuspended
                 | ProcessState::RunningUntrusted
                 | ProcessState::ShutdownRequested
                 | ProcessState::Terminating
@@ -53,7 +58,8 @@ impl ProcessState {
             ProcessState::NotStarted => "STOPPED",
             ProcessState::PreparingJob
             | ProcessState::PreparingPipes
-            | ProcessState::CreatingProcess => "STARTING",
+            | ProcessState::CreatingProcess
+            | ProcessState::CreatedSuspended => "STARTING",
             ProcessState::CreatedInJob | ProcessState::RunningUntrusted => "RUNNING_READ_ONLY",
             ProcessState::ShutdownRequested | ProcessState::Terminating => "STOPPING",
             ProcessState::Terminated => "STOPPED",
