@@ -24,7 +24,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     MessageBoxW, MB_ICONINFORMATION, MB_OK, MB_SETFOREGROUND,
 };
 
-use crate::identity;
+use crate::identity::{self, composite::IdentityStatusView};
 use crate::instance::{self, InstanceOutcome};
 use crate::process::lifecycle::{DaemonLifecycleState, SafeDaemonStatus};
 
@@ -66,13 +66,17 @@ fn daemon_status(state: State<Arc<DaemonLifecycleState>>) -> SafeDaemonStatus {
     state.safe_status()
 }
 
-/// Read-only identity classification. No production verifier is wired, so this reports
-/// DEVELOPMENT_UNVERIFIED — never production trust. Mints nothing.
+/// Read-only identity classification (WINDOWS-PACKAGED-RUNTIME-IDENTITY1B).
+///
+/// Returns the IMMUTABLE composite identity captured once at startup — never re-evaluated per
+/// request: no filesystem hashing, no manifest read, no env/CLI inspection, no native trust call,
+/// no state mutation. No production verifier is wired, so a real machine is only ever
+/// DEVELOPMENT / TEST_FIXTURE / PACKAGED_CANDIDATE and protected eligibility is always DISABLED.
 #[tauri::command]
-fn identity_status() -> String {
-    let outcome = identity::development_identity();
-    serde_json::to_string(&outcome).unwrap_or_else(|_| {
-        "{\"state\":\"IDENTITY_BLOCKED\",\"failure\":\"INTERNAL_ERROR_REDACTED\"}".to_string()
+fn identity_status(view: State<Arc<IdentityStatusView>>) -> String {
+    serde_json::to_string(view.inner().as_ref()).unwrap_or_else(|_| {
+        "{\"executionMode\":\"PACKAGED_CANDIDATE\",\"protectedEligibility\":\"DISABLED\"}"
+            .to_string()
     })
 }
 
@@ -201,9 +205,14 @@ pub fn run() -> ExitCode {
 fn run_inner() {
     let state = Arc::new(DaemonLifecycleState::new(new_host_instance_id()));
 
+    // Capture the immutable Phase-1B identity ONCE, before the UI can request it. Classification
+    // only — never re-evaluated per request, never upgraded by readiness, recovery or lifecycle.
+    let identity_view = Arc::new(identity::capture_startup_identity().to_status_view());
+
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(state)
+        .manage(identity_view)
         .setup(|app| {
             let handle = app.handle().clone();
             start_and_route(&handle);

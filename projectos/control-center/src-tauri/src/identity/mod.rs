@@ -17,6 +17,7 @@
 #![allow(dead_code)]
 
 pub mod canonical;
+pub mod composite;
 pub mod errors;
 pub mod hash;
 pub mod manifest;
@@ -27,6 +28,34 @@ pub mod verifier;
 
 #[cfg(test)]
 mod tests;
+
+use composite::CompositeIdentity;
+
+/// Capture the immutable Phase-1B composite identity ONCE at startup (WINDOWS-PACKAGED-RUNTIME-
+/// IDENTITY1B). The execution mode comes from the SAME structural build-fact source as the daemon
+/// launch authority — `process::authority::detect_app_mode()` — never from a second detector. The
+/// `test-fixtures` feature is the only signal that additionally distinguishes a test-fixture build,
+/// exactly as the design requires.
+///
+/// Classification only: no Authenticode, no manifest read, no filesystem hashing, no native trust
+/// call. A packaged candidate has no production verifier this phase, so it is `packaged_unverified`
+/// and protected eligibility derives to `Disabled`.
+#[cfg(windows)]
+pub fn capture_startup_identity() -> CompositeIdentity {
+    use crate::process::authority::{detect_app_mode, AppMode};
+
+    // The `test-fixtures` feature is the explicit TestFixture classification (design §4). It never
+    // ships in a normal release/packaged build, so a real installation can never be TestFixture.
+    if cfg!(feature = "test-fixtures") {
+        // No fixture manifest is evaluated at real startup; a consistent-fixture composite is only
+        // ever constructed inside tests. Startup under the feature still reports TestFixture.
+        return CompositeIdentity::test_fixture(false, false);
+    }
+    match detect_app_mode() {
+        AppMode::Development => CompositeIdentity::development(),
+        AppMode::PackagedCandidate => CompositeIdentity::packaged_unverified(),
+    }
+}
 
 use std::path::{Path, PathBuf};
 

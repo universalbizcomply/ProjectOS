@@ -11,6 +11,9 @@
 //! Created in PROJECTOS-PACKAGED-SIDECAR-IDENTITY1A.
 
 use super::errors::IdentityError;
+// Only the deterministic test verifier hashes; keep the import with it so a shipping build (which
+// gates the verifier out) does not carry an unused import.
+#[cfg(any(test, feature = "test-fixtures"))]
 use super::hash::sha256_hex;
 use super::types::VerifiedSigner;
 
@@ -32,17 +35,29 @@ pub trait TrustManifestSignatureVerifier {
 }
 
 /// The TEST-ONLY key id prefix. Any manifest whose `signingKeyId` begins with this is a test
-/// manifest and is rejected in production.
+/// manifest and is rejected in production. Kept ungated: `evaluate()` uses it to REJECT test
+/// signers under production policy, so it must exist in every build.
 pub const TEST_KEY_ID_PREFIX: &str = "TEST-ONLY-";
+
 /// The TEST-ONLY algorithm label. Never a real algorithm.
+///
+/// WINDOWS-PACKAGED-RUNTIME-IDENTITY1B containment: the deterministic verifier and its constants are
+/// compiled ONLY for unit tests or an explicit `test-fixtures` build. A normal `cargo build`
+/// (default or `--release`) sets neither cfg, so none of this is physically present in a shipping
+/// or packaged artifact — a normal packaged build has no way to reach test verification at all.
+#[cfg(any(test, feature = "test-fixtures"))]
 pub const TEST_ALGORITHM: &str = "test-fixture-sha256";
 /// Fixed, non-secret salt so the deterministic test "signature" is reproducible in fixtures.
 /// This is NOT a key and NOT a ProjectOS secret — it exists only to wire accept/reject tests.
+#[cfg(any(test, feature = "test-fixtures"))]
 const TEST_FIXTURE_SALT: &str = "projectos-packaged-identity-test-fixture";
 
-/// Deterministic TEST-ONLY verifier. Not production-grade. Rejected by production policy.
+/// Deterministic TEST-ONLY verifier. Not production-grade. Rejected by production policy. Absent
+/// from every shipping build (see the containment note above).
+#[cfg(any(test, feature = "test-fixtures"))]
 pub struct DeterministicTestVerifier;
 
+#[cfg(any(test, feature = "test-fixtures"))]
 impl DeterministicTestVerifier {
     /// Compute the deterministic test "signature" for canonical bytes + key id. Test fixtures use
     /// the same function to produce a matching value. Not cryptographic.
@@ -55,6 +70,7 @@ impl DeterministicTestVerifier {
     }
 }
 
+#[cfg(any(test, feature = "test-fixtures"))]
 impl TrustManifestSignatureVerifier for DeterministicTestVerifier {
     fn verify(&self, input: &SignatureInput<'_>) -> Result<VerifiedSigner, IdentityError> {
         if input.algorithm != TEST_ALGORITHM {

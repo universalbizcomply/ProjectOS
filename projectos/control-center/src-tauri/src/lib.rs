@@ -68,6 +68,18 @@ pub mod test_fixtures {
         RECOVERY_WAIT_SLICE,
     };
 
+    /// PACKAGED-RUNTIME-IDENTITY1B closed test surface: the composite identity model, its safe
+    /// projection, and the startup capture. Classification only — exposes no verifier, no key, no
+    /// manifest bytes, and no path to protected authority (eligibility always derives Disabled).
+    pub mod identity {
+        pub use crate::identity::capture_startup_identity;
+        pub use crate::identity::composite::{
+            CcSignature, CompositeIdentity, ExecutionMode, IdentityStatusView,
+            InstallationIdentity, ProtectedEligibility, ReleaseChannel, ReleaseFileIntegrity,
+            ReleaseFreshness, ReleaseManifest,
+        };
+    }
+
     /// Narrow instance-uniqueness adapter for the multi-process race proofs, which need an isolated
     /// object name so they cannot collide with a real Control Centre running on this machine.
     ///
