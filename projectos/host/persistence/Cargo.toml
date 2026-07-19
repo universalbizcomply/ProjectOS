@@ -1,0 +1,16 @@
+[package]
+name = "projectos-host-persistence"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Strict, versioned persistence DTO contracts + fail-closed validation for the future ProjectOS Host Service protected state. Data contracts ONLY: no filesystem, no database, no encryption, no DPAPI/CNG, no credential custody, no keys, no service, no IPC, no Windows API, no provider execution. Domain authority types in projectos-host-core stay non-serializable; these DTOs live outside it and never grant authority."
+license = "UNLICENSED"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[dependencies]
+projectos-host-core = { path = "../core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
