@@ -1,0 +1,16 @@
+[package]
+name = "projectos-host-crypto"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Service-private cryptographic key-hierarchy and encryption ADAPTER CONTRACTS for the future ProjectOS Host Service. Defines key-role separation, opaque service-private key handles, master-key/project-DEK/credential-material adapter traits, a canonical length-framed associated-data builder, algorithm/version policy, rotation/rewrapping result contracts, zeroisation-aware non-serializable secret types, and a validated projection to the accepted CredentialEnvelopeDto. Contracts + deterministic TEST-ONLY synthetic adapter ONLY: NO real cryptography, NO key generation, NO OS RNG, NO DPAPI/CNG/NCrypt/TPM, NO Windows API, NO filesystem, NO service/IPC, NO real credential access. No confidentiality, integrity, encryption-at-rest, or Windows-key-protection claim."
+license = "UNLICENSED"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[dependencies]
+projectos-trust-contract = { path = "../contract" }
+projectos-host-persistence = { path = "../persistence" }
+thiserror = "1"
+zeroize = { version = "1", features = ["zeroize_derive"] }
