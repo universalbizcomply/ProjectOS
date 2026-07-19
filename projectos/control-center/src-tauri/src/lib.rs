@@ -78,6 +78,23 @@ pub mod test_fixtures {
             InstallationIdentity, ProtectedEligibility, ReleaseChannel, ReleaseFileIntegrity,
             ReleaseFreshness, ReleaseManifest,
         };
+        // PACKAGED-RUNTIME-IDENTITY2B native mechanism surface (Windows). Verification only — no
+        // publisher policy is configured, so no path reaches production Verified or eligibility.
+        pub use crate::identity::authenticode::{
+            derive_cc_signature, verify_bound, AuthenticodeFacts, AuthenticodeVerifier,
+            CertificateChain, Revocation, SignatureCryptography, SignaturePresence,
+            Win32Authenticode,
+        };
+        pub use crate::identity::install_root::{
+            classify_installation, classify_path, InstallationEvidence,
+            InstallationEvidenceProvider, KnownRoots, NoInstallerEvidence,
+        };
+        pub use crate::identity::publisher_policy::{
+            PublisherKey, PublisherOutcome, PublisherPolicy, PublisherPolicyStatus,
+        };
+        pub use crate::identity::running_executable::{
+            pre_verify_ok, FileIdentity, ReparseState, RunningExecutable,
+        };
     }
 
     /// Narrow instance-uniqueness adapter for the multi-process race proofs, which need an isolated

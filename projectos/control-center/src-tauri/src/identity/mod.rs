@@ -26,20 +26,32 @@ pub mod paths;
 pub mod types;
 pub mod verifier;
 
+// PACKAGED-RUNTIME-IDENTITY2B native verifier mechanism (Windows-only).
+#[cfg(windows)]
+pub mod authenticode;
+#[cfg(windows)]
+pub mod install_root;
+#[cfg(windows)]
+pub mod publisher_policy;
+#[cfg(windows)]
+pub mod running_executable;
+
 #[cfg(test)]
 mod tests;
 
 use composite::CompositeIdentity;
 
-/// Capture the immutable Phase-1B composite identity ONCE at startup (WINDOWS-PACKAGED-RUNTIME-
-/// IDENTITY1B). The execution mode comes from the SAME structural build-fact source as the daemon
-/// launch authority — `process::authority::detect_app_mode()` — never from a second detector. The
-/// `test-fixtures` feature is the only signal that additionally distinguishes a test-fixture build,
-/// exactly as the design requires.
+/// Capture the immutable composite identity ONCE at startup (WINDOWS-PACKAGED-RUNTIME-IDENTITY1B,
+/// extended by 2B). The execution mode comes from the SAME structural build-fact source as the
+/// daemon launch authority — `process::authority::detect_app_mode()` — never from a second detector.
+/// The `test-fixtures` feature is the only signal that additionally distinguishes a test-fixture
+/// build.
 ///
-/// Classification only: no Authenticode, no manifest read, no filesystem hashing, no native trust
-/// call. A packaged candidate has no production verifier this phase, so it is `packaged_unverified`
-/// and protected eligibility derives to `Disabled`.
+/// 2B: for a PackagedCandidate, the Control Centre executable is classified via the native
+/// Authenticode + installation mechanism (`classify_packaged_candidate`). No approved production
+/// publisher exists, so a real build's signature is `Unsigned` or `PublisherPolicyUnavailable`,
+/// installation is at most `PerMachineEvidenceMatched`, and protected eligibility still derives to
+/// `Disabled`. Development and TestFixture perform NO native verification.
 #[cfg(windows)]
 pub fn capture_startup_identity() -> CompositeIdentity {
     use crate::process::authority::{detect_app_mode, AppMode};
@@ -47,14 +59,35 @@ pub fn capture_startup_identity() -> CompositeIdentity {
     // The `test-fixtures` feature is the explicit TestFixture classification (design §4). It never
     // ships in a normal release/packaged build, so a real installation can never be TestFixture.
     if cfg!(feature = "test-fixtures") {
-        // No fixture manifest is evaluated at real startup; a consistent-fixture composite is only
-        // ever constructed inside tests. Startup under the feature still reports TestFixture.
         return CompositeIdentity::test_fixture(false, false);
     }
     match detect_app_mode() {
         AppMode::Development => CompositeIdentity::development(),
-        AppMode::PackagedCandidate => CompositeIdentity::packaged_unverified(),
+        AppMode::PackagedCandidate => classify_packaged_candidate(
+            &authenticode::Win32Authenticode,
+            &install_root::NoInstallerEvidence,
+        ),
     }
+}
+
+/// Classify a packaged candidate: open the running executable, verify its Authenticode signature,
+/// evaluate the (production = unavailable) publisher policy, and classify the installation. Any
+/// failure to even establish the running-executable identity fails closed to `packaged_unverified`.
+#[cfg(windows)]
+pub fn classify_packaged_candidate(
+    verifier: &dyn authenticode::AuthenticodeVerifier,
+    evidence: &dyn install_root::InstallationEvidenceProvider,
+) -> CompositeIdentity {
+    let Some(exe) = running_executable::RunningExecutable::open_current() else {
+        return CompositeIdentity::packaged_unverified();
+    };
+    let facts = authenticode::verify_bound(verifier, &exe);
+    // No approved production publisher is configured this phase → the outcome is `Unavailable`.
+    let policy = publisher_policy::PublisherPolicy::production();
+    let publisher = policy.evaluate(facts.signer_spki_sha256);
+    let signature = authenticode::derive_cc_signature(&facts, publisher);
+    let installation = install_root::classify_installation(&exe, evidence);
+    CompositeIdentity::packaged(signature, installation)
 }
 
 use std::path::{Path, PathBuf};

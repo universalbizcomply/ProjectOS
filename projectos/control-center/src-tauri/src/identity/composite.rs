@@ -45,6 +45,10 @@ pub enum CcSignature {
     NotApplicable,
     Unsigned,
     SignatureInvalid,
+    /// Crypto- and chain-valid, but no approved publisher policy is configured to confirm the
+    /// signer (WINDOWS-PACKAGED-RUNTIME-IDENTITY2B). Distinct from `PublisherMismatch`: it is the
+    /// absence of a policy, not a rejected signer. Never `Verified`.
+    PublisherPolicyUnavailable,
     PublisherMismatch,
     ChainInvalid,
     RevocationUnknown,
@@ -90,6 +94,12 @@ pub enum InstallationIdentity {
     PortableOrCopied,
     PerUser,
     PerMachineUnverified,
+    /// Location/registry/installer facts corroborate a per-machine install (WINDOWS-PACKAGED-
+    /// RUNTIME-IDENTITY2B). This is CORROBORATION, not authenticated installation identity — it is
+    /// strictly weaker than `PerMachineVerified` and never contributes to protected eligibility.
+    PerMachineEvidenceMatched,
+    /// Authenticated per-machine installation identity. UNREACHABLE until a future installer-
+    /// attestation phase; no Phase-2B path produces it.
     PerMachineVerified,
 }
 
@@ -167,8 +177,8 @@ impl CompositeIdentity {
     }
 
     /// A normal packaged candidate WITHOUT a production Authenticode verifier or manifest key: no
-    /// check is performed, so every dimension is a truthful unverified value. This is the terminal
-    /// real-machine result in Phase 1B.
+    /// check is performed, so every dimension is a truthful unverified value. Used as the
+    /// fail-closed fallback when the running-executable identity cannot even be established.
     pub fn packaged_unverified() -> CompositeIdentity {
         CompositeIdentity {
             execution: ExecutionMode::PackagedCandidate,
@@ -177,6 +187,26 @@ impl CompositeIdentity {
             manifest: ReleaseManifest::NotChecked,
             integrity: ReleaseFileIntegrity::NotChecked,
             installation: InstallationIdentity::Unknown,
+            freshness: ReleaseFreshness::Unknown,
+        }
+    }
+
+    /// A packaged candidate whose Control Centre signature and installation were classified
+    /// (WINDOWS-PACKAGED-RUNTIME-IDENTITY2B). Release channel/manifest/integrity/freshness remain
+    /// unverified — Authenticode of the Control Centre alone never verifies the release — so
+    /// protected eligibility still derives to `Disabled` (the reducer requires `Verified` signature
+    /// AND `SignedProduction` channel AND `PerMachineVerified`, none reachable this phase).
+    pub fn packaged(
+        signature: CcSignature,
+        installation: InstallationIdentity,
+    ) -> CompositeIdentity {
+        CompositeIdentity {
+            execution: ExecutionMode::PackagedCandidate,
+            channel: ReleaseChannel::Unknown,
+            signature,
+            manifest: ReleaseManifest::NotChecked,
+            integrity: ReleaseFileIntegrity::NotChecked,
+            installation,
             freshness: ReleaseFreshness::Unknown,
         }
     }

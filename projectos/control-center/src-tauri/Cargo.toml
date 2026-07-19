@@ -53,6 +53,19 @@ windows = { version = "0.61.3", features = [
   "Win32_Foundation",
   "Win32_Security",
   "Win32_Security_Authorization",
+  # PACKAGED-RUNTIME-IDENTITY2B adds three features to this SAME already-locked crate — no new
+  # package enters the build graph. `Win32_Security_WinTrust` supplies WinVerifyTrust + the
+  # WTHelper* same-verification-state signer accessors; `Win32_Security_Cryptography` supplies the
+  # CERT_CONTEXT/CRYPT_PROVIDER structs the signer public key is read from; `Win32_Storage_FileSystem`
+  # supplies the handle-based running-executable identity (CreateFileW, GetFinalPathNameByHandleW,
+  # GetFileInformationByHandle). Verification of the Control Centre executable only; no daemon,
+  # provider, approval, or protected authority is enabled by these.
+  "Win32_Security_WinTrust",
+  "Win32_Security_Cryptography",
+  # The WTHelper* same-verification-state signer accessors are feature-gated on these two.
+  "Win32_Security_Cryptography_Catalog",
+  "Win32_Security_Cryptography_Sip",
+  "Win32_Storage_FileSystem",
   "Win32_System_JobObjects",
   "Win32_System_Threading",
   "Win32_System_Pipes",
