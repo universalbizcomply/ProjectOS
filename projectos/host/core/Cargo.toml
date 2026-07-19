@@ -1,0 +1,14 @@
+[package]
+name = "projectos-host-core"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Service-private trust and operation contracts for the future ProjectOS Host Service: observations, service-validated facts, operation state, a construction-restricted execution permit, approval/credential/storage interfaces, and a fail-closed authority reducer. Pure logic — NO I/O, NO Windows APIs, NO IPC, NO serialization of authority state, NO real security boundary."
+license = "UNLICENSED"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[dependencies]
+projectos-trust-contract = { path = "../contract" }
+thiserror = "1"
