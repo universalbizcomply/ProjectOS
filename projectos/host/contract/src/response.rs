@@ -40,10 +40,17 @@ pub struct DeniedDetail {
     pub error: ContractError,
 }
 
-/// `SETUP_REQUIRED`: a credential must be set up locally. No operation reference, no evidence.
+/// `SETUP_REQUIRED`: a credential must be set up locally, then the operation may be resumed. Carries
+/// a durable operation reference (the future service-side blocked-operation record) so the block can
+/// be located after reconnect or restart. No evidence, no success.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct SetupRequiredDetail {
+    /// Durable opaque reference to the blocked-operation record. UNTRUSTED REFERENCE: it locates a
+    /// service-side record and proves nothing (not process/project/repository/environment identity,
+    /// owner approval, credential availability, operation permission, release validity, or authority
+    /// to resume). The future Host Service freshly verifies every protected condition before resuming.
+    pub operation_reference: OperationRef,
     /// Stable reason code (typically [`ContractError::CredentialMissing`]).
     pub error: ContractError,
     /// Must be [`DecisionNeeded::CredentialSetup`].
@@ -141,6 +148,7 @@ impl ResponseBody {
         match self {
             ResponseBody::Denied(_) => Ok(()),
             ResponseBody::SetupRequired(d) => {
+                d.operation_reference.validate()?;
                 if d.decision_needed == DecisionNeeded::CredentialSetup {
                     Ok(())
                 } else {

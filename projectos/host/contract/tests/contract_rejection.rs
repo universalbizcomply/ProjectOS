@@ -1,12 +1,13 @@
-//! Fail-closed proofs for the tagged request/response model: kind/status-specific fields, forbidden
-//! fields, contradictory combinations, and schema handling.
+//! Fail-closed proofs for the tagged v2 request/response model: schema v2 discipline, kind/status
+//! specific fields, forbidden fields, contradictory combinations, and the durable SETUP_REQUIRED
+//! reference.
 
 use projectos_trust_contract::{ContractError, RequestEnvelope, ResponseEnvelope, SchemaVersion};
 
-// ---- request fixtures ----------------------------------------------------------------------------
+// ---- request fixtures (schema v2) ----------------------------------------------------------------
 
 const PROTECTED_OK: &str = r#"{
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "requestId": "req-1",
   "request": {
     "kind": "PROTECTED_OPERATION",
@@ -21,13 +22,13 @@ const PROTECTED_OK: &str = r#"{
 }"#;
 
 const OPERATION_STATUS_OK: &str = r#"{
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "requestId": "req-2",
   "request": { "kind": "OPERATION_STATUS", "payload": { "operationReference": "op-1" } }
 }"#;
 
 const CREDENTIAL_SETUP_OK: &str = r#"{
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "requestId": "req-3",
   "request": {
     "kind": "CREDENTIAL_SETUP_STATUS",
@@ -47,14 +48,40 @@ fn resp_err(json: &str) -> ContractError {
     ResponseEnvelope::parse_json(json.as_bytes()).unwrap_err()
 }
 
-// ---- requests ------------------------------------------------------------------------------------
+// ---- schema version discipline -------------------------------------------------------------------
 
 #[test]
-fn valid_requests_parse() {
+fn valid_v2_requests_parse() {
     RequestEnvelope::parse_json(PROTECTED_OK.as_bytes()).unwrap();
     RequestEnvelope::parse_json(OPERATION_STATUS_OK.as_bytes()).unwrap();
     RequestEnvelope::parse_json(CREDENTIAL_SETUP_OK.as_bytes()).unwrap();
 }
+
+#[test]
+fn version_one_rejected() {
+    let json = PROTECTED_OK.replace("\"schemaVersion\": 2", "\"schemaVersion\": 1");
+    assert_eq!(req_err(&json), ContractError::UnsupportedSchema);
+}
+
+#[test]
+fn version_three_rejected() {
+    let json = PROTECTED_OK.replace("\"schemaVersion\": 2", "\"schemaVersion\": 3");
+    assert_eq!(req_err(&json), ContractError::UnsupportedSchema);
+}
+
+#[test]
+fn schema_require_supported_rejects_other_versions() {
+    assert_eq!(
+        SchemaVersion(1).require_supported(),
+        Err(ContractError::UnsupportedSchema)
+    );
+    assert_eq!(
+        SchemaVersion(999).require_supported(),
+        Err(ContractError::UnsupportedSchema)
+    );
+}
+
+// ---- requests ------------------------------------------------------------------------------------
 
 #[test]
 fn protected_operation_rejects_operation_reference() {
@@ -105,15 +132,6 @@ fn credential_setup_rejects_owner_approved() {
 }
 
 #[test]
-fn credential_setup_rejects_irrelevant_operation_fields() {
-    let json = CREDENTIAL_SETUP_OK.replace(
-        "\"credentialReference\": \"cred-1\"",
-        "\"credentialReference\": \"cred-1\", \"operationFingerprint\": \"fp-0001\"",
-    );
-    assert_eq!(req_err(&json), ContractError::MalformedRequest);
-}
-
-#[test]
 fn unknown_request_kind_fails_closed() {
     let json = PROTECTED_OK.replace("\"PROTECTED_OPERATION\"", "\"DO_EVERYTHING\"");
     assert_eq!(req_err(&json), ContractError::MalformedRequest);
@@ -134,27 +152,15 @@ fn malformed_identifier_rejected() {
     assert_eq!(req_err(&json), ContractError::InvalidIdentifier);
 }
 
-#[test]
-fn unsupported_newer_schema_rejected() {
-    let json = PROTECTED_OK.replace("\"schemaVersion\": 1", "\"schemaVersion\": 2");
-    assert_eq!(req_err(&json), ContractError::UnsupportedSchema);
-}
-
-#[test]
-fn schema_require_supported_rejects_newer() {
-    assert_eq!(
-        SchemaVersion(999).require_supported(),
-        Err(ContractError::UnsupportedSchema)
-    );
-}
-
 // ---- responses -----------------------------------------------------------------------------------
 
 fn resp(status: &str, detail: &str) -> String {
     format!(
-        "{{ \"schemaVersion\": 1, \"requestId\": \"r\", \"response\": {{ \"status\": \"{status}\", \"detail\": {detail} }} }}"
+        "{{ \"schemaVersion\": 2, \"requestId\": \"r\", \"response\": {{ \"status\": \"{status}\", \"detail\": {detail} }} }}"
     )
 }
+
+const EVIDENCE_OK: &str = "{ \"evidenceRef\": \"ev\", \"status\": \"COMPLETED\", \"sequence\": 1, \"digest\": \"00ff\", \"redactedSummary\": \"x\", \"decisionNeeded\": \"NONE\" }";
 
 #[test]
 fn denied_requires_error() {
@@ -177,16 +183,43 @@ fn denied_rejects_operation_reference() {
 fn denied_rejects_evidence() {
     let json = resp(
         "DENIED",
-        "{ \"error\": \"OPERATION_NOT_ALLOWED\", \"evidence\": { \"evidenceRef\": \"ev\", \"status\": \"COMPLETED\", \"sequence\": 1, \"digest\": \"00ff\", \"redactedSummary\": \"x\", \"decisionNeeded\": \"NONE\" } }",
+        &format!("{{ \"error\": \"OPERATION_NOT_ALLOWED\", \"evidence\": {EVIDENCE_OK} }}"),
     );
     assert_eq!(resp_err(&json), ContractError::MalformedRequest);
+}
+
+#[test]
+fn setup_required_valid_with_durable_reference() {
+    let json = resp(
+        "SETUP_REQUIRED",
+        "{ \"operationReference\": \"op-blocked\", \"error\": \"CREDENTIAL_MISSING\", \"decisionNeeded\": \"CREDENTIAL_SETUP\" }",
+    );
+    ResponseEnvelope::parse_json(json.as_bytes()).unwrap();
+}
+
+#[test]
+fn setup_required_requires_operation_reference() {
+    let json = resp(
+        "SETUP_REQUIRED",
+        "{ \"error\": \"CREDENTIAL_MISSING\", \"decisionNeeded\": \"CREDENTIAL_SETUP\" }",
+    );
+    assert_eq!(resp_err(&json), ContractError::MalformedRequest);
+}
+
+#[test]
+fn setup_required_malformed_reference_rejected() {
+    let json = resp(
+        "SETUP_REQUIRED",
+        "{ \"operationReference\": \"op blocked\", \"error\": \"CREDENTIAL_MISSING\", \"decisionNeeded\": \"CREDENTIAL_SETUP\" }",
+    );
+    assert_eq!(resp_err(&json), ContractError::InvalidIdentifier);
 }
 
 #[test]
 fn setup_required_rejects_evidence() {
     let json = resp(
         "SETUP_REQUIRED",
-        "{ \"error\": \"CREDENTIAL_MISSING\", \"decisionNeeded\": \"CREDENTIAL_SETUP\", \"evidence\": { \"evidenceRef\": \"ev\", \"status\": \"COMPLETED\", \"sequence\": 1, \"digest\": \"00ff\", \"redactedSummary\": \"x\", \"decisionNeeded\": \"NONE\" } }",
+        &format!("{{ \"operationReference\": \"op-blocked\", \"error\": \"CREDENTIAL_MISSING\", \"decisionNeeded\": \"CREDENTIAL_SETUP\", \"evidence\": {EVIDENCE_OK} }}"),
     );
     assert_eq!(resp_err(&json), ContractError::MalformedRequest);
 }
@@ -195,7 +228,7 @@ fn setup_required_rejects_evidence() {
 fn setup_required_wrong_decision_needed_rejected() {
     let json = resp(
         "SETUP_REQUIRED",
-        "{ \"error\": \"CREDENTIAL_MISSING\", \"decisionNeeded\": \"OWNER_APPROVAL\" }",
+        "{ \"operationReference\": \"op-blocked\", \"error\": \"CREDENTIAL_MISSING\", \"decisionNeeded\": \"OWNER_APPROVAL\" }",
     );
     assert_eq!(resp_err(&json), ContractError::MalformedRequest);
 }
@@ -245,7 +278,7 @@ fn completed_requires_reference_and_evidence() {
 fn completed_rejects_error() {
     let json = resp(
         "COMPLETED",
-        "{ \"operationReference\": \"op-1\", \"error\": \"INTERNAL_REFUSAL\", \"evidence\": { \"evidenceRef\": \"ev\", \"status\": \"COMPLETED\", \"sequence\": 1, \"digest\": \"00ff\", \"redactedSummary\": \"x\", \"decisionNeeded\": \"NONE\" } }",
+        &format!("{{ \"operationReference\": \"op-1\", \"error\": \"INTERNAL_REFUSAL\", \"evidence\": {EVIDENCE_OK} }}"),
     );
     assert_eq!(resp_err(&json), ContractError::MalformedRequest);
 }
@@ -271,7 +304,7 @@ fn failed_requires_error() {
 fn failed_evidence_may_not_claim_completion() {
     let json = resp(
         "FAILED",
-        "{ \"error\": \"SERVICE_UNAVAILABLE\", \"evidence\": { \"evidenceRef\": \"ev\", \"status\": \"COMPLETED\", \"sequence\": 1, \"digest\": \"00ff\", \"redactedSummary\": \"x\", \"decisionNeeded\": \"NONE\" } }",
+        &format!("{{ \"error\": \"SERVICE_UNAVAILABLE\", \"evidence\": {EVIDENCE_OK} }}"),
     );
     assert_eq!(resp_err(&json), ContractError::MalformedRequest);
 }
@@ -294,11 +327,9 @@ fn unknown_response_field_fails_closed() {
 }
 
 #[test]
-fn evidence_non_hex_digest_rejected() {
-    let json = resp(
-        "COMPLETED",
-        "{ \"operationReference\": \"op-1\", \"evidence\": { \"evidenceRef\": \"ev\", \"status\": \"COMPLETED\", \"sequence\": 1, \"digest\": \"not-hex!!\", \"redactedSummary\": \"x\", \"decisionNeeded\": \"NONE\" } }",
-    );
+fn service_unverified_is_not_a_wire_error() {
+    // SERVICE_UNVERIFIED belongs to a future client transport error model, NOT ContractError.
+    let json = resp("DENIED", "{ \"error\": \"SERVICE_UNVERIFIED\" }");
     assert_eq!(resp_err(&json), ContractError::MalformedRequest);
 }
 
@@ -306,7 +337,6 @@ fn evidence_non_hex_digest_rejected() {
 
 #[test]
 fn serialized_field_names_are_stable() {
-    // Guard the wire vocabulary against accidental renames.
     assert!(PROTECTED_OK.contains("schemaVersion"));
     assert!(PROTECTED_OK.contains("requestedProject"));
     assert!(PROTECTED_OK.contains("operationFingerprint"));

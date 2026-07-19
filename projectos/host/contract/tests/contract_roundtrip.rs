@@ -84,6 +84,7 @@ fn every_response_state_roundtrips() {
             error: ContractError::OperationNotAllowed,
         }),
         ResponseBody::SetupRequired(SetupRequiredDetail {
+            operation_reference: OperationRef::new("op-blocked").unwrap(),
             error: ContractError::CredentialMissing,
             decision_needed: DecisionNeeded::CredentialSetup,
         }),
@@ -181,4 +182,31 @@ fn no_secret_like_value_appears_in_serialized_evidence() {
 fn supported_schema_accepted() {
     assert!(SchemaVersion::CURRENT.require_supported().is_ok());
     assert!(SchemaVersion(SCHEMA_VERSION).is_supported());
+}
+
+#[test]
+fn schema_version_is_two() {
+    assert_eq!(SCHEMA_VERSION, 2);
+    assert_eq!(SchemaVersion::CURRENT, SchemaVersion(2));
+}
+
+#[test]
+fn setup_required_roundtrips_with_durable_reference() {
+    let resp = ResponseEnvelope::new(
+        RequestId::new("req-1").unwrap(),
+        ResponseBody::SetupRequired(SetupRequiredDetail {
+            operation_reference: OperationRef::new("op-blocked").unwrap(),
+            error: ContractError::CredentialMissing,
+            decision_needed: DecisionNeeded::CredentialSetup,
+        }),
+    );
+    let json = resp.to_json().unwrap();
+    let back = ResponseEnvelope::parse_json(json.as_bytes()).unwrap();
+    assert_eq!(resp, back);
+    // The durable reference round-trips only as an opaque reference.
+    if let ResponseBody::SetupRequired(d) = back.response {
+        assert_eq!(d.operation_reference.as_str(), "op-blocked");
+    } else {
+        panic!("wrong variant");
+    }
 }

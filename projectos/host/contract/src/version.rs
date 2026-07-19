@@ -2,13 +2,23 @@
 //!
 //! Trust: a candidate-supplied number on the wire (UNTRUSTED INPUT). It is validated, never trusted
 //! to select behaviour beyond accept/reject.
+//!
+//! Version history:
+//! * v1 — pre-integration committed contract (WINDOWS-PACKAGED-HOST-TRUST-ENFORCEMENT3B). It was
+//!   never connected to a Host Service or a Control Centre client, and no production or persistent
+//!   wire record relies on it, so it is superseded outright rather than migrated.
+//! * v2 — the first resume-capable contract (RESUME1A): `SETUP_REQUIRED` now carries a durable
+//!   `operationReference` so a credential-setup block can be located and resumed after restart.
+//!
+//! There is NO fallback parser for v1: a v1 message is rejected exactly like any other unsupported
+//! version. No silent upgrade or downgrade is performed.
 
 use serde::{Deserialize, Serialize};
 
 use crate::error::ContractError;
 
 /// The only supported schema version. A request or response carrying any other value is rejected.
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// A wire schema version. Serialised transparently as a bare integer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
