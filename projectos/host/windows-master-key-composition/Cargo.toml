@@ -1,0 +1,15 @@
+[package]
+name = "projectos-host-windows-master-key-composition"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Canonical PRODUCTION composition of the accepted ProjectOS Host master-key components: WindowsCngMasterKeyMaterialSource -> WindowsDpapiMasterKeyBackend -> MasterKeyProtectorService. One side-effect-free constructor returning the crypto-owned protector service; it generates no material, calls no RNG/DPAPI, provisions/opens/rotates nothing, writes no state, and creates no authority until an authorised caller invokes an accepted crypto service operation. NO Windows FFI, NO unsafe, NO direct windows-sys/DPAPI/CNG dependency, NO persistence/service/IPC/registry/filesystem/credential. Not a Windows service; no durable custody, service identity, persistent key storage, administrator resistance, or production credential readiness."
+license = "UNLICENSED"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[dependencies]
+projectos-host-crypto = { path = "../crypto" }
+projectos-host-windows-crypto-adapter = { path = "../windows-crypto-adapter" }
+projectos-host-windows-master-key-source = { path = "../windows-master-key-source" }
