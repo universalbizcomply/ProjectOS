@@ -48,23 +48,43 @@
 //!     m.ciphertext() // no such public method
 //! }
 //! ```
+//! An external backend cannot mint a master-key handle (constructor is crate-private):
+//! ```compile_fail
+//! let _ = projectos_host_crypto::ServiceMasterKeyHandle::new(1, 1);
+//! ```
+//! An external caller cannot read a handle's id or epoch (accessors are crate-private):
+//! ```compile_fail
+//! fn f(h: projectos_host_crypto::ServiceMasterKeyHandle) -> u64 { h.id() }
+//! ```
+//! A backend secret borrow cannot escape its closure:
+//! ```compile_fail
+//! use projectos_host_crypto::BackendSecret;
+//! fn f(s: &impl BackendSecret) -> &[u8] { s.with_secret(|b| b) }
+//! ```
+//! The backend SPI has NO uncertain-effect error variant (removed in 3J-A-CORRECTION1A):
+//! ```compile_fail
+//! let _ = projectos_host_crypto::BackendError::UncertainEffect;
+//! ```
 
 #![forbid(unsafe_code)]
 
 pub mod aad;
 pub mod adapter;
+pub mod backend;
 pub mod error;
 pub mod handle;
 pub mod material;
 pub mod policy;
 pub mod projection;
 pub mod scope;
+pub mod service;
 
 pub use aad::{build_associated_data, AssociatedData, MAX_AAD_BYTES};
 pub use adapter::{
     CredentialCipher, CryptoOperationKind, CryptoReconciler, MasterKeyMetadata, MasterKeyProtector,
     ProjectDekManager, ReconcileResult, RotationOutcome,
 };
+pub use backend::{BackendError, BackendSecret, MasterKeyProtectionBackend};
 pub use error::CryptoError;
 pub use handle::{
     CryptoOperationId, KeyLifecycle, KeyRole, ProjectDekHandle, ServiceMasterKeyHandle,
@@ -80,6 +100,7 @@ pub use policy::{
 };
 pub use projection::project_to_envelope_dto;
 pub use scope::CredentialScope;
+pub use service::{MasterKeyProtectorService, MAX_MASTER_RECORDS};
 
 #[cfg(test)]
 mod synthetic;

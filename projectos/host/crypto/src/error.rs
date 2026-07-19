@@ -61,6 +61,11 @@ pub enum CryptoError {
     /// Secret material required by the operation was unavailable.
     #[error("secret material unavailable")]
     SecretUnavailable,
+    /// An initial service master-key record already exists, so `provision()` is refused before any
+    /// effect; replacement must use `rotate()`. Known-before-effect, never retried, never mapped to a
+    /// reconciliation outcome; distinct from resource-limit and secret-unavailable classifications.
+    #[error("master key already provisioned")]
+    MasterKeyAlreadyProvisioned,
     // NOTE: there is NO `ReconciliationRequired` error. An uncertain-effect outcome is represented
     // ONLY by `RotationOutcome::ReconciliationRequired` (an outcome, never a retryable error), so a
     // caller can never confuse it with a `FailedBeforeEffect`/refusal error.
