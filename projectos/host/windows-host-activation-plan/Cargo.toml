@@ -1,0 +1,18 @@
+[package]
+name = "projectos-host-windows-activation-plan"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "PURE, SIDE-EFFECT-FREE Windows host-activation PLAN contract for the future ProjectOS Host Service. Defines the canonical production-root strategy, the supported Windows service-identity options and their trade-offs, the intended ACL composition (reusing the accepted semantic ACL-policy model), the deterministic activation sequence, the owner/governance approval gates, the pre-effect / confirmed / uncertain-effect classification, and the service recovery policy. It PLANS ONLY: it creates no directory, resolves no known folder, applies no ACL, opens no Service Control Manager, installs/configures/starts no service, touches no registry, mints no key, reads no credential, and performs no Windows effect of any kind. It does NOT claim the service is installed, the service identity exists, a service SID is verified, ProgramData exists, production ACLs are applied, service-only access or key custody is active, authenticated IPC exists, administrator resistance is proven, rollback is guaranteed, or the production host is ready."
+license = "UNLICENSED"
+
+[lints.rust]
+# A pure planning crate. There is NO unsafe and NO platform API anywhere in it.
+unsafe_code = "forbid"
+
+[dependencies]
+# Reuses the ACCEPTED SEMANTIC ACL model (principals, rights classes, fail-closed policy) instead of
+# duplicating it. Only semantic public types are used — never raw ACL bytes, raw SID bytes, the
+# descriptor parser, or any Windows binding.
+projectos-host-windows-acl-policy = { path = "../windows-acl-policy" }
+thiserror = "1"
