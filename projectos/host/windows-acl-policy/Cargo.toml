@@ -1,0 +1,36 @@
+[package]
+name = "projectos-host-windows-acl-policy"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Windows ACL POLICY AND VERIFICATION foundation for the future ProjectOS Host Service. Inspects the owner and DACL of an explicitly supplied absolute directory through a handle opened WITHOUT following reparse points, converts the Windows-owned security descriptor into an owned redacted model, verifies it against an explicit fail-closed AclPolicy, and (only where the caller explicitly requests mutation) applies a policy and re-reads it from Windows for AUTHORITATIVE verification. FOUNDATION ONLY: synthetic temporary directories in tests; NO ProgramData, NO repository/user-profile ACL change, NO service identity/installation, NO IPC, NO registry, NO credentials, NO DPAPI/CNG. It does NOT claim administrator resistance, service-only access, production ProgramData protection, authenticated caller identity, race-free child-path custody, secure deletion, credential custody, complete effective-access calculation, or protection against offline disk or kernel-level compromise."
+license = "UNLICENSED"
+
+[lints.rust]
+# Unsafe is confined to src/windows.rs (allowed at its module declaration) for the minimal Win32
+# security-descriptor primitives; the rest of the crate denies it.
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+
+[dependencies]
+# Reuses the ACCEPTED handle-owned root admission rule (absolute local root syntax, existence,
+# directory-ness, reparse refusal, handle-derived identity) instead of duplicating it. This crate adds
+# only the security-descriptor responsibility that custody explicitly does not carry.
+projectos-host-windows-root-custody = { path = "../windows-root-custody" }
+thiserror = "1"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+    # SECURITY_ATTRIBUTES (a null pointer is always passed), ACL/SID/descriptor accessors.
+    "Win32_Security",
+    # GetSecurityInfo / SetSecurityInfo (HANDLE-based, SE_FILE_OBJECT).
+    "Win32_Security_Authorization",
+    # OpenProcessToken / GetCurrentProcess for the current-account SID (test-fixture principal).
+    "Win32_System_Threading",
+] }
+
+# TEST-ONLY: `GetProcessHandleCount` for deterministic resource-lifecycle evidence.
+[target.'cfg(windows)'.dev-dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Threading"] }
