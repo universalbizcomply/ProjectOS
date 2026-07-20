@@ -1,0 +1,16 @@
+[package]
+name = "projectos-shared-host-runtime"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "UNLICENSED"
+description = "PUBLIC CONTRACT-ONLY scaffold for the future canonical, headless ProjectOS host runtime. It freezes the runtime's public API SHAPE — lifecycle states and pure transition rules, a bounded redacted status, a typed redacted event model, sealed non-forgeable role types, and three separate authority contracts (control-center client / interactive fallback / installed service) — and NOTHING ELSE. It moves no identity/process/instance code, depends on no UI/adapter framework, launches no process, opens no IPC, creates no mutex or security descriptor, resolves no SID, and touches no service, registry, credential or network. Every operational method fails closed. The machine-wide cross-identity authority mechanism is DEFERRED to a later governed gate; no authoritative runtime handle can be produced here."
+
+# A pure, effect-free, adapter-independent contract crate. NO unsafe anywhere.
+[lints.rust]
+unsafe_code = "forbid"
+
+[dependencies]
+# Deliberately ZERO external runtime dependencies. The typed event receiver uses only
+# std::sync::mpsc. Adding any dependency (a UI/adapter framework, the windows crate, a process,
+# network, credential or serialization crate) would breach the contract-only boundary of this phase.

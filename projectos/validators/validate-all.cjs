@@ -29,7 +29,9 @@ const MODULES = [
   "validate-forge-snapshot",
   "validate-forge-deploy",
   "validate-forge-integrations",
-  "validate-forge-e2e"
+  "validate-forge-e2e",
+  "validate-shared-runtime-no-tauri",
+  "validate-runtime-no-raw-string-events"
 ];
 let total = 0;
 for (const m of MODULES) {
