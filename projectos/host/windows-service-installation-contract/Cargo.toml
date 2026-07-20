@@ -1,0 +1,19 @@
+[package]
+name = "projectos-host-windows-service-installation-contract"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "PURE, EFFECT-FREE Windows service INSTALLATION CONTRACT for the future ProjectOS Host Service. Freezes what a later, separately-approved installation operation would be required to do: the owner-approved service name (ProjectOSHost) and identity strategy (VirtualServiceAccount, consumed read-only from the accepted crates), operation-specific minimum SCM/service access masks (never an all-access mask), a strict ordered pre-effect sequence, a sealed effect-authority model where installation is unconditionally NotAuthorised, the future creation-request shape (no password/command-line/shell/fallback), the mandatory authoritative post-effect re-read, the effect classification and reconciliation rules (no automatic delete/overwrite/repair/alternative-name/retry), and the recommendation-only service metadata. It models data and validation ONLY: it creates/configures/starts/stops/deletes no service, opens no Service Control Manager, resolves no service SID, writes no registry, creates no ProgramData, changes no ACL, and launches no process/shell/sc.exe/net.exe. It does NOT claim any service, account, SID, ACL, path or effect exists."
+license = "UNLICENSED"
+
+[lints.rust]
+# A pure contract crate. NO unsafe, NO platform API, NO process launch anywhere in it.
+unsafe_code = "forbid"
+
+[dependencies]
+# CONSUMES the accepted owner decisions READ-ONLY: the sealed owner-approved service-name decision
+# and the owner-approved identity strategy. Neither is duplicated or mutated, and no second authority
+# is created.
+projectos-host-windows-capability-preflight = { path = "../windows-host-capability-preflight" }
+projectos-host-windows-activation-plan = { path = "../windows-host-activation-plan" }
+thiserror = "1"
