@@ -31,7 +31,7 @@ use windows::Win32::System::Threading::{
 use super::command_line::{build_command_line, to_wide_nul};
 use super::environment::build_environment_block;
 use super::errors::ProcessError;
-use super::handles::{adopt, win32};
+use projectos_windows_runtime_primitives::handles::{adopt, win32};
 use super::job::JobObject;
 use super::pipes::StdioPipes;
 

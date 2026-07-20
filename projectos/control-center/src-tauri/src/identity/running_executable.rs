@@ -27,7 +27,7 @@ use windows::Win32::Storage::FileSystem::{
     VOLUME_NAME_DOS,
 };
 
-use crate::process::handles::{adopt, win32};
+use projectos_windows_runtime_primitives::handles::{adopt, win32};
 
 /// Minimum access: read the bytes + attributes. Never write/delete/execute rights.
 const FILE_GENERIC_READ_MIN: u32 = 0x8000_0000; // GENERIC_READ

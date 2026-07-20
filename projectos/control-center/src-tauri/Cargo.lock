@@ -2568,12 +2568,20 @@ dependencies = [
 name = "projectos-control-center"
 version = "0.1.0"
 dependencies = [
+ "projectos-windows-runtime-primitives",
  "serde",
  "serde_json",
  "sha2",
  "tauri",
  "tauri-build",
  "tauri-plugin-opener",
+ "windows",
+]
+
+[[package]]
+name = "projectos-windows-runtime-primitives"
+version = "0.0.0"
+dependencies = [
  "windows",
 ]
 

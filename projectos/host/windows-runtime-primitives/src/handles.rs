@@ -43,3 +43,34 @@ pub fn win32(h: &OwnedHandle) -> HANDLE {
 pub fn win32_borrowed(h: BorrowedHandle<'_>) -> HANDLE {
     HANDLE(h.as_raw_handle() as isize as *mut core::ffi::c_void)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn adopting_the_invalid_handle_value_takes_no_ownership() {
+        // SAFETY: INVALID_HANDLE_VALUE is not an owned handle; `adopt` must reject it before any
+        // ownership transfer, so no CloseHandle is scheduled.
+        let owned = unsafe { adopt(INVALID_HANDLE_VALUE) };
+        assert!(owned.is_none());
+    }
+
+    #[test]
+    fn adopting_a_null_handle_takes_no_ownership() {
+        // SAFETY: a null HANDLE is invalid; `adopt` must reject it before any ownership transfer.
+        let owned = unsafe { adopt(HANDLE(core::ptr::null_mut())) };
+        assert!(owned.is_none());
+    }
+
+    #[test]
+    fn win32_borrow_is_a_non_owning_copy() {
+        use std::os::windows::io::AsHandle;
+        // Borrowing a valid standard handle never transfers ownership and never closes it. We only
+        // prove the borrow helper returns a non-null value for a valid borrowed handle.
+        let std_handle = std::io::stdout();
+        let borrowed = std_handle.as_handle();
+        let raw = win32_borrowed(borrowed);
+        assert!(!raw.is_invalid());
+    }
+}

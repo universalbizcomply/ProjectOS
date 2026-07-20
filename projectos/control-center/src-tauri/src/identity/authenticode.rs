@@ -40,7 +40,7 @@ use windows::Win32::Security::WinTrust::{
 use super::composite::CcSignature;
 use super::publisher_policy::PublisherOutcome;
 use super::running_executable::{pre_verify_ok, RunningExecutable};
-use crate::process::handles::win32;
+use projectos_windows_runtime_primitives::handles::win32;
 
 /// Signature presence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

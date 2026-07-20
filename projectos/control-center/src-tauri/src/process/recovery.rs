@@ -31,7 +31,7 @@ use windows::Win32::System::Threading::{
 
 use super::errors::ProcessError;
 use super::evidence::{EvidenceRecord, EvidenceState, EvidenceStore, ReadOutcome};
-use super::handles::{adopt, win32};
+use projectos_windows_runtime_primitives::handles::{adopt, win32};
 
 /// One bounded wait slice. Cancellation is observed between slices.
 pub const RECOVERY_WAIT_SLICE: Duration = Duration::from_millis(250);

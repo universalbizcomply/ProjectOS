@@ -23,7 +23,7 @@ use windows::Win32::System::JobObjects::{
 };
 
 use super::errors::ProcessError;
-use super::handles::{adopt, win32};
+use projectos_windows_runtime_primitives::handles::{adopt, win32};
 
 /// An owned Job Object configured to kill its members when the last handle closes.
 pub struct JobObject {

@@ -27,7 +27,7 @@ use windows::Win32::System::Threading::{
 use super::create::{create_in_job, CreatedProcess, ProcessSpec, SpecClassification};
 use super::diagnostics::{drain, drain_lines, BoundedOutput};
 use super::errors::ProcessError;
-use super::handles::win32;
+use projectos_windows_runtime_primitives::handles::win32;
 use super::job::JobObject;
 use super::state::ProcessState;
 

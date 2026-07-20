@@ -16,19 +16,12 @@ use super::create::{ProcessSpec, SpecClassification};
 use super::dev_runtime::{resolve_development_node, strip_verbatim, RealRuntimeFs, RuntimeFs};
 use super::environment::{collect_system_vars, DAEMON_INSTANCE_ID_VAR};
 use super::errors::ProcessError;
+// The application-mode CLASSIFIER now lives in the canonical low-level primitive crate, shared with
+// identity code. Launch AUTHORITY (below) stays here — the primitive classifies, it never grants.
+use projectos_windows_runtime_primitives::app_mode::AppMode;
 
 /// Bounded cooperative-shutdown grace for the real daemon.
 pub(crate) const DAEMON_GRACEFUL_SHUTDOWN: Duration = Duration::from_secs(5);
-
-/// How the application was started. Determined from build/packaging facts, never from an
-/// environment variable, CLI flag, React payload, or working-directory name.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum AppMode {
-    /// Running from a development tree. Always `DEVELOPMENT_UNVERIFIED`.
-    Development,
-    /// Running from a packaged installation. Requires verified packaged identity — unavailable.
-    PackagedCandidate,
-}
 
 /// The closed launch authority. Only `Development` is constructible in this phase.
 pub(crate) enum DaemonLaunchAuthority {
@@ -143,19 +136,6 @@ pub(crate) fn resolve_launch_authority(
     }
 }
 
-/// Detect the application mode from packaging facts only.
-///
-/// A development build is `debug_assertions`. A release build is treated as a packaged candidate,
-/// which fails closed until packaged identity exists. Nothing here reads an env var, CLI flag,
-/// React payload, or directory name.
-pub(crate) fn detect_app_mode() -> AppMode {
-    if cfg!(debug_assertions) {
-        AppMode::Development
-    } else {
-        AppMode::PackagedCandidate
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -245,12 +225,4 @@ mod tests {
         assert!(super::super::environment::build_environment_block(&spec.env).is_ok());
     }
 
-    #[test]
-    fn detect_app_mode_is_not_ambient() {
-        // Under `cargo test` this is a debug build ⇒ Development. The point is that the decision
-        // comes from the build, never from an env var a caller could set.
-        std::env::set_var("PROJECTOS_MODE", "production");
-        assert_eq!(detect_app_mode(), AppMode::Development);
-        std::env::remove_var("PROJECTOS_MODE");
-    }
 }

@@ -23,7 +23,7 @@ use windows::Win32::Security::SECURITY_ATTRIBUTES;
 use windows::Win32::System::Pipes::CreatePipe;
 
 use super::errors::ProcessError;
-use super::handles::{adopt, win32};
+use projectos_windows_runtime_primitives::handles::{adopt, win32};
 
 /// One anonymous pipe pair, split into the end the child receives and the end the host keeps.
 pub struct PipePair {

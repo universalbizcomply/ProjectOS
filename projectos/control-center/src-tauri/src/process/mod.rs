@@ -36,8 +36,6 @@ pub(crate) mod create;
 #[cfg(windows)]
 pub(crate) mod evidence;
 #[cfg(windows)]
-pub(crate) mod handles;
-#[cfg(windows)]
 pub(crate) mod job;
 #[cfg(windows)]
 pub(crate) mod lifecycle;

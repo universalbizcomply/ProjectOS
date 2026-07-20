@@ -35,7 +35,8 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
-use super::authority::{detect_app_mode, resolve_launch_authority, DaemonLaunchAuthority};
+use super::authority::{resolve_launch_authority, DaemonLaunchAuthority};
+use projectos_windows_runtime_primitives::app_mode::detect_app_mode;
 use super::errors::ProcessError;
 use super::evidence::{EvidenceRecord, EvidenceStore};
 use super::owner::{JobBoundProcessOwner, RealResumeApi};

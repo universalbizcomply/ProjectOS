@@ -39,6 +39,11 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # PACKAGED-SIDECAR-IDENTITY1A: SHA-256 for pinned-runtime and daemon-artefact identity.
 sha2 = "0.10"
+# WINDOWS-PACKAGED-HOST-TRUST-ENFORCEMENT3K-I-C-A: canonical low-level Win32 handle RAII + build-mode
+# classifier, extracted so identity and process code share one implementation (no duplicate handles,
+# no identity->process coupling). Path dependency; no new external package enters the graph beyond the
+# already-locked `windows` crate this consumes.
+projectos-windows-runtime-primitives = { path = "../../host/windows-runtime-primitives" }
 
 # WINDOWS-PROCESS-CREATION1A: atomic job-bound child creation. Already present in Cargo.lock
 # (transitive via tauri) — this only promotes it to a direct dependency and enables the minimum

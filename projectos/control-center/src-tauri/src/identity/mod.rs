@@ -54,7 +54,7 @@ use composite::CompositeIdentity;
 /// `Disabled`. Development and TestFixture perform NO native verification.
 #[cfg(windows)]
 pub fn capture_startup_identity() -> CompositeIdentity {
-    use crate::process::authority::{detect_app_mode, AppMode};
+    use projectos_windows_runtime_primitives::app_mode::{detect_app_mode, AppMode};
 
     // The `test-fixtures` feature is the explicit TestFixture classification (design §4). It never
     // ships in a normal release/packaged build, so a real installation can never be TestFixture.

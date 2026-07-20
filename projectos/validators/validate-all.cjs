@@ -31,7 +31,8 @@ const MODULES = [
   "validate-forge-integrations",
   "validate-forge-e2e",
   "validate-shared-runtime-no-tauri",
-  "validate-runtime-no-raw-string-events"
+  "validate-runtime-no-raw-string-events",
+  "validate-windows-runtime-primitives-boundary"
 ];
 let total = 0;
 for (const m of MODULES) {
