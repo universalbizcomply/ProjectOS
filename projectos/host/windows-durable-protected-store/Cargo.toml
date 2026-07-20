@@ -1,0 +1,30 @@
+[package]
+name = "projectos-host-windows-durable-protected-store"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Durable filesystem-backed protected-state FILE-STORE FOUNDATION for the future ProjectOS Host Service. Persists ONLY accepted projectos-host-persistence DTOs under an explicit trusted root, with deterministic bounded layout, path/reparse containment, a private crate-local Prepared->Committed/Aborted journal envelope embedding the accepted JournalRecordDto, SHA-256 accidental/unauthorised-mutation integrity framing, monotonic revisions, single-writer OS advisory lock, MoveFileExW(REPLACE_EXISTING|WRITE_THROUGH) durable replacement, journal-backed interrupted-write recovery, corruption refusal, and fail-closed reconciliation. FOUNDATION ONLY: synthetic records + temporary roots in tests; NO ProgramData path, NO ACLs, NO Windows service/identity, NO registry, NO DPAPI/CNG, NO real master key or credential. Unkeyed SHA-256 detects corruption/mutation, NOT authenticity against an administrator; no secure-deletion, service-only-custody, or production-readiness claim."
+license = "UNLICENSED"
+
+[lints.rust]
+# Unsafe is confined to src/windows_fs.rs (allowed at its module declaration) for the minimal Win32
+# lock/replace/flush primitives; the rest of the crate denies it.
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+
+[dependencies]
+projectos-host-persistence = { path = "../persistence" }
+thiserror = "1"
+sha2 = "0.10"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+] }
+
+[dev-dependencies]
+projectos-host-persistence = { path = "../persistence" }
