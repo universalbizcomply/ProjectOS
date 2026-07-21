@@ -118,6 +118,11 @@ pub enum ImplementationState {
     /// A synthetic proof exercised for the SAME user across MULTIPLE processes (including forced-child
     /// crash release), same session only; cross-user and cross-session proofs remain NotRun.
     SyntheticSameUserMultiprocessProven,
+    /// The service-identity proof exists as an EFFECT-FREE typed CONTRACT + redacted evidence schema
+    /// only (3K-I-D-E-B): no live Windows service proof has run, no service is installed, the service
+    /// SID remains unresolved until an authorised live phase, installation is not authorised, and
+    /// execution readiness is false.
+    ServiceIdentityProofContractScaffolded,
     /// Deferred to gate 3K-I-D-C.
     DeferredTo3KIDC,
     /// Deferred to gate 3K-I-D-E.
@@ -256,7 +261,7 @@ impl HostRuntimeStatus {
             machine_wide_proof: ImplementationState::SyntheticSameUserMultiprocessProven,
             cross_user_proof: ImplementationState::NotRun,
             cross_session_proof: ImplementationState::NotRun,
-            service_identity_proof: ImplementationState::DeferredTo3KIDE,
+            service_identity_proof: ImplementationState::ServiceIdentityProofContractScaffolded,
             ipc_impl: ImplementationState::Deferred,
             service_impl: ImplementationState::Deferred,
             last_event: None,
@@ -371,7 +376,7 @@ mod tests {
         assert_eq!(s.cross_session_proof, ImplementationState::NotRun);
         assert_eq!(
             s.service_identity_proof,
-            ImplementationState::DeferredTo3KIDE
+            ImplementationState::ServiceIdentityProofContractScaffolded
         );
         assert_eq!(s.ipc_impl, ImplementationState::Deferred);
         assert_eq!(s.service_impl, ImplementationState::Deferred);

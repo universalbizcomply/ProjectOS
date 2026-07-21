@@ -59,7 +59,7 @@ fn the_crate_is_contract_only_and_not_execution_ready() {
     assert_eq!(s.cross_session_proof, ImplementationState::NotRun);
     assert_eq!(
         s.service_identity_proof,
-        ImplementationState::DeferredTo3KIDE
+        ImplementationState::ServiceIdentityProofContractScaffolded
     );
     assert_eq!(s.process_impl, ImplementationState::Deferred);
     assert_eq!(s.ipc_impl, ImplementationState::Deferred);
