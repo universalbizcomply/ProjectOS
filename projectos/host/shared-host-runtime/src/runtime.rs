@@ -98,8 +98,25 @@ impl LifecycleState {
 pub enum ImplementationState {
     /// Only the public contract exists; no live behaviour.
     ContractOnly,
+    /// The contract plus a READ-ONLY identity capability (through the canonical identity crate);
+    /// still not executable.
+    ContractOnlyWithReadOnlyIdentity,
+    /// Implemented by the external canonical identity crate (`projectos-host-identity`) and consumed
+    /// here only through its safe facade.
+    ExternalCanonicalIdentityCrate,
+    /// Implemented, read-only classification only — grants nothing.
+    ImplementedReadOnly,
     /// Deferred to a later governed gate.
     Deferred,
+}
+
+/// The publisher-policy disposition reported by a status snapshot. Fieldless classification only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum PublisherPolicyClass {
+    /// No approved publisher is configured and the policy fails closed — an unsigned or
+    /// unexpected-signer artifact can never become Verified.
+    EmptyAndFailClosed,
 }
 
 /// The authority disposition reported by a status snapshot.
@@ -172,26 +189,37 @@ pub struct HostRuntimeStatus {
     pub process_impl: ImplementationState,
     /// The identity/trust implementation state.
     pub identity_impl: ImplementationState,
+    /// The identity-verification capability state.
+    pub identity_verification: ImplementationState,
+    /// The publisher-policy disposition.
+    pub publisher_policy: PublisherPolicyClass,
     /// The IPC implementation state.
     pub ipc_impl: ImplementationState,
+    /// The Windows-service implementation state.
+    pub service_impl: ImplementationState,
     /// The classification of the last event, if any.
     pub last_event: Option<EventClass>,
 }
 
 impl HostRuntimeStatus {
-    /// The status the scaffold reports: contract-only runtime, every live concern deferred, no
-    /// authority, and execution not ready.
+    /// The status this phase reports: a contract-only runtime whose ONLY live capability is the
+    /// read-only identity classification supplied by the external canonical identity crate. Every
+    /// other concern stays deferred, no authority exists, the publisher policy is empty and
+    /// fail-closed, and execution is not ready.
     #[must_use]
     pub fn contract_only() -> Self {
         Self {
             lifecycle: LifecycleState::ProcessStarting,
             authority: AuthorityState::NotAuthorised,
             health: HealthClass::Unknown,
-            runtime_impl: ImplementationState::ContractOnly,
+            runtime_impl: ImplementationState::ContractOnlyWithReadOnlyIdentity,
             authority_impl: ImplementationState::Deferred,
             process_impl: ImplementationState::Deferred,
-            identity_impl: ImplementationState::Deferred,
+            identity_impl: ImplementationState::ExternalCanonicalIdentityCrate,
+            identity_verification: ImplementationState::ImplementedReadOnly,
+            publisher_policy: PublisherPolicyClass::EmptyAndFailClosed,
             ipc_impl: ImplementationState::Deferred,
+            service_impl: ImplementationState::Deferred,
             last_event: None,
         }
     }
@@ -274,11 +302,23 @@ mod tests {
     #[test]
     fn the_scaffold_status_is_contract_only_and_not_execution_ready() {
         let s = HostRuntimeStatus::contract_only();
-        assert_eq!(s.runtime_impl, ImplementationState::ContractOnly);
+        assert_eq!(
+            s.runtime_impl,
+            ImplementationState::ContractOnlyWithReadOnlyIdentity
+        );
         assert_eq!(s.authority_impl, ImplementationState::Deferred);
         assert_eq!(s.process_impl, ImplementationState::Deferred);
-        assert_eq!(s.identity_impl, ImplementationState::Deferred);
+        assert_eq!(
+            s.identity_impl,
+            ImplementationState::ExternalCanonicalIdentityCrate
+        );
+        assert_eq!(
+            s.identity_verification,
+            ImplementationState::ImplementedReadOnly
+        );
+        assert_eq!(s.publisher_policy, PublisherPolicyClass::EmptyAndFailClosed);
         assert_eq!(s.ipc_impl, ImplementationState::Deferred);
+        assert_eq!(s.service_impl, ImplementationState::Deferred);
         assert_eq!(s.authority, AuthorityState::NotAuthorised);
         assert!(!s.is_execution_ready());
     }

@@ -5,7 +5,7 @@
 
 #![cfg(all(windows, feature = "test-fixtures"))]
 
-use projectos_control_center::test_fixtures::identity::{
+use projectos_host_identity::test_fixtures::identity::{
     capture_startup_identity, CcSignature, CompositeIdentity, ExecutionMode, ProtectedEligibility,
     ReleaseChannel, ReleaseManifest,
 };

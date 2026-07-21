@@ -23,8 +23,48 @@ fn the_crate_is_contract_only_and_not_execution_ready() {
     assert!(!rt::EXECUTION_READY);
     assert!(rt::MACHINE_WIDE_AUTHORITY_DEFERRED);
     let s = HostRuntimeStatus::contract_only();
-    assert_eq!(s.runtime_impl, ImplementationState::ContractOnly);
+    // 3K-I-C-B: the only live capability is READ-ONLY identity via the external canonical crate.
+    // Everything else stays deferred and the runtime remains not executable.
+    assert_eq!(
+        s.runtime_impl,
+        ImplementationState::ContractOnlyWithReadOnlyIdentity
+    );
+    assert_eq!(
+        s.identity_impl,
+        ImplementationState::ExternalCanonicalIdentityCrate
+    );
+    assert_eq!(
+        s.identity_verification,
+        ImplementationState::ImplementedReadOnly
+    );
+    assert_eq!(
+        s.publisher_policy,
+        rt::PublisherPolicyClass::EmptyAndFailClosed
+    );
+    assert_eq!(s.authority_impl, ImplementationState::Deferred);
+    assert_eq!(s.process_impl, ImplementationState::Deferred);
+    assert_eq!(s.ipc_impl, ImplementationState::Deferred);
+    assert_eq!(s.service_impl, ImplementationState::Deferred);
     assert!(!s.is_execution_ready());
+}
+
+#[cfg(windows)]
+#[test]
+fn the_identity_facade_is_safe_and_narrow() {
+    // The facade re-exports the canonical identity crate's safe surface: startup capture, the safe
+    // projection, and content hashing. It grants nothing — the captured identity's projection is a
+    // classification, and hashing is pure.
+    let digest = rt::identity::hash::sha256_hex(b"projectos");
+    assert_eq!(digest.len(), 64);
+    assert!(digest.bytes().all(|b| b.is_ascii_hexdigit()));
+
+    let view: rt::identity::composite::IdentityStatusView =
+        rt::identity::capture_startup_identity().to_status_view();
+    // The projection serialises without exposing machine identity; it is Serialize-able and its
+    // Debug carries no path/SID (proven in depth by the canonical crate's own tests).
+    let shown = format!("{view:?}");
+    assert!(!shown.contains("S-1-"));
+    assert!(!shown.contains(":\\"));
 }
 
 #[test]

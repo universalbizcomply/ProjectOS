@@ -2568,6 +2568,7 @@ dependencies = [
 name = "projectos-control-center"
 version = "0.1.0"
 dependencies = [
+ "projectos-shared-host-runtime",
  "projectos-windows-runtime-primitives",
  "serde",
  "serde_json",
@@ -2576,6 +2577,24 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-opener",
  "windows",
+]
+
+[[package]]
+name = "projectos-host-identity"
+version = "0.0.0"
+dependencies = [
+ "projectos-windows-runtime-primitives",
+ "serde",
+ "serde_json",
+ "sha2",
+ "windows",
+]
+
+[[package]]
+name = "projectos-shared-host-runtime"
+version = "0.0.0"
+dependencies = [
+ "projectos-host-identity",
 ]
 
 [[package]]

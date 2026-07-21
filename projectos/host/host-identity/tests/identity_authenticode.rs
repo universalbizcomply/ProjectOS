@@ -8,7 +8,7 @@
 
 #![cfg(all(windows, feature = "test-fixtures"))]
 
-use projectos_control_center::test_fixtures::identity::{
+use projectos_host_identity::test_fixtures::identity::{
     derive_cc_signature, verify_bound, AuthenticodeFacts, CcSignature, CertificateChain,
     PublisherKey, PublisherOutcome, PublisherPolicy, Revocation, RunningExecutable,
     SignatureCryptography, SignaturePresence, Win32Authenticode,

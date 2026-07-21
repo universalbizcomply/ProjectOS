@@ -15,7 +15,9 @@ tauri-build = { version = "2", features = [] }
 # Enables the synthetic-child test fixture target ONLY. Never enabled by default, never enabled by
 # Tauri, and not referenced by any production code path — so an ordinary `cargo build [--release]`
 # and every Tauri bundle physically cannot contain the fixture binary.
-test-fixtures = []
+# 3K-I-C-B: forwarded through the shared runtime to the canonical identity crate so a test-fixtures
+# build reproduces the accepted TestFixture identity classification exactly as before the relocation.
+test-fixtures = ["projectos-shared-host-runtime/test-fixtures"]
 
 [[bin]]
 # The authoritative ProjectOS Control Centre executable. `default-run` names it explicitly so that
@@ -44,6 +46,11 @@ sha2 = "0.10"
 # no identity->process coupling). Path dependency; no new external package enters the graph beyond the
 # already-locked `windows` crate this consumes.
 projectos-windows-runtime-primitives = { path = "../../host/windows-runtime-primitives" }
+# WINDOWS-PACKAGED-HOST-TRUST-ENFORCEMENT3K-I-C-B: the canonical identity/publisher-trust
+# implementation now lives in projectos-host-identity and is consumed here ONLY through the shared
+# runtime's safe facade (capture_startup_identity / IdentityStatusView / sha256_hex). No identity
+# implementation remains in this crate.
+projectos-shared-host-runtime = { path = "../../host/shared-host-runtime" }
 
 # WINDOWS-PROCESS-CREATION1A: atomic job-bound child creation. Already present in Cargo.lock
 # (transitive via tauri) — this only promotes it to a direct dependency and enables the minimum

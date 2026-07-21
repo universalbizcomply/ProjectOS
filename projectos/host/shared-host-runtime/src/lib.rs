@@ -3,9 +3,11 @@
 //! This crate freezes the public API SHAPE of the future canonical, headless ProjectOS host runtime.
 //! It is contract-only:
 //!
-//! * it moves NO identity, process or instance code from the Control Center;
+//! * it contains NO identity, process or instance implementation; the canonical identity and
+//!   publisher-trust implementation lives in `projectos-host-identity` and is consumed here ONLY
+//!   through its safe facade (see [`identity`]);
 //! * it depends on NO UI/adapter framework, no `windows` crate, and no process/network/credential
-//!   crate — it has ZERO external runtime dependencies;
+//!   crate — its only dependency is the internal canonical identity crate;
 //! * it launches no process, opens no IPC, creates no mutex or security descriptor, resolves no SID,
 //!   and touches no service, registry, credential, key or network;
 //! * every operational method fails closed; no authoritative runtime handle can be produced.
@@ -79,8 +81,30 @@ pub use role::{
 };
 pub use runtime::{
     AuthorityState, HealthClass, HostRuntimeConfiguration, HostRuntimeError, HostRuntimeStatus,
-    ImplementationState, LifecycleState,
+    ImplementationState, LifecycleState, PublisherPolicyClass,
 };
+
+/// Safe, read-only identity facade (WINDOWS-PACKAGED-HOST-TRUST-ENFORCEMENT3K-I-C-B).
+///
+/// Backed ENTIRELY by the canonical `projectos-host-identity` crate: pure re-exports, no copied
+/// implementation, no unsafe code, no serde_json, no Windows FFI in this crate. Exposes exactly the
+/// safe items existing Control Center callers and future shared orchestration need — the startup
+/// identity capture, the safe status projection, and content hashing. Nothing here can approve a
+/// publisher, manufacture a Verified outcome, or reach protected authority.
+#[cfg(windows)]
+pub mod identity {
+    pub use projectos_host_identity::capture_startup_identity;
+
+    /// The composite identity's safe, redacted projection type.
+    pub mod composite {
+        pub use projectos_host_identity::IdentityStatusView;
+    }
+
+    /// SHA-256 content hashing (identity binding; also used by the Control Center instance key).
+    pub mod hash {
+        pub use projectos_host_identity::sha256_hex;
+    }
+}
 
 /// This crate is a contract scaffold only — no live runtime behaviour exists.
 pub const RUNTIME_IMPLEMENTATION_IS_CONTRACT_ONLY: bool = true;

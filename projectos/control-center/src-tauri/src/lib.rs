@@ -15,12 +15,24 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-// Identity classification. Crate-private: its only consumer is the in-crate `identity_status`
-// command. Left public it would let any external crate inject a fake `IdentityFs` plus the
-// `DeterministicTestVerifier` into `evaluate()` and manufacture an identity outcome — unnecessary
-// authority for zero benefit. Its unit tests live inside the module, so nothing needs it exported.
+// Identity compatibility boundary (WINDOWS-PACKAGED-HOST-TRUST-ENFORCEMENT3K-I-C-B). The canonical
+// identity/publisher-trust implementation now lives in `projectos-host-identity`, consumed ONLY
+// through the shared runtime's safe facade. This module exists so the existing in-crate call sites
+// (`app.rs`, `instance/key.rs`) stay byte-for-byte unchanged. It contains NO implementation logic,
+// no publisher policy, no trust decision, no hashing, no Authenticode, no unsafe and no serde_json —
+// pure re-exports. Crate-private: no external crate gains any identity route through this crate.
 #[cfg(windows)]
-pub(crate) mod identity;
+pub(crate) mod identity {
+    pub(crate) use projectos_shared_host_runtime::identity::capture_startup_identity;
+
+    pub(crate) mod composite {
+        pub(crate) use projectos_shared_host_runtime::identity::composite::IdentityStatusView;
+    }
+
+    pub(crate) mod hash {
+        pub(crate) use projectos_shared_host_runtime::identity::hash::sha256_hex;
+    }
+}
 
 // The native process-creation foundation. Crate-private: no other crate can reach ProcessSpec, the
 // generic creator, the job/pipe/handle layer, or the fixture token.
@@ -68,34 +80,9 @@ pub mod test_fixtures {
         RECOVERY_WAIT_SLICE,
     };
 
-    /// PACKAGED-RUNTIME-IDENTITY1B closed test surface: the composite identity model, its safe
-    /// projection, and the startup capture. Classification only — exposes no verifier, no key, no
-    /// manifest bytes, and no path to protected authority (eligibility always derives Disabled).
-    pub mod identity {
-        pub use crate::identity::capture_startup_identity;
-        pub use crate::identity::composite::{
-            CcSignature, CompositeIdentity, ExecutionMode, IdentityStatusView,
-            InstallationIdentity, ProtectedEligibility, ReleaseChannel, ReleaseFileIntegrity,
-            ReleaseFreshness, ReleaseManifest,
-        };
-        // PACKAGED-RUNTIME-IDENTITY2B native mechanism surface (Windows). Verification only — no
-        // publisher policy is configured, so no path reaches production Verified or eligibility.
-        pub use crate::identity::authenticode::{
-            derive_cc_signature, verify_bound, AuthenticodeFacts, AuthenticodeVerifier,
-            CertificateChain, Revocation, SignatureCryptography, SignaturePresence,
-            Win32Authenticode,
-        };
-        pub use crate::identity::install_root::{
-            classify_installation, classify_path, InstallationEvidence,
-            InstallationEvidenceProvider, KnownRoots, NoInstallerEvidence,
-        };
-        pub use crate::identity::publisher_policy::{
-            PublisherKey, PublisherOutcome, PublisherPolicy, PublisherPolicyStatus,
-        };
-        pub use crate::identity::running_executable::{
-            pre_verify_ok, FileIdentity, ReparseState, RunningExecutable,
-        };
-    }
+    // The identity test surface moved with the canonical identity implementation
+    // (WINDOWS-PACKAGED-HOST-TRUST-ENFORCEMENT3K-I-C-B): the relocated identity integration tests
+    // now consume `projectos_host_identity::test_fixtures::identity` directly.
 
     /// Narrow instance-uniqueness adapter for the multi-process race proofs, which need an isolated
     /// object name so they cannot collide with a real Control Centre running on this machine.
