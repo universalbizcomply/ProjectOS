@@ -36,7 +36,10 @@ const MODULES = [
   "validate-host-identity-boundary",
   "validate-host-authority-contract-boundary",
   "validate-host-authority-windows-boundary",
-  "val-windows-service-identity-proof-3kideb"
+  "val-windows-service-identity-proof-3kideb",
+  "val-windows-service-control-capability-b1",
+  "val-windows-local-ipc-capability-b1",
+  "val-windows-service-proof-runner-capability-b1"
 ];
 let total = 0;
 for (const m of MODULES) {

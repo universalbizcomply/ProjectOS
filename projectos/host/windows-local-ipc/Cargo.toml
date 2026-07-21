@@ -1,0 +1,16 @@
+[package]
+name = "projectos-host-windows-local-ipc"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "UNLICENSED"
+description = "EFFECT-FREE local-IPC transport CONTRACT for the future ProjectOSHost service-identity proof (WINDOWS-PACKAGED-HOST-TRUST-ENFORCEMENT3K-I-D-E-C-CAPABILITY-B1). Freezes the closed shape a later, separately-approved named-pipe transport must obey: local-only (remote clients refused), first-instance required, a bounded protocol version, a single-use per-run nonce with replay refusal, stale-endpoint refusal, a PROTECTED allowlist security policy (expected service SID + LocalSystem + Builtin Administrators only; broad principals receive no allow ACE and no explicit deny ACE is required), and a closed IPC evidence payload that carries only the redacted service-identity proof evidence, authority result, peer-role, corroboration, readiness, typed refusal, shutdown and residue classifications. It has NO arbitrary pipe-name string, NO arbitrary byte payload, NO free-form metadata, NO arbitrary diagnostics, and cannot represent any raw username, SID, machine name, session or credential. It performs NO Windows call, creates NO pipe, binds NO endpoint and opens NO handle. #![forbid(unsafe_code)], no windows dependency, execution readiness false."
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[dependencies]
+# Reuses the accepted redacted service-identity evidence + canonical no-trust peer/authority types
+# (via the proof-contract crate's re-exports). That crate's default build is windows-free, so this
+# transport contract pulls NO windows/pipe/handle dependency.
+projectos-host-windows-service-identity-proof = { path = "../windows-service-identity-proof" }

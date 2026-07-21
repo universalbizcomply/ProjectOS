@@ -1,0 +1,16 @@
+[package]
+name = "projectos-host-windows-service-control"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "UNLICENSED"
+description = "EFFECT-FREE bounded service-control CONTRACT for the future ProjectOSHost proof-service (WINDOWS-PACKAGED-HOST-TRUST-ENFORCEMENT3K-I-D-E-C-CAPABILITY-B1). Freezes the closed shape a later, separately-approved SCM adapter must obey: a SINGLE fixed proof service (ProjectOSHost) with no public arbitrary-name or arbitrary-binary-path field, VirtualServiceAccount-only / no-password / no-LocalSystem-LocalService-NetworkService account policy, SERVICE_SID_TYPE_UNRESTRICTED design baseline, demand-start-only, a closed service-lifecycle operation set, per-operation effect/approval/elevation classification where owner-approval and administrator-elevation and compiled-capability and live-proof and production-activation are five SEPARATE states that can never collapse, mandatory post-effect verification (re-read, never assume), verified deletion, and exact typed refusals. It performs NO Windows call, opens NO SCM, creates/configures/starts/stops/deletes NO service, resolves NO SID, and launches NO process. #![forbid(unsafe_code)], no windows dependency, execution readiness false, effect authority NotAuthorised."
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[dependencies]
+# Reuses the accepted PURE service INSTALLATION CONTRACT (FutureCreationRequest, ScmOperation masks,
+# PostEffectVerification, ReconciliationSituation) read-only, instead of duplicating it. That crate is
+# itself effect-free with no direct windows dependency.
+projectos-host-windows-service-installation-contract = { path = "../windows-service-installation-contract" }
