@@ -4,12 +4,32 @@ version = "0.0.0"
 edition = "2021"
 publish = false
 license = "UNLICENSED"
-description = "EFFECT-FREE typed contract for the future machine-wide ProjectOS host authority (WINDOWS-PACKAGED-HOST-TRUST-ENFORCEMENT3K-I-D-B). Freezes the authority scope/key contract (no user, service-name, SID, path or caller string in the key), the existence-token acquisition outcomes (AcquiredToken / ExistingToken / Refused — an existing token is NEVER trusted ownership), mandatory peer corroboration (uncorroborated ExistingToken => AuthorityUncertain => startup refused), sealed fallback policy and eligibility (IPC failure alone never authorises fallback; an activated-then-stopped service never re-enables fallback), the release-before-acquire handover state machine, the sealed MachineWideAuthoritySecurityV1 security-profile intent (SYNCHRONIZE + READ_CONTROL detection only) and the deferred service-SID proof classifications. It calls NO Windows API, creates/opens NO kernel object, derives NO object name, builds NO descriptor, resolves NO SID, queries NO SCM, binds NO IPC and launches NO process. Zero dependencies."
+description = "Machine-wide, cross-identity ProjectOS host authority (WINDOWS-PACKAGED-HOST-TRUST-ENFORCEMENT3K-I-D-C). Freezes the authority scope/key contract (no user, service-name, SID, path or caller string in the key) and implements the first SYNTHETIC Windows existence-token authority: an atomic named-mutex create-or-open used only as an EXCLUSIVITY token (never owned, never waited on — released solely by handle close), the MachineWideAuthoritySecurityV1 descriptor (SYNCHRONIZE + READ_CONTROL detection rights only, plus an OWNER_RIGHTS ACE suppressing the owner's implicit WRITE_DAC), a read-only DACL inspector, and a read-only ProjectOSHost service-SID resolution attempt. An existing token is NEVER trusted ownership (corroboration deferred). The synthetic proofs use TEST-ONLY object names that can never be the production authority name; the production name is derived but never acquired in this phase. No SCM query, no service install/start, no IPC, no process launch, no credential/signing access."
 
 [lints.rust]
-unsafe_code = "forbid"
+# The FFI modules require unsafe; every unsafe operation must sit in an explicit unsafe block, and
+# unsafe is confined to the named Windows files (token.rs / security.rs / service_principal.rs),
+# enforced by the windows-boundary validator. The pure files (model.rs / key.rs) contain no unsafe.
+unsafe_op_in_unsafe_fn = "deny"
 
-[dependencies]
-# Deliberately ZERO dependencies: standard library only. The typed authority contract needs no
-# windows/sha2/serde/tauri/process/IPC/network/credential crate, and adding one would breach the
-# effect-free boundary of this gate.
+[features]
+# TEST-ONLY synthetic authority surface. Present only under this feature; never in a default/release
+# build. Gates the `windows_proof` module, the Windows FFI modules and the Windows integration tests —
+# and, via `dep:windows` + `dep:projectos-windows-runtime-primitives`, both the windows crate and the
+# canonical handle primitive, so a default/release build pulls NO acquisition dependency at all and
+# remains the pure typed contract.
+test-fixtures = ["dep:windows", "dep:projectos-windows-runtime-primitives"]
+
+[target.'cfg(windows)'.dependencies]
+# Windows named-object + security-descriptor + read-only SID resolution. Optional: linked ONLY under
+# the `test-fixtures` feature. Minimum feature set only.
+windows = { version = "0.61.3", optional = true, features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_System_Threading",
+] }
+# Canonical owned-handle RAII boundary. The synthetic authority adopts every Win32 handle through this
+# crate's `handles::adopt` and inspects it through `handles::win32` — host-authority defines NO handle
+# wrapper, no Drop and no direct FromRawHandle. Optional: linked ONLY under the test-fixtures feature.
+projectos-windows-runtime-primitives = { path = "../windows-runtime-primitives", optional = true }

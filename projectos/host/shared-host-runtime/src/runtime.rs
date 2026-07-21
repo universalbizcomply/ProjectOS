@@ -106,6 +106,18 @@ pub enum ImplementationState {
     ContractOnlyWithReadOnlyIdentityAndAuthorityContract,
     /// The authority is present only as a typed contract scaffold (no live acquisition).
     TypedContractScaffolded,
+    /// The authority has a SYNTHETIC Windows existence-token implementation that is present ONLY under
+    /// the `test-fixtures` feature (3K-I-D-C): atomic named-mutex acquisition, machine-wide security
+    /// descriptor + read-only DACL inspection, and read-only service-SID resolution. It is NOT compiled
+    /// into a default/release build, ships no acquisition surface, and acquires no production authority
+    /// name. Explicitly qualified `TestFixtureOnly` so no reader mistakes it for production capability.
+    SyntheticWindowsTokenTestFixtureOnly,
+    /// The runtime contract plus read-only identity AND the TEST-FIXTURE-ONLY synthetic Windows
+    /// authority implementation; the default build remains contract-only and this is not executable.
+    ContractWithTestOnlySyntheticWindowsAuthority,
+    /// A synthetic proof exercised for the SAME user across MULTIPLE processes (including forced-child
+    /// crash release), same session only; cross-user and cross-session proofs remain NotRun.
+    SyntheticSameUserMultiprocessProven,
     /// Deferred to gate 3K-I-D-C.
     DeferredTo3KIDC,
     /// Deferred to gate 3K-I-D-E.
@@ -208,6 +220,10 @@ pub struct HostRuntimeStatus {
     pub authority_contract: ImplementationState,
     /// Whether the machine-wide authority live proof has been run.
     pub machine_wide_proof: ImplementationState,
+    /// Whether a cross-USER authority proof has been run (it has not — Windows 11 Home limits).
+    pub cross_user_proof: ImplementationState,
+    /// Whether a cross-SESSION authority proof has been run (it has not — Windows 11 Home limits).
+    pub cross_session_proof: ImplementationState,
     /// Whether the service-identity live proof has been run.
     pub service_identity_proof: ImplementationState,
     /// The IPC implementation state.
@@ -219,24 +235,27 @@ pub struct HostRuntimeStatus {
 }
 
 impl HostRuntimeStatus {
-    /// The status this phase reports: a contract-only runtime whose ONLY live capability is the
-    /// read-only identity classification supplied by the external canonical identity crate. Every
-    /// other concern stays deferred, no authority exists, the publisher policy is empty and
-    /// fail-closed, and execution is not ready.
+    /// The status this phase reports: a runtime whose DEFAULT build is contract-only, whose Windows
+    /// authority implementation exists ONLY under the `test-fixtures` feature (never production), and
+    /// whose synthetic proof covers same-user multiprocess + forced-child-crash release. Production
+    /// authority is NotAuthorised, there is no production acquisition route, cross-user and
+    /// cross-session proofs are NotRun, service-identity is deferred, and execution is NOT ready.
     #[must_use]
     pub fn contract_only() -> Self {
         Self {
             lifecycle: LifecycleState::ProcessStarting,
             authority: AuthorityState::NotAuthorised,
             health: HealthClass::Unknown,
-            runtime_impl: ImplementationState::ContractOnlyWithReadOnlyIdentityAndAuthorityContract,
-            authority_impl: ImplementationState::DeferredTo3KIDC,
+            runtime_impl: ImplementationState::ContractWithTestOnlySyntheticWindowsAuthority,
+            authority_impl: ImplementationState::SyntheticWindowsTokenTestFixtureOnly,
             process_impl: ImplementationState::Deferred,
             identity_impl: ImplementationState::ExternalCanonicalIdentityCrate,
             identity_verification: ImplementationState::ImplementedReadOnly,
             publisher_policy: PublisherPolicyClass::EmptyAndFailClosed,
             authority_contract: ImplementationState::TypedContractScaffolded,
-            machine_wide_proof: ImplementationState::NotRun,
+            machine_wide_proof: ImplementationState::SyntheticSameUserMultiprocessProven,
+            cross_user_proof: ImplementationState::NotRun,
+            cross_session_proof: ImplementationState::NotRun,
             service_identity_proof: ImplementationState::DeferredTo3KIDE,
             ipc_impl: ImplementationState::Deferred,
             service_impl: ImplementationState::Deferred,
@@ -324,9 +343,12 @@ mod tests {
         let s = HostRuntimeStatus::contract_only();
         assert_eq!(
             s.runtime_impl,
-            ImplementationState::ContractOnlyWithReadOnlyIdentityAndAuthorityContract
+            ImplementationState::ContractWithTestOnlySyntheticWindowsAuthority
         );
-        assert_eq!(s.authority_impl, ImplementationState::DeferredTo3KIDC);
+        assert_eq!(
+            s.authority_impl,
+            ImplementationState::SyntheticWindowsTokenTestFixtureOnly
+        );
         assert_eq!(s.process_impl, ImplementationState::Deferred);
         assert_eq!(
             s.identity_impl,
@@ -341,7 +363,12 @@ mod tests {
             s.authority_contract,
             ImplementationState::TypedContractScaffolded
         );
-        assert_eq!(s.machine_wide_proof, ImplementationState::NotRun);
+        assert_eq!(
+            s.machine_wide_proof,
+            ImplementationState::SyntheticSameUserMultiprocessProven
+        );
+        assert_eq!(s.cross_user_proof, ImplementationState::NotRun);
+        assert_eq!(s.cross_session_proof, ImplementationState::NotRun);
         assert_eq!(
             s.service_identity_proof,
             ImplementationState::DeferredTo3KIDE

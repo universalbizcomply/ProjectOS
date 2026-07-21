@@ -12,11 +12,11 @@ use auth::{
 };
 
 #[test]
-// The frozen contract constants are deliberately asserted directly.
+// The phase-state constants are deliberately asserted directly.
 #[allow(clippy::assertions_on_constants)]
-fn the_crate_is_contract_only() {
-    assert!(auth::AUTHORITY_IMPLEMENTATION_IS_CONTRACT_ONLY);
-    assert!(auth::AUTHORITY_ACQUISITION_DEFERRED_TO_3KIDC);
+fn synthetic_windows_authority_is_implemented_but_production_name_is_not_acquired() {
+    assert!(auth::AUTHORITY_SYNTHETIC_WINDOWS_IMPLEMENTED);
+    assert!(!auth::AUTHORITY_PRODUCTION_NAME_ACQUIRED_THIS_PHASE);
 }
 
 #[test]

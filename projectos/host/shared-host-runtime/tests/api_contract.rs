@@ -23,11 +23,13 @@ fn the_crate_is_contract_only_and_not_execution_ready() {
     assert!(!rt::EXECUTION_READY);
     assert!(rt::MACHINE_WIDE_AUTHORITY_DEFERRED);
     let s = HostRuntimeStatus::contract_only();
-    // 3K-I-D-B: read-only identity via the external canonical crate PLUS the typed (effect-free)
-    // authority contract. Everything else stays deferred and the runtime remains not executable.
+    // 3K-I-D-C: read-only identity via the external canonical crate PLUS a TEST-FIXTURE-ONLY synthetic
+    // Windows authority implementation, proven same-user multiprocess (incl forced-child crash). The
+    // DEFAULT build stays contract-only, cross-user/cross-session proofs are NotRun, and the runtime
+    // remains not executable (no acquisition surface ships by default).
     assert_eq!(
         s.runtime_impl,
-        ImplementationState::ContractOnlyWithReadOnlyIdentityAndAuthorityContract
+        ImplementationState::ContractWithTestOnlySyntheticWindowsAuthority
     );
     assert_eq!(
         s.identity_impl,
@@ -45,8 +47,16 @@ fn the_crate_is_contract_only_and_not_execution_ready() {
         s.authority_contract,
         ImplementationState::TypedContractScaffolded
     );
-    assert_eq!(s.authority_impl, ImplementationState::DeferredTo3KIDC);
-    assert_eq!(s.machine_wide_proof, ImplementationState::NotRun);
+    assert_eq!(
+        s.authority_impl,
+        ImplementationState::SyntheticWindowsTokenTestFixtureOnly
+    );
+    assert_eq!(
+        s.machine_wide_proof,
+        ImplementationState::SyntheticSameUserMultiprocessProven
+    );
+    assert_eq!(s.cross_user_proof, ImplementationState::NotRun);
+    assert_eq!(s.cross_session_proof, ImplementationState::NotRun);
     assert_eq!(
         s.service_identity_proof,
         ImplementationState::DeferredTo3KIDE

@@ -48,29 +48,43 @@ pub struct CanonicalInstallationIdentity {
     token: InstallationToken,
 }
 
+// Reserved: the production object-name derivation (key.rs) and test_support consume this. The
+// production name is implemented but never acquired this phase, so it is dead in a plain non-test,
+// non-`test-fixtures` build.
+#[allow(dead_code)]
 #[derive(Clone, PartialEq, Eq)]
 enum InstallationToken {
-    /// A canonical identity supplied by the installation boundary. The inner value is intentionally
-    /// unit in this contract phase — the real opaque digest arrives with the implementation and is
-    /// still never publicly readable.
-    ///
-    /// Reserved construction seam: built only by the crate-private constructor below (exercised by
-    /// the contract tests); the 3K-I-D-C implementation constructs it live from the canonical
-    /// installation boundary. Retained now so the key contract is frozen.
-    #[allow(dead_code)]
-    Canonical(Private),
+    /// A canonical identity supplied by the installation boundary, carrying its opaque 16-hex digest
+    /// component. The digest is never publicly readable; it is consumed only by the crate-private
+    /// production object-name derivation (`key.rs`). The real digest is supplied by the canonical
+    /// installation boundary in a later gate; this phase uses a fixed non-secret placeholder.
+    Canonical { digest16: String },
 }
 
 impl CanonicalInstallationIdentity {
-    /// CRATE-PRIVATE seam: the future implementation and the contract tests obtain a canonical
-    /// identity from the installation boundary. No public route constructs one, so no caller can
-    /// inject a raw path or arbitrary digest. Reserved for the 3K-I-D-C implementation; exercised by
-    /// the contract tests this phase.
+    /// CRATE-PRIVATE seam: obtain a canonical identity from the installation boundary. No public
+    /// route constructs one, so no caller can inject a raw path or arbitrary digest. The placeholder
+    /// digest is a fixed non-secret constant until the canonical boundary is wired (I-E/I-F); the
+    /// production object name it feeds is implemented but never acquired in this phase.
     #[must_use]
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved: production/name derivation + test_support; see InstallationToken.
     pub(crate) fn from_canonical_boundary() -> Self {
         Self {
-            token: InstallationToken::Canonical(Private),
+            token: InstallationToken::Canonical {
+                // Non-secret fixed placeholder (16 lowercase hex). NOT derived from any path; the real
+                // canonical digest arrives with the installation-boundary wiring.
+                digest16: "0000000000000000".to_string(),
+            },
+        }
+    }
+
+    /// CRATE-PRIVATE: the opaque 16-character installation-digest component used ONLY by the
+    /// production object-name derivation. Never public; never in Debug/evidence.
+    #[must_use]
+    #[allow(dead_code)] // Reserved: consumed by key.rs production name derivation (future acquisition).
+    pub(crate) fn digest16(&self) -> &str {
+        match &self.token {
+            InstallationToken::Canonical { digest16 } => digest16,
         }
     }
 }
@@ -129,6 +143,24 @@ impl AuthorityScope {
     #[must_use]
     pub fn schema_version(&self) -> AuthoritySchemaVersion {
         self.version
+    }
+
+    /// CRATE-PRIVATE: the opaque installation-digest component for object-name derivation. Never
+    /// public; consumed only by `key.rs`.
+    #[must_use]
+    #[allow(dead_code)] // Reserved: key.rs production name derivation (future acquisition).
+    pub(crate) fn installation_digest16(&self) -> &str {
+        self.installation.digest16()
+    }
+
+    /// CRATE-PRIVATE: the channel component string used by object-name derivation.
+    #[must_use]
+    #[allow(dead_code)] // Reserved: key.rs production name derivation (future acquisition).
+    pub(crate) fn channel_component(&self) -> &'static str {
+        match self.channel {
+            AuthorityChannel::Development => "dev",
+            AuthorityChannel::Packaged => "pkg",
+        }
     }
 }
 
@@ -597,21 +629,50 @@ impl AuthorityHandoverState {
     }
 }
 
-/// A contract-only, non-constructible authority guard placeholder. In this phase it has no public
-/// constructor, is not `Clone`/`Copy`/`Default`/`Serialize`, carries no raw handle, and performs no
-/// `Drop` effect. The real handle-owning guard arrives with the implementation.
-#[derive(Debug)]
+/// An opaque authority guard.
+///
+/// On Windows it owns EXACTLY ONE `std::os::windows::io::OwnedHandle` — the existence-token handle —
+/// and releases the authority solely by closing that handle on `Drop` (never `ReleaseMutex`). It is
+/// not `Clone`/`Copy`/`Default`/`Serialize`, exposes no raw handle publicly, and carries no process,
+/// service, IPC or credential state. It has no public constructor: the only route is a successful
+/// token acquisition inside this crate. `Debug` is redacted (never prints the raw handle value).
 pub struct AuthorityGuard {
+    // The real handle exists only in the synthetic (test-fixtures) build, where acquisition is
+    // compiled. The value is the `OwnedHandle` returned by the CANONICAL primitive
+    // `projectos_windows_runtime_primitives::handles::adopt` — host-authority adopts through that
+    // boundary and never via a direct `FromRawHandle`, defines no handle wrapper and no `Drop` (the
+    // primitive's `OwnedHandle` owns the single close). In the default/release contract build the guard
+    // is unconstructible and holds nothing.
+    #[cfg(all(windows, feature = "test-fixtures"))]
+    handle: std::os::windows::io::OwnedHandle,
+    #[cfg(not(all(windows, feature = "test-fixtures")))]
     _seal: Private,
 }
 
 impl AuthorityGuard {
-    /// CRATE-PRIVATE placeholder used only by contract tests to name the type. It owns nothing and
-    /// grants nothing.
-    #[cfg(test)]
+    /// CRATE-PRIVATE: take ownership of the existence-token handle already adopted through the
+    /// canonical primitive (`handles::adopt`). The sole constructor; reachable only from `existence.rs`
+    /// after a successful atomic create (synthetic build only).
+    #[cfg(all(windows, feature = "test-fixtures"))]
     #[must_use]
-    pub(crate) fn contract_placeholder() -> Self {
-        Self { _seal: Private }
+    pub(crate) fn from_owned(handle: std::os::windows::io::OwnedHandle) -> Self {
+        Self { handle }
+    }
+
+    /// CRATE-PRIVATE: borrow the owned handle so a bounded in-crate call can obtain a non-owning raw
+    /// `HANDLE` through the canonical `handles::win32`. Never public — the raw handle cannot escape the
+    /// crate.
+    #[cfg(all(windows, feature = "test-fixtures"))]
+    #[must_use]
+    pub(crate) fn owned(&self) -> &std::os::windows::io::OwnedHandle {
+        &self.handle
+    }
+}
+
+impl core::fmt::Debug for AuthorityGuard {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        // Never reveal the raw handle value.
+        f.write_str("AuthorityGuard(<held>)")
     }
 }
 
@@ -648,6 +709,27 @@ impl HostRuntimeClient {
     #[must_use]
     pub fn is_authoritative(self) -> bool {
         false
+    }
+}
+
+/// CRATE-PRIVATE test support: build sealed scope/key values for the sibling modules' unit tests
+/// without a public constructor. Compiled only under test in the synthetic (test-fixtures) build,
+/// where its sole consumer — the `key` module's tests — exists.
+#[cfg(all(test, feature = "test-fixtures"))]
+pub(crate) mod test_support {
+    use super::{
+        AuthorityChannel, AuthorityKey, AuthoritySchemaVersion, AuthorityScope,
+        CanonicalInstallationIdentity,
+    };
+
+    /// A development-channel authority key for contract/name tests.
+    #[must_use]
+    pub(crate) fn contract_key() -> AuthorityKey {
+        AuthorityKey::derive(AuthorityScope::new(
+            CanonicalInstallationIdentity::from_canonical_boundary(),
+            AuthorityChannel::Development,
+            AuthoritySchemaVersion::V1,
+        ))
     }
 }
 
@@ -851,8 +933,11 @@ mod tests {
     }
 
     #[test]
-    fn an_authority_guard_placeholder_owns_nothing() {
-        let _g = AuthorityGuard::contract_placeholder();
-        // Not Clone/Copy/Default; no handle; no Drop effect. Naming it is all this phase permits.
+    fn authority_guard_debug_is_redacted() {
+        // The guard has no public/cross-platform constructor (the only route is a successful Windows
+        // token acquisition inside the crate), so this phase asserts only its redacted Debug shape via
+        // the type name — the raw handle is never rendered. Construction + Drop are exercised by the
+        // feature-gated Windows token tests.
+        assert!(!core::any::type_name::<AuthorityGuard>().contains("Handle"));
     }
 }

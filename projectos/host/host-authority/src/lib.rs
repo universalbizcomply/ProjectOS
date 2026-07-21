@@ -47,7 +47,7 @@
 //!
 //! ```compile_fail
 //! use projectos_host_authority::AuthorityGuard;
-//! let _ = AuthorityGuard::contract_placeholder();
+//! let _ = AuthorityGuard::default();
 //! ```
 //!
 //! A [`FallbackPolicy`] has no public constructor — this MUST NOT compile:
@@ -65,9 +65,39 @@
 //! let _ = c.acquire();
 //! ```
 
-#![forbid(unsafe_code)]
+// Not crate-level `forbid(unsafe_code)`: the Windows FFI modules (token/security/service_principal)
+// require unsafe. Unsafe is CONFINED to those three named files — model.rs and key.rs contain none —
+// and every unsafe operation is an explicit block with a SAFETY comment. The confinement is enforced
+// by validate-host-authority-windows-boundary.cjs.
+#![deny(unsafe_op_in_unsafe_fn)]
 
 pub mod model;
+
+// The synthetic authority mechanism (object-name derivation + Windows FFI) is compiled ONLY under the
+// `test-fixtures` feature on Windows. The default and release artifacts therefore contain NO
+// acquisition surface at all — they remain the pure typed contract (model only). This is the same
+// "fixtures excluded from release" posture as the prior host phases.
+//
+// Pure object-name derivation (no unsafe). The production name is implemented but never acquired this
+// phase; tests use the separate test-only name.
+#[cfg(all(windows, feature = "test-fixtures"))]
+mod key;
+// Windows FFI: existence-token acquisition, machine-wide security descriptor + read-only DACL
+// inspection, and read-only service-SID resolution. Unsafe is confined to these three files.
+#[cfg(all(windows, feature = "test-fixtures"))]
+mod security;
+#[cfg(all(windows, feature = "test-fixtures"))]
+mod service_principal;
+// Named `existence` (not `token`) because the repo `.gitignore` ignores `*token*` for secret-token
+// files; the module implements the existence-token acquisition.
+#[cfg(all(windows, feature = "test-fixtures"))]
+mod existence;
+
+// TEST-ONLY synthetic authority surface, present only under the `test-fixtures` feature. It exposes
+// the Windows helpers to the integration tests using TEST-ONLY object names; it is never compiled into
+// a default/release build, so no live-acquisition surface ships.
+#[cfg(all(windows, feature = "test-fixtures"))]
+pub mod windows_proof;
 
 pub use model::{
     AuthorityChannel, AuthorityDiagnosticCode, AuthorityEvidence, AuthorityGuard,
@@ -78,8 +108,9 @@ pub use model::{
     ServiceActivationState, ServiceObservation, ServiceRuntimeAuthority, ServiceSidResolution,
 };
 
-/// This crate is an effect-free authority CONTRACT only — no live acquisition exists.
-pub const AUTHORITY_IMPLEMENTATION_IS_CONTRACT_ONLY: bool = true;
+/// The synthetic Windows existence-token authority is implemented in this phase (3K-I-D-C).
+pub const AUTHORITY_SYNTHETIC_WINDOWS_IMPLEMENTED: bool = true;
 
-/// The machine-wide authority mechanism is not implemented in this phase (deferred to 3K-I-D-C).
-pub const AUTHORITY_ACQUISITION_DEFERRED_TO_3KIDC: bool = true;
+/// The PRODUCTION authority object name is derived but NEVER acquired in this phase — synthetic proofs
+/// use TEST-ONLY names, and live cross-session/service acquisition is deferred to later gates.
+pub const AUTHORITY_PRODUCTION_NAME_ACQUIRED_THIS_PHASE: bool = false;
