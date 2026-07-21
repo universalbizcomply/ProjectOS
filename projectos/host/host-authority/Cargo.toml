@@ -1,0 +1,15 @@
+[package]
+name = "projectos-host-authority"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "UNLICENSED"
+description = "EFFECT-FREE typed contract for the future machine-wide ProjectOS host authority (WINDOWS-PACKAGED-HOST-TRUST-ENFORCEMENT3K-I-D-B). Freezes the authority scope/key contract (no user, service-name, SID, path or caller string in the key), the existence-token acquisition outcomes (AcquiredToken / ExistingToken / Refused — an existing token is NEVER trusted ownership), mandatory peer corroboration (uncorroborated ExistingToken => AuthorityUncertain => startup refused), sealed fallback policy and eligibility (IPC failure alone never authorises fallback; an activated-then-stopped service never re-enables fallback), the release-before-acquire handover state machine, the sealed MachineWideAuthoritySecurityV1 security-profile intent (SYNCHRONIZE + READ_CONTROL detection only) and the deferred service-SID proof classifications. It calls NO Windows API, creates/opens NO kernel object, derives NO object name, builds NO descriptor, resolves NO SID, queries NO SCM, binds NO IPC and launches NO process. Zero dependencies."
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[dependencies]
+# Deliberately ZERO dependencies: standard library only. The typed authority contract needs no
+# windows/sha2/serde/tauri/process/IPC/network/credential crate, and adding one would breach the
+# effect-free boundary of this gate.

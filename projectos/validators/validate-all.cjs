@@ -33,7 +33,8 @@ const MODULES = [
   "validate-shared-runtime-no-tauri",
   "validate-runtime-no-raw-string-events",
   "validate-windows-runtime-primitives-boundary",
-  "validate-host-identity-boundary"
+  "validate-host-identity-boundary",
+  "validate-host-authority-contract-boundary"
 ];
 let total = 0;
 for (const m of MODULES) {

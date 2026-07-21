@@ -20,6 +20,11 @@ test-fixtures = ["projectos-host-identity/test-fixtures"]
 # UI/adapter framework, the windows crate, a process, network, credential or serialization crate
 # would breach the safe-facade boundary of this crate.
 
+# WINDOWS-PACKAGED-HOST-TRUST-ENFORCEMENT3K-I-D-B: the effect-free host-authority typed contract.
+# This crate re-exports its safe contract facade only; the crate is dependency-free and forbids
+# unsafe, so nothing here breaks #![forbid(unsafe_code)]. No live authority acquisition is present.
+projectos-host-authority = { path = "../host-authority" }
+
 [target.'cfg(windows)'.dependencies]
 # WINDOWS-PACKAGED-HOST-TRUST-ENFORCEMENT3K-I-C-B: the canonical identity/publisher-trust
 # implementation. This crate consumes and re-exports only its SAFE facade (capture, safe projection,

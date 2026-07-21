@@ -106,6 +106,23 @@ pub mod identity {
     }
 }
 
+/// Safe, effect-free host-authority contract facade (WINDOWS-PACKAGED-HOST-TRUST-ENFORCEMENT3K-I-D-B).
+///
+/// Re-exports the typed authority CONTRACT from the dependency-free `projectos-host-authority` crate:
+/// scope/key contract, existence-token outcomes, mandatory peer corroboration, sealed fallback/roles,
+/// the release-before-acquire handover, and the security-profile intent. No live acquisition, no
+/// Windows call, no object name, no SID, no DACL — the implementation is deferred to 3K-I-D-C.
+pub mod authority {
+    pub use projectos_host_authority::{
+        AuthorityChannel, AuthorityDiagnosticCode, AuthorityEvidence, AuthorityGuard,
+        AuthorityHandoverState, AuthorityKey, AuthorityPeerState, AuthorityRefusal,
+        AuthoritySchemaVersion, AuthorityScope, AuthoritySecurityProfile, AuthorityTokenOutcome,
+        CanonicalInstallationIdentity, ConfirmedPeer, FallbackEligibility, FallbackPolicy,
+        HostRuntimeClient, IntendedPrincipal, IntendedRight, InteractiveFallbackAuthority,
+        ServiceActivationState, ServiceObservation, ServiceRuntimeAuthority, ServiceSidResolution,
+    };
+}
+
 /// This crate is a contract scaffold only — no live runtime behaviour exists.
 pub const RUNTIME_IMPLEMENTATION_IS_CONTRACT_ONLY: bool = true;
 

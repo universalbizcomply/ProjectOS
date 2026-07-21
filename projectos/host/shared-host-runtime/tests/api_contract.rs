@@ -23,11 +23,11 @@ fn the_crate_is_contract_only_and_not_execution_ready() {
     assert!(!rt::EXECUTION_READY);
     assert!(rt::MACHINE_WIDE_AUTHORITY_DEFERRED);
     let s = HostRuntimeStatus::contract_only();
-    // 3K-I-C-B: the only live capability is READ-ONLY identity via the external canonical crate.
-    // Everything else stays deferred and the runtime remains not executable.
+    // 3K-I-D-B: read-only identity via the external canonical crate PLUS the typed (effect-free)
+    // authority contract. Everything else stays deferred and the runtime remains not executable.
     assert_eq!(
         s.runtime_impl,
-        ImplementationState::ContractOnlyWithReadOnlyIdentity
+        ImplementationState::ContractOnlyWithReadOnlyIdentityAndAuthorityContract
     );
     assert_eq!(
         s.identity_impl,
@@ -41,11 +41,31 @@ fn the_crate_is_contract_only_and_not_execution_ready() {
         s.publisher_policy,
         rt::PublisherPolicyClass::EmptyAndFailClosed
     );
-    assert_eq!(s.authority_impl, ImplementationState::Deferred);
+    assert_eq!(
+        s.authority_contract,
+        ImplementationState::TypedContractScaffolded
+    );
+    assert_eq!(s.authority_impl, ImplementationState::DeferredTo3KIDC);
+    assert_eq!(s.machine_wide_proof, ImplementationState::NotRun);
+    assert_eq!(
+        s.service_identity_proof,
+        ImplementationState::DeferredTo3KIDE
+    );
     assert_eq!(s.process_impl, ImplementationState::Deferred);
     assert_eq!(s.ipc_impl, ImplementationState::Deferred);
     assert_eq!(s.service_impl, ImplementationState::Deferred);
     assert!(!s.is_execution_ready());
+}
+
+#[test]
+fn the_authority_facade_is_a_no_trust_effect_free_contract() {
+    // The shared facade re-exports the effect-free authority contract: an existing token is never
+    // trusted, and an uncorroborated one is fail-closed.
+    use rt::authority::{AuthorityPeerState, AuthorityTokenOutcome};
+    assert!(!AuthorityTokenOutcome::ExistingToken.is_confirmed_authority());
+    let peer = AuthorityPeerState::corroborate(AuthorityTokenOutcome::ExistingToken, None);
+    assert_eq!(peer, AuthorityPeerState::AuthorityUncertain);
+    assert!(!peer.permits_startup());
 }
 
 #[cfg(windows)]

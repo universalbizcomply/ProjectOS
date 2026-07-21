@@ -101,6 +101,17 @@ pub enum ImplementationState {
     /// The contract plus a READ-ONLY identity capability (through the canonical identity crate);
     /// still not executable.
     ContractOnlyWithReadOnlyIdentity,
+    /// The contract plus read-only identity AND the typed (effect-free) authority contract; still not
+    /// executable.
+    ContractOnlyWithReadOnlyIdentityAndAuthorityContract,
+    /// The authority is present only as a typed contract scaffold (no live acquisition).
+    TypedContractScaffolded,
+    /// Deferred to gate 3K-I-D-C.
+    DeferredTo3KIDC,
+    /// Deferred to gate 3K-I-D-E.
+    DeferredTo3KIDE,
+    /// A capability whose live proof has not been run.
+    NotRun,
     /// Implemented by the external canonical identity crate (`projectos-host-identity`) and consumed
     /// here only through its safe facade.
     ExternalCanonicalIdentityCrate,
@@ -193,6 +204,12 @@ pub struct HostRuntimeStatus {
     pub identity_verification: ImplementationState,
     /// The publisher-policy disposition.
     pub publisher_policy: PublisherPolicyClass,
+    /// The authority contract/implementation state.
+    pub authority_contract: ImplementationState,
+    /// Whether the machine-wide authority live proof has been run.
+    pub machine_wide_proof: ImplementationState,
+    /// Whether the service-identity live proof has been run.
+    pub service_identity_proof: ImplementationState,
     /// The IPC implementation state.
     pub ipc_impl: ImplementationState,
     /// The Windows-service implementation state.
@@ -212,12 +229,15 @@ impl HostRuntimeStatus {
             lifecycle: LifecycleState::ProcessStarting,
             authority: AuthorityState::NotAuthorised,
             health: HealthClass::Unknown,
-            runtime_impl: ImplementationState::ContractOnlyWithReadOnlyIdentity,
-            authority_impl: ImplementationState::Deferred,
+            runtime_impl: ImplementationState::ContractOnlyWithReadOnlyIdentityAndAuthorityContract,
+            authority_impl: ImplementationState::DeferredTo3KIDC,
             process_impl: ImplementationState::Deferred,
             identity_impl: ImplementationState::ExternalCanonicalIdentityCrate,
             identity_verification: ImplementationState::ImplementedReadOnly,
             publisher_policy: PublisherPolicyClass::EmptyAndFailClosed,
+            authority_contract: ImplementationState::TypedContractScaffolded,
+            machine_wide_proof: ImplementationState::NotRun,
+            service_identity_proof: ImplementationState::DeferredTo3KIDE,
             ipc_impl: ImplementationState::Deferred,
             service_impl: ImplementationState::Deferred,
             last_event: None,
@@ -304,9 +324,9 @@ mod tests {
         let s = HostRuntimeStatus::contract_only();
         assert_eq!(
             s.runtime_impl,
-            ImplementationState::ContractOnlyWithReadOnlyIdentity
+            ImplementationState::ContractOnlyWithReadOnlyIdentityAndAuthorityContract
         );
-        assert_eq!(s.authority_impl, ImplementationState::Deferred);
+        assert_eq!(s.authority_impl, ImplementationState::DeferredTo3KIDC);
         assert_eq!(s.process_impl, ImplementationState::Deferred);
         assert_eq!(
             s.identity_impl,
@@ -317,6 +337,15 @@ mod tests {
             ImplementationState::ImplementedReadOnly
         );
         assert_eq!(s.publisher_policy, PublisherPolicyClass::EmptyAndFailClosed);
+        assert_eq!(
+            s.authority_contract,
+            ImplementationState::TypedContractScaffolded
+        );
+        assert_eq!(s.machine_wide_proof, ImplementationState::NotRun);
+        assert_eq!(
+            s.service_identity_proof,
+            ImplementationState::DeferredTo3KIDE
+        );
         assert_eq!(s.ipc_impl, ImplementationState::Deferred);
         assert_eq!(s.service_impl, ImplementationState::Deferred);
         assert_eq!(s.authority, AuthorityState::NotAuthorised);

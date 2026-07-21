@@ -2580,6 +2580,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "projectos-host-authority"
+version = "0.0.0"
+
+[[package]]
 name = "projectos-host-identity"
 version = "0.0.0"
 dependencies = [
@@ -2594,6 +2598,7 @@ dependencies = [
 name = "projectos-shared-host-runtime"
 version = "0.0.0"
 dependencies = [
+ "projectos-host-authority",
  "projectos-host-identity",
 ]
 
