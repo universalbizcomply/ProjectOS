@@ -40,7 +40,8 @@ const MODULES = [
   "val-windows-service-control-capability-b1",
   "val-windows-local-ipc-capability-b1",
   "val-windows-service-proof-runner-capability-b1",
-  "val-windows-service-control-capability-b2"
+  "val-windows-service-control-capability-b2",
+  "val-host-authority-pipe-security-contract1a"
 ];
 let total = 0;
 for (const m of MODULES) {

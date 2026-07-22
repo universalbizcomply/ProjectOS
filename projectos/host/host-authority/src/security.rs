@@ -16,6 +16,7 @@
 #![cfg(windows)]
 
 use core::ffi::c_void;
+use core::marker::PhantomData;
 use std::mem::size_of;
 
 use windows::core::PCWSTR;
@@ -29,7 +30,68 @@ use windows::Win32::Security::{
     SECURITY_ATTRIBUTES,
 };
 
-use crate::service_principal::ResolvedServicePrincipal;
+use crate::model::ServiceSidResolution;
+use crate::pipe_security::{ProjectOsHostPipeSecurityStatus, PIPE_PROOF_RIGHTS};
+use crate::service_principal::{resolve_projectos_host_service, ResolvedServicePrincipal};
+
+/// A `LocalAlloc`-backed security descriptor built from an INTERNALLY-generated SDDL string, freed
+/// exactly once via `LocalFree`. This is the SINGLE owner of SDDL→descriptor conversion and descriptor
+/// lifetime in this crate; every built descriptor (machine-wide authority and the proof pipe) delegates
+/// to it, so `ConvertStringSecurityDescriptorToSecurityDescriptorW` and `LocalFree` ownership are never
+/// duplicated. It exposes no SID, no SDDL and no owned pointer.
+pub(crate) struct OwnedSecurityDescriptor {
+    psd: PSECURITY_DESCRIPTOR,
+}
+
+impl OwnedSecurityDescriptor {
+    /// Convert an INTERNALLY-generated SDDL string into an owned descriptor. The SDDL is never
+    /// caller-supplied, so there is no injection surface.
+    pub(crate) fn from_internal_sddl(sddl: &str) -> Option<Self> {
+        let wide: Vec<u16> = sddl.encode_utf16().chain(std::iter::once(0)).collect();
+        let mut psd = PSECURITY_DESCRIPTOR::default();
+        // SAFETY: `wide` is a NUL-terminated wide string alive for the call; `psd` is a valid writable
+        // slot receiving a `LocalAlloc` descriptor wrapped immediately for RAII release.
+        let built = unsafe {
+            ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                PCWSTR(wide.as_ptr()),
+                SDDL_REVISION_1,
+                &mut psd,
+                None,
+            )
+        };
+        if built.is_err() || psd.is_invalid() {
+            return None;
+        }
+        Some(Self { psd })
+    }
+
+    /// `SECURITY_ATTRIBUTES` referencing this descriptor. `bInheritHandle = FALSE`.
+    pub(crate) fn security_attributes(&self) -> SECURITY_ATTRIBUTES {
+        SECURITY_ATTRIBUTES {
+            nLength: size_of::<SECURITY_ATTRIBUTES>() as u32,
+            lpSecurityDescriptor: self.psd.0,
+            bInheritHandle: false.into(),
+        }
+    }
+
+    /// CRATE-PRIVATE raw descriptor pointer, for building a borrowed `SECURITY_ATTRIBUTES` only. Never
+    /// public; never a SID or SDDL accessor.
+    pub(crate) fn descriptor_ptr(&self) -> *mut c_void {
+        self.psd.0
+    }
+}
+
+impl Drop for OwnedSecurityDescriptor {
+    fn drop(&mut self) {
+        if !self.psd.is_invalid() {
+            // SAFETY: allocated by `ConvertStringSecurityDescriptorToSecurityDescriptorW`, whose
+            // documented deallocator is `LocalFree`; `Drop` runs once, so no double free.
+            unsafe {
+                let _ = LocalFree(Some(HLOCAL(self.psd.0)));
+            }
+        }
+    }
+}
 
 /// `SYNCHRONIZE` (0x0010_0000) — open/detect the existence token.
 pub const RIGHT_SYNCHRONIZE: u32 = 0x0010_0000;
@@ -61,9 +123,9 @@ pub enum SecurityProfileInspection {
     UntrustedAuthorityObject,
 }
 
-/// The machine-wide authority security descriptor, freed exactly once.
+/// The machine-wide authority security descriptor, owned by the shared [`OwnedSecurityDescriptor`].
 pub struct MachineWideAuthoritySecurity {
-    psd: PSECURITY_DESCRIPTOR,
+    inner: OwnedSecurityDescriptor,
     /// Whether the service ACE was included (i.e. the service principal was resolvable).
     includes_service_ace: bool,
 }
@@ -109,26 +171,11 @@ impl MachineWideAuthoritySecurity {
         Self::from_sddl(&sddl, includes_service_ace)
     }
 
-    /// Convert an internally-generated SDDL string into an owned descriptor. The SDDL is never
+    /// Wrap an internally-generated SDDL string in the shared owned descriptor. The SDDL is never
     /// caller-supplied, so there is no injection surface.
     fn from_sddl(sddl: &str, includes_service_ace: bool) -> Option<Self> {
-        let wide: Vec<u16> = sddl.encode_utf16().chain(std::iter::once(0)).collect();
-        let mut psd = PSECURITY_DESCRIPTOR::default();
-        // SAFETY: `wide` is a NUL-terminated wide string alive for the call; `psd` is a valid writable
-        // slot receiving a `LocalAlloc` descriptor wrapped immediately for RAII release.
-        let built = unsafe {
-            ConvertStringSecurityDescriptorToSecurityDescriptorW(
-                PCWSTR(wide.as_ptr()),
-                SDDL_REVISION_1,
-                &mut psd,
-                None,
-            )
-        };
-        if built.is_err() || psd.is_invalid() {
-            return None;
-        }
         Some(Self {
-            psd,
+            inner: OwnedSecurityDescriptor::from_internal_sddl(sddl)?,
             includes_service_ace,
         })
     }
@@ -168,23 +215,141 @@ impl MachineWideAuthoritySecurity {
     /// the descriptor. `bInheritHandle = FALSE`: the authority handle is never inherited.
     #[must_use]
     pub fn security_attributes(&self) -> SECURITY_ATTRIBUTES {
-        SECURITY_ATTRIBUTES {
-            nLength: size_of::<SECURITY_ATTRIBUTES>() as u32,
-            lpSecurityDescriptor: self.psd.0,
-            bInheritHandle: false.into(),
+        self.inner.security_attributes()
+    }
+}
+
+/// The OPAQUE, service-SID-backed security for the fixed ProjectOSHost proof pipe.
+///
+/// Owns a protected DACL (`D:P`) granting the mask [`PIPE_PROOF_RIGHTS`] to exactly the ProjectOSHost
+/// service SID, `LocalSystem` (`SY`) and `Builtin Administrators` (`BA`) — no broad principal, no
+/// `INTERACTIVE`, no `OWNER_RIGHTS`. It exposes NO SID, SID bytes, SDDL, account name or owned pointer,
+/// is not `Clone` (single descriptor ownership), and its `Debug` is redacted. It is CONSTRUCTED ONLY
+/// from the read-only service-principal resolution (or a synthetic test fixture) and NEVER creates,
+/// opens or connects a pipe.
+pub struct ProjectOsHostPipeSecurity {
+    inner: OwnedSecurityDescriptor,
+}
+
+impl core::fmt::Debug for ProjectOsHostPipeSecurity {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        // Never reveal the descriptor, SID or SDDL.
+        f.write_str("ProjectOsHostPipeSecurity(<redacted>)")
+    }
+}
+
+impl ProjectOsHostPipeSecurity {
+    /// Resolve the fixed ProjectOSHost service principal (read-only) and, on success, build the
+    /// protected proof-pipe descriptor. FAIL CLOSED: when the principal cannot be resolved (the common
+    /// pre-installation case) the status is [`ProjectOsHostPipeSecurityStatus::RequiresInstalledServiceProof`]
+    /// with `None` — the caller receives NO descriptor and MUST NOT fall back to a broader security.
+    ///
+    /// This is the LIVE path (it performs the read-only `LookupAccountNameW` resolution). It is
+    /// compile-only in this phase and is NEVER invoked by any test.
+    #[must_use]
+    pub fn resolve() -> (ProjectOsHostPipeSecurityStatus, Option<Self>) {
+        let (class, principal) = resolve_projectos_host_service();
+        match (class, principal) {
+            (ServiceSidResolution::SupportedResolutionProven, Some(p))
+            | (ServiceSidResolution::InstallerPreparedSid, Some(p)) => {
+                match Self::build_for_service(&p) {
+                    Some(sec) => (ProjectOsHostPipeSecurityStatus::Ready, Some(sec)),
+                    None => (
+                        ProjectOsHostPipeSecurityStatus::DescriptorConstructionFailed,
+                        None,
+                    ),
+                }
+            }
+            (ServiceSidResolution::RequiresInstalledServiceProof, _)
+            | (ServiceSidResolution::InstallerPreparedSid, None) => (
+                ProjectOsHostPipeSecurityStatus::RequiresInstalledServiceProof,
+                None,
+            ),
+            (ServiceSidResolution::ResolutionUnavailable, _) => (
+                ProjectOsHostPipeSecurityStatus::ServicePrincipalUnavailable,
+                None,
+            ),
+            _ => (
+                ProjectOsHostPipeSecurityStatus::UnexpectedResolutionFailure,
+                None,
+            ),
+        }
+    }
+
+    /// Build the protected pipe DACL for a resolved service principal. SDDL: `D:P` then one
+    /// access-allowed ACE at [`PIPE_PROOF_RIGHTS`] for `SY`, `BA` and the validated `S-1-…` service SID.
+    /// The only variable is the already-validated SID string, so there is no injection surface.
+    fn build_for_service(service: &ResolvedServicePrincipal) -> Option<Self> {
+        let sid = service.sid_string();
+        // Defensive: only a validated SID string ever reaches here.
+        if !sid.starts_with("S-1-")
+            || !sid
+                .bytes()
+                .all(|b| b.is_ascii_digit() || b == b'-' || b == b'S')
+        {
+            return None;
+        }
+        Self::from_pipe_sddl(sid)
+    }
+
+    /// Build the fixed proof-pipe descriptor from a `S-1-…` service SID string.
+    fn from_pipe_sddl(service_sid: &str) -> Option<Self> {
+        let rights = format!("0x{PIPE_PROOF_RIGHTS:08X}");
+        let mut sddl = String::from("D:P");
+        for principal in ["SY", "BA"] {
+            sddl.push_str(&format!("(A;;{rights};;;{principal})"));
+        }
+        sddl.push_str(&format!("(A;;{rights};;;{service_sid})"));
+        Some(Self {
+            inner: OwnedSecurityDescriptor::from_internal_sddl(&sddl)?,
+        })
+    }
+
+    /// TEST-ONLY: build the proof-pipe descriptor from a SYNTHETIC well-known service SID (`S-1-5-80-0`,
+    /// "all services"), NOT from a live identity lookup. Used to prove the descriptor and its borrowed
+    /// lease behave correctly WITHOUT invoking `LookupAccountNameW` or any live Windows identity API.
+    #[cfg(feature = "test-fixtures")]
+    #[must_use]
+    pub fn build_synthetic_for_test() -> Option<Self> {
+        Self::from_pipe_sddl("S-1-5-80-0")
+    }
+
+    /// A borrowed Windows security-attributes lease, LIFETIME-BOUND to this owner so it cannot outlive
+    /// the descriptor. Exposes no SID or SDDL. The future named-pipe FFI (windows-local-ipc) is the only
+    /// intended consumer.
+    #[must_use]
+    pub fn borrowed_security_attributes(&self) -> BorrowedPipeSecurityAttributes<'_> {
+        BorrowedPipeSecurityAttributes {
+            sa: SECURITY_ATTRIBUTES {
+                nLength: size_of::<SECURITY_ATTRIBUTES>() as u32,
+                lpSecurityDescriptor: self.inner.descriptor_ptr(),
+                bInheritHandle: false.into(),
+            },
+            _owner: PhantomData,
         }
     }
 }
 
-impl Drop for MachineWideAuthoritySecurity {
-    fn drop(&mut self) {
-        if !self.psd.is_invalid() {
-            // SAFETY: allocated by `ConvertStringSecurityDescriptorToSecurityDescriptorW`, whose
-            // documented deallocator is `LocalFree`; `Drop` runs once, so no double free.
-            unsafe {
-                let _ = LocalFree(Some(HLOCAL(self.psd.0)));
-            }
-        }
+/// A borrowed `SECURITY_ATTRIBUTES` lease over a [`ProjectOsHostPipeSecurity`]. The `'a` lifetime binds
+/// it to the owner, so the borrow checker forbids it (and any pointer taken from it) outliving the
+/// descriptor. It transfers no ownership, exposes no SID/SDDL, and cannot free or mutate the descriptor.
+pub struct BorrowedPipeSecurityAttributes<'a> {
+    sa: SECURITY_ATTRIBUTES,
+    _owner: PhantomData<&'a ProjectOsHostPipeSecurity>,
+}
+
+impl BorrowedPipeSecurityAttributes<'_> {
+    /// A borrowed pointer to the `SECURITY_ATTRIBUTES`, for passing to the future `CreateNamedPipeW`
+    /// call at the Windows FFI boundary.
+    ///
+    /// # Safety
+    /// The pointer BORROWS this lease (and, transitively, the owning [`ProjectOsHostPipeSecurity`]'s
+    /// descriptor). The caller MUST NOT store it beyond this lease's lifetime, MUST NOT free or mutate
+    /// the descriptor, and MUST use it only to hand the attributes to a Windows call while the lease is
+    /// alive. No safe method returns this pointer, and no accessor exposes the SID or SDDL.
+    #[must_use]
+    pub unsafe fn as_security_attributes_ptr(&self) -> *const SECURITY_ATTRIBUTES {
+        &self.sa as *const SECURITY_ATTRIBUTES
     }
 }
 
@@ -291,6 +456,30 @@ mod tests {
         assert!(
             !sa.bInheritHandle.as_bool(),
             "handle must be non-inheritable"
+        );
+    }
+
+    #[test]
+    fn proof_pipe_descriptor_builds_from_a_synthetic_service_sid() {
+        // Synthetic well-known service SID — no live LookupAccountNameW, no machine effect.
+        let sec = ProjectOsHostPipeSecurity::build_synthetic_for_test()
+            .expect("proof-pipe descriptor must build from a synthetic service SID");
+        // Redacted Debug never reveals the descriptor.
+        assert_eq!(format!("{sec:?}"), "ProjectOsHostPipeSecurity(<redacted>)");
+        // The borrowed lease references a non-null, non-inheritable descriptor and is lifetime-bound.
+        let lease = sec.borrowed_security_attributes();
+        // SAFETY: `lease` (hence `sec`) is alive for this scope; the pointer is only read here.
+        let ptr = unsafe { lease.as_security_attributes_ptr() };
+        assert!(!ptr.is_null());
+        // SAFETY: `ptr` points at the lease's `SECURITY_ATTRIBUTES`, valid while `lease` is alive.
+        let sa = unsafe { &*ptr };
+        assert!(
+            !sa.lpSecurityDescriptor.is_null(),
+            "pipe DACL must not be null"
+        );
+        assert!(
+            !sa.bInheritHandle.as_bool(),
+            "pipe handle must be non-inheritable"
         );
     }
 }

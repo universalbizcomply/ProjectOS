@@ -64,6 +64,20 @@
 //! let c = HostRuntimeClient::contract();
 //! let _ = c.acquire();
 //! ```
+//!
+//! The proof-pipe policy has no SDDL/descriptor builder — this MUST NOT compile:
+//!
+//! ```compile_fail
+//! use projectos_host_authority::ProjectOsHostPipeSecurityPolicy;
+//! let _ = ProjectOsHostPipeSecurityPolicy::from_sddl("D:P");
+//! ```
+//!
+//! A pipe allow-principal has no SID/name constructor — this MUST NOT compile:
+//!
+//! ```compile_fail
+//! use projectos_host_authority::ProjectOsHostPipeAllowPrincipal;
+//! let _ = ProjectOsHostPipeAllowPrincipal::from_sid("S-1-5-18");
+//! ```
 
 // Not crate-level `forbid(unsafe_code)`: the Windows FFI modules (token/security/service_principal)
 // require unsafe. Unsafe is CONFINED to those three named files — model.rs and key.rs contain none —
@@ -72,6 +86,12 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 pub mod model;
+
+// The FIXED ProjectOSHost proof-pipe security POLICY: safe, portable, effect-free typed contract
+// (3K-I-D-E-C-CAPABILITY-B3-SECURITY-PRINCIPAL-CONTRACT1A). Always compiled — it contains no unsafe and
+// no Windows call. The live service-SID-backed descriptor + borrowed lease that satisfy this policy are
+// owned by the `security` FFI module and compiled ONLY under `test-fixtures` on Windows.
+pub mod pipe_security;
 
 // The synthetic authority mechanism (object-name derivation + Windows FFI) is compiled ONLY under the
 // `test-fixtures` feature on Windows. The default and release artifacts therefore contain NO
@@ -107,6 +127,19 @@ pub use model::{
     HostRuntimeClient, IntendedPrincipal, IntendedRight, InteractiveFallbackAuthority,
     ServiceActivationState, ServiceObservation, ServiceRuntimeAuthority, ServiceSidResolution,
 };
+
+// The portable proof-pipe security POLICY types — always available (no unsafe, no Windows).
+pub use pipe_security::{
+    ProjectOsHostPipeAllowPrincipal, ProjectOsHostPipeBroadPrincipal,
+    ProjectOsHostPipeSecurityPolicy, ProjectOsHostPipeSecurityRefusal,
+    ProjectOsHostPipeSecurityStatus, PIPE_PROOF_RIGHTS,
+};
+
+// The opaque, service-SID-backed proof-pipe descriptor and its borrowed Windows security-attributes
+// lease live in the `security` FFI owner and ship ONLY under `test-fixtures` on Windows — never in a
+// default/release build. Compiled but never invoked in this phase.
+#[cfg(all(windows, feature = "test-fixtures"))]
+pub use security::{BorrowedPipeSecurityAttributes, ProjectOsHostPipeSecurity};
 
 /// The synthetic Windows existence-token authority is implemented in this phase (3K-I-D-C).
 pub const AUTHORITY_SYNTHETIC_WINDOWS_IMPLEMENTED: bool = true;
