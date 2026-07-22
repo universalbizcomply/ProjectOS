@@ -102,11 +102,13 @@ pub mod pipe_security;
 // phase; tests use the separate test-only name.
 #[cfg(all(windows, feature = "test-fixtures"))]
 mod key;
-// Windows FFI: existence-token acquisition, machine-wide security descriptor + read-only DACL
-// inspection, and read-only service-SID resolution. Unsafe is confined to these three files.
-#[cfg(all(windows, feature = "test-fixtures"))]
+// Windows FFI: machine-wide security descriptor + read-only DACL inspection, the OPAQUE ProjectOSHost
+// pipe-security runtime descriptor, and read-only service-SID resolution. Gated to the NON-fixture
+// `windows-pipe-security-runtime` feature so normal Windows library consumers (windows-local-ipc) can
+// obtain the opaque runtime contract WITHOUT enabling synthetic fixtures. Unsafe is confined here.
+#[cfg(all(windows, feature = "windows-pipe-security-runtime"))]
 mod security;
-#[cfg(all(windows, feature = "test-fixtures"))]
+#[cfg(all(windows, feature = "windows-pipe-security-runtime"))]
 mod service_principal;
 // Named `existence` (not `token`) because the repo `.gitignore` ignores `*token*` for secret-token
 // files; the module implements the existence-token acquisition.
@@ -136,9 +138,10 @@ pub use pipe_security::{
 };
 
 // The opaque, service-SID-backed proof-pipe descriptor and its borrowed Windows security-attributes
-// lease live in the `security` FFI owner and ship ONLY under `test-fixtures` on Windows — never in a
-// default/release build. Compiled but never invoked in this phase.
-#[cfg(all(windows, feature = "test-fixtures"))]
+// lease live in the `security` FFI owner and ship under the NON-fixture `windows-pipe-security-runtime`
+// feature on Windows — never in a default/release build, and available WITHOUT enabling synthetic
+// fixtures. Compiled but never invoked in this phase.
+#[cfg(all(windows, feature = "windows-pipe-security-runtime"))]
 pub use security::{BorrowedPipeSecurityAttributes, ProjectOsHostPipeSecurity};
 
 /// The synthetic Windows existence-token authority is implemented in this phase (3K-I-D-C).

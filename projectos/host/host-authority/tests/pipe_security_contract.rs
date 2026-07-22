@@ -66,8 +66,25 @@ fn unresolved_principal_fails_closed_and_is_never_ready() {
     assert!(ProjectOsHostPipeSecurityStatus::Ready.is_ready());
 }
 
+// Windows + NON-fixture runtime feature: the opaque descriptor, its `resolve()` entry point and the
+// borrowed lease type are EXPORTED without enabling synthetic fixtures. Export visibility is proven at
+// the type level only — `resolve()` is NEVER invoked here (it would perform a live identity lookup).
+#[cfg(all(windows, feature = "windows-pipe-security-runtime"))]
+#[test]
+fn runtime_feature_exports_the_opaque_descriptor_without_invoking_resolution() {
+    use projectos_host_authority::{
+        BorrowedPipeSecurityAttributes, ProjectOsHostPipeSecurity, ProjectOsHostPipeSecurityStatus,
+    };
+    let _resolver: fn() -> (
+        ProjectOsHostPipeSecurityStatus,
+        Option<ProjectOsHostPipeSecurity>,
+    ) = ProjectOsHostPipeSecurity::resolve;
+    fn _accepts_lease(_l: &BorrowedPipeSecurityAttributes<'_>) {}
+}
+
 // Windows + test-fixtures: the opaque descriptor builds from a SYNTHETIC service SID (no live identity
-// lookup), is redacted in Debug, and yields a borrowed lease — all via SAFE calls only.
+// lookup), is redacted in Debug, and yields a borrowed lease — all via SAFE calls only. The synthetic
+// constructor is available ONLY under test-fixtures (not under the runtime feature alone).
 #[cfg(all(windows, feature = "test-fixtures"))]
 #[test]
 fn opaque_descriptor_builds_from_synthetic_sid_and_is_redacted() {

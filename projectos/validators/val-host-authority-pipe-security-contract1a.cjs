@@ -140,14 +140,40 @@ function run() {
   if (/unsafe\s*(fn|\{)/.test(test)) errors.push("test contains unsafe");
   if (/CreateNamedPipe|OpenSCManager/.test(test)) errors.push("test references a pipe/SCM API");
 
-  // 10. lib.rs: portable types always re-exported; opaque descriptor gated to test-fixtures on Windows;
-  //     production authority is NOT acquired; windows-local-ipc untouched by this contract.
+  // 10. lib.rs: portable types always re-exported; opaque descriptor gated to the NON-fixture runtime
+  //     feature on Windows; production authority is NOT acquired.
   if (!/pub use pipe_security::\{[\s\S]*?ProjectOsHostPipeSecurityPolicy/.test(lib))
     errors.push("portable pipe policy types are not re-exported");
-  if (!/#\[cfg\(all\(windows,\s*feature\s*=\s*"test-fixtures"\)\)\]\s*pub use security::\{[^}]*ProjectOsHostPipeSecurity/.test(lib))
-    errors.push("opaque descriptor is not gated to test-fixtures on Windows");
+  if (!/#\[cfg\(all\(windows,\s*feature\s*=\s*"windows-pipe-security-runtime"\)\)\]\s*pub use security::\{[^}]*ProjectOsHostPipeSecurity/.test(lib))
+    errors.push("opaque descriptor is not gated to the windows-pipe-security-runtime feature");
   if (!/AUTHORITY_PRODUCTION_NAME_ACQUIRED_THIS_PHASE:\s*bool\s*=\s*false/.test(lib))
     errors.push("production authority acquisition flipped to true");
+
+  // 10b. RUNTIME/FIXTURE FEATURE SPLIT (B3-HOST-AUTHORITY-RUNTIME-FEATURE-CONTRACT1A).
+  const toml = read(path.join(CRATE, "Cargo.toml"));
+  if (!/^\s*default\s*=\s*\[\s*\]/m.test(toml)) errors.push("default features are not empty");
+  const runtimeLine = (toml.match(/windows-pipe-security-runtime\s*=\s*\[[\s\S]*?\]/) || [""])[0];
+  if (!runtimeLine) errors.push("windows-pipe-security-runtime feature is missing");
+  if (/test-fixtures/.test(runtimeLine)) errors.push("runtime feature depends on test-fixtures (forbidden direction)");
+  if (!/"dep:windows"/.test(runtimeLine)) errors.push("runtime feature does not enable the windows dependency");
+  const fixturesLine = (toml.match(/\btest-fixtures\s*=\s*\[[\s\S]*?\]/) || [""])[0];
+  if (!/windows-pipe-security-runtime/.test(fixturesLine)) errors.push("test-fixtures does not include the runtime feature");
+  // The security FFI + service_principal modules are gated to the runtime feature (not test-fixtures).
+  if (!/#\[cfg\(all\(windows,\s*feature\s*=\s*"windows-pipe-security-runtime"\)\)\]\s*mod security/.test(lib))
+    errors.push("security module is not gated to the runtime feature");
+  if (!/#\[cfg\(all\(windows,\s*feature\s*=\s*"windows-pipe-security-runtime"\)\)\]\s*mod service_principal/.test(lib))
+    errors.push("service_principal module is not gated to the runtime feature");
+  // Synthetic constructors + fixture modules remain test-fixtures-only.
+  if (!/#\[cfg\(feature\s*=\s*"test-fixtures"\)\]\s*(#\[must_use\]\s*)?pub fn build_synthetic_for_test/.test(sec))
+    errors.push("build_synthetic_for_test is not gated to test-fixtures");
+  if (!/#\[cfg\(all\(windows,\s*feature\s*=\s*"test-fixtures"\)\)\]\s*mod existence/.test(lib))
+    errors.push("existence fixture module is not gated to test-fixtures");
+  if (!/#\[cfg\(all\(windows,\s*feature\s*=\s*"test-fixtures"\)\)\]\s*pub mod windows_proof/.test(lib))
+    errors.push("windows_proof fixture module is not gated to test-fixtures");
+  // The runtime feature must not (indirectly) export a synthetic constructor: build_synthetic_for_test
+  // must carry a test-fixtures cfg, never a windows-pipe-security-runtime cfg.
+  if (/#\[cfg\(feature\s*=\s*"windows-pipe-security-runtime"\)\]\s*(#\[must_use\]\s*)?pub fn build_synthetic_for_test/.test(sec))
+    errors.push("synthetic constructor exposed under the runtime feature");
   // Execution readiness must not be flipped true anywhere in host-authority src.
   for (const f of ["lib.rs", "pipe_security.rs", "security.rs", "model.rs"]) {
     const fp = path.join(SRC, f);

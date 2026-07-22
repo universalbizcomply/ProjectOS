@@ -13,12 +13,25 @@ description = "Machine-wide, cross-identity ProjectOS host authority (WINDOWS-PA
 unsafe_op_in_unsafe_fn = "deny"
 
 [features]
+default = []
+
+# NARROW, non-fixture RUNTIME feature: makes ONLY the accepted opaque ProjectOSHost pipe-security runtime
+# contract available to normal Windows library code (fixed service-principal resolution, the opaque
+# ProjectOsHostPipeSecurity descriptor + its borrowed lease, the status/refusal model). It compiles NO
+# synthetic SID/descriptor constructor, no authority/existence/key fixtures and no synthetic proof
+# harness. Opt-in; never enabled by default; must NOT depend on test-fixtures.
+windows-pipe-security-runtime = ["dep:windows", "dep:projectos-windows-runtime-primitives"]
+
 # TEST-ONLY synthetic authority surface. Present only under this feature; never in a default/release
-# build. Gates the `windows_proof` module, the Windows FFI modules and the Windows integration tests —
-# and, via `dep:windows` + `dep:projectos-windows-runtime-primitives`, both the windows crate and the
-# canonical handle primitive, so a default/release build pulls NO acquisition dependency at all and
-# remains the pure typed contract.
-test-fixtures = ["dep:windows", "dep:projectos-windows-runtime-primitives"]
+# build. INCLUDES the runtime feature (so the opaque runtime contract is available) and additionally
+# compiles the synthetic descriptor/SID constructors, the `windows_proof` module, the existence-token
+# and key fixtures and the Windows integration tests. The `dep:*` entries are retained explicitly for
+# the canonical handle primitive + windows crate used by those fixtures.
+test-fixtures = [
+    "windows-pipe-security-runtime",
+    "dep:windows",
+    "dep:projectos-windows-runtime-primitives",
+]
 
 [target.'cfg(windows)'.dependencies]
 # Windows named-object + security-descriptor + read-only SID resolution. Optional: linked ONLY under
