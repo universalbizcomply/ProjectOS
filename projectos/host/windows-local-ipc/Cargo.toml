@@ -7,10 +7,38 @@ license = "UNLICENSED"
 description = "EFFECT-FREE local-IPC transport CONTRACT for the future ProjectOSHost service-identity proof (WINDOWS-PACKAGED-HOST-TRUST-ENFORCEMENT3K-I-D-E-C-CAPABILITY-B1). Freezes the closed shape a later, separately-approved named-pipe transport must obey: local-only (remote clients refused), first-instance required, a bounded protocol version, a single-use per-run nonce with replay refusal, stale-endpoint refusal, a PROTECTED allowlist security policy (expected service SID + LocalSystem + Builtin Administrators only; broad principals receive no allow ACE and no explicit deny ACE is required), and a closed IPC evidence payload that carries only the redacted service-identity proof evidence, authority result, peer-role, corroboration, readiness, typed refusal, shutdown and residue classifications. It has NO arbitrary pipe-name string, NO arbitrary byte payload, NO free-form metadata, NO arbitrary diagnostics, and cannot represent any raw username, SID, machine name, session or credential. It performs NO Windows call, creates NO pipe, binds NO endpoint and opens NO handle. #![forbid(unsafe_code)], no windows dependency, execution readiness false."
 
 [lints.rust]
-unsafe_code = "forbid"
+# The live named-pipe FFI requires unsafe; it is DENIED crate-wide and re-allowed ONLY in the private
+# windows_ffi module (enforced by val-windows-local-ipc-capability-b3.cjs). Every unsafe op sits in an
+# explicit block with a SAFETY invariant.
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+
+[features]
+# Compiles the live Windows named-pipe backend FFI and pulls host-authority's opaque, service-SID-backed
+# pipe-security descriptor via the NON-fixture `windows-pipe-security-runtime` feature (never
+# test-fixtures). It does NOT grant runtime authority: no sealed LiveIpcOperationCapability is
+# constructible, so no live pipe operation is reachable. Default features are empty — the default build
+# stays the effect-free contract + safe adapter.
+windows-live-ipc = ["dep:windows", "projectos-host-authority/windows-pipe-security-runtime"]
 
 [dependencies]
 # Reuses the accepted redacted service-identity evidence + canonical no-trust peer/authority types
-# (via the proof-contract crate's re-exports). That crate's default build is windows-free, so this
-# transport contract pulls NO windows/pipe/handle dependency.
+# (via the proof-contract crate's re-exports). Windows-free by default.
 projectos-host-windows-service-identity-proof = { path = "../windows-service-identity-proof" }
+# The canonical OPAQUE ProjectOSHost pipe-security contract. The portable status/policy types are used
+# by default; the opaque descriptor + borrowed lease arrive under `windows-live-ipc`. This crate NEVER
+# resolves a SID or builds an ACL/SDDL of its own.
+projectos-host-authority = { path = "../host-authority" }
+
+[target.'cfg(windows)'.dependencies]
+# Minimum named-pipe surface only. Optional + feature-gated: linked ONLY under `windows-live-ipc`, so
+# the default build pulls no windows dependency. No SCM / token / SID-lookup / registry / process /
+# network feature.
+windows = { version = "0.61.3", optional = true, features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_Pipes",
+    "Win32_System_IO",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Threading",
+] }
