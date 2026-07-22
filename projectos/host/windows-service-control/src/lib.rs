@@ -1,45 +1,70 @@
-//! # ProjectOS host — effect-free service-control CONTRACT (3K-I-D-E-C-CAPABILITY-B1)
+//! # ProjectOS host — bounded Windows service-control adapter (3K-I-D-E-C-CAPABILITY-B2)
 //!
-//! Freezes the closed shape a later, separately-approved SCM adapter must obey for the SINGLE bounded
-//! ProjectOSHost proof service. It performs NO Windows call, opens NO SCM, creates/configures/starts/
-//! stops/deletes NO service, resolves NO SID, and launches NO process. `#![forbid(unsafe_code)]`, no
-//! `windows` dependency.
+//! The DEFAULT build is the effect-free CD-B1 contract. The live SCM adapter compiles ONLY under the
+//! `windows-live-scm` feature and even then invokes nothing without a sealed
+//! [`adapter::LiveOperationCapability`] — which has no public/feature/test constructor, so no live SCM
+//! operation is reachable in this phase. Compiled capability is never runtime authority.
 //!
-//! The five gate states — compiled capability, owner approval, administrator elevation, live proof,
-//! production activation — are SEPARATE and can never collapse into one boolean. Every mutating
-//! operation is owner-gated; elevation never substitutes for owner approval; compiled capability never
-//! substitutes for runtime authority; deletion is verified, never assumed. In this phase the effect
-//! authority is unconditionally [`ServiceOperationAuthority::NotAuthorised`].
+//! Unsafe is confined to `windows_ffi.rs` (crate lint `unsafe_code = "deny"`, re-allowed only there).
+//! The safe adapter, contracts and verification contain no Windows call. Win32 errors are redacted
+//! immediately to closed classifications; no raw handle/SID/name/path/error escapes.
 //!
 //! ```
 //! use projectos_host_windows_service_control::{
-//!     ProofServiceIdentity, ServiceOperationAuthority, SERVICE_CONTROL_IS_CONTRACT_ONLY,
+//!     ProofServiceIdentity, SERVICE_CONTROL_IS_CONTRACT_ONLY,
 //! };
 //! assert!(SERVICE_CONTROL_IS_CONTRACT_ONLY);
-//! // The proof service identity is fixed; there is no arbitrary-name constructor.
 //! assert_eq!(ProofServiceIdentity::projectos_host().approved_name(), "ProjectOSHost");
-//! assert_eq!(ServiceOperationAuthority::default_phase(), ServiceOperationAuthority::NotAuthorised);
+//! ```
+//!
+//! The sealed live-operation capability has no public constructor — this MUST NOT compile:
+//!
+//! ```compile_fail
+//! use projectos_host_windows_service_control::LiveOperationCapability;
+//! let _ = LiveOperationCapability { _sealed: () };
+//! ```
+//!
+//! …and there is no factory either — this MUST NOT compile:
+//!
+//! ```compile_fail
+//! use projectos_host_windows_service_control::LiveOperationCapability;
+//! let _ = LiveOperationCapability::new();
 //! ```
 
-#![forbid(unsafe_code)]
-
+mod adapter;
 mod contracts;
+mod verification;
+
+// The live Windows SCM backend — the ONLY module with unsafe. Compiled only under the feature.
+#[cfg(all(windows, feature = "windows-live-scm"))]
+mod windows_ffi;
 
 pub use contracts::{
-    ElevationRequirement, GateOutcome, OperationGate, ProofServiceAccountPolicy,
-    ProofServiceIdentity, ProofServiceSidPolicy, ProofServiceStartPolicy,
-    ServiceApprovalRequirement, ServiceEffectClass, ServiceLifecycleOperation,
-    ServiceOperationAuthority, ServiceOperationRefusal, ServicePostEffectRequirement,
-    ServiceRollbackRequirement,
+    Compiled, Elevation, ElevationRequirement, GateOutcome, LiveProof, OperationGate,
+    OwnerApproval, ProductionActivation, ProofServiceAccountPolicy, ProofServiceIdentity,
+    ProofServiceSidPolicy, ProofServiceStartPolicy, ServiceApprovalRequirement, ServiceEffectClass,
+    ServiceLifecycleOperation, ServiceOperationAuthority, ServiceOperationRefusal,
+    ServicePostEffectRequirement, ServiceRollbackRequirement,
 };
 
-// Re-export the accepted canonical post-effect verification set the future adapter must satisfy.
+pub use adapter::{
+    LifecycleOutcome, LifecycleRefusal, LiveOperationCapability, ScmBackend, ScmServiceAdapter,
+};
+
+pub use verification::{
+    classify_action_error, classify_open_error, classify_sid_query_error, classify_sid_type,
+    default_wait_policy, verify_created_present, verify_deleted, verify_sid_policy, verify_started,
+    verify_stopped, ExactNameState, PostEffectRefusal, PostEffectVerdict, RetryPolicy,
+    RunStateObservation, ScmActionOutcome, SidPolicyObservation, MAX_ATTEMPTS_CEILING,
+};
+
+// Re-export the accepted canonical post-effect verification set + approved name.
 pub use projectos_host_windows_service_installation_contract::{
     PostEffectVerification, APPROVED_SERVICE_NAME,
 };
 
-/// This crate is an effect-free service-control CONTRACT only — no live SCM adapter exists here.
+/// The DEFAULT build remains the effect-free service-control contract (no live SCM adapter reachable).
 pub const SERVICE_CONTROL_IS_CONTRACT_ONLY: bool = true;
 
-/// No live service-control operation has been implemented or authorised in this phase.
+/// No live service-control operation is authorised or reachable in this phase.
 pub const LIVE_SERVICE_CONTROL_AUTHORISED: bool = false;

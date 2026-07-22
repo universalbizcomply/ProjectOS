@@ -4,13 +4,30 @@ version = "0.0.0"
 edition = "2021"
 publish = false
 license = "UNLICENSED"
-description = "EFFECT-FREE bounded service-control CONTRACT for the future ProjectOSHost proof-service (WINDOWS-PACKAGED-HOST-TRUST-ENFORCEMENT3K-I-D-E-C-CAPABILITY-B1). Freezes the closed shape a later, separately-approved SCM adapter must obey: a SINGLE fixed proof service (ProjectOSHost) with no public arbitrary-name or arbitrary-binary-path field, VirtualServiceAccount-only / no-password / no-LocalSystem-LocalService-NetworkService account policy, SERVICE_SID_TYPE_UNRESTRICTED design baseline, demand-start-only, a closed service-lifecycle operation set, per-operation effect/approval/elevation classification where owner-approval and administrator-elevation and compiled-capability and live-proof and production-activation are five SEPARATE states that can never collapse, mandatory post-effect verification (re-read, never assume), verified deletion, and exact typed refusals. It performs NO Windows call, opens NO SCM, creates/configures/starts/stops/deletes NO service, resolves NO SID, and launches NO process. #![forbid(unsafe_code)], no windows dependency, execution readiness false, effect authority NotAuthorised."
+description = "Bounded Windows service-control ADAPTER for the future ProjectOSHost proof-service (WINDOWS-PACKAGED-HOST-TRUST-ENFORCEMENT3K-I-D-E-C-CAPABILITY-B2). The DEFAULT build is the effect-free contract from CD-B1; the live SCM adapter compiles ONLY under the `windows-live-scm` feature and even then invokes NOTHING without a sealed LiveOperationCapability that has no public/feature/test constructor. It is fixed to the single service ProjectOSHost / NT SERVICE\\ProjectOSHost (no password), VirtualServiceAccount-only, SERVICE_SID_TYPE_UNRESTRICTED, demand-start-only; it accepts no arbitrary service name/account/path/mask, no service enumeration, no general SCM management. Every mutating operation demands an authoritative re-read (a bare API success is never proof), deletion is confirmed by re-open, and all waits are bounded/deterministic (no unbounded loop, no test sleep). Win32 errors are converted immediately to closed redacted classifications; no raw handle/SID/username/machine/error escapes. Unsafe is confined to src/windows_ffi.rs; there is NO token/pipe/registry/process/ACL/network API. Execution readiness false; installation authority NotAuthorised; no [[bin]] target."
 
 [lints.rust]
-unsafe_code = "forbid"
+# The live SCM FFI requires unsafe; it is DENIED crate-wide and re-allowed ONLY in the private
+# windows_ffi module (enforced by val-windows-service-control-capability-b2.cjs). Every unsafe op sits
+# in an explicit block with a SAFETY invariant.
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+
+[features]
+# Compiles the live Windows SCM adapter FFI. It does NOT grant runtime authority: no sealed
+# LiveOperationCapability is constructible under this (or any) feature, so no live operation is
+# reachable. Default features are empty — the default build stays the effect-free contract.
+windows-live-scm = ["dep:windows"]
 
 [dependencies]
-# Reuses the accepted PURE service INSTALLATION CONTRACT (FutureCreationRequest, ScmOperation masks,
-# PostEffectVerification, ReconciliationSituation) read-only, instead of duplicating it. That crate is
-# itself effect-free with no direct windows dependency.
+# Reuses the accepted PURE service INSTALLATION CONTRACT (FutureCreationRequest, PostEffectVerification,
+# ReconciliationSituation, APPROVED_SERVICE_NAME) read-only, instead of duplicating it.
 projectos-host-windows-service-installation-contract = { path = "../windows-service-installation-contract" }
+
+[target.'cfg(windows)'.dependencies]
+# Minimum SCM surface only. Optional + feature-gated: linked ONLY under `windows-live-scm`, so the
+# default build pulls no windows dependency. No token / pipe / registry / process / ACL feature.
+windows = { version = "0.61.3", optional = true, features = [
+    "Win32_Foundation",
+    "Win32_System_Services",
+] }
