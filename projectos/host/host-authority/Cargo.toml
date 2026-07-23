@@ -21,6 +21,15 @@ default = []
 # them.
 effect-witness-fixtures = []
 
+# NON-DEFAULT, Windows-only INTERNAL current-process elevation OBSERVATION engine. Enables ONLY the
+# already-declared optional Windows binding and the canonical handle-RAII primitive — no new dependency
+# and no new `windows` feature (TokenElevation/TokenElevationType live in the Win32_Security module that
+# `test-fixtures` already turns on). It exposes NO public surface, mints NO witness, and its real
+# backend is compiled but never executed this phase. It is deliberately INCOMPATIBLE with
+# `effect-witness-fixtures` (a real observer and a synthetic witness minter must not share a build);
+# `src/lib.rs` enforces that with a `compile_error!`, so `--all-features` is intentionally unsupported.
+windows-elevation-observation = ["dep:windows", "dep:projectos-windows-runtime-primitives"]
+
 # NARROW, non-fixture RUNTIME feature: makes ONLY the accepted opaque ProjectOSHost pipe-security runtime
 # contract available to normal Windows library code (fixed service-principal resolution, the opaque
 # ProjectOsHostPipeSecurity descriptor + its borrowed lease, the status/refusal model). It compiles NO

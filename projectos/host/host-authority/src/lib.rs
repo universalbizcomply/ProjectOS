@@ -91,6 +91,23 @@
 pub mod effect_grant;
 pub mod effect_witness;
 
+// INTERNAL current-process elevation observation engine. Private: no dependent may reach it. Gated to
+// Windows + the non-default feature; the real backend is compiled to prove it builds, never executed.
+#[cfg(all(windows, feature = "windows-elevation-observation"))]
+mod elevation;
+
+// A real elevation observer and a synthetic witness minter must never coexist in one build: it would
+// place a genuine machine-observation path beside a fixture path for the same opaque authority. Refuse
+// the combination at compile time rather than rely on discipline.
+#[cfg(all(
+    feature = "windows-elevation-observation",
+    feature = "effect-witness-fixtures"
+))]
+compile_error!(
+    "features `windows-elevation-observation` and `effect-witness-fixtures` are mutually exclusive: \
+     the real elevation observer must not share a build with the synthetic witness fixtures"
+);
+
 pub mod model;
 
 // The FIXED ProjectOSHost proof-pipe security POLICY: safe, portable, effect-free typed contract

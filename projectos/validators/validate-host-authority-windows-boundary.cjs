@@ -20,7 +20,13 @@
 // Comments stripped before scanning; structural checks; no line numbers.
 const fs = require("fs");
 const path = require("path");
+const { execFileSync } = require("child_process");
 const ROOT = path.resolve(__dirname, "..", "..");
+
+// The commit at which THIS validator was introduced and its unsafe allowlist frozen (3K-I-D-C). The
+// CD-B4-ELEVATION-OBSERVATION-ENGINE1A amendment adds exactly one file to that allowlist; the two-state
+// block below proves the historical state and the current state side by side.
+const FROZEN_WINDOWS_BOUNDARY_COMMIT = "bff6a8de03234c688f1bdb643f432a77419fa21e";
 const CRATE = path.join(ROOT, "projectos", "host", "host-authority");
 const SHARED = path.join(ROOT, "projectos", "host", "shared-host-runtime");
 
@@ -29,8 +35,12 @@ const SHARED = path.join(ROOT, "projectos", "host", "shared-host-runtime");
 const PRODUCTION_NAME = /ProjectOS\.HostAuthority\.v1/;
 const TEST_NAME = /ProjectOS\.Test\.HostAuthority/;
 // Files permitted to contain unsafe. `existence.rs` is the mutex existence-token FFI (named to avoid
-// the repo's `*token*` gitignore rule for secret-token files).
-const UNSAFE_ALLOWED = new Set(["existence.rs", "security.rs", "service_principal.rs"]);
+// the repo's `*token*` gitignore rule for secret-token files). `elevation.rs` is the CD-B4 internal
+// current-process elevation observation engine — the ONLY file added to this set since the frozen
+// commit; section 8 proves that addition against the historical state.
+const HISTORICAL_UNSAFE_ALLOWED = ["existence.rs", "security.rs", "service_principal.rs"];
+const ELEVATION_FILE = "elevation.rs";
+const UNSAFE_ALLOWED = new Set([...HISTORICAL_UNSAFE_ALLOWED, ELEVATION_FILE]);
 
 function read(p) {
   return fs.readFileSync(p, "utf8").replace(/^﻿/, "");
@@ -241,7 +251,144 @@ function run() {
   if (!/cross_session_proof:\s*ImplementationState::NotRun/.test(sharedRuntime))
     errors.push("cross_session_proof is not NotRun");
 
+  // 8. CD-B4-ELEVATION-OBSERVATION-ENGINE1A: prove the unsafe-allowlist amendment in TWO explicit
+  //    states — the frozen historical state (via git show) and the current authorised state.
+  amendmentTwoStateCheck(errors);
+
   return errors;
+}
+
+/// Read a path at the frozen commit. Returns null if git is unavailable (fail-closed to a reported
+/// error, never a silent pass).
+function gitShowFrozen(relPath) {
+  try {
+    return execFileSync("git", ["show", `${FROZEN_WINDOWS_BOUNDARY_COMMIT}:${relPath}`], {
+      cwd: ROOT,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+  } catch {
+    return null;
+  }
+}
+
+function amendmentTwoStateCheck(errors) {
+  // --- A. HISTORICAL ACCEPTED STATE (frozen at bff6a8d) ---
+  const histValidator = gitShowFrozen(
+    "projectos/validators/validate-host-authority-windows-boundary.cjs"
+  );
+  const histLib = gitShowFrozen("projectos/host/host-authority/src/lib.rs");
+  const histToml = gitShowFrozen("projectos/host/host-authority/Cargo.toml");
+  if (histValidator === null || histLib === null || histToml === null) {
+    errors.push("cannot read the frozen windows-boundary commit — historical state unverifiable");
+    return;
+  }
+  // The historical allowlist was exactly the three FFI files and did NOT contain elevation.rs.
+  const histAllowLine = /const UNSAFE_ALLOWED = new Set\(\[([^\]]*)\]\)/.exec(histValidator);
+  if (!histAllowLine) errors.push("historical UNSAFE_ALLOWED not found at the frozen commit");
+  else {
+    if (/elevation\.rs/.test(histAllowLine[1]))
+      errors.push("historical allowlist unexpectedly already contained elevation.rs");
+    for (const f of HISTORICAL_UNSAFE_ALLOWED) {
+      if (!histAllowLine[1].includes(f))
+        errors.push("historical allowlist missing expected FFI file: " + f);
+    }
+  }
+  // The historical crate had no elevation observer, no feature and no TokenElevation route.
+  if (/mod elevation\b/.test(histLib))
+    errors.push("historical lib.rs unexpectedly declared an elevation module");
+  if (/windows-elevation-observation/.test(histToml) || /windows-elevation-observation/.test(histLib))
+    errors.push("historical crate unexpectedly declared the windows-elevation-observation feature");
+  if (/TokenElevation/.test(histLib))
+    errors.push("historical lib.rs unexpectedly referenced TokenElevation");
+
+  // --- B. CURRENT AUTHORISED STATE ---
+  // elevation.rs is the ONLY file added to the allowlist since the frozen commit.
+  const added = [...UNSAFE_ALLOWED].filter((f) => !HISTORICAL_UNSAFE_ALLOWED.includes(f));
+  if (added.length !== 1 || added[0] !== ELEVATION_FILE)
+    errors.push("the allowlist added more than elevation.rs: " + JSON.stringify(added));
+
+  const elevationPath = path.join(CRATE, "src", ELEVATION_FILE);
+  if (!fs.existsSync(elevationPath)) {
+    errors.push("elevation.rs is missing from host-authority/src");
+    return;
+  }
+  const elevationRaw = read(elevationPath);
+  const elevation = stripComments(elevationRaw);
+
+  // Gated to Windows + the feature; private module (never pub); compile-time feature conflict present.
+  const curLib = read(path.join(CRATE, "src", "lib.rs"));
+  if (!/#\[cfg\(all\(windows,\s*feature\s*=\s*"windows-elevation-observation"\)\)\]\s*mod elevation;/.test(curLib))
+    errors.push("elevation module is not gated to windows + the observation feature, or is not private");
+  if (/pub\s+mod elevation/.test(curLib)) errors.push("elevation module is publicly exported");
+  if (!/compile_error!/.test(curLib) ||
+      !/windows-elevation-observation"[\s\S]*?effect-witness-fixtures"|effect-witness-fixtures"[\s\S]*?windows-elevation-observation"/.test(curLib))
+    errors.push("lib.rs lacks the feature-conflict compile_error! for observation + fixtures");
+
+  // Enabled only by windows-elevation-observation, enabling only the two existing optional deps.
+  const curToml = read(path.join(CRATE, "Cargo.toml"));
+  if (!/windows-elevation-observation\s*=\s*\["dep:windows",\s*"dep:projectos-windows-runtime-primitives"\]/.test(curToml))
+    errors.push("windows-elevation-observation must enable exactly the two existing optional deps");
+
+  // Every unsafe unit in elevation.rs carries a SAFETY comment.
+  const unsafeUnits = (elevation.match(/unsafe\s*(fn|\{)/g) || []).length;
+  const safetyNotes = (elevationRaw.match(/\/\/\s*SAFETY:/g) || []).length;
+  if (unsafeUnits === 0) errors.push("elevation.rs has no unsafe unit — engine incomplete");
+  if (safetyNotes < unsafeUnits)
+    errors.push("elevation.rs has undocumented unsafe (SAFETY " + safetyNotes + " < unsafe " + unsafeUnits + ")");
+
+  // Windows API allowlist: only the minimal elevation-observation calls; TOKEN_QUERY only.
+  const API_FORBIDDEN = [
+    "CheckTokenMembership", "IsUserAnAdmin", "TokenUser", "TokenGroups", "TokenPrivileges",
+    "LookupAccountSid", "OpenProcess\\b", "DuplicateToken", "AdjustTokenPrivileges",
+    "SetTokenInformation", "ImpersonateLoggedOnUser", "ShellExecute", "runas",
+    "TOKEN_DUPLICATE", "TOKEN_ADJUST", "TOKEN_ALL_ACCESS",
+  ];
+  for (const bad of API_FORBIDDEN) {
+    if (new RegExp(bad).test(elevation))
+      errors.push("elevation.rs contains a forbidden API/right: " + bad);
+  }
+  if (!/TOKEN_QUERY/.test(elevation)) errors.push("elevation.rs does not request TOKEN_QUERY");
+  // Only the current process is observed: no caller-selectable target may appear.
+  if (!/GetCurrentProcess/.test(elevation))
+    errors.push("elevation.rs does not observe the current process via GetCurrentProcess");
+
+  // Canonical handle adoption; no local wrapper, no direct close (also enforced generically for src).
+  if (!/handles::adopt/.test(elevation)) errors.push("elevation.rs does not adopt via the canonical handles::adopt");
+  if (!/handles::win32/.test(elevation)) errors.push("elevation.rs does not borrow via the canonical handles::win32");
+  if (/impl\s+Drop\s+for\b/.test(elevation.replace(/#\[cfg\(test\)\][\s\S]*$/, "")))
+    errors.push("elevation.rs defines a Drop outside its test module (must rely on OwnedHandle)");
+
+  // No public observer, no witness minting, no capability/grant production.
+  if (/pub\s+fn\s+observe|pub\s+fn\s+classify/.test(elevation))
+    errors.push("elevation.rs exposes a public observer/classifier");
+  for (const bad of [
+    "VerifiedElevationWitness", "synthetic_witnesses", "synthetic_owner_witness",
+    "EffectContextBinding", "AuthorisedProofAttemptGrant", "into_typed_grants",
+    "into_witness", "from_observation", "mint", "authorise", "from_bool", "from_legacy",
+    "ScmEffectGrant", "IpcEffectGrant", "InstanceObservationEffectGrant",
+  ]) {
+    if (new RegExp("\\b" + bad + "\\b").test(elevation))
+      errors.push("elevation.rs references a witness/grant/capability route: " + bad);
+  }
+  // The only positive is Elevated, and it does not itself produce authority.
+  if (!/ElevationObservation::Elevated/.test(elevation))
+    errors.push("elevation.rs lacks the closed Elevated classification");
+
+  // Access-denied is reachable from the real backend via the shared classifier, not collapsed, and the
+  // raw error stays transient (never rendered or logged).
+  const prodElevation = elevation.replace(/#\[cfg\(test\)\][\s\S]*$/, "");
+  if (!/fn classify_open_failure/.test(prodElevation))
+    errors.push("elevation.rs lacks the shared classify_open_failure decision");
+  if (!/ERROR_ACCESS_DENIED/.test(prodElevation) || !/classify_open_failure\(access_denied\)/.test(prodElevation))
+    errors.push("elevation.rs real backend does not distinguish access-denied via the shared classifier");
+  if (/println!|eprintln!|log::|tracing::|\.to_string\(\)|format!\([^)]*err/.test(prodElevation))
+    errors.push("elevation.rs renders or logs a raw error");
+
+  // Truthful phase state unchanged.
+  const lib = read(path.join(CRATE, "src", "lib.rs"));
+  if (/EXECUTION_READY\s*:\s*bool\s*=\s*true/.test(lib))
+    errors.push("execution readiness became true");
 }
 
 module.exports = { run };
