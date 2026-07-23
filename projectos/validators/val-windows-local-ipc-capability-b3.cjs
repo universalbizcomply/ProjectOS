@@ -11,6 +11,7 @@
 // bounded timeouts + cancellation + residue classification; no live op in tests; sealed capability with
 // no constructor; IPC alone cannot confirm; execution readiness false. Comments stripped; structural.
 const fs = require("fs");
+const { execFileSync } = require("child_process");
 const path = require("path");
 const ROOT = path.resolve(__dirname, "..", "..");
 const CRATE = path.join(ROOT, "projectos", "host", "windows-local-ipc");
@@ -430,8 +431,104 @@ function run() {
   const adapter = stripComments(read(path.join(SRC, "adapter.rs")));
   if (!/struct Sealed/.test(adapter) || !/LiveIpcOperationCapability/.test(adapter)) errors.push("sealed capability missing");
   if (/->\s*LiveIpcOperationCapability/.test(adapter)) errors.push("LiveIpcOperationCapability has a factory (must be unconstructible)");
+  // CAPABILITY CONSTRUCTION — scoped rule (CD-B4-BINDING-CONSUMER-SURFACE1A-AMENDMENT1B).
+  //
+  // B3 froze a BLANKET ban: the capability was constructed nowhere. That was correct then. The
+  // authorised amendment introduces construction in exactly one place — behind the explicit,
+  // non-default `test-fixtures` feature — so the blanket ban becomes the STRONGER scoped rule below.
+  // The historical section proves the frozen B3 commit still carries the original blanket state.
   const adapterNoDef = adapter.replace(/pub struct LiveIpcOperationCapability\s*\{[^}]*\}/, " ");
-  if (/LiveIpcOperationCapability\s*\{/.test(adapterNoDef)) errors.push("LiveIpcOperationCapability is constructed somewhere");
+  const ipcFixtureImpl = adapterNoDef.match(
+    /#\[cfg\(feature = "test-fixtures"\)\]\s*impl LiveIpcOperationCapability \{[\s\S]*?\n\}/
+  );
+  if (!ipcFixtureImpl)
+    errors.push("no test-fixtures-gated impl provides the fixture-only IPC capability acquisition");
+  const ipcOutside = ipcFixtureImpl ? adapterNoDef.replace(ipcFixtureImpl[0], " ") : adapterNoDef;
+  if (/LiveIpcOperationCapability\s*\{/.test(ipcOutside))
+    errors.push("LiveIpcOperationCapability is constructed outside the test-fixtures graph");
+  if (ipcFixtureImpl && !/pub fn synthetic_for_fixture\(\) -> Self/.test(ipcFixtureImpl[0]))
+    errors.push("the fixture acquisition is not the expected narrow constructor");
+  if (/impl Default for LiveIpcOperationCapability/.test(adapter))
+    errors.push("LiveIpcOperationCapability gained a Default");
+  if (/pub _sealed|_sealed:\s*\(\)/.test(adapter))
+    errors.push("the capability's sealing field is public or unit-constructible");
+
+  // The opaque confirmed-handshake proof: unforgeable, and NOT obtainable from the public outcome.
+  if (!/pub struct ConfirmedIpcPeerHandshake\s*\{\s*_sealed: Sealed,?\s*\}/.test(adapter))
+    errors.push("ConfirmedIpcPeerHandshake is not sealed by a private marker");
+  if (/impl (Default|From<bool>|From<PeerRole>|From<HandshakeOutcome>) for ConfirmedIpcPeerHandshake/.test(adapter))
+    errors.push("ConfirmedIpcPeerHandshake gained a forgeable conversion");
+  if (/impl (std::)?fmt::Display for ConfirmedIpcPeerHandshake/.test(adapter))
+    errors.push("ConfirmedIpcPeerHandshake implements Display");
+  if (!/ConfirmedIpcPeerHandshake\(\[REDACTED\]\)/.test(adapter))
+    errors.push("ConfirmedIpcPeerHandshake Debug is not redacted");
+  // A confirmation may be minted ONLY for the accepting outcome, by the crate-private transition ctor.
+  if (!/pub\(crate\) fn from_outcome/.test(adapter))
+    errors.push("the transition constructor is not crate-private");
+  if (!/if outcome\.is_peer_confirmed\(\)/.test(adapter))
+    errors.push("a confirmation is not conditioned on the accepting outcome");
+  if (!/pub fn into_confirmed\(self\)/.test(adapter))
+    errors.push("the confirmation is not taken by consuming the transition (replay discipline)");
+  // The fixture runner must reuse the REAL verification order, never assert success.
+  if (!/pub\(crate\) fn verify_handshake_logic/.test(adapter))
+    errors.push("the shared handshake verification logic is missing");
+  if (!/verify_handshake_logic\(\s*observation,\s*MessageKind::ControllerHello,\s*PeerRole::Controller,?\s*\)/.test(adapter))
+    errors.push("the fixture handshake runner does not drive the real verification order");
+
+  // FEATURE CONTAINMENT: explicit, non-default, mutually independent of the live feature.
+  if (!/test-fixtures\s*=\s*\[/.test(toml))
+    errors.push("no explicit test-fixtures feature is declared");
+  if (/^\s*default\s*=\s*\[[^\]]*(test-fixtures|windows-live-ipc)/m.test(toml))
+    errors.push("a default feature enables fixtures or the live transport");
+  const ipcLiveBlock = (toml.match(/windows-live-ipc\s*=\s*\[[\s\S]*?\]/) || [""])[0];
+  const ipcFixBlock = (toml.match(/^test-fixtures\s*=\s*\[[\s\S]*?\]/m) || [""])[0];
+  if (/"[^"]*\/test-fixtures"|^\s*"test-fixtures"/m.test(ipcLiveBlock))
+    errors.push("windows-live-ipc implies test-fixtures (live must not reach fixtures)");
+  if (/windows-live-ipc|dep:windows\b/.test(ipcFixBlock))
+    errors.push("test-fixtures implies the live transport or a Windows dependency");
+
+  // HISTORICAL ACCEPTED STATE — read the FROZEN B3 commit directly so the evolved tree cannot rewrite
+  // what was accepted at closure.
+  {
+    const B3_COMMIT = "bc93e3c7e3eb73f15f87e313d357a2c00f15049e";
+    let histAdapter = null;
+    let histToml = null;
+    const show = (p) =>
+      execFileSync("git", ["show", `${B3_COMMIT}:${p}`], {
+        cwd: ROOT,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+    try {
+      const _unused = (p) =>
+        execFileSync("git", ["show", `${B3_COMMIT}:${p}`], {
+          cwd: ROOT,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "ignore"],
+        });
+      histAdapter = show("projectos/host/windows-local-ipc/src/adapter.rs");
+      histToml = show("projectos/host/windows-local-ipc/Cargo.toml");
+    } catch (e) {
+      errors.push("cannot read the frozen B3 commit " + B3_COMMIT + " (historical evidence lost)");
+    }
+    if (histAdapter !== null && histToml !== null) {
+      const histNoDef = histAdapter.replace(/pub struct LiveIpcOperationCapability\s*\{[^}]*\}/, " ");
+      if (/LiveIpcOperationCapability\s*\{/.test(histNoDef))
+        errors.push("the frozen B3 commit already constructed the capability (history misread)");
+      if (!/pub struct LiveIpcOperationCapability/.test(histAdapter))
+        errors.push("the frozen B3 commit does not define the sealed capability");
+      if (/synthetic_for_fixture/.test(histAdapter))
+        errors.push("the frozen B3 commit is being misreported as containing a fixture constructor");
+      if (/ConfirmedIpcPeerHandshake/.test(histAdapter))
+        errors.push("the frozen B3 commit is being misreported as containing the confirmation type");
+      // A `test-fixtures` FEATURE DEFINITION must not have existed (the words may appear in a comment).
+      if (/^\s*test-fixtures\s*=\s*\[/m.test(histToml))
+        errors.push("the frozen B3 commit is being misreported as containing a fixture feature");
+      const histLib = show("projectos/host/windows-local-ipc/src/lib.rs");
+      if (!/LIVE_LOCAL_IPC_AUTHORISED:\s*bool\s*=\s*false/.test(histLib))
+        errors.push("the frozen B3 commit did not keep live IPC unauthorised");
+    }
+  }
   if (!/fn ipc_alone_confirms_authority\(\)\s*->\s*bool\s*\{\s*false\s*\}/.test(adapter))
     errors.push("IPC alone must not confirm authority");
 

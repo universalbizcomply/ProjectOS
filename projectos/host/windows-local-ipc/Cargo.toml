@@ -26,6 +26,11 @@ windows-live-ipc = [
     # never assembles a service-instance identity from raw parts of its own.
     "projectos-host-windows-service-identity-proof/windows-live-instance-observation",
 ]
+# EXPLICIT, NON-DEFAULT fixture graph. It proves the dependent-consumer API shape without any pipe or
+# Win32 activity: it does NOT imply windows-live-ipc and pulls NO windows dependency. It supplies
+# fixture-only capability acquisition and a fixture handshake runner that drives the REAL verification
+# order; real live capability production stays absent and owner-gated.
+test-fixtures = ["projectos-host-windows-service-identity-proof/test-fixtures"]
 
 [dependencies]
 # Reuses the accepted redacted service-identity evidence + canonical no-trust peer/authority types

@@ -9,6 +9,7 @@
 // TEST/contract-only service-identity status with execution readiness still false. Comments stripped;
 // structural checks; no line numbers.
 const fs = require("fs");
+const { execFileSync } = require("child_process");
 const path = require("path");
 const ROOT = path.resolve(__dirname, "..", "..");
 const CRATE = path.join(ROOT, "projectos", "host", "windows-service-identity-proof");
@@ -444,8 +445,60 @@ function run() {
     errors.push("raw observation entry points are re-exported (must be reachable only via an attempt)");
   if (/pub\s+use\s+instance::\{[^}]*bind_service_instance/.test(libSrc))
     errors.push("the free-standing comparison is re-exported");
-  if (!/#\[cfg\(any\(test,\s*all\(windows,\s*feature\s*=\s*"windows-live-instance-observation"\)\)\)\]\s*pub\s+use\s+instance::\{[\s\S]*?ServiceInstanceBindingAttempt/.test(libSrc))
-    errors.push("the attempt surface is not gated to builds where an observation could occur");
+  // CD-B4-BINDING-CONSUMER-SURFACE1A separated three concerns Contract1B had fused into one feature:
+  // contract visibility, live Windows observation, and synthetic fixtures. The attempt surface is now
+  // gated on the NON-LIVE consumer contract so a dependent orchestrator can name and drive it without
+  // enabling any Win32 code. Security is unchanged and is NOT the feature flag — the forgery-resistance
+  // assertions immediately below are what enforce it.
+  if (!/#\[cfg\(any\(test,\s*feature\s*=\s*"consumer-contract"\)\)\]\s*pub\s+use\s+instance::\{[\s\S]*?ServiceInstanceBindingAttempt/.test(libSrc))
+    errors.push("the attempt surface is not gated to the dependent consumer contract");
+  // The synthetic fixture surface is a THIRD, explicit, non-default gate — never the contract gate and
+  // never the live gate.
+  if (!/#\[cfg\(any\(test,\s*feature\s*=\s*"test-fixtures"\)\)\]\s*pub\s+use\s+instance::\{[^}]*synthetic_observation/.test(libSrc))
+    errors.push("the synthetic fixture surface is not gated to an explicit test-fixtures feature");
+  // The three features must remain distinct, with live and fixtures each implying only the contract.
+  if (!/consumer-contract\s*=\s*\[\]/.test(toml))
+    errors.push("the consumer contract is not a standalone dependency-free feature");
+  if (!/windows-live-instance-observation\s*=\s*\[\s*"consumer-contract",/.test(toml))
+    errors.push("live observation does not imply the consumer contract");
+  if (!/test-fixtures\s*=\s*\["consumer-contract"\]/.test(toml))
+    errors.push("test-fixtures is not an explicit contract-only feature");
+  if (/windows-live-instance-observation\s*=\s*\[[^\]]*test-fixtures/.test(toml))
+    errors.push("live observation reaches the synthetic fixtures");
+  if (/test-fixtures\s*=\s*\[[^\]]*windows-live-instance-observation/.test(toml))
+    errors.push("the fixture feature reaches live Windows observation");
+
+  // 8h-bis. HISTORICAL CLOSURE EVIDENCE. The current tree has legitimately evolved past Contract1B, so
+  // proving the evolved shape alone would silently erase what was actually accepted at closure. Read the
+  // FROZEN commit directly and assert it carried the ORIGINAL single-feature gate that was correct then.
+  // This keeps the two states distinguishable: accepted history vs authorised current surface.
+  {
+    const CONTRACT1B_COMMIT = "fb284a624a813e2d6636990d657632439ff91db0";
+    const REL = "projectos/host/windows-service-identity-proof/src/lib.rs";
+    let historical = null;
+    try {
+      historical = execFileSync("git", ["show", `${CONTRACT1B_COMMIT}:${REL}`], {
+        cwd: ROOT,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+    } catch (e) {
+      errors.push(
+        "cannot read the frozen Contract1B commit " + CONTRACT1B_COMMIT + " (historical evidence lost)"
+      );
+    }
+    if (historical !== null) {
+      // At closure the attempt surface WAS gated to the live-observation feature. That is the accepted
+      // historical fact; it must remain readable from history even though the tree has moved on.
+      if (!/#\[cfg\(any\(test,\s*all\(windows,\s*feature\s*=\s*"windows-live-instance-observation"\)\)\)\]\s*pub\s+use\s+instance::\{[\s\S]*?ServiceInstanceBindingAttempt/.test(historical))
+        errors.push("the frozen Contract1B commit does not carry its original attempt-surface gate");
+      // And it must NOT be retro-described as containing the later three-way split.
+      if (/feature\s*=\s*"consumer-contract"/.test(historical))
+        errors.push("the frozen Contract1B commit is being misreported as containing the consumer contract");
+      if (/feature\s*=\s*"test-fixtures"/.test(historical))
+        errors.push("the frozen Contract1B commit is being misreported as containing the fixture feature");
+    }
+  }
 
   // 8i. ATTEMPT-SCOPED BINDING (Contract1B). Equality between three separately-obtained identities is
   // not a proof: such values could be retained and recombined across attempts. The binding must be a

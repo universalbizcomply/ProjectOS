@@ -10,6 +10,7 @@
 // a sealed LiveOperationCapability with no public constructor (feature compilation != authority), and
 // execution readiness false. Comments stripped; structural.
 const fs = require("fs");
+const { execFileSync } = require("child_process");
 const path = require("path");
 const ROOT = path.resolve(__dirname, "..", "..");
 const CRATE = path.join(ROOT, "projectos", "host", "windows-service-control");
@@ -147,9 +148,80 @@ function run() {
   // in its impl, and no public field literal path). We approximate: no `LiveOperationCapability {` init
   // outside a compile-fail doctest, and no `-> LiveOperationCapability` factory.
   if (/->\s*LiveOperationCapability/.test(adapter)) errors.push("LiveOperationCapability has a factory (must be unconstructible)");
-  // Exclude the struct DEFINITION; any remaining `LiveOperationCapability { … }` would be construction.
+  // CAPABILITY CONSTRUCTION — scoped rule (CD-B4-BINDING-CONSUMER-SURFACE1A-AMENDMENT1B).
+  //
+  // B2 froze a BLANKET ban: the capability was constructed nowhere at all. That was correct then. The
+  // authorised amendment introduces construction in exactly one place — behind the explicit,
+  // non-default `test-fixtures` feature — so the blanket ban is replaced by the STRONGER scoped rule
+  // below: construction is permitted ONLY inside a `test-fixtures`-gated impl, and remains impossible
+  // in the default and live-only graphs. The historical section further down proves the frozen B2
+  // commit still carries the original blanket state.
   const adapterNoDef = adapter.replace(/pub struct LiveOperationCapability\s*\{[^}]*\}/, " ");
-  if (/LiveOperationCapability\s*\{/.test(adapterNoDef)) errors.push("LiveOperationCapability is constructed somewhere");
+  const fixtureImpl = adapterNoDef.match(
+    /#\[cfg\(feature = "test-fixtures"\)\]\s*impl LiveOperationCapability \{[\s\S]*?\n\}/
+  );
+  if (!fixtureImpl)
+    errors.push("no test-fixtures-gated impl provides the fixture-only capability acquisition");
+  // Anything OUTSIDE that one gated impl must still construct nothing.
+  const outsideFixture = fixtureImpl ? adapterNoDef.replace(fixtureImpl[0], " ") : adapterNoDef;
+  if (/LiveOperationCapability\s*\{|Self\s*\{\s*_sealed/.test(outsideFixture))
+    errors.push("LiveOperationCapability is constructed outside the test-fixtures graph");
+  // The fixture constructor must be exactly that: fixture-gated, and not a general public factory.
+  if (fixtureImpl && !/pub fn synthetic_for_fixture\(\) -> Self/.test(fixtureImpl[0]))
+    errors.push("the fixture acquisition is not the expected narrow constructor");
+  if (/impl Default for LiveOperationCapability/.test(adapter))
+    errors.push("LiveOperationCapability gained a Default");
+  if (/impl (std::)?fmt::Display for LiveOperationCapability/.test(adapter))
+    errors.push("LiveOperationCapability gained a Display");
+  if (/Serialize|Deserialize/.test(adapter)) errors.push("adapter.rs references serialisation");
+  if (/pub _sealed|_sealed:\s*\(\)/.test(adapter))
+    errors.push("the capability's sealing field is public or unit-constructible");
+
+  // FEATURE CONTAINMENT: the fixture graph is explicit, non-default, and mutually independent of live.
+  if (!/test-fixtures\s*=\s*\[/.test(toml))
+    errors.push("no explicit test-fixtures feature is declared");
+  if (/^\s*default\s*=\s*\[[^\]]*(test-fixtures|windows-live-scm)/m.test(toml))
+    errors.push("a default feature enables fixtures or the live adapter");
+  const scmFeatBlock = (toml.match(/windows-live-scm\s*=\s*\[[\s\S]*?\]/) || [""])[0];
+  const fixFeatBlock = (toml.match(/test-fixtures\s*=\s*\[[\s\S]*?\]/) || [""])[0];
+  if (/test-fixtures/.test(scmFeatBlock))
+    errors.push("windows-live-scm implies test-fixtures (live must not reach fixtures)");
+  if (/windows-live-scm|dep:windows\b/.test(fixFeatBlock))
+    errors.push("test-fixtures implies the live adapter or a Windows dependency");
+
+  // HISTORICAL ACCEPTED STATE — read the FROZEN B2 commit directly, so the evolved tree cannot silently
+  // rewrite what was accepted at closure. This commit is authoritative because it is the commit that
+  // ADDED this very validator (git log --diff-filter=A) and introduced windows_ffi.rs.
+  {
+    const B2_COMMIT = "c32f27ee82fd57c0ec211b9f35a5120422c32552";
+    let histAdapter = null;
+    let histToml = null;
+    try {
+      const show = (p) =>
+        execFileSync("git", ["show", `${B2_COMMIT}:${p}`], {
+          cwd: ROOT,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "ignore"],
+        });
+      histAdapter = show("projectos/host/windows-service-control/src/adapter.rs");
+      histToml = show("projectos/host/windows-service-control/Cargo.toml");
+    } catch (e) {
+      errors.push("cannot read the frozen B2 commit " + B2_COMMIT + " (historical evidence lost)");
+    }
+    if (histAdapter !== null && histToml !== null) {
+      // At closure the capability was constructed NOWHERE — the original blanket rule.
+      const histNoDef = histAdapter.replace(/pub struct LiveOperationCapability\s*\{[^}]*\}/, " ");
+      if (/LiveOperationCapability\s*\{|Self\s*\{\s*_sealed/.test(histNoDef))
+        errors.push("the frozen B2 commit already constructed the capability (history misread)");
+      if (!/pub struct LiveOperationCapability/.test(histAdapter))
+        errors.push("the frozen B2 commit does not define the sealed capability");
+      // …and no fixture feature or fixture constructor existed yet.
+      if (/synthetic_for_fixture/.test(histAdapter))
+        errors.push("the frozen B2 commit is being misreported as containing a fixture constructor");
+      if (/^\s*test-fixtures\s*=\s*\[/m.test(histToml))
+        errors.push("the frozen B2 commit is being misreported as containing a fixture feature");
+    }
+  }
   // Delete confirms by re-read; success alone is insufficient.
   if (!/confirm_deleted/.test(adapter)) errors.push("no deletion confirmation");
   if (!/wait_for|confirm_deleted/.test(adapter)) errors.push("no bounded wait");

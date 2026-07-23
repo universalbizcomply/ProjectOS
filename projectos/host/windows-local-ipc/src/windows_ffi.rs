@@ -56,6 +56,7 @@ use crate::adapter::{
     BackendState, ConnectionState, EndpointOutcome, HandshakeObservation, HandshakeReceipt,
     IpcBackend, ReceivedFrame, SendOutcome,
 };
+use crate::adapter::{ConfirmedIpcPeerHandshake, LiveIpcOperationCapability};
 use crate::contracts::{EndpointFreshness, IpcResidue, IpcShutdownResult, ReplayClassification};
 use crate::protocol::{
     encode_control_frame, parse_single_frame, FrameParseError, MessageKind, Nonce, MAX_FRAME_SIZE,
@@ -1213,4 +1214,38 @@ fn _ffi_paths_referenced() -> Result<(), IpcFailure> {
         let _ = b.read_raw_owned(c);
     }
     Ok(())
+}
+
+/// NARROW PUBLIC FAÇADE — confirmed IPC-peer contribution.
+///
+/// The ONLY pipe contribution surface a dependent orchestrator sees. The backend it wraps is a
+/// PRIVATE field of a PRIVATE type, and there is no public constructor, so a production caller can
+/// name this type but can never obtain one — the live path stays exactly as unreachable as before.
+/// `windows_ffi` remains a private module and no Win32 function is exposed.
+pub struct LiveIpcPeerContributor {
+    backend: WindowsPipeBackend,
+}
+
+impl LiveIpcPeerContributor {
+    /// Contribute the confirmed peer's OS-derived instance to an attempt that has ALREADY observed
+    /// SCM-before. The state is the ordering proof: the peer cannot be observed first, and the attempt
+    /// is consumed so it cannot be observed twice.
+    /// Contribute the confirmed peer, CONSUMING the opaque confirmation.
+    ///
+    /// The confirmation replaces the former caller-asserted `handshake_confirmed: bool` and
+    /// `confirmed_peer_role: PeerRole` parameters: a caller can no longer assert that a handshake
+    /// succeeded, because the only way to hold a `ConfirmedIpcPeerHandshake` is to have driven the
+    /// verification order to its accepting outcome. Consuming it also means one handshake yields at
+    /// most one contribution.
+    pub fn contribute_ipc_peer(
+        &self,
+        _capability: &LiveIpcOperationCapability,
+        confirmed: ConfirmedIpcPeerHandshake,
+        attempt: ServiceInstanceBindingAttempt<ScmBeforeObserved>,
+    ) -> AttemptOutcome<IpcPeerObserved> {
+        // The confirmation is proof, not data: it is consumed here and never inspected.
+        let _ = confirmed;
+        self.backend
+            .contribute_ipc_peer(attempt, true, PeerRole::ServiceFixture)
+    }
 }

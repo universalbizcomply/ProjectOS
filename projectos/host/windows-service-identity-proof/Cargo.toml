@@ -16,14 +16,31 @@ unsafe_code = "deny"
 unsafe_op_in_unsafe_fn = "deny"
 
 [features]
-# Compiles the OS-derived service-instance observation FFI (named-pipe peer + SCM service). It does
-# NOT grant runtime authority: no sealed LiveInstanceObservationCapability is constructible under this
-# or any other feature, so no live observation is reachable. Default features are empty — the default
-# build stays the effect-free contract and calls no Windows API.
+# THREE SEPARATE CONCERNS, deliberately not one feature: conflating contract visibility with live
+# Windows observation is what made the binding unreachable to its intended consumer. Default features
+# are empty, so the default build stays the effect-free contract and calls no Windows API.
+#
+# FORGERY RESISTANCE IS NOT THE FEATURE FLAG. Advancing an attempt requires an
+# `ServiceInstanceObservation::Observed(ServiceInstanceToken)`, and `ServiceInstanceToken` has NO
+# public constructor in ANY graph, so a default or live-only consumer can submit only closed refusals.
+#
+# A. DEPENDENT CONSUMER CONTRACT: makes the attempt typestate nameable and drivable by a dependent
+# crate. Pure types and portable logic only — no windows dependency, no Win32 call, no synthetic
+# identity, no execution authority.
+consumer-contract = []
+# B. LIVE WINDOWS OBSERVATION: the real OS-derived observation FFI (named-pipe peer + SCM service). It
+# implies the consumer contract because a live observation is only usable through an attempt. It grants
+# NO runtime authority: no sealed LiveInstanceObservationCapability is constructible under this or any
+# other non-fixture feature, so no live observation is reachable.
 windows-live-instance-observation = [
+    "consumer-contract",
     "dep:windows",
     "dep:projectos-windows-runtime-primitives",
 ]
+# C. SYNTHETIC TEST FIXTURES: compile-only synthetic observations so a dependent's fake backends can
+# drive an attempt to Match with no Windows call. Explicit, non-default, and NEVER implied by A or B,
+# so a default or live-only consumer cannot reach it. No machine effect, no raw process identity.
+test-fixtures = ["consumer-contract"]
 
 [dependencies]
 # Reuses the canonical no-trust authority contract types (AuthorityTokenOutcome, AuthorityPeerState,

@@ -24,6 +24,66 @@ pub struct LiveOperationCapability {
     _sealed: Sealed,
 }
 
+#[cfg(feature = "test-fixtures")]
+impl LiveOperationCapability {
+    /// FIXTURE-ONLY acquisition, so a dependent consumer can compile and exercise the real
+    /// contribution facades without any SCM call. Compiled only under `test-fixtures`, which is
+    /// non-default and is NOT implied by `windows-live-scm`.
+    ///
+    /// This authorises nothing: it carries no authority name, no handle, no credential and no token,
+    /// and every live code path additionally requires the Windows feature and a real service handle.
+    /// Real live capability production remains absent and owner-gated.
+    #[must_use]
+    pub fn synthetic_for_fixture() -> Self {
+        Self { _sealed: Sealed }
+    }
+}
+
+/// The FIXTURE implementations of the SCM contribution facades.
+///
+/// They carry the SAME public names and signatures as the live ones in `windows_ffi.rs`, so a
+/// dependent orchestrator writes identical code in either graph; only the internal observation source
+/// differs. Nothing here opens a service, queries the SCM or touches Win32.
+#[cfg(all(
+    feature = "test-fixtures",
+    not(all(windows, feature = "windows-live-scm"))
+))]
+mod fixture_facade {
+    use projectos_host_windows_service_identity_proof::{
+        synthetic_observation, AttemptOutcome, IpcPeerObserved, Prepared, ScmAfterObserved,
+        ScmBeforeObserved, ServiceInstanceBindingAttempt, SyntheticInstanceSelector,
+    };
+
+    /// The fixed synthetic instance every fixture facade reports. SCM-before, the IPC peer and
+    /// SCM-after must agree for the positive flow to bind, so all three use this one selector.
+    fn fixture_instance() -> SyntheticInstanceSelector {
+        SyntheticInstanceSelector::new(1, 1)
+    }
+
+    /// Fixture SCM-before contribution. Same signature as the live facade.
+    pub fn contribute_scm_before(
+        _capability: &super::LiveOperationCapability,
+        attempt: ServiceInstanceBindingAttempt<Prepared>,
+    ) -> AttemptOutcome<ScmBeforeObserved> {
+        attempt.record_scm_before(synthetic_observation(fixture_instance()))
+    }
+
+    /// Fixture SCM-after contribution. Accepts only an attempt that has already observed the peer, so
+    /// the SCM-before -> IPC -> SCM-after order is enforced by the type in the fixture graph too.
+    pub fn contribute_scm_after(
+        _capability: &super::LiveOperationCapability,
+        attempt: ServiceInstanceBindingAttempt<IpcPeerObserved>,
+    ) -> AttemptOutcome<ScmAfterObserved> {
+        attempt.record_scm_after(synthetic_observation(fixture_instance()))
+    }
+}
+
+#[cfg(all(
+    feature = "test-fixtures",
+    not(all(windows, feature = "windows-live-scm"))
+))]
+pub use fixture_facade::{contribute_scm_after, contribute_scm_before};
+
 /// The backend seam between the safe adapter and the Windows SCM. Every method takes closed inputs and
 /// returns a closed, redacted classification — no raw handle, SID, name, path or Win32 error crosses
 /// it. The live implementation lives in `windows_ffi.rs`; tests use a deterministic fake.

@@ -33,6 +33,88 @@ pub struct LiveIpcOperationCapability {
     _sealed: Sealed,
 }
 
+#[cfg(feature = "test-fixtures")]
+impl LiveIpcOperationCapability {
+    /// FIXTURE-ONLY acquisition, so a dependent consumer can compile and exercise the real peer
+    /// contribution facade without any pipe. Compiled only under `test-fixtures`, which is non-default
+    /// and is NOT implied by `windows-live-ipc`.
+    ///
+    /// It authorises nothing and, critically, does NOT by itself confirm a handshake: a confirmation
+    /// can only come from the verification logic below. Real live capability production remains absent
+    /// and owner-gated.
+    #[must_use]
+    pub fn synthetic_for_fixture() -> Self {
+        Self { _sealed: Sealed }
+    }
+}
+
+/// PROOF that the bounded, nonce-bound handshake completed and the peer is the expected service
+/// fixture.
+///
+/// It is opaque and unforgeable: the field is private, there is no public constructor, no `Default`,
+/// no `From<bool>`, no `From<PeerRole>`, no `From<HandshakeOutcome>` and no caller-controlled success
+/// field. The ONLY way to obtain one is [`HandshakeTransition::into_confirmed`], and the only code that
+/// builds a `HandshakeTransition` carrying a confirmation is the verification path in this module.
+///
+/// `HandshakeOutcome::ExpectedServiceFixturePeerConfirmed` remains a freely-constructible public unit
+/// variant for REPORTING, and is deliberately NOT sufficient to obtain this type.
+#[cfg(any(feature = "test-fixtures", feature = "windows-live-ipc"))]
+pub struct ConfirmedIpcPeerHandshake {
+    _sealed: Sealed,
+}
+
+#[cfg(any(feature = "test-fixtures", feature = "windows-live-ipc"))]
+impl core::fmt::Debug for ConfirmedIpcPeerHandshake {
+    /// Redacted: a confirmation must never render a nonce, endpoint, role internal or peer identity.
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("ConfirmedIpcPeerHandshake([REDACTED])")
+    }
+}
+
+/// The result of driving the handshake: the closed PUBLIC outcome for reporting, plus — only when the
+/// verification actually confirmed the expected peer — the opaque confirmation.
+///
+/// The confirmation is taken by CONSUMING the transition, so one handshake yields at most one
+/// contribution and a confirmation cannot be replayed from a retained transition.
+#[cfg(any(feature = "test-fixtures", feature = "windows-live-ipc"))]
+pub struct HandshakeTransition {
+    outcome: HandshakeOutcome,
+    confirmed: Option<ConfirmedIpcPeerHandshake>,
+}
+
+#[cfg(any(feature = "test-fixtures", feature = "windows-live-ipc"))]
+impl core::fmt::Debug for HandshakeTransition {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "HandshakeTransition({:?}, [REDACTED])", self.outcome)
+    }
+}
+
+#[cfg(any(feature = "test-fixtures", feature = "windows-live-ipc"))]
+impl HandshakeTransition {
+    /// Build a transition. CRATE-PRIVATE, and it attaches a confirmation ONLY for the accepting
+    /// outcome, so no other code path can mint one.
+    pub(crate) fn from_outcome(outcome: HandshakeOutcome) -> Self {
+        let confirmed = if outcome.is_peer_confirmed() {
+            Some(ConfirmedIpcPeerHandshake { _sealed: Sealed })
+        } else {
+            None
+        };
+        Self { outcome, confirmed }
+    }
+
+    /// The closed public outcome, for reporting and refusal mapping.
+    #[must_use]
+    pub fn outcome(&self) -> HandshakeOutcome {
+        self.outcome
+    }
+
+    /// Take the confirmation, consuming the transition. `None` unless the peer was actually confirmed.
+    #[must_use]
+    pub fn into_confirmed(self) -> Option<ConfirmedIpcPeerHandshake> {
+        self.confirmed
+    }
+}
+
 /// The closed outcome of opening the proof endpoint.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -269,6 +351,22 @@ impl<B: IpcBackend> LocalIpcAdapter<B> {
         self.complete_controller_handshake_logic(expected_peer)
     }
 
+    /// Run the same bounded handshake and return the transition, which carries the opaque
+    /// confirmation when — and only when — the expected peer was actually confirmed.
+    ///
+    /// This is the PRODUCTION source of a [`ConfirmedIpcPeerHandshake`]. A caller cannot mint one from
+    /// the public `HandshakeOutcome` variant, so holding a confirmation always means this verification
+    /// path accepted.
+    #[cfg(any(feature = "test-fixtures", feature = "windows-live-ipc"))]
+    #[must_use]
+    pub fn complete_controller_handshake_transition(
+        &self,
+        _cap: &LiveIpcOperationCapability,
+        expected_peer: PeerRole,
+    ) -> HandshakeTransition {
+        HandshakeTransition::from_outcome(self.complete_controller_handshake_logic(expected_peer))
+    }
+
     /// Run the bounded service-side handshake (verify `ControllerHello`, answer `ServiceReady`).
     #[must_use]
     pub fn complete_service_handshake(
@@ -388,22 +486,7 @@ impl<B: IpcBackend> LocalIpcAdapter<B> {
         expected_kind: MessageKind,
         expected_role: PeerRole,
     ) -> HandshakeOutcome {
-        if obs.kind != expected_kind {
-            return HandshakeOutcome::RefusedWrongMessageKind;
-        }
-        if !verify_endpoint_fresh(obs.freshness) {
-            return HandshakeOutcome::RefusedStale;
-        }
-        if !verify_not_replayed(obs.replay) {
-            return HandshakeOutcome::RefusedReplay;
-        }
-        if !obs.nonce_matches {
-            return HandshakeOutcome::RefusedNonceMismatch;
-        }
-        if !verify_peer_role(expected_role, obs.role) {
-            return HandshakeOutcome::RefusedRole;
-        }
-        HandshakeOutcome::ExpectedServiceFixturePeerConfirmed
+        verify_handshake_logic(obs, expected_kind, expected_role)
     }
 
     pub(crate) fn receive_typed_frame_logic(&self) -> ReceivedFrame {
@@ -447,6 +530,122 @@ impl<B: IpcBackend> LocalIpcAdapter<B> {
         residue
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// FIXTURE-ONLY handshake and peer contribution (feature `test-fixtures`).
+//
+// The runner does NOT return success: it drives the SAME closed verification order the production
+// path uses (message kind -> freshness -> replay -> nonce -> role), over a synthetic observation, and
+// yields a confirmation only when every check passes. Invalid observations produce exactly the same
+// refusal outcomes as production. Nothing here creates a pipe or calls Win32.
+// ---------------------------------------------------------------------------------------------
+
+/// The shared closed verification order, reused by BOTH the production adapter and the fixture runner
+/// so a fixture can never diverge from production validation.
+pub(crate) fn verify_handshake_logic(
+    obs: HandshakeObservation,
+    expected_kind: MessageKind,
+    expected_role: PeerRole,
+) -> HandshakeOutcome {
+    if obs.kind != expected_kind {
+        return HandshakeOutcome::RefusedWrongMessageKind;
+    }
+    if !verify_endpoint_fresh(obs.freshness) {
+        return HandshakeOutcome::RefusedStale;
+    }
+    if !verify_not_replayed(obs.replay) {
+        return HandshakeOutcome::RefusedReplay;
+    }
+    if !obs.nonce_matches {
+        return HandshakeOutcome::RefusedNonceMismatch;
+    }
+    if !verify_peer_role(expected_role, obs.role) {
+        return HandshakeOutcome::RefusedRole;
+    }
+    HandshakeOutcome::ExpectedServiceFixturePeerConfirmed
+}
+
+#[cfg(feature = "test-fixtures")]
+mod fixture_handshake {
+    use super::{
+        verify_handshake_logic, ConfirmedIpcPeerHandshake, HandshakeObservation, HandshakeOutcome,
+        HandshakeTransition, LiveIpcOperationCapability, MessageKind, PeerRole,
+        ReplayClassification,
+    };
+    use crate::contracts::EndpointFreshness;
+    use projectos_host_windows_service_identity_proof::{
+        synthetic_observation, AttemptOutcome, IpcPeerObserved, ScmBeforeObserved,
+        ServiceInstanceBindingAttempt, SyntheticInstanceSelector,
+    };
+
+    /// Build a synthetic ControllerHello observation. Fixture-gated; it carries no live endpoint, no
+    /// nonce value, no handle and no process identity — only the closed classifications the
+    /// verification order consumes.
+    #[must_use]
+    pub fn synthetic_controller_hello() -> HandshakeObservation {
+        HandshakeObservation {
+            kind: MessageKind::ControllerHello,
+            nonce_matches: true,
+            role: PeerRole::Controller,
+            replay: ReplayClassification::FreshAccepted,
+            freshness: EndpointFreshness::Fresh,
+        }
+    }
+
+    /// Run the REAL verification order over a synthetic observation. A caller cannot short-circuit it:
+    /// the confirmation is attached by `HandshakeTransition::from_outcome`, which only does so for the
+    /// accepting outcome.
+    #[must_use]
+    pub fn run_fixture_handshake(
+        _capability: &LiveIpcOperationCapability,
+        observation: HandshakeObservation,
+    ) -> HandshakeTransition {
+        let outcome = verify_handshake_logic(
+            observation,
+            MessageKind::ControllerHello,
+            PeerRole::Controller,
+        );
+        HandshakeTransition::from_outcome(outcome)
+    }
+
+    /// The FIXTURE peer contributor. Same public shape as the live one: it demands the capability, the
+    /// opaque confirmation (consumed) and an attempt that has already observed SCM-before.
+    pub struct FixtureIpcPeerContributor {
+        _private: (),
+    }
+
+    impl FixtureIpcPeerContributor {
+        /// Obtainable ONLY by consuming a confirmation, so there is no contributor without a verified
+        /// handshake and a confirmation cannot be reused for a second contributor.
+        #[must_use]
+        pub fn from_confirmed(confirmed: ConfirmedIpcPeerHandshake) -> Self {
+            let _ = confirmed;
+            Self { _private: () }
+        }
+
+        /// Contribute the confirmed peer's synthetic instance. Uses the SAME fixed selector as the
+        /// service-control fixture facades, so the ordered positive flow binds.
+        pub fn contribute_ipc_peer(
+            &self,
+            _capability: &LiveIpcOperationCapability,
+            attempt: ServiceInstanceBindingAttempt<ScmBeforeObserved>,
+        ) -> AttemptOutcome<IpcPeerObserved> {
+            attempt.record_ipc_peer(synthetic_observation(SyntheticInstanceSelector::new(1, 1)))
+        }
+    }
+
+    /// Accepting outcomes must still be checkable by a consumer for reporting.
+    #[must_use]
+    pub fn outcome_is_confirmed(outcome: HandshakeOutcome) -> bool {
+        outcome.is_peer_confirmed()
+    }
+}
+
+#[cfg(feature = "test-fixtures")]
+pub use fixture_handshake::{
+    outcome_is_confirmed, run_fixture_handshake, synthetic_controller_hello,
+    FixtureIpcPeerContributor,
+};
 
 #[cfg(test)]
 mod tests {

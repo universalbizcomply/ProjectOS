@@ -96,7 +96,7 @@ pub use projectos_host_windows_service_identity_proof::{
     ServiceInstanceToken,
 };
 // The attempt state machine, available only where an observation could occur.
-#[cfg(all(windows, feature = "windows-live-ipc"))]
+#[cfg(any(feature = "test-fixtures", all(windows, feature = "windows-live-ipc")))]
 pub use projectos_host_windows_service_identity_proof::{
     AttemptOutcome, IpcPeerObserved, Prepared, ScmAfterObserved, ScmBeforeObserved,
     ServiceInstanceBindingAttempt,
@@ -106,6 +106,22 @@ pub use projectos_host_windows_service_identity_proof::{
 // SID or builds an ACL/SDDL of its own).
 pub use projectos_host_authority::{
     ProjectOsHostPipeSecurityPolicy, ProjectOsHostPipeSecurityStatus,
+};
+
+// NARROW CONTRIBUTION FAÇADE. Only this opaque wrapper is re-exported; `windows_ffi`, the pipe backend
+// and every Win32 function stay private, and the wrapper has no public constructor, so a production
+// caller can name it but never obtain one.
+#[cfg(all(windows, feature = "windows-live-ipc"))]
+pub use windows_ffi::LiveIpcPeerContributor;
+// The opaque confirmed-handshake proof and its transition object. A consumer can hold and consume
+// them but can never construct one; only this crate's verification path mints a confirmation.
+#[cfg(any(feature = "test-fixtures", feature = "windows-live-ipc"))]
+pub use adapter::{ConfirmedIpcPeerHandshake, HandshakeTransition};
+// FIXTURE-ONLY handshake runner and peer contributor: explicit, non-default, no pipe, no Win32.
+#[cfg(feature = "test-fixtures")]
+pub use adapter::{
+    outcome_is_confirmed, run_fixture_handshake, synthetic_controller_hello,
+    FixtureIpcPeerContributor,
 };
 
 /// The truthful current state of this crate. CD-B1 was contract-only; the bounded Windows named-pipe

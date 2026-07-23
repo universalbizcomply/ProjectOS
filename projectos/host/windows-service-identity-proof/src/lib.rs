@@ -69,13 +69,17 @@ pub use instance::{
     LiveInstanceObservationCapability, ServiceInstanceBinding, ServiceInstanceRefusal,
     ServiceInstanceToken,
 };
-// The attempt state machine exists only where an observation could occur, so the DEFAULT effect-free
-// build has no binding surface at all rather than a disabled one.
-#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+// The attempt typestate is the DEPENDENT CONSUMER CONTRACT: a future orchestrator must be able to
+// name and drive it without enabling live Windows observation, so it is gated on `consumer-contract`
+// (which live observation implies) rather than on the live feature itself.
+#[cfg(any(test, feature = "consumer-contract"))]
 pub use instance::{
     AttemptOutcome, IpcPeerObserved, Prepared, ScmAfterObserved, ScmBeforeObserved,
-    ServiceInstanceBindingAttempt,
+    ServiceInstanceBindingAttempt, ServiceInstanceObservation,
 };
+// SYNTHETIC FIXTURES: explicit, non-default, never implied by the contract or by live observation.
+#[cfg(any(test, feature = "test-fixtures"))]
+pub use instance::{synthetic_observation, synthetic_refusal, SyntheticInstanceSelector};
 
 // Re-export the canonical authority types this contract reuses, so consumers need not depend on
 // host-authority directly to read the evidence.

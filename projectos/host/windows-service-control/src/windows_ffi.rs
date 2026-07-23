@@ -30,7 +30,7 @@ use projectos_host_windows_service_identity_proof::{
     ServiceInstanceBinding, ServiceInstanceBindingAttempt,
 };
 
-use crate::adapter::ScmBackend;
+use crate::adapter::{LiveOperationCapability, ScmBackend};
 use crate::verification::{
     classify_action_error, classify_open_error, classify_sid_query_error, classify_sid_type,
     ExactNameState, RunStateObservation, ScmActionOutcome, SidPolicyObservation,
@@ -374,3 +374,26 @@ impl ScmBackend for WindowsScmBackend {
 /// The additional service rights requested at creation so the same handle can be configured/deleted.
 const CHANGE_CONFIG_MASK: u32 = 0x0002; // SERVICE_CHANGE_CONFIG
 const DELETE_AND_CONFIG_MASK: u32 = CHANGE_CONFIG_MASK | STANDARD_DELETE;
+
+/// NARROW PUBLIC FAÇADE — SCM-before contribution.
+///
+/// The only SCM contribution surface a dependent orchestrator ever sees. It demands this crate's
+/// sealed `LiveOperationCapability`, which has no constructor in any build or feature, so the live
+/// path stays unreachable exactly as before. The backend type, the `windows_ffi` module and every
+/// Win32 function remain private: a consumer can name this function and nothing else.
+pub fn contribute_scm_before(
+    _capability: &LiveOperationCapability,
+    attempt: ServiceInstanceBindingAttempt<Prepared>,
+) -> AttemptOutcome<ScmBeforeObserved> {
+    WindowsScmBackend::new(Vec::new()).contribute_scm_before(attempt)
+}
+
+/// NARROW PUBLIC FAÇADE — SCM-after contribution. Accepts only an attempt that has already observed
+/// the IPC peer, so the SCM-before -> IPC -> SCM-after order is enforced by the type, not by this
+/// crate.
+pub fn contribute_scm_after(
+    _capability: &LiveOperationCapability,
+    attempt: ServiceInstanceBindingAttempt<IpcPeerObserved>,
+) -> AttemptOutcome<ScmAfterObserved> {
+    WindowsScmBackend::new(Vec::new()).contribute_scm_after(attempt)
+}

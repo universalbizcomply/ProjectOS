@@ -77,6 +77,27 @@ pub use projectos_host_windows_service_identity_proof::{
     ServiceInstanceRefusal, ServiceInstanceToken,
 };
 
+// NARROW CONTRIBUTION FAÇADE. Exactly two functions are re-exported; the `windows_ffi` module, the
+// backend struct and every Win32 function stay private. Both demand the sealed, unconstructible
+// LiveOperationCapability, so nothing here becomes reachable in production.
+// The LIVE implementation wins whenever it is compiled; the fixture implementation (adapter.rs) fills
+// in only when it is not, so the two can never define the same public name twice.
+#[cfg(all(
+    feature = "test-fixtures",
+    not(all(windows, feature = "windows-live-scm"))
+))]
+pub use adapter::{contribute_scm_after, contribute_scm_before};
+#[cfg(all(windows, feature = "windows-live-scm"))]
+pub use windows_ffi::{contribute_scm_after, contribute_scm_before};
+
+// The attempt typestate a consumer needs in order to hold the value the facades pass through. Also
+// available in the fixture graph, since the fixture facades take and return the same types.
+#[cfg(all(feature = "test-fixtures", not(feature = "windows-live-scm")))]
+pub use projectos_host_windows_service_identity_proof::{
+    AttemptOutcome, IpcPeerObserved, Prepared, ScmAfterObserved, ScmBeforeObserved,
+    ServiceInstanceBinding, ServiceInstanceBindingAttempt,
+};
+
 /// The DEFAULT build remains the effect-free service-control contract (no live SCM adapter reachable).
 pub const SERVICE_CONTROL_IS_CONTRACT_ONLY: bool = true;
 

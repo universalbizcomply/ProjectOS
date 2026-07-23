@@ -24,6 +24,14 @@ windows-live-scm = [
     "dep:projectos-host-windows-service-identity-proof",
     "projectos-host-windows-service-identity-proof/windows-live-instance-observation",
 ]
+# EXPLICIT, NON-DEFAULT fixture graph. It proves the dependent-consumer API shape without any SCM or
+# Win32 activity: it does NOT imply windows-live-scm and pulls NO windows dependency. The sealed
+# LiveOperationCapability gains a fixture-only acquisition here and nowhere else; real live capability
+# production stays absent and owner-gated.
+test-fixtures = [
+    "dep:projectos-host-windows-service-identity-proof",
+    "projectos-host-windows-service-identity-proof/test-fixtures",
+]
 
 [dependencies]
 # Reuses the accepted PURE service INSTALLATION CONTRACT (FutureCreationRequest, PostEffectVerification,

@@ -77,7 +77,11 @@ impl ServiceInstanceToken {
     ///
     /// Compiled only where a token can legitimately originate — the OS observation FFI, and this
     /// crate's own tests. The default effect-free build has no constructor for a token at all.
-    #[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+    #[cfg(any(
+        test,
+        feature = "test-fixtures",
+        all(windows, feature = "windows-live-instance-observation")
+    ))]
     pub(crate) fn from_observed_parts(process_id: u32, creation_time: u64) -> Option<Self> {
         if process_id == 0 || creation_time == 0 {
             return None;
@@ -137,7 +141,7 @@ pub enum ServiceInstanceRefusal {
 
 /// The outcome of one instance observation: an opaque token, or an exact closed refusal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+#[cfg(any(test, feature = "consumer-contract"))]
 pub enum ServiceInstanceObservation {
     /// An OS-derived instance identity was established.
     Observed(ServiceInstanceToken),
@@ -145,7 +149,7 @@ pub enum ServiceInstanceObservation {
     Refused(ServiceInstanceRefusal),
 }
 
-#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+#[cfg(any(test, feature = "consumer-contract"))]
 impl ServiceInstanceObservation {
     /// Whether an identity was established. Reveals nothing about its contents.
     #[must_use]
@@ -220,7 +224,7 @@ pub enum ServiceInstanceBinding {
 /// [`ServiceInstanceBindingAttempt::finalise`], which additionally proves the three observations were
 /// collected in order inside one bounded, consumable attempt.
 #[must_use]
-#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+#[cfg(any(test, feature = "consumer-contract"))]
 pub(crate) fn bind_service_instance(
     ipc: &ServiceInstanceObservation,
     scm_before: &ServiceInstanceObservation,
@@ -406,7 +410,7 @@ pub(crate) fn decide_service(facts: &ServiceFacts) -> ServiceInstanceObservation
 /// that; 5 s leaves generous headroom for a loaded machine while still being far shorter than any
 /// plausible service stop/start cycle. Anything slower is not one coherent instant-in-time
 /// observation of a single running instance, so it fails closed rather than being trusted.
-#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+#[cfg(any(test, feature = "consumer-contract"))]
 const MAX_OBSERVATION_WINDOW_MILLIS: u64 = 5_000;
 
 /// The attempt's internal, closed time source.
@@ -414,10 +418,10 @@ const MAX_OBSERVATION_WINDOW_MILLIS: u64 = 5_000;
 /// Production uses [`std::time::Instant`], which is MONOTONIC: it cannot be moved by a wall-clock
 /// change, so a clock rollback cannot extend an attempt's validity. No caller-supplied timestamp is
 /// accepted in any build, and the fake variant exists only under `cfg(test)`.
-#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+#[cfg(any(test, feature = "consumer-contract"))]
 enum AttemptClock {
     Monotonic(std::time::Instant),
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-fixtures"))]
     Fake {
         now_millis: std::rc::Rc<std::cell::Cell<u64>>,
         started_at: u64,
@@ -427,7 +431,7 @@ enum AttemptClock {
     },
 }
 
-#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+#[cfg(any(test, feature = "consumer-contract"))]
 impl AttemptClock {
     /// Milliseconds elapsed since the attempt began. Never exposed publicly.
     fn elapsed_millis(&self) -> u64 {
@@ -435,7 +439,7 @@ impl AttemptClock {
             Self::Monotonic(start) => {
                 u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX)
             }
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-fixtures"))]
             Self::Fake {
                 now_millis,
                 started_at,
@@ -451,20 +455,20 @@ impl AttemptClock {
 
 /// Type-state markers. All are UNINHABITED: they exist only to distinguish attempt states at compile
 /// time and can never be constructed, stored or forged.
-#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+#[cfg(any(test, feature = "consumer-contract"))]
 pub enum Prepared {}
 /// The SCM instance was observed before the peer.
-#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+#[cfg(any(test, feature = "consumer-contract"))]
 pub enum ScmBeforeObserved {}
 /// The confirmed IPC peer's instance was observed.
-#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+#[cfg(any(test, feature = "consumer-contract"))]
 pub enum IpcPeerObserved {}
 /// The SCM instance was observed again after the peer.
-#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+#[cfg(any(test, feature = "consumer-contract"))]
 pub enum ScmAfterObserved {}
 
 /// The attempt's private contents. Never public, never returned, never cloned.
-#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+#[cfg(any(test, feature = "consumer-contract"))]
 struct AttemptInner {
     clock: AttemptClock,
     scm_before: Option<ServiceInstanceToken>,
@@ -472,7 +476,7 @@ struct AttemptInner {
     scm_after: Option<ServiceInstanceToken>,
 }
 
-#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+#[cfg(any(test, feature = "consumer-contract"))]
 impl AttemptInner {
     /// Fail closed once the bounded window has elapsed. Checked on EVERY transition and again at
     /// finalisation, so expiry at any point between observations refuses.
@@ -498,13 +502,13 @@ impl AttemptInner {
 /// compile-time impossibilities, not runtime refusals.
 ///
 /// The type is deliberately not `Clone`, not `Copy`, not serialisable and has a redacted `Debug`.
-#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+#[cfg(any(test, feature = "consumer-contract"))]
 pub struct ServiceInstanceBindingAttempt<S> {
     inner: AttemptInner,
     _state: core::marker::PhantomData<S>,
 }
 
-#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+#[cfg(any(test, feature = "consumer-contract"))]
 impl<S> fmt::Debug for ServiceInstanceBindingAttempt<S> {
     /// Redacted: an attempt holds up to three identities plus its window state, none of which may be
     /// rendered, and no attempt identifier exists to print.
@@ -513,10 +517,10 @@ impl<S> fmt::Debug for ServiceInstanceBindingAttempt<S> {
     }
 }
 
-#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+#[cfg(any(test, feature = "consumer-contract"))]
 impl<S> ServiceInstanceBindingAttempt<S> {
     /// Move the attempt into its next state, carrying the private contents with it.
-    #[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+    #[cfg(any(test, feature = "consumer-contract"))]
     fn advance<T>(self) -> ServiceInstanceBindingAttempt<T> {
         ServiceInstanceBindingAttempt {
             inner: self.inner,
@@ -530,7 +534,7 @@ impl<S> ServiceInstanceBindingAttempt<S> {
 /// A refusal consumes the attempt — there is no way back to a usable state, so a failed observation
 /// can never be retried into a positive result.
 #[must_use]
-#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+#[cfg(any(test, feature = "consumer-contract"))]
 pub enum AttemptOutcome<S> {
     /// The observation was accepted; the attempt continues in its next state.
     Continue(ServiceInstanceBindingAttempt<S>),
@@ -538,7 +542,7 @@ pub enum AttemptOutcome<S> {
     Refused(ServiceInstanceBinding),
 }
 
-#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+#[cfg(any(test, feature = "consumer-contract"))]
 impl<S> fmt::Debug for AttemptOutcome<S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -548,7 +552,7 @@ impl<S> fmt::Debug for AttemptOutcome<S> {
     }
 }
 
-#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+#[cfg(any(test, feature = "consumer-contract"))]
 impl<S> AttemptOutcome<S> {
     /// Whether the attempt is still alive. Reveals nothing about the observations.
     #[must_use]
@@ -577,7 +581,7 @@ impl<S> AttemptOutcome<S> {
 
 /// Map a closed observation refusal onto the attempt's terminal verdict, preserving the precise
 /// answers (ambiguous / unsupported) rather than collapsing everything to "missing".
-#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+#[cfg(any(test, feature = "consumer-contract"))]
 fn scm_refusal_verdict(r: ServiceInstanceRefusal) -> ServiceInstanceBinding {
     match r {
         ServiceInstanceRefusal::ServiceTypeAmbiguous => ServiceInstanceBinding::Ambiguous,
@@ -587,7 +591,7 @@ fn scm_refusal_verdict(r: ServiceInstanceRefusal) -> ServiceInstanceBinding {
 }
 
 /// As above, for the IPC side.
-#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+#[cfg(any(test, feature = "consumer-contract"))]
 fn ipc_refusal_verdict(r: ServiceInstanceRefusal) -> ServiceInstanceBinding {
     match r {
         ServiceInstanceRefusal::UnsupportedPlatform => ServiceInstanceBinding::Unsupported,
@@ -595,7 +599,7 @@ fn ipc_refusal_verdict(r: ServiceInstanceRefusal) -> ServiceInstanceBinding {
     }
 }
 
-#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+#[cfg(any(test, feature = "consumer-contract"))]
 impl ServiceInstanceBindingAttempt<Prepared> {
     /// Begin a proof attempt. Requires the sealed, unconstructible live-observation capability, so no
     /// build can start one; there is no `Default`, no raw attempt identifier and no caller-supplied
@@ -634,8 +638,8 @@ impl ServiceInstanceBindingAttempt<Prepared> {
     }
 
     /// Record the SCM-before observation. The token is retained INSIDE the attempt and never returned.
-    #[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
-    pub(crate) fn record_scm_before(
+    #[cfg(any(test, feature = "consumer-contract"))]
+    pub fn record_scm_before(
         mut self,
         observation: ServiceInstanceObservation,
     ) -> AttemptOutcome<ScmBeforeObserved> {
@@ -654,11 +658,11 @@ impl ServiceInstanceBindingAttempt<Prepared> {
     }
 }
 
-#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+#[cfg(any(test, feature = "consumer-contract"))]
 impl ServiceInstanceBindingAttempt<ScmBeforeObserved> {
     /// Record the confirmed IPC peer's observation. Legal ONLY after SCM-before, by construction.
-    #[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
-    pub(crate) fn record_ipc_peer(
+    #[cfg(any(test, feature = "consumer-contract"))]
+    pub fn record_ipc_peer(
         mut self,
         observation: ServiceInstanceObservation,
     ) -> AttemptOutcome<IpcPeerObserved> {
@@ -677,11 +681,11 @@ impl ServiceInstanceBindingAttempt<ScmBeforeObserved> {
     }
 }
 
-#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+#[cfg(any(test, feature = "consumer-contract"))]
 impl ServiceInstanceBindingAttempt<IpcPeerObserved> {
     /// Record the SCM-after observation. Legal ONLY after the peer, by construction.
-    #[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
-    pub(crate) fn record_scm_after(
+    #[cfg(any(test, feature = "consumer-contract"))]
+    pub fn record_scm_after(
         mut self,
         observation: ServiceInstanceObservation,
     ) -> AttemptOutcome<ScmAfterObserved> {
@@ -700,7 +704,7 @@ impl ServiceInstanceBindingAttempt<IpcPeerObserved> {
     }
 }
 
-#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+#[cfg(any(test, feature = "consumer-contract"))]
 impl ServiceInstanceBindingAttempt<ScmAfterObserved> {
     /// Finalise the attempt and return ONLY the closed verdict.
     ///
@@ -708,7 +712,7 @@ impl ServiceInstanceBindingAttempt<ScmAfterObserved> {
     /// observation survives for reuse. The window is re-checked here, so an attempt that expired
     /// between the last observation and finalisation can never return `Match`.
     #[must_use]
-    #[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+    #[cfg(any(test, feature = "consumer-contract"))]
     pub fn finalise(self) -> ServiceInstanceBinding {
         if let Some(expired) = self.inner.expiry() {
             return expired;
@@ -726,6 +730,126 @@ impl ServiceInstanceBindingAttempt<ScmAfterObserved> {
             &ServiceInstanceObservation::Observed(before),
             &ServiceInstanceObservation::Observed(after),
         )
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// SYNTHETIC TEST FIXTURES (feature `test-fixtures` only).
+//
+// These exist so a DEPENDENT crate's fake backends can drive an attempt to a positive verdict with no
+// Windows call at all. They are explicit, non-default, and never implied by the consumer contract or
+// by live observation, so a default or live-only consumer cannot reach them.
+//
+// Synthetic identity is structurally distinct from live identity: a caller selects an opaque
+// INSTANCE and INCARNATION selector, never a process ID and never a creation time. The mapping from
+// selector to internal identity is private, so a fixture value carries no OS meaning and cannot be
+// mistaken for, or substituted into, live evidence.
+// ---------------------------------------------------------------------------------------------
+
+/// An opaque synthetic instance selector. Compile-only test scaffolding.
+///
+/// `instance` distinguishes different running processes; `incarnation` distinguishes a RESTART of the
+/// same logical process, which is what models process-ID reuse. Neither is a process ID and neither is
+/// a creation time; both are arbitrary opaque labels.
+#[cfg(any(test, feature = "test-fixtures"))]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct SyntheticInstanceSelector {
+    instance: u8,
+    incarnation: u8,
+}
+
+#[cfg(any(test, feature = "test-fixtures"))]
+impl SyntheticInstanceSelector {
+    /// Select a synthetic instance. Same `instance` with a different `incarnation` models a restart
+    /// that reuses the earlier process ID — the case that must NEVER bind.
+    #[must_use]
+    pub fn new(instance: u8, incarnation: u8) -> Self {
+        Self {
+            instance,
+            incarnation,
+        }
+    }
+
+    /// Map the opaque selectors onto an internal identity. PRIVATE: the mapping never leaves this
+    /// module, so a fixture cannot be used to choose a real process identity.
+    fn to_internal_parts(self) -> (u32, u64) {
+        // Both components are forced non-zero so a synthetic identity is always well-formed.
+        let process_id = 0x0001_0000_u32 | u32::from(self.instance);
+        let creation_time = 0x0001_0000_0000_u64 | (u64::from(self.incarnation) + 1);
+        (process_id, creation_time)
+    }
+}
+
+#[cfg(any(test, feature = "test-fixtures"))]
+impl fmt::Debug for SyntheticInstanceSelector {
+    /// Redacted like every other identity-bearing type, so a fixture can never print a selector that
+    /// a reader might mistake for real identity.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("SyntheticInstanceSelector([REDACTED])")
+    }
+}
+
+/// Build a SYNTHETIC observed identity. Fixture-only; performs no Windows call, opens no process,
+/// queries no SCM and creates no pipe.
+#[cfg(any(test, feature = "test-fixtures"))]
+#[must_use]
+pub fn synthetic_observation(selector: SyntheticInstanceSelector) -> ServiceInstanceObservation {
+    let (process_id, creation_time) = selector.to_internal_parts();
+    match ServiceInstanceToken::from_observed_parts(process_id, creation_time) {
+        Some(t) => ServiceInstanceObservation::Observed(t),
+        None => ServiceInstanceObservation::Refused(ServiceInstanceRefusal::InvalidProcessId),
+    }
+}
+
+/// Build a synthetic REFUSAL. Available to fixtures for symmetry; a default or live-only consumer can
+/// already build refusals directly, because a refusal carries no identity.
+#[cfg(any(test, feature = "test-fixtures"))]
+#[must_use]
+pub fn synthetic_refusal(reason: ServiceInstanceRefusal) -> ServiceInstanceObservation {
+    ServiceInstanceObservation::Refused(reason)
+}
+
+#[cfg(any(test, feature = "test-fixtures"))]
+impl LiveInstanceObservationCapability {
+    /// A SYNTHETIC capability, so a fixture can begin an attempt. Fixture-only: it authorises nothing
+    /// and reaches no Windows API, because every live observation path additionally requires the
+    /// live-observation feature and a real OS handle.
+    #[must_use]
+    pub fn synthetic_for_fixture() -> Self {
+        Self { _sealed: Sealed }
+    }
+}
+
+#[cfg(any(test, feature = "test-fixtures"))]
+impl ServiceInstanceBindingAttempt<Prepared> {
+    /// Begin an attempt driven by a caller-advanced synthetic clock, so freshness and expiry can be
+    /// tested deterministically without sleeping. Fixture-only.
+    #[must_use]
+    pub fn begin_with_synthetic_clock(
+        _capability: &LiveInstanceObservationCapability,
+        now_millis: std::rc::Rc<std::cell::Cell<u64>>,
+    ) -> Self {
+        let started_at = now_millis.get();
+        Self {
+            inner: AttemptInner {
+                clock: AttemptClock::Fake {
+                    now_millis,
+                    started_at,
+                    peak: std::cell::Cell::new(started_at),
+                },
+                scm_before: None,
+                ipc_peer: None,
+                scm_after: None,
+            },
+            _state: core::marker::PhantomData,
+        }
+    }
+
+    /// The fixed synthetic observation window, so a fixture can compute an expiry deterministically
+    /// without learning the production constant's meaning.
+    #[must_use]
+    pub fn synthetic_window_millis() -> u64 {
+        MAX_OBSERVATION_WINDOW_MILLIS
     }
 }
 
