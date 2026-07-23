@@ -17,12 +17,21 @@ unsafe_op_in_unsafe_fn = "deny"
 # Compiles the live Windows SCM adapter FFI. It does NOT grant runtime authority: no sealed
 # LiveOperationCapability is constructible under this (or any) feature, so no live operation is
 # reachable. Default features are empty — the default build stays the effect-free contract.
-windows-live-scm = ["dep:windows"]
+windows-live-scm = [
+    "dep:windows",
+    # The SCM-side instance observation lives in the canonical identity-proof crate, so this crate
+    # never assembles a service-instance identity from raw parts of its own.
+    "dep:projectos-host-windows-service-identity-proof",
+    "projectos-host-windows-service-identity-proof/windows-live-instance-observation",
+]
 
 [dependencies]
 # Reuses the accepted PURE service INSTALLATION CONTRACT (FutureCreationRequest, PostEffectVerification,
 # ReconciliationSituation, APPROVED_SERVICE_NAME) read-only, instead of duplicating it.
 projectos-host-windows-service-installation-contract = { path = "../windows-service-installation-contract" }
+# The canonical OWNER of the opaque OS-derived ServiceInstanceToken. This crate supplies only its live
+# service handle and receives a closed observation back; it never reads or forwards a raw process ID.
+projectos-host-windows-service-identity-proof = { path = "../windows-service-identity-proof", optional = true }
 
 [target.'cfg(windows)'.dependencies]
 # Minimum SCM surface only. Optional + feature-gated: linked ONLY under `windows-live-scm`, so the

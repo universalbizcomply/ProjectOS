@@ -24,6 +24,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "projectos-host-authority"
+version = "0.0.0"
+
+[[package]]
 name = "projectos-host-core"
 version = "0.0.0"
 dependencies = [
@@ -80,7 +84,17 @@ dependencies = [
 name = "projectos-host-windows-service-control"
 version = "0.0.0"
 dependencies = [
+ "projectos-host-windows-service-identity-proof",
  "projectos-host-windows-service-installation-contract",
+ "windows",
+]
+
+[[package]]
+name = "projectos-host-windows-service-identity-proof"
+version = "0.0.0"
+dependencies = [
+ "projectos-host-authority",
+ "projectos-windows-runtime-primitives",
  "windows",
 ]
 
@@ -100,6 +114,13 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+]
+
+[[package]]
+name = "projectos-windows-runtime-primitives"
+version = "0.0.0"
+dependencies = [
+ "windows",
 ]
 
 [[package]]

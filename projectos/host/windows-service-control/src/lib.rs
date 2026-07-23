@@ -63,6 +63,20 @@ pub use projectos_host_windows_service_installation_contract::{
     PostEffectVerification, APPROVED_SERVICE_NAME,
 };
 
+// Re-export the CANONICAL cross-source service-instance identity, owned by the identity-proof crate.
+// Consumers read the SCM-derived observation through this crate without gaining any way to construct
+// or inspect a token: there is no public constructor and no accessor anywhere in the re-exported set.
+//
+// Gated with the live adapter that produces it, so the DEFAULT contract-only build pulls no extra
+// dependency edge at all — that keeps every downstream lockfile (including the frozen proof-runner's)
+// byte-identical until a consumer actually opts into the live SCM adapter.
+#[cfg(feature = "windows-live-scm")]
+pub use projectos_host_windows_service_identity_proof::{
+    AttemptOutcome, IpcPeerObserved, LiveInstanceObservationCapability, Prepared, ScmAfterObserved,
+    ScmBeforeObserved, ServiceInstanceBinding, ServiceInstanceBindingAttempt,
+    ServiceInstanceRefusal, ServiceInstanceToken,
+};
+
 /// The DEFAULT build remains the effect-free service-control contract (no live SCM adapter reachable).
 pub const SERVICE_CONTROL_IS_CONTRACT_ONLY: bool = true;
 

@@ -47,6 +47,11 @@ use windows::Win32::System::Pipes::{
 use windows::Win32::System::Threading::{CreateEventW, WaitForSingleObject};
 use windows::Win32::System::IO::{CancelIoEx, GetOverlappedResultEx, OVERLAPPED};
 
+use projectos_host_windows_service_identity_proof::{
+    AttemptOutcome, IpcPeerObserved, ScmBeforeObserved, ServiceInstanceBinding,
+    ServiceInstanceBindingAttempt,
+};
+
 use crate::adapter::{
     BackendState, ConnectionState, EndpointOutcome, HandshakeObservation, HandshakeReceipt,
     IpcBackend, ReceivedFrame, SendOutcome,
@@ -663,6 +668,54 @@ impl WindowsPipeBackend {
             nonce: Nonce::from_fixed_bytes(bytes),
             nonce_consumed: Cell::new(false),
             fresh: Cell::new(false),
+        }
+    }
+
+    /// Observe the OS-derived instance identity of the CONFIRMED pipe peer.
+    ///
+    /// The B3 transport makes this side the pipe SERVER (`CreateNamedPipeW` + `ConnectNamedPipe`) and
+    /// the service fixture the CLIENT, so the peer identity is the client's — that direction is why
+    /// the canonical crate uses `GetNamedPipeClientProcessId` rather than its server counterpart.
+    ///
+    /// The handshake result is passed in rather than re-derived: a peer's DECLARED role is a protocol
+    /// assertion, so it gates the observation but never supplies the identity. The identity itself is
+    /// read from Windows by the canonical identity-proof crate, which is lent the live handle only for
+    /// the duration of the call. No raw process ID is read or held here.
+    ///
+    /// `connected` reflects this backend's own state: an Operational backend still holding its server
+    /// handle. A peer that has actually gone away is caught by the callee, whose peer read fails and
+    /// whose post-capture re-read enforces peer stability.
+    ///
+    /// The attempt is consumed and returned in its next state, so this crate never receives a token:
+    /// the identity is read by the canonical crate and retained INSIDE the attempt. Contributing is
+    /// possible only from the `ScmBeforeObserved` state, so the peer can never be observed before the
+    /// SCM baseline, and never twice.
+    #[allow(dead_code)]
+    pub(crate) fn contribute_ipc_peer(
+        &self,
+        attempt: ServiceInstanceBindingAttempt<ScmBeforeObserved>,
+        handshake_confirmed: bool,
+        confirmed_peer_role: PeerRole,
+    ) -> AttemptOutcome<IpcPeerObserved> {
+        // A backend whose handle went to quarantine, or which is otherwise not operational, can never
+        // present a trustworthy peer.
+        if self.state.get() != BackendState::Operational || self.has_quarantined_io() {
+            return AttemptOutcome::Refused(ServiceInstanceBinding::MissingIpcObservation);
+        }
+        let borrowed = self.server.borrow();
+        let Some(handle) = borrowed.as_ref().map(|h| h.0) else {
+            return AttemptOutcome::Refused(ServiceInstanceBinding::MissingIpcObservation);
+        };
+        // SAFETY: `handle` is this backend's live server pipe handle. The `borrowed` guard keeps the
+        // owning `OwnedHandle` alive for the whole call, and the callee only reads through it and
+        // never retains or closes it.
+        unsafe {
+            attempt.observe_ipc_peer(
+                handle,
+                true,
+                handshake_confirmed,
+                confirmed_peer_role == PeerRole::ServiceFixture,
+            )
         }
     }
 

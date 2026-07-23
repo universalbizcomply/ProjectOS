@@ -500,6 +500,62 @@ function run() {
     errors.push("crate must no longer claim to be entirely contract-only (a transport now exists)");
   if (!/LIVE_LOCAL_IPC_AUTHORISED:\s*bool\s*=\s*false/.test(lib)) errors.push("live IPC must be unauthorised");
 
+  // 10. CROSS-SOURCE SERVICE-INSTANCE BINDING (CD-B4-CROSS-SOURCE-BINDING-CONTRACT1A).
+  // A confirmed handshake proves only that the PEER holds the nonce. Binding that peer to the
+  // SCM-observed service requires an OS-derived identity, which this crate must NOT own: it lends its
+  // live server handle to the canonical identity-proof crate and receives a closed observation back.
+  const featBlock = (toml.match(/windows-live-ipc\s*=\s*\[[\s\S]*?\]/) || [""])[0];
+  if (!/"projectos-host-windows-service-identity-proof\/windows-live-instance-observation"/.test(featBlock))
+    errors.push("windows-live-ipc does not enable the canonical instance-observation feature");
+  if (/identity-proof\/test-fixtures/.test(featBlock))
+    errors.push("windows-live-ipc reaches a test-fixtures feature");
+
+  // Since Contract1B the adapter contributes into an ATTEMPT it does not own. It may only do so from
+  // the ScmBeforeObserved state, so the peer can never be observed before the SCM baseline, and the
+  // attempt is consumed so it can never be observed twice.
+  const ffiSrc = stripComments(read(path.join(SRC, FFI)));
+  const obs = ffiSrc.match(
+    /fn\s+contribute_ipc_peer\s*\(\s*&self,\s*attempt:\s*ServiceInstanceBindingAttempt<ScmBeforeObserved>,([\s\S]*?)\)\s*->\s*AttemptOutcome<IpcPeerObserved>/
+  );
+  if (!obs) errors.push("no attempt-scoped pipe-peer contribution from the ScmBeforeObserved state");
+  else {
+    // The DECLARED role gates the observation but must be supplied, not inferred here.
+    if (!/handshake_confirmed:\s*bool/.test(obs[1]))
+      errors.push("the peer contribution does not require a confirmed handshake");
+    if (!/confirmed_peer_role:\s*PeerRole/.test(obs[1]))
+      errors.push("the peer contribution does not require the confirmed peer role");
+  }
+  if (!/attempt\.observe_ipc_peer\(/.test(ffiSrc))
+    errors.push("this crate does not delegate peer observation to the canonical owner");
+  if (!/confirmed_peer_role\s*==\s*PeerRole::ServiceFixture/.test(ffiSrc))
+    errors.push("the peer contribution does not require the ServiceFixture role");
+  // This crate contributes the IPC peer ONLY — never an SCM observation, never the verdict.
+  for (const bad of [
+    /observe_scm_before/,
+    /observe_scm_after/,
+    /QueryServiceStatusEx/,
+    /fn\s+finalise/,
+    /bind_service_instance/,
+  ]) {
+    if (bad.test(ffiSrc)) errors.push("this crate performs a binding step it does not own");
+  }
+  // A backend that is not operational, or whose handle went to quarantine, can never be observed.
+  if (!/state\.get\(\)\s*!=\s*BackendState::Operational\s*\|\|\s*self\.has_quarantined_io\(\)/.test(ffiSrc))
+    errors.push("the peer observation does not refuse a non-operational or quarantined backend");
+  // The identity must come from the canonical crate, never be assembled here.
+  for (const bad of [
+    /GetNamedPipeClientProcessId/,
+    /GetNamedPipeServerProcessId/,
+    /GetProcessTimes/,
+    /OpenProcess\b/,
+    /ServiceInstanceToken\s*\{/,
+    /from_observed_parts/,
+  ]) {
+    if (bad.test(ffiSrc)) errors.push("this crate reads or assembles raw process identity itself");
+  }
+  if (!/pub\s+use\s+projectos_host_windows_service_identity_proof::\{[\s\S]*?ServiceInstanceToken,?[\s\S]*?\};/.test(lib))
+    errors.push("the canonical instance identity is not re-exported from the owning crate");
+
   return errors;
 }
 

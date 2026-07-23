@@ -19,7 +19,13 @@ unsafe_op_in_unsafe_fn = "deny"
 # test-fixtures). It does NOT grant runtime authority: no sealed LiveIpcOperationCapability is
 # constructible, so no live pipe operation is reachable. Default features are empty — the default build
 # stays the effect-free contract + safe adapter.
-windows-live-ipc = ["dep:windows", "projectos-host-authority/windows-pipe-security-runtime"]
+windows-live-ipc = [
+    "dep:windows",
+    "projectos-host-authority/windows-pipe-security-runtime",
+    # The pipe-peer instance observation lives in the canonical identity-proof crate, so this crate
+    # never assembles a service-instance identity from raw parts of its own.
+    "projectos-host-windows-service-identity-proof/windows-live-instance-observation",
+]
 
 [dependencies]
 # Reuses the accepted redacted service-identity evidence + canonical no-trust peer/authority types

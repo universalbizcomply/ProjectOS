@@ -65,7 +65,13 @@ function run() {
   if (!/unsafe_code\s*=\s*"deny"/.test(toml)) errors.push("crate does not deny unsafe at the lint level");
   if (/^\s*\[\[bin\]\]/m.test(toml)) errors.push("has a binary target");
   // Explicit capability feature, empty default.
-  if (!/windows-live-scm\s*=\s*\[\s*"dep:windows"\s*\]/.test(toml)) errors.push("no windows-live-scm feature gating dep:windows");
+  // The live feature gates dep:windows AND the canonical instance-observation feature of the
+  // identity-proof crate; it must never reach for a test-fixtures feature.
+  const scmFeat = (toml.match(/windows-live-scm\s*=\s*\[[\s\S]*?\]/) || [""])[0];
+  if (!/"dep:windows"/.test(scmFeat)) errors.push("no windows-live-scm feature gating dep:windows");
+  if (!/"projectos-host-windows-service-identity-proof\/windows-live-instance-observation"/.test(scmFeat))
+    errors.push("windows-live-scm does not enable the canonical instance-observation feature");
+  if (/test-fixtures/.test(scmFeat)) errors.push("windows-live-scm reaches a test-fixtures feature");
   if (/^\s*default\s*=/m.test(toml)) errors.push("declares non-empty default features");
   // Minimum, optional, cfg(windows) windows dependency with ONLY the two accepted features.
   if (!/\[target\.'cfg\(windows\)'\.dependencies\]/.test(toml)) errors.push("windows dep not cfg(windows)-scoped");
@@ -78,7 +84,11 @@ function run() {
   // Only permitted [dependencies] entry is the installation contract.
   const depBody = (stripComments(toml).split(/^\[dependencies\]/m)[1] || "").split(/\n\[/)[0];
   for (const d of (depBody.match(/^\s*([a-z0-9_-]+)\s*=/gim) || []).map((s) => s.replace(/\s*=$/, "").trim())) {
-    if (d !== "projectos-host-windows-service-installation-contract") errors.push("unexpected dependency: " + d);
+    if (
+      d !== "projectos-host-windows-service-installation-contract" &&
+      d !== "projectos-host-windows-service-identity-proof"
+    )
+      errors.push("unexpected dependency: " + d);
   }
   if (!fs.existsSync(path.join(CRATE, "Cargo.lock"))) errors.push("missing Cargo.lock");
 
@@ -157,6 +167,52 @@ function run() {
   // 5. Truthful phase state.
   if (!/SERVICE_CONTROL_IS_CONTRACT_ONLY:\s*bool\s*=\s*true/.test(lib)) errors.push("missing contract-only const");
   if (!/LIVE_SERVICE_CONTROL_AUTHORISED:\s*bool\s*=\s*false/.test(lib)) errors.push("live control must be unauthorised");
+
+  // 6. CROSS-SOURCE SERVICE-INSTANCE BINDING (CD-B4-CROSS-SOURCE-BINDING-CONTRACT1A).
+  // This crate owns the SCM authority and the fixed service name, but it must NOT own the identity:
+  // it lends its live service handle to the canonical identity-proof crate and receives a closed,
+  // opaque observation back. It must never read, hold or forward a raw process ID.
+  // Since Contract1B the adapter contributes into an ATTEMPT it does not own: it consumes the attempt
+  // in a specific state and returns the next state, so it never receives, retains or compares a token.
+  const ffi = stripComments(read(path.join(CRATE, "src", "windows_ffi.rs")));
+  const CONTRIBUTIONS = [
+    ["contribute_scm_before", "Prepared", "ScmBeforeObserved", "observe_scm_before"],
+    ["contribute_scm_after", "IpcPeerObserved", "ScmAfterObserved", "observe_scm_after"],
+  ];
+  for (const [fn, from, to, delegate] of CONTRIBUTIONS) {
+    const m = ffi.match(
+      new RegExp("fn\\s+" + fn + "\\s*\\(\\s*&self,\\s*attempt:\\s*ServiceInstanceBindingAttempt<" + from + ">,?\\s*\\)\\s*->\\s*AttemptOutcome<" + to + ">")
+    );
+    if (!m) errors.push(fn + " does not consume a " + from + " attempt and return " + to);
+    if (!new RegExp("attempt\\." + delegate + "\\(service\\.0\\)").test(ffi))
+      errors.push(fn + " does not delegate the observation to the canonical owner");
+  }
+  // This crate contributes the SCM observations ONLY — never the IPC peer, never the verdict.
+  for (const bad of [
+    /observe_ipc_peer/,
+    /GetNamedPipeClientProcessId/,
+    /fn\s+finalise/,
+    /bind_service_instance/,
+    /ServiceInstanceBindingAttempt<ScmAfterObserved>\s*\)/,
+  ]) {
+    if (bad.test(ffi)) errors.push("this crate performs a binding step it does not own");
+  }
+  // The identity must come from the canonical crate, never be assembled here.
+  for (const bad of [
+    /dwProcessId/,
+    /ServiceInstanceToken\s*\{/,
+    /from_observed_parts/,
+    /GetProcessTimes/,
+    /OpenProcess\b/,
+  ]) {
+    if (bad.test(ffi)) errors.push("this crate reads or assembles raw process identity itself");
+  }
+  // The lent handle is opened for the exact fixed service with query-status rights only.
+  if (!/Self::open_service\(&scm,\s*SERVICE_QUERY_STATUS\)/.test(ffi))
+    errors.push("the observed service handle is not opened with SERVICE_QUERY_STATUS on the fixed name");
+  // The re-exported identity surface must expose no accessor or constructor.
+  if (!/pub\s+use\s+projectos_host_windows_service_identity_proof::\{[\s\S]*?ServiceInstanceToken,?[\s\S]*?\};/.test(lib))
+    errors.push("the canonical instance identity is not re-exported from the owning crate");
 
   return errors;
 }

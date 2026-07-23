@@ -88,6 +88,20 @@ pub use projectos_host_windows_service_identity_proof::{
     AuthorityTokenOutcome, ConfirmedPeer, ServiceIdentityEvidence, ServiceIdentityProofClass,
 };
 
+// Re-export the CANONICAL cross-source service-instance identity, owned by the identity-proof crate.
+// A confirmed handshake proves only that the PEER holds the nonce; the opaque token is what later ties
+// that peer to the SCM-observed service instance. Nothing here can construct or inspect a token.
+pub use projectos_host_windows_service_identity_proof::{
+    LiveInstanceObservationCapability, ServiceInstanceBinding, ServiceInstanceRefusal,
+    ServiceInstanceToken,
+};
+// The attempt state machine, available only where an observation could occur.
+#[cfg(all(windows, feature = "windows-live-ipc"))]
+pub use projectos_host_windows_service_identity_proof::{
+    AttemptOutcome, IpcPeerObserved, Prepared, ScmAfterObserved, ScmBeforeObserved,
+    ServiceInstanceBindingAttempt,
+};
+
 // Re-export the OPAQUE host-authority pipe-security status this transport consumes (it never resolves a
 // SID or builds an ACL/SDDL of its own).
 pub use projectos_host_authority::{

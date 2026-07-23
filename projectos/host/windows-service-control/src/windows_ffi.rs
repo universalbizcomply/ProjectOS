@@ -25,6 +25,11 @@ use windows::Win32::System::Services::{
     SERVICE_WIN32_OWN_PROCESS,
 };
 
+use projectos_host_windows_service_identity_proof::{
+    AttemptOutcome, IpcPeerObserved, Prepared, ScmAfterObserved, ScmBeforeObserved,
+    ServiceInstanceBinding, ServiceInstanceBindingAttempt,
+};
+
 use crate::adapter::ScmBackend;
 use crate::verification::{
     classify_action_error, classify_open_error, classify_sid_query_error, classify_sid_type,
@@ -80,6 +85,57 @@ impl WindowsScmBackend {
     #[allow(dead_code)]
     pub(crate) fn new(binary_path_wide: Vec<u16>) -> Self {
         Self { binary_path_wide }
+    }
+
+    /// Contribute the SCM-BEFORE observation to a prepared binding attempt.
+    ///
+    /// This crate owns the SCM authority and the fixed service name — `open_service` can only ever
+    /// open `ProjectOSHost`, with `SERVICE_QUERY_STATUS` alone — but it deliberately does NOT own the
+    /// identity. The live service handle is lent to the canonical identity-proof crate, which reads
+    /// the status, process ID and process creation time itself, retains the resulting token INSIDE
+    /// the attempt, and returns only the attempt in its next state. No token is ever returned here,
+    /// so this crate cannot forge, retain, compare or leak a service-instance identity.
+    ///
+    /// The attempt is consumed, so an SCM-before observation cannot be contributed twice.
+    #[allow(dead_code)]
+    pub(crate) fn contribute_scm_before(
+        &self,
+        attempt: ServiceInstanceBindingAttempt<Prepared>,
+    ) -> AttemptOutcome<ScmBeforeObserved> {
+        let (scm, service) = match Self::open_fixed_service_for_status() {
+            Some(pair) => pair,
+            None => return AttemptOutcome::Refused(ServiceInstanceBinding::MissingScmObservation),
+        };
+        let _ = &scm;
+        // SAFETY: `service.0` was just opened for SERVICE_QUERY_STATUS on the exact ProjectOSHost
+        // service and is kept alive by `service` (RAII `CloseServiceHandle`) for the whole call. The
+        // borrowed handle is not retained by the callee.
+        unsafe { attempt.observe_scm_before(service.0) }
+    }
+
+    /// Contribute the SCM-AFTER observation. Reachable only once the peer has been observed, because
+    /// that is the only state this method accepts — the ordering is enforced by the type, not by a
+    /// runtime check here.
+    #[allow(dead_code)]
+    pub(crate) fn contribute_scm_after(
+        &self,
+        attempt: ServiceInstanceBindingAttempt<IpcPeerObserved>,
+    ) -> AttemptOutcome<ScmAfterObserved> {
+        let (scm, service) = match Self::open_fixed_service_for_status() {
+            Some(pair) => pair,
+            None => return AttemptOutcome::Refused(ServiceInstanceBinding::MissingScmObservation),
+        };
+        let _ = &scm;
+        // SAFETY: as above — a freshly-opened, RAII-owned handle for the exact fixed service.
+        unsafe { attempt.observe_scm_after(service.0) }
+    }
+
+    /// Open the SCM and the exact ProjectOSHost service with query-status rights only. Both handles
+    /// are returned so the caller keeps them alive for the borrowed observation.
+    fn open_fixed_service_for_status() -> Option<(OwnedScHandle, OwnedScHandle)> {
+        let scm = Self::open_scm(SC_MANAGER_CONNECT).ok()?;
+        let service = Self::open_service(&scm, SERVICE_QUERY_STATUS).ok()?;
+        Some((scm, service))
     }
 
     /// Open the SCM with the minimum access mask.

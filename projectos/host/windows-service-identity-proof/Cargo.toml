@@ -7,11 +7,40 @@ license = "UNLICENSED"
 description = "EFFECT-FREE service-identity proof CONTRACT for the future ProjectOSHost VirtualServiceAccount live proof (WINDOWS-PACKAGED-HOST-TRUST-ENFORCEMENT3K-I-D-E-B). Models REDACTED service-identity evidence with no capacity to carry a raw username, service-account name, machine name, SID, token, session identifier, credential, ACL or diagnostic string: token-user identity, per-service-SID group membership and service-SID-TYPE configuration are SEPARATE typed facts; integrity level is a NON-AUTHORISING observation; authority evidence reuses the canonical no-trust AuthorityTokenOutcome/AuthorityPeerState (an existing token is never trusted ownership); release-before-acquire is evidenced only through the canonical AuthorityHandoverState; peer (typed IPC) and SCM corroboration are BOTH mandatory; residue must be Zero. A live proof can be Confirmed only when every required fact is positively established, and any False/Invalid/Unavailable/Indeterminate/contradictory fact fails closed with an exact typed refusal. Calls NO Windows API, resolves NO SID, queries NO SCM, inspects NO token, installs/starts NO service, creates NO authority object, mutates NO ProgramData/ACL/registry, and handles NO credential. Execution readiness stays false; installation stays NotAuthorised."
 
 [lints.rust]
-# Pure typed contract — no FFI anywhere in this crate.
-unsafe_code = "forbid"
+# The typed contract itself is FFI-free. The ONLY unsafe in this crate is the OS-derived
+# service-instance observation, which must live here because this crate is the canonical owner of the
+# opaque ServiceInstanceToken: a sibling crate that could supply a raw process ID and creation time
+# could forge the identity. Unsafe is therefore DENIED crate-wide and re-allowed ONLY in the private
+# src/instance_ffi.rs module (enforced by val-windows-service-identity-proof-3kideb.cjs).
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+
+[features]
+# Compiles the OS-derived service-instance observation FFI (named-pipe peer + SCM service). It does
+# NOT grant runtime authority: no sealed LiveInstanceObservationCapability is constructible under this
+# or any other feature, so no live observation is reachable. Default features are empty — the default
+# build stays the effect-free contract and calls no Windows API.
+windows-live-instance-observation = [
+    "dep:windows",
+    "dep:projectos-windows-runtime-primitives",
+]
 
 [dependencies]
 # Reuses the canonical no-trust authority contract types (AuthorityTokenOutcome, AuthorityPeerState,
 # AuthorityHandoverState, ConfirmedPeer). host-authority's DEFAULT build is zero-dependency and
 # effect-free, so this crate pulls NO windows/SCM/handle/credential dependency.
 projectos-host-authority = { path = "../host-authority" }
+
+[target.'cfg(windows)'.dependencies]
+# Minimum instance-observation surface only. Optional + feature-gated: linked ONLY under
+# `windows-live-instance-observation`, so the default build pulls no windows dependency. No token,
+# SID-lookup, registry, ACL or network feature — the process is opened for query rights alone.
+windows = { version = "0.61.3", optional = true, features = [
+    "Win32_Foundation",
+    "Win32_System_Pipes",
+    "Win32_System_Services",
+    "Win32_System_Threading",
+] }
+# The canonical handle RAII primitive, so the temporary process handle closes deterministically on
+# every path instead of this crate growing a second handle implementation.
+projectos-windows-runtime-primitives = { path = "../windows-runtime-primitives", optional = true }

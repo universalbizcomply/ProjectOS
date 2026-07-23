@@ -1,9 +1,16 @@
 //! # ProjectOS host — effect-free service-identity proof CONTRACT (3K-I-D-E-B)
 //!
 //! Freezes the REDACTED evidence shape a later, separately-authorised ProjectOSHost VirtualServiceAccount
-//! LIVE proof must produce — and NOTHING ELSE. It performs no Windows call, resolves no SID, queries no
-//! SCM, inspects no token, installs/starts no service, creates no authority object, mutates no
-//! ProgramData/ACL/registry, and handles no credential. `#![forbid(unsafe_code)]`.
+//! LIVE proof must produce. It resolves no SID, inspects no token, installs/starts no service, creates
+//! no authority object, mutates no ProgramData/ACL/registry, and handles no credential.
+//!
+//! Since 3K-I-D-E-C-CAPABILITY-B4-CROSS-SOURCE-BINDING-CONTRACT1A it additionally owns the opaque
+//! OS-derived [`ServiceInstanceToken`] that binds the IPC-authenticated peer to the SCM-observed
+//! service. That is the crate's only Windows-touching code: it is confined to a
+//! single private module behind the `windows-live-instance-observation` feature, `unsafe_code` is
+//! denied everywhere else, and every entry point demands the sealed, UNCONSTRUCTIBLE
+//! [`LiveInstanceObservationCapability`] — so the default build still performs no observation and no
+//! build can reach one.
 //!
 //! ## What this contract guarantees
 //!
@@ -40,15 +47,34 @@
 //! assert_ne!(contract_only(), ServiceIdentityProofClass::Confirmed);
 //! ```
 
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 
 mod classify;
 mod evidence;
+mod instance;
+/// OS-derived instance observation. The ONLY unsafe in this crate, compiled only on Windows under the
+/// `windows-live-instance-observation` feature and still unreachable without the sealed capability.
+#[cfg(all(windows, feature = "windows-live-instance-observation"))]
+mod instance_ffi;
 
 pub use classify::{ProofRefusal, ServiceIdentityProofClass};
 pub use evidence::{
     Corroboration, NonAuthorisingIntegrity, ResidueEvidence, ServiceIdentityEvidence,
     ServiceSidTypeBaseline, Tristate,
+};
+// The attempt-scoped binding surface. `bind_service_instance` and the raw observation entry points are
+// deliberately NOT re-exported: since Contract1B the only route to a positive verdict is a bounded,
+// ordered, consumable attempt, so no free-standing recombinable comparison is publicly reachable.
+pub use instance::{
+    LiveInstanceObservationCapability, ServiceInstanceBinding, ServiceInstanceRefusal,
+    ServiceInstanceToken,
+};
+// The attempt state machine exists only where an observation could occur, so the DEFAULT effect-free
+// build has no binding surface at all rather than a disabled one.
+#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+pub use instance::{
+    AttemptOutcome, IpcPeerObserved, Prepared, ScmAfterObserved, ScmBeforeObserved,
+    ServiceInstanceBindingAttempt,
 };
 
 // Re-export the canonical authority types this contract reuses, so consumers need not depend on
