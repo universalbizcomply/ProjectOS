@@ -85,6 +85,12 @@
 // by validate-host-authority-windows-boundary.cjs.
 #![deny(unsafe_op_in_unsafe_fn)]
 
+// The OPAQUE EFFECT-WITNESS CONTRACT. Pure types: no Windows API, no token query, no machine effect,
+// and NO production producer for any witness — real owner approval, elevation, repository and
+// executable verification are all deferred to separately-authorised phases.
+pub mod effect_grant;
+pub mod effect_witness;
+
 pub mod model;
 
 // The FIXED ProjectOSHost proof-pipe security POLICY: safe, portable, effect-free typed contract
