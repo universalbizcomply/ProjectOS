@@ -9,6 +9,16 @@ description = "EFFECT-FREE proof-runner CONTRACT that orchestrates the future Pr
 [lints.rust]
 unsafe_code = "forbid"
 
+[features]
+# EXPLICIT, NON-DEFAULT fixture graph. It enables ONLY the sibling fixture features so the runner can
+# exercise the real facade orchestration in memory. It adds no dependency, enables no live feature and
+# creates no capability of its own: real live capability production stays absent and owner-gated.
+test-fixtures = [
+    "projectos-host-windows-service-identity-proof/test-fixtures",
+    "projectos-host-windows-service-control/test-fixtures",
+    "projectos-host-windows-local-ipc/test-fixtures",
+]
+
 [dependencies]
 # Orchestrates the two capability contracts + the redacted evidence classifier. All three default
 # builds are windows-free, so this runner contract pulls NO windows/SCM/pipe/handle dependency.

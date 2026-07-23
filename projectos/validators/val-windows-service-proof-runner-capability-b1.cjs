@@ -7,9 +7,11 @@
 // corroboration, one-correction-cycle max, rollback required, zero-residue required, exec-ready false,
 // and no general orchestrator. Comments stripped; structural.
 const fs = require("fs");
+const { execFileSync } = require("child_process");
 const path = require("path");
 const ROOT = path.resolve(__dirname, "..", "..");
 const CRATE = path.join(ROOT, "projectos", "host", "windows-service-identity-proof-runner");
+const SRC = path.join(CRATE, "src");
 
 function read(p) {
   return fs.readFileSync(p, "utf8").replace(/^﻿/, "");
@@ -66,7 +68,109 @@ function run() {
   if (!/publish\s*=\s*false/.test(toml)) errors.push("not publish=false");
   if (!/unsafe_code\s*=\s*"forbid"/.test(toml)) errors.push("does not forbid unsafe");
   if (/^\s*\[\[bin\]\]/m.test(toml)) errors.push("has a binary target");
-  if (/\[features\]/.test(toml)) errors.push("declares features (must be none in B1)");
+  // FEATURE RULE — scoped (CD-B4-PROOF-RUNNER-INTEGRATION1A-REENTRY2).
+  //
+  // B1 froze a BLANKET ban: the crate declared no features at all. That was correct then. The
+  // authorised B4 integration adds exactly ONE non-default `test-fixtures` feature, so the blanket ban
+  // is replaced by the STRONGER scoped rule below — exactly one permitted feature, empty default, no
+  // live feature reachable through it — and the historical section further down proves the frozen B1
+  // commit still carries the original no-feature state.
+  {
+    const afterFeatures = stripComments(toml).split(/^\[features\]/m)[1];
+    const featBlock = afterFeatures === undefined ? "" : afterFeatures.split(/\n\[/)[0];
+    if (featBlock.trim()) {
+      const names = (featBlock.match(/^\s*([a-z0-9_-]+)\s*=/gim) || []).map((s) =>
+        s.replace(/\s*=$/, "").trim()
+      );
+      for (const n of names) {
+        if (n !== "test-fixtures")
+          errors.push("declares an unauthorised proof-runner feature: " + n);
+      }
+      if (names.filter((n) => n === "test-fixtures").length > 1)
+        errors.push("test-fixtures is declared more than once");
+      // Default must stay empty: the fixtures may never be reachable without an explicit opt-in.
+      if (/^\s*default\s*=/m.test(featBlock))
+        errors.push("declares a default feature (must remain empty)");
+      // The fixture expansion may enable ONLY the three prerequisite fixture features.
+      const fixExpansion = (featBlock.match(/test-fixtures\s*=\s*\[[\s\S]*?\]/) || [""])[0];
+      const REQUIRED_FIXTURE_EDGES = [
+        "projectos-host-windows-service-identity-proof/test-fixtures",
+        "projectos-host-windows-service-control/test-fixtures",
+        "projectos-host-windows-local-ipc/test-fixtures",
+      ];
+      for (const edge of REQUIRED_FIXTURE_EDGES) {
+        if (!fixExpansion.includes(edge))
+          errors.push("test-fixtures does not enable the prerequisite fixture feature: " + edge);
+      }
+      for (const entry of fixExpansion.match(/"([^"]+)"/g) || []) {
+        const value = entry.slice(1, -1);
+        if (!REQUIRED_FIXTURE_EDGES.includes(value))
+          errors.push("test-fixtures enables an unauthorised entry: " + value);
+      }
+      // No live feature may be reachable through the fixtures, and no dependency may be added by them.
+      if (/windows-live-|dep:/.test(fixExpansion))
+        errors.push("test-fixtures reaches a live feature or activates a dependency");
+      // The orchestration must be ABSENT from the default graph.
+      const libSrc = stripComments(read(path.join(SRC, "lib.rs")));
+      if (!/#\[cfg\(feature = "test-fixtures"\)\]\s*mod controller;/.test(libSrc))
+        errors.push("the proof controller is not gated out of the default graph");
+      if (!/#\[cfg\(feature = "test-fixtures"\)\]\s*pub use controller::/.test(libSrc))
+        errors.push("the controller surface is not gated out of the default graph");
+      // No live capability producer may appear anywhere in the crate.
+      for (const f of ["lib.rs", "plan.rs", "corroboration.rs", "fixture.rs", "controller.rs"]) {
+        const p = path.join(SRC, f);
+        if (!fs.existsSync(p)) continue;
+        const code = stripComments(read(p));
+        if (/fn\s+\w*\s*\([^)]*\)\s*->\s*Live\w*Capability/.test(code))
+          errors.push(f + ": declares a live capability producer");
+      }
+    }
+  }
+
+  // HISTORICAL ACCEPTED STATE — read the FROZEN B1 commit directly, so the evolved tree cannot rewrite
+  // what was accepted at closure. This commit is authoritative because it ADDED both this validator and
+  // the proof-runner crate itself, and both sibling B1 validators already anchor the same hash.
+  {
+    const B1_COMMIT = "35d357b9901e60a677ea6fba73c10003133fa99c";
+    const REL = "projectos/host/windows-service-identity-proof-runner";
+    const show = (p) =>
+      execFileSync("git", ["show", `${B1_COMMIT}:${p}`], {
+        cwd: ROOT,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+    let histToml = null;
+    let histLib = null;
+    try {
+      histToml = show(`${REL}/Cargo.toml`);
+      histLib = show(`${REL}/src/lib.rs`);
+    } catch (e) {
+      errors.push("cannot read the frozen B1 commit " + B1_COMMIT + " (historical evidence lost)");
+    }
+    if (histToml !== null && histLib !== null) {
+      // At closure the crate declared NO features at all — the original blanket rule.
+      if (/^\[features\]/m.test(histToml))
+        errors.push("the frozen B1 commit already declared features (history misread)");
+      if (/test-fixtures/.test(histToml))
+        errors.push("the frozen B1 commit is being misreported as containing the fixture feature");
+      // …and it was contract-only: no controller, no fixture orchestration, no capability producer.
+      for (const p of [`${REL}/src/controller.rs`, `${REL}/src/fixture.rs`]) {
+        let present = true;
+        try {
+          show(p);
+        } catch (e) {
+          present = false;
+        }
+        if (present) errors.push("the frozen B1 commit is misreported as containing " + p);
+      }
+      if (!/PROOF_RUNNER_IS_CONTRACT_ONLY:\s*bool\s*=\s*true/.test(histLib))
+        errors.push("the frozen B1 commit was not contract-only");
+      if (!/LIVE_PROOF_ORCHESTRATION_AUTHORISED:\s*bool\s*=\s*false/.test(histLib))
+        errors.push("the frozen B1 commit did not keep live orchestration unauthorised");
+      if (!/EXECUTION_READY:\s*bool\s*=\s*false/.test(histLib))
+        errors.push("the frozen B1 commit did not keep execution readiness false");
+    }
+  }
   const depBody = (stripComments(toml).split(/\[dependencies\]/)[1] || "").split(/\n\[/)[0];
   const deps = (depBody.match(/^\s*([a-z0-9_-]+)\s*=/gim) || []).map((s) => s.replace(/\s*=$/, "").trim());
   const allowed = [

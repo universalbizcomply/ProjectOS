@@ -92,6 +92,7 @@ dependencies = [
 name = "projectos-host-windows-service-control"
 version = "0.0.0"
 dependencies = [
+ "projectos-host-windows-service-identity-proof",
  "projectos-host-windows-service-installation-contract",
 ]
 

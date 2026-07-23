@@ -20,7 +20,24 @@
 
 #![forbid(unsafe_code)]
 
+mod corroboration;
+mod fixture;
 mod plan;
+
+// The bounded compile-only proof controller. It exists ONLY in the fixture graph, because the
+// capabilities it needs exist only there — the default build keeps no orchestration at all.
+#[cfg(feature = "test-fixtures")]
+mod controller;
+
+// PROOF-RUNNER-OWNED evidence vocabulary. The dependency binding verdict is consumed internally and
+// never becomes this crate's durable contract.
+#[cfg(feature = "test-fixtures")]
+pub use controller::{run_compile_only_proof, CompileOnlyProofOutcome, CompileOnlyProofRequest};
+pub use corroboration::{InstanceCorroboration, ProofRunnerInstanceRefusal};
+pub use fixture::{
+    CompileOnlyServiceFixture, FixtureDisconnectBehaviour, FixtureResidue,
+    FixtureShutdownBehaviour, FixtureShutdownOutcome,
+};
 
 pub use plan::{
     CorrectionState, ProofRunnerClass, ProofRunnerConfirmation, ProofRunnerRefusal, ProofStage,
