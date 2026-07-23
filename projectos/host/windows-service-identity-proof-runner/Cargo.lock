@@ -75,6 +75,7 @@ dependencies = [
 name = "projectos-host-windows-local-ipc"
 version = "0.0.0"
 dependencies = [
+ "projectos-host-authority",
  "projectos-host-windows-service-identity-proof",
 ]
 
