@@ -98,12 +98,19 @@ pub enum DenialReason {
     RevocationUnknown,
     /// The operation state cannot yield eligibility (e.g. a terminal state).
     UnusableState(OperationState),
+    /// The requested operation violated the approved plan definition (scope / path boundary / allowed
+    /// or prohibited action / dependency / predecessor). The precise cause is carried, distinctly.
+    PlanPolicyRefused(crate::plan::PlanPolicyRefusal),
 }
 
 /// The category of a missing verified fact.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum MissingFact {
+    /// Validated approved-plan fact (a plan-governed operation had no active approved plan).
+    ApprovedPlan,
+    /// Validated phase-binding proof (the facts were not bound to any phase).
+    Phase,
     /// Validated process identity.
     Process,
     /// Validated executable identity.
@@ -130,6 +137,12 @@ pub enum MissingFact {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum BindingKind {
+    /// Approved-plan mismatch: the validated plan fact was not active or not bound to the operation's
+    /// required approved plan (reference/version/definition-digest/project/environment/phase).
+    ApprovedPlan,
+    /// Phase mismatch: the validated phase-binding proof did not match the operation's authoritative
+    /// phase identity.
+    Phase,
     /// Project mismatch.
     Project,
     /// Environment mismatch.

@@ -4,20 +4,21 @@ use projectos_host_core::{
     reduce, ApprovalOutcome, ApprovalRecordId, AuthoritySnapshot, CredentialLifecycle,
     CredentialOutcome, CredentialScope, DenialReason, Disposition, EmergencyStateRevision,
     EmergencyStopState, ExecutableIdentity, ExpiryBoundary, InstallationId,
-    InternalOperationRecord, MissingFact, OperationBinding, OperationState, PolicyFloor, PolicyId,
-    PolicyOutcome, PolicyRevision, PublisherIdentity, RecordPolicy, ReleaseFloor, ReleaseId,
-    ReplayEvidenceId, RepositoryRef, ResumePolicy, RevocationRevision, RevocationStatus,
-    ServiceValidatedFacts, SessionId, ValidatedEnvironment, ValidatedExecutable,
-    ValidatedFreshness, ValidatedInstallation, ValidatedProcess, ValidatedProjectContext,
-    ValidatedPublisherPolicy, ValidatedRelease, ValidatedSession, ValidityStatus, VerifiedApproval,
+    InternalOperationRecord, MissingFact, OperationBinding, OperationInputs, OperationState,
+    PhaseReference, PolicyFloor, PolicyId, PolicyOutcome, PolicyRevision, PublisherIdentity,
+    RecordPolicy, ReleaseFloor, ReleaseId, ReplayEvidenceId, RepositoryRef, ResumePolicy,
+    RevocationRevision, RevocationStatus, ServiceValidatedFacts, SessionId, ValidatedEnvironment,
+    ValidatedExecutable, ValidatedFreshness, ValidatedInstallation, ValidatedProcess,
+    ValidatedProjectContext, ValidatedPublisherPolicy, ValidatedRelease, ValidatedSession,
+    ValidityStatus, VerifiedApproval,
 };
 use projectos_trust_contract::{
     CredentialRef, EnvironmentId, OperationFingerprint, OperationName, OperationRef, ProjectId,
     ProviderId,
 };
 
-pub fn binding() -> OperationBinding {
-    OperationBinding {
+pub fn inputs() -> OperationInputs {
+    OperationInputs {
         project: ProjectId::new("proj").unwrap(),
         environment: EnvironmentId::new("staging").unwrap(),
         provider: ProviderId::new("supabase").unwrap(),
@@ -27,10 +28,18 @@ pub fn binding() -> OperationBinding {
     }
 }
 
+// The authoritative binding (with its minted phase) is read back from a record; a test never
+// fabricates a phase.
+pub fn binding() -> OperationBinding {
+    record().binding.clone()
+}
+
 pub fn full_facts(b: &OperationBinding) -> ServiceValidatedFacts {
     let sid = SessionId::new("sess-1");
     let inst = InstallationId::new("inst-1");
     ServiceValidatedFacts {
+        phase: Some(b.phase.clone()),
+        approved_plan: None,
         session: Some(ValidatedSession {
             session: sid.clone(),
         }),
@@ -78,6 +87,7 @@ pub fn full_facts(b: &OperationBinding) -> ServiceValidatedFacts {
         }),
         approval: ApprovalOutcome::Verified(VerifiedApproval {
             approval_id: ApprovalRecordId::new("appr-1").unwrap(),
+            phase: b.phase.clone(),
             project: b.project.clone(),
             repository: None,
             environment: b.environment.clone(),
@@ -104,10 +114,11 @@ pub fn full_facts(b: &OperationBinding) -> ServiceValidatedFacts {
     }
 }
 
-pub fn record(b: &OperationBinding) -> InternalOperationRecord {
+pub fn record() -> InternalOperationRecord {
     let mut r = InternalOperationRecord::new(
         OperationRef::new("op-1").unwrap(),
-        b.clone(),
+        inputs(),
+        &PhaseReference::new("phase-1").unwrap(),
         RepositoryRef::new("repo-1"),
         InstallationId::new("inst-1"),
         RecordPolicy {
@@ -121,8 +132,11 @@ pub fn record(b: &OperationBinding) -> InternalOperationRecord {
     r
 }
 
-fn reduce_with(b: &OperationBinding, facts: &ServiceValidatedFacts) -> Disposition {
-    reduce(&record(b).to_request(), facts)
+// The binding argument stays in the signature so each test reads as "reduce THIS binding's facts",
+// but the record is rebuilt from the same deterministic inputs, so its authoritative binding (and
+// minted phase) equals `binding()`.
+fn reduce_with(_b: &OperationBinding, facts: &ServiceValidatedFacts) -> Disposition {
+    reduce(&record().to_request(), facts)
 }
 
 #[test]

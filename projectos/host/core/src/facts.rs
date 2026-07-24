@@ -417,6 +417,15 @@ pub enum CredentialOutcome {
 /// `None`/absent fact is treated by the reducer as "not verified" and denies. NOT serializable.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ServiceValidatedFacts {
+    /// The phase-binding proof: the phase these facts were validated for. `None` means the adapter did
+    /// not bind a phase, which the reducer treats as not verified and denies. The reducer additionally
+    /// refuses when the bound phase is not the operation's phase, so facts from another phase fail
+    /// closed.
+    pub phase: Option<crate::phase::PhaseId>,
+    /// The validated approved-plan fact (Tier 2), produced only from a reloaded + revalidated committed
+    /// plan record. `None` by default; for a plan-governed operation the reducer denies unless this is
+    /// present, active and bound to the operation's required approved plan.
+    pub approved_plan: Option<crate::plan::ValidatedApprovedPlan>,
     /// Validated authenticated session.
     pub session: Option<ValidatedSession>,
     /// Validated client process.

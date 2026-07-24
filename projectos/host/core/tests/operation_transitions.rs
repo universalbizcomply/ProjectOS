@@ -3,9 +3,9 @@
 
 use projectos_host_core::{
     reduce, Disposition, EvidenceRef, EvidenceReferences, ExpiryBoundary, InstallationId,
-    InternalOperationRecord, OperationBinding, OperationState, RecordError, RecordPolicy,
-    ReleaseId, RepositoryRef, ResumePolicy, RevocationReason, RevocationRevision, RevocationStatus,
-    ServiceValidatedFacts, MAX_EVIDENCE_REFS,
+    InternalOperationRecord, OperationInputs, OperationState, PhaseReference, RecordError,
+    RecordPolicy, ReleaseId, RepositoryRef, ResumePolicy, RevocationReason, RevocationRevision,
+    RevocationStatus, ServiceValidatedFacts, MAX_EVIDENCE_REFS,
 };
 use projectos_trust_contract::{
     EnvironmentId, OperationFingerprint, OperationName, OperationRef, ProjectId, ProviderId,
@@ -14,7 +14,8 @@ use projectos_trust_contract::{
 fn fresh_record() -> InternalOperationRecord {
     InternalOperationRecord::new(
         OperationRef::new("op-1").unwrap(),
-        binding(),
+        inputs(),
+        &PhaseReference::new("phase-1").unwrap(),
         RepositoryRef::new("repo-1"),
         InstallationId::new("inst-1"),
         RecordPolicy {
@@ -31,8 +32,8 @@ use OperationState::{
     NeedsRevalidation, ReadyForRevalidation, Revoked, SetupRequired,
 };
 
-fn binding() -> OperationBinding {
-    OperationBinding {
+fn inputs() -> OperationInputs {
+    OperationInputs {
         project: ProjectId::new("proj").unwrap(),
         environment: EnvironmentId::new("staging").unwrap(),
         provider: ProviderId::new("supabase").unwrap(),

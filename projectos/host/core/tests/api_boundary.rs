@@ -10,21 +10,21 @@ use projectos_host_core::{
     ContextComparison, ContextField, CredentialAvailabilityObservation, CredentialLifecycle,
     CredentialObservation, CredentialOutcome, CredentialScope, Disposition, EmergencyStateRevision,
     EmergencyStopState, ExecutableIdentity, ExpiryBoundary, InstallationId,
-    InternalOperationRecord, OperationBinding, OperationState, PolicyFloor, PolicyId,
-    PolicyOutcome, PolicyRevision, ProcessObservation, PublisherIdentity, RecordPolicy,
-    ReleaseFloor, ReleaseId, ReplayEvidenceId, ReportedAvailability, RepositoryRef, ResumePolicy,
-    RevocationRevision, RevocationStatus, ServiceValidatedFacts, SessionId, ValidatedEnvironment,
-    ValidatedExecutable, ValidatedFreshness, ValidatedInstallation, ValidatedProcess,
-    ValidatedProjectContext, ValidatedPublisherPolicy, ValidatedRelease, ValidatedSession,
-    ValidityStatus, VerifiedApproval, VerifiedExecutionContext,
+    InternalOperationRecord, OperationBinding, OperationInputs, OperationState, PhaseReference,
+    PolicyFloor, PolicyId, PolicyOutcome, PolicyRevision, ProcessObservation, PublisherIdentity,
+    RecordPolicy, ReleaseFloor, ReleaseId, ReplayEvidenceId, ReportedAvailability, RepositoryRef,
+    ResumePolicy, RevocationRevision, RevocationStatus, ServiceValidatedFacts, SessionId,
+    ValidatedEnvironment, ValidatedExecutable, ValidatedFreshness, ValidatedInstallation,
+    ValidatedProcess, ValidatedProjectContext, ValidatedPublisherPolicy, ValidatedRelease,
+    ValidatedSession, ValidityStatus, VerifiedApproval, VerifiedExecutionContext,
 };
 use projectos_trust_contract::{
     CredentialRef, EnvironmentId, OperationFingerprint, OperationName, OperationRef, ProjectId,
     ProviderId,
 };
 
-fn binding() -> OperationBinding {
-    OperationBinding {
+fn inputs() -> OperationInputs {
+    OperationInputs {
         project: ProjectId::new("proj").unwrap(),
         environment: EnvironmentId::new("staging").unwrap(),
         provider: ProviderId::new("supabase").unwrap(),
@@ -34,11 +34,19 @@ fn binding() -> OperationBinding {
     }
 }
 
+// The authoritative binding is only ever produced by the operation-creation authority (which mints the
+// phase); tests read it back from a record rather than fabricating a phase.
+fn binding() -> OperationBinding {
+    record().binding.clone()
+}
+
 fn full_facts() -> ServiceValidatedFacts {
     let b = binding();
     let sid = SessionId::new("sess-1");
     let inst = InstallationId::new("inst-1");
     ServiceValidatedFacts {
+        phase: Some(b.phase.clone()),
+        approved_plan: None,
         session: Some(ValidatedSession {
             session: sid.clone(),
         }),
@@ -84,6 +92,7 @@ fn full_facts() -> ServiceValidatedFacts {
         }),
         approval: ApprovalOutcome::Verified(VerifiedApproval {
             approval_id: ApprovalRecordId::new("appr-1").unwrap(),
+            phase: b.phase.clone(),
             project: b.project.clone(),
             repository: None,
             environment: b.environment.clone(),
@@ -113,7 +122,8 @@ fn full_facts() -> ServiceValidatedFacts {
 fn record() -> InternalOperationRecord {
     let mut r = InternalOperationRecord::new(
         OperationRef::new("op-1").unwrap(),
-        binding(),
+        inputs(),
+        &PhaseReference::new("phase-1").unwrap(),
         RepositoryRef::new("repo-1"),
         InstallationId::new("inst-1"),
         RecordPolicy {

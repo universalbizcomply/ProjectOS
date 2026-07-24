@@ -10,6 +10,7 @@
 use crate::facts::{
     ApprovalRecordId, ExpiryBoundary, ReleaseId, ReplayEvidenceId, RevocationStatus,
 };
+use crate::phase::PhaseId;
 use projectos_trust_contract::{
     EnvironmentId, OperationFingerprint, OperationName, ProjectId, ProviderId,
 };
@@ -21,6 +22,9 @@ use projectos_trust_contract::{
 pub struct VerifiedApproval {
     /// Approval/record identity (bounded, validated).
     pub approval_id: ApprovalRecordId,
+    /// The exact phase this approval authorises. Approval for one phase never validates another, even
+    /// when every other binding matches.
+    pub phase: PhaseId,
     /// Project the approval authorises.
     pub project: ProjectId,
     /// Repository the approval authorises, where required.

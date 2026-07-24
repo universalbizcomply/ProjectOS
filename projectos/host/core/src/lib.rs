@@ -36,6 +36,8 @@ pub mod error;
 pub mod facts;
 pub mod observation;
 pub mod operation;
+pub mod phase;
+pub mod plan;
 pub mod reducer;
 pub mod storage;
 
@@ -64,7 +66,17 @@ pub use observation::{
     ReportedAvailability, ReportedStop, RepositoryObservation,
 };
 pub use operation::{
-    InternalOperationRecord, OperationBinding, OperationState, RecordPolicy, ResumePolicy,
+    InternalOperationRecord, OperationBinding, OperationInputs, OperationState, RecordPolicy,
+    ResumePolicy,
+};
+pub use phase::{PhaseId, PhaseReference};
+pub use plan::{
+    normalize_candidate, path_within_boundary, phase_definition_digest, ApprovedPlanBinding,
+    ApprovedPlanJournal, ApprovedPlanReader, ApprovedPlanRecord, ApprovedPlanRef,
+    ApprovedPlanStatus, ApprovedPlanVersion, EffectPolicy, NormalizeError,
+    NormalizedPhaseDefinition, PhaseDefinitionCandidate, PhaseDefinitionDigest, PhaseType,
+    PlanDurableDto, PlanPolicyRefusal, ProviderPolicy, RepositoryPolicy, RequestedOperationPolicy,
+    ResidueRequirement, ValidatedApprovedPlan, PLAN_SCHEMA_VERSION,
 };
 pub use reducer::{reduce, Disposition, ReductionRequest};
 pub use storage::{

@@ -4,6 +4,7 @@ use crate::error::{RecordError, RevocationReason, TransitionError};
 use crate::facts::{
     EvidenceReferences, ExpiryBoundary, InstallationId, ReleaseId, RepositoryRef, RevocationStatus,
 };
+use crate::phase::{derive_operation_fingerprint, PhaseId, PhaseReference};
 use projectos_trust_contract::{
     EnvironmentId, OperationFingerprint, OperationName, OperationRef, ProjectId, ProviderId,
 };
@@ -30,7 +31,32 @@ pub struct RecordPolicy {
     pub operation_expiry: ExpiryBoundary,
 }
 
+/// The caller/adapter-supplied operation inputs, WITHOUT a phase. A phase cannot be supplied here: the
+/// authoritative [`PhaseId`] is minted by the operation-creation authority, never chosen by the caller.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OperationInputs {
+    /// Project.
+    pub project: ProjectId,
+    /// Environment.
+    pub environment: EnvironmentId,
+    /// Provider.
+    pub provider: ProviderId,
+    /// Operation name.
+    pub operation: OperationName,
+    /// Base operation fingerprint (before the phase is folded in).
+    pub fingerprint: OperationFingerprint,
+    /// Required release identity.
+    pub release: ReleaseId,
+}
+
 /// The exact operation an operation record is about. Every dimension the reducer binds against.
+///
+/// `phase` is the authoritative, service-issued [`PhaseId`], and `fingerprint` is the PHASE-BOUND
+/// fingerprint (the base fingerprint folded with the phase). A binding with a different phase differs
+/// from another even when every other human-readable field matches, because both `phase` and the
+/// folded `fingerprint` differ. The struct is built ONLY by the operation-creation authority
+/// ([`InternalOperationRecord::new`]); a caller cannot originate a `PhaseId`, so it cannot fabricate a
+/// binding with a chosen phase.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OperationBinding {
     /// Project.
@@ -41,10 +67,20 @@ pub struct OperationBinding {
     pub provider: ProviderId,
     /// Operation name.
     pub operation: OperationName,
-    /// Exact operation fingerprint.
+    /// Phase-bound operation fingerprint (base fingerprint folded with the phase identity).
     pub fingerprint: OperationFingerprint,
     /// Required release identity.
     pub release: ReleaseId,
+    /// The authoritative, service-issued phase identity this operation belongs to.
+    pub phase: PhaseId,
+}
+
+impl OperationBinding {
+    /// The authoritative phase identity.
+    #[must_use]
+    pub fn phase(&self) -> &PhaseId {
+        &self.phase
+    }
 }
 
 /// The explicit operation lifecycle. Names never imply an external side effect occurred unless
@@ -162,19 +198,48 @@ pub struct InternalOperationRecord {
     pub revocation_reason: Option<RevocationReason>,
     /// Bounded, deduplicated, opaque evidence references gathered so far.
     pub evidence_refs: EvidenceReferences,
+    /// The Tier-2 approved-plan this operation is GOVERNED by. `None` = not plan-governed (the reducer
+    /// applies no plan check). Once set by [`InternalOperationRecord::bind_approved_plan`] it is
+    /// immutable — the operation cannot replace its plan binding.
+    pub required_plan: Option<crate::plan::ApprovedPlanBinding>,
+    /// The requested-operation policy (action/scope/paths/deps/preds) evaluated against the approved
+    /// definition. Present iff `required_plan` is set. Folded into the fingerprint.
+    pub requested_policy: Option<crate::plan::RequestedOperationPolicy>,
 }
 
 impl InternalOperationRecord {
     /// Create a fresh record in [`OperationState::Created`], with an active (un-revoked) revocation
     /// state at revision 0.
+    ///
+    /// This is the operation-creation authority and the ONLY phase-issuance path: it mints the
+    /// authoritative [`PhaseId`] from the verified project, environment and the non-authoritative
+    /// `phase_reference`, folds the phase into the base fingerprint, and stamps both into the stored
+    /// binding. The `phase_reference` names a phase; it does not select an authority.
     #[must_use]
     pub fn new(
         operation_ref: OperationRef,
-        binding: OperationBinding,
+        inputs: OperationInputs,
+        phase_reference: &PhaseReference,
         repository: RepositoryRef,
         required_installation: InstallationId,
         policy: RecordPolicy,
     ) -> Self {
+        let phase = PhaseId::mint(
+            &inputs.project,
+            &inputs.environment,
+            phase_reference,
+            &operation_ref,
+        );
+        let fingerprint = derive_operation_fingerprint(&inputs.fingerprint, &phase);
+        let binding = OperationBinding {
+            project: inputs.project,
+            environment: inputs.environment,
+            provider: inputs.provider,
+            operation: inputs.operation,
+            fingerprint,
+            release: inputs.release,
+            phase,
+        };
         Self {
             operation_ref,
             binding,
@@ -188,7 +253,30 @@ impl InternalOperationRecord {
             revocation: RevocationStatus::Active(crate::facts::RevocationRevision(0)),
             revocation_reason: None,
             evidence_refs: EvidenceReferences::new(),
+            required_plan: None,
+            requested_policy: None,
         }
+    }
+
+    /// Bind this operation to a Tier-2 approved plan, CONSUMING the record and returning the plan-governed
+    /// record. The required plan binding is taken from a service-validated [`ValidatedApprovedPlan`] (a
+    /// caller cannot originate one), the requested policy is folded into the fingerprint, and both become
+    /// immutable. Must be called at creation (state `Created`) before any transition.
+    #[must_use]
+    pub fn bind_approved_plan(
+        mut self,
+        validated: &crate::plan::ValidatedApprovedPlan,
+        requested_policy: crate::plan::RequestedOperationPolicy,
+    ) -> Self {
+        let binding = validated.binding().clone();
+        self.binding.fingerprint = crate::plan::fold_operation_fingerprint(
+            &self.binding.fingerprint,
+            &binding,
+            &requested_policy,
+        );
+        self.required_plan = Some(binding);
+        self.requested_policy = Some(requested_policy);
+        self
     }
 
     /// Mark the record revoked with a typed reason (also sets the terminal `Revoked` state where the

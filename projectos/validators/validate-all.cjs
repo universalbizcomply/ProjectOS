@@ -46,7 +46,10 @@ const MODULES = [
   "val-cd-b4-binding-consumer-surface1a",
   "val-windows-service-proof-runner-capability-b4",
   "val-cd-b4-effect-witness-contract1a",
-  "val-cd-b4-elevation-observation-engine1a"
+  "val-cd-b4-elevation-observation-engine1a",
+  "val-cd-b4-operation-phase-binding1a",
+  "val-cd-b4-protected-plan-store1a",
+  "val-cd-b4-protected-plan-reducer-permit1a"
 ];
 let total = 0;
 for (const m of MODULES) {

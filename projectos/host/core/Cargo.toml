@@ -9,6 +9,15 @@ license = "UNLICENSED"
 [lints.rust]
 unsafe_code = "forbid"
 
+[features]
+# Test-only synthetic approved-plan fixtures for integration tests. Non-default; a live graph never
+# enables it, so the fixture approval path can never reach production authority.
+test-fixtures = []
+
 [dependencies]
 projectos-trust-contract = { path = "../contract" }
 thiserror = "1"
+# SHA-256 for the collision-resistant, domain-separated, schema-versioned PhaseDefinitionDigest
+# (CD-B4-PROTECTED-PLAN-STORE-SHA256-AUTHORITY1A, Option A). Same version already used by
+# host-identity / windows-durable-protected-store; default features only; used ONLY for that digest.
+sha2 = "0.10"

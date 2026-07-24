@@ -31,6 +31,10 @@ pub struct ReductionRequest<'a> {
     pub approval_required: bool,
     /// Whether a credential is required.
     pub credential_required: bool,
+    /// The Tier-2 approved plan this operation is governed by, if any.
+    pub required_plan: Option<&'a crate::plan::ApprovedPlanBinding>,
+    /// The requested-operation policy evaluated against the approved definition, if plan-governed.
+    pub requested_policy: Option<&'a crate::plan::RequestedOperationPolicy>,
 }
 
 impl InternalOperationRecord {
@@ -45,6 +49,8 @@ impl InternalOperationRecord {
             state: self.state,
             approval_required: self.approval_required,
             credential_required: self.credential_required,
+            required_plan: self.required_plan.as_ref(),
+            requested_policy: self.requested_policy.as_ref(),
         }
     }
 }
@@ -158,6 +164,36 @@ pub fn reduce(req: &ReductionRequest<'_>, facts: &ServiceValidatedFacts) -> Disp
     if publisher_policy.outcome != PolicyOutcome::Accepted {
         return Disposition::Denied(DenialReason::PublisherPolicyRefused);
     }
+    // Phase-binding proof: the facts must have been validated FOR this operation's phase. Absent →
+    // not verified; a different phase → facts from another phase. Both fail closed.
+    match &facts.phase {
+        Some(p) if *p == req.binding.phase => {}
+        Some(_) => return Disposition::Denied(DenialReason::Mismatch(BindingKind::Phase)),
+        None => return Disposition::Denied(DenialReason::MissingFact(MissingFact::Phase)),
+    }
+    // Tier-2 approved-plan enforcement — ONLY for a plan-governed operation. The validated plan fact
+    // must be present, ACTIVE and bound EXACTLY to the operation's required approved plan (reference,
+    // version, digest, project, environment and phase are all inside the binding), and the requested
+    // operation policy must be authorised by the approved definition (scope/path/action/deps/preds).
+    let plan_fact = if let Some(required) = req.required_plan {
+        let fact = match &facts.approved_plan {
+            Some(f) if f.is_active_for(required) => f,
+            Some(_) => {
+                return Disposition::Denied(DenialReason::Mismatch(BindingKind::ApprovedPlan))
+            }
+            None => {
+                return Disposition::Denied(DenialReason::MissingFact(MissingFact::ApprovedPlan))
+            }
+        };
+        if let Some(policy) = req.requested_policy {
+            if let Err(refusal) = fact.authorises(policy) {
+                return Disposition::Denied(DenialReason::PlanPolicyRefused(refusal));
+            }
+        }
+        Some(fact)
+    } else {
+        None
+    };
     if project.project != req.binding.project {
         return Disposition::Denied(DenialReason::Mismatch(BindingKind::Project));
     }
@@ -220,7 +256,8 @@ pub fn reduce(req: &ReductionRequest<'_>, facts: &ServiceValidatedFacts) -> Disp
     if req.approval_required {
         match &facts.approval {
             ApprovalOutcome::Verified(a) => {
-                if a.project != req.binding.project
+                if a.phase != req.binding.phase
+                    || a.project != req.binding.project
                     || a.environment != req.binding.environment
                     || a.provider != req.binding.provider
                     || a.operation != req.binding.operation
@@ -248,6 +285,11 @@ pub fn reduce(req: &ReductionRequest<'_>, facts: &ServiceValidatedFacts) -> Disp
 
     // 8. Assemble the complete verified context and mint the permit.
     let context = VerifiedExecutionContext {
+        phase: req.binding.phase.clone(),
+        approved_plan: plan_fact.map(|f| f.binding().clone()),
+        approved_plan_status: plan_fact.map(crate::plan::ValidatedApprovedPlan::status),
+        approved_plan_status_revision: plan_fact
+            .map(crate::plan::ValidatedApprovedPlan::status_revision),
         session: session.session.clone(),
         process_session: process.session.clone(),
         executable: executable.identity.clone(),

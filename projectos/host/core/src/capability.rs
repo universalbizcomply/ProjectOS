@@ -53,6 +53,14 @@ impl AuthorityValidity {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ContextField {
+    /// Phase identity changed.
+    Phase,
+    /// Approved-plan binding (reference/version/definition-digest/project/environment/phase) changed.
+    ApprovedPlan,
+    /// Approved-plan status changed (e.g. became revoked/superseded/stale).
+    ApprovedPlanStatus,
+    /// Approved-plan status revision changed (a later status mutation).
+    ApprovedPlanStatusRevision,
     /// Authenticated session changed.
     Session,
     /// Process binding changed.
@@ -112,6 +120,10 @@ impl ContextComparison {
 /// private; not (de)serializable; contains no raw secret, token, or certificate material.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VerifiedExecutionContext {
+    pub(crate) phase: crate::phase::PhaseId,
+    pub(crate) approved_plan: Option<crate::plan::ApprovedPlanBinding>,
+    pub(crate) approved_plan_status: Option<crate::plan::ApprovedPlanStatus>,
+    pub(crate) approved_plan_status_revision: Option<u64>,
     pub(crate) session: SessionId,
     pub(crate) process_session: SessionId,
     pub(crate) executable: ExecutableIdentity,
@@ -135,6 +147,11 @@ pub struct VerifiedExecutionContext {
 }
 
 impl VerifiedExecutionContext {
+    /// The authoritative, service-issued phase identity this context is bound to.
+    #[must_use]
+    pub fn phase(&self) -> &crate::phase::PhaseId {
+        &self.phase
+    }
     /// Authenticated session.
     #[must_use]
     pub fn session(&self) -> &SessionId {
@@ -232,7 +249,17 @@ impl VerifiedExecutionContext {
     #[must_use]
     pub fn compare(&self, other: &VerifiedExecutionContext) -> ContextComparison {
         use ContextField as F;
-        let checks: [(bool, F); 18] = [
+        let checks: [(bool, F); 22] = [
+            (self.phase == other.phase, F::Phase),
+            (self.approved_plan == other.approved_plan, F::ApprovedPlan),
+            (
+                self.approved_plan_status == other.approved_plan_status,
+                F::ApprovedPlanStatus,
+            ),
+            (
+                self.approved_plan_status_revision == other.approved_plan_status_revision,
+                F::ApprovedPlanStatusRevision,
+            ),
             (self.session == other.session, F::Session),
             (self.process_session == other.process_session, F::Process),
             (self.executable == other.executable, F::Executable),
@@ -351,5 +378,135 @@ impl ExecutionPermit {
     #[must_use]
     pub fn session(&self) -> &SessionId {
         self.context.session()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::facts::{
+        PolicyFloor, PolicyId, PolicyOutcome, PolicyRevision, PublisherIdentity, ReleaseFloor,
+    };
+    use crate::phase::{PhaseId, PhaseReference};
+    use crate::plan::{
+        approve_normalized_definition, normalize_candidate, ApprovedPlanBinding, ApprovedPlanRef,
+        ApprovedPlanStatus, ApprovedPlanVersion, EffectPolicy, PhaseDefinitionCandidate, PhaseType,
+        ProviderPolicy, RepositoryPolicy, ResidueRequirement,
+    };
+
+    fn ids() -> (ProjectId, EnvironmentId) {
+        (
+            ProjectId::new("proj").unwrap(),
+            EnvironmentId::new("staging").unwrap(),
+        )
+    }
+
+    fn candidate() -> PhaseDefinitionCandidate {
+        let (project, environment) = ids();
+        PhaseDefinitionCandidate {
+            phase_id: "phase-x".into(),
+            phase_type: PhaseType::SourceOnly,
+            project,
+            environment,
+            scope: vec!["a".into()],
+            path_boundary: vec!["src/x".into()],
+            allowed_actions: vec!["read".into()],
+            prohibited_actions: vec!["write".into()],
+            dependencies: vec![],
+            predecessors: vec![],
+            repository_policy: RepositoryPolicy::ReadOnly,
+            provider_policy: ProviderPolicy::None,
+            effect_policy: EffectPolicy::ObservationOnly,
+            rollback_required: true,
+            shutdown_required: true,
+            disconnect_required: true,
+            residue: ResidueRequirement::ExactlyZero,
+        }
+    }
+
+    // A complete context differing from any other built here ONLY where the caller varies the plan
+    // binding; every other field is fixed identical, so a comparison difference can only come from the
+    // supplied `binding`.
+    fn ctx_with_plan(binding: ApprovedPlanBinding) -> VerifiedExecutionContext {
+        let (project, environment) = ids();
+        let phase = PhaseId::mint(
+            &project,
+            &environment,
+            &PhaseReference::new("phase-ref").unwrap(),
+            &OperationRef::new("op-1").unwrap(),
+        );
+        VerifiedExecutionContext {
+            phase,
+            approved_plan: Some(binding),
+            approved_plan_status: Some(ApprovedPlanStatus::Active),
+            approved_plan_status_revision: Some(0),
+            session: SessionId::new("s"),
+            process_session: SessionId::new("s"),
+            executable: ExecutableIdentity::new("e"),
+            installation: InstallationId::new("i"),
+            release: ReleaseId::new("r"),
+            repository: RepositoryRef::new("repo"),
+            project,
+            environment,
+            provider: ProviderId::new("prov").unwrap(),
+            operation: OperationName::new("op").unwrap(),
+            fingerprint: OperationFingerprint::new("fp").unwrap(),
+            publisher_policy: ValidatedPublisherPolicy {
+                policy_id: PolicyId::new("pol"),
+                policy_revision: PolicyRevision(1),
+                publisher: PublisherIdentity::new("pub"),
+                installation: InstallationId::new("i"),
+                outcome: PolicyOutcome::Accepted,
+                revocation_revision: RevocationRevision(1),
+            },
+            freshness: ValidatedFreshness {
+                release: ReleaseId::new("r"),
+                release_floor: ReleaseFloor(1),
+                policy_revision: PolicyRevision(1),
+                policy_floor: PolicyFloor(1),
+                emergency_revocation_floor: RevocationRevision(1),
+            },
+            authority: AuthorityValidity {
+                authority_expiry: ExpiryBoundary(1000),
+                operation_expiry: Some(ExpiryBoundary(1000)),
+                revocation_revision: RevocationRevision(1),
+            },
+            emergency_state: EmergencyStopState::Clear,
+            emergency_state_revision: EmergencyStateRevision(1),
+            approval: None,
+            credential: None,
+        }
+    }
+
+    /// Two plan bindings identical in plan reference, PhaseDefinitionDigest, project, environment and
+    /// phase id, differing ONLY in `ApprovedPlanVersion`. The two contexts are otherwise byte-identical
+    /// (same phase, same operation fingerprint, same status and status revision), so the ONLY thing that
+    /// can make the comparison report a difference is the plan version. This proves the version field is
+    /// load-bearing in the permit context independently of the digest, plan reference, fingerprint,
+    /// status and status revision.
+    #[test]
+    fn context_comparison_detects_a_plan_version_change_with_an_unchanged_digest() {
+        let n = normalize_candidate(&candidate()).unwrap();
+        let rec = approve_normalized_definition(
+            ApprovedPlanRef::new("plan-1").unwrap(),
+            ApprovedPlanVersion(1),
+            &n,
+            ApprovedPlanStatus::Active,
+        );
+        let binding_v1 = rec.binding().clone();
+        // Same digest + reference, different version only (intentionally inconsistent; test-only).
+        let binding_v2 = binding_v1.with_version_for_test(ApprovedPlanVersion(2));
+        // The pair shares the digest and reference and differs ONLY by version.
+        assert_eq!(binding_v1.plan_ref(), binding_v2.plan_ref());
+        assert_eq!(binding_v1.digest_bytes(), binding_v2.digest_bytes());
+        assert_ne!(binding_v1.version(), binding_v2.version());
+
+        let c1 = ctx_with_plan(binding_v1);
+        let c2 = ctx_with_plan(binding_v2);
+        // Fixed-identical everywhere except the plan version → the reported difference is the plan.
+        assert_eq!(
+            c1.compare(&c2),
+            ContextComparison::Mismatch(ContextField::ApprovedPlan)
+        );
     }
 }
