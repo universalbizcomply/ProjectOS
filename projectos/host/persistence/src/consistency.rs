@@ -92,6 +92,9 @@ pub fn validate_journal_targets_manifest(
         TargetFamilyDto::CredentialEnvelope => fr.credential_envelope,
         TargetFamilyDto::EmergencyStop => fr.emergency_stop,
         TargetFamilyDto::Audit => fr.audit,
+        // Plan records track the manifest's generic record revision (no dedicated family field; the
+        // durable store advances all family revisions uniformly with the store revision).
+        TargetFamilyDto::Plan => manifest.record_revision,
     };
     if journal.target_revision <= current {
         return Err(PersistError::InvalidChainReference);

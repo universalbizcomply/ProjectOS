@@ -41,6 +41,7 @@ pub mod error;
 pub mod journal;
 pub mod manifest;
 pub mod operation_record;
+pub mod plan_record;
 pub mod project_registry;
 pub mod trust_policy;
 pub mod version;
@@ -66,5 +67,9 @@ pub use error::PersistError;
 pub use journal::JournalRecordDto;
 pub use manifest::{FamilyRevisionsDto, ProtectedStateManifestDto};
 pub use operation_record::OperationRecordDto;
+pub use plan_record::{
+    EffectPolicyDto, PhaseTypeDto, PlanCandidateDto, PlanRecordDto, PlanStatusDto,
+    ProviderPolicyDto, RepositoryPolicyDto, ResidueDto,
+};
 pub use project_registry::ProjectRegistryDto;
 pub use trust_policy::TrustPolicyDto;

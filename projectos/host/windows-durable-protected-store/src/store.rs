@@ -83,6 +83,15 @@ impl DurableProtectedStore {
         Ok(scan_records(&self.root)?.len())
     }
 
+    /// The current durable frame revision of the record stored under `id`, or `None` if absent. This is
+    /// the value a caller passes as `expected` to [`Self::put_record`] for optimistic replacement.
+    ///
+    /// # Errors
+    /// [`DurableStoreError::CorruptionDetected`] if the record frame is invalid.
+    pub fn record_revision(&self, id: &[u8]) -> Result<Option<u64>, DurableStoreError> {
+        existing_revision(&self.root, id)
+    }
+
     /// Read the accepted DTO document persisted under `id`.
     ///
     /// # Errors

@@ -49,7 +49,8 @@ const MODULES = [
   "val-cd-b4-elevation-observation-engine1a",
   "val-cd-b4-operation-phase-binding1a",
   "val-cd-b4-protected-plan-store1a",
-  "val-cd-b4-protected-plan-reducer-permit1a"
+  "val-cd-b4-protected-plan-reducer-permit1a",
+  "val-cd-b4-plan-durable-store1a"
 ];
 let total = 0;
 for (const m of MODULES) {

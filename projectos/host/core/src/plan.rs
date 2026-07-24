@@ -525,6 +525,25 @@ pub fn phase_definition_digest(
     PhaseDefinitionDigest { bytes }
 }
 
+/// The lowercase-hex SHA-256 of a normalized definition + plan reference + version, for DURABLE
+/// SERIALISATION only (the persisted `storedDigestHex`). This is the integrity value the durable store
+/// WRITES; the reload path RECOMPUTES it and compares, so it is never trusted on read. It is an
+/// integrity tag, not authentication material or a secret; the opaque [`PhaseDefinitionDigest`] Debug
+/// stays redacted for logs. There is still no way to originate a `PhaseDefinitionDigest` from a caller
+/// hex string — this is a one-way projection for persistence.
+#[must_use]
+pub fn phase_definition_digest_hex(
+    n: &NormalizedPhaseDefinition,
+    plan_ref: &ApprovedPlanRef,
+    version: ApprovedPlanVersion,
+) -> String {
+    phase_definition_digest(n, plan_ref, version)
+        .bytes
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
 // ---------------------------------------------------------------------------------------------
 // Approved-plan record + binding
 // ---------------------------------------------------------------------------------------------
@@ -859,6 +878,21 @@ pub(crate) fn reload_and_validate(
         return None;
     }
     Some(fact)
+}
+
+/// Adapter-facing reload: validate an UNTRUSTED durable plan DTO against the operation's required
+/// approved-plan binding, or refuse (fail closed). This is the ONLY public bridge from durable bytes to
+/// a [`ValidatedApprovedPlan`]. It delegates to the crate-private [`reload_and_validate`], so an
+/// external durable adapter cannot bypass any check: an uncommitted (Intent-only) entry, a wrong schema
+/// version, a malformed/contradictory candidate, a stored digest that does not match the freshly
+/// recomputed SHA-256, or anything not ACTIVE and bound EXACTLY to `required` all yield `None`. There is
+/// no public `PlanDurableDto` → authority conversion; every gate runs here in core.
+#[must_use]
+pub fn validate_durable_plan(
+    dto: &PlanDurableDto,
+    required: &ApprovedPlanBinding,
+) -> Option<ValidatedApprovedPlan> {
+    reload_and_validate(dto, required)
 }
 
 /// An in-memory approved-plan journal modelling Intent → Commit, revocation, supersession, staleness

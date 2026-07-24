@@ -140,6 +140,8 @@ pub enum TargetFamilyDto {
     EmergencyStop,
     /// Audit.
     Audit,
+    /// Approved-plan records.
+    Plan,
 }
 
 /// Governance audit event class (bounded — never free text).

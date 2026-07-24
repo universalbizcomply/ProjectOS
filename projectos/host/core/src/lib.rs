@@ -78,6 +78,7 @@ pub use plan::{
     PlanDurableDto, PlanPolicyRefusal, ProviderPolicy, RepositoryPolicy, RequestedOperationPolicy,
     ResidueRequirement, ValidatedApprovedPlan, PLAN_SCHEMA_VERSION,
 };
+pub use plan::{phase_definition_digest_hex, validate_durable_plan};
 pub use reducer::{reduce, Disposition, ReductionRequest};
 pub use storage::{
     ApprovalRecordReader, CredentialMetadataReader, EmergencyStopReader, OperationRecordRepository,
