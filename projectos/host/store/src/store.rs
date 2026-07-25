@@ -690,6 +690,11 @@ fn manifest_family_rev(manifest: &ProtectedStateManifestDto, family: TargetFamil
         TargetFamilyDto::CredentialEnvelope => fr.credential_envelope,
         TargetFamilyDto::EmergencyStop => fr.emergency_stop,
         TargetFamilyDto::Audit => fr.audit,
+        // Plan records are stored via PlanDurableStore, not this combined store's journaled families,
+        // so there is no dedicated `family_revisions.plan` field. They track the manifest's generic
+        // record revision — the same explicit contract persistence::validate_journal_targets_manifest
+        // uses for the Plan family.
+        TargetFamilyDto::Plan => manifest.record_revision,
     }
 }
 
@@ -728,6 +733,42 @@ fn apply_test_corruption(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn manifest_family_rev_maps_every_family_including_plan() {
+        let manifest = ProtectedStateManifestDto {
+            schema_version: 1,
+            store_revision: 100,
+            family_revisions: projectos_host_persistence::FamilyRevisionsDto {
+                trust_policy: 1,
+                project_registry: 2,
+                operation: 3,
+                approval: 4,
+                credential_metadata: 5,
+                credential_envelope: 6,
+                emergency_stop: 7,
+                audit: 8,
+            },
+            manifest_mac: "00ff".into(),
+            record_revision: 99,
+        };
+        use TargetFamilyDto as F;
+        // Each combined-store family resolves to its own manifest field (behaviour preserved).
+        assert_eq!(manifest_family_rev(&manifest, F::TrustPolicy), 1);
+        assert_eq!(manifest_family_rev(&manifest, F::ProjectRegistry), 2);
+        assert_eq!(manifest_family_rev(&manifest, F::Operation), 3);
+        assert_eq!(manifest_family_rev(&manifest, F::Approval), 4);
+        assert_eq!(manifest_family_rev(&manifest, F::CredentialMetadata), 5);
+        assert_eq!(manifest_family_rev(&manifest, F::CredentialEnvelope), 6);
+        assert_eq!(manifest_family_rev(&manifest, F::EmergencyStop), 7);
+        assert_eq!(manifest_family_rev(&manifest, F::Audit), 8);
+        // Plan tracks the manifest's generic record revision, and is NOT silently mapped to any
+        // per-family field (all of which are 1..=8 here).
+        assert_eq!(manifest_family_rev(&manifest, F::Plan), 99);
+        for family_field in [1u64, 2, 3, 4, 5, 6, 7, 8] {
+            assert_ne!(manifest_family_rev(&manifest, F::Plan), family_field);
+        }
+    }
 
     const OPERATION: &str = r#"{"schemaVersion":1,"recordRevision":5,"operationRef":"op-1","project":"polygo","repository":"repo-1","environment":"staging","provider":"supabase","operation":"read-only-validate","fingerprint":"fp-1","requiredRelease":"rel-1","requiredInstallation":"inst-1","state":"READY_FOR_REVALIDATION","approvalRequired":true,"credentialRequired":true,"operationExpiry":1000,"revocation":"ACTIVE","resumePolicy":"RESUME_AFTER_REVALIDATION","evidenceRefs":["ev-1","ev-2"]}"#;
     const AUDIT: &str = r#"{"schemaVersion":1,"recordRevision":1,"sequence":0,"eventClass":"OPERATION_REQUESTED","evidenceRefs":["ev-1"],"thisHash":"00ff","redactedSummary":"operation requested for polygo staging"}"#;
