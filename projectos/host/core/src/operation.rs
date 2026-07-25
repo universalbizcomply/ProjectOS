@@ -209,6 +209,11 @@ pub struct InternalOperationRecord {
     /// reducer applies no repository check). Set once by [`InternalOperationRecord::bind_repository`],
     /// immutable thereafter, and folded into the fingerprint.
     pub required_repository: Option<crate::repository::RequiredRepository>,
+    /// The owner-presence policy this operation is GOVERNED by. `None` = owner presence not required (the
+    /// reducer applies no owner-presence check). Set once by
+    /// [`InternalOperationRecord::bind_owner_presence`], immutable thereafter, and folded into the
+    /// fingerprint (so changing the requirement invalidates prior approval and permit authority).
+    pub required_owner_presence: Option<crate::owner_presence::RequiredOwnerPresence>,
 }
 
 impl InternalOperationRecord {
@@ -260,6 +265,7 @@ impl InternalOperationRecord {
             required_plan: None,
             requested_policy: None,
             required_repository: None,
+            required_owner_presence: None,
         }
     }
 
@@ -293,6 +299,23 @@ impl InternalOperationRecord {
         self.binding.fingerprint =
             crate::repository::fold_repository_fingerprint(&self.binding.fingerprint, &required);
         self.required_repository = Some(required);
+        self
+    }
+
+    /// Bind this operation to an OWNER-PRESENCE policy, CONSUMING the record. The requirement is folded
+    /// into the operation fingerprint (so a different owner-presence requirement yields a different
+    /// fingerprint, and approval — bound by fingerprint — is transitively owner-presence-policy bound)
+    /// and becomes immutable. Must be called at creation before any transition.
+    #[must_use]
+    pub fn bind_owner_presence(
+        mut self,
+        required: crate::owner_presence::RequiredOwnerPresence,
+    ) -> Self {
+        self.binding.fingerprint = crate::owner_presence::fold_owner_presence_fingerprint(
+            &self.binding.fingerprint,
+            &required,
+        );
+        self.required_owner_presence = Some(required);
         self
     }
 

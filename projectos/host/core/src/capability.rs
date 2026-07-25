@@ -69,6 +69,12 @@ pub enum ContextField {
     RepositoryGeneration,
     /// Repository freshness classification changed.
     RepositoryFreshness,
+    /// Owner-presence proof identity/verifier changed (a different proof).
+    OwnerPresenceProof,
+    /// Owner-presence proof generation changed.
+    OwnerPresenceGeneration,
+    /// Owner-presence proof validity boundary changed (expiry moved).
+    OwnerPresenceValidUntil,
     /// Authenticated session changed.
     Session,
     /// Process binding changed.
@@ -135,6 +141,13 @@ pub struct VerifiedExecutionContext {
     pub(crate) repository_baseline: Option<crate::repository::VerifiedRepositoryBaseline>,
     pub(crate) repository_generation: Option<u64>,
     pub(crate) repository_freshness: Option<crate::repository::RepositoryFreshness>,
+    pub(crate) owner_presence_proof: Option<crate::owner_presence::VerifiedOwnerPresence>,
+    pub(crate) owner_presence_generation: Option<u64>,
+    pub(crate) owner_presence_valid_until: Option<u64>,
+    /// The trusted-clock provider identity + epoch the owner-presence lease was established under. Used by
+    /// permit temporal revalidation to reject a reading from a different provider/epoch.
+    pub(crate) owner_presence_provider: Option<String>,
+    pub(crate) owner_presence_epoch: Option<u64>,
     pub(crate) session: SessionId,
     pub(crate) process_session: SessionId,
     pub(crate) executable: ExecutableIdentity,
@@ -260,7 +273,7 @@ impl VerifiedExecutionContext {
     #[must_use]
     pub fn compare(&self, other: &VerifiedExecutionContext) -> ContextComparison {
         use ContextField as F;
-        let checks: [(bool, F); 26] = [
+        let checks: [(bool, F); 29] = [
             (self.phase == other.phase, F::Phase),
             (self.approved_plan == other.approved_plan, F::ApprovedPlan),
             (
@@ -287,6 +300,18 @@ impl VerifiedExecutionContext {
             (
                 self.repository_freshness == other.repository_freshness,
                 F::RepositoryFreshness,
+            ),
+            (
+                self.owner_presence_proof == other.owner_presence_proof,
+                F::OwnerPresenceProof,
+            ),
+            (
+                self.owner_presence_generation == other.owner_presence_generation,
+                F::OwnerPresenceGeneration,
+            ),
+            (
+                self.owner_presence_valid_until == other.owner_presence_valid_until,
+                F::OwnerPresenceValidUntil,
             ),
             (self.session == other.session, F::Session),
             (self.process_session == other.process_session, F::Process),
@@ -370,6 +395,38 @@ impl ExecutionPermit {
     #[must_use]
     pub fn is_valid_for(&self, current: &VerifiedExecutionContext) -> bool {
         self.context.compare(current).is_match()
+    }
+
+    /// Temporal revalidation against the CURRENT trusted time, read from the injected clock PROVIDER
+    /// (never a caller-supplied value): true only when the re-derived context matches exactly AND, where
+    /// this permit carries an owner-presence lease, the provider's CURRENT reading is from the same
+    /// provider + epoch the lease was established under and is still within `owner_presence_valid_until`.
+    ///
+    /// A permit minted while a presence lease was current becomes INVALID once ordinary time passes
+    /// beyond the boundary — the caller supplies the PROVIDER, not the reading, so a retained historical
+    /// time cannot be replayed to keep a stale permit alive; a substituted provider or an earlier epoch
+    /// also fails.
+    #[must_use]
+    pub fn is_current(
+        &self,
+        current: &VerifiedExecutionContext,
+        clock: &dyn crate::authority_time::TrustedClock,
+    ) -> bool {
+        if !self.context.compare(current).is_match() {
+            return false;
+        }
+        match (
+            self.context.owner_presence_valid_until,
+            &self.context.owner_presence_provider,
+            self.context.owner_presence_epoch,
+        ) {
+            (Some(valid_until), Some(provider), Some(epoch)) => {
+                let now = clock.read_current();
+                now.provider_id() == provider && now.epoch() == epoch && now.reading() < valid_until
+            }
+            // No owner-presence lease on this permit → no temporal constraint.
+            _ => true,
+        }
     }
 
     /// Convenience: the bound project.
@@ -471,6 +528,11 @@ mod tests {
             repository_baseline: None,
             repository_generation: None,
             repository_freshness: None,
+            owner_presence_proof: None,
+            owner_presence_generation: None,
+            owner_presence_valid_until: None,
+            owner_presence_provider: None,
+            owner_presence_epoch: None,
             session: SessionId::new("s"),
             process_session: SessionId::new("s"),
             executable: ExecutableIdentity::new("e"),

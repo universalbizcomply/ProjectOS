@@ -31,11 +31,13 @@
 #![forbid(unsafe_code)]
 
 pub mod approval;
+pub mod authority_time;
 pub mod capability;
 pub mod error;
 pub mod facts;
 pub mod observation;
 pub mod operation;
+pub mod owner_presence;
 pub mod phase;
 pub mod plan;
 pub mod reducer;
@@ -43,12 +45,15 @@ pub mod repository;
 pub mod storage;
 
 pub use approval::{ApprovalOutcome, OwnerPresenceVerifier, VerifiedApproval};
+#[cfg(any(test, feature = "test-fixtures"))]
+pub use authority_time::FixtureClock;
+pub use authority_time::{AuthorityTimeError, TrustedClock, VerifiedAuthorityTime};
 pub use capability::{
     AuthorityValidity, ContextComparison, ContextField, ExecutionPermit, VerifiedExecutionContext,
 };
 pub use error::{
-    BindingKind, DenialReason, MissingFact, RecordError, RepositoryBinding, RevocationReason,
-    TransitionError,
+    BindingKind, DenialReason, MissingFact, OwnerPresenceBinding, RecordError, RepositoryBinding,
+    RevocationReason, TransitionError,
 };
 pub use facts::{
     validate_bounded_id, ApprovalRecordId, AuthoritySnapshot, CredentialLifecycle,
@@ -71,6 +76,11 @@ pub use operation::{
     InternalOperationRecord, OperationBinding, OperationInputs, OperationState, RecordPolicy,
     ResumePolicy,
 };
+pub use owner_presence::{
+    fold_owner_presence_fingerprint, verify_owner_presence, OwnerPresenceError,
+    OwnerPresenceObservation, RequiredOwnerPresence, ValidatedOwnerPresenceFact,
+    VerifiedOwnerPresence,
+};
 pub use phase::{PhaseId, PhaseReference};
 pub use plan::{
     normalize_candidate, path_within_boundary, phase_definition_digest, ApprovedPlanBinding,
@@ -84,9 +94,9 @@ pub use plan::{phase_definition_digest_hex, validate_durable_plan};
 pub use reducer::{reduce, Disposition, ReductionRequest};
 pub use repository::{
     fold_repository_fingerprint, is_valid_oid, verify_repository_baseline, BranchPolicy,
-    BranchState, DivergencePolicy, GitRepositoryObservation, RepositoryError, RepositoryFreshness,
-    RequiredFreshness, RequiredRepository, ValidatedRepositoryFact, VerifiedRepositoryBaseline,
-    VerifiedRepositoryIdentity,
+    BranchState, DivergencePolicy, GitRepositoryObservation, RepositoryAuthorityBinding,
+    RepositoryError, RepositoryFreshness, RequiredFreshness, RequiredRepository,
+    ValidatedRepositoryFact, VerifiedRepositoryBaseline, VerifiedRepositoryIdentity,
 };
 pub use storage::{
     ApprovalRecordReader, CredentialMetadataReader, EmergencyStopReader, OperationRecordRepository,

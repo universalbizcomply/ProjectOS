@@ -431,6 +431,11 @@ pub struct ServiceValidatedFacts {
     /// operation-ref/fingerprint), consistent with its embedded baseline (generation/freshness), and the
     /// baseline satisfies the operation's required repository policy.
     pub repository: Option<crate::repository::ValidatedRepositoryFact>,
+    /// The operation-bound owner-presence fact (DISTINCT from `approval`). `None` by default; for an
+    /// owner-presence-governed operation the reducer denies unless this is present, bound to THIS
+    /// operation, consistent with its embedded proof, satisfying the required policy, and — via the
+    /// injected trusted clock — still current.
+    pub owner_presence: Option<crate::owner_presence::ValidatedOwnerPresenceFact>,
     /// Validated authenticated session.
     pub session: Option<ValidatedSession>,
     /// Validated client process.

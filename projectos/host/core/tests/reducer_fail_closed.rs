@@ -41,6 +41,7 @@ pub fn full_facts(b: &OperationBinding) -> ServiceValidatedFacts {
         phase: Some(b.phase.clone()),
         approved_plan: None,
         repository: None,
+        owner_presence: None,
         session: Some(ValidatedSession {
             session: sid.clone(),
         }),

@@ -110,6 +110,40 @@ pub enum DenialReason {
     /// is checked BEFORE the repository policy, so a baseline verified for one operation can never be
     /// replayed through a fact bound to another.
     RepositoryFactMismatch(RepositoryBinding),
+    /// The operation-bound owner-presence fact was not bound to THIS operation, or was inconsistent with
+    /// its own embedded proof. Checked BEFORE the owner-presence policy, so a presence proof verified for
+    /// one operation can never be replayed through a fact bound to another.
+    OwnerPresenceFactMismatch(OwnerPresenceBinding),
+    /// The verified owner-presence proof did not satisfy the operation's required owner-presence policy
+    /// (verifier identity / minimum generation). Payload-free, distinct cause carried.
+    OwnerPresencePolicyRefused(crate::owner_presence::OwnerPresenceError),
+}
+
+/// The binding dimension on which an operation-bound owner-presence fact failed. Fail-closed; no
+/// free-text payload.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum OwnerPresenceBinding {
+    /// The fact's project did not match the operation.
+    Project,
+    /// The fact's environment did not match the operation.
+    Environment,
+    /// The fact's phase identity did not match the operation.
+    Phase,
+    /// The fact's approved-plan binding did not match the operation's required plan.
+    Plan,
+    /// The fact's operation reference did not match the operation.
+    Operation,
+    /// The fact's bound fingerprint did not match the operation's fingerprint.
+    Fingerprint,
+    /// The fact's bound repository AUTHORITY STATE (baseline content + generation) did not match the
+    /// operation's current validated repository fact — a same-identity baseline change, a generation
+    /// change, or a cross-repository substitution. Distinct from a mere identity check.
+    RepositoryBaseline,
+    /// The fact's cached generation did not match its embedded proof.
+    Generation,
+    /// The fact's cached validity boundary did not match its embedded proof.
+    ValidUntil,
 }
 
 /// The binding dimension on which an operation-bound repository fact failed. Every variant is a
@@ -143,6 +177,11 @@ pub enum MissingFact {
     ApprovedPlan,
     /// Verified repository baseline (a repository-governed operation had no repository fact).
     Repository,
+    /// Verified owner-presence proof (an owner-presence-governed operation had no owner-presence fact).
+    OwnerPresence,
+    /// Trusted authority-time reading (an owner-presence-governed operation had no verified clock to
+    /// prove the presence lease is still current at evaluation time).
+    AuthorityTime,
     /// Validated phase-binding proof (the facts were not bound to any phase).
     Phase,
     /// Validated process identity.

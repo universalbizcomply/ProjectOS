@@ -77,6 +77,7 @@ fn full_facts(fact: Option<ValidatedApprovedPlan>) -> ServiceValidatedFacts {
         phase: None, // set by the caller to the operation phase
         approved_plan: fact,
         repository: None,
+        owner_presence: None,
         session: Some(ValidatedSession {
             session: sid.clone(),
         }),

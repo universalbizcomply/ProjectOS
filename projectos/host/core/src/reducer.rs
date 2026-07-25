@@ -6,7 +6,9 @@
 
 use crate::approval::{ApprovalOutcome, VerifiedApproval};
 use crate::capability::{AuthorityValidity, ExecutionPermit, VerifiedExecutionContext};
-use crate::error::{BindingKind, DenialReason, MissingFact, RepositoryBinding};
+use crate::error::{
+    BindingKind, DenialReason, MissingFact, OwnerPresenceBinding, RepositoryBinding,
+};
 use crate::facts::{
     CredentialLifecycle, CredentialOutcome, CredentialScope, EmergencyStopState, InstallationId,
     PolicyOutcome, RepositoryRef, RevocationStatus, ServiceValidatedFacts, ValidityStatus,
@@ -37,6 +39,12 @@ pub struct ReductionRequest<'a> {
     pub requested_policy: Option<&'a crate::plan::RequestedOperationPolicy>,
     /// The Tier-2 repository policy this operation is governed by, if any.
     pub required_repository: Option<&'a crate::repository::RequiredRepository>,
+    /// The owner-presence policy this operation is governed by, if any.
+    pub required_owner_presence: Option<&'a crate::owner_presence::RequiredOwnerPresence>,
+    /// The injected trusted-clock PROVIDER. Owner-presence evaluation reads the CURRENT time from this
+    /// provider (never a caller-supplied value), so a retained historical reading cannot be replayed.
+    /// `None` unless supplied via [`InternalOperationRecord::to_request_with_clock`].
+    pub authority_clock: Option<&'a dyn crate::authority_time::TrustedClock>,
 }
 
 impl InternalOperationRecord {
@@ -54,6 +62,21 @@ impl InternalOperationRecord {
             required_plan: self.required_plan.as_ref(),
             requested_policy: self.requested_policy.as_ref(),
             required_repository: self.required_repository.as_ref(),
+            required_owner_presence: self.required_owner_presence.as_ref(),
+            authority_clock: None,
+        }
+    }
+
+    /// Borrow this record as a reduction request WITH an injected trusted-clock provider, so
+    /// owner-presence temporal currentness is evaluated against the CURRENT reading (not a caller value).
+    #[must_use]
+    pub fn to_request_with_clock<'a>(
+        &'a self,
+        clock: &'a dyn crate::authority_time::TrustedClock,
+    ) -> ReductionRequest<'a> {
+        ReductionRequest {
+            authority_clock: Some(clock),
+            ..self.to_request()
         }
     }
 }
@@ -260,6 +283,104 @@ pub fn reduce(req: &ReductionRequest<'_>, facts: &ServiceValidatedFacts) -> Disp
     } else {
         None
     };
+    // Owner-presence enforcement — ONLY for an owner-presence-governed operation. DISTINCT from owner
+    // approval. The operation-bound fact must be present, bound to THIS exact operation (so a presence
+    // proof verified for one operation can never be replayed through a fact bound to another), consistent
+    // with its own embedded proof, and the proof must satisfy the required policy. The fact's
+    // repository-context identity must match the operation's verified repository identity (if any).
+    let owner_presence_fact = if let Some(required) = req.required_owner_presence {
+        let fact = match &facts.owner_presence {
+            Some(f) => f,
+            None => {
+                return Disposition::Denied(DenialReason::MissingFact(MissingFact::OwnerPresence))
+            }
+        };
+        if fact.project() != &req.binding.project {
+            return Disposition::Denied(DenialReason::OwnerPresenceFactMismatch(
+                OwnerPresenceBinding::Project,
+            ));
+        }
+        if fact.environment() != &req.binding.environment {
+            return Disposition::Denied(DenialReason::OwnerPresenceFactMismatch(
+                OwnerPresenceBinding::Environment,
+            ));
+        }
+        if fact.phase() != &req.binding.phase {
+            return Disposition::Denied(DenialReason::OwnerPresenceFactMismatch(
+                OwnerPresenceBinding::Phase,
+            ));
+        }
+        if fact.plan_binding() != req.required_plan {
+            return Disposition::Denied(DenialReason::OwnerPresenceFactMismatch(
+                OwnerPresenceBinding::Plan,
+            ));
+        }
+        if fact.operation() != req.operation_ref {
+            return Disposition::Denied(DenialReason::OwnerPresenceFactMismatch(
+                OwnerPresenceBinding::Operation,
+            ));
+        }
+        if fact.fingerprint() != &req.binding.fingerprint {
+            return Disposition::Denied(DenialReason::OwnerPresenceFactMismatch(
+                OwnerPresenceBinding::Fingerprint,
+            ));
+        }
+        // Repository-STATE binding: the presence proof must be tied to the SAME verified repository
+        // AUTHORITY STATE (baseline content + generation) the operation is governed by (both `None` when
+        // not repository-governed). This refuses a same-identity baseline change and refuses combining a
+        // NEW repository fact with an OLD presence fact — an identity-only check could not.
+        let operation_repository_binding =
+            repository_fact.map(crate::repository::ValidatedRepositoryFact::authority_binding);
+        if fact.repository_binding() != operation_repository_binding.as_ref() {
+            return Disposition::Denied(DenialReason::OwnerPresenceFactMismatch(
+                OwnerPresenceBinding::RepositoryBaseline,
+            ));
+        }
+        // Fact↔proof consistency: the cached generation / validity boundary must equal the embedded
+        // proof's (verifier and minimum generation are re-checked by satisfies() below).
+        if fact.generation() != fact.presence().generation() {
+            return Disposition::Denied(DenialReason::OwnerPresenceFactMismatch(
+                OwnerPresenceBinding::Generation,
+            ));
+        }
+        if fact.valid_until() != fact.presence().valid_until() {
+            return Disposition::Denied(DenialReason::OwnerPresenceFactMismatch(
+                OwnerPresenceBinding::ValidUntil,
+            ));
+        }
+        // Only after the fact is proven bound may the proof be evaluated against the required policy.
+        if let Err(refusal) = fact.presence().satisfies(required) {
+            return Disposition::Denied(DenialReason::OwnerPresencePolicyRefused(refusal));
+        }
+        // TRUSTED TEMPORAL revalidation: read the CURRENT time from the injected clock PROVIDER (never a
+        // caller-supplied value — so a retained historical reading cannot be replayed). The reading must
+        // come from the SAME provider + epoch the proof was established under (identity substitution /
+        // provider restart fail closed), and the lease must still be current. Missing provider fails closed.
+        let now = match req.authority_clock {
+            Some(c) => c.read_current(),
+            None => {
+                return Disposition::Denied(DenialReason::MissingFact(MissingFact::AuthorityTime))
+            }
+        };
+        if now.provider_id() != fact.presence().provider_id() {
+            return Disposition::Denied(DenialReason::OwnerPresencePolicyRefused(
+                crate::owner_presence::OwnerPresenceError::ProviderMismatch,
+            ));
+        }
+        if now.epoch() != fact.presence().epoch() {
+            return Disposition::Denied(DenialReason::OwnerPresencePolicyRefused(
+                crate::owner_presence::OwnerPresenceError::EpochMismatch,
+            ));
+        }
+        if now.reading() >= fact.valid_until() {
+            return Disposition::Denied(DenialReason::OwnerPresencePolicyRefused(
+                crate::owner_presence::OwnerPresenceError::Expired,
+            ));
+        }
+        Some(fact)
+    } else {
+        None
+    };
     if project.project != req.binding.project {
         return Disposition::Denied(DenialReason::Mismatch(BindingKind::Project));
     }
@@ -361,6 +482,14 @@ pub fn reduce(req: &ReductionRequest<'_>, facts: &ServiceValidatedFacts) -> Disp
             .map(crate::repository::ValidatedRepositoryFact::generation),
         repository_freshness: repository_fact
             .map(crate::repository::ValidatedRepositoryFact::freshness),
+        owner_presence_proof: owner_presence_fact.map(|f| f.presence().clone()),
+        owner_presence_generation: owner_presence_fact
+            .map(crate::owner_presence::ValidatedOwnerPresenceFact::generation),
+        owner_presence_valid_until: owner_presence_fact
+            .map(crate::owner_presence::ValidatedOwnerPresenceFact::valid_until),
+        owner_presence_provider: owner_presence_fact
+            .map(|f| f.presence().provider_id().to_string()),
+        owner_presence_epoch: owner_presence_fact.map(|f| f.presence().epoch()),
         session: session.session.clone(),
         process_session: process.session.clone(),
         executable: executable.identity.clone(),

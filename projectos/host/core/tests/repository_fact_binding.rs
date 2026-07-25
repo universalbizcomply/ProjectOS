@@ -160,6 +160,7 @@ fn full_facts(
         phase: Some(record.binding.phase().clone()),
         approved_plan: None,
         repository: Some(fact),
+        owner_presence: None,
         session: Some(ValidatedSession {
             session: sid.clone(),
         }),

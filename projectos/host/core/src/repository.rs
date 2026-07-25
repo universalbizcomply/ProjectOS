@@ -499,7 +499,51 @@ impl ValidatedRepositoryFact {
     pub(crate) fn freshness(&self) -> RepositoryFreshness {
         self.freshness
     }
+
+    /// The opaque repository AUTHORITY STATE binding this fact represents — the exact verified baseline
+    /// content (identity + commit + branch + cleanliness + divergence + submodule) PLUS the observation
+    /// generation. Distinguishes baseline A from baseline B in the SAME repository. Another authority
+    /// fact (e.g. owner presence) binds to this value so it cannot be replayed after the repository
+    /// changes state. Derived ONLY from an already-validated repository fact; a caller cannot forge it.
+    #[must_use]
+    pub fn authority_binding(&self) -> RepositoryAuthorityBinding {
+        RepositoryAuthorityBinding {
+            baseline: self.baseline.clone(),
+            generation: self.generation,
+        }
+    }
 }
+
+/// An opaque, immutable snapshot of a repository's VALIDATED AUTHORITY STATE (baseline content +
+/// observation generation), derived only from a [`ValidatedRepositoryFact`] via
+/// [`ValidatedRepositoryFact::authority_binding`]. Private fields, no public constructor, no `Default`,
+/// no serde, redacted Debug. Equality distinguishes different baselines of the SAME repository identity
+/// (via the baseline's content equality) and different observation generations.
+#[derive(Clone)]
+pub struct RepositoryAuthorityBinding {
+    baseline: VerifiedRepositoryBaseline,
+    generation: u64,
+}
+
+impl fmt::Debug for RepositoryAuthorityBinding {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "RepositoryAuthorityBinding(gen={}, [REDACTED])",
+            self.generation
+        )
+    }
+}
+
+impl PartialEq for RepositoryAuthorityBinding {
+    fn eq(&self, other: &Self) -> bool {
+        // Baseline CONTENT equality (identity + commit + branch + cleanliness + divergence + submodule)
+        // PLUS the observation generation — so same-identity/different-baseline AND same-baseline/
+        // different-generation both compare unequal.
+        self.baseline == other.baseline && self.generation == other.generation
+    }
+}
+impl Eq for RepositoryAuthorityBinding {}
 
 #[cfg(any(test, feature = "test-fixtures"))]
 impl ValidatedRepositoryFact {

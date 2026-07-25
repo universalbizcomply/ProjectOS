@@ -132,6 +132,7 @@ fn full_facts_with(
         phase: Some(record.binding.phase().clone()),
         approved_plan: None,
         repository: fact,
+        owner_presence: None,
         session: Some(ValidatedSession {
             session: sid.clone(),
         }),
