@@ -6,7 +6,7 @@
 
 use crate::approval::{ApprovalOutcome, VerifiedApproval};
 use crate::capability::{AuthorityValidity, ExecutionPermit, VerifiedExecutionContext};
-use crate::error::{BindingKind, DenialReason, MissingFact};
+use crate::error::{BindingKind, DenialReason, MissingFact, RepositoryBinding};
 use crate::facts::{
     CredentialLifecycle, CredentialOutcome, CredentialScope, EmergencyStopState, InstallationId,
     PolicyOutcome, RepositoryRef, RevocationStatus, ServiceValidatedFacts, ValidityStatus,
@@ -35,6 +35,8 @@ pub struct ReductionRequest<'a> {
     pub required_plan: Option<&'a crate::plan::ApprovedPlanBinding>,
     /// The requested-operation policy evaluated against the approved definition, if plan-governed.
     pub requested_policy: Option<&'a crate::plan::RequestedOperationPolicy>,
+    /// The Tier-2 repository policy this operation is governed by, if any.
+    pub required_repository: Option<&'a crate::repository::RequiredRepository>,
 }
 
 impl InternalOperationRecord {
@@ -51,6 +53,7 @@ impl InternalOperationRecord {
             credential_required: self.credential_required,
             required_plan: self.required_plan.as_ref(),
             requested_policy: self.requested_policy.as_ref(),
+            required_repository: self.required_repository.as_ref(),
         }
     }
 }
@@ -194,6 +197,69 @@ pub fn reduce(req: &ReductionRequest<'_>, facts: &ServiceValidatedFacts) -> Disp
     } else {
         None
     };
+    // Tier-2 repository enforcement — ONLY for a repository-governed operation. The verified baseline
+    // fact must be present and satisfy the operation's required repository policy EXACTLY (identity,
+    // root, commit, branch, cleanliness, divergence, tracking, freshness, submodule). The policy is
+    // folded into the fingerprint, so a fact/policy for another repository yields a fingerprint mismatch.
+    let repository_fact = if let Some(required) = req.required_repository {
+        let fact = match &facts.repository {
+            Some(f) => f,
+            None => return Disposition::Denied(DenialReason::MissingFact(MissingFact::Repository)),
+        };
+        // Fact-binding checks — the fact must be bound to THIS exact operation, so a baseline verified
+        // for one operation can never be replayed through a fact bound to another. Checked BEFORE the
+        // repository policy. Each dimension has its own distinct, payload-free refusal.
+        if fact.project() != &req.binding.project {
+            return Disposition::Denied(DenialReason::RepositoryFactMismatch(
+                RepositoryBinding::Project,
+            ));
+        }
+        if fact.environment() != &req.binding.environment {
+            return Disposition::Denied(DenialReason::RepositoryFactMismatch(
+                RepositoryBinding::Environment,
+            ));
+        }
+        if fact.phase() != &req.binding.phase {
+            return Disposition::Denied(DenialReason::RepositoryFactMismatch(
+                RepositoryBinding::Phase,
+            ));
+        }
+        if fact.plan_binding() != req.required_plan {
+            return Disposition::Denied(DenialReason::RepositoryFactMismatch(
+                RepositoryBinding::Plan,
+            ));
+        }
+        if fact.operation() != req.operation_ref {
+            return Disposition::Denied(DenialReason::RepositoryFactMismatch(
+                RepositoryBinding::Operation,
+            ));
+        }
+        if fact.fingerprint() != &req.binding.fingerprint {
+            return Disposition::Denied(DenialReason::RepositoryFactMismatch(
+                RepositoryBinding::Fingerprint,
+            ));
+        }
+        // Fact↔baseline consistency: the cached generation/freshness must equal the embedded baseline's
+        // (identity and every other baseline field are re-checked by satisfies() below).
+        if fact.generation() != fact.baseline().generation() {
+            return Disposition::Denied(DenialReason::RepositoryFactMismatch(
+                RepositoryBinding::Generation,
+            ));
+        }
+        if fact.freshness() != fact.baseline().freshness() {
+            return Disposition::Denied(DenialReason::RepositoryFactMismatch(
+                RepositoryBinding::Freshness,
+            ));
+        }
+        // Only after the fact is proven bound to this operation may the baseline be evaluated against the
+        // required repository policy (identity/root/commit/branch/cleanliness/divergence/freshness/submodule).
+        if let Err(refusal) = fact.baseline().satisfies(required) {
+            return Disposition::Denied(DenialReason::RepositoryPolicyRefused(refusal));
+        }
+        Some(fact)
+    } else {
+        None
+    };
     if project.project != req.binding.project {
         return Disposition::Denied(DenialReason::Mismatch(BindingKind::Project));
     }
@@ -290,6 +356,11 @@ pub fn reduce(req: &ReductionRequest<'_>, facts: &ServiceValidatedFacts) -> Disp
         approved_plan_status: plan_fact.map(crate::plan::ValidatedApprovedPlan::status),
         approved_plan_status_revision: plan_fact
             .map(crate::plan::ValidatedApprovedPlan::status_revision),
+        repository_baseline: repository_fact.map(|f| f.baseline().clone()),
+        repository_generation: repository_fact
+            .map(crate::repository::ValidatedRepositoryFact::generation),
+        repository_freshness: repository_fact
+            .map(crate::repository::ValidatedRepositoryFact::freshness),
         session: session.session.clone(),
         process_session: process.session.clone(),
         executable: executable.identity.clone(),

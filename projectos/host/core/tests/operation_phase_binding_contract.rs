@@ -64,6 +64,7 @@ fn full_facts(b: &OperationBinding) -> ServiceValidatedFacts {
     ServiceValidatedFacts {
         phase: Some(b.phase.clone()),
         approved_plan: None,
+        repository: None,
         session: Some(ValidatedSession {
             session: sid.clone(),
         }),

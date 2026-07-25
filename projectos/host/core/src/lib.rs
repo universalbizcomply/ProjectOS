@@ -39,6 +39,7 @@ pub mod operation;
 pub mod phase;
 pub mod plan;
 pub mod reducer;
+pub mod repository;
 pub mod storage;
 
 pub use approval::{ApprovalOutcome, OwnerPresenceVerifier, VerifiedApproval};
@@ -46,7 +47,8 @@ pub use capability::{
     AuthorityValidity, ContextComparison, ContextField, ExecutionPermit, VerifiedExecutionContext,
 };
 pub use error::{
-    BindingKind, DenialReason, MissingFact, RecordError, RevocationReason, TransitionError,
+    BindingKind, DenialReason, MissingFact, RecordError, RepositoryBinding, RevocationReason,
+    TransitionError,
 };
 pub use facts::{
     validate_bounded_id, ApprovalRecordId, AuthoritySnapshot, CredentialLifecycle,
@@ -80,6 +82,12 @@ pub use plan::{
 };
 pub use plan::{phase_definition_digest_hex, validate_durable_plan};
 pub use reducer::{reduce, Disposition, ReductionRequest};
+pub use repository::{
+    fold_repository_fingerprint, is_valid_oid, verify_repository_baseline, BranchPolicy,
+    BranchState, DivergencePolicy, GitRepositoryObservation, RepositoryError, RepositoryFreshness,
+    RequiredFreshness, RequiredRepository, ValidatedRepositoryFact, VerifiedRepositoryBaseline,
+    VerifiedRepositoryIdentity,
+};
 pub use storage::{
     ApprovalRecordReader, CredentialMetadataReader, EmergencyStopReader, OperationRecordRepository,
     ProjectRegistryReader, TrustPolicyReader,

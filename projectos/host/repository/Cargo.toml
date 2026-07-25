@@ -1,0 +1,29 @@
+[package]
+name = "projectos-host-repository"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Non-authoritative local repository adapter. Runs a CLOSED ALLOWLIST of READ-ONLY Git commands via direct std::process (no shell, no arbitrary args, no aliases), under a canonicalized trusted root, with a bounded per-command timeout, bounded stdout/stderr, and structured porcelain-v2/OID parsing, producing ONLY an untrusted projectos_host_core::GitRepositoryObservation. It mints NO authority: VerifiedRepositoryIdentity/Baseline come solely from core::verify_repository_baseline. NO fetch/pull/push/mutation/config-write; NO network; NO product-repository access (tests use disposable temporary repositories only). EXECUTION_READY stays false; installation authority stays NotAuthorised."
+license = "UNLICENSED"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+# TEST-ONLY fake Git executable driving the adapter's process-boundary fixtures (timeout / overflow /
+# env-hardening). Gated on `test-fixtures`; never built in a production graph.
+[[bin]]
+name = "pos-git-fixture"
+path = "src/bin/pos_git_fixture.rs"
+required-features = ["test-fixtures"]
+
+[features]
+# Test-only fixture constructors (fake/short-timeout Git executable). Non-default; a live graph never
+# enables it, so production observation always runs one verified absolute executable.
+test-fixtures = []
+
+[dependencies]
+projectos-host-core = { path = "../core" }
+thiserror = "1"
+
+[dev-dependencies]
+projectos-host-core = { path = "../core", features = ["test-fixtures"] }

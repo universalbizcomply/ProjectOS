@@ -101,6 +101,38 @@ pub enum DenialReason {
     /// The requested operation violated the approved plan definition (scope / path boundary / allowed
     /// or prohibited action / dependency / predecessor). The precise cause is carried, distinctly.
     PlanPolicyRefused(crate::plan::PlanPolicyRefusal),
+    /// The verified repository baseline did not satisfy the operation's approved repository policy
+    /// (identity / root / commit / branch / cleanliness / divergence / freshness / submodule). The
+    /// precise cause is carried, distinctly and payload-free.
+    RepositoryPolicyRefused(crate::repository::RepositoryError),
+    /// The operation-bound repository fact was not bound to THIS operation, or was inconsistent with its
+    /// own embedded baseline. The precise binding dimension is carried, distinctly and payload-free. This
+    /// is checked BEFORE the repository policy, so a baseline verified for one operation can never be
+    /// replayed through a fact bound to another.
+    RepositoryFactMismatch(RepositoryBinding),
+}
+
+/// The binding dimension on which an operation-bound repository fact failed. Every variant is a
+/// fail-closed refusal with no free-text payload.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum RepositoryBinding {
+    /// The fact's project did not match the operation.
+    Project,
+    /// The fact's environment did not match the operation.
+    Environment,
+    /// The fact's phase identity did not match the operation.
+    Phase,
+    /// The fact's approved-plan binding did not match the operation's required plan.
+    Plan,
+    /// The fact's operation reference did not match the operation.
+    Operation,
+    /// The fact's bound fingerprint did not match the operation's fingerprint.
+    Fingerprint,
+    /// The fact's cached generation did not match its embedded baseline.
+    Generation,
+    /// The fact's cached freshness did not match its embedded baseline.
+    Freshness,
 }
 
 /// The category of a missing verified fact.
@@ -109,6 +141,8 @@ pub enum DenialReason {
 pub enum MissingFact {
     /// Validated approved-plan fact (a plan-governed operation had no active approved plan).
     ApprovedPlan,
+    /// Verified repository baseline (a repository-governed operation had no repository fact).
+    Repository,
     /// Validated phase-binding proof (the facts were not bound to any phase).
     Phase,
     /// Validated process identity.

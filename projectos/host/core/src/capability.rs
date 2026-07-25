@@ -61,6 +61,14 @@ pub enum ContextField {
     ApprovedPlanStatus,
     /// Approved-plan status revision changed (a later status mutation).
     ApprovedPlanStatusRevision,
+    /// Repository identity changed (root/common-dir/project).
+    RepositoryIdentity,
+    /// Repository baseline changed (commit/branch/cleanliness/divergence/submodule).
+    RepositoryBaseline,
+    /// Repository observation generation changed.
+    RepositoryGeneration,
+    /// Repository freshness classification changed.
+    RepositoryFreshness,
     /// Authenticated session changed.
     Session,
     /// Process binding changed.
@@ -124,6 +132,9 @@ pub struct VerifiedExecutionContext {
     pub(crate) approved_plan: Option<crate::plan::ApprovedPlanBinding>,
     pub(crate) approved_plan_status: Option<crate::plan::ApprovedPlanStatus>,
     pub(crate) approved_plan_status_revision: Option<u64>,
+    pub(crate) repository_baseline: Option<crate::repository::VerifiedRepositoryBaseline>,
+    pub(crate) repository_generation: Option<u64>,
+    pub(crate) repository_freshness: Option<crate::repository::RepositoryFreshness>,
     pub(crate) session: SessionId,
     pub(crate) process_session: SessionId,
     pub(crate) executable: ExecutableIdentity,
@@ -249,7 +260,7 @@ impl VerifiedExecutionContext {
     #[must_use]
     pub fn compare(&self, other: &VerifiedExecutionContext) -> ContextComparison {
         use ContextField as F;
-        let checks: [(bool, F); 22] = [
+        let checks: [(bool, F); 26] = [
             (self.phase == other.phase, F::Phase),
             (self.approved_plan == other.approved_plan, F::ApprovedPlan),
             (
@@ -259,6 +270,23 @@ impl VerifiedExecutionContext {
             (
                 self.approved_plan_status_revision == other.approved_plan_status_revision,
                 F::ApprovedPlanStatusRevision,
+            ),
+            (
+                self.repository_baseline.as_ref().map(|b| b.identity())
+                    == other.repository_baseline.as_ref().map(|b| b.identity()),
+                F::RepositoryIdentity,
+            ),
+            (
+                self.repository_baseline == other.repository_baseline,
+                F::RepositoryBaseline,
+            ),
+            (
+                self.repository_generation == other.repository_generation,
+                F::RepositoryGeneration,
+            ),
+            (
+                self.repository_freshness == other.repository_freshness,
+                F::RepositoryFreshness,
             ),
             (self.session == other.session, F::Session),
             (self.process_session == other.process_session, F::Process),
@@ -440,6 +468,9 @@ mod tests {
             approved_plan: Some(binding),
             approved_plan_status: Some(ApprovedPlanStatus::Active),
             approved_plan_status_revision: Some(0),
+            repository_baseline: None,
+            repository_generation: None,
+            repository_freshness: None,
             session: SessionId::new("s"),
             process_session: SessionId::new("s"),
             executable: ExecutableIdentity::new("e"),

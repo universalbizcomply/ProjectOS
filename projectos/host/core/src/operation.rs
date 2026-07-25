@@ -205,6 +205,10 @@ pub struct InternalOperationRecord {
     /// The requested-operation policy (action/scope/paths/deps/preds) evaluated against the approved
     /// definition. Present iff `required_plan` is set. Folded into the fingerprint.
     pub requested_policy: Option<crate::plan::RequestedOperationPolicy>,
+    /// The Tier-2 repository policy this operation is GOVERNED by. `None` = not repository-governed (the
+    /// reducer applies no repository check). Set once by [`InternalOperationRecord::bind_repository`],
+    /// immutable thereafter, and folded into the fingerprint.
+    pub required_repository: Option<crate::repository::RequiredRepository>,
 }
 
 impl InternalOperationRecord {
@@ -255,6 +259,7 @@ impl InternalOperationRecord {
             evidence_refs: EvidenceReferences::new(),
             required_plan: None,
             requested_policy: None,
+            required_repository: None,
         }
     }
 
@@ -276,6 +281,18 @@ impl InternalOperationRecord {
         );
         self.required_plan = Some(binding);
         self.requested_policy = Some(requested_policy);
+        self
+    }
+
+    /// Bind this operation to a Tier-2 REPOSITORY policy, CONSUMING the record. The policy is folded into
+    /// the operation fingerprint (so a different repository requirement yields a different fingerprint,
+    /// and approval — bound by fingerprint — is transitively repository-bound) and becomes immutable.
+    /// Must be called at creation before any transition; there is no setter to replace it after approval.
+    #[must_use]
+    pub fn bind_repository(mut self, required: crate::repository::RequiredRepository) -> Self {
+        self.binding.fingerprint =
+            crate::repository::fold_repository_fingerprint(&self.binding.fingerprint, &required);
+        self.required_repository = Some(required);
         self
     }
 

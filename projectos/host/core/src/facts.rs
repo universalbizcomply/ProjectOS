@@ -426,6 +426,11 @@ pub struct ServiceValidatedFacts {
     /// plan record. `None` by default; for a plan-governed operation the reducer denies unless this is
     /// present, active and bound to the operation's required approved plan.
     pub approved_plan: Option<crate::plan::ValidatedApprovedPlan>,
+    /// The operation-bound repository fact. `None` by default; for a repository-governed operation the
+    /// reducer denies unless this is present, bound to THIS operation (project/environment/phase/plan/
+    /// operation-ref/fingerprint), consistent with its embedded baseline (generation/freshness), and the
+    /// baseline satisfies the operation's required repository policy.
+    pub repository: Option<crate::repository::ValidatedRepositoryFact>,
     /// Validated authenticated session.
     pub session: Option<ValidatedSession>,
     /// Validated client process.
