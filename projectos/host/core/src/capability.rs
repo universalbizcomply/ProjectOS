@@ -75,6 +75,24 @@ pub enum ContextField {
     OwnerPresenceGeneration,
     /// Owner-presence proof validity boundary changed (expiry moved).
     OwnerPresenceValidUntil,
+    /// Elevation proof identity/level changed (a different elevation proof).
+    ElevationProof,
+    /// Elevation proof generation changed.
+    ElevationGeneration,
+    /// Elevation proof validity boundary changed (expiry moved).
+    ElevationValidUntil,
+    /// Elevation trusted-clock provider identity changed (provider substitution).
+    ElevationProvider,
+    /// Elevation provider epoch changed (provider restart).
+    ElevationEpoch,
+    /// Elevation-bound process identity (pid + creation tick) changed (a different or restarted process).
+    ElevationProcess,
+    /// Elevation VERIFIER identity changed (verifier substitution — distinct from the clock provider).
+    ElevationVerifier,
+    /// Elevation verifier epoch changed (verifier restart).
+    ElevationVerifierEpoch,
+    /// Elevation-bound authenticated session changed (a fact from another session).
+    ElevationSession,
     /// Authenticated session changed.
     Session,
     /// Process binding changed.
@@ -148,6 +166,19 @@ pub struct VerifiedExecutionContext {
     /// permit temporal revalidation to reject a reading from a different provider/epoch.
     pub(crate) owner_presence_provider: Option<String>,
     pub(crate) owner_presence_epoch: Option<u64>,
+    pub(crate) elevation_proof: Option<crate::elevation::VerifiedElevation>,
+    pub(crate) elevation_generation: Option<u64>,
+    pub(crate) elevation_valid_until: Option<u64>,
+    /// The trusted-clock provider identity + epoch the elevation proof was established under.
+    pub(crate) elevation_provider: Option<String>,
+    pub(crate) elevation_epoch: Option<u64>,
+    /// The elevation-bound process identity (pid + creation tick).
+    pub(crate) elevation_process: Option<(u32, u64)>,
+    /// The elevation VERIFIER identity + epoch (distinct from the clock provider).
+    pub(crate) elevation_verifier: Option<String>,
+    pub(crate) elevation_verifier_epoch: Option<u64>,
+    /// The authenticated session the elevation proof was verified under.
+    pub(crate) elevation_session: Option<SessionId>,
     pub(crate) session: SessionId,
     pub(crate) process_session: SessionId,
     pub(crate) executable: ExecutableIdentity,
@@ -273,7 +304,7 @@ impl VerifiedExecutionContext {
     #[must_use]
     pub fn compare(&self, other: &VerifiedExecutionContext) -> ContextComparison {
         use ContextField as F;
-        let checks: [(bool, F); 29] = [
+        let checks: [(bool, F); 38] = [
             (self.phase == other.phase, F::Phase),
             (self.approved_plan == other.approved_plan, F::ApprovedPlan),
             (
@@ -312,6 +343,42 @@ impl VerifiedExecutionContext {
             (
                 self.owner_presence_valid_until == other.owner_presence_valid_until,
                 F::OwnerPresenceValidUntil,
+            ),
+            (
+                self.elevation_proof == other.elevation_proof,
+                F::ElevationProof,
+            ),
+            (
+                self.elevation_generation == other.elevation_generation,
+                F::ElevationGeneration,
+            ),
+            (
+                self.elevation_valid_until == other.elevation_valid_until,
+                F::ElevationValidUntil,
+            ),
+            (
+                self.elevation_provider == other.elevation_provider,
+                F::ElevationProvider,
+            ),
+            (
+                self.elevation_epoch == other.elevation_epoch,
+                F::ElevationEpoch,
+            ),
+            (
+                self.elevation_process == other.elevation_process,
+                F::ElevationProcess,
+            ),
+            (
+                self.elevation_verifier == other.elevation_verifier,
+                F::ElevationVerifier,
+            ),
+            (
+                self.elevation_verifier_epoch == other.elevation_verifier_epoch,
+                F::ElevationVerifierEpoch,
+            ),
+            (
+                self.elevation_session == other.elevation_session,
+                F::ElevationSession,
             ),
             (self.session == other.session, F::Session),
             (self.process_session == other.process_session, F::Process),
@@ -415,18 +482,31 @@ impl ExecutionPermit {
         if !self.context.compare(current).is_match() {
             return false;
         }
-        match (
+        let now = clock.read_current();
+        // Owner-presence lease (where present).
+        if let (Some(valid_until), Some(provider), Some(epoch)) = (
             self.context.owner_presence_valid_until,
             &self.context.owner_presence_provider,
             self.context.owner_presence_epoch,
         ) {
-            (Some(valid_until), Some(provider), Some(epoch)) => {
-                let now = clock.read_current();
-                now.provider_id() == provider && now.epoch() == epoch && now.reading() < valid_until
+            if now.provider_id() != provider || now.epoch() != epoch || now.reading() >= valid_until
+            {
+                return false;
             }
-            // No owner-presence lease on this permit → no temporal constraint.
-            _ => true,
         }
+        // Elevation lease (where present) — same sealed-provider model: same provider + epoch, still
+        // within `elevation_valid_until`.
+        if let (Some(valid_until), Some(provider), Some(epoch)) = (
+            self.context.elevation_valid_until,
+            &self.context.elevation_provider,
+            self.context.elevation_epoch,
+        ) {
+            if now.provider_id() != provider || now.epoch() != epoch || now.reading() >= valid_until
+            {
+                return false;
+            }
+        }
+        true
     }
 
     /// Convenience: the bound project.
@@ -533,6 +613,15 @@ mod tests {
             owner_presence_valid_until: None,
             owner_presence_provider: None,
             owner_presence_epoch: None,
+            elevation_proof: None,
+            elevation_generation: None,
+            elevation_valid_until: None,
+            elevation_provider: None,
+            elevation_epoch: None,
+            elevation_process: None,
+            elevation_verifier: None,
+            elevation_verifier_epoch: None,
+            elevation_session: None,
             session: SessionId::new("s"),
             process_session: SessionId::new("s"),
             executable: ExecutableIdentity::new("e"),

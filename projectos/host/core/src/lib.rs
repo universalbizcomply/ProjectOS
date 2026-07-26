@@ -33,6 +33,7 @@
 pub mod approval;
 pub mod authority_time;
 pub mod capability;
+pub mod elevation;
 pub mod error;
 pub mod facts;
 pub mod observation;
@@ -51,9 +52,15 @@ pub use authority_time::{AuthorityTimeError, TrustedClock, VerifiedAuthorityTime
 pub use capability::{
     AuthorityValidity, ContextComparison, ContextField, ExecutionPermit, VerifiedExecutionContext,
 };
+#[cfg(any(test, feature = "test-fixtures"))]
+pub use elevation::FixtureElevationVerifier;
+pub use elevation::{
+    fold_elevation_fingerprint, ElevationError, ElevationLevel, ElevationObservation,
+    ElevationVerifier, RequiredElevation, ValidatedElevationFact, VerifiedElevation,
+};
 pub use error::{
-    BindingKind, DenialReason, MissingFact, OwnerPresenceBinding, RecordError, RepositoryBinding,
-    RevocationReason, TransitionError,
+    BindingKind, DenialReason, ElevationBinding, MissingFact, OwnerPresenceBinding, RecordError,
+    RepositoryBinding, RevocationReason, TransitionError,
 };
 pub use facts::{
     validate_bounded_id, ApprovalRecordId, AuthoritySnapshot, CredentialLifecycle,

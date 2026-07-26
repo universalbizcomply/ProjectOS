@@ -156,6 +156,10 @@ impl VerifiedOwnerPresence {
     pub(crate) fn epoch(&self) -> u64 {
         self.epoch
     }
+    /// The opaque proof digest (crate-internal joint-binding key for the elevation fact).
+    pub(crate) fn proof_digest(&self) -> [u8; 32] {
+        self.proof_digest
+    }
 
     /// Re-check this ALREADY-VERIFIED presence against a required policy. A proof verified for one
     /// policy fails when presented to an operation requiring a different one. Fail closed.
@@ -323,6 +327,11 @@ impl ValidatedOwnerPresenceFact {
     /// The verified presence (crate-internal; re-checked against the required policy by the reducer).
     pub(crate) fn presence(&self) -> &VerifiedOwnerPresence {
         &self.presence
+    }
+    /// The embedded proof digest — the joint-binding key an elevation fact records so an elevation proof
+    /// cannot be combined with an owner-presence proof from a different context.
+    pub(crate) fn presence_proof_digest(&self) -> [u8; 32] {
+        self.presence.proof_digest()
     }
     pub(crate) fn project(&self) -> &ProjectId {
         &self.project

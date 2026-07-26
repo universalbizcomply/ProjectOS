@@ -214,6 +214,11 @@ pub struct InternalOperationRecord {
     /// [`InternalOperationRecord::bind_owner_presence`], immutable thereafter, and folded into the
     /// fingerprint (so changing the requirement invalidates prior approval and permit authority).
     pub required_owner_presence: Option<crate::owner_presence::RequiredOwnerPresence>,
+    /// The elevation policy this operation is GOVERNED by. `None` = elevation not required (the reducer
+    /// applies no elevation check). Set once by [`InternalOperationRecord::bind_elevation`], immutable
+    /// thereafter, and folded into the fingerprint (so changing the requirement invalidates prior approval
+    /// and permit authority).
+    pub required_elevation: Option<crate::elevation::RequiredElevation>,
 }
 
 impl InternalOperationRecord {
@@ -266,6 +271,7 @@ impl InternalOperationRecord {
             requested_policy: None,
             required_repository: None,
             required_owner_presence: None,
+            required_elevation: None,
         }
     }
 
@@ -316,6 +322,19 @@ impl InternalOperationRecord {
             &required,
         );
         self.required_owner_presence = Some(required);
+        self
+    }
+
+    /// Bind this operation to an ELEVATION policy, CONSUMING the record. The requirement (level + minimum
+    /// generation) is folded into the operation fingerprint (so a different elevation requirement yields a
+    /// different fingerprint, and approval — bound by fingerprint — is transitively elevation-policy bound)
+    /// and becomes immutable. The expected process identity is carried but NOT folded (a runtime binding).
+    /// Must be called at creation before any transition.
+    #[must_use]
+    pub fn bind_elevation(mut self, required: crate::elevation::RequiredElevation) -> Self {
+        self.binding.fingerprint =
+            crate::elevation::fold_elevation_fingerprint(&self.binding.fingerprint, &required);
+        self.required_elevation = Some(required);
         self
     }
 

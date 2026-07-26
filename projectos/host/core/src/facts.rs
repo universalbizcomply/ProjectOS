@@ -436,6 +436,11 @@ pub struct ServiceValidatedFacts {
     /// operation, consistent with its embedded proof, satisfying the required policy, and — via the
     /// injected trusted clock — still current.
     pub owner_presence: Option<crate::owner_presence::ValidatedOwnerPresenceFact>,
+    /// The operation-bound elevation fact (DISTINCT from `owner_presence`, `approval` and effect
+    /// authority). `None` by default; for an elevation-governed operation the reducer denies unless this
+    /// is present, bound to THIS operation and process, consistent with its embedded proof, satisfying the
+    /// required level/generation policy, and — via the injected trusted clock — still current.
+    pub elevation: Option<crate::elevation::ValidatedElevationFact>,
     /// Validated authenticated session.
     pub session: Option<ValidatedSession>,
     /// Validated client process.

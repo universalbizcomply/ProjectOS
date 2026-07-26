@@ -133,6 +133,7 @@ fn full_facts_with(
         approved_plan: None,
         repository: fact,
         owner_presence: None,
+        elevation: None,
         session: Some(ValidatedSession {
             session: sid.clone(),
         }),

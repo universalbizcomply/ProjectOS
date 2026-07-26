@@ -49,6 +49,7 @@ fn full_facts() -> ServiceValidatedFacts {
         approved_plan: None,
         repository: None,
         owner_presence: None,
+        elevation: None,
         session: Some(ValidatedSession {
             session: sid.clone(),
         }),

@@ -163,6 +163,7 @@ fn facts(
         approved_plan: None,
         repository: Some(repo),
         owner_presence: Some(presence_fact),
+        elevation: None,
         session: Some(ValidatedSession {
             session: sid.clone(),
         }),

@@ -78,6 +78,7 @@ fn full_facts(fact: Option<ValidatedApprovedPlan>) -> ServiceValidatedFacts {
         approved_plan: fact,
         repository: None,
         owner_presence: None,
+        elevation: None,
         session: Some(ValidatedSession {
             session: sid.clone(),
         }),

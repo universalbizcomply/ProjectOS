@@ -7,7 +7,8 @@
 use crate::approval::{ApprovalOutcome, VerifiedApproval};
 use crate::capability::{AuthorityValidity, ExecutionPermit, VerifiedExecutionContext};
 use crate::error::{
-    BindingKind, DenialReason, MissingFact, OwnerPresenceBinding, RepositoryBinding,
+    BindingKind, DenialReason, ElevationBinding, MissingFact, OwnerPresenceBinding,
+    RepositoryBinding,
 };
 use crate::facts::{
     CredentialLifecycle, CredentialOutcome, CredentialScope, EmergencyStopState, InstallationId,
@@ -41,10 +42,16 @@ pub struct ReductionRequest<'a> {
     pub required_repository: Option<&'a crate::repository::RequiredRepository>,
     /// The owner-presence policy this operation is governed by, if any.
     pub required_owner_presence: Option<&'a crate::owner_presence::RequiredOwnerPresence>,
+    /// The elevation policy this operation is governed by, if any.
+    pub required_elevation: Option<&'a crate::elevation::RequiredElevation>,
     /// The injected trusted-clock PROVIDER. Owner-presence evaluation reads the CURRENT time from this
     /// provider (never a caller-supplied value), so a retained historical reading cannot be replayed.
     /// `None` unless supplied via [`InternalOperationRecord::to_request_with_clock`].
     pub authority_clock: Option<&'a dyn crate::authority_time::TrustedClock>,
+    /// The injected ELEVATION VERIFIER — the sealed authority whose identity + epoch the reducer compares
+    /// against the one that attested the elevation proof (DISTINCT from the trusted clock). `None` unless
+    /// supplied via [`InternalOperationRecord::to_request_with_clock_and_verifier`].
+    pub elevation_verifier: Option<&'a dyn crate::elevation::ElevationVerifier>,
 }
 
 impl InternalOperationRecord {
@@ -63,7 +70,9 @@ impl InternalOperationRecord {
             requested_policy: self.requested_policy.as_ref(),
             required_repository: self.required_repository.as_ref(),
             required_owner_presence: self.required_owner_presence.as_ref(),
+            required_elevation: self.required_elevation.as_ref(),
             authority_clock: None,
+            elevation_verifier: None,
         }
     }
 
@@ -76,6 +85,22 @@ impl InternalOperationRecord {
     ) -> ReductionRequest<'a> {
         ReductionRequest {
             authority_clock: Some(clock),
+            ..self.to_request()
+        }
+    }
+
+    /// Borrow this record as a reduction request WITH both an injected trusted-clock provider and an
+    /// injected sealed elevation verifier, so elevation currentness is evaluated against the CURRENT clock
+    /// reading AND the CURRENT verifier identity/epoch (both distinct authorities).
+    #[must_use]
+    pub fn to_request_with_clock_and_verifier<'a>(
+        &'a self,
+        clock: &'a dyn crate::authority_time::TrustedClock,
+        verifier: &'a dyn crate::elevation::ElevationVerifier,
+    ) -> ReductionRequest<'a> {
+        ReductionRequest {
+            authority_clock: Some(clock),
+            elevation_verifier: Some(verifier),
             ..self.to_request()
         }
     }
@@ -381,6 +406,144 @@ pub fn reduce(req: &ReductionRequest<'_>, facts: &ServiceValidatedFacts) -> Disp
     } else {
         None
     };
+    // Elevation enforcement — ONLY for an elevation-governed operation. DISTINCT from owner presence,
+    // approval and effect authority. The operation-bound fact must be present, bound to THIS exact
+    // operation (project/env/phase/plan/op-ref/fingerprint), to the same repository authority state, to
+    // the same owner-presence proof where jointly required, and to the operation's EXPECTED process
+    // (pid + creation tick) — so an elevation proof for process A can never authorise process B or a
+    // restarted process. The proof must satisfy the required level/generation policy and still be current.
+    let elevation_fact = if let Some(required) = req.required_elevation {
+        let fact = match &facts.elevation {
+            Some(f) => f,
+            None => return Disposition::Denied(DenialReason::MissingFact(MissingFact::Elevation)),
+        };
+        if fact.project() != &req.binding.project {
+            return Disposition::Denied(DenialReason::ElevationFactMismatch(
+                ElevationBinding::Project,
+            ));
+        }
+        if fact.environment() != &req.binding.environment {
+            return Disposition::Denied(DenialReason::ElevationFactMismatch(
+                ElevationBinding::Environment,
+            ));
+        }
+        if fact.phase() != &req.binding.phase {
+            return Disposition::Denied(DenialReason::ElevationFactMismatch(
+                ElevationBinding::Phase,
+            ));
+        }
+        if fact.plan_binding() != req.required_plan {
+            return Disposition::Denied(DenialReason::ElevationFactMismatch(
+                ElevationBinding::Plan,
+            ));
+        }
+        if fact.operation() != req.operation_ref {
+            return Disposition::Denied(DenialReason::ElevationFactMismatch(
+                ElevationBinding::Operation,
+            ));
+        }
+        if fact.fingerprint() != &req.binding.fingerprint {
+            return Disposition::Denied(DenialReason::ElevationFactMismatch(
+                ElevationBinding::Fingerprint,
+            ));
+        }
+        let operation_repository_binding =
+            repository_fact.map(crate::repository::ValidatedRepositoryFact::authority_binding);
+        if fact.repository_binding() != operation_repository_binding.as_ref() {
+            return Disposition::Denied(DenialReason::ElevationFactMismatch(
+                ElevationBinding::RepositoryBaseline,
+            ));
+        }
+        // Joint owner-presence binding: where the operation ALSO requires owner presence, the elevation
+        // fact must be bound to the SAME owner-presence proof (both `None` when owner presence is not
+        // required) — so an elevation proof from one context cannot be combined with owner presence from
+        // another.
+        let operation_presence_binding = owner_presence_fact
+            .map(crate::owner_presence::ValidatedOwnerPresenceFact::presence_proof_digest);
+        if fact.owner_presence_binding() != operation_presence_binding {
+            return Disposition::Denied(DenialReason::ElevationFactMismatch(
+                ElevationBinding::OwnerPresence,
+            ));
+        }
+        // SESSION binding: the proof must have been verified under the SAME authenticated session the
+        // operation runs in. A fact from session S1 is refused in session S2 even when project, process,
+        // repository, operation and level all match — so it cannot be reused to mint a fresh permit in
+        // another session. Checked BEFORE the policy.
+        if fact.elevation().session() != &session.session {
+            return Disposition::Denied(DenialReason::ElevationFactMismatch(
+                ElevationBinding::Session,
+            ));
+        }
+        // PROCESS-identity binding: the elevated process the fact was minted for must be the operation's
+        // expected process. A different pid, or the same pid after a restart (new creation tick), fails.
+        if fact.elevation().pid() != required.expected_pid
+            || fact.elevation().creation_tick() != required.expected_creation_tick
+        {
+            return Disposition::Denied(DenialReason::ElevationFactMismatch(
+                ElevationBinding::Process,
+            ));
+        }
+        // Fact↔proof consistency.
+        if fact.generation() != fact.elevation().generation() {
+            return Disposition::Denied(DenialReason::ElevationFactMismatch(
+                ElevationBinding::Generation,
+            ));
+        }
+        if fact.valid_until() != fact.elevation().valid_until() {
+            return Disposition::Denied(DenialReason::ElevationFactMismatch(
+                ElevationBinding::ValidUntil,
+            ));
+        }
+        // Policy: only after the fact is proven bound may the proof be evaluated against the required
+        // level/generation.
+        if let Err(refusal) = fact.elevation().satisfies(required) {
+            return Disposition::Denied(DenialReason::ElevationPolicyRefused(refusal));
+        }
+        // TRUSTED TEMPORAL revalidation against the injected clock provider (same sealed model as owner
+        // presence): same provider + epoch the proof was established under, and still current.
+        let now = match req.authority_clock {
+            Some(c) => c.read_current(),
+            None => {
+                return Disposition::Denied(DenialReason::MissingFact(MissingFact::AuthorityTime))
+            }
+        };
+        if now.provider_id() != fact.elevation().provider_id() {
+            return Disposition::Denied(DenialReason::ElevationPolicyRefused(
+                crate::elevation::ElevationError::ProviderMismatch,
+            ));
+        }
+        if now.epoch() != fact.elevation().epoch() {
+            return Disposition::Denied(DenialReason::ElevationPolicyRefused(
+                crate::elevation::ElevationError::EpochMismatch,
+            ));
+        }
+        if now.reading() >= fact.valid_until() {
+            return Disposition::Denied(DenialReason::ElevationPolicyRefused(
+                crate::elevation::ElevationError::Expired,
+            ));
+        }
+        // ELEVATION-VERIFIER revalidation — DISTINCT from the trusted clock (E9B vs E9A). The current
+        // verifier's identity + epoch must match the one that ATTESTED the proof; a substituted verifier
+        // (VerifierMismatch) or a restarted verifier (VerifierEpochMismatch) fails closed. Missing
+        // verifier fails closed. The clock authenticates time; the verifier authenticates the elevation.
+        let verifier = match req.elevation_verifier {
+            Some(v) => v,
+            None => return Disposition::Denied(DenialReason::MissingFact(MissingFact::Elevation)),
+        };
+        if verifier.verifier_id() != fact.elevation().verifier_id() {
+            return Disposition::Denied(DenialReason::ElevationPolicyRefused(
+                crate::elevation::ElevationError::VerifierMismatch,
+            ));
+        }
+        if verifier.verifier_epoch() != fact.elevation().verifier_epoch() {
+            return Disposition::Denied(DenialReason::ElevationPolicyRefused(
+                crate::elevation::ElevationError::VerifierEpochMismatch,
+            ));
+        }
+        Some(fact)
+    } else {
+        None
+    };
     if project.project != req.binding.project {
         return Disposition::Denied(DenialReason::Mismatch(BindingKind::Project));
     }
@@ -490,6 +653,18 @@ pub fn reduce(req: &ReductionRequest<'_>, facts: &ServiceValidatedFacts) -> Disp
         owner_presence_provider: owner_presence_fact
             .map(|f| f.presence().provider_id().to_string()),
         owner_presence_epoch: owner_presence_fact.map(|f| f.presence().epoch()),
+        elevation_proof: elevation_fact.map(|f| f.elevation().clone()),
+        elevation_generation: elevation_fact
+            .map(crate::elevation::ValidatedElevationFact::generation),
+        elevation_valid_until: elevation_fact
+            .map(crate::elevation::ValidatedElevationFact::valid_until),
+        elevation_provider: elevation_fact.map(|f| f.elevation().provider_id().to_string()),
+        elevation_epoch: elevation_fact.map(|f| f.elevation().epoch()),
+        elevation_process: elevation_fact
+            .map(|f| (f.elevation().pid(), f.elevation().creation_tick())),
+        elevation_verifier: elevation_fact.map(|f| f.elevation().verifier_id().to_string()),
+        elevation_verifier_epoch: elevation_fact.map(|f| f.elevation().verifier_epoch()),
+        elevation_session: elevation_fact.map(|f| f.elevation().session().clone()),
         session: session.session.clone(),
         process_session: process.session.clone(),
         executable: executable.identity.clone(),

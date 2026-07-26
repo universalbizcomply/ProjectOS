@@ -121,6 +121,7 @@ fn full_facts(
         approved_plan: None,
         repository: None,
         owner_presence: fact,
+        elevation: None,
         session: Some(ValidatedSession {
             session: sid.clone(),
         }),
