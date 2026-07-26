@@ -44,6 +44,9 @@ pub struct ReductionRequest<'a> {
     pub required_owner_presence: Option<&'a crate::owner_presence::RequiredOwnerPresence>,
     /// The elevation policy this operation is governed by, if any.
     pub required_elevation: Option<&'a crate::elevation::RequiredElevation>,
+    /// The protected-effect policy this operation is governed by, if any. Not a reducer refusal — its
+    /// digest is stamped into the permit context so the effect-grant mint can bind to the exact policy.
+    pub required_effect: Option<&'a crate::effect::RequiredEffect>,
     /// The injected trusted-clock PROVIDER. Owner-presence evaluation reads the CURRENT time from this
     /// provider (never a caller-supplied value), so a retained historical reading cannot be replayed.
     /// `None` unless supplied via [`InternalOperationRecord::to_request_with_clock`].
@@ -71,6 +74,7 @@ impl InternalOperationRecord {
             required_repository: self.required_repository.as_ref(),
             required_owner_presence: self.required_owner_presence.as_ref(),
             required_elevation: self.required_elevation.as_ref(),
+            required_effect: self.required_effect.as_ref(),
             authority_clock: None,
             elevation_verifier: None,
         }
@@ -665,6 +669,25 @@ pub fn reduce(req: &ReductionRequest<'_>, facts: &ServiceValidatedFacts) -> Disp
         elevation_verifier: elevation_fact.map(|f| f.elevation().verifier_id().to_string()),
         elevation_verifier_epoch: elevation_fact.map(|f| f.elevation().verifier_epoch()),
         elevation_session: elevation_fact.map(|f| f.elevation().session().clone()),
+        effect_policy: req
+            .required_effect
+            .map(crate::effect::RequiredEffect::policy_digest),
+        // Canonical upstream authority lease bound — the MINIMUM over every applicable temporal authority
+        // (owner-presence lease, elevation lease, operation-expiry boundary, authority-expiry boundary),
+        // derived only for an effect-governed operation. A grant's validity can never exceed it.
+        authority_lease_bound: req.required_effect.and_then(|_| {
+            crate::effect::AuthorityLeaseBound::derive(&[
+                owner_presence_fact
+                    .map(crate::owner_presence::ValidatedOwnerPresenceFact::valid_until),
+                elevation_fact.map(|f| f.elevation().valid_until()),
+                Some(
+                    authority
+                        .operation_expiry
+                        .map_or(authority.authority_expiry.0, |e| e.0),
+                ),
+                Some(authority.authority_expiry.0),
+            ])
+        }),
         session: session.session.clone(),
         process_session: process.session.clone(),
         executable: executable.identity.clone(),

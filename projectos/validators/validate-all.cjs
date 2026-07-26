@@ -54,7 +54,8 @@ const MODULES = [
   "val-cd-b4-repository-baseline-adapter1a",
   "val-cd-b4-repository-authority-integration1a",
   "val-cd-b4-owner-presence-integration1a",
-  "val-cd-b4-elevation-integration1a"
+  "val-cd-b4-elevation-integration1a",
+  "val-cd-b4-effect-grant-integration1a"
 ];
 let total = 0;
 for (const m of MODULES) {

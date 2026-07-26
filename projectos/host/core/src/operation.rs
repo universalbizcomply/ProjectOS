@@ -219,6 +219,10 @@ pub struct InternalOperationRecord {
     /// thereafter, and folded into the fingerprint (so changing the requirement invalidates prior approval
     /// and permit authority).
     pub required_elevation: Option<crate::elevation::RequiredElevation>,
+    /// The protected-effect policy this operation is governed by. `None` = no protected effect. Set once
+    /// by [`InternalOperationRecord::bind_effect`], immutable thereafter, and folded into the fingerprint
+    /// (so changing the effect family/target/argument invalidates prior approval, permit and grant).
+    pub required_effect: Option<crate::effect::RequiredEffect>,
 }
 
 impl InternalOperationRecord {
@@ -272,6 +276,7 @@ impl InternalOperationRecord {
             required_repository: None,
             required_owner_presence: None,
             required_elevation: None,
+            required_effect: None,
         }
     }
 
@@ -335,6 +340,18 @@ impl InternalOperationRecord {
         self.binding.fingerprint =
             crate::elevation::fold_elevation_fingerprint(&self.binding.fingerprint, &required);
         self.required_elevation = Some(required);
+        self
+    }
+
+    /// Bind this operation to a protected-EFFECT policy, CONSUMING the record. The effect requirement
+    /// (family + target + argument) is folded into the operation fingerprint (so a different effect yields
+    /// a different fingerprint, and approval — bound by fingerprint — is transitively effect-policy bound)
+    /// and becomes immutable. Must be called at creation before any transition.
+    #[must_use]
+    pub fn bind_effect(mut self, required: crate::effect::RequiredEffect) -> Self {
+        self.binding.fingerprint =
+            crate::effect::fold_effect_fingerprint(&self.binding.fingerprint, &required);
+        self.required_effect = Some(required);
         self
     }
 

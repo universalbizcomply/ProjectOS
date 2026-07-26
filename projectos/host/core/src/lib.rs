@@ -33,6 +33,7 @@
 pub mod approval;
 pub mod authority_time;
 pub mod capability;
+pub mod effect;
 pub mod elevation;
 pub mod error;
 pub mod facts;
@@ -49,8 +50,17 @@ pub use approval::{ApprovalOutcome, OwnerPresenceVerifier, VerifiedApproval};
 #[cfg(any(test, feature = "test-fixtures"))]
 pub use authority_time::FixtureClock;
 pub use authority_time::{AuthorityTimeError, TrustedClock, VerifiedAuthorityTime};
+#[cfg(any(test, feature = "test-fixtures"))]
+pub use capability::FixtureDimension;
 pub use capability::{
     AuthorityValidity, ContextComparison, ContextField, ExecutionPermit, VerifiedExecutionContext,
+};
+#[cfg(any(test, feature = "test-fixtures"))]
+pub use effect::{fixture_issuance_key, SyntheticEffectAdapter, SyntheticEffectScript};
+pub use effect::{
+    fold_effect_fingerprint, mint_effect_grant, AuthorityLeaseBound, BoundedEffectGrant,
+    EffectFamily, EffectGrantError, EffectGrantLedger, EffectOutcome, EffectTarget, EffectWitness,
+    IssuanceState, RequiredEffect, RollbackOutcome, RollbackRequirement, RollbackStrategyId,
 };
 #[cfg(any(test, feature = "test-fixtures"))]
 pub use elevation::FixtureElevationVerifier;

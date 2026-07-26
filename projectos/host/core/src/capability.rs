@@ -93,6 +93,10 @@ pub enum ContextField {
     ElevationVerifierEpoch,
     /// Elevation-bound authenticated session changed (a fact from another session).
     ElevationSession,
+    /// Effect policy changed (a different bounded effect family/target/argument/rollback).
+    EffectPolicy,
+    /// Canonical upstream authority lease bound changed (an upstream deadline moved).
+    AuthorityLeaseBound,
     /// Authenticated session changed.
     Session,
     /// Process binding changed.
@@ -129,6 +133,31 @@ pub enum ContextField {
     Approval,
     /// Credential snapshot changed.
     Credential,
+}
+
+/// TEST-ONLY selector naming exactly one binding dimension for [`VerifiedExecutionContext::fixture_take`].
+/// Feature-gated; not reachable from the production graph.
+#[cfg(any(test, feature = "test-fixtures"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FixtureDimension {
+    Project,
+    Environment,
+    Phase,
+    ApprovedPlan,
+    OperationName,
+    Fingerprint,
+    RepositoryBaseline,
+    RepositoryGeneration,
+    Session,
+    Process,
+    OwnerPresence,
+    Elevation,
+    ElevationVerifier,
+    ElevationVerifierEpoch,
+    ElevationClockProvider,
+    ElevationClockEpoch,
+    EffectPolicy,
+    AuthorityLeaseBound,
 }
 
 /// The typed result of a before-use comparison. Fail closed: any change is a `Mismatch`.
@@ -179,6 +208,11 @@ pub struct VerifiedExecutionContext {
     pub(crate) elevation_verifier_epoch: Option<u64>,
     /// The authenticated session the elevation proof was verified under.
     pub(crate) elevation_session: Option<SessionId>,
+    /// The digest of the effect policy this operation is governed by (folded into the fingerprint). An
+    /// effect grant can be minted only for the EXACT policy stamped here. `None` = no protected effect.
+    pub(crate) effect_policy: Option<[u8; 32]>,
+    /// The canonical upstream authority lease bound (minimum over every applicable temporal authority).
+    pub(crate) authority_lease_bound: Option<crate::effect::AuthorityLeaseBound>,
     pub(crate) session: SessionId,
     pub(crate) process_session: SessionId,
     pub(crate) executable: ExecutableIdentity,
@@ -202,6 +236,24 @@ pub struct VerifiedExecutionContext {
 }
 
 impl VerifiedExecutionContext {
+    /// The digest of the effect policy this operation is governed by (crate-internal; read by the
+    /// effect-grant mint to prove the requested effect is the one the operation was fingerprinted with).
+    pub(crate) fn effect_policy(&self) -> Option<[u8; 32]> {
+        self.effect_policy
+    }
+    /// The upstream authority generation an effect grant records for traceability (elevation, else
+    /// owner-presence, else 0).
+    pub(crate) fn effect_generation(&self) -> u64 {
+        self.elevation_generation
+            .or(self.owner_presence_generation)
+            .unwrap_or(0)
+    }
+    /// The canonical upstream authority lease bound (reducer-derived minimum over every applicable
+    /// time-bounded authority). An effect grant's validity can never exceed this.
+    pub(crate) fn authority_lease_bound(&self) -> Option<crate::effect::AuthorityLeaseBound> {
+        self.authority_lease_bound
+    }
+
     /// The authoritative, service-issued phase identity this context is bound to.
     #[must_use]
     pub fn phase(&self) -> &crate::phase::PhaseId {
@@ -282,6 +334,54 @@ impl VerifiedExecutionContext {
     pub fn emergency_state(&self) -> EmergencyStopState {
         self.emergency_state
     }
+
+    /// TEST-ONLY: clone this canonical context but replace EXACTLY ONE binding dimension with the value
+    /// from `other`, leaving every other compared dimension identical. This deliberately creates an
+    /// internally-inconsistent candidate context so the effect-grant mint's per-dimension comparison can be
+    /// tested in isolation (production construction correctly derives dependent fields together; this bypass
+    /// exists ONLY under `test-fixtures`, is not reachable from the production graph, mints no authority).
+    #[cfg(any(test, feature = "test-fixtures"))]
+    #[must_use]
+    pub fn fixture_take(&self, other: &Self, dim: FixtureDimension) -> Self {
+        let mut c = self.clone();
+        match dim {
+            FixtureDimension::Project => c.project = other.project.clone(),
+            FixtureDimension::Environment => c.environment = other.environment.clone(),
+            FixtureDimension::Phase => c.phase = other.phase.clone(),
+            FixtureDimension::ApprovedPlan => c.approved_plan = other.approved_plan.clone(),
+            FixtureDimension::OperationName => c.operation = other.operation.clone(),
+            FixtureDimension::Fingerprint => c.fingerprint = other.fingerprint.clone(),
+            FixtureDimension::RepositoryBaseline => {
+                c.repository_baseline = other.repository_baseline.clone();
+            }
+            FixtureDimension::RepositoryGeneration => {
+                c.repository_generation = other.repository_generation;
+            }
+            FixtureDimension::Session => c.session = other.session.clone(),
+            FixtureDimension::Process => c.elevation_process = other.elevation_process,
+            FixtureDimension::OwnerPresence => {
+                c.owner_presence_proof = other.owner_presence_proof.clone();
+            }
+            FixtureDimension::Elevation => c.elevation_proof = other.elevation_proof.clone(),
+            FixtureDimension::ElevationVerifier => {
+                c.elevation_verifier = other.elevation_verifier.clone();
+            }
+            FixtureDimension::ElevationVerifierEpoch => {
+                c.elevation_verifier_epoch = other.elevation_verifier_epoch;
+            }
+            FixtureDimension::ElevationClockProvider => {
+                c.elevation_provider = other.elevation_provider.clone();
+            }
+            FixtureDimension::ElevationClockEpoch => {
+                c.elevation_epoch = other.elevation_epoch;
+            }
+            FixtureDimension::EffectPolicy => c.effect_policy = other.effect_policy,
+            FixtureDimension::AuthorityLeaseBound => {
+                c.authority_lease_bound = other.authority_lease_bound;
+            }
+        }
+        c
+    }
     /// The emergency-state revision captured at derivation.
     #[must_use]
     pub fn emergency_state_revision(&self) -> EmergencyStateRevision {
@@ -304,7 +404,7 @@ impl VerifiedExecutionContext {
     #[must_use]
     pub fn compare(&self, other: &VerifiedExecutionContext) -> ContextComparison {
         use ContextField as F;
-        let checks: [(bool, F); 38] = [
+        let checks: [(bool, F); 40] = [
             (self.phase == other.phase, F::Phase),
             (self.approved_plan == other.approved_plan, F::ApprovedPlan),
             (
@@ -380,6 +480,11 @@ impl VerifiedExecutionContext {
                 self.elevation_session == other.elevation_session,
                 F::ElevationSession,
             ),
+            (self.effect_policy == other.effect_policy, F::EffectPolicy),
+            (
+                self.authority_lease_bound == other.authority_lease_bound,
+                F::AuthorityLeaseBound,
+            ),
             (self.session == other.session, F::Session),
             (self.process_session == other.process_session, F::Process),
             (self.executable == other.executable, F::Executable),
@@ -450,6 +555,136 @@ impl ExecutionPermit {
     #[must_use]
     pub fn context(&self) -> &VerifiedExecutionContext {
         &self.context
+    }
+
+    /// A canonical, domain-separated digest binding a grant to THIS exact permit's stable AUTHORITY
+    /// IDENTITY. Crate-internal; folded (with the effect policy) into the single-issuance key so two
+    /// permits with distinct authority identity can never share issuance state, and recorded on the grant
+    /// so it can never be paired with a different permit.
+    ///
+    /// # Canonical encoding
+    /// Domain-tag `PROJECTOS:PERMIT-CONTEXT-DIGEST:V2`, then every field in a fixed order with unambiguous
+    /// framing: strings/byte-slices are length-prefixed (`u32` BE length ‖ bytes); every `Option` is
+    /// preceded by a `0x00` absent / `0x01` present tag so `Some("")`, `None`, and a shorter value can
+    /// never collide; integers are fixed-width big-endian.
+    ///
+    /// # Included IDENTITY dimensions (a change → a different issuance key)
+    /// B6 fingerprint, B1 project, B2 environment, B3 phase, B9 session, B15 effect policy, B4
+    /// approved-plan (definition digest ‖ version ‖ reference), B7 repository baseline CONTENT (root ‖
+    /// commit ‖ branch), B10 process (pid ‖ creation tick), B11 owner-presence PROOF digest, B12
+    /// elevation PROOF digest, B14 elevation-verifier IDENTITY.
+    ///
+    /// B5 operation reference is bound TRANSITIVELY, not directly: `InternalOperationRecord::new` folds
+    /// `operation_ref` into the canonical [`crate::phase::PhaseId`] (`PhaseId::mint(…, operation_ref)`),
+    /// which is folded here as `phase.digest()` and again into the fingerprint. There is deliberately NO
+    /// direct `operation_ref` fold — it would be redundant, since two operations differing only in the
+    /// reference already carry different phases, and no context can be constructed whose phase disagrees
+    /// with its operation reference.
+    ///
+    /// # Intentionally EXCLUDED (enforced by [`VerifiedExecutionContext::compare`] at mint + sealed-clock
+    /// currentness at execution; folding them would tie issuance IDENTITY to transient re-authorization
+    /// state and let a benign re-observation mint a SECOND grant, breaking one-grant-per-operation)
+    /// B8 repository generation, B13 clock provider+epoch, B14 verifier EPOCH, B16 authority lease bound,
+    /// and every owner-presence/elevation generation, valid-until, provider and epoch scalar. B17 rollback
+    /// policy is bound through the effect `policy_digest`, the issuance key's second half.
+    pub(crate) fn context_digest(&self) -> [u8; 32] {
+        Self::digest_of(&self.context)
+    }
+
+    /// The canonical V2 digest of a context. Sole implementation; [`ExecutionPermit::context_digest`]
+    /// and the test-only helpers delegate here. The operation reference is NOT an argument: it is
+    /// represented only through the context's phase (into which the record constructor folded it).
+    fn digest_of(c: &VerifiedExecutionContext) -> [u8; 32] {
+        use sha2::{Digest, Sha256};
+        let mut h = Sha256::new();
+        h.update(b"PROJECTOS:PERMIT-CONTEXT-DIGEST:V2");
+        let seg = |h: &mut Sha256, b: &[u8]| {
+            h.update((b.len() as u32).to_be_bytes());
+            h.update(b);
+        };
+        // B6 / B1 / B2 / B3 / B9 — stable string identity (B5 op-ref rides in the phase).
+        seg(&mut h, c.fingerprint.as_str().as_bytes());
+        seg(&mut h, c.project.as_str().as_bytes());
+        seg(&mut h, c.environment.as_str().as_bytes());
+        seg(&mut h, c.phase.digest().as_bytes());
+        seg(&mut h, c.session.as_str().as_bytes());
+        // B15 effect policy.
+        match c.effect_policy {
+            Some(d) => {
+                h.update([1u8]);
+                h.update(d);
+            }
+            None => h.update([0u8]),
+        }
+        // B4 approved-plan identity: definition digest ‖ version ‖ reference.
+        match &c.approved_plan {
+            Some(p) => {
+                h.update([1u8]);
+                h.update(p.digest_bytes());
+                h.update(p.version().0.to_be_bytes());
+                seg(&mut h, p.plan_ref().as_str().as_bytes());
+            }
+            None => h.update([0u8]),
+        }
+        // B7 repository baseline CONTENT (root ‖ commit ‖ branch).
+        match &c.repository_baseline {
+            Some(b) => {
+                h.update([1u8]);
+                h.update(b.fingerprint_material());
+            }
+            None => h.update([0u8]),
+        }
+        // B10 process identity (pid ‖ creation tick).
+        match c.elevation_process {
+            Some((pid, tick)) => {
+                h.update([1u8]);
+                h.update(pid.to_be_bytes());
+                h.update(tick.to_be_bytes());
+            }
+            None => h.update([0u8]),
+        }
+        // B11 owner-presence PROOF identity.
+        match &c.owner_presence_proof {
+            Some(p) => {
+                h.update([1u8]);
+                h.update(p.proof_digest());
+            }
+            None => h.update([0u8]),
+        }
+        // B12 elevation PROOF identity.
+        match &c.elevation_proof {
+            Some(e) => {
+                h.update([1u8]);
+                h.update(e.proof_digest());
+            }
+            None => h.update([0u8]),
+        }
+        // B14 elevation-verifier IDENTITY (epoch intentionally excluded — see doc).
+        match &c.elevation_verifier {
+            Some(v) => {
+                h.update([1u8]);
+                seg(&mut h, v.as_bytes());
+            }
+            None => h.update([0u8]),
+        }
+        h.finalize().into()
+    }
+
+    /// TEST-ONLY observability of the canonical permit-context digest, for digest-isolation proofs.
+    /// Gated behind `test-fixtures`; unavailable in the default/production graph.
+    #[cfg(any(test, feature = "test-fixtures"))]
+    #[must_use]
+    pub fn fixture_context_digest(&self) -> [u8; 32] {
+        self.context_digest()
+    }
+
+    /// TEST-ONLY: digest an ARBITRARY context under THIS permit's operation reference, so a single
+    /// `fixture_take`-swapped field can be isolated in a digest-isolation proof. Gated behind
+    /// `test-fixtures`; unavailable in the default/production graph.
+    #[cfg(any(test, feature = "test-fixtures"))]
+    #[must_use]
+    pub fn fixture_context_digest_with(&self, context: &VerifiedExecutionContext) -> [u8; 32] {
+        Self::digest_of(context)
     }
 
     /// Compare the permit's stored context to a freshly re-derived context. Fail closed.
@@ -622,6 +857,8 @@ mod tests {
             elevation_verifier: None,
             elevation_verifier_epoch: None,
             elevation_session: None,
+            effect_policy: None,
+            authority_lease_bound: None,
             session: SessionId::new("s"),
             process_session: SessionId::new("s"),
             executable: ExecutableIdentity::new("e"),
