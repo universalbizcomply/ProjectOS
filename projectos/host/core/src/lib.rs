@@ -44,6 +44,7 @@ pub mod phase;
 pub mod plan;
 pub mod reducer;
 pub mod repository;
+pub mod runtime_instance;
 pub mod storage;
 
 pub use approval::{ApprovalOutcome, OwnerPresenceVerifier, VerifiedApproval};
@@ -114,6 +115,12 @@ pub use repository::{
     BranchState, DivergencePolicy, GitRepositoryObservation, RepositoryAuthorityBinding,
     RepositoryError, RepositoryFreshness, RequiredFreshness, RequiredRepository,
     ValidatedRepositoryFact, VerifiedRepositoryBaseline, VerifiedRepositoryIdentity,
+};
+#[cfg(any(test, feature = "test-fixtures"))]
+pub use runtime_instance::FixtureRuntimeInstanceVerifier;
+pub use runtime_instance::{
+    HostRole, RuntimeInstanceError, RuntimeInstanceObservation, RuntimeInstanceVerifier,
+    RuntimeSource, ServiceInstanceEvidence, VerifiedRuntimeInstance,
 };
 pub use storage::{
     ApprovalRecordReader, CredentialMetadataReader, EmergencyStopReader, OperationRecordRepository,
