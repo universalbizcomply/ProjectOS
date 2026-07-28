@@ -50,8 +50,11 @@ pub mod storage;
 
 pub use approval::{ApprovalOutcome, OwnerPresenceVerifier, VerifiedApproval};
 #[cfg(any(test, feature = "test-fixtures"))]
-pub use authority_time::FixtureClock;
-pub use authority_time::{AuthorityTimeError, TrustedClock, VerifiedAuthorityTime};
+pub use authority_time::{fixture_bind_production_clock, FixtureClock, FixtureMonotonicTickSource};
+pub use authority_time::{
+    AuthorityTimeError, MonotonicTickSource, ProductionTrustedClock, TickSourceError, TrustedClock,
+    VerifiedAuthorityTime,
+};
 #[cfg(any(test, feature = "test-fixtures"))]
 pub use capability::FixtureDimension;
 pub use capability::{

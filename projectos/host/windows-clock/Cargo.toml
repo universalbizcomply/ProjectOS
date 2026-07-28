@@ -1,0 +1,36 @@
+[package]
+name = "projectos-host-windows-clock"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "UNLICENSED"
+description = "EFFECT-FREE Windows trusted-clock EVIDENCE crate for the future ProjectOS host (CD-B4-PRODUCTION-TRUSTED-CLOCK1A). Supplies a NON-AUTHORITY biased monotonic tick source (GetTickCount64: counts suspend duration, immune to wall-clock adjustment, never regresses) and a per-start process-creation-time lineage seed, implementing the core `MonotonicTickSource` trait so the sealed core `ProductionTrustedClock` — never this crate — mints the opaque `VerifiedAuthorityTime`. It mints NO VerifiedAuthorityTime, implements NO TrustedClock, and creates NO permit, grant, runtime or IPC authority. It resolves NO SID, queries NO SCM, opens NO pipe, installs/starts NO service, mutates NO ProgramData/ACL/registry, performs NO network activity, and reads UTC only as optional redacted reporting evidence (never security currentness). The live monotonic FFI is confined to one gated private module; the default build calls no Windows API. Execution readiness stays false; installation stays NotAuthorised."
+
+# unsafe is REQUIRED only by the live monotonic FFI and is confined to src/clock_ffi.rs.
+[lints.rust]
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+
+[features]
+# LIVE WINDOWS MONOTONIC OBSERVATION: the real GetTickCount64 + GetProcessTimes read. Non-default, so the
+# default build stays the effect-free contract and calls no Windows API. Grants NO authority: acquisition
+# requires a sealed LiveClockObservationCapability with no constructor in any non-fixture graph.
+windows-live-clock = ["dep:windows"]
+# SYNTHETIC TEST FIXTURES: compile-only synthetic capability so tests can exercise the contract with no
+# Windows call. Explicit, non-default, never implied by the live feature.
+test-fixtures = []
+
+[dependencies]
+# The core defines the non-authority `MonotonicTickSource` trait and the sealed `ProductionTrustedClock`.
+# This crate only implements that trait; it pulls NO windows dependency by default.
+projectos-host-core = { path = "../core" }
+
+[target.'cfg(windows)'.dependencies]
+# Minimum monotonic-time + process-creation-time surface only. Optional + feature-gated: linked ONLY under
+# `windows-live-clock`, so the default build pulls no windows dependency. No SID, SCM, pipe, token,
+# registry, ACL or network feature.
+windows = { version = "0.61.3", optional = true, features = [
+    "Win32_Foundation",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+] }

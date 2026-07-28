@@ -21,7 +21,8 @@
 
 use core::fmt;
 
-/// Why a trusted-time reading was rejected. Fail closed; payload-free.
+/// Why a trusted-time reading was rejected. Fail closed; payload-free (no raw provider material, OS
+/// error payload, handle, or epoch-construction input).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum AuthorityTimeError {
@@ -31,6 +32,16 @@ pub enum AuthorityTimeError {
     ProviderMismatch,
     /// The reading came from an earlier provider epoch (provider restart / rollover).
     EpochRegressed,
+    /// The trusted-clock source is unavailable (never live, or permanently poisoned by a prior fault).
+    ClockUnavailable,
+    /// The provider observed shutdown; no further readings are minted.
+    ShutdownObserved,
+    /// The monotonic reading regressed below the last accepted reading.
+    ReadingRegressed,
+    /// The forward jump between readings exceeded the accepted discontinuity bound (suspend/adjust).
+    ClockDiscontinuity,
+    /// A raw tick could not be converted into the bounded reading range.
+    ConversionFailed,
 }
 
 /// An opaque, verified reading from a [`TrustedClock`] — the sole temporal authority value, obtained
@@ -176,6 +187,237 @@ mod fixture {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// Production trusted clock (sealed) + its non-authority monotonic tick source
+// ---------------------------------------------------------------------------------------------
+
+/// Why a raw monotonic tick could not be produced. Fail closed; payload-free.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum TickSourceError {
+    /// The underlying monotonic source is unavailable.
+    Unavailable,
+    /// The OS value could not be converted into a bounded `u64` tick.
+    ConversionFailed,
+}
+
+/// A NON-AUTHORITY source of BIASED monotonic ticks (a `u64` that counts elapsed real time INCLUDING
+/// suspend, is immune to wall-clock adjustment, and never regresses within a live provider lineage). It
+/// supplies EVIDENCE only: it CANNOT mint a [`VerifiedAuthorityTime`], a permit, a grant, or any runtime
+/// / IPC authority — only [`ProductionTrustedClock`] (a sealed [`TrustedClock`]) turns ticks into a
+/// verified reading, stamping the crate-controlled provider identity + per-start epoch. The trait is
+/// deliberately UNSEALED (a tick is evidence, not authority): a fixture or a future Windows source may
+/// implement it; a fake or frozen source is a provisioning defect, never an authority forgery.
+pub trait MonotonicTickSource {
+    /// The current biased monotonic tick, or a fail-closed error.
+    fn tick(&self) -> Result<u64, TickSourceError>;
+    /// A per-provider-start lineage seed (e.g. the host process creation time) folded into the opaque
+    /// provider epoch. A restart yields a different seed → a different epoch → prior authority refused.
+    fn epoch_seed(&self) -> u64;
+    /// Whether the source is still live. `false` after shutdown; a reading is then refused fail-closed.
+    fn is_live(&self) -> bool;
+}
+
+/// The crate-controlled production provider identity. A CONST (identifies the approved implementation and
+/// authority source), never caller-selectable. Distinct lineages are told apart by the opaque epoch.
+const PRODUCTION_CLOCK_PROVIDER_ID: &str = "projectos:production-trusted-clock:v1";
+/// The fail-closed provider identity a poisoned clock reports, so every consumer's currentness check
+/// refuses with `ProviderMismatch` after any fault.
+const POISONED_CLOCK_PROVIDER_ID: &str = "projectos:production-trusted-clock:POISONED";
+
+/// Derive an OPAQUE, non-reconstructable per-start epoch from the lineage seed and a process-unique
+/// nonce. Compared only for EXACT equality (never numeric ordering); an evidence report never exposes the
+/// seed or nonce, so the epoch cannot be reconstructed.
+fn derive_epoch(seed: u64) -> u64 {
+    use core::sync::atomic::{AtomicU64, Ordering};
+    use sha2::{Digest, Sha256};
+    static NONCE: AtomicU64 = AtomicU64::new(1);
+    let nonce = NONCE.fetch_add(1, Ordering::Relaxed);
+    let mut h = Sha256::new();
+    h.update(b"PROJECTOS:CLOCK-EPOCH:V1");
+    h.update(seed.to_be_bytes());
+    h.update(nonce.to_be_bytes());
+    let d: [u8; 32] = h.finalize().into();
+    u64::from_be_bytes(d[0..8].try_into().expect("8 bytes"))
+}
+
+/// A production trusted clock: the sealed [`TrustedClock`] that turns BIASED monotonic ticks from an
+/// injected [`MonotonicTickSource`] into opaque [`VerifiedAuthorityTime`] readings under a crate-assigned
+/// provider identity and a per-start opaque epoch. Monotonic time ALONE controls issue/expiry/staleness;
+/// UTC is never consulted. Any fault (regression, excessive discontinuity, shutdown, conversion failure)
+/// PERMANENTLY poisons the clock: it thereafter reports a distinct `POISONED` provider identity so every
+/// downstream currentness check refuses — fail-closed at the infallible trait boundary. No public
+/// constructor mints authority for a caller; no `Default`, no serde, no `From`, redacted Debug.
+pub struct ProductionTrustedClock<S: MonotonicTickSource> {
+    source: S,
+    epoch: u64,
+    last_reading: core::cell::Cell<u64>,
+    max_forward_jump: u64,
+    poisoned: core::cell::Cell<bool>,
+    /// `!Send + !Sync`: an authority clock must not silently cross a thread boundary.
+    _thread_bound: core::marker::PhantomData<*const ()>,
+}
+
+impl<S: MonotonicTickSource> fmt::Debug for ProductionTrustedClock<S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("ProductionTrustedClock([REDACTED])")
+    }
+}
+
+impl<S: MonotonicTickSource> ProductionTrustedClock<S> {
+    /// Bind a production clock to a monotonic tick source. Crate-internal: only a crate-controlled
+    /// acquisition path (a future host wiring, added by an explicit core change) may call this, so an
+    /// ordinary external caller cannot select the provider identity or epoch. The epoch is derived from
+    /// the source's lineage seed and is opaque.
+    pub(crate) fn bind(source: S, max_forward_jump: u64) -> Self {
+        let epoch = derive_epoch(source.epoch_seed());
+        Self {
+            source,
+            epoch,
+            last_reading: core::cell::Cell::new(0),
+            max_forward_jump,
+            poisoned: core::cell::Cell::new(false),
+            _thread_bound: core::marker::PhantomData,
+        }
+    }
+
+    fn poison(&self) {
+        self.poisoned.set(true);
+    }
+
+    /// The checked read: the real fail-closed logic with a STRUCTURED error. `read_current` (the
+    /// infallible trait method) delegates here and poisons on any error.
+    ///
+    /// # Errors
+    /// [`AuthorityTimeError`] naming the first failed invariant.
+    pub(crate) fn try_read_current(&self) -> Result<VerifiedAuthorityTime, AuthorityTimeError> {
+        if self.poisoned.get() {
+            return Err(AuthorityTimeError::ClockUnavailable);
+        }
+        if !self.source.is_live() {
+            self.poison();
+            return Err(AuthorityTimeError::ShutdownObserved);
+        }
+        let tick = match self.source.tick() {
+            Ok(t) => t,
+            Err(TickSourceError::Unavailable) => {
+                self.poison();
+                return Err(AuthorityTimeError::ClockUnavailable);
+            }
+            Err(TickSourceError::ConversionFailed) => {
+                self.poison();
+                return Err(AuthorityTimeError::ConversionFailed);
+            }
+        };
+        let last = self.last_reading.get();
+        if tick < last {
+            self.poison();
+            return Err(AuthorityTimeError::ReadingRegressed);
+        }
+        if tick - last > self.max_forward_jump && last != 0 {
+            // An excessive forward jump (suspend beyond bound / adjustment) invalidates the lineage.
+            self.poison();
+            return Err(AuthorityTimeError::ClockDiscontinuity);
+        }
+        self.last_reading.set(tick);
+        Ok(VerifiedAuthorityTime::new(
+            PRODUCTION_CLOCK_PROVIDER_ID,
+            self.epoch,
+            tick,
+        ))
+    }
+}
+
+impl<S: MonotonicTickSource> sealed::Sealed for ProductionTrustedClock<S> {}
+impl<S: MonotonicTickSource> TrustedClock for ProductionTrustedClock<S> {
+    fn read_current(&self) -> VerifiedAuthorityTime {
+        // Fail-closed at the infallible boundary: a poisoned/faulted clock reports a distinct POISONED
+        // provider identity (and a zero reading), so every downstream currentness check refuses.
+        self.try_read_current().unwrap_or_else(|_| {
+            self.poison();
+            VerifiedAuthorityTime::new(POISONED_CLOCK_PROVIDER_ID, self.epoch, 0)
+        })
+    }
+}
+
+/// TEST-ONLY in-memory monotonic tick source for exercising [`ProductionTrustedClock`] WITHOUT the
+/// Windows FFI: `advance`/`regress`/`jump` drive the tick, `set_seed` models a host restart, `shutdown`
+/// models provider shutdown. A production graph never builds it.
+#[cfg(any(test, feature = "test-fixtures"))]
+pub use fixture_tick::FixtureMonotonicTickSource;
+
+#[cfg(any(test, feature = "test-fixtures"))]
+mod fixture_tick {
+    use super::{MonotonicTickSource, TickSourceError};
+    use core::cell::Cell;
+
+    /// A controllable monotonic tick source (test only).
+    pub struct FixtureMonotonicTickSource {
+        tick: Cell<u64>,
+        seed: Cell<u64>,
+        live: Cell<bool>,
+        fail_convert: Cell<bool>,
+    }
+
+    impl FixtureMonotonicTickSource {
+        #[must_use]
+        pub fn new(start: u64, seed: u64) -> Self {
+            Self {
+                tick: Cell::new(start),
+                seed: Cell::new(seed),
+                live: Cell::new(true),
+                fail_convert: Cell::new(false),
+            }
+        }
+        /// Advance the tick forward by `by`.
+        pub fn advance(&self, by: u64) {
+            self.tick.set(self.tick.get() + by);
+        }
+        /// Force the next raw tick to a lower value (models a monotonic regression).
+        pub fn regress_to(&self, to: u64) {
+            self.tick.set(to);
+        }
+        /// Model a host restart lineage change (new epoch seed).
+        pub fn set_seed(&self, seed: u64) {
+            self.seed.set(seed);
+        }
+        /// Model provider shutdown.
+        pub fn shutdown(&self) {
+            self.live.set(false);
+        }
+        /// Model a conversion failure on the next read.
+        pub fn fail_conversion(&self) {
+            self.fail_convert.set(true);
+        }
+    }
+
+    impl MonotonicTickSource for FixtureMonotonicTickSource {
+        fn tick(&self) -> Result<u64, TickSourceError> {
+            if self.fail_convert.get() {
+                return Err(TickSourceError::ConversionFailed);
+            }
+            Ok(self.tick.get())
+        }
+        fn epoch_seed(&self) -> u64 {
+            self.seed.get()
+        }
+        fn is_live(&self) -> bool {
+            self.live.get()
+        }
+    }
+}
+
+/// TEST-ONLY crate-internal binder so tests (and a future host) can construct a [`ProductionTrustedClock`]
+/// from a tick source without a public authority constructor.
+#[cfg(any(test, feature = "test-fixtures"))]
+#[must_use]
+pub fn fixture_bind_production_clock<S: MonotonicTickSource>(
+    source: S,
+    max_forward_jump: u64,
+) -> ProductionTrustedClock<S> {
+    ProductionTrustedClock::bind(source, max_forward_jump)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -232,5 +474,103 @@ mod tests {
         let s = format!("{:?}", c.read_current());
         assert!(s.contains("[REDACTED]"));
         assert!(!s.contains("12345"));
+    }
+
+    // ---- ProductionTrustedClock (via the fixture tick source) ----------------------------------
+
+    fn prod(
+        start: u64,
+        seed: u64,
+        bound: u64,
+    ) -> ProductionTrustedClock<FixtureMonotonicTickSource> {
+        ProductionTrustedClock::bind(FixtureMonotonicTickSource::new(start, seed), bound)
+    }
+
+    // T1 — valid production evidence yields a monotonic reading under the crate provider identity.
+    #[test]
+    fn prod_valid_read_is_monotonic_under_the_crate_provider() {
+        let c = prod(100, 7, 10_000);
+        let t = c.try_read_current().unwrap();
+        assert_eq!(t.reading(), 100);
+        assert_eq!(t.provider_id(), PRODUCTION_CLOCK_PROVIDER_ID);
+        c.source.advance(50);
+        assert_eq!(c.try_read_current().unwrap().reading(), 150);
+    }
+
+    // T9 / M3 — a monotonic regression is refused and permanently poisons the clock.
+    #[test]
+    fn prod_regression_refused_and_poisons() {
+        let c = prod(100, 7, 10_000);
+        c.try_read_current().unwrap();
+        c.source.regress_to(50);
+        assert_eq!(
+            c.try_read_current().unwrap_err(),
+            AuthorityTimeError::ReadingRegressed
+        );
+        // Poisoned thereafter.
+        assert_eq!(
+            c.try_read_current().unwrap_err(),
+            AuthorityTimeError::ClockUnavailable
+        );
+        // Fail-closed at the trait boundary: a POISONED provider identity every consumer refuses.
+        assert_eq!(c.read_current().provider_id(), POISONED_CLOCK_PROVIDER_ID);
+    }
+
+    // T11 / M14 — an excessive forward discontinuity is refused.
+    #[test]
+    fn prod_discontinuity_refused() {
+        let c = prod(10, 7, 100);
+        c.try_read_current().unwrap();
+        c.source.advance(10_000); // > max_forward_jump (100)
+        assert_eq!(
+            c.try_read_current().unwrap_err(),
+            AuthorityTimeError::ClockDiscontinuity
+        );
+    }
+
+    // T13 / T14 / M8 — shutdown and post-shutdown reads are refused.
+    #[test]
+    fn prod_shutdown_refused() {
+        let c = prod(100, 7, 10_000);
+        c.try_read_current().unwrap();
+        c.source.shutdown();
+        assert_eq!(
+            c.try_read_current().unwrap_err(),
+            AuthorityTimeError::ShutdownObserved
+        );
+        assert_eq!(
+            c.try_read_current().unwrap_err(),
+            AuthorityTimeError::ClockUnavailable
+        );
+    }
+
+    // T17 / M13 — a conversion failure is refused.
+    #[test]
+    fn prod_conversion_failure_refused() {
+        let c = prod(100, 7, 10_000);
+        c.source.fail_conversion();
+        assert_eq!(
+            c.try_read_current().unwrap_err(),
+            AuthorityTimeError::ConversionFailed
+        );
+    }
+
+    // T5 / T6 — different provider start (seed) yields a DIFFERENT opaque epoch; same crate provider id.
+    #[test]
+    fn prod_epoch_differs_per_start_but_provider_is_stable() {
+        let a = prod(100, 7, 10_000);
+        let b = prod(100, 999, 10_000);
+        let ta = a.try_read_current().unwrap();
+        let tb = b.try_read_current().unwrap();
+        assert_eq!(ta.provider_id(), tb.provider_id()); // stable crate provider identity
+        assert_ne!(ta.epoch(), tb.epoch()); // distinct opaque lineage epochs
+    }
+
+    // T23 / M12 — Debug is redacted.
+    #[test]
+    fn prod_debug_is_redacted() {
+        let c = prod(12345, 7, 10_000);
+        assert!(format!("{c:?}").contains("[REDACTED]"));
+        assert!(!format!("{c:?}").contains("12345"));
     }
 }
