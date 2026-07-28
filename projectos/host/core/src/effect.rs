@@ -256,6 +256,14 @@ pub enum EffectGrantError {
     ClockEpochMismatch,
     /// The adapter was asked to perform an effect family/target it was not granted.
     WrongEffect,
+    /// The grant is bound to a DIFFERENT trusted runtime instance than the live one presented at execution.
+    RuntimeInstanceMismatch,
+    /// The bound runtime instance is no longer current (restart / provider substitution / epoch / expiry).
+    RuntimeNotCurrent,
+    /// The grant is bound to a DIFFERENT authenticated IPC session than the live one at execution.
+    IpcSessionMismatch,
+    /// The bound IPC session is no longer current (reconnect / disconnect / revocation / provider / expiry).
+    IpcNotCurrent,
 }
 
 /// Process-unique single-use grant identities. Crate-assigned; a caller cannot select or duplicate one.
@@ -363,6 +371,12 @@ pub struct BoundedEffectGrant {
     clock_epoch: u64,
     generation: u64,
     valid_until: u64,
+    /// Canonical runtime-instance identity this grant is bound to (copied from the permit context). An
+    /// execution adapter refuses a grant whose bound runtime differs from the live one. `None` = not bound.
+    runtime_instance_digest: Option<[u8; 32]>,
+    /// Canonical IPC-session identity this grant is bound to (copied from the permit context). `None` = not
+    /// bound.
+    ipc_session_digest: Option<[u8; 32]>,
     _thread_bound: ThreadBound,
 }
 
@@ -405,6 +419,12 @@ impl BoundedEffectGrant {
     }
     pub(crate) fn valid_until(&self) -> u64 {
         self.valid_until
+    }
+    pub(crate) fn runtime_instance_digest(&self) -> Option<[u8; 32]> {
+        self.runtime_instance_digest
+    }
+    pub(crate) fn ipc_session_digest(&self) -> Option<[u8; 32]> {
+        self.ipc_session_digest
     }
 }
 
@@ -474,6 +494,8 @@ pub fn mint_effect_grant(
         clock_epoch: now.epoch(),
         generation: current.effect_generation(),
         valid_until: requested_valid_until,
+        runtime_instance_digest: current.runtime_instance_digest(),
+        ipc_session_digest: current.ipc_session_digest(),
         _thread_bound: PhantomData,
     })
 }
@@ -508,6 +530,10 @@ pub struct EffectWitness {
     executor_id: String,
     generation: u64,
     completion_reading: u64,
+    /// Redacted EVIDENCE that execution occurred under a specific runtime instance / IPC session. Never
+    /// authority: there is no path from these back to a runtime instance, IPC session, permit or grant.
+    runtime_instance_digest: Option<[u8; 32]>,
+    ipc_session_digest: Option<[u8; 32]>,
     _thread_bound: ThreadBound,
 }
 
@@ -556,6 +582,18 @@ impl EffectWitness {
     }
     pub(crate) fn completion_reading(&self) -> u64 {
         self.completion_reading
+    }
+    /// TEST-ONLY: the redacted runtime-instance evidence digest recorded on this witness (evidence only).
+    #[cfg(any(test, feature = "test-fixtures"))]
+    #[must_use]
+    pub fn fixture_runtime_evidence(&self) -> Option<[u8; 32]> {
+        self.runtime_instance_digest
+    }
+    /// TEST-ONLY: the redacted IPC-session evidence digest recorded on this witness (evidence only).
+    #[cfg(any(test, feature = "test-fixtures"))]
+    #[must_use]
+    pub fn fixture_ipc_evidence(&self) -> Option<[u8; 32]> {
+        self.ipc_session_digest
     }
 }
 
@@ -683,6 +721,59 @@ mod fixture {
             self.witness(&grant, before, after, outcome, rollback, now.reading())
         }
 
+        /// Perform the synthetic effect for a runtime + IPC-BOUND `grant`. Immediately before consumption
+        /// (in addition to the sealed-clock currentness in [`perform`]), re-establishes that the grant's
+        /// bound runtime instance and IPC session are BOTH still current against the live authorities, and
+        /// that the grant was bound to THOSE exact authorities. Refuses fail-closed (with a `Refused`
+        /// witness, BEFORE any synthetic mutation) on a runtime restart/mismatch or an IPC
+        /// reconnect/disconnect/revocation/mismatch. No OS mutation occurs.
+        #[allow(clippy::too_many_arguments)]
+        #[must_use]
+        pub fn perform_bound<RV, IV>(
+            &self,
+            grant: BoundedEffectGrant,
+            expected_target: &EffectTarget,
+            ledger: &EffectGrantLedger,
+            clock: &dyn crate::authority_time::TrustedClock,
+            runtime: &crate::runtime_instance::VerifiedRuntimeInstance,
+            runtime_verifier: &RV,
+            ipc: &crate::ipc_session::BoundIpcSession,
+            ipc_verifier: &IV,
+            script: SyntheticEffectScript,
+        ) -> EffectWitness
+        where
+            RV: crate::runtime_instance::RuntimeInstanceVerifier,
+            IV: crate::ipc_session::IpcSessionVerifier,
+        {
+            let now = clock.read_current();
+            let before = Self::state_digest(b"before", grant.grant_id());
+            // Runtime + IPC execution-time currentness and binding-identity match, BEFORE any effect.
+            let refusal = if grant.runtime_instance_digest() != Some(runtime.instance_digest()) {
+                Some(EffectGrantError::RuntimeInstanceMismatch)
+            } else if runtime.is_current(runtime_verifier, &now).is_err() {
+                Some(EffectGrantError::RuntimeNotCurrent)
+            } else if grant.ipc_session_digest() != Some(ipc.session_digest()) {
+                Some(EffectGrantError::IpcSessionMismatch)
+            } else if ipc.is_current(ipc_verifier, runtime, &now).is_err() {
+                Some(EffectGrantError::IpcNotCurrent)
+            } else {
+                None
+            };
+            if let Some(e) = refusal {
+                // No synthetic effect ran and the grant was NOT consumed; the issuance stays as-is.
+                return self.witness(
+                    &grant,
+                    before,
+                    before,
+                    EffectOutcome::Refused(e),
+                    RollbackOutcome::NotAttempted,
+                    now.reading(),
+                );
+            }
+            // Runtime + IPC current: delegate to the clock/family/consume/script path.
+            self.perform(grant, expected_target, ledger, clock, script)
+        }
+
         fn witness(
             &self,
             grant: &BoundedEffectGrant,
@@ -704,6 +795,8 @@ mod fixture {
                 executor_id: self.executor_id.clone(),
                 generation: grant.generation(),
                 completion_reading: reading,
+                runtime_instance_digest: grant.runtime_instance_digest(),
+                ipc_session_digest: grant.ipc_session_digest(),
                 _thread_bound: core::marker::PhantomData,
             }
         }

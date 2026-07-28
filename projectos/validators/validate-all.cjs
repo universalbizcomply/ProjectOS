@@ -57,7 +57,8 @@ const MODULES = [
   "val-cd-b4-elevation-integration1a",
   "val-cd-b4-effect-grant-integration1a",
   "val-cd-b4-runtime-instance-authority1a",
-  "val-cd-b4-ipc-session-authority1a"
+  "val-cd-b4-ipc-session-authority1a",
+  "val-cd-b4-runtime-ipc-permit-integration1a"
 ];
 let total = 0;
 for (const m of MODULES) {

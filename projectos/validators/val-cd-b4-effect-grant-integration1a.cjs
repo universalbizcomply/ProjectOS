@@ -306,7 +306,7 @@ function run() {
 
   // ---- 7. Permit-context digest: canonical V2 encoding binds the identity dimensions -------------
   for (const needle of [
-    "PROJECTOS:PERMIT-CONTEXT-DIGEST:V2",
+    "PROJECTOS:PERMIT-CONTEXT-DIGEST:V3",
     "c.phase.digest()", // B5 op-ref rides transitively in the canonical phase; no direct op-ref fold.
     "c.fingerprint.as_str()",
     "digest_bytes()",

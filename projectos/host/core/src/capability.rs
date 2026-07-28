@@ -97,6 +97,10 @@ pub enum ContextField {
     EffectPolicy,
     /// Canonical upstream authority lease bound changed (an upstream deadline moved).
     AuthorityLeaseBound,
+    /// Runtime-instance identity changed (a different or restarted trusted host start).
+    RuntimeInstance,
+    /// IPC-session identity changed (a different or reconnected authenticated connection).
+    IpcSession,
     /// Authenticated session changed.
     Session,
     /// Process binding changed.
@@ -158,6 +162,8 @@ pub enum FixtureDimension {
     ElevationClockEpoch,
     EffectPolicy,
     AuthorityLeaseBound,
+    RuntimeInstance,
+    IpcSession,
 }
 
 /// The typed result of a before-use comparison. Fail closed: any change is a `Mismatch`.
@@ -213,6 +219,17 @@ pub struct VerifiedExecutionContext {
     pub(crate) effect_policy: Option<[u8; 32]>,
     /// The canonical upstream authority lease bound (minimum over every applicable temporal authority).
     pub(crate) authority_lease_bound: Option<crate::effect::AuthorityLeaseBound>,
+    /// Canonical identity of the trusted runtime instance this operation is bound to (digest + per-start
+    /// generation), derived from a [`crate::runtime_instance::VerifiedRuntimeInstance`]. `None` when the
+    /// operation is not runtime-bound. An identity dimension: a different host start/instance is refused.
+    pub(crate) runtime_instance_digest: Option<[u8; 32]>,
+    pub(crate) runtime_generation: Option<u64>,
+    /// Canonical identity of the authenticated IPC session this operation is bound to (session digest +
+    /// connection id + handshake generation), derived from a [`crate::ipc_session::BoundIpcSession`].
+    /// `None` when not IPC-bound. An identity dimension: a different/reconnected connection is refused.
+    pub(crate) ipc_session_digest: Option<[u8; 32]>,
+    pub(crate) ipc_connection_id: Option<u64>,
+    pub(crate) ipc_handshake_generation: Option<u64>,
     pub(crate) session: SessionId,
     pub(crate) process_session: SessionId,
     pub(crate) executable: ExecutableIdentity,
@@ -252,6 +269,16 @@ impl VerifiedExecutionContext {
     /// time-bounded authority). An effect grant's validity can never exceed this.
     pub(crate) fn authority_lease_bound(&self) -> Option<crate::effect::AuthorityLeaseBound> {
         self.authority_lease_bound
+    }
+    /// The canonical runtime-instance identity digest this context is bound to (an effect grant records
+    /// it so it can never be presented under a different trusted host start).
+    pub(crate) fn runtime_instance_digest(&self) -> Option<[u8; 32]> {
+        self.runtime_instance_digest
+    }
+    /// The canonical IPC-session identity digest this context is bound to (an effect grant records it so
+    /// it can never be presented over a different or reconnected IPC connection).
+    pub(crate) fn ipc_session_digest(&self) -> Option<[u8; 32]> {
+        self.ipc_session_digest
     }
 
     /// The authoritative, service-issued phase identity this context is bound to.
@@ -379,6 +406,15 @@ impl VerifiedExecutionContext {
             FixtureDimension::AuthorityLeaseBound => {
                 c.authority_lease_bound = other.authority_lease_bound;
             }
+            FixtureDimension::RuntimeInstance => {
+                c.runtime_instance_digest = other.runtime_instance_digest;
+                c.runtime_generation = other.runtime_generation;
+            }
+            FixtureDimension::IpcSession => {
+                c.ipc_session_digest = other.ipc_session_digest;
+                c.ipc_connection_id = other.ipc_connection_id;
+                c.ipc_handshake_generation = other.ipc_handshake_generation;
+            }
         }
         c
     }
@@ -404,7 +440,7 @@ impl VerifiedExecutionContext {
     #[must_use]
     pub fn compare(&self, other: &VerifiedExecutionContext) -> ContextComparison {
         use ContextField as F;
-        let checks: [(bool, F); 40] = [
+        let checks: [(bool, F); 42] = [
             (self.phase == other.phase, F::Phase),
             (self.approved_plan == other.approved_plan, F::ApprovedPlan),
             (
@@ -485,6 +521,17 @@ impl VerifiedExecutionContext {
                 self.authority_lease_bound == other.authority_lease_bound,
                 F::AuthorityLeaseBound,
             ),
+            (
+                self.runtime_instance_digest == other.runtime_instance_digest
+                    && self.runtime_generation == other.runtime_generation,
+                F::RuntimeInstance,
+            ),
+            (
+                self.ipc_session_digest == other.ipc_session_digest
+                    && self.ipc_connection_id == other.ipc_connection_id
+                    && self.ipc_handshake_generation == other.ipc_handshake_generation,
+                F::IpcSession,
+            ),
             (self.session == other.session, F::Session),
             (self.process_session == other.process_session, F::Process),
             (self.executable == other.executable, F::Executable),
@@ -563,7 +610,7 @@ impl ExecutionPermit {
     /// so it can never be paired with a different permit.
     ///
     /// # Canonical encoding
-    /// Domain-tag `PROJECTOS:PERMIT-CONTEXT-DIGEST:V2`, then every field in a fixed order with unambiguous
+    /// Domain-tag `PROJECTOS:PERMIT-CONTEXT-DIGEST:V3`, then every field in a fixed order with unambiguous
     /// framing: strings/byte-slices are length-prefixed (`u32` BE length ‖ bytes); every `Option` is
     /// preceded by a `0x00` absent / `0x01` present tag so `Some("")`, `None`, and a shorter value can
     /// never collide; integers are fixed-width big-endian.
@@ -597,7 +644,7 @@ impl ExecutionPermit {
     fn digest_of(c: &VerifiedExecutionContext) -> [u8; 32] {
         use sha2::{Digest, Sha256};
         let mut h = Sha256::new();
-        h.update(b"PROJECTOS:PERMIT-CONTEXT-DIGEST:V2");
+        h.update(b"PROJECTOS:PERMIT-CONTEXT-DIGEST:V3");
         let seg = |h: &mut Sha256, b: &[u8]| {
             h.update((b.len() as u32).to_be_bytes());
             h.update(b);
@@ -666,6 +713,31 @@ impl ExecutionPermit {
                 seg(&mut h, v.as_bytes());
             }
             None => h.update([0u8]),
+        }
+        // Runtime-instance IDENTITY (digest ‖ per-start generation) — an identity dimension: a different
+        // host start yields a different issuance key.
+        match (c.runtime_instance_digest, c.runtime_generation) {
+            (Some(d), Some(g)) => {
+                h.update([1u8]);
+                h.update(d);
+                h.update(g.to_be_bytes());
+            }
+            _ => h.update([0u8]),
+        }
+        // IPC-session IDENTITY (session digest ‖ connection id ‖ handshake generation) — an identity
+        // dimension: a different or reconnected connection yields a different issuance key.
+        match (
+            c.ipc_session_digest,
+            c.ipc_connection_id,
+            c.ipc_handshake_generation,
+        ) {
+            (Some(d), Some(conn), Some(hg)) => {
+                h.update([1u8]);
+                h.update(d);
+                h.update(conn.to_be_bytes());
+                h.update(hg.to_be_bytes());
+            }
+            _ => h.update([0u8]),
         }
         h.finalize().into()
     }
@@ -859,6 +931,11 @@ mod tests {
             elevation_session: None,
             effect_policy: None,
             authority_lease_bound: None,
+            runtime_instance_digest: None,
+            runtime_generation: None,
+            ipc_session_digest: None,
+            ipc_connection_id: None,
+            ipc_handshake_generation: None,
             session: SessionId::new("s"),
             process_session: SessionId::new("s"),
             executable: ExecutableIdentity::new("e"),

@@ -55,6 +55,15 @@ pub struct ReductionRequest<'a> {
     /// against the one that attested the elevation proof (DISTINCT from the trusted clock). `None` unless
     /// supplied via [`InternalOperationRecord::to_request_with_clock_and_verifier`].
     pub elevation_verifier: Option<&'a dyn crate::elevation::ElevationVerifier>,
+    /// The trusted runtime instance this operation is bound to. When present, its canonical identity is
+    /// stamped into the verified context (and thus the permit-context digest / issuance identity), so a
+    /// permit or effect grant can never be presented under a different or restarted host start. `None`
+    /// unless supplied via [`InternalOperationRecord::to_request_with_authorities`].
+    pub runtime_instance: Option<&'a crate::runtime_instance::VerifiedRuntimeInstance>,
+    /// The authenticated IPC session this operation is bound to. When present, its canonical identity is
+    /// stamped into the verified context, so authority can never be presented over a different or
+    /// reconnected connection. `None` unless supplied via `to_request_with_authorities`.
+    pub ipc_session: Option<&'a crate::ipc_session::BoundIpcSession>,
 }
 
 impl InternalOperationRecord {
@@ -77,6 +86,8 @@ impl InternalOperationRecord {
             required_effect: self.required_effect.as_ref(),
             authority_clock: None,
             elevation_verifier: None,
+            runtime_instance: None,
+            ipc_session: None,
         }
     }
 
@@ -105,6 +116,27 @@ impl InternalOperationRecord {
         ReductionRequest {
             authority_clock: Some(clock),
             elevation_verifier: Some(verifier),
+            ..self.to_request()
+        }
+    }
+
+    /// Borrow this record as a reduction request WITH the full authority set: trusted-clock provider,
+    /// sealed elevation verifier, and the trusted runtime instance + authenticated IPC session whose
+    /// canonical identities are folded into the verified context (and thus the permit-context digest and
+    /// effect-grant issuance identity).
+    #[must_use]
+    pub fn to_request_with_authorities<'a>(
+        &'a self,
+        clock: &'a dyn crate::authority_time::TrustedClock,
+        verifier: &'a dyn crate::elevation::ElevationVerifier,
+        runtime_instance: &'a crate::runtime_instance::VerifiedRuntimeInstance,
+        ipc_session: &'a crate::ipc_session::BoundIpcSession,
+    ) -> ReductionRequest<'a> {
+        ReductionRequest {
+            authority_clock: Some(clock),
+            elevation_verifier: Some(verifier),
+            runtime_instance: Some(runtime_instance),
+            ipc_session: Some(ipc_session),
             ..self.to_request()
         }
     }
@@ -688,6 +720,13 @@ pub fn reduce(req: &ReductionRequest<'_>, facts: &ServiceValidatedFacts) -> Disp
                 Some(authority.authority_expiry.0),
             ])
         }),
+        // Canonical runtime-instance + IPC-session identity, folded into the context digest (identity
+        // dimensions) so the permit / effect grant can never cross a host start or an IPC connection.
+        runtime_instance_digest: req.runtime_instance.map(|r| r.instance_digest()),
+        runtime_generation: req.runtime_instance.map(|r| r.generation()),
+        ipc_session_digest: req.ipc_session.map(|s| s.session_digest()),
+        ipc_connection_id: req.ipc_session.map(|s| s.connection_id()),
+        ipc_handshake_generation: req.ipc_session.map(|s| s.handshake_generation()),
         session: session.session.clone(),
         process_session: process.session.clone(),
         executable: executable.identity.clone(),
