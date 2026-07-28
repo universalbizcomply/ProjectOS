@@ -37,6 +37,7 @@ pub mod effect;
 pub mod elevation;
 pub mod error;
 pub mod facts;
+pub mod ipc_session;
 pub mod observation;
 pub mod operation;
 pub mod owner_presence;
@@ -82,6 +83,13 @@ pub use facts::{
     ValidatedEnvironment, ValidatedExecutable, ValidatedFreshness, ValidatedInstallation,
     ValidatedProcess, ValidatedProjectContext, ValidatedPublisherPolicy, ValidatedRelease,
     ValidatedSession, ValidityStatus, MAX_BOUNDED_ID_LEN, MAX_EVIDENCE_REFS,
+};
+#[cfg(any(test, feature = "test-fixtures"))]
+pub use ipc_session::FixtureIpcSessionVerifier;
+pub use ipc_session::{
+    BoundIpcSession, ChannelCapability, ConfirmedHandshakeEvidence, ConnectionLiveness,
+    ExpectedChannel, ExpectedPeer, IpcPeerObservation, IpcSessionError, IpcSessionVerifier,
+    OperationFamily, PeerUserClass,
 };
 pub use observation::{
     ApprovalObservation, CollectedObservations, ConnectionObservation,
