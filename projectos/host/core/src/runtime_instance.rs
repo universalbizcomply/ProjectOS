@@ -452,6 +452,86 @@ pub trait RuntimeInstanceVerifier: sealed::Sealed {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// Production runtime-instance verifier (CD-B4-PRODUCTION-RUNTIME-PROVIDER1A)
+// ---------------------------------------------------------------------------------------------
+
+/// The maximum validity window and observation-staleness bound the PRODUCTION verifier accepts.
+const PRODUCTION_MAX_WINDOW: u64 = 30_000;
+const PRODUCTION_MAX_STALENESS: u64 = 10_000;
+
+/// The sole PRODUCTION runtime-instance verifier. It implements the sealed [`RuntimeInstanceVerifier`],
+/// so an untrusted [`RuntimeInstanceObservation`] becomes a [`VerifiedRuntimeInstance`] only through it
+/// (or the test fixture). It REFUSES [`RuntimeSource::Fixture`], accepts only the two closed production
+/// modes, and owns a per-start `generation` assigned from a process-unique counter — never caller-chosen.
+///
+/// Opaque: private fields, redacted `Debug`, no serde, no evidence-to-authority conversion, thread-bound
+/// (`!Send + !Sync`). Construction is crate-controlled: there is NO default-graph constructor, so an
+/// external crate cannot build one (and the compile-failure suite proves it). The only reachable
+/// constructor is the test-fixtures [`ProductionRuntimeInstanceVerifier::for_local_proof`], used by the
+/// local read-only proof; a real production-activation constructor (owner-gated) is CARRY-FORWARD.
+/// Safety does not rest on construction alone: even with a verifier, minting needs a real
+/// [`VerifiedAuthorityTime`], which requires a grant-bound production clock.
+pub struct ProductionRuntimeInstanceVerifier {
+    generation: u64,
+    _thread_bound: ThreadBound,
+}
+
+impl fmt::Debug for ProductionRuntimeInstanceVerifier {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "ProductionRuntimeInstanceVerifier(gen={}, [REDACTED])",
+            self.generation
+        )
+    }
+}
+
+impl ProductionRuntimeInstanceVerifier {
+    /// The crate-internal mint. The per-start `generation` is drawn from a process-unique counter, so a
+    /// caller can neither choose it nor forge a matching one; a NEW verifier (a modelled restart) yields a
+    /// new generation, invalidating authority minted before it.
+    pub(crate) fn new_internal() -> Self {
+        use core::sync::atomic::{AtomicU64, Ordering};
+        // Disjoint from the fixture verifier's counter space so a fixture generation can never collide.
+        static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
+        let generation = NEXT_GENERATION.fetch_add(1, Ordering::Relaxed) | (1u64 << 63);
+        Self {
+            generation,
+            _thread_bound: PhantomData,
+        }
+    }
+
+    /// TEST-ONLY constructor for the local read-only proof. Gated to `test-fixtures`, so the default
+    /// graph has NO way to construct the production verifier; a real production-activation constructor is
+    /// CARRY-FORWARD and deliberately absent.
+    #[cfg(any(test, feature = "test-fixtures"))]
+    #[must_use]
+    pub fn for_local_proof() -> Self {
+        Self::new_internal()
+    }
+}
+
+impl sealed::Sealed for ProductionRuntimeInstanceVerifier {}
+impl RuntimeInstanceVerifier for ProductionRuntimeInstanceVerifier {
+    fn generation(&self) -> u64 {
+        self.generation
+    }
+    fn max_window(&self) -> u64 {
+        PRODUCTION_MAX_WINDOW
+    }
+    fn max_staleness(&self) -> u64 {
+        PRODUCTION_MAX_STALENESS
+    }
+    fn accepts_source(&self, source: RuntimeSource) -> bool {
+        // The two closed production modes ONLY; the synthetic fixture source is refused.
+        matches!(
+            source,
+            RuntimeSource::WindowsService | RuntimeSource::InteractiveFallback
+        )
+    }
+}
+
 #[cfg(any(test, feature = "test-fixtures"))]
 pub use fixture::FixtureRuntimeInstanceVerifier;
 

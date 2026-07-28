@@ -50,11 +50,13 @@ pub mod storage;
 
 pub use approval::{ApprovalOutcome, OwnerPresenceVerifier, VerifiedApproval};
 #[cfg(any(test, feature = "test-fixtures"))]
-pub use authority_time::{fixture_bind_production_clock, FixtureClock, FixtureMonotonicTickSource};
+pub use authority_time::fixture_production_clock_binding_grant;
 pub use authority_time::{
-    AuthorityTimeError, MonotonicTickSource, ProductionTrustedClock, TickSourceError, TrustedClock,
-    VerifiedAuthorityTime,
+    bind_production_clock, AuthorityTimeError, MonotonicTickSource, ProductionClockBindingGrant,
+    ProductionTrustedClock, TickSourceError, TrustedClock, VerifiedAuthorityTime,
 };
+#[cfg(any(test, feature = "test-fixtures"))]
+pub use authority_time::{fixture_bind_production_clock, FixtureClock, FixtureMonotonicTickSource};
 #[cfg(any(test, feature = "test-fixtures"))]
 pub use capability::FixtureDimension;
 pub use capability::{
@@ -130,8 +132,8 @@ pub use repository::{
 #[cfg(any(test, feature = "test-fixtures"))]
 pub use runtime_instance::FixtureRuntimeInstanceVerifier;
 pub use runtime_instance::{
-    HostRole, RuntimeInstanceError, RuntimeInstanceObservation, RuntimeInstanceVerifier,
-    RuntimeSource, ServiceInstanceEvidence, VerifiedRuntimeInstance,
+    HostRole, ProductionRuntimeInstanceVerifier, RuntimeInstanceError, RuntimeInstanceObservation,
+    RuntimeInstanceVerifier, RuntimeSource, ServiceInstanceEvidence, VerifiedRuntimeInstance,
 };
 pub use storage::{
     ApprovalRecordReader, CredentialMetadataReader, EmergencyStopReader, OperationRecordRepository,

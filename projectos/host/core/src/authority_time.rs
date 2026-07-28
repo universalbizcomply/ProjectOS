@@ -68,7 +68,12 @@ impl VerifiedAuthorityTime {
     pub(crate) fn epoch(&self) -> u64 {
         self.epoch
     }
-    pub(crate) fn reading(&self) -> u64 {
+    /// The MONOTONIC security reading (the value that drives issue time, expiry and staleness). Public so
+    /// a runtime/effect provider legitimately holding a reading can bound its observation window; it is a
+    /// value, not identity, and does not permit forging a [`VerifiedAuthorityTime`] (which has no public
+    /// constructor). The opaque provider identity and epoch remain crate-private.
+    #[must_use]
+    pub fn reading(&self) -> u64 {
         self.reading
     }
 
@@ -338,6 +343,72 @@ impl<S: MonotonicTickSource> TrustedClock for ProductionTrustedClock<S> {
             VerifiedAuthorityTime::new(POISONED_CLOCK_PROVIDER_ID, self.epoch, 0)
         })
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Cross-crate production-clock binding authority (CD-B4-PRODUCTION-CLOCK-RUNTIME-BINDING-AMENDMENT1A)
+// ---------------------------------------------------------------------------------------------
+
+/// The AUTHORITY GATE for constructing a production [`ProductionTrustedClock`] from an evidence
+/// [`MonotonicTickSource`] that lives OUTSIDE core (e.g. the Windows monotonic source).
+///
+/// [`MonotonicTickSource`] is deliberately UNSEALED — a tick is evidence, not authority — so an
+/// arbitrary crate can supply ticks. That is only safe because binding a source into a production
+/// clock (which then mints [`VerifiedAuthorityTime`]) is gated by this opaque, MOVE-CONSUMED, single-use
+/// grant: an ordinary crate cannot construct it, so it cannot call [`bind_production_clock`], so it can
+/// never turn arbitrary ticks into trusted temporal authority. Mirrors the `BoundedEffectGrant` posture:
+/// private field, no public constructor, no `Default`, no `Clone`/`Copy`, no serde, redacted `Debug`,
+/// thread-bound (`!Send + !Sync`). One grant binds exactly one clock lineage.
+///
+/// There is NO production/default-graph mint in this phase: the only mint is the test-fixtures
+/// [`fixture_production_clock_binding_grant`], used for the local read-only proof and tests. A real
+/// production mint (owner-gated, installed-service activation) is CARRY-FORWARD and deliberately absent,
+/// so no production runtime authority can be minted here (`EXECUTION_READY` stays false).
+pub struct ProductionClockBindingGrant {
+    /// `!Send + !Sync`: a binding authority must not silently cross a thread boundary.
+    _thread_bound: core::marker::PhantomData<*const ()>,
+}
+
+impl fmt::Debug for ProductionClockBindingGrant {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("ProductionClockBindingGrant([REDACTED])")
+    }
+}
+
+impl ProductionClockBindingGrant {
+    /// The sole mint. Crate-private, so no external crate — in ANY graph — can construct a grant; the
+    /// only reachable mint is the test-fixtures [`fixture_production_clock_binding_grant`].
+    pub(crate) fn mint() -> Self {
+        Self {
+            _thread_bound: core::marker::PhantomData,
+        }
+    }
+}
+
+/// Bind an evidence [`MonotonicTickSource`] into a sealed production [`ProductionTrustedClock`],
+/// CONSUMING (by move) a [`ProductionClockBindingGrant`]. This is the ONLY public path from an external
+/// tick source to a production clock: the grant is the authority gate, so an arbitrary source without a
+/// grant cannot produce a [`VerifiedAuthorityTime`]. The provider identity stays the core CONST and the
+/// per-start epoch stays core-derived from `source.epoch_seed()`; the grant influences neither. Because
+/// the grant is moved in and dropped, it is single-use: one grant binds one clock lineage.
+#[must_use]
+pub fn bind_production_clock<S: MonotonicTickSource>(
+    grant: ProductionClockBindingGrant,
+    source: S,
+    max_forward_jump: u64,
+) -> ProductionTrustedClock<S> {
+    // Consume the grant by move: it authorises exactly this one binding and cannot be reused.
+    let ProductionClockBindingGrant { _thread_bound } = grant;
+    ProductionTrustedClock::bind(source, max_forward_jump)
+}
+
+/// TEST-ONLY mint of a [`ProductionClockBindingGrant`] for the local read-only proof and tests. Gated to
+/// `test-fixtures`, so the default graph has NO way to obtain a grant and therefore cannot bind a
+/// production clock. A production mint is CARRY-FORWARD and absent.
+#[cfg(any(test, feature = "test-fixtures"))]
+#[must_use]
+pub fn fixture_production_clock_binding_grant() -> ProductionClockBindingGrant {
+    ProductionClockBindingGrant::mint()
 }
 
 /// TEST-ONLY in-memory monotonic tick source for exercising [`ProductionTrustedClock`] WITHOUT the

@@ -1,0 +1,47 @@
+[package]
+name = "projectos-host-windows-runtime-observation"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "UNLICENSED"
+description = "EFFECT-FREE Windows host-SELF runtime-observation EVIDENCE crate for the future ProjectOS host (CD-B4-PRODUCTION-RUNTIME-PROVIDER1A). Reads the CURRENT process's own identity — process id (GetCurrentProcessId) and process creation time (GetProcessTimes on GetCurrentProcess) — as read-only, redacted HostProcessObservation evidence, and assembles a core RuntimeInstanceObservation for the interactive-fallback role. It mints NO authority: it never constructs VerifiedRuntimeInstance, VerifiedAuthorityTime, a ProductionClockBindingGrant, a permit, a grant, or runtime/IPC authority — only the sealed core ProductionRuntimeInstanceVerifier mints runtime authority, and only a core grant binds a production clock. It observes NO peer/other process, resolves NO SID, queries NO SCM, opens NO pipe, reads NO Windows session (deferred), installs/starts NO service, mutates NO ProgramData/ACL/registry, and performs NO network activity. The live self-observation FFI is confined to one gated private module; the default build calls no Windows API. Execution readiness stays false; installation stays NotAuthorised."
+
+# unsafe is REQUIRED only by the live self-observation FFI and is confined to src/observation_ffi.rs.
+[lints.rust]
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+
+[features]
+# LIVE WINDOWS SELF-OBSERVATION: the real GetCurrentProcessId + GetProcessTimes read, plus the real
+# windows-clock monotonic source so the local proof binds a genuine ProductionTrustedClock. Non-default,
+# so the default build stays the effect-free contract and calls no Windows API. Grants NO authority:
+# acquisition requires a sealed LiveRuntimeObservationCapability with no constructor in any non-fixture
+# graph.
+windows-live-runtime-observation = [
+    "dep:windows",
+    "projectos-host-windows-clock/windows-live-clock",
+]
+# SYNTHETIC TEST FIXTURES: pulls the fixture grant/verifier/clock-capability mints (core + windows-clock)
+# so the local read-only proof can bind a clock and mint through the sealed verifier with no forged
+# authority. Explicit, non-default, never implied by the live feature.
+test-fixtures = [
+    "projectos-host-core/test-fixtures",
+    "projectos-host-windows-clock/test-fixtures",
+]
+
+[dependencies]
+# The core owns RuntimeInstanceObservation, the sealed ProductionRuntimeInstanceVerifier, the
+# ProductionClockBindingGrant and bind_production_clock. This crate only produces evidence for it.
+projectos-host-core = { path = "../core" }
+# The monotonic tick source bound (through a core grant) into the production clock the proof reads.
+projectos-host-windows-clock = { path = "../windows-clock" }
+
+[target.'cfg(windows)'.dependencies]
+# Minimum self-process surface only: GetCurrentProcessId / GetCurrentProcess / GetProcessTimes and the
+# HANDLE/FILETIME types. Optional + feature-gated: linked ONLY under `windows-live-runtime-observation`,
+# so the default build pulls no windows dependency. No RemoteDesktop (session deferred), no SCM, pipe,
+# token, SID-lookup, registry, ACL or network feature.
+windows = { version = "0.61.3", optional = true, features = [
+    "Win32_Foundation",
+    "Win32_System_Threading",
+] }
