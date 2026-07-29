@@ -62,6 +62,7 @@ const MODULES = [
   "val-cd-b4-production-trusted-clock1a",
   "val-cd-b4-production-runtime-provider1a",
   "val-cd-b4-production-ipc-provider1a",
+  "val-cd-b4-production-owner-presence-provider1a",
   "validate-v3.1-crosswalk"
 ];
 let total = 0;

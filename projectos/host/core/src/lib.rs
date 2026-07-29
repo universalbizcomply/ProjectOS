@@ -108,10 +108,17 @@ pub use operation::{
     ResumePolicy,
 };
 pub use owner_presence::{
-    fold_owner_presence_fingerprint, verify_owner_presence, OwnerPresenceError,
-    OwnerPresenceObservation, RequiredOwnerPresence, ValidatedOwnerPresenceFact,
+    fold_owner_presence_fingerprint, verify_production_owner_presence, OwnerConfirmationOutcome,
+    OwnerPresenceError, OwnerPresenceEvidenceSource, OwnerPresenceObservation,
+    ProductionOwnerPresenceBindingGrant, ProductionOwnerPresenceCapability,
+    ProductionOwnerPresenceEvidence, RequiredOwnerPresence, ValidatedOwnerPresenceFact,
     VerifiedOwnerPresence,
 };
+// The legacy observation-based mint is a FIXTURE/CONTRACT verifier only — test/fixture-gated so a
+// default (production) build exposes exactly one production-eligible mint
+// (`verify_production_owner_presence`, grant-gated). Structural legacy-mint isolation.
+#[cfg(any(test, feature = "test-fixtures"))]
+pub use owner_presence::verify_owner_presence;
 pub use phase::{PhaseId, PhaseReference};
 pub use plan::{
     normalize_candidate, path_within_boundary, phase_definition_digest, ApprovedPlanBinding,
