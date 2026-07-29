@@ -61,7 +61,8 @@ const MODULES = [
   "val-cd-b4-runtime-ipc-permit-integration1a",
   "val-cd-b4-production-trusted-clock1a",
   "val-cd-b4-production-runtime-provider1a",
-  "val-cd-b4-production-ipc-provider1a"
+  "val-cd-b4-production-ipc-provider1a",
+  "validate-v3.1-crosswalk"
 ];
 let total = 0;
 for (const m of MODULES) {
