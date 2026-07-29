@@ -120,9 +120,18 @@ pub use adapter::{ConfirmedIpcPeerHandshake, HandshakeTransition};
 // FIXTURE-ONLY handshake runner and peer contributor: explicit, non-default, no pipe, no Win32.
 #[cfg(feature = "test-fixtures")]
 pub use adapter::{
-    outcome_is_confirmed, run_fixture_handshake, synthetic_controller_hello,
-    FixtureIpcPeerContributor,
+    assemble_same_connection_ipc_peer_fixture, outcome_is_confirmed, run_fixture_handshake,
+    synthetic_controller_hello, FixtureIpcPeerContributor,
 };
+
+// The opaque same-connection IPC peer evidence bundle (CD-B4-PRODUCTION-IPC-PROVIDER1A): pairs the
+// confirmed handshake with the co-observed peer identity for ONE connection and projects into the core
+// evidence the sealed core ProductionIpcSessionVerifier consumes. Gated with the confirmed handshake it
+// requires, so it is unreachable in the default graph.
+#[cfg(any(feature = "test-fixtures", feature = "windows-live-ipc"))]
+mod observation;
+#[cfg(any(feature = "test-fixtures", feature = "windows-live-ipc"))]
+pub use observation::ConfirmedSameConnectionIpcPeerEvidence;
 
 /// The truthful current state of this crate. CD-B1 was contract-only; the bounded Windows named-pipe
 /// transport is now IMPLEMENTED but compile-only — the implementation exists yet no runtime capability

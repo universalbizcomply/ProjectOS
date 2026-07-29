@@ -639,12 +639,63 @@ mod fixture_handshake {
     pub fn outcome_is_confirmed(outcome: HandshakeOutcome) -> bool {
         outcome.is_peer_confirmed()
     }
+
+    /// The controlled SAME-CONNECTION co-observation (CD-B4-PRODUCTION-IPC-PROVIDER1A). One operation
+    /// drives the REAL handshake verification order (confirming ONLY if it accepts), then pairs the
+    /// resulting confirmation with the co-observed peer identity and channel context into the opaque
+    /// [`ConfirmedSameConnectionIpcPeerEvidence`] bundle. The confirmation is consumed here, so it cannot
+    /// be reused; the connection id and handshake generation are supplied by the OWNING transport (in the
+    /// fixture, the sealed verifier's ids) and are re-checked against the sealed verifier at mint time, so
+    /// a caller cannot substitute them to forge a session. A real adapter reads the live peer via the
+    /// service-identity observation path here; the fixture supplies the co-observed peer identity. No
+    /// named pipe is created and no Windows FFI is copied.
+    #[allow(clippy::too_many_arguments)]
+    #[must_use]
+    pub fn assemble_same_connection_ipc_peer_fixture(
+        capability: &LiveIpcOperationCapability,
+        connection_id: u64,
+        handshake_generation: u64,
+        peer_pid: u32,
+        peer_creation_tick: u64,
+        user: projectos_host_core::PeerUserClass,
+        session: Option<projectos_host_core::SessionId>,
+        project: projectos_host_core::ProjectId,
+        environment: projectos_host_core::EnvironmentId,
+        phase_digest: [u8; 32],
+        repository_identity: [u8; 32],
+        repository_baseline: [u8; 32],
+        observed_at: u64,
+        valid_until: u64,
+        capabilities: Vec<projectos_host_core::ChannelCapability>,
+        operation_families: Vec<projectos_host_core::OperationFamily>,
+    ) -> Option<crate::observation::ConfirmedSameConnectionIpcPeerEvidence> {
+        let transition = run_fixture_handshake(capability, synthetic_controller_hello());
+        let confirmed = transition.into_confirmed()?;
+        crate::observation::ConfirmedSameConnectionIpcPeerEvidence::observe(
+            confirmed,
+            connection_id,
+            handshake_generation,
+            peer_pid,
+            peer_creation_tick,
+            user,
+            session,
+            project,
+            environment,
+            phase_digest,
+            repository_identity,
+            repository_baseline,
+            observed_at,
+            valid_until,
+            capabilities,
+            operation_families,
+        )
+    }
 }
 
 #[cfg(feature = "test-fixtures")]
 pub use fixture_handshake::{
-    outcome_is_confirmed, run_fixture_handshake, synthetic_controller_hello,
-    FixtureIpcPeerContributor,
+    assemble_same_connection_ipc_peer_fixture, outcome_is_confirmed, run_fixture_handshake,
+    synthetic_controller_hello, FixtureIpcPeerContributor,
 };
 
 #[cfg(test)]

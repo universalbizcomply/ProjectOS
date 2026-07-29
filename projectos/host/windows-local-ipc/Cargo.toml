@@ -30,9 +30,20 @@ windows-live-ipc = [
 # Win32 activity: it does NOT imply windows-live-ipc and pulls NO windows dependency. It supplies
 # fixture-only capability acquisition and a fixture handshake runner that drives the REAL verification
 # order; real live capability production stays absent and owner-gated.
-test-fixtures = ["projectos-host-windows-service-identity-proof/test-fixtures"]
+test-fixtures = [
+    "projectos-host-windows-service-identity-proof/test-fixtures",
+    # Level-2 end-to-end proof needs the core fixture verifier + fixture clock-binding grant. This is the
+    # ONLY place core fixtures are enabled; the live graph never enables it, so a production build never
+    # gains core fixture authority.
+    "projectos-host-core/test-fixtures",
+]
 
 [dependencies]
+# The core owns the IpcPeerObservation / ConfirmedHandshakeEvidence evidence types and the sealed
+# ProductionIpcSessionVerifier. This crate's same-connection evidence bundle projects into those core
+# types (CD-B4-PRODUCTION-IPC-PROVIDER1A). core is pure logic — windows-free and forbid(unsafe) — so this
+# path dependency pulls NO windows/unsafe surface; default features only (no core fixture authority).
+projectos-host-core = { path = "../core" }
 # Reuses the accepted redacted service-identity evidence + canonical no-trust peer/authority types
 # (via the proof-contract crate's re-exports). Windows-free by default.
 projectos-host-windows-service-identity-proof = { path = "../windows-service-identity-proof" }

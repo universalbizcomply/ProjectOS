@@ -570,6 +570,111 @@ pub trait IpcSessionVerifier: sealed::Sealed {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// Production IPC-session verifier (CD-B4-PRODUCTION-IPC-PROVIDER1A)
+// ---------------------------------------------------------------------------------------------
+
+/// The maximum validity window and observation-staleness bound the PRODUCTION verifier accepts.
+const PRODUCTION_IPC_MAX_WINDOW: u64 = 30_000;
+const PRODUCTION_IPC_MAX_STALENESS: u64 = 10_000;
+
+/// The sole PRODUCTION IPC-session verifier. It implements the sealed [`IpcSessionVerifier`], so an
+/// untrusted [`IpcPeerObservation`] + single-use [`ConfirmedHandshakeEvidence`] becomes a
+/// [`BoundIpcSession`] only through it (or the test fixture). Its connection identity and handshake
+/// generation are crate-assigned from a process-unique counter — never caller-selectable — and are
+/// non-zero; the accepted channel bounds are fixed at construction.
+///
+/// Opaque: private fields, redacted `Debug`, no serde, no evidence-to-authority conversion, thread-bound
+/// (`!Send + !Sync`), not `Clone`/`Copy`. Construction is crate-controlled: there is NO default-graph
+/// constructor, so an external crate cannot build one (the compile-failure suite proves it). The only
+/// reachable constructor is the test-fixtures [`ProductionIpcSessionVerifier::for_local_proof`], used by
+/// the Level-2 proof; a real connection-bound production constructor (owner-gated) is CARRY-FORWARD.
+/// Safety does not rest on construction alone: even with a verifier, minting needs a real
+/// [`VerifiedRuntimeInstance`] and a real [`VerifiedAuthorityTime`], both of which are unforgeable.
+pub struct ProductionIpcSessionVerifier {
+    connection_id: u64,
+    handshake_generation: u64,
+    liveness: core::cell::Cell<ConnectionLiveness>,
+    capabilities: Vec<ChannelCapability>,
+    families: Vec<OperationFamily>,
+    _thread_bound: ThreadBound,
+}
+
+impl fmt::Debug for ProductionIpcSessionVerifier {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("ProductionIpcSessionVerifier([REDACTED])")
+    }
+}
+
+impl ProductionIpcSessionVerifier {
+    /// The crate-internal mint. Connection identity and handshake generation are drawn from a
+    /// process-unique counter (high bit set, disjoint from the fixture verifier's space) so a caller can
+    /// neither choose nor forge a matching one; both are non-zero. The channel bounds default to the
+    /// observe-only + record-marker capabilities and the record-marker family.
+    pub(crate) fn new_internal() -> Self {
+        use core::sync::atomic::{AtomicU64, Ordering};
+        static NEXT_CONNECTION: AtomicU64 = AtomicU64::new(1);
+        let base = NEXT_CONNECTION.fetch_add(1, Ordering::Relaxed) | (1u64 << 63);
+        Self {
+            connection_id: base,
+            handshake_generation: base,
+            liveness: core::cell::Cell::new(ConnectionLiveness::Live),
+            capabilities: vec![
+                ChannelCapability::ObserveOnly,
+                ChannelCapability::RecordMarker,
+            ],
+            families: vec![OperationFamily::RecordMarker],
+            _thread_bound: PhantomData,
+        }
+    }
+
+    /// TEST-ONLY constructor for the Level-2 proof. Gated to `test-fixtures`, so the default graph has NO
+    /// way to construct the production verifier; a real connection-bound production constructor is
+    /// CARRY-FORWARD and deliberately absent.
+    #[cfg(any(test, feature = "test-fixtures"))]
+    #[must_use]
+    pub fn for_local_proof() -> Self {
+        Self::new_internal()
+    }
+
+    /// TEST-ONLY: model a peer disconnect on this verifier's connection (so minting/currentness refuse).
+    #[cfg(any(test, feature = "test-fixtures"))]
+    pub fn disconnect(&self) {
+        self.liveness.set(ConnectionLiveness::Disconnected);
+    }
+
+    /// TEST-ONLY: model a session revocation on this verifier's connection.
+    #[cfg(any(test, feature = "test-fixtures"))]
+    pub fn revoke(&self) {
+        self.liveness.set(ConnectionLiveness::Revoked);
+    }
+}
+
+impl sealed::Sealed for ProductionIpcSessionVerifier {}
+impl IpcSessionVerifier for ProductionIpcSessionVerifier {
+    fn connection_id(&self) -> u64 {
+        self.connection_id
+    }
+    fn handshake_generation(&self) -> u64 {
+        self.handshake_generation
+    }
+    fn liveness(&self) -> ConnectionLiveness {
+        self.liveness.get()
+    }
+    fn max_window(&self) -> u64 {
+        PRODUCTION_IPC_MAX_WINDOW
+    }
+    fn max_staleness(&self) -> u64 {
+        PRODUCTION_IPC_MAX_STALENESS
+    }
+    fn permitted_capabilities(&self) -> &[ChannelCapability] {
+        &self.capabilities
+    }
+    fn permitted_families(&self) -> &[OperationFamily] {
+        &self.families
+    }
+}
+
 #[cfg(any(test, feature = "test-fixtures"))]
 pub use fixture::FixtureIpcSessionVerifier;
 

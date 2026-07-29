@@ -94,7 +94,7 @@ pub use ipc_session::FixtureIpcSessionVerifier;
 pub use ipc_session::{
     BoundIpcSession, ChannelCapability, ConfirmedHandshakeEvidence, ConnectionLiveness,
     ExpectedChannel, ExpectedPeer, IpcPeerObservation, IpcSessionError, IpcSessionVerifier,
-    OperationFamily, PeerUserClass,
+    OperationFamily, PeerUserClass, ProductionIpcSessionVerifier,
 };
 pub use observation::{
     ApprovalObservation, CollectedObservations, ConnectionObservation,

@@ -79,7 +79,7 @@ function run() {
   const depBody = (stripComments(toml).split(/^\[dependencies\]/m)[1] || "").split(/\n\[/)[0];
   const deps = (depBody.match(/^\s*([a-z0-9_-]+)\s*=/gim) || []).map((s) => s.replace(/\s*=$/, "").trim());
   for (const d of deps) {
-    if (!["projectos-host-windows-service-identity-proof", "projectos-host-authority"].includes(d))
+    if (!["projectos-host-windows-service-identity-proof", "projectos-host-authority", "projectos-host-core"].includes(d))
       errors.push("unexpected dependency: " + d);
   }
   if (!deps.includes("projectos-host-authority")) errors.push("missing host-authority dependency");
