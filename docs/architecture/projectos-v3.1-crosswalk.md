@@ -94,10 +94,12 @@ The Track A–G structure has been approved by the owner/gatekeeper and is persi
 - **Track A — Plan, governance and memory.**
 - **Track B — Owner Control Centre and no-training-required UX.**
 - **Track C — Secure Windows host, authority and protected execution.**
-- **Track D — Claude worker and project-session control.**
+- **Track D — AI provider, worker and project-session control.** *(V3.2 amendment: providers Claude, Codex and future AI operate as governed replaceable workers without a mandatory VS Code dependency; VS Code is an optional specialist editor. See `docs/architecture/projectos-v3.2-ai-provider-independence-amendment.md`.)*
 - **Track E — Validation, proof, drift and CI governance.**
 - **Track F — PolyGo installation and pilot.**
 - **Track G — Multi-project rollout and release closure.**
+
+**V3.2 AI Provider Independence (owner-approved directional amendment, 2026-07-30).** Persisted in `docs/architecture/projectos-v3.2-ai-provider-independence-amendment.md`. ProjectOS is the primary governed delivery environment; Claude, Codex and future AI providers are governed, replaceable workers operating without a mandatory VS Code dependency; VS Code stays an optional specialist editor. Adds Track D subphases (provider broker, Claude local adapter, Codex adapter, credential/capability guard, AI Accounts Control Centre, dual-agent local proof) after the Windows security chain and before the PolyGo pilot, with no renumbering of historical phases 0–18. Provider implementation is NOT YET AUTHORISED; EXECUTION_READY remains false; installation authority remains NotAuthorised; the approved plan stays v1.0.
 
 ## 15. Current product state
 Governed security engine (CD-B4) + Forge substantially built, synthetic-proven, PUSHED; 5 CD-B4 phases + 3 V3 numbered phases + V2 formally closed. V3 control-plane phases largely implemented-not-accepted or pending; PolyGo blocked; no production activation. **EXECUTION_READY = false. Installation authority = NotAuthorised.**

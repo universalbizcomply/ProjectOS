@@ -64,7 +64,8 @@ const MODULES = [
   "val-cd-b4-production-ipc-provider1a",
   "val-cd-b4-production-owner-presence-provider1a",
   "val-projectos-v3-owner-presence-confirmation-ux1a",
-  "validate-v3.1-crosswalk"
+  "validate-v3.1-crosswalk",
+  "validate-v3.2-ai-provider-independence"
 ];
 let total = 0;
 for (const m of MODULES) {
