@@ -434,6 +434,46 @@ body {
 .fg-verdict.ok { color: var(--ok); border-color: #1f4a2f; }
 .fg-verdict.crit { color: var(--crit); border-color: #4a1f1f; }
 
+/* Protected-operation owner confirmation (PROJECTOS-V3-OWNER-PRESENCE-CONFIRMATION-UX1A) —
+   the one universal confirmation surface. Reuses .ocp-panel / .ocp-badge / .ocp-btn. */
+.ocp-confirm { border-left: 3px solid var(--crit); display: flex; flex-direction: column; gap: 10px; }
+.ocp-confirm-synthetic { background: #241d0a; border: 1px dashed var(--warn); color: var(--warn);
+  padding: 8px 12px; border-radius: var(--radius-sm); font-size: 12px; line-height: 1.5; }
+.ocp-confirm-riskbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.ocp-confirm-envnote { font-size: 13px; }
+.ocp-confirm-envnote.crit { color: var(--crit); }
+.ocp-confirm-envnote.warn { color: var(--warn); }
+.ocp-confirm-title { margin: 4px 0 0; font-size: 18px; letter-spacing: -0.01em; }
+.ocp-confirm-action { margin: 0; font-size: 15px; font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+.ocp-confirm-desc { margin: 0; font-size: 13px; color: var(--text-dim); line-height: 1.5; overflow-wrap: anywhere; }
+.ocp-confirm-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 18px; margin: 6px 0; }
+.ocp-confirm-facts > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ocp-confirm-facts dt { font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-faint); }
+.ocp-confirm-facts dd { margin: 0; font-size: 13px; color: var(--text); line-height: 1.5; overflow-wrap: anywhere; }
+.ocp-confirm-facts dd.mono { font-family: var(--mono); font-size: 12px; color: var(--text-faint); }
+.ocp-confirm-facts dd.crit { color: var(--crit); font-weight: 600; }
+.ocp-confirm-impacts { list-style: none; margin: 6px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.ocp-confirm-impacts-h { font-size: 12px; color: var(--text-dim); }
+.ocp-confirm-impact { font-size: 13px; color: var(--crit); border-left: 3px solid var(--crit); padding-left: 10px; overflow-wrap: anywhere; }
+.ocp-confirm-expiry { margin: 0; font-size: 13px; color: var(--warn); }
+.ocp-confirm-evidence { margin: 4px 0; }
+.ocp-confirm-note { margin: 4px 0 0; font-size: 12px; color: var(--text-dim); }
+.ocp-confirm-note.crit { color: var(--crit); }
+.ocp-confirm-clarify { margin: 6px 0 0; font-size: 13px; color: var(--text-dim); line-height: 1.5; }
+.ocp-confirm-windows { margin: 4px 0 0; font-size: 13px; color: var(--text); line-height: 1.5; }
+.ocp-confirm-outcome { margin: 6px 0 0; font-size: 14px; color: var(--text); font-weight: 600; line-height: 1.5; }
+.ocp-confirm-outcome.crit { color: var(--crit); }
+.ocp-confirm-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; align-items: center; }
+.ocp-confirm-blocked { flex-basis: 100%; margin: 4px 0 0; font-size: 12px; color: var(--crit); }
+.ocp-confirm-advanced { margin-top: 8px; font-size: 12px; color: var(--text-dim); }
+.ocp-confirm-advanced summary { cursor: pointer; color: var(--text-dim); }
+.ocp-confirm-advanced summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Narrow viewport: single-column facts, no fixed widths, safe-area padding — no horizontal overflow. */
+@media (max-width: 640px) {
+  .ocp-confirm-facts { grid-template-columns: 1fr; }
+  .ocp-confirm { padding-left: max(18px, env(safe-area-inset-left)); padding-right: max(18px, env(safe-area-inset-right)); }
+}
+
 /* ---- Reduced motion: honour the OS "reduce motion" setting (WCAG 2.3.3 / motion sensitivity). ---- */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

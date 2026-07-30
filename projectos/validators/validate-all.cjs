@@ -63,6 +63,7 @@ const MODULES = [
   "val-cd-b4-production-runtime-provider1a",
   "val-cd-b4-production-ipc-provider1a",
   "val-cd-b4-production-owner-presence-provider1a",
+  "val-projectos-v3-owner-presence-confirmation-ux1a",
   "validate-v3.1-crosswalk"
 ];
 let total = 0;

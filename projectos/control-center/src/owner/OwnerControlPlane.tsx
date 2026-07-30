@@ -12,6 +12,14 @@ import { OWNER_MODELS, PROJECTOS_V3 } from './ownerSnapshot';
 import { buildOwnerControlView, type OwnerControlModel, type OwnerBadge } from './ownerModel';
 import { useLifecycle } from '../daemon/DaemonProvider';
 import type { LiveLifecycle } from '../daemon/types';
+import { ProtectedOperationConfirmation } from './confirmation/ProtectedOperationConfirmation';
+import { SYNTHETIC_CONFIRMATION, SYNTHETIC_NOW_MS } from './confirmation/ownerConfirmationFixture';
+import {
+  reduceHostEvent,
+  reduceIntent,
+  type ConfirmationState,
+  type RendererIntent,
+} from './confirmation/ownerConfirmationModel';
 
 function Badge({ badge }: { badge: OwnerBadge }) {
   return <span className={`ocp-badge ${badge.tone}`}>{badge.label}</span>;
@@ -52,6 +60,25 @@ export function OwnerControlPlane() {
   const model: OwnerControlModel =
     OWNER_MODELS.find((m) => m.projectId === projectId) ?? PROJECTOS_V3;
   const view = useMemo(() => buildOwnerControlView(model), [model]);
+
+  // Synthetic owner-confirmation preview state (Option C1). No authority, no Windows ceremony: a
+  // DecisionSubmitting is echoed to the host-authoritative WindowsVerificationRequired state purely to
+  // demonstrate the flow. The renderer can never mint a verified/ready/expired/invalidated state.
+  const [confirmState, setConfirmState] = useState<ConfirmationState>(SYNTHETIC_CONFIRMATION.hostState);
+  const handleConfirmIntent = (intent: RendererIntent) => {
+    setConfirmState((prev) => {
+      const next = reduceIntent(prev, intent, {
+        summary: SYNTHETIC_CONFIRMATION,
+        state: prev,
+        nowMs: SYNTHETIC_NOW_MS,
+        hostAvailable: true,
+        revisionChanged: false,
+      });
+      return prev !== 'DecisionSubmitting' && next === 'DecisionSubmitting'
+        ? reduceHostEvent(next, 'DecisionAccepted')
+        : next;
+    });
+  };
 
   return (
     <section className="ocp" aria-labelledby="ocp-title">
@@ -108,12 +135,6 @@ export function OwnerControlPlane() {
               <li key={d.id} className={`ocp-decision ${d.severity}`}>
                 <div className="ocp-decision-title">{d.title}</div>
                 <div className="ocp-decision-detail">{d.detail}</div>
-                <div className="ocp-decision-actions">
-                  <button type="button" className="ocp-btn primary" disabled aria-disabled="true">Approve</button>
-                  <button type="button" className="ocp-btn" disabled aria-disabled="true">Return for correction</button>
-                  <button type="button" className="ocp-btn danger" disabled aria-disabled="true">Reject</button>
-                  <span className="ocp-preview-tag" role="note">Preview — record approvals in the ProjectOS desktop app.</span>
-                </div>
               </li>
             ))}
           </ul>
@@ -121,6 +142,15 @@ export function OwnerControlPlane() {
           <p className="ocp-empty">No decisions are waiting for you. Nothing is blocked on your approval.</p>
         )}
       </div>
+
+      {/* Protected-action owner confirmation (Option C1) — the universal confirmation surface,
+          driven here by synthetic preview state. Replaces the former disabled decision preview. */}
+      <ProtectedOperationConfirmation
+        summary={SYNTHETIC_CONFIRMATION}
+        state={confirmState}
+        nowMs={SYNTHETIC_NOW_MS}
+        onIntent={handleConfirmIntent}
+      />
 
       {/* Next safe action */}
       <div className="ocp-panel next">
