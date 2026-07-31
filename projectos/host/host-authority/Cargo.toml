@@ -37,6 +37,17 @@ windows-elevation-observation = ["dep:windows", "dep:projectos-windows-runtime-p
 # harness. Opt-in; never enabled by default; must NOT depend on test-fixtures.
 windows-pipe-security-runtime = ["dep:windows", "dep:projectos-windows-runtime-primitives"]
 
+# NARROW, NON-FIXTURE Windows feature for the host-authority OBSERVER
+# (CD-B4-PRODUCTION-HOST-AUTHORITY-WIN32-OBSERVER1A). It compiles the live session/console/station
+# observation and the canonical-identity check that feed the committed acquisition policy. It acquires
+# NO token, constructs NO ConfirmedAuthorityGuard, and has no caller in this phase — compiling it is not
+# authority to run it. Pulls host-identity for the CLOSED canonical installation identity contract; no
+# cycle, because host-identity no longer depends on the activation plan.
+windows-host-authority-observer = [
+    "dep:windows",
+    "dep:projectos-host-identity",
+]
+
 # TEST-ONLY synthetic authority surface. Present only under this feature; never in a default/release
 # build. INCLUDES the runtime feature (so the opaque runtime contract is available) and additionally
 # compiles the synthetic descriptor/SID constructors, the `windows_proof` module, the existence-token
@@ -56,8 +67,13 @@ windows = { version = "0.61.3", optional = true, features = [
     "Win32_Security",
     "Win32_Security_Authorization",
     "Win32_System_Threading",
+    "Win32_System_RemoteDesktop",
+    "Win32_System_StationsAndDesktops",
 ] }
 # Canonical owned-handle RAII boundary. The synthetic authority adopts every Win32 handle through this
 # crate's `handles::adopt` and inspects it through `handles::win32` — host-authority defines NO handle
 # wrapper, no Drop and no direct FromRawHandle. Optional: linked ONLY under the test-fixtures feature.
 projectos-windows-runtime-primitives = { path = "../windows-runtime-primitives", optional = true }
+# The closed canonical installation identity contract. Optional: linked ONLY under
+# `windows-host-authority-observer`, so the default graph gains nothing.
+projectos-host-identity = { path = "../host-identity", optional = true }

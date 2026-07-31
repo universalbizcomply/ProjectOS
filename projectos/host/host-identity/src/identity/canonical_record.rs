@@ -24,7 +24,17 @@
 
 use super::hash::sha256_hex;
 use super::install_root::{InstallationEvidence, InstallationEvidenceProvider};
-use projectos_host_windows_activation_plan::root_plan::{KnownFolderAnchor, RootSubtree};
+// CYCLE BREAK (CD-B4-PRODUCTION-HOST-AUTHORITY-WIN32-OBSERVER1A). These two values were previously
+// imported from `windows-host-activation-plan`. Reusing that crate is now GENUINELY UNUSABLE here: it
+// transitively reaches host-authority (activation-plan -> acl-policy -> root-custody -> persistence ->
+// core -> host-authority), so host-authority could never depend on this crate to verify a record, and
+// the Windows host-authority observer became unbuildable. They are re-declared as local constants and
+// pinned against the upstream contract by val-cd-b4-host-authority-observer1a, which compares both
+// source files, so the two definitions cannot silently diverge.
+/// The ProgramData Known Folder symbol. Byte-identical to `KnownFolderAnchor::ProgramData.symbol()`.
+const PROGRAMDATA_ANCHOR_SYMBOL: &str = "%KNOWNFOLDER:ProgramData%";
+/// The host-state subtree segment. Byte-identical to `RootSubtree::HostState.segment()`.
+const HOST_STATE_SEGMENT: &str = "host";
 
 /// The only supported record schema version.
 pub const RECORD_SCHEMA_VERSION: u32 = 1;
@@ -138,9 +148,9 @@ pub fn compute_record_digest(record: &InstallationIdentityRecordV1) -> String {
 pub fn symbolic_record_location() -> String {
     format!(
         "{}\\{}\\{}\\{}\\{}",
-        KnownFolderAnchor::ProgramData.symbol(),
+        PROGRAMDATA_ANCHOR_SYMBOL,
         EXPECTED_PRODUCT,
-        RootSubtree::HostState.segment(),
+        HOST_STATE_SEGMENT,
         RECORD_SUBDIRECTORY,
         RECORD_FILE_NAME
     )
@@ -238,6 +248,26 @@ pub struct ProgramDataIdentityRecord;
 impl InstallationEvidenceProvider for ProgramDataIdentityRecord {
     fn evidence(&self) -> InstallationEvidence {
         InstallationEvidence::Unavailable
+    }
+}
+
+/// The PRODUCTION canonical identity route.
+///
+/// Reads only the approved record location through [`ProgramDataIdentityRecord`] and verifies it. Until
+/// an installer writes the record AND an approved known-folder resolver exists, the evidence is
+/// [`InstallationEvidence::Unavailable`] and this returns
+/// [`RecordError::ProtectedEvidenceUnavailable`] — the expected fail-closed production reality, not a
+/// defect. It creates, repairs and writes nothing.
+///
+/// # Errors
+/// [`RecordError`] naming the first failed check.
+pub fn production_canonical_identity() -> Result<VerifiedCanonicalInstallation, RecordError> {
+    // No record can be located yet, so there is nothing to verify; fail closed on the evidence alone.
+    match ProgramDataIdentityRecord.evidence() {
+        InstallationEvidence::Matched => Err(RecordError::Missing),
+        InstallationEvidence::Unavailable => Err(RecordError::ProtectedEvidenceUnavailable),
+        InstallationEvidence::Missing => Err(RecordError::Missing),
+        InstallationEvidence::Mismatched => Err(RecordError::EvidenceMismatch),
     }
 }
 

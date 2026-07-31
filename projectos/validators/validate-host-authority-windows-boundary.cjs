@@ -40,7 +40,11 @@ const TEST_NAME = /ProjectOS\.Test\.HostAuthority/;
 // commit; section 8 proves that addition against the historical state.
 const HISTORICAL_UNSAFE_ALLOWED = ["existence.rs", "security.rs", "service_principal.rs"];
 const ELEVATION_FILE = "elevation.rs";
-const UNSAFE_ALLOWED = new Set([...HISTORICAL_UNSAFE_ALLOWED, ELEVATION_FILE]);
+// CD-B4-PRODUCTION-HOST-AUTHORITY-WIN32-OBSERVER1A: the live host-authority observer is a new,
+// feature-gated FFI file (session / console / station queries). Its unsafe is confined to that file and
+// every block carries SAFETY reasoning, matching the existing FFI files.
+const OBSERVER_FILE = "acquisition_win32.rs";
+const UNSAFE_ALLOWED = new Set([...HISTORICAL_UNSAFE_ALLOWED, ELEVATION_FILE, OBSERVER_FILE]);
 
 function read(p) {
   return fs.readFileSync(p, "utf8").replace(/^﻿/, "");
@@ -103,7 +107,13 @@ function run() {
   for (const d of depBlocks) {
     const nameMatch = d.match(/([a-z0-9_-]+)\s*=/i);
     const name = nameMatch ? nameMatch[1] : "";
-    if (name && !["windows", "test-fixtures", "projectos-windows-runtime-primitives"].includes(name)) {
+    // `projectos-host-identity` is permitted ONLY as the optional dependency of the observer feature:
+    // it supplies the CLOSED canonical installation identity contract that the observer must verify.
+    // It is not enabled by default, and host-identity does not depend on this crate (no cycle).
+    if (
+      name &&
+      !["windows", "test-fixtures", "projectos-windows-runtime-primitives", "projectos-host-identity"].includes(name)
+    ) {
       errors.push("unexpected dependency-like entry: " + name);
     }
   }
@@ -303,10 +313,19 @@ function amendmentTwoStateCheck(errors) {
     errors.push("historical lib.rs unexpectedly referenced TokenElevation");
 
   // --- B. CURRENT AUTHORISED STATE ---
-  // elevation.rs is the ONLY file added to the allowlist since the frozen commit.
+  // Exactly TWO files have been added to the allowlist since the frozen commit, each by a named gate:
+  // elevation.rs (windows-elevation-observation) and acquisition_win32.rs
+  // (CD-B4-PRODUCTION-HOST-AUTHORITY-WIN32-OBSERVER1A). Both are feature-gated FFI files with unsafe
+  // confined to themselves. The set is compared exactly, so a third file cannot slip in unnamed.
+  const AUTHORISED_ADDITIONS = [ELEVATION_FILE, OBSERVER_FILE];
   const added = [...UNSAFE_ALLOWED].filter((f) => !HISTORICAL_UNSAFE_ALLOWED.includes(f));
-  if (added.length !== 1 || added[0] !== ELEVATION_FILE)
-    errors.push("the allowlist added more than elevation.rs: " + JSON.stringify(added));
+  const unexpected = added.filter((f) => !AUTHORISED_ADDITIONS.includes(f));
+  const missing = AUTHORISED_ADDITIONS.filter((f) => !added.includes(f));
+  if (unexpected.length || missing.length)
+    errors.push(
+      "the allowlist additions are not exactly the authorised set: " +
+        JSON.stringify({ added, unexpected, missing })
+    );
 
   const elevationPath = path.join(CRATE, "src", ELEVATION_FILE);
   if (!fs.existsSync(elevationPath)) {

@@ -162,9 +162,14 @@ function run() {
   }
 
   // ---- V5 symbolic Known Folder resolution only ----
-  if (!/KnownFolderAnchor::ProgramData\.symbol\(\)/.test(recCode))
-    E("V5 the record location does not use the accepted Known Folder anchor");
-  for (const bad of ["std::env", "env::var", "current_dir", "USERPROFILE", "PROGRAMDATA", "parent()"])
+  // The anchor was LOCALISED (CD-B4-PRODUCTION-HOST-AUTHORITY-WIN32-OBSERVER1A) to break the
+  // host-identity -> activation-plan -> ... -> host-authority cycle that made the observer unbuildable.
+  // Drift from the upstream contract is pinned by val-cd-b4-host-authority-observer1a V8.
+  if (!/const PROGRAMDATA_ANCHOR_SYMBOL: &str = "%KNOWNFOLDER:ProgramData%"/.test(recCode))
+    E("V5 the record location does not use the ProgramData known-folder anchor symbol");
+  // Anchored on real env-var access, not bare substrings: the localised constant is legitimately named
+  // PROGRAMDATA_ANCHOR_SYMBOL and must not trip this.
+  for (const bad of ["std::env", "env::var", "current_dir", "var(\"USERPROFILE", "var(\"PROGRAMDATA", "parent()"])
     if (recCode.includes(bad)) E("V5 a forbidden path source is used: " + bad);
 
   // ---- V6 the production provider reads nothing and never writes ----
