@@ -88,6 +88,7 @@
 // The OPAQUE EFFECT-WITNESS CONTRACT. Pure types: no Windows API, no token query, no machine effect,
 // and NO production producer for any witness — real owner approval, elevation, repository and
 // executable verification are all deferred to separately-authorised phases.
+pub mod acquisition;
 pub mod effect_grant;
 pub mod effect_witness;
 

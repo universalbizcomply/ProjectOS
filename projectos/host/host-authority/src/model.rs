@@ -259,8 +259,24 @@ impl AuthorityPeerState {
         confirmed: Option<ConfirmedPeer>,
     ) -> AuthorityPeerState {
         match (outcome, confirmed) {
-            // A fresh create means we are the (still-unconfirmed) owner; corroboration continues.
-            (AuthorityTokenOutcome::AcquiredToken, _) => AuthorityPeerState::Uncorroborated,
+            // POST-FREEZE SECURITY CORRECTION (Option A). The original rule mapped every fresh create to
+            // `Uncorroborated`, which made a legitimate first acquirer PERMANENTLY unconfirmable: the
+            // process that owns the token could never be confirmed, while every confirmable case
+            // (`ExistingToken` + peer) describes a DIFFERENT process. Self-acquisition is now expressible.
+            //
+            // A fresh create plus genuine self-evidence confirms THIS process as the authority.
+            (AuthorityTokenOutcome::AcquiredToken, Some(ConfirmedPeer::InteractiveFallback)) => {
+                AuthorityPeerState::InteractiveFallbackConfirmed
+            }
+            (AuthorityTokenOutcome::AcquiredToken, Some(ConfirmedPeer::ServiceRuntime)) => {
+                AuthorityPeerState::ServiceRuntimeConfirmed
+            }
+            // A client connection is never authority, however the token was obtained.
+            (AuthorityTokenOutcome::AcquiredToken, Some(ConfirmedPeer::ClientConnection)) => {
+                AuthorityPeerState::AuthorityUncertain
+            }
+            // A fresh create with NO corroborating evidence stays unconfirmed, as before.
+            (AuthorityTokenOutcome::AcquiredToken, None) => AuthorityPeerState::Uncorroborated,
             (AuthorityTokenOutcome::ExistingToken, Some(ConfirmedPeer::InteractiveFallback)) => {
                 AuthorityPeerState::InteractiveFallbackConfirmed
             }
@@ -723,6 +739,13 @@ impl ConfirmedAuthorityGuard {
         outcome: AuthorityTokenOutcome,
         confirmed: Option<ConfirmedPeer>,
     ) -> Result<Self, AuthorityRefusal> {
+        // TOKEN OWNERSHIP (post-freeze security correction). The guard owns the machine-wide token, so
+        // the confirmation must attest THIS process — never a peer. Only a fresh create proves we are
+        // the acquirer; `ExistingToken` means someone else holds the authority, and confirming it here
+        // would produce a guard owning one token while attesting that another process is authoritative.
+        if outcome != AuthorityTokenOutcome::AcquiredToken {
+            return Err(AuthorityRefusal::AuthorityUnavailable);
+        }
         let state = AuthorityPeerState::corroborate(outcome, confirmed);
         match state {
             AuthorityPeerState::InteractiveFallbackConfirmed
@@ -825,6 +848,86 @@ pub(crate) mod test_support {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A guard in its sealed (handle-free) shape, for the confirmation-rule tests.
+    fn sealed_guard() -> AuthorityGuard {
+        AuthorityGuard { _seal: Private }
+    }
+
+    #[test]
+    fn confirm_requires_that_this_process_acquired_the_token() {
+        // A fresh create with self-evidence confirms THIS process.
+        assert!(ConfirmedAuthorityGuard::confirm(
+            sealed_guard(),
+            AuthorityTokenOutcome::AcquiredToken,
+            Some(ConfirmedPeer::InteractiveFallback),
+        )
+        .is_ok());
+        assert!(ConfirmedAuthorityGuard::confirm(
+            sealed_guard(),
+            AuthorityTokenOutcome::AcquiredToken,
+            Some(ConfirmedPeer::ServiceRuntime),
+        )
+        .is_ok());
+
+        // An EXISTING token means another process holds the authority. Confirming it would yield a guard
+        // owning one token while attesting a different process is authoritative — refused outright.
+        for peer in [
+            Some(ConfirmedPeer::InteractiveFallback),
+            Some(ConfirmedPeer::ServiceRuntime),
+            Some(ConfirmedPeer::ClientConnection),
+            None,
+        ] {
+            assert_eq!(
+                ConfirmedAuthorityGuard::confirm(
+                    sealed_guard(),
+                    AuthorityTokenOutcome::ExistingToken,
+                    peer,
+                )
+                .unwrap_err(),
+                AuthorityRefusal::AuthorityUnavailable,
+                "ExistingToken must never produce a local ConfirmedAuthorityGuard"
+            );
+        }
+
+        // A client connection and missing corroboration never confirm, even on a fresh create.
+        for peer in [Some(ConfirmedPeer::ClientConnection), None] {
+            assert!(ConfirmedAuthorityGuard::confirm(
+                sealed_guard(),
+                AuthorityTokenOutcome::AcquiredToken,
+                peer,
+            )
+            .is_err());
+        }
+        // And a refused kernel outcome never confirms.
+        assert!(ConfirmedAuthorityGuard::confirm(
+            sealed_guard(),
+            AuthorityTokenOutcome::Refused,
+            Some(ConfirmedPeer::ServiceRuntime),
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn corroboration_confirms_a_fresh_self_acquirer_only_with_self_evidence() {
+        use AuthorityTokenOutcome::AcquiredToken as Fresh;
+        assert_eq!(
+            AuthorityPeerState::corroborate(Fresh, Some(ConfirmedPeer::InteractiveFallback)),
+            AuthorityPeerState::InteractiveFallbackConfirmed
+        );
+        assert_eq!(
+            AuthorityPeerState::corroborate(Fresh, Some(ConfirmedPeer::ServiceRuntime)),
+            AuthorityPeerState::ServiceRuntimeConfirmed
+        );
+        assert_eq!(
+            AuthorityPeerState::corroborate(Fresh, Some(ConfirmedPeer::ClientConnection)),
+            AuthorityPeerState::AuthorityUncertain
+        );
+        assert_eq!(
+            AuthorityPeerState::corroborate(Fresh, None),
+            AuthorityPeerState::Uncorroborated
+        );
+    }
 
     fn scope() -> AuthorityScope {
         AuthorityScope::new(
