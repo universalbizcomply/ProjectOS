@@ -24,6 +24,11 @@
 
 use super::hash::sha256_hex;
 use super::install_root::{InstallationEvidence, InstallationEvidenceProvider};
+
+// MINIMUM export for CD-B4-INSTALLER-CANONICAL-IDENTITY-RECORD-WRITER1A: the installer-side writer must
+// be able to name the evidence type to drive `verify_record` in its own tests. Re-exporting the enum
+// grants nothing — it carries no authority and cannot mint a verified identity.
+pub use super::install_root::InstallationEvidence as RecordInstallationEvidence;
 // CYCLE BREAK (CD-B4-PRODUCTION-HOST-AUTHORITY-WIN32-OBSERVER1A). These two values were previously
 // imported from `windows-host-activation-plan`. Reusing that crate is now GENUINELY UNUSABLE here: it
 // transitively reaches host-authority (activation-plan -> acl-policy -> root-custody -> persistence ->

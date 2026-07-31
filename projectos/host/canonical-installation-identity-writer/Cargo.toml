@@ -1,0 +1,33 @@
+[package]
+name = "projectos-host-canonical-installation-identity-writer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "UNLICENSED"
+description = "CD-B4-INSTALLER-CANONICAL-IDENTITY-RECORD-WRITER1A. The INSTALLER-ONLY canonical installation identity record writer: validated inputs, installation-ID contract, strict canonical V1 JSON codec, and a fixture-backed atomic writer that never overwrites, repairs or regenerates an existing record. Runtime crates must NOT depend on this crate — host-identity remains the read/verify boundary."
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[features]
+default = []
+# Fixture-only target construction and a deterministic installation-ID source. Non-default: a release
+# graph exposes no write route at all.
+fixture-writer = []
+# The PRODUCTION installation-ID source (Windows CNG system-preferred RNG). Compiled only under this
+# feature and NEVER invoked in this phase. Uses the same accepted primitive as the existing key-source
+# and owner-verification crates rather than introducing another random vocabulary.
+installer-windows = ["dep:windows-sys"]
+
+[dependencies]
+# The CLOSED canonical identity contract: record type, digest, product/service/relative-path constants.
+# Reused, never duplicated.
+projectos-host-identity = { path = "../host-identity" }
+# Strict V1 JSON parsing. Canonical output is produced by this crate, not by serde field order.
+serde_json = "1"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", optional = true, features = [
+    "Win32_Foundation",
+    "Win32_Security_Cryptography",
+] }
