@@ -282,10 +282,52 @@ function run() {
   // ---- V8 synthetic constructor is #[cfg(test)]-only ----
   if (!/#\[cfg\(test\)\]\s*\n\s*pub\(crate\) fn synthetic\(/.test(win))
     E("V8 synthetic binding constructor is not #[cfg(test)] gated");
-  // ---- V9 no test-fixtures feature exists at all (so no downstream-enableable synthetic ctor) ----
-  if (/test-fixtures/.test(toml)) E("V9 a test-fixtures feature exists (downstream-enableable)");
+  // ---- V9 no `test-fixtures` feature (so no downstream-enableable synthetic ctor) ----
+  // BOUNDED POST-FREEZE AMENDMENT (CD-B4-PRODUCTION-OWNER-PRESENCE-CAPABILITY-BRIDGE1A, Option B):
+  // the original blanket "no fixture feature of any kind" is stale. Exactly ONE narrowly named,
+  // non-default test-evidence feature is now permitted — `fixture-owner-evidence` — so the owner-presence
+  // bridge can prove the observation -> evidence -> presence chain. The `test-fixtures` prohibition below
+  // is UNCHANGED, and V9b/V9c bound the new feature so it cannot become a general fixture surface.
+  // Strip TOML comments first (validator-comment-scanning lesson): manifest PROSE explaining that the
+  // feature is deliberately NOT named `test-fixtures` must not satisfy or trip this absence check.
+  const tomlCode = toml.replace(/#.*/g, "");
+  if (/test-fixtures/.test(tomlCode)) E("V9 a test-fixtures feature exists (downstream-enableable)");
   if (/feature = "test-fixtures"/.test(lib + win + ffi + non + ses + sidSrc))
     E("V9 a constructor is gated on a test-fixtures feature");
+  {
+    // V9b: the permitted feature is non-default and pulls NO dependency (so it can link no Windows API).
+    const featureBlock = (/\n\[features\]([\s\S]*?)(\n\[|$)/.exec(tomlCode) || [])[1] || "";
+    const declared = [...featureBlock.matchAll(/^\s*([a-z0-9-]+)\s*=\s*\[([^\]]*)\]/gm)];
+    const ALLOWED = new Set(["default", "windows-live-owner-verification", "fixture-owner-evidence"]);
+    for (const [, name, body] of declared) {
+      if (!ALLOWED.has(name)) E("V9b unexpected adapter feature: " + name);
+      if (name === "fixture-owner-evidence" && body.trim() !== "")
+        E("V9b the fixture-evidence feature pulls a dependency (it must pull none)");
+      if (name === "default" && body.trim() !== "")
+        E("V9b the adapter default feature set is not empty");
+    }
+    // V9c: the fixture producer must never reach a live Windows/consent surface.
+    // Scope to the fixture producer's OWN body, on comment-stripped source. Scanning to end-of-file
+    // swept in unrelated prose and error strings elsewhere in lib.rs and produced a false positive.
+    const libCode = lib.replace(/\/\/.*/g, "");
+    const fixtureGated = fnBody(libCode, "pub fn fixture_owner_evidence(");
+    if (!fixtureGated && /fixture-owner-evidence/.test(tomlCode))
+      E("V9c the fixture-evidence feature is declared but its producer is missing");
+    for (const sym of [
+      "UserConsentVerifier",
+      "RequestVerificationForWindow",
+      "RoInitialize",
+      "BCryptGenRandom",
+      "windows::",
+    ])
+      if (fixtureGated.includes(sym))
+        E("V9c the fixture-evidence producer references a live Windows surface: " + sym);
+    // V9d: evidence from the fixture route must be permanently identifiable as fixture evidence.
+    if (!/pub fn is_fixture\(&self\) -> bool/.test(lib))
+      E("V9d evidence carries no fixture marker");
+    if (!/fixture: true/.test(lib)) E("V9d the fixture producer does not mark its evidence");
+    if (!/fixture: false/.test(lib)) E("V9d the live mint does not clear the fixture marker");
+  }
 
   // ---- V10 evidence has no public constructor ----
   {

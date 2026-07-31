@@ -422,6 +422,17 @@ impl ControlCentreWindowVerifier {
     }
 }
 
+/// Gated fixture helper: construct the sealed verifier HERE (where it lives) and return the binding it
+/// mints. Keeps verifier construction confined to this module — no other adapter module may build one.
+#[cfg(feature = "fixture-owner-evidence")]
+pub(crate) fn fixture_verify_binding(
+    observation: &UntrustedControlCentreWindowObservation,
+    expected: &ExpectedWindowFacts<'_>,
+    now: u64,
+) -> Result<TrustedControlCentreWindowBinding, OwnerVerificationError> {
+    ControlCentreWindowVerifier::new_internal().verify(observation, expected, now)
+}
+
 /// Compute the trusted window-binding digest over the RE-VERIFIED facts (domain-separated; distinct tag
 /// from the observation digest). Raw handle enters internally; never output.
 fn compute_binding_digest(

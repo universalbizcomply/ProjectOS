@@ -454,6 +454,9 @@ pub(crate) fn nonce_from_rng_bytes(
 pub struct VerifiedWindowsOwnerEvidence {
     proof_digest: [u8; 32],
     generation: u64,
+    /// Whether this evidence came from the gated `fixture-owner-evidence` producer rather than a real
+    /// ceremony. ALWAYS `false` on the live path. Never settable by a caller.
+    fixture: bool,
 }
 
 impl core::fmt::Debug for VerifiedWindowsOwnerEvidence {
@@ -473,7 +476,17 @@ impl VerifiedWindowsOwnerEvidence {
         Self {
             proof_digest,
             generation,
+            fixture: false,
         }
+    }
+
+    /// Whether this evidence came from the gated fixture producer instead of a real Windows ceremony.
+    ///
+    /// A consumer that grants authority MUST refuse fixture evidence. It is `false` for anything the
+    /// live path produces, and a caller can neither set nor clear it.
+    #[must_use]
+    pub fn is_fixture(&self) -> bool {
+        self.fixture
     }
 
     /// The canonical proof digest (safe to expose — a digest, not a secret).
@@ -565,6 +578,104 @@ pub(crate) fn run_inert_verification(
     drop(input.nonce);
 
     Ok(VerifiedWindowsOwnerEvidence::mint(digest, input.generation))
+}
+
+// ---------------------------------------------------------------------------------------------------
+// GATED FIXTURE EVIDENCE (CD-B4-PRODUCTION-OWNER-PRESENCE-CAPABILITY-BRIDGE1A, post-freeze Option B).
+// ---------------------------------------------------------------------------------------------------
+
+/// Produce FIXTURE owner evidence for the bridge chain proof, without any Windows call.
+///
+/// This exists because every input to the real decision is an OS-observed fact that only the gated live
+/// FFI can honestly supply, and exposing those inputs publicly would let a caller forge evidence. Instead
+/// the OS facts are synthesised HERE, in-crate, and fed to the SAME `run_inert_verification` decision the
+/// live path uses — so the fail-closed policy under test is the real one, not a stand-in.
+///
+/// It calls NO Windows API and NEVER runs `UserConsentVerifier`. The window binding is minted by the
+/// sealed [`ControlCentreWindowVerifier`] from the caller's UNTRUSTED observation and expected facts, so
+/// the window policy is genuinely exercised. Resulting evidence is permanently marked
+/// [`VerifiedWindowsOwnerEvidence::is_fixture`] and must never be granted production authority.
+///
+/// Compiled only under `fixture-owner-evidence`, which is non-default and enabled only by bridge tests.
+///
+/// # Errors
+/// [`OwnerVerificationError`] naming the first failed invariant — the same refusals the live path gives.
+#[cfg(feature = "fixture-owner-evidence")]
+#[allow(clippy::too_many_arguments)]
+pub fn fixture_owner_evidence(
+    observation: &UntrustedControlCentreWindowObservation,
+    expected: &ExpectedWindowFacts<'_>,
+    trusted_host_pid: u32,
+    proof_id: &[u8],
+    verifier_identity: &[u8],
+    operation_digest: [u8; 32],
+    display_summary_digest: [u8; 32],
+    runtime_instance_digest: [u8; 32],
+    ipc_session_digest: [u8; 32],
+    provider_id: &[u8],
+    provider_epoch: u64,
+    observed_at: u64,
+    valid_until: u64,
+    generation: u64,
+    trusted_session_digest: [u8; 32],
+    now: u64,
+) -> Result<VerifiedWindowsOwnerEvidence, OwnerVerificationError> {
+    // Real window policy: the sealed verifier re-checks every fact before minting a binding.
+    let binding = window::fixture_verify_binding(observation, expected, now)?;
+
+    // Synthesised OS facts. In the live path these come from WTS / token / consent calls; here they are
+    // constructed in-crate so no caller can supply (or forge) them.
+    let worker = MtaWorkerRequest::new(generation);
+    worker.complete(generation, ConsentResult::Verified);
+    let session = SessionObservation {
+        session_query_ok: true,
+        window_session: expected.expected_session,
+        host_session: expected.expected_session,
+        client_protocol_type: session::WTS_PROTOCOL_CONSOLE,
+        active_console_session: expected.expected_session,
+    };
+    let sid = OwnerSidObservation {
+        token_query_ok: true,
+        sid_valid: true,
+        equals_configured_owner: true,
+    };
+    let tuple = IdentityTuple {
+        process_id: expected.expected_process_id,
+        thread_id: trusted_host_pid,
+        session: expected.expected_session,
+    };
+    let nonce = nonce_from_rng_bytes([0xA5u8; nonce::NONCE_LEN])?;
+
+    let evidence = run_inert_verification(InertVerificationInput {
+        binding: &binding,
+        trusted_host_pid,
+        availability: ConsentAvailability::Available,
+        worker: &worker,
+        session,
+        sid,
+        pre: tuple,
+        post: tuple,
+        nonce,
+        proof_id,
+        verifier_identity,
+        operation_digest,
+        display_summary_digest,
+        runtime_instance_digest,
+        ipc_session_digest,
+        provider_id,
+        provider_epoch,
+        observed_at,
+        valid_until,
+        generation,
+        trusted_session_digest,
+        now,
+    })?;
+    // Mark it, permanently and unforgeably, as fixture-derived.
+    Ok(VerifiedWindowsOwnerEvidence {
+        proof_digest: evidence.proof_digest(),
+        generation: evidence.generation(),
+        fixture: true,
+    })
 }
 
 // ---------------------------------------------------------------------------------------------------

@@ -19,6 +19,16 @@ unsafe_op_in_unsafe_fn = "deny"
 # constructor in any graph, and the tests never invoke the ceremony.
 windows-live-owner-verification = ["dep:windows", "dep:windows-future"]
 
+# CD-B4-PRODUCTION-OWNER-PRESENCE-CAPABILITY-BRIDGE1A (post-freeze Option B). A NARROW, non-default
+# TEST-EVIDENCE feature so the owner-presence bridge can prove the observation -> evidence -> presence
+# chain end to end. It is deliberately NOT named `test-fixtures` and pulls NO dependency: it links no
+# `windows` crate, calls no Windows API, and NEVER executes UserConsentVerifier or any live ceremony —
+# it synthesises the OS-observed facts in-crate and runs the same fail-closed inert decision.
+# Evidence produced through it is permanently marked as fixture evidence (`is_fixture()`), and the
+# bridge's production entrypoint refuses anything so marked. A default/release graph enables neither
+# this nor the live feature, so it has NO route to evidence at all.
+fixture-owner-evidence = []
+
 [dependencies]
 # Canonical proof-digest hash only (repository-pinned). No other runtime dependency: no thiserror, no
 # getrandom/rand, no zeroize, no Tauri, no core, no windows-sys.

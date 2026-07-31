@@ -1,0 +1,39 @@
+[package]
+name = "projectos-host-owner-presence-bridge"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "UNLICENSED"
+description = "CD-B4-PRODUCTION-OWNER-PRESENCE-CAPABILITY-BRIDGE1A. Joins the committed window observation, sealed expected-window facts and cold-start provider capabilities into ONE compiler-enforced owner-presence flow: untrusted observation -> sealed adapter verification -> opaque Windows owner evidence -> production owner-presence grant -> VerifiedOwnerPresence. Returns only the final VerifiedOwnerPresence; never exposes a binding, evidence or grant. Mints nothing itself, adds no capability system, runs no Windows API and no ceremony."
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[features]
+default = []
+# NON-DEFAULT chain proof. Enables ONLY the adapter's narrow fixture-evidence producer (which calls no
+# Windows API and never runs UserConsentVerifier) plus core's fixture capability, so the bridge tests can
+# drive the whole chain. A default/release graph enables neither, so it has no route to evidence.
+fixture-chain-proof = [
+    "projectos-host-windows-owner-verification/fixture-owner-evidence",
+    "projectos-host-core/test-fixtures",
+]
+
+[dependencies]
+# The authority root: provider capabilities, the sealed expected-window-facts sink, owner-presence
+# issuance and the final verification. One way; core never depends on this crate.
+projectos-host-core = { path = "../core" }
+# The inert Windows owner-verification contract: the opaque evidence type this bridge consumes. Default
+# features only, so no `windows` crate and no live entrypoint enters the graph.
+projectos-host-windows-owner-verification = { path = "../windows-owner-verification" }
+
+[dev-dependencies]
+# The chain proof is a TEST-only configuration.
+projectos-host-core = { path = "../core", features = ["test-fixtures"] }
+projectos-host-windows-owner-verification = { path = "../windows-owner-verification", features = [
+    "fixture-owner-evidence",
+] }
+projectos-trust-contract = { path = "../contract" }
+projectos-host-authority = { path = "../host-authority", features = [
+    "effect-witness-fixtures",
+] }

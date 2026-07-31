@@ -358,7 +358,18 @@ function run() {
     else if (!/#\[cfg\(test\)\]/.test(head)) E("V21 verifier synthetic is not #[cfg(test)] gated");
   }
   // ---- V22 no test-fixtures feature in the adapter ----
-  if (/test-fixtures/.test(adapterToml)) E("V22 adapter defines a test-fixtures feature (downstream-enableable)");
+  // BOUNDED POST-FREEZE AMENDMENT (CD-B4-PRODUCTION-OWNER-PRESENCE-CAPABILITY-BRIDGE1A, Option B): the
+  // blanket "no fixture feature at all" is stale. `test-fixtures` remains forbidden (unchanged below);
+  // the single narrowly named `fixture-owner-evidence` test-evidence feature is permitted, and is bounded
+  // by V9b/V9c/V9d in val-cd-b4-windows-user-verification-adapter1a. This crate's own concern — that the
+  // OBSERVATION BRIDGE never gains fixture access — is asserted directly below.
+  if (/test-fixtures/.test(adapterToml.replace(/#.*/g, "")))
+    E("V22 adapter defines a test-fixtures feature (downstream-enableable)");
+  for (const t of ["fixture-owner-evidence", "fixture_owner_evidence", "is_fixture"])
+    if ((stripRustComments(obs) + stripRustComments(life) + stripRustComments(modrs)).includes(t))
+      E("V22 the src-tauri observation bridge reaches the adapter fixture-evidence surface: " + t);
+  if (/fixture-owner-evidence/.test(stToml))
+    E("V22 src-tauri enables the adapter fixture-evidence feature");
 
   // ---- V23 trusted binding bare mint is MODULE-PRIVATE and the sealed verifier is its sole caller ----
   // Post-freeze Option 2 amendment. The mint carries no `pub` and no `pub(crate)`, so Rust privacy confines
@@ -424,7 +435,24 @@ function run() {
     // binding are the module-private mint and the two sealed-verifier methods. `synthetic` is allowed only
     // because it is #[cfg(test)]-gated inside the impl (asserted separately below), not stripped by
     // stripTests, which cuts the trailing `mod tests` block.
-    const ALLOWED = ["from_observed", "synthetic", "verify", "mint_from_window_observation"];
+    // `fixture_verify_binding` is permitted ONLY as a feature-gated delegate: it never touches the
+    // module-private mint itself, it constructs the sealed verifier in this module (where V23 requires
+    // construction to live) and returns whatever `verify()` mints. The gate is asserted below, so it
+    // cannot quietly become an ungated second mint.
+    const ALLOWED = [
+      "from_observed",
+      "synthetic",
+      "verify",
+      "mint_from_window_observation",
+      "fixture_verify_binding",
+    ];
+    if (winCodeNoTests.includes("fn fixture_verify_binding")) {
+      if (!/#\[cfg\(feature = "fixture-owner-evidence"\)\]\s*\n\s*pub\(crate\) fn fixture_verify_binding/.test(winNoTests))
+        E("V23 fixture_verify_binding is not gated on the fixture-evidence feature");
+      const body = winCodeNoTests.slice(winCodeNoTests.indexOf("fn fixture_verify_binding"));
+      if (/from_observed/.test(body.slice(0, body.indexOf("\n}"))))
+        E("V23 fixture_verify_binding reaches the module-private mint directly");
+    }
     for (const f of fs.readdirSync(path.join(ADAPTER, "src"))) {
       if (!f.endsWith(".rs")) continue;
       const body = modCode(f);
