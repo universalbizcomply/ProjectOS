@@ -36,6 +36,7 @@ pub mod capability;
 pub mod effect;
 pub mod elevation;
 pub mod error;
+pub mod expected_window_facts;
 pub mod facts;
 pub mod ipc_session;
 pub mod observation;
@@ -79,6 +80,9 @@ pub use elevation::{
 pub use error::{
     BindingKind, DenialReason, ElevationBinding, MissingFact, OwnerPresenceBinding, RecordError,
     RepositoryBinding, RevocationReason, TransitionError,
+};
+pub use expected_window_facts::{
+    with_expected_window_facts, ExpectedWindowFactsSink, ExpectedWindowMetadata,
 };
 pub use facts::{
     validate_bounded_id, ApprovalRecordId, AuthoritySnapshot, CredentialLifecycle,
