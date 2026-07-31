@@ -12,6 +12,8 @@ const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
 
+const scratch = require("./lib/scratch.cjs");
+let __SCRATCH_DIR = null;
 const ROOT = path.resolve(__dirname, "..", "..");
 const CRATE = path.join(ROOT, "projectos", "host", "host-authority");
 const CRATE_TOML = CRATE.replace(/\\/g, "/");
@@ -26,7 +28,7 @@ function stripComments(src) {
 
 let WORK = null;
 function workdir() {
-  if (!WORK) WORK = fs.mkdtempSync(path.join(os.tmpdir(), "projectos-b4-elevation-"));
+  if (!WORK) WORK = scratch.owned("cd-b4-elevation-observation-engine1a");
   return WORK;
 }
 

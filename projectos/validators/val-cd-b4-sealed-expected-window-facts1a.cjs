@@ -19,6 +19,8 @@ const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
 
+const scratch = require("./lib/scratch.cjs");
+let __SCRATCH_DIR = null;
 const ROOT = path.resolve(__dirname, "..", "..");
 const HOST = path.join(ROOT, "projectos", "host");
 const CORE = path.join(HOST, "core");
@@ -90,7 +92,8 @@ function stripRustComments(src) {
 }
 
 function workdir() {
-  return path.join(os.tmpdir(), "projectos-val-sealed-expected-window-facts");
+  if (!__SCRATCH_DIR) __SCRATCH_DIR = scratch.owned("cd-b4-sealed-expected-window-facts1a");
+  return __SCRATCH_DIR;
 }
 
 function compileConsumer(name, body) {

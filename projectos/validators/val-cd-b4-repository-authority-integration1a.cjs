@@ -10,6 +10,8 @@ const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
 
+const scratch = require("./lib/scratch.cjs");
+let __SCRATCH_DIR = null;
 const ROOT = path.resolve(__dirname, "..", "..");
 const HOST = path.join(ROOT, "projectos", "host");
 const CORE = path.join(HOST, "core").replace(/\\/g, "/");
@@ -25,7 +27,7 @@ function strip(src) {
 
 let WORK = null;
 function workdir() {
-  if (!WORK) WORK = fs.mkdtempSync(path.join(os.tmpdir(), "projectos-repo-authz-"));
+  if (!WORK) WORK = scratch.owned("cd-b4-repository-authority-integration1a");
   return WORK;
 }
 

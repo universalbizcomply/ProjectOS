@@ -17,6 +17,8 @@ const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
 
+const scratch = require("./lib/scratch.cjs");
+let __SCRATCH_DIR = null;
 const ROOT = path.resolve(__dirname, "..", "..");
 const AUTH = path.join(ROOT, "projectos", "host", "host-authority");
 const AUTH_PATH = AUTH.replace(/\\/g, "/");
@@ -29,7 +31,8 @@ const stripTests = (s) => {
 const stripLine = (s) => s.replace(/\/\/.*/g, "");
 
 function workdir() {
-  return path.join(os.tmpdir(), "projectos-val-host-authority-acquisition");
+  if (!__SCRATCH_DIR) __SCRATCH_DIR = scratch.owned("cd-b4-host-authority-acquisition1a");
+  return __SCRATCH_DIR;
 }
 function compileConsumer(name, body) {
   const dir = path.join(workdir(), name);

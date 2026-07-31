@@ -12,6 +12,8 @@ const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
 
+const scratch = require("./lib/scratch.cjs");
+let __SCRATCH_DIR = null;
 const ROOT = path.resolve(__dirname, "..", "..");
 const HOST = path.join(ROOT, "projectos", "host");
 const CORE = path.join(HOST, "core").replace(/\\/g, "/");
@@ -26,7 +28,8 @@ function stripTests(src) {
   return i === -1 ? src : src.slice(0, i);
 }
 function workdir() {
-  return path.join(os.tmpdir(), "projectos-val-prod-ipc");
+  if (!__SCRATCH_DIR) __SCRATCH_DIR = scratch.owned("cd-b4-production-ipc-provider1a");
+  return __SCRATCH_DIR;
 }
 // depsToml: full [dependencies] body string.
 function compileConsumer(name, body, depsToml) {

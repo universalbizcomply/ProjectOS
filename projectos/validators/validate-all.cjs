@@ -71,15 +71,20 @@ const MODULES = [
   "val-cd-b4-host-authority-acquisition1a",
   "val-cd-b4-canonical-installation-identity1a",
   "val-cd-b4-host-authority-observer1a",
+  "val-projectos-validator-scratch-lifecycle1a",
   "val-projectos-v3-owner-presence-confirmation-ux1a",
   "validate-v3.1-crosswalk",
   "validate-v3.2-ai-provider-independence"
 ];
+const scratch = require("./lib/scratch.cjs");
 let total = 0;
 for (const m of MODULES) {
   let errs;
+  // Release this validator's scratch as soon as it finishes — on pass, fail or crash. Without this,
+  // every validator's directory stays alive until process exit and peak disk is the whole suite at once.
   try { errs = require("./" + m + ".cjs").run(); }
-  catch (e) { console.error("[" + m + "] CRASH: " + e.message); total += 1; continue; }
+  catch (e) { console.error("[" + m + "] CRASH: " + e.message); total += 1; scratch.cleanupAll(); continue; }
+  finally { scratch.cleanupAll(); }
   if (errs.length) { errs.forEach(x => console.error("[" + m + "] FAIL: " + x)); total += errs.length; }
   else console.log("[" + m + "] PASS");
 }

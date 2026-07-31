@@ -12,6 +12,8 @@ const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
 
+const scratch = require("./lib/scratch.cjs");
+let __SCRATCH_DIR = null;
 const ROOT = path.resolve(__dirname, "..", "..");
 const CRATE = path.join(ROOT, "projectos", "host", "host-authority");
 const SRC = path.join(CRATE, "src");
@@ -30,7 +32,7 @@ function stripStrings(src) {
 
 let WORK = null;
 function workdir() {
-  if (!WORK) WORK = fs.mkdtempSync(path.join(os.tmpdir(), "projectos-b4-witness-"));
+  if (!WORK) WORK = scratch.owned("cd-b4-effect-witness-contract1a");
   return WORK;
 }
 

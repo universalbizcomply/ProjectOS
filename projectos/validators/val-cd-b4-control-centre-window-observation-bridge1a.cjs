@@ -21,6 +21,8 @@ const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
 
+const scratch = require("./lib/scratch.cjs");
+let __SCRATCH_DIR = null;
 const ROOT = path.resolve(__dirname, "..", "..");
 const HOST = path.join(ROOT, "projectos", "host");
 const ADAPTER = path.join(HOST, "windows-owner-verification");
@@ -126,7 +128,8 @@ function syncChannelCapacities(src) {
   return caps;
 }
 function workdir() {
-  return path.join(os.tmpdir(), "projectos-val-window-observation-bridge");
+  if (!__SCRATCH_DIR) __SCRATCH_DIR = scratch.owned("cd-b4-control-centre-window-observation-bridge1a");
+  return __SCRATCH_DIR;
 }
 function compileConsumer(name, body) {
   const dir = path.join(workdir(), name);

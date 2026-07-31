@@ -9,6 +9,8 @@ const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
 
+const scratch = require("./lib/scratch.cjs");
+let __SCRATCH_DIR = null;
 const ROOT = path.resolve(__dirname, "..", "..");
 const HOST = path.join(ROOT, "projectos", "host");
 const CORE = path.join(HOST, "core").replace(/\\/g, "/");
@@ -22,7 +24,8 @@ function strip(src) {
   return i === -1 ? src : src.slice(0, i);
 }
 function workdir() {
-  return path.join(os.tmpdir(), "projectos-val-runtime-instance");
+  if (!__SCRATCH_DIR) __SCRATCH_DIR = scratch.owned("cd-b4-runtime-instance-authority1a");
+  return __SCRATCH_DIR;
 }
 function compileConsumer(name, body, features) {
   const dir = path.join(workdir(), name);

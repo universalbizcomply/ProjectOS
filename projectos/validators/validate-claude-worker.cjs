@@ -26,6 +26,8 @@ const cap = require("../bridge/owner-capability-check.cjs");
 const { runClaudeWorker } = worker;
 const { createRedactor } = require("../security/redaction.cjs");
 
+const scratch = require("./lib/scratch.cjs");
+let __SCRATCH_DIR = null;
 const ORIGIN = "https://example.invalid/acme/app.git";
 const EXE_HASH = "exe-hash-1", CLI_VER = "1.9.0", POLICY_VER = "policy-1";
 const MPH = sandbox.mountPolicyHash(sandbox.MOUNT_POLICY_FIRST_PROOF);
@@ -33,7 +35,7 @@ const SB_EXE = "/sandbox/bin/claude";
 const IS = detector.INVOCATION_STATUS;
 function g(dir, args) { return execFileSync("git", ["-C", dir, ...args], { encoding: "utf8" }); }
 function mkRepo() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cw-can-"));
+  const dir = scratch.owned("claude-worker");
   g(dir, ["init", "-q"]); g(dir, ["checkout", "-q", "-B", "work"]); g(dir, ["config", "user.email", "t@t"]); g(dir, ["config", "user.name", "t"]); g(dir, ["remote", "add", "origin", ORIGIN]);
   fs.mkdirSync(path.join(dir, "app"), { recursive: true }); fs.writeFileSync(path.join(dir, "app", "seed.txt"), "seed\n");
   fs.mkdirSync(path.join(dir, "projectos"), { recursive: true }); fs.writeFileSync(path.join(dir, "projectos", "core.txt"), "core\n");

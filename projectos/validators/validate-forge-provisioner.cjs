@@ -26,10 +26,12 @@ const { buildBlueprint } = require("../forge/blueprint-engine.cjs");
 const { buildScaffold } = require("../forge/scaffold-engine.cjs");
 const { createApprovalQueue } = require("../approval/approval-queue.cjs");
 
+const scratch = require("./lib/scratch.cjs");
+let __SCRATCH_DIR = null;
 const SECRET_RX = /-----BEGIN|sk-[A-Za-z0-9]{12,}|eyJ[A-Za-z0-9_-]{12,}|AKIA[0-9A-Z]{12,}/;
 
 function mkTemp() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "forge-prov-"));
+  return scratch.owned("forge-provisioner");
 }
 function rm(dir) {
   try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) { /* best effort */ }

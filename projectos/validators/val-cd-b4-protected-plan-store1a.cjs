@@ -10,6 +10,8 @@ const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
 
+const scratch = require("./lib/scratch.cjs");
+let __SCRATCH_DIR = null;
 const ROOT = path.resolve(__dirname, "..", "..");
 const CRATE = path.join(ROOT, "projectos", "host", "core");
 const CRATE_TOML = CRATE.replace(/\\/g, "/");
@@ -36,7 +38,7 @@ function block(src, header) {
 
 let WORK = null;
 function workdir() {
-  if (!WORK) WORK = fs.mkdtempSync(path.join(os.tmpdir(), "projectos-b4-plan-"));
+  if (!WORK) WORK = scratch.owned("cd-b4-protected-plan-store1a");
   return WORK;
 }
 function compileConsumer(name, body) {
