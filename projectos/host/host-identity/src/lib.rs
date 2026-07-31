@@ -36,6 +36,11 @@ mod identity;
 #[cfg(windows)]
 pub use identity::capture_startup_identity;
 
+/// CD-B4-CANONICAL-INSTALLATION-IDENTITY-WIRING1A: the versioned canonical installation identity
+/// record, its deterministic digest and the read-only production provider. Publicly re-exported because
+/// the future Windows host-authority observer must verify a record; the module itself grants nothing.
+pub use identity::canonical_record;
+
 /// The composite identity and its safe, redacted projection. Constructors classify; none yields a
 /// verified/production identity.
 pub use identity::composite::{CompositeIdentity, IdentityStatusView};

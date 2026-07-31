@@ -30,6 +30,7 @@ pub mod verifier;
 #[cfg(windows)]
 pub mod authenticode;
 #[cfg(windows)]
+pub mod canonical_record;
 pub mod install_root;
 #[cfg(windows)]
 pub mod publisher_policy;

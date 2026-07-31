@@ -69,6 +69,7 @@ const MODULES = [
   "val-cd-b4-sealed-expected-window-facts1a",
   "val-cd-b4-owner-presence-capability-bridge1a",
   "val-cd-b4-host-authority-acquisition1a",
+  "val-cd-b4-canonical-installation-identity1a",
   "val-projectos-v3-owner-presence-confirmation-ux1a",
   "validate-v3.1-crosswalk",
   "validate-v3.2-ai-provider-independence"

@@ -46,10 +46,15 @@ function count(re, s) {
   return m ? m.length : 0;
 }
 
+// The exact identity file set. The count is pinned deliberately, so a new file cannot be added to this
+// crate without a governed decision. `canonical_record.rs` was added by
+// CD-B4-CANONICAL-INSTALLATION-IDENTITY-WIRING1A: the versioned canonical installation identity record
+// and its read-only provider, which replaced the all-zero placeholder. It contains no unsafe, performs
+// no filesystem access, and is bound by the FORBIDDEN_ROUTES scan below like every other file here.
 const IDENTITY_FILES = [
-  "authenticode.rs", "canonical.rs", "composite.rs", "errors.rs", "hash.rs", "install_root.rs",
-  "manifest.rs", "mod.rs", "mode.rs", "paths.rs", "publisher_policy.rs", "running_executable.rs",
-  "tests.rs", "types.rs", "verifier.rs",
+  "authenticode.rs", "canonical.rs", "canonical_record.rs", "composite.rs", "errors.rs", "hash.rs",
+  "install_root.rs", "manifest.rs", "mod.rs", "mode.rs", "paths.rs", "publisher_policy.rs",
+  "running_executable.rs", "tests.rs", "types.rs", "verifier.rs",
 ];
 const IDENTITY_TESTS = ["identity_authenticode.rs", "identity_composite.rs", "identity_installation.rs"];
 const UNSAFE_ALLOWED = new Set(["authenticode.rs", "running_executable.rs"]);

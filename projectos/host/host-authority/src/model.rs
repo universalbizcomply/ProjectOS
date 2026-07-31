@@ -62,20 +62,32 @@ enum InstallationToken {
 }
 
 impl CanonicalInstallationIdentity {
-    /// CRATE-PRIVATE seam: obtain a canonical identity from the installation boundary. No public
-    /// route constructs one, so no caller can inject a raw path or arbitrary digest. The placeholder
-    /// digest is a fixed non-secret constant until the canonical boundary is wired (I-E/I-F); the
-    /// production object name it feeds is implemented but never acquired in this phase.
+    /// CRATE-PRIVATE seam: build a canonical identity from a VERIFIED installation-record digest.
+    ///
+    /// The previous placeholder returned a hardcoded all-zero digest; that is gone. The digest must now
+    /// come from a verified canonical installation record (see the host-identity canonical-record
+    /// contract), and this constructor re-validates its shape and REFUSES the all-zero placeholder, so a
+    /// zero digest can never re-enter the authority vocabulary by any route.
+    ///
+    /// Returns `None` when the digest is not exactly 16 lower-case hex characters, or is all zeroes.
     #[must_use]
-    #[allow(dead_code)] // Reserved: production/name derivation + test_support; see InstallationToken.
-    pub(crate) fn from_canonical_boundary() -> Self {
-        Self {
-            token: InstallationToken::Canonical {
-                // Non-secret fixed placeholder (16 lowercase hex). NOT derived from any path; the real
-                // canonical digest arrives with the installation-boundary wiring.
-                digest16: "0000000000000000".to_string(),
-            },
+    #[allow(dead_code)] // Reserved: consumed by key.rs name derivation once a record can be read.
+    pub(crate) fn from_verified_digest(digest16: &str) -> Option<Self> {
+        if digest16.len() != 16
+            || !digest16
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        {
+            return None;
         }
+        if digest16.bytes().all(|b| b == b'0') {
+            return None;
+        }
+        Some(Self {
+            token: InstallationToken::Canonical {
+                digest16: digest16.to_string(),
+            },
+        })
     }
 
     /// CRATE-PRIVATE: the opaque 16-character installation-digest component used ONLY by the
@@ -838,7 +850,8 @@ pub(crate) mod test_support {
     #[must_use]
     pub(crate) fn contract_key() -> AuthorityKey {
         AuthorityKey::derive(AuthorityScope::new(
-            CanonicalInstallationIdentity::from_canonical_boundary(),
+            CanonicalInstallationIdentity::from_verified_digest("a1b2c3d4e5f60718")
+                .expect("valid digest"),
             AuthorityChannel::Development,
             AuthoritySchemaVersion::V1,
         ))
@@ -931,7 +944,8 @@ mod tests {
 
     fn scope() -> AuthorityScope {
         AuthorityScope::new(
-            CanonicalInstallationIdentity::from_canonical_boundary(),
+            CanonicalInstallationIdentity::from_verified_digest("a1b2c3d4e5f60718")
+                .expect("valid digest"),
             AuthorityChannel::Development,
             AuthoritySchemaVersion::V1,
         )
@@ -956,7 +970,8 @@ mod tests {
 
     #[test]
     fn installation_identity_debug_is_redacted() {
-        let i = CanonicalInstallationIdentity::from_canonical_boundary();
+        let i = CanonicalInstallationIdentity::from_verified_digest("a1b2c3d4e5f60718")
+            .expect("valid digest");
         let shown = format!("{i:?}");
         assert!(shown.contains("<redacted>"));
         assert!(!shown.contains(":\\"));

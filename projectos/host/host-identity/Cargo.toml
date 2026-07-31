@@ -23,6 +23,10 @@ sha2 = "0.10"
 # Canonical low-level primitives (owned-handle RAII + build-derived AppMode). Same direction as the
 # accepted architecture: host-identity -> windows-runtime-primitives -> windows.
 projectos-windows-runtime-primitives = { path = "../windows-runtime-primitives" }
+# CD-B4-CANONICAL-INSTALLATION-IDENTITY-WIRING1A. The ACCEPTED symbolic Known Folder abstraction; the
+# canonical record location is expressed through its anchor and never resolved here. No cycle: that
+# crate depends only on windows-acl-policy + thiserror.
+projectos-host-windows-activation-plan = { path = "../windows-host-activation-plan" }
 
 [target.'cfg(windows)'.dependencies]
 # Exact identity feature slice already used by the relocated implementation (WinVerifyTrust +
