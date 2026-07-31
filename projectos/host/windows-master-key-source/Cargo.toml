@@ -7,14 +7,13 @@ description = "Production Windows master-key MATERIAL SOURCE for the future Proj
 license = "UNLICENSED"
 
 [lints.rust]
-# Unsafe is confined to src/windows_rng.rs (allowed at its module declaration); the rest of the crate
-# denies it, and every unsafe op needs an explicit inner `unsafe`.
-unsafe_code = "deny"
-unsafe_op_in_unsafe_fn = "deny"
+# CLOSEOUT1B: the CSPRNG call moved to the authority-free leaf primitive, so this crate now contains no
+# unsafe at all and the previous module-scoped allowance is gone. `forbid` makes that structural.
+unsafe_code = "forbid"
 
 [dependencies]
 projectos-host-windows-crypto-adapter = { path = "../windows-crypto-adapter" }
+# THE single system-preferred CSPRNG primitive. An authority-free leaf: it grants no key, credential,
+# identity, host or process capability, so depending on it adds no authority to this crate.
+projectos-windows-runtime-primitives = { path = "../windows-runtime-primitives" }
 zeroize = "1"
-
-[target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_Security_Cryptography"] }

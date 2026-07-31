@@ -281,12 +281,50 @@ fn a_containment_escape_or_missing_root_refuses() {
     assert!(InstallerTarget::fixture_under(&missing).is_err());
 }
 
+/// A source that always refuses, standing in for an OS RNG failure. Test-only: it supplies no bytes,
+/// so it can never mint an id.
+struct RefusingSource;
+
+impl InstallationIdSource for RefusingSource {
+    fn fill(&self, _buf: &mut [u8; 16]) -> Result<(), InstallationIdSourceError> {
+        Err(InstallationIdSourceError)
+    }
+}
+
 #[test]
-fn the_production_id_source_fails_closed_and_is_never_a_silent_fallback() {
-    // The production source is not wired to the accepted FFI boundary yet, so it must REFUSE rather
-    // than emulate randomness. Compiled only under `installer-windows`.
+fn an_rng_failure_refuses_and_mints_nothing() {
+    assert_eq!(
+        InstallationId::generate(&RefusingSource).unwrap_err(),
+        WriteError::InstallationIdSourceFailed
+    );
+}
+
+#[test]
+fn exactly_sixteen_bytes_become_exactly_thirty_two_lowercase_hex_characters() {
+    let mut bytes = [0u8; 16];
+    for (i, b) in bytes.iter_mut().enumerate() {
+        *b = (i as u8) * 17; // 0x00,0x11,... covers both hex nibble halves
+    }
+    bytes[0] = 0x0f; // prove a leading zero nibble is preserved, not trimmed
+    let id = InstallationId::generate(&FixtureInstallationIdSource(bytes)).expect("id");
+    assert_eq!(id.as_str().len(), 32);
+    assert!(id.as_str().starts_with("0f"));
+    assert!(id
+        .as_str()
+        .bytes()
+        .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c)));
+    assert_eq!(id.as_str(), id.as_str().to_lowercase());
+}
+
+#[test]
+fn the_production_id_source_is_boundary_proven_and_never_executed_here() {
+    // BOUNDARY ONLY. The production source is namable and usable as the sealed trait object, which is
+    // what proves it is wired. It is deliberately NOT invoked: calling `fill` would execute the real
+    // OS CSPRNG, which this phase forbids. Its refusal path is proven by `RefusingSource` above, which
+    // exercises the identical `InstallationId::generate` failure mapping.
     #[cfg(all(windows, feature = "installer-windows"))]
     {
-        assert!(InstallationId::generate(&SystemPreferredInstallationIdSource).is_err());
+        let source: &dyn InstallationIdSource = &SystemPreferredInstallationIdSource;
+        let _ = source;
     }
 }

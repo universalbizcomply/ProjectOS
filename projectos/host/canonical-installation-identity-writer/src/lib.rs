@@ -140,22 +140,27 @@ pub trait InstallationIdSource {
     fn fill(&self, buf: &mut [u8; 16]) -> Result<(), InstallationIdSourceError>;
 }
 
-/// The PRODUCTION installation-ID source: the Windows CNG system-preferred RNG.
+/// The PRODUCTION installation-ID source: the Windows system-preferred CSPRNG.
 ///
-/// Compiled only under `installer-windows` and **never invoked in this phase**. It uses the same
-/// accepted primitive (`BCryptGenRandom` with `BCRYPT_USE_SYSTEM_PREFERRED_RNG`) as the existing
-/// key-source and owner-verification crates, so no second random vocabulary is introduced.
+/// A unit struct with no field, no constructor and no callback: a caller cannot hand it bytes, a seed,
+/// an id or an alternative entropy source. It draws exactly 16 bytes from the single canonical
+/// primitive `projectos_windows_runtime_primitives::system_random::system_preferred_fill`, which is the
+/// only `BCryptGenRandom` implementation on this dependency route — the unsafe FFI stays in that
+/// authority-free leaf, so this crate keeps `#![forbid(unsafe_code)]`.
+///
+/// Compiled only under `installer-windows`, so the default graph has no production generation route at
+/// all. Not invoked during tests or validation: doing so would execute the real OS CSPRNG.
 #[cfg(all(windows, feature = "installer-windows"))]
 pub struct SystemPreferredInstallationIdSource;
 
 #[cfg(all(windows, feature = "installer-windows"))]
 impl InstallationIdSource for SystemPreferredInstallationIdSource {
     fn fill(&self, buf: &mut [u8; 16]) -> Result<(), InstallationIdSourceError> {
-        // The unsafe FFI lives in the accepted key-source boundary, not here: this crate forbids
-        // unsafe. Wiring the live source to it is carry-forward for the live installer phase, so this
-        // fails closed rather than emulating randomness.
-        let _ = buf;
-        Err(InstallationIdSourceError)
+        // Any failure — OS refusal or a length this primitive will not serve — becomes the fieldless
+        // error. There is no retry, no second entropy source and no partial-buffer acceptance; the
+        // caller's `InstallationId::generate` then refuses rather than minting an id.
+        projectos_windows_runtime_primitives::system_random::system_preferred_fill(&mut buf[..])
+            .map_err(|_| InstallationIdSourceError)
     }
 }
 

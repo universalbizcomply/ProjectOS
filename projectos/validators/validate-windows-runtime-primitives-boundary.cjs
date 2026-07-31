@@ -1,7 +1,7 @@
 "use strict";
 // WINDOWS-PACKAGED-HOST-TRUST-ENFORCEMENT3K-I-C-A. Prove the extracted low-level primitive crate is
 // exactly a Win32 owned-handle RAII wrapper + a build-mode classifier, and nothing else: no policy,
-// no effect route, unsafe confined to handles.rs with SAFETY docs, exactly one AppMode/detect_app_mode
+// no effect route, unsafe confined to handles.rs + system_random.rs with SAFETY docs, exactly one AppMode/detect_app_mode
 // production definition, the old Control Center process/handles.rs gone, and no duplicate/handle or
 // AppMode implementation left behind in the Control Center. Comments stripped; structural checks.
 const fs = require("fs");
@@ -66,9 +66,13 @@ function run() {
   if (/\btauri\b/i.test(toml)) errors.push("Cargo.toml references tauri");
 
   // 2. Primitive source: forbidden routes + unsafe containment.
+  // Exactly these two modules may contain unsafe, each for one documented primitive: the owned-handle
+  // RAII wrapper, and (CLOSEOUT1B) the single system-preferred CSPRNG fill. Every other file must be
+  // unsafe-free, and BOTH allowed modules must document every unsafe unit they contain.
+  const UNSAFE_MODULES = ["handles.rs", "system_random.rs"];
   const files = rsFiles(path.join(CRATE, "src"));
-  let handlesUnsafeUnits = 0;
-  let handlesSafetyMentions = 0;
+  const unsafeUnitsBy = {};
+  const safetyMentionsBy = {};
   let appModeEnumDefs = 0;
   let detectFnDefs = 0;
   for (const f of files) {
@@ -79,26 +83,38 @@ function run() {
       if (re.test(code)) errors.push(path.relative(ROOT, f).replace(/\\/g, "/") + ": " + why);
     }
     const unsafeUnits = count(/unsafe\s*(fn|\{)/g, code);
-    if (base === "handles.rs") {
-      handlesUnsafeUnits = unsafeUnits;
-      handlesSafetyMentions = count(/safety/gi, raw); // include comments: SAFETY docs
+    if (UNSAFE_MODULES.includes(base)) {
+      unsafeUnitsBy[base] = unsafeUnits;
+      safetyMentionsBy[base] = count(/safety/gi, raw); // include comments: SAFETY docs
     } else if (unsafeUnits > 0) {
-      errors.push(path.relative(ROOT, f).replace(/\\/g, "/") + ": unsafe outside handles.rs");
+      errors.push(
+        path.relative(ROOT, f).replace(/\\/g, "/") +
+          ": unsafe outside " +
+          UNSAFE_MODULES.join(" / ")
+      );
     }
     if (base === "app_mode.rs") {
       appModeEnumDefs += count(/enum\s+AppMode\b/g, code);
       detectFnDefs += count(/fn\s+detect_app_mode\b/g, code);
     }
   }
-  if (handlesUnsafeUnits === 0) errors.push("handles.rs has no unsafe unit — primitive move incomplete");
-  if (handlesSafetyMentions < handlesUnsafeUnits)
-    errors.push(
-      "handles.rs has undocumented unsafe (safety mentions " +
-        handlesSafetyMentions +
-        " < unsafe units " +
-        handlesUnsafeUnits +
-        ")"
-    );
+  for (const m of UNSAFE_MODULES) {
+    const units = unsafeUnitsBy[m];
+    if (units === undefined) {
+      errors.push(m + " is missing — the primitive it holds is not in this crate");
+      continue;
+    }
+    if (units === 0) errors.push(m + " has no unsafe unit — primitive move incomplete");
+    if (safetyMentionsBy[m] < units)
+      errors.push(
+        m +
+          " has undocumented unsafe (safety mentions " +
+          safetyMentionsBy[m] +
+          " < unsafe units " +
+          units +
+          ")"
+      );
+  }
 
   // 3. Exactly one production AppMode + detect_app_mode definition, and it is in the primitive.
   if (appModeEnumDefs !== 1) errors.push("expected exactly one AppMode enum in the primitive, found " + appModeEnumDefs);

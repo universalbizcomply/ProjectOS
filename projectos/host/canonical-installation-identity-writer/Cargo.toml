@@ -14,10 +14,10 @@ default = []
 # Fixture-only target construction and a deterministic installation-ID source. Non-default: a release
 # graph exposes no write route at all.
 fixture-writer = []
-# The PRODUCTION installation-ID source (Windows CNG system-preferred RNG). Compiled only under this
-# feature and NEVER invoked in this phase. Uses the same accepted primitive as the existing key-source
-# and owner-verification crates rather than introducing another random vocabulary.
-installer-windows = ["dep:windows-sys"]
+# The PRODUCTION installation-ID source (Windows system-preferred CSPRNG). Compiled only under this
+# feature and NEVER invoked during tests or validation. It delegates to the single canonical primitive
+# in the authority-free runtime-primitives leaf rather than introducing another random vocabulary.
+installer-windows = ["dep:projectos-windows-runtime-primitives"]
 
 [dependencies]
 # The CLOSED canonical identity contract: record type, digest, product/service/relative-path constants.
@@ -27,7 +27,7 @@ projectos-host-identity = { path = "../host-identity" }
 serde_json = "1"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", optional = true, features = [
-    "Win32_Foundation",
-    "Win32_Security_Cryptography",
-] }
+# THE system-preferred CSPRNG primitive, for the production installation-ID source only. Optional, so
+# the default graph links it not at all. It is an authority-free leaf: no host-core, no host-authority,
+# no owner-presence, no provider-authority, no persistence and no master-key capability comes with it.
+projectos-windows-runtime-primitives = { path = "../windows-runtime-primitives", optional = true }

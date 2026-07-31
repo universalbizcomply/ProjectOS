@@ -14,7 +14,9 @@
 //! activate a real service master key; it creates no `ServiceMasterKeyHandle`, no `CryptoOperationId`,
 //! and no lifecycle/authority. It has NO deterministic/pseudo-random/caller-supplied/environment/
 //! configuration fallback, NO retry, NO owned-byte return, and touches NO filesystem, registry,
-//! service, IPC, or credential. `unsafe` is confined to `windows_rng`.
+//! service, IPC, or credential. It now contains NO `unsafe` at all: the CSPRNG call was relocated to
+//! the authority-free leaf primitive `projectos_windows_runtime_primitives::system_random`
+//! (CLOSEOUT1B), so exactly one `BCryptGenRandom` implementation serves this dependency route.
 //!
 //! **Zeroisation limitation:** zeroising clears THIS crate's owned buffer on drop; it cannot remove
 //! prior allocator copies, OS paging, crash dumps, hibernation images, or a privileged process reading
@@ -46,8 +48,13 @@ use std::fmt;
 use projectos_host_windows_crypto_adapter::{MasterKeyMaterialSource, MaterialSourceError};
 use zeroize::Zeroizing;
 
-#[allow(unsafe_code)]
-mod windows_rng;
+/// Delegate to the single canonical system-preferred CSPRNG primitive and map its fieldless error into
+/// the accepted contract error. This crate no longer names `BCryptGenRandom`, a CNG flag or an
+/// `NTSTATUS`: the behaviour is unchanged, the implementation is simply no longer duplicated here.
+fn system_preferred_fill(buf: &mut [u8]) -> Result<(), MaterialSourceError> {
+    projectos_windows_runtime_primitives::system_random::system_preferred_fill(buf)
+        .map_err(|_| MaterialSourceError::GenerationFailed)
+}
 
 /// The exact accepted service-master-key candidate length in bytes (matches the accepted
 /// `projectos_host_crypto` `KEY_SIZE_BYTES` policy). No other length is produced or accepted.
@@ -70,7 +77,7 @@ impl WindowsCngMasterKeyMaterialSource {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            fill: windows_rng::system_preferred_fill,
+            fill: system_preferred_fill,
         }
     }
 

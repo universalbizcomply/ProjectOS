@@ -6,19 +6,25 @@
 //!   helper, and deterministic close-on-drop. `unsafe` lives ONLY here.
 //! * [`app_mode`] — the build-derived application-mode CLASSIFIER ([`app_mode::AppMode`] /
 //!   [`app_mode::detect_app_mode`]). Classification only: it grants no authority.
+//! * [`system_random`] — the canonical system-preferred CSPRNG fill primitive. It fills a caller-owned
+//!   buffer and reports success or failure; it grants no key, credential or identity semantics.
 //!
 //! This crate owns no policy — no process supervision, launch/daemon/host/instance authority, no
 //! identity/publisher/Authenticode policy, no IPC, no Windows service operation, no ProgramData/ACL/
 //! SID/credential/GCM/PAT/GitHub/signing/deployment. It depends on no other ProjectOS crate and never
 //! on a UI/adapter framework.
 
-// This crate is NOT `forbid(unsafe_code)`: the handle primitive requires exactly one narrowly-scoped
-// unsafe operation. Every unsafe op inside an unsafe fn must be an explicit, documented unsafe block
-// (enforced by the crate's `unsafe_op_in_unsafe_fn = "deny"` lint). No other module contains unsafe.
+// This crate is NOT `forbid(unsafe_code)`: two primitives require narrowly-scoped unsafe operations.
+// Every unsafe op inside an unsafe fn must be an explicit, documented unsafe block (enforced by the
+// crate's `unsafe_op_in_unsafe_fn = "deny"` lint). Only `handles` and `system_random` contain unsafe,
+// and each confines it to a single documented call.
 
 /// Build-derived application-mode classification. Platform-independent; grants no authority.
 pub mod app_mode;
 
-/// Owned Win32 handle RAII primitive. The only module that contains `unsafe`.
+/// Owned Win32 handle RAII primitive. Contains `unsafe`.
 #[cfg(windows)]
 pub mod handles;
+
+/// The canonical system-preferred CSPRNG fill primitive. Contains `unsafe` on Windows only.
+pub mod system_random;
