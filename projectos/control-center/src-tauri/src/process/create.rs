@@ -31,9 +31,9 @@ use windows::Win32::System::Threading::{
 use super::command_line::{build_command_line, to_wide_nul};
 use super::environment::build_environment_block;
 use super::errors::ProcessError;
-use projectos_windows_runtime_primitives::handles::{adopt, win32};
 use super::job::JobObject;
 use super::pipes::StdioPipes;
+use projectos_windows_runtime_primitives::handles::{adopt, win32};
 
 /// What a spec is for. Only synthetic tests exist in this phase — there is deliberately no variant a
 /// caller could use to request a production or trusted process.

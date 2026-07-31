@@ -38,7 +38,11 @@ pub mod session;
 pub mod sid;
 pub mod window;
 
-pub use window::TrustedControlCentreWindowBinding;
+pub use window::{
+    ControlCentreWindowVerifier, ExpectedWindowFacts, OwnerWindowObservationInput,
+    TrustedControlCentreWindowBinding, UntrustedControlCentreWindowObservation,
+    UntrustedOwnerWindowHandle, DESIGNATED_WINDOW_LABEL,
+};
 
 use nonce::{TrustedNonce, NONCE_LEN};
 use session::{recheck_matches, session_permits, IdentityTuple, SessionObservation};
@@ -122,6 +126,22 @@ pub enum OwnerVerificationError {
     UnsupportedApi,
     /// The `IUserConsentVerifierInterop` interface could not be obtained.
     MissingInterop,
+    /// The designated Control Centre window ("main") was not present.
+    MissingWindow,
+    /// The window label did not equal the designated label.
+    LabelMismatch,
+    /// A second owner-capable window was present (ambiguity).
+    SecondOwnerWindow,
+    /// The native window handle was null.
+    NullHandle,
+    /// The window was minimised (cannot present the confirmation).
+    WindowMinimized,
+    /// The observed runtime-instance digest did not match the expected one.
+    RuntimeInstanceMismatch,
+    /// The observed IPC-session digest did not match the expected one.
+    IpcSessionMismatch,
+    /// The window lifecycle epoch was stale (window closed/destroyed/recreated).
+    LifecycleMismatch,
 }
 
 impl core::fmt::Display for OwnerVerificationError {
@@ -157,6 +177,14 @@ impl core::fmt::Display for OwnerVerificationError {
             Self::UnsupportedPlatform => "platform does not support owner verification",
             Self::UnsupportedApi => "required Windows API unavailable",
             Self::MissingInterop => "IUserConsentVerifierInterop unavailable",
+            Self::MissingWindow => "designated control centre window not present",
+            Self::LabelMismatch => "window label is not the designated label",
+            Self::SecondOwnerWindow => "a second owner-capable window is present",
+            Self::NullHandle => "null native window handle",
+            Self::WindowMinimized => "window is minimised",
+            Self::RuntimeInstanceMismatch => "runtime-instance digest mismatch",
+            Self::IpcSessionMismatch => "IPC-session digest mismatch",
+            Self::LifecycleMismatch => "stale window lifecycle epoch",
         })
     }
 }

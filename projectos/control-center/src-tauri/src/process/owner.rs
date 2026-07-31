@@ -27,9 +27,9 @@ use windows::Win32::System::Threading::{
 use super::create::{create_in_job, CreatedProcess, ProcessSpec, SpecClassification};
 use super::diagnostics::{drain, drain_lines, BoundedOutput};
 use super::errors::ProcessError;
-use projectos_windows_runtime_primitives::handles::win32;
 use super::job::JobObject;
 use super::state::ProcessState;
+use projectos_windows_runtime_primitives::handles::win32;
 
 /// Exit code used when we force-terminate an uncooperative child.
 const FORCE_TERMINATION_EXIT_CODE: u32 = 0x5000_0001;

@@ -18,7 +18,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use tauri::{Emitter, Manager, RunEvent, State};
+use projectos_host_windows_owner_verification::DESIGNATED_WINDOW_LABEL;
+use tauri::{Emitter, Manager, RunEvent, State, WindowEvent};
 use windows::core::PCWSTR;
 use windows::Win32::UI::WindowsAndMessaging::{
     MessageBoxW, MB_ICONINFORMATION, MB_OK, MB_SETFOREGROUND,
@@ -26,6 +27,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 use crate::identity::{self, composite::IdentityStatusView};
 use crate::instance::{self, InstanceOutcome};
+use crate::owner_window::OwnerWindowLifecycleState;
 use crate::process::lifecycle::{DaemonLifecycleState, SafeDaemonStatus};
 
 /// Returned when another host already owns this account/installation/channel.
@@ -209,10 +211,16 @@ fn run_inner() {
     // only — never re-evaluated per request, never upgraded by readiness, recovery or lifecycle.
     let identity_view = Arc::new(identity::capture_startup_identity().to_status_view());
 
+    // Deterministic owner-window lifecycle (CD-B4-CONTROL-CENTRE-WINDOW-OBSERVATION-BRIDGE1A). Advanced by
+    // the run-loop window events below; consulted by the (not-yet-triggered) observation producer so a
+    // stale window can never yield a current observation.
+    let owner_lifecycle = Arc::new(OwnerWindowLifecycleState::new());
+
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(state)
         .manage(identity_view)
+        .manage(owner_lifecycle)
         .setup(|app| {
             let handle = app.handle().clone();
             start_and_route(&handle);
@@ -227,7 +235,30 @@ fn run_inner() {
         .expect("error while building ProjectOS Control Center");
 
     app.run(|handle, event| {
+        // Owner-window lifecycle transitions. A single monotonic epoch is advanced on creation, a
+        // (possibly prevented) close request, and destruction, so any transition invalidates an
+        // outstanding observation.
+        let owner_lifecycle = handle
+            .state::<Arc<OwnerWindowLifecycleState>>()
+            .inner()
+            .clone();
+        match &event {
+            RunEvent::Ready => owner_lifecycle.on_window_created(),
+            RunEvent::WindowEvent {
+                label,
+                event: window_event,
+                ..
+            } if label.as_str() == DESIGNATED_WINDOW_LABEL => match window_event {
+                WindowEvent::CloseRequested { .. } => owner_lifecycle.on_close_requested(),
+                WindowEvent::Destroyed => owner_lifecycle.on_destroyed(),
+                _ => {}
+            },
+            _ => {}
+        }
+
         if let RunEvent::ExitRequested { code, api, .. } = event {
+            // Late capture results are refused once shutdown begins.
+            owner_lifecycle.begin_shutdown();
             let state = handle.state::<Arc<DaemonLifecycleState>>().inner().clone();
             // `AppHandle::exit` raises this same event. If the final exit is already underway we must
             // NOT prevent it, or the application could never close. State is the authoritative guard;

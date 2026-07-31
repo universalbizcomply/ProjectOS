@@ -45,7 +45,7 @@ use windows_future::IAsyncOperation;
 use crate::nonce::NONCE_LEN;
 use crate::session::{IdentityTuple, SessionObservation, WTS_PROTOCOL_CONSOLE};
 use crate::sid::OwnerSidObservation;
-use crate::window::{TrustedControlCentreWindowBinding, WindowObservation};
+use crate::window::{ControlCentreWindowVerifier, WindowObservation};
 use crate::{
     nonce_from_rng_bytes, run_inert_verification, ConsentAvailability, ConsentResult,
     InertVerificationInput, MtaWorkerRequest, OwnerVerificationError, VerifiedWindowsOwnerEvidence,
@@ -211,8 +211,12 @@ fn observe_owner_sid(configured_owner_sid: PSID) -> OwnerSidObservation {
 
 /// The body a dedicated MTA worker runs to perform one live owner verification. `pub(crate)`, with NO
 /// caller in this phase; never invoked by tests. Returns only opaque evidence or a typed error.
+///
+/// `verifier` is an EXISTING sealed [`ControlCentreWindowVerifier`] supplied by the caller — this module
+/// never constructs one and never mints a binding itself.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn live_verify(
+    verifier: &ControlCentreWindowVerifier,
     hwnd: HWND,
     message: &HSTRING,
     configured_owner_sid: PSID,
@@ -275,8 +279,10 @@ pub(crate) fn live_verify(
         session: window_session,
     };
 
-    let binding =
-        TrustedControlCentreWindowBinding::from_observed(window, trusted_window_binding_digest);
+    // The bare binding mint is module-private, so this module cannot mint. It does not construct a verifier
+    // either: the sealed verifier is SUPPLIED by the caller, and only that verifier reaches the mint. One
+    // minting authority, and this module is not it.
+    let binding = verifier.mint_from_window_observation(window, trusted_window_binding_digest);
     let session = SessionObservation {
         session_query_ok: protocol.is_some(),
         window_session,

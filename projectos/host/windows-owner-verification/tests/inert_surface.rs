@@ -62,6 +62,43 @@ fn error_type_is_public_typed_and_displayable() {
     assert!(!boxed.to_string().is_empty());
 }
 
+// A downstream crate MAY build an untrusted observation and read its (evidence-only) digest, but this
+// grants no authority: there is no way to reach a verifier or a binding from here.
+#[test]
+fn untrusted_observation_is_constructible_but_inert() {
+    let obs =
+        owner::UntrustedControlCentreWindowObservation::new(owner::OwnerWindowObservationInput {
+            label: owner::DESIGNATED_WINDOW_LABEL.to_string(),
+            handle: owner::UntrustedOwnerWindowHandle::from_raw(0x4321),
+            is_window: true,
+            is_visible: true,
+            is_minimized: false,
+            is_focused: false,
+            eligible: true,
+            process_id: 10,
+            thread_id: 11,
+            session: 1,
+            client_protocol_type: 0,
+            active_console_session: 1,
+            runtime_instance_digest: [0u8; 32],
+            ipc_session_digest: [0u8; 32],
+            project_digest: [0u8; 32],
+            repository_digest: [0u8; 32],
+            environment_digest: [0u8; 32],
+            phase_digest: [0u8; 32],
+            lifecycle_epoch: 1,
+            capture_generation: 1,
+            observed_at: 1,
+        });
+    // Evidence digest is available; the raw handle never appears in Debug.
+    let _d: [u8; 32] = obs.observation_digest();
+    assert!(format!("{obs:?}").contains("[REDACTED]"));
+    assert!(!format!("{obs:?}").contains("4321"));
+    // The verifier type is nameable but has no reachable constructor here (compile-fail proofs cover it).
+    fn _names_verifier(_v: &owner::ControlCentreWindowVerifier) {}
+    let _ = _names_verifier;
+}
+
 #[test]
 fn opaque_type_signatures_are_reachable() {
     // Reference the signature-only helpers so the public opaque types are exercised as a public surface.

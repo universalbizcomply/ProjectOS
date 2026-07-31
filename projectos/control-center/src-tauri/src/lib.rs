@@ -98,7 +98,22 @@ pub mod test_fixtures {
         };
         pub use crate::instance::{acquire_named, InstanceFailure, InstanceOutcome};
     }
+
+    /// CD-B4-CONTROL-CENTRE-WINDOW-OBSERVATION-BRIDGE1A closed test surface: the deterministic lifecycle
+    /// state and the PURE designated-window selection rule. It exposes no producer (that needs a live
+    /// Tauri app), no window fact, no binding and no verifier — only what the pure proofs must drive.
+    pub mod owner_window {
+        pub use crate::owner_window::lifecycle::OwnerWindowLifecycleState;
+        pub use crate::owner_window::observation::{resolve_designated_label, ObservationError};
+    }
 }
+
+// CD-B4-CONTROL-CENTRE-WINDOW-OBSERVATION-BRIDGE1A: the untrusted owner-window observation producer and
+// deterministic lifecycle state. Crate-private: no other crate and no renderer command can reach the
+// producer; the pure lifecycle/selection surface is exposed to integration tests only through
+// `test_fixtures` below.
+#[cfg(windows)]
+pub(crate) mod owner_window;
 
 #[cfg(windows)]
 mod app;

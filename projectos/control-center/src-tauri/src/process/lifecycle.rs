@@ -36,12 +36,12 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 
 use super::authority::{resolve_launch_authority, DaemonLaunchAuthority};
-use projectos_windows_runtime_primitives::app_mode::detect_app_mode;
 use super::errors::ProcessError;
 use super::evidence::{EvidenceRecord, EvidenceStore};
 use super::owner::{JobBoundProcessOwner, RealResumeApi};
 use super::readiness::{classify_line, LineClass};
 use super::recovery::{self, Win32RecoveryNative};
+use projectos_windows_runtime_primitives::app_mode::detect_app_mode;
 
 /// Bounded window for the daemon to announce `lifecycle.ready`.
 pub(crate) const READY_TIMEOUT: Duration = Duration::from_secs(5);

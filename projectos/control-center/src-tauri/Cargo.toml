@@ -51,6 +51,10 @@ projectos-windows-runtime-primitives = { path = "../../host/windows-runtime-prim
 # runtime's safe facade (capture_startup_identity / IdentityStatusView / sha256_hex). No identity
 # implementation remains in this crate.
 projectos-shared-host-runtime = { path = "../../host/shared-host-runtime" }
+# CD-B4-CONTROL-CENTRE-WINDOW-OBSERVATION-BRIDGE1A: the inert Windows owner-verification adapter, consumed
+# ONLY to build UNTRUSTED window observations and to name the sealed verifier / opaque binding types. The
+# adapter's default graph mints nothing; this crate cannot construct the verifier or a binding.
+projectos-host-windows-owner-verification = { path = "../../host/windows-owner-verification" }
 
 # WINDOWS-PROCESS-CREATION1A: atomic job-bound child creation. Already present in Cargo.lock
 # (transitive via tauri) — this only promotes it to a direct dependency and enables the minimum

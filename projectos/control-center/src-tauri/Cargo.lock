@@ -2568,6 +2568,7 @@ dependencies = [
 name = "projectos-control-center"
 version = "0.1.0"
 dependencies = [
+ "projectos-host-windows-owner-verification",
  "projectos-shared-host-runtime",
  "projectos-windows-runtime-primitives",
  "serde",
@@ -2592,6 +2593,13 @@ dependencies = [
  "serde_json",
  "sha2",
  "windows",
+]
+
+[[package]]
+name = "projectos-host-windows-owner-verification"
+version = "0.0.0"
+dependencies = [
+ "sha2",
 ]
 
 [[package]]

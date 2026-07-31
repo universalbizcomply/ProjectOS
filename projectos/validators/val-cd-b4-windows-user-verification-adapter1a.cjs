@@ -270,7 +270,14 @@ function run() {
   if (/pub fn [a-z_]+\([^)]*HWND/.test(winNoTests) || /pub fn [a-z_]+\([^)]*HWND/.test(libNoTests))
     E("V7 a public fn accepts a raw HWND");
   if (/pub fn [a-z_]+\([^)]*\)\s*->\s*HWND/.test(win + lib)) E("V7 a public fn returns a raw HWND");
-  if (!/pub\(crate\) fn from_observed\(/.test(winNoTests)) E("V7 binding from_observed is not pub(crate)");
+  // The bare binding mint is MODULE-PRIVATE (post-freeze Option 2 amendment, superseding the original
+  // `pub(crate)` expectation): confining it to `window.rs` makes the sealed ControlCentreWindowVerifier the
+  // only thing that can reach it, so no other adapter module — including the gated live FFI — can mint.
+  // Anchored on the full signature so neither prose nor a doc comment can satisfy or trip either check.
+  if (!/(^|\n)\s*fn from_observed\(observation: WindowObservation, binding_digest: \[u8; 32\]\) -> Self/.test(winNoTests))
+    E("V7 binding from_observed is not module-private");
+  if (/\bpub(\(crate\))?\s+fn from_observed\(observation: WindowObservation/.test(winNoTests))
+    E("V7 binding from_observed is pub or pub(crate) (must be module-private)");
 
   // ---- V8 synthetic constructor is #[cfg(test)]-only ----
   if (!/#\[cfg\(test\)\]\s*\n\s*pub\(crate\) fn synthetic\(/.test(win))

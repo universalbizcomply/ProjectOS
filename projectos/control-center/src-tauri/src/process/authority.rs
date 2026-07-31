@@ -224,5 +224,4 @@ mod tests {
         // The instance-id var must survive the secret-shaped rejection list.
         assert!(super::super::environment::build_environment_block(&spec.env).is_ok());
     }
-
 }
