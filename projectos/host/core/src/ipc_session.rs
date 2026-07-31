@@ -628,9 +628,12 @@ impl ProductionIpcSessionVerifier {
         }
     }
 
-    /// TEST-ONLY constructor for the Level-2 proof. Gated to `test-fixtures`, so the default graph has NO
-    /// way to construct the production verifier; a real connection-bound production constructor is
-    /// CARRY-FORWARD and deliberately absent.
+    /// TEST-ONLY constructor for the Level-2 proof, gated to `test-fixtures`.
+    ///
+    /// The production route is [`crate::provider_authority`]: `new_internal` above is reached ONLY by
+    /// consuming a `ProviderAuthorityLease`, which requires a confirmed machine-wide host authority. The
+    /// default graph still has no way to construct this verifier directly. Binding the verifier to a real
+    /// connection remains CARRY-FORWARD.
     #[cfg(any(test, feature = "test-fixtures"))]
     #[must_use]
     pub fn for_local_proof() -> Self {

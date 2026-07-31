@@ -21,3 +21,18 @@ thiserror = "1"
 # (CD-B4-PROTECTED-PLAN-STORE-SHA256-AUTHORITY1A, Option A). Same version already used by
 # host-identity / windows-durable-protected-store; default features only; used ONLY for that digest.
 sha2 = "0.10"
+# CD-B4-PRODUCTION-CAPABILITY-ACQUISITION-SEAM1A. The cold-start provider-authority seam is rooted in the
+# machine-wide existence token, so core needs to name `ConfirmedAuthorityGuard`. STRICTLY ONE-WAY: this
+# crate depends on host-authority, never the reverse (host-authority remains dependency-free, so no cycle
+# is possible). DEFAULT FEATURES ONLY — host-authority's default graph pulls no `windows` crate and no
+# handle primitive, so core stays windows-free and `unsafe_code = "forbid"` is unaffected.
+projectos-host-authority = { path = "../host-authority" }
+
+[dev-dependencies]
+# Core's OWN tests need a confirmed authority to drive the seam. `effect-witness-fixtures` is
+# host-authority's PURE contract-fixture feature: no dependency, no Windows API, no machine effect, and
+# (unlike `test-fixtures`) it leaves AuthorityGuard in its sealed, handle-free shape. Dev-only, so the
+# fixture confirmation route is absent from core's default/release graph.
+projectos-host-authority = { path = "../host-authority", features = [
+    "effect-witness-fixtures",
+] }

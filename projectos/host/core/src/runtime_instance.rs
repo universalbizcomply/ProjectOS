@@ -502,9 +502,11 @@ impl ProductionRuntimeInstanceVerifier {
         }
     }
 
-    /// TEST-ONLY constructor for the local read-only proof. Gated to `test-fixtures`, so the default
-    /// graph has NO way to construct the production verifier; a real production-activation constructor is
-    /// CARRY-FORWARD and deliberately absent.
+    /// TEST-ONLY constructor for the local read-only proof, gated to `test-fixtures`.
+    ///
+    /// The production route is [`crate::provider_authority`]: `new_internal` above is reached ONLY by
+    /// consuming a `ProviderAuthorityLease`, which requires a confirmed machine-wide host authority. The
+    /// default graph still has no way to construct this verifier directly.
     #[cfg(any(test, feature = "test-fixtures"))]
     #[must_use]
     pub fn for_local_proof() -> Self {

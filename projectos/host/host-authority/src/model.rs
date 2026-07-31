@@ -676,6 +676,95 @@ impl core::fmt::Debug for AuthorityGuard {
     }
 }
 
+/// A CONFIRMED machine-wide ProjectOS host authority.
+///
+/// It OWNS the [`AuthorityGuard`], so the underlying existence token cannot be released while a
+/// confirmation is held, and the confirmation cannot outlive the authority it attests. Private fields,
+/// no public field access, no `Clone`/`Copy`/`Default`, no serde, redacted `Debug`.
+///
+/// The ONLY constructor is [`Self::confirm`], which re-applies the frozen corroboration rule rather
+/// than trusting a caller-supplied state. Possession of an [`AuthorityGuard`] is the real gate: it has
+/// no public constructor, so no dependent crate can start this flow at all.
+pub struct ConfirmedAuthorityGuard {
+    /// The owned machine-wide authority. Never exposed, borrowed or returned.
+    _guard: AuthorityGuard,
+    /// The corroborated state that justified confirmation. Read-only; carries no authority.
+    state: AuthorityPeerState,
+}
+
+impl core::fmt::Debug for ConfirmedAuthorityGuard {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("ConfirmedAuthorityGuard([REDACTED])")
+    }
+}
+
+impl ConfirmedAuthorityGuard {
+    /// Confirm a held authority, CONSUMING the guard.
+    ///
+    /// The peer state is DERIVED here via the frozen [`AuthorityPeerState::corroborate`] rule — a caller
+    /// cannot hand in a state directly. Only the two genuinely AUTHORITATIVE states are accepted:
+    ///
+    /// * [`AuthorityPeerState::InteractiveFallbackConfirmed`]
+    /// * [`AuthorityPeerState::ServiceRuntimeConfirmed`]
+    ///
+    /// [`AuthorityPeerState::ClientConnectionConfirmed`] is REFUSED even though it permits startup: a
+    /// client connects to an authority and is never one itself (see [`HostRuntimeClient`]). Using
+    /// `permits_startup()` here would let a mere client mint provider authority.
+    /// `Uncorroborated` (a fresh, still-unconfirmed create) and `AuthorityUncertain` are refused too.
+    ///
+    /// On refusal the guard is DROPPED, releasing the existence token: a process that cannot prove
+    /// authority does not keep holding it.
+    ///
+    /// # Errors
+    /// [`AuthorityRefusal::AuthorityUnavailable`] when the corroborated state is not authoritative.
+    /// (The frozen refusal enum is reused as-is; no new variant is introduced for this seam.)
+    pub fn confirm(
+        guard: AuthorityGuard,
+        outcome: AuthorityTokenOutcome,
+        confirmed: Option<ConfirmedPeer>,
+    ) -> Result<Self, AuthorityRefusal> {
+        let state = AuthorityPeerState::corroborate(outcome, confirmed);
+        match state {
+            AuthorityPeerState::InteractiveFallbackConfirmed
+            | AuthorityPeerState::ServiceRuntimeConfirmed => Ok(Self {
+                _guard: guard,
+                state,
+            }),
+            // Fail closed. `guard` is dropped here, releasing the token.
+            _ => Err(AuthorityRefusal::AuthorityUnavailable),
+        }
+    }
+
+    /// The corroborated state behind this confirmation. Read-only; grants nothing and cannot be used to
+    /// reconstruct a guard.
+    #[must_use]
+    pub fn peer_state(&self) -> AuthorityPeerState {
+        self.state
+    }
+
+    /// TEST/FIXTURE-ONLY confirmed authority for downstream contract proofs.
+    ///
+    /// Gated on `effect-witness-fixtures`, the crate's PURE contract-fixture feature: it pulls no
+    /// dependency, no Windows API and no machine effect, and (unlike `test-fixtures`) leaves
+    /// [`AuthorityGuard`] in its sealed, handle-free shape. A default/release graph enables neither, so
+    /// no confirmed authority exists there and nothing acquires a real token.
+    #[cfg(all(
+        any(test, feature = "effect-witness-fixtures"),
+        not(all(windows, feature = "test-fixtures"))
+    ))]
+    #[must_use]
+    pub fn for_local_proof(state: AuthorityPeerState) -> Option<Self> {
+        match state {
+            AuthorityPeerState::InteractiveFallbackConfirmed
+            | AuthorityPeerState::ServiceRuntimeConfirmed => Some(Self {
+                _guard: AuthorityGuard { _seal: Private },
+                state,
+            }),
+            _ => None,
+        }
+    }
+}
+
 /// The sealed interactive-fallback authority entry point. No public constructor and no generic
 /// acquire: an interactive fallback cannot be acquired from a bool/string/environment input, and the
 /// route stays separate from the service route.

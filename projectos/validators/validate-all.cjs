@@ -65,6 +65,7 @@ const MODULES = [
   "val-cd-b4-production-owner-presence-provider1a",
   "val-cd-b4-windows-user-verification-adapter1a",
   "val-cd-b4-control-centre-window-observation-bridge1a",
+  "val-cd-b4-provider-authority-seam1a",
   "val-projectos-v3-owner-presence-confirmation-ux1a",
   "validate-v3.1-crosswalk",
   "validate-v3.2-ai-provider-independence"

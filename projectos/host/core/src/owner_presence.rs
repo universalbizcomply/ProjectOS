@@ -510,8 +510,10 @@ impl fmt::Debug for ProductionOwnerPresenceCapability {
 }
 
 impl ProductionOwnerPresenceCapability {
-    /// Crate-internal production constructor. A real acquisition path (future carry-forward seam) is the
-    /// only way an out-of-crate producer could obtain this; it does not exist yet.
+    /// Crate-internal production constructor. The acquisition path is [`crate::provider_authority`]: this
+    /// is reached ONLY by consuming a `ProviderAuthorityLease`, which requires a confirmed machine-wide
+    /// host authority, and the resulting capability is borrowable-but-not-extractable from the
+    /// `ProviderCapabilitySet` that retains that authority.
     pub(crate) fn new_internal() -> Self {
         Self {
             _thread_bound: PhantomData,

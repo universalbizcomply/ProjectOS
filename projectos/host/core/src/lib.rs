@@ -43,6 +43,7 @@ pub mod operation;
 pub mod owner_presence;
 pub mod phase;
 pub mod plan;
+pub mod provider_authority;
 pub mod reducer;
 pub mod repository;
 pub mod runtime_instance;
@@ -113,6 +114,10 @@ pub use owner_presence::{
     ProductionOwnerPresenceBindingGrant, ProductionOwnerPresenceCapability,
     ProductionOwnerPresenceEvidence, RequiredOwnerPresence, ValidatedOwnerPresenceFact,
     VerifiedOwnerPresence,
+};
+pub use provider_authority::{
+    open_provider_authority, ProviderAuthorityError, ProviderAuthorityLease, ProviderCapabilitySet,
+    MAX_LEASE_WINDOW,
 };
 // The legacy observation-based mint is a FIXTURE/CONTRACT verifier only — test/fixture-gated so a
 // default (production) build exposes exactly one production-eligible mint
