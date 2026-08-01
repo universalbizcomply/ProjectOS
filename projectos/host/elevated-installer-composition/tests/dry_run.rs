@@ -14,7 +14,7 @@ fn artefact_path() -> std::path::PathBuf {
         .join("..")
         .join("service-host")
         .join("target")
-        .join("debug")
+        .join("release")
         .join("ProjectOSHost.exe")
 }
 
@@ -23,7 +23,7 @@ fn the_packaged_artefact_exists_and_is_accepted() {
     let p = artefact_path();
     assert!(
         p.exists(),
-        "build it first: cargo build --manifest-path projectos/host/service-host/Cargo.toml"
+        "build it first: cargo build --release --manifest-path projectos/host/service-host/Cargo.toml"
     );
     let e = ArtefactEvidence::from_build_output(&p).expect("artefact accepted");
     assert_eq!(
@@ -110,4 +110,48 @@ fn the_full_dry_run_reaches_the_effect_authority_gate_and_stops() {
         !report.service_binary_path().parent().unwrap().exists(),
         "the production install directory was created"
     );
+}
+
+#[test]
+fn the_release_manifest_digest_is_deterministic_and_contract_valid() {
+    use projectos_host_elevated_installer_composition::dry_run::ReleaseManifest;
+
+    let artefact = ArtefactEvidence::from_build_output(&artefact_path()).expect("artefact");
+    let a = ReleaseManifest::for_artefact(&artefact).expect("manifest");
+    let b = ReleaseManifest::for_artefact(&artefact).expect("manifest again");
+
+    // Same artefact, same bytes, same digest — every time.
+    assert_eq!(a.canonical_bytes(), b.canonical_bytes());
+    assert_eq!(a.digest_hex(), b.digest_hex());
+
+    // Exactly the shape the identity record contract demands.
+    assert_eq!(a.digest_hex().len(), 64);
+    assert!(a
+        .digest_hex()
+        .bytes()
+        .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c)));
+    assert_ne!(a.digest_hex(), &"0".repeat(64));
+    a.release_digest().expect("accepted by the writer contract");
+
+    // The canonical encoding is domain-separated and names the frozen artefact.
+    let text = String::from_utf8_lossy(a.canonical_bytes()).to_string();
+    assert!(text.contains("PROJECTOS:RELEASE-MANIFEST:V1"), "{text}");
+    assert!(text.contains("ProjectOSHost.exe"), "{text}");
+}
+
+#[cfg(all(windows, feature = "installer-dry-run"))]
+#[test]
+fn the_dry_run_carries_the_release_manifest_digest_and_still_refuses() {
+    use projectos_host_elevated_installer_composition::dry_run::{
+        production_dry_run, ReleaseManifest,
+    };
+
+    let artefact = ArtefactEvidence::from_build_output(&artefact_path()).expect("artefact");
+    let report = production_dry_run(&artefact).expect("dry run");
+    let manifest = ReleaseManifest::for_artefact(&artefact).expect("manifest");
+
+    assert_eq!(report.release_manifest_digest(), manifest.digest_hex());
+    assert_eq!(report.artefact_path(), artefact.path());
+    // Accepting the artefact and its digest changes nothing about the gate.
+    assert!(report.reached_effect_authority_gate());
 }

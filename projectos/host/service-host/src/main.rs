@@ -1,37 +1,69 @@
-//! # ProjectOSHost.exe — the packaged host artefact
+//! # ProjectOSHost.exe — the minimum Windows service runtime
 //!
-//! CD-B4-INSTALLER-READINESS1A.
+//! CD-B4-PROJECTOSHOST-SERVICE-RUNTIME1A.
 //!
-//! This exists so the installer dry run references a REAL binary built from committed source, not a
-//! placeholder path. It is deliberately inert.
+//! A genuine SCM-compatible service: it registers a dispatcher and a control handler, publishes the
+//! four required states, and runs an inert loop until the SCM asks it to stop.
 //!
-//! It does not register or run as a Windows service: there is no service control handler, no
-//! `StartServiceCtrlDispatcher`, no SCM, registry, pipe, socket or ProgramData access, and no protected
-//! effect of any kind. Run interactively it reports the frozen installation effect authority — which is
-//! `NotAuthorised` — and exits non-zero, so a machine that somehow launched it gets a refusal rather
-//! than a half-started host.
+//! ## What it deliberately does not do
+//!
+//! It performs no protected effect of any kind: no file, registry, network, IPC or ProgramData access,
+//! no ACL, no SID resolution, no key provisioning, no authority acquisition, no service creation and no
+//! UI. Installing and starting it is the installer's job and remains gated behind
+//! `InstallationEffectAuthority`, which is still `NotAuthorised`.
+//!
+//! ## Console mode
+//!
+//! Launched interactively the dispatcher refuses, which is correct and expected. The process reports
+//! that refusal and exits non-zero. Console mode holds no service status handle, so it cannot publish
+//! a state to the SCM or be mistaken for an authoritative service instance.
 
-#![forbid(unsafe_code)]
+// `unsafe` is REQUIRED by the SCM boundary and is confined to `scm`, which documents every call. Every
+// unsafe operation must sit in an explicit inner block.
+#![deny(unsafe_op_in_unsafe_fn)]
 
 use projectos_host_windows_service_installation_contract::contract::InstallationEffectAuthority;
 
-/// The exact service name this artefact is installed under. Frozen; it is not derived from the file
-/// name, the command line or the environment.
-const SERVICE_NAME: &str = "ProjectOSHost";
+pub mod lifecycle;
+#[cfg(windows)]
+pub mod scm;
 
-/// Exit code for "the host refused to start". Non-zero on purpose: no caller may read success into it.
-const EXIT_NOT_AUTHORISED: i32 = 2;
+/// The exact service name. Frozen: it is not derived from the file name, the command line or the
+/// environment, and no other name is representable here.
+pub const SERVICE_NAME: &str = "ProjectOSHost";
+
+/// The service ran under the SCM and stopped cleanly.
+const EXIT_CLEAN_STOP: u8 = 0;
+/// The process was not started by the SCM. Non-zero on purpose: no caller may read success into it.
+const EXIT_NOT_A_SERVICE: u8 = 2;
 
 fn main() -> std::process::ExitCode {
-    let authority = InstallationEffectAuthority::current();
-    println!("{SERVICE_NAME}: installation effect authority = {authority:?}");
-    if authority.is_authorised() {
-        // Unreachable while the frozen contract has one variant. It is written as a refusal rather
-        // than omitted so that authorising the contract later cannot silently start anything here.
-        println!(
-            "{SERVICE_NAME}: host activation requires a separate owner gate; refusing to start"
-        );
+    #[cfg(windows)]
+    {
+        match scm::run_under_scm() {
+            Ok(()) => {
+                // The dispatcher returns only after the service has stopped.
+                println!("{SERVICE_NAME}: stopped");
+                std::process::ExitCode::from(EXIT_CLEAN_STOP)
+            }
+            Err(e) => {
+                // The expected interactive outcome. Report it plainly rather than pretending to run.
+                println!("{SERVICE_NAME}: not started by the Service Control Manager ({e:?})");
+                println!(
+                    "{SERVICE_NAME}: installation effect authority = {:?}",
+                    InstallationEffectAuthority::current()
+                );
+                println!("{SERVICE_NAME}: console mode is not authoritative; nothing started");
+                std::process::ExitCode::from(EXIT_NOT_A_SERVICE)
+            }
+        }
     }
-    println!("{SERVICE_NAME}: inert artefact, nothing started");
-    std::process::ExitCode::from(EXIT_NOT_AUTHORISED as u8)
+    #[cfg(not(windows))]
+    {
+        println!(
+            "{SERVICE_NAME}: Windows-only service host; effect authority = {:?}",
+            InstallationEffectAuthority::current()
+        );
+        std::process::ExitCode::from(EXIT_NOT_A_SERVICE)
+    }
 }

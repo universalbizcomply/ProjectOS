@@ -265,11 +265,17 @@ function run() {
   }
 
   // ---- V7 the packaged artefact is inert ----
-  if (!/#!\[forbid\(unsafe_code\)\]/.test(shRaw)) E("V7 the artefact crate does not forbid unsafe");
+  // The artefact is now a real SCM service, so the crate cannot forbid unsafe outright: the three
+  // Windows service calls require it. It must instead be CONFINED to scm.rs, with main.rs unsafe-free
+  // and implicit unsafe inside unsafe fns denied.
+  // Actual unsafe CODE, not the lint attribute that denies implicit unsafe.
+  if (/unsafe\s*(fn|\{|extern)/.test(sh)) E("V7 unsafe leaked into the artefact entry point");
+  if (!/unsafe_op_in_unsafe_fn\s*=\s*"deny"/.test(shToml))
+    E("V7 the artefact crate does not deny implicit unsafe inside unsafe fns");
+  if (!fs.existsSync(path.join(SH, "src", "scm.rs")))
+    E("V7 the SCM boundary module is missing, so unsafe is not confined");
   if (!/name = "ProjectOSHost"/.test(shToml)) E("V7 the binary is not named ProjectOSHost");
   for (const bad of [
-    "StartServiceCtrlDispatcher",
-    "RegisterServiceCtrlHandler",
     "OpenSCManager",
     "CreateService",
     "StartService",
@@ -289,11 +295,11 @@ function run() {
 
   // ---- V8 the artefact exists, is outside production, and came from a build directory ----
   {
-    const exe = path.join(SH, "target", "debug", "ProjectOSHost.exe");
+    const exe = path.join(SH, "target", "release", "ProjectOSHost.exe");
     if (!fs.existsSync(exe)) {
       const r = spawnSync(
         "cargo",
-        ["build", "--offline", "--quiet", "--manifest-path", path.join(SH, "Cargo.toml")],
+        ["build", "--release", "--offline", "--quiet", "--manifest-path", path.join(SH, "Cargo.toml")],
         { encoding: "utf8", cwd: ROOT }
       );
       if (r.status !== 0) E("V8 the artefact could not be built from committed source");

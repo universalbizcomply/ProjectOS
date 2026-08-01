@@ -100,6 +100,80 @@ fn is_inside_a_production_root(_candidate: &Path) -> bool {
     true
 }
 
+/// THE RELEASE MANIFEST.
+///
+/// One artefact, described canonically, so the same executable always yields the same digest on any
+/// machine. The encoding is domain-separated and length-prefixed for the same reason the canonical
+/// record encoding is: no field boundary can be forged by choosing a value that looks like a
+/// separator.
+///
+/// The digest is the SHA-256 of those canonical bytes, computed with the SAME `sha256_hex` the
+/// identity contract uses — this crate introduces no second hashing vocabulary.
+#[derive(Debug)]
+pub struct ReleaseManifest {
+    canonical: Vec<u8>,
+    digest: String,
+}
+
+/// The domain string. Changing it changes every digest, which is exactly what a schema change should
+/// do.
+const MANIFEST_DOMAIN: &str = "PROJECTOS:RELEASE-MANIFEST:V1";
+
+impl ReleaseManifest {
+    /// Build the manifest for a verified artefact.
+    ///
+    /// # Errors
+    /// [`DryRunError::Artefact`] if the artefact bytes cannot be read.
+    pub fn for_artefact(artefact: &ArtefactEvidence) -> Result<Self, DryRunError> {
+        let bytes = std::fs::read(artefact.path())
+            .map_err(|_| DryRunError::Artefact(ArtefactRefusal::Missing))?;
+        let artefact_digest = projectos_host_identity::sha256_hex(&bytes);
+
+        let mut canonical = Vec::new();
+        put_field(&mut canonical, MANIFEST_DOMAIN);
+        put_field(&mut canonical, "1");
+        put_field(&mut canonical, EXPECTED_SERVICE_RELATIVE_PATH);
+        put_field(&mut canonical, &artefact_digest);
+        let digest = projectos_host_identity::sha256_hex(&canonical);
+        Ok(Self { canonical, digest })
+    }
+
+    /// The canonical manifest bytes.
+    #[must_use]
+    pub fn canonical_bytes(&self) -> &[u8] {
+        &self.canonical
+    }
+
+    /// The manifest digest as 64 lower-case hex characters.
+    #[must_use]
+    pub fn digest_hex(&self) -> &str {
+        &self.digest
+    }
+
+    /// The digest as the writer's validated contract type, ready for an identity record.
+    ///
+    /// # Errors
+    /// [`DryRunError::Artefact`] if the digest is not a valid release digest, which would mean the
+    /// hash implementation changed shape.
+    pub fn release_digest(
+        &self,
+    ) -> Result<
+        projectos_host_canonical_installation_identity_writer::ReleaseManifestDigest,
+        DryRunError,
+    > {
+        projectos_host_canonical_installation_identity_writer::ReleaseManifestDigest::parse(
+            &self.digest,
+        )
+        .map_err(|_| DryRunError::Artefact(ArtefactRefusal::NotBuildOutput))
+    }
+}
+
+/// Append one length-prefixed field.
+fn put_field(out: &mut Vec<u8>, value: &str) {
+    out.extend_from_slice(&(value.len() as u64).to_be_bytes());
+    out.extend_from_slice(value.as_bytes());
+}
+
 /// Everything the dry run established before it stopped.
 ///
 /// Non-`Clone` and carrying no write capability: it is a readiness report, not permission.
@@ -110,6 +184,7 @@ pub struct DryRunReport {
     record_path: PathBuf,
     service_binary_path: PathBuf,
     artefact_path: PathBuf,
+    release_manifest_digest: String,
     effect_authority: InstallationEffectAuthority,
     stopped_at: PlanRefusal,
 }
@@ -144,6 +219,12 @@ impl DryRunReport {
     #[must_use]
     pub fn artefact_path(&self) -> &Path {
         &self.artefact_path
+    }
+
+    /// The deterministic release-manifest digest for the verified artefact.
+    #[must_use]
+    pub fn release_manifest_digest(&self) -> &str {
+        &self.release_manifest_digest
     }
 
     /// The frozen effect authority the dry run stopped on.
@@ -211,7 +292,12 @@ pub fn production_dry_run(artefact: &ArtefactEvidence) -> Result<DryRunReport, D
     let record_path = target.record_location();
     let service_binary_path = install_root.service_binary_path();
 
-    // 4. The FINAL pre-effect gate. The frozen authority refuses, so no write capability is issued and
+    // 4. The release manifest for the verified artefact. Deterministic, and validated by the writer's
+    // own release-digest contract before it is carried.
+    let manifest = ReleaseManifest::for_artefact(artefact)?;
+    let _validated = manifest.release_digest()?;
+
+    // 5. The FINAL pre-effect gate. The frozen authority refuses, so no write capability is issued and
     // no service step is reachable.
     let effect_authority = InstallationEffectAuthority::current();
     Ok(DryRunReport {
@@ -220,6 +306,7 @@ pub fn production_dry_run(artefact: &ArtefactEvidence) -> Result<DryRunReport, D
         record_path,
         service_binary_path,
         artefact_path: artefact.path().to_path_buf(),
+        release_manifest_digest: manifest.digest_hex().to_string(),
         effect_authority,
         stopped_at: PlanRefusal::ElevationAbsent,
     })
