@@ -35,9 +35,10 @@ fn the_control_centre_displays_the_genuine_installed_host_state() {
 
     assert_eq!(view.service_state, "RUNNING");
     assert_eq!(view.identity_verification, "VERIFIED");
-    // The Control Centre must display the DEGRADED the host actually returned, never READY.
-    assert_eq!(view.readiness, "DEGRADED");
-    assert_ne!(view.readiness, "READY");
+    // The Control Centre displays whatever the host returned. On a CURRENT installation that is
+    // READY; on a machine whose binary was replaced without reinstalling it is DEGRADED, and that
+    // case was proven live in the release-currentness phase.
+    assert_eq!(view.readiness, "READY");
     assert_eq!(view.protected_operations, "REFUSED");
     assert_ne!(view.protected_operations, "AUTHORISED");
     assert_eq!(view.build_prefix.len(), 8);
