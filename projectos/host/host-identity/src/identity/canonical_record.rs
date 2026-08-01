@@ -96,7 +96,13 @@ pub enum RecordError {
 
 /// The V1 record as an installer would write it. Plain data with NO authority: holding one proves
 /// nothing until [`verify_record`] accepts it against the approved boundary and protected evidence.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// `Deserialize` is derived with `deny_unknown_fields` so the READ boundary can load an installed
+/// record without a second parser, and an unexpected field is refused rather than ignored. It grants
+/// nothing on its own — every binding, the digest and the protected evidence are still checked by
+/// [`verify_record`], which is the only thing that can turn a record into a verified identity.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct InstallationIdentityRecordV1 {
     /// Must equal [`RECORD_SCHEMA_VERSION`].
     pub schema_version: u32,

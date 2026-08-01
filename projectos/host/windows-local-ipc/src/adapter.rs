@@ -23,6 +23,7 @@ use crate::verification::{
 
 /// Private seal — `LiveIpcOperationCapability` cannot be constructed outside this module, and this
 /// module provides no constructor.
+#[derive(Debug)]
 struct Sealed;
 
 /// The sealed authority to perform a LIVE local-IPC operation. It has no public constructor, no factory,
@@ -31,6 +32,76 @@ struct Sealed;
 /// no value exists, so every capability-gated method is unreachable.
 pub struct LiveIpcOperationCapability {
     _sealed: Sealed,
+}
+
+/// ONE owner-approved, READ-ONLY installed-host status read.
+///
+/// Transcribed from the exact phrase the owner gave. It is move-only and consumed by the capability it
+/// authorises, so one approval yields one bounded status session and cannot be reused, replayed, or
+/// widened into anything else.
+#[cfg(feature = "owner-approved-status-read")]
+#[derive(Debug)]
+pub struct OwnerStatusReadApproval {
+    _sealed: Sealed,
+}
+
+#[cfg(feature = "owner-approved-status-read")]
+impl OwnerStatusReadApproval {
+    /// The exact phrase the owner must have given. A near-miss is refused: this transcribes an
+    /// approval, it does not interpret one.
+    pub const REQUIRED_PHRASE: &'static str =
+        "APPROVED: one local read-only IPC capability for retrieving installed ProjectOSHost status";
+
+    /// Transcribe the owner's approval.
+    ///
+    /// # Errors
+    /// [`StatusApprovalRefused`] if the phrase is not exactly [`Self::REQUIRED_PHRASE`].
+    pub fn transcribe(phrase: &str) -> Result<Self, StatusApprovalRefused> {
+        if phrase != Self::REQUIRED_PHRASE {
+            return Err(StatusApprovalRefused);
+        }
+        Ok(Self { _sealed: Sealed })
+    }
+}
+
+/// The owner approval was not the exact required phrase. Fieldless: it echoes nothing back.
+#[cfg(feature = "owner-approved-status-read")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StatusApprovalRefused;
+
+/// What a capability is allowed to do. There is exactly one value, and it is read-only.
+///
+/// This exists so the authorisation is a value the code must match on, not a comment. A capability
+/// obtained for a status read cannot be passed where a mutating operation is required, because no
+/// mutating scope is representable.
+#[cfg(feature = "owner-approved-status-read")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum CapabilityScope {
+    /// Read the installed-host status of the local ProjectOSHost instance. Nothing else.
+    ReadInstalledHostStatusLocalOnly,
+}
+
+#[cfg(feature = "owner-approved-status-read")]
+impl LiveIpcOperationCapability {
+    /// The ONLY production route to a live IPC capability: consume one owner approval.
+    ///
+    /// Compiled solely under `owner-approved-status-read`, which is non-default and is NOT implied by
+    /// `windows-live-ipc`. Elevation alone does not produce one, and neither does any test or fixture.
+    /// The returned capability is bound to [`CapabilityScope::ReadInstalledHostStatusLocalOnly`] — it
+    /// authorises no shutdown, no service control, no write and no other message kind.
+    #[must_use]
+    pub fn from_owner_status_read_approval(approval: OwnerStatusReadApproval) -> Self {
+        // The approval is CONSUMED, so it cannot authorise a second session.
+        let OwnerStatusReadApproval { _sealed } = approval;
+        Self { _sealed }
+    }
+
+    /// The scope this capability authorises. Always the read-only status scope.
+    #[must_use]
+    pub fn scope(&self) -> CapabilityScope {
+        CapabilityScope::ReadInstalledHostStatusLocalOnly
+    }
 }
 
 #[cfg(feature = "test-fixtures")]

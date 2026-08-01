@@ -74,6 +74,12 @@ pub enum MessageKind {
     ShutdownAcknowledged,
     /// Either side: a typed refusal.
     TypedRefusal,
+    /// Service → controller: the READ-ONLY installed-host status record.
+    ///
+    /// The single response added by CD-B4-PROJECTOSHOST-FUNCTIONAL-PILOT1A. There is deliberately no
+    /// matching REQUEST kind: `ControllerHello` is the request, so this adds one frame, not a
+    /// request/response protocol.
+    InstalledHostStatus,
 }
 
 impl MessageKind {
@@ -88,6 +94,7 @@ impl MessageKind {
             Self::ShutdownRequest => 5,
             Self::ShutdownAcknowledged => 6,
             Self::TypedRefusal => 7,
+            Self::InstalledHostStatus => 8,
         }
     }
 
@@ -102,6 +109,7 @@ impl MessageKind {
             5 => Self::ShutdownRequest,
             6 => Self::ShutdownAcknowledged,
             7 => Self::TypedRefusal,
+            8 => Self::InstalledHostStatus,
             _ => return None,
         })
     }
@@ -127,6 +135,12 @@ pub enum FrameParseError {
     TrailingData,
     /// The payload length did not match what the message kind requires.
     PayloadLengthMismatch,
+    /// A closed enum byte in the status record was not a known value.
+    UnknownStatusEnum,
+    /// A build or manifest prefix was not exactly lower-case hexadecimal.
+    MalformedPrefix,
+    /// A decoder was handed a frame of the wrong message kind.
+    UnexpectedMessageKind,
 }
 
 /// A parsed frame HEADER with its (bounded, closed) payload byte span validated. The payload bytes are
@@ -215,6 +229,8 @@ fn required_payload_len(kind: MessageKind) -> usize {
         MessageKind::ServiceEvidence => 4,
         MessageKind::AuthorityOutcome => 1,
         MessageKind::TypedRefusal => 1,
+        // The one fixed-width closed status record. Every other kind's length is unchanged.
+        MessageKind::InstalledHostStatus => INSTALLED_HOST_STATUS_LEN,
     }
 }
 
@@ -237,6 +253,236 @@ pub(crate) fn encode_control_frame(
     out
 }
 
+// ---------------------------------------------------------------------------------------------
+// THE INSTALLED-HOST STATUS RECORD (CD-B4-PROJECTOSHOST-FUNCTIONAL-PILOT1A)
+//
+// One fixed-width closed record, and one response kind. Every field is a closed enum byte or a
+// fixed-size array of lower-case hexadecimal characters. There is deliberately no string, map, JSON,
+// raw installation id, filesystem path, secret, token, handle or capability in it, and no generic
+// payload accessor is added anywhere.
+// ---------------------------------------------------------------------------------------------
+
+/// The length of a build / manifest digest PREFIX carried in the record, in hex characters.
+pub const STATUS_PREFIX_LEN: usize = 8;
+
+/// The exact, only payload length of an [`MessageKind::InstalledHostStatus`] frame.
+pub const INSTALLED_HOST_STATUS_LEN: usize = 5 + STATUS_PREFIX_LEN + STATUS_PREFIX_LEN;
+
+/// The service run state, as the service itself reports it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServiceStateReport {
+    Running,
+    StartPending,
+    StopPending,
+    Stopped,
+    Unavailable,
+}
+
+/// Whether the canonical installed identity verified.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IdentityVerificationReport {
+    Verified,
+    Refused,
+    Unavailable,
+}
+
+/// The installation channel. `Unknown` is representable so nothing has to invent one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChannelReport {
+    Stable,
+    Preview,
+    Development,
+    Unknown,
+}
+
+/// How ready the host is to serve.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReadinessReport {
+    Ready,
+    Degraded,
+    NotReady,
+}
+
+/// Whether protected operations are authorised. `Refused` is the only value this phase produces.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProtectedOperationsReport {
+    Refused,
+    Authorised,
+}
+
+/// Give a closed enum a fixed wire discriminant and a fail-closed decoder.
+macro_rules! closed_enum_byte {
+    ($t:ty, $( $variant:ident => $value:literal ),+ $(,)?) => {
+        impl $t {
+            /// The fixed wire discriminant.
+            #[must_use]
+            pub fn discriminant(self) -> u8 {
+                match self { $( Self::$variant => $value ),+ }
+            }
+            /// Decode a wire discriminant. An unknown value fails closed.
+            #[must_use]
+            pub fn from_discriminant(value: u8) -> Option<Self> {
+                Some(match value { $( $value => Self::$variant, )+ _ => return None })
+            }
+        }
+    };
+}
+
+closed_enum_byte!(ServiceStateReport,
+    Running => 1, StartPending => 2, StopPending => 3, Stopped => 4, Unavailable => 5);
+closed_enum_byte!(IdentityVerificationReport, Verified => 1, Refused => 2, Unavailable => 3);
+closed_enum_byte!(ChannelReport, Stable => 1, Preview => 2, Development => 3, Unknown => 4);
+closed_enum_byte!(ReadinessReport, Ready => 1, Degraded => 2, NotReady => 3);
+closed_enum_byte!(ProtectedOperationsReport, Refused => 1, Authorised => 2);
+
+/// The closed installed-host status record.
+///
+/// Private fields with read-only accessors: there is no public payload accessor and no route to the
+/// raw bytes. Construction validates both prefixes, so a malformed record cannot exist at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InstalledHostStatus {
+    service_state: ServiceStateReport,
+    identity: IdentityVerificationReport,
+    channel: ChannelReport,
+    readiness: ReadinessReport,
+    protected_operations: ProtectedOperationsReport,
+    build_prefix: [u8; STATUS_PREFIX_LEN],
+    manifest_prefix: [u8; STATUS_PREFIX_LEN],
+}
+
+/// Whether every byte is a lower-case hexadecimal character.
+fn is_lower_hex_prefix(bytes: &[u8; STATUS_PREFIX_LEN]) -> bool {
+    bytes
+        .iter()
+        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(b))
+}
+
+impl InstalledHostStatus {
+    /// Build a record. Both prefixes must be exactly lower-case hexadecimal.
+    ///
+    /// # Errors
+    /// [`FrameParseError::MalformedPrefix`] if either prefix is not lower-case hex.
+    pub fn new(
+        service_state: ServiceStateReport,
+        identity: IdentityVerificationReport,
+        channel: ChannelReport,
+        readiness: ReadinessReport,
+        protected_operations: ProtectedOperationsReport,
+        build_prefix: [u8; STATUS_PREFIX_LEN],
+        manifest_prefix: [u8; STATUS_PREFIX_LEN],
+    ) -> Result<Self, FrameParseError> {
+        if !is_lower_hex_prefix(&build_prefix) || !is_lower_hex_prefix(&manifest_prefix) {
+            return Err(FrameParseError::MalformedPrefix);
+        }
+        Ok(Self {
+            service_state,
+            identity,
+            channel,
+            readiness,
+            protected_operations,
+            build_prefix,
+            manifest_prefix,
+        })
+    }
+
+    #[must_use]
+    pub fn service_state(self) -> ServiceStateReport {
+        self.service_state
+    }
+    #[must_use]
+    pub fn identity(self) -> IdentityVerificationReport {
+        self.identity
+    }
+    #[must_use]
+    pub fn channel(self) -> ChannelReport {
+        self.channel
+    }
+    #[must_use]
+    pub fn readiness(self) -> ReadinessReport {
+        self.readiness
+    }
+    #[must_use]
+    pub fn protected_operations(self) -> ProtectedOperationsReport {
+        self.protected_operations
+    }
+    /// The build identity PREFIX. A prefix only — never a full digest or identifier.
+    #[must_use]
+    pub fn build_prefix(&self) -> &[u8; STATUS_PREFIX_LEN] {
+        &self.build_prefix
+    }
+    /// The release-manifest digest PREFIX. A prefix only.
+    #[must_use]
+    pub fn manifest_prefix(&self) -> &[u8; STATUS_PREFIX_LEN] {
+        &self.manifest_prefix
+    }
+}
+
+/// Encode ONE status frame. Canonical: the same record always yields the same bytes.
+#[must_use]
+pub fn encode_installed_host_status(
+    nonce: &Nonce,
+    status: &InstalledHostStatus,
+) -> [u8; HEADER_LEN + INSTALLED_HOST_STATUS_LEN] {
+    let mut out = [0u8; HEADER_LEN + INSTALLED_HOST_STATUS_LEN];
+    out[0..4].copy_from_slice(&FRAME_MAGIC);
+    out[4..6].copy_from_slice(&WIRE_PROTOCOL_VERSION.to_be_bytes());
+    out[6] = MessageKind::InstalledHostStatus.discriminant();
+    out[7..7 + NONCE_LEN].copy_from_slice(&nonce.0);
+    let len_off = 7 + NONCE_LEN;
+    out[len_off..len_off + 2].copy_from_slice(&(INSTALLED_HOST_STATUS_LEN as u16).to_be_bytes());
+    let p = HEADER_LEN;
+    out[p] = status.service_state.discriminant();
+    out[p + 1] = status.identity.discriminant();
+    out[p + 2] = status.channel.discriminant();
+    out[p + 3] = status.readiness.discriminant();
+    out[p + 4] = status.protected_operations.discriminant();
+    out[p + 5..p + 5 + STATUS_PREFIX_LEN].copy_from_slice(&status.build_prefix);
+    out[p + 5 + STATUS_PREFIX_LEN..].copy_from_slice(&status.manifest_prefix);
+    out
+}
+
+/// STRICTLY decode one status frame.
+///
+/// Refuses, in order: a malformed, oversized or truncated frame and trailing bytes (via
+/// [`parse_single_frame`], which also rejects an unsupported version and a payload-length mismatch); a
+/// frame that is not this kind; an unknown closed-enum byte; and a prefix that is not lower-case hex.
+///
+/// # Errors
+/// [`FrameParseError`] naming the first failure.
+pub fn decode_installed_host_status(
+    buf: &[u8],
+) -> Result<(InstalledHostStatus, Nonce), FrameParseError> {
+    let (header, nonce) = parse_single_frame(buf)?;
+    if header.kind() != MessageKind::InstalledHostStatus {
+        return Err(FrameParseError::UnexpectedMessageKind);
+    }
+    let p = HEADER_LEN;
+    let service_state =
+        ServiceStateReport::from_discriminant(buf[p]).ok_or(FrameParseError::UnknownStatusEnum)?;
+    let identity = IdentityVerificationReport::from_discriminant(buf[p + 1])
+        .ok_or(FrameParseError::UnknownStatusEnum)?;
+    let channel =
+        ChannelReport::from_discriminant(buf[p + 2]).ok_or(FrameParseError::UnknownStatusEnum)?;
+    let readiness =
+        ReadinessReport::from_discriminant(buf[p + 3]).ok_or(FrameParseError::UnknownStatusEnum)?;
+    let protected_operations = ProtectedOperationsReport::from_discriminant(buf[p + 4])
+        .ok_or(FrameParseError::UnknownStatusEnum)?;
+    let mut build_prefix = [0u8; STATUS_PREFIX_LEN];
+    build_prefix.copy_from_slice(&buf[p + 5..p + 5 + STATUS_PREFIX_LEN]);
+    let mut manifest_prefix = [0u8; STATUS_PREFIX_LEN];
+    manifest_prefix.copy_from_slice(&buf[p + 5 + STATUS_PREFIX_LEN..]);
+    let status = InstalledHostStatus::new(
+        service_state,
+        identity,
+        channel,
+        readiness,
+        protected_operations,
+        build_prefix,
+        manifest_prefix,
+    )?;
+    Ok((status, nonce))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -255,11 +501,13 @@ mod tests {
             MessageKind::ShutdownRequest,
             MessageKind::ShutdownAcknowledged,
             MessageKind::TypedRefusal,
+            MessageKind::InstalledHostStatus,
         ] {
             assert_eq!(MessageKind::from_discriminant(k.discriminant()), Some(k));
         }
         assert_eq!(MessageKind::from_discriminant(0), None);
-        assert_eq!(MessageKind::from_discriminant(8), None);
+        // 8 is now InstalledHostStatus; 9 is the first unassigned discriminant.
+        assert_eq!(MessageKind::from_discriminant(9), None);
         assert_eq!(MessageKind::from_discriminant(255), None);
     }
 
@@ -355,5 +603,183 @@ mod tests {
         assert_eq!(n.len(), NONCE_LEN);
         assert!(!n.is_empty());
         assert_eq!(format!("{n:?}"), "Nonce(<redacted>)");
+    }
+}
+
+#[cfg(test)]
+mod installed_host_status_tests {
+    use super::*;
+
+    fn nonce() -> Nonce {
+        Nonce::from_fixed_bytes([9u8; NONCE_LEN])
+    }
+
+    fn good() -> InstalledHostStatus {
+        InstalledHostStatus::new(
+            ServiceStateReport::Running,
+            IdentityVerificationReport::Verified,
+            ChannelReport::Stable,
+            ReadinessReport::Ready,
+            ProtectedOperationsReport::Refused,
+            *b"0a1b2c3d",
+            *b"deadbeef",
+        )
+        .expect("valid record")
+    }
+
+    #[test]
+    fn a_status_frame_round_trips_canonically() {
+        let s = good();
+        let a = encode_installed_host_status(&nonce(), &s);
+        let b = encode_installed_host_status(&nonce(), &s);
+        assert_eq!(a, b, "encoding is canonical");
+        assert_eq!(a.len(), HEADER_LEN + INSTALLED_HOST_STATUS_LEN);
+
+        let (decoded, _) = decode_installed_host_status(&a).expect("decodes");
+        assert_eq!(decoded, s);
+        assert_eq!(decoded.service_state(), ServiceStateReport::Running);
+        assert_eq!(decoded.identity(), IdentityVerificationReport::Verified);
+        assert_eq!(decoded.channel(), ChannelReport::Stable);
+        assert_eq!(decoded.readiness(), ReadinessReport::Ready);
+        assert_eq!(
+            decoded.protected_operations(),
+            ProtectedOperationsReport::Refused
+        );
+        assert_eq!(decoded.build_prefix(), b"0a1b2c3d");
+        assert_eq!(decoded.manifest_prefix(), b"deadbeef");
+    }
+
+    #[test]
+    fn the_status_payload_length_is_exact_and_others_are_unchanged() {
+        assert_eq!(INSTALLED_HOST_STATUS_LEN, 21);
+        assert_eq!(
+            required_payload_len(MessageKind::InstalledHostStatus),
+            INSTALLED_HOST_STATUS_LEN
+        );
+        // Every pre-existing kind keeps its original length.
+        for (k, n) in [
+            (MessageKind::ControllerHello, 1),
+            (MessageKind::ServiceReady, 1),
+            (MessageKind::ShutdownRequest, 1),
+            (MessageKind::ShutdownAcknowledged, 1),
+            (MessageKind::ServiceEvidence, 4),
+            (MessageKind::AuthorityOutcome, 1),
+            (MessageKind::TypedRefusal, 1),
+        ] {
+            assert_eq!(required_payload_len(k), n, "{k:?}");
+        }
+    }
+
+    #[test]
+    fn a_wrong_length_payload_is_refused() {
+        let mut f = encode_installed_host_status(&nonce(), &good()).to_vec();
+        f.pop();
+        // The declared length no longer matches the buffer.
+        assert_eq!(
+            decode_installed_host_status(&f).unwrap_err(),
+            FrameParseError::TruncatedPayload
+        );
+
+        // A declared length that is not the required one.
+        let mut g = encode_installed_host_status(&nonce(), &good()).to_vec();
+        let len_off = 7 + NONCE_LEN;
+        g[len_off..len_off + 2].copy_from_slice(&1u16.to_be_bytes());
+        g.truncate(HEADER_LEN + 1);
+        assert_eq!(
+            decode_installed_host_status(&g).unwrap_err(),
+            FrameParseError::PayloadLengthMismatch
+        );
+    }
+
+    #[test]
+    fn trailing_bytes_are_refused() {
+        let mut f = encode_installed_host_status(&nonce(), &good()).to_vec();
+        f.push(0);
+        assert_eq!(
+            decode_installed_host_status(&f).unwrap_err(),
+            FrameParseError::TrailingData
+        );
+    }
+
+    #[test]
+    fn an_unknown_closed_enum_value_is_refused() {
+        for offset in 0..5 {
+            let mut f = encode_installed_host_status(&nonce(), &good()).to_vec();
+            f[HEADER_LEN + offset] = 200;
+            assert_eq!(
+                decode_installed_host_status(&f).unwrap_err(),
+                FrameParseError::UnknownStatusEnum,
+                "enum byte {offset} must fail closed"
+            );
+            // Zero is never a valid discriminant either.
+            let mut z = encode_installed_host_status(&nonce(), &good()).to_vec();
+            z[HEADER_LEN + offset] = 0;
+            assert_eq!(
+                decode_installed_host_status(&z).unwrap_err(),
+                FrameParseError::UnknownStatusEnum
+            );
+        }
+    }
+
+    #[test]
+    fn a_malformed_prefix_is_refused_on_both_construction_and_decode() {
+        // Upper-case hex, and a non-hex byte, are both refused at construction.
+        for bad in [*b"0A1B2C3D", *b"zzzzzzzz", *b"        "] {
+            assert_eq!(
+                InstalledHostStatus::new(
+                    ServiceStateReport::Running,
+                    IdentityVerificationReport::Verified,
+                    ChannelReport::Stable,
+                    ReadinessReport::Ready,
+                    ProtectedOperationsReport::Refused,
+                    bad,
+                    *b"deadbeef",
+                )
+                .unwrap_err(),
+                FrameParseError::MalformedPrefix
+            );
+        }
+        // And on the wire.
+        let mut f = encode_installed_host_status(&nonce(), &good()).to_vec();
+        f[HEADER_LEN + 5] = b'Z';
+        assert_eq!(
+            decode_installed_host_status(&f).unwrap_err(),
+            FrameParseError::MalformedPrefix
+        );
+    }
+
+    #[test]
+    fn a_wrong_kind_or_version_is_refused() {
+        let control = encode_control_frame(MessageKind::ControllerHello, &nonce(), 0);
+        assert_eq!(
+            decode_installed_host_status(&control).unwrap_err(),
+            FrameParseError::UnexpectedMessageKind
+        );
+
+        let mut f = encode_installed_host_status(&nonce(), &good()).to_vec();
+        f[4..6].copy_from_slice(&99u16.to_be_bytes());
+        assert_eq!(
+            decode_installed_host_status(&f).unwrap_err(),
+            FrameParseError::UnknownVersion
+        );
+
+        let mut m = encode_installed_host_status(&nonce(), &good()).to_vec();
+        m[0] = b'X';
+        assert_eq!(
+            decode_installed_host_status(&m).unwrap_err(),
+            FrameParseError::BadMagic
+        );
+    }
+
+    #[test]
+    fn the_record_carries_no_full_identifier_and_no_free_form_data() {
+        // Prefixes are exactly 8 hex characters — never a full 32-hex id or 64-hex digest.
+        assert_eq!(STATUS_PREFIX_LEN, 8);
+        let s = good();
+        assert_eq!(s.build_prefix().len(), 8);
+        assert_eq!(s.manifest_prefix().len(), 8);
+        // The whole payload is 21 bytes: five closed enum bytes plus the two prefixes. There is no
+        // room for a path, a token or a free-form string, and no accessor returns the raw payload.
+        assert_eq!(INSTALLED_HOST_STATUS_LEN, 5 + 8 + 8);
     }
 }

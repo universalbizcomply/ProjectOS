@@ -26,6 +26,11 @@ windows-live-ipc = [
     # never assembles a service-instance identity from raw parts of its own.
     "projectos-host-windows-service-identity-proof/windows-live-instance-observation",
 ]
+# The OWNER-APPROVED, READ-ONLY installed-host status read. Non-default. It is the only feature under
+# which a LiveIpcOperationCapability can be produced, and even then only by consuming an explicit
+# one-session owner approval transcribed from the exact phrase. It authorises the status read and
+# nothing else: no shutdown, no service control, no write, no other message kind.
+owner-approved-status-read = []
 # EXPLICIT, NON-DEFAULT fixture graph. It proves the dependent-consumer API shape without any pipe or
 # Win32 activity: it does NOT imply windows-live-ipc and pulls NO windows dependency. It supplies
 # fixture-only capability acquisition and a fixture handshake runner that drives the REAL verification

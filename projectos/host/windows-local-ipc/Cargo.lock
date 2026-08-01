@@ -95,6 +95,7 @@ dependencies = [
 name = "projectos-host-core"
 version = "0.0.0"
 dependencies = [
+ "projectos-host-authority",
  "projectos-trust-contract",
  "sha2",
  "thiserror",

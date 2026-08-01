@@ -3,8 +3,10 @@
 //! The DEFAULT build is the effect-free CD-B1 contract plus the safe transport adapter, protocol,
 //! security-decision and verification logic — it performs NO Windows call. The live Windows named-pipe
 //! backend compiles ONLY under the `windows-live-ipc` feature and even then invokes nothing without a
-//! sealed [`adapter::LiveIpcOperationCapability`], which has no public/feature/test constructor. Compiled
-//! capability is never runtime authority.
+//! sealed [`adapter::LiveIpcOperationCapability`]. That capability has exactly ONE production route —
+//! `owner-approved-status-read`, which consumes an exact-phrase owner approval and authorises only the
+//! READ-ONLY installed-host status read (CD-B4-PROJECTOSHOST-FUNCTIONAL-PILOT1A). It is non-default and
+//! is not implied by `windows-live-ipc`, so compiled capability is still never runtime authority.
 //!
 //! Unsafe is confined to `windows_ffi.rs` (crate lint `unsafe_code = "deny"`, re-allowed only there).
 //! The adapter/protocol/security/verification modules contain no Windows call. Win32 errors are redacted
@@ -73,6 +75,19 @@ pub use adapter::{
 pub use protocol::{
     parse_single_frame, FrameHeader, FrameParseError, MessageKind, Nonce, FRAME_MAGIC,
     MAX_FRAME_SIZE, NONCE_LEN, WIRE_PROTOCOL_VERSION,
+};
+
+// The OWNER-APPROVED read-only status capability surface. Present only under the non-default feature
+// that gates it, so a default or merely-live build exposes no route to a capability at all.
+#[cfg(feature = "owner-approved-status-read")]
+pub use adapter::{CapabilityScope, OwnerStatusReadApproval, StatusApprovalRefused};
+
+// The ONE read-only status response added by CD-B4-PROJECTOSHOST-FUNCTIONAL-PILOT1A: a fixed-width
+// closed record, its canonical encoder and its strict decoder. No generic payload accessor is exported.
+pub use protocol::{
+    decode_installed_host_status, encode_installed_host_status, ChannelReport,
+    IdentityVerificationReport, InstalledHostStatus, ProtectedOperationsReport, ReadinessReport,
+    ServiceStateReport, INSTALLED_HOST_STATUS_LEN, STATUS_PREFIX_LEN,
 };
 
 pub use security::{evaluate_pipe_security, EndpointSecurityDecision};

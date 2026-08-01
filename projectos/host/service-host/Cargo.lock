@@ -86,6 +86,10 @@ dependencies = [
 [[package]]
 name = "projectos-host-authority"
 version = "0.0.0"
+dependencies = [
+ "projectos-windows-runtime-primitives",
+ "windows",
+]
 
 [[package]]
 name = "projectos-host-core"
@@ -95,6 +99,17 @@ dependencies = [
  "projectos-trust-contract",
  "sha2",
  "thiserror",
+]
+
+[[package]]
+name = "projectos-host-identity"
+version = "0.0.0"
+dependencies = [
+ "projectos-windows-runtime-primitives",
+ "serde",
+ "serde_json",
+ "sha2",
+ "windows",
 ]
 
 [[package]]
@@ -111,7 +126,11 @@ dependencies = [
 name = "projectos-host-service-host"
 version = "0.0.0"
 dependencies = [
+ "projectos-host-identity",
+ "projectos-host-windows-local-ipc",
  "projectos-host-windows-service-installation-contract",
+ "projectos-windows-runtime-primitives",
+ "serde_json",
  "windows",
 ]
 
@@ -142,12 +161,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "projectos-host-windows-local-ipc"
+version = "0.0.0"
+dependencies = [
+ "projectos-host-authority",
+ "projectos-host-core",
+ "projectos-host-windows-service-identity-proof",
+ "windows",
+]
+
+[[package]]
 name = "projectos-host-windows-root-custody"
 version = "0.0.0"
 dependencies = [
  "projectos-host-persistence",
  "thiserror",
  "windows-sys",
+]
+
+[[package]]
+name = "projectos-host-windows-service-identity-proof"
+version = "0.0.0"
+dependencies = [
+ "projectos-host-authority",
+ "projectos-windows-runtime-primitives",
+ "windows",
 ]
 
 [[package]]
@@ -166,6 +204,13 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+]
+
+[[package]]
+name = "projectos-windows-runtime-primitives"
+version = "0.0.0"
+dependencies = [
+ "windows",
 ]
 
 [[package]]

@@ -19,6 +19,15 @@ path = "src/main.rs"
 # The FROZEN installation effect authority. Reused so the artefact reports the same value the installer
 # composition gates on, rather than restating it.
 projectos-host-windows-service-installation-contract = { path = "../windows-service-installation-contract" }
+# The CLOSED status record + its canonical codec, and the existing named-pipe transport. The service
+# adds no protocol of its own.
+projectos-host-windows-local-ipc = { path = "../windows-local-ipc", features = [
+    "owner-approved-status-read",
+] }
+# The frozen identity READ boundary: the record type and `verify_record`. The service never writes.
+projectos-host-identity = { path = "../host-identity" }
+# Strict record parsing (the record type derives Deserialize with deny_unknown_fields).
+serde_json = "1"
 
 [target.'cfg(windows)'.dependencies]
 # Exactly the service surface this binary uses: the dispatcher, the control handler and status
@@ -26,4 +35,11 @@ projectos-host-windows-service-installation-contract = { path = "../windows-serv
 windows = { version = "0.61.3", features = [
     "Win32_Foundation",
     "Win32_System_Services",
+] }
+# The trusted read-only ProgramData resolver, for locating the installed identity record.
+projectos-windows-runtime-primitives = { path = "../windows-runtime-primitives" }
+# The LIVE named-pipe backend, so the installed service can actually serve the status read.
+projectos-host-windows-local-ipc = { path = "../windows-local-ipc", features = [
+    "windows-live-ipc",
+    "owner-approved-status-read",
 ] }

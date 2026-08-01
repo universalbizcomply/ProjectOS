@@ -27,6 +27,8 @@ use projectos_host_windows_service_installation_contract::contract::Installation
 pub mod lifecycle;
 #[cfg(windows)]
 pub mod scm;
+#[cfg(windows)]
+pub mod status;
 
 /// The exact service name. Frozen: it is not derived from the file name, the command line or the
 /// environment, and no other name is representable here.

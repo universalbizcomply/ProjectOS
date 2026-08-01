@@ -443,9 +443,38 @@ function run() {
   );
   if (!ipcFixtureImpl)
     errors.push("no test-fixtures-gated impl provides the fixture-only IPC capability acquisition");
-  const ipcOutside = ipcFixtureImpl ? adapterNoDef.replace(ipcFixtureImpl[0], " ") : adapterNoDef;
+  // CD-B4-PROJECTOSHOST-FUNCTIONAL-PILOT1A added the SECOND — and only other — permitted acquisition:
+  // the owner-approval route this crate's own comment anticipated. It is gated on its own non-default
+  // feature and consumes a one-session approval transcribed from an exact phrase, scoped read-only.
+  const ipcOwnerImpl = adapterNoDef.match(
+    /#\[cfg\(feature = "owner-approved-status-read"\)\]\s*impl LiveIpcOperationCapability \{[\s\S]*?\n\}/
+  );
+  if (!ipcOwnerImpl)
+    errors.push("no owner-approved-status-read-gated impl provides the owner-approval acquisition");
+  else {
+    if (!/from_owner_status_read_approval\(approval: OwnerStatusReadApproval\)/.test(ipcOwnerImpl[0]))
+      errors.push("the owner-approved IPC acquisition does not consume an owner approval");
+    if (!/REQUIRED_PHRASE/.test(adapter) || !/phrase != Self::REQUIRED_PHRASE/.test(adapter))
+      errors.push("the IPC owner approval is not gated on the exact required phrase");
+    if (/impl Default for OwnerStatusReadApproval/.test(adapter))
+      errors.push("the IPC owner approval is defaultable");
+    // The capability it yields must be scoped read-only, with exactly one scope value.
+    if (!/ReadInstalledHostStatusLocalOnly/.test(adapter))
+      errors.push("the owner-approved IPC capability is not scoped to the read-only status read");
+  }
+
+  let ipcOutside = ipcFixtureImpl ? adapterNoDef.replace(ipcFixtureImpl[0], " ") : adapterNoDef;
+  if (ipcOwnerImpl) ipcOutside = ipcOutside.replace(ipcOwnerImpl[0], " ");
+  // The approval type's own impl builds an `OwnerStatusReadApproval`, a DIFFERENT sealed type whose
+  // exact-phrase gate is proven above; exclude it so it is not mistaken for a capability construction.
+  ipcOutside = ipcOutside.replace(
+    /#\[cfg\(feature = "owner-approved-status-read"\)\]\s*impl OwnerStatusReadApproval \{[\s\S]*?\n\}/,
+    " "
+  );
   if (/LiveIpcOperationCapability\s*\{/.test(ipcOutside))
-    errors.push("LiveIpcOperationCapability is constructed outside the test-fixtures graph");
+    errors.push(
+      "LiveIpcOperationCapability is constructed outside the two gated acquisition routes"
+    );
   if (ipcFixtureImpl && !/pub fn synthetic_for_fixture\(\) -> Self/.test(ipcFixtureImpl[0]))
     errors.push("the fixture acquisition is not the expected narrow constructor");
   if (/impl Default for LiveIpcOperationCapability/.test(adapter))
