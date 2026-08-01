@@ -138,6 +138,15 @@ function run() {
   const errors = [];
   const E = (m) => errors.push(m);
 
+  // Snapshot the production roots BEFORE anything else, so the check at the end compares like for like.
+  const __ROOTS_BEFORE = {};
+  for (const env of ["ProgramData", "ProgramFiles"]) {
+    const root = process.env[env];
+    if (!root) continue;
+    const p = path.join(root, "ProjectOS");
+    __ROOTS_BEFORE[p] = fs.existsSync(p);
+  }
+
   const kfP = path.join(LEAF, "src", "known_folder.rs");
   const drP = path.join(C, "src", "dry_run.rs");
   const shP = path.join(SH, "src", "main.rs");
@@ -317,12 +326,21 @@ function run() {
     }
   }
 
-  // ---- V9 no production location was created by validating ----
+  // ---- production roots: this VALIDATION RUN must create or modify nothing ----
+  //
+  // The roots may now legitimately exist: CD-B4-LOCAL-INSTALL-AND-LIVE-PROOF1A performed one
+  // owner-approved installation. Asserting they are absent would therefore be asserting that the
+  // owner's machine is un-installed, which is not this validator's business. What IS its business is
+  // that VALIDATING changes nothing — so the roots are snapshotted before the checks above and
+  // compared afterwards.
   for (const env of ["ProgramData", "ProgramFiles"]) {
     const root = process.env[env];
     if (!root) continue;
     const p = path.join(root, "ProjectOS");
-    if (fs.existsSync(p)) E("V9 CRITICAL: a production ProjectOS root exists at " + p);
+    const after = fs.existsSync(p);
+    const before = __ROOTS_BEFORE[p];
+    if (after !== before)
+      E(`V9 CRITICAL: validation changed a production root at ${p} (existed=${before} -> ${after})`);
   }
 
   // ---- compile proofs ----

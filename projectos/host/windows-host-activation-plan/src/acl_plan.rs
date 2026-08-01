@@ -9,7 +9,9 @@
 //! authoritative SID is unresolved. No placeholder principal is manufactured to make a plan look
 //! finished.
 
-use projectos_host_windows_acl_policy::{AclPolicy, AclPrincipal, AllowedPrincipal, RightsClass};
+use projectos_host_windows_acl_policy::{
+    AclPolicy, AclPrincipal, AllowedPrincipal, OwnedSid, RightsClass,
+};
 
 use crate::error::ActivationPlanError;
 use crate::service_identity::{
@@ -61,6 +63,34 @@ impl ApprovedServicePrincipal {
             principal,
             strategy,
         })
+    }
+
+    /// Bind an owner-decided strategy to a principal whose SID was RESOLVED LIVE at activation time.
+    ///
+    /// This is the counterpart [`Self::from_well_known`] refuses to guess: a virtual service account's
+    /// per-service SID exists only once the service is installed, so it must be resolved through an
+    /// approved Windows mechanism and handed in here. The SID is used exactly as supplied; this
+    /// function performs no lookup and manufactures nothing.
+    ///
+    /// # Errors
+    /// [`ActivationPlanError::ServiceSidUnresolved`] for a strategy whose principal is well known and
+    /// must therefore come from [`Self::from_well_known`] instead.
+    pub fn from_resolved_sid(
+        strategy: ServiceIdentityStrategy,
+        sid: OwnedSid,
+    ) -> Result<Self, ActivationPlanError> {
+        match strategy {
+            // LocalSystem is well known; accepting a caller-supplied SID for it would let a resolved
+            // value silently replace the fixed one.
+            ServiceIdentityStrategy::LocalSystem => Err(ActivationPlanError::ServiceSidUnresolved),
+            ServiceIdentityStrategy::VirtualServiceAccount
+            | ServiceIdentityStrategy::LocalService
+            | ServiceIdentityStrategy::NetworkService
+            | ServiceIdentityStrategy::OwnerApprovedAccount => Ok(Self {
+                principal: AclPrincipal::ExplicitSid(sid),
+                strategy,
+            }),
+        }
     }
 
     /// The semantic principal.
@@ -124,23 +154,36 @@ impl AclCompositionPlan {
         self
     }
 
-    /// Attempt to compose the final policy.
+    /// Compose the policy from an owner-decided identity whose principal was RESOLVED LIVE.
     ///
-    /// Fails CLOSED at each stage: undecided strategy → `OwnerDecisionRequired`; decided but
-    /// un-nameable principal → `ServiceIdentityRequired`. No placeholder is ever substituted.
+    /// Same policy shape as [`Self::compose`]; the only difference is that the service principal was
+    /// obtained at activation time rather than from the well-known table, which is the one case
+    /// [`ApprovedServicePrincipal::from_well_known`] refuses to guess.
     #[must_use]
-    pub fn compose(&self, identity: &ServiceIdentityPlan) -> AclCompositionOutcome {
-        // A RECOMMENDATION is not an approval: both undecided and merely-recommended states block.
+    pub fn compose_with_resolved_principal(
+        &self,
+        identity: &ServiceIdentityPlan,
+        service: &ApprovedServicePrincipal,
+    ) -> AclCompositionOutcome {
         let strategy = match identity.decision() {
             IdentityDecisionStatus::Undecided | IdentityDecisionStatus::Recommended(_) => {
                 return AclCompositionOutcome::OwnerDecisionRequired
             }
             IdentityDecisionStatus::OwnerApproved(s) => s,
         };
-        let Ok(service) = ApprovedServicePrincipal::from_well_known(strategy) else {
+        // The resolved principal must be the one the owner actually decided on.
+        if service.strategy() != strategy {
             return AclCompositionOutcome::ServiceIdentityRequired;
-        };
+        }
+        self.assemble(strategy, service)
+    }
 
+    /// The shared policy assembly. Identical for a well-known and a resolved principal.
+    fn assemble(
+        &self,
+        strategy: ServiceIdentityStrategy,
+        service: &ApprovedServicePrincipal,
+    ) -> AclCompositionOutcome {
         let mut allowed = vec![AllowedPrincipal {
             principal: service.principal().clone(),
             rights: RightsClass::FullControl,
@@ -163,10 +206,28 @@ impl AclCompositionPlan {
                 rights: RightsClass::Read,
             });
         }
+        AclCompositionOutcome::Composed(AclPolicy::strict(service.principal().clone(), allowed))
+    }
 
+    /// Attempt to compose the final policy.
+    ///
+    /// Fails CLOSED at each stage: undecided strategy → `OwnerDecisionRequired`; decided but
+    /// un-nameable principal → `ServiceIdentityRequired`. No placeholder is ever substituted.
+    #[must_use]
+    pub fn compose(&self, identity: &ServiceIdentityPlan) -> AclCompositionOutcome {
+        // A RECOMMENDATION is not an approval: both undecided and merely-recommended states block.
+        let strategy = match identity.decision() {
+            IdentityDecisionStatus::Undecided | IdentityDecisionStatus::Recommended(_) => {
+                return AclCompositionOutcome::OwnerDecisionRequired
+            }
+            IdentityDecisionStatus::OwnerApproved(s) => s,
+        };
+        let Ok(service) = ApprovedServicePrincipal::from_well_known(strategy) else {
+            return AclCompositionOutcome::ServiceIdentityRequired;
+        };
         // `AclPolicy::strict` is closed in every dimension: no inherited ACEs, DACL protection
         // required, no unknown principals, no deny ACEs, no broad-principal access of any kind.
-        AclCompositionOutcome::Composed(AclPolicy::strict(service.principal().clone(), allowed))
+        self.assemble(strategy, &service)
     }
 }
 

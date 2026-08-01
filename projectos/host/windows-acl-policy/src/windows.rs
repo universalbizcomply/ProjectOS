@@ -433,3 +433,96 @@ pub(crate) fn apply_security(
 pub(crate) fn current_account_sid() -> Result<OwnedSid, AclPolicyError> {
     Err(AclPolicyError::UnsupportedPlatform)
 }
+
+/// The largest SID this resolver will accept, in bytes. A SID is at most 68 bytes
+/// (`SECURITY_MAX_SID_SIZE`); anything larger is refused rather than trusted.
+#[cfg(windows)]
+const MAX_RESOLVED_SID_BYTES: usize = 68;
+
+/// The largest referenced-domain buffer accepted, in UTF-16 units. Generous, and bounded.
+#[cfg(windows)]
+const MAX_DOMAIN_CHARS: usize = 1024;
+
+/// Resolve an account NAME to its SID through `LookupAccountNameW` on the local machine.
+///
+/// This is the approved activation-time mechanism for a principal whose SID cannot be known in
+/// advance — notably a virtual service account (`NT SERVICE\<name>`), whose per-service SID exists
+/// only once the service is installed. It resolves and returns a SID; it grants nothing, applies
+/// nothing and never manufactures a SID it did not receive from Windows.
+///
+/// # Errors
+/// [`AclPolicyError::WindowsApiFailure`] if the lookup fails, or [`AclPolicyError::InvalidSid`] if
+/// the returned SID is malformed or implausibly sized.
+#[cfg(windows)]
+pub fn resolve_account_sid(account: &str) -> Result<OwnedSid, AclPolicyError> {
+    use windows_sys::Win32::Security::{IsValidSid, LookupAccountNameW, SID_NAME_USE};
+
+    if account.is_empty() || account.len() > 256 {
+        return Err(AclPolicyError::InvalidSid);
+    }
+    let name: Vec<u16> = account.encode_utf16().chain(std::iter::once(0)).collect();
+
+    // Size probe. This call is EXPECTED to fail; only the two size out-params matter.
+    let mut sid_len: u32 = 0;
+    let mut domain_len: u32 = 0;
+    let mut use_kind: SID_NAME_USE = 0;
+    // SAFETY: `name` is NUL-terminated and alive for the call. Null buffers with zero lengths are the
+    // documented size-query form; all three out-params are valid writable slots.
+    unsafe {
+        LookupAccountNameW(
+            std::ptr::null(),
+            name.as_ptr(),
+            std::ptr::null_mut(),
+            &mut sid_len,
+            std::ptr::null_mut(),
+            &mut domain_len,
+            &mut use_kind,
+        )
+    };
+
+    let sid_bytes = sid_len as usize;
+    let domain_chars = domain_len as usize;
+    if sid_bytes == 0 || sid_bytes > MAX_RESOLVED_SID_BYTES || domain_chars > MAX_DOMAIN_CHARS {
+        return Err(AclPolicyError::WindowsApiFailure);
+    }
+
+    // `Vec<u64>` so the SID buffer is 8-byte aligned.
+    let mut sid_buf: Vec<u64> = vec![0; sid_bytes.div_ceil(8)];
+    let mut domain_buf: Vec<u16> = vec![0; domain_chars.max(1)];
+    // SAFETY: both buffers are at least the sizes Windows just reported and are exclusively borrowed
+    // here; `name` is still alive and NUL-terminated; every out-param is a valid writable slot.
+    let ok = unsafe {
+        LookupAccountNameW(
+            std::ptr::null(),
+            name.as_ptr(),
+            sid_buf.as_mut_ptr().cast(),
+            &mut sid_len,
+            domain_buf.as_mut_ptr(),
+            &mut domain_len,
+            &mut use_kind,
+        )
+    };
+    if ok == 0 {
+        return Err(last_error());
+    }
+
+    let sid_ptr: *mut core::ffi::c_void = sid_buf.as_mut_ptr().cast();
+    // SAFETY: `sid_ptr` points at the buffer Windows filled on the successful call above.
+    if unsafe { IsValidSid(sid_ptr) } == 0 {
+        return Err(AclPolicyError::InvalidSid);
+    }
+    let len = sid_len as usize;
+    if len == 0 || len > MAX_RESOLVED_SID_BYTES {
+        return Err(AclPolicyError::InvalidSid);
+    }
+    // SAFETY: `sid_ptr` points at `len` readable bytes inside `sid_buf`, which is still alive; the
+    // bytes are copied into an owned value here and the pointer never escapes.
+    let bytes = unsafe { std::slice::from_raw_parts(sid_ptr.cast::<u8>(), len) };
+    OwnedSid::from_bytes(bytes)
+}
+
+/// Non-Windows: there is no account database to consult, so resolution fails closed.
+#[cfg(not(windows))]
+pub fn resolve_account_sid(_account: &str) -> Result<OwnedSid, AclPolicyError> {
+    Err(AclPolicyError::WindowsApiFailure)
+}

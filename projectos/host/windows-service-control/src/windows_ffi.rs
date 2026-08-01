@@ -80,6 +80,22 @@ pub struct WindowsScmBackend {
 }
 
 impl WindowsScmBackend {
+    /// Construct the backend from a resolved binary path.
+    ///
+    /// Public only under `owner-approved-installation`, so an installer holding an owner approval can
+    /// build it and nothing else can. The path is used verbatim as the service image path.
+    #[cfg(feature = "owner-approved-installation")]
+    #[must_use]
+    pub fn for_owner_approved_installation(binary_path: &std::path::Path) -> Self {
+        use std::os::windows::ffi::OsStrExt;
+        let wide: Vec<u16> = binary_path
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        Self::new(wide)
+    }
+
     /// Construct the backend from a resolved binary path. CRATE-PRIVATE; reachable only from a future
     /// gated caller.
     #[allow(dead_code)]

@@ -28,6 +28,10 @@ windows-live-scm = [
 # Win32 activity: it does NOT imply windows-live-scm and pulls NO windows dependency. The sealed
 # LiveOperationCapability gains a fixture-only acquisition here and nowhere else; real live capability
 # production stays absent and owner-gated.
+# The OWNER-APPROVED live installation route. Non-default. It is the only feature under which a
+# LiveOperationCapability can be produced, and even then only by consuming an explicit one-operation
+# owner approval transcribed from the exact approval phrase.
+owner-approved-installation = ["windows-live-scm"]
 test-fixtures = [
     "dep:projectos-host-windows-service-identity-proof",
     "projectos-host-windows-service-identity-proof/test-fixtures",

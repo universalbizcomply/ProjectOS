@@ -33,6 +33,8 @@
 #![forbid(unsafe_code)]
 
 pub mod dry_run;
+#[cfg(all(windows, feature = "installer-effect"))]
+pub mod effect;
 pub mod plan;
 
 use std::sync::atomic::{AtomicBool, Ordering};

@@ -24,6 +24,56 @@ pub struct LiveOperationCapability {
     _sealed: Sealed,
 }
 
+/// ONE owner-approved installation. Not a default, not a flag, and not derivable from elevation:
+/// it exists only when the owner has explicitly approved a single controlled installation, and the
+/// approval is transcribed here by the exact phrase they used.
+///
+/// It is move-only and consumed by the capability it authorises, so one approval yields one operation
+/// set and cannot be reused for a second installation.
+#[cfg(feature = "owner-approved-installation")]
+#[derive(Debug)]
+pub struct OwnerInstallationApproval {
+    _sealed: Sealed,
+}
+
+#[cfg(feature = "owner-approved-installation")]
+impl OwnerInstallationApproval {
+    /// The exact phrase the owner must have given. A near-miss is refused: this transcribes an
+    /// approval, it does not interpret one.
+    pub const REQUIRED_PHRASE: &'static str =
+        "APPROVED: one controlled elevated local installation of ProjectOSHost";
+
+    /// Transcribe the owner's approval.
+    ///
+    /// # Errors
+    /// [`ApprovalRefused`] if the phrase is not exactly [`Self::REQUIRED_PHRASE`].
+    pub fn transcribe(phrase: &str) -> Result<Self, ApprovalRefused> {
+        if phrase != Self::REQUIRED_PHRASE {
+            return Err(ApprovalRefused);
+        }
+        Ok(Self { _sealed: Sealed })
+    }
+}
+
+/// The owner approval was not the exact required phrase. Fieldless: it echoes nothing back.
+#[cfg(feature = "owner-approved-installation")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ApprovalRefused;
+
+#[cfg(feature = "owner-approved-installation")]
+impl LiveOperationCapability {
+    /// The ONLY production route to a live capability: consume one owner approval.
+    ///
+    /// Compiled solely under `owner-approved-installation`, which is non-default and is not implied by
+    /// `windows-live-scm`. Elevation alone does not produce one, and neither does any test or fixture.
+    #[must_use]
+    pub fn from_owner_approval(approval: OwnerInstallationApproval) -> Self {
+        // The approval is CONSUMED, so it cannot authorise a second installation.
+        let OwnerInstallationApproval { _sealed } = approval;
+        Self { _sealed }
+    }
+}
+
 #[cfg(feature = "test-fixtures")]
 impl LiveOperationCapability {
     /// FIXTURE-ONLY acquisition, so a dependent consumer can compile and exercise the real
@@ -179,6 +229,12 @@ impl<B: ScmBackend> ScmServiceAdapter<B> {
     #[must_use]
     pub fn start(&self, _cap: &LiveOperationCapability) -> LifecycleOutcome {
         self.start_logic()
+    }
+    /// AUTHORITATIVELY re-read the observed service-SID policy (live). Requires the sealed
+    /// capability. This is the observation itself, never a cached or expected value.
+    #[must_use]
+    pub fn sid_policy(&self, _cap: &LiveOperationCapability) -> SidPolicyObservation {
+        self.backend.sid_policy_observation()
     }
     /// Query the run state (live). Requires the sealed capability.
     #[must_use]

@@ -98,10 +98,42 @@ unsafe extern "system" fn control_handler(
     _context: *mut core::ffi::c_void,
 ) -> u32 {
     if control == SERVICE_CONTROL_STOP || control == SERVICE_CONTROL_SHUTDOWN {
+        // Publish STOP_PENDING here, on the SCM's own thread, BEFORE returning.
+        //
+        // The service thread only notices the flag on its next poll, so without this the SCM still
+        // reports Running the instant `ControlService` returns — and a caller that immediately
+        // re-reads the state sees a service that ignored its stop. The first live installation proof
+        // failed exactly there. Reporting the transition promptly is also what the SCM expects of a
+        // handler.
+        publish_stop_pending();
         STOP_SIGNALLED.store(true, Ordering::SeqCst);
     }
     // NO_ERROR. Unrecognised controls are ignored rather than refused, which is what the SCM expects.
     0
+}
+
+/// Publish `SERVICE_STOP_PENDING` immediately, from whichever thread accepted the stop.
+///
+/// Uses the status handle the SCM already returned. If no handle has been registered yet there is
+/// nothing to report through, and this does nothing rather than inventing a status.
+fn publish_stop_pending() {
+    let Some(raw) = STATUS_HANDLE.get() else {
+        return;
+    };
+    let handle = SERVICE_STATUS_HANDLE(*raw as *mut core::ffi::c_void);
+    let status = SERVICE_STATUS {
+        dwServiceType: SERVICE_WIN32_OWN_PROCESS,
+        dwCurrentState: SERVICE_STOP_PENDING,
+        // No further control is accepted while stopping.
+        dwControlsAccepted: 0,
+        dwWin32ExitCode: 0,
+        dwServiceSpecificExitCode: 0,
+        dwCheckPoint: 1,
+        dwWaitHint: 10_000,
+    };
+    // SAFETY: `handle` is the status handle the SCM returned for THIS service, stored once and valid
+    // for the process lifetime. `status` is a fully initialised owned value that outlives the call.
+    let _ = unsafe { SetServiceStatus(handle, &status) };
 }
 
 /// The SCM's entry point for this service.

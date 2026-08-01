@@ -112,6 +112,8 @@ pub use error::AclPolicyError;
 pub use policy::{AclPolicy, AllowedPrincipal, RightsClass};
 pub use principal::{AclPrincipal, BroadPrincipal, OwnedSid};
 pub use verify::{AclVerification, AclViolation, ApplyOutcome};
+/// Activation-time account-SID resolution for a principal whose SID cannot be known in advance.
+pub use windows::resolve_account_sid;
 
 use descriptor::{build_allow_acl, AllowEntry, RawDacl, SE_DACL_PRESENT, SE_DACL_PROTECTED};
 

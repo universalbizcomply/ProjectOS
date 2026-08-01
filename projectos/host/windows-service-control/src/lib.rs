@@ -51,6 +51,13 @@ pub use adapter::{
     LifecycleOutcome, LifecycleRefusal, LiveOperationCapability, ScmBackend, ScmServiceAdapter,
 };
 
+// The OWNER-APPROVED live installation surface. Present only under the non-default feature that
+// gates it, so a default or merely-live build exposes no route to a capability at all.
+#[cfg(feature = "owner-approved-installation")]
+pub use adapter::{ApprovalRefused, OwnerInstallationApproval};
+#[cfg(all(windows, feature = "owner-approved-installation"))]
+pub use windows_ffi::WindowsScmBackend;
+
 pub use verification::{
     classify_action_error, classify_open_error, classify_sid_query_error, classify_sid_type,
     default_wait_policy, verify_created_present, verify_deleted, verify_sid_policy, verify_started,

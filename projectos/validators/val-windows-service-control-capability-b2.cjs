@@ -162,10 +162,37 @@ function run() {
   );
   if (!fixtureImpl)
     errors.push("no test-fixtures-gated impl provides the fixture-only capability acquisition");
-  // Anything OUTSIDE that one gated impl must still construct nothing.
-  const outsideFixture = fixtureImpl ? adapterNoDef.replace(fixtureImpl[0], " ") : adapterNoDef;
+  // CD-B4-LOCAL-INSTALL-AND-LIVE-PROOF1A added the SECOND — and only other — permitted acquisition:
+  // the owner-approval route the original comment anticipated ("a later, separately-gated phase adds a
+  // crate-private constructor reachable only from the accepted owner-approval broker"). It is gated on
+  // its own non-default feature and consumes a one-operation approval transcribed from an exact phrase.
+  const ownerImpl = adapterNoDef.match(
+    /#\[cfg\(feature = "owner-approved-installation"\)\]\s*impl LiveOperationCapability \{[\s\S]*?\n\}/
+  );
+  if (!ownerImpl)
+    errors.push("no owner-approved-installation-gated impl provides the owner-approval acquisition");
+  else {
+    // That route must CONSUME an owner approval, not manufacture a capability from nothing.
+    if (!/from_owner_approval\(approval: OwnerInstallationApproval\)/.test(ownerImpl[0]))
+      errors.push("the owner-approved acquisition does not consume an owner approval");
+    // And the approval itself must require the exact phrase — no bool, no default, no elevation check.
+    if (!/REQUIRED_PHRASE/.test(adapter) || !/phrase != Self::REQUIRED_PHRASE/.test(adapter))
+      errors.push("the owner approval is not gated on the exact required phrase");
+    if (/impl Default for OwnerInstallationApproval/.test(adapter))
+      errors.push("the owner approval is defaultable");
+  }
+
+  // Anything OUTSIDE those two gated impls must still construct nothing. The approval type's OWN impl
+  // is excluded too: it builds an `OwnerInstallationApproval`, a different sealed type, and it is
+  // separately proven above to require the exact phrase.
+  let outsideFixture = fixtureImpl ? adapterNoDef.replace(fixtureImpl[0], " ") : adapterNoDef;
+  if (ownerImpl) outsideFixture = outsideFixture.replace(ownerImpl[0], " ");
+  outsideFixture = outsideFixture.replace(
+    /#\[cfg\(feature = "owner-approved-installation"\)\]\s*impl OwnerInstallationApproval \{[\s\S]*?\n\}/,
+    " "
+  );
   if (/LiveOperationCapability\s*\{|Self\s*\{\s*_sealed/.test(outsideFixture))
-    errors.push("LiveOperationCapability is constructed outside the test-fixtures graph");
+    errors.push("LiveOperationCapability is constructed outside the two gated acquisition routes");
   // The fixture constructor must be exactly that: fixture-gated, and not a general public factory.
   if (fixtureImpl && !/pub fn synthetic_for_fixture\(\) -> Self/.test(fixtureImpl[0]))
     errors.push("the fixture acquisition is not the expected narrow constructor");

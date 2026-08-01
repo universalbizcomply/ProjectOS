@@ -23,6 +23,14 @@ installer-dry-run = [
     "dep:projectos-windows-runtime-primitives",
 ]
 
+# THE OWNER-APPROVED INSTALLATION EFFECT. Non-default and additive: it turns on the writer's installer
+# route and the SCM adapter's owner-approval route. Without it this crate performs no effect at all.
+installer-effect = [
+    "installer-dry-run",
+    "projectos-host-canonical-installation-identity-writer/installer-windows",
+    "projectos-host-windows-service-control/owner-approved-installation",
+]
+
 [dependencies]
 # The CLOSED canonical identity writer and record contract. Reused, never duplicated.
 projectos-host-canonical-installation-identity-writer = { path = "../canonical-installation-identity-writer" }
@@ -32,6 +40,8 @@ projectos-host-windows-activation-plan = { path = "../windows-host-activation-pl
 projectos-host-windows-acl-policy = { path = "../windows-acl-policy" }
 # The frozen service-installation contract: pre-effect check ordering and effect authority.
 projectos-host-windows-service-installation-contract = { path = "../windows-service-installation-contract" }
+# The bounded SCM lifecycle adapter. It owns every Windows service call; this crate makes none.
+projectos-host-windows-service-control = { path = "../windows-service-control" }
 # Root custody. Used to REQUIRE a custody plan; never opened against a production root.
 projectos-host-windows-root-custody = { path = "../windows-root-custody" }
 

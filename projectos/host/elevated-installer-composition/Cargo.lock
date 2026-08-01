@@ -115,6 +115,7 @@ dependencies = [
  "projectos-host-windows-acl-policy",
  "projectos-host-windows-activation-plan",
  "projectos-host-windows-root-custody",
+ "projectos-host-windows-service-control",
  "projectos-host-windows-service-installation-contract",
  "projectos-windows-runtime-primitives",
 ]
@@ -173,6 +174,24 @@ dependencies = [
  "projectos-host-persistence",
  "thiserror",
  "windows-sys",
+]
+
+[[package]]
+name = "projectos-host-windows-service-control"
+version = "0.0.0"
+dependencies = [
+ "projectos-host-windows-service-identity-proof",
+ "projectos-host-windows-service-installation-contract",
+ "windows",
+]
+
+[[package]]
+name = "projectos-host-windows-service-identity-proof"
+version = "0.0.0"
+dependencies = [
+ "projectos-host-authority",
+ "projectos-windows-runtime-primitives",
+ "windows",
 ]
 
 [[package]]
