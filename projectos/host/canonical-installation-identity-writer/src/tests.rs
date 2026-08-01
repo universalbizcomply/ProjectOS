@@ -330,14 +330,35 @@ fn the_production_id_source_is_boundary_proven_and_never_executed_here() {
 }
 
 #[test]
-fn the_production_anchor_route_refuses_rather_than_inventing_a_path() {
-    // No approved Known Folder resolver exists, so the production anchor REFUSES. Naming it proves the
-    // seam is wired; it resolves nothing and touches no real ProgramData.
+fn the_production_anchors_resolve_read_only_without_creating_anything() {
+    // Resolution is READ-ONLY: it returns the registered locations and creates nothing. The derived
+    // ProjectOS subtrees must NOT exist merely because this test resolved their anchors.
     #[cfg(all(windows, feature = "installer-windows"))]
     {
-        assert_eq!(
-            ResolvedProgramDataAnchor::resolve_approved().unwrap_err(),
-            WriteError::AnchorUnresolved
+        let state = ResolvedProgramDataAnchor::resolve_approved().expect("ProgramData anchor");
+        let install = ResolvedInstallRoot::resolve_approved().expect("install root");
+
+        // The state target and the binary path are derived from the FROZEN segments only.
+        let target = InstallerTarget::under_resolved_anchor(&state).expect("target");
+        let record = target.record_path_for_test();
+        assert!(record.ends_with(RECORD_FILE_NAME));
+        let expected_tail: PathBuf = [EXPECTED_PRODUCT, "host", "installation", RECORD_FILE_NAME]
+            .iter()
+            .collect();
+        assert!(record.ends_with(&expected_tail), "{record:?}");
+        assert!(install
+            .service_binary_path()
+            .ends_with(EXPECTED_SERVICE_RELATIVE_PATH));
+
+        // The two roots are different folders, and NEITHER production location was created.
+        assert_ne!(
+            install.install_dir(),
+            target.record_path_for_test().parent().unwrap()
+        );
+        assert!(!record.exists(), "no production record may exist");
+        assert!(
+            !target.record_path_for_test().parent().unwrap().exists(),
+            "resolving must not create the installation directory"
         );
     }
 }

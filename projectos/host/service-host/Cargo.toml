@@ -1,0 +1,19 @@
+[package]
+name = "projectos-host-service-host"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "UNLICENSED"
+description = "CD-B4-INSTALLER-READINESS1A. The packaged ProjectOSHost.exe ARTEFACT, built from committed source so the installer dry run has a real binary to reference. It is headless and inert: it registers nothing, opens no SCM/registry/pipe/socket, reads no ProgramData, performs no protected effect, and exits non-zero reporting the frozen installation effect authority. It is NOT a working Windows service and does not implement the service control handler."
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[[bin]]
+name = "ProjectOSHost"
+path = "src/main.rs"
+
+[dependencies]
+# The FROZEN installation effect authority. Reused so the artefact reports the same value the installer
+# composition gates on, rather than restating it.
+projectos-host-windows-service-installation-contract = { path = "../windows-service-installation-contract" }

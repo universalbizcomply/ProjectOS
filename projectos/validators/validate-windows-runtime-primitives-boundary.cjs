@@ -1,7 +1,8 @@
 "use strict";
 // WINDOWS-PACKAGED-HOST-TRUST-ENFORCEMENT3K-I-C-A. Prove the extracted low-level primitive crate is
 // exactly a Win32 owned-handle RAII wrapper + a build-mode classifier, and nothing else: no policy,
-// no effect route, unsafe confined to handles.rs + system_random.rs with SAFETY docs, exactly one AppMode/detect_app_mode
+// no effect route, unsafe confined to handles.rs + system_random.rs + known_folder.rs with SAFETY docs,
+// exactly one AppMode/detect_app_mode
 // production definition, the old Control Center process/handles.rs gone, and no duplicate/handle or
 // AppMode implementation left behind in the Control Center. Comments stripped; structural checks.
 const fs = require("fs");
@@ -69,7 +70,7 @@ function run() {
   // Exactly these two modules may contain unsafe, each for one documented primitive: the owned-handle
   // RAII wrapper, and (CLOSEOUT1B) the single system-preferred CSPRNG fill. Every other file must be
   // unsafe-free, and BOTH allowed modules must document every unsafe unit they contain.
-  const UNSAFE_MODULES = ["handles.rs", "system_random.rs"];
+  const UNSAFE_MODULES = ["handles.rs", "system_random.rs", "known_folder.rs"];
   const files = rsFiles(path.join(CRATE, "src"));
   const unsafeUnitsBy = {};
   const safetyMentionsBy = {};
@@ -80,6 +81,10 @@ function run() {
     const raw = read(f);
     const code = stripComments(raw);
     for (const { re, why } of FORBIDDEN) {
+      // known_folder.rs is the ONE module permitted to name ProgramData, because resolving that folder
+      // READ-ONLY is the primitive itself. It still owns no policy: every other forbidden route
+      // (service, registry, ACL, SID, credential, process, network, signing) applies to it unchanged.
+      if (why === "ProgramData route" && base === "known_folder.rs") continue;
       if (re.test(code)) errors.push(path.relative(ROOT, f).replace(/\\/g, "/") + ": " + why);
     }
     const unsafeUnits = count(/unsafe\s*(fn|\{)/g, code);

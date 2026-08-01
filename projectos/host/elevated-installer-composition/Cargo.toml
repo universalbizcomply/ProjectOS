@@ -16,6 +16,12 @@ default = []
 fixture-composition = [
     "projectos-host-canonical-installation-identity-writer/fixture-writer",
 ]
+# The PRODUCTION dry run: read-only Known Folder resolution plus artefact evidence, stopping at the
+# frozen effect-authority gate. Non-default, and it authorises nothing — the gate still refuses.
+installer-dry-run = [
+    "projectos-host-canonical-installation-identity-writer/installer-windows",
+    "dep:projectos-windows-runtime-primitives",
+]
 
 [dependencies]
 # The CLOSED canonical identity writer and record contract. Reused, never duplicated.
@@ -28,3 +34,8 @@ projectos-host-windows-acl-policy = { path = "../windows-acl-policy" }
 projectos-host-windows-service-installation-contract = { path = "../windows-service-installation-contract" }
 # Root custody. Used to REQUIRE a custody plan; never opened against a production root.
 projectos-host-windows-root-custody = { path = "../windows-root-custody" }
+
+[target.'cfg(windows)'.dependencies]
+# The trusted READ-ONLY Known Folder resolvers, used only to prove an artefact is outside a production
+# root. Optional, so the default graph links no resolver at all.
+projectos-windows-runtime-primitives = { path = "../windows-runtime-primitives", optional = true }

@@ -92,6 +92,7 @@ name = "projectos-host-canonical-installation-identity-writer"
 version = "0.0.0"
 dependencies = [
  "projectos-host-identity",
+ "projectos-windows-runtime-primitives",
  "serde_json",
 ]
 
@@ -115,6 +116,7 @@ dependencies = [
  "projectos-host-windows-activation-plan",
  "projectos-host-windows-root-custody",
  "projectos-host-windows-service-installation-contract",
+ "projectos-windows-runtime-primitives",
 ]
 
 [[package]]

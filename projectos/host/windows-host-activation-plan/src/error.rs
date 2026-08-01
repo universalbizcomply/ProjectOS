@@ -9,6 +9,11 @@ use thiserror::Error;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 #[non_exhaustive]
 pub enum ActivationPlanError {
+    /// Production STATE was anchored somewhere other than ProgramData — Program Files holds the
+    /// installed binary, never state (CD-B4-INSTALLER-READINESS1A).
+    #[error("state anchored outside ProgramData")]
+    StateAnchorNotProgramData,
+
     /// A root path segment was empty.
     #[error("empty segment")]
     EmptySegment,

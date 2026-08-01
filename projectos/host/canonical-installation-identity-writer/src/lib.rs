@@ -176,27 +176,31 @@ pub struct ResolvedProgramDataAnchor {
 }
 
 impl ResolvedProgramDataAnchor {
-    /// The PRODUCTION anchor route.
+    /// The PRODUCTION anchor route: the approved read-only Known Folder resolver.
     ///
-    /// It refuses, and that is the honest production reality rather than a placeholder: no approved
-    /// Known Folder resolver exists yet, which is exactly why `host-identity` still expresses the
-    /// record location symbolically through `symbolic_record_location`. Emulating a resolution here
-    /// would invent a path vocabulary and hand out a target the boundary never approved.
+    /// The location comes from `SHGetKnownFolderPath` through the authority-free primitive — never from
+    /// an environment variable, the working directory, the repository or a literal. Resolution creates
+    /// nothing; the returned root is canonicalised and refused if it is a reparse point, exactly as a
+    /// fixture anchor is.
     ///
     /// # Errors
-    /// Always [`WriteError::AnchorUnresolved`] until an approved resolver is wired.
+    /// [`WriteError::AnchorUnresolved`] if the OS does not resolve the folder,
+    /// [`WriteError::ReparsePointRefused`] or [`WriteError::TargetUnavailable`] if the resolved root
+    /// fails the boundary checks.
     #[cfg(all(windows, feature = "installer-windows"))]
     pub fn resolve_approved() -> Result<Self, WriteError> {
-        Err(WriteError::AnchorUnresolved)
+        let root = projectos_windows_runtime_primitives::known_folder::resolve_program_data()
+            .map_err(|_| WriteError::AnchorUnresolved)?;
+        Self::from_resolved_root(&root)
     }
 
-    /// FIXTURE-ONLY anchor beneath a disposable directory the caller already owns.
-    ///
-    /// # Errors
-    /// [`WriteError`] if the root cannot be resolved or is a reparse point.
-    #[cfg(any(test, feature = "fixture-writer"))]
-    pub fn fixture(owned_root: &Path) -> Result<Self, WriteError> {
-        let root = owned_root
+    /// Apply the boundary checks every anchor must pass, whoever resolved the root.
+    #[cfg_attr(
+        not(any(test, feature = "fixture-writer", feature = "installer-windows")),
+        allow(dead_code)
+    )]
+    fn from_resolved_root(root: &Path) -> Result<Self, WriteError> {
+        let root = root
             .canonicalize()
             .map_err(|_| WriteError::TargetUnavailable)?;
         if fs::symlink_metadata(&root)
@@ -207,6 +211,85 @@ impl ResolvedProgramDataAnchor {
             return Err(WriteError::ReparsePointRefused);
         }
         Ok(Self { root })
+    }
+
+    /// FIXTURE-ONLY anchor beneath a disposable directory the caller already owns.
+    ///
+    /// # Errors
+    /// [`WriteError`] if the root cannot be resolved or is a reparse point.
+    #[cfg(any(test, feature = "fixture-writer"))]
+    pub fn fixture(owned_root: &Path) -> Result<Self, WriteError> {
+        Self::from_resolved_root(owned_root)
+    }
+}
+
+/// The approved INSTALL ROOT: where the service binary lives.
+///
+/// Separate type from the state anchor on purpose — the binary root and the state root are different
+/// folders with different rules, and a value for one must never be usable as the other.
+#[derive(Debug)]
+pub struct ResolvedInstallRoot {
+    /// `<ProgramFiles>/ProjectOS/host`. Derived internally from the frozen segments.
+    install_dir: PathBuf,
+}
+
+impl ResolvedInstallRoot {
+    /// The PRODUCTION install root, via the approved read-only Program Files resolver.
+    ///
+    /// # Errors
+    /// [`WriteError`] if the folder does not resolve or fails the boundary checks.
+    #[cfg(all(windows, feature = "installer-windows"))]
+    pub fn resolve_approved() -> Result<Self, WriteError> {
+        let root = projectos_windows_runtime_primitives::known_folder::resolve_program_files()
+            .map_err(|_| WriteError::AnchorUnresolved)?;
+        Self::under(&root)
+    }
+
+    /// FIXTURE-ONLY install root beneath a disposable directory the caller already owns.
+    ///
+    /// # Errors
+    /// [`WriteError`] if the root fails the boundary checks.
+    #[cfg(any(test, feature = "fixture-writer"))]
+    pub fn fixture(owned_root: &Path) -> Result<Self, WriteError> {
+        Self::under(owned_root)
+    }
+
+    /// Derive `<root>/ProjectOS/host` using the frozen segments only, then re-check containment.
+    #[cfg_attr(
+        not(any(test, feature = "fixture-writer", feature = "installer-windows")),
+        allow(dead_code)
+    )]
+    fn under(root: &Path) -> Result<Self, WriteError> {
+        let root = root
+            .canonicalize()
+            .map_err(|_| WriteError::TargetUnavailable)?;
+        if fs::symlink_metadata(&root)
+            .map_err(|_| WriteError::TargetUnavailable)?
+            .file_type()
+            .is_symlink()
+        {
+            return Err(WriteError::ReparsePointRefused);
+        }
+        let install_dir = root
+            .join(EXPECTED_PRODUCT)
+            .join(HOST_STATE_DIRECTORY_SEGMENT);
+        if !install_dir.starts_with(&root) {
+            return Err(WriteError::ContainmentRefused);
+        }
+        Ok(Self { install_dir })
+    }
+
+    /// The expected service-binary path: `<install root>/ProjectOSHost.exe`. The file name comes from
+    /// the frozen contract, never from a caller.
+    #[must_use]
+    pub fn service_binary_path(&self) -> PathBuf {
+        self.install_dir.join(EXPECTED_SERVICE_RELATIVE_PATH)
+    }
+
+    /// The install directory itself.
+    #[must_use]
+    pub fn install_dir(&self) -> &Path {
+        &self.install_dir
     }
 }
 
@@ -269,6 +352,16 @@ impl InstallerTarget {
     #[must_use]
     pub fn record_already_exists(&self) -> bool {
         self.record_path().exists()
+    }
+
+    /// The derived record location.
+    ///
+    /// Available to the installer graph (fixture or `installer-windows`) and to nothing else: the
+    /// runtime reads the record through `host-identity` and never learns a target path from here.
+    #[cfg(any(test, feature = "fixture-writer", feature = "installer-windows"))]
+    #[must_use]
+    pub fn record_location(&self) -> PathBuf {
+        self.record_path()
     }
 
     /// The record path, for fixture verification only. Never exposed in a default graph, so no runtime

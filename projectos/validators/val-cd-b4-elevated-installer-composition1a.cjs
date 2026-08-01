@@ -353,13 +353,21 @@ function run() {
   if (!/#\[cfg\(all\(windows, feature = "installer-windows"\)\)\]\s*\n    pub fn resolve_approved/.test(wRaw))
     E("V8 the production anchor route is not gated on installer-windows");
   {
-    // The anchor is the boundary where a reparse point must be refused.
-    const i = w.indexOf("pub fn fixture(owned_root: &Path)");
+    // The anchor is the boundary where a reparse point must be refused. Both the fixture anchor and
+    // the production resolver route through ONE shared check, so the check is asserted there — and the
+    // fixture constructor is asserted to delegate rather than re-implement it.
+    if (!fs.existsSync(path.join(W, "src", "lib.rs"))) E("V8 the writer is missing");
+    const i = w.indexOf("fn from_resolved_root(");
     const body = i === -1 ? "" : w.slice(i, w.indexOf("\n    }", i));
-    if (i === -1) E("V8 the fixture anchor constructor is missing");
+    if (i === -1) E("V8 the shared resolved-root boundary check is missing");
     if (!/is_symlink\(\)/.test(body)) E("V8 the anchor does not check for a reparse point");
     if (!/WriteError::ReparsePointRefused/.test(body)) E("V8 the anchor does not refuse a reparse point");
     if (!/canonicalize\(\)/.test(body)) E("V8 the anchor is not canonicalised before use");
+    const j = w.indexOf("pub fn fixture(owned_root: &Path)");
+    const fbody = j === -1 ? "" : w.slice(j, w.indexOf("\n    }", j));
+    if (j === -1) E("V8 the fixture anchor constructor is missing");
+    else if (!/Self::from_resolved_root\(owned_root\)/.test(fbody))
+      E("V8 the fixture anchor does not route through the shared boundary check");
   }
   // The composition must never reach the production RNG: its only id route is the deterministic
   // fixture source, so validation cannot execute a CSPRNG.

@@ -29,8 +29,12 @@ const RESERVED: [&str; 22] = [
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum KnownFolderAnchor {
-    /// The machine-wide application-data known folder. The ONLY anchor this plan permits.
+    /// The machine-wide application-data known folder. The only anchor production STATE may use.
     ProgramData,
+    /// The machine-wide program-files known folder. The only anchor the installed service BINARY may
+    /// use (CD-B4-INSTALLER-READINESS1A). State never lives here, and this anchor is never a root for
+    /// a [`ProductionRootPlan`].
+    ProgramFiles,
 }
 
 impl KnownFolderAnchor {
@@ -39,6 +43,7 @@ impl KnownFolderAnchor {
     pub fn symbol(self) -> &'static str {
         match self {
             Self::ProgramData => "%KNOWNFOLDER:ProgramData%",
+            Self::ProgramFiles => "%KNOWNFOLDER:ProgramFiles%",
         }
     }
 }
@@ -234,6 +239,11 @@ impl ProductionRootPlan {
         segments: &[&str],
         subtrees: &[RootSubtree],
     ) -> Result<Self, ActivationPlanError> {
+        // A production ROOT holds state, and state only ever lives beneath ProgramData. Program Files
+        // is an anchor for the installed binary and can never become a state root.
+        if !matches!(anchor, KnownFolderAnchor::ProgramData) {
+            return Err(ActivationPlanError::StateAnchorNotProgramData);
+        }
         if segments.is_empty() || segments.len() > MAX_DEPTH {
             return Err(ActivationPlanError::SegmentTooLong);
         }
@@ -462,5 +472,42 @@ mod tests {
         // A drive-rooted machine-wide location is not classified as forbidden by SHAPE — but it is
         // still never CREATED here, and the anchor, not a literal, remains the authority.
         assert_eq!(classify_forbidden("C:\\ProgramData\\ProjectOS"), None);
+    }
+}
+
+#[cfg(test)]
+mod program_files_anchor_tests {
+    use super::*;
+
+    #[test]
+    fn program_files_can_never_become_a_state_root() {
+        assert_eq!(
+            ProductionRootPlan::new(
+                KnownFolderAnchor::ProgramFiles,
+                &["ProjectOS"],
+                &[RootSubtree::HostState]
+            )
+            .unwrap_err(),
+            ActivationPlanError::StateAnchorNotProgramData
+        );
+    }
+
+    #[test]
+    fn each_anchor_has_a_distinct_symbolic_label_and_no_resolved_path() {
+        assert_eq!(
+            KnownFolderAnchor::ProgramFiles.symbol(),
+            "%KNOWNFOLDER:ProgramFiles%"
+        );
+        assert_ne!(
+            KnownFolderAnchor::ProgramData.symbol(),
+            KnownFolderAnchor::ProgramFiles.symbol()
+        );
+        for a in [
+            KnownFolderAnchor::ProgramData,
+            KnownFolderAnchor::ProgramFiles,
+        ] {
+            assert!(a.symbol().starts_with("%KNOWNFOLDER:"));
+            assert!(!a.symbol().contains(":\\"));
+        }
     }
 }

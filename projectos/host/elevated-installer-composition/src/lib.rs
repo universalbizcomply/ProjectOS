@@ -32,6 +32,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod dry_run;
 pub mod plan;
 
 use std::sync::atomic::{AtomicBool, Ordering};
