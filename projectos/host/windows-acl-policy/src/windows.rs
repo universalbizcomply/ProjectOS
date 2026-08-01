@@ -88,12 +88,21 @@ fn classify(code: u32) -> AclPolicyError {
     }
 }
 
-/// Open the directory for a security operation WITHOUT following a reparse point, then re-check on
-/// the returned handle that it really is a non-reparse directory.
+/// Which object kind a security operation is admitted against. The assertion is made on the OPENED
+/// handle, never on the pathname's spelling, and a mismatch is refused rather than coerced.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SecuredObjectKind {
+    Directory,
+    File,
+}
+
+/// Open the object for a security operation WITHOUT following a reparse point, then re-check on the
+/// returned handle that it really is a non-reparse object of the required kind.
 #[cfg(windows)]
 fn open_secure_handle(
     path: &Path,
     access: u32,
+    expected: SecuredObjectKind,
 ) -> Result<std::os::windows::io::OwnedHandle, AclPolicyError> {
     use std::os::windows::io::{FromRawHandle, OwnedHandle};
     use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
@@ -129,8 +138,14 @@ fn open_secure_handle(
     if attributes & ATTR_REPARSE_POINT != 0 {
         return Err(AclPolicyError::ReparsePointRefused);
     }
-    if attributes & ATTR_DIRECTORY == 0 {
-        return Err(AclPolicyError::NotADirectory);
+    match expected {
+        SecuredObjectKind::Directory if attributes & ATTR_DIRECTORY == 0 => {
+            return Err(AclPolicyError::NotADirectory)
+        }
+        SecuredObjectKind::File if attributes & ATTR_DIRECTORY != 0 => {
+            return Err(AclPolicyError::NotAFile)
+        }
+        _ => {}
     }
     Ok(handle)
 }
@@ -182,6 +197,7 @@ impl Drop for OwnedDescriptor {
 #[cfg(windows)]
 pub(crate) fn read_security(
     path: &Path,
+    expected: SecuredObjectKind,
 ) -> Result<(Option<Vec<u8>>, u16, RawDacl), AclPolicyError> {
     use std::os::windows::io::AsRawHandle;
     use windows_sys::Win32::Foundation::{ERROR_SUCCESS, HANDLE};
@@ -191,7 +207,7 @@ pub(crate) fn read_security(
         DACL_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID,
     };
 
-    let handle = open_secure_handle(path, ACCESS_READ_SECURITY)?;
+    let handle = open_secure_handle(path, ACCESS_READ_SECURITY, expected)?;
     let raw = handle.as_raw_handle() as HANDLE;
 
     let mut owner_ptr: PSID = std::ptr::null_mut();
@@ -287,6 +303,7 @@ pub(crate) fn apply_security(
     path: &Path,
     owner: &OwnedSid,
     acl_bytes: &[u8],
+    expected: SecuredObjectKind,
 ) -> Result<(), AclPolicyError> {
     use std::os::windows::io::AsRawHandle;
     use windows_sys::Win32::Foundation::{ERROR_SUCCESS, HANDLE};
@@ -314,7 +331,7 @@ pub(crate) fn apply_security(
 
     // Opened AFTER validation, so the object is held for the shortest possible window, and opened
     // without following reparse points so the write cannot be redirected.
-    let handle = open_secure_handle(path, ACCESS_WRITE_SECURITY)?;
+    let handle = open_secure_handle(path, ACCESS_WRITE_SECURITY, expected)?;
     let raw = handle.as_raw_handle() as HANDLE;
 
     // SAFETY: `raw` is a live handle opened with WRITE_DAC|WRITE_OWNER; the owner and ACL pointers are
@@ -414,8 +431,16 @@ pub(crate) fn current_account_sid() -> Result<OwnedSid, AclPolicyError> {
 // ---- non-Windows fail-closed stubs (no emulation) ----
 
 #[cfg(not(windows))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SecuredObjectKind {
+    Directory,
+    File,
+}
+
+#[cfg(not(windows))]
 pub(crate) fn read_security(
     _path: &Path,
+    _expected: SecuredObjectKind,
 ) -> Result<(Option<Vec<u8>>, u16, RawDacl), AclPolicyError> {
     Err(AclPolicyError::UnsupportedPlatform)
 }
@@ -425,6 +450,7 @@ pub(crate) fn apply_security(
     _path: &Path,
     _owner: &OwnedSid,
     _acl_bytes: &[u8],
+    _expected: SecuredObjectKind,
 ) -> Result<(), AclPolicyError> {
     Err(AclPolicyError::UnsupportedPlatform)
 }

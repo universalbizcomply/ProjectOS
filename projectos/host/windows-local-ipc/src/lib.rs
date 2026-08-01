@@ -87,7 +87,7 @@ pub use adapter::{CapabilityScope, OwnerStatusReadApproval, StatusApprovalRefuse
 pub use protocol::{
     decode_installed_host_status, encode_installed_host_status, ChannelReport,
     IdentityVerificationReport, InstalledHostStatus, ProtectedOperationsReport, ReadinessReport,
-    ServiceStateReport, INSTALLED_HOST_STATUS_LEN, STATUS_PREFIX_LEN,
+    ServiceStateReport, INSTALLED_HOST_STATUS_LEN, INSTALLED_HOST_STATUS_RUN_ID, STATUS_PREFIX_LEN,
 };
 
 pub use security::{evaluate_pipe_security, EndpointSecurityDecision};
@@ -128,6 +128,37 @@ pub use projectos_host_authority::{
 // caller can name it but never obtain one.
 #[cfg(all(windows, feature = "windows-live-ipc"))]
 pub use windows_ffi::LiveIpcPeerContributor;
+// The CLIENT half of the read-only status workflow. Present only when the owner-approved feature is
+// enabled too, and every method still demands the sealed capability: naming the type grants nothing.
+#[cfg(all(
+    windows,
+    feature = "windows-live-ipc",
+    feature = "owner-approved-status-read"
+))]
+pub use windows_ffi::{
+    ClientStatusReadOutcome, ServeStatusOutcome, WindowsInstalledHostStatusClient,
+    WindowsInstalledHostStatusServer,
+};
+// PROOF-ONLY refusal probes. `test-fixtures` is non-default and is enabled by NEITHER the installed
+// service nor the Control Centre, so no production graph can reach them.
+#[cfg(all(
+    windows,
+    feature = "windows-live-ipc",
+    feature = "owner-approved-status-read",
+    feature = "test-fixtures"
+))]
+pub use windows_ffi::RefusalProbe;
+
+/// Resolve the ProjectOSHost pipe security STATUS, read-only.
+///
+/// The installed service needs the status to gate `prepare_server`, and the descriptor itself is
+/// resolved independently inside the transport when the endpoint is created. Only the closed status
+/// crosses this boundary: no descriptor, SID or SDDL is ever returned.
+#[cfg(all(windows, feature = "windows-live-ipc"))]
+#[must_use]
+pub fn resolve_installed_host_pipe_security() -> ProjectOsHostPipeSecurityStatus {
+    projectos_host_authority::ProjectOsHostPipeSecurity::resolve().0
+}
 // The opaque confirmed-handshake proof and its transition object. A consumer can hold and consume
 // them but can never construct one; only this crate's verification path mints a confirmation.
 #[cfg(any(feature = "test-fixtures", feature = "windows-live-ipc"))]

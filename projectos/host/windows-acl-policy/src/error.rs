@@ -33,6 +33,9 @@ pub enum AclPolicyError {
     /// The root exists but is not a directory (for example a regular file).
     #[error("not a directory")]
     NotADirectory,
+    /// The path denotes a directory where a FILE was required.
+    #[error("not a file")]
+    NotAFile,
 
     /// The root is a symlink, junction or other reparse point. It is REFUSED, never followed.
     #[error("reparse point refused")]

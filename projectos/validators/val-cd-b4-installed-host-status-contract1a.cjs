@@ -21,6 +21,7 @@ const HOST = path.join(ROOT, "projectos", "host");
 const IPC = path.join(HOST, "windows-local-ipc");
 const SH = path.join(HOST, "service-host");
 const HI = path.join(HOST, "host-identity");
+const CC = path.join(ROOT, "projectos", "control-center");
 const px = (d) => d.replace(/\\/g, "/");
 
 const read = (f) => fs.readFileSync(f, "utf8");
@@ -355,6 +356,203 @@ function run() {
         if (b && !/encode_control_frame\(/.test(b[1]))
           E(`V8 ${m} sends unencoded data instead of a canonical control frame`);
       }
+    }
+  }
+
+  // ---- V9 the WORKFLOW: serve loop, client route and Control Centre display ----
+  //
+  // Catches the six final integration mutations: a service that sends the full installation ID, a
+  // service that accepts a wrong request kind, protected operations reported Authorised, identity
+  // verification hardcoded Verified, and a Control Centre that displays Unverified as Verified or
+  // Refused as Authorised.
+  {
+    const ffiP = path.join(IPC, "src", "windows_ffi.rs");
+    const protoP = path.join(IPC, "src", "protocol.rs");
+    const serveP = path.join(SH, "src", "serve.rs");
+    const statusP = path.join(SH, "src", "status.rs");
+    const scmP = path.join(SH, "src", "scm.rs");
+    const ccRsP = path.join(CC, "src-tauri", "src", "host_status.rs");
+    const ccTsP = path.join(CC, "src", "daemon", "installedHostStatus.ts");
+    const panelP = path.join(CC, "src", "daemon", "LiveMissionControl.tsx");
+
+    const missing = [serveP, ccRsP, ccTsP, panelP].filter((f) => !fs.existsSync(f));
+    for (const f of missing) E("V9 missing workflow file: " + px(f));
+
+    if (missing.length === 0) {
+      const ffi = stripLine(stripTests(read(ffiP)));
+      const proto = read(protoP);
+      const serve = stripLine(read(serveP));
+      const status = stripLine(stripTests(read(statusP)));
+      const scm = stripLine(stripTests(read(scmP)));
+      const ccRs = stripLine(stripTests(read(ccRsP)));
+      const ccTs = stripLine(read(ccTsP));
+      const panel = stripLine(read(panelP));
+
+      // --- ONE frozen run id: the same constant gives both ends the pipe name AND the nonce. ---
+      if (!/pub const INSTALLED_HOST_STATUS_RUN_ID: \[u8; 8\] = \[/.test(proto))
+        E("V9 the frozen status run identifier is missing");
+      if (!/backend: WindowsPipeBackend::new\(crate::protocol::INSTALLED_HOST_STATUS_RUN_ID\)/.test(ffi))
+        E("V9 the client is not bound to the frozen run identifier");
+      if (!/LocalIpcAdapter::new\(WindowsPipeBackend::new\(\s*crate::protocol::INSTALLED_HOST_STATUS_RUN_ID,\s*\)\)/.test(ffi))
+        E("V9 the server is not bound to the frozen run identifier");
+
+      // --- The serve loop performs EXACTLY the four accepted steps, in order. ---
+      const serveFn = /fn serve_one_status_exchange\(([\s\S]*?)\n    \}\n\}/.exec(ffi);
+      if (!serveFn) E("V9 the served status exchange is missing");
+      else {
+        const b = serveFn[1];
+        const order = [
+          "prepare_server(",
+          "accept_unauthenticated(",
+          "complete_service_handshake(",
+          "send_installed_host_status(",
+        ];
+        let at = -1;
+        for (const step of order) {
+          const i = b.indexOf(step);
+          if (i === -1) {
+            E("V9 the serve loop is missing step: " + step);
+            break;
+          }
+          if (i < at) {
+            E("V9 the serve loop performs its steps out of order at: " + step);
+            break;
+          }
+          at = i;
+        }
+        // MUTATION 2 — a service that accepts a wrong request kind. Only a CONFIRMED peer is served.
+        if (!/if !handshake\.is_peer_confirmed\(\) \{[\s\S]{0,160}return ServeStatusOutcome::RefusedHandshake\(handshake\)/.test(b))
+          E("V9 the serve loop answers a request whose handshake was not confirmed");
+        // The host is observed only AFTER the request is confirmed.
+        const iHs = b.indexOf("is_peer_confirmed");
+        const iObs = b.indexOf("observe()");
+        if (iHs === -1 || iObs === -1 || iObs < iHs)
+          E("V9 the serve loop observes the host before confirming the request");
+        for (const banned of ["CreateServiceW", "ChangeServiceConfig", "SetSecurityInfo", "fs::write"]) {
+          if (b.includes(banned)) E("V9 the served exchange performs a protected operation: " + banned);
+        }
+      }
+      for (const banned of ["CreateServiceW", "ChangeServiceConfig", "SetSecurityInfo", "fs::write", "OpenSCManager"]) {
+        if (serve.includes(banned)) E("V9 the serve module performs a protected operation: " + banned);
+      }
+
+      // --- The service's capability comes from the exact frozen phrase and nothing else. ---
+      if (!/OwnerStatusReadApproval::transcribe\(OwnerStatusReadApproval::REQUIRED_PHRASE\)/.test(serve))
+        E("V9 the service does not mint its capability from the frozen owner phrase");
+      if (!/else \{[\s\S]{0,200}return;/.test(serve))
+        E("V9 the service does not fail closed when the phrase is refused");
+      if (!/status::observe\(ServiceStateReport::Running\)/.test(serve))
+        E("V9 the serve loop does not report the state it is actually serving in");
+      if (!/serve::serve_installed_host_status_until_stop\(&STOP_SIGNALLED\)/.test(scm))
+        E("V9 the SCM entry does not start the status serve loop");
+      if (!/run_inert_loop\(&mut lifecycle, &STOP_SIGNALLED\)/.test(scm))
+        E("V9 the proven stop path was replaced rather than kept");
+
+      // --- MUTATION 1 — the full installation ID must never reach the wire or the screen. ---
+      if (/installation_id/.test(status))
+        E("V9 the observer reads the installation id, which must never be sent");
+      if (/installation_id|InstallationId/.test(ffi))
+        E("V9 the transport references an installation id");
+      if (/installation_id|installationId/.test(ccRs))
+        E("V9 the Control Centre route references an installation id");
+      if (/installationId/.test(ccTs) || /installationId/.test(panel))
+        E("V9 the Control Centre display references an installation id");
+      if (!/pub const STATUS_PREFIX_LEN: usize = 8;/.test(proto))
+        E("V9 the status prefix length is no longer fixed at 8");
+
+      // --- MUTATION 3 — protected operations are always Refused on the service side. ---
+      const observe = /pub fn observe\(service_state: ServiceStateReport\) -> InstalledHostStatus \{([\s\S]*?)\n\}/.exec(status);
+      if (!observe) E("V9 the observer is missing");
+      else {
+        if (/ProtectedOperationsReport::Authorised/.test(observe[1]))
+          E("V9 the observer reports protected operations as Authorised");
+        if (!/ProtectedOperationsReport::Refused/.test(observe[1]))
+          E("V9 the observer no longer reports protected operations as Refused");
+        if (!/IdentityVerificationReport::Verified => \{[\s\S]{0,240}ReadinessReport::Ready/.test(observe[1]))
+          E("V9 readiness is not gated on a Verified identity");
+      }
+
+      // --- MUTATION 4 — identity verification comes ONLY from verify_record. ---
+      const rav = /fn read_and_verify\(\)[\s\S]*?\n\}/.exec(status);
+      if (!rav) E("V9 the identity read is missing");
+      else {
+        const b = rav[0];
+        if (!/match verify_record\(&record, RecordInstallationEvidence::Matched\)/.test(b))
+          E("V9 identity verification no longer goes through verify_record");
+        const verified = (b.match(/IdentityVerificationReport::Verified/g) || []).length;
+        if (verified !== 1)
+          E("V9 identity Verified is reported from " + verified + " places, not solely the reader's Ok arm");
+        if (!/Ok\(_verified\) => \(IdentityVerificationReport::Verified/.test(b))
+          E("V9 identity Verified is not bound to the reader accepting");
+        if (!/Err\(_\) => \(IdentityVerificationReport::Refused/.test(b))
+          E("V9 a record the reader refused is not reported as Refused");
+      }
+
+      // --- MUTATIONS 5 and 6 — the Control Centre never upgrades what the host said. ---
+      const idLabel = /fn identity_label\(v: IdentityVerificationReport\) -> &'static str \{([\s\S]*?)\n\}/.exec(ccRs);
+      if (!idLabel) E("V9 the Control Centre identity label is missing");
+      else {
+        if (!/IdentityVerificationReport::Verified => "VERIFIED"/.test(idLabel[1]))
+          E("V9 the Control Centre does not render Verified as VERIFIED");
+        if (!/IdentityVerificationReport::Refused => "REFUSED"/.test(idLabel[1]))
+          E("V9 the Control Centre displays a REFUSED identity as something else");
+        if (!/IdentityVerificationReport::Unavailable => UNAVAILABLE/.test(idLabel[1]))
+          E("V9 the Control Centre displays an UNAVAILABLE identity as something else");
+        if ((idLabel[1].match(/"VERIFIED"/g) || []).length !== 1)
+          E("V9 the Control Centre renders VERIFIED from more than one identity report");
+      }
+      const rdLabel = /fn readiness_label\(v: ReadinessReport\) -> &'static str \{([\s\S]*?)\n\}/.exec(ccRs);
+      if (!rdLabel) E("V9 the Control Centre readiness label is missing");
+      else if ((rdLabel[1].match(/"READY"/g) || []).length !== 1 || !/ReadinessReport::Ready => "READY"/.test(rdLabel[1]))
+        E("V9 the Control Centre renders READY for a readiness the host did not report");
+      const pLabel = /fn protected_label\(v: ProtectedOperationsReport\) -> &'static str \{([\s\S]*?)\n\}/.exec(ccRs);
+      if (!pLabel) E("V9 the Control Centre protected-operations label is missing");
+      else {
+        if (!/ProtectedOperationsReport::Refused => "REFUSED"/.test(pLabel[1]))
+          E("V9 the Control Centre displays a REFUSED protected operation as something else");
+        if ((pLabel[1].match(/"AUTHORISED"/g) || []).length > 1)
+          E("V9 the Control Centre renders AUTHORISED for more than one protected-operations report");
+      }
+
+      // Every refusal path collapses to the unavailable view — never a fabricated success.
+      const readFn = /pub fn read_installed_host_status\(\) -> InstalledHostStatusView \{([\s\S]*?)\n\}/.exec(ccRs);
+      if (!readFn) E("V9 the Control Centre read route is missing");
+      else {
+        for (const arm of ["RefusedHandshake", "Malformed", "Failed"]) {
+          const re = new RegExp("ClientStatusReadOutcome::" + arm + "\\(_\\) => InstalledHostStatusView::unavailable\\(");
+          if (!re.test(readFn[1])) E("V9 a " + arm + " outcome is not shown as unavailable");
+        }
+        if (!/ClientStatusReadOutcome::Status\(status\) => project\(&status\)/.test(readFn[1]))
+          E("V9 the Control Centre does not render the decoded record verbatim");
+      }
+      const unavail = /fn unavailable\(next_safe_action: &str\) -> Self \{([\s\S]*?)\n    \}/.exec(ccRs);
+      if (!unavail) E("V9 the unavailable view is missing");
+      else {
+        if (/"VERIFIED"|"READY"|"AUTHORISED"/.test(unavail[1]))
+          E("V9 the unavailable view reports a verified, ready or authorised value");
+        if (!/read_succeeded: false/.test(unavail[1]))
+          E("V9 the unavailable view claims the read succeeded");
+      }
+
+      // The front end never invents a value either.
+      if (!/readSucceeded: o\.readSucceeded === true/.test(ccTs))
+        E("V9 the front end accepts a non-true readSucceeded as success");
+      if (/VERIFIED|READY|AUTHORISED/.test(ccTs))
+        E("V9 the front end names a verified, ready or authorised value it could substitute");
+      if (/VERIFIED|AUTHORISED/.test(panel))
+        E("V9 the panel names a verified or authorised value it could substitute");
+      if (!/\['Installation identity', view\.identityVerification\]/.test(panel))
+        E("V9 the panel does not render the host's identity answer verbatim");
+      if (!/\['Protected operations', view\.protectedOperations\]/.test(panel))
+        E("V9 the panel does not render the host's protected-operations answer verbatim");
+      if (!/\['Readiness', view\.readiness\]/.test(panel))
+        E("V9 the panel does not render the host's readiness answer verbatim");
+
+      // No new screen, protocol, pipe or request kind.
+      if (/ENDPOINT_PREFIX|CreateNamedPipeW/.test(serve))
+        E("V9 the serve module opens a pipe of its own");
+      if (/ControllerHello/.test(serve) === false && /ControllerHello/.test(ffi) === false)
+        E("V9 the ControllerHello request disappeared from the workflow");
     }
   }
 

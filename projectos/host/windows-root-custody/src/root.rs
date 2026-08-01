@@ -141,6 +141,103 @@ fn classify_syntax(text: &str) -> Result<(), RootCustodyError> {
     validate_local_root(text).map_err(|_| RootCustodyError::UnsupportedNamespace)
 }
 
+/// Custody of one explicitly trusted, absolute Windows FILE.
+///
+/// CD-B4-PROJECTOSHOST-FUNCTIONAL-PILOT1A (post-freeze installer correction).
+///
+/// The canonical identity record is a FILE, and its ACL must be applied to that file directly rather
+/// than inherited from the protected parent directories. Custody of it obeys exactly the same rules
+/// as [`WindowsRootCustody`]: the same handle open, the same reparse refusal, the same handle-derived
+/// identity, and the same two-sided revalidation. The ONLY difference is the type assertion — this one
+/// requires a non-directory and refuses a directory.
+pub struct WindowsFileCustody {
+    handle: OwnedRootHandle,
+    identity: RootIdentity,
+    canonical: PathBuf,
+    original: PathBuf,
+}
+
+impl WindowsFileCustody {
+    /// Open an explicitly supplied ABSOLUTE existing file as custody, retaining its handle.
+    /// The file is never created, never written, and a reparse point is refused rather than followed.
+    ///
+    /// # Errors
+    /// [`RootCustodyError`] classifying the refusal. [`RootCustodyError::NotAFile`] when the path
+    /// denotes a directory.
+    pub fn open(path: &Path) -> Result<Self, RootCustodyError> {
+        let text = path
+            .to_str()
+            .ok_or(RootCustodyError::UnsupportedNamespace)?;
+        classify_syntax(text)?;
+
+        let handle = windows::open_directory_handle(path)?;
+        let (identity, attributes) = windows::query_identity(&handle)?;
+        if attributes & ATTR_REPARSE_POINT != 0 {
+            return Err(RootCustodyError::ReparsePointRefused);
+        }
+        if attributes & ATTR_DIRECTORY != 0 {
+            return Err(RootCustodyError::NotAFile);
+        }
+        let canonical = windows::final_path(&handle)?;
+        Ok(Self {
+            handle,
+            identity,
+            canonical,
+            original: path.to_path_buf(),
+        })
+    }
+
+    /// The canonical file path derived FROM the held handle at open time.
+    #[must_use]
+    pub fn canonical_path(&self) -> &Path {
+        &self.canonical
+    }
+
+    /// The captured, immutable, handle-derived identity (values are redacted in `Debug`).
+    #[must_use]
+    pub fn identity(&self) -> RootIdentity {
+        self.identity
+    }
+
+    /// Confirm the held handle STILL denotes the original trusted file, and that the original pathname
+    /// still resolves to that same object. Identical in strictness to the directory revalidation.
+    ///
+    /// # Errors
+    /// [`RootCustodyError`] classifying the first detected divergence.
+    pub fn revalidate(&self) -> Result<(), RootCustodyError> {
+        let (held_identity, held_attributes) = windows::query_identity(&self.handle)?;
+        if held_attributes & ATTR_REPARSE_POINT != 0 {
+            return Err(RootCustodyError::ReparsePointRefused);
+        }
+        if held_attributes & ATTR_DIRECTORY != 0 {
+            return Err(RootCustodyError::NotAFile);
+        }
+        if !held_identity.same_object(&self.identity) {
+            return Err(RootCustodyError::IdentityMismatch);
+        }
+
+        let fresh = windows::open_directory_handle(&self.original)?;
+        let (fresh_identity, fresh_attributes) = windows::query_identity(&fresh)?;
+        if fresh_attributes & ATTR_REPARSE_POINT != 0 {
+            return Err(RootCustodyError::ReparsePointRefused);
+        }
+        if fresh_attributes & ATTR_DIRECTORY != 0 {
+            return Err(RootCustodyError::NotAFile);
+        }
+        if !fresh_identity.same_object(&self.identity) {
+            return Err(RootCustodyError::PathReplaced);
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Debug for WindowsFileCustody {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // REDACTED: no path, no identity values, no handle.
+        f.write_str("WindowsFileCustody(redacted)")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

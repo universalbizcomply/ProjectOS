@@ -105,7 +105,9 @@ mod windows;
 
 use std::path::Path;
 
-use projectos_host_windows_root_custody::{RootCustodyError, WindowsRootCustody};
+use projectos_host_windows_root_custody::{
+    RootCustodyError, WindowsFileCustody, WindowsRootCustody,
+};
 
 pub use descriptor::{AceKind, AceRecord, AclInspection, DaclState};
 pub use error::AclPolicyError;
@@ -129,6 +131,7 @@ fn map_custody(err: RootCustodyError) -> AclPolicyError {
         RootCustodyError::UnsupportedNamespace => AclPolicyError::UnsupportedNamespace,
         RootCustodyError::NotFound => AclPolicyError::NotFound,
         RootCustodyError::NotADirectory => AclPolicyError::NotADirectory,
+        RootCustodyError::NotAFile => AclPolicyError::NotAFile,
         RootCustodyError::ReparsePointRefused => AclPolicyError::ReparsePointRefused,
         RootCustodyError::IdentityMismatch | RootCustodyError::PathReplaced => {
             AclPolicyError::PathReplaced
@@ -164,7 +167,8 @@ impl WindowsAclPolicyService {
     /// [`AclPolicyError`] classifying the refusal.
     pub fn inspect_directory(&self, path: &Path) -> Result<AclInspection, AclPolicyError> {
         let custody = Self::admit(path)?;
-        let (owner, control, dacl) = windows::read_security(path)?;
+        let (owner, control, dacl) =
+            windows::read_security(path, windows::SecuredObjectKind::Directory)?;
         // The pathname must still denote the object that was admitted; otherwise the observation
         // describes a different object and must not be returned as if it described this one.
         custody.revalidate().map_err(map_custody)?;
@@ -231,7 +235,7 @@ impl WindowsAclPolicyService {
         let custody = Self::admit(path)?;
 
         // ---- the single effect ----
-        windows::apply_security(path, &owner, &acl)?;
+        windows::apply_security(path, &owner, &acl, windows::SecuredObjectKind::Directory)?;
 
         custody.revalidate().map_err(map_custody)
     }
@@ -253,6 +257,70 @@ impl WindowsAclPolicyService {
         self.apply_directory_policy(path, policy)?;
         // AUTHORITATIVE: re-read from Windows, convert, and judge. Not the value we just wrote.
         let observed = self.verify_directory(path, policy)?;
+        Ok(verify::classify_apply_outcome(observed))
+    }
+    /// Admit a FILE through the same custody rule the directory path uses: absolute local-root
+    /// syntax, existence, handle-derived type assertion, and reparse refusal.
+    fn admit_file(path: &Path) -> Result<WindowsFileCustody, AclPolicyError> {
+        WindowsFileCustody::open(path).map_err(map_custody)
+    }
+
+    /// Read the existing owner and DACL state of an explicitly supplied absolute FILE.
+    ///
+    /// CD-B4-PROJECTOSHOST-FUNCTIONAL-PILOT1A: the canonical identity record is a file, and its ACL
+    /// must be applied to that file directly — the protected parent directories carry non-inheritable
+    /// ACEs, so nothing is inherited and a file created beneath them is governed by no policy at all.
+    ///
+    /// # Errors
+    /// [`AclPolicyError`] classifying the refusal.
+    pub fn inspect_file(&self, path: &Path) -> Result<AclInspection, AclPolicyError> {
+        let custody = Self::admit_file(path)?;
+        let (owner, control, dacl) =
+            windows::read_security(path, windows::SecuredObjectKind::File)?;
+        custody.revalidate().map_err(map_custody)?;
+        AclInspection::from_raw(owner.as_deref(), control, dacl)
+    }
+
+    /// Compare an explicitly supplied absolute FILE's descriptor with an explicit policy.
+    ///
+    /// # Errors
+    /// [`AclPolicyError`] classifying the refusal. A non-conforming ACL is NOT an error.
+    pub fn verify_file(
+        &self,
+        path: &Path,
+        policy: &AclPolicy,
+    ) -> Result<AclVerification, AclPolicyError> {
+        let inspection = self.inspect_file(path)?;
+        verify::verify(&inspection, policy)
+    }
+
+    /// Apply the policy to ONE file. Identical refusal ordering to the directory path: every refusal
+    /// happens before any effect, and the DACL written is explicit, protected and non-inheritable.
+    ///
+    /// The file's CONTENTS are never opened for writing, read, truncated or rewritten — only its
+    /// security descriptor is set.
+    ///
+    /// # Errors
+    /// [`AclPolicyError`] classifying the refusal.
+    pub fn apply_file_policy(&self, path: &Path, policy: &AclPolicy) -> Result<(), AclPolicyError> {
+        let (owner, acl) = Self::intended_state(policy)?;
+        let custody = Self::admit_file(path)?;
+        windows::apply_security(path, &owner, &acl, windows::SecuredObjectKind::File)?;
+        custody.revalidate().map_err(map_custody)
+    }
+
+    /// Apply the policy to ONE file and then RE-READ it from Windows for authoritative verification.
+    /// A successful `Set` call alone is never reported as success.
+    ///
+    /// # Errors
+    /// [`AclPolicyError`] for a PRE-EFFECT refusal (the ACL was not changed).
+    pub fn apply_and_verify_file(
+        &self,
+        path: &Path,
+        policy: &AclPolicy,
+    ) -> Result<ApplyOutcome, AclPolicyError> {
+        self.apply_file_policy(path, policy)?;
+        let observed = self.verify_file(path, policy)?;
         Ok(verify::classify_apply_outcome(observed))
     }
 }

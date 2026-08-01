@@ -1295,3 +1295,296 @@ impl LiveIpcPeerContributor {
             .contribute_ipc_peer(attempt, true, PeerRole::ServiceFixture)
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// CD-B4-PROJECTOSHOST-FUNCTIONAL-PILOT1A — the CLIENT half of the read-only status workflow.
+//
+// The installed service is the pipe SERVER (it creates the endpoint under the protected
+// service-SID descriptor). The Control Centre is the pipe CLIENT, and this is the ONLY route it
+// has. It sends exactly one `ControllerHello` — the existing request, no new kind — reads the
+// `ServiceReady` answer, then reads exactly one status record judged by the STRICT decoder.
+//
+// There is no generic send, no raw-payload accessor, and no second thing this client can ask for.
+// ---------------------------------------------------------------------------------------------
+
+/// The CLOSED outcome of one client-side status read. It carries the DECODED record or a specific
+/// refusal — never bytes, never a partially trusted frame.
+#[cfg(feature = "owner-approved-status-read")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ClientStatusReadOutcome {
+    /// The full exchange completed and the record decoded strictly.
+    Status(InstalledHostStatus),
+    /// The service's answer was not an accepted `ServiceReady` — wrong kind, nonce, or role.
+    RefusedHandshake(crate::adapter::HandshakeOutcome),
+    /// A frame did not decode. Reported as a refusal; never as an empty or default status.
+    Malformed(FrameParseError),
+    /// A transport failure — redacted.
+    Failed(IpcFailure),
+}
+
+/// NARROW PUBLIC FAÇADE — the read-only installed-host status CLIENT.
+///
+/// Present only under the owner-approved feature, and every method demands the sealed capability, so
+/// a build without the owner's transcribed approval has no route here at all. The backend it wraps is
+/// a PRIVATE field of a PRIVATE type and no Win32 function is exposed.
+#[cfg(feature = "owner-approved-status-read")]
+pub struct WindowsInstalledHostStatusClient {
+    backend: WindowsPipeBackend,
+}
+
+#[cfg(feature = "owner-approved-status-read")]
+impl WindowsInstalledHostStatusClient {
+    /// Bind the client to the ONE frozen status endpoint.
+    ///
+    /// The run identifier is the frozen constant, not a parameter: a caller cannot point this client
+    /// at a different pipe, and the nonce it will expect is derived from the same bytes the service
+    /// derives its own from.
+    #[must_use]
+    pub fn for_installed_host() -> Self {
+        Self {
+            backend: WindowsPipeBackend::new(crate::protocol::INSTALLED_HOST_STATUS_RUN_ID),
+        }
+    }
+
+    /// Perform ONE read-only status exchange and return the decoded record or a specific refusal.
+    ///
+    /// Order: connect, send `ControllerHello`, verify `ServiceReady`, decode the status. Every step
+    /// fails closed; there is no branch that returns a status the strict decoder did not produce.
+    #[must_use]
+    pub fn read_installed_host_status(
+        &self,
+        _cap: &LiveIpcOperationCapability,
+    ) -> ClientStatusReadOutcome {
+        let handle = match self.backend.open_client() {
+            Ok(h) => h,
+            Err(f) => return ClientStatusReadOutcome::Failed(f),
+        };
+
+        // The request is the EXISTING ControllerHello, built by the canonical encoder. No arbitrary
+        // bytes and no new message kind are representable here.
+        let hello = encode_control_frame(
+            MessageKind::ControllerHello,
+            &self.backend.nonce,
+            PeerRole::Controller.wire(),
+        );
+        let (handle, sent) = self.backend.write_frame_owned(handle, &hello);
+        if let Err(f) = sent {
+            return ClientStatusReadOutcome::Failed(f);
+        }
+        let Some(handle) = handle else {
+            // The handle went to quarantine: the operation was never confirmed terminal, so nothing
+            // may be read from it and no status may be reported.
+            return ClientStatusReadOutcome::Failed(IpcFailure::EndpointUnavailable);
+        };
+
+        // The service's answer must be a well-formed ServiceReady bound to the same single-use nonce
+        // and declaring the service role. Anything else is a refusal.
+        let (handle, ready) = self.backend.read_raw_owned(handle);
+        let Some(handle) = handle else {
+            return ClientStatusReadOutcome::Failed(IpcFailure::EndpointUnavailable);
+        };
+        match ready {
+            Ok((buf, n)) => match parse_single_frame(&buf[..n]) {
+                Ok((hdr, nonce)) => {
+                    if hdr.kind() != MessageKind::ServiceReady {
+                        return ClientStatusReadOutcome::RefusedHandshake(
+                            crate::adapter::HandshakeOutcome::RefusedWrongMessageKind,
+                        );
+                    }
+                    if nonce != self.backend.nonce {
+                        return ClientStatusReadOutcome::RefusedHandshake(
+                            crate::adapter::HandshakeOutcome::RefusedNonceMismatch,
+                        );
+                    }
+                    if PeerRole::from_wire(hdr.control_flag()) != PeerRole::ServiceFixture {
+                        return ClientStatusReadOutcome::RefusedHandshake(
+                            crate::adapter::HandshakeOutcome::RefusedRole,
+                        );
+                    }
+                }
+                Err(e) => return ClientStatusReadOutcome::Malformed(e),
+            },
+            Err(f) => return ClientStatusReadOutcome::Failed(f),
+        }
+
+        // The status record. The STRICT decoder judges it; nothing here inspects the payload.
+        let (_handle, status) = self.backend.read_raw_owned(handle);
+        match status {
+            Ok((buf, n)) => match decode_installed_host_status(&buf[..n]) {
+                Ok((status, nonce)) => {
+                    if nonce != self.backend.nonce {
+                        return ClientStatusReadOutcome::RefusedHandshake(
+                            crate::adapter::HandshakeOutcome::RefusedNonceMismatch,
+                        );
+                    }
+                    ClientStatusReadOutcome::Status(status)
+                }
+                Err(e) => ClientStatusReadOutcome::Malformed(e),
+            },
+            Err(f) => ClientStatusReadOutcome::Failed(f),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// CD-B4-PROJECTOSHOST-FUNCTIONAL-PILOT1A — the SERVER half, as the installed service runs it.
+//
+// The installed ProjectOSHost is the pipe SERVER. This façade exists because the live backend is a
+// private type inside a private module: without it the service could name no live transport at all.
+// It adds NO logic of its own — it calls exactly the four accepted adapter steps in order and
+// returns their closed outcomes.
+// ---------------------------------------------------------------------------------------------
+
+/// The CLOSED outcome of one served status exchange.
+#[cfg(feature = "owner-approved-status-read")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ServeStatusOutcome {
+    /// A confirmed controller was answered with exactly one status record.
+    StatusServed,
+    /// The endpoint was not prepared — including a pipe security that was not Ready.
+    RefusedPreparation(crate::adapter::ServerPreparation),
+    /// No local client connected.
+    RefusedConnection(ConnectionState),
+    /// The request was refused: wrong kind, wrong nonce, replayed, stale, wrong role or malformed.
+    RefusedHandshake(crate::adapter::HandshakeOutcome),
+    /// The record could not be put on the wire — redacted.
+    SendFailed(IpcFailure),
+}
+
+/// NARROW PUBLIC FAÇADE — the read-only installed-host status SERVER.
+///
+/// Owner-feature gated and capability-gated, exactly like the client. It grants nothing on its own:
+/// the sealed capability is still required for every step.
+#[cfg(feature = "owner-approved-status-read")]
+pub struct WindowsInstalledHostStatusServer {
+    adapter: crate::adapter::LocalIpcAdapter<WindowsPipeBackend>,
+}
+
+#[cfg(feature = "owner-approved-status-read")]
+impl WindowsInstalledHostStatusServer {
+    /// Bind the server to the ONE frozen status endpoint — the same run identifier, and therefore the
+    /// same pipe name and the same single-use nonce, the client derives.
+    #[must_use]
+    pub fn for_installed_host() -> Self {
+        Self {
+            adapter: crate::adapter::LocalIpcAdapter::new(WindowsPipeBackend::new(
+                crate::protocol::INSTALLED_HOST_STATUS_RUN_ID,
+            )),
+        }
+    }
+
+    /// Serve at most ONE read-only status exchange, then finish.
+    ///
+    /// `observe` is called ONLY after the request has been confirmed, so a refused or malformed
+    /// request never causes the host to be observed, and the record that is sent is always the one
+    /// observed for this exchange.
+    #[must_use]
+    pub fn serve_one_status_exchange(
+        &self,
+        cap: &LiveIpcOperationCapability,
+        security: crate::ProjectOsHostPipeSecurityStatus,
+        observe: impl FnOnce() -> InstalledHostStatus,
+    ) -> ServeStatusOutcome {
+        // 1. Prepare. A security that is not Ready refuses here; there is no weaker fallback.
+        let prepared = self.adapter.prepare_server(cap, security);
+        if prepared != crate::adapter::ServerPreparation::Prepared {
+            return ServeStatusOutcome::RefusedPreparation(prepared);
+        }
+        // 2. Accept a RAW local connection. Nothing is authenticated by this.
+        let connected = self.adapter.accept_unauthenticated(cap);
+        if connected != ConnectionState::TransportConnectedUnauthenticated {
+            return ServeStatusOutcome::RefusedConnection(connected);
+        }
+        // 3. The bounded service-side handshake: it consumes the ControllerHello and verifies kind,
+        //    nonce, replay, freshness and role, then answers ServiceReady. Malformed, replayed,
+        //    stale, wrong-role and wrong-kind requests all fail closed right here.
+        let handshake = self.adapter.complete_service_handshake(cap);
+        if !handshake.is_peer_confirmed() {
+            return ServeStatusOutcome::RefusedHandshake(handshake);
+        }
+        // 4. Observe (read-only) and answer with exactly one record.
+        let status = observe();
+        match self.adapter.send_installed_host_status(cap, &status) {
+            SendOutcome::Sent => ServeStatusOutcome::StatusServed,
+            SendOutcome::Failed(f) => ServeStatusOutcome::SendFailed(f),
+        }
+    }
+}
+
+/// PROOF-ONLY refusal probes. Compiled ONLY when the non-default `test-fixtures` feature is combined
+/// with the owner-approved feature, so neither the installed service nor the Control Centre — whose
+/// graphs never enable `test-fixtures` — can reach any of this.
+///
+/// Each variant builds its own bytes INSIDE the probe. There is no caller-supplied payload: this is
+/// three fixed, deliberately-invalid requests, not a generic send.
+#[cfg(all(feature = "owner-approved-status-read", feature = "test-fixtures"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RefusalProbe {
+    /// A well-formed frame of a kind the service must not accept as a request.
+    WrongMessageKind,
+    /// A frame with a corrupted magic, which the strict parser must refuse.
+    MalformedFrame,
+    /// A well-formed `ControllerHello` that declares the SERVICE role instead of the controller's.
+    WrongPeerRole,
+}
+
+#[cfg(all(feature = "owner-approved-status-read", feature = "test-fixtures"))]
+impl WindowsInstalledHostStatusClient {
+    /// Send ONE deliberately invalid request and report what came back.
+    ///
+    /// A correct service answers NOTHING: the exchange must never yield
+    /// [`ClientStatusReadOutcome::Status`]. That absence is the proof.
+    #[must_use]
+    pub fn probe_refusal(
+        &self,
+        _cap: &LiveIpcOperationCapability,
+        probe: RefusalProbe,
+    ) -> ClientStatusReadOutcome {
+        let frame = match probe {
+            RefusalProbe::WrongMessageKind => encode_control_frame(
+                MessageKind::ShutdownRequest,
+                &self.backend.nonce,
+                PeerRole::Controller.wire(),
+            ),
+            RefusalProbe::MalformedFrame => {
+                let mut f = encode_control_frame(
+                    MessageKind::ControllerHello,
+                    &self.backend.nonce,
+                    PeerRole::Controller.wire(),
+                );
+                // Corrupt the magic. The strict parser must refuse before anything else is read.
+                f[0] ^= 0xff;
+                f
+            }
+            RefusalProbe::WrongPeerRole => encode_control_frame(
+                MessageKind::ControllerHello,
+                &self.backend.nonce,
+                PeerRole::ServiceFixture.wire(),
+            ),
+        };
+
+        let handle = match self.backend.open_client() {
+            Ok(h) => h,
+            Err(f) => return ClientStatusReadOutcome::Failed(f),
+        };
+        let (handle, sent) = self.backend.write_frame_owned(handle, &frame);
+        if let Err(f) = sent {
+            return ClientStatusReadOutcome::Failed(f);
+        }
+        let Some(handle) = handle else {
+            return ClientStatusReadOutcome::Failed(IpcFailure::EndpointUnavailable);
+        };
+        // Whatever comes back is judged by the STRICT decoder. A refusing service sends nothing, so
+        // this read fails — and a Status outcome is unreachable unless the service actually answered.
+        let (_handle, answer) = self.backend.read_raw_owned(handle);
+        match answer {
+            Ok((buf, n)) => match decode_installed_host_status(&buf[..n]) {
+                Ok((status, _)) => ClientStatusReadOutcome::Status(status),
+                Err(e) => ClientStatusReadOutcome::Malformed(e),
+            },
+            Err(f) => ClientStatusReadOutcome::Failed(f),
+        }
+    }
+}

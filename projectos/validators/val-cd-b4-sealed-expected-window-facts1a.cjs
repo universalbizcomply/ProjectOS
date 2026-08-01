@@ -289,11 +289,15 @@ function run() {
   }
 
   // ---- V9 no Tauri command / runtime trigger was added by this phase ----
+  //
+  // AMENDED by CD-B4-PROJECTOSHOST-FUNCTIONAL-PILOT1A: the pinned set gains ONE read-only command,
+  // `installed_host_status`. It stays an EXACT-set pin, so no window-fact command — or any other —
+  // can be smuggled in, and this phase still registers no runtime trigger.
   {
     const st = path.join(ROOT, "projectos", "control-center", "src-tauri", "src");
     if (fs.existsSync(st)) {
       const app = read(path.join(st, "app.rs"));
-      if (!/generate_handler!\[\s*daemon_request_snapshot,\s*daemon_status,\s*identity_status\s*\]/.test(app.replace(/\s+/g, " ")))
+      if (!/generate_handler!\[\s*daemon_request_snapshot,\s*daemon_status,\s*identity_status,\s*crate::host_status::installed_host_status\s*\]/.test(app.replace(/\s+/g, " ")))
         E("V9 the registered Tauri command set changed");
     }
   }

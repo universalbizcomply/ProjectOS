@@ -209,6 +209,58 @@ impl AclCompositionPlan {
         AclCompositionOutcome::Composed(AclPolicy::strict(service.principal().clone(), allowed))
     }
 
+    /// Compose the policy for the CANONICAL IDENTITY RECORD FILE.
+    ///
+    /// CD-B4-PROJECTOSHOST-FUNCTIONAL-PILOT1A (post-freeze installer correction).
+    ///
+    /// Two things differ from the directory policy, and only these two:
+    ///
+    /// 1. the service principal gets [`RightsClass::Read`], NOT full control. The service only ever
+    ///    reads its own identity record, so it must not be able to write, append, delete, re-DAC or
+    ///    take ownership of the thing that proves who it is;
+    /// 2. the expected owner is the INSTALLING account, not the service. An owner holds implicit
+    ///    `WRITE_DAC`, so making the service the owner would hand back exactly the authority point 1
+    ///    withholds. The existing owner is preserved rather than a new ownership policy invented.
+    ///
+    /// Everything else is the same closed `AclPolicy::strict`: protected DACL, no inherited ACEs, no
+    /// unknown principals, no deny ACEs, no broad principal with any access.
+    #[must_use]
+    pub fn compose_record_file_with_resolved_principal(
+        &self,
+        identity: &ServiceIdentityPlan,
+        service: &ApprovedServicePrincipal,
+    ) -> AclCompositionOutcome {
+        let strategy = match identity.decision() {
+            IdentityDecisionStatus::Undecided | IdentityDecisionStatus::Recommended(_) => {
+                return AclCompositionOutcome::OwnerDecisionRequired
+            }
+            IdentityDecisionStatus::OwnerApproved(s) => s,
+        };
+        if service.strategy() != strategy {
+            return AclCompositionOutcome::ServiceIdentityRequired;
+        }
+        let mut allowed = vec![AllowedPrincipal {
+            principal: service.principal().clone(),
+            rights: RightsClass::Read,
+        }];
+        if self.administrators_retained {
+            allowed.push(AllowedPrincipal {
+                principal: AclPrincipal::BuiltinAdministrators,
+                rights: RightsClass::FullControl,
+            });
+        }
+        if self.local_system_retained && strategy != ServiceIdentityStrategy::LocalSystem {
+            allowed.push(AllowedPrincipal {
+                principal: AclPrincipal::LocalSystem,
+                rights: RightsClass::FullControl,
+            });
+        }
+        AclCompositionOutcome::Composed(AclPolicy::strict(
+            AclPrincipal::CurrentInteractiveUser,
+            allowed,
+        ))
+    }
+
     /// Attempt to compose the final policy.
     ///
     /// Fails CLOSED at each stage: undecided strategy → `OwnerDecisionRequired`; decided but
@@ -337,5 +389,134 @@ mod tests {
             !text.contains("0x"),
             "no raw pointer or mask blob may appear"
         );
+    }
+}
+
+#[cfg(test)]
+mod record_file_policy_tests {
+    use super::*;
+    /// A syntactically valid, non-broad SID standing in for a resolved per-service SID:
+    /// `S-1-5-80-1-1-1-1` — the NT SERVICE authority, exactly the shape a virtual service account
+    /// resolves to. It is not a broad principal and not a well-known alias.
+    fn resolved_service_sid() -> OwnedSid {
+        let mut bytes = vec![1u8, 5, 0, 0, 0, 0, 0, 5];
+        for sub in [80u32, 1, 1, 1, 1] {
+            bytes.extend_from_slice(&sub.to_le_bytes());
+        }
+        OwnedSid::from_bytes(&bytes).expect("a well-formed service SID")
+    }
+
+    fn composed() -> AclPolicy {
+        let identity = ServiceIdentityPlan::analysed()
+            .with_owner_decision(ServiceIdentityStrategy::VirtualServiceAccount);
+        let principal = ApprovedServicePrincipal::from_resolved_sid(
+            ServiceIdentityStrategy::VirtualServiceAccount,
+            resolved_service_sid(),
+        )
+        .expect("the approved strategy composes");
+        match AclCompositionPlan::production()
+            .compose_record_file_with_resolved_principal(&identity, &principal)
+        {
+            AclCompositionOutcome::Composed(p) => p,
+            other => panic!("expected a composed record-file policy, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_record_file_policy_grants_the_service_read_only() {
+        let policy = composed();
+        let service = policy
+            .allowed
+            .iter()
+            .find(|a| matches!(a.principal, AclPrincipal::ExplicitSid(_)))
+            .expect("the service principal is present");
+        assert_eq!(service.rights, RightsClass::Read);
+        assert_ne!(service.rights, RightsClass::FullControl);
+        assert_ne!(service.rights, RightsClass::Modify);
+    }
+
+    #[test]
+    fn the_service_can_never_receive_write_delete_or_acl_changing_rights() {
+        let policy = composed();
+        let service = policy
+            .allowed
+            .iter()
+            .find(|a| matches!(a.principal, AclPrincipal::ExplicitSid(_)))
+            .expect("the service principal is present");
+        let mask = service.rights.mask();
+        // Every right the ACL contract forbids the service identity, checked bit by bit.
+        for (name, bit) in [
+            ("FILE_WRITE_DATA", 0x0000_0002u32),
+            ("FILE_APPEND_DATA", 0x0000_0004),
+            ("FILE_WRITE_EA", 0x0000_0010),
+            ("FILE_WRITE_ATTRIBUTES", 0x0000_0100),
+            ("FILE_DELETE_CHILD", 0x0000_0040),
+            ("DELETE", 0x0001_0000),
+            ("WRITE_DAC", 0x0004_0000),
+            ("WRITE_OWNER", 0x0008_0000),
+        ] {
+            assert_eq!(mask & bit, 0, "the service must not hold {name}");
+        }
+        assert_ne!(
+            mask & 0x0000_0001,
+            0,
+            "the service must be able to read data"
+        );
+    }
+
+    #[test]
+    fn system_and_administrators_keep_full_control() {
+        let policy = composed();
+        for principal in [
+            AclPrincipal::LocalSystem,
+            AclPrincipal::BuiltinAdministrators,
+        ] {
+            let entry = policy
+                .allowed
+                .iter()
+                .find(|a| a.principal == principal)
+                .unwrap_or_else(|| panic!("{principal:?} is present"));
+            assert_eq!(entry.rights, RightsClass::FullControl);
+        }
+    }
+
+    #[test]
+    fn no_broad_principal_is_admitted_and_the_dacl_is_protected() {
+        let policy = composed();
+        assert!(!policy.grants_broad_write());
+        assert!(policy.require_protected_dacl);
+        assert!(!policy.allow_inherited_aces);
+        assert!(!policy.allow_unknown_principals);
+        assert!(!policy.allow_deny_aces);
+        assert!(!policy.allow_broad_principals_any_access);
+        assert!(!policy.allow_broad_principals_write);
+        // Exactly three principals: the service, Administrators and SYSTEM. Nothing else.
+        assert_eq!(policy.allowed.len(), 3);
+    }
+
+    #[test]
+    fn the_installing_owner_is_preserved_rather_than_the_service_made_owner() {
+        // An owner holds implicit WRITE_DAC. Making the service the owner would hand back exactly the
+        // authority the read-only grant withholds, so the record file keeps the installing account.
+        let policy = composed();
+        assert_eq!(policy.expected_owner, AclPrincipal::CurrentInteractiveUser);
+        assert!(!matches!(
+            policy.expected_owner,
+            AclPrincipal::ExplicitSid(_)
+        ));
+    }
+
+    #[test]
+    fn an_undecided_identity_blocks_the_record_file_policy_too() {
+        let principal = ApprovedServicePrincipal::from_resolved_sid(
+            ServiceIdentityStrategy::VirtualServiceAccount,
+            resolved_service_sid(),
+        )
+        .expect("the approved strategy composes");
+        let outcome = AclCompositionPlan::production().compose_record_file_with_resolved_principal(
+            &ServiceIdentityPlan::analysed(),
+            &principal,
+        );
+        assert_eq!(outcome, AclCompositionOutcome::OwnerDecisionRequired);
     }
 }

@@ -28,6 +28,8 @@ pub mod lifecycle;
 #[cfg(windows)]
 pub mod scm;
 #[cfg(windows)]
+pub mod serve;
+#[cfg(windows)]
 pub mod status;
 
 /// The exact service name. Frozen: it is not derived from the file name, the command line or the

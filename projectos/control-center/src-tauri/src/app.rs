@@ -229,7 +229,8 @@ fn run_inner() {
         .invoke_handler(tauri::generate_handler![
             daemon_request_snapshot,
             daemon_status,
-            identity_status
+            identity_status,
+            crate::host_status::installed_host_status
         ])
         .build(tauri::generate_context!())
         .expect("error while building ProjectOS Control Center");

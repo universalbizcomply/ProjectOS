@@ -2568,6 +2568,7 @@ dependencies = [
 name = "projectos-control-center"
 version = "0.1.0"
 dependencies = [
+ "projectos-host-windows-local-ipc",
  "projectos-host-windows-owner-verification",
  "projectos-shared-host-runtime",
  "projectos-windows-runtime-primitives",
@@ -2583,6 +2584,20 @@ dependencies = [
 [[package]]
 name = "projectos-host-authority"
 version = "0.0.0"
+dependencies = [
+ "projectos-windows-runtime-primitives",
+ "windows",
+]
+
+[[package]]
+name = "projectos-host-core"
+version = "0.0.0"
+dependencies = [
+ "projectos-host-authority",
+ "projectos-trust-contract",
+ "sha2",
+ "thiserror 1.0.69",
+]
 
 [[package]]
 name = "projectos-host-identity"
@@ -2596,10 +2611,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "projectos-host-windows-local-ipc"
+version = "0.0.0"
+dependencies = [
+ "projectos-host-authority",
+ "projectos-host-core",
+ "projectos-host-windows-service-identity-proof",
+ "windows",
+]
+
+[[package]]
 name = "projectos-host-windows-owner-verification"
 version = "0.0.0"
 dependencies = [
  "sha2",
+]
+
+[[package]]
+name = "projectos-host-windows-service-identity-proof"
+version = "0.0.0"
+dependencies = [
+ "projectos-host-authority",
+ "projectos-windows-runtime-primitives",
+ "windows",
 ]
 
 [[package]]
@@ -2608,6 +2642,15 @@ version = "0.0.0"
 dependencies = [
  "projectos-host-authority",
  "projectos-host-identity",
+]
+
+[[package]]
+name = "projectos-trust-contract"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
 ]
 
 [[package]]

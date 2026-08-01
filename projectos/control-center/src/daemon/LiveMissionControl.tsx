@@ -3,7 +3,7 @@
  * daemon's mirrored state and never edits anything. Everything updates from daemon events;
  * there is no refresh button and no polling.
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   useDaemon,
   useConnection,
@@ -17,6 +17,12 @@ import {
   useNotifications,
 } from './DaemonProvider.js';
 import { filterEvents } from './eventStream.js';
+import {
+  readInstalledHostStatus,
+  unavailableView,
+  type InstalledHostStatusView,
+} from './installedHostStatus.js';
+import { tauriBridge } from './tauriBridge.js';
 import type { ConnectionState, LiveLifecycle, LivePhase, LiveWorker } from './types.js';
 
 const CONN_LABEL: Record<ConnectionState, string> = {
@@ -69,6 +75,7 @@ export function LiveMissionControl() {
         <ConnectionBadge state={connection} lifecycle={lifecycle} />
       </div>
       <HealthPanel />
+      <InstalledHostPanel />
       <div className="live-grid">
         <WorkerPanel />
         <ReviewPanel />
@@ -244,6 +251,60 @@ function ProjectLivePanel() {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+/**
+ * The installed ProjectOSHost — read-only. One request, one answer, seven values.
+ *
+ * It renders EXACTLY what the host returned. When the read did not succeed every value is
+ * `UNAVAILABLE`, so an unverified or unreachable host is never presented as Verified or Ready. It
+ * shows no installation ID, no raw record, no path, no secret and no capability.
+ */
+function InstalledHostPanel() {
+  const [view, setView] = useState<InstalledHostStatusView | null>(null);
+  useEffect(() => {
+    let live = true;
+    readInstalledHostStatus(tauriBridge)
+      .then((v) => {
+        if (live) setView(v);
+      })
+      .catch(() => {
+        if (live) setView(unavailableView('The installed host could not be reached.'));
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
+  if (view === null) {
+    return (
+      <div className="section muted-note" role="region" aria-label="Installed host" aria-live="polite">
+        Reading the installed host…
+      </div>
+    );
+  }
+  const rows: ReadonlyArray<[string, string]> = [
+    ['Service', view.serviceState],
+    ['Installation identity', view.identityVerification],
+    ['Channel', view.channel],
+    ['Build', view.buildPrefix],
+    ['Release manifest', view.manifestPrefix],
+    ['Readiness', view.readiness],
+    ['Protected operations', view.protectedOperations],
+  ];
+  return (
+    <div className="section" role="region" aria-label="Installed host" aria-live="polite">
+      <h2 className="panel-h">Installed host</h2>
+      <div className="health-grid">
+        {rows.map(([label, value]) => (
+          <div className="health-cell" key={label}>
+            <div className="hv">{value}</div>
+            <div className="hk">{label}</div>
+          </div>
+        ))}
+      </div>
+      <div className="muted-note">{view.nextSafeAction}</div>
     </div>
   );
 }

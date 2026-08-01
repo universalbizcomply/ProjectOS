@@ -68,6 +68,16 @@ fn the_full_dry_run_reaches_the_effect_authority_gate_and_stops() {
     use projectos_host_windows_service_installation_contract::contract::InstallationEffectAuthority;
 
     let artefact = ArtefactEvidence::from_build_output(&artefact_path()).expect("artefact");
+
+    // What the machine looked like BEFORE the dry run. On a machine with no installation these are
+    // all absent; on a machine that HAS one (the accepted local installation) they already exist.
+    // Either way the claim being proven is the same: the dry run creates nothing and changes nothing.
+    let probe = production_dry_run(&artefact).expect("dry run reaches the gate");
+    let before_record = probe.record_path().exists();
+    let before_record_dir = probe.record_path().parent().unwrap().exists();
+    let before_binary = probe.service_binary_path().exists();
+    let before_binary_dir = probe.service_binary_path().parent().unwrap().exists();
+
     let report = production_dry_run(&artefact).expect("dry run reaches the gate");
 
     // Both anchors resolved, and the report names them SYMBOLICALLY.
@@ -96,19 +106,27 @@ fn the_full_dry_run_reaches_the_effect_authority_gate_and_stops() {
     assert_eq!(report.stopped_at(), PlanRefusal::ElevationAbsent);
     assert!(report.reached_effect_authority_gate());
 
-    // AND NOTHING WAS CREATED. Neither derived production location exists.
-    assert!(!report.record_path().exists(), "a production record exists");
-    assert!(
-        !report.record_path().parent().unwrap().exists(),
-        "the production installation directory was created"
+    // AND NOTHING WAS CREATED OR REMOVED. The dry run leaves every derived production location
+    // exactly as it found it — it never creates one, and never disturbs an existing installation.
+    assert_eq!(
+        report.record_path().exists(),
+        before_record,
+        "the dry run changed whether a production record exists"
     );
-    assert!(
-        !report.service_binary_path().exists(),
-        "a binary was installed into Program Files"
+    assert_eq!(
+        report.record_path().parent().unwrap().exists(),
+        before_record_dir,
+        "the dry run changed whether the production installation directory exists"
     );
-    assert!(
-        !report.service_binary_path().parent().unwrap().exists(),
-        "the production install directory was created"
+    assert_eq!(
+        report.service_binary_path().exists(),
+        before_binary,
+        "the dry run changed whether a binary exists in Program Files"
+    );
+    assert_eq!(
+        report.service_binary_path().parent().unwrap().exists(),
+        before_binary_dir,
+        "the dry run changed whether the production install directory exists"
     );
 }
 

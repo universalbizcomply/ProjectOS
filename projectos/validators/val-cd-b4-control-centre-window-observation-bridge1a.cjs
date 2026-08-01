@@ -289,8 +289,12 @@ function run() {
   }
 
   // ---- V5 no window-fact Tauri command ----
+  //
+  // AMENDED by CD-B4-PROJECTOSHOST-FUNCTIONAL-PILOT1A: the pinned set gains ONE read-only command,
+  // `installed_host_status`. It stays an EXACT-set pin, so no window-fact command — or any other —
+  // can be smuggled in, and this phase still registers no runtime trigger.
   if (/#\[tauri::command\]/.test(obs + life + modrs)) E("V5 a Tauri command is registered in the owner-window bridge");
-  if (!/generate_handler!\[\s*daemon_request_snapshot,\s*daemon_status,\s*identity_status\s*\]/.test(app.replace(/\s+/g, " ")))
+  if (!/generate_handler!\[\s*daemon_request_snapshot,\s*daemon_status,\s*identity_status,\s*crate::host_status::installed_host_status\s*\]/.test(app.replace(/\s+/g, " ")))
     E("V5 the registered command set changed (window-fact command may have been added)");
 
   // ---- V6 designated label is "main" ----

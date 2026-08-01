@@ -30,6 +30,9 @@ pub enum RootCustodyError {
     /// The opened object is not a directory.
     #[error("root is not a directory")]
     NotADirectory,
+    /// The path denotes a directory where a FILE was required.
+    #[error("path is not a file")]
+    NotAFile,
     /// The object is a symlink, junction, or other reparse point; following it is refused.
     #[error("reparse point refused")]
     ReparsePointRefused,

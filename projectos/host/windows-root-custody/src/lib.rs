@@ -53,4 +53,4 @@ mod windows;
 
 pub use error::RootCustodyError;
 pub use identity::RootIdentity;
-pub use root::WindowsRootCustody;
+pub use root::{WindowsFileCustody, WindowsRootCustody};

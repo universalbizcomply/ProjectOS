@@ -608,3 +608,134 @@ fn errors_and_debug_output_disclose_nothing_sensitive() {
 
     cleanup(&dir);
 }
+
+// ---------------------------------------------------------------------------------------------
+// CD-B4-PROJECTOSHOST-FUNCTIONAL-PILOT1A — the FILE ACL path.
+//
+// The canonical identity record is a FILE beneath directories whose protected DACLs carry
+// non-inheritable ACEs. Nothing is inherited, so the policy must be applied to the file itself.
+// Every fixture here is a synthetic temp file this test creates and deletes.
+// ---------------------------------------------------------------------------------------------
+
+/// The exact bytes a canonical record would have. Their content is irrelevant; that they are
+/// UNCHANGED by an ACL application is the point.
+const FIXTURE_RECORD: &[u8] = br#"{"schema_version":1,"product":"ProjectOS"}"#;
+
+fn unique_record_file(tag: &str) -> (PathBuf, PathBuf) {
+    let dir = unique_dir(tag);
+    let file = dir.join("identity.v1.json");
+    std::fs::write(&file, FIXTURE_RECORD).expect("the fixture record must be writable");
+    (dir, file)
+}
+
+/// The shape of the approved record-file policy: the service read-only, SYSTEM and Administrators
+/// full, the installing account as owner, nothing else. `CurrentInteractiveUser` stands in for the
+/// per-service SID, which exists only on a machine with the service installed.
+fn record_file_policy(service_stand_in: AclPrincipal) -> AclPolicy {
+    AclPolicy::strict(
+        AclPrincipal::CurrentInteractiveUser,
+        vec![
+            AllowedPrincipal {
+                principal: service_stand_in,
+                rights: RightsClass::Read,
+            },
+            AllowedPrincipal {
+                principal: AclPrincipal::BuiltinAdministrators,
+                rights: RightsClass::FullControl,
+            },
+            AllowedPrincipal {
+                principal: AclPrincipal::LocalSystem,
+                rights: RightsClass::FullControl,
+            },
+        ],
+    )
+}
+
+#[test]
+fn a_file_policy_applies_and_verifies_and_leaves_the_record_bytes_untouched() {
+    let (dir, file) = unique_record_file("recordfile");
+    let service = WindowsAclPolicyService::new();
+    let policy = record_file_policy(AclPrincipal::CurrentInteractiveUser);
+
+    let before = std::fs::read(&file).expect("the fixture record is readable");
+
+    // Every observation is collected BEFORE anything can panic, so the fixture is always cleaned up.
+    // A panic between applying a protected DACL and removing the directory would leak a temp fixture
+    // whose own ACL then makes it awkward to delete — so no assertion runs before cleanup.
+    let outcome = service.apply_and_verify_file(&file, &policy);
+    let confirmed = matches!(outcome, Ok(ApplyOutcome::Confirmed));
+    let conforming = service
+        .verify_file(&file, &policy)
+        .map(|v| v.is_conforming())
+        .unwrap_or(false);
+    let dacl = service.inspect_file(&file).map(|i| i.dacl).ok();
+    let after = std::fs::read(&file).ok();
+    cleanup(&dir);
+
+    // An environment that refuses ownership assignment is reported, never silently passed.
+    assert!(
+        confirmed,
+        "the record-file policy did not apply cleanly: {outcome:?}"
+    );
+    // AUTHORITATIVE re-read, not the value written.
+    assert!(
+        conforming,
+        "the applied file does not verify against its own policy"
+    );
+    assert_eq!(dacl, Some(DaclState::Present));
+    // THE POINT: an ACL application must never touch the record's contents.
+    assert_eq!(
+        after.as_deref(),
+        Some(before.as_slice()),
+        "the record bytes changed during ACL application"
+    );
+    assert_eq!(after.as_deref(), Some(FIXTURE_RECORD));
+}
+
+#[test]
+fn a_file_policy_granting_a_broad_principal_is_refused_before_any_effect() {
+    let (dir, file) = unique_record_file("recordbroad");
+    let service = WindowsAclPolicyService::new();
+    let before = std::fs::read(&file).expect("the fixture record is readable");
+
+    // `Everyone` with read access. The policy must be refused BEFORE any descriptor is written.
+    let broad = AclPolicy::strict(
+        AclPrincipal::CurrentInteractiveUser,
+        vec![AllowedPrincipal {
+            principal: AclPrincipal::ExplicitSid(
+                projectos_host_windows_acl_policy::OwnedSid::from_bytes(&[
+                    1, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,
+                ])
+                .expect("S-1-1-0 is a well-formed SID"),
+            ),
+            rights: RightsClass::Read,
+        }],
+    );
+    let outcome = service.apply_file_policy(&file, &broad);
+    let after = std::fs::read(&file).ok();
+    cleanup(&dir);
+
+    assert!(
+        matches!(outcome, Err(AclPolicyError::PolicyRefused)),
+        "a broad principal must be refused pre-effect, got {outcome:?}"
+    );
+    assert_eq!(
+        after.as_deref(),
+        Some(before.as_slice()),
+        "a refused policy must not touch the record"
+    );
+}
+
+#[test]
+fn a_directory_is_refused_by_the_file_path_and_a_file_by_the_directory_path() {
+    let (dir, file) = unique_record_file("recordtype");
+    let service = WindowsAclPolicyService::new();
+    let as_directory = service.inspect_directory(&file);
+    let as_file = service.inspect_file(&dir);
+    cleanup(&dir);
+
+    // A file is not a directory.
+    assert!(matches!(as_directory, Err(AclPolicyError::NotADirectory)));
+    // A directory is not a file.
+    assert!(matches!(as_file, Err(AclPolicyError::NotAFile)));
+}

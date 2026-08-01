@@ -166,9 +166,19 @@ unsafe extern "system" fn service_main(_argc: u32, _argv: *mut windows::core::PW
         return;
     }
 
+    // The status server runs on its OWN thread so the stop path stays exactly as proven: the
+    // lifecycle thread below still notices a stop on its next poll and is never blocked behind a
+    // pipe wait. The serve thread reads the same stop flag and ends with the process.
+    let serving = std::thread::spawn(|| {
+        crate::serve::serve_installed_host_status_until_stop(&STOP_SIGNALLED);
+    });
+
     run_inert_loop(&mut lifecycle, &STOP_SIGNALLED);
 
+    // Stop is published FIRST, before waiting on anything: the SCM must see the transition promptly
+    // and must never wait on a pipe. The serve thread is detached from the stop decision.
     let _ = lifecycle.request_stop();
+    drop(serving);
     let _ = lifecycle.stopped();
 }
 

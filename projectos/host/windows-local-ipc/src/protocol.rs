@@ -262,6 +262,15 @@ pub(crate) fn encode_control_frame(
 // payload accessor is added anywhere.
 // ---------------------------------------------------------------------------------------------
 
+/// The ONE frozen run identifier for the installed-host status endpoint.
+///
+/// Both ends derive everything from it: the pipe name is the fixed endpoint prefix plus its hex, and
+/// the single-use handshake nonce is derived from the same bytes. Freezing it here is what lets the
+/// installed service and the Control Centre meet on ONE pipe with ONE nonce without either side
+/// inventing, transmitting or configuring a name. It is not a secret and carries no authority: it
+/// names an endpoint, it does not grant access to it.
+pub const INSTALLED_HOST_STATUS_RUN_ID: [u8; 8] = [0x50, 0x4f, 0x53, 0x48, 0x53, 0x54, 0x41, 0x54];
+
 /// The length of a build / manifest digest PREFIX carried in the record, in hex characters.
 pub const STATUS_PREFIX_LEN: usize = 8;
 

@@ -61,6 +61,7 @@ pub enum InstallStep {
     GenerateInstallationId,
     WriteIdentityRecord,
     VerifyIdentityRecord,
+    ApplyRecordFileAcl,
     StartService,
     StopService,
     RestartService,
@@ -555,6 +556,53 @@ pub fn install_once(
         parsed.record_digest
     };
 
+    // 11b. Apply the approved FILE ACL to the published, verified record.
+    //
+    // Forced by the first live status read: the protected parent directories carry NON-INHERITABLE
+    // ACEs, so the record file created beneath them inherited nothing and the service could not read
+    // its own identity. Inheritance is therefore never relied on — the policy is applied to the file
+    // itself, AFTER publication and verification, and only its security descriptor is touched.
+    //
+    // A failure here fails the installation: rollback runs, the service is never activated, and the
+    // record's contents are never rewritten.
+    let record_acl_outcome = match AclCompositionPlan::production()
+        .compose_record_file_with_resolved_principal(&identity, &principal)
+    {
+        AclCompositionOutcome::Composed(p) => {
+            match acl_service.apply_and_verify_file(&record_path, &p) {
+                Ok(ApplyOutcome::Confirmed) => ApplyOutcome::Confirmed,
+                Ok(other) => {
+                    return Err(fail(
+                        InstallStep::ApplyRecordFileAcl,
+                        format!("{other:?}"),
+                        &owned,
+                        Some(&adapter),
+                        &cap,
+                    ))
+                }
+                Err(e) => {
+                    return Err(fail(
+                        InstallStep::ApplyRecordFileAcl,
+                        format!("{e:?}"),
+                        &owned,
+                        Some(&adapter),
+                        &cap,
+                    ))
+                }
+            }
+        }
+        other => {
+            return Err(fail(
+                InstallStep::ApplyRecordFileAcl,
+                format!("{other:?}"),
+                &owned,
+                Some(&adapter),
+                &cap,
+            ))
+        }
+    };
+    let _ = record_acl_outcome;
+
     // 12-13. The identity exists, so the service may now run. Start, stop, restart.
     if let other @ (LifecycleOutcome::Refused(_) | LifecycleOutcome::Indeterminate) =
         adapter.start(&cap)
@@ -643,4 +691,110 @@ pub fn install_once(
 #[must_use]
 pub fn refusal_without_approval() -> PlanRefusal {
     PlanRefusal::ElevationAbsent
+}
+
+// ---------------------------------------------------------------------------------------------
+// NARROW ACL REPAIR for an EXISTING installation.
+//
+// CD-B4-PROJECTOSHOST-FUNCTIONAL-PILOT1A (post-freeze installer correction).
+//
+// The same policy `install_once` now applies at step 11b, applied to an installation that predates
+// that step. It is the ONLY thing this operation does: it creates nothing, deletes nothing, starts
+// nothing, configures nothing, and never opens the record for writing. The record's bytes and digest
+// are read and verified BEFORE and AFTER, so a repair that altered them would be reported, not hidden.
+// ---------------------------------------------------------------------------------------------
+
+/// The exact phrase the owner must transcribe to authorise ONE record-file ACL repair.
+pub const RECORD_ACL_REPAIR_PHRASE: &str =
+    "APPROVED: repair the ProjectOSHost identity record file ACL";
+
+/// What the repair did. Every variant is terminal; nothing is retried and no policy is broadened.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum RecordAclRepairOutcome {
+    /// The approved policy is now in force and was authoritatively re-read from Windows.
+    Repaired,
+    /// The approved policy was already in force. Nothing was changed.
+    AlreadyConforming,
+    /// Refused before any effect. The descriptor was NOT changed.
+    Refused(String),
+    /// The descriptor was changed but does not conform. Reported, never retried or broadened.
+    ReconciliationRequired(String),
+}
+
+/// Repair the canonical identity record file's ACL on an EXISTING installation.
+///
+/// # Errors
+/// Never returns `Err`: every refusal is a closed [`RecordAclRepairOutcome`] variant so a caller
+/// cannot mistake a refusal for success by ignoring an error type.
+#[must_use]
+pub fn repair_installed_record_file_acl(approval_phrase: &str) -> RecordAclRepairOutcome {
+    if approval_phrase != RECORD_ACL_REPAIR_PHRASE {
+        return RecordAclRepairOutcome::Refused("the approval phrase did not match exactly".into());
+    }
+
+    let Ok(state_anchor) = writer::ResolvedProgramDataAnchor::resolve_approved() else {
+        return RecordAclRepairOutcome::Refused("the approved state anchor did not resolve".into());
+    };
+    let Ok(target) = writer::InstallerTarget::under_resolved_anchor(&state_anchor) else {
+        return RecordAclRepairOutcome::Refused("the installer target did not resolve".into());
+    };
+    let record_path = without_extended_length_prefix(&target.record_location());
+
+    // The record must already exist, parse and verify. A repair never creates or fixes a record.
+    let Ok(before_bytes) = std::fs::read(&record_path) else {
+        return RecordAclRepairOutcome::Refused("no canonical record is installed".into());
+    };
+    let Ok(before) = writer::parse_canonical_json(&before_bytes) else {
+        return RecordAclRepairOutcome::Refused("the installed record does not parse".into());
+    };
+    if verify_record(&before, RecordInstallationEvidence::Matched).is_err() {
+        return RecordAclRepairOutcome::Refused("the installed record does not verify".into());
+    }
+
+    let account = approved_account();
+    let Ok(service_sid) = resolve_account_sid(&account) else {
+        return RecordAclRepairOutcome::Refused("the service principal did not resolve".into());
+    };
+    let identity = ServiceIdentityPlan::analysed()
+        .with_owner_decision(ServiceIdentityStrategy::VirtualServiceAccount);
+    let Ok(principal) = ApprovedServicePrincipal::from_resolved_sid(
+        ServiceIdentityStrategy::VirtualServiceAccount,
+        service_sid,
+    ) else {
+        return RecordAclRepairOutcome::Refused("the service principal was not approved".into());
+    };
+    let AclCompositionOutcome::Composed(policy) = AclCompositionPlan::production()
+        .compose_record_file_with_resolved_principal(&identity, &principal)
+    else {
+        return RecordAclRepairOutcome::Refused("the record file policy did not compose".into());
+    };
+
+    let service = WindowsAclPolicyService::new();
+    // Already in force? Then there is nothing to do and no effect is performed at all.
+    if let Ok(v) = service.verify_file(&record_path, &policy) {
+        if v.is_conforming() {
+            return RecordAclRepairOutcome::AlreadyConforming;
+        }
+    }
+
+    let outcome = match service.apply_and_verify_file(&record_path, &policy) {
+        Ok(o) => o,
+        Err(e) => return RecordAclRepairOutcome::Refused(format!("{e:?}")),
+    };
+
+    // The CONTENTS must be untouched. This is checked after the effect, not assumed.
+    match std::fs::read(&record_path) {
+        Ok(after) if after == before_bytes => {}
+        _ => {
+            return RecordAclRepairOutcome::ReconciliationRequired(
+                "the record bytes changed during ACL repair".into(),
+            )
+        }
+    }
+
+    match outcome {
+        ApplyOutcome::Confirmed => RecordAclRepairOutcome::Repaired,
+        other => RecordAclRepairOutcome::ReconciliationRequired(format!("{other:?}")),
+    }
 }

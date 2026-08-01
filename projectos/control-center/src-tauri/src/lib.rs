@@ -117,6 +117,9 @@ pub(crate) mod owner_window;
 
 #[cfg(windows)]
 mod app;
+// CD-B4-PROJECTOSHOST-FUNCTIONAL-PILOT1A: the READ-ONLY installed-host status client route.
+#[cfg(windows)]
+pub mod host_status;
 
 /// Run the ProjectOS Control Centre. The application's sole public entry point.
 ///
