@@ -24,7 +24,8 @@ use std::path::{Path, PathBuf};
 
 use projectos_host_identity::canonical_record::{
     compute_record_digest, InstallationIdentityRecordV1, EXPECTED_PRODUCT, EXPECTED_SERVICE_NAME,
-    EXPECTED_SERVICE_RELATIVE_PATH, RECORD_FILE_NAME, RECORD_SCHEMA_VERSION,
+    EXPECTED_SERVICE_RELATIVE_PATH, HOST_STATE_DIRECTORY_SEGMENT, RECORD_FILE_NAME,
+    RECORD_SCHEMA_VERSION, RECORD_SUBDIRECTORY,
 };
 
 /// The three accepted installation channels. No arbitrary channel string is representable.
@@ -164,32 +165,37 @@ impl InstallationIdSource for SystemPreferredInstallationIdSource {
     }
 }
 
-/// Where the record will be written. Sealed: no public constructor takes a path, so a caller cannot
-/// aim the writer at a repository path, a TEMP sibling, or anywhere else.
-#[derive(Debug, Clone)]
-pub struct InstallerTarget {
-    /// The `<root>/ProjectOS/Host/installation` directory. Derived internally; never caller-supplied.
-    installation_dir: PathBuf,
+/// Sealed evidence that the approved ProgramData anchor was resolved by an APPROVED resolver.
+///
+/// Private field and no public constructor takes a caller path in a production graph, so the anchor
+/// cannot be pointed somewhere else. Holding one is the only way to derive a production
+/// [`InstallerTarget`].
+#[derive(Debug)]
+pub struct ResolvedProgramDataAnchor {
+    root: PathBuf,
 }
 
-impl InstallerTarget {
-    /// The final record path inside the target directory.
-    #[must_use]
-    fn record_path(&self) -> PathBuf {
-        self.installation_dir.join(RECORD_FILE_NAME)
-    }
-
-    /// FIXTURE-ONLY target beneath a disposable directory the caller already owns.
+impl ResolvedProgramDataAnchor {
+    /// The PRODUCTION anchor route.
     ///
-    /// The final location is derived internally as
-    /// `<owned-fixture-root>/ProjectOS/Host/installation/identity.v1.json` — the caller supplies only
-    /// the disposable root, never the record path. Gated on `fixture-writer`, so the default graph has
-    /// no target-construction route at all.
+    /// It refuses, and that is the honest production reality rather than a placeholder: no approved
+    /// Known Folder resolver exists yet, which is exactly why `host-identity` still expresses the
+    /// record location symbolically through `symbolic_record_location`. Emulating a resolution here
+    /// would invent a path vocabulary and hand out a target the boundary never approved.
     ///
     /// # Errors
-    /// [`WriteError`] if the root escapes containment or is a reparse point.
+    /// Always [`WriteError::AnchorUnresolved`] until an approved resolver is wired.
+    #[cfg(all(windows, feature = "installer-windows"))]
+    pub fn resolve_approved() -> Result<Self, WriteError> {
+        Err(WriteError::AnchorUnresolved)
+    }
+
+    /// FIXTURE-ONLY anchor beneath a disposable directory the caller already owns.
+    ///
+    /// # Errors
+    /// [`WriteError`] if the root cannot be resolved or is a reparse point.
     #[cfg(any(test, feature = "fixture-writer"))]
-    pub fn fixture_under(owned_root: &Path) -> Result<Self, WriteError> {
+    pub fn fixture(owned_root: &Path) -> Result<Self, WriteError> {
         let root = owned_root
             .canonicalize()
             .map_err(|_| WriteError::TargetUnavailable)?;
@@ -200,17 +206,77 @@ impl InstallerTarget {
         {
             return Err(WriteError::ReparsePointRefused);
         }
-        let dir = root
+        Ok(Self { root })
+    }
+}
+
+/// Where the record will be written. Sealed: no public constructor takes a path, so a caller cannot
+/// aim the writer at a repository path, a TEMP sibling, or anywhere else.
+///
+/// Deliberately NOT `Clone`, `Copy` or serialisable: a derived target is a single authorisation to
+/// write one location, not a value to be duplicated, stored or transported.
+#[derive(Debug)]
+pub struct InstallerTarget {
+    /// The `<anchor>/ProjectOS/host/installation` directory, derived from the frozen contract
+    /// segments. Never caller-supplied.
+    installation_dir: PathBuf,
+}
+
+impl InstallerTarget {
+    /// The final record path inside the target directory.
+    #[must_use]
+    fn record_path(&self) -> PathBuf {
+        self.installation_dir.join(RECORD_FILE_NAME)
+    }
+
+    /// Derive the target from a resolved anchor.
+    ///
+    /// Every segment comes from the frozen canonical-record contract — product, host-state segment and
+    /// record subdirectory — so this crate defines no second path vocabulary and a caller chooses none
+    /// of them. Containment is re-checked after derivation.
+    ///
+    /// # Errors
+    /// [`WriteError::ContainmentRefused`] if the derived directory escapes the anchor.
+    pub fn under_resolved_anchor(anchor: &ResolvedProgramDataAnchor) -> Result<Self, WriteError> {
+        let dir = anchor
+            .root
             .join(EXPECTED_PRODUCT)
-            .join("Host")
-            .join("installation");
-        // Containment: the derived directory must remain beneath the supplied root.
-        if !dir.starts_with(&root) {
+            .join(HOST_STATE_DIRECTORY_SEGMENT)
+            .join(RECORD_SUBDIRECTORY);
+        if !dir.starts_with(&anchor.root) {
             return Err(WriteError::ContainmentRefused);
         }
         Ok(Self {
             installation_dir: dir,
         })
+    }
+
+    /// FIXTURE-ONLY target beneath a disposable directory the caller already owns. Gated on
+    /// `fixture-writer`, so the default graph has no target-construction route at all.
+    ///
+    /// # Errors
+    /// [`WriteError`] if the root escapes containment or is a reparse point.
+    #[cfg(any(test, feature = "fixture-writer"))]
+    pub fn fixture_under(owned_root: &Path) -> Result<Self, WriteError> {
+        Self::under_resolved_anchor(&ResolvedProgramDataAnchor::fixture(owned_root)?)
+    }
+
+    /// Whether a record already occupies this target. Read-only: it opens, creates and locks nothing.
+    ///
+    /// Gated, because only an installer composing a plan has any reason to ask — the runtime reads the
+    /// record through `host-identity`, never through this crate.
+    #[cfg(any(test, feature = "fixture-writer"))]
+    #[must_use]
+    pub fn record_already_exists(&self) -> bool {
+        self.record_path().exists()
+    }
+
+    /// The record path, for fixture verification only. Never exposed in a default graph, so no runtime
+    /// code can learn or transport a target location.
+    #[cfg(any(test, feature = "fixture-writer"))]
+    #[must_use]
+    pub fn record_path_for_test(&self) -> PathBuf {
+        self.record_path()
     }
 }
 
@@ -233,6 +299,9 @@ pub enum WriteError {
     InstallationIdSourceFailed,
     /// The target directory could not be prepared or resolved.
     TargetUnavailable,
+    /// The approved ProgramData Known Folder anchor could not be resolved, so no production target
+    /// exists. Refused before any derivation.
+    AnchorUnresolved,
     /// A reparse point was found on the target boundary.
     ReparsePointRefused,
     /// The derived path escaped its owned root.

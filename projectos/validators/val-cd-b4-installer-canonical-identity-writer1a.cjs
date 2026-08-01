@@ -146,6 +146,10 @@ function run() {
         else if (ent.name === "Cargo.toml") {
           const rel = path.relative(ROOT, p).replace(/\\/g, "/");
           if (rel.includes("canonical-installation-identity-writer")) continue;
+          // EXACTLY ONE dependent is permitted: the elevated-installer composition crate, which IS the
+          // installer boundary rather than a runtime crate. Its own validator proves that no runtime,
+          // Tauri or renderer crate depends on IT, so the writer stays unreachable from the runtime.
+          if (rel === "projectos/host/elevated-installer-composition/Cargo.toml") continue;
           if (/canonical-installation-identity-writer/.test(stripToml(read(p)))) offenders.push(rel);
         }
       }

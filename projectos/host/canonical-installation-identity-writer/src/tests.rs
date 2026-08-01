@@ -328,3 +328,36 @@ fn the_production_id_source_is_boundary_proven_and_never_executed_here() {
         let _ = source;
     }
 }
+
+#[test]
+fn the_production_anchor_route_refuses_rather_than_inventing_a_path() {
+    // No approved Known Folder resolver exists, so the production anchor REFUSES. Naming it proves the
+    // seam is wired; it resolves nothing and touches no real ProgramData.
+    #[cfg(all(windows, feature = "installer-windows"))]
+    {
+        assert_eq!(
+            ResolvedProgramDataAnchor::resolve_approved().unwrap_err(),
+            WriteError::AnchorUnresolved
+        );
+    }
+}
+
+#[test]
+fn a_derived_target_stays_beneath_its_anchor_and_uses_only_frozen_segments() {
+    let d = Disposable::new();
+    let anchor = ResolvedProgramDataAnchor::fixture(d.path()).expect("anchor");
+    let t = InstallerTarget::under_resolved_anchor(&anchor).expect("target");
+    let root = d.path().canonicalize().unwrap();
+    let rel = t.record_path_for_test();
+    let rel = rel
+        .strip_prefix(&root)
+        .expect("contained beneath the anchor");
+    let parts: Vec<String> = rel
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy().to_string())
+        .collect();
+    assert_eq!(
+        parts,
+        vec![EXPECTED_PRODUCT, "host", "installation", RECORD_FILE_NAME]
+    );
+}

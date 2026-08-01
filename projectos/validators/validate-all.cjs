@@ -73,6 +73,7 @@ const MODULES = [
   "val-cd-b4-host-authority-observer1a",
   "val-cd-b4-installer-canonical-identity-writer1a",
   "val-cd-b4-installer-id-source-closeout1b",
+  "val-cd-b4-elevated-installer-composition1a",
   "val-projectos-validator-scratch-lifecycle1a",
   "val-projectos-v3-owner-presence-confirmation-ux1a",
   "validate-v3.1-crosswalk",

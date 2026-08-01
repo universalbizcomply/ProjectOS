@@ -29,6 +29,12 @@ use super::install_root::{InstallationEvidence, InstallationEvidenceProvider};
 // be able to name the evidence type to drive `verify_record` in its own tests. Re-exporting the enum
 // grants nothing — it carries no authority and cannot mint a verified identity.
 pub use super::install_root::InstallationEvidence as RecordInstallationEvidence;
+
+/// MINIMUM export for CD-B4-ELEVATED-INSTALLER-IDENTITY-COMPOSITION1A: the installer derives the
+/// production record directory from the SAME segments this module already uses for
+/// [`symbolic_record_location`]. Exporting the segment prevents a parallel path vocabulary; it
+/// resolves nothing and grants nothing.
+pub const HOST_STATE_DIRECTORY_SEGMENT: &str = HOST_STATE_SEGMENT;
 // CYCLE BREAK (CD-B4-PRODUCTION-HOST-AUTHORITY-WIN32-OBSERVER1A). These two values were previously
 // imported from `windows-host-activation-plan`. Reusing that crate is now GENUINELY UNUSABLE here: it
 // transitively reaches host-authority (activation-plan -> acl-policy -> root-custody -> persistence ->

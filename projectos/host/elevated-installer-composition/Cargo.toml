@@ -1,0 +1,30 @@
+[package]
+name = "projectos-host-elevated-installer-composition"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "UNLICENSED"
+description = "CD-B4-ELEVATED-INSTALLER-IDENTITY-COMPOSITION1A. The sealed ELEVATED-INSTALLER composition boundary: it evaluates the installation preconditions, derives the sealed production InstallerTarget from the approved ProgramData anchor, and produces a READ-ONLY installation plan whose ordering places the canonical identity record before any service step. It performs NO installation effect: no Known Folder resolution, no ProgramData or Program Files write, no directory creation under production roots, no ACL, registry or SCM mutation, no service install or start, no elevation request, no production RNG. Runtime, Tauri and renderer crates must NOT depend on this crate."
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[features]
+default = []
+# Fixture-only planning and execution against a disposable owned root. Non-default: a release graph can
+# construct no anchor, no target and no write authorisation at all.
+fixture-composition = [
+    "projectos-host-canonical-installation-identity-writer/fixture-writer",
+]
+
+[dependencies]
+# The CLOSED canonical identity writer and record contract. Reused, never duplicated.
+projectos-host-canonical-installation-identity-writer = { path = "../canonical-installation-identity-writer" }
+projectos-host-identity = { path = "../host-identity" }
+# The frozen activation ordering, ACL composition and service-identity contracts.
+projectos-host-windows-activation-plan = { path = "../windows-host-activation-plan" }
+projectos-host-windows-acl-policy = { path = "../windows-acl-policy" }
+# The frozen service-installation contract: pre-effect check ordering and effect authority.
+projectos-host-windows-service-installation-contract = { path = "../windows-service-installation-contract" }
+# Root custody. Used to REQUIRE a custody plan; never opened against a production root.
+projectos-host-windows-root-custody = { path = "../windows-root-custody" }
