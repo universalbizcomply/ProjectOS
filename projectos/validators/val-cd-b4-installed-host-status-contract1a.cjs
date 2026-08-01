@@ -291,6 +291,73 @@ function run() {
       if (status.includes(bad)) E("V7 the status observer mutates the filesystem: " + bad);
   }
 
+  // ---- V8 the transport is SPECIFIC: no generic send, no raw payload out ----
+  {
+    const ffiP = path.join(IPC, "src", "windows_ffi.rs");
+    if (!fs.existsSync(ffiP)) E("V8 the live backend is missing");
+    else {
+      const ffi = stripLine(stripTests(read(ffiP)));
+
+      // The trait carries exactly the two SPECIFIC status operations, and no byte-level send/receive.
+      const t = /pub trait IpcBackend \{([\s\S]*?)\n\}/.exec(adapter);
+      if (!t) E("V8 the backend trait is missing");
+      else {
+        for (const m of [
+          "fn send_installed_host_status(&self, status: &InstalledHostStatus) -> SendOutcome;",
+          "fn receive_installed_host_status(&self) -> StatusReceipt;",
+        ])
+          if (!t[1].includes(m)) E("V8 the backend trait is missing " + m);
+        for (const re of [/fn send_bytes/, /fn send_payload/, /fn send_frame\s*\(/, /&\[u8\]\s*\)\s*->\s*SendOutcome/])
+          if (re.test(t[1])) E("V8 the backend trait exposes a generic byte send: " + re);
+      }
+
+      // No PUBLIC API in the transport hands back raw bytes.
+      for (const [label, src] of [["adapter.rs", adapter], ["windows_ffi.rs", ffi]])
+        for (const re of [/pub fn [\w]*payload[\w]*\s*\(/, /pub fn \w+\([^)]*\)\s*->\s*&\[u8\]/, /pub fn \w+\([^)]*\)\s*->\s*Vec<u8>/])
+          if (re.test(src)) E(`V8 ${label} returns raw payload bytes: ${re}`);
+
+      // StatusReceipt carries the DECODED record, never bytes.
+      const sr = /pub enum StatusReceipt \{([\s\S]*?)\n\}/.exec(adapter);
+      if (!sr) E("V8 StatusReceipt is missing");
+      else {
+        if (!/Ok\(InstalledHostStatus\)/.test(sr[1])) E("V8 StatusReceipt does not carry the decoded record");
+        if (/\[u8\]|Vec<u8>/.test(sr[1])) E("V8 StatusReceipt carries raw bytes");
+      }
+
+      // Both adapter status methods stay capability-gated.
+      for (const m of ["send_installed_host_status", "receive_installed_host_status"]) {
+        const re = new RegExp(`pub fn ${m}\\(\\s*&self,\\s*_cap: &LiveIpcOperationCapability`);
+        if (!re.test(adapter)) E(`V8 adapter::${m} is not capability-gated`);
+      }
+
+      // The live send uses the CANONICAL encoder; the live receive uses the STRICT decoder and maps a
+      // decode failure to Malformed — never to a fabricated success.
+      const send = /fn send_installed_host_status\(&self, status: &InstalledHostStatus\) -> SendOutcome \{([\s\S]*?)\n    \}/.exec(ffi);
+      if (!send) E("V8 the live status send is missing");
+      else if (!/write_frame\(&encode_installed_host_status\(&self\.nonce, status\)\)/.test(send[1]))
+        E("V8 the live status send bypasses the canonical encoder");
+      const recv = /fn receive_installed_host_status\(&self\) -> StatusReceipt \{([\s\S]*?)\n    \}/.exec(ffi);
+      if (!recv) E("V8 the live status receive is missing");
+      else {
+        if (!/decode_installed_host_status\(&buf\[\.\.n\]\)/.test(recv[1]))
+          E("V8 the live status receive bypasses the strict decoder");
+        if (!/Err\(e\) => StatusReceipt::Malformed\(e\)/.test(recv[1]))
+          E("V8 a malformed status frame is not reported as Malformed");
+        if (/StatusReceipt::Ok\(InstalledHostStatus::new/.test(recv[1]))
+          E("V8 the receive path fabricates a status record");
+      }
+
+      // Every control-frame caller encodes first; the private writer takes bytes.
+      if (!/fn write_frame\(&self, frame: &\[u8\]\)/.test(ffi))
+        E("V8 the private writer no longer takes encoded bytes");
+      for (const m of ["fn send_control", "fn send_handshake"]) {
+        const b = new RegExp(`${m}\\(([\\s\\S]*?)\\n    \\}`).exec(ffi);
+        if (b && !/encode_control_frame\(/.test(b[1]))
+          E(`V8 ${m} sends unencoded data instead of a canonical control frame`);
+      }
+    }
+  }
+
   // ---- compile proofs ----
   {
     const r = compileConsumer(CONTROL[0], CONTROL[2], CONTROL[1]);

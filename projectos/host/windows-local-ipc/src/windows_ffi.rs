@@ -54,12 +54,13 @@ use projectos_host_windows_service_identity_proof::{
 
 use crate::adapter::{
     BackendState, ConnectionState, EndpointOutcome, HandshakeObservation, HandshakeReceipt,
-    IpcBackend, ReceivedFrame, SendOutcome,
+    IpcBackend, ReceivedFrame, SendOutcome, StatusReceipt,
 };
 use crate::adapter::{ConfirmedIpcPeerHandshake, LiveIpcOperationCapability};
 use crate::contracts::{EndpointFreshness, IpcResidue, IpcShutdownResult, ReplayClassification};
 use crate::protocol::{
-    encode_control_frame, parse_single_frame, FrameParseError, MessageKind, Nonce, MAX_FRAME_SIZE,
+    decode_installed_host_status, encode_control_frame, encode_installed_host_status,
+    parse_single_frame, FrameParseError, InstalledHostStatus, MessageKind, Nonce, MAX_FRAME_SIZE,
     NONCE_LEN,
 };
 use crate::verification::{classify_ipc_error, CancellationTerminalState, IpcFailure, PeerRole};
@@ -866,18 +867,24 @@ impl WindowsPipeBackend {
 
     /// Write one closed frame over a bounded, admitted, unwind-safe overlapped operation, confirming the
     /// EXACT byte count. `flag` carries the closed peer-role discriminant for handshake frames.
+    /// Write one ALREADY-ENCODED frame.
+    ///
+    /// It takes bytes rather than `(kind, flag)` so the same bounded, quarantine-guarded write path
+    /// serves both the 1-byte control frames and the fixed-width status record. This is PRIVATE: the
+    /// public surface exposes no generic send, only the specific operations below.
     fn write_frame_owned(
         &self,
         handle: OwnedHandle,
-        kind: MessageKind,
-        flag: u8,
+        frame: &[u8],
     ) -> (Option<OwnedHandle>, Result<(), IpcFailure>) {
-        let frame = encode_control_frame(kind, &self.nonce, flag);
         let len = frame.len();
+        if len > MAX_FRAME_SIZE {
+            return (Some(handle), Err(IpcFailure::UnexpectedFailure));
+        }
         // The outbound bytes live in a HEAP buffer owned by the guard, so they are never moved or dropped
         // while Windows may reference them.
         let mut buf = Box::new([0u8; MAX_FRAME_SIZE]);
-        buf[..len].copy_from_slice(&frame);
+        buf[..len].copy_from_slice(frame);
         // ADMISSION BEFORE I/O: no permit, no WriteFile.
         let permit = match QuarantinePermit::acquire() {
             Some(p) => p,
@@ -988,11 +995,11 @@ impl WindowsPipeBackend {
     }
 
     /// Server-side write: takes and restores the server handle around the operation.
-    fn write_frame(&self, kind: MessageKind, flag: u8) -> Result<(), IpcFailure> {
+    fn write_frame(&self, frame: &[u8]) -> Result<(), IpcFailure> {
         let handle = self
             .take_server_handle()
             .ok_or(IpcFailure::EndpointUnavailable)?;
-        let (returned, result) = self.write_frame_owned(handle, kind, flag);
+        let (returned, result) = self.write_frame_owned(handle, frame);
         if returned.is_none() {
             self.mark_transferred();
         }
@@ -1056,7 +1063,7 @@ impl IpcBackend for WindowsPipeBackend {
         if !self.state.get().is_operational() {
             return SendOutcome::Failed(IpcFailure::EndpointUnavailable);
         }
-        match self.write_frame(kind, role.wire()) {
+        match self.write_frame(&encode_control_frame(kind, &self.nonce, role.wire())) {
             Ok(()) => SendOutcome::Sent,
             Err(f) => SendOutcome::Failed(f),
         }
@@ -1108,11 +1115,43 @@ impl IpcBackend for WindowsPipeBackend {
         self.read_frame()
     }
 
+    fn send_installed_host_status(&self, status: &InstalledHostStatus) -> SendOutcome {
+        if !self.state.get().is_operational() {
+            return SendOutcome::Failed(IpcFailure::EndpointUnavailable);
+        }
+        // The record is encoded by the canonical encoder; this method accepts no arbitrary bytes.
+        match self.write_frame(&encode_installed_host_status(&self.nonce, status)) {
+            Ok(()) => SendOutcome::Sent,
+            Err(f) => SendOutcome::Failed(f),
+        }
+    }
+
+    fn receive_installed_host_status(&self) -> StatusReceipt {
+        if !self.state.get().is_operational() {
+            return StatusReceipt::Failed(IpcFailure::EndpointUnavailable);
+        }
+        match self.read_raw() {
+            // The STRICT decoder judges the bytes. Nothing here inspects or exposes the payload.
+            Ok((buf, n)) => match decode_installed_host_status(&buf[..n]) {
+                Ok((status, _nonce)) => StatusReceipt::Ok(status),
+                Err(e) => StatusReceipt::Malformed(e),
+            },
+            Err(IpcFailure::UnexpectedFailure) => {
+                StatusReceipt::Malformed(FrameParseError::OversizedPayload)
+            }
+            Err(f) => StatusReceipt::Failed(f),
+        }
+    }
+
     fn send_control(&self, kind: MessageKind) -> SendOutcome {
         if !self.state.get().is_operational() {
             return SendOutcome::Failed(IpcFailure::EndpointUnavailable);
         }
-        match self.write_frame(kind, PeerRole::RefusedOrUnknown.wire()) {
+        match self.write_frame(&encode_control_frame(
+            kind,
+            &self.nonce,
+            PeerRole::RefusedOrUnknown.wire(),
+        )) {
             Ok(()) => SendOutcome::Sent,
             Err(f) => SendOutcome::Failed(f),
         }
@@ -1126,7 +1165,11 @@ impl IpcBackend for WindowsPipeBackend {
         // fails closed — closing a handle alone never fabricates a clean shutdown. Both legs are admitted
         // and unwind-safe because they go through the same guarded helpers.
         if self
-            .write_frame(MessageKind::ShutdownRequest, PeerRole::Controller.wire())
+            .write_frame(&encode_control_frame(
+                MessageKind::ShutdownRequest,
+                &self.nonce,
+                PeerRole::Controller.wire(),
+            ))
             .is_err()
         {
             return IpcShutdownResult::ShutdownFailed;
@@ -1207,8 +1250,11 @@ fn _ffi_paths_referenced() -> Result<(), IpcFailure> {
     let client = b.open_client()?;
     let (client, _) = b.write_frame_owned(
         client,
-        MessageKind::ControllerHello,
-        PeerRole::Controller.wire(),
+        &encode_control_frame(
+            MessageKind::ControllerHello,
+            &b.nonce,
+            PeerRole::Controller.wire(),
+        ),
     );
     if let Some(c) = client {
         let _ = b.read_raw_owned(c);

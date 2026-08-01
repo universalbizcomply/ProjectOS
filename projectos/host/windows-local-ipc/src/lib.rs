@@ -69,7 +69,7 @@ pub use contracts::{
 pub use adapter::{
     ConnectionState, EndpointOutcome, HandshakeObservation, HandshakeOutcome, HandshakeReceipt,
     IpcBackend, LiveIpcOperationCapability, LocalIpcAdapter, ReceivedFrame, SendOutcome,
-    ServerPreparation,
+    ServerPreparation, StatusReceipt,
 };
 
 pub use protocol::{

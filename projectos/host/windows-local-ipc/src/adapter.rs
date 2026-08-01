@@ -15,7 +15,7 @@
 use projectos_host_authority::ProjectOsHostPipeSecurityStatus;
 
 use crate::contracts::{EndpointFreshness, IpcResidue, IpcShutdownResult, ReplayClassification};
-use crate::protocol::{FrameParseError, MessageKind};
+use crate::protocol::{FrameParseError, InstalledHostStatus, MessageKind};
 use crate::security::{evaluate_pipe_security, EndpointSecurityDecision};
 use crate::verification::{
     verify_endpoint_fresh, verify_not_replayed, verify_peer_role, IpcFailure, PeerRole, RetryPolicy,
@@ -288,6 +288,19 @@ impl BackendState {
 /// The Windows-facing seam. The safe adapter calls only these closed operations; the live implementation
 /// (windows_ffi.rs) performs the actual named-pipe I/O. No method exposes a handle, raw buffer, endpoint
 /// name, nonce value, security descriptor or Win32 error.
+/// The outcome of receiving ONE installed-host status frame. Mirrors [`ReceivedFrame`], but carries the
+/// decoded closed record rather than a kind — and never the raw bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum StatusReceipt {
+    /// A well-formed status record that the STRICT decoder accepted.
+    Ok(InstalledHostStatus),
+    /// The frame was refused by the strict decoder.
+    Malformed(FrameParseError),
+    /// A transport failure — redacted.
+    Failed(IpcFailure),
+}
+
 pub trait IpcBackend {
     /// The closed backend lifecycle state.
     fn state(&self) -> BackendState;
@@ -301,6 +314,13 @@ pub trait IpcBackend {
     fn receive_handshake(&self) -> HandshakeReceipt;
     /// Receive one typed frame (bounded).
     fn receive_frame(&self) -> ReceivedFrame;
+    /// Send ONE installed-host status record (bounded).
+    ///
+    /// Deliberately specific: there is no generic payload send, so nothing but this closed record can
+    /// be put on the wire through it.
+    fn send_installed_host_status(&self, status: &InstalledHostStatus) -> SendOutcome;
+    /// Receive ONE installed-host status record (bounded), judged by the strict decoder.
+    fn receive_installed_host_status(&self) -> StatusReceipt;
     /// Send one closed control frame (bounded).
     fn send_control(&self, kind: MessageKind) -> SendOutcome;
     /// Confirm shutdown (bounded).
@@ -445,6 +465,29 @@ impl<B: IpcBackend> LocalIpcAdapter<B> {
         _cap: &LiveIpcOperationCapability,
     ) -> HandshakeOutcome {
         self.complete_service_handshake_logic()
+    }
+
+    /// Send ONE installed-host status record (live). Requires the sealed capability.
+    ///
+    /// The capability's only scope is the read-only status read, so this is the single thing it can
+    /// put on the wire.
+    #[must_use]
+    pub fn send_installed_host_status(
+        &self,
+        _cap: &LiveIpcOperationCapability,
+        status: &InstalledHostStatus,
+    ) -> SendOutcome {
+        self.backend.send_installed_host_status(status)
+    }
+
+    /// Receive ONE installed-host status record (live). Requires the sealed capability. The bytes are
+    /// judged by the strict decoder; no raw payload is ever returned.
+    #[must_use]
+    pub fn receive_installed_host_status(
+        &self,
+        _cap: &LiveIpcOperationCapability,
+    ) -> StatusReceipt {
+        self.backend.receive_installed_host_status()
     }
 
     /// Receive one typed frame. Requires a sealed capability.
@@ -836,6 +879,14 @@ mod tests {
         fn receive_frame(&self) -> ReceivedFrame {
             self.frame
         }
+        fn send_installed_host_status(&self, _status: &InstalledHostStatus) -> SendOutcome {
+            SendOutcome::Sent
+        }
+
+        fn receive_installed_host_status(&self) -> StatusReceipt {
+            StatusReceipt::Failed(IpcFailure::EndpointUnavailable)
+        }
+
         fn send_control(&self, _kind: MessageKind) -> SendOutcome {
             self.send
         }
