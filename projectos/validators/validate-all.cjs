@@ -78,6 +78,7 @@ const MODULES = [
   "val-cd-b4-projectoshost-service-runtime1a",
   "val-cd-b4-installed-host-status-contract1a",
   "val-cd-b4-record-file-acl-correction1a",
+  "val-cd-b4-release-currentness1a",
   "val-projectos-validator-scratch-lifecycle1a",
   "val-projectos-v3-owner-presence-confirmation-ux1a",
   "validate-v3.1-crosswalk",

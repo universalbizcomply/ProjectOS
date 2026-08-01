@@ -286,32 +286,55 @@ function run() {
   }
 
   // ---- V9 the release manifest is deterministic and reuses the existing hash contract ----
-  for (const [needle, what] of [
-    ["PROJECTOS:RELEASE-MANIFEST:V1", "the manifest domain"],
-    ["projectos_host_identity::sha256_hex", "the EXISTING hash contract"],
-    ["fn put_field", "length-prefixed encoding"],
-    ["release_manifest_digest", "the digest carried in the report"],
-  ])
-    if (!dr.includes(needle)) E("V9 the release manifest is missing " + what);
-  if (/sha2::|Sha256::/.test(dr)) E("V9 the composition introduced a second hashing vocabulary");
+  //
+  // REPOINTED by CD-B4-PROJECTOSHOST-FUNCTIONAL-PILOT1A (release-currentness correction). The
+  // construction MOVED from this crate into the record contract so the installed service can compute
+  // the same manifest for the image it is running. Every guarantee below is unchanged — only the file
+  // holding the implementation changed, and the installer must now DELEGATE rather than own a copy.
   {
+    const cr = stripLine(
+      read(path.join(HOST, "host-identity", "src", "identity", "canonical_record.rs"))
+    );
+    for (const [needle, what] of [
+      ["PROJECTOS:RELEASE-MANIFEST:V1", "the manifest domain"],
+      ["sha256_hex", "the EXISTING hash contract"],
+      ["fn put_manifest_field", "length-prefixed encoding"],
+    ])
+      if (!cr.includes(needle)) E("V9 the release manifest is missing " + what);
+    if (/sha2::|Sha256::/.test(dr)) E("V9 the composition introduced a second hashing vocabulary");
+    if (!dr.includes("release_manifest_digest"))
+      E("V9 the release manifest is missing the digest carried in the report");
+
     // The digest must be COMPUTED over the canonical bytes, not assigned from a literal or copied.
+    const shared = /pub fn release_manifest_digest_for_artefact_digest\(([\s\S]*?)\n\}/.exec(cr);
+    if (!shared) E("V9 the shared manifest digest function is missing");
+    else if (!/sha256_hex\(&release_manifest_canonical_bytes\(artefact_digest\)\)/.test(shared[1]))
+      E("V9 the manifest digest is not computed by sha256_hex over the canonical bytes");
+
+    const bytes = /pub fn release_manifest_canonical_bytes\(([\s\S]*?)\n\}/.exec(cr);
+    if (!bytes) E("V9 the shared canonical-bytes construction is missing");
+    else if (/"[0-9a-f]{16,}"|repeat\(64\)/.test(bytes[1]))
+      E("V9 the manifest canonical bytes contain a literal digest");
+
+    // The installer DELEGATES: it still hashes the artefact, and computes nothing itself.
     const m = /pub fn for_artefact\(([\s\S]*?)\n    \}/.exec(dr);
     if (!m) E("V9 the manifest constructor is missing");
     else {
-      if (!/let digest = projectos_host_identity::sha256_hex\(&canonical\);/.test(m[1]))
-        E("V9 the manifest digest is not computed by sha256_hex over the canonical bytes");
-      if (!/sha256_hex\(&bytes\)/.test(m[1]))
-        E("V9 the artefact bytes are not hashed");
+      if (!/release_manifest_digest_for_artefact_digest\(&artefact_digest\)/.test(m[1]))
+        E("V9 the installer does not delegate to the shared manifest digest function");
+      if (!/sha256_hex\(&bytes\)/.test(m[1])) E("V9 the artefact bytes are not hashed");
       if (/"[0-9a-f]{16,}"|repeat\(64\)/.test(m[1]))
         E("V9 the manifest digest contains a literal value");
     }
   }
   {
+    const cr = stripLine(
+      read(path.join(HOST, "host-identity", "src", "identity", "canonical_record.rs"))
+    );
     const m = /pub struct ReleaseManifest \{([\s\S]*?)\n\}/.exec(dr);
     if (!m) E("V9 the release manifest type is missing");
     else if (/\bpub\s+\w+\s*:/.test(m[1])) E("V9 the release manifest has a public field");
-    if (!/const MANIFEST_DOMAIN/.test(dr) || /pub const MANIFEST_DOMAIN/.test(dr))
+    if (!/const RELEASE_MANIFEST_DOMAIN/.test(cr) || /pub const RELEASE_MANIFEST_DOMAIN/.test(cr))
       E("V9 the manifest domain is caller-visible");
   }
 

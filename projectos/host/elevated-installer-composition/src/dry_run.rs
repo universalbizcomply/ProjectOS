@@ -13,7 +13,10 @@
 
 use std::path::{Path, PathBuf};
 
-use projectos_host_identity::canonical_record::EXPECTED_SERVICE_RELATIVE_PATH;
+use projectos_host_identity::canonical_record::{
+    release_manifest_canonical_bytes, release_manifest_digest_for_artefact_digest,
+    EXPECTED_SERVICE_RELATIVE_PATH,
+};
 use projectos_host_windows_service_installation_contract::contract::InstallationEffectAuthority;
 
 use crate::PlanRefusal;
@@ -117,8 +120,6 @@ pub struct ReleaseManifest {
 
 /// The domain string. Changing it changes every digest, which is exactly what a schema change should
 /// do.
-const MANIFEST_DOMAIN: &str = "PROJECTOS:RELEASE-MANIFEST:V1";
-
 impl ReleaseManifest {
     /// Build the manifest for a verified artefact.
     ///
@@ -129,12 +130,11 @@ impl ReleaseManifest {
             .map_err(|_| DryRunError::Artefact(ArtefactRefusal::Missing))?;
         let artefact_digest = projectos_host_identity::sha256_hex(&bytes);
 
-        let mut canonical = Vec::new();
-        put_field(&mut canonical, MANIFEST_DOMAIN);
-        put_field(&mut canonical, "1");
-        put_field(&mut canonical, EXPECTED_SERVICE_RELATIVE_PATH);
-        put_field(&mut canonical, &artefact_digest);
-        let digest = projectos_host_identity::sha256_hex(&canonical);
+        // DELEGATED. The manifest algorithm lives beside the record contract so the installed service
+        // can compute the same value for the image it is running. This crate keeps no copy of it: a
+        // second implementation would be free to drift, and a drifting manifest cannot detect drift.
+        let canonical = release_manifest_canonical_bytes(&artefact_digest);
+        let digest = release_manifest_digest_for_artefact_digest(&artefact_digest);
         Ok(Self { canonical, digest })
     }
 
@@ -169,11 +169,6 @@ impl ReleaseManifest {
 }
 
 /// Append one length-prefixed field.
-fn put_field(out: &mut Vec<u8>, value: &str) {
-    out.extend_from_slice(&(value.len() as u64).to_be_bytes());
-    out.extend_from_slice(value.as_bytes());
-}
-
 /// Everything the dry run established before it stopped.
 ///
 /// Non-`Clone` and carrying no write capability: it is a readiness report, not permission.

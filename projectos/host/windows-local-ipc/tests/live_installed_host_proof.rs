@@ -67,8 +67,19 @@ fn the_installed_host_answers_one_read_only_status_request() {
     assert_eq!(status.service_state(), ServiceStateReport::Running);
     // The installed identity verifies through the frozen reader contract.
     assert_eq!(status.identity(), IdentityVerificationReport::Verified);
-    // A Verified identity on a Running service is Ready.
-    assert_eq!(status.readiness(), ReadinessReport::Ready);
+    // RELEASE CURRENTNESS: the immutable record describes the ORIGINAL installed release, and this
+    // binary is a later one, so the host is Degraded — never Ready. The identity itself still
+    // verifies: the record is valid provenance, it is the currentness that fails.
+    assert_eq!(status.readiness(), ReadinessReport::Degraded);
+    assert_ne!(status.readiness(), ReadinessReport::Ready);
+    assert_eq!(status.identity(), IdentityVerificationReport::Verified);
+    // The two prefixes therefore describe DIFFERENT things, which is exactly the divergence being
+    // reported: the build prefix is the running image, the manifest prefix is the record.
+    assert_ne!(
+        status.build_prefix(),
+        status.manifest_prefix(),
+        "a Degraded host must not show a build prefix equal to its recorded manifest prefix"
+    );
     // Protected operations are ALWAYS refused.
     assert_eq!(
         status.protected_operations(),

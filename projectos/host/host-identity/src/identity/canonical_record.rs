@@ -320,6 +320,64 @@ pub mod fixtures {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// THE RELEASE MANIFEST — one algorithm, shared by the installer and the installed service.
+//
+// CD-B4-PROJECTOSHOST-FUNCTIONAL-PILOT1A (release-currentness correction).
+//
+// It lived only inside the installer, so the installed service had no way to ask whether the image
+// it is running is the one the identity record was written for. It now lives here, beside the
+// record contract it belongs to, and BOTH sides call it. There is deliberately no second
+// implementation: a duplicate would be free to drift, and a drifting manifest cannot detect drift.
+//
+// This module depends on nothing but `sha256_hex` and the frozen path constant above, so the
+// service can reach it without depending on the installer or the writer crate.
+// ---------------------------------------------------------------------------------------------
+
+/// The domain separator. Frozen: a manifest computed under any other domain is a different manifest.
+///
+/// PRIVATE. A caller can obtain a manifest digest only by asking for one, never by assembling the
+/// inputs itself — which is what keeps a single construction single.
+const RELEASE_MANIFEST_DOMAIN: &str = "PROJECTOS:RELEASE-MANIFEST:V1";
+
+/// The manifest version. Frozen alongside the domain, and private for the same reason.
+const RELEASE_MANIFEST_VERSION: &str = "1";
+
+/// Append one length-prefixed field. Big-endian `u64` length then the raw bytes, so no two distinct
+/// field sequences can encode to the same buffer.
+fn put_manifest_field(out: &mut Vec<u8>, value: &str) {
+    out.extend_from_slice(&(value.len() as u64).to_be_bytes());
+    out.extend_from_slice(value.as_bytes());
+}
+
+/// The canonical manifest bytes for an artefact digest.
+///
+/// Pure: the ONLY input is the artefact's SHA-256 hex digest. No path, environment, clock or
+/// filesystem is read, so the same artefact always yields the same bytes on any machine.
+#[must_use]
+pub fn release_manifest_canonical_bytes(artefact_digest: &str) -> Vec<u8> {
+    let mut canonical = Vec::new();
+    put_manifest_field(&mut canonical, RELEASE_MANIFEST_DOMAIN);
+    put_manifest_field(&mut canonical, RELEASE_MANIFEST_VERSION);
+    put_manifest_field(&mut canonical, EXPECTED_SERVICE_RELATIVE_PATH);
+    put_manifest_field(&mut canonical, artefact_digest);
+    canonical
+}
+
+/// THE shared release-manifest digest function.
+///
+/// Takes the validated executable SHA-256 hex digest and returns the canonical release-manifest
+/// digest as 64 lower-case hex characters — exactly the value an identity record stores in
+/// `release_manifest_digest`.
+///
+/// The installer computes it for the artefact it is about to install; the installed service computes
+/// it for the image it is actually running. Comparing the two is what makes readiness fail closed
+/// when the running executable is not the one the record was written for.
+#[must_use]
+pub fn release_manifest_digest_for_artefact_digest(artefact_digest: &str) -> String {
+    sha256_hex(&release_manifest_canonical_bytes(artefact_digest))
+}
+
 #[cfg(test)]
 mod tests {
     use super::fixtures::valid_record;
@@ -436,5 +494,79 @@ mod tests {
         assert!(loc.ends_with("installation\\identity.v1.json"), "{loc}");
         // No resolved machine path may appear.
         assert!(!loc.contains(":\\"), "{loc}");
+    }
+}
+
+#[cfg(test)]
+mod release_manifest_tests {
+    use super::*;
+
+    const A: &str = "93e58f4876c9c048902c75efed41a127133c7d8d7536aef5bc84c5fa03736ba2";
+    const B: &str = "a7aff5b1b540324c94f0df115477cb83c136fcde1e5bf96bfc228bc76ab637c5";
+
+    #[test]
+    fn the_manifest_digest_is_deterministic_and_well_formed() {
+        let d = release_manifest_digest_for_artefact_digest(A);
+        assert_eq!(d, release_manifest_digest_for_artefact_digest(A));
+        assert_eq!(d.len(), 64);
+        assert!(d
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)));
+    }
+
+    #[test]
+    fn a_different_artefact_yields_a_different_manifest() {
+        assert_ne!(
+            release_manifest_digest_for_artefact_digest(A),
+            release_manifest_digest_for_artefact_digest(B),
+            "a replaced executable must change the manifest, or currentness could never be detected"
+        );
+    }
+
+    #[test]
+    fn the_canonical_bytes_are_length_prefixed_and_unambiguous() {
+        let bytes = release_manifest_canonical_bytes(A);
+        // Four fields, each an 8-byte big-endian length followed by its value.
+        let expected = 4 * 8
+            + RELEASE_MANIFEST_DOMAIN.len()
+            + RELEASE_MANIFEST_VERSION.len()
+            + EXPECTED_SERVICE_RELATIVE_PATH.len()
+            + A.len();
+        assert_eq!(bytes.len(), expected);
+        assert_eq!(
+            &bytes[..8],
+            &(RELEASE_MANIFEST_DOMAIN.len() as u64).to_be_bytes()
+        );
+        // Length prefixing means no two distinct field sequences can collide.
+        assert_ne!(
+            release_manifest_canonical_bytes("ab"),
+            release_manifest_canonical_bytes("a")
+        );
+    }
+
+    #[test]
+    fn the_digest_is_the_hash_of_the_canonical_bytes_and_nothing_else() {
+        assert_eq!(
+            release_manifest_digest_for_artefact_digest(A),
+            sha256_hex(&release_manifest_canonical_bytes(A)),
+            "there must be exactly one construction, not two that happen to agree"
+        );
+    }
+
+    #[test]
+    fn the_domain_and_version_are_frozen() {
+        assert_eq!(RELEASE_MANIFEST_DOMAIN, "PROJECTOS:RELEASE-MANIFEST:V1");
+        assert_eq!(RELEASE_MANIFEST_VERSION, "1");
+        assert_eq!(EXPECTED_SERVICE_RELATIVE_PATH, "ProjectOSHost.exe");
+    }
+
+    /// The value the LIVE installed record stores. If the shared function ever stopped reproducing it
+    /// from the original executable's digest, the extraction would have changed behaviour.
+    #[test]
+    fn the_shared_function_reproduces_the_installed_records_manifest() {
+        assert_eq!(
+            release_manifest_digest_for_artefact_digest(A),
+            "660970568db446e4d654f53dbd0e5034ad843224dd2e69a3900dfb30a2cd0b5b"
+        );
     }
 }

@@ -10,8 +10,8 @@
 //! It is read-only: it reads its own executable and the installed identity record, and writes nothing.
 
 use projectos_host_identity::canonical_record::{
-    verify_record, InstallationIdentityRecordV1, RecordInstallationEvidence, RECORD_FILE_NAME,
-    RECORD_SUBDIRECTORY,
+    release_manifest_digest_for_artefact_digest, verify_record, InstallationIdentityRecordV1,
+    RecordInstallationEvidence, RECORD_FILE_NAME, RECORD_SUBDIRECTORY,
 };
 use projectos_host_identity::sha256_hex;
 use projectos_host_windows_local_ipc::{
@@ -46,18 +46,31 @@ fn prefix_of(hex: &str) -> [u8; STATUS_PREFIX_LEN] {
     }
 }
 
-/// The build identity prefix: the first 8 hex characters of this executable's own SHA-256.
+/// The SHA-256 of the image this process was started from, as lower-case hex.
 ///
-/// Read-only, and it hashes the image this process was started from — it cannot be told to hash
-/// something else.
-fn build_prefix() -> [u8; STATUS_PREFIX_LEN] {
-    let Ok(path) = std::env::current_exe() else {
-        return UNAVAILABLE_PREFIX;
-    };
-    let Ok(bytes) = std::fs::read(path) else {
-        return UNAVAILABLE_PREFIX;
-    };
-    prefix_of(&sha256_hex(&bytes))
+/// Read-only, and it hashes the running image — it cannot be told to hash something else. `None`
+/// means the executable could not be read or hashed, which is never allowed to become a Ready host.
+fn current_executable_digest() -> Option<String> {
+    let path = std::env::current_exe().ok()?;
+    let bytes = std::fs::read(path).ok()?;
+    Some(sha256_hex(&bytes))
+}
+
+/// Whether the RUNNING image is the one the immutable identity record was written for.
+///
+/// The record's `release_manifest_digest` is provenance of the installed release and is never
+/// rewritten. Recomputing the manifest for the running executable through the SHARED function and
+/// comparing is the whole currentness check: one algorithm, both sides.
+///
+/// `None` means currentness could not be established at all — the executable was unreadable. It is
+/// deliberately NOT `Some(true)`.
+fn release_is_current(
+    executable_digest: Option<&str>,
+    record: Option<&InstallationIdentityRecordV1>,
+) -> Option<bool> {
+    let digest = executable_digest?;
+    let record = record?;
+    Some(release_manifest_digest_for_artefact_digest(digest) == record.release_manifest_digest)
 }
 
 /// The installed record's location, derived from the frozen contract segments beneath the resolved
@@ -116,14 +129,23 @@ fn channel_of(record: Option<&InstallationIdentityRecordV1>) -> ChannelReport {
 #[must_use]
 pub fn observe(service_state: ServiceStateReport) -> InstalledHostStatus {
     let (identity, record) = read_and_verify();
+    let executable_digest = current_executable_digest();
+    let current = release_is_current(executable_digest.as_deref(), record.as_ref());
 
-    // Readiness follows the identity result. A host whose identity does not verify is NOT ready, and
-    // there is no branch that reports Ready without a Verified identity.
+    // Readiness follows the identity result AND release currentness. A host whose identity does not
+    // verify is NOT ready; a host whose running image is not the one the record was written for is
+    // DEGRADED, never Ready. There is no branch that reports Ready without a Verified identity, a
+    // Running service, and a proven manifest match.
+    //
+    // A record that verifies is still valid provenance of the ORIGINAL release, so the identity stays
+    // Verified on a currentness mismatch — it is the currentness that fails, not the record.
     let readiness = match identity {
         IdentityVerificationReport::Verified => {
-            if service_state == ServiceStateReport::Running {
+            if service_state == ServiceStateReport::Running && current == Some(true) {
                 ReadinessReport::Ready
             } else {
+                // Includes `current == None`: an executable that cannot be read or hashed can never
+                // become a Ready host.
                 ReadinessReport::Degraded
             }
         }
@@ -143,7 +165,10 @@ pub fn observe(service_state: ServiceStateReport) -> InstalledHostStatus {
         readiness,
         // FROZEN: this phase authorises no protected operation, so the answer is always Refused.
         ProtectedOperationsReport::Refused,
-        build_prefix(),
+        // The build prefix keeps describing the RUNNING image, whatever currentness says.
+        executable_digest
+            .as_deref()
+            .map_or(UNAVAILABLE_PREFIX, prefix_of),
         manifest_prefix,
     )
     // Both prefixes are produced by `prefix_of`, which only ever returns lower-case hex, so this
@@ -202,5 +227,171 @@ mod tests {
         if s.identity() != IdentityVerificationReport::Verified {
             assert_ne!(s.readiness(), ReadinessReport::Ready);
         }
+    }
+}
+
+#[cfg(test)]
+mod currentness_tests {
+    use super::*;
+
+    /// The digest of the ORIGINAL installed executable, whose manifest the live record stores.
+    const ORIGINAL_EXE: &str = "93e58f4876c9c048902c75efed41a127133c7d8d7536aef5bc84c5fa03736ba2";
+    /// The digest of a DIFFERENT executable — the replacement.
+    const OTHER_EXE: &str = "a7aff5b1b540324c94f0df115477cb83c136fcde1e5bf96bfc228bc76ab637c5";
+
+    fn record_for(exe_digest: &str) -> InstallationIdentityRecordV1 {
+        let mut r = InstallationIdentityRecordV1 {
+            schema_version: 1,
+            product: projectos_host_identity::canonical_record::EXPECTED_PRODUCT.to_string(),
+            service_name: projectos_host_identity::canonical_record::EXPECTED_SERVICE_NAME
+                .to_string(),
+            installation_id: "0".repeat(32),
+            channel: "stable".to_string(),
+            service_relative_path:
+                projectos_host_identity::canonical_record::EXPECTED_SERVICE_RELATIVE_PATH
+                    .to_string(),
+            release_manifest_digest: release_manifest_digest_for_artefact_digest(exe_digest),
+            record_digest: String::new(),
+        };
+        r.record_digest = projectos_host_identity::canonical_record::compute_record_digest(&r);
+        r
+    }
+
+    #[test]
+    fn a_matching_executable_and_record_are_current() {
+        let record = record_for(ORIGINAL_EXE);
+        assert_eq!(
+            release_is_current(Some(ORIGINAL_EXE), Some(&record)),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn a_mismatching_executable_and_record_are_not_current() {
+        let record = record_for(ORIGINAL_EXE);
+        assert_eq!(
+            release_is_current(Some(OTHER_EXE), Some(&record)),
+            Some(false),
+            "a replaced executable must not read as current"
+        );
+    }
+
+    #[test]
+    fn an_unreadable_executable_is_never_current() {
+        let record = record_for(ORIGINAL_EXE);
+        // Deliberately NOT Some(true): an absent fact can never satisfy a currentness requirement.
+        assert_eq!(release_is_current(None, Some(&record)), None);
+        assert_ne!(release_is_current(None, Some(&record)), Some(true));
+        // No record is likewise never current.
+        assert_eq!(release_is_current(Some(ORIGINAL_EXE), None), None);
+    }
+
+    /// The readiness decision, isolated exactly as `observe` makes it.
+    fn readiness_of(
+        identity: IdentityVerificationReport,
+        state: ServiceStateReport,
+        current: Option<bool>,
+    ) -> ReadinessReport {
+        match identity {
+            IdentityVerificationReport::Verified => {
+                if state == ServiceStateReport::Running && current == Some(true) {
+                    ReadinessReport::Ready
+                } else {
+                    ReadinessReport::Degraded
+                }
+            }
+            IdentityVerificationReport::Refused | IdentityVerificationReport::Unavailable => {
+                ReadinessReport::NotReady
+            }
+        }
+    }
+
+    #[test]
+    fn ready_requires_a_verified_record_a_running_service_and_a_current_release() {
+        assert_eq!(
+            readiness_of(
+                IdentityVerificationReport::Verified,
+                ServiceStateReport::Running,
+                Some(true)
+            ),
+            ReadinessReport::Ready
+        );
+    }
+
+    #[test]
+    fn a_currentness_mismatch_is_degraded_and_never_ready() {
+        let r = readiness_of(
+            IdentityVerificationReport::Verified,
+            ServiceStateReport::Running,
+            Some(false),
+        );
+        assert_eq!(r, ReadinessReport::Degraded);
+        assert_ne!(r, ReadinessReport::Ready);
+    }
+
+    #[test]
+    fn an_unreadable_executable_can_never_produce_ready() {
+        for state in [
+            ServiceStateReport::Running,
+            ServiceStateReport::StartPending,
+            ServiceStateReport::StopPending,
+            ServiceStateReport::Stopped,
+        ] {
+            assert_ne!(
+                readiness_of(IdentityVerificationReport::Verified, state, None),
+                ReadinessReport::Ready
+            );
+        }
+    }
+
+    #[test]
+    fn identity_stays_verified_when_only_currentness_fails() {
+        // The record is valid provenance of the ORIGINAL release. A replaced binary does not make the
+        // record invalid — only not current. `read_and_verify` is the sole source of the identity
+        // report, and it never consults the executable.
+        let record = record_for(ORIGINAL_EXE);
+        assert_eq!(
+            release_is_current(Some(OTHER_EXE), Some(&record)),
+            Some(false)
+        );
+        assert_eq!(
+            readiness_of(
+                IdentityVerificationReport::Verified,
+                ServiceStateReport::Running,
+                Some(false)
+            ),
+            ReadinessReport::Degraded
+        );
+    }
+
+    #[test]
+    fn an_invalid_record_is_not_ready_whatever_the_currentness() {
+        for identity in [
+            IdentityVerificationReport::Refused,
+            IdentityVerificationReport::Unavailable,
+        ] {
+            for current in [Some(true), Some(false), None] {
+                assert_eq!(
+                    readiness_of(identity, ServiceStateReport::Running, current),
+                    ReadinessReport::NotReady
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_service_uses_the_same_manifest_algorithm_as_the_installer() {
+        // The installer stores `release_manifest_digest_for_artefact_digest(artefact_sha)`. If the
+        // service computed it any other way this equality would not hold for a real installation.
+        let record = record_for(ORIGINAL_EXE);
+        assert_eq!(
+            record.release_manifest_digest,
+            release_manifest_digest_for_artefact_digest(ORIGINAL_EXE)
+        );
+        assert_eq!(record.release_manifest_digest.len(), 64);
+        assert!(record
+            .release_manifest_digest
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)));
     }
 }

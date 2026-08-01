@@ -35,7 +35,9 @@ fn the_control_centre_displays_the_genuine_installed_host_state() {
 
     assert_eq!(view.service_state, "RUNNING");
     assert_eq!(view.identity_verification, "VERIFIED");
-    assert_eq!(view.readiness, "READY");
+    // The Control Centre must display the DEGRADED the host actually returned, never READY.
+    assert_eq!(view.readiness, "DEGRADED");
+    assert_ne!(view.readiness, "READY");
     assert_eq!(view.protected_operations, "REFUSED");
     assert_ne!(view.protected_operations, "AUTHORISED");
     assert_eq!(view.build_prefix.len(), 8);
