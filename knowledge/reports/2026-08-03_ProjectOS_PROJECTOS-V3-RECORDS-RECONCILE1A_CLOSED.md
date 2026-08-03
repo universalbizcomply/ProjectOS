@@ -1,12 +1,46 @@
-# ProjectOS V3 Records Reconciliation — AWAITING-REVIEW
+# ProjectOS V3 Records Reconciliation — CLOSED
 
 - **Report ID:** PROJECTOS-V3-RECORDS-RECONCILE1A
 - **Project:** ProjectOS
 - **Date:** 2026-08-03
-- **Status:** AWAITING-REVIEW
+- **Status:** CLOSED
+- **Gatekeeper decision:** CLOSED (owner + ChatGPT gate, 2026-08-04)
+- **Accepted reconciliation commit:** `dfd2eace95f5dfc938c28a04ecf856e84dc58937`
 - **Repository:** `C:\dev\ProjectOS` · branch `projectos-v3`
 - **Base HEAD:** `fdee3d341e0c43ae2d62a256e0b755196599139b`
-- **Gate:** RECORDS-ONLY — no executable code, no push
+- **Gate:** RECORDS-ONLY — no executable code
+
+## Closure basis
+
+- Pushed normally to `origin/projectos-v3` (`fdee3d3..dfd2eac`); no force push, no tag, no amend, no rebase.
+- Local and origin reconciled **0/0**, working tree clean, 0 staged, 0 untracked, 0 tags.
+- Exact **four-path records-only boundary**: `projectos/state/projectos-v3.current-state.json`,
+  `docs/architecture/projectos-v3.1-crosswalk.md`, this report, `knowledge/ProjectOS Reports Index.md`.
+- **`EXECUTION_READY` remained `false`**; installation authority remained `NotAuthorised`.
+- **`acceptedPhaseCount` remained 3**, `totalPhaseCount` 19 (ratio 3 / 19, completion 15.8%).
+- **No phase was accepted or closed without evidence.** The only `CLOSED` classification recorded was
+  build-order item 1 (Universal framework), backed by the previously accepted V2 closure report.
+- **No executable code changed** — no TypeScript, JavaScript or Rust, and no schema, validator, script,
+  package file or lockfile.
+- Validation at push: `validate:v3plan` 8/8, `validate:secrets` PASS, `validate:reporter` 4/4,
+  `git diff --check` clean, no secret-like material.
+
+## Carry-forward (open)
+
+1. **`PROJECTOS-V3-ACCEPTANCE-SWEEP1A`** — the next gate. A review gate only; nothing is accepted
+   automatically. 64 reports remain AWAITING-REVIEW.
+2. **ProjectOS runtime-driven external-repository E2E proof** — still mandatory and still unproven.
+3. **Final `EXECUTION_READY` owner ruling** — outstanding.
+4. **Stale filename references left deliberately.** `docs/architecture/projectos-v3.1-crosswalk.md` (§8a,
+   §23) and `projectos/state/projectos-v3.current-state.json` (`acceptedCarryForward`,
+   `lastEvidenceReference`) still cite this report under its original `…_AWAITING-REVIEW.md` name. The
+   closure amendment was scoped to two paths and was **not** authorised to touch the crosswalk or
+   current-state, so those references were left as-is rather than silently widening the boundary. They
+   should be repointed to `…_CLOSED.md` in the next phase that legitimately edits those files.
+
+> **What this closure does NOT claim.** The acceptance sweep is **not** complete. The 64 AWAITING-REVIEW
+> reports are **not** accepted. Phase 18 is **not** complete. The runtime E2E proof is **not** proven.
+> `EXECUTION_READY` is **not** true. This phase corrected records and nothing else.
 
 > **Purpose.** Bring the committed ProjectOS governance records into agreement with the actual state at
 > `fdee3d34`. The records had drifted 24 commits and one complete external pilot behind reality, and the
@@ -79,7 +113,7 @@ This retires the earlier record's claim that no real activation and no protected
 |---|---|
 | `projectos/state/projectos-v3.current-state.json` | `currentHead` and `currentRemoteHead` `e1749ccd` → `fdee3d34`; `nextRecommendedPhase` `CD-B4-WINDOWS-USER-VERIFICATION-ADAPTER-PREFLIGHT1A` (delivered at `a43898d`) → `PROJECTOS-V3-ACCEPTANCE-SWEEP1A`; `blockedPhases` emptied, the three PolyGo phases moved to `pendingPhases`; `currentBlockers` replaced with the runtime-E2E blocker and the acceptance debt; the stale `EXECUTION_READY` carry-forward given its accurate remaining reason; delivered host state, the §A ledger pointer, the PolyGo supersession and the reconciliation fact appended to `acceptedCarryForward`; `lastEvidenceReference` and `lastUpdated` refreshed |
 | `docs/architecture/projectos-v3.1-crosswalk.md` | version 1.0 → 1.1 with change note; baseline → `fdee3d34` (previous retained); new §3a build-order status; §5 rows 14–16 no longer BLOCKED; new §8a post-`e1749cc` ledger and §8b delivered host state; §11 acceptance debt quantified; §12 rewritten with the PolyGo evidence and the runtime-vs-governance limitation; §15, §17, §18, §19, §22 corrected with v1.0 text retained and struck as SUPERSEDED; new §17a critical path; §23 reference added |
-| `knowledge/reports/2026-08-03_ProjectOS_PROJECTOS-V3-RECORDS-RECONCILE1A_AWAITING-REVIEW.md` | this report (new) |
+| `knowledge/reports/2026-08-03_ProjectOS_PROJECTOS-V3-RECORDS-RECONCILE1A_CLOSED.md` | this report (created as `…_AWAITING-REVIEW.md` in the reconciliation commit `dfd2eac`; renamed to `…_CLOSED.md` by the closure amendment) |
 | `knowledge/ProjectOS Reports Index.md` | one row, existing convention |
 
 **No other path is touched.** No TypeScript, JavaScript or Rust; no schema, validator, script, package file or
