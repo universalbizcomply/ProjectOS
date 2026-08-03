@@ -85,7 +85,7 @@ Formally CLOSED by gate decision (see §10). Other CD-B4 phases (runtime-instanc
 ### 8a. Post-`e1749cc` CD-B4 work (added by v1.1 — previously absent from repository records)
 
 Twenty-four commits landed between `e1749ccd` and `fdee3d34`. Two of them (`7cad460`, `cae6a74`) are the governance documents that were themselves recorded; the other **twenty-two had no repository status record at all**. They are now ledgered commit-by-commit in
-`knowledge/reports/2026-08-03_ProjectOS_PROJECTOS-V3-RECORDS-RECONCILE1A_AWAITING-REVIEW.md` §A.
+`knowledge/reports/2026-08-03_ProjectOS_PROJECTOS-V3-RECORDS-RECONCILE1A_CLOSED.md` §A.
 
 Summary of what they delivered, and their status:
 
@@ -232,7 +232,7 @@ Any real effect, service install, SCM/ACL/ProgramData, elevation, real named pip
 - **C2 — `PROJECTOS-V3-FINAL-RUNTIME-E2E1A`, or the existing Phase 18 equivalent** — the ProjectOS runtime itself driving a real external repository through `install` / `phase` / `report` / `close`. Mandatory; gates `EXECUTION_READY`.
 
 ## 23. Source references
-Approved plan: `docs/architecture/projectos-v3-master-plan.md` (v1.0, `1aa36b9`). State: `projectos/state/projectos-v3.current-state.json`. CD-B4 closures: `knowledge/reports/2026-07-29_ProjectOS_CD-B4-PRODUCTION-CLOSURES-LEDGER1A_CLOSED.md`. Post-`e1749cc` CD-B4 ledger and this reconciliation: `knowledge/reports/2026-08-03_ProjectOS_PROJECTOS-V3-RECORDS-RECONCILE1A_AWAITING-REVIEW.md`. Governance: `docs/Governance/projectos-prompting-and-gate-control-standard.md`.
+Approved plan: `docs/architecture/projectos-v3-master-plan.md` (v1.0, `1aa36b9`). State: `projectos/state/projectos-v3.current-state.json`. CD-B4 closures: `knowledge/reports/2026-07-29_ProjectOS_CD-B4-PRODUCTION-CLOSURES-LEDGER1A_CLOSED.md`. Post-`e1749cc` CD-B4 ledger and this reconciliation: `knowledge/reports/2026-08-03_ProjectOS_PROJECTOS-V3-RECORDS-RECONCILE1A_CLOSED.md`. Governance: `docs/Governance/projectos-prompting-and-gate-control-standard.md`.
 
 ## 24. Update and supersession rules
 This crosswalk is updated only under an owner/ChatGPT governance gate. It never amends the approved plan; a formal plan change requires a separate owner-gated plan v1.1 amendment (Option A) that bumps `planVersion` and `current-state.activePlanVersion` together. Historical phase identifiers are never renumbered. No overall ProjectOS percentage is published until a weighted model is formally approved.
