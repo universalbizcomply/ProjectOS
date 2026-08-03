@@ -1,7 +1,7 @@
 # ProjectOS V3.1 Roadmap-Integration & Status Crosswalk
 
 - **Document ID:** PROJECTOS-V3.1-CROSSWALK
-- **Version:** 1.1 (records reconciliation, 2026-08-03 — `PROJECTOS-V3-RECORDS-RECONCILE1A`)
+- **Version:** 1.2 (owner acceptance decisions, 2026-08-04 — `PROJECTOS-V3-ACCEPTANCE-DECISIONS-RECORD1A`; v1.1 was `PROJECTOS-V3-RECORDS-RECONCILE1A`)
 - **Owner:** Murad
 - **Status:** AUTHORITATIVE CURRENT STATUS CROSSWALK
 - **Approved-plan reference:** ProjectOS V3 Master Plan v1.0
@@ -10,6 +10,8 @@
 - **Previous baseline (superseded, retained for history):** e1749ccd2ca7a6348c5ece7bc97b18643de4e8ee
 
 > **v1.1 CHANGE NOTE.** Version 1.1 corrects status only. It accepts nothing, closes nothing, and does not amend the approved plan, which remains immutable at v1.0 (`1aa36b9`). Superseded v1.0 content is marked **SUPERSEDED** in place rather than deleted. `EXECUTION_READY` remains **false**.
+
+> **v1.2 CHANGE NOTE.** Version 1.2 persists the owner-approved decisions of the read-only acceptance sweep (`PROJECTOS-V3-ACCEPTANCE-SWEEP1A`). It records **implementation acceptance**, which is **not closure**: **no numbered V3 phase is closed here**, `acceptedPhaseCount` stays **3 / 19**, and `EXECUTION_READY` stays **false**. It also corrects a v1.1 error of my own — §3a classified build-order items 3–8 from their report **filenames** rather than from the Reports Index, which is the closure ledger and has recorded them CLOSED since 2026-06-30.
 
 > **WARNING — NOT A PLAN.** This document is an authoritative current-status and roadmap-integration crosswalk. It does **not** replace, amend or version the approved ProjectOS V3 Master Plan v1.0. The approved plan remains immutable at v1.0 (source commit `1aa36b9`). This crosswalk records status, integrates later workstreams (Forge, HARDEN/real-worker, CD-B4) that are **not** part of the original numbered V3 Phase 0–18 plan, and persists the **APPROVED DIRECTIONAL V3.1 ROADMAP STRUCTURE** (Track A–G). Directional-roadmap approval is **not** implementation authority: no Track C, Track D or other implementation phase is authorised merely because the directional structure is approved.
 
@@ -24,23 +26,29 @@ Knowledge pack, universal framework, PolyGo install, phase reporter, staging dep
 
 ~~PolyGo install path is **BLOCKED** (no trust anchor).~~ **SUPERSEDED 2026-08-03** — see §3a.
 
-### 3a. Original build-order status (v1.1, per capability)
+### 3a. Original build-order status (v1.2, per capability)
 
 | # | Capability | Status | Basis |
 |---|---|---|---|
-| 1 | Universal framework | **CLOSED** | V1 `PROJECTOPS-UNIVERSAL1A` + V2 closure (§4) |
-| 2 | PolyGo installation | **COMPLETED** — repository record previously stale | canonical `.projectops/project-config.json` installed in `polygonia-apres/polygo` at `b6e6993` + `e788d3c6173a7e599aff482328b9b9d2cb7dad74` |
-| 3 | Phase reporter | **IMPLEMENTED / AWAITING ACCEPTANCE** | `2026-06-30_ProjectOS_PROJECTOPS-PHASE-REPORTER1A_AWAITING-REVIEW.md`; code in `projectos/scripts/` |
-| 4 | Staging deploy guard | **IMPLEMENTED / AWAITING ACCEPTANCE** | `…PROJECTOPS-STAGING-DEPLOY-GUARD1A_AWAITING-REVIEW.md` |
-| 5 | Proof factory | **IMPLEMENTED / AWAITING ACCEPTANCE** | `…PROJECTOPS-PROOF-FACTORY1A_AWAITING-REVIEW.md` |
-| 6 | Staging drift detector | **IMPLEMENTED / AWAITING ACCEPTANCE** | `…PROJECTOPS-STAGING-DRIFT-DETECTOR1A_AWAITING-REVIEW.md` |
-| 7 | CI governance | **IMPLEMENTED / AWAITING ACCEPTANCE** | `…PROJECTOPS-CI-GOVERNANCE1A_AWAITING-REVIEW.md` |
-| 8 | Multi-project dashboard | **IMPLEMENTED / AWAITING ACCEPTANCE** | `…PROJECTOPS-MULTI-PROJECT-DASHBOARD1A_AWAITING-REVIEW.md` |
+| 1 | Universal framework | **CLOSED** | `PROJECTOPS-UNIVERSAL1A` — index: *"Closed by owner/advisor 2026-06-30"*; + V2 closure (§4) |
+| 2 | PolyGo installation | **COMPLETED / CLOSED** | `PROJECTOPS-POLYGO-INSTALL1A` — index: *"Closed by owner/advisor 2026-06-30"*; canonical `.projectops/project-config.json` later installed in `polygonia-apres/polygo` at `b6e6993` + `e788d3c6173a7e599aff482328b9b9d2cb7dad74` |
+| 3 | Phase reporter | **CLOSED** (authority ratified 2026-08-04) | Reports Index row CLOSED since 2026-06-30; validate-all 12/12 |
+| 4 | Staging deploy guard | **CLOSED** (authority ratified 2026-08-04) | Reports Index row CLOSED since 2026-06-30 |
+| 5 | Proof factory | **CLOSED** (authority ratified 2026-08-04) | Reports Index row CLOSED since 2026-06-30 |
+| 6 | Staging drift detector | **CLOSED** (authority ratified 2026-08-04) | Reports Index row CLOSED since 2026-06-30 |
+| 7 | CI governance | **CLOSED** (authority ratified 2026-08-04) | Reports Index row CLOSED since 2026-06-30; validate-all 27/27 |
+| 8 | Multi-project dashboard | **CLOSED** (authority ratified 2026-08-04) | Reports Index row CLOSED since 2026-06-30; validate-all 31/31 |
 
-Items 3–8 have carried `AWAITING-REVIEW` reports since 2026-06-30. **They are deliberately NOT promoted to CLOSED here** — code and a report existing is not acceptance. Resolution belongs to `PROJECTOS-V3-ACCEPTANCE-SWEEP1A`, which is a review gate.
+**SUPERSEDED v1.1 text (retained):** ~~Items 3–8 have carried `AWAITING-REVIEW` reports since 2026-06-30. They are deliberately NOT promoted to CLOSED here — code and a report existing is not acceptance.~~
+
+**Correction.** That v1.1 classification was **wrong**. It read the report **filenames**, which still carry the `AWAITING-REVIEW` suffix, instead of the **Reports Index**, which is the closure ledger and has recorded all six as **CLOSED since 2026-06-30**. The only genuine gap was that those six rows named no closure authority, unlike their siblings (`PROJECTOPS-UNIVERSAL1A`: *"Closed by owner/advisor 2026-06-30"*). The owner ratified that authority on **2026-08-04**. The filenames are deliberately **not** renamed — an existing report file is historical evidence, not a status field.
+
+None of items 3–8 is a numbered V3 phase, so this ratification leaves `acceptedPhaseCount` at **3 / 19**.
 
 ## 4. ProjectOS V2
-**CLOSED (ACCEPTED)** — `knowledge/reports/2026-07-11_ProjectOS_PROJECTOS-V2-FINAL-CLOSURE-EVIDENCE1A_CLOSED.md` (+ `…SYSTEM-E2E1A_CLOSED`). Kernel, CLI/local agent, worker model, phase runtime, install, approvals, orchestration, bridge daemon, desktop Control Centre, web dashboard, auth, Tauri — accepted under V2 closure.
+**CLOSED (ACCEPTED)** — `knowledge/reports/2026-07-11_ProjectOS_PROJECTOS-V2-FINAL-CLOSURE-EVIDENCE1A_CLOSED.md` (+ `…SYSTEM-E2E1A_CLOSED`).
+
+> **v1.2 — V2 component reports are SUBSUMED, not newly accepted.** The nineteen V2 component reports — `PROJECTOS-CORE1A`, `LOCAL-AGENT1A`, `WORKERS1A`, `PHASE-RUNTIME1A`, `PROJECT-INSTALL1A`, `PROJECT-INSTALL1B`, `APPROVALS1A`, `ORCHESTRATION1A`, `PLUGINS1A`, `VSCODE1A`, `CONTROL-CENTER1A`, `CONTROL-CENTER1B`, `CLOUD-DASHBOARD1A`, `CLOUD-DASHBOARD1B`, `V2-COMPLETION`, `BRIDGE-DAEMON1A`, `CONTROL-CENTER-DAEMON-WIRE1A`, `TAURI-IPC-CLOSURE1A`, `AUTOMATIC-BRIDGE-ARCHITECTURE1A` — are components of the already-accepted V2 programme. The owner decided on 2026-08-04 that they are **SUBSUMED** under `PROJECTOS-V2-FINAL-CLOSURE-EVIDENCE1A` (*"accepted by Murad and ChatGPT"*) together with `PROJECTOS-SYSTEM-E2E1A` (*"ChatGPT ACCEPTED"*). This grants **no new individual acceptance**, changes no numbered V3 phase, and leaves every historical report path untouched. Kernel, CLI/local agent, worker model, phase runtime, install, approvals, orchestration, bridge daemon, desktop Control Centre, web dashboard, auth, Tauri — accepted under V2 closure.
 
 ## 5. Original V3 Phase 0–18 ledger (numbered roadmap — IDs preserved, not renumbered)
 | # | Phase ID | Status |
@@ -48,24 +56,34 @@ Items 3–8 have carried `AWAITING-REVIEW` reports since 2026-06-30. **They are 
 | 0 | PROJECTOS-V3-BASELINE-RECONCILE1A | CLOSED AND PUSHED |
 | 1 | PROJECTOS-V3-MASTER-PLAN-MEMORY1A | CLOSED AND PUSHED |
 | 2 | PROJECTOS-V3-PLAN-DISCOVERY-IMPORT1A | CLOSED AND PUSHED |
-| 3 | PROJECTOS-V3-OWNER-CONTROL-PLANE-DESIGN1A | IMPLEMENTED LOCALLY — AWAITING REVIEW |
-| 4 | PROJECTOS-V3-LOCAL-SECRET-BROKER1A | IMPLEMENTED LOCALLY — AWAITING REVIEW |
-| 5 | PROJECTOS-V3-SECRET-OPERATION-BROKER1A | IMPLEMENTED LOCALLY — AWAITING REVIEW |
-| 6 | PROJECTOS-V3-OWNER-CHAT1A | IMPLEMENTED LOCALLY — AWAITING REVIEW |
-| 7 | PROJECTOS-V3-PROJECT-SESSION-LAUNCHER1A | IMPLEMENTED LOCALLY — AWAITING REVIEW |
-| 8 | PROJECTOS-V3-CLAUDE-DESKTOP-BRIDGE1A | IMPLEMENTED LOCALLY — AWAITING REVIEW |
-| 9 | PROJECTOS-V3-E2E-RUNNER1A | IMPLEMENTED LOCALLY — AWAITING REVIEW |
-| 10 | PROJECTOS-V3-APPROVAL-QUEUE1A | PENDING |
-| 11 | PROJECTOS-V3-PROVIDER-CONTEXT-GUARDS1A | PENDING |
-| 12 | PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A | PARTIAL (UI present) |
-| 13 | PROJECTOS-V3-DESKTOP-E2E-PROOF1A | PENDING |
-| 14 | PROJECTOS-V3-POLYGO-BASELINE-RECONCILE1A | NO LONGER BLOCKED — AWAITING ACCEPTANCE (was BLOCKED in v1.0; see §12) |
-| 15 | PROJECTOS-V3-POLYGO-INSTALL-REENTRY1A | NO LONGER BLOCKED — AWAITING ACCEPTANCE (was BLOCKED in v1.0; see §12) |
-| 16 | PROJECTOS-V3-POLYGO-PILOT1A | NO LONGER BLOCKED — AWAITING ACCEPTANCE (was BLOCKED in v1.0; see §12) |
-| 17 | PROJECTOS-V3-RELIABILITY-HARDENING1A | PENDING |
-| 18 | PROJECTOS-V3-FINAL-E2E-CLOSURE1A | PENDING |
+| 3 | PROJECTOS-V3-OWNER-CONTROL-PLANE-DESIGN1A | IMPLEMENTATION ACCEPTED — OPEN |
+| 4 | PROJECTOS-V3-LOCAL-SECRET-BROKER1A | IMPLEMENTATION ACCEPTED — OPEN |
+| 5 | PROJECTOS-V3-SECRET-OPERATION-BROKER1A | IMPLEMENTATION ACCEPTED — OPEN |
+| 6 | PROJECTOS-V3-OWNER-CHAT1A | IMPLEMENTATION ACCEPTED — OPEN |
+| 7 | PROJECTOS-V3-PROJECT-SESSION-LAUNCHER1A | IMPLEMENTATION ACCEPTED — OPEN |
+| 8 | PROJECTOS-V3-CLAUDE-DESKTOP-BRIDGE1A | IMPLEMENTATION ACCEPTED — OPEN |
+| 9 | PROJECTOS-V3-E2E-RUNNER1A | IMPLEMENTATION ACCEPTED — OPEN |
+| 10 | PROJECTOS-V3-APPROVAL-QUEUE1A | IMPLEMENTATION ACCEPTED — OPEN |
+| 11 | PROJECTOS-V3-PROVIDER-CONTEXT-GUARDS1A | IMPLEMENTATION ACCEPTED — OPEN |
+| 12 | PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A | IMPLEMENTATION ACCEPTED — OPEN (UI present; now also reads real host status, §8b) |
+| 13 | PROJECTOS-V3-DESKTOP-E2E-PROOF1A | **OPEN — NATIVE DESKTOP-WINDOW PROOF REQUIRED** |
+| 14 | PROJECTOS-V3-POLYGO-BASELINE-RECONCILE1A | IMPLEMENTATION ACCEPTED — OPEN (was BLOCKED in v1.0; see §12) |
+| 15 | PROJECTOS-V3-POLYGO-INSTALL-REENTRY1A | IMPLEMENTATION ACCEPTED — OPEN (was BLOCKED in v1.0; see §12) |
+| 16 | PROJECTOS-V3-POLYGO-PILOT1A | **OPEN — PROJECTOS RUNTIME-DRIVEN EXTERNAL E2E REQUIRED** (manual pilot done; see §12) |
+| 17 | PROJECTOS-V3-RELIABILITY-HARDENING1A | IMPLEMENTATION ACCEPTED — OPEN |
+| 18 | PROJECTOS-V3-FINAL-E2E-CLOSURE1A | **SUPERSEDED** — replaced by `PROJECTOS-V3-FINAL-RUNTIME-E2E1A` (§5a) |
 
-**Numbered V3 closure ratio = 3 / 19** (phases 0, 1, 2 only; applies ONLY to the original numbered V3 roadmap; not product/shipping/CD-B4/Forge). **Unchanged by v1.1** — this reconciliation accepts nothing.
+**Numbered V3 closure ratio = 3 / 19** (phases 0, 1, 2 only; applies ONLY to the original numbered V3 roadmap; not product/shipping/CD-B4/Forge). **Unchanged by v1.1 and v1.2.**
+
+### 5a. What "IMPLEMENTATION ACCEPTED — OPEN" means (v1.2)
+
+The owner accepted, on **2026-08-04**, that the implementation of phases 3–12, 14–15 and 17 is **adequate**. That is **not closure**:
+
+- the phase stays **OPEN**;
+- it does **not** count toward `acceptedPhaseCount`, which stays **3**;
+- closure still requires the outstanding proof for its track.
+
+**Phase 18 is SUPERSEDED, not deleted.** Its 2026-07-12 claim — *"PROJECTOS V3 LOCALLY COMPLETE AND PROVEN"* — predates the entire CD-B4 host chain, the real service installation and the PolyGo pilot, so it can no longer serve as the final gate. The replacement final gate is **`PROJECTOS-V3-FINAL-RUNTIME-E2E1A`**: the ProjectOS **runtime** driving a real external repository through its own `install` / `phase` / `report` / `close` workflow. The historical Phase 18 report is retained unchanged as evidence of what was true in July.
 
 ## 6. Forge ledger
 - Synthetic/offline F1–F10: **IMPLEMENTED AND PUSHED**.
@@ -75,6 +93,23 @@ Items 3–8 have carried `AWAITING-REVIEW` reports since 2026-06-30. **They are 
 - Formal phase acceptance / programme closure: **NOT VERIFIED**.
 
 **Forge overall = IMPLEMENTED AND PUSHED — FORMAL PROGRAMME CLOSURE NOT VERIFIED.** Forge is NOT formally closed.
+
+### 6a. Forge / HARDEN records correction and deferral (v1.2, owner decision 2026-08-04)
+
+**Eight** Reports Index rows carried Status `CLOSED` while their own reports concluded the opposite. (The sweep estimated nine; inspecting each report gives **eight** — the ninth flag was a keyword false positive on a dashboard row. Recorded as found, not as estimated.) Corrected from each report's own conclusion:
+
+| Row | Report conclusion (authoritative) | Corrected status |
+|---|---|---|
+| `PROJECTOS-FORGE-REAL-E2E-ACTIVATION1A` | *"PARTIAL — the provable real subset PASSED; two capabilities are ENVIRONMENT-BLOCKED… Awaiting advisor/owner review"* | AWAITING-REVIEW (PARTIAL) |
+| `PROJECTOS-FORGE-REAL-E2E-ACTIVATION1B` | *"BLOCKED — REQUIRED OWNER-MACHINE CAPABILITY UNAVAILABLE"* | **BLOCKED** |
+| `…ACTIVATION1B-HARDEN1A` … `…HARDEN1E` (5 rows) | *"IMPLEMENTED LOCALLY — AWAITING CHATGPT REVIEW"* | AWAITING-REVIEW |
+| `PROJECTOS-FORGE-WSL2-FINAL-TOOL-ISOLATION-PROOF1C` | *"REAL WSL2 WORKER PROOF PASSED — AWAITING CHATGPT PUSH/CLOSURE GATE"* | AWAITING-REVIEW (proof passed; closure gate outstanding) |
+
+The index Status column is constrained by `validate-report-index.cjs` to `AWAITING-REVIEW`, `AWAITING-CLOSURE`, `BLOCKED`, `DO-NOT-CLOSE`, `CLOSED`. Where a report's own wording is finer-grained than that enum — "PASSED but awaiting the closure gate", or the PolyGo 14–16 row's superseded blocker — the row carries the nearest true enum value and the exact evidenced conclusion is recorded in its notes. The validator was **not** modified.
+
+**WSL2 proof is WSL2 proof.** It is never to be recorded as native Windows proof. The **native Windows worker proof has NOT been run**.
+
+**DEFERRED — NOT PROJECTOS V3 RELEASE-BLOCKING.** Forge and the HARDEN/real-worker track are a later workstream outside the approved V3 definition-of-complete. They are useful, they are not release-critical, and no V3 gate waits on them.
 
 ## 7. HARDEN and real-worker ledger
 HARDEN1A–1E + real-e2e-1B + WSL2 tool-isolation (`0f888f7`, `dabcee5`, `597f4ac`, `005a5a5`, `a9990ed`, `3b791e7`): clone isolation, OS-containment, trusted-workspace-diff, process termination/ownership, sandbox-exec binding, fail-closed disposal. **PUSHED, load-bearing, FORMAL CLOSURE NOT VERIFIED.** Residual: real proof WSL2-only, not native.
@@ -102,6 +137,8 @@ Summary of what they delivered, and their status:
 | Roadmap persistence | `7cad460`, `cae6a74` | v1.0 of this crosswalk; V3.2 AI-provider-independence amendment | RECORDED (governance documents, not implementation phases) |
 
 **None of the above is marked CLOSED.** No explicit closure decision for any of them is persisted in this repository, and per §2 a gate decision may be authoritative before its record exists — but this records phase may not manufacture one. Some of these phases may in fact have received a gate closure that was never persisted; `PROJECTOS-V3-ACCEPTANCE-SWEEP1A` must resolve that. Pushed ≠ accepted.
+
+**v1.2 owner decision (2026-08-04): the post-`e1749cc` CD-B4 chain is NOT batch-accepted.** The owner explicitly refused blanket acceptance. This group holds the programme's only real protected effect — it installs a Windows service and carries elevated install authority — so it may not ride along in any low-risk batch. Each commit's true prior gate-closure status must be reconciled **individually and from evidence**, never guessed, under `PROJECTOS-V3-CD-B4-CLOSURE-AUTHORITY-RECONCILE1A`. Until then every entry stays IMPLEMENTED AND PUSHED / AWAITING ACCEPTANCE.
 
 ### 8b. Delivered Windows host state (fact, verified live 2026-08-01)
 
@@ -155,6 +192,8 @@ The pilot exercised: an exact seven-path boundary, a phase-specific validator, a
 
 The commits above belong to the **PolyGo** repository (`polygonia-apres/polygo`), not to this repository. They are recorded here as external accepted evidence and are not resolvable in ProjectOS git history.
 
+**v1.2 owner decision (2026-08-04).** Phases 14 and 15 are **IMPLEMENTATION ACCEPTED — OPEN**: installation and the manually governed pilot are complete. Phase 16 is **OPEN — PROJECTOS RUNTIME-DRIVEN EXTERNAL E2E REQUIRED**. **No numbered phase closure is granted by this decision**, and `acceptedPhaseCount` stays 3.
+
 ## 13. Superseded work
 Host-authority scaffold `823fd26` (superseded by synthetic `bff6a8d`); early identity-relocation (memory-noted). The 6-wave roadmap planning memory is superseded by this crosswalk as the status source.
 
@@ -197,11 +236,16 @@ The Track A–G structure has been approved by the owner/gatekeeper and is persi
 
 ## 17a. Current critical path (v1.1)
 
-The remaining path is short, and only one item is engineering work:
+**SUPERSEDED v1.1 sequence (retained):** ~~1. `PROJECTOS-V3-ACCEPTANCE-SWEEP1A` — review gate. 2. Owner ruling on `EXECUTION_READY`. 3. `PROJECTOS-V3-FINAL-RUNTIME-E2E1A`.~~ The sweep ran read-only on 2026-08-04 and its decisions are persisted by v1.2.
 
-1. `PROJECTOS-V3-ACCEPTANCE-SWEEP1A` — **review gate, not implementation.** Accept or reject numbered V3 phases 3–9, build-order items 3–8, and the post-`e1749cc` CD-B4 work (§8a) as a governed batch. Nothing is accepted automatically.
-2. Owner ruling on `EXECUTION_READY` once (1) and (3) are resolved.
-3. `PROJECTOS-V3-FINAL-RUNTIME-E2E1A` (or the existing Phase 18 equivalent) — **the one genuine missing proof**: the actual ProjectOS runtime driving a small real external-repository phase through `install` / `phase` / `report` / `close`. See §12's critical limitation and C2.
+**Current sequence (v1.2, owner-approved 2026-08-04):**
+
+1. **`PROJECTOS-V3-CD-B4-CLOSURE-AUTHORITY-RECONCILE1A`** — reconcile the true prior gate-closure status of the 22 post-`e1749cc` CD-B4 commits, individually and from evidence. Records work.
+2. **`PROJECTOS-V3-DESKTOP-NATIVE-PROOF1A`** — the native desktop-window proof Phase 13 needs.
+3. **`PROJECTOS-V3-FINAL-RUNTIME-E2E1A`** — **the one genuine missing proof**: the actual ProjectOS runtime driving a small real external-repository phase through `install` / `phase` / `report` / `close`. Replaces the superseded Phase 18 as the final gate. See §5a and §12.
+4. **`PROJECTOS-V3-EXECUTION-READY-RULING1A`** — owner ruling, only after 1–3.
+
+Only step 3 is substantial engineering, and the code it exercises already exists.
 
 RC / final closure still need Tracks B + C + F plus reliability and portability work; none of it is authorised by this crosswalk.
 
@@ -228,8 +272,12 @@ Any real effect, service install, SCM/ACL/ProgramData, elevation, real named pip
 - Session (RemoteDesktop) — cross-session proof remains environment-blocked on Windows 11 Home.
 - Durable production ledger.
 - Native Forge worker proof; Forge formal closure.
-- **C1 — `PROJECTOS-V3-ACCEPTANCE-SWEEP1A`** (review gate; resolves the 64-report acceptance debt and the §8a statuses).
-- **C2 — `PROJECTOS-V3-FINAL-RUNTIME-E2E1A`, or the existing Phase 18 equivalent** — the ProjectOS runtime itself driving a real external repository through `install` / `phase` / `report` / `close`. Mandatory; gates `EXECUTION_READY`.
+- ~~**C1 — `PROJECTOS-V3-ACCEPTANCE-SWEEP1A`**~~ **DONE 2026-08-04** (read-only; decisions persisted by v1.2). Note: the "64 AWAITING-REVIEW reports" figure was an artefact of the **filename** convention — the Reports Index already recorded 34 rows CLOSED. Never measure acceptance debt from filenames.
+- **C2 — `PROJECTOS-V3-FINAL-RUNTIME-E2E1A`** — the ProjectOS runtime itself driving a real external repository through `install` / `phase` / `report` / `close`. Mandatory; gates `EXECUTION_READY`; replaces the superseded Phase 18.
+- **C3 — `PROJECTOS-V3-CD-B4-CLOSURE-AUTHORITY-RECONCILE1A`** — per-commit gate-closure reconciliation for the 22 post-`e1749cc` CD-B4 commits. No blanket acceptance.
+- **C4 — `PROJECTOS-V3-DESKTOP-NATIVE-PROOF1A`** — native desktop-window proof for Phase 13.
+- **C5 — `PROJECTOS-V3-EXECUTION-READY-RULING1A`** — owner ruling, after C2–C4.
+- **C6 — Forge / HARDEN** — DEFERRED, non-blocking; native Windows worker proof still NOT RUN (§6a).
 
 ## 23. Source references
 Approved plan: `docs/architecture/projectos-v3-master-plan.md` (v1.0, `1aa36b9`). State: `projectos/state/projectos-v3.current-state.json`. CD-B4 closures: `knowledge/reports/2026-07-29_ProjectOS_CD-B4-PRODUCTION-CLOSURES-LEDGER1A_CLOSED.md`. Post-`e1749cc` CD-B4 ledger and this reconciliation: `knowledge/reports/2026-08-03_ProjectOS_PROJECTOS-V3-RECORDS-RECONCILE1A_CLOSED.md`. Governance: `docs/Governance/projectos-prompting-and-gate-control-standard.md`.
