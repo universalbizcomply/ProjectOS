@@ -253,9 +253,15 @@ body {
 .muted-note { color: var(--text-faint); font-size: 13px; padding: 6px 0; }
 .panel-h { font-size: 14px; letter-spacing: .04em; text-transform: uppercase; color: var(--text-dim); margin: 0 0 12px; }
 
-.health-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; margin-bottom: 20px; }
-.health-cell { background: var(--bg-panel); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px 14px; }
-.health-cell .hv { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+/* auto-fit, not auto-fill: empty tracks are collapsed so the tiles that exist share the whole row
+   instead of being squeezed into ghost columns.
+   The narrowest designed layout (900px window) fixes four columns, so a tile is ~140px wide and a
+   value has ~117px of content box. The longest value, UNAVAILABLE, measures ~110px at 15px bold —
+   it fits on one line at every designed width. `overflow-wrap` is only the last-resort guard for
+   an unexpectedly long machine value, so nothing can ever escape its card. */
+.health-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 20px; }
+.health-cell { background: var(--bg-panel); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px; }
+.health-cell .hv { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .health-cell .hk { font-size: 11px; color: var(--text-faint); margin-top: 2px; }
 
 .live-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }

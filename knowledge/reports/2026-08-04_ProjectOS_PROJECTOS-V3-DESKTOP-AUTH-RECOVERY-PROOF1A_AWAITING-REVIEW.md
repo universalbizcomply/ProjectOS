@@ -195,7 +195,10 @@ narrow, maximised, clipping, duplicate controls) was **not completed** — see �
 
 Neither UI UX Pro Max nor Flow Motion was invoked. No Figma requirement was invented.
 
-## 10. Live ProjectOSHost status evidence — BLOCKED
+## 10. Live ProjectOSHost status evidence — BLOCKED AT TIME OF COMMIT
+
+> **Superseded by Addendum A.** This section records the position when `1fcf416` was committed.
+> The workstation was later unlocked and the live proof was completed — see Addendum A.
 
 **LIVE PROOF BLOCKED. OWNER INTERACTIVE SIGN-IN REQUIRED.**
 
@@ -395,5 +398,364 @@ deletion; corrected in §2.
 
 ## 26. Decision needed
 
-**APPROVED TO PUSH** — or **NARROW AMENDMENT REQUIRED — DO NOT PUSH** — or **LIVE PROOF BLOCKED**
-(acknowledging §10 and scheduling the owner-interactive follow-up).
+Superseded by Addendum A §A.12.
+
+---
+
+# Addendum A — checkpoint push and completed live proof
+
+Added 2026-08-04 after the owner approved `1fcf416` for a normal checkpoint push. No executable
+source changed in this addendum; it is evidence only. The phase remains OPEN.
+
+## A.1 Push and remote reconciliation
+
+Pre-push gate: repository `C:\dev\ProjectOS`, branch `projectos-v3`, local HEAD `1fcf416`,
+`origin/projectos-v3` `60def85`, 1 ahead / 0 behind, tree clean, 0 staged, 0 untracked, 0 tags.
+Commit subject `fix(desktop): recover auth bootstrap failures`, parent `60def85`, exactly the four
+authorised paths, no package/lockfile, no Tauri configuration, no generated artifact, no secret-like
+material.
+
+Re-validated immediately before push: focused auth-bootstrap tests 10/10; frontend suite
+**172 passed / 17 files**; `tsc --noEmit` clean; `validate:v3plan` 8/8 PASS; `validate:secrets` PASS;
+`validate:reporter` 4/4 PASS; `git diff --check 60def85..1fcf416` clean. The release binary already
+present (`230A5E59B1DC731B7B5D96E7`, built 14:07:34) was produced from exactly this committed source
+— the tree has been clean since — so no rebuild was performed merely to refresh evidence.
+
+Remote access verified without touching global Git or GitHub configuration: `git remote get-url
+origin` → `https://github.com/universalbizcomply/ProjectOS.git`; `git ls-remote --heads origin`
+succeeded. `gh auth switch` was **not** run.
+
+Concurrency gate immediately before push: origin still `60def85`, HEAD still `1fcf416`, tree clean.
+
+Push: `git push origin projectos-v3` → `60def85..1fcf416  projectos-v3 -> projectos-v3`.
+Normal push — no force, no tag, no amend, no new commit.
+
+Post-push reconciliation: local HEAD = `origin/projectos-v3` = `1fcf416`, **0 ahead / 0 behind**,
+tree clean, **exactly one** remote commit after `60def85`, 0 tags.
+
+## A.2 Owner interactive sign-in confirmation
+
+The workstation was found **unlocked** (no `LogonUI` process) and the Control Centre process from the
+proof run (pid 13476, started 14:08:15, binary `230A5E59B1DC731B7B5D96E7`) was **already in an
+authenticated session** — the owner had signed in personally inside the native application earlier in
+the day. The authenticated dashboard is present in the UI Automation tree (sidebar navigation,
+Owner Control plane, and a `Sign out` control, which only renders when a session exists).
+
+No password, PAT, access token, refresh token, session cookie or `Authorization` header was
+requested, inspected, read or recorded. No credential of any kind passed through this session.
+
+## A.3 Native process and window evidence (post-sign-in)
+
+Same release binary built from `1fcf416`. No debug executable, no browser, no localhost, no Vite dev
+server, no installer.
+
+| # | Requirement | Result |
+|---|---|---|
+| 1 | Process and native window identity | PASS — pid 13476; visible windows: `Tauri Window` (hwnd 2754058) and the `Tao Thread Event Target` helper |
+| 2 | Application responsive | PASS — `Responding=True` throughout; `WindowInteractionState=ReadyForUserInteraction` |
+| 3 | No application-owned node/Vite process | PASS — 0 |
+| 4 | No listener on port 5178 | PASS — 0 |
+| 5 | Rendered authenticated application state | PASS — Owner Control and Mission Control both rendered and captured |
+| 6 | Normal 1200×820 | PASS — client 1184×781 |
+| 7 | Small 900×620 | PASS — client 884×581 |
+| 8 | Maximised | PASS — 1936×1168, client 1920×1129 |
+| 9 | Measured DPI/scaling | 96 DPI = **100%**, reported as found; DPI not changed |
+| 10 | Keyboard navigation | PASS — Tab order: `Skip to content` → `Owner Control` → `Forge` → `Owner Chat` → `Safety & Providers`; visible focus ring on the active nav item |
+| 11 | Accessible names | PASS — 133 UIA descendants with real names (`Document`, `Hyperlink`, `Group Primary`, nine nav `Button`s, `ComboBox Select project`, labelled `ListItem`s) |
+| 12 | Clipping / overlap / duplicate controls | **FAIL — defect found, see A.5** |
+| 13 | Clear unavailable/refused messaging | PASS — see A.4 |
+| 14 | No modal or focus trap | PASS — `WindowPattern.IsModal=False`; Tab moves freely through controls |
+
+## A.4 Live ProjectOSHost status — STOPPED → UNAVAILABLE correspondence PROVEN
+
+Reached by invoking the existing `Mission Control` navigation button through UI Automation — a
+read-only view change. No protected control was invoked.
+
+Windows, read-only, queried at 14:43:38 while the view was on screen:
+
+```
+sc query ProjectOSHost → SERVICE_NAME: ProjectOSHost   STATE: 1  STOPPED
+```
+
+The native UI displayed, under **INSTALLED HOST**, all seven fields as `UNAVAILABLE` — Service,
+Installation identity, Channel, Build, Release manifest, Readiness, Protected operations — with the
+message *"The installed host could not be reached, so no status is shown."* The view header reads
+*"Live from the Bridge Daemon · read-only · no refresh needed."*
+
+- Windows reports the service stopped — **the application correspondingly shows the fail-closed
+  unavailable state**. No `READY` was displayed. There is **no live status mismatch**.
+- Displayed data is live, not fixture-backed: the same surface has previously rendered concrete
+  values (`Verified` / `READY`) when the host was running, and `installedHostStatus.ts` collapses
+  every failed or malformed read to exactly this `unavailableView` shape. The value tracks the host's
+  actual reachability.
+- Service identity is correct and was confirmed by read-only query only:
+  `SERVICE_START_NAME: NT SERVICE\ProjectOSHost`, `BINARY_PATH_NAME:
+  C:\Program Files\ProjectOS\host\ProjectOSHost.exe`, `START_TYPE: 3 DEMAND_START`, SID
+  `S-1-5-80-3378865708-…-2736411702` Active.
+- No protected action was offered or performed on this view; it is read-only by construction.
+- No authority is inferred from this proof.
+
+The service was **not** started, restarted, installed, repaired or reconfigured. Its state is
+unchanged (`STOPPED`) after the proof.
+
+## A.5 UI defect found — value text clipped in the INSTALLED HOST tiles
+
+At every width tested, the word `UNAVAILABLE` **overflows its tile's border**. At 1936×1168 six of
+the seven tiles visibly truncate it to `UNAVAILABL`; only `Protected operations` (whose two-line
+label makes the tile wider) shows the full word. The same overflow is visible at 1200×820 and
+900×620.
+
+The tile grid itself reflows correctly (7 across when maximised, 4+3 at 900 wide) and the page does
+not scroll horizontally, so this is a per-tile sizing bug, not a layout collapse. It is cosmetic —
+the accompanying sentence states the condition in full and the UIA name of every field is the
+complete string `UNAVAILABLE`, so screen-reader users are unaffected.
+
+**Not fixed.** This addendum authorises no executable source change. Recorded as carry-forward.
+
+## A.6 Auth failure/retry evidence
+
+**LIVE FAILURE PIXEL PROOF NOT RUN — TEST AND MUTATION EVIDENCE ACCEPTED.**
+
+No safe in-application control reaches the failure screen, and the state did not occur naturally
+during the proof window. No network or DNS disruption was manufactured. The rejection/timeout path
+rests on tests T3, T4, T5, T7, T7b and mutations M1, M2, M3, M6.
+
+## A.7 Screenshots retained
+
+| File | Shows | Private content |
+|---|---|---|
+| `live-normal.png` | Authenticated Owner Control at 1200×820 | desktop edges |
+| `live-focus.png` | Keyboard focus state after Tab traversal | desktop edges |
+| `live-small.png`, `live-max.png` | Owner Control at 900×620 and maximised | desktop edges |
+| `live-mission-control.png` | **Host status UNAVAILABLE at 1200×820** — primary A.4 evidence | desktop edges |
+| `live-mc-small.png` | Host status at 900×620, clipping visible | desktop edges |
+| `live-mc-max.png` | Host status maximised, clipping across six tiles | small overlay of an unrelated window in one corner |
+| `wait-12.png`, `wait-30.png`, `wait-60.png` | **The original defect** — frozen "Loading…", then recovery | desktop edges |
+| `ui-normal.png`, `ui-small.png`, `ui-max.png`, `cc-normal.png` | Pre-fix window, resize, single-instance dialog | desktop edges, taskbar |
+
+One earlier maximised capture recorded unrelated application windows because the Control Centre was
+not foreground at the moment of capture. It contained another project's on-screen content and was
+**deleted immediately**; the capture was repeated with an explicit foreground check before saving.
+
+## A.8 Scratchpad cleanup recommendation
+
+Safe to delete now: `auth-*.png` and `final-*.png` (lock-screen only, no application pixels), and the
+mutation baselines `App.tsx.fixed` / `App.tsx.final`.
+
+Keep until ChatGPT accepts closure: `wait-12/30/60.png`, `ui-*.png`, `cc-normal.png`, `live-*.png`,
+`live-mc-*.png`.
+
+`git clean` was not used and must not be used. No screenshot is committed.
+
+## A.9 Residue after proof
+
+- Control Centre closed cleanly via `CloseMainWindow()`; **no `projectos-control-center` process
+  remains**.
+- No orphaned WebView2 process from the app — the 12 `msedgewebview2` processes present belong to
+  Windows `SearchHost` and `Widgets`, none referencing the application.
+- 0 listeners on port 5178. 0 app-owned node/Vite processes.
+- `ProjectOSHost` still `STOPPED`, unchanged.
+- Repository: the working tree carries only this report amendment (and an index note if updated).
+  No commit was created for the addendum.
+
+## A.10 Remaining limitations
+
+1. **Live failure/retry pixels not captured** — by instruction, no outage was manufactured.
+2. **INSTALLED HOST tile clipping** (A.5) — found, not fixed; no executable change authorised.
+3. **M4b unobservable** — the `live` unmount guard is retained but not test-enforced.
+4. **DPI 100%, not 125%** — reported as measured.
+5. **Host READY path not exercised** — only the stopped/unavailable correspondence is proven, since
+   starting the service is prohibited.
+6. **No ESLint / react-hooks plugin** in the package — pre-existing, needs a prohibited
+   `package.json` change.
+
+## A.11 Frozen invariants — unchanged
+
+```
+EXECUTION_READY = false        installationAuthority = NotAuthorised
+acceptedPhaseCount = 3         totalPhaseCount = 19
+86ae19c = OPEN                 a43898d = OPEN
+```
+
+No phase closed. No windows-future authority inferred.
+
+## A.12 Decision requested
+
+Superseded by Addendum B §B.13.
+
+---
+
+# Addendum B — INSTALLED-HOST-STATUS-TILE-OVERFLOW1A
+
+The one blocking criterion left open by Addendum A (§A.3 row 12, §A.5) is corrected here. Bounded
+amendment: presentation only. No host-status data, contract, transport or service behaviour changed.
+
+## B.1 The defect
+
+At every window width the value `UNAVAILABLE` overflowed its installed-host tile border. Maximised,
+six of seven tiles visually truncated it to `UNAVAILABL`. The accessible name was always the complete
+string, so only sighted users were affected — but the primary status word was unreadable.
+
+## B.2 Root cause
+
+Two rules in `src/styles.css`, both shared by the installed-host grid and the daemon health grid:
+
+```css
+.health-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
+.health-cell .hv { font-size: 20px; font-weight: 700; }   /* no overflow-wrap */
+```
+
+1. **`auto-fill`** reserves empty tracks at the 120px minimum and shares free space across *all* of
+   them, including the ghosts. Maximised, the grid computed ~12 tracks for 7 tiles, so each tile was
+   squeezed to ~126px even though the row had ~1620px available.
+2. At **20px bold**, `UNAVAILABLE` measures **147px** (measured with GDI+ against Segoe UI Bold — the
+   font actually used, since Inter is not installed on this machine). A ~126px tile has ~98px of
+   content box after 14px padding each side. With no `overflow-wrap`, a single 11-character word
+   cannot break, so it spilled past the border instead of wrapping.
+
+## B.3 The fix — exact change
+
+```css
+.health-grid { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }   /* auto-fill → auto-fit */
+.health-cell { padding: 12px; }                                                /* was 12px 14px */
+.health-cell .hv { font-size: 15px; …; overflow-wrap: anywhere; }              /* was 20px, no wrap */
+```
+
+- **`auto-fit`** collapses empty tracks, so the seven tiles share the whole row. Maximised they are
+  ~215px wide instead of ~126px — this is the structural half of the fix.
+- The narrowest *designed* layout pins the rest of the arithmetic. R6 requires four columns at a
+  900px window: grid area 592px, so a tile is fixed at ~140px regardless of the track minimum, giving
+  ~117px of content box at 12px padding. Measured widths of `UNAVAILABLE`: 20px→147px, 16px→117px,
+  **15px→110px**. Only 15px fits with real margin, so the value size is 15px — still above the app's
+  13–14px body text and well above its 11px labels, so it reads as a primary value, not a shrink-to-
+  fit hack.
+- **`overflow-wrap: anywhere`** is retained purely as a last-resort guard: an unexpectedly long
+  machine value now wraps inside its card instead of escaping it. At every designed width the value
+  fits on one line, so this path stays dormant.
+
+An intermediate attempt at 16px was built and **proven wrong on screen** — at 900×620 all seven tiles
+wrapped to `UNAVAILABL` / `E`. That capture drove the correction to 15px rather than an argument.
+
+## B.4 Files changed
+
+```
+projectos/control-center/src/styles.css                    (modified — 3 rules + explanatory comment)
+projectos/control-center/test/installedHostTiles.test.tsx  (new)
+```
+
+Two executable paths of the three authorised. The rendering component was **not** touched.
+
+## B.5 Focused tests
+
+`test/installedHostTiles.test.tsx` — 5 tests, all passing.
+
+| # | Case | Asserted |
+|---|---|---|
+| T1 | Seven tiles | every tile's value is the complete string `UNAVAILABLE` |
+| T2 | Accessible names | region `Installed host` plus all seven labels intact |
+| T3 | No abbreviation | `UNAVAILABL`, `UNAVAIL`, `N/A` and ellipsised forms all absent |
+| T4 | Healthy host | `RUNNING`/`VERIFIED`/`STABLE`/`READY`/`REFUSED` and both digest prefixes render in full |
+| T5 | Structure | seven `.health-cell`s, one `.hv` + one `.hk` each, order unchanged |
+
+**Stated limitation:** jsdom does not lay out CSS, so these tests cannot prove geometry — they pin the
+contract the fix must not break (no logic-level truncation, no lost accessible name). The geometry
+claims are proven by the native three-layout window proof in §B.7, which is the primary evidence.
+
+## B.6 Code, ECC and UI review
+
+- **Code review — APPROVE.** 0 CRITICAL, 0 HIGH. Independently verified the `auto-fill`→`auto-fit`
+  reasoning and re-derived the 900px four-column arithmetic. One MEDIUM: `.hv` is shared with the
+  daemon health grid (`LiveMissionControl.tsx:148`), whose short values never overflowed, so that
+  surface also gets the smaller value type. **Accepted deliberately** — scoping it with a modifier
+  class would duplicate the rule for no functional gain, and one consistent value size across both
+  health grids is the better outcome. Disclosed here rather than hidden.
+- **Accessibility / UI review — conditional pass, condition now met.** Confirmed 15px bold sits above
+  body text and is not a tiny-font workaround; nothing is ellipsised, abbreviated or hidden from
+  sighted users; `role="region"`, `aria-label`, `aria-live` and focus order are untouched; a CSS wrap
+  hint never splits the DOM text node, so screen readers still announce one word. Its one HIGH was
+  precisely the risk that the wrap fallback would become the routine rendering path — it asked for
+  native confirmation rather than assumption. §B.7 supplies it: the fallback never fires at any
+  designed width.
+- **ECC / boundary review.** Two executable paths of three authorised, five changed paths of five.
+  No host-status semantics touched, no service mutated, no generated output tracked, no secret-like
+  material, no package/lockfile/Cargo/Tauri change, no dependency added.
+
+## B.7 Three-layout native proof
+
+Release binary `B9DB74F419B7A9EDB213C193`, built 15:10:38 from the corrected source, launched
+directly. No debug executable, no browser, no localhost, no Vite dev server, no installer. Foreground
+and window identity verified before every capture; a capture was skipped rather than saved whenever
+the target was not foreground.
+
+| Requirement | Result |
+|---|---|
+| R1 complete `UNAVAILABLE` in all seven tiles | **PASS** — 7 UIA elements named exactly `UNAVAILABLE`, and legible in all three captures |
+| R2 no clipping at 1200×820 | **PASS** — client 1184×781 |
+| R3 no clipping at 900×620 | **PASS** — client 884×581; was the failing case at 16px |
+| R4 no clipping maximised | **PASS** — 1936×1168, client 1920×1129, `IsZoomed=True` |
+| R5 no horizontal page scroll | **PASS** |
+| R6 grid reflow preserved | **PASS** — seven across maximised; four plus three at 900×620 |
+| R7 accessible names complete | **PASS** — the only ellipsis anywhere in the tree is the `filter events…` input placeholder, which is intentional |
+| R8 status semantics unchanged | **PASS** — component untouched |
+| R9 normal values legible | Covered by T4; not observable live because the host is stopped |
+| R10 long values cannot escape their card | **PASS** — `overflow-wrap` guard, dormant at every designed width |
+| R11 no ellipsis on status words | **PASS** |
+| R12 readable, consistent size | **PASS** — 15px bold vs 13–14px body, 11px labels |
+| R13 no overlap with labels, borders or neighbours | **PASS** |
+| R14 no duplicate control, label or status surface | **PASS** |
+| R15 understandable without training | **PASS** — plain sentence retained beneath the grid |
+
+A 2× close view (`fix2-closeup.png`) shows the complete word with clear margin inside each border at
+letter level.
+
+## B.8 Accessibility and no-training review
+
+Screen-reader path unchanged: `role="region"` / `aria-label="Installed host"` / `aria-live="polite"`
+intact, and all seven values still expose the full string as their accessible name. No text is hidden
+from visual users, none is abbreviated, and no meaning is carried by colour alone — the word itself
+states the condition, with the plain sentence *"The installed host could not be reached, so no status
+is shown."* directly beneath. Keyboard behaviour is untouched; the change is presentational only.
+
+## B.9 Live ProjectOSHost correspondence — still proven, still fail-closed
+
+`sc query ProjectOSHost` → `STATE: 1 STOPPED`, checked before and after the proof. The native UI
+showed all seven fields `UNAVAILABLE` throughout. No `READY` while stopped, so no live status
+mismatch. The service was **not** started, stopped, restarted, installed, repaired or reconfigured,
+and no protected operation was offered or performed. Navigation to Mission Control was a read-only
+view change invoked through the existing navigation button.
+
+## B.10 Build evidence
+
+`npm run typecheck` clean · `npx vitest run` **177 passed / 18 files** (was 172/17; auth-bootstrap
+tests still green) · vite production build clean · `npx tauri build --no-bundle` green, release exe
+rebuilt · no installer executed · `dist/` and `target/` ignored and untracked · no package, lockfile,
+Cargo or Tauri configuration change · `validate:v3plan` 8/8 PASS · `validate:secrets` PASS ·
+`validate:reporter` 4/4 PASS · `git diff --check` clean.
+
+## B.11 Scratchpad and residue
+
+Retained: `fix2-normal.png`, `fix2-small.png`, `fix2-max.png`, `fix2-closeup.png` (corrected state);
+`live-*.png` and `live-mc-*.png` (Addendum A); `wait-12/30/60.png` (the original Loading defect);
+`ui-*.png`, `cc-normal.png` (pre-fix). No screenshot is committed.
+
+Deleted locally: the lock-screen-only captures (`auth-*.png`, `final-*.png`), the superseded 16px
+attempt (`fix-*.png`), and the mutation baselines (`App.tsx.fixed`, `App.tsx.final`). `git clean` was
+not used.
+
+After proof: **no** Control Centre process remains; **no** app-owned WebView2 remains (six children
+lingered momentarily after close and exited on their own within seconds); no app-owned Node/Vite
+process; 0 listeners on port 5178; `ProjectOSHost` unchanged and `STOPPED`.
+
+## B.12 Accepted limitations
+
+1. `.hv` is shared, so the daemon health grid also renders at 15px (§B.6) — accepted for consistency.
+2. R9 is proven by test, not live — the host is stopped, so `READY`/`VERIFIED` cannot be observed on
+   screen without starting the service, which is prohibited.
+3. jsdom cannot test geometry; layout rests on the native proof.
+4. Carried forward unchanged from earlier sections: no ESLint/react-hooks plugin in the package;
+   no client-side trace when a session probe fails; the `live` unmount guard is not test-enforced;
+   measured scaling is 100%, not 125%.
+
+## B.13 Decision requested
+
+**APPROVED TO PUSH** — or **NARROW AMENDMENT REQUIRED — DO NOT PUSH** — or **LIVE PROOF BLOCKED**.
