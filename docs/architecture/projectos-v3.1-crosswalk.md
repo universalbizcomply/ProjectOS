@@ -1,7 +1,7 @@
 # ProjectOS V3.1 Roadmap-Integration & Status Crosswalk
 
 - **Document ID:** PROJECTOS-V3.1-CROSSWALK
-- **Version:** 1.3 (CD-B4 closure authority, 2026-08-04 — `PROJECTOS-V3-CD-B4-CLOSURE-AUTHORITY-RECORD1A`; v1.2 was `PROJECTOS-V3-ACCEPTANCE-DECISIONS-RECORD1A`, v1.1 `PROJECTOS-V3-RECORDS-RECONCILE1A`)
+- **Version:** 1.4 (Phase 13 closure, 2026-08-04 — `PROJECTOS-V3-DESKTOP-AUTH-RECOVERY-PROOF1A`; v1.3 was `PROJECTOS-V3-CD-B4-CLOSURE-AUTHORITY-RECORD1A`, v1.2 `PROJECTOS-V3-ACCEPTANCE-DECISIONS-RECORD1A`, v1.1 `PROJECTOS-V3-RECORDS-RECONCILE1A`)
 - **Owner:** Murad
 - **Status:** AUTHORITATIVE CURRENT STATUS CROSSWALK
 - **Approved-plan reference:** ProjectOS V3 Master Plan v1.0
@@ -14,6 +14,8 @@
 > **v1.2 CHANGE NOTE.** Version 1.2 persists the owner-approved decisions of the read-only acceptance sweep (`PROJECTOS-V3-ACCEPTANCE-SWEEP1A`). It records **implementation acceptance**, which is **not closure**: **no numbered V3 phase is closed here**, `acceptedPhaseCount` stays **3 / 19**, and `EXECUTION_READY` stays **false**. It also corrects a v1.1 error of my own — §3a classified build-order items 3–8 from their report **filenames** rather than from the Reports Index, which is the closure ledger and has recorded them CLOSED since 2026-06-30.
 
 > **v1.3 CHANGE NOTE.** Version 1.3 persists the corrected CD-B4 closure-authority matrix (§8a, §8c, §8d) under the owner ruling of 2026-08-04. It replaces the v1.1/v1.2 blanket *IMPLEMENTED AND PUSHED / AWAITING ACCEPTANCE* classification with per-phase authority state, records that **`86ae19c` and `a43898d` remain OPEN**, and changes **no numbered V3 phase**: `acceptedPhaseCount` stays **3 / 19** and `EXECUTION_READY` stays **false**.
+
+> **v1.4 CHANGE NOTE.** Version 1.4 records the ChatGPT technical closure gate of 2026-08-04 closing numbered **Phase 13 `PROJECTOS-V3-DESKTOP-E2E-PROOF1A`** on the native desktop proof delivered by `PROJECTOS-V3-DESKTOP-AUTH-RECOVERY-PROOF1A` (accepted commits `1fcf416` and `fb203c6`). This is the first numbered V3 phase closed since Phase 2, so `acceptedPhaseCount` moves **3 -> 4 of 19**. `EXECUTION_READY` stays **false**, `installationAuthority` stays **NotAuthorised**, and `86ae19c` and `a43898d` stay **OPEN**. No other numbered phase changes state.
 
 > **WARNING — NOT A PLAN.** This document is an authoritative current-status and roadmap-integration crosswalk. It does **not** replace, amend or version the approved ProjectOS V3 Master Plan v1.0. The approved plan remains immutable at v1.0 (source commit `1aa36b9`). This crosswalk records status, integrates later workstreams (Forge, HARDEN/real-worker, CD-B4) that are **not** part of the original numbered V3 Phase 0–18 plan, and persists the **APPROVED DIRECTIONAL V3.1 ROADMAP STRUCTURE** (Track A–G). Directional-roadmap approval is **not** implementation authority: no Track C, Track D or other implementation phase is authorised merely because the directional structure is approved.
 
@@ -68,7 +70,7 @@ None of items 3–8 is a numbered V3 phase, so this ratification leaves `accepte
 | 10 | PROJECTOS-V3-APPROVAL-QUEUE1A | IMPLEMENTATION ACCEPTED — OPEN |
 | 11 | PROJECTOS-V3-PROVIDER-CONTEXT-GUARDS1A | IMPLEMENTATION ACCEPTED — OPEN |
 | 12 | PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A | IMPLEMENTATION ACCEPTED — OPEN (UI present; now also reads real host status, §8b) |
-| 13 | PROJECTOS-V3-DESKTOP-E2E-PROOF1A | **OPEN — NATIVE DESKTOP-WINDOW PROOF REQUIRED** |
+| 13 | PROJECTOS-V3-DESKTOP-E2E-PROOF1A | **CLOSED** (2026-08-04, ChatGPT technical closure gate) — native Tauri release proof, authenticated UI proof, responsive/accessibility proof, STOPPED -> UNAVAILABLE host correspondence, R1-R15 passed; evidence `1fcf416` + `fb203c6` and the `PROJECTOS-V3-DESKTOP-AUTH-RECOVERY-PROOF1A` CLOSED report |
 | 14 | PROJECTOS-V3-POLYGO-BASELINE-RECONCILE1A | IMPLEMENTATION ACCEPTED — OPEN (was BLOCKED in v1.0; see §12) |
 | 15 | PROJECTOS-V3-POLYGO-INSTALL-REENTRY1A | IMPLEMENTATION ACCEPTED — OPEN (was BLOCKED in v1.0; see §12) |
 | 16 | PROJECTOS-V3-POLYGO-PILOT1A | **OPEN — PROJECTOS RUNTIME-DRIVEN EXTERNAL E2E REQUIRED** (manual pilot done; see §12) |
@@ -184,7 +186,7 @@ This retires the v1.0 claim that no real activation and no protected effect had 
 - IPC-SESSION-AUTHORITY1A / RUNTIME-IPC-PERMIT-INTEGRATION1A: CONTRACT + FIXTURE + COMPILE-FAILURE; SYNTHETIC currentness; no live/protected effect.
 
 ## 10. Accepted closures
-- V3 numbered: Phase 0, Phase 1, Phase 2.
+- V3 numbered: Phase 0, Phase 1, Phase 2, **Phase 13** (`PROJECTOS-V3-DESKTOP-E2E-PROOF1A`, CLOSED 2026-08-04 by ChatGPT technical closure gate; evidence `1fcf416` + `fb203c6` and the `PROJECTOS-V3-DESKTOP-AUTH-RECOVERY-PROOF1A` CLOSED report).
 - V2 programme: CLOSED.
 - CD-B4 (by ChatGPT gate — persisted in `knowledge/reports/2026-07-29_ProjectOS_CD-B4-PRODUCTION-CLOSURES-LEDGER1A_CLOSED.md`):
   1. CD-B4-IPC-SESSION-AUTHORITY1A — commit e77ce3e
@@ -280,6 +282,18 @@ RC / final closure still need Tracks B + C + F plus reliability and portability 
 ## 18. Next five phases
 
 **SUPERSEDED (v1.0 list, retained) — all five delivered:** ~~1. V3.1 rebaseline persistence — Track A. 2. CD-B4-PRODUCTION-OWNER-PRESENCE-PROVIDER-PREFLIGHT1A. 3. CD-B4-PRODUCTION-ELEVATION-PROVIDER-PREFLIGHT1A. 4. CD-B4-HOST-RUNTIME-AUTHORITY-COMPOSITION preflight. 5. CD-B4-PROTECTED-EFFECT-ADAPTER preflight (first real effect).~~ Delivered at `7cad460`, `86ae19c`, the acquisition/identity chain, the installer composition chain, and `0220048` respectively (§8a). Superseded by §17a.
+
+### 18a. Next critical programme sequence (v1.4, 2026-08-04)
+
+Recorded at Phase 13 closure. Listing is not implementation authority; each item still needs its own gate.
+
+1. `PROJECTOS-MULTI-PROJECT-CREDENTIAL-ROUTER1A` — owner-designated P0: per-session GitHub, Supabase and Vercel
+   identity so ProjectOS, BizComply V2, two JD Testing sessions and two PolyGo sessions stop depending on
+   machine-global provider state.
+2. Project-specific credential-router installations.
+3. Six-session isolation proof.
+4. `PROJECTOS-V3-FINAL-RUNTIME-E2E1A`.
+5. `PROJECTOS-V3-EXECUTION-READY-RULING1A`.
 
 ## 19. Next ten phases
 

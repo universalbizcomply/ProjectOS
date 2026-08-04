@@ -1,8 +1,35 @@
 # ProjectOS — PROJECTOS-V3-DESKTOP-E2E-PROOF1A — Phase Evidence
 
 **Project:** ProjectOS · **Programme:** ProjectOS V3 · **Phase 13:** `PROJECTOS-V3-DESKTOP-E2E-PROOF1A`
-**Local status:** **LOCAL IMPLEMENTATION COMPLETE** — not accepted, not closed. **Not pushed.**
+**Status:** **CLOSED** — ChatGPT technical closure gate, 2026-08-04
 **Branch:** `projectos-v3` · **Starting commit:** `5e1681e…`
+
+---
+
+## 0. Closure record (added 2026-08-04)
+
+**Phase 13 of 19 — `PROJECTOS-V3-DESKTOP-E2E-PROOF1A` — CLOSED.**
+
+**Closure authority:** ChatGPT technical closure gate, 2026-08-04.
+
+**Closure evidence.** The native desktop-window proof this phase required — and which the body of
+this report could not supply from a headless session — was completed under the supporting phase
+`PROJECTOS-V3-DESKTOP-AUTH-RECOVERY-PROOF1A`:
+
+- Supporting proof report:
+  `knowledge/reports/2026-08-04_ProjectOS_PROJECTOS-V3-DESKTOP-AUTH-RECOVERY-PROOF1A_CLOSED.md`
+- Accepted implementation commits:
+  - `1fcf416ab8b08d162ee5948e338c80b81bee6841` — auth-bootstrap recovery and initial native proof
+  - `fb203c6a9add2ae9b4f8de15c7bd2dccfaed8ebc` — installed-host tile-overflow correction and final native proof
+- Accepted native and accessibility evidence: genuine Tauri release process and window, authenticated
+  application rendered, normal / narrow / maximised layouts, keyboard traversal and accessible names,
+  no Vite process and no dependency on port 5178, all mandatory requirements R1–R15 passed.
+- Accepted live host-status correspondence: `ProjectOSHost` reported `STOPPED` by Windows while the
+  native UI showed the fail-closed `UNAVAILABLE` state, with no protected operation and no service
+  mutation.
+
+The status statements in the body below describe the position as at 2026-07-12 and are retained
+unchanged for history; this closure record supersedes them.
 
 ---
 

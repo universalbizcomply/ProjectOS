@@ -5,8 +5,49 @@
 **Repository:** C:\dev\ProjectOS
 **Branch:** projectos-v3
 **Parent commit:** 60def85194e2459eb0ea88a36c2a8f94474c5867
-**Status:** AWAITING-REVIEW
-**Decision requested:** APPROVED TO PUSH — or NARROW AMENDMENT REQUIRED — DO NOT PUSH
+**Status:** CLOSED
+**Gatekeeper decision:** CLOSED — ChatGPT technical closure gate, 2026-08-04
+
+---
+
+## 0. Closure record
+
+**Phase:** PROJECTOS-V3-DESKTOP-AUTH-RECOVERY-PROOF1A
+**Status:** **CLOSED**
+**Closure authority:** ChatGPT technical closure gate, 2026-08-04
+**Also closes numbered:** `PROJECTOS-V3-DESKTOP-E2E-PROOF1A` — **Phase 13 of 19**
+
+**Accepted implementation commits**
+
+```
+1fcf416ab8b08d162ee5948e338c80b81bee6841   auth-bootstrap recovery + initial native proof
+fb203c6a9add2ae9b4f8de15c7bd2dccfaed8ebc   installed-host tile-overflow correction + final native proof
+```
+
+Both pushed; `local HEAD = origin/projectos-v3 = fb203c6a9add…`, reconciled **0/0**, working tree clean.
+
+**Closure basis**
+
+- Auth-bootstrap recovery — bounded probe deadline, rejection handling, one-shot settlement, retry, late-result suppression, unmount protection, focus management, subscription-lifetime separation.
+- Focused tests and mutations — 10 auth-bootstrap tests plus a 9-mutation adversarial matrix, 8 killed; 5 installed-host tile tests; 177 frontend tests across 18 files.
+- Native process and window proof — genuine Tauri release process and top-level window, correct title, ≥60s alive and responsive, single-instance refusal, no application-owned Vite process, no dependency on port 5178.
+- Authenticated UI proof — owner-signed-in Owner Control and Mission Control rendered and captured on the pushed binary.
+- Accessibility and keyboard proof — 133 UIA descendants with real accessible names, Tab traversal from the skip link through the navigation, no modal and no focus trap.
+- Stopped host → UNAVAILABLE proof — `sc query` reported `STOPPED` while the native UI showed all seven installed-host fields `UNAVAILABLE`; fail-closed, no `READY`-while-stopped mismatch, service never started.
+- Tile-overflow correction — the `UNAVAILABLE` value no longer overflows its tile at 1200×820, 900×620 or maximised 1936×1168.
+- All mandatory native requirements **R1–R15 passed**.
+- TypeScript check and Tauri release build green; `validate:v3plan` 8/8, `validate:secrets` PASS, `validate:reporter` 4/4.
+- No protected operation, no service mutation, no secret exposure.
+- Exact pushed boundaries reconciled 0/0.
+
+**Carry-forward (recorded; none blocks this closure)**
+
+1. No package-level ESLint configuration in the Control Centre package.
+2. No client-side trace when the session probe fails.
+3. The unmount guard is retained but not mutation-enforced.
+4. Native scaling proof was measured at 100%.
+5. Healthy host state (`READY`/`VERIFIED`) is covered by test and prior host-chain evidence rather than a live capture, because starting the service was prohibited.
+6. Screenshot scratchpad cleanup.
 
 ---
 
@@ -279,7 +320,7 @@ Exactly two executable paths and two records paths — four total, the authorise
 projectos/control-center/src/App.tsx                  (modified)
 projectos/control-center/test/authBootstrap.test.tsx  (new)
 knowledge/ProjectOS Reports Index.md                  (modified — one row)
-knowledge/reports/2026-08-04_ProjectOS_PROJECTOS-V3-DESKTOP-AUTH-RECOVERY-PROOF1A_AWAITING-REVIEW.md  (new)
+knowledge/reports/2026-08-04_ProjectOS_PROJECTOS-V3-DESKTOP-AUTH-RECOVERY-PROOF1A_CLOSED.md  (new; renamed from _AWAITING-REVIEW.md at closure)
 ```
 
 ## 14. Scope
