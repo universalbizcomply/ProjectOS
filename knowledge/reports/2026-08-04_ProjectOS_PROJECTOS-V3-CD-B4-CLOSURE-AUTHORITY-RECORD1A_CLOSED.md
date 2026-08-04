@@ -1,14 +1,42 @@
-# CD-B4 Closure Authority Record — AWAITING-REVIEW
+# CD-B4 Closure Authority Record — CLOSED
 
 - **Report ID:** PROJECTOS-V3-CD-B4-CLOSURE-AUTHORITY-RECORD1A
 - **Project:** ProjectOS
 - **Date:** 2026-08-04
-- **Status:** AWAITING-REVIEW
+- **Status:** CLOSED
+- **Gatekeeper decision:** CLOSED (owner + ChatGPT gate, 2026-08-04)
+- **Accepted authority-record commit:** `e585b63ca8aeb1915f2e5b3da6c25fdb0e8ec09c`
 - **Repository:** `C:\dev\ProjectOS` · branch `projectos-v3`
 - **Base HEAD:** `f8e6fbafcd0f9df2c88e98b26c601db6f9de131c`
-- **Gate:** RECORDS-ONLY — no executable code, no push
+- **Gate:** RECORDS-ONLY — no executable code
 - **Basis:** the read-only reconciliation `…-RECONCILE1A`, its correction `…-RECONCILE1B`, and the owner
   rulings of 2026-08-04.
+
+## Closure basis
+
+- The **corrected 24-commit authority matrix** is persisted in crosswalk §8a, §8c and §8d.
+- **20 commits are represented as closed** through explicit or phase-chain authority — 14 individually,
+  plus 6 across two multi-commit phase closures.
+- **2 commits are governance-only** (`7cad460`, `cae6a74`) and need no independent phase closure.
+- **`86ae19c` remained OPEN** — approved to push only.
+- **`a43898d` remained OPEN** — owner authorisation of the direct `windows-future` dependency still required.
+- Pushed normally (`f8e6fba..e585b63`); no force push, tag, amend or rebase.
+- Local and origin reconciled **0/0**; tree clean, 0 staged, 0 untracked, 0 tags.
+- Exact **four-path authority-record boundary**: the crosswalk, `current-state`, the Reports Index and
+  this report.
+- **`EXECUTION_READY` remained `false`**; installation authority remained `NotAuthorised`.
+- **`acceptedPhaseCount` remained 3**, `totalPhaseCount` 19 (3 / 19, 15.8%). No numbered V3 phase closed.
+- **No executable code changed** — no `.ts`, `.js`, `.cjs`, `.rs`, schema, validator, script, package file
+  or lockfile; no existing report renamed or rewritten.
+
+## Carry-forward (all OPEN — none complete)
+
+1. `86ae19c` — `CD-B4-PRODUCTION-OWNER-PRESENCE-PROVIDER1A` closure review.
+2. `a43898d` — `CD-B4-WINDOWS-USER-VERIFICATION-ADAPTER1A`: the direct `windows-future` dependency
+   decision. **Never inferred.**
+3. `PROJECTOS-V3-DESKTOP-NATIVE-PROOF1A`.
+4. `PROJECTOS-V3-FINAL-RUNTIME-E2E1A` — mandatory; gates `EXECUTION_READY`.
+5. `PROJECTOS-V3-EXECUTION-READY-RULING1A` — final gate.
 
 > **No numbered V3 phase is closed here.** `acceptedPhaseCount` stays **3 / 19**, `EXECUTION_READY` stays
 > **false**, installation authority stays `NotAuthorised`.
@@ -105,7 +133,7 @@ installation-id source. Two commits, **one** phase closure.
 | `docs/architecture/projectos-v3.1-crosswalk.md` | → **v1.3**. §8a replaced by the per-phase authority matrix, with the v1.1/v1.2 blanket classification struck and retained; new §8c (phase-chain and correction-pair treatment) and §8d (why the correction was needed); §11 and §22 C3 corrected |
 | `projectos/state/projectos-v3.current-state.json` | `nextRecommendedPhase` → `PROJECTOS-V3-DESKTOP-NATIVE-PROOF1A`; three `acceptedCarryForward` entries — the reconciliation outcome, the two open items, the systemic defect. **No schema key invented**; all 25 keys retained |
 | `knowledge/ProjectOS Reports Index.md` | one new row for this phase |
-| `knowledge/reports/2026-08-04_…-CD-B4-CLOSURE-AUTHORITY-RECORD1A_AWAITING-REVIEW.md` | this report (new) |
+| `knowledge/reports/2026-08-04_ProjectOS_PROJECTOS-V3-CD-B4-CLOSURE-AUTHORITY-RECORD1A_CLOSED.md` | this report (created under the `…_AWAITING-REVIEW.md` name in `e585b63`; renamed to `…_CLOSED.md` by the closure amendment) |
 
 **No executable code changed.** No `.ts`, `.js`, `.cjs`, `.rs`, schema, validator, script, package file or
 lockfile. No existing report renamed or rewritten.
@@ -153,4 +181,5 @@ Alongside, at the owner's convenience: closure decisions for `86ae19c` and `a438
 
 ## 10. Decision requested
 
-**APPROVED TO PUSH**
+~~**APPROVED TO PUSH**~~ — **GRANTED.** Pushed as `e585b63`, reconciled 0/0, and **CLOSED** by owner +
+ChatGPT gate on 2026-08-04. See the Closure basis at the head of this report.
