@@ -62,11 +62,11 @@
     "CARRY-FORWARD: PROJECTOS-V3-EXECUTION-READY-RULING1A",
     "CARRY-FORWARD: 86ae19c closure review remains OPEN",
     "CARRY-FORWARD: a43898d windows-future dependency decision remains OPEN",
-    "KNOWN VALIDATOR DRIFT: projectos/validators/validate-v3.1-crosswalk.cjs pins acceptedPhaseCount 3/19 (15.8) and baseline e1749cc; it already failed on 3 counts before this closure and now fails on 4. Repair needs an executable change, which the closure gate prohibited."
+    "RESOLVED 2026-08-04 by PROJECTOS-V3-CROSSWALK-VALIDATOR-REBASELINE1A: validate-v3.1-crosswalk.cjs was rebaselined to the accepted Phase 13 position (acceptedPhaseCount 4 / 19, completionPercentage 21.1 derived, crosswalk v1.4, accepted head 4d36eea110b120c1043d65a19fb8814cf381f268). Root cause was one constant serving three different meanings: the CD-B4-PRODUCTION-IPC-PROVIDER1A closure commit, the crosswalk's document provenance, and the accepted programme head. They are now separate constants and the validator additionally asserts Phase 13 CLOSED, no duplicate phase-13 row, 86ae19c and a43898d still OPEN, and current-state cross-source agreement."
   ],
   "currentBranch": "projectos-v3",
-  "currentHead": "fb203c6a9add2ae9b4f8de15c7bd2dccfaed8ebc",
-  "currentRemoteHead": "fb203c6a9add2ae9b4f8de15c7bd2dccfaed8ebc",
+  "currentHead": "4d36eea110b120c1043d65a19fb8814cf381f268",
+  "currentRemoteHead": "4d36eea110b120c1043d65a19fb8814cf381f268",
   "workingTreeStatus": "clean",
   "currentRisks": [
     "R1 (accepted carry-forward): owner approval is MANUAL_GOVERNANCE_APPROVAL, tamperProof:false — not cryptographically bound",
