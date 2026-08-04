@@ -1,10 +1,11 @@
 "use strict";
 /**
  * Proves the Control Centre is a render-ready Tauri DESKTOP application, not merely a browser app
- * (PROJECTOS-V3-DESKTOP-E2E-PROOF1A). Static, deterministic checks over COMMITTED files only — the built
- * `dist/` bundle and `src-tauri/target/` binary are gitignored build artifacts, so their absence on a
- * fresh checkout is tolerated (if present, extra assertions run). This keeps validate-all green anywhere
- * while still proving the desktop shell + owner surfaces are wired.
+ * (PROJECTOS-V3-DESKTOP-E2E-PROOF1A). Checks 1-4 are static, deterministic assertions over COMMITTED
+ * files. Check 5 requires a real production build: `dist/` is a gitignored artifact, and since
+ * 2026-08-04 its absence is a FAILURE rather than a skip — source alone cannot prove what actually
+ * ships. Build the Control Centre before validating a fresh checkout. `src-tauri/target/` is still
+ * not required.
  *
  * Checks:
  *  1  tauri.conf.json parses; frontendDist points at the Vite build (../dist); productName/identifier set;
@@ -12,7 +13,7 @@
  *  2  the Rust desktop shell exists (src-tauri/Cargo.toml + src-tauri/src/main.rs)
  *  3  package.json wires the desktop toolchain (a "tauri" script + @tauri-apps/cli dependency)
  *  4  the owner-surface source modules exist and App.tsx registers the control/chat/safety views
- *  5  (only if built) the production dist bundle contains all three owner-surface labels
+ *  5  the production bundle carries all three owner-surface labels somewhere across ALL its chunks
  */
 
 const fs = require("fs");
@@ -20,6 +21,8 @@ const path = require("path");
 
 const CC = path.resolve(__dirname, "..", "control-center");
 const FIXTURE_IDENTIFIER = "com.projectos.control-center.fixture";
+// Repo-relative label used in check-5 failure evidence.
+const DIST_ASSETS_REL = "projectos/control-center/dist/assets";
 
 function exists(rel) { return fs.existsSync(path.join(CC, rel)); }
 function read(rel) { return fs.readFileSync(path.join(CC, rel), "utf8"); }
@@ -66,16 +69,51 @@ function run() {
     errors.push("check 4: src/App.tsx missing");
   }
 
-  // 5: built bundle (optional — gitignored). If present, it must carry the owner surfaces.
+  // 5: the built production bundle must carry the owner surfaces.
+  //
+  // Vite code-splits, so `dist/assets` holds SEVERAL .js chunks and a label may land in any of them.
+  // This check previously read only the first file matching /^index-.*\.js$/ in directory order,
+  // which is alphabetical — with two index chunks present it inspected a small bootstrap stub and
+  // reported the surfaces missing from a bundle that in fact contained them. The corpus, not one
+  // arbitrarily chosen member of it, is the evidence: every production chunk is read and the labels
+  // are required somewhere across the combined corpus.
+  //
+  // Fail-closed: absent, empty or unreadable production output is a FAILURE, not a skip. Proving a
+  // desktop shell from source alone would not be proof, so this check needs a real build. Run the
+  // repository's production build before validating a fresh checkout.
   const distAssets = path.join(CC, "dist", "assets");
-  if (fs.existsSync(distAssets)) {
-    const mainBundle = fs.readdirSync(distAssets).find((f) => /^index-.*\.js$/.test(f));
-    if (!mainBundle) {
-      errors.push("check 5: dist/ present but no main index bundle found");
+  const OWNER_SURFACE_LABELS = ["Owner Control", "Owner Chat", "Safety &"];
+  if (!fs.existsSync(distAssets)) {
+    errors.push("check 5: no production bundle at " + DIST_ASSETS_REL + " — build the Control Centre before validating");
+  } else {
+    let chunkNames;
+    try {
+      chunkNames = fs.readdirSync(distAssets).filter((f) => f.endsWith(".js")).sort();
+    } catch (x) {
+      chunkNames = [];
+      errors.push("check 5: production bundle directory unreadable: " + x.message);
+    }
+    if (chunkNames.length === 0) {
+      if (!errors.some((m) => m.indexOf("unreadable") !== -1)) {
+        errors.push("check 5: production bundle directory " + DIST_ASSETS_REL + " contains no .js chunk");
+      }
     } else {
-      const txt = fs.readFileSync(path.join(distAssets, mainBundle), "utf8");
-      for (const label of ["Owner Control", "Owner Chat", "Safety &"]) {
-        if (!txt.includes(label)) errors.push("check 5: production bundle missing owner surface '" + label + "'");
+      const corpus = [];
+      for (const name of chunkNames) {
+        try {
+          corpus.push(fs.readFileSync(path.join(distAssets, name), "utf8"));
+        } catch (x) {
+          errors.push("check 5: production chunk unreadable: " + name + ": " + x.message);
+        }
+      }
+      const inspected = chunkNames.join(", ");
+      for (const label of OWNER_SURFACE_LABELS) {
+        if (!corpus.some((txt) => txt.includes(label))) {
+          errors.push(
+            "check 5: owner surface '" + label + "' is in no production chunk (" +
+            chunkNames.length + " inspected in " + DIST_ASSETS_REL + ": " + inspected + ")",
+          );
+        }
       }
     }
   }

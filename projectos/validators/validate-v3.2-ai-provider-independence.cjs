@@ -19,6 +19,13 @@ const STATE = path.join(ROOT, "projectos", "state", "projectos-v3.current-state.
 // Pinned byte-hash of the immutable approved plan v1.0 (working-tree bytes). Any edit changes it.
 const MASTER_PLAN_SHA256 = "7bd6235f5f5d948c720d8e386a18df69cb1d41ed6e6f820bcccd2f24a5675eaf";
 
+// The accepted next programme phase, per current-state and the owner/gatekeeper sequencing decision
+// of 2026-08-04. Rebaseline this deliberately when the programme sequence changes — it is a frozen
+// accepted fact, not a moving pointer.
+const ACCEPTED_NEXT_PHASE = "PROJECTOS-MULTI-PROJECT-CREDENTIAL-ROUTER1A";
+// Sequenced after the router, still OPEN, still recorded in the amendment. `a43898d` stays OPEN.
+const WINDOWS_ADAPTER_PREFLIGHT = "CD-B4-WINDOWS-USER-VERIFICATION-ADAPTER-PREFLIGHT1A";
+
 const V3_PHASE_IDS = [
   "PROJECTOS-V3-BASELINE-RECONCILE1A", "PROJECTOS-V3-MASTER-PLAN-MEMORY1A", "PROJECTOS-V3-PLAN-DISCOVERY-IMPORT1A",
   "PROJECTOS-V3-OWNER-CONTROL-PLANE-DESIGN1A", "PROJECTOS-V3-LOCAL-SECRET-BROKER1A", "PROJECTOS-V3-SECRET-OPERATION-BROKER1A",
@@ -87,10 +94,22 @@ function run() {
   if (!/full VS Code replacement is explicitly outside/i.test(amend)) e.push("V12 amendment does not scope out a full VS Code replacement");
   if (/ProjectOS (replaces|is a replacement for) the full VS Code/i.test(amend)) e.push("V12 amendment claims a full VS Code IDE replacement");
 
-  // V13 — current technical next remains the Windows adapter preflight.
-  if (st.nextRecommendedPhase !== "CD-B4-WINDOWS-USER-VERIFICATION-ADAPTER-PREFLIGHT1A")
-    e.push("V13 current-state nextRecommendedPhase is not the Windows adapter preflight: " + st.nextRecommendedPhase);
-  if (amend.indexOf("CD-B4-WINDOWS-USER-VERIFICATION-ADAPTER-PREFLIGHT1A") === -1) e.push("V13 amendment does not record the current next phase");
+  // V13 — programme sequencing.
+  //
+  // This check used to pin current-state's nextRecommendedPhase to the Windows adapter preflight.
+  // That was the accepted next phase when the V3.2 amendment was written; the owner/gatekeeper has
+  // since sequenced the multi-project credential router ahead of it. current-state is the
+  // authoritative record of what comes next, so the validator yields to it rather than the reverse.
+  //
+  // Two things are still load-bearing and are asserted separately below:
+  //   a) current-state must match the ACCEPTED next phase — an unrelated value still fails;
+  //   b) the amendment must STILL record the Windows adapter preflight, so resequencing cannot
+  //      quietly drop it. It remains an OPEN carry-forward and `a43898d` stays OPEN; nothing here
+  //      closes it or infers any windows-future dependency authority.
+  if (st.nextRecommendedPhase !== ACCEPTED_NEXT_PHASE)
+    e.push("V13 current-state nextRecommendedPhase is not the accepted next phase " + ACCEPTED_NEXT_PHASE + ": " + st.nextRecommendedPhase);
+  if (amend.indexOf(WINDOWS_ADAPTER_PREFLIGHT) === -1)
+    e.push("V13 amendment no longer records the Windows adapter preflight carry-forward " + WINDOWS_ADAPTER_PREFLIGHT);
 
   // V14 — provider implementation NotAuthorised.
   if (!/NOT YET AUTHORISED FOR IMPLEMENTATION/.test(amend)) e.push("V14 amendment does not mark provider implementation NOT AUTHORISED");
