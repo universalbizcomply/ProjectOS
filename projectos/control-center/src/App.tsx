@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   planWorkflow,
   DEFAULT_WORKERS,
@@ -37,29 +37,70 @@ const NAV: ReadonlyArray<{ id: View; label: string }> = [
   { id: 'plugins', label: 'Integrations' },
 ];
 
+/**
+ * Upper bound on the initial session probe. `getSession()` can reject (offline, DNS
+ * failure) or stay pending indefinitely (token refresh against an unreachable host);
+ * either way the boot state must end, so the probe is raced against this deadline.
+ */
+const SESSION_PROBE_TIMEOUT_MS = 10_000;
+
 export function App() {
   const [view, setView] = useState<View>('control');
   const [session, setSession] = useState<Session | null>(null);
   const [authReady, setAuthReady] = useState(false);
+  const [probeFailed, setProbeFailed] = useState(false);
+  const [probeAttempt, setProbeAttempt] = useState(0);
   const [showChangePw, setShowChangePw] = useState(false);
 
+  // The auth-change subscription lives for the whole component, independent of the probe:
+  // subscribing re-emits the current auth state, so re-running it on every retry would fire
+  // that side effect for an unrelated reason.
+  useEffect(() => {
+    const off = onAuthChange((s) => setSession(s));
+    return off;
+  }, []);
+
+  // The initial session probe, re-armed by `probeAttempt` when the owner retries.
   useEffect(() => {
     let live = true;
-    getSession().then((s) => {
-      if (live) {
+    // One-shot: whichever of resolve / reject / timeout lands first owns the transition.
+    // A late resolution after the deadline is dropped rather than reviving a stale boot.
+    let settled = false;
+    const deadline = setTimeout(() => {
+      if (!live || settled) return;
+      settled = true;
+      setProbeFailed(true);
+    }, SESSION_PROBE_TIMEOUT_MS);
+
+    getSession()
+      .then((s) => {
+        if (!live || settled) return;
+        settled = true;
+        clearTimeout(deadline);
         setSession(s);
         setAuthReady(true);
-      }
-    });
-    const off = onAuthChange((s) => setSession(s));
+      })
+      .catch(() => {
+        if (!live || settled) return;
+        settled = true;
+        clearTimeout(deadline);
+        setProbeFailed(true);
+      });
+
     return () => {
       live = false;
-      off();
+      clearTimeout(deadline);
     };
-  }, []);
+  }, [probeAttempt]);
+
+  function retryProbe() {
+    setProbeFailed(false);
+    setProbeAttempt((n) => n + 1);
+  }
 
   // Auth gate: when Supabase is configured, require a session.
   if (isSupabaseConfigured) {
+    if (probeFailed) return <SessionProbeFailed onRetry={retryProbe} />;
     if (!authReady) return <div className="booting">Loading…</div>;
     if (session === null) return <Login />;
     if (mustChangePassword(session)) {
@@ -126,6 +167,41 @@ export function App() {
       </main>
     </div>
     </DaemonProvider>
+  );
+}
+
+/**
+ * Shown when the initial session probe failed or ran past its deadline. Never reports the
+ * underlying error — the cause is always "we could not reach the sign-in service", and the
+ * only offered action is to try again. Reaching this screen grants no session.
+ */
+function SessionProbeFailed({ onRetry }: { onRetry: () => void }) {
+  const heading = useRef<HTMLHeadingElement>(null);
+  // This screen replaces the whole boot view, so an alert region alone is not reliably
+  // announced. Moving focus to the heading matches the existing `#main` tabIndex={-1}
+  // pattern and puts the keyboard on the retry control's own card.
+  useEffect(() => {
+    heading.current?.focus();
+  }, []);
+
+  return (
+    <div className="login">
+      <div className="login-card">
+        <div className="brand">
+          <b>ProjectOS</b>
+          <span>Control</span>
+        </div>
+        <h1 ref={heading} tabIndex={-1}>Can’t reach sign-in</h1>
+        <p className="login-sub">Check your connection, then try again.</p>
+        <div className="login-error" role="alert">
+          The sign-in service did not respond.
+        </div>
+        <button type="button" onClick={onRetry}>
+          Try again
+        </button>
+        <div className="login-foot">Execution stays owner-gated · read-only visibility</div>
+      </div>
+    </div>
   );
 }
 
