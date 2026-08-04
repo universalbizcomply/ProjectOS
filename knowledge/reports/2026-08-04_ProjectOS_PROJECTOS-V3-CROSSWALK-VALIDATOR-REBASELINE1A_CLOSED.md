@@ -5,8 +5,50 @@
 **Repository:** C:\dev\ProjectOS
 **Branch:** projectos-v3
 **Parent commit:** 4d36eea110b120c1043d65a19fb8814cf381f268
-**Status:** AWAITING-REVIEW
-**Decision requested:** ACCEPTED FOR CLOSURE — or DO NOT CLOSE — VALIDATOR DEFECT REMAINS
+**Status:** CLOSED
+**Gatekeeper decision:** CLOSED — ChatGPT technical closure gate, 2026-08-04
+
+---
+
+## 0. Closure record
+
+**Phase:** PROJECTOS-V3-CROSSWALK-VALIDATOR-REBASELINE1A
+**Status:** **CLOSED**
+**Closure authority:** ChatGPT technical closure gate, 2026-08-04
+**Accepted commit:** `626828b27aa22a3320b67184f0b917ad04731f43` (parent `4d36eea110b120c1043d65a19fb8814cf381f268`)
+
+**Closure basis**
+
+- The exact four stale failures were reproduced against clean HEAD `4d36eea` with expected and actual
+  values recorded for each.
+- The overloaded baseline constant was split three ways — the frozen `CD-B4-PRODUCTION-IPC-PROVIDER1A`
+  closure commit, the crosswalk's document provenance, and the accepted programme head — each named
+  and documented with its own lifetime.
+- The numbered ratio is now validated against the authoritative record instead of by regex over
+  crosswalk prose, and split into five independent assertions including a derived-percentage check.
+- Phase 13 closure and uniqueness are asserted: the phase matrix must carry exactly one row 13 and it
+  must read CLOSED.
+- `currentRemoteHead` reconciliation and `completedPhases` agreement checks were added.
+- `86ae19c` and `a43898d` must still read OPEN and not CLOSED.
+- Seven mutations were applied one at a time and every one was killed or confirmed load-bearing; all
+  touched files were restored byte-identically, verified with `cmp`.
+- The target validator returns PASS, exit 0.
+- Pushed normally and remotely reconciled 0/0 with exactly one commit after `4d36eea`.
+- No programme fact changed — `acceptedPhaseCount` 4 / 19, `completionPercentage` 21.1, Phase 13
+  CLOSED, `EXECUTION_READY` false, `installationAuthority` NotAuthorised.
+- No credential-router interference: the feature branch and its worktree were inspected read-only and
+  remain unchanged.
+
+**Carry-forward (recorded; none blocks this closure)**
+
+1. `validate-v3.2-ai-provider-independence` carries a stale `nextRecommendedPhase` expectation — it
+   still expects the Windows adapter preflight.
+2. **Gatekeeper ruling:** `PROJECTOS-MULTI-PROJECT-CREDENTIAL-ROUTER1A` remains the next programme
+   phase; `current-state` is correct and must not be changed to the Windows adapter preflight.
+3. `validate-desktop-e2e.cjs` selects the first `index-*.js` chunk and can therefore inspect the wrong
+   Vite bundle.
+4. Both defects require one separate narrow validator-coherence phase before credential-router
+   integration.
 
 ---
 
@@ -208,7 +250,7 @@ means selecting the largest matching chunk, or scanning all of them, in
 projectos/validators/validate-v3.1-crosswalk.cjs                 (modified — the correction)
 projectos/state/projectos-v3.current-state.json                  (modified — heads reconciled, carry-forward resolved)
 knowledge/ProjectOS Reports Index.md                             (modified — one new row)
-knowledge/reports/2026-08-04_ProjectOS_PROJECTOS-V3-CROSSWALK-VALIDATOR-REBASELINE1A_AWAITING-REVIEW.md  (new)
+knowledge/reports/2026-08-04_ProjectOS_PROJECTOS-V3-CROSSWALK-VALIDATOR-REBASELINE1A_CLOSED.md  (new; renamed from _AWAITING-REVIEW.md at closure)
 ```
 
 Four of the five authorised paths. No focused test/fixture path was needed — M5 proves load-bearing behaviour directly against the validator, so adding a test file would have been unused weight.
