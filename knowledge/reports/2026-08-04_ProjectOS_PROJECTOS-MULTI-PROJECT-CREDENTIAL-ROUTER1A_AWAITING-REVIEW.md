@@ -708,7 +708,7 @@ placeholder while the documentation promised a refusal.
 
 **Fix** (`router.cjs`): a `loadMcpConfig()` reader plus validation wired into `prepare()`. The position is
 load-bearing and proven by line order — MCP refusal at lines 180/198, writer lease at 209, identity
-preflight at 223, credential release at 267. Ordering is therefore project, canonical root, profile,
+preflight at 223, credential release at 268. Ordering is therefore project, canonical root, profile,
 **MCP**, lease, provider identities, credential requirements, retrieval. Placeholders resolve against the
 **names** each provider adapter publishes as `envVars`, so the check mints no grant and reads no value.
 Blocker `MCP CONFIG INVALID` covers an unparseable file, a literal secret, an undeclared server and an
@@ -776,11 +776,18 @@ clean.
 
 ### Boundary
 
-Five amendment paths of the eight authorised — `windows-credential-store.ps1`, `router.cjs`, both
-session-router and adversarial validators, and `docs/credential-router.md` — plus this report and its
+Seven amendment paths of the eight authorised — `windows-credential-store.ps1`, `router.cjs`, both
+session-router and adversarial validators, `docs/credential-router.md`, this report and its
 Reports Index row. Every one was already inside the original 37. **The complete branch diff versus main
 remains exactly 37 paths.** No new file. No dependency, lockfile, current-state, crosswalk, Control Centre,
 host or CI change.
+
+> **Correction (MERGE-RECORDS1A, 2026-08-04).** This paragraph previously gave the count as five,
+> counting only the source and documentation files and treating this report and its index row as an
+> addendum rather than as paths in the commit. The commit touched **seven** paths; the enumeration was
+> always complete, but the count was wrong. The credential-release line reference above was likewise
+> corrected to **268**, which is where `vault.releaseIntoChildEnvironment(grant)` actually sits in
+> `router.cjs`.
 
 ### Unchanged
 
@@ -790,3 +797,83 @@ started. No provider was contacted, no MCP server was started, no `.projectops` 
 managed project. Programme position untouched: 4/19, 21.1, Phase 13 CLOSED, `EXECUTION_READY` false,
 `installationAuthority` NotAuthorised, `86ae19c` and `a43898d` OPEN. This phase remains **AWAITING
 REVIEW**.
+
+## 18. MERGE1A CLOSURE ADDENDUM — PROJECTOS-MULTI-PROJECT-CREDENTIAL-ROUTER-MERGE1A
+
+**Gatekeeper decision: ACCEPTED FOR CLOSURE.** This closes the MERGE1A subphase only. It does **not**
+close `PROJECTOS-MULTI-PROJECT-CREDENTIAL-ROUTER1A`, whose status above is unchanged at **AWAITING
+REVIEW**.
+
+### Movement
+
+| | |
+|---|---|
+| Old main | `02b276c77de4b72919a2aaae5ed4613b4bb24ed4` |
+| Integrated commits | `97a282f92d8d91ba46fc3460fc0729a25e5bce00`, `cea095d56e82ecd169421ddcc79fa84ef9666071` |
+| Accepted main | `cea095d56e82ecd169421ddcc79fa84ef9666071` |
+
+Fast-forward ancestry: `git merge-base --is-ancestor` exit 0, and
+`git rev-list --left-right --count` returned **`0 2`** — **0 commits unique to old main, 2 unique to the
+integration branch**. `git merge --ff-only` produced **no merge commit**, no new commit, no conflict and
+no file edit. Both commits are single-parent: `cea095d` → `97a282f` → `02b276c`.
+
+Movement boundary: **exactly 37 paths** (34 added, 3 modified — the Reports Index, `package.json` and
+`validate-all.cjs`). `package.json` gained five scripts and **zero dependencies**. No lockfile, no
+current-state, no crosswalk, no Control Centre, no host/Rust/Tauri and no CI change.
+
+### Validation
+
+**115/115 modules PASS, 0 failures, `validate-all: ALL PASS` — measured twice, on the integration
+candidate before the merge and on local main after it.** `validate:v3plan` 8/8, `validate:secrets` PASS,
+`validate:reporter` 4/4, `validate:credentials` 3/3, PowerShell `Parser::ParseFile` 0 errors / 541 tokens,
+`git diff --check` clean.
+
+### Synthetic vault proof (merged main)
+
+Synthetic values only; no value printed. Inventory 0 → set two entries → exact retrieval → whole-segment
+listing returned **names only, zero value tokens** → partial segment refused with
+`CREDENTIAL PREFIX FORMAT INVALID` and exit 1 → the original defect shape `ProjectOS/synthetic-` likewise
+refused → **no sibling target name disclosed, zero `ProjectOS/` lines emitted** → a prefix legitimately
+matching nothing still returned empty with exit 0 → absent target returned exit 3 → delete → **final
+inventory 0, equal to initial**.
+
+*Disclosed:* the first attempt used prefix `ProjectOS/mergeproof`, expected a refusal and got exit 0.
+That was the **test** being wrong, not the code — `mergeproof` is a whole segment and legitimately
+matches, so the boundary yields one result and the fail-closed branch correctly does not fire. A true
+partial segment refuses as designed.
+
+### MCP session-start proof (merged main)
+
+No MCP server was contacted and no provider MCP tool was called. A valid configuration reached **READY**.
+All four refusal classes — unresolved placeholder, literal secret, undeclared server, unparseable
+on-disk `.projectops/mcp.json` — returned blocker `MCP CONFIG INVALID`, and on **every** refusal:
+**0 leases left, 0 credential values released, 0 child processes spawned, READY not emitted.** Totals
+across all cases: 0 leases remaining, 0 processes spawned.
+
+*Disclosed:* the harness initially failed the valid case with `REPOSITORY MISMATCH` because it set
+`connection.canonicalRoot`; the preflight trust anchor reads `connection.canonicalRepositoryRoot`. The
+harness key was wrong, not the router.
+
+### Branch preservation
+
+All three branches preserved, none deleted: `projectos-v3` and
+`projectos-v3-credential-router-integration1a` both at `cea095d`, and the frozen feature checkpoint
+`projectos-v3-credential-router1a` still at `f52a5d53d079e72d7d4ddffed1b5aca119919a89` for audit.
+
+### Corrections applied in MERGE-RECORDS1A
+
+Two factual inaccuracies in this report and its Reports Index row were corrected: the amendment path
+count from **five to seven**, and the credential-release line reference from **267 to 268**. Both were
+mine. Three other occurrences of "267" elsewhere in `knowledge/reports/` were inspected and left
+untouched — each is a substring of an unrelated commit SHA, not a line reference.
+
+### Unchanged
+
+Gates **C4-C7 remain open** and mandatory: proven owner presence unresolved, the custody-versus-staging
+decision not made, no read-only live provider identity verification performed, and real credential
+onboarding still prohibited. Accepted limitations L1-L5 stand. Merging authorises no credential input,
+no provider call, no `.projectops` installation and no production activity.
+
+Programme position unchanged: **4/19, 21.1**, Phase 13 CLOSED, `EXECUTION_READY` false,
+`installationAuthority` NotAuthorised, `86ae19c` and `a43898d` OPEN. The overall credential-router phase
+remains **AWAITING REVIEW**.

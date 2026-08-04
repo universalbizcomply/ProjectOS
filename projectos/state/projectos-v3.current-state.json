@@ -65,8 +65,8 @@
     "RESOLVED 2026-08-04 by PROJECTOS-V3-CROSSWALK-VALIDATOR-REBASELINE1A: validate-v3.1-crosswalk.cjs was rebaselined to the accepted Phase 13 position (acceptedPhaseCount 4 / 19, completionPercentage 21.1 derived, crosswalk v1.4, accepted head 4d36eea110b120c1043d65a19fb8814cf381f268). Root cause was one constant serving three different meanings: the CD-B4-PRODUCTION-IPC-PROVIDER1A closure commit, the crosswalk's document provenance, and the accepted programme head. They are now separate constants and the validator additionally asserts Phase 13 CLOSED, no duplicate phase-13 row, 86ae19c and a43898d still OPEN, and current-state cross-source agreement."
   ],
   "currentBranch": "projectos-v3",
-  "currentHead": "4d36eea110b120c1043d65a19fb8814cf381f268",
-  "currentRemoteHead": "4d36eea110b120c1043d65a19fb8814cf381f268",
+  "currentHead": "cea095d56e82ecd169421ddcc79fa84ef9666071",
+  "currentRemoteHead": "cea095d56e82ecd169421ddcc79fa84ef9666071",
   "workingTreeStatus": "clean",
   "currentRisks": [
     "R1 (accepted carry-forward): owner approval is MANUAL_GOVERNANCE_APPROVAL, tamperProof:false — not cryptographically bound",

@@ -24,10 +24,13 @@ const LEDGER = path.join(ROOT, "knowledge", "reports", "2026-07-29_ProjectOS_CD-
 const CD_B4_IPC_PROVIDER_COMMIT = "e1749ccd2ca7a6348c5ece7bc97b18643de4e8ee";
 // 2. DOCUMENT PROVENANCE. The commit the crosswalk itself declares it was written against.
 const CROSSWALK_PROVENANCE = "fdee3d341e0c43ae2d62a256e0b755196599139b";
-// 3. THE ACCEPTED PROGRAMME BASELINE. Phase 13 closure (PROJECTOS-V3-DESKTOP-AUTH-RECOVERY-PROOF1A).
-//    current-state records the last ACCEPTED head, not every commit, so this is deliberately not the
-//    live HEAD — `validate-plan-staleness` already treats an advancing head as ordinary progress.
-const ACCEPTED_HEAD = "4d36eea110b120c1043d65a19fb8814cf381f268";
+// 3. THE ACCEPTED PROGRAMME BASELINE. current-state records the last ACCEPTED head, not every commit,
+//    so this is deliberately not the live HEAD — `validate-plan-staleness` already treats an advancing
+//    head as ordinary progress. Rebaselined 2026-08-04 from the Phase 13 closure `4d36eea` to the
+//    credential-router merge `cea095d` (PROJECTOS-MULTI-PROJECT-CREDENTIAL-ROUTER-MERGE1A, accepted for
+//    closure). Deliberate rebaseline of an accepted fact, not a moving pointer: it advances only when a
+//    gate formally accepts a new baseline, and it must stay distinct from the two constants above.
+const ACCEPTED_HEAD = "cea095d56e82ecd169421ddcc79fa84ef9666071";
 
 // The accepted numbered-roadmap position. The percentage is DERIVED, never independently asserted.
 const ACCEPTED_PHASE_COUNT = 4;
