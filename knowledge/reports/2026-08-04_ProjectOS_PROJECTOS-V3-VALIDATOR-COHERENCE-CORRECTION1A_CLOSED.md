@@ -5,8 +5,52 @@
 **Repository:** C:\dev\ProjectOS
 **Branch:** projectos-v3
 **Parent commit:** 3720facadd83ef004a77a2e7b51f6f74f9b1dc09
-**Status:** AWAITING-REVIEW
-**Decision requested:** ACCEPTED FOR CLOSURE — or DO NOT CLOSE — VALIDATOR DEFECT REMAINS
+**Status:** CLOSED
+**Gatekeeper decision:** CLOSED — ChatGPT technical closure gate, 2026-08-04
+
+---
+
+## 0. Closure record
+
+**Phase:** PROJECTOS-V3-VALIDATOR-COHERENCE-CORRECTION1A
+**Status:** **CLOSED**
+**Closure authority:** ChatGPT technical closure gate, 2026-08-04
+**Accepted commit:** `242457b8df6d89f7b30a85f5eb965bffba656be7` (parent `3720facadd83ef004a77a2e7b51f6f74f9b1dc09`)
+
+**Closure basis**
+
+- The stale V13 live-pointer expectation was corrected: it no longer pins current-state's
+  `nextRecommendedPhase` to the Windows adapter preflight.
+- `PROJECTOS-MULTI-PROJECT-CREDENTIAL-ROUTER1A` is preserved as the authoritative next phase.
+- The Windows adapter carry-forward is retained by an **independent** assertion, so resequencing
+  cannot quietly drop it; `a43898d` stays OPEN and no windows-future authority is inferred.
+- Vite multi-chunk discovery corrected — the validator no longer reads whichever `index-*.js` sorts
+  first.
+- The complete production JS chunk corpus is scanned and each owner-surface label is required
+  somewhere across it.
+- Failure evidence now names the missing token, the chunk count, the bundle directory and every
+  chunk inspected.
+- Eight mutation and adversarial proofs completed, all with byte-identical restoration.
+- The original first-match defect was reproduced and killed (M7).
+- `validate-all` **112 / 112 PASS**, zero failing modules.
+- Pushed normally; remote reconciled **0/0** with exactly one commit after `3720fac`.
+- No programme fact changed — `acceptedPhaseCount` 4 / 19, `completionPercentage` 21.1, Phase 13
+  CLOSED, `EXECUTION_READY` false, `installationAuthority` NotAuthorised, `86ae19c` and `a43898d`
+  OPEN.
+- No credential-router interference — branch and worktree inspected read-only and unchanged.
+
+**Carry-forward — none of these blocks this closure**
+
+1. Missing `dist/` **fails closed** by owner/gatekeeper decision. The previous optional/skip
+   behaviour is not restored: the validator proves facts about the production bundle, and with no
+   bundle those facts are unproven.
+2. A fresh clone or CI job must build the Control Centre before running the full production-bundle
+   validation suite.
+3. Any build-before-validate orchestration is a separate future phase. No package script or CI
+   configuration was changed here.
+4. `ACCEPTED_NEXT_PHASE` requires a deliberate rebaseline whenever authoritative programme sequencing
+   changes.
+5. Focused repeatable validator tests may later replace or supplement the report-only mutation proof.
 
 ---
 
@@ -182,7 +226,7 @@ corrections stay inside the validators' existing style.
 projectos/validators/validate-v3.2-ai-provider-independence.cjs   (modified — V13 + two constants)
 projectos/validators/validate-desktop-e2e.cjs                     (modified — check 5 + header)
 knowledge/ProjectOS Reports Index.md                              (modified — one new row)
-knowledge/reports/2026-08-04_ProjectOS_PROJECTOS-V3-VALIDATOR-COHERENCE-CORRECTION1A_AWAITING-REVIEW.md  (new)
+knowledge/reports/2026-08-04_ProjectOS_PROJECTOS-V3-VALIDATOR-COHERENCE-CORRECTION1A_CLOSED.md  (new; renamed from _AWAITING-REVIEW.md at closure)
 ```
 
 Four of the six authorised paths. No focused test or fixture path was needed — the mutation matrix
