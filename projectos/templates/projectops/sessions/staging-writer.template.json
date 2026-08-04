@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "1.0",
+  "profile": "staging-writer",
+  "projectId": "REPLACE-PROJECT-ID",
+  "environment": "staging",
+  "sessionSlots": ["REPLACE-PROJECT-ID-1"],
+  "credentialReferences": [
+    "ProjectOS/REPLACE-PROJECT-ID/staging/github/gh-token",
+    "ProjectOS/REPLACE-PROJECT-ID/staging/supabase/supabase-access-token",
+    "ProjectOS/REPLACE-PROJECT-ID/staging/vercel/vercel-token"
+  ],
+  "mcpServers": ["github", "supabase", "vercel"],
+  "notes": "The only modifying profile for staging. Holds the checkout's single writer lease — a second writer needs its own git worktree."
+}

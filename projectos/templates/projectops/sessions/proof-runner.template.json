@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "1.0",
+  "profile": "proof-runner",
+  "projectId": "REPLACE-PROJECT-ID",
+  "environment": "development",
+  "sessionSlots": ["REPLACE-PROJECT-ID-2"],
+  "credentialReferences": ["ProjectOS/REPLACE-PROJECT-ID/development/github/gh-token"],
+  "mcpServers": ["github"],
+  "notes": "Runs local builds, tests and proofs. Writes nothing external and holds no writer lease."
+}

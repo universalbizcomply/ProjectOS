@@ -1,0 +1,119 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://projectos.local/schemas/connection-profile.schema.json",
+  "title": "ProjectOS Connection Profile",
+  "description": "Non-secret, per-project provider configuration written to .projectops/connections.json. It names projects, repositories, environments and CREDENTIAL REFERENCES. It must never contain a credential value; the schema forbids the field names a value could hide behind.",
+  "type": "object",
+  "required": ["projectId", "canonicalRepositoryRoot", "providers"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "type": "string", "const": "1.0" },
+    "projectId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+      "description": "Stable project identifier. Forms the second segment of every credential reference for this project."
+    },
+    "displayName": { "type": "string", "maxLength": 120 },
+    "canonicalRepositoryRoot": {
+      "type": "string",
+      "minLength": 3,
+      "description": "The checkout's canonical (realpath-resolved, case-folded on Windows) root. A session whose checkout does not resolve to this path is REPOSITORY MISMATCH."
+    },
+    "allowedBranches": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "description": "Optional branch allowlist. Empty or absent means any branch."
+    },
+    "providers": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["github", "supabase", "vercel"] },
+      "uniqueItems": true,
+      "description": "Providers this project uses. Each must have a registered adapter; an unknown name fails the preflight."
+    },
+    "permittedSessionProfiles": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["readonly-reviewer", "staging-writer", "proof-runner", "production-readonly", "production-operation"] },
+      "uniqueItems": true
+    },
+    "forbiddenOperations": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1, "maxLength": 80 },
+      "description": "Operations this project refuses regardless of profile or permit."
+    },
+    "github": {
+      "type": "object",
+      "required": ["repository"],
+      "additionalProperties": false,
+      "properties": {
+        "repository": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}$" },
+        "credential": { "type": "string", "const": "gh-token" },
+        "notes": { "type": "string", "maxLength": 200 }
+      }
+    },
+    "supabase": {
+      "type": "object",
+      "required": ["environments"],
+      "additionalProperties": false,
+      "properties": {
+        "environments": {
+          "type": "object",
+          "additionalProperties": false,
+          "patternProperties": {
+            "^(development|staging|production)$": {
+              "type": "object",
+              "required": ["projectRef"],
+              "additionalProperties": false,
+              "properties": {
+                "projectRef": { "type": "string", "pattern": "^[a-z]{20}$" },
+                "region": { "type": "string", "maxLength": 40 },
+                "notes": { "type": "string", "maxLength": 200 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "vercel": {
+      "type": "object",
+      "required": ["organisationId", "environments"],
+      "additionalProperties": false,
+      "properties": {
+        "organisationId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{8,64}$" },
+        "environments": {
+          "type": "object",
+          "additionalProperties": false,
+          "patternProperties": {
+            "^(development|staging|production)$": {
+              "type": "object",
+              "required": ["projectId"],
+              "additionalProperties": false,
+              "properties": {
+                "projectId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{8,64}$" },
+                "notes": { "type": "string", "maxLength": 200 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "credentialReferences": {
+      "type": "array",
+      "description": "Every credential this project expects, by REFERENCE ONLY. A reference names a secret; it is not one.",
+      "items": {
+        "type": "string",
+        "pattern": "^ProjectOS(/[A-Za-z0-9][A-Za-z0-9._-]{0,63}){4}$"
+      },
+      "uniqueItems": true
+    }
+  },
+  "not": {
+    "anyOf": [
+      { "required": ["token"] },
+      { "required": ["secret"] },
+      { "required": ["password"] },
+      { "required": ["apiKey"] },
+      { "required": ["serviceRoleKey"] },
+      { "required": ["accessToken"] }
+    ]
+  }
+}

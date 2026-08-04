@@ -1,0 +1,44 @@
+{
+  "schemaVersion": "1.0",
+  "projectId": "REPLACE-PROJECT-ID",
+  "displayName": "REPLACE Project Display Name",
+  "canonicalRepositoryRoot": "REPLACE-WITH-CANONICAL-CHECKOUT-ROOT",
+  "allowedBranches": [],
+  "providers": ["github", "supabase", "vercel"],
+  "permittedSessionProfiles": ["readonly-reviewer", "staging-writer", "proof-runner"],
+  "forbiddenOperations": [
+    "production-deploy",
+    "production-db-mutation",
+    "real-email-sms-whatsapp",
+    "payment-or-live-charge",
+    "force-push"
+  ],
+  "github": {
+    "repository": "REPLACE-OWNER/REPLACE-REPO",
+    "credential": "gh-token",
+    "notes": "gh API identity and the git push credential are separate facts; both are verified, neither is inferred."
+  },
+  "supabase": {
+    "environments": {
+      "development": { "projectRef": "exampledevrefaaaaaaa", "notes": "REPLACE with this project's development ref" },
+      "staging": { "projectRef": "examplestagingrefaaa", "notes": "REPLACE with this project's staging ref" },
+      "production": { "projectRef": "exampleprojectrefaaa", "notes": "REPLACE. The Supabase MCP server is never enabled for production." }
+    }
+  },
+  "vercel": {
+    "organisationId": "team_REPLACE_ORG_ID",
+    "environments": {
+      "staging": { "projectId": "prj_REPLACE_STAGING_ID" },
+      "production": { "projectId": "prj_REPLACE_PRODUCTION_ID", "notes": "A production deploy requires a specific owner permit." }
+    }
+  },
+  "credentialReferences": [
+    "ProjectOS/REPLACE-PROJECT-ID/development/github/gh-token",
+    "ProjectOS/REPLACE-PROJECT-ID/staging/github/gh-token",
+    "ProjectOS/REPLACE-PROJECT-ID/staging/supabase/supabase-access-token",
+    "ProjectOS/REPLACE-PROJECT-ID/staging/vercel/vercel-token",
+    "ProjectOS/REPLACE-PROJECT-ID/production/supabase/db-password",
+    "ProjectOS/REPLACE-PROJECT-ID/production/supabase/service-role-key",
+    "ProjectOS/REPLACE-PROJECT-ID/production/vercel/production-deploy-token"
+  ]
+}

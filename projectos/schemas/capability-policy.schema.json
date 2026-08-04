@@ -1,0 +1,58 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://projectos.local/schemas/capability-policy.schema.json",
+  "title": "ProjectOS Capability Policy",
+  "description": "Per-project read/write and high-risk policy written to .projectops/capability-policy.json. It states which session profiles the project permits, which operations require an owner permit, and which are refused outright. It contains no credential values and no credential references.",
+  "type": "object",
+  "required": ["schemaVersion", "projectId", "permittedProfiles", "operationClassCredentials"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "type": "string", "const": "1.0" },
+    "projectId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" },
+    "productionFrozen": {
+      "type": "boolean",
+      "default": true,
+      "description": "When true (the default), every production-targeting provider action is refused before any credential is considered."
+    },
+    "permittedProfiles": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "enum": ["readonly-reviewer", "staging-writer", "proof-runner", "production-readonly", "production-operation"] }
+    },
+    "operationClassCredentials": {
+      "type": "array",
+      "uniqueItems": true,
+      "description": "Credential names that may only be released for one owner-gated command. Advisory documentation: classification itself is fail-closed in code, so an unlisted name is still treated as operation-class.",
+      "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$" }
+    },
+    "ownerPermitRequired": {
+      "type": "array",
+      "uniqueItems": true,
+      "description": "Provider actions that always require a specific owner permit, e.g. vercel-production-deploy.",
+      "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,79}$" }
+    },
+    "refusedOperations": {
+      "type": "array",
+      "uniqueItems": true,
+      "description": "Provider actions this project refuses regardless of permit.",
+      "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,79}$" }
+    },
+    "mcp": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allowedServers": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,39}$" } },
+        "productionServersDisabled": { "type": "boolean", "const": true, "description": "Structural: the Supabase MCP server is never enabled for production." }
+      }
+    },
+    "writeLease": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "onePerCheckout": { "type": "boolean", "const": true },
+        "ttlMinutes": { "type": "integer", "minimum": 1, "maximum": 240 }
+      }
+    }
+  }
+}
