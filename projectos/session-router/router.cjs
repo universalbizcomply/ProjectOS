@@ -7,13 +7,15 @@
  *
  *   1. read the checkout's real facts (root, branch, origin)                — read-only, no credential
  *   2. resolve the session profile and the credentials it is allowed to hold — allowlist, never a class
- *   3. ask the vault which of those are present / expired                    — metadata only
- *   4. acquire the checkout's writer lease if the profile is a writer        — one writer per checkout
- *   5. run the identity preflight                                           — READY or ONE blocker
- *   6. mint session grants and build a fresh child environment              — provider vars scrubbed first
- *   7. spawn the child                                                      — values live only in its env
+ *   3. validate the checkout's MCP configuration against the variables this session will declare
+ *      — no credential is read, and a bad config refuses the session before any value is touched
+ *   4. ask the vault which of those are present / expired                    — metadata only
+ *   5. acquire the checkout's writer lease if the profile is a writer        — one writer per checkout
+ *   6. run the identity preflight                                           — READY or ONE blocker
+ *   7. mint session grants and build a fresh child environment              — provider vars scrubbed first
+ *   8. spawn the child                                                      — values live only in its env
  *
- * If any step fails, the lease acquired in step 4 is released before returning, so a failed preflight
+ * If any step fails, the lease acquired in step 5 is released before returning, so a failed preflight
  * never leaves a checkout blocked.
  *
  * `process.env` is never modified. The projected environment is built fresh, handed to `spawn`, and the
@@ -36,7 +38,7 @@ const { createLeaseStore } = require("./writer-lease.cjs");
 const { createRepositoryReader } = require("./repository-facts.cjs");
 const { evaluatePreflight, READY } = require("./identity-preflight.cjs");
 const { getProfile, permitsCredential } = require("./session-profiles.cjs");
-const { buildChildEnvironment } = require("./env-projection.cjs");
+const { buildChildEnvironment, validateMcpConfig } = require("./env-projection.cjs");
 const { formatReference, parseReference } = require("../credentials/reference.cjs");
 
 const SLOT_RE = /^[a-z][a-z0-9-]{1,40}$/;
@@ -46,6 +48,22 @@ function defaultStateDir() {
     return path.join(process.env.LOCALAPPDATA, "ProjectOS");
   }
   return path.join(os.homedir(), ".projectos");
+}
+
+/**
+ * Read a checkout's MCP configuration. Absent is legitimate — a project need not expose MCP servers, and
+ * with no config there is nothing that could start as the wrong principal. Unreadable or malformed is NOT
+ * legitimate: it is reported so the session can be refused rather than started against a config nobody
+ * could parse.
+ */
+function loadMcpConfig(checkoutPath) {
+  const file = path.join(checkoutPath, ".projectops", "mcp.json");
+  if (!fs.existsSync(file)) return { ok: true, present: false, mcpConfig: null };
+  try {
+    return { ok: true, present: true, mcpConfig: JSON.parse(fs.readFileSync(file, "utf8").replace(/^﻿/, "")) };
+  } catch (e) {
+    return { ok: false, present: true, reason: ".projectops/mcp.json is not valid JSON" };
+  }
 }
 
 /** Read a project's non-secret connection profile. Never contains a credential value. */
@@ -148,6 +166,38 @@ function createSessionRouter(opts) {
     const observed = req.repository ? { ok: true, facts: req.repository } : repositories.read(req.checkoutPath);
     if (!observed.ok) return { status: "REPOSITORY MISMATCH", ready: false, blocker: "REPOSITORY MISMATCH", detail: observed.reason, slot };
     const repository = observed.facts;
+
+    // MCP validation sits HERE deliberately: after the project, its canonical root and its profile are
+    // settled, and BEFORE the writer lease, the identity preflight and any credential retrieval. The check
+    // needs only the NAMES of the variables this session will declare, which every provider adapter
+    // publishes as `envVars` — so no grant is minted and no value is read to perform it. A config carrying
+    // an unresolvable placeholder, a literal secret, or a server this project does not declare refuses the
+    // session before the vault is touched at all.
+    const mcpSource = req.mcpConfig !== undefined
+      ? { ok: true, present: req.mcpConfig !== null, mcpConfig: req.mcpConfig }
+      : loadMcpConfig(req.checkoutPath);
+    if (!mcpSource.ok) {
+      return { status: "MCP CONFIG INVALID", ready: false, blocker: "MCP CONFIG INVALID", detail: mcpSource.reason, slot, projectId: connection.projectId, environment, profile: profile.name };
+    }
+    if (mcpSource.present) {
+      const declaredProviders = Array.isArray(connection.providers) ? connection.providers : [];
+      const declaredEnv = {};
+      for (const providerName of declaredProviders) {
+        const adapter = registry.get(providerName);
+        if (!adapter || !Array.isArray(adapter.envVars)) continue;
+        // A NAME-ONLY stand-in proving the variable will exist. Never a credential, never sent to a child.
+        for (const varName of adapter.envVars) declaredEnv[varName] = "declared";
+      }
+      const mcpVerdict = validateMcpConfig({ mcpConfig: mcpSource.mcpConfig, env: declaredEnv, allowedServers: declaredProviders });
+      if (!mcpVerdict.ok) {
+        const detail = mcpVerdict.literalSecrets.length
+          ? "MCP config carries a non-placeholder credential value: " + mcpVerdict.literalSecrets[0]
+          : mcpVerdict.disallowedServers.length
+            ? "MCP config declares server '" + mcpVerdict.disallowedServers[0] + "' which this project does not declare"
+            : "MCP placeholder '" + mcpVerdict.missingPlaceholders[0] + "' resolves to no variable this session declares";
+        return { status: "MCP CONFIG INVALID", ready: false, blocker: "MCP CONFIG INVALID", detail, slot, projectId: connection.projectId, environment, profile: profile.name };
+      }
+    }
 
     const wanted = requiredCredentials(connection, profile, environment);
     const credentials = credentialStatus(wanted);

@@ -668,3 +668,125 @@ that spawn through the same `resolveExecutable` used by the operation gate — n
   Nothing insecure is produced — it fails safe by omission — but the documentation currently claims
   enforcement that no runtime path performs. Read it as "the logic exists and is unit-proven", and
   wire it into `start()` in a follow-up phase.
+
+---
+
+## 17. INTEGRATION AMENDMENT ADDENDUM — PROJECTOS-MULTI-PROJECT-CREDENTIAL-ROUTER-INTEGRATION-AMENDMENT1A
+
+Added 2026-08-04 on integration branch `projectos-v3-credential-router-integration1a`, parent
+`97a282f92d8d91ba46fc3460fc0729a25e5bce00`. Corrects the two merge-blocking findings. `97a282f` was not
+amended, rewritten or squashed; `projectos-v3` remains `02b276c`; the feature checkpoint remains `f52a5d53`.
+
+### Defect A — vault listing could answer success-empty
+
+**Reproduced** with one synthetic entry: the target existed and `get` returned it, while
+`list -Prefix ProjectOS/synthetic-` returned **exit 0 with no rows**.
+
+**Correction to my own earlier diagnosis.** Section 16 attributed the empty result to `CredEnumerate` not
+matching a partial-segment filter. That was wrong, and I proved it wrong here by calling `CredEnumerate`
+directly: the filter `ProjectOS/synthetic-*` returns **count=1**. Win32 was never involved. The empty
+result came entirely from the script's own segment-boundary re-filter, which correctly refuses to let
+`ProjectOS/poly` disclose `ProjectOS/polygo2/...` — but did so **silently**.
+
+**Contract established from source, not chosen.** The boundary re-filter, its comment and the Node-side
+prefix regex all define **whole-segment** semantics: a prefix must be the complete target name, or the
+target must continue after it at a `/`. That is deliberate and load-bearing for cross-project isolation,
+so the correct fix is to refuse a partial segment rather than widen matching.
+
+**Fix** (`windows-credential-store.ps1`, `list` branch only): entries dropped by the boundary rule that
+still begin with the caller's literal string are now **counted**. If the boundary yields nothing and that
+count is non-zero, the listing fails closed with `CREDENTIAL PREFIX FORMAT INVALID` and exit 1. The count
+is all that is kept — the sibling's target name is never printed. A prefix outside the `ProjectOS`
+namespace keeps failing closed. A prefix that legitimately matches nothing still returns an empty list and
+exit 0, which is a true answer rather than a misleading one.
+
+### Defect B — validateMcpConfig had no runtime call site
+
+**Reproduced**: the function was exported from `env-projection.cjs` and called only by the two validators;
+`router.cjs` contained no `.mcp.json` handling at all, so a session could reach READY with an unresolved
+placeholder while the documentation promised a refusal.
+
+**Fix** (`router.cjs`): a `loadMcpConfig()` reader plus validation wired into `prepare()`. The position is
+load-bearing and proven by line order — MCP refusal at lines 180/198, writer lease at 209, identity
+preflight at 223, credential release at 267. Ordering is therefore project, canonical root, profile,
+**MCP**, lease, provider identities, credential requirements, retrieval. Placeholders resolve against the
+**names** each provider adapter publishes as `envVars`, so the check mints no grant and reads no value.
+Blocker `MCP CONFIG INVALID` covers an unparseable file, a literal secret, an undeclared server and an
+unresolved placeholder. An absent `.projectops/mcp.json` is legitimate and proceeds.
+
+**A correction made mid-work:** I first added `MCP CONFIG INVALID` to the frozen `BLOCKERS` list in
+`identity-preflight.cjs`, and the existing invariant 15 (every blocker is reachable) failed — correctly,
+because that list enumerates blockers `evaluatePreflight` itself can return, and this refusal is raised by
+the router. I reverted that file entirely rather than weaken the invariant.
+
+### Acceptance matrix
+
+| | Result |
+|---|---|
+| A1 whole-segment prefix returns the match | PASS |
+| A2 no false empty | PASS — partial segment now exits 1 |
+| A3 metadata only | PASS — listing carries no value |
+| A4 invalid prefix fails closed | PASS |
+| A5 cross-project isolation | PASS — refusal discloses no sibling name |
+| A6 MCP call site is the real session-start path | PASS — proven with a config the router loaded from disk |
+| A7 ordering before retrieval and spawn | PASS — no child spawned, no lease left by any refusal |
+| A8 unresolved placeholder refuses | PASS |
+| A9 malformed config refuses | PASS — literal secret, undeclared server, unparseable file |
+| A10 valid config proceeds | PASS — reaches READY |
+| A11 READY integrity | PASS |
+| A12 documentation truth | PASS — `docs/credential-router.md` rewritten to match |
+
+### Mutation matrix — 8 of 8 killed
+
+| # | Mutation | Result |
+|---|---|---|
+| M1 | restore silent empty success | **KILLED** — invariant 9b |
+| M2 | listing returns values as well as names | **KILLED** — invariant 9d |
+| M3 | remove the ProjectOS namespace guard | **KILLED** — invariant 9c, 2 failures |
+| M4 | remove the runtime `validateMcpConfig` call | **KILLED** — invariant 26, 6 failures |
+| M5 | move MCP validation after credential retrieval | **KILLED** — invariant 26, 7 failures |
+| M6 | allow an unresolved placeholder | **KILLED** — invariant 26, 4 failures |
+| M7 | allow a malformed config | **KILLED** — invariant 26, 3 failures |
+| M8 | emit READY despite failed MCP validation | **KILLED** — invariant 26, 6 failures |
+
+M2 and M3 **survived the first attempt** and are recorded as survivals until the assertions were
+strengthened: my initial 9b check only proved the refusal string existed somewhere in the file, which a
+message-only edit satisfied. Invariants 9c (namespace guard intact) and 9d (the emit line writes the target
+name and nothing else) were added, after which both were killed. M5 and M8 also needed two attempts because
+my first patches missed their anchors and silently no-opped — a mutation that does not apply proves
+nothing, so both were re-run until they genuinely changed behaviour.
+
+All mutated files restored **byte-identical** (`cmp`); mutation copies lived only in the session scratchpad
+and were deleted; zero residue in the repository.
+
+### Synthetic Windows Credential Manager proof (real store, synthetic values only)
+
+Initial `ProjectOS` inventory 0, set, exact get with round trip matching, whole-segment listing returns the
+target, **partial-prefix listing exits 1 and discloses no sibling name**, listing carries no value,
+sibling-project get returns not-found, delete, final inventory 0 with zero synthetic test entries
+remaining. No real GitHub, Supabase, Vercel, database or service-role credential was entered, and no
+credential value was printed.
+
+### Validation
+
+Three router validators PASS. `validate-no-secrets`, `validate-forbidden-actions`, `validate-examples`
+PASS. `node --check` clean on all three changed `.cjs`. PowerShell `Parser::ParseFile` **0 errors, 541
+tokens**. `validate:v3plan` 8/8, `validate:secrets` PASS, `validate:reporter` 4/4, `git diff --check`
+clean.
+
+### Boundary
+
+Five amendment paths of the eight authorised — `windows-credential-store.ps1`, `router.cjs`, both
+session-router and adversarial validators, and `docs/credential-router.md` — plus this report and its
+Reports Index row. Every one was already inside the original 37. **The complete branch diff versus main
+remains exactly 37 paths.** No new file. No dependency, lockfile, current-state, crosswalk, Control Centre,
+host or CI change.
+
+### Unchanged
+
+Accepted limitations L1-L5 stand and still block real credential onboarding, production credentials,
+high-risk operation activation and phase closure. Pre-onboarding gates C4-C7 remain mandatory and none was
+started. No provider was contacted, no MCP server was started, no `.projectops` was installed into any
+managed project. Programme position untouched: 4/19, 21.1, Phase 13 CLOSED, `EXECUTION_READY` false,
+`installationAuthority` NotAuthorised, `86ae19c` and `a43898d` OPEN. This phase remains **AWAITING
+REVIEW**.

@@ -197,9 +197,11 @@ switch ($Action) {
     exit 3
   }
   'list' {
-    # Names only. The prefix is a literal reference prefix; '*' is appended for the Win32 filter.
+    # Names only. The prefix is a WHOLE-SEGMENT reference prefix: it must either be the complete target
+    # name, or the target must continue after it at a '/' boundary. That is deliberate (see the boundary
+    # re-filter below) and is the contract the CLI, the docs and the Node layer all describe.
     if ($Prefix -ne '' -and $Prefix -notmatch '^ProjectOS(/[A-Za-z0-9][A-Za-z0-9._-]{0,63}){0,4}$') {
-      Write-Error "invalid credential prefix"
+      Write-Error "CREDENTIAL PREFIX FORMAT INVALID: a listing prefix must be a whole-segment path inside the ProjectOS namespace"
       exit 1
     }
     $filter = 'ProjectOS/*'
@@ -212,11 +214,27 @@ switch ($Action) {
     # Ordinal, case-SENSITIVE throughout. PowerShell's -eq/-ne are case-insensitive while .StartsWith is
     # case-sensitive by default; mixing them would let a listing scoped to 'polygo' disclose a distinct
     # project named 'PolyGo', because the reference charset treats case as significant.
+    $matched = New-Object System.Collections.Generic.List[string]
+    $partialSegmentHits = 0
     foreach ($name in [ProjectOSCredentialStore]::Enumerate($filter)) {
       if ($name -cnotmatch $targetPattern) { continue }
-      if ($Prefix -ne '' -and -not [String]::Equals($name, $Prefix, [StringComparison]::Ordinal) -and -not $name.StartsWith($boundary, [StringComparison]::Ordinal)) { continue }
-      [Console]::Out.WriteLine($name)
+      if ($Prefix -eq '' -or [String]::Equals($name, $Prefix, [StringComparison]::Ordinal) -or $name.StartsWith($boundary, [StringComparison]::Ordinal)) {
+        $matched.Add($name)
+      }
+      elseif ($name.StartsWith($Prefix, [StringComparison]::Ordinal)) {
+        # Begins with the caller's literal string but NOT at a '/' boundary: the caller supplied a partial
+        # segment (e.g. 'ProjectOS/synthetic-' against 'ProjectOS/synthetic-x/...'). Counting it is all we
+        # do - the sibling's name is never disclosed.
+        $partialSegmentHits++
+      }
     }
+    # A success-empty answer would read as 'this project has no credentials' when entries exist and only
+    # the prefix was mis-shaped. Fail closed: silent empty success is prohibited.
+    if ($matched.Count -eq 0 -and $partialSegmentHits -gt 0) {
+      Write-Error "CREDENTIAL PREFIX FORMAT INVALID: partial segment; entries exist that continue it within a segment. Supply a whole-segment prefix."
+      exit 1
+    }
+    foreach ($name in $matched) { [Console]::Out.WriteLine($name) }
     exit 0
   }
 }

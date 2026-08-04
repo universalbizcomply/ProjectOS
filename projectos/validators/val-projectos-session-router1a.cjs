@@ -444,6 +444,59 @@ function run() {
     const worktreeLease = router.leases.inspect(worktree.checkout);
     if (worktreeLease.held && !worktreeLease.stale) errors.push("invariant 25: a vetoed session left its writer lease in place");
 
+    // 26: MCP configuration is enforced by the REAL session-start path, not merely unit-tested.
+    //     validateMcpConfig having no runtime call site was a live defect: the docs promised a
+    //     session-start refusal that no code performed. These checks pin the call site, its position
+    //     BEFORE any credential is retrieved or any child is spawned, and every refusal reason.
+    const mcpBase = {
+      slot: 'polygo-mcp', environment: 'staging', profileName: 'staging-writer',
+      checkoutPath: polygo.checkout, connection: polygo.connection, repository: polygo.repository,
+      observations: observationsFor(polygo.connection),
+    };
+    const goodMcp = { mcpServers: { github: { env: { GITHUB_PERSONAL_ACCESS_TOKEN: '${GH_TOKEN}' } } } };
+
+    // A10 / A11 — a valid config lets the remaining preflight run and READY remains reachable.
+    const mcpOk = router.prepare({ ...mcpBase, mcpConfig: goodMcp });
+    if (mcpOk.blocker === 'MCP CONFIG INVALID') errors.push('invariant 26: a valid MCP config was refused: ' + mcpOk.detail);
+    if (mcpOk.ready !== true) errors.push('invariant 26: a valid MCP config did not reach READY: ' + mcpOk.blocker);
+    // prepare() acquires the writer lease; only a STARTED session is released by stop(), so release the
+    // lease this successful prepare took, exactly as the neighbouring invariants do.
+    if (mcpOk.ready === true && mcpOk.leaseHeld) router.leases.release({ checkoutPath: polygo.checkout, sessionId: mcpOk.sessionId });
+
+    // A8 — an unresolved placeholder refuses the session.
+    const spawnedBeforeMcp = spawned.length;
+    const unresolvedRun = router.prepare({ ...mcpBase, mcpConfig: { mcpServers: { github: { env: { T: '${NO_SUCH_VAR}' } } } } });
+    if (unresolvedRun.blocker !== 'MCP CONFIG INVALID') errors.push('invariant 26: an unresolved MCP placeholder did not refuse the session');
+    if (unresolvedRun.ready !== false) errors.push('invariant 26: READY was emitted despite an unresolved MCP placeholder');
+
+    // A9 — a malformed configuration refuses the session.
+    const malformed = router.prepare({ ...mcpBase, mcpConfig: { mcpServers: { github: { env: { GH_TOKEN: 'ghp_' + 'a'.repeat(36) } } } } });
+    if (malformed.blocker !== 'MCP CONFIG INVALID') errors.push('invariant 26: a literal secret in the MCP config did not refuse the session');
+
+    // A9 — a server this project does not declare refuses the session.
+    const wrongServer = router.prepare({ ...mcpBase, mcpConfig: { mcpServers: { somebodyElse: {} } } });
+    if (wrongServer.blocker !== 'MCP CONFIG INVALID') errors.push('invariant 26: an undeclared MCP server did not refuse the session');
+
+    // A7 — no child process was launched by any refused session.
+    if (spawned.length !== spawnedBeforeMcp) errors.push('invariant 26: a refused MCP session spawned a child process');
+
+    // A7 — and no writer lease was left behind by the refusals.
+    const mcpLease = router.leases.inspect(polygo.checkout);
+    if (mcpLease.held && !mcpLease.stale) errors.push('invariant 26: a refused MCP session left its writer lease in place');
+
+    // A6 — the call site really is the router, not just the validator: refusing on a config the router
+    //      itself loaded from the checkout proves the wiring, not merely the exported function.
+    const mcpDir = path.join(polygo.checkout, '.projectops');
+    fs.mkdirSync(mcpDir, { recursive: true });
+    const mcpFile = path.join(mcpDir, 'mcp.json');
+    fs.writeFileSync(mcpFile, JSON.stringify({ mcpServers: { github: { env: { T: '${NO_SUCH_VAR}' } } } }), 'utf8');
+    const fromDisk = router.prepare({ ...mcpBase });
+    if (fromDisk.blocker !== 'MCP CONFIG INVALID') errors.push('invariant 26: .projectops/mcp.json on disk was not validated at session start');
+    fs.writeFileSync(mcpFile, '{ not json', 'utf8');
+    const unparseable = router.prepare({ ...mcpBase });
+    if (unparseable.blocker !== 'MCP CONFIG INVALID') errors.push('invariant 26: an unparseable .projectops/mcp.json did not refuse the session');
+    fs.rmSync(mcpFile, { force: true });
+
     // Tidy every lease this validator still holds so a re-run starts clean.
     for (const record of router.status({})) router.stop({ slot: record.slot });
   });

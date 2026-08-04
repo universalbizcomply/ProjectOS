@@ -209,6 +209,27 @@ function run() {
   if (!ps.includes("targetPattern")) errors.push("invariant 9: the helper does not validate its target name");
   if (/Start-Transcript/i.test(ps)) errors.push("invariant 9: the helper starts a transcript");
 
+  // 9b: a listing must never answer success-empty when entries exist under the requested string. The
+  //     prefix contract is WHOLE-SEGMENT — 'ProjectOS/poly' does not list 'ProjectOS/polygo/...' — and the
+  //     boundary re-filter that enforces it used to drop such entries silently, so a mis-shaped prefix read
+  //     back as 'this project has no credentials'. The helper must now COUNT what the boundary dropped and
+  //     fail closed instead. Asserted on the shipped script text: this file never spawns PowerShell.
+  if (!ps.includes("CREDENTIAL PREFIX FORMAT INVALID")) errors.push("invariant 9b: the helper has no explicit invalid-prefix refusal");
+  if (!/\$partialSegmentHits/.test(ps)) errors.push("invariant 9b: the helper does not count entries dropped by the segment boundary");
+  if (!/\$matched\.Count -eq 0 -and \$partialSegmentHits -gt 0/.test(ps)) errors.push("invariant 9b: the helper can still return success-empty while matching entries exist");
+  // The refusal must not disclose what it found: the sibling's target name is counted, never printed.
+  if (ps.split("\n").some(function (line) { return line.indexOf("Write-Error") !== -1 && line.indexOf("$name") !== -1; })) errors.push("invariant 9b: the invalid-prefix refusal echoes a credential target name");
+  // 9c: the namespace guard itself must survive. Without it a caller could enumerate outside the
+  //     ProjectOS namespace entirely and the whole-segment contract would have nothing to anchor to.
+  if (ps.indexOf("$Prefix -notmatch") === -1) errors.push("invariant 9c: the helper no longer constrains the listing prefix to a pattern");
+  if (ps.indexOf("^ProjectOS(/[A-Za-z0-9][A-Za-z0-9._-]{0,63}){0,4}$") === -1) errors.push("invariant 9c: the listing prefix is no longer bound to the ProjectOS namespace");
+
+  // 9d: a listing is METADATA ONLY. The emit line must write the target name and nothing else — no store
+  //     read, no concatenation. A listing that also returned values would hand every secret to any caller.
+  var listEmit = ps.split("\n").filter(function (line) { return line.indexOf("Out.WriteLine(") !== -1 && line.indexOf("matched") !== -1; });
+  if (listEmit.length !== 1) errors.push("invariant 9d: expected exactly one listing emit line, found " + listEmit.length);
+  else if (listEmit[0].indexOf("Out.WriteLine($name)") === -1) errors.push("invariant 9d: the listing emits more than the target name");
+
   // 10: the in-memory store cannot be created by accident.
   let memoryRefused = false;
   try { createMemoryCredentialStore({}); } catch (e) { memoryRefused = true; }

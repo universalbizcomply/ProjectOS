@@ -97,10 +97,34 @@ the inherited copy **first**, unconditionally — so a shell already carrying an
 cannot leak it into this session — and only then are this session's own values added. `process.env` is
 never modified, so concurrent sessions cannot see each other.
 
-`.mcp.json` carries `${VAR}` placeholders only. A literal credential is refused, a credential-named key
-whose value is not a bare placeholder is refused, and a placeholder with no matching variable in the
-projected environment is refused — an MCP server started with an unresolved placeholder would quietly act
-as an anonymous or wrong principal. The Supabase MCP server is structurally unavailable for production.
+`.projectops/mcp.json` carries `${VAR}` placeholders only, and the session router validates it **at
+session start**. The check runs after the project, its canonical root and its session profile are settled
+and **before** the writer lease, the identity preflight and any credential retrieval, so a bad config
+refuses the session before a single value is read. It needs only the NAMES of the variables the session
+will declare — each provider adapter publishes those as `envVars` — so no grant is minted to perform it.
+
+A literal credential is refused; a credential-named key whose value is not a bare placeholder is refused;
+a placeholder that resolves to no variable this session declares is refused; and a server this project
+does not declare in `providers` is refused. An MCP server started with an unresolved placeholder would
+quietly act as an anonymous or wrong principal, so the session is refused with the blocker
+`MCP CONFIG INVALID` rather than downgraded to a warning. An absent `.projectops/mcp.json` is legitimate —
+a project need not expose MCP servers, and with no config nothing can start as the wrong principal — but a
+file that exists and cannot be parsed refuses the session. The Supabase MCP server is structurally
+unavailable for production.
+
+## Listing credentials
+
+`credentials status` and every listing path return **target names only** — never a value. The listing
+prefix is a **whole-segment** reference prefix: it must either be the complete target name, or the target
+must continue after it at a `/` boundary. `ProjectOS/polygo` lists that project; `ProjectOS/poly` does
+not, because a string-prefix match would let a listing scoped to one project disclose a sibling named
+`polygo2`.
+
+A prefix outside the `ProjectOS` namespace is refused with `CREDENTIAL PREFIX FORMAT INVALID`. So is a
+**partial segment** for which matching entries exist — that case previously returned an empty success,
+which read as *this project has no credentials* when in fact the prefix was merely mis-shaped. The
+refusal counts what the segment boundary dropped; it never prints the sibling's name. A prefix that
+legitimately matches nothing still returns an empty list and exit 0.
 
 ## One writer per checkout
 
