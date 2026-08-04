@@ -50,6 +50,11 @@
     "dashboard:check": "node projectos/scripts/check-dashboard-data.cjs",
     "dashboard:safety": "node projectos/scripts/check-dashboard-safety.cjs",
     "dashboard:report": "node projectos/scripts/create-dashboard-report.cjs",
+    "credentials": "node projectos/scripts/projectos-credential-router.cjs credentials",
+    "session": "node projectos/scripts/projectos-credential-router.cjs session",
+    "providers": "node projectos/scripts/projectos-credential-router.cjs providers",
+    "operation": "node projectos/scripts/projectos-credential-router.cjs operation",
+    "validate:credentials": "node projectos/validators/val-projectos-credential-vault1a.cjs && node projectos/validators/val-projectos-session-router1a.cjs && node projectos/validators/val-projectos-credential-router-adversarial1a.cjs",
     "summary": "node projectos/scripts/print-framework-summary.cjs",
     "list": "node projectos/scripts/list-projectos-files.cjs"
   },

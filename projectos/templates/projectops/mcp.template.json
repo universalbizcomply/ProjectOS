@@ -1,0 +1,29 @@
+{
+  "_comment": "ProjectOS MCP template. Environment-variable PLACEHOLDERS only — a literal credential in this file is a hard validation failure. The session router refuses to start when a placeholder has no corresponding variable in the projected session environment, so an MCP server can never quietly start as an anonymous or wrong principal. The Supabase server is absent from any production session by policy.",
+  "mcpServers": {
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GH_TOKEN}",
+        "GITHUB_REPOSITORY": "${GH_REPO}"
+      }
+    },
+    "supabase": {
+      "command": "npx",
+      "args": ["-y", "@supabase/mcp-server-supabase", "--read-only", "--project-ref", "${SUPABASE_PROJECT_REF}"],
+      "env": {
+        "SUPABASE_ACCESS_TOKEN": "${SUPABASE_ACCESS_TOKEN}"
+      }
+    },
+    "vercel": {
+      "command": "npx",
+      "args": ["-y", "@vercel/mcp-server"],
+      "env": {
+        "VERCEL_TOKEN": "${VERCEL_TOKEN}",
+        "VERCEL_ORG_ID": "${VERCEL_ORG_ID}",
+        "VERCEL_PROJECT_ID": "${VERCEL_PROJECT_ID}"
+      }
+    }
+  }
+}

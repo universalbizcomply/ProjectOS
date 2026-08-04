@@ -80,6 +80,9 @@ const MODULES = [
   "val-cd-b4-record-file-acl-correction1a",
   "val-cd-b4-release-currentness1a",
   "val-projectos-validator-scratch-lifecycle1a",
+  "val-projectos-credential-vault1a",
+  "val-projectos-session-router1a",
+  "val-projectos-credential-router-adversarial1a",
   "val-projectos-v3-owner-presence-confirmation-ux1a",
   "validate-v3.1-crosswalk",
   "validate-v3.2-ai-provider-independence"
