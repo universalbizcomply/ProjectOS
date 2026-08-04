@@ -189,3 +189,58 @@ is an explicit, informed opt-in.
 - **Secret-shape detection recognises six prefixed token shapes only.** A raw Vercel token, a database
   password or a generic hex key has no distinctive shape. Treat a hit as "definitely refuse", never a miss
   as "definitely safe".
+
+## Credential custody policy
+
+**Owner decision, 2026-08-04 (gate C5) — APPROVED.**
+
+**Production and high-risk ProjectOS credentials must live under `NT SERVICE\ProjectOSHost` custody.**
+That is the mandatory target architecture. The Windows-user custody boundary this capability currently
+relies on — recorded above as a limit you should know about — is **not an acceptable final production or
+high-risk boundary**.
+
+Windows-user custody may be considered **only** through a separate, explicitly owner-approved
+**staging-only and read-only pilot gate**. Any such pilot must prohibit all seven of:
+
+1. production credentials;
+2. service-role keys;
+3. database passwords in the general Claude environment;
+4. live payment capability;
+5. real email, SMS or other external sends;
+6. production mutation;
+7. continuing or reusable protected authority.
+
+The seventh is the one most easily lost: a pilot grant must not outlive the single operation it was
+minted for.
+
+### What this decision is not
+
+C5 is a **strategy decision, not an implementation or activation decision**. It authorises none of:
+Windows service installation; service start, stop, restart or reconfiguration; ProgramData creation or
+mutation; ACL mutation; key provisioning; credential entry; credential migration; provider calls;
+`.projectops` installation; production activity; database mutation; real sends; payments.
+
+**No credential may be entered as a consequence of this decision.** Host transport, installation, ACLs,
+provisioning and credential migration each remain separately gated, and gates **C4** (proven owner
+presence), **C6** (read-only live provider identity verification) and **C7** (no real credential
+onboarding) remain **open and mandatory**.
+
+### Host transport is not yet capable of carrying a credential
+
+This is a source-checkable fact about the committed protocol, not a projection. The installed-host IPC
+message contract is pinned by `val-cd-b4-installed-host-status-contract1a` so that nothing free-form is
+representable: V3 refuses `String,`, `Vec<u8>`, `HashMap`, `serde_json` and `installation_id` in the
+protocol, and V4 refuses any generic payload accessor (`payload`, `payload_bytes`, `body`, `as_bytes`,
+or any `-> &[u8]`). The single status frame added by commit `c213078` is a fixed 21 bytes of closed enums
+and two hex prefixes. **A secret is therefore not expressible over the present contract at all**, by
+deliberate design.
+
+Commit `c213078` also records that a prior **route survey** established the then-existing message contract
+could not express the installed-host **status** response. That survey concerned the status payload; it is
+referenced in that commit message but is not itself a committed report, and **no located source extends
+its finding to credential payloads**. Accordingly, the position recorded here is:
+
+> **HOST CREDENTIAL TRANSPORT REQUIRES SOURCE-LED PREFLIGHT.**
+
+Do not re-perform or paraphrase the earlier survey to fill that gap. A credential-carrying route is new
+protocol work and needs its own preflight and gate.

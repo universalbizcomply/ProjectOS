@@ -877,3 +877,75 @@ no provider call, no `.projectops` installation and no production activity.
 Programme position unchanged: **4/19, 21.1**, Phase 13 CLOSED, `EXECUTION_READY` false,
 `installationAuthority` NotAuthorised, `86ae19c` and `a43898d` OPEN. The overall credential-router phase
 remains **AWAITING REVIEW**.
+
+## 19. C5 CUSTODY DECISION ADDENDUM
+
+**Owner / gatekeeper decision, 2026-08-04. C5: CLOSED — STRATEGY APPROVED.**
+
+**Mandatory target custody for production and high-risk ProjectOS credentials: `NT SERVICE\ProjectOSHost`.**
+The Windows-user custody boundary — accepted limitation **L1** throughout this report — is **not an
+acceptable production or high-risk end state**.
+
+Windows-user custody may be considered **only** through a separate, explicitly owner-approved
+**staging-only and read-only pilot gate**, which must prohibit all seven of: production credentials;
+service-role keys; database passwords in the general Claude environment; live payment capability; real
+email, SMS or other external sends; production mutation; and **continuing or reusable protected
+authority**. A pilot grant must not outlive the single operation it was minted for.
+
+### The distinction that matters
+
+> **C5 being closed does not mean host custody capability is implemented.**
+
+| Item | State |
+|---|---|
+| C5 decision gate | **CLOSED / STRATEGY APPROVED** |
+| ProjectOSHost custody implementation | **NOT IMPLEMENTED** |
+| Credential transport into ProjectOSHost | **NOT IMPLEMENTED** |
+| Real credential onboarding | **NOT AUTHORISED** |
+| Overall phase `PROJECTOS-MULTI-PROJECT-CREDENTIAL-ROUTER1A` | **AWAITING REVIEW** |
+
+C5 is a strategy decision, not an implementation or activation decision. **No credential may be entered
+as a consequence of it.**
+
+### Gates still open
+
+**C4** proven owner presence — **OPEN**. **C6** read-only live provider identity verification —
+**OPEN**. **C7** real credential onboarding — **OPEN and prohibited**. Host transport, installation,
+ACLs, key provisioning and credential migration each remain separately gated.
+
+### Not authorised by this decision
+
+Windows service installation; service start, stop, restart or reconfiguration; ProgramData creation or
+mutation; ACL mutation; key provisioning; credential entry; credential migration; provider calls;
+`.projectops` installation; production activity; database mutation; real sends; payments.
+
+**None was performed in recording this decision.** This was a records-only change to three paths.
+
+### Host transport dependency — what source actually supports
+
+The committed installed-host IPC contract **cannot represent a credential**, and this is checkable rather
+than asserted: `val-cd-b4-installed-host-status-contract1a` refuses `String,`, `Vec<u8>`, `HashMap`,
+`serde_json` and `installation_id` in the protocol (V3) and refuses any generic payload accessor —
+`payload`, `payload_bytes`, `body`, `as_bytes`, or any `-> &[u8]` (V4). The one status frame added by
+commit `c213078` is a fixed 21 bytes of closed enums plus two hex prefixes.
+
+Commit `c213078` records that a prior **route survey** established the then-existing message contract
+could not express the installed-host **status** response. **That survey concerned the status payload.** It
+is referenced only in that commit message, is not itself a committed report, and **no located source
+extends its finding to credential payloads.** The survey was not re-performed here.
+
+The recorded position is therefore:
+
+> **HOST CREDENTIAL TRANSPORT REQUIRES SOURCE-LED PREFLIGHT.**
+
+*Correction of my own earlier wording:* in reporting this decision to the owner I described the survey as
+having found no existing route capable of carrying a **credential** payload. Source does not support that
+phrasing — the survey addressed the status response. The credential claim above rests instead on the
+validator-pinned protocol shape, which is stronger and directly verifiable.
+
+### Unchanged
+
+`acceptedPhaseCount` 4 / 19, 21.1, plan v1.0, Phase 13 CLOSED, `EXECUTION_READY` false,
+`installationAuthority` NotAuthorised, `86ae19c` and `a43898d` OPEN, `currentHead` and `currentRemoteHead`
+unchanged at the accepted baseline `cea095d`. This records decision creates **no new accepted
+implementation baseline**. The overall credential-router phase remains **AWAITING REVIEW**.
