@@ -1,14 +1,44 @@
-# ProjectOS V3 Acceptance Decisions — AWAITING-REVIEW
+# ProjectOS V3 Acceptance Decisions — CLOSED
 
 - **Report ID:** PROJECTOS-V3-ACCEPTANCE-DECISIONS-RECORD1A
 - **Project:** ProjectOS
 - **Date:** 2026-08-04
-- **Status:** AWAITING-REVIEW
+- **Status:** CLOSED
+- **Gatekeeper decision:** CLOSED (owner + ChatGPT gate, 2026-08-04)
+- **Accepted decision-record commit:** `1cc3f264e9df6aade5c3818a69bf85f43125fde8`
 - **Repository:** `C:\dev\ProjectOS` · branch `projectos-v3`
 - **Base HEAD:** `685052be715a3bf77e5d6a6f45b8d790304d8088`
-- **Gate:** RECORDS-ONLY — no executable code, no push
+- **Gate:** RECORDS-ONLY — no executable code
 - **Basis:** the read-only sweep `PROJECTOS-V3-ACCEPTANCE-SWEEP1A`, which changed no repository file and
   classified every material phase by **closure authority** rather than by filename or status label.
+
+## Closure basis
+
+- The **ten owner-ratified decisions** below are persisted in the repository records.
+- Pushed normally to `origin/projectos-v3` (`685052b..1cc3f26`); no force push, tag, amend or rebase.
+- Local and origin reconciled **0/0**; working tree clean, 0 staged, 0 untracked, 0 tags.
+- Exact **four-path decision-record boundary**: the crosswalk, `current-state`, the Reports Index and this
+  report.
+- **No numbered V3 phase was closed.** Only phases 0, 1 and 2 show CLOSED, as before.
+- **`EXECUTION_READY` remained `false`**; installation authority remained `NotAuthorised`.
+- **`acceptedPhaseCount` remained 3**, `totalPhaseCount` 19 (3 / 19, 15.8%).
+- **No executable code changed** — no `.ts`, `.js`, `.cjs`, `.rs`, schema, validator, script, package file
+  or lockfile.
+
+## Carry-forward (all OPEN — none complete)
+
+1. `PROJECTOS-V3-CD-B4-CLOSURE-AUTHORITY-RECONCILE1A` — the next gate.
+2. `PROJECTOS-V3-DESKTOP-NATIVE-PROOF1A`.
+3. `PROJECTOS-V3-FINAL-RUNTIME-E2E1A` — the mandatory runtime proof; gates `EXECUTION_READY`.
+4. `PROJECTOS-V3-EXECUTION-READY-RULING1A` — only after 1–3.
+
+## Closure-amendment note
+
+The closure amendment found **no Reports Index row for this phase** — the decision-record phase created this
+report and edited fifteen other rows, but never added its own. A single row was therefore **created**, not
+edited, so the ledger records this closure. Recorded as a declared deviation rather than a silent fix. The
+crosswalk and `current-state` contained **zero** references to this report's original filename, so neither
+was touched by the closure amendment.
 
 > **Nothing here closes a numbered V3 phase.** `acceptedPhaseCount` stays **3 / 19**.
 > `EXECUTION_READY` stays **false**. Implementation acceptance is not closure.
@@ -143,4 +173,5 @@ approved V3 definition-of-complete, and no V3 gate waits on them.
 
 ## 12. Decision requested
 
-**APPROVED TO PUSH**
+~~**APPROVED TO PUSH**~~ — **GRANTED.** Pushed as `1cc3f26`, reconciled 0/0, and **CLOSED** by owner +
+ChatGPT gate on 2026-08-04. See the Closure basis at the head of this report.
