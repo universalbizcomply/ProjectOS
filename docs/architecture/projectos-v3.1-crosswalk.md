@@ -1,7 +1,7 @@
 # ProjectOS V3.1 Roadmap-Integration & Status Crosswalk
 
 - **Document ID:** PROJECTOS-V3.1-CROSSWALK
-- **Version:** 1.2 (owner acceptance decisions, 2026-08-04 — `PROJECTOS-V3-ACCEPTANCE-DECISIONS-RECORD1A`; v1.1 was `PROJECTOS-V3-RECORDS-RECONCILE1A`)
+- **Version:** 1.3 (CD-B4 closure authority, 2026-08-04 — `PROJECTOS-V3-CD-B4-CLOSURE-AUTHORITY-RECORD1A`; v1.2 was `PROJECTOS-V3-ACCEPTANCE-DECISIONS-RECORD1A`, v1.1 `PROJECTOS-V3-RECORDS-RECONCILE1A`)
 - **Owner:** Murad
 - **Status:** AUTHORITATIVE CURRENT STATUS CROSSWALK
 - **Approved-plan reference:** ProjectOS V3 Master Plan v1.0
@@ -12,6 +12,8 @@
 > **v1.1 CHANGE NOTE.** Version 1.1 corrects status only. It accepts nothing, closes nothing, and does not amend the approved plan, which remains immutable at v1.0 (`1aa36b9`). Superseded v1.0 content is marked **SUPERSEDED** in place rather than deleted. `EXECUTION_READY` remains **false**.
 
 > **v1.2 CHANGE NOTE.** Version 1.2 persists the owner-approved decisions of the read-only acceptance sweep (`PROJECTOS-V3-ACCEPTANCE-SWEEP1A`). It records **implementation acceptance**, which is **not closure**: **no numbered V3 phase is closed here**, `acceptedPhaseCount` stays **3 / 19**, and `EXECUTION_READY` stays **false**. It also corrects a v1.1 error of my own — §3a classified build-order items 3–8 from their report **filenames** rather than from the Reports Index, which is the closure ledger and has recorded them CLOSED since 2026-06-30.
+
+> **v1.3 CHANGE NOTE.** Version 1.3 persists the corrected CD-B4 closure-authority matrix (§8a, §8c, §8d) under the owner ruling of 2026-08-04. It replaces the v1.1/v1.2 blanket *IMPLEMENTED AND PUSHED / AWAITING ACCEPTANCE* classification with per-phase authority state, records that **`86ae19c` and `a43898d` remain OPEN**, and changes **no numbered V3 phase**: `acceptedPhaseCount` stays **3 / 19** and `EXECUTION_READY` stays **false**.
 
 > **WARNING — NOT A PLAN.** This document is an authoritative current-status and roadmap-integration crosswalk. It does **not** replace, amend or version the approved ProjectOS V3 Master Plan v1.0. The approved plan remains immutable at v1.0 (source commit `1aa36b9`). This crosswalk records status, integrates later workstreams (Forge, HARDEN/real-worker, CD-B4) that are **not** part of the original numbered V3 Phase 0–18 plan, and persists the **APPROVED DIRECTIONAL V3.1 ROADMAP STRUCTURE** (Track A–G). Directional-roadmap approval is **not** implementation authority: no Track C, Track D or other implementation phase is authorised merely because the directional structure is approved.
 
@@ -117,29 +119,55 @@ HARDEN1A–1E + real-e2e-1B + WSL2 tool-isolation (`0f888f7`, `dabcee5`, `597f4a
 ## 8. CD-B4 ledger (LATER UNINCORPORATED WORKSTREAM)
 Formally CLOSED by gate decision (see §10). Other CD-B4 phases (runtime-instance-authority `85df339`, elevation-fact `fdf0499`, owner-presence-fact `c306c80`, permit→effect-grant `1a716f3`, effect-witness `88a5db0`, repository authority `14ef2ed`, protected-plan/durable-store, service-identity/SCM/IPC/binding chain, host-authority/crypto/DPAPI/ACL foundation) are **IMPLEMENTED AND PUSHED — FORMAL CLOSURE NOT VERIFIED**. CD-B4 is a later workstream requiring roadmap integration; it is **not** an original V3 Phase 0–18 track.
 
-### 8a. Post-`e1749cc` CD-B4 work (added by v1.1 — previously absent from repository records)
+### 8a. Post-`e1749cc` CD-B4 closure-authority ledger (corrected, v1.3)
 
-Twenty-four commits landed between `e1749ccd` and `fdee3d34`. Two of them (`7cad460`, `cae6a74`) are the governance documents that were themselves recorded; the other **twenty-two had no repository status record at all**. They are now ledgered commit-by-commit in
-`knowledge/reports/2026-08-03_ProjectOS_PROJECTOS-V3-RECORDS-RECONCILE1A_CLOSED.md` §A.
+Twenty-four commits landed between `e1749ccd` and `fdee3d34`. Two (`7cad460`, `cae6a74`) are governance documents. The remaining twenty-two are CD-B4 phase work, ledgered per commit in `knowledge/reports/2026-08-03_ProjectOS_PROJECTOS-V3-RECORDS-RECONCILE1A_CLOSED.md` §A.
 
-Summary of what they delivered, and their status:
+> **SUPERSEDED (v1.1/v1.2 classification, retained).** ~~All twenty-two were recorded **IMPLEMENTED AND PUSHED / AWAITING ACCEPTANCE**, on the reasoning that no explicit closure decision was persisted in this repository.~~ That blanket classification was **wrong**. It searched only the repository and the implementer's local memory and treated their silence as proof of no authority. The authoritative ChatGPT gate history — rank 1 under §2, and outside both of those stores — records explicit closure for most of this chain. **Repository silence is not evidence of absent authority.**
 
-| Group | Commits | Delivered | Status |
+**Corrected matrix (owner ruling, 2026-08-04, `PROJECTOS-V3-CD-B4-CLOSURE-AUTHORITY-RECORD1A`).** Gate wording as supplied by the gatekeeper: `ACCEPTED FOR CLOSURE — CLOSED`, and for `76d052b` specifically `ALREADY ACCEPTED FOR CLOSURE — CLOSED`. Exact decision dates are **unavailable in persisted records** and are deliberately not estimated.
+
+| Commit | Phase | Authority | Status |
 |---|---|---|---|
-| Owner-presence + confirmation UX | `86ae19c`, `87db53b`, `a43898d` | production owner-presence provider; protected-operation confirmation UX; inert Windows owner-verification adapter | IMPLEMENTED AND PUSHED / AWAITING ACCEPTANCE |
-| Capability-acquisition chain | `69ebabf`, `fe8bbab`, `061bb24`, `aa4d499`, `0abf4e8` | Control-Centre window observation bridge; cold-start provider-authority seam; sealed expected-window facts; owner-presence capability bridge; fresh-acquisition confirmation | IMPLEMENTED AND PUSHED / AWAITING ACCEPTANCE |
-| Canonical installation identity | `092fe9d`, `7fa0e13`, `1e9b392`, `13774b5` | canonical identity record writer; installation-id source; canonical installation identity wired; Windows host-authority observer | IMPLEMENTED AND PUSHED / AWAITING ACCEPTANCE |
-| Installer + service runtime | `76d052b`, `39ce5f2`, `5e68016` | elevated identity installation composition; installer readiness; real SCM service runtime | IMPLEMENTED AND PUSHED / AWAITING ACCEPTANCE |
-| **Real installation and live proof** | `0220048` | **ProjectOSHost actually installed and proven on this machine** — first real bounded protected effect | IMPLEMENTED AND PUSHED / AWAITING ACCEPTANCE |
-| Installed-host status workflow | `c213078`, `193bee9`, `bd35e44` | status contract + reader; specific IPC transport; end-to-end Control-Centre display proof; record-file ACL defect fixed | IMPLEMENTED AND PUSHED / AWAITING ACCEPTANCE |
-| Release currentness + reinstall | `0eee58e`, `fdee3d3` | readiness now requires the running image to match the immutable record; clean reinstall so the record describes the running binary | IMPLEMENTED AND PUSHED / AWAITING ACCEPTANCE |
-| Validator hygiene | `1d25cc8` | validators no longer leak temporary Cargo scratch directories | IMPLEMENTED AND PUSHED / AWAITING ACCEPTANCE |
-| Roadmap persistence | `7cad460`, `cae6a74` | v1.0 of this crosswalk; V3.2 AI-provider-independence amendment | RECORDED (governance documents, not implementation phases) |
+| `87db53b` | `PROJECTOS-V3-OWNER-PRESENCE-CONFIRMATION-UX1A` | ChatGPT gate: ACCEPTED FOR CLOSURE — CLOSED | **A — CLOSED** (E2E4/E2E19 accepted carry-forward) |
+| `69ebabf` | `CD-B4-CONTROL-CENTRE-WINDOW-OBSERVATION-BRIDGE1A` | ChatGPT gate: ACCEPTED FOR CLOSURE — CLOSED | **A — CLOSED** (headed-proof blocker deferred, phase not reopened) |
+| `fe8bbab` | `CD-B4-PRODUCTION-CAPABILITY-ACQUISITION-SEAM1A` | ChatGPT gate: ACCEPTED FOR CLOSURE — CLOSED | **A — CLOSED** |
+| `061bb24` | `CD-B4-SEALED-EXPECTED-WINDOW-FACTS1A` | ChatGPT gate: ACCEPTED FOR CLOSURE — CLOSED | **A — CLOSED** |
+| `aa4d499` | `CD-B4-PRODUCTION-OWNER-PRESENCE-CAPABILITY-BRIDGE1A` | ChatGPT gate: ACCEPTED FOR CLOSURE — CLOSED | **A — CLOSED** |
+| `0abf4e8` | `CD-B4-PRODUCTION-HOST-AUTHORITY-ACQUISITION1A` | ChatGPT gate: ACCEPTED FOR CLOSURE — CLOSED | **A — CLOSED** |
+| `1e9b392` | Canonical installation identity (CD-B4) | ChatGPT gate: ACCEPTED FOR CLOSURE — CLOSED | **A — CLOSED** |
+| `13774b5` | Windows host-authority observer (CD-B4) | ChatGPT gate: ACCEPTED FOR CLOSURE — CLOSED | **A — CLOSED** |
+| `1d25cc8` | `PROJECTOS-VALIDATOR-SCRATCH-LIFECYCLE1A` | ChatGPT gate: ACCEPTED FOR CLOSURE — CLOSED | **A — CLOSED** (validator **code**, not documentation) |
+| `76d052b` | `CD-B4-ELEVATED-INSTALLER-IDENTITY-COMPOSITION1A` | ChatGPT gate: **ALREADY ACCEPTED FOR CLOSURE — CLOSED** | **A — CLOSED** |
+| `39ce5f2` | `CD-B4-INSTALLER-READINESS1A` | ChatGPT gate: ACCEPTED FOR CLOSURE — CLOSED | **A — CLOSED** |
+| `5e68016` | `CD-B4-PROJECTOSHOST-SERVICE-RUNTIME1A` | ChatGPT gate: ACCEPTED FOR CLOSURE — CLOSED | **A — CLOSED** |
+| `0220048` | `CD-B4-LOCAL-INSTALL-AND-LIVE-PROOF1A` | ChatGPT gate: ACCEPTED FOR CLOSURE — CLOSED | **A — CLOSED** (real elevated Windows effect) |
+| `fdee3d3` | `CD-B4-PROJECTOSHOST-CURRENT-RELEASE-REINSTALL1A` | ChatGPT gate: ACCEPTED FOR CLOSURE — CLOSED | **A — CLOSED** |
+| `092fe9d` + `7fa0e13` | `CD-B4-INSTALLER-CANONICAL-IDENTITY-RECORD-WRITER1A` (+ `-CLOSEOUT1B`) | ChatGPT gate: ACCEPTED FOR CLOSURE — CLOSED, **as one correction pair** | **B — CLOSED AS A PAIR** |
+| `c213078`, `193bee9`, `bd35e44`, `0eee58e` | `CD-B4-PROJECTOSHOST-FUNCTIONAL-PILOT1A` | ChatGPT gate at `0eee58e`: ACCEPTED FOR CLOSURE — CLOSED, **closing the whole phase** | **B — CLOSED AS ONE PHASE** (see §8c) |
+| `86ae19c` | `CD-B4-PRODUCTION-OWNER-PRESENCE-PROVIDER1A` | **APPROVED TO PUSH only**; no closure authority recovered | **D — OPEN** |
+| `a43898d` | `CD-B4-WINDOWS-USER-VERIFICATION-ADAPTER1A` | none located | **G — OPEN**, owner authorisation of the direct `windows-future` dependency required |
+| `7cad460`, `cae6a74` | v1.0 crosswalk; V3.2 amendment | — | **F — governance-only**, no independent phase closure needed |
 
-**None of the above is marked CLOSED.** No explicit closure decision for any of them is persisted in this repository, and per §2 a gate decision may be authoritative before its record exists — but this records phase may not manufacture one. Some of these phases may in fact have received a gate closure that was never persisted; `PROJECTOS-V3-ACCEPTANCE-SWEEP1A` must resolve that. Pushed ≠ accepted.
+Totals: **A = 14 commits**, **B = 6 commits across 2 phase closures**, **D = 1**, **G = 1**, **F = 2** — 24 in all.
 
-**v1.2 owner decision (2026-08-04): the post-`e1749cc` CD-B4 chain is NOT batch-accepted.** The owner explicitly refused blanket acceptance. This group holds the programme's only real protected effect — it installs a Windows service and carries elevated install authority — so it may not ride along in any low-risk batch. Each commit's true prior gate-closure status must be reconciled **individually and from evidence**, never guessed, under `PROJECTOS-V3-CD-B4-CLOSURE-AUTHORITY-RECONCILE1A`. Until then every entry stays IMPLEMENTED AND PUSHED / AWAITING ACCEPTANCE.
+### 8c. Phase-chain and correction-pair treatment
 
+**`CD-B4-PROJECTOSHOST-FUNCTIONAL-PILOT1A` is ONE phase in three rounds**, not four independent phases:
+
+| Round | Commits | Content | Interim gate position |
+|---|---|---|---|
+| 1 | `c213078`, `193bee9` | installed-host status contract + reader; specific IPC transport | CHECKPOINT ACCEPTED |
+| 2 | `bd35e44` | end-to-end workflow proof; record-file ACL defect fixed in the installer | initial DO-NOT-CLOSE |
+| 3 | `0eee58e` | release currentness — **the phase closes here** | ACCEPTED FOR CLOSURE — CLOSED |
+
+The owner ruled on 2026-08-04 that the `0eee58e` decision **closed the whole phase**. `c213078` and `193bee9` are therefore **accepted checkpoints within the phase**, and `bd35e44` is a **subordinate correction round**. Their interim positions were superseded when the phase closed. **None of the three is an independently closed phase, and none may be presented as one.** `fdee3d3` is a separate phase (`…-CURRENT-RELEASE-REINSTALL1A`), independently closed.
+
+**`092fe9d` + `7fa0e13` are one correction pair**, closed by a single decision: the canonical identity record writer, then CLOSEOUT1B which moved the CSPRNG into the authority-free leaf and wired the production installation-id source. **Two commits, one phase closure — not two.**
+
+### 8d. Why this correction was needed
+
+Every affected memory entry records the request side of these gates — *"AWAITING POST-PUSH ACCEPTED FOR CLOSURE (do NOT self-close)"* — and never the answer. **The decisions were made and never written back to the repository.** That is the systemic defect this ledger closes. Persist the gate decision in the repository at the time it is given; do not rely on it being recoverable later.
 ### 8b. Delivered Windows host state (fact, verified live 2026-08-01)
 
 - A **real `ProjectOSHost` Windows service is installed and running** on the owner's machine as `NT SERVICE\ProjectOSHost`, SID type UNRESTRICTED, `DEMAND_START`.
@@ -166,7 +194,7 @@ This retires the v1.0 claim that no real activation and no protected effect had 
   5. CD-B4-PRODUCTION-IPC-PROVIDER1A — commit e1749ccd2ca7a6348c5ece7bc97b18643de4e8ee
 
 ## 11. Pushed but unclosed work
-Other CD-B4 phases (§8), **all post-`e1749cc` CD-B4 work (§8a)**, Forge F1–F10 + HARDEN + WSL2, ProjectOps tooling (build-order items 3–8, §3a), V3 numbered phases 3–9 (implemented locally, AWAITING-REVIEW). Acceptance debt at v1.1: **64 reports AWAITING-REVIEW**, 2 AWAITING-CLOSURE, 5 CLOSED.
+Other CD-B4 phases (§8), Forge F1–F10 + HARDEN + WSL2, V3 numbered phases 3–9 (implemented locally, AWAITING-REVIEW). ~~**all post-`e1749cc` CD-B4 work (§8a)**~~ **SUPERSEDED v1.3** — that chain is now per-phase resolved in §8a: 20 of 24 commits are CLOSED by explicit ChatGPT authority; only `86ae19c` (approved to push only) and `a43898d` (owner dependency authorisation required) remain open. ~~ProjectOps tooling (build-order items 3–8, §3a)~~ **SUPERSEDED v1.2** — those six are CLOSED with authority ratified (§3a). Acceptance debt at v1.1: **64 reports AWAITING-REVIEW**, 2 AWAITING-CLOSURE, 5 CLOSED.
 
 ## 12. Blocked work
 ~~PolyGo baseline / install / pilot (Phases 14–16) — no canonical `.projectops/config.json` trust anchor.~~ **SUPERSEDED 2026-08-03.**
@@ -274,7 +302,7 @@ Any real effect, service install, SCM/ACL/ProgramData, elevation, real named pip
 - Native Forge worker proof; Forge formal closure.
 - ~~**C1 — `PROJECTOS-V3-ACCEPTANCE-SWEEP1A`**~~ **DONE 2026-08-04** (read-only; decisions persisted by v1.2). Note: the "64 AWAITING-REVIEW reports" figure was an artefact of the **filename** convention — the Reports Index already recorded 34 rows CLOSED. Never measure acceptance debt from filenames.
 - **C2 — `PROJECTOS-V3-FINAL-RUNTIME-E2E1A`** — the ProjectOS runtime itself driving a real external repository through `install` / `phase` / `report` / `close`. Mandatory; gates `EXECUTION_READY`; replaces the superseded Phase 18.
-- **C3 — `PROJECTOS-V3-CD-B4-CLOSURE-AUTHORITY-RECONCILE1A`** — per-commit gate-closure reconciliation for the 22 post-`e1749cc` CD-B4 commits. No blanket acceptance.
+- ~~**C3 — `PROJECTOS-V3-CD-B4-CLOSURE-AUTHORITY-RECONCILE1A`**~~ **DONE 2026-08-04** (read-only 1A, corrected by 1B, persisted by `…-RECORD1A`). Outcome in §8a. **Two items remain OPEN**: `86ae19c` (`CD-B4-PRODUCTION-OWNER-PRESENCE-PROVIDER1A`, approved to push only) and `a43898d` (`CD-B4-WINDOWS-USER-VERIFICATION-ADAPTER1A`, blocked on owner authorisation of the direct `windows-future` dependency — **no such authorisation may be inferred**).
 - **C4 — `PROJECTOS-V3-DESKTOP-NATIVE-PROOF1A`** — native desktop-window proof for Phase 13.
 - **C5 — `PROJECTOS-V3-EXECUTION-READY-RULING1A`** — owner ruling, after C2–C4.
 - **C6 — Forge / HARDEN** — DEFERRED, non-blocking; native Windows worker proof still NOT RUN (§6a).
