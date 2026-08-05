@@ -1,0 +1,36 @@
+# ProjectOSHost DETERMINISTIC PRODUCTION BUILD CONTRACT
+# PROJECTOSHOST-BUILD-PROVENANCE-CAPTURE1A.
+#
+# Why this file exists
+# -------------------
+# Two clean release builds of ProjectOSHost were byte-identical in code and data but differed in 28
+# bytes: the PE COFF TimeDateStamp, three debug-directory TimeDateStamps (CODEVIEW, VC_FEATURE, POGO)
+# and the 16-byte CodeView RSDS PDB GUID. All five are emitted by the MSVC linker, not by rustc, so
+# `-Cdebuginfo=0` does not touch them (the release profile already implies it).
+#
+# `/Brepro` makes the link deterministic: the linker replaces those timestamps with a content hash and
+# records a REPRO debug entry. With it, two independent builds from the same source are byte-identical.
+#
+# Scope
+# -----
+# Target-scoped to `x86_64-pc-windows-msvc` deliberately. A bare `[build] rustflags` would apply to
+# every target, including non-MSVC ones where `/Brepro` is not a valid linker argument.
+#
+# KNOWN BYPASS, stated rather than hidden
+# ---------------------------------------
+# Cargo lets the `RUSTFLAGS` environment variable REPLACE these flags outright — it does not merge with
+# them. A shell that already exports `RUSTFLAGS` will therefore build WITHOUT `/Brepro` and produce a
+# non-reproducible binary, silently. No Cargo configuration can prevent that, so it is recorded here and
+# in the phase report rather than papered over. Build through the `production` alias below in a shell
+# with no `RUSTFLAGS` set.
+#
+# This file changes NO feature, NO dependency and NO package. It adds one linker argument and one alias.
+
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-Clink-arg=/Brepro"]
+
+# THE committed production build command. `cargo production` is the whole contract:
+# release profile, no `--features` (the Windows feature graph is already supplied by the
+# `[target.'cfg(windows)'.dependencies]` block in Cargo.toml), run from this directory.
+[alias]
+production = "build --release"

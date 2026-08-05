@@ -79,6 +79,7 @@ const MODULES = [
   "val-cd-b4-installed-host-status-contract1a",
   "val-cd-b4-record-file-acl-correction1a",
   "val-cd-b4-release-currentness1a",
+  "val-projectoshost-build-provenance1a",
   "val-projectos-validator-scratch-lifecycle1a",
   "val-projectos-credential-vault1a",
   "val-projectos-session-router1a",
