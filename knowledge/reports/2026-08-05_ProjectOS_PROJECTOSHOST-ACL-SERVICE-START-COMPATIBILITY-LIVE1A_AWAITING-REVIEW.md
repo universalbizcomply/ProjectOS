@@ -53,7 +53,8 @@
 | No credential operation | **NOT OBSERVABLE directly**; corroborated in §11 |
 | 7036 event evidence | **NOT OBSERVABLE on this host** — see §11 |
 | Running window exceeded authorisation | SOURCE-BACKED FACT (measured) |
-| `main.rs` documentation stale; build provenance incomplete | SOURCE-BACKED FACT — carried forward unchanged, §12 |
+| `main.rs` documentation stale | SOURCE-BACKED FACT — carried forward unchanged, §12 |
+| ~~build provenance incomplete~~ | **SUPERSEDED / INCORRECT** — see the correction block in §12 |
 | Owner authority for one start, ≤30 s, one stop | OWNER / GATEKEEPER DECISION |
 
 ---
@@ -196,6 +197,31 @@ None of these is load-bearing for the question this phase asked — whether the 
 **Stale runtime documentation.** `main.rs` and the `service-host` crate description still claim the service performs "no file, registry, network, IPC or ProgramData access". Stale since the functional pilot added `serve.rs` and `status.rs`. **Not corrected in this phase.**
 
 **Incomplete build provenance.** `serve.rs` depends on a symbol gated on `windows-live-ipc`, which nothing committed supplies to `service-host`, so the installed binary cannot be rebuilt from committed configuration alone. **Not corrected in this phase.** This run does not close it — it proves the *installed* artefact behaves correctly, not that it is reproducible.
+
+> ### CORRECTION — SUPERSEDED BUILD-PROVENANCE FINDING
+>
+> **The paragraph immediately above is INCORRECT and is superseded. It is retained unedited so the mistake is not silently erased.**
+>
+> The earlier conclusion that ProjectOSHost required an uncommitted `windows-live-ipc` feature activation was incorrect.
+>
+> **Why it was wrong.** `service-host/Cargo.toml` declares `projectos-host-windows-local-ipc` **twice**. The decisive `[target.'cfg(windows)'.dependencies]` block — which *does* enable `windows-live-ipc` — sits below the manifest window used in the earlier inspection and was missed.
+>
+> **The later source-led resolver proof established:**
+>
+> - `cargo build --release` **succeeds** from committed configuration;
+> - **no** additional `--features` argument is required;
+> - `windows-live-ipc` is supplied by committed Windows-target configuration;
+> - installed versus HEAD-built output differs by **28 bytes only** (of 320,000);
+> - all differences are **four linker timestamps and the PDB GUID**;
+> - **no code-section or data-section difference** was found;
+> - two `/Brepro` builds are **byte-identical**.
+>
+> **Correcting authority:** `PROJECTOSHOST-BUILD-PROVENANCE-CAPTURE-PREFLIGHT1A`
+> **Commit:** `aaf94651b29af1e07012ce67089a1b22dc2ddb70`
+>
+> **Current carry-forward:** commit and enforce the deterministic `/Brepro` production build path before custody ships.
+>
+> **This correction changes no live-proof evidence.** Every measured start, stop, transition, timing, running-image, token-identity, ACL, network, write and side-effect result in this report is unaffected and stands exactly as recorded — including the disclosed 101.5-second observation-window overrun.
 
 ---
 

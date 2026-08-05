@@ -21,7 +21,7 @@ The service was not started, stopped, restarted, paused or reconfigured. No ACL,
 
 **Elevation is required**, and this is now proven rather than assumed — see §4.
 
-One material finding outside the start question is recorded in §8: the shipped binary **cannot be rebuilt from committed source alone**.
+One material finding outside the start question is recorded in §8: the shipped binary **cannot be rebuilt from committed source alone**. **[SUPERSEDED — this finding is INCORRECT; see the correction block at the head of §8.]**
 
 ---
 
@@ -46,7 +46,7 @@ One material finding outside the start question is recorded in §8: the shipped 
 | Only `SY` and `BA` hold `RP` (SERVICE_START) | SOURCE-BACKED FACT (live `sc sdshow`) |
 | No failure actions configured | SOURCE-BACKED FACT (live `sc qfailure`: `RESET_PERIOD 0`, no actions) |
 | `main.rs` doc claiming "no file… or ProgramData access" | **STALE** — see §7 |
-| `service-host/Cargo.toml` does not enable `windows-live-ipc` | SOURCE-BACKED FACT — see §8 |
+| `service-host/Cargo.toml` does not enable `windows-live-ipc` | ~~SOURCE-BACKED FACT~~ → **SUPERSEDED / INCORRECT** — see the correction at the head of §8 |
 | Start will succeed under the hardened ACLs | **INFERENCE** — this is exactly what the live gate must test |
 | F1 closure and its ratification | OWNER / GATEKEEPER DECISION |
 
@@ -150,6 +150,31 @@ This is a **documentation defect, not a behaviour defect**: the actual behaviour
 
 ## 8. Finding: the shipped binary cannot be rebuilt from committed source alone
 
+> ### CORRECTION — SUPERSEDED BUILD-PROVENANCE FINDING
+>
+> **The finding in this section is INCORRECT and is superseded. The original text is retained below, unedited, so the mistake is not silently erased.**
+>
+> The earlier conclusion that ProjectOSHost required an uncommitted `windows-live-ipc` feature activation was incorrect.
+>
+> **Why it was wrong.** `service-host/Cargo.toml` declares `projectos-host-windows-local-ipc` **twice**. The decisive `[target.'cfg(windows)'.dependencies]` block — which *does* enable `windows-live-ipc` — sits below the manifest window used in the earlier inspection and was missed.
+>
+> **The later source-led resolver proof established:**
+>
+> - `cargo build --release` **succeeds** from committed configuration;
+> - **no** additional `--features` argument is required;
+> - `windows-live-ipc` is supplied by committed Windows-target configuration;
+> - installed versus HEAD-built output differs by **28 bytes only** (of 320,000);
+> - all differences are **four linker timestamps and the PDB GUID**;
+> - **no code-section or data-section difference** was found;
+> - two `/Brepro` builds are **byte-identical**.
+>
+> **Correcting authority:** `PROJECTOSHOST-BUILD-PROVENANCE-CAPTURE-PREFLIGHT1A`
+> **Commit:** `aaf94651b29af1e07012ce67089a1b22dc2ddb70`
+>
+> **Current carry-forward:** commit and enforce the deterministic `/Brepro` production build path before custody ships.
+>
+> The service-start evidence in every other section of this report — start and stop timings, transitions, image and token identity, ACL, network, write and side-effect measurements — is unaffected by this correction and stands as measured.
+
 `serve.rs` imports `resolve_installed_host_pipe_security` unconditionally, and `main.rs:31` declares `pub mod serve;` under `#[cfg(windows)]`. That symbol is gated `#[cfg(all(windows, feature = "windows-live-ipc"))]`.
 
 But `service-host/Cargo.toml` requests `projectos-host-windows-local-ipc` with features `["owner-approved-status-read"]` **only**, and `owner-approved-status-read = []` implies nothing. There is **no `.cargo/config.toml`, no `build.rs`, and no committed build or release script** that supplies `windows-live-ipc` to this crate.
@@ -174,4 +199,4 @@ Recommended follow-up phase: **`PROJECTOSHOST-BUILD-PROVENANCE-CAPTURE1A`** — 
 
 The start sequence, deadlines, elevation requirement, identity and integrity proofs, evidence sources, stop plan, automatic-stop conditions and rollback position are all specified and source-backed. The side-effect question was answered from source rather than inferred: one narrow, local, repeated kernel-object effect and two conditional reads, with no write path anywhere in the binary.
 
-I am not recommending **DO NOT START**. The two findings above are a stale comment and a build-provenance gap; neither indicates a compatibility or side-effect risk from starting the service under the hardened descriptors. Whether the service actually starts under them is exactly the question the live gate exists to answer, and it cannot be settled without starting it.
+I am not recommending **DO NOT START**. The two findings above are a stale comment and a build-provenance gap (**the latter is SUPERSEDED — see §8**); neither indicates a compatibility or side-effect risk from starting the service under the hardened descriptors. Whether the service actually starts under them is exactly the question the live gate exists to answer, and it cannot be settled without starting it.
