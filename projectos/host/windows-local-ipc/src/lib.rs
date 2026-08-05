@@ -51,6 +51,7 @@
 
 mod adapter;
 mod contracts;
+mod operation_contract;
 mod protocol;
 mod security;
 mod verification;
@@ -148,6 +149,18 @@ pub use windows_ffi::{
     feature = "test-fixtures"
 ))]
 pub use windows_ffi::RefusalProbe;
+
+// The PROTECTED-OPERATION contract (PROJECTOSHOST-IPC-OPERATION-CONTRACT1A). Types and validation
+// only: no transport, no channel, no effect. `TrustedPeerContext` has NO constructor in this phase and
+// `OwnerPresenceGate` cannot report closed, so no protected operation can be accepted.
+pub use operation_contract::{
+    decode_protected_operation_request, decode_protected_operation_response,
+    encode_protected_operation_request, encode_protected_operation_response,
+    evaluate_protected_operation, AuthorisedProtectedOperation, OperationClass, OwnerPresenceGate,
+    ProtectedOperationRequest, ProtectedOperationResponse, RejectionReason, ResponseState,
+    ResultClass, TerminalStatus, TrustedPeerContext, APPROVAL_REF_LEN, BINDING_DIGEST_LEN,
+    CORRELATION_LEN, EVIDENCE_REF_LEN, SESSION_REF_LEN,
+};
 
 /// Resolve the ProjectOSHost pipe security STATUS, read-only.
 ///

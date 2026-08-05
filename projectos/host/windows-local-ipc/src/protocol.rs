@@ -19,7 +19,7 @@ pub const NONCE_LEN: usize = 32;
 pub const MAX_FRAME_SIZE: usize = 512;
 
 /// Header layout: magic(4) + version(2, big-endian) + kind(1) + nonce(32) + payload_len(2, big-endian).
-const HEADER_LEN: usize = 4 + 2 + 1 + NONCE_LEN + 2;
+pub(crate) const HEADER_LEN: usize = 4 + 2 + 1 + NONCE_LEN + 2;
 
 /// The maximum closed payload length (kept well within [`MAX_FRAME_SIZE`]).
 const MAX_PAYLOAD_LEN: usize = MAX_FRAME_SIZE - HEADER_LEN;
@@ -74,6 +74,15 @@ pub enum MessageKind {
     ShutdownAcknowledged,
     /// Either side: a typed refusal.
     TypedRefusal,
+    /// Controller → service: a PROTECTED-OPERATION request (PROJECTOSHOST-IPC-OPERATION-CONTRACT1A).
+    ///
+    /// A separate versioned family, deliberately NOT an overload of `InstalledHostStatus`, whose
+    /// contract is fixed and which has no request kind by design. Its payload is a closed fixed-width
+    /// record of bounded identifiers and digests: no string, no byte vector, no map and no secret is
+    /// representable in it.
+    ProtectedOperationRequest,
+    /// Service → controller: the PROTECTED-OPERATION response.
+    ProtectedOperationResponse,
     /// Service → controller: the READ-ONLY installed-host status record.
     ///
     /// The single response added by CD-B4-PROJECTOSHOST-FUNCTIONAL-PILOT1A. There is deliberately no
@@ -95,6 +104,8 @@ impl MessageKind {
             Self::ShutdownAcknowledged => 6,
             Self::TypedRefusal => 7,
             Self::InstalledHostStatus => 8,
+            Self::ProtectedOperationRequest => 9,
+            Self::ProtectedOperationResponse => 10,
         }
     }
 
@@ -110,6 +121,8 @@ impl MessageKind {
             6 => Self::ShutdownAcknowledged,
             7 => Self::TypedRefusal,
             8 => Self::InstalledHostStatus,
+            9 => Self::ProtectedOperationRequest,
+            10 => Self::ProtectedOperationResponse,
             _ => return None,
         })
     }
@@ -231,7 +244,41 @@ fn required_payload_len(kind: MessageKind) -> usize {
         MessageKind::TypedRefusal => 1,
         // The one fixed-width closed status record. Every other kind's length is unchanged.
         MessageKind::InstalledHostStatus => INSTALLED_HOST_STATUS_LEN,
+        // The protected-operation family. Both are fixed width, so a caller cannot vary the shape of a
+        // request to smuggle extra data past the parser.
+        MessageKind::ProtectedOperationRequest => PROTECTED_OPERATION_REQUEST_LEN,
+        MessageKind::ProtectedOperationResponse => PROTECTED_OPERATION_RESPONSE_LEN,
     }
+}
+
+/// The EXACT, only payload length of a [`MessageKind::ProtectedOperationRequest`] frame:
+/// correlation(16) + sequence(8) + claimed epoch(8) + binding digest(32) + operation(1) +
+/// approval reference(32) + client-session reference(16) + parameter digest(32).
+pub const PROTECTED_OPERATION_REQUEST_LEN: usize = 16 + 8 + 8 + 32 + 1 + 32 + 16 + 32;
+
+/// The EXACT, only payload length of a [`MessageKind::ProtectedOperationResponse`] frame:
+/// correlation(16) + state(1) + reason(1) + result class(1) + service epoch(8) +
+/// evidence reference(16) + terminal status(1).
+pub const PROTECTED_OPERATION_RESPONSE_LEN: usize = 16 + 1 + 1 + 1 + 8 + 16 + 1;
+
+// Both families must fit the accepted bounded frame. A compile-time check, so a future field cannot
+// silently push a frame past the ceiling that the parser refuses to allocate beyond.
+const _: () = assert!(PROTECTED_OPERATION_REQUEST_LEN <= MAX_PAYLOAD_LEN);
+const _: () = assert!(PROTECTED_OPERATION_RESPONSE_LEN <= MAX_PAYLOAD_LEN);
+
+/// Write the fixed frame header into `out`. Shared by every encoder so the header layout exists once.
+pub(crate) fn write_frame_header(
+    out: &mut [u8],
+    kind: MessageKind,
+    nonce: &Nonce,
+    payload_len: u16,
+) {
+    out[0..4].copy_from_slice(&FRAME_MAGIC);
+    out[4..6].copy_from_slice(&WIRE_PROTOCOL_VERSION.to_be_bytes());
+    out[6] = kind.discriminant();
+    out[7..7 + NONCE_LEN].copy_from_slice(&nonce.0);
+    let len_off = 7 + NONCE_LEN;
+    out[len_off..len_off + 2].copy_from_slice(&payload_len.to_be_bytes());
 }
 
 /// Encode a control frame (fixed 1-byte closed payload) into a bounded buffer. Used by the live FFI and
@@ -511,12 +558,16 @@ mod tests {
             MessageKind::ShutdownAcknowledged,
             MessageKind::TypedRefusal,
             MessageKind::InstalledHostStatus,
+            MessageKind::ProtectedOperationRequest,
+            MessageKind::ProtectedOperationResponse,
         ] {
             assert_eq!(MessageKind::from_discriminant(k.discriminant()), Some(k));
         }
         assert_eq!(MessageKind::from_discriminant(0), None);
-        // 8 is now InstalledHostStatus; 9 is the first unassigned discriminant.
-        assert_eq!(MessageKind::from_discriminant(9), None);
+        // 8 is InstalledHostStatus; 9 and 10 are the protected-operation family added by
+        // PROJECTOSHOST-IPC-OPERATION-CONTRACT1A; 11 is the first unassigned discriminant. The set
+        // stays CLOSED: this assertion is what makes a silently added kind fail.
+        assert_eq!(MessageKind::from_discriminant(11), None);
         assert_eq!(MessageKind::from_discriminant(255), None);
     }
 
