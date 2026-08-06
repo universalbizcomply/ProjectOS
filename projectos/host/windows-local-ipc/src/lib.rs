@@ -151,8 +151,8 @@ pub use windows_ffi::{
 pub use windows_ffi::RefusalProbe;
 
 // The PROTECTED-OPERATION contract (PROJECTOSHOST-IPC-OPERATION-CONTRACT1A). Types and validation
-// only: no transport, no channel, no effect. `TrustedPeerContext` has NO constructor in this phase and
-// `OwnerPresenceGate` cannot report closed, so no protected operation can be accepted.
+// only: no transport, no channel, no effect. `OwnerPresenceGate` cannot report closed, so no protected
+// operation can be accepted — a peer authenticated by phase 2 below still reaches only the C4 refusal.
 pub use operation_contract::{
     decode_protected_operation_request, decode_protected_operation_response,
     encode_protected_operation_request, encode_protected_operation_response,
@@ -160,6 +160,20 @@ pub use operation_contract::{
     ProtectedOperationRequest, ProtectedOperationResponse, RejectionReason, ResponseState,
     ResultClass, TerminalStatus, TrustedPeerContext, APPROVAL_REF_LEN, BINDING_DIGEST_LEN,
     CORRELATION_LEN, EVIDENCE_REF_LEN, SESSION_REF_LEN,
+};
+// The peer-authentication CONTRACT (PROJECTOSHOST-IPC-PEER-AUTHENTICATION1A). `authenticate_peer` and
+// `reauthenticate_peer` are the ONLY routes to a TrustedPeerContext; the minting constructor is private
+// to the contract module. The first admits a connection's peer and fixes its identity; the second
+// requires every later observation on that connection to match it exactly.
+//
+// LIVE CAPTURE IS NOT IMPLEMENTED HERE AND IS NOT CLAIMED. The accepted
+// `val-windows-local-ipc-capability-b3` invariant assigns raw process and token identity to the
+// canonical identity-proof crate, so `ObservedPeerEvidence` has no production constructor at all: it is
+// buildable only under `cfg(test)` or the non-default `test-fixtures` graph. Until a separately gated
+// phase supplies real evidence from the canonical crate, this contract is inert in a production build.
+pub use operation_contract::{
+    authenticate_peer, reauthenticate_peer, IntegrityLevel, ObservedPeerEvidence,
+    PeerAuthenticationError, TokenUserSid, SID_MAX_LEN,
 };
 
 /// Resolve the ProjectOSHost pipe security STATUS, read-only.

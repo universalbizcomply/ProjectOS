@@ -81,6 +81,7 @@ const MODULES = [
   "val-cd-b4-release-currentness1a",
   "val-projectoshost-build-provenance1a",
   "val-projectoshost-ipc-operation-contract1a",
+  "val-projectoshost-ipc-peer-authentication1a",
   "val-projectos-validator-scratch-lifecycle1a",
   "val-projectos-credential-vault1a",
   "val-projectos-session-router1a",

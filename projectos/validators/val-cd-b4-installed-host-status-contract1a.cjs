@@ -397,7 +397,13 @@ function run() {
         E("V9 the server is not bound to the frozen run identifier");
 
       // --- The serve loop performs EXACTLY the four accepted steps, in order. ---
-      const serveFn = /fn serve_one_status_exchange\(([\s\S]*?)\n    \}\n\}/.exec(ffi);
+      // LINE-ENDING PORTABILITY: this expression anchors on the method's closing brace followed by the
+      // impl block's, so it must tolerate BOTH LF and CRLF. `core.autocrlf=true` and no `.gitattributes`
+      // mean the same committed blob materialises as CRLF after a checkout and as LF after a formatter
+      // pass, and an LF-only anchor made this check pass or fail on a difference Git does not track. The
+      // structural requirement is unchanged: the function must still be named, its body still captured,
+      // and both closing braces still matched.
+      const serveFn = /fn serve_one_status_exchange\(([\s\S]*?)\r?\n    \}\r?\n\}/.exec(ffi);
       if (!serveFn) E("V9 the served status exchange is missing");
       else {
         const b = serveFn[1];
