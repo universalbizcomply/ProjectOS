@@ -172,12 +172,16 @@ pub use operation_contract::{
 /// Resolve the ProjectOSHost pipe security STATUS, read-only.
 ///
 /// The installed service needs the status to gate `prepare_server`, and the descriptor itself is
-/// resolved independently inside the transport when the endpoint is created. Only the closed status
-/// crosses this boundary: no descriptor, SID or SDDL is ever returned.
+/// resolved independently inside the transport when the endpoint is created. Since
+/// PROJECTOSHOST-IPC-NON-ELEVATED-PIPE-ACCESS1A the installed-host exchange lives on the single
+/// fixed production endpoint, so this gate reports the PRODUCTION resolution — four principals,
+/// failing closed (`ConfiguredOwnerUnavailable`) when no owner is enrolled — matching the exact
+/// descriptor the transport will build. Only the closed status crosses this boundary: no descriptor,
+/// SID or SDDL is ever returned.
 #[cfg(all(windows, feature = "windows-live-ipc"))]
 #[must_use]
 pub fn resolve_installed_host_pipe_security() -> ProjectOsHostPipeSecurityStatus {
-    projectos_host_authority::ProjectOsHostPipeSecurity::resolve().0
+    projectos_host_authority::ProjectOsHostPipeSecurity::resolve_production().0
 }
 // The opaque confirmed-handshake proof and its transition object. A consumer can hold and consume
 // them but can never construct one; only this crate's verification path mints a confirmation.

@@ -36,9 +36,13 @@ use windows::Win32::Security::{
     GetAce, ACCESS_ALLOWED_ACE, ACE_HEADER, ACL, DACL_SECURITY_INFORMATION,
 };
 
+use projectos_host_identity::canonical_record::{production_canonical_identity, OwnerEnrolment};
+
 use crate::model::ServiceSidResolution;
 use crate::pipe_security::{ProjectOsHostPipeSecurityStatus, PIPE_PROOF_RIGHTS};
-use crate::service_principal::{resolve_projectos_host_service, ResolvedServicePrincipal};
+use crate::service_principal::{
+    resolve_projectos_host_service, sid_string_from_binary, ResolvedServicePrincipal,
+};
 
 /// A `LocalAlloc`-backed security descriptor built from an INTERNALLY-generated SDDL string, freed
 /// exactly once via `LocalFree`. This is the SINGLE owner of SDDL→descriptor conversion and descriptor
@@ -326,6 +330,75 @@ impl ProjectOsHostPipeSecurity {
         })
     }
 
+    /// Resolve the security for the single fixed PRODUCTION endpoint (`\\.\pipe\ProjectOS.Host`,
+    /// PROJECTOSHOST-IPC-NON-ELEVATED-PIPE-ACCESS1A): a protected DACL granting [`PIPE_PROOF_RIGHTS`]
+    /// to EXACTLY four principals — `SY`, `BA`, the resolved ProjectOSHost service SID, and the EXACT
+    /// enrolled configured-owner SID read from the CLOSED canonical installation record.
+    ///
+    /// FAIL CLOSED, owner first: when the canonical record is unavailable/invalid, no owner is
+    /// enrolled, or the enrolled SID does not convert, the status is
+    /// [`ProjectOsHostPipeSecurityStatus::ConfiguredOwnerUnavailable`] with `None` and NO live
+    /// identity API is touched. There is no fallback to the interactive user, to `INTERACTIVE`, or
+    /// to the three-principal proof shape. No caller-supplied SID exists on this path.
+    #[must_use]
+    pub fn resolve_production() -> (ProjectOsHostPipeSecurityStatus, Option<Self>) {
+        // The configured owner is established FIRST: an unenrolled machine fails closed before any
+        // service-principal resolution is attempted.
+        let Some(owner_sid) = configured_owner_sid_string() else {
+            return (
+                ProjectOsHostPipeSecurityStatus::ConfiguredOwnerUnavailable,
+                None,
+            );
+        };
+        let (class, principal) = resolve_projectos_host_service();
+        match (class, principal) {
+            (ServiceSidResolution::SupportedResolutionProven, Some(p))
+            | (ServiceSidResolution::InstallerPreparedSid, Some(p)) => {
+                match Self::build_production(&p, &owner_sid) {
+                    Some(sec) => (ProjectOsHostPipeSecurityStatus::Ready, Some(sec)),
+                    None => (
+                        ProjectOsHostPipeSecurityStatus::DescriptorConstructionFailed,
+                        None,
+                    ),
+                }
+            }
+            (ServiceSidResolution::RequiresInstalledServiceProof, _)
+            | (ServiceSidResolution::InstallerPreparedSid, None) => (
+                ProjectOsHostPipeSecurityStatus::RequiresInstalledServiceProof,
+                None,
+            ),
+            (ServiceSidResolution::ResolutionUnavailable, _) => (
+                ProjectOsHostPipeSecurityStatus::ServicePrincipalUnavailable,
+                None,
+            ),
+            _ => (
+                ProjectOsHostPipeSecurityStatus::UnexpectedResolutionFailure,
+                None,
+            ),
+        }
+    }
+
+    /// Build the production pipe DACL for a resolved service principal plus the validated
+    /// configured-owner SID. Both strings pass the same defensive `S-1-…` shape rule the proof path
+    /// applies, so there is no injection surface.
+    fn build_production(service: &ResolvedServicePrincipal, owner_sid: &str) -> Option<Self> {
+        for sid in [service.sid_string(), owner_sid] {
+            if !sid.starts_with("S-1-")
+                || !sid
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || b == b'-' || b == b'S')
+            {
+                return None;
+            }
+        }
+        Some(Self {
+            inner: OwnedSecurityDescriptor::from_internal_sddl(&production_pipe_sddl(
+                service.sid_string(),
+                owner_sid,
+            ))?,
+        })
+    }
+
     /// TEST-ONLY: build the proof-pipe descriptor from a SYNTHETIC well-known service SID (`S-1-5-80-0`,
     /// "all services"), NOT from a live identity lookup. Used to prove the descriptor and its borrowed
     /// lease behave correctly WITHOUT invoking `LookupAccountNameW` or any live Windows identity API.
@@ -333,6 +406,19 @@ impl ProjectOsHostPipeSecurity {
     #[must_use]
     pub fn build_synthetic_for_test() -> Option<Self> {
         Self::from_pipe_sddl("S-1-5-80-0")
+    }
+
+    /// TEST-ONLY: build the four-principal PRODUCTION descriptor from SYNTHETIC service + owner SIDs
+    /// (no live identity lookup, no record read, no machine effect).
+    #[cfg(feature = "test-fixtures")]
+    #[must_use]
+    pub fn build_synthetic_production_for_test() -> Option<Self> {
+        Some(Self {
+            inner: OwnedSecurityDescriptor::from_internal_sddl(&production_pipe_sddl(
+                "S-1-5-80-0",
+                "S-1-5-21-2222-3333-4444-1001",
+            ))?,
+        })
     }
 
     /// A borrowed Windows security-attributes lease, LIFETIME-BOUND to this owner so it cannot outlive
@@ -348,6 +434,63 @@ impl ProjectOsHostPipeSecurity {
             },
             _owner: PhantomData,
         }
+    }
+}
+
+/// The four-principal PRODUCTION pipe SDDL: `D:P` then one access-allowed ACE at
+/// [`PIPE_PROOF_RIGHTS`] for `SY`, `BA`, the validated service SID and the validated
+/// configured-owner SID. NO broad principal (`WD`/`BU`/`AU`), NO `IU`, NO `OW`. The only variables
+/// are already-validated `S-1-…` strings, so there is no injection surface.
+fn production_pipe_sddl(service_sid: &str, owner_sid: &str) -> String {
+    let rights = format!("0x{PIPE_PROOF_RIGHTS:08X}");
+    let mut sddl = String::from("D:P");
+    for principal in ["SY", "BA", service_sid, owner_sid] {
+        sddl.push_str(&format!("(A;;{rights};;;{principal})"));
+    }
+    sddl
+}
+
+/// The enrolled configured-owner SID as an `S-1-…` string, read from the CLOSED canonical
+/// installation record route. `None` on EVERY failure — record unavailable/invalid, enrolment
+/// absent, or a SID that does not convert — and the caller fails closed. Nothing here infers an
+/// owner from the console user, the installing account or an administrator.
+fn configured_owner_sid_string() -> Option<String> {
+    let identity = production_canonical_identity().ok()?;
+    owner_sid_string_from_enrolment(&identity.owner_enrolment())
+}
+
+/// Convert one [`OwnerEnrolment`] into the owner's `S-1-…` string. `Absent` (and any unknown future
+/// variant) is `None` — fail closed, never a substitute principal.
+fn owner_sid_string_from_enrolment(enrolment: &OwnerEnrolment) -> Option<String> {
+    match enrolment {
+        OwnerEnrolment::Enrolled(hex) => sid_string_from_binary(&decode_owner_sid_hex(hex)?),
+        OwnerEnrolment::Absent => None,
+        _ => None,
+    }
+}
+
+/// Decode the record's bounded lower-case hex SID encoding into binary SID bytes. Strict: bounded
+/// length, even length, lower-case hex only. Structural SID validation happens in
+/// [`sid_string_from_binary`].
+fn decode_owner_sid_hex(hex: &str) -> Option<Vec<u8>> {
+    if hex.is_empty() || hex.len() > 136 || !hex.len().is_multiple_of(2) {
+        return None;
+    }
+    let mut bytes = Vec::with_capacity(hex.len() / 2);
+    for pair in hex.as_bytes().chunks_exact(2) {
+        let hi = hex_nibble(pair[0])?;
+        let lo = hex_nibble(pair[1])?;
+        bytes.push((hi << 4) | lo);
+    }
+    Some(bytes)
+}
+
+/// One lower-case hex nibble. Upper-case is refused: the record contract is lower-case.
+fn hex_nibble(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        _ => None,
     }
 }
 
@@ -455,6 +598,108 @@ pub fn inspect_object_security(handle: HANDLE) -> SecurityProfileInspection {
     }
 
     SecurityProfileInspection::Matched
+}
+
+// PROJECTOSHOST-IPC-NON-ELEVATED-PIPE-ACCESS1A production-security proofs. Gated to `test` only (the
+// module itself already requires `windows-pipe-security-runtime`): everything here is SYNTHETIC —
+// no live identity lookup, no record read, no pipe, no machine effect.
+#[cfg(test)]
+mod production_security_tests {
+    use super::*;
+
+    /// SYNTHETIC lower-case hex encoding of `S-1-5-21-2222-3333-4444-1001` — the exact byte form the
+    /// canonical record stores. No real account.
+    fn synthetic_owner_hex() -> String {
+        let mut bytes = vec![1u8, 5, 0, 0, 0, 0, 0, 5];
+        for sub in [21u32, 2222, 3333, 4444, 1001] {
+            bytes.extend_from_slice(&sub.to_le_bytes());
+        }
+        bytes.iter().map(|b| format!("{b:02x}")).collect()
+    }
+
+    #[test]
+    fn production_sddl_grants_exactly_the_four_principals_and_nothing_broad() {
+        let sddl = production_pipe_sddl("S-1-5-80-0", "S-1-5-21-2222-3333-4444-1001");
+        // Protected DACL, four ACEs, in DACL order: SY, BA, service SID, EXACT owner SID.
+        let rights = format!("0x{PIPE_PROOF_RIGHTS:08X}");
+        assert_eq!(
+            sddl,
+            format!(
+                "D:P(A;;{rights};;;SY)(A;;{rights};;;BA)(A;;{rights};;;S-1-5-80-0)\
+                 (A;;{rights};;;S-1-5-21-2222-3333-4444-1001)"
+            )
+        );
+        assert_eq!(sddl.matches("(A;;").count(), 4, "exactly four allow ACEs");
+        // No broad principal, no generic interactive grant, no owner-rights ACE, no deny/audit ACE.
+        for absent in [
+            ";;;WD)", ";;;BU)", ";;;AU)", ";;;IU)", ";;;OW)", "(D;;", "(AU;;",
+        ] {
+            assert!(!sddl.contains(absent), "{absent} must not appear: {sddl}");
+        }
+    }
+
+    #[test]
+    fn synthetic_production_descriptor_builds_and_is_redacted() {
+        let sec = ProjectOsHostPipeSecurity {
+            inner: OwnedSecurityDescriptor::from_internal_sddl(&production_pipe_sddl(
+                "S-1-5-80-0",
+                "S-1-5-21-2222-3333-4444-1001",
+            ))
+            .expect("the synthetic four-principal production descriptor must build"),
+        };
+        assert_eq!(format!("{sec:?}"), "ProjectOsHostPipeSecurity(<redacted>)");
+        let lease = sec.borrowed_security_attributes();
+        // SAFETY: `lease` (hence `sec`) is alive for this scope; the pointer is only read here.
+        let ptr = unsafe { lease.as_security_attributes_ptr() };
+        assert!(!ptr.is_null());
+        // SAFETY: `ptr` points at the lease's `SECURITY_ATTRIBUTES`, valid while `lease` is alive.
+        let sa = unsafe { &*ptr };
+        assert!(!sa.lpSecurityDescriptor.is_null());
+        assert!(!sa.bInheritHandle.as_bool());
+    }
+
+    #[test]
+    fn an_enrolled_synthetic_owner_converts_to_its_exact_sid_string() {
+        let enrolment = OwnerEnrolment::Enrolled(synthetic_owner_hex());
+        assert_eq!(
+            owner_sid_string_from_enrolment(&enrolment).as_deref(),
+            Some("S-1-5-21-2222-3333-4444-1001")
+        );
+    }
+
+    #[test]
+    fn absent_or_malformed_owner_enrolment_fails_closed() {
+        // No enrolment: no principal, never a substitute.
+        assert!(owner_sid_string_from_enrolment(&OwnerEnrolment::Absent).is_none());
+        // Malformed encodings: odd length, non-hex, truncated binary, empty, too-short, upper-case.
+        for bad in [
+            "abc",
+            "zz",
+            "0105000000000005",
+            "",
+            "01",
+            "AB05000000000005",
+        ] {
+            assert!(
+                owner_sid_string_from_enrolment(&OwnerEnrolment::Enrolled(bad.to_string()))
+                    .is_none(),
+                "malformed owner encoding must fail closed: {bad:?}"
+            );
+        }
+        let oversize = "ab".repeat(69);
+        assert!(
+            owner_sid_string_from_enrolment(&OwnerEnrolment::Enrolled(oversize)).is_none(),
+            "an oversize owner encoding must fail closed"
+        );
+    }
+
+    #[test]
+    fn an_unenrolled_machine_yields_no_configured_owner_and_fails_closed() {
+        // The production canonical-identity route is fail-closed on this machine (no approved
+        // resolver / no record), so the owner is unavailable. This performs NO account lookup and
+        // NO filesystem access; it is the exact first gate `resolve_production` fails closed on.
+        assert!(configured_owner_sid_string().is_none());
+    }
 }
 
 // The machine-wide-authority tests exercise fixture-only items; the synthetic pipe test uses the

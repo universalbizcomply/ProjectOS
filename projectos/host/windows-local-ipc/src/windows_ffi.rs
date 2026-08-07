@@ -66,9 +66,17 @@ use crate::protocol::{
 use crate::verification::{classify_ipc_error, CancellationTerminalState, IpcFailure, PeerRole};
 
 /// The fixed proof-endpoint prefix. The full endpoint is derived internally from this prefix plus a
-/// fixed-size ephemeral run identifier; no caller-supplied name, alternate prefix, or production prefix
-/// is representable, and the complete endpoint never leaves this module.
+/// fixed-size ephemeral run identifier; no caller-supplied name or alternate prefix is representable,
+/// and the complete endpoint never leaves this module.
 const ENDPOINT_PREFIX: &str = r"\\.\pipe\ProjectOS.Test.ServiceIdentityProof.";
+
+/// The ONE fixed PRODUCTION endpoint (PROJECTOSHOST-IPC-NON-ELEVATED-PIPE-ACCESS1A). It is a
+/// compile-time constant: not caller-supplied, not per-user, not configurable, and there is no second
+/// production endpoint. It is selected EXCLUSIVELY by the frozen installed-host run identifier (see
+/// [`WindowsPipeBackend::new`]) and is secured by host-authority's four-principal production
+/// descriptor (service SID + LocalSystem + Builtin Administrators + exact configured-owner SID),
+/// which FAILS CLOSED when no owner is enrolled.
+const PRODUCTION_ENDPOINT: &str = r"\\.\pipe\ProjectOS.Host";
 
 /// Bounded pipe I/O buffer sizes and default timeout (milliseconds). No unbounded buffer.
 const PIPE_BUFFER_BYTES: u32 = 512;
@@ -626,19 +634,39 @@ impl Drop for IssuedPendingOperation {
     }
 }
 
-/// Build the fixed proof endpoint as a NUL-terminated wide string from the fixed prefix and a fixed-size
-/// ephemeral run identifier. The identifier carries no username/SID/machine/service/path/credential.
-fn endpoint_wide(run_id: &[u8; 8]) -> Vec<u16> {
-    let mut name = String::from(ENDPOINT_PREFIX);
-    for b in run_id {
-        name.push_str(&format!("{b:02x}"));
-    }
+/// Which fixed endpoint family a backend is bound to. Derived INTERNALLY from the run identifier in
+/// [`WindowsPipeBackend::new`] — no caller supplies a pipe name and no third family exists.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EndpointBinding {
+    /// The run-scoped `ProjectOS.Test.ServiceIdentityProof.<runid>` proof namespace (fixtures).
+    TestProof,
+    /// The single fixed production endpoint, [`PRODUCTION_ENDPOINT`].
+    Production,
+}
+
+/// Build the bound endpoint as a NUL-terminated wide string: the fixed production name, or the fixed
+/// proof prefix plus the fixed-size ephemeral run identifier. The identifier carries no
+/// username/SID/machine/service/path/credential.
+fn endpoint_wide(binding: EndpointBinding, run_id: &[u8; 8]) -> Vec<u16> {
+    let name = match binding {
+        EndpointBinding::Production => String::from(PRODUCTION_ENDPOINT),
+        EndpointBinding::TestProof => {
+            let mut name = String::from(ENDPOINT_PREFIX);
+            for b in run_id {
+                name.push_str(&format!("{b:02x}"));
+            }
+            name
+        }
+    };
     name.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
 /// The live Windows named-pipe backend.
 pub struct WindowsPipeBackend {
     run_id: [u8; 8],
+    /// The fixed endpoint family this backend is bound to (derived from the run identifier; never
+    /// caller-supplied).
+    binding: EndpointBinding,
     /// The server pipe handle. It is MOVED into the issued-operation guard for the duration of every
     /// operation and permanently into quarantine if terminalization is unconfirmed, so this backend
     /// structurally cannot close or reuse a handle Windows may still reference.
@@ -657,6 +685,14 @@ impl WindowsPipeBackend {
     /// Construct the backend for a fixed ephemeral run identifier and its expected single-use nonce.
     #[must_use]
     pub fn new(run_id: [u8; 8]) -> Self {
+        // The endpoint family is derived HERE, from the run identifier, never from a caller-supplied
+        // name: EXACTLY the frozen installed-host run identifier binds the single fixed production
+        // endpoint; every other run identifier stays in the run-scoped test proof namespace.
+        let binding = if run_id == crate::protocol::INSTALLED_HOST_STATUS_RUN_ID {
+            EndpointBinding::Production
+        } else {
+            EndpointBinding::TestProof
+        };
         // The nonce is derived internally from the fixed-size run identifier; a later trusted boundary
         // supplies it. It is never accepted from an arbitrary public byte vector.
         let mut bytes = [0u8; NONCE_LEN];
@@ -665,6 +701,7 @@ impl WindowsPipeBackend {
         }
         Self {
             run_id,
+            binding,
             server: RefCell::new(None),
             state: Cell::new(BackendState::BackendUnavailable),
             nonce: Nonce::from_fixed_bytes(bytes),
@@ -738,17 +775,24 @@ impl WindowsPipeBackend {
         self.state.set(BackendState::HandleTransferredToQuarantine);
     }
 
-    /// Create the fixed proof endpoint as the FIRST message-mode, local-only instance, consuming
-    /// host-authority's opaque borrowed security-attributes lease for the single `CreateNamedPipeW` call.
+    /// Create the BOUND fixed endpoint (run-scoped proof namespace or the single production
+    /// endpoint) as the FIRST message-mode, local-only instance, consuming host-authority's opaque
+    /// borrowed security-attributes lease for the single `CreateNamedPipeW` call.
     fn create_first_instance(&self) -> EndpointOutcome {
-        // Obtain the opaque, service-SID-backed security. Fail closed if not Ready (no weaker fallback).
-        let (_status, security) = ProjectOsHostPipeSecurity::resolve();
+        // Obtain the opaque security for the BOUND endpoint family. The production endpoint demands
+        // the four-principal production descriptor (service SID + SY + BA + exact configured-owner
+        // SID, failing closed when no owner is enrolled); the proof namespace keeps the accepted
+        // three-principal proof descriptor. Fail closed if not Ready (no weaker fallback).
+        let (_status, security) = match self.binding {
+            EndpointBinding::Production => ProjectOsHostPipeSecurity::resolve_production(),
+            EndpointBinding::TestProof => ProjectOsHostPipeSecurity::resolve(),
+        };
         let security = match security {
             Some(s) => s,
             None => return EndpointOutcome::Failed(IpcFailure::SecurityPrincipalUnavailable),
         };
         let lease = security.borrowed_security_attributes();
-        let wide = endpoint_wide(&self.run_id);
+        let wide = endpoint_wide(self.binding, &self.run_id);
         let open_mode = PIPE_ACCESS_DUPLEX | FILE_FLAG_FIRST_PIPE_INSTANCE | FILE_FLAG_OVERLAPPED;
         let pipe_mode =
             PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS;
@@ -834,7 +878,7 @@ impl WindowsPipeBackend {
     /// Open the local client end: bounded availability wait, overlapped generic read/write, then enforce
     /// message-read mode (fail closed if it cannot be set — never continue in byte mode).
     fn open_client(&self) -> Result<OwnedHandle, IpcFailure> {
-        let wide = endpoint_wide(&self.run_id);
+        let wide = endpoint_wide(self.binding, &self.run_id);
         // Bounded availability wait for a busy endpoint; never an unbounded loop.
         // SAFETY: `wide` is a NUL-terminated wide string alive for the call; the wait is bounded.
         let _ = unsafe { WaitNamedPipeW(PCWSTR(wide.as_ptr()), WAIT_STEP_MS) };
@@ -1586,5 +1630,50 @@ impl WindowsInstalledHostStatusClient {
             },
             Err(f) => ClientStatusReadOutcome::Failed(f),
         }
+    }
+}
+
+// PROJECTOSHOST-IPC-NON-ELEVATED-PIPE-ACCESS1A endpoint-binding proofs. Pure construction and name
+// derivation only: no pipe is created, opened or connected. This module sits at the END of the file
+// deliberately: val-cd-b4-installed-host-status-contract1a strips everything from the first
+// `#[cfg(test)] mod *tests` onward, so a mid-file test module would hide the facades above from it.
+#[cfg(test)]
+mod endpoint_binding_tests {
+    use super::*;
+
+    fn name_of(wide: &[u16]) -> String {
+        // Strip the trailing NUL the wide encoding appends.
+        String::from_utf16_lossy(&wide[..wide.len() - 1])
+    }
+
+    #[test]
+    fn only_the_frozen_run_identifier_binds_the_production_endpoint() {
+        let production = WindowsPipeBackend::new(crate::protocol::INSTALLED_HOST_STATUS_RUN_ID);
+        assert_eq!(production.binding, EndpointBinding::Production);
+        // EVERY other run identifier stays in the test proof namespace.
+        for other in [[0u8; 8], [0xff; 8], [1, 2, 3, 4, 5, 6, 7, 8]] {
+            assert_eq!(
+                WindowsPipeBackend::new(other).binding,
+                EndpointBinding::TestProof
+            );
+        }
+    }
+
+    #[test]
+    fn the_production_endpoint_is_exactly_the_fixed_name() {
+        let wide = endpoint_wide(EndpointBinding::Production, &[0u8; 8]);
+        assert_eq!(name_of(&wide), PRODUCTION_ENDPOINT);
+        // The production name ignores the run identifier entirely: no per-run, per-user or
+        // caller-shaped variation is representable.
+        let wide2 = endpoint_wide(EndpointBinding::Production, &[0xab; 8]);
+        assert_eq!(name_of(&wide2), PRODUCTION_ENDPOINT);
+    }
+
+    #[test]
+    fn the_test_namespace_is_retained_and_run_scoped() {
+        let wide = endpoint_wide(EndpointBinding::TestProof, &[0xab; 8]);
+        let name = name_of(&wide);
+        assert_eq!(name, format!("{ENDPOINT_PREFIX}abababababababab"));
+        assert_ne!(name, PRODUCTION_ENDPOINT);
     }
 }

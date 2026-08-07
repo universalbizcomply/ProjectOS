@@ -4,7 +4,9 @@
 // `windows-live-ipc` feature gating dep:windows + host-authority/test-fixtures, a MINIMUM feature-gated
 // windows dependency, a dependency on host-authority, no [[bin]], no Control Center dep; unsafe + windows
 // FFI CONFINED to windows_ffi.rs; NO SCM / service / token / SID-lookup / registry / process / network
-// API anywhere; fixed test endpoint prefix and no arbitrary public endpoint; first-instance + remote
+// API anywhere; fixed test endpoint prefix plus EXACTLY ONE fixed production endpoint
+// (\\.\pipe\ProjectOS.Host — PROJECTOSHOST-IPC-NON-ELEVATED-PIPE-ACCESS1A amendment) and no arbitrary
+// public endpoint; first-instance + remote
 // refusal + message mode + single instance + bounded buffers; consumes host-authority's OPAQUE
 // pipe-security (no SID/SDDL input, no local ACL builder / SID resolver, unresolved fails closed); fixed
 // protocol version + closed message kinds + fixed-size nonce + replay/stale refusal + bounded framing;
@@ -106,9 +108,43 @@ function run() {
       errors.push("windows_ffi.rs is not gated to (windows + windows-live-ipc)");
     if (!/#!\[allow\(unsafe_code\)\]/.test(ffi)) errors.push("windows_ffi.rs does not locally allow unsafe");
     if (!/ProjectOS\.Test\.ServiceIdentityProof\./.test(ffi)) errors.push("fixed test endpoint prefix missing");
-    if (/ProjectOS\.HostAuthority\.v1|\\\\pipe\\\\ProjectOS(?!\.Test)/.test(ffi)) errors.push("a production/alternate endpoint prefix is present");
+    // AMENDMENT (PROJECTOSHOST-IPC-NON-ELEVATED-PIPE-ACCESS1A, owner-authorised): B3 froze a
+    // test-namespace-only endpoint rule. The evolved contract permits EXACTLY TWO endpoint families:
+    // the retained run-scoped test prefix above, and ONE fixed production endpoint constant,
+    // \\.\pipe\ProjectOS.Host, selected ONLY by the frozen installed-host run identifier — never by a
+    // caller-supplied name. Everything else stays forbidden.
+    if (!/const PRODUCTION_ENDPOINT: &str = r"\\\\\.\\pipe\\ProjectOS\.Host";/.test(ffi))
+      errors.push("the single fixed production endpoint constant is missing");
+    if (/ProjectOS\.HostAuthority\.v1/.test(ffi)) errors.push("the authority object name leaked into the transport");
+    {
+      const ffiNoComments = stripComments(ffi);
+      // Every pipe-name token must be the production name or the run-scoped test prefix.
+      const names = ffiNoComments.match(/pipe\\ProjectOS\.[A-Za-z][A-Za-z0-9.]*/g) || [];
+      for (const n of names) {
+        if (n !== "pipe\\ProjectOS.Host" && !n.startsWith("pipe\\ProjectOS.Test.ServiceIdentityProof"))
+          errors.push("an alternate endpoint name is present: " + n);
+      }
+      if (!names.includes("pipe\\ProjectOS.Host"))
+        errors.push("the production endpoint name is absent from the transport code");
+      // The production binding is DERIVED from the frozen run identifier inside the constructor —
+      // no caller-selectable endpoint, no second production family.
+      if (!/run_id == crate::protocol::INSTALLED_HOST_STATUS_RUN_ID[\s\S]{0,200}?EndpointBinding::Production/.test(ffiNoComments))
+        errors.push("the production binding is not derived from the frozen installed-host run identifier");
+      if (!/EndpointBinding::TestProof/.test(ffiNoComments))
+        errors.push("the test-namespace binding was removed (must be retained)");
+      // The production endpoint uses the FOUR-PRINCIPAL production security; the proof namespace keeps
+      // the accepted proof descriptor. Both fail closed with no weaker fallback.
+      if (!/EndpointBinding::Production\s*=>\s*ProjectOsHostPipeSecurity::resolve_production\(\)/.test(ffiNoComments))
+        errors.push("the production endpoint does not demand the production (configured-owner) security");
+      if (!/EndpointBinding::TestProof\s*=>\s*ProjectOsHostPipeSecurity::resolve\(\)/.test(ffiNoComments))
+        errors.push("the proof namespace no longer uses the accepted proof security");
+    }
     if (!/FILE_FLAG_FIRST_PIPE_INSTANCE/.test(ffi)) errors.push("first-instance flag not used");
     if (!/PIPE_REJECT_REMOTE_CLIENTS/.test(ffi)) errors.push("remote clients not rejected");
+    // AMENDMENT (PROJECTOSHOST-IPC-NON-ELEVATED-PIPE-ACCESS1A): token presence alone is satisfiable by
+    // the import line — the flag must be IN the server's pipe-mode composition.
+    if (!/let pipe_mode =\s*PIPE_TYPE_MESSAGE\s*\|\s*PIPE_READMODE_MESSAGE\s*\|\s*PIPE_WAIT\s*\|\s*PIPE_REJECT_REMOTE_CLIENTS/.test(stripComments(ffi)))
+      errors.push("PIPE_REJECT_REMOTE_CLIENTS is not part of the server pipe-mode composition");
     if (!/PIPE_TYPE_MESSAGE/.test(ffi) || !/PIPE_READMODE_MESSAGE/.test(ffi)) errors.push("message mode not enforced");
     if (!/CreateNamedPipeW\([\s\S]*?\n\s*1,/.test(ffi)) errors.push("nMaxInstances is not 1 (single instance)");
     if (!/CloseHandle/.test(ffi)) errors.push("handles are not closed via CloseHandle");

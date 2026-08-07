@@ -8,9 +8,12 @@
 //! the Windows FFI owner in [`crate::security`] (compiled only under `test-fixtures` on Windows) and are
 //! NEVER invoked in this phase.
 //!
-//! This is a SINGLE-PURPOSE policy, not a general ACL/SDDL builder: it names exactly three allowed
-//! principals, refuses every broad principal, requires a protected DACL, and exposes NO raw SID, SID
-//! bytes, SDDL, account name, service name, principal list or access mask input.
+//! This is a SINGLE-PURPOSE policy, not a general ACL/SDDL builder: it names a fixed, closed
+//! principal set — three machine principals for the proof pipe, plus the exact enrolled
+//! configured-owner SID for the single production endpoint
+//! (PROJECTOSHOST-IPC-NON-ELEVATED-PIPE-ACCESS1A) — refuses every broad principal, requires a
+//! protected DACL, and exposes NO raw SID, SID bytes, SDDL, account name, service name, principal
+//! list or access mask input.
 
 /// The minimum access the fixed proof pipe grants each allowed principal: `FILE_GENERIC_READ |
 /// FILE_GENERIC_WRITE` (`0x0012_019F`). It carries `SYNCHRONIZE` and `READ_CONTROL` and the message
@@ -19,7 +22,7 @@
 /// take ownership of, or delete the endpoint. This is the ONLY mask the policy grants.
 pub const PIPE_PROOF_RIGHTS: u32 = 0x0012_019F;
 
-/// The exact allowlisted principals for the protected proof-pipe DACL. There is no arbitrary-principal
+/// The exact allowlisted principals for the protected pipe DACLs. There is no arbitrary-principal
 /// variant, no SID input and no account-name input — the set is fixed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -29,8 +32,14 @@ pub enum ProjectOsHostPipeAllowPrincipal {
     ExpectedServiceSid,
     /// The `LocalSystem` account (`S-1-5-18`).
     LocalSystem,
-    /// The `Builtin Administrators` group (`S-1-5-32-544`).
+    /// The `Builtin Administrators` group (`S-1-5-32-544`). Machine administrators only — holding
+    /// this ACE never means configured owner, owner presence, session authority or C4 approval.
     BuiltinAdministrators,
+    /// The EXACT enrolled ProjectOS configured-owner SID from the canonical installation record
+    /// (PROJECTOSHOST-IPC-NON-ELEVATED-PIPE-ACCESS1A). PRODUCTION endpoint only. This is never the
+    /// interactive user generically, never a group, never a name — when no owner is enrolled the
+    /// production security FAILS CLOSED instead of widening.
+    ConfiguredOwner,
 }
 
 /// Principals so broad that granting them any allow ACE on the proof pipe is a defect. NONE is ever
@@ -66,6 +75,11 @@ pub enum ProjectOsHostPipeSecurityStatus {
     ServicePrincipalUnavailable,
     /// Resolution was denied.
     AccessDenied,
+    /// The configured ProjectOS owner could not be established from the canonical installation
+    /// record: the record is unavailable/invalid, no owner is enrolled, or the enrolled SID is
+    /// malformed. FAIL CLOSED for the production endpoint — the caller gets NO descriptor and MUST
+    /// NOT fall back to the interactive user or any broad principal.
+    ConfiguredOwnerUnavailable,
     /// The platform does not support the resolution (non-Windows).
     UnsupportedPlatform,
     /// The service principal resolved but the descriptor could not be constructed.
@@ -105,7 +119,9 @@ pub enum ProjectOsHostPipeSecurityRefusal {
 pub struct ProjectOsHostPipeSecurityPolicy;
 
 impl ProjectOsHostPipeSecurityPolicy {
-    /// The fixed allowlist, in DACL order.
+    /// The fixed PROOF-pipe allowlist (the run-scoped test namespace), in DACL order. The proof pipe
+    /// grants the three machine principals only — never the configured owner and never a broad
+    /// principal.
     #[must_use]
     pub fn allowlist() -> &'static [ProjectOsHostPipeAllowPrincipal] {
         &[
@@ -115,10 +131,28 @@ impl ProjectOsHostPipeSecurityPolicy {
         ]
     }
 
-    /// Whether a principal is on the fixed allowlist.
+    /// The fixed PRODUCTION allowlist for the single `ProjectOS.Host` endpoint — a closed list in
+    /// this policy's fixed order (the descriptor builder emits its allow-only ACEs in its own fixed
+    /// order; relative order among allow ACEs does not change effective access): the three machine
+    /// principals PLUS the exact enrolled configured-owner SID
+    /// (PROJECTOSHOST-IPC-NON-ELEVATED-PIPE-ACCESS1A). Four principals — nothing broader, and the
+    /// owner ACE exists only when an owner is actually enrolled (otherwise the production security
+    /// fails closed; it never degrades to the three-principal shape).
+    #[must_use]
+    pub fn production_allowlist() -> &'static [ProjectOsHostPipeAllowPrincipal] {
+        &[
+            ProjectOsHostPipeAllowPrincipal::ExpectedServiceSid,
+            ProjectOsHostPipeAllowPrincipal::LocalSystem,
+            ProjectOsHostPipeAllowPrincipal::BuiltinAdministrators,
+            ProjectOsHostPipeAllowPrincipal::ConfiguredOwner,
+        ]
+    }
+
+    /// Whether a principal is a member of the fixed closed principal set (the production allowlist,
+    /// of which the proof-pipe allowlist is the machine-principal subset).
     #[must_use]
     pub fn allows(principal: ProjectOsHostPipeAllowPrincipal) -> bool {
-        Self::allowlist().contains(&principal)
+        Self::production_allowlist().contains(&principal)
     }
 
     /// A broad principal NEVER receives an allow ACE.
@@ -171,6 +205,25 @@ mod tests {
     }
 
     #[test]
+    fn production_allowlist_is_exactly_the_four_fixed_principals() {
+        assert_eq!(
+            ProjectOsHostPipeSecurityPolicy::production_allowlist(),
+            &[
+                ProjectOsHostPipeAllowPrincipal::ExpectedServiceSid,
+                ProjectOsHostPipeAllowPrincipal::LocalSystem,
+                ProjectOsHostPipeAllowPrincipal::BuiltinAdministrators,
+                ProjectOsHostPipeAllowPrincipal::ConfiguredOwner,
+            ]
+        );
+        assert!(ProjectOsHostPipeSecurityPolicy::allows(
+            ProjectOsHostPipeAllowPrincipal::ConfiguredOwner
+        ));
+        // The proof-pipe allowlist stays the machine-principal subset: no configured owner there.
+        assert!(!ProjectOsHostPipeSecurityPolicy::allowlist()
+            .contains(&ProjectOsHostPipeAllowPrincipal::ConfiguredOwner));
+    }
+
+    #[test]
     fn every_broad_principal_is_refused() {
         for b in [
             ProjectOsHostPipeBroadPrincipal::Everyone,
@@ -206,6 +259,7 @@ mod tests {
             ProjectOsHostPipeSecurityStatus::RequiresInstalledServiceProof,
             ProjectOsHostPipeSecurityStatus::ServicePrincipalUnavailable,
             ProjectOsHostPipeSecurityStatus::AccessDenied,
+            ProjectOsHostPipeSecurityStatus::ConfiguredOwnerUnavailable,
             ProjectOsHostPipeSecurityStatus::UnsupportedPlatform,
             ProjectOsHostPipeSecurityStatus::DescriptorConstructionFailed,
             ProjectOsHostPipeSecurityStatus::UnexpectedResolutionFailure,

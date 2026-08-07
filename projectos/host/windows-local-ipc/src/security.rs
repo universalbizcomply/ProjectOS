@@ -68,6 +68,9 @@ mod tests {
         for s in [
             ProjectOsHostPipeSecurityStatus::ServicePrincipalUnavailable,
             ProjectOsHostPipeSecurityStatus::AccessDenied,
+            // A missing/invalid configured owner refuses the production endpoint — never a
+            // fallback to the interactive user or a broader principal.
+            ProjectOsHostPipeSecurityStatus::ConfiguredOwnerUnavailable,
             ProjectOsHostPipeSecurityStatus::UnsupportedPlatform,
             ProjectOsHostPipeSecurityStatus::DescriptorConstructionFailed,
             ProjectOsHostPipeSecurityStatus::UnexpectedResolutionFailure,

@@ -62,6 +62,65 @@ impl Drop for SidString {
     }
 }
 
+/// Convert STRUCTURALLY VALIDATED binary SID bytes into the `S-1-…` string form, reusing the exact
+/// `ConvertSidToStringSidW` + RAII (`SidString`) + shape-validation handling the service resolution
+/// uses (PROJECTOSHOST-IPC-NON-ELEVATED-PIPE-ACCESS1A). This is a pure, read-only data conversion:
+/// no account lookup, no token, no machine state. `None` on ANY structural failure — fail closed.
+pub(crate) fn sid_string_from_binary(sid_bytes: &[u8]) -> Option<String> {
+    // Structural pre-validation BEFORE any Win32 call, so `IsValidSid` can never read past the
+    // buffer: revision 1, a bounded sub-authority count, and an EXACT length for that count
+    // (8-byte header + 4 bytes per sub-authority).
+    if sid_bytes.len() < 8 || sid_bytes.len() > MAX_SID_BYTES {
+        return None;
+    }
+    let revision = sid_bytes[0];
+    let sub_authorities = usize::from(sid_bytes[1]);
+    if revision != 1 || sub_authorities > 15 || sid_bytes.len() != 8 + 4 * sub_authorities {
+        return None;
+    }
+
+    // 4-byte aligned SID buffer (Vec<u32>), matching the resolution path above.
+    let mut sid_buf: Vec<u32> = vec![0u32; sid_bytes.len().div_ceil(4)];
+    // SAFETY: `sid_buf` is at least `sid_bytes.len()` bytes (rounded up to whole u32s), exclusively
+    // borrowed, and the ranges cannot overlap (fresh allocation).
+    unsafe {
+        core::ptr::copy_nonoverlapping(
+            sid_bytes.as_ptr(),
+            sid_buf.as_mut_ptr().cast::<u8>(),
+            sid_bytes.len(),
+        );
+    }
+    let psid = PSID(sid_buf.as_mut_ptr().cast());
+    // SAFETY: `psid` points into `sid_buf`, whose contents were structurally validated above so the
+    // declared sub-authority count lies entirely within the buffer.
+    if !unsafe { IsValidSid(psid) }.as_bool() {
+        return None;
+    }
+
+    let mut raw = PWSTR::null();
+    // SAFETY: `psid` is valid (checked) and points inside `sid_buf`, alive for this call; `raw`
+    // receives a `LocalAlloc` string wrapped immediately for RAII release.
+    if unsafe { ConvertSidToStringSidW(psid, &mut raw) }.is_err() {
+        return None;
+    }
+    let sid_string = SidString(raw);
+    if sid_string.0.is_null() {
+        return None;
+    }
+    // SAFETY: `raw` is a NUL-terminated wide string owned by `sid_string`.
+    let text = unsafe { sid_string.0.to_string() }.ok()?;
+
+    // Same defensive shape rule as the resolution path: `S-1-…` digits and hyphens only.
+    if !text.starts_with("S-1-")
+        || !text
+            .bytes()
+            .all(|b| b.is_ascii_digit() || b == b'-' || b == b'S')
+    {
+        return None;
+    }
+    Some(text)
+}
+
 /// Attempt to resolve the ProjectOSHost service principal SID, read-only.
 ///
 /// Returns the classification plus, on success, the resolved principal. A failure to resolve (the
@@ -163,6 +222,41 @@ pub fn resolve_projectos_host_service() -> (ServiceSidResolution, Option<Resolve
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// SYNTHETIC binary SID: `S-1-5-21-2222-3333-4444-1001` (revision 1, 5 sub-authorities,
+    /// NT authority). No real account; pure data.
+    fn synthetic_owner_sid_bytes() -> Vec<u8> {
+        let mut b = vec![1u8, 5, 0, 0, 0, 0, 0, 5];
+        for sub in [21u32, 2222, 3333, 4444, 1001] {
+            b.extend_from_slice(&sub.to_le_bytes());
+        }
+        b
+    }
+
+    #[test]
+    fn synthetic_binary_sid_converts_to_its_exact_string_form() {
+        let text = sid_string_from_binary(&synthetic_owner_sid_bytes())
+            .expect("a structurally valid synthetic SID must convert");
+        assert_eq!(text, "S-1-5-21-2222-3333-4444-1001");
+    }
+
+    #[test]
+    fn malformed_binary_sids_fail_closed() {
+        let good = synthetic_owner_sid_bytes();
+        // Truncated: the declared count no longer fits the buffer.
+        assert!(sid_string_from_binary(&good[..good.len() - 1]).is_none());
+        // Wrong revision.
+        let mut wrong_rev = good.clone();
+        wrong_rev[0] = 2;
+        assert!(sid_string_from_binary(&wrong_rev).is_none());
+        // Sub-authority count above the SID maximum.
+        let mut too_many = good.clone();
+        too_many[1] = 16;
+        assert!(sid_string_from_binary(&too_many).is_none());
+        // Empty and oversize inputs.
+        assert!(sid_string_from_binary(&[]).is_none());
+        assert!(sid_string_from_binary(&vec![1u8; MAX_SID_BYTES + 1]).is_none());
+    }
 
     #[test]
     fn resolution_attempt_is_read_only_and_classifies() {

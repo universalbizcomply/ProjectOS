@@ -23,6 +23,26 @@ fn allowlist_is_exactly_the_three_fixed_principals() {
 }
 
 #[test]
+fn production_allowlist_is_exactly_the_four_fixed_principals() {
+    // PROJECTOSHOST-IPC-NON-ELEVATED-PIPE-ACCESS1A: the production endpoint adds EXACTLY the
+    // enrolled configured owner to the three machine principals — nothing broader.
+    assert_eq!(
+        ProjectOsHostPipeSecurityPolicy::production_allowlist(),
+        &[
+            ProjectOsHostPipeAllowPrincipal::ExpectedServiceSid,
+            ProjectOsHostPipeAllowPrincipal::LocalSystem,
+            ProjectOsHostPipeAllowPrincipal::BuiltinAdministrators,
+            ProjectOsHostPipeAllowPrincipal::ConfiguredOwner,
+        ]
+    );
+}
+
+#[test]
+fn a_missing_or_invalid_configured_owner_fails_closed() {
+    assert!(!ProjectOsHostPipeSecurityStatus::ConfiguredOwnerUnavailable.is_ready());
+}
+
+#[test]
 fn no_broad_principal_is_ever_allowed() {
     for b in [
         ProjectOsHostPipeBroadPrincipal::Everyone,
@@ -79,6 +99,13 @@ fn runtime_feature_exports_the_opaque_descriptor_without_invoking_resolution() {
         ProjectOsHostPipeSecurityStatus,
         Option<ProjectOsHostPipeSecurity>,
     ) = ProjectOsHostPipeSecurity::resolve;
+    // The PRODUCTION resolution entry point takes NO argument: no caller can supply an owner SID, a
+    // service SID or any principal. Visibility is proven at the type level only — never invoked here
+    // (it would perform a live identity lookup once an owner is enrolled).
+    let _production_resolver: fn() -> (
+        ProjectOsHostPipeSecurityStatus,
+        Option<ProjectOsHostPipeSecurity>,
+    ) = ProjectOsHostPipeSecurity::resolve_production;
     fn _accepts_lease(_l: &BorrowedPipeSecurityAttributes<'_>) {}
 }
 
@@ -93,5 +120,17 @@ fn opaque_descriptor_builds_from_synthetic_sid_and_is_redacted() {
         .expect("synthetic proof-pipe descriptor must build");
     assert_eq!(format!("{sec:?}"), "ProjectOsHostPipeSecurity(<redacted>)");
     // A borrowed lease can be obtained (safe); it is lifetime-bound to `sec` by the borrow checker.
+    let _lease = sec.borrowed_security_attributes();
+}
+
+// Windows + test-fixtures: the FOUR-PRINCIPAL production descriptor builds from SYNTHETIC service +
+// owner SIDs (no live identity lookup, no record read), stays redacted, and yields a borrowed lease.
+#[cfg(all(windows, feature = "test-fixtures"))]
+#[test]
+fn production_descriptor_builds_from_synthetic_parts_and_is_redacted() {
+    use projectos_host_authority::ProjectOsHostPipeSecurity;
+    let sec = ProjectOsHostPipeSecurity::build_synthetic_production_for_test()
+        .expect("synthetic production descriptor must build");
+    assert_eq!(format!("{sec:?}"), "ProjectOsHostPipeSecurity(<redacted>)");
     let _lease = sec.borrowed_security_attributes();
 }

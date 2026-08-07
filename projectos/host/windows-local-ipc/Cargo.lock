@@ -87,6 +87,7 @@ dependencies = [
 name = "projectos-host-authority"
 version = "0.0.0"
 dependencies = [
+ "projectos-host-identity",
  "projectos-windows-runtime-primitives",
  "windows",
 ]
@@ -99,6 +100,17 @@ dependencies = [
  "projectos-trust-contract",
  "sha2",
  "thiserror",
+]
+
+[[package]]
+name = "projectos-host-identity"
+version = "0.0.0"
+dependencies = [
+ "projectos-windows-runtime-primitives",
+ "serde",
+ "serde_json",
+ "sha2",
+ "windows",
 ]
 
 [[package]]

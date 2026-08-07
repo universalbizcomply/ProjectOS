@@ -35,7 +35,14 @@ windows-elevation-observation = ["dep:windows", "dep:projectos-windows-runtime-p
 # ProjectOsHostPipeSecurity descriptor + its borrowed lease, the status/refusal model). It compiles NO
 # synthetic SID/descriptor constructor, no authority/existence/key fixtures and no synthetic proof
 # harness. Opt-in; never enabled by default; must NOT depend on test-fixtures.
-windows-pipe-security-runtime = ["dep:windows", "dep:projectos-windows-runtime-primitives"]
+# PROJECTOSHOST-IPC-NON-ELEVATED-PIPE-ACCESS1A: additionally activates the ALREADY-DECLARED
+# host-identity dependency so the production pipe descriptor can consume the enrolled configured-owner
+# SID from the CLOSED canonical installation record (fail closed when absent). No new dependency.
+windows-pipe-security-runtime = [
+    "dep:windows",
+    "dep:projectos-windows-runtime-primitives",
+    "dep:projectos-host-identity",
+]
 
 # NARROW, NON-FIXTURE Windows feature for the host-authority OBSERVER
 # (CD-B4-PRODUCTION-HOST-AUTHORITY-WIN32-OBSERVER1A). It compiles the live session/console/station
@@ -75,5 +82,6 @@ windows = { version = "0.61.3", optional = true, features = [
 # wrapper, no Drop and no direct FromRawHandle. Optional: linked ONLY under the test-fixtures feature.
 projectos-windows-runtime-primitives = { path = "../windows-runtime-primitives", optional = true }
 # The closed canonical installation identity contract. Optional: linked ONLY under
-# `windows-host-authority-observer`, so the default graph gains nothing.
+# `windows-host-authority-observer` and `windows-pipe-security-runtime` (configured-owner
+# consumption for the production pipe descriptor), so the default graph gains nothing.
 projectos-host-identity = { path = "../host-identity", optional = true }
