@@ -178,6 +178,158 @@ mod tests {
     };
     use projectos_host_core::{EnvironmentId, ProjectId};
 
+    // PROJECTOSHOST-IPC-SESSION-VERIFIER1A (A7/S3): TWO INDEPENDENT, PARALLEL proofs of the same
+    // peer-substitution threat model. The CANONICAL kernel-peer attempt refuses a substituted or
+    // restarted (pid-reuse-modelled) peer with its closed verdict, and — separately — a session
+    // minted through the sealed verifier refuses a substituted/pid-reused peer and a reconnected
+    // verifier. The two layers share no data here: wiring the canonical verdict INTO session minting
+    // is deliberately NOT claimed and remains the live-adapter phase's work (orchestration-level
+    // today, disclosed in the phase report). Synthetic only: no pipe, no Windows call, no raw
+    // process identity (opaque selectors).
+    #[test]
+    fn level2_canonical_peer_capture_and_session_refuse_substituted_and_stale_peers() {
+        use projectos_host_windows_service_identity_proof::{
+            synthetic_observation, LiveInstanceObservationCapability, ServiceInstanceBinding,
+            ServiceInstanceBindingAttempt, SyntheticInstanceSelector,
+        };
+
+        let capability = LiveInstanceObservationCapability::synthetic_for_fixture();
+        let stable = || synthetic_observation(SyntheticInstanceSelector::new(1, 1));
+
+        // 1. A STABLE canonical instance across the whole attempt window binds: the orchestrator may
+        //    proceed to session authority only on this verdict.
+        let attempt = ServiceInstanceBindingAttempt::begin(&capability);
+        let attempt = attempt
+            .record_scm_before(stable())
+            .into_attempt()
+            .expect("scm-before advances");
+        let attempt = attempt
+            .record_ipc_peer(stable())
+            .into_attempt()
+            .expect("ipc peer advances");
+        let attempt = attempt
+            .record_scm_after(stable())
+            .into_attempt()
+            .expect("scm-after advances");
+        assert_eq!(attempt.finalise(), ServiceInstanceBinding::Match);
+
+        // 2. A SUBSTITUTED peer (different opaque instance) is refused by the canonical verdict.
+        let substituted = ServiceInstanceBindingAttempt::begin(&capability);
+        let substituted = substituted
+            .record_scm_before(stable())
+            .into_attempt()
+            .expect("scm-before advances");
+        let substituted = substituted
+            .record_ipc_peer(synthetic_observation(SyntheticInstanceSelector::new(2, 1)))
+            .into_attempt()
+            .expect("ipc peer advances");
+        let substituted = substituted
+            .record_scm_after(stable())
+            .into_attempt()
+            .expect("scm-after advances");
+        assert_eq!(substituted.finalise(), ServiceInstanceBinding::Mismatch);
+
+        // 3. A RESTARTED instance (same opaque instance, new incarnation — the pid-reuse model) is a
+        //    stale peer and is refused the same way.
+        let restarted = ServiceInstanceBindingAttempt::begin(&capability);
+        let restarted = restarted
+            .record_scm_before(stable())
+            .into_attempt()
+            .expect("scm-before advances");
+        let restarted = restarted
+            .record_ipc_peer(synthetic_observation(SyntheticInstanceSelector::new(1, 2)))
+            .into_attempt()
+            .expect("ipc peer advances");
+        let restarted = restarted
+            .record_scm_after(stable())
+            .into_attempt()
+            .expect("scm-after advances");
+        assert_eq!(restarted.finalise(), ServiceInstanceBinding::Mismatch);
+
+        // 4. SESSION side of the same property: a session bound through the sealed production verifier
+        //    refuses a substituted peer process and a stale (pid-reused) peer instance, independently
+        //    of the canonical verdict above — neither layer trusts caller-declared identity.
+        let clock = bind_production_clock(
+            fixture_production_clock_binding_grant(),
+            FixtureMonotonicTickSource::new(1_000, 7),
+            1_000_000,
+        );
+        let now = clock.read_current();
+        let rv = FixtureRuntimeInstanceVerifier::new();
+        let runtime = rv
+            .verify(
+                &RuntimeInstanceObservation {
+                    role: HostRole::InteractiveFallback,
+                    source: RuntimeSource::InteractiveFallback,
+                    pid: 4242,
+                    creation_tick: 999,
+                    session: None,
+                    observed_at: 0,
+                    valid_until: 9_000,
+                    service_evidence: None,
+                },
+                &clock.read_current(),
+            )
+            .unwrap();
+        let iv = ProductionIpcSessionVerifier::for_local_proof();
+        let cap = LiveIpcOperationCapability::synthetic_for_fixture();
+        let bundle = assemble_same_connection_ipc_peer_fixture(
+            &cap,
+            iv.connection_id(),
+            iv.handshake_generation(),
+            7000,
+            321,
+            PeerUserClass::Owner,
+            Some(SessionId::new("peer-sess")),
+            ProjectId::new("proj").unwrap(),
+            EnvironmentId::new("staging").unwrap(),
+            [3u8; 32],
+            [4u8; 32],
+            [5u8; 32],
+            now.reading(),
+            now.reading() + 5_000,
+            vec![ChannelCapability::RecordMarker],
+            vec![OperationFamily::RecordMarker],
+        )
+        .expect("fixture same-connection observation confirms");
+        let (observation, handshake) = bundle.into_core_evidence();
+        let session = iv
+            .verify(&runtime, handshake, &observation, &clock.read_current())
+            .expect("mint bound ipc session");
+        // A substituted peer process is refused.
+        assert_eq!(
+            session
+                .matches_peer(&projectos_host_core::ExpectedPeer {
+                    pid: 7001,
+                    creation_tick: 321,
+                    user: PeerUserClass::Owner,
+                    session: Some(SessionId::new("peer-sess")),
+                })
+                .unwrap_err(),
+            IpcSessionError::PeerProcessMismatch
+        );
+        // A pid-reused (same pid, different creation tick) peer instance is refused.
+        assert_eq!(
+            session
+                .matches_peer(&projectos_host_core::ExpectedPeer {
+                    pid: 7000,
+                    creation_tick: 322,
+                    user: PeerUserClass::Owner,
+                    session: Some(SessionId::new("peer-sess")),
+                })
+                .unwrap_err(),
+            IpcSessionError::PeerProcessMismatch
+        );
+        // A reconnected verifier (new host-issued connection identity) refuses the prior session.
+        let reconnected = ProductionIpcSessionVerifier::for_local_proof();
+        assert_eq!(
+            session
+                .is_current(&reconnected, &runtime, &clock.read_current())
+                .unwrap_err(),
+            IpcSessionError::ConnectionMismatch
+        );
+    }
+
     #[test]
     fn level2_end_to_end_same_connection_proof() {
         // Real fixture clock, bound through a core grant (no named pipe, no live FFI).

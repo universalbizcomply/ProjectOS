@@ -422,6 +422,64 @@ fn unbounded_capability_refused_at_mint() {
     );
 }
 
+// PROJECTOSHOST-IPC-SESSION-VERIFIER1A — mint-level currentness refusals that only had
+// is_current-level proofs before this phase. No new primitive: these pin the EXISTING mint checks.
+
+// A runtime instance whose own validity window has elapsed cannot anchor a NEW session, even though
+// its generation and digest still match (distinct from I8's restart/mismatch case).
+#[test]
+fn sv1_expired_runtime_instance_refuses_mint() {
+    let c = FixtureClock::new(150);
+    let rv = FixtureRuntimeInstanceVerifier::new();
+    let v = FixtureIpcSessionVerifier::new();
+    let rt = runtime(&c, &rv); // valid_until = 9_000
+    c.advance_to(9_000); // exactly at runtime expiry — inclusive refusal
+    let mut o = obs_for(&v);
+    o.observed_at = 9_000;
+    o.valid_until = 9_500;
+    assert_eq!(
+        v.verify(&rt, hs(&v), &o, &now(&c)).unwrap_err(),
+        IpcSessionError::RuntimeNotCurrent
+    );
+}
+
+// An inverted or empty validity window never mints (valid_until <= observed_at).
+#[test]
+fn sv2_invalid_proof_window_refuses_mint() {
+    let c = FixtureClock::new(150);
+    let rv = FixtureRuntimeInstanceVerifier::new();
+    let v = FixtureIpcSessionVerifier::new();
+    let rt = runtime(&c, &rv);
+    let mut o = obs_for(&v);
+    o.valid_until = o.observed_at; // empty window
+    assert_eq!(
+        v.verify(&rt, hs(&v), &o, &now(&c)).unwrap_err(),
+        IpcSessionError::ProofWindowInvalid
+    );
+    o.valid_until = o.observed_at - 1; // inverted window
+    assert_eq!(
+        v.verify(&rt, hs(&v), &o, &now(&c)).unwrap_err(),
+        IpcSessionError::ProofWindowInvalid
+    );
+}
+
+// An observation whose validity already elapsed refuses at MINT (distinct from I20, which proves the
+// same fact for an already-minted session's currentness).
+#[test]
+fn sv3_already_expired_observation_refuses_mint() {
+    let c = FixtureClock::new(150);
+    let rv = FixtureRuntimeInstanceVerifier::new();
+    let v = FixtureIpcSessionVerifier::new();
+    let rt = runtime(&c, &rv);
+    c.advance_to(5_000); // observation window (valid_until = 5_000) has elapsed — inclusive refusal
+    let mut o = obs_for(&v);
+    o.observed_at = 4_999;
+    assert_eq!(
+        v.verify(&rt, hs(&v), &o, &now(&c)).unwrap_err(),
+        IpcSessionError::Expired
+    );
+}
+
 // I29 — Debug never leaks sensitive peer evidence.
 #[test]
 fn i29_debug_redacted() {
