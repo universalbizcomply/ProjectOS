@@ -17,21 +17,31 @@
 #![cfg(all(windows, feature = "windows-live-instance-observation"))]
 #![allow(unsafe_code)]
 
+use core::cell::Cell;
+
 use projectos_windows_runtime_primitives::handles::{adopt, win32};
 use windows::Win32::Foundation::{FILETIME, HANDLE};
-use windows::Win32::System::Pipes::GetNamedPipeClientProcessId;
+// READ-ONLY token surface. No privilege is enabled, no token is created, duplicated, assigned or
+// retained, and no SID is ever resolved to a name.
+use windows::Win32::Security::{
+    GetLengthSid, GetSidSubAuthority, GetSidSubAuthorityCount, GetTokenInformation, RevertToSelf,
+    TokenIntegrityLevel, TokenSessionId, TokenUser, TOKEN_MANDATORY_LABEL, TOKEN_QUERY, TOKEN_USER,
+};
+use windows::Win32::System::Pipes::{GetNamedPipeClientProcessId, ImpersonateNamedPipeClient};
 use windows::Win32::System::Services::{
     QueryServiceStatusEx, SC_HANDLE, SC_STATUS_PROCESS_INFO, SERVICE_RUNNING,
     SERVICE_STATUS_PROCESS, SERVICE_WIN32_OWN_PROCESS,
 };
 use windows::Win32::System::Threading::{
-    GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+    GetCurrentThread, GetProcessTimes, OpenProcess, OpenThreadToken,
+    PROCESS_QUERY_LIMITED_INFORMATION,
 };
 
 use crate::instance::{
-    decide_pipe_peer, decide_service, AttemptOutcome, IpcPeerObserved, PipePeerFacts, Prepared,
-    ScmAfterObserved, ScmBeforeObserved, ServiceFacts, ServiceInstanceBindingAttempt,
-    ServiceInstanceObservation,
+    decide_pipe_peer, decide_service, AttemptOutcome, IpcPeerObserved,
+    LiveInstanceObservationCapability, PeerIdentityFacts, PeerIntegrityEvidence,
+    PeerSessionBinding, PeerUserBinding, PipePeerFacts, Prepared, ScmAfterObserved,
+    ScmBeforeObserved, ServiceFacts, ServiceInstanceBindingAttempt, ServiceInstanceObservation,
 };
 
 /// Read the connected CLIENT's process ID for a named-pipe SERVER handle.
@@ -183,6 +193,226 @@ pub(crate) unsafe fn observe_named_pipe_peer_instance(
     decide_pipe_peer(&facts)
 }
 
+// ---------------------------------------------------------------------------------------------
+// PROJECTOSHOST-IPC-KERNEL-PEER-CAPTURE1A — token identity capture.
+//
+// This is the ONLY place ProjectOS impersonates anything. The window is entered through an RAII guard
+// whose `Drop` calls `RevertToSelf` on EVERY exit path — success, ordinary error, early return,
+// token-read failure and unwind — and the revert RESULT is recorded rather than assumed, so a capture
+// that did not revert cleanly is refused by the portable decision core.
+//
+// The only work performed while impersonating is the three token reads. No file, registry, ProgramData,
+// credential, provider, IPC or protected operation happens inside the window, and no token handle
+// escapes the function that opened it.
+// ---------------------------------------------------------------------------------------------
+
+/// Bytes reserved for one variable-length token record. A record that does not fit is REFUSED rather
+/// than reallocated: there is no growable buffer on this path.
+const TOKEN_RECORD_BYTES: usize = 256;
+
+/// An 8-aligned scratch buffer, so a `TOKEN_USER` / `TOKEN_MANDATORY_LABEL` written by Windows at
+/// offset 0 is correctly aligned for reading.
+#[repr(C, align(8))]
+struct TokenRecordBuffer([u8; TOKEN_RECORD_BYTES]);
+
+/// RAII impersonation of the connected pipe client.
+///
+/// `Drop` calls `RevertToSelf` unconditionally, so the thread cannot leave this scope still carrying
+/// the client's token. The revert result is recorded so an unconfirmed revert makes the capture
+/// untrusted rather than silently passing.
+struct ImpersonatedPipeClient<'a> {
+    reverted: &'a Cell<bool>,
+}
+
+impl<'a> ImpersonatedPipeClient<'a> {
+    /// # Safety
+    /// `pipe` must be a valid, connected named-pipe SERVER handle owned by the caller for this scope.
+    unsafe fn enter(pipe: HANDLE, reverted: &'a Cell<bool>) -> Option<Self> {
+        reverted.set(false);
+        // SAFETY: `pipe` is valid per this function's contract. The call changes only THIS thread's
+        // effective token.
+        unsafe { ImpersonateNamedPipeClient(pipe) }.ok()?;
+        Some(Self { reverted })
+    }
+}
+
+impl Drop for ImpersonatedPipeClient<'_> {
+    fn drop(&mut self) {
+        // SAFETY: this thread is impersonating because `enter` returned `Some`. `RevertToSelf` takes no
+        // arguments and restores the thread's own token; it runs exactly once per guard, on every path.
+        self.reverted.set(unsafe { RevertToSelf() }.is_ok());
+    }
+}
+
+/// Read the three attested facts of an already-open token. The handle is BORROWED and never retained.
+///
+/// # Safety
+/// `token` must be an open token handle carrying at least `TOKEN_QUERY`.
+unsafe fn read_token_facts(
+    token: HANDLE,
+) -> (
+    Option<PeerUserBinding>,
+    Option<PeerSessionBinding>,
+    Option<PeerIntegrityEvidence>,
+) {
+    let mut user_record = TokenRecordBuffer([0u8; TOKEN_RECORD_BYTES]);
+    let mut needed = 0u32;
+    // SAFETY: the buffer is 8-aligned, exactly TOKEN_RECORD_BYTES long and outlives the call; `needed`
+    // is a live local. `TokenUser` is a read-only query.
+    let user = if unsafe {
+        GetTokenInformation(
+            token,
+            TokenUser,
+            Some(user_record.0.as_mut_ptr().cast()),
+            TOKEN_RECORD_BYTES as u32,
+            &mut needed,
+        )
+    }
+    .is_ok()
+    {
+        // SAFETY: on success Windows wrote a TOKEN_USER at offset 0 of an aligned buffer, whose `Sid`
+        // points inside that same live buffer.
+        let sid = unsafe { (*user_record.0.as_ptr().cast::<TOKEN_USER>()).User.Sid };
+        // SAFETY: `sid` is a kernel-written SID inside the live buffer.
+        let len = unsafe { GetLengthSid(sid) } as usize;
+        if len == 0 || len > user_record.0.len() {
+            None
+        } else {
+            // SAFETY: `sid` addresses `len` initialised bytes inside the live buffer; the slice is only
+            // read and does not outlive it.
+            let bytes = unsafe { core::slice::from_raw_parts(sid.0.cast::<u8>(), len) };
+            PeerUserBinding::from_sid_bytes(bytes)
+        }
+    } else {
+        None
+    };
+
+    let mut session_id = 0u32;
+    // SAFETY: `TokenSessionId` writes exactly one u32; the out-pointer addresses a live local of that
+    // size and `needed` is a live local.
+    let session = if unsafe {
+        GetTokenInformation(
+            token,
+            TokenSessionId,
+            Some(core::ptr::addr_of_mut!(session_id).cast()),
+            core::mem::size_of::<u32>() as u32,
+            &mut needed,
+        )
+    }
+    .is_ok()
+    {
+        Some(PeerSessionBinding::from_session_id(session_id))
+    } else {
+        None
+    };
+
+    let mut label_record = TokenRecordBuffer([0u8; TOKEN_RECORD_BYTES]);
+    // SAFETY: same buffer contract as the TokenUser read; `TokenIntegrityLevel` is read-only.
+    let integrity = if unsafe {
+        GetTokenInformation(
+            token,
+            TokenIntegrityLevel,
+            Some(label_record.0.as_mut_ptr().cast()),
+            TOKEN_RECORD_BYTES as u32,
+            &mut needed,
+        )
+    }
+    .is_ok()
+    {
+        // SAFETY: on success Windows wrote a TOKEN_MANDATORY_LABEL at offset 0 of the aligned buffer,
+        // whose `Sid` points inside that same live buffer.
+        let sid = unsafe {
+            (*label_record.0.as_ptr().cast::<TOKEN_MANDATORY_LABEL>())
+                .Label
+                .Sid
+        };
+        // SAFETY: `sid` is a kernel-written SID in the live buffer; the returned pointer addresses a
+        // byte inside it.
+        let count = unsafe { *GetSidSubAuthorityCount(sid) };
+        if count == 0 {
+            Some(PeerIntegrityEvidence::Unrecognised)
+        } else {
+            // SAFETY: the index is in range because `count` is non-zero, and the returned pointer
+            // addresses a u32 inside the live SID.
+            let rid = unsafe { *GetSidSubAuthority(sid, u32::from(count - 1)) };
+            Some(PeerIntegrityEvidence::from_rid(rid))
+        }
+    } else {
+        None
+    };
+
+    (user, session, integrity)
+}
+
+/// Open the impersonated client's token READ-ONLY, take its facts, and let RAII close it.
+///
+/// The handle never escapes: it is adopted into the canonical `OwnedHandle` primitive the instant it
+/// exists, is never returned, never stored and never duplicated, and closes deterministically on every
+/// path including early return and unwind. There is no manual `CloseHandle` on this path.
+///
+/// # Safety
+/// The calling thread must currently be impersonating the pipe client.
+unsafe fn read_impersonated_token_facts() -> (
+    Option<PeerUserBinding>,
+    Option<PeerSessionBinding>,
+    Option<PeerIntegrityEvidence>,
+) {
+    let mut token = HANDLE::default();
+    // SAFETY: `GetCurrentThread` returns a pseudo-handle needing no close. `TOKEN_QUERY` is the
+    // read-only mask and is the ONLY right requested. `openasself = false` opens the token under the
+    // IMPERSONATED context — the client's token, not the service's. The out-pointer addresses a live
+    // local.
+    if unsafe { OpenThreadToken(GetCurrentThread(), TOKEN_QUERY, false, &mut token) }.is_err() {
+        return (None, None, None);
+    }
+    // SAFETY: `token` was just returned by OpenThreadToken, is owned by this frame and has no other
+    // owner, so transferring it into the RAII wrapper yields exactly one close on drop.
+    let Some(owned) = (unsafe { adopt(token) }) else {
+        return (None, None, None);
+    };
+    // SAFETY: `owned` holds the token opened immediately above, which carries TOKEN_QUERY.
+    unsafe { read_token_facts(win32(&owned)) }
+    // `owned` drops HERE, closing the token via RAII on this and every earlier path.
+}
+
+/// Gather the peer's token-side identity facts inside an RAII impersonation window.
+///
+/// PRIVATE. There is no public route to this function: a peer identity can be produced only through the
+/// attempt transitions below, so no sibling can call a raw capture entry point.
+///
+/// The window contains the three token reads and NOTHING else — no file, registry, ProgramData,
+/// credential, provider, IPC or protected operation happens while impersonating — and the revert RESULT
+/// is recorded rather than assumed.
+///
+/// # Safety
+/// `pipe` must be a valid, connected named-pipe SERVER handle the caller keeps open for this call.
+unsafe fn capture_peer_identity_facts(pipe: HANDLE) -> PeerIdentityFacts {
+    let reverted = Cell::new(false);
+    let mut impersonated = false;
+    let mut facts = PeerIdentityFacts {
+        impersonated: false,
+        impersonation_reverted: false,
+        token_user: None,
+        token_session: None,
+        integrity: None,
+    };
+    {
+        // SAFETY: `pipe` is valid per this function's contract and outlives the guard.
+        if let Some(_guard) = unsafe { ImpersonatedPipeClient::enter(pipe, &reverted) } {
+            impersonated = true;
+            // SAFETY: this thread is impersonating because the guard was entered.
+            let (user, session, integrity) = unsafe { read_impersonated_token_facts() };
+            facts.token_user = user;
+            facts.token_session = session;
+            facts.integrity = integrity;
+        }
+        // The guard drops HERE: `RevertToSelf` has run and its result is recorded in `reverted`.
+    }
+    facts.impersonated = impersonated;
+    facts.impersonation_reverted = reverted.get();
+    facts
+}
+
 /// Observe the OS-derived instance identity of the RUNNING ProjectOSHost service (§8).
 ///
 /// The service handle is supplied by the crate that owns the SCM authority; the fixed service name is
@@ -291,6 +521,42 @@ impl ServiceInstanceBindingAttempt<ScmBeforeObserved> {
         };
         self.record_ipc_peer(observation)
     }
+
+    /// Observe the CONFIRMED pipe peer's instance AND capture its bounded kernel identity, then
+    /// advance. ATTEMPT-SCOPED: the identity is decided and stored inside the attempt and is never
+    /// returned, so the caller learns only the next opaque state or a closed redacted verdict.
+    ///
+    /// The caller lends its connected pipe handle and supplies the two HOST-issued identifiers; it
+    /// never supplies, sees, holds or compares an identity.
+    ///
+    /// # Safety
+    /// `pipe` must be a valid, connected named-pipe SERVER handle that the caller keeps open for this
+    /// call. The callee only reads through it and never retains, duplicates or closes it.
+    #[allow(clippy::too_many_arguments)]
+    pub unsafe fn observe_ipc_peer_identity(
+        self,
+        _capability: &LiveInstanceObservationCapability,
+        pipe: HANDLE,
+        connected: bool,
+        handshake_confirmed: bool,
+        role_is_expected_service_fixture: bool,
+        connection_id: u64,
+        handshake_generation: u64,
+    ) -> AttemptOutcome<IpcPeerObserved> {
+        // The accepted §7 process observation, unchanged.
+        // SAFETY: the handle contract is forwarded to the caller of this function.
+        let observation = unsafe {
+            observe_named_pipe_peer_instance(
+                pipe,
+                connected,
+                handshake_confirmed,
+                role_is_expected_service_fixture,
+            )
+        };
+        // SAFETY: the handle contract is forwarded to the caller of this function.
+        let facts = unsafe { capture_peer_identity_facts(pipe) };
+        self.record_ipc_peer_identity(observation, &facts, connection_id, handshake_generation)
+    }
 }
 
 impl ServiceInstanceBindingAttempt<IpcPeerObserved> {
@@ -304,5 +570,37 @@ impl ServiceInstanceBindingAttempt<IpcPeerObserved> {
         // SAFETY: the handle contract is forwarded to the caller of this function.
         let observation = unsafe { observe_running_service_instance(service) };
         self.record_scm_after(observation)
+    }
+
+    /// Capture the peer's kernel identity AGAIN and reconcile it against the one this attempt already
+    /// recorded. Refuses if the process instance, the exact user, the exact session or either
+    /// host-issued identifier diverged; integrity is never compared.
+    ///
+    /// # Safety
+    /// `pipe` must be a valid, connected named-pipe SERVER handle that the caller keeps open for this
+    /// call. The callee only reads through it and never retains, duplicates or closes it.
+    #[allow(clippy::too_many_arguments)]
+    pub unsafe fn reobserve_ipc_peer_identity(
+        self,
+        _capability: &LiveInstanceObservationCapability,
+        pipe: HANDLE,
+        connected: bool,
+        handshake_confirmed: bool,
+        role_is_expected_service_fixture: bool,
+        connection_id: u64,
+        handshake_generation: u64,
+    ) -> AttemptOutcome<IpcPeerObserved> {
+        // SAFETY: the handle contract is forwarded to the caller of this function.
+        let observation = unsafe {
+            observe_named_pipe_peer_instance(
+                pipe,
+                connected,
+                handshake_confirmed,
+                role_is_expected_service_fixture,
+            )
+        };
+        // SAFETY: the handle contract is forwarded to the caller of this function.
+        let facts = unsafe { capture_peer_identity_facts(pipe) };
+        self.reconcile_ipc_peer_identity(observation, &facts, connection_id, handshake_generation)
     }
 }

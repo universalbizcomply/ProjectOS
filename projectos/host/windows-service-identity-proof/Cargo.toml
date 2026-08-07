@@ -49,11 +49,19 @@ test-fixtures = ["consumer-contract"]
 projectos-host-authority = { path = "../host-authority" }
 
 [target.'cfg(windows)'.dependencies]
-# Minimum instance-observation surface only. Optional + feature-gated: linked ONLY under
-# `windows-live-instance-observation`, so the default build pulls no windows dependency. No token,
-# SID-lookup, registry, ACL or network feature — the process is opened for query rights alone.
+# Minimum instance-observation and peer-identity surface only. Optional + feature-gated: linked ONLY
+# under `windows-live-instance-observation`, so the default build pulls no windows dependency.
+#
+# `Win32_Security` was added by PROJECTOSHOST-IPC-KERNEL-PEER-CAPTURE1A under explicit gatekeeper
+# authority. The crate now performs BOUNDED READ-ONLY process and token identity capture: the process is
+# opened for `PROCESS_QUERY_LIMITED_INFORMATION` alone and the impersonated client token is opened for
+# `TOKEN_QUERY` alone, to read the token user, session and integrity label. It resolves NO SID to a
+# name, and performs NO registry, ACL, credential, provider or network work. No token is created,
+# duplicated, assigned or retained, and no privilege is enabled. Every entry point still demands the
+# sealed, unconstructible `LiveInstanceObservationCapability`, so no build can reach the capture.
 windows = { version = "0.61.3", optional = true, features = [
     "Win32_Foundation",
+    "Win32_Security",
     "Win32_System_Pipes",
     "Win32_System_Services",
     "Win32_System_Threading",

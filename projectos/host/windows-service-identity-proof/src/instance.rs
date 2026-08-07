@@ -40,7 +40,10 @@ use core::fmt;
 /// Private marker making [`LiveInstanceObservationCapability`] unconstructible outside this module —
 /// and nothing inside this module constructs one either. Compiling the observation code is therefore
 /// never authority to run it.
-#[derive(Debug)]
+// `Clone, Copy, PartialEq, Eq` are additive and grant nothing: the marker is still private and still
+// has no public construction route, so a sealed type remains unconstructible outside this module. They
+// exist so a sealed value-type such as `CanonicalPeerContribution` can be compared and copied.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Sealed;
 
 /// Sealed, UNCONSTRUCTIBLE authority to perform a live OS instance observation.
@@ -474,6 +477,13 @@ struct AttemptInner {
     scm_before: Option<ServiceInstanceToken>,
     ipc_peer: Option<ServiceInstanceToken>,
     scm_after: Option<ServiceInstanceToken>,
+    /// The bounded peer identity captured for this attempt, when one was captured. Written by exactly
+    /// one transition and read by exactly one reconciliation; never returned, never re-exported.
+    /// Present only where a peer identity can legitimately originate.
+    ///
+    /// Boxed so a bounded SID buffer does not travel inside every attempt transition's return value.
+    #[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+    peer: Option<Box<CanonicalPeerContribution>>,
 }
 
 #[cfg(any(test, feature = "consumer-contract"))]
@@ -599,6 +609,26 @@ fn ipc_refusal_verdict(r: ServiceInstanceRefusal) -> ServiceInstanceBinding {
     }
 }
 
+/// Collapse a peer-identity refusal onto the attempt's closed verdict.
+///
+/// Every reason maps to the SAME answer on purpose: a consumer learns "no IPC-derived identity" and
+/// never which token fact was missing, so a caller cannot probe the token state of a peer it could not
+/// otherwise read. The match is EXHAUSTIVE rather than a wildcard, so a future refusal reason cannot
+/// join the collapse without someone deciding that it should.
+#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+fn peer_refusal_verdict(reason: PeerContributionRefusal) -> ServiceInstanceBinding {
+    match reason {
+        PeerContributionRefusal::ImpersonationNotReverted
+        | PeerContributionRefusal::ImpersonationFailed
+        | PeerContributionRefusal::InstanceUnavailable
+        | PeerContributionRefusal::TokenUserUnavailable
+        | PeerContributionRefusal::TokenSessionUnavailable
+        | PeerContributionRefusal::UnknownPeerPrincipal => {
+            ServiceInstanceBinding::MissingIpcObservation
+        }
+    }
+}
+
 #[cfg(any(test, feature = "consumer-contract"))]
 impl ServiceInstanceBindingAttempt<Prepared> {
     /// Begin a proof attempt. Requires the sealed, unconstructible live-observation capability, so no
@@ -612,6 +642,8 @@ impl ServiceInstanceBindingAttempt<Prepared> {
                 scm_before: None,
                 ipc_peer: None,
                 scm_after: None,
+                #[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+                peer: None,
             },
             _state: core::marker::PhantomData,
         }
@@ -632,6 +664,8 @@ impl ServiceInstanceBindingAttempt<Prepared> {
                 scm_before: None,
                 ipc_peer: None,
                 scm_after: None,
+                #[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+                peer: None,
             },
             _state: core::marker::PhantomData,
         }
@@ -679,6 +713,44 @@ impl ServiceInstanceBindingAttempt<ScmBeforeObserved> {
             }
         }
     }
+
+    /// Record the confirmed IPC peer's observation TOGETHER with its bounded kernel identity, and
+    /// advance. This is the ATTEMPT-SCOPED capture: the identity is decided here, stored here, and
+    /// never handed back.
+    ///
+    /// The caller receives exactly the same two things every other transition returns — the attempt in
+    /// its next opaque state, or a closed redacted verdict. Every peer-side refusal collapses onto
+    /// [`ServiceInstanceBinding::MissingIpcObservation`], so which token fact was missing is not
+    /// disclosed; the platform answer is preserved separately because it is not an identity fact.
+    ///
+    /// `connection_id` and `handshake_generation` are HOST-issued and are recorded so that a later
+    /// reconciliation on this attempt cannot be satisfied by a capture from another connection.
+    #[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+    pub(crate) fn record_ipc_peer_identity(
+        mut self,
+        observation: ServiceInstanceObservation,
+        facts: &PeerIdentityFacts,
+        connection_id: u64,
+        handshake_generation: u64,
+    ) -> AttemptOutcome<IpcPeerObserved> {
+        if let Some(expired) = self.inner.expiry() {
+            return AttemptOutcome::Refused(expired);
+        }
+        // Preserve the precise platform answer, exactly as the identity-free transition does.
+        if let ServiceInstanceObservation::Refused(r) = observation {
+            return AttemptOutcome::Refused(ipc_refusal_verdict(r));
+        }
+        match decide_peer_contribution(observation, facts, connection_id, handshake_generation) {
+            PeerContributionOutcome::Refused(reason) => {
+                AttemptOutcome::Refused(peer_refusal_verdict(reason))
+            }
+            PeerContributionOutcome::Contributed(peer) => {
+                self.inner.ipc_peer = Some(peer.instance);
+                self.inner.peer = Some(Box::new(peer));
+                AttemptOutcome::Continue(self.advance())
+            }
+        }
+    }
 }
 
 #[cfg(any(test, feature = "consumer-contract"))]
@@ -699,6 +771,50 @@ impl ServiceInstanceBindingAttempt<IpcPeerObserved> {
             ServiceInstanceObservation::Observed(t) => {
                 self.inner.scm_after = Some(t);
                 AttemptOutcome::Continue(self.advance())
+            }
+        }
+    }
+
+    /// Reconcile a LATER capture against the peer identity this attempt already recorded.
+    ///
+    /// This is where re-authentication lives now that identity never leaves the attempt: the
+    /// expectation is the attempt's OWN earlier canonical reading, never anything a peer sent, and the
+    /// process instance, the EXACT user, the EXACT session and both host-issued identifiers must all be
+    /// identical. Integrity is NOT compared — it is non-authorising evidence, so a peer that elevates
+    /// keeps the identity it already had.
+    ///
+    /// Ordering is not weakened: this transition is legal only AFTER a peer identity was recorded, it
+    /// cannot skip a step, it cannot return to an earlier state, and it is strictly stricter than doing
+    /// nothing because a divergent identity ends the attempt.
+    #[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+    pub(crate) fn reconcile_ipc_peer_identity(
+        self,
+        observation: ServiceInstanceObservation,
+        facts: &PeerIdentityFacts,
+        connection_id: u64,
+        handshake_generation: u64,
+    ) -> AttemptOutcome<IpcPeerObserved> {
+        if let Some(expired) = self.inner.expiry() {
+            return AttemptOutcome::Refused(expired);
+        }
+        // An attempt that advanced through the identity-free transition has no recorded peer, so there
+        // is nothing to reconcile against and it fails closed rather than admitting the fresh capture.
+        let Some(bound) = self.inner.peer.as_deref().copied() else {
+            return AttemptOutcome::Refused(ServiceInstanceBinding::MissingIpcObservation);
+        };
+        if let ServiceInstanceObservation::Refused(r) = observation {
+            return AttemptOutcome::Refused(ipc_refusal_verdict(r));
+        }
+        match decide_peer_contribution(observation, facts, connection_id, handshake_generation) {
+            PeerContributionOutcome::Refused(reason) => {
+                AttemptOutcome::Refused(peer_refusal_verdict(reason))
+            }
+            PeerContributionOutcome::Contributed(fresh) => {
+                if fresh.identity_matches(&bound) {
+                    AttemptOutcome::Continue(self.advance())
+                } else {
+                    AttemptOutcome::Refused(ServiceInstanceBinding::Mismatch)
+                }
             }
         }
     }
@@ -789,6 +905,384 @@ impl fmt::Debug for SyntheticInstanceSelector {
     }
 }
 
+// -------------------------------------------------------------------------------------------------
+// PROJECTOSHOST-IPC-KERNEL-PEER-CAPTURE1A — ATTEMPT-SCOPED canonical peer identity.
+//
+// Kernel peer identity is captured INSIDE the bounded attempt that already owns the instance
+// observations, and it never leaves. There is no returned contribution, no independent lifetime and no
+// sibling-facing identity type: every item in this section is CRATE-PRIVATE, so a consumer crate can
+// learn exactly two things — that the attempt advanced into its next opaque state, or the closed
+// redacted verdict that refused it.
+//
+// The storage pattern is the one `ServiceInstanceToken` already established: the value is held
+// privately, there is no accessor, and equality is the only permitted operation. Bounded classification
+// is a FAIL-CLOSED GATE derived from the token user SID alone; it never stands in for exact identity,
+// so two different users that both classify as `Owner` remain distinguishable by their bindings.
+//
+// Everything here is compiled only where a peer identity can legitimately originate — this crate's own
+// tests, and the live Windows observation FFI. A default, consumer-contract or fixture build contains
+// no peer identity type, no constructor and no storage slot at all.
+// -------------------------------------------------------------------------------------------------
+
+/// Maximum bytes of a Windows SID (`SECURITY_MAX_SID_SIZE`). A user binding is bounded by construction.
+#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+const PEER_SID_MAX_LEN: usize = 68;
+
+/// Shortest structurally meaningful SID: revision + sub-authority count + 6-byte authority.
+#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+const PEER_SID_MIN_LEN: usize = 8;
+
+/// An OPAQUE, equality-only binding to the EXACT token user.
+///
+/// Internally the token user's SID bytes, zero-padded so equality is well defined. Neither the bytes
+/// nor the length are readable: the fields are private, the constructor is crate-private, and there is
+/// no accessor, no slice view, no `AsRef`/`Borrow`/`Deref`/`Into`, no raw-parts conversion, no hash or
+/// fingerprint, no `Display` and no serialisation. `Debug` is redacted. The only permitted operation is
+/// equality — which is all exact-user reconciliation ever needs, because proving two observations are
+/// or are not the same principal never requires reading the SID.
+#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PeerUserBinding {
+    /// Zero-padded SID bytes. Never exposed; never accepted from a caller.
+    sid: [u8; PEER_SID_MAX_LEN],
+    /// Significant length. Never exposed.
+    len: u8,
+}
+
+#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+impl PeerUserBinding {
+    /// The ONLY constructor. Crate-private, so no sibling crate and no external caller can build a
+    /// binding from raw bytes; it is reached only from this crate's own token observation code.
+    ///
+    /// Fails closed on a structurally impossible length rather than truncating.
+    pub(crate) fn from_sid_bytes(raw: &[u8]) -> Option<Self> {
+        if raw.len() < PEER_SID_MIN_LEN || raw.len() > PEER_SID_MAX_LEN {
+            return None;
+        }
+        let mut sid = [0u8; PEER_SID_MAX_LEN];
+        sid[..raw.len()].copy_from_slice(raw);
+        Some(Self {
+            sid,
+            len: raw.len() as u8,
+        })
+    }
+
+    /// The identifier authority (SID bytes 2..8). PRIVATE: classification input only.
+    fn authority(&self) -> u64 {
+        let b = &self.sid;
+        (u64::from(b[2]) << 40)
+            | (u64::from(b[3]) << 32)
+            | (u64::from(b[4]) << 24)
+            | (u64::from(b[5]) << 16)
+            | (u64::from(b[6]) << 8)
+            | u64::from(b[7])
+    }
+
+    /// The first sub-authority, if the SID structurally has one. PRIVATE.
+    fn first_sub_authority(&self) -> Option<u32> {
+        if self.sid[1] == 0 || (self.len as usize) < 12 {
+            return None;
+        }
+        Some(u32::from_le_bytes([
+            self.sid[8],
+            self.sid[9],
+            self.sid[10],
+            self.sid[11],
+        ]))
+    }
+}
+
+#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+impl fmt::Debug for PeerUserBinding {
+    /// Redacted: a user binding must never render a SID in any form, including a hash or a prefix.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("PeerUserBinding([REDACTED])")
+    }
+}
+
+/// An OPAQUE, equality-only binding to the EXACT Windows session.
+///
+/// Same contract as [`PeerUserBinding`]: private field, crate-private constructor, no accessor, no
+/// `Display`, no serialisation, redacted `Debug`, equality only.
+#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PeerSessionBinding {
+    /// Windows session identifier. Never exposed; never accepted from a caller.
+    session: u32,
+}
+
+#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+impl PeerSessionBinding {
+    /// The ONLY constructor. Crate-private, reached only from this crate's token observation code.
+    pub(crate) fn from_session_id(session: u32) -> Self {
+        Self { session }
+    }
+}
+
+#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+impl fmt::Debug for PeerSessionBinding {
+    /// Redacted: a session binding must never render a session identifier.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("PeerSessionBinding([REDACTED])")
+    }
+}
+
+/// A bounded, CLOSED classification of the peer principal, derived from the token USER SID ALONE.
+///
+/// Deliberately ignores group membership. An elevated process carries a FILTERED token whose
+/// `Administrators` entry is deny-only, so classifying by group would make the answer depend on which
+/// token variant happened to be in play. Classifying by the user SID gives the same answer for both, so
+/// elevation cannot promote an ordinary user.
+///
+/// It is used as a FAIL-CLOSED GATE — an unclassifiable principal refuses the capture — and never as a
+/// substitute for exact identity.
+#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub(crate) enum PeerPrincipalClass {
+    /// A local or domain account (NT Authority sub-authority 21) — the interactive owner.
+    Owner,
+    /// LocalSystem (NT Authority sub-authority 18).
+    System,
+    /// A service account (NT Authority sub-authority 80).
+    Service,
+    /// Any other recognised principal. Never accepted as owner authority.
+    Other,
+}
+
+#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+impl PeerPrincipalClass {
+    /// Classify from the token user binding ALONE. PRIVATE input, bounded output.
+    ///
+    /// Returns `None` when the SID is structurally unclassifiable, so an unknown principal fails closed
+    /// instead of defaulting to `Other`.
+    pub(crate) fn from_user_binding(user: &PeerUserBinding) -> Option<Self> {
+        // NT Authority is 5; sub-authority 18 is LocalSystem, 80 a service account, 21 a local or
+        // domain account.
+        if user.authority() != 5 {
+            return Some(Self::Other);
+        }
+        Some(match user.first_sub_authority()? {
+            18 => Self::System,
+            80 => Self::Service,
+            21 => Self::Owner,
+            _ => Self::Other,
+        })
+    }
+}
+
+/// BOUNDED, NON-AUTHORISING integrity evidence.
+///
+/// It is captured and recorded. It can neither ESTABLISH nor INVALIDATE identity: no branch of the
+/// decision core consults it, and the attempt's identity reconciliation deliberately does not compare
+/// it, so a peer that elevates keeps exactly the identity it had. An unrecognised mandatory-label RID
+/// classifies as [`PeerIntegrityEvidence::Unrecognised`] rather than being coerced to a neighbouring
+/// level — it fails closed AS EVIDENCE, without gaining the power to refuse.
+#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub(crate) enum PeerIntegrityEvidence {
+    /// `SECURITY_MANDATORY_UNTRUSTED_RID`
+    Untrusted,
+    /// `SECURITY_MANDATORY_LOW_RID`
+    Low,
+    /// `SECURITY_MANDATORY_MEDIUM_RID` — an ordinary, non-elevated process.
+    Medium,
+    /// `SECURITY_MANDATORY_HIGH_RID` — an elevated process.
+    High,
+    /// `SECURITY_MANDATORY_SYSTEM_RID`
+    System,
+    /// The label was absent or its RID was not recognised. Evidence only; never a refusal.
+    Unrecognised,
+}
+
+#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+impl PeerIntegrityEvidence {
+    /// Map a mandatory-label RID. Unknown values classify as `Unrecognised`, never as a neighbour.
+    pub(crate) fn from_rid(rid: u32) -> Self {
+        match rid {
+            0x0000 => Self::Untrusted,
+            0x1000 => Self::Low,
+            0x2000 => Self::Medium,
+            0x3000 => Self::High,
+            0x4000 => Self::System,
+            _ => Self::Unrecognised,
+        }
+    }
+}
+
+/// CLOSED reasons a peer capture was refused. Fieldless: names the check, never the value.
+///
+/// CRATE-PRIVATE. A consumer never sees this: the attempt maps every one of these onto the existing
+/// closed [`ServiceInstanceBinding`] verdict, so the sibling learns "no IPC-derived identity" and
+/// nothing about which token fact was missing.
+#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub(crate) enum PeerContributionRefusal {
+    /// Impersonation was entered but did not revert cleanly. Checked FIRST.
+    ImpersonationNotReverted,
+    /// The client could not be impersonated at all.
+    ImpersonationFailed,
+    /// No OS-derived process instance was established.
+    InstanceUnavailable,
+    /// The token user could not be read or was structurally impossible.
+    TokenUserUnavailable,
+    /// The token session could not be read.
+    TokenSessionUnavailable,
+    /// The token user SID could not be classified into a bounded principal class.
+    UnknownPeerPrincipal,
+}
+
+/// The bounded peer identity RECORDED INSIDE one attempt.
+///
+/// CRATE-PRIVATE and sealed. It is never returned to a caller, never re-exported, and has no lifetime
+/// of its own: it exists only as a field of [`AttemptInner`], is written by exactly one transition and
+/// is read by exactly one reconciliation, both of which live in this module.
+///
+/// It carries no PID, no creation time, no SID, no session identifier, no handle and no Win32 error in
+/// any readable form.
+#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+#[derive(Clone, Copy)]
+pub(crate) struct CanonicalPeerContribution {
+    _sealed: Sealed,
+    /// The opaque OS-derived process instance (PID plus creation time).
+    instance: ServiceInstanceToken,
+    /// The opaque EXACT user binding.
+    user: PeerUserBinding,
+    /// The opaque EXACT session binding.
+    session: PeerSessionBinding,
+    /// Bounded NON-AUTHORISING integrity evidence.
+    ///
+    /// Recorded faithfully and consulted by NOTHING: no branch of the decision core reads it and the
+    /// attempt's identity reconciliation deliberately excludes it. The lint allowance below is the
+    /// compiler-checked statement of exactly that — outside this crate's own tests, integrity is a
+    /// value this code writes and never acts on, which is what "can neither establish nor invalidate
+    /// identity" means in practice. Deleting the allowance would only be possible by giving integrity
+    /// authority over some decision.
+    #[allow(dead_code)]
+    integrity: PeerIntegrityEvidence,
+    /// HOST-issued connection identity. Never supplied by the peer.
+    connection_id: u64,
+    /// HOST-issued handshake generation. Never supplied by the peer.
+    handshake_generation: u64,
+}
+
+#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+impl fmt::Debug for CanonicalPeerContribution {
+    /// Redacted: a recorded peer holds three identities and must never render any of them.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("CanonicalPeerContribution([REDACTED])")
+    }
+}
+
+#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+impl CanonicalPeerContribution {
+    /// Exact-identity equality, used ONLY by the attempt's own reconciliation.
+    ///
+    /// Compares the process instance, the EXACT user, the EXACT session and both host-issued
+    /// identifiers. Integrity is deliberately NOT compared: it is non-authorising evidence, so a peer
+    /// that elevates between two readings keeps the identity it already had.
+    fn identity_matches(&self, bound: &Self) -> bool {
+        self.instance == bound.instance
+            && self.user == bound.user
+            && self.session == bound.session
+            && self.connection_id == bound.connection_id
+            && self.handshake_generation == bound.handshake_generation
+    }
+
+    /// The recorded bounded integrity evidence. CRATE-PRIVATE and consulted by no decision — it exists
+    /// so the tests can prove that recording integrity changes no outcome.
+    #[cfg(test)]
+    fn recorded_integrity(&self) -> PeerIntegrityEvidence {
+        self.integrity
+    }
+}
+
+/// The CLOSED internal outcome of one peer capture.
+#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum PeerContributionOutcome {
+    /// A bounded, sealed peer identity was established.
+    Contributed(CanonicalPeerContribution),
+    /// No identity; the reason is closed and redacted.
+    Refused(PeerContributionRefusal),
+}
+
+/// Token-side facts gathered under impersonation.
+///
+/// Deliberately a SEPARATE struct from `PipePeerFacts` rather than new fields on it: the existing
+/// process-observation facts and their accepted decision tests are left untouched, so this phase adds
+/// an identity layer instead of mutating an accepted one.
+#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+pub(crate) struct PeerIdentityFacts {
+    /// Impersonation of the pipe client was entered.
+    pub impersonated: bool,
+    /// Impersonation was reverted AND the revert was confirmed to succeed.
+    pub impersonation_reverted: bool,
+    /// The token user, where it could be read.
+    pub token_user: Option<PeerUserBinding>,
+    /// The token session, where it could be read.
+    pub token_session: Option<PeerSessionBinding>,
+    /// Bounded integrity evidence, where it could be read.
+    pub integrity: Option<PeerIntegrityEvidence>,
+}
+
+/// Decide a bounded peer identity from the process observation plus the token-side facts.
+///
+/// Ordering is deliberate and fail-closed. Reversion is checked FIRST: a capture that left the thread
+/// impersonating is never trusted, however good the rest of the evidence looks. Integrity is consulted
+/// by NO branch — it is recorded as evidence and can neither establish nor invalidate identity.
+///
+/// `connection_id` and `handshake_generation` come from the HOST, never from the peer.
+#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+pub(crate) fn decide_peer_contribution(
+    instance: ServiceInstanceObservation,
+    facts: &PeerIdentityFacts,
+    connection_id: u64,
+    handshake_generation: u64,
+) -> PeerContributionOutcome {
+    use PeerContributionRefusal as R;
+
+    // 1. An unreverted impersonation poisons everything that follows.
+    if facts.impersonated && !facts.impersonation_reverted {
+        return PeerContributionOutcome::Refused(R::ImpersonationNotReverted);
+    }
+    if !facts.impersonated {
+        return PeerContributionOutcome::Refused(R::ImpersonationFailed);
+    }
+    // 2. The process instance must already have been established by the accepted observation core.
+    let ServiceInstanceObservation::Observed(observed) = instance else {
+        return PeerContributionOutcome::Refused(R::InstanceUnavailable);
+    };
+    // 3. Exact identity must be present.
+    let Some(user) = facts.token_user else {
+        return PeerContributionOutcome::Refused(R::TokenUserUnavailable);
+    };
+    let Some(session) = facts.token_session else {
+        return PeerContributionOutcome::Refused(R::TokenSessionUnavailable);
+    };
+    // 4. Classification is derived from the user SID alone, and must succeed. It is a gate, not a
+    //    stored substitute for identity.
+    if PeerPrincipalClass::from_user_binding(&user).is_none() {
+        return PeerContributionOutcome::Refused(R::UnknownPeerPrincipal);
+    }
+    // 5. Integrity is evidence. An absent reading is recorded as Unrecognised and refuses nothing.
+    let integrity = facts
+        .integrity
+        .unwrap_or(PeerIntegrityEvidence::Unrecognised);
+
+    PeerContributionOutcome::Contributed(CanonicalPeerContribution {
+        _sealed: Sealed,
+        instance: observed,
+        user,
+        session,
+        integrity,
+        connection_id,
+        handshake_generation,
+    })
+}
+
 /// Build a SYNTHETIC observed identity. Fixture-only; performs no Windows call, opens no process,
 /// queries no SCM and creates no pipe.
 #[cfg(any(test, feature = "test-fixtures"))]
@@ -840,6 +1334,8 @@ impl ServiceInstanceBindingAttempt<Prepared> {
                 scm_before: None,
                 ipc_peer: None,
                 scm_after: None,
+                #[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+                peer: None,
             },
             _state: core::marker::PhantomData,
         }
@@ -1670,6 +2166,474 @@ mod tests {
         assert_ne!(
             bind_service_instance(&ipc, &scm, &scm),
             ServiceInstanceBinding::Match
+        );
+    }
+
+    // ---- PROJECTOSHOST-IPC-KERNEL-PEER-CAPTURE1A: attempt-scoped kernel peer identity -----------
+    //
+    // Every case drives the REAL decision core and the REAL classification with synthetic token facts.
+    // No Windows API, no pipe, no impersonation and no token is involved: the facts struct is exactly
+    // what the confined FFI would hand the core after its own reads.
+
+    /// S-1-5-21-1-2-3-1001 — an ordinary local account.
+    fn owner_sid() -> [u8; 28] {
+        let mut raw = [0u8; 28];
+        raw[0] = 1; // revision
+        raw[1] = 5; // sub-authority count
+        raw[7] = 5; // NT Authority
+        raw[8..12].copy_from_slice(&21u32.to_le_bytes());
+        raw[12..16].copy_from_slice(&1u32.to_le_bytes());
+        raw[16..20].copy_from_slice(&2u32.to_le_bytes());
+        raw[20..24].copy_from_slice(&3u32.to_le_bytes());
+        raw[24..28].copy_from_slice(&1001u32.to_le_bytes());
+        raw
+    }
+
+    /// A DIFFERENT local account: S-1-5-21-1-2-3-1002. Same class, different exact user.
+    fn other_owner_sid() -> [u8; 28] {
+        let mut raw = owner_sid();
+        raw[24..28].copy_from_slice(&1002u32.to_le_bytes());
+        raw
+    }
+
+    /// S-1-5-18 (LocalSystem).
+    fn system_sid() -> [u8; 12] {
+        let mut raw = [0u8; 12];
+        raw[0] = 1;
+        raw[1] = 1;
+        raw[7] = 5;
+        raw[8..12].copy_from_slice(&18u32.to_le_bytes());
+        raw
+    }
+
+    /// S-1-5-80-7 (a service account).
+    fn service_sid() -> [u8; 16] {
+        let mut raw = [0u8; 16];
+        raw[0] = 1;
+        raw[1] = 2;
+        raw[7] = 5;
+        raw[8..12].copy_from_slice(&80u32.to_le_bytes());
+        raw[12..16].copy_from_slice(&7u32.to_le_bytes());
+        raw
+    }
+
+    /// NT Authority with NO sub-authority: structurally valid, but not classifiable.
+    fn unclassifiable_sid() -> [u8; 8] {
+        let mut raw = [0u8; 8];
+        raw[0] = 1;
+        raw[1] = 0;
+        raw[7] = 5;
+        raw
+    }
+
+    fn peer_facts(sid: &[u8], session: u32, integrity_rid: Option<u32>) -> PeerIdentityFacts {
+        PeerIdentityFacts {
+            impersonated: true,
+            impersonation_reverted: true,
+            token_user: PeerUserBinding::from_sid_bytes(sid),
+            token_session: Some(PeerSessionBinding::from_session_id(session)),
+            integrity: integrity_rid.map(PeerIntegrityEvidence::from_rid),
+        }
+    }
+
+    /// An attempt already advanced to `ScmBeforeObserved`, ready for a peer capture.
+    fn attempt_at_scm_before() -> ServiceInstanceBindingAttempt<ScmBeforeObserved> {
+        let clock = std::rc::Rc::new(std::cell::Cell::new(0u64));
+        ServiceInstanceBindingAttempt::<Prepared>::begin_for_test(clock)
+            .record_scm_before(observed(PID_A, CREATED_A))
+            .into_attempt()
+            .expect("scm-before recorded")
+    }
+
+    /// Capture a peer identity into a fresh attempt and return the attempt in its next state.
+    fn captured(
+        sid: &[u8],
+        session: u32,
+        integrity_rid: Option<u32>,
+    ) -> ServiceInstanceBindingAttempt<IpcPeerObserved> {
+        attempt_at_scm_before()
+            .record_ipc_peer_identity(
+                observed(PID_A, CREATED_A),
+                &peer_facts(sid, session, integrity_rid),
+                77,
+                5,
+            )
+            .into_attempt()
+            .expect("peer identity captured")
+    }
+
+    #[test]
+    fn integrity_rids_map_bounded_and_unknown_values_are_not_coerced() {
+        // Integrity is EVIDENCE. An unrecognised label must classify as Unrecognised rather than
+        // being rounded to a neighbouring level, and it still refuses nothing.
+        assert_eq!(
+            PeerIntegrityEvidence::from_rid(0x2000),
+            PeerIntegrityEvidence::Medium
+        );
+        assert_eq!(
+            PeerIntegrityEvidence::from_rid(0x3000),
+            PeerIntegrityEvidence::High
+        );
+        assert_eq!(
+            PeerIntegrityEvidence::from_rid(0x2500),
+            PeerIntegrityEvidence::Unrecognised
+        );
+        assert_eq!(
+            PeerIntegrityEvidence::from_rid(0xFFFF),
+            PeerIntegrityEvidence::Unrecognised
+        );
+    }
+
+    #[test]
+    fn classification_follows_the_user_sid_alone() {
+        for (sid, expected) in [
+            (&owner_sid()[..], PeerPrincipalClass::Owner),
+            (&system_sid()[..], PeerPrincipalClass::System),
+            (&service_sid()[..], PeerPrincipalClass::Service),
+        ] {
+            let user = PeerUserBinding::from_sid_bytes(sid).expect("valid sid");
+            assert_eq!(PeerPrincipalClass::from_user_binding(&user), Some(expected));
+        }
+    }
+
+    #[test]
+    fn an_unclassifiable_principal_fails_closed_rather_than_defaulting() {
+        let user = PeerUserBinding::from_sid_bytes(&unclassifiable_sid()).expect("valid sid");
+        assert_eq!(PeerPrincipalClass::from_user_binding(&user), None);
+        let outcome = attempt_at_scm_before().record_ipc_peer_identity(
+            observed(PID_A, CREATED_A),
+            &peer_facts(&unclassifiable_sid(), 2, Some(0x2000)),
+            77,
+            5,
+        );
+        assert_eq!(
+            outcome.refusal(),
+            Some(ServiceInstanceBinding::MissingIpcObservation)
+        );
+    }
+
+    #[test]
+    fn a_structurally_impossible_sid_yields_no_binding_at_all() {
+        assert!(
+            PeerUserBinding::from_sid_bytes(&[1u8; 4]).is_none(),
+            "short"
+        );
+        assert!(
+            PeerUserBinding::from_sid_bytes(&[1u8; 96]).is_none(),
+            "long"
+        );
+    }
+
+    #[test]
+    fn an_unreverted_impersonation_is_refused_before_any_other_check() {
+        // Reversion is checked FIRST: even with a perfect instance, user and session, a capture that
+        // left the thread impersonating is never trusted.
+        let facts = PeerIdentityFacts {
+            impersonated: true,
+            impersonation_reverted: false,
+            ..peer_facts(&owner_sid(), 2, Some(0x2000))
+        };
+        assert!(matches!(
+            decide_peer_contribution(observed(PID_A, CREATED_A), &facts, 77, 5),
+            PeerContributionOutcome::Refused(PeerContributionRefusal::ImpersonationNotReverted)
+        ));
+        let outcome = attempt_at_scm_before().record_ipc_peer_identity(
+            observed(PID_A, CREATED_A),
+            &facts,
+            77,
+            5,
+        );
+        assert_eq!(
+            outcome.refusal(),
+            Some(ServiceInstanceBinding::MissingIpcObservation)
+        );
+    }
+
+    #[test]
+    fn a_capture_that_never_impersonated_is_refused() {
+        let facts = PeerIdentityFacts {
+            impersonated: false,
+            impersonation_reverted: false,
+            ..peer_facts(&owner_sid(), 2, Some(0x2000))
+        };
+        assert!(matches!(
+            decide_peer_contribution(observed(PID_A, CREATED_A), &facts, 77, 5),
+            PeerContributionOutcome::Refused(PeerContributionRefusal::ImpersonationFailed)
+        ));
+    }
+
+    #[test]
+    fn a_missing_token_user_or_session_is_refused() {
+        let mut facts = peer_facts(&owner_sid(), 2, Some(0x2000));
+        facts.token_user = None;
+        assert!(matches!(
+            decide_peer_contribution(observed(PID_A, CREATED_A), &facts, 77, 5),
+            PeerContributionOutcome::Refused(PeerContributionRefusal::TokenUserUnavailable)
+        ));
+        let mut facts = peer_facts(&owner_sid(), 2, Some(0x2000));
+        facts.token_session = None;
+        assert!(matches!(
+            decide_peer_contribution(observed(PID_A, CREATED_A), &facts, 77, 5),
+            PeerContributionOutcome::Refused(PeerContributionRefusal::TokenSessionUnavailable)
+        ));
+    }
+
+    #[test]
+    fn a_refused_instance_observation_keeps_its_precise_platform_answer() {
+        // The identity layer must not collapse "unsupported platform" into "no IPC observation".
+        let outcome = attempt_at_scm_before().record_ipc_peer_identity(
+            refused(ServiceInstanceRefusal::UnsupportedPlatform),
+            &peer_facts(&owner_sid(), 2, Some(0x2000)),
+            77,
+            5,
+        );
+        assert_eq!(outcome.refusal(), Some(ServiceInstanceBinding::Unsupported));
+    }
+
+    #[test]
+    fn an_identical_later_capture_reconciles_successfully() {
+        let bound = captured(&owner_sid(), 2, Some(0x2000));
+        let again = bound.reconcile_ipc_peer_identity(
+            observed(PID_A, CREATED_A),
+            &peer_facts(&owner_sid(), 2, Some(0x2000)),
+            77,
+            5,
+        );
+        assert!(again.is_continuing());
+    }
+
+    #[test]
+    fn two_different_users_of_the_same_class_remain_distinguishable() {
+        // The whole point of keeping an EXACT user binding alongside the bounded class: both classify
+        // as Owner, but they are different principals and reconciliation must refuse.
+        let a = PeerUserBinding::from_sid_bytes(&owner_sid()).expect("a");
+        let b = PeerUserBinding::from_sid_bytes(&other_owner_sid()).expect("b");
+        assert_eq!(
+            PeerPrincipalClass::from_user_binding(&a),
+            PeerPrincipalClass::from_user_binding(&b),
+            "the bounded class is deliberately the same"
+        );
+        assert_ne!(a, b, "the exact user binding must still differ");
+
+        let bound = captured(&owner_sid(), 2, Some(0x2000));
+        let outcome = bound.reconcile_ipc_peer_identity(
+            observed(PID_A, CREATED_A),
+            &peer_facts(&other_owner_sid(), 2, Some(0x2000)),
+            77,
+            5,
+        );
+        assert_eq!(outcome.refusal(), Some(ServiceInstanceBinding::Mismatch));
+    }
+
+    #[test]
+    fn a_peer_that_moved_session_is_refused() {
+        let bound = captured(&owner_sid(), 2, Some(0x2000));
+        let outcome = bound.reconcile_ipc_peer_identity(
+            observed(PID_A, CREATED_A),
+            &peer_facts(&owner_sid(), 3, Some(0x2000)),
+            77,
+            5,
+        );
+        assert_eq!(outcome.refusal(), Some(ServiceInstanceBinding::Mismatch));
+    }
+
+    #[test]
+    fn a_reused_pid_with_a_different_creation_identity_is_refused() {
+        // The opaque instance carries PID **and** creation time, so this is the PID-reuse defence.
+        let bound = captured(&owner_sid(), 2, Some(0x2000));
+        let outcome = bound.reconcile_ipc_peer_identity(
+            observed(PID_A, CREATED_B),
+            &peer_facts(&owner_sid(), 2, Some(0x2000)),
+            77,
+            5,
+        );
+        assert_eq!(outcome.refusal(), Some(ServiceInstanceBinding::Mismatch));
+    }
+
+    #[test]
+    fn a_capture_from_another_connection_or_generation_cannot_reconcile() {
+        // The host-issued identifiers are recorded, so a capture belonging to a different connection
+        // or a later handshake generation cannot satisfy this attempt.
+        let bound = captured(&owner_sid(), 2, Some(0x2000));
+        assert_eq!(
+            bound
+                .reconcile_ipc_peer_identity(
+                    observed(PID_A, CREATED_A),
+                    &peer_facts(&owner_sid(), 2, Some(0x2000)),
+                    78,
+                    5,
+                )
+                .refusal(),
+            Some(ServiceInstanceBinding::Mismatch)
+        );
+        let bound = captured(&owner_sid(), 2, Some(0x2000));
+        assert_eq!(
+            bound
+                .reconcile_ipc_peer_identity(
+                    observed(PID_A, CREATED_A),
+                    &peer_facts(&owner_sid(), 2, Some(0x2000)),
+                    77,
+                    6,
+                )
+                .refusal(),
+            Some(ServiceInstanceBinding::Mismatch)
+        );
+    }
+
+    #[test]
+    fn integrity_never_refuses_and_never_alters_identity() {
+        // Ruling: integrity is non-authorising evidence. A peer that elevates between two readings
+        // keeps exactly the identity it had, and reconciliation must still succeed.
+        let bound = captured(&owner_sid(), 2, Some(0x2000));
+        let elevated = bound.reconcile_ipc_peer_identity(
+            observed(PID_A, CREATED_A),
+            &peer_facts(&owner_sid(), 2, Some(0x3000)),
+            77,
+            5,
+        );
+        assert!(elevated.is_continuing(), "elevation must not refuse");
+        let unknown = captured(&owner_sid(), 2, Some(0x2500)).reconcile_ipc_peer_identity(
+            observed(PID_A, CREATED_A),
+            &peer_facts(&owner_sid(), 2, None),
+            77,
+            5,
+        );
+        assert!(
+            unknown.is_continuing(),
+            "an unreadable integrity label must not refuse"
+        );
+    }
+
+    #[test]
+    fn recorded_integrity_is_carried_but_authorises_nothing() {
+        // It is recorded faithfully...
+        let facts = peer_facts(&owner_sid(), 2, Some(0x3000));
+        let PeerContributionOutcome::Contributed(high) =
+            decide_peer_contribution(observed(PID_A, CREATED_A), &facts, 77, 5)
+        else {
+            panic!("expected a contribution");
+        };
+        assert_eq!(high.recorded_integrity(), PeerIntegrityEvidence::High);
+        // ...an absent reading records Unrecognised rather than refusing...
+        let facts = peer_facts(&owner_sid(), 2, None);
+        let PeerContributionOutcome::Contributed(none) =
+            decide_peer_contribution(observed(PID_A, CREATED_A), &facts, 77, 5)
+        else {
+            panic!("expected a contribution");
+        };
+        assert_eq!(
+            none.recorded_integrity(),
+            PeerIntegrityEvidence::Unrecognised
+        );
+        // ...and it is excluded from identity equality, so it can neither establish nor invalidate.
+        assert!(high.identity_matches(&none));
+    }
+
+    #[test]
+    fn an_attempt_that_skipped_the_identity_capture_cannot_reconcile_into_one() {
+        // Advancing through the identity-free transition records no peer, so there is nothing to
+        // reconcile against and the attempt fails closed instead of admitting a fresh capture.
+        let clock = std::rc::Rc::new(std::cell::Cell::new(0u64));
+        let attempt = ServiceInstanceBindingAttempt::<Prepared>::begin_for_test(clock)
+            .record_scm_before(observed(PID_A, CREATED_A))
+            .into_attempt()
+            .expect("scm-before")
+            .record_ipc_peer(observed(PID_A, CREATED_A))
+            .into_attempt()
+            .expect("peer observed without identity");
+        let outcome = attempt.reconcile_ipc_peer_identity(
+            observed(PID_A, CREATED_A),
+            &peer_facts(&owner_sid(), 2, Some(0x2000)),
+            77,
+            5,
+        );
+        assert_eq!(
+            outcome.refusal(),
+            Some(ServiceInstanceBinding::MissingIpcObservation)
+        );
+    }
+
+    #[test]
+    fn a_captured_peer_identity_still_completes_the_ordinary_binding() {
+        // The identity layer sits ALONGSIDE the accepted cross-source binding; it neither replaces
+        // nor weakens it.
+        let verdict = captured(&owner_sid(), 2, Some(0x2000))
+            .record_scm_after(observed(PID_A, CREATED_A))
+            .into_attempt()
+            .expect("scm-after")
+            .finalise();
+        assert_eq!(verdict, ServiceInstanceBinding::Match);
+    }
+
+    #[test]
+    fn an_expired_attempt_cannot_capture_or_reconcile_a_peer_identity() {
+        let clock = std::rc::Rc::new(std::cell::Cell::new(0u64));
+        let attempt =
+            ServiceInstanceBindingAttempt::<Prepared>::begin_for_test(std::rc::Rc::clone(&clock))
+                .record_scm_before(observed(PID_A, CREATED_A))
+                .into_attempt()
+                .expect("scm-before");
+        clock.set(MAX_OBSERVATION_WINDOW_MILLIS + 1);
+        let outcome = attempt.record_ipc_peer_identity(
+            observed(PID_A, CREATED_A),
+            &peer_facts(&owner_sid(), 2, Some(0x2000)),
+            77,
+            5,
+        );
+        assert_eq!(
+            outcome.refusal(),
+            Some(ServiceInstanceBinding::ObservationWindowExpired)
+        );
+
+        let clock = std::rc::Rc::new(std::cell::Cell::new(0u64));
+        let bound =
+            ServiceInstanceBindingAttempt::<Prepared>::begin_for_test(std::rc::Rc::clone(&clock))
+                .record_scm_before(observed(PID_A, CREATED_A))
+                .into_attempt()
+                .expect("scm-before")
+                .record_ipc_peer_identity(
+                    observed(PID_A, CREATED_A),
+                    &peer_facts(&owner_sid(), 2, Some(0x2000)),
+                    77,
+                    5,
+                )
+                .into_attempt()
+                .expect("captured");
+        clock.set(MAX_OBSERVATION_WINDOW_MILLIS + 1);
+        assert_eq!(
+            bound
+                .reconcile_ipc_peer_identity(
+                    observed(PID_A, CREATED_A),
+                    &peer_facts(&owner_sid(), 2, Some(0x2000)),
+                    77,
+                    5,
+                )
+                .refusal(),
+            Some(ServiceInstanceBinding::ObservationWindowExpired)
+        );
+    }
+
+    #[test]
+    fn a_recorded_peer_identity_is_never_rendered() {
+        let user = PeerUserBinding::from_sid_bytes(&owner_sid()).expect("sid");
+        let session = PeerSessionBinding::from_session_id(7);
+        assert_eq!(format!("{user:?}"), "PeerUserBinding([REDACTED])");
+        assert_eq!(format!("{session:?}"), "PeerSessionBinding([REDACTED])");
+        let PeerContributionOutcome::Contributed(peer) = decide_peer_contribution(
+            observed(PID_A, CREATED_A),
+            &peer_facts(&owner_sid(), 7, Some(0x2000)),
+            77,
+            5,
+        ) else {
+            panic!("expected a contribution");
+        };
+        let rendered = format!("{peer:?}");
+        assert_eq!(rendered, "CanonicalPeerContribution([REDACTED])");
+        assert!(!rendered.contains("1001") && !rendered.contains('7'));
+        // The attempt holding one renders nothing either.
+        assert_eq!(
+            format!("{:?}", captured(&owner_sid(), 7, Some(0x2000))),
+            "ServiceInstanceBindingAttempt([REDACTED])"
         );
     }
 }

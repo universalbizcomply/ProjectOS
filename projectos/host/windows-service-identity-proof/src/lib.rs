@@ -69,6 +69,12 @@ pub use instance::{
     LiveInstanceObservationCapability, ServiceInstanceBinding, ServiceInstanceRefusal,
     ServiceInstanceToken,
 };
+// PROJECTOSHOST-IPC-KERNEL-PEER-CAPTURE1A adds ATTEMPT-SCOPED kernel peer capture and deliberately
+// EXPORTS NOTHING NEW. Every peer identity type is crate-private, the capture is an attempt transition
+// rather than a callable entry point, and no contribution, binding, observation or handle is returned.
+// A consumer learns only what every other transition tells it: the attempt advanced into its next
+// opaque state, or the closed redacted verdict that refused it.
+//
 // The attempt typestate is the DEPENDENT CONSUMER CONTRACT: a future orchestrator must be able to
 // name and drive it without enabling live Windows observation, so it is gated on `consumer-contract`
 // (which live observation implies) rather than on the live feature itself.

@@ -82,6 +82,7 @@ const MODULES = [
   "val-projectoshost-build-provenance1a",
   "val-projectoshost-ipc-operation-contract1a",
   "val-projectoshost-ipc-peer-authentication1a",
+  "val-projectoshost-ipc-kernel-peer-capture1a",
   "val-projectos-validator-scratch-lifecycle1a",
   "val-projectos-credential-vault1a",
   "val-projectos-session-router1a",

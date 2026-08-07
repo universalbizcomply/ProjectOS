@@ -110,6 +110,7 @@ function run() {
   // 2. Source scans. Every module EXCEPT the confined instance-observation FFI must remain a pure
   // typed contract with no unsafe and no effect route; the FFI module is the single audited exception.
   const FFI_REL = "projectos/host/windows-service-identity-proof/src/instance_ffi.rs";
+  const INSTANCE_REL = "projectos/host/windows-service-identity-proof/src/instance.rs";
   const srcFiles = rsFiles(path.join(CRATE, "src"));
   let sawDeny = false;
   let sawFfi = false;
@@ -133,11 +134,26 @@ function run() {
   if (!sawFfi) errors.push("the confined instance-observation FFI module is missing");
 
   // 3. Redacted evidence: no raw-identity-capable field anywhere in the crate's public types.
+  //
+  // AMENDED by PROJECTOSHOST-IPC-KERNEL-PEER-CAPTURE1A under explicit gatekeeper authority, narrowly:
+  // ONE bounded private byte buffer is permitted, and only as the SID storage of the crate-private
+  // opaque `PeerUserBinding`. Exact-user reconciliation needs equality over a SID, and a SID is bytes;
+  // the safety property was never "no bytes exist" but "no raw identity is READABLE". So the exact
+  // authorised declaration is excised from the scanned text and the ORIGINAL blanket rule then runs
+  // unchanged over everything else — a second byte-array field, or the same field under a different
+  // type, still fails — and the opacity of the excised type is proven separately in 8j below.
+  const AUTHORISED_OPAQUE_SID_FIELD = /\n\s*sid:\s*\[u8;\s*PEER_SID_MAX_LEN\],/;
   for (const f of srcFiles) {
     const rel = path.relative(ROOT, f).replace(/\\/g, "/");
     // The FFI module declares no public type; its locals are covered by the opacity checks below.
     if (rel === FFI_REL) continue;
-    const code = stripComments(read(f));
+    let code = stripComments(read(f));
+    if (rel === INSTANCE_REL) {
+      const authorised = code.match(new RegExp(AUTHORISED_OPAQUE_SID_FIELD, "g")) || [];
+      if (authorised.length > 1)
+        errors.push(rel + ": more than one bounded opaque SID field is declared");
+      code = code.replace(AUTHORISED_OPAQUE_SID_FIELD, "\n");
+    }
     for (const { re, why } of RAW_IDENTITY_TYPES) {
       if (re.test(code)) errors.push(rel + ": " + why);
     }
@@ -367,15 +383,58 @@ function run() {
       errors.push("an observation path does not populate the creation time from the OS query");
     if (!/PROCESS_QUERY_LIMITED_INFORMATION/.test(ffi))
       errors.push("the process is not opened with the minimum query access");
+    // AMENDED by PROJECTOSHOST-IPC-KERNEL-PEER-CAPTURE1A under explicit gatekeeper authority: the
+    // original rule assumed NO token access at all. Bounded read-only token capture is now authorised,
+    // so the blanket `GetTokenInformation` ban is replaced by EXACT least-rights checks. Every other
+    // escalation route stays banned, including `OpenProcessToken` — the client token is reached through
+    // impersonation and the THREAD token, never by opening the peer process's token.
     for (const bad of [
       /PROCESS_ALL_ACCESS/,
       /PROCESS_VM_READ/,
       /SeDebugPrivilege/,
       /AdjustTokenPrivileges/,
       /OpenProcessToken/,
-      /GetTokenInformation/,
     ]) {
       if (bad.test(ffi)) errors.push("the observation escalates beyond the minimum query access");
+    }
+    if (/GetTokenInformation/.test(ffi)) {
+      // Token reads are authorised ONLY under the exact minimum rights.
+      if (!/OpenThreadToken\(\s*GetCurrentThread\(\),\s*TOKEN_QUERY,\s*false,/.test(ffi))
+        errors.push(
+          "the client token is not opened with TOKEN_QUERY and OpenAsSelf=false under impersonation"
+        );
+      // Only ACCESS-MASK names are inspected; the Windows record types and this module's own buffer
+      // constant are not access rights.
+      const ACCESS_MASKS =
+        /\bTOKEN_(QUERY|QUERY_SOURCE|ALL_ACCESS|DUPLICATE|IMPERSONATE|ASSIGN_PRIMARY|ADJUST_PRIVILEGES|ADJUST_GROUPS|ADJUST_DEFAULT|ADJUST_SESSIONID|READ|WRITE|EXECUTE)\b/g;
+      for (const right of new Set(ffi.match(ACCESS_MASKS) || [])) {
+        if (right !== "TOKEN_QUERY")
+          errors.push("the token is opened with more than TOKEN_QUERY: " + right);
+      }
+      for (const bad of [
+        /DuplicateTokenEx?/,
+        /SetThreadToken/,
+        /CreateProcessAsUser/,
+        /ImpersonateLoggedOnUser/,
+        /LogonUserW?\s*\(/,
+        /PrivilegeCheck/,
+      ]) {
+        if (bad.test(ffi))
+          errors.push("the token capture creates, duplicates, assigns or elevates a token");
+      }
+      // Impersonation is entered ONLY through the pipe, and reversion is guaranteed by RAII Drop.
+      if (!/ImpersonateNamedPipeClient/.test(ffi))
+        errors.push("token facts are read without impersonating the pipe client");
+      if (!/impl Drop for ImpersonatedPipeClient/.test(ffi))
+        errors.push("the impersonation window has no RAII guard");
+      if (!/fn drop\(&mut self\)\s*\{[\s\S]{0,400}RevertToSelf\(\)/.test(ffi))
+        errors.push("the impersonation guard's Drop does not revert");
+      // The raw capture helper must remain PRIVATE: a peer identity is reachable only through an
+      // attempt transition, never as a callable entry point.
+      if (/pub(\(crate\))?\s+unsafe\s+fn\s+capture_peer_identity_facts/.test(ffi))
+        errors.push("the raw peer-identity capture helper is publicly reachable outside an attempt");
+      if (!/\n\s*unsafe fn capture_peer_identity_facts\(/.test(ffi))
+        errors.push("the private peer-identity capture helper is missing");
     }
     // Deterministic handle cleanup through the canonical RAII primitive (no manual CloseHandle).
     if (!/projectos_windows_runtime_primitives::handles::\{\s*adopt,\s*win32\s*\}/.test(ffi))
@@ -650,6 +709,174 @@ function run() {
       "expiry_after_the_last_observation_but_before_finalise_is_refused",
     ]) {
       if (!inst.includes(t)) errors.push("missing attempt-scoping test: " + t);
+    }
+  }
+
+  // 8j. ATTEMPT-SCOPED PEER IDENTITY (PROJECTOSHOST-IPC-KERNEL-PEER-CAPTURE1A).
+  //
+  // The counterpart to the two narrow amendments above. Bounded private SID storage is permitted ONLY
+  // because every one of these holds: the type is crate-private, unconstructible outside this crate,
+  // unreadable, unrenderable, unhashable, unserialisable, owned by the attempt and never returned.
+  if (fs.existsSync(instPath)) {
+    const inst = stripComments(read(instPath));
+    const libSrcRaw = stripComments(read(path.join(CRATE, "src", "lib.rs")));
+
+    /** The contiguous `#[...]` attribute lines immediately above a declaration. */
+    const gateAbove = (src, decl) => {
+      const at = src.indexOf(decl);
+      if (at === -1) return null;
+      const lines = src.slice(0, at).split("\n");
+      const attrs = [];
+      for (let i = lines.length - 1; i >= 0; i--) {
+        const line = lines[i].trim();
+        if (line === "") continue;
+        if (line.startsWith("#[")) {
+          attrs.push(line);
+          continue;
+        }
+        break;
+      }
+      return attrs.join(" ");
+    };
+
+    const PEER_TYPES = ["PeerUserBinding", "PeerSessionBinding", "CanonicalPeerContribution"];
+
+    // The identity types are CRATE-PRIVATE. Nothing sibling-facing may name them.
+    for (const t of PEER_TYPES) {
+      if (!new RegExp("pub\\(crate\\)\\s+(struct|enum)\\s+" + t + "\\b").test(inst))
+        errors.push(t + " is not a crate-private opaque type");
+      if (new RegExp("\\bpub\\s+(struct|enum)\\s+" + t + "\\b").test(inst))
+        errors.push(t + " is publicly declared (identity would cross the crate boundary)");
+      if (new RegExp("\\b" + t + "\\b").test(libSrcRaw))
+        errors.push(t + " is re-exported from lib.rs");
+      // Redacted, hand-written Debug; never derived, never rendering content.
+      const dbg = inst.match(
+        new RegExp("impl\\s+fmt::Debug\\s+for\\s+" + t + "\\s*\\{([\\s\\S]*?)\\n\\}")
+      );
+      if (!dbg) errors.push(t + " does not implement a redacted Debug");
+      else if (!new RegExp(t + "\\(\\[REDACTED\\]\\)").test(dbg[1]))
+        errors.push(t + " Debug output is not redacted");
+      const derive = inst.match(
+        new RegExp("#\\[derive\\(([^)]*)\\)\\]\\s*(?:#\\[[^\\]]*\\]\\s*)*pub\\(crate\\)\\s+(?:struct|enum)\\s+" + t + "\\b")
+      );
+      if (derive && /Debug|Hash|Serialize|Deserialize|Default/.test(derive[1]))
+        errors.push(t + " derives a forbidden trait: " + derive[1]);
+      // No conversion, borrow or raw-parts escape hatch.
+      for (const trait of ["AsRef", "Borrow", "Deref", "Into", "From", "Hash", "fmt::Display"]) {
+        if (new RegExp("impl[^\\n]*\\b" + trait.replace(".", "\\.") + "\\b[^\\n]*for\\s+" + t).test(inst))
+          errors.push(t + " implements " + trait + ", which would leak or rebuild identity");
+      }
+      // The type is gated to where identity can legitimately originate, and NEVER to the fixture
+      // feature: a default or fixture graph must contain no identity storage at all.
+      const gate = gateAbove(inst, "pub(crate) struct " + t) || gateAbove(inst, "pub(crate) enum " + t);
+      if (gate === null) errors.push(t + " declaration not found for gate inspection");
+      else {
+        if (!/windows-live-instance-observation/.test(gate))
+          errors.push(t + " is not gated to the live observation graph");
+        if (/test-fixtures/.test(gate))
+          errors.push(t + " is reachable from the non-default fixture graph");
+      }
+    }
+
+    // Private fields, private construction, no accessor of any kind.
+    const bindingBody = inst.match(/pub\(crate\)\s+struct\s+PeerUserBinding\s*\{([\s\S]*?)\n\}/);
+    if (!bindingBody) errors.push("the opaque user binding is missing");
+    else if (/\bpub\b/.test(bindingBody[1]))
+      errors.push("the opaque user binding exposes a public field");
+    if (!/pub\(crate\)\s+fn\s+from_sid_bytes/.test(inst))
+      errors.push("the user binding constructor is not crate-private");
+    if (/\bpub\s+fn\s+from_sid_bytes|\bpub\s+fn\s+from_session_id/.test(inst))
+      errors.push("an opaque binding has a public constructor");
+    // Struct-literal construction is legal only in the declaration and the constructor; anywhere else
+    // would be a second, unchecked route from raw bytes to an identity.
+    if ((inst.match(/(?<!struct |impl |for )PeerUserBinding\s*\{/g) || []).length > 0)
+      errors.push("the opaque user binding is constructed by struct literal outside its constructor");
+    for (const bad of [
+      /fn\s+(bytes|as_bytes|as_slice|to_bytes|raw|raw_parts|into_inner|as_parts)\s*\(\s*&?self/,
+      /fn\s+(fingerprint|digest|hash_value|to_hex)\s*\(\s*&?self/,
+      /->\s*&\[u8\]/,
+    ]) {
+      if (bad.test(inst)) errors.push("an opaque identity value has a readable accessor");
+    }
+    // No PUBLIC route returns identity, an internal record or the internal outcome.
+    if (
+      new RegExp(
+        "\\bpub\\s+fn[^\\n]*->[^\\n]*(" + PEER_TYPES.join("|") + "|PeerContributionOutcome)"
+      ).test(inst)
+    )
+      errors.push("a public function returns a stored peer identity or a reusable contribution");
+    if (/pub\(crate\)\s+fn\s+\w*peer\w*\s*\(\s*&self/.test(inst))
+      errors.push("the attempt hands its recorded peer identity back");
+
+    // The attempt OWNS the recorded identity: private field, boxed inside the private store.
+    const innerPeer = inst.match(/struct AttemptInner\s*\{([\s\S]*?)\n\}/);
+    if (!innerPeer || !/\n\s*peer:\s*Option<Box<CanonicalPeerContribution>>,/.test(innerPeer[1]))
+      errors.push("the attempt does not retain the peer identity internally");
+
+    // Capture and reconciliation are ATTEMPT TRANSITIONS that consume the attempt.
+    const captureBlock = inst.match(
+      /impl\s+ServiceInstanceBindingAttempt<ScmBeforeObserved>\s*\{([\s\S]*?)\n\}/
+    );
+    if (!captureBlock || !/fn\s+record_ipc_peer_identity\s*\(\s*mut self,[\s\S]*?\)\s*->\s*AttemptOutcome<IpcPeerObserved>/.test(captureBlock[1]))
+      errors.push("the peer-identity capture is not an attempt transition from ScmBeforeObserved");
+    const reconcileBlock = inst.match(
+      /impl\s+ServiceInstanceBindingAttempt<IpcPeerObserved>\s*\{([\s\S]*?)\n\}/
+    );
+    if (!reconcileBlock || !/fn\s+reconcile_ipc_peer_identity\s*\(\s*self,[\s\S]*?\)\s*->\s*AttemptOutcome<IpcPeerObserved>/.test(reconcileBlock[1]))
+      errors.push("the peer-identity reconciliation is not an attempt transition");
+    for (const fn of ["record_ipc_peer_identity", "reconcile_ipc_peer_identity"]) {
+      const body = inst.match(new RegExp("fn\\s+" + fn + "\\s*\\([\\s\\S]*?\\n    \\}"));
+      if (!body) errors.push("cannot inspect the body of " + fn);
+      else if (!/if let Some\(expired\) = self\.inner\.expiry\(\)/.test(body[0]))
+        errors.push(fn + " does not check the observation window");
+    }
+
+    // Reversion is decided FIRST, and integrity decides NOTHING.
+    const decide = inst.match(/fn\s+decide_peer_contribution\([\s\S]*?\n\}/);
+    if (!decide) errors.push("the portable peer decision core is missing");
+    else {
+      const revertAt = decide[0].indexOf("impersonation_reverted");
+      const userAt = decide[0].indexOf("token_user");
+      const instAt = decide[0].indexOf("ServiceInstanceObservation::Observed");
+      if (revertAt === -1) errors.push("the peer decision core does not check that impersonation reverted");
+      for (const [name, at] of [["the instance check", instAt], ["the user check", userAt]]) {
+        if (at !== -1 && revertAt !== -1 && at < revertAt)
+          errors.push(name + " precedes the reversion check in the peer decision core");
+      }
+      const lastRefusal = decide[0].lastIndexOf("PeerContributionOutcome::Refused(");
+      const firstIntegrity = decide[0].search(/integrity/);
+      if (firstIntegrity !== -1 && lastRefusal !== -1 && firstIntegrity < lastRefusal)
+        errors.push("integrity is consulted before a peer refusal is decided");
+    }
+    const matches = inst.match(/fn\s+identity_matches\([\s\S]*?\n    \}/);
+    if (!matches) errors.push("the attempt has no exact-identity comparison");
+    else {
+      for (const part of ["instance", "user", "session", "connection_id", "handshake_generation"]) {
+        if (!new RegExp("self\\." + part + "\\s*==\\s*bound\\." + part).test(matches[0]))
+          errors.push("exact-identity comparison no longer compares " + part);
+      }
+      if (/integrity/.test(matches[0]))
+        errors.push("exact-identity comparison consults integrity, which must authorise nothing");
+    }
+    // Every peer refusal collapses to ONE closed verdict, exhaustively.
+    const collapse = inst.match(/fn\s+peer_refusal_verdict\([\s\S]*?\n\}/);
+    if (!collapse) errors.push("peer refusals are not collapsed onto a closed verdict");
+    else {
+      if (/_\s*=>/.test(collapse[0]))
+        errors.push("the peer refusal collapse uses a wildcard instead of an exhaustive match");
+      if ((collapse[0].match(/ServiceInstanceBinding::/g) || []).length !== 1)
+        errors.push("the peer refusal collapse discloses more than one verdict");
+    }
+
+    // Exact-user separation and the non-authorising integrity ruling must be exercised by tests.
+    for (const t of [
+      "two_different_users_of_the_same_class_remain_distinguishable",
+      "integrity_never_refuses_and_never_alters_identity",
+      "an_unreverted_impersonation_is_refused_before_any_other_check",
+      "a_reused_pid_with_a_different_creation_identity_is_refused",
+      "a_recorded_peer_identity_is_never_rendered",
+    ]) {
+      if (!inst.includes(t)) errors.push("missing peer-capture test: " + t);
     }
   }
 
