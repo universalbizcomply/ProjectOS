@@ -7,8 +7,10 @@
 //!
 //! 1. [`ProtectedOperationRequest`] — the UNTRUSTED wire DTO. Everything in it is a *claim* made by a
 //!    caller. Parsing it proves only that bytes were well formed.
-//! 2. [`TrustedPeerContext`] — created ONLY from kernel-attested peer identity. **Phase 1 provides no
-//!    constructor at all**, so no code can currently produce one. Phase 2 mints it.
+//! 2. [`TrustedPeerContext`] — evidence that a peer was admitted for a HOST-ISSUED connection. It
+//!    carries NO identity: peer identity is owned end-to-end by the canonical identity-proof crate's
+//!    bounded attempt and never crosses into this crate. **There is no production constructor at all**,
+//!    so no shipped code path can produce one; minting it from a canonical attempt outcome is phase 4.
 //! 3. [`AuthorisedProtectedOperation`] — created ONLY from a trusted peer context, an independently
 //!    verified owner approval and a closed C4 gate. Unreachable today, by construction.
 //!
@@ -26,8 +28,6 @@
 //! While that holds, [`evaluate_protected_operation`] can only ever answer
 //! [`RejectionReason::OwnerPresenceGateOpen`]. There is deliberately no constructor, feature flag or
 //! test hook in this crate that produces a closed gate.
-
-use projectos_host_core::PeerUserClass;
 
 use crate::protocol::{
     parse_single_frame, write_frame_header, FrameParseError, MessageKind, Nonce, HEADER_LEN,
@@ -332,306 +332,61 @@ impl ProtectedOperationRequest {
 }
 
 // -------------------------------------------------------------------------------------------------
-// LAYER 2 — TRUSTED PEER CONTEXT (no constructor in this phase)
+// LAYER 2 — TRUSTED PEER CONTEXT (no production constructor)
+//
+// PROJECTOSHOST-IPC-PEER-CONTRACT-RECONCILIATION1A retired this crate's duplicate peer-identity model.
+//
+// The accepted production architecture (PROJECTOSHOST-IPC-KERNEL-PEER-CAPTURE1A) makes the canonical
+// identity-proof crate the SOLE owner of peer identity: raw process and token identity is read only
+// there, exact user and session identity is opaque and owned by a bounded attempt, and no reusable
+// identity contribution ever crosses into this crate. A second identity model here would be duplicate
+// and contradictory vocabulary, so it is gone rather than merely deprecated.
+//
+// REMOVED, with no replacement and no successor in this crate: raw fixed-size SID storage, raw Windows
+// session identity, bounded integrity levels, an observed-evidence input model, peer classification,
+// peer-authentication errors, and both authentication entry points. Nothing here reads, stores,
+// compares or classifies identity.
+//
+// WHAT REMAINS is deliberately minimal and carries NO identity: a sealed marker recording that a peer
+// was admitted for a HOST-ISSUED connection. It exists because [`evaluate_protected_operation`] must be
+// able to distinguish "no peer" from "a peer", and because layer 3 is defined in terms of it.
+//
+// THERE IS NO PRODUCTION CONSTRUCTOR. Not public, not `pub(crate)`, not behind a feature — the only one
+// is `cfg(test)`, so in every shipped graph `evaluate_protected_operation` can only ever be passed
+// `None`. Minting a real context from a canonical attempt outcome is PHASE 4 and is not implemented,
+// claimed or stubbed here.
 // -------------------------------------------------------------------------------------------------
 
-/// Maximum bytes of a Windows SID (`SECURITY_MAX_SID_SIZE`). A SID is carried as bounded BYTES, never
-/// as text, so this module's "no free-form field" property survives peer authentication.
-pub const SID_MAX_LEN: usize = 68;
-
-/// A bounded, zero-padded copy of a token user SID.
+/// Evidence that a peer was admitted for one HOST-ISSUED connection.
 ///
-/// Deliberately offers NO byte-slice accessor: comparison is by value, so nothing here can become a
-/// generic payload route. Zero padding makes equality well defined.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct TokenUserSid {
-    bytes: [u8; SID_MAX_LEN],
-    len: u8,
-}
-
-impl TokenUserSid {
-    /// Shortest structurally meaningful SID: revision + subauthority count + 6-byte authority. Gated
-    /// alongside the only constructor that consults it, which is itself absent from a production build.
-    #[cfg(any(test, feature = "test-fixtures"))]
-    const MIN_LEN: usize = 8;
-
-    /// Copy a SID out of kernel-provided bytes. Fails closed on an impossible length.
-    ///
-    /// NOT AVAILABLE IN A PRODUCTION BUILD. This is the only route from arbitrary bytes to an identity
-    /// value, so while live capture is deferred it is gated to tests and the non-default fixture graph.
-    /// The later canonical-capture phase supplies real kernel bytes through its own sealed route.
-    #[cfg(any(test, feature = "test-fixtures"))]
-    #[must_use]
-    pub fn from_kernel_bytes(raw: &[u8]) -> Option<Self> {
-        if raw.len() < Self::MIN_LEN || raw.len() > SID_MAX_LEN {
-            return None;
-        }
-        let mut bytes = [0u8; SID_MAX_LEN];
-        bytes[..raw.len()].copy_from_slice(raw);
-        Some(Self {
-            bytes,
-            len: raw.len() as u8,
-        })
-    }
-
-    /// The SID's byte length.
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.len as usize
-    }
-
-    /// A SID is never empty.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        false
-    }
-
-    /// The identifier authority (bytes 2..8).
-    fn authority(&self) -> u64 {
-        let b = &self.bytes;
-        (u64::from(b[2]) << 40)
-            | (u64::from(b[3]) << 32)
-            | (u64::from(b[4]) << 24)
-            | (u64::from(b[5]) << 16)
-            | (u64::from(b[6]) << 8)
-            | u64::from(b[7])
-    }
-
-    /// The first sub-authority, if present.
-    fn first_sub_authority(&self) -> Option<u32> {
-        if self.bytes[1] == 0 || self.len() < 12 {
-            return None;
-        }
-        Some(u32::from_le_bytes([
-            self.bytes[8],
-            self.bytes[9],
-            self.bytes[10],
-            self.bytes[11],
-        ]))
-    }
-
-    /// Classify the principal from the SID ALONE.
-    ///
-    /// Deliberately ignores group membership. A filtered administrator token still carries the user's
-    /// own SID, so an ordinary user cannot become `System` or `Service` by group, and a deny-only
-    /// Administrators entry cannot promote anyone.
-    fn classify(&self) -> Option<PeerUserClass> {
-        // NT Authority is 5; sub-authority 18 is LocalSystem, 80 a service account, 21 a local or
-        // domain account (the interactive owner).
-        if self.authority() != 5 {
-            return Some(PeerUserClass::Other);
-        }
-        Some(match self.first_sub_authority()? {
-            18 => PeerUserClass::System,
-            80 => PeerUserClass::Service,
-            21 => PeerUserClass::Owner,
-            _ => PeerUserClass::Other,
-        })
-    }
-}
-
-/// The CLOSED Windows integrity levels this contract recognises. An unknown RID fails closed rather
-/// than being coerced to a neighbouring level.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum IntegrityLevel {
-    /// `SECURITY_MANDATORY_UNTRUSTED_RID`
-    Untrusted,
-    /// `SECURITY_MANDATORY_LOW_RID`
-    Low,
-    /// `SECURITY_MANDATORY_MEDIUM_RID` - an ordinary, non-elevated process.
-    Medium,
-    /// `SECURITY_MANDATORY_HIGH_RID` - an elevated process.
-    High,
-    /// `SECURITY_MANDATORY_SYSTEM_RID`
-    System,
-}
-
-impl IntegrityLevel {
-    /// Map a mandatory-label RID. Unknown fails closed.
-    #[must_use]
-    pub fn from_rid(rid: u32) -> Option<Self> {
-        Some(match rid {
-            0x0000 => Self::Untrusted,
-            0x1000 => Self::Low,
-            0x2000 => Self::Medium,
-            0x3000 => Self::High,
-            0x4000 => Self::System,
-            _ => return None,
-        })
-    }
-}
-
-/// Kernel-attested evidence about one connected peer, as an INPUT to authentication.
+/// Carries only the two identifiers the HOST issued — never anything the peer sent, and never any
+/// identity. There is no SID, no session, no process, no integrity level and no classification here,
+/// because those belong to the canonical identity-proof crate's attempt and never leave it.
 ///
-/// PRODUCTION-INERT BY CONSTRUCTION. Every field is private, the type carries the module seal, and its
-/// only constructor is gated to tests and the non-default fixture graph — so no production code path
-/// can fabricate evidence and feed it to [`authenticate_peer`]. Live capture is deliberately NOT
-/// implemented here: the accepted `val-windows-local-ipc-capability-b3` invariant assigns raw process
-/// and token identity to the canonical identity-proof crate, and a separately gated phase will supply
-/// this evidence from there.
-///
-/// Holding one would grant nothing in any case: only [`authenticate_peer`] turns coherent evidence into
-/// a [`TrustedPeerContext`], and that context is still not authority while C4 is open.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ObservedPeerEvidence {
-    _seal: Seal,
-    /// The connected client's process identifier, as attested by the kernel.
-    client_pid: u32,
-    /// Creation identity of that process, read at observation time.
-    client_creation_tick: u64,
-    /// The same process re-read AFTER the identity work, or `None` if it has gone.
-    live_pid: Option<u32>,
-    /// Creation identity re-read alongside `live_pid`.
-    live_creation_tick: Option<u64>,
-    /// The client token's user SID.
-    token_user_sid: TokenUserSid,
-    /// The client token's Windows session.
-    session_id: u32,
-    /// The client token's integrity level.
-    integrity: IntegrityLevel,
-    /// Host-assigned connection identity.
-    connection_id: u64,
-    /// Host-assigned handshake generation.
-    handshake_generation: u64,
-}
-
-impl ObservedPeerEvidence {
-    /// Assemble evidence for authentication.
-    ///
-    /// NOT AVAILABLE IN A PRODUCTION BUILD — gated to tests and the non-default fixture graph, which is
-    /// what makes the whole evidence path inert until the canonical capture phase lands.
-    #[cfg(any(test, feature = "test-fixtures"))]
-    #[allow(clippy::too_many_arguments)]
-    #[must_use]
-    pub fn observed(
-        client_pid: u32,
-        client_creation_tick: u64,
-        live_pid: Option<u32>,
-        live_creation_tick: Option<u64>,
-        token_user_sid: TokenUserSid,
-        session_id: u32,
-        integrity: IntegrityLevel,
-        connection_id: u64,
-        handshake_generation: u64,
-    ) -> Self {
-        Self {
-            _seal: Seal,
-            client_pid,
-            client_creation_tick,
-            live_pid,
-            live_creation_tick,
-            token_user_sid,
-            session_id,
-            integrity,
-            connection_id,
-            handshake_generation,
-        }
-    }
-}
-
-/// CLOSED reasons peer authentication refused. Fieldless: it names the check, never the value.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum PeerAuthenticationError {
-    /// The client process could not be identified.
-    ClientProcessUnavailable,
-    /// The process no longer exists.
-    ClientProcessExited,
-    /// The PID matches but the creation identity does not - the PID was reused.
-    ProcessCreationMismatch,
-    /// The connection identity did not match the one this host issued.
-    ConnectionMismatch,
-    /// The handshake generation did not match.
-    HandshakeGenerationMismatch,
-    /// The token SID could not be classified into a bounded peer class.
-    UnknownPeerClass,
-    /// The token user SID differs from the one this connection was bound to.
-    UserSidMismatch,
-    /// The Windows session differs from the one this connection was bound to.
-    SessionMismatch,
-    /// The integrity level differs from the one this connection was bound to.
-    IntegrityMismatch,
-}
-
-/// Kernel-attested peer identity.
-///
-/// Constructed ONLY by [`authenticate_peer`], the sole caller of the private `mint` below. There is no
-/// public constructor, no `pub(crate)` constructor, no `From` conversion from the wire DTO and no
-/// deserialisation into this type.
+/// Sealed, so no downstream crate can fabricate one with a struct literal, and with no production
+/// constructor, so no shipped code path can produce one at all.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TrustedPeerContext {
     _seal: Seal,
-    client_pid: u32,
-    client_creation_tick: u64,
-    token_user_sid: TokenUserSid,
-    session_id: u32,
-    integrity: IntegrityLevel,
-    peer_class: PeerUserClass,
+    /// Host-issued connection identity. Never supplied by the peer.
     connection_id: u64,
+    /// Host-issued handshake generation. Never supplied by the peer.
     handshake_generation: u64,
 }
 
 impl TrustedPeerContext {
-    /// PRIVATE. Not `pub`, not `pub(crate)`: only `authenticate_peer` in this module reaches it.
-    #[allow(clippy::too_many_arguments)]
-    fn mint(
-        client_pid: u32,
-        client_creation_tick: u64,
-        token_user_sid: TokenUserSid,
-        session_id: u32,
-        integrity: IntegrityLevel,
-        peer_class: PeerUserClass,
-        connection_id: u64,
-        handshake_generation: u64,
-    ) -> Self {
+    /// TEST-ONLY. `cfg(test)` and private, so it exists in NO shipped graph — not the default build and
+    /// not the non-default fixture build — and cannot be reached by any caller in any crate.
+    ///
+    /// It exists solely so the C4 hard stop can be exercised with a peer PRESENT, which is a strictly
+    /// stronger test than exercising it with `None`.
+    #[cfg(test)]
+    fn for_admitted_connection(connection_id: u64, handshake_generation: u64) -> Self {
         Self {
             _seal: Seal,
-            client_pid,
-            client_creation_tick,
-            token_user_sid,
-            session_id,
-            integrity,
-            peer_class,
             connection_id,
             handshake_generation,
         }
-    }
-
-    /// Kernel-attested client PID.
-    #[must_use]
-    pub fn client_pid(&self) -> u32 {
-        self.client_pid
-    }
-
-    /// Kernel-attested process creation tick, which defeats PID reuse.
-    #[must_use]
-    pub fn client_creation_tick(&self) -> u64 {
-        self.client_creation_tick
-    }
-
-    /// Kernel-attested token user SID.
-    #[must_use]
-    pub fn token_user_sid(&self) -> &TokenUserSid {
-        &self.token_user_sid
-    }
-
-    /// Kernel-attested Windows session.
-    #[must_use]
-    pub fn client_session(&self) -> u32 {
-        self.session_id
-    }
-
-    /// Kernel-attested integrity level.
-    #[must_use]
-    pub fn integrity(&self) -> IntegrityLevel {
-        self.integrity
-    }
-
-    /// Bounded peer classification, derived from the token SID alone.
-    #[must_use]
-    pub fn peer_class(&self) -> PeerUserClass {
-        self.peer_class
     }
 
     /// The host-issued connection identity this context is bound to.
@@ -645,94 +400,15 @@ impl TrustedPeerContext {
     pub fn handshake_generation(&self) -> u64 {
         self.handshake_generation
     }
-}
 
-/// Turn raw kernel evidence into a trusted peer context, or refuse.
-///
-/// `expected_connection_id` and `expected_handshake_generation` come from the HOST, never the caller,
-/// so a peer cannot nominate the connection it belongs to. Every check fails closed, and the
-/// process-creation comparison is what stops a later process that reuses an earlier PID from
-/// inheriting the earlier peer's context.
-///
-/// # Errors
-/// [`PeerAuthenticationError`] naming the first check that refused.
-pub fn authenticate_peer(
-    evidence: &ObservedPeerEvidence,
-    expected_connection_id: u64,
-    expected_handshake_generation: u64,
-) -> Result<TrustedPeerContext, PeerAuthenticationError> {
-    if evidence.client_pid == 0 {
-        return Err(PeerAuthenticationError::ClientProcessUnavailable);
+    /// Whether this context belongs to exactly the given host-issued connection and generation.
+    ///
+    /// Both must match. A context admitted for one connection is therefore not interchangeable with
+    /// another, and a context from an earlier handshake generation cannot satisfy a later one.
+    #[must_use]
+    pub fn is_bound_to(&self, connection_id: u64, handshake_generation: u64) -> bool {
+        self.connection_id == connection_id && self.handshake_generation == handshake_generation
     }
-    // The process must still exist once the token work finishes.
-    let (live_pid, live_tick) = match (evidence.live_pid, evidence.live_creation_tick) {
-        (Some(p), Some(t)) => (p, t),
-        _ => return Err(PeerAuthenticationError::ClientProcessExited),
-    };
-    // PID alone is reusable; the creation identity is what makes the pair stable.
-    if live_pid != evidence.client_pid || live_tick != evidence.client_creation_tick {
-        return Err(PeerAuthenticationError::ProcessCreationMismatch);
-    }
-    if evidence.connection_id != expected_connection_id {
-        return Err(PeerAuthenticationError::ConnectionMismatch);
-    }
-    if evidence.handshake_generation != expected_handshake_generation {
-        return Err(PeerAuthenticationError::HandshakeGenerationMismatch);
-    }
-    // Classification comes from the SID, never from anything the caller sent.
-    let peer_class = evidence
-        .token_user_sid
-        .classify()
-        .ok_or(PeerAuthenticationError::UnknownPeerClass)?;
-    Ok(TrustedPeerContext::mint(
-        evidence.client_pid,
-        evidence.client_creation_tick,
-        evidence.token_user_sid,
-        evidence.session_id,
-        evidence.integrity,
-        peer_class,
-        evidence.connection_id,
-        evidence.handshake_generation,
-    ))
-}
-
-/// Re-authenticate a peer against the identity this connection was ALREADY bound to.
-///
-/// [`authenticate_peer`] admits the FIRST observation and thereby fixes the connection's identity.
-/// Every later observation on the same connection goes through here, and every attested field must be
-/// identical. That is what makes "wrong SID refused" and "wrong session refused" structural rather than
-/// advisory: the expectation is the host's own earlier kernel reading, never anything the peer sent.
-///
-/// # Errors
-/// [`PeerAuthenticationError`] naming the first field that diverged.
-pub fn reauthenticate_peer(
-    bound: &TrustedPeerContext,
-    evidence: &ObservedPeerEvidence,
-) -> Result<TrustedPeerContext, PeerAuthenticationError> {
-    // Re-run the full first-observation checks against the SAME connection and generation, so a stale
-    // or replayed capture cannot skip them by arriving second.
-    let fresh = authenticate_peer(
-        evidence,
-        bound.connection_id(),
-        bound.handshake_generation(),
-    )?;
-    if fresh.token_user_sid() != bound.token_user_sid() {
-        return Err(PeerAuthenticationError::UserSidMismatch);
-    }
-    if fresh.client_session() != bound.client_session() {
-        return Err(PeerAuthenticationError::SessionMismatch);
-    }
-    if fresh.integrity() != bound.integrity() {
-        return Err(PeerAuthenticationError::IntegrityMismatch);
-    }
-    // PID and creation tick are already compared by `authenticate_peer` against the live re-read; here
-    // they must additionally equal the process this connection was bound to in the first place.
-    if fresh.client_pid() != bound.client_pid()
-        || fresh.client_creation_tick() != bound.client_creation_tick()
-    {
-        return Err(PeerAuthenticationError::ProcessCreationMismatch);
-    }
-    Ok(fresh)
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -927,8 +603,9 @@ impl ProtectedOperationResponse {
 /// Evaluate an untrusted request.
 ///
 /// Order is fail-closed and deliberate: the C4 gate is checked FIRST, so no amount of peer or binding
-/// work can produce an acceptance while owner presence is unproven. In this phase the gate is always
-/// open and [`TrustedPeerContext`] is unconstructible, so the only reachable answer is a refusal.
+/// work can produce an acceptance while owner presence is unproven. The gate is always open and
+/// [`TrustedPeerContext`] has no production constructor, so the only reachable answer is a refusal and
+/// `peer` is `None` on every shipped path.
 #[must_use]
 pub fn evaluate_protected_operation(
     request: &ProtectedOperationRequest,
@@ -944,7 +621,8 @@ pub fn evaluate_protected_operation(
             TerminalStatus::Terminal,
         );
     }
-    // 2. Kernel-attested peer identity is mandatory (phase 2 supplies it).
+    // 2. An admitted peer is mandatory. Canonical peer identity is established inside the
+    //    identity-proof crate's attempt; wiring its outcome to a context here is phase 4.
     if peer.is_none() {
         return ProtectedOperationResponse::rejected(
             *request.correlation(),
@@ -1204,414 +882,130 @@ mod tests {
         );
     }
 
-    // ---- PHASE 2: the peer-authentication CONTRACT ----
+    // ---- RECONCILIATION: what remains of the peer surface -------------------------------------
     //
-    // Every case below drives the contract with SYNTHETIC evidence. Live capture is deferred to the
-    // canonical identity-proof crate, so nothing here claims that a real peer was ever observed — what
-    // is proven is the reconciliation and refusal logic that such evidence will meet.
+    // PROJECTOSHOST-IPC-PEER-CONTRACT-RECONCILIATION1A retired this crate's duplicate identity model.
+    // The tests below prove what the reduced surface must still guarantee. What they deliberately no
+    // longer test is identity itself: exact user, exact session, process instance, classification and
+    // PID reuse are owned by the canonical identity-proof crate's attempt and are proven there.
 
-    /// A well-formed local-account SID: S-1-5-21-1-2-3-1001.
-    fn owner_sid() -> TokenUserSid {
-        let mut raw = [0u8; 8 + 5 * 4];
-        raw[0] = 1; // revision
-        raw[1] = 5; // sub-authority count
-        raw[7] = 5; // NT Authority
-        raw[8..12].copy_from_slice(&21u32.to_le_bytes());
-        raw[12..16].copy_from_slice(&1u32.to_le_bytes());
-        raw[16..20].copy_from_slice(&2u32.to_le_bytes());
-        raw[20..24].copy_from_slice(&3u32.to_le_bytes());
-        raw[24..28].copy_from_slice(&1001u32.to_le_bytes());
-        TokenUserSid::from_kernel_bytes(&raw).expect("valid sid")
-    }
-
-    /// S-1-5-18 (LocalSystem).
-    fn system_sid() -> TokenUserSid {
-        let mut raw = [0u8; 8 + 4];
-        raw[0] = 1;
-        raw[1] = 1;
-        raw[7] = 5;
-        raw[8..12].copy_from_slice(&18u32.to_le_bytes());
-        TokenUserSid::from_kernel_bytes(&raw).expect("valid sid")
-    }
-
-    /// S-1-5-80-... (a service account).
-    fn service_sid() -> TokenUserSid {
-        let mut raw = [0u8; 8 + 2 * 4];
-        raw[0] = 1;
-        raw[1] = 2;
-        raw[7] = 5;
-        raw[8..12].copy_from_slice(&80u32.to_le_bytes());
-        raw[12..16].copy_from_slice(&7u32.to_le_bytes());
-        TokenUserSid::from_kernel_bytes(&raw).expect("valid sid")
-    }
-
-    /// NT Authority with NO sub-authority: structurally valid, but not classifiable.
-    fn unclassifiable_sid() -> TokenUserSid {
-        let mut raw = [0u8; 8];
-        raw[0] = 1;
-        raw[1] = 0; // no sub-authorities
-        raw[7] = 5;
-        TokenUserSid::from_kernel_bytes(&raw).expect("valid sid")
-    }
-
-    /// The baseline coherent observation: one live process, one token, on connection 77 generation 5.
-    fn coherent_evidence() -> ObservedPeerEvidence {
-        ObservedPeerEvidence::observed(
-            4242,
-            99_000,
-            Some(4242),
-            Some(99_000),
-            owner_sid(),
-            2,
-            IntegrityLevel::Medium,
-            77,
-            5,
-        )
-    }
-
+    /// The legacy identity vocabulary, spelled in pieces so this test cannot match itself.
+    ///
+    /// A source scan is the right shape here: the point is that these constructs are ABSENT, and an
+    /// absence cannot be expressed by calling them — code referencing them would not compile, which
+    /// would be a build failure rather than a readable regression.
     #[test]
-    fn coherent_evidence_yields_a_trusted_context_retaining_every_field() {
-        let ctx = authenticate_peer(&coherent_evidence(), 77, 5).expect("authenticates");
-        assert_eq!(ctx.client_pid(), 4242);
-        assert_eq!(ctx.client_creation_tick(), 99_000);
-        assert_eq!(ctx.token_user_sid(), &owner_sid());
-        assert_eq!(ctx.client_session(), 2);
-        assert_eq!(ctx.integrity(), IntegrityLevel::Medium);
-        assert_eq!(ctx.connection_id(), 77);
-        assert_eq!(ctx.handshake_generation(), 5);
-        assert_eq!(ctx.peer_class(), PeerUserClass::Owner);
-    }
+    fn legacy_peer_identity_model_is_not_present_in_production_graph() {
+        let source = include_str!("operation_contract.rs");
+        // Strip line comments, so prose describing the retired model cannot fail this test and, more
+        // importantly, so a real construct cannot hide inside a comment.
+        //
+        // Deliberately UNANNOTATED: the accepted `val-projectoshost-ipc-operation-contract1a` O2
+        // assertion forbids the free-form type NAMES appearing anywhere in this module's code, and
+        // writing one here — even in a test — would break that accepted invariant.
+        let code = source
+            .lines()
+            .map(|l| match l.find("//") {
+                Some(i) => &l[..i],
+                None => l,
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
 
-    #[test]
-    fn peer_class_is_derived_from_the_token_sid_alone() {
-        for (sid, expected) in [
-            (owner_sid(), PeerUserClass::Owner),
-            (system_sid(), PeerUserClass::System),
-            (service_sid(), PeerUserClass::Service),
+        for part in [
+            concat!("TokenUser", "Sid"),
+            concat!("Observed", "PeerEvidence"),
+            concat!("Peer", "AuthenticationError"),
+            concat!("Integrity", "Level"),
+            concat!("Integrity", "Mismatch"),
+            concat!("SID_MAX", "_LEN"),
+            concat!("authenticate", "_peer"),
+            concat!("PeerUser", "Class"),
+            concat!("from_kernel", "_bytes"),
         ] {
-            let e = ObservedPeerEvidence::observed(
-                4242,
-                99_000,
-                Some(4242),
-                Some(99_000),
-                sid,
-                2,
-                IntegrityLevel::Medium,
-                77,
-                5,
+            assert!(
+                !code.contains(part),
+                "the retired peer identity model reappeared in this crate: {part}"
             );
-            let ctx = authenticate_peer(&e, 77, 5).expect("authenticates");
-            assert_eq!(ctx.peer_class(), expected);
+        }
+        // No raw identity storage, and no accessor that lends a byte slice back out. The free-form
+        // shapes (`String`, `Vec<u8>`, maps, `serde`, `&str`) are deliberately NOT re-checked here:
+        // O2 in the accepted operation-contract validator already forbids them module-wide, and
+        // spelling them in this test would itself violate that invariant.
+        for shape in [concat!("[u8;", " 68]"), concat!("-> &[", "u8]")] {
+            assert!(
+                !code.contains(shape),
+                "a raw or free-form identity shape reappeared: {shape}"
+            );
         }
     }
 
     #[test]
-    fn a_high_integrity_token_does_not_change_the_peer_class() {
-        // Elevation is recorded as its own field. It must not promote an ordinary user into System or
-        // Service, which is the filtered-token / deny-only-Administrators trap.
-        let e = ObservedPeerEvidence::observed(
-            4242,
-            99_000,
-            Some(4242),
-            Some(99_000),
-            owner_sid(),
-            2,
-            IntegrityLevel::High,
-            77,
-            5,
-        );
-        let ctx = authenticate_peer(&e, 77, 5).expect("authenticates");
-        assert_eq!(ctx.peer_class(), PeerUserClass::Owner);
-        assert_eq!(ctx.integrity(), IntegrityLevel::High);
+    fn a_trusted_peer_context_carries_no_identity_only_the_host_issued_connection() {
+        // The whole remaining surface: two host-issued identifiers and nothing else. If this type ever
+        // regains an identity field, this test is where the intent was recorded.
+        let ctx = TrustedPeerContext::for_admitted_connection(77, 5);
+        assert_eq!(ctx.connection_id(), 77);
+        assert_eq!(ctx.handshake_generation(), 5);
+        assert!(ctx.is_bound_to(77, 5));
     }
 
     #[test]
-    fn a_sid_that_cannot_be_classified_is_refused() {
-        let e = ObservedPeerEvidence::observed(
-            4242,
-            99_000,
-            Some(4242),
-            Some(99_000),
-            unclassifiable_sid(),
-            2,
-            IntegrityLevel::Medium,
-            77,
-            5,
-        );
-        assert_eq!(
-            authenticate_peer(&e, 77, 5),
-            Err(PeerAuthenticationError::UnknownPeerClass)
-        );
+    fn different_connection_ids_are_not_interchangeable() {
+        let ctx = TrustedPeerContext::for_admitted_connection(77, 5);
+        assert!(!ctx.is_bound_to(78, 5));
+        assert_ne!(ctx, TrustedPeerContext::for_admitted_connection(78, 5));
     }
 
     #[test]
-    fn a_dead_process_is_refused() {
-        let e = ObservedPeerEvidence::observed(
-            4242,
-            99_000,
-            None,
-            None,
-            owner_sid(),
-            2,
-            IntegrityLevel::Medium,
-            77,
-            5,
-        );
-        assert_eq!(
-            authenticate_peer(&e, 77, 5),
-            Err(PeerAuthenticationError::ClientProcessExited)
-        );
+    fn different_handshake_generations_are_not_interchangeable() {
+        let ctx = TrustedPeerContext::for_admitted_connection(77, 5);
+        assert!(!ctx.is_bound_to(77, 6));
+        assert_ne!(ctx, TrustedPeerContext::for_admitted_connection(77, 6));
     }
 
     #[test]
-    fn a_reused_pid_with_a_different_creation_identity_is_refused() {
-        // Same PID, different creation tick: a later process must NOT inherit the earlier context.
-        let e = ObservedPeerEvidence::observed(
-            4242,
-            99_000,
-            Some(4242),
-            Some(99_001),
-            owner_sid(),
-            2,
-            IntegrityLevel::Medium,
-            77,
-            5,
-        );
-        assert_eq!(
-            authenticate_peer(&e, 77, 5),
-            Err(PeerAuthenticationError::ProcessCreationMismatch)
-        );
-    }
-
-    #[test]
-    fn a_missing_client_pid_is_refused() {
-        let e = ObservedPeerEvidence::observed(
-            0,
-            99_000,
-            Some(0),
-            Some(99_000),
-            owner_sid(),
-            2,
-            IntegrityLevel::Medium,
-            77,
-            5,
-        );
-        assert_eq!(
-            authenticate_peer(&e, 77, 5),
-            Err(PeerAuthenticationError::ClientProcessUnavailable)
-        );
-    }
-
-    #[test]
-    fn a_connection_or_handshake_mismatch_is_refused() {
-        assert_eq!(
-            authenticate_peer(&coherent_evidence(), 78, 5),
-            Err(PeerAuthenticationError::ConnectionMismatch)
-        );
-        assert_eq!(
-            authenticate_peer(&coherent_evidence(), 77, 6),
-            Err(PeerAuthenticationError::HandshakeGenerationMismatch)
-        );
-    }
-
-    #[test]
-    fn a_structurally_impossible_sid_is_refused_at_construction() {
-        assert!(
-            TokenUserSid::from_kernel_bytes(&[1u8; 4]).is_none(),
-            "too short"
-        );
-        assert!(
-            TokenUserSid::from_kernel_bytes(&[1u8; 96]).is_none(),
-            "too long"
-        );
-    }
-
-    #[test]
-    fn distinct_sids_and_sessions_stay_distinct() {
-        let a = authenticate_peer(&coherent_evidence(), 77, 5).expect("a");
-        let e = ObservedPeerEvidence::observed(
-            4242,
-            99_000,
-            Some(4242),
-            Some(99_000),
-            system_sid(),
-            2,
-            IntegrityLevel::Medium,
-            77,
-            5,
-        );
-        let b = authenticate_peer(&e, 77, 5).expect("b");
-        assert_ne!(a.token_user_sid(), b.token_user_sid());
-
-        let f = ObservedPeerEvidence::observed(
-            4242,
-            99_000,
-            Some(4242),
-            Some(99_000),
-            owner_sid(),
-            3,
-            IntegrityLevel::Medium,
-            77,
-            5,
-        );
-        let c = authenticate_peer(&f, 77, 5).expect("c");
-        assert_ne!(a.client_session(), c.client_session());
-    }
-
-    #[test]
-    fn unknown_integrity_rids_fail_closed() {
-        assert!(IntegrityLevel::from_rid(0x2000).is_some());
-        assert!(IntegrityLevel::from_rid(0x2500).is_none());
-        assert!(IntegrityLevel::from_rid(0xFFFF).is_none());
-    }
-
-    #[test]
-    fn an_authenticated_peer_still_cannot_pass_c4() {
-        // The whole point of the phase: peer identity does NOT grant operation authority.
-        let ctx = authenticate_peer(&coherent_evidence(), 77, 5).expect("authenticates");
-        let resp = evaluate_protected_operation(&request(), Some(&ctx), 42);
-        assert_eq!(resp.state(), ResponseState::Rejected);
-        assert_eq!(resp.reason(), RejectionReason::OwnerPresenceGateOpen);
-        assert_eq!(resp.result(), ResultClass::NotRun);
-    }
-
-    #[test]
-    fn wire_request_fields_never_influence_the_trusted_context() {
-        // The DTO carries a client_session_ref; authentication ignores it entirely. Changing it must
-        // not change any authenticated field.
-        let ctx = authenticate_peer(&coherent_evidence(), 77, 5).expect("authenticates");
+    fn wire_values_cannot_establish_or_alter_a_peer_context() {
+        // The DTO carries a client_session_ref. It is a claim. Changing it must not reach the trusted
+        // context, and there is no conversion from the request into one — there cannot be, because the
+        // only constructor is test-only and takes host-issued values.
+        let ctx = TrustedPeerContext::for_admitted_connection(77, 5);
         let mut r = request();
         r.client_session_ref = [0xFFu8; SESSION_REF_LEN];
         let resp = evaluate_protected_operation(&r, Some(&ctx), 42);
         assert_eq!(resp.state(), ResponseState::Rejected);
-        assert_eq!(
-            ctx.client_session(),
-            2,
-            "wire data must not alter the attested session"
-        );
-        assert_eq!(ctx.peer_class(), PeerUserClass::Owner);
-    }
-
-    #[test]
-    fn a_rebound_peer_with_a_different_sid_is_refused() {
-        let bound = authenticate_peer(&coherent_evidence(), 77, 5).expect("bound");
-        let e = ObservedPeerEvidence::observed(
-            4242,
-            99_000,
-            Some(4242),
-            Some(99_000),
-            system_sid(),
-            2,
-            IntegrityLevel::Medium,
-            77,
-            5,
-        );
-        assert_eq!(
-            reauthenticate_peer(&bound, &e),
-            Err(PeerAuthenticationError::UserSidMismatch)
+        assert_eq!(resp.reason(), RejectionReason::OwnerPresenceGateOpen);
+        assert!(
+            ctx.is_bound_to(77, 5),
+            "wire data must not alter the host-issued binding"
         );
     }
 
     #[test]
-    fn a_rebound_peer_from_a_different_session_is_refused() {
-        let bound = authenticate_peer(&coherent_evidence(), 77, 5).expect("bound");
-        let e = ObservedPeerEvidence::observed(
-            4242,
-            99_000,
-            Some(4242),
-            Some(99_000),
-            owner_sid(),
-            1,
-            IntegrityLevel::Medium,
-            77,
-            5,
-        );
-        assert_eq!(
-            reauthenticate_peer(&bound, &e),
-            Err(PeerAuthenticationError::SessionMismatch)
-        );
+    fn an_admitted_peer_still_cannot_pass_c4() {
+        // Strictly stronger than passing None: a peer IS present and the answer is still the C4 refusal,
+        // with no effect, no acceptance and no completion.
+        let ctx = TrustedPeerContext::for_admitted_connection(77, 5);
+        let resp = evaluate_protected_operation(&request(), Some(&ctx), 42);
+        assert_eq!(resp.state(), ResponseState::Rejected);
+        assert_eq!(resp.reason(), RejectionReason::OwnerPresenceGateOpen);
+        assert_eq!(resp.result(), ResultClass::NotRun);
+        assert_eq!(resp.terminal(), TerminalStatus::Terminal);
     }
 
     #[test]
-    fn a_rebound_peer_at_a_different_integrity_is_refused() {
-        let bound = authenticate_peer(&coherent_evidence(), 77, 5).expect("bound");
-        let e = ObservedPeerEvidence::observed(
-            4242,
-            99_000,
-            Some(4242),
-            Some(99_000),
-            owner_sid(),
-            2,
-            IntegrityLevel::High,
-            77,
-            5,
-        );
-        assert_eq!(
-            reauthenticate_peer(&bound, &e),
-            Err(PeerAuthenticationError::IntegrityMismatch)
-        );
-    }
-
-    #[test]
-    fn a_rebound_peer_from_a_different_process_is_refused() {
-        let bound = authenticate_peer(&coherent_evidence(), 77, 5).expect("bound");
-        let e = ObservedPeerEvidence::observed(
-            4243,
-            99_000,
-            Some(4243),
-            Some(99_000),
-            owner_sid(),
-            2,
-            IntegrityLevel::Medium,
-            77,
-            5,
-        );
-        assert_eq!(
-            reauthenticate_peer(&bound, &e),
-            Err(PeerAuthenticationError::ProcessCreationMismatch)
-        );
-    }
-
-    #[test]
-    fn rebinding_still_enforces_the_connection_and_generation() {
-        let bound = authenticate_peer(&coherent_evidence(), 77, 5).expect("bound");
-        let e = ObservedPeerEvidence::observed(
-            4242,
-            99_000,
-            Some(4242),
-            Some(99_000),
-            owner_sid(),
-            2,
-            IntegrityLevel::Medium,
-            78,
-            5,
-        );
-        assert_eq!(
-            reauthenticate_peer(&bound, &e),
-            Err(PeerAuthenticationError::ConnectionMismatch)
-        );
-        let f = ObservedPeerEvidence::observed(
-            4242,
-            99_000,
-            Some(4242),
-            Some(99_000),
-            owner_sid(),
-            2,
-            IntegrityLevel::Medium,
-            77,
-            6,
-        );
-        assert_eq!(
-            reauthenticate_peer(&bound, &f),
-            Err(PeerAuthenticationError::HandshakeGenerationMismatch)
-        );
-    }
-
-    #[test]
-    fn an_identical_later_observation_rebinds_successfully() {
-        let bound = authenticate_peer(&coherent_evidence(), 77, 5).expect("bound");
-        let again = reauthenticate_peer(&bound, &coherent_evidence()).expect("rebinds");
-        assert_eq!(again, bound);
+    fn an_admitted_peer_cannot_reach_an_acceptance_by_any_epoch_or_sequence() {
+        let ctx = TrustedPeerContext::for_admitted_connection(77, 5);
+        for epoch in [0u64, 42, u64::MAX] {
+            for seq in [0u64, 1, u64::MAX] {
+                let mut r = request();
+                r.sequence = seq;
+                r.claimed_service_epoch = epoch;
+                let resp = evaluate_protected_operation(&r, Some(&ctx), 42);
+                assert_eq!(resp.state(), ResponseState::Rejected);
+                assert_eq!(resp.result(), ResultClass::NotRun);
+            }
+        }
     }
 
     // ---- the C4 hard stop ----
