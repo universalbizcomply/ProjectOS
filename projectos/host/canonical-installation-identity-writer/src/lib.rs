@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 use projectos_host_identity::canonical_record::{
     compute_record_digest, InstallationIdentityRecordV1, EXPECTED_PRODUCT, EXPECTED_SERVICE_NAME,
     EXPECTED_SERVICE_RELATIVE_PATH, HOST_STATE_DIRECTORY_SEGMENT, RECORD_FILE_NAME,
-    RECORD_SCHEMA_VERSION, RECORD_SUBDIRECTORY,
+    RECORD_SCHEMA_VERSION, RECORD_SCHEMA_VERSION_OWNER_ENROLLED, RECORD_SUBDIRECTORY,
 };
 
 /// The three accepted installation channels. No arbitrary channel string is representable.
@@ -101,6 +101,59 @@ impl InstallationId {
         // An all-zero draw is refused rather than accepted: it is indistinguishable from an
         // uninitialised buffer, which is exactly the failure a fail-closed contract must not trust.
         Self::parse(&s)
+    }
+
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// The RESOLVED ProjectOS owner SID, in canonical binary form (lower-case hex).
+///
+/// NOT a second SID abstraction. `windows_acl_policy::OwnedSid` remains the one opaque SID type; its
+/// validated bytes cannot cross a crate boundary because its accessor is deliberately `pub(crate)`, so
+/// the enrolment boundary hands over those bytes as hex and the ACL-owning consumer reconstructs the
+/// accepted type with `OwnedSid::from_bytes`. This newtype exists only to make the value
+/// PARSE-VALIDATED at the boundary, exactly as [`InstallationId`] and [`ReleaseManifestDigest`] already
+/// are in this crate.
+///
+/// It is also NOT a display form and NOT an account name: no username, UPN or display name is accepted
+/// here or persisted anywhere.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnrolledOwnerSid(String);
+
+impl EnrolledOwnerSid {
+    /// Validate an owner SID already resolved by Windows at the elevated enrolment boundary.
+    ///
+    /// The caller must have obtained these bytes from a Windows account resolution — this constructor
+    /// deliberately performs no lookup, so no account name can become authority by passing through it.
+    ///
+    /// # Errors
+    /// [`WriteError::InvalidOwnerSid`] when the value is not a bounded, even-length, lower-case hex
+    /// encoding of a structurally valid binary SID.
+    pub fn parse(s: &str) -> Result<Self, WriteError> {
+        // Bounds mirror SECURITY_MAX_SID_SIZE (68 bytes) and the 8-byte SID header.
+        if s.len() < 16 || s.len() > 136 || !s.len().is_multiple_of(2) {
+            return Err(WriteError::InvalidOwnerSid);
+        }
+        if !s
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        {
+            return Err(WriteError::InvalidOwnerSid);
+        }
+        if all_zero(s) {
+            return Err(WriteError::InvalidOwnerSid);
+        }
+        // Structural SID check on the decoded header: revision 1, and the declared sub-authority count
+        // must match the encoded length exactly, so a truncated or padded SID is refused here.
+        let revision = u8::from_str_radix(&s[0..2], 16).map_err(|_| WriteError::InvalidOwnerSid)?;
+        let subs = u8::from_str_radix(&s[2..4], 16).map_err(|_| WriteError::InvalidOwnerSid)?;
+        if revision != 1 || subs > 15 || s.len() != 16 + 8 * usize::from(subs) {
+            return Err(WriteError::InvalidOwnerSid);
+        }
+        Ok(Self(s.to_string()))
     }
 
     #[must_use]
@@ -389,6 +442,8 @@ pub enum WriteError {
     UnsupportedChannel,
     InvalidInstallationId,
     InvalidReleaseDigest,
+    /// The supplied owner SID was not a bounded, lower-case hex encoding of a binary SID.
+    InvalidOwnerSid,
     InstallationIdSourceFailed,
     /// The target directory could not be prepared or resolved.
     TargetUnavailable,
@@ -458,7 +513,7 @@ pub fn to_canonical_json(r: &InstallationIdentityRecordV1) -> Vec<u8> {
             "\"channel\":\"{}\",",
             "\"service_relative_path\":\"{}\",",
             "\"release_manifest_digest\":\"{}\",",
-            "\"record_digest\":\"{}\"}}"
+            "\"record_digest\":\"{}\"{}}}"
         ),
         r.schema_version,
         json_escape(&r.product),
@@ -468,6 +523,12 @@ pub fn to_canonical_json(r: &InstallationIdentityRecordV1) -> Vec<u8> {
         json_escape(&r.service_relative_path),
         json_escape(&r.release_manifest_digest),
         json_escape(&r.record_digest),
+        // Appended LAST and only when enrolled, so a record without an owner serialises to exactly the
+        // bytes it always did.
+        match &r.configured_owner_sid {
+            None => String::new(),
+            Some(o) => format!(",\"configured_owner_sid\":\"{}\"", json_escape(o)),
+        },
     );
     s.into_bytes()
 }
@@ -494,11 +555,22 @@ pub fn parse_canonical_json(bytes: &[u8]) -> Result<InstallationIdentityRecordV1
         .get("schema_version")
         .and_then(serde_json::Value::as_u64)
         .ok_or(CodecError::InvalidShape)?;
-    if schema_version != u64::from(RECORD_SCHEMA_VERSION) {
+    if schema_version != u64::from(RECORD_SCHEMA_VERSION)
+        && schema_version != u64::from(RECORD_SCHEMA_VERSION_OWNER_ENROLLED)
+    {
         return Err(CodecError::InvalidShape);
     }
+    let owner_enrolled = schema_version == u64::from(RECORD_SCHEMA_VERSION_OWNER_ENROLLED);
+    // Version and owner presence must agree here too, so a mismatched existing record is refused by the
+    // comparison path instead of being read as the other shape.
+    let configured_owner_sid = match obj.get("configured_owner_sid") {
+        None if !owner_enrolled => None,
+        Some(x) if owner_enrolled => Some(x.as_str().ok_or(CodecError::InvalidShape)?.to_string()),
+        _ => return Err(CodecError::InvalidShape),
+    };
+    #[allow(clippy::cast_possible_truncation)]
     let record = InstallationIdentityRecordV1 {
-        schema_version: RECORD_SCHEMA_VERSION,
+        schema_version: schema_version as u32,
         product: s("product")?,
         service_name: s("service_name")?,
         installation_id: s("installation_id")?,
@@ -506,6 +578,7 @@ pub fn parse_canonical_json(bytes: &[u8]) -> Result<InstallationIdentityRecordV1
         service_relative_path: s("service_relative_path")?,
         release_manifest_digest: s("release_manifest_digest")?,
         record_digest: s("record_digest")?,
+        configured_owner_sid,
     };
     if to_canonical_json(&record) != bytes {
         return Err(CodecError::NonCanonical);
@@ -519,9 +592,14 @@ fn build_record(
     id: &InstallationId,
     channel: InstallationChannel,
     release: &ReleaseManifestDigest,
+    owner: Option<&EnrolledOwnerSid>,
 ) -> InstallationIdentityRecordV1 {
     let mut r = InstallationIdentityRecordV1 {
-        schema_version: RECORD_SCHEMA_VERSION,
+        schema_version: if owner.is_some() {
+            RECORD_SCHEMA_VERSION_OWNER_ENROLLED
+        } else {
+            RECORD_SCHEMA_VERSION
+        },
         product: EXPECTED_PRODUCT.to_string(),
         service_name: EXPECTED_SERVICE_NAME.to_string(),
         installation_id: id.as_str().to_string(),
@@ -529,6 +607,7 @@ fn build_record(
         service_relative_path: EXPECTED_SERVICE_RELATIVE_PATH.to_string(),
         release_manifest_digest: release.as_str().to_string(),
         record_digest: String::new(),
+        configured_owner_sid: owner.map(|o| o.as_str().to_string()),
     };
     r.record_digest = compute_record_digest(&r);
     r
@@ -551,8 +630,47 @@ pub fn write_identity_record(
     channel: InstallationChannel,
     release: &ReleaseManifestDigest,
 ) -> Result<WriteOutcome, WriteError> {
+    write_record(target, id, channel, release, None)
+}
+
+/// Write the canonical identity record for a new installation WITH an enrolled ProjectOS owner.
+///
+/// The administrative actor and the owner subject are DELIBERATELY SEPARATE. Running this operation
+/// proves permission to write protected machine state; it says nothing about who the owner is. The owner
+/// is whichever account the elevated caller explicitly resolved to `owner`, so the installing or
+/// elevated identity never becomes the ProjectOS owner by default and there is no "current user"
+/// fallback anywhere on this path.
+///
+/// Only the resolved SID is persisted — never a username, display name, UPN or session.
+///
+/// REPLACEMENT IS NOT POSSIBLE HERE, deliberately. This reuses the same non-replacing publish as the
+/// ownerless path: an existing record is compared and left intact, never overwritten, truncated,
+/// renamed over or deleted. Changing an already-enrolled owner is therefore NOT possible through this
+/// contract and is carried forward to its own gated operation.
+///
+/// # Errors
+/// [`WriteError`] naming the first failed validation or filesystem step.
+pub fn write_identity_record_with_enrolled_owner(
+    target: &InstallerTarget,
+    id: &InstallationId,
+    channel: InstallationChannel,
+    release: &ReleaseManifestDigest,
+    owner: &EnrolledOwnerSid,
+) -> Result<WriteOutcome, WriteError> {
+    write_record(target, id, channel, release, Some(owner))
+}
+
+/// The single shared write path. Both entry points differ ONLY in whether an owner is enrolled; every
+/// validation, containment, atomicity and non-replacement step below is identical.
+fn write_record(
+    target: &InstallerTarget,
+    id: &InstallationId,
+    channel: InstallationChannel,
+    release: &ReleaseManifestDigest,
+    owner: Option<&EnrolledOwnerSid>,
+) -> Result<WriteOutcome, WriteError> {
     // 1-3. Validate and build BEFORE any filesystem mutation.
-    let record = build_record(id, channel, release);
+    let record = build_record(id, channel, release, owner);
     let intended = to_canonical_json(&record);
     let final_path = target.record_path();
 

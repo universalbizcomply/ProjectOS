@@ -49,6 +49,17 @@ const HOST_STATE_SEGMENT: &str = "host";
 
 /// The only supported record schema version.
 pub const RECORD_SCHEMA_VERSION: u32 = 1;
+/// The schema version of a record that ALSO carries an enrolled configured-owner SID.
+///
+/// The SAME canonical record family and the SAME digest domain: version separation rides on
+/// `schema_version`, which is already inside the digest. There is no sibling record and no second
+/// schema. A version-1 record stays valid forever and simply means owner enrolment is ABSENT — it is
+/// never upgraded automatically and an owner is never inferred for it.
+pub const RECORD_SCHEMA_VERSION_OWNER_ENROLLED: u32 = 2;
+/// Upper bound on the hex form of a binary SID: `SECURITY_MAX_SID_SIZE` (68) bytes, two chars each.
+const OWNER_SID_HEX_MAX: usize = 136;
+/// Shortest structurally possible SID: revision + sub-authority count + 6-byte authority = 8 bytes.
+const OWNER_SID_HEX_MIN: usize = 16;
 /// Domain separation for the record digest (version-pinned; distinct from every other digest domain).
 const DIGEST_DOMAIN: &str = "PROJECTOS:CANONICAL-INSTALLATION-IDENTITY:V1";
 /// The only product this contract accepts.
@@ -92,6 +103,55 @@ pub enum RecordError {
     ProtectedEvidenceUnavailable,
     /// Running installation evidence does not correspond to the record.
     EvidenceMismatch,
+    /// The configured-owner SID is not a bounded, lower-case hex encoding of a binary SID.
+    OwnerSidMalformed,
+    /// Owner enrolment and schema version disagree: a version-1 record carried an owner, or an
+    /// owner-enrolled version did not. Fail closed rather than guessing which the writer meant.
+    OwnerEnrolmentVersionMismatch,
+}
+
+/// Whether this installation has an enrolled ProjectOS owner, and if so its SID in canonical binary
+/// form (lower-case hex).
+///
+/// This is deliberately NOT a display form: it is the exact bytes
+/// `windows_acl_policy::OwnedSid::from_bytes` validates, so a consumer that already owns the ACL
+/// vocabulary reconstructs the accepted opaque SID type and nothing here needs a second SID
+/// abstraction, a `Display`, or an `S-1-…` parser.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum OwnerEnrolment {
+    /// No owner has been enrolled. The ONLY meaning of a version-1 record.
+    Absent,
+    /// An owner SID was enrolled by an elevated operation and is bound into the record digest.
+    Enrolled(String),
+}
+
+/// Whether a string is a bounded, lower-case hex encoding of a STRUCTURALLY VALID binary SID.
+///
+/// Shape and structure, not just characters: revision 1, a sub-authority count within
+/// `SID_MAX_SUB_AUTHORITIES`, and an encoded length that matches that count EXACTLY — the same rule
+/// `windows_acl_policy::OwnedSid::from_bytes` applies to the bytes, so the reader refuses anything the
+/// accepted SID type would refuse rather than deferring the whole question to its consumer.
+fn is_owner_sid_hex(s: &str) -> bool {
+    if s.len() < OWNER_SID_HEX_MIN
+        || s.len() > OWNER_SID_HEX_MAX
+        || !s.len().is_multiple_of(2)
+        || !s
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
+        return false;
+    }
+    let Ok(revision) = u8::from_str_radix(&s[0..2], 16) else {
+        return false;
+    };
+    let Ok(sub_authorities) = u8::from_str_radix(&s[2..4], 16) else {
+        return false;
+    };
+    // 8-byte header (revision + count + 6-byte authority) plus 4 bytes per sub-authority, in hex.
+    revision == 1
+        && sub_authorities <= 15
+        && s.len() == OWNER_SID_HEX_MIN + 8 * usize::from(sub_authorities)
 }
 
 /// The V1 record as an installer would write it. Plain data with NO authority: holding one proves
@@ -120,6 +180,14 @@ pub struct InstallationIdentityRecordV1 {
     pub release_manifest_digest: String,
     /// The domain-separated deterministic digest over every field above.
     pub record_digest: String,
+    /// The enrolled configured-owner SID in canonical binary form (lower-case hex), when this
+    /// installation has one.
+    ///
+    /// `serde(default)` is what keeps every existing version-1 record valid and readable: the field is
+    /// simply absent and enrolment is [`OwnerEnrolment::Absent`]. It is bound into the record digest
+    /// when present, so a byte change to an enrolled SID invalidates the record.
+    #[serde(default)]
+    pub configured_owner_sid: Option<String>,
 }
 
 /// Length-prefixed append, matching the accepted canonical-encoding pattern used by the plan digest.
@@ -141,7 +209,15 @@ pub fn compute_record_digest(record: &InstallationIdentityRecordV1) -> String {
     let mut b: Vec<u8> = Vec::new();
     put(&mut b, DIGEST_DOMAIN.as_bytes());
     put(&mut b, &record.schema_version.to_be_bytes());
-    b.extend_from_slice(&7u32.to_be_bytes());
+    // Seven bound fields, or eight once an owner is enrolled. The count is declared so the two shapes
+    // can never be confused, and a version-1 digest stays BYTE-IDENTICAL to what it has always been —
+    // adding owner enrolment must not invalidate a single already-installed record.
+    let bound_fields: u32 = if record.configured_owner_sid.is_some() {
+        8
+    } else {
+        7
+    };
+    b.extend_from_slice(&bound_fields.to_be_bytes());
     put_field(&mut b, "product", &record.product);
     put_field(&mut b, "service_name", &record.service_name);
     put_field(&mut b, "installation_id", &record.installation_id);
@@ -156,6 +232,11 @@ pub fn compute_record_digest(record: &InstallationIdentityRecordV1) -> String {
         "release_manifest_digest",
         &record.release_manifest_digest,
     );
+    // The enrolled owner is DIGEST-BOUND: rewriting the SID without rewriting the whole record through
+    // the authorised writer invalidates it.
+    if let Some(owner) = &record.configured_owner_sid {
+        put_field(&mut b, "configured_owner_sid", owner);
+    }
     sha256_hex(&b)
 }
 
@@ -178,6 +259,8 @@ pub fn symbolic_record_location() -> String {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VerifiedCanonicalInstallation {
     digest: String,
+    /// The enrolled owner SID, already validated and digest-confirmed. `None` for a version-1 record.
+    owner: Option<String>,
 }
 
 impl VerifiedCanonicalInstallation {
@@ -191,6 +274,18 @@ impl VerifiedCanonicalInstallation {
     #[must_use]
     pub fn digest16(&self) -> &str {
         &self.digest[..16]
+    }
+
+    /// Whether this installation has an enrolled ProjectOS owner, and its SID in canonical binary form.
+    ///
+    /// A version-1 record ALWAYS answers [`OwnerEnrolment::Absent`]. Nothing here infers an owner from
+    /// the console user, the installing account, the service account or an administrator.
+    #[must_use]
+    pub fn owner_enrolment(&self) -> OwnerEnrolment {
+        match &self.owner {
+            None => OwnerEnrolment::Absent,
+            Some(sid) => OwnerEnrolment::Enrolled(sid.clone()),
+        }
     }
 }
 
@@ -209,8 +304,23 @@ pub fn verify_record(
     record: &InstallationIdentityRecordV1,
     evidence: InstallationEvidence,
 ) -> Result<VerifiedCanonicalInstallation, RecordError> {
-    if record.schema_version != RECORD_SCHEMA_VERSION {
+    // Exactly two supported versions of the SAME record family. Anything else is unsupported: there is
+    // no permissive "newer than I know" branch.
+    if record.schema_version != RECORD_SCHEMA_VERSION
+        && record.schema_version != RECORD_SCHEMA_VERSION_OWNER_ENROLLED
+    {
         return Err(RecordError::UnsupportedVersion);
+    }
+    // Version and owner presence must agree. A version-1 record carrying an owner, or an owner-enrolled
+    // version without one, is refused rather than silently reinterpreted as the other shape.
+    let owner_enrolled_version = record.schema_version == RECORD_SCHEMA_VERSION_OWNER_ENROLLED;
+    if owner_enrolled_version != record.configured_owner_sid.is_some() {
+        return Err(RecordError::OwnerEnrolmentVersionMismatch);
+    }
+    if let Some(owner) = &record.configured_owner_sid {
+        if !is_owner_sid_hex(owner) {
+            return Err(RecordError::OwnerSidMalformed);
+        }
     }
     for field in [
         &record.product,
@@ -251,7 +361,10 @@ pub fn verify_record(
         InstallationEvidence::Missing => return Err(RecordError::Missing),
         InstallationEvidence::Mismatched => return Err(RecordError::EvidenceMismatch),
     }
-    Ok(VerifiedCanonicalInstallation { digest: recomputed })
+    Ok(VerifiedCanonicalInstallation {
+        digest: recomputed,
+        owner: record.configured_owner_sid.clone(),
+    })
 }
 
 /// The PRODUCTION provider for the approved record location.
@@ -306,6 +419,7 @@ pub mod fixtures {
             service_relative_path: EXPECTED_SERVICE_RELATIVE_PATH.to_string(),
             release_manifest_digest: "a".repeat(64),
             record_digest: String::new(),
+            configured_owner_sid: None,
         };
         r.record_digest = compute_record_digest(&r);
         r
@@ -407,7 +521,7 @@ mod tests {
             |r| r.channel = "dev".into(),
             |r| r.service_relative_path = "Other.exe".into(),
             |r| r.release_manifest_digest = "b".repeat(64),
-            |r| r.schema_version = 2,
+            |r| r.schema_version = RECORD_SCHEMA_VERSION_OWNER_ENROLLED,
         ];
         for m in mutations {
             let mut r = valid_record();
@@ -430,7 +544,19 @@ mod tests {
     fn each_failing_field_refuses_with_its_own_reason() {
         type Case = (fn(&mut InstallationIdentityRecordV1), RecordError);
         let cases: &[Case] = &[
-            (|r| r.schema_version = 2, RecordError::UnsupportedVersion),
+            // REBASELINED by PROJECTOSHOST-CONFIGURED-OWNER-ENROLMENT-RECORD1A: version 2 is now a
+            // supported version of the SAME record family, so the unsupported-version case moves to a
+            // version that genuinely is not supported. The fail-closed property is unchanged.
+            (|r| r.schema_version = 3, RecordError::UnsupportedVersion),
+            (|r| r.schema_version = 0, RecordError::UnsupportedVersion),
+            (
+                |r| r.schema_version = RECORD_SCHEMA_VERSION_OWNER_ENROLLED,
+                RecordError::OwnerEnrolmentVersionMismatch,
+            ),
+            (
+                |r| r.configured_owner_sid = Some("0105000000000005150000000102030405".into()),
+                RecordError::OwnerEnrolmentVersionMismatch,
+            ),
             (
                 |r| r.installation_id = String::new(),
                 RecordError::MissingField,
@@ -457,6 +583,128 @@ mod tests {
                 *expected
             );
         }
+    }
+
+    // ---- PROJECTOSHOST-CONFIGURED-OWNER-ENROLMENT-RECORD1A ----
+    //
+    // Synthetic SIDs only. `0105000000000005` is a revision-1, 5-sub-authority header on the NT
+    // Authority; no real machine account appears anywhere in these fixtures.
+
+    /// A synthetic enrolled owner SID in canonical binary form: revision 1, 5 sub-authorities.
+    fn synthetic_owner_hex() -> String {
+        let mut hex = String::from("0105000000000005");
+        for sub in [21u32, 1, 2, 3, 1001] {
+            for b in sub.to_le_bytes() {
+                hex.push_str(&format!("{b:02x}"));
+            }
+        }
+        hex
+    }
+
+    fn enrolled_record() -> InstallationIdentityRecordV1 {
+        let mut r = valid_record();
+        r.schema_version = RECORD_SCHEMA_VERSION_OWNER_ENROLLED;
+        r.configured_owner_sid = Some(synthetic_owner_hex());
+        r.record_digest = compute_record_digest(&r);
+        r
+    }
+
+    #[test]
+    fn a_legacy_record_means_owner_enrolment_is_absent() {
+        let v = verify_record(&valid_record(), InstallationEvidence::Matched).expect("v1 verifies");
+        assert_eq!(v.owner_enrolment(), OwnerEnrolment::Absent);
+    }
+
+    #[test]
+    fn an_enrolled_record_retains_the_exact_owner_sid() {
+        let v = verify_record(&enrolled_record(), InstallationEvidence::Matched).expect("verifies");
+        assert_eq!(
+            v.owner_enrolment(),
+            OwnerEnrolment::Enrolled(synthetic_owner_hex())
+        );
+    }
+
+    #[test]
+    fn the_owner_sid_is_digest_bound() {
+        let base = enrolled_record();
+        let mut tampered = base.clone();
+        // Flip the last sub-authority: a DIFFERENT account, same length and shape.
+        let mut hex = synthetic_owner_hex();
+        hex.truncate(hex.len() - 8);
+        hex.push_str("ea030000");
+        tampered.configured_owner_sid = Some(hex);
+        assert_ne!(
+            compute_record_digest(&tampered),
+            base.record_digest,
+            "a changed owner SID must change the digest"
+        );
+        // And the tampered record, keeping the ORIGINAL digest, is refused.
+        assert_eq!(
+            verify_record(&tampered, InstallationEvidence::Matched).unwrap_err(),
+            RecordError::DigestMismatch
+        );
+    }
+
+    #[test]
+    fn adding_owner_enrolment_does_not_change_an_existing_v1_digest() {
+        // The whole point of keeping the field optional and the count declared: no already-installed
+        // record may be invalidated by this phase.
+        let v1 = valid_record();
+        assert_eq!(compute_record_digest(&v1), v1.record_digest);
+        assert!(v1.configured_owner_sid.is_none());
+    }
+
+    #[test]
+    fn a_malformed_owner_sid_fails_closed() {
+        for bad in [
+            "",
+            "0105",
+            "0105000000000005ZZ",
+            "0105000000000005150000000102030405",
+            &"a".repeat(200),
+        ] {
+            let mut r = enrolled_record();
+            r.configured_owner_sid = Some(bad.to_string());
+            r.record_digest = compute_record_digest(&r);
+            let err = verify_record(&r, InstallationEvidence::Matched).unwrap_err();
+            assert!(
+                err == RecordError::OwnerSidMalformed,
+                "expected OwnerSidMalformed for {bad:?}, got {err:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_version_and_owner_disagreement_is_never_reinterpreted() {
+        // A legacy version carrying an owner...
+        let mut a = enrolled_record();
+        a.schema_version = RECORD_SCHEMA_VERSION;
+        a.record_digest = compute_record_digest(&a);
+        assert_eq!(
+            verify_record(&a, InstallationEvidence::Matched).unwrap_err(),
+            RecordError::OwnerEnrolmentVersionMismatch
+        );
+        // ...and an owner-enrolled version carrying none. Neither is read as the other shape.
+        let mut b = valid_record();
+        b.schema_version = RECORD_SCHEMA_VERSION_OWNER_ENROLLED;
+        b.record_digest = compute_record_digest(&b);
+        assert_eq!(
+            verify_record(&b, InstallationEvidence::Matched).unwrap_err(),
+            RecordError::OwnerEnrolmentVersionMismatch
+        );
+    }
+
+    #[test]
+    fn an_owner_is_never_inferred_for_a_legacy_record() {
+        // No automatic upgrade: verifying a v1 record repeatedly never produces an enrolment, and the
+        // record itself is not mutated by verification.
+        let r = valid_record();
+        for _ in 0..3 {
+            let v = verify_record(&r, InstallationEvidence::Matched).expect("verifies");
+            assert_eq!(v.owner_enrolment(), OwnerEnrolment::Absent);
+        }
+        assert!(r.configured_owner_sid.is_none());
+        assert_eq!(r.schema_version, RECORD_SCHEMA_VERSION);
     }
 
     #[test]

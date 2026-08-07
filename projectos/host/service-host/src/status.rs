@@ -252,6 +252,7 @@ mod currentness_tests {
                     .to_string(),
             release_manifest_digest: release_manifest_digest_for_artefact_digest(exe_digest),
             record_digest: String::new(),
+            configured_owner_sid: None,
         };
         r.record_digest = projectos_host_identity::canonical_record::compute_record_digest(&r);
         r

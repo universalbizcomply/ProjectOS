@@ -382,3 +382,110 @@ fn a_derived_target_stays_beneath_its_anchor_and_uses_only_frozen_segments() {
         vec![EXPECTED_PRODUCT, "host", "installation", RECORD_FILE_NAME]
     );
 }
+
+// ---- PROJECTOSHOST-CONFIGURED-OWNER-ENROLMENT-RECORD1A ----
+//
+// Synthetic SIDs only. No real machine account appears in any fixture.
+
+/// A synthetic resolved owner SID in canonical binary form: revision 1, 5 sub-authorities.
+fn synthetic_owner() -> EnrolledOwnerSid {
+    let mut hex = String::from("0105000000000005");
+    for sub in [21u32, 1, 2, 3, 1001] {
+        for b in sub.to_le_bytes() {
+            hex.push_str(&format!("{b:02x}"));
+        }
+    }
+    EnrolledOwnerSid::parse(&hex).expect("a well-formed synthetic owner SID")
+}
+
+#[test]
+fn the_installing_actor_is_never_automatically_the_owner() {
+    // The ownerless entry point is what an ordinary installation runs. Running it elevated proves
+    // permission to write machine state and enrols NOBODY.
+    let d = Disposable::new();
+    let t = target(&d);
+    write_identity_record(&t, &id(), InstallationChannel::Stable, &release()).expect("written");
+    let bytes = fs::read(t.record_path()).expect("record");
+    let record = parse_canonical_json(&bytes).expect("parses");
+    assert!(
+        record.configured_owner_sid.is_none(),
+        "an installation must not enrol an owner by side effect"
+    );
+    assert_eq!(record.schema_version, RECORD_SCHEMA_VERSION);
+}
+
+#[test]
+fn an_explicit_enrolment_persists_only_the_resolved_sid() {
+    let d = Disposable::new();
+    let t = target(&d);
+    write_identity_record_with_enrolled_owner(
+        &t,
+        &id(),
+        InstallationChannel::Stable,
+        &release(),
+        &synthetic_owner(),
+    )
+    .expect("written");
+    let bytes = fs::read(t.record_path()).expect("record");
+    let record = parse_canonical_json(&bytes).expect("parses");
+    assert_eq!(
+        record.configured_owner_sid.as_deref(),
+        Some(synthetic_owner().as_str())
+    );
+    assert_eq!(record.schema_version, RECORD_SCHEMA_VERSION_OWNER_ENROLLED);
+    // The written record verifies, and the owner survives verification exactly.
+    verify_record(&record, RecordInstallationEvidence::Matched).expect("verifies");
+    // No account name of any kind is present in the persisted bytes.
+    let text = String::from_utf8(bytes).expect("utf8");
+    for forbidden in ["username", "user_name", "display_name", "upn", "account"] {
+        assert!(!text.contains(forbidden), "persisted {forbidden}");
+    }
+}
+
+#[test]
+fn an_unresolvable_or_malformed_owner_sid_fails_closed() {
+    for bad in [
+        "",
+        "0105",
+        "0105000000000005zz",
+        // Header declares 5 sub-authorities but only 1 is encoded.
+        "010500000000000515000000",
+        // Revision 2 is not a SID revision Windows defines.
+        "0205000000000005150000000102030405060708",
+        &"0".repeat(40),
+        &"a".repeat(200),
+    ] {
+        assert_eq!(
+            EnrolledOwnerSid::parse(bad).unwrap_err(),
+            WriteError::InvalidOwnerSid,
+            "expected refusal for {bad:?}"
+        );
+    }
+}
+
+#[test]
+fn an_existing_record_is_never_replaced_by_an_enrolment() {
+    // The non-replacement rule is preserved for the owner path: enrolling over an existing ownerless
+    // record leaves that record intact. Changing an owner is deliberately NOT possible here.
+    let d = Disposable::new();
+    let t = target(&d);
+    write_identity_record(&t, &id(), InstallationChannel::Stable, &release()).expect("first");
+    let before = fs::read(t.record_path()).expect("record");
+
+    let outcome = write_identity_record_with_enrolled_owner(
+        &t,
+        &id(),
+        InstallationChannel::Stable,
+        &release(),
+        &synthetic_owner(),
+    );
+    assert!(
+        !matches!(outcome, Ok(WriteOutcome::Written)),
+        "an existing record must not be replaced, got {outcome:?}"
+    );
+    assert_eq!(
+        fs::read(t.record_path()).expect("record"),
+        before,
+        "the existing record must be left byte-identical"
+    );
+}
