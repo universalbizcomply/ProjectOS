@@ -206,7 +206,14 @@ impl AclCompositionPlan {
                 rights: RightsClass::Read,
             });
         }
-        AclCompositionOutcome::Composed(AclPolicy::strict(service.principal().clone(), allowed))
+        // NTFS OWNERSHIP IS SYSTEM, NOT THE SERVICE. An owner holds implicit `WRITE_DAC`, so a
+        // service-owned ancestor could re-secure itself, grant itself `DELETE_CHILD`, and then
+        // delete or replace the canonical authority record beneath it — bypassing that record's
+        // own protected DACL entirely. This ONE expression governs every ProjectOS-managed
+        // ancestor of the record (`ProjectOS`, `host`, `installation`), so correcting it here
+        // closes the substitution route at every level. The DACL is untouched: `allowed` still
+        // carries exactly the rights it always did.
+        AclCompositionOutcome::Composed(AclPolicy::strict(AclPrincipal::LocalSystem, allowed))
     }
 
     /// Compose the policy for the CANONICAL IDENTITY RECORD FILE.
@@ -255,10 +262,11 @@ impl AclCompositionPlan {
                 rights: RightsClass::FullControl,
             });
         }
-        AclCompositionOutcome::Composed(AclPolicy::strict(
-            AclPrincipal::CurrentInteractiveUser,
-            allowed,
-        ))
+        // NTFS OWNERSHIP IS SYSTEM. The original policy preserved the INSTALLING ACCOUNT as owner
+        // to keep the service from owning the record, since an owner holds implicit `WRITE_DAC`.
+        // That kept the same implicit `WRITE_DAC` with a USER account. SYSTEM ownership removes it
+        // from every user AND from the service, which is what F1 established for the binary.
+        AclCompositionOutcome::Composed(AclPolicy::strict(AclPrincipal::LocalSystem, allowed))
     }
 
     /// Attempt to compose the final policy.
@@ -495,11 +503,14 @@ mod record_file_policy_tests {
     }
 
     #[test]
-    fn the_installing_owner_is_preserved_rather_than_the_service_made_owner() {
-        // An owner holds implicit WRITE_DAC. Making the service the owner would hand back exactly the
-        // authority the read-only grant withholds, so the record file keeps the installing account.
+    fn system_owns_the_record_so_no_user_or_service_holds_implicit_write_dac() {
+        // An owner holds implicit WRITE_DAC. The original policy kept the INSTALLING ACCOUNT as owner
+        // so the service could not own the record — but that merely moved the same implicit authority
+        // to a user. SYSTEM ownership removes it from BOTH, which is what F1 established for the
+        // binary and its parents.
         let policy = composed();
-        assert_eq!(policy.expected_owner, AclPrincipal::CurrentInteractiveUser);
+        assert_eq!(policy.expected_owner, AclPrincipal::LocalSystem);
+        assert_ne!(policy.expected_owner, AclPrincipal::CurrentInteractiveUser);
         assert!(!matches!(
             policy.expected_owner,
             AclPrincipal::ExplicitSid(_)

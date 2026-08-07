@@ -106,11 +106,42 @@ function run() {
   if (/principal: AclPrincipal::CurrentInteractiveUser,\s*rights:/.test(body))
     E("V5 the record-file policy grants the interactive account an ACE");
 
-  // ---- V6 the service is NOT made the owner (an owner holds implicit WRITE_DAC) ----
-  if (!/AclPolicy::strict\(\s*AclPrincipal::CurrentInteractiveUser,/.test(body))
-    E("V6 the record-file policy does not preserve the installing account as owner");
+  // ---- V6 NOBODY but SYSTEM owns the authority record (an owner holds implicit WRITE_DAC) ----
+  //
+  // AMENDED by PROJECTOSHOST-CONFIGURED-OWNER-RECORD-NTFS-OWNER1A under explicit gatekeeper
+  // authority, as a STRENGTHENING. The original rule kept the INSTALLING ACCOUNT as owner so the
+  // service could not own the record. That was right about the service and wrong about the remedy:
+  // it left the same implicit WRITE_DAC with a USER account, which could re-secure the record and
+  // then rewrite the configured owner it is meant to authenticate. SYSTEM ownership removes implicit
+  // WRITE_DAC from EVERY user and from the service, matching the accepted F1 precedent.
+  //
+  // Both original prohibitions are RETAINED below, not relaxed.
+  if (!/AclPolicy::strict\(\s*AclPrincipal::LocalSystem,/.test(body))
+    E("V6 the record-file policy does not make LocalSystem the owner");
   if (/AclPolicy::strict\(\s*service\.principal\(\)/.test(body))
     E("V6 the service principal is made the record file's owner, which grants implicit WRITE_DAC");
+  if (/AclPolicy::strict\(\s*AclPrincipal::CurrentInteractiveUser,/.test(body))
+    E("V6 an interactive/installing user is made the record file's owner, which grants implicit WRITE_DAC");
+
+  // ---- V6b every ProjectOS-managed ANCESTOR of the record is SYSTEM-owned ----
+  //
+  // The record's own DACL is worthless if a substitution-capable ancestor is owned by the service or
+  // a user: that owner can re-secure the directory, grant itself DELETE_CHILD and replace the record
+  // beneath it. ONE expression composes the policy for every managed ancestor
+  // (`ProjectOS`, `host`, `installation`), so one assertion covers all three.
+  {
+    // The ancestor policy is composed in the shared `assemble` helper that
+    // `compose_with_resolved_principal` delegates to, so that is where the owner is decided.
+    const dir = /fn assemble\(([\s\S]*?)\n    \}/.exec(plan);
+    const dirBody = dir && dir[1];
+    if (!dirBody) E("V6b the ancestor ACL composition is missing");
+    else {
+      if (!/AclPolicy::strict\(AclPrincipal::LocalSystem, allowed\)/.test(dirBody))
+        E("V6b a ProjectOS-managed ancestor of the authority record is not SYSTEM-owned");
+      if (/AclPolicy::strict\(service\.principal\(\)/.test(dirBody))
+        E("V6b the service owns an ancestor of the authority record, enabling record substitution");
+    }
+  }
 
   // ---- V7 the file ACL surface exists and asserts the object kind on the HANDLE ----
   for (const fn of [
