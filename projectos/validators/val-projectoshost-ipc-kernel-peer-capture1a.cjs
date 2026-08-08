@@ -419,6 +419,91 @@ function run() {
     e.push("C11 the attempt does not retain the captured peer identity internally");
   }
 
+  // C13 - ATTEMPT<->CONNECTION PAIRING (PROJECTOSHOST-IPC-CANONICAL-SESSION-INTEGRATION1A).
+  //
+  // A successful instance verdict proves peer/service agreement but not WHICH host-issued connection
+  // produced it, so a verdict could be paired with an unrelated connection's session evidence. The
+  // attempt must therefore store the host-issued pair it was captured on and prove equality when it
+  // is finalised — WITHOUT the pair ever becoming readable outside the canonical crate.
+  if (!inner || !/\n\s*host_connection:\s*Option<\(u64, u64\)>,/.test(inner)) {
+    e.push("C13 the attempt does not retain the host-issued connection/generation pair internally");
+  } else if (/\n\s*pub\s+host_connection:/.test(inner)) {
+    e.push("C13 the host-issued pair is a public field, so it is readable outside the canonical crate");
+  }
+  // No accessor may expose either stored value (a comparison is the only permitted operation).
+  if (/pub(\(crate\))?\s+fn\s+\w*(host_connection|connection_id|handshake_generation)\w*\s*\(\s*&self/.test(instance)) {
+    e.push("C13 a readable accessor exposes the stored host-issued connection or handshake generation");
+  }
+  // The capture transition that binds a connection must store the pair it was given, and refuse a
+  // zero (non-identity) identifier.
+  const pairedCapture = fnBody(instance, "pub fn record_ipc_peer_on_connection(");
+  if (!pairedCapture) {
+    e.push("C13 the connection-bound capture transition is missing");
+  } else {
+    if (!/self\.inner\.host_connection = Some\(\(connection_id, handshake_generation\)\)/.test(pairedCapture)) {
+      e.push("C13 the connection-bound capture does not store the host-issued pair");
+    }
+    if (!/connection_id == 0 \|\| handshake_generation == 0/.test(pairedCapture)) {
+      e.push("C13 the connection-bound capture accepts a zero (non-identity) identifier");
+    }
+  }
+  // The live identity capture must store the SAME pair it already records in the contribution.
+  const liveCapture = fnBody(instance, "pub(crate) fn record_ipc_peer_identity(");
+  if (!liveCapture) {
+    e.push("C13 the live identity capture transition is missing");
+  } else if (!/self\.inner\.host_connection = Some\(\(connection_id, handshake_generation\)\)/.test(liveCapture)) {
+    e.push("C13 the live identity capture does not store the host-issued pair for pairing");
+  }
+  // The consuming paired finalisation: takes self by value, compares the STORED pair against the
+  // expected values, fails closed when nothing was stored, and only then defers to the instance
+  // verdict. Caller-supplied values alone must never establish Match.
+  // The UNPAIRED finalise must refuse an attempt that WAS captured on a host-issued connection, so
+  // the choice of finaliser is not left to caller discipline and a Match can never be produced
+  // without the pairing having been checked.
+  const unpaired = fnBody(instance, "pub fn finalise(self) -> ServiceInstanceBinding {");
+  if (!unpaired) {
+    e.push("C13 the unpaired finalisation is missing");
+  } else {
+    if (
+      !/\n\s*if self\.inner\.host_connection\.is_some\(\) \{\s*\n\s*return ServiceInstanceBinding::CrossAttemptObservation;/.test(
+        unpaired
+      )
+    ) {
+      e.push("C13 the unpaired finalise does not refuse a connection-tagged attempt");
+    }
+    if (!/self\.bind_observations\(\)/.test(unpaired)) {
+      e.push("C13 the unpaired finalise does not defer to the shared instance verdict");
+    }
+  }
+  const paired = fnBody(instance, "pub fn finalise_for_connection(");
+  if (!paired) {
+    e.push("C13 the consuming paired finalisation is missing");
+  } else {
+    if (!/\(\s*\n?\s*self,/.test(paired)) {
+      e.push("C13 the paired finalisation does not consume the attempt");
+    }
+    if (!/let Some\(\(captured_connection, captured_generation\)\) = self\.inner\.host_connection/.test(paired)) {
+      e.push("C13 the paired finalisation does not read the attempt's own stored pair");
+    }
+    if (!/return ServiceInstanceBinding::MissingIpcObservation/.test(paired)) {
+      e.push("C13 an attempt with no stored pair does not fail closed");
+    }
+    // Anchored on the WHOLE condition: a short-circuit prefix (`if false && …`) or an extra guard
+    // must not be able to leave the assertion satisfied while the comparison never runs.
+    if (!/\n\s*if captured_connection != connection_id \|\| captured_generation != handshake_generation \{/.test(paired)) {
+      e.push("C13 the paired finalisation does not require equality with the stored pair");
+    }
+    if (!/return ServiceInstanceBinding::CrossAttemptObservation/.test(paired)) {
+      e.push("C13 a cross-connection presentation is not refused as CrossAttemptObservation");
+    }
+    if (!/self\.bind_observations\(\)/.test(paired)) {
+      e.push("C13 the paired finalisation does not defer to the shared instance verdict");
+    }
+    if (/ServiceInstanceBinding::Match/.test(paired)) {
+      e.push("C13 the paired finalisation can produce Match itself instead of deferring");
+    }
+  }
+
   // C12 - process-creation identity still binds the peer, and a captured peer still cannot bypass C4.
   const tokenDecl = fnBody(instance, "pub struct ServiceInstanceToken {");
   if (!tokenDecl || !/creation_time:\s*u64/.test(tokenDecl) || !/process_id:\s*u32/.test(tokenDecl)) {

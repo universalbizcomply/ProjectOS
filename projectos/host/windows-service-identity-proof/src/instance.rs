@@ -205,6 +205,11 @@ pub enum ServiceInstanceBinding {
     DuplicateObservation,
     /// An observation from a different proof attempt was presented. Structurally impossible while
     /// observations never leave their attempt.
+    ///
+    /// Since PROJECTOSHOST-IPC-CANONICAL-SESSION-INTEGRATION1A this is also the answer when an
+    /// attempt is finalised against a host-issued connection or handshake generation OTHER than the
+    /// one its IPC peer was captured on — the same class of error (evidence presented outside the
+    /// context that produced it), reported without disclosing either value.
     CrossAttemptObservation,
     /// The bounded observation window elapsed before the attempt finalised.
     ObservationWindowExpired,
@@ -484,6 +489,16 @@ struct AttemptInner {
     /// Boxed so a bounded SID buffer does not travel inside every attempt transition's return value.
     #[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
     peer: Option<Box<CanonicalPeerContribution>>,
+    /// The HOST-ISSUED `(connection_id, handshake_generation)` this attempt's IPC peer was captured
+    /// on, when the capturing transition supplied them.
+    ///
+    /// PROJECTOSHOST-IPC-CANONICAL-SESSION-INTEGRATION1A. It is the SAME pair the live capture
+    /// already stores inside [`CanonicalPeerContribution`]; this field carries it where the peer
+    /// contribution itself cannot exist (the consumer-contract graph has no token-side identity), so
+    /// one pairing rule serves both routes. Written by exactly one transition per route and read by
+    /// exactly one consuming finalisation — never returned, never re-exported, and there is NO
+    /// accessor, so the values stay inside the canonical ownership boundary.
+    host_connection: Option<(u64, u64)>,
 }
 
 #[cfg(any(test, feature = "consumer-contract"))]
@@ -644,6 +659,7 @@ impl ServiceInstanceBindingAttempt<Prepared> {
                 scm_after: None,
                 #[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
                 peer: None,
+                host_connection: None,
             },
             _state: core::marker::PhantomData,
         }
@@ -666,6 +682,7 @@ impl ServiceInstanceBindingAttempt<Prepared> {
                 scm_after: None,
                 #[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
                 peer: None,
+                host_connection: None,
             },
             _state: core::marker::PhantomData,
         }
@@ -714,6 +731,44 @@ impl ServiceInstanceBindingAttempt<ScmBeforeObserved> {
         }
     }
 
+    /// Record the confirmed IPC peer's observation TOGETHER with the HOST-ISSUED connection identity
+    /// and handshake generation it was captured on, and advance.
+    ///
+    /// PROJECTOSHOST-IPC-CANONICAL-SESSION-INTEGRATION1A. Identical to [`Self::record_ipc_peer`] in
+    /// every observation rule; it additionally binds the capture to ONE host-issued connection so a
+    /// later [`ServiceInstanceBindingAttempt::finalise_for_connection`] can prove the attempt's own
+    /// verdict belongs to the connection a session is being minted for. The two identifiers come from
+    /// the HOST transport, never from the peer, and are stored WITHOUT any accessor — they can only
+    /// ever be compared, never read back.
+    ///
+    /// An attempt advanced through the identity-free [`Self::record_ipc_peer`] stores no pair and
+    /// therefore fails closed at `finalise_for_connection`.
+    #[cfg(any(test, feature = "consumer-contract"))]
+    pub fn record_ipc_peer_on_connection(
+        mut self,
+        observation: ServiceInstanceObservation,
+        connection_id: u64,
+        handshake_generation: u64,
+    ) -> AttemptOutcome<IpcPeerObserved> {
+        if let Some(expired) = self.inner.expiry() {
+            return AttemptOutcome::Refused(expired);
+        }
+        // A zero identifier is a non-identity, exactly as the evidence bundle treats it.
+        if connection_id == 0 || handshake_generation == 0 {
+            return AttemptOutcome::Refused(ServiceInstanceBinding::MissingIpcObservation);
+        }
+        match observation {
+            ServiceInstanceObservation::Refused(r) => {
+                AttemptOutcome::Refused(ipc_refusal_verdict(r))
+            }
+            ServiceInstanceObservation::Observed(t) => {
+                self.inner.ipc_peer = Some(t);
+                self.inner.host_connection = Some((connection_id, handshake_generation));
+                AttemptOutcome::Continue(self.advance())
+            }
+        }
+    }
+
     /// Record the confirmed IPC peer's observation TOGETHER with its bounded kernel identity, and
     /// advance. This is the ATTEMPT-SCOPED capture: the identity is decided here, stored here, and
     /// never handed back.
@@ -736,6 +791,11 @@ impl ServiceInstanceBindingAttempt<ScmBeforeObserved> {
         if let Some(expired) = self.inner.expiry() {
             return AttemptOutcome::Refused(expired);
         }
+        // A zero identifier is a non-identity, refused symmetrically with the connection-bound
+        // consumer-contract capture so neither route can store an unpairable pair.
+        if connection_id == 0 || handshake_generation == 0 {
+            return AttemptOutcome::Refused(ServiceInstanceBinding::MissingIpcObservation);
+        }
         // Preserve the precise platform answer, exactly as the identity-free transition does.
         if let ServiceInstanceObservation::Refused(r) = observation {
             return AttemptOutcome::Refused(ipc_refusal_verdict(r));
@@ -746,6 +806,10 @@ impl ServiceInstanceBindingAttempt<ScmBeforeObserved> {
             }
             PeerContributionOutcome::Contributed(peer) => {
                 self.inner.ipc_peer = Some(peer.instance);
+                // The SAME host-issued pair the contribution already carries, mirrored where the
+                // consuming finalisation can compare it. Not a second value: it is copied from the
+                // arguments this transition was given, exactly as the contribution was.
+                self.inner.host_connection = Some((connection_id, handshake_generation));
                 self.inner.peer = Some(Box::new(peer));
                 AttemptOutcome::Continue(self.advance())
             }
@@ -827,9 +891,29 @@ impl ServiceInstanceBindingAttempt<ScmAfterObserved> {
     /// Takes `self` by value, so the attempt is consumed: it cannot be finalised twice and no
     /// observation survives for reuse. The window is re-checked here, so an attempt that expired
     /// between the last observation and finalisation can never return `Match`.
+    ///
+    /// An attempt whose IPC peer was captured ON a host-issued connection must be finalised through
+    /// [`Self::finalise_for_connection`]: this unpaired route REFUSES it rather than returning a
+    /// `Match` that silently proves nothing about which connection produced it
+    /// (PROJECTOSHOST-IPC-CANONICAL-SESSION-INTEGRATION1A). The two verdicts are indistinguishable
+    /// once returned, so the choice of finaliser must not be left to caller discipline.
     #[must_use]
     #[cfg(any(test, feature = "consumer-contract"))]
     pub fn finalise(self) -> ServiceInstanceBinding {
+        if let Some(expired) = self.inner.expiry() {
+            return expired;
+        }
+        if self.inner.host_connection.is_some() {
+            return ServiceInstanceBinding::CrossAttemptObservation;
+        }
+        self.bind_observations()
+    }
+
+    /// The SHARED instance verdict: expiry, the three observations, and the accepted cross-source
+    /// comparison. Private and consuming, so both finalisers answer from exactly one implementation
+    /// and neither can drift from the other.
+    #[must_use]
+    fn bind_observations(self) -> ServiceInstanceBinding {
         if let Some(expired) = self.inner.expiry() {
             return expired;
         }
@@ -846,6 +930,39 @@ impl ServiceInstanceBindingAttempt<ScmAfterObserved> {
             &ServiceInstanceObservation::Observed(before),
             &ServiceInstanceObservation::Observed(after),
         )
+    }
+
+    /// Finalise and additionally prove this attempt's own capture belongs to the EXPECTED host-issued
+    /// connection and handshake generation.
+    ///
+    /// PROJECTOSHOST-IPC-CANONICAL-SESSION-INTEGRATION1A. `finalise` alone proves peer/service
+    /// agreement but says nothing about WHICH connection produced it, so a verdict could be paired
+    /// with an unrelated connection's evidence. This consuming variant closes that: the expected
+    /// values are compared against the pair the attempt STORED when its IPC peer was captured, so a
+    /// caller's values alone can never establish [`ServiceInstanceBinding::Match`] — supplying the
+    /// "right" numbers to an attempt captured elsewhere still refuses.
+    ///
+    /// Fail-closed and consuming, exactly like [`Self::finalise`]: an attempt captured through the
+    /// identity-free transition stored no pair and refuses; a differing connection or generation
+    /// refuses as [`ServiceInstanceBinding::CrossAttemptObservation`]; and the attempt is taken by
+    /// value so it can neither be finalised twice nor re-paired against a second connection.
+    #[must_use]
+    #[cfg(any(test, feature = "consumer-contract"))]
+    pub fn finalise_for_connection(
+        self,
+        connection_id: u64,
+        handshake_generation: u64,
+    ) -> ServiceInstanceBinding {
+        // The pairing is checked BEFORE the instance verdict, so a cross-connection presentation can
+        // never be reported as an instance answer.
+        let Some((captured_connection, captured_generation)) = self.inner.host_connection else {
+            // Captured without host-issued identifiers: there is nothing to pair against.
+            return ServiceInstanceBinding::MissingIpcObservation;
+        };
+        if captured_connection != connection_id || captured_generation != handshake_generation {
+            return ServiceInstanceBinding::CrossAttemptObservation;
+        }
+        self.bind_observations()
     }
 }
 
@@ -1336,6 +1453,7 @@ impl ServiceInstanceBindingAttempt<Prepared> {
                 scm_after: None,
                 #[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
                 peer: None,
+                host_connection: None,
             },
             _state: core::marker::PhantomData,
         }
@@ -2556,13 +2674,62 @@ mod tests {
     #[test]
     fn a_captured_peer_identity_still_completes_the_ordinary_binding() {
         // The identity layer sits ALONGSIDE the accepted cross-source binding; it neither replaces
-        // nor weakens it.
+        // nor weakens it. `captured` binds the peer to host connection 77 / generation 5, so the
+        // verdict is taken through the paired finaliser those identifiers now require
+        // (PROJECTOSHOST-IPC-CANONICAL-SESSION-INTEGRATION1A) — the binding answer is unchanged.
         let verdict = captured(&owner_sid(), 2, Some(0x2000))
             .record_scm_after(observed(PID_A, CREATED_A))
             .into_attempt()
             .expect("scm-after")
-            .finalise();
+            .finalise_for_connection(77, 5);
         assert_eq!(verdict, ServiceInstanceBinding::Match);
+    }
+
+    #[test]
+    fn a_connection_bound_attempt_cannot_be_finalised_through_the_unpaired_route() {
+        // The two verdicts are indistinguishable once returned, so an attempt captured ON a
+        // connection must not be able to answer Match without the pairing having been checked.
+        let unpaired = captured(&owner_sid(), 2, Some(0x2000))
+            .record_scm_after(observed(PID_A, CREATED_A))
+            .into_attempt()
+            .expect("scm-after")
+            .finalise();
+        assert_eq!(unpaired, ServiceInstanceBinding::CrossAttemptObservation);
+        // …and the WRONG connection or generation is refused the same way.
+        for (conn, gen) in [(78, 5), (77, 6)] {
+            let wrong = captured(&owner_sid(), 2, Some(0x2000))
+                .record_scm_after(observed(PID_A, CREATED_A))
+                .into_attempt()
+                .expect("scm-after")
+                .finalise_for_connection(conn, gen);
+            assert_eq!(wrong, ServiceInstanceBinding::CrossAttemptObservation);
+        }
+    }
+
+    #[test]
+    fn a_zero_host_identifier_is_refused_by_both_capture_routes() {
+        // A zero identifier is a non-identity: neither capture route may store an unpairable pair.
+        for (conn, gen) in [(0u64, 5u64), (77, 0)] {
+            let live = attempt_at_scm_before().record_ipc_peer_identity(
+                observed(PID_A, CREATED_A),
+                &peer_facts(&owner_sid(), 2, Some(0x2000)),
+                conn,
+                gen,
+            );
+            assert_eq!(
+                live.refusal(),
+                Some(ServiceInstanceBinding::MissingIpcObservation)
+            );
+            let contract = attempt_at_scm_before().record_ipc_peer_on_connection(
+                observed(PID_A, CREATED_A),
+                conn,
+                gen,
+            );
+            assert_eq!(
+                contract.refusal(),
+                Some(ServiceInstanceBinding::MissingIpcObservation)
+            );
+        }
     }
 
     #[test]

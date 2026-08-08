@@ -202,6 +202,13 @@ pub use adapter::{
 mod observation;
 #[cfg(any(feature = "test-fixtures", feature = "windows-live-ipc"))]
 pub use observation::ConfirmedSameConnectionIpcPeerEvidence;
+// PROJECTOSHOST-IPC-CANONICAL-SESSION-INTEGRATION1A: the ONE guarded crossing from a COMPLETED
+// canonical kernel-peer attempt to the core session evidence. It consumes the attempt (the
+// Match/refusal verdict is derived inside, never caller-supplied), correlates the bundle against the
+// sealed verifier's live connection + handshake generation, and yields evidence ONLY on Match.
+// Same gate as the bundle it consumes, so it is equally unreachable in the default graph.
+#[cfg(any(feature = "test-fixtures", feature = "windows-live-ipc"))]
+pub use observation::{bind_canonical_peer_to_session_evidence, CanonicalSessionCrossingRefusal};
 
 /// The truthful current state of this crate. CD-B1 was contract-only; the bounded Windows named-pipe
 /// transport is now IMPLEMENTED but compile-only — the implementation exists yet no runtime capability

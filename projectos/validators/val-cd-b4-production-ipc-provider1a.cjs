@@ -116,7 +116,31 @@ function run() {
   if (!/pub struct ConfirmedSameConnectionIpcPeerEvidence/.test(obs)) errors.push("missing ConfirmedSameConnectionIpcPeerEvidence");
   if (!/ConfirmedSameConnectionIpcPeerEvidence\(\[REDACTED\]\)/.test(obs)) errors.push("bundle Debug is not redacted");
   if (!/handshake: ConfirmedIpcPeerHandshake/.test(obs)) errors.push("bundle does not hold the confirmed handshake (same-connection proof)");
-  if (!/pub fn into_core_evidence\(self\) -> \(IpcPeerObservation, ConfirmedHandshakeEvidence\)/.test(obs)) errors.push("projection is not the move-consuming into_core_evidence returning both core evidence values");
+  // AMENDED by PROJECTOSHOST-IPC-CANONICAL-SESSION-INTEGRATION1A: the projection must still be the
+  // move-consuming into_core_evidence returning both core evidence values, and it is now STRICTLY
+  // NARROWER — crate-private, so `bind_canonical_peer_to_session_evidence` is the only route out of
+  // the crate and no caller can reach core evidence without a canonical Match verdict.
+  if (!/pub\(crate\) fn into_core_evidence\(self\) -> \(IpcPeerObservation, ConfirmedHandshakeEvidence\)/.test(obs))
+    errors.push("projection is not the move-consuming, crate-private into_core_evidence returning both core evidence values");
+  if (/\bpub fn into_core_evidence\b/.test(obs))
+    errors.push("into_core_evidence is public again (unguarded route to core evidence)");
+  // The guarded crossing must exist, consume the attempt, and demand exactly ServiceInstanceBinding::Match.
+  if (!/pub fn bind_canonical_peer_to_session_evidence</.test(obs))
+    errors.push("the guarded canonical->session crossing is missing");
+  // The verdict must be derived by CONSUMING the attempt through the PAIRED finalisation, so the
+  // attempt's own captured connection/generation are proven to be the bundle's
+  // (PROJECTOSHOST-IPC-CANONICAL-SESSION-INTEGRATION1A). The unpaired `finalise()` would prove
+  // peer/service agreement without proving which connection produced it.
+  if (!/attempt\.finalise_for_connection\(\s*bundle\.connection_id\(\),\s*bundle\.handshake_generation\(\),?\s*\)/.test(obs))
+    errors.push("the crossing does not derive the verdict by consuming the attempt through the paired finalisation");
+  if (/attempt\.finalise\(\)/.test(obs))
+    errors.push("the crossing uses the UNPAIRED finalise (the attempt-to-bundle pairing would go unproven)");
+  if (!/ServiceInstanceBinding::Match => Ok\(bundle\.into_core_evidence\(\)\)/.test(obs))
+    errors.push("the crossing does not require exactly ServiceInstanceBinding::Match");
+  if (!/bundle\.connection_id\(\) != verifier\.connection_id\(\)/.test(obs))
+    errors.push("the crossing does not correlate the bundle connection against the sealed verifier");
+  if (!/bundle\.handshake_generation\(\) != verifier\.handshake_generation\(\)/.test(obs))
+    errors.push("the crossing does not correlate the handshake generation against the sealed verifier");
   if (/->[^\n]*BoundIpcSession|BoundIpcSession\s*\{|::mint\b/.test(obs)) errors.push("observation bundle constructs/returns BoundIpcSession (must not mint authority)");
   if (/#\[derive\([^)]*(Default|serde)/.test(obs)) errors.push("bundle derives Default/serde");
 
