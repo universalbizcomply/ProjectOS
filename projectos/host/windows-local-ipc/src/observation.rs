@@ -262,6 +262,13 @@ mod tests {
 
     use super::bind_canonical_peer_to_session_evidence;
     use super::CanonicalSessionCrossingRefusal;
+    use crate::adapter::{
+        BackendState, ConnectionState, EndpointOutcome, HandshakeReceipt, IpcBackend,
+        LocalIpcAdapter, ReceivedFrame, SendOutcome, StatusReceipt,
+    };
+    use crate::protocol::{InstalledHostStatus, MessageKind};
+    use crate::verification::{IpcFailure, PeerRole};
+    use crate::{IpcResidue, IpcShutdownResult};
     use projectos_host_windows_service_identity_proof::{
         synthetic_observation, LiveInstanceObservationCapability, ScmAfterObserved,
         ServiceInstanceBinding, ServiceInstanceBindingAttempt, SyntheticInstanceSelector,
@@ -341,6 +348,197 @@ mod tests {
             vec![OperationFamily::RecordMarker],
         )
         .expect("fixture same-connection observation confirms")
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // PROJECTOSHOST-IPC-INTEGRATED-SYNTHETIC-PROOF1A — ONE complete synthetic authority chain,
+    // traversing the REAL components end to end and finishing on the crate's own accepted
+    // shutdown/disconnect/zero-residue contract. Nothing here reconstructs another component's logic:
+    // the canonical verdict comes from the canonical attempt, the crossing from the production
+    // function, the session from the sealed verifier, and the residue from `LocalIpcAdapter`.
+    // ------------------------------------------------------------------------------------------
+
+    /// A deterministic in-memory backend for the SHUTDOWN tail only. It performs no Windows call and
+    /// decides nothing about authority: `LocalIpcAdapter` applies the accepted operational/quarantine
+    /// rules on top of what it reports, so the zero-residue answer is the crate's, not the test's.
+    struct ShutdownTailBackend {
+        shutdown: IpcShutdownResult,
+        residue: IpcResidue,
+        quarantined: bool,
+        state: BackendState,
+    }
+
+    impl ShutdownTailBackend {
+        fn clean() -> Self {
+            Self {
+                shutdown: IpcShutdownResult::CleanShutdown,
+                residue: IpcResidue::Zero,
+                quarantined: false,
+                state: BackendState::Operational,
+            }
+        }
+    }
+
+    impl IpcBackend for ShutdownTailBackend {
+        fn state(&self) -> BackendState {
+            self.state
+        }
+        fn open_endpoint(&self) -> EndpointOutcome {
+            EndpointOutcome::FirstInstanceReady
+        }
+        fn connect_unauthenticated(&self) -> ConnectionState {
+            ConnectionState::TransportConnectedUnauthenticated
+        }
+        fn send_handshake(&self, _kind: MessageKind, _role: PeerRole) -> SendOutcome {
+            SendOutcome::Sent
+        }
+        fn receive_handshake(&self) -> HandshakeReceipt {
+            HandshakeReceipt::Failed(IpcFailure::EndpointUnavailable)
+        }
+        fn receive_frame(&self) -> ReceivedFrame {
+            ReceivedFrame::Failed(IpcFailure::EndpointUnavailable)
+        }
+        fn send_installed_host_status(&self, _status: &InstalledHostStatus) -> SendOutcome {
+            SendOutcome::Sent
+        }
+        fn receive_installed_host_status(&self) -> StatusReceipt {
+            StatusReceipt::Failed(IpcFailure::EndpointUnavailable)
+        }
+        fn send_control(&self, _kind: MessageKind) -> SendOutcome {
+            SendOutcome::Sent
+        }
+        fn confirm_shutdown(&self) -> IpcShutdownResult {
+            self.shutdown
+        }
+        fn close_residue(&self) -> IpcResidue {
+            self.residue
+        }
+        fn has_quarantined_io(&self) -> bool {
+            self.quarantined
+        }
+        fn wait_between_attempts(&self) {}
+    }
+
+    /// THE INTEGRATED PROOF (S1-S10). One chain, every step taken through the real component that
+    /// owns it; no final authority object is fabricated anywhere in this test.
+    #[test]
+    fn integrated_synthetic_authority_chain_mints_is_current_and_leaves_zero_residue() {
+        // S1/S2 - the host-issued connection identity and handshake generation are created by the
+        // SEALED verifier's own crate-assigned counter. The test cannot choose them.
+        let iv = ProductionIpcSessionVerifier::for_local_proof();
+        let connection_id = iv.connection_id();
+        let handshake_generation = iv.handshake_generation();
+        assert_ne!(connection_id, 0);
+        assert_ne!(handshake_generation, 0);
+
+        // Real trusted time + a real verified runtime instance, both through their own sealed routes.
+        let clock = bind_production_clock(
+            fixture_production_clock_binding_grant(),
+            FixtureMonotonicTickSource::new(1_000, 7),
+            1_000_000,
+        );
+        let rv = FixtureRuntimeInstanceVerifier::new();
+        let runtime = rv
+            .verify(
+                &RuntimeInstanceObservation {
+                    role: HostRole::InteractiveFallback,
+                    source: RuntimeSource::InteractiveFallback,
+                    pid: 4242,
+                    creation_tick: 999,
+                    session: None,
+                    observed_at: 0,
+                    valid_until: 9_000,
+                    service_evidence: None,
+                },
+                &clock.read_current(),
+            )
+            .expect("the runtime instance verifies through its own sealed verifier");
+
+        // S3/S4 - the canonical peer attempt is driven in order and TAGGED with that exact pair; the
+        // Match verdict is produced by the canonical crate at finalisation, never by this test.
+        let attempt =
+            completed_attempt_on((1, 1), (1, 1), (1, 1), connection_id, handshake_generation);
+
+        // The same-connection bundle is assembled by the accepted fixture route, which drives the REAL
+        // handshake verification order and consumes its confirmation.
+        let bundle = bundle_for(
+            connection_id,
+            handshake_generation,
+            clock.read_current().reading(),
+        );
+
+        // S5 - the guarded crossing proves attempt pair == bundle pair == verifier pair and consumes
+        // the attempt. Evidence exists only because it returned Ok.
+        let (observation, handshake) =
+            bind_canonical_peer_to_session_evidence(attempt, bundle, &iv)
+                .expect("the complete synthetic chain must cross");
+
+        // S6/S7 - the EXISTING sealed verifier mints; there is no other constructor for a session.
+        let session = iv
+            .verify(&runtime, handshake, &observation, &clock.read_current())
+            .expect("the sealed verifier mints the bound session");
+
+        // S8 - and the session is current against the same runtime, verifier and clock.
+        session
+            .is_current(&iv, &runtime, &clock.read_current())
+            .expect("the freshly minted session is current");
+
+        // S9 - a reconnection yields a NEW host-issued connection, and the prior authority is no
+        // longer current. The old session object still exists; it simply no longer answers.
+        let reconnected = ProductionIpcSessionVerifier::for_local_proof();
+        assert_eq!(
+            session
+                .is_current(&reconnected, &runtime, &clock.read_current())
+                .unwrap_err(),
+            IpcSessionError::ConnectionMismatch
+        );
+        // ...and a disconnect on the original connection refuses it too.
+        iv.disconnect();
+        assert_eq!(
+            session
+                .is_current(&iv, &runtime, &clock.read_current())
+                .unwrap_err(),
+            IpcSessionError::Disconnected
+        );
+
+        // S10 - the shutdown tail, judged by the crate's own accepted adapter contract.
+        let cap = LiveIpcOperationCapability::synthetic_for_fixture();
+        let adapter = LocalIpcAdapter::new(ShutdownTailBackend::clean());
+        assert!(
+            adapter.confirm_shutdown(&cap),
+            "the fixture transport must acknowledge a clean shutdown"
+        );
+        assert_eq!(
+            adapter.close_and_classify_residue(&cap),
+            IpcResidue::Zero,
+            "the integrated run must leave exactly zero residue"
+        );
+    }
+
+    /// Zero residue is a REAL judgement, not an assumption: a quarantined operation downgrades it even
+    /// when the backend itself reports Zero, so S10 cannot pass vacuously.
+    #[test]
+    fn integrated_zero_residue_is_judged_not_assumed() {
+        let cap = LiveIpcOperationCapability::synthetic_for_fixture();
+        let mut backend = ShutdownTailBackend::clean();
+        backend.quarantined = true;
+        let adapter = LocalIpcAdapter::new(backend);
+        assert!(!adapter.confirm_shutdown(&cap));
+        assert_eq!(
+            adapter.close_and_classify_residue(&cap),
+            IpcResidue::NonZero
+        );
+        // A transferred handle is likewise never clean closure.
+        let transferred = ShutdownTailBackend {
+            state: BackendState::HandleTransferredToQuarantine,
+            ..ShutdownTailBackend::clean()
+        };
+        let adapter = LocalIpcAdapter::new(transferred);
+        assert!(!adapter.confirm_shutdown(&cap));
+        assert_eq!(
+            adapter.close_and_classify_residue(&cap),
+            IpcResidue::NonZero
+        );
     }
 
     // T1 + T9: the ONLY successful path — Match verdict + matching connection + matching generation
