@@ -55,6 +55,31 @@ function installExitHook() {
   exitHookInstalled = true;
   // Synchronous rmSync works inside an exit handler; async cleanup would not run.
   process.on("exit", cleanupAll);
+  // `exit` does NOT fire when the process is terminated by a signal, so an interrupted suite left
+  // its whole Cargo scratch tree behind — the observed multi-hundred-MB leak. Clean up, then drop
+  // our own handler and re-raise, so the default disposition still decides the exit status and the
+  // interrupt is not swallowed.
+  // 128 + signal number is the conventional shell exit status, used when a signal cannot be re-raised.
+  const CONVENTIONAL_EXIT = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143, SIGBREAK: 149 };
+  for (const sig of ["SIGINT", "SIGTERM", "SIGHUP", "SIGBREAK"]) {
+    const onSignal = () => {
+      cleanupAll();
+      process.removeListener(sig, onSignal);
+      try {
+        // Re-raise so the default disposition decides the status and the interrupt is not swallowed.
+        process.kill(process.pid, sig);
+      } catch {
+        // Windows rejects re-raising some signals (SIGBREAK/SIGHUP throw ENOSYS). Terminating with the
+        // conventional status is required: an uncaught throw here would turn cleanup into a crash.
+        process.exit(CONVENTIONAL_EXIT[sig] || 1);
+      }
+    };
+    try {
+      process.on(sig, onSignal);
+    } catch {
+      // Not every signal name exists on every platform; the remaining ones still install.
+    }
+  }
 }
 
 /// Create an OWNED scratch directory beneath TEMP and return its exact absolute path.

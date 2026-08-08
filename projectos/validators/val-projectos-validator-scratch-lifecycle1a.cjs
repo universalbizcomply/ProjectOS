@@ -45,6 +45,9 @@ function run() {
     ['category: e && e.code ? String(e.code) : "remove-failed"', "cleanup-failure reporting"],
     ["[scratch] cleanup failed: ", "cleanup-failure surfacing"],
     ['process.on("exit", cleanupAll)', "process-exit cleanup hook"],
+    ['["SIGINT", "SIGTERM", "SIGHUP", "SIGBREAK"]', "signal cleanup coverage"],
+    ["process.on(sig, onSignal)", "signal handler installation"],
+    ["process.exit(CONVENTIONAL_EXIT[sig] || 1)", "re-raise fallback for signals Windows cannot raise"],
   ])
     if (!helper.includes(needle)) E("V2 helper is missing the " + what);
 
@@ -142,6 +145,47 @@ function run() {
       E("V9 validate-all does not release validator scratch between modules");
     if (!/finally \{ scratch\.cleanupAll\(\); \}/.test(runner))
       E("V9 the suite runner's release is not in a finally (a crash would leak)");
+  }
+
+  // ---- V10 LIVE: signal termination releases scratch ----
+  // process.on("exit") does not fire when a process is terminated by a signal, so an interrupted suite
+  // used to leak its entire Cargo scratch tree. Each signal is dispatched to listeners exactly as Node
+  // dispatches a real Ctrl-C, in a child process, and the directory must be gone afterwards.
+  {
+    const { spawnSync } = require("child_process");
+    const probe =
+      "const s=require(" + JSON.stringify(HELPER.replace(/\\/g, "/")) + ");" +
+      'const f=require("fs"),p=require("path");' +
+      'const d=s.owned("signalprobe");' +
+      'f.writeFileSync(p.join(d,"f.txt"),"x");f.mkdirSync(p.join(d,"sub"));' +
+      'process.stdout.write("DIR="+d+"\\n");' +
+      "process.emit(process.argv[1]);" +
+      // Reaching this line means no signal listener terminated us. A real signal would have ended the
+      // process WITHOUT running `exit` handlers, so terminate that way here too - otherwise the exit
+      // hook would clean up and hide a completely missing signal handler.
+      'process.kill(process.pid,"SIGKILL");';
+    for (const sig of ["SIGINT", "SIGTERM", "SIGHUP", "SIGBREAK"]) {
+      const r = spawnSync(process.execPath, ["-e", probe, sig], { encoding: "utf8", timeout: 30000 });
+      const m = /DIR=(.+)/.exec(r.stdout || "");
+      const dir = m && m[1].trim();
+      if (!dir || !path.basename(dir).startsWith("projectos-signalprobe-")) {
+        E("V10 the " + sig + " probe did not report a scratch directory");
+        continue;
+      }
+      if (fs.existsSync(dir)) {
+        try {
+          fs.rmSync(dir, { recursive: true, force: true });
+        } catch {
+          /* reported below regardless */
+        }
+        E("V10 scratch survived " + sig + " termination (signal cleanup missing)");
+      }
+      // Cleanup must terminate the process, never crash it: an uncaught re-raise error would turn
+      // interruption into a stack trace and still abandon the tree on the next code path.
+      if (/ENOSYS|Error: kill/.test(r.stderr || "")) {
+        E("V10 " + sig + " cleanup crashed while re-raising: " + (r.stderr || "").split("\n")[0]);
+      }
+    }
   }
 
   // ---- V8 every TEMP-scratch validator routes through the helper ----
