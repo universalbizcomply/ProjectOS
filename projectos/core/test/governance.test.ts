@@ -4,6 +4,7 @@ import {
   classifyAction,
   isGatedAction,
   DEFAULT_SAFETY_GATES,
+  GATE_PATTERNS,
 } from '../src/risk.js';
 import { requestApproval, decide, isApproved } from '../src/approval.js';
 import { GATE_KEYS } from '../src/types.js';
@@ -56,6 +57,38 @@ describe('risk engine', () => {
     expect(classifyAction('send email to customers').gate).toBe('realMessagingGate');
     expect(classifyAction('print the API key').gate).toBe('secretsHandlingGate');
     expect(classifyAction('git push --force').gate).toBe('forcePushProhibition');
+    // Closure approvals are owner-gated: an implementer must not be able to self-decide one.
+    for (const action of [
+      'close phase SANDBOX-PHASE-1',
+      'closing phase SANDBOX-PHASE-1',
+      'close the phase',
+      // PAST TENSE must gate too — `clos(e|ing|ure)` alone cannot match "closed".
+      'mark phase SANDBOX-PHASE-1 as closed',
+      'phase SANDBOX-PHASE-1 closure',
+      'phase SANDBOX-PHASE-1 closed',
+    ]) {
+      expect(classifyAction(action).gate).toBe('closureAuthorityGate');
+      expect(classifyAction(action).gated).toBe(true);
+    }
+    // …and ordinary work that merely mentions both words is NOT swept in.
+    for (const benign of [
+      'close the modal in the UI',
+      'close a GitHub issue in this phase',
+      'close the file handle during this phase',
+      'phase out the legacy closer',
+    ]) {
+      expect(classifyAction(benign).gated).toBe(false);
+    }
+  });
+
+  it('gives every safety gate a matching pattern (no silently unreachable gate)', () => {
+    // `GATE_RISK` is a Record<GateKey, ...> so TypeScript enforces exhaustiveness, but the pattern
+    // table is a plain array and does not — which is exactly how `closureAuthorityGate` shipped
+    // defined-but-unreachable. This test is the missing exhaustiveness check.
+    const patterned = new Set(GATE_PATTERNS.map((p) => p.gate));
+    for (const gate of Object.keys(DEFAULT_SAFETY_GATES)) {
+      expect(patterned.has(gate as keyof typeof DEFAULT_SAFETY_GATES)).toBe(true);
+    }
   });
 
   it('marks force push as prohibited and critical', () => {

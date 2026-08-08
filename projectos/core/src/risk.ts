@@ -50,8 +50,12 @@ export const DEFAULT_SAFETY_GATES: Readonly<Record<GateKey, SafetyGate>> = {
   },
 };
 
-/** Keyword patterns that map an action onto a gate. First match wins. */
-const GATE_PATTERNS: ReadonlyArray<{ readonly gate: GateKey; readonly patterns: readonly RegExp[] }> = [
+/** Keyword patterns that map an action onto a gate. First match wins.
+ *
+ * EXPORTED so the test suite can assert that EVERY `GateKey` has a pattern: this table is a plain
+ * array, so TypeScript gives it no exhaustiveness check, and a gate defined without a pattern here
+ * silently classifies as low/ungated (see `closureAuthorityGate`). */
+export const GATE_PATTERNS: ReadonlyArray<{ readonly gate: GateKey; readonly patterns: readonly RegExp[] }> = [
   { gate: 'forcePushProhibition', patterns: [/force\s*-?push/i, /push\s+--force/i, /\bpush\s+-f\b/i] },
   { gate: 'productionDeployGate', patterns: [/prod(uction)?\s*deploy/i, /deploy\s*(to\s*)?prod/i, /production\s*cutover/i] },
   { gate: 'productionDbMutationGate', patterns: [/prod(uction)?\s*(db|database)/i, /drop\s+table/i, /truncate/i, /delete\s+from/i, /production.*migrat/i] },
@@ -59,6 +63,22 @@ const GATE_PATTERNS: ReadonlyArray<{ readonly gate: GateKey; readonly patterns: 
   { gate: 'realMessagingGate', patterns: [/send.*(email|sms|whatsapp|message)/i, /\bemail\s+send/i, /\bsms\b/i, /whatsapp/i] },
   { gate: 'secretsHandlingGate', patterns: [/secret/i, /api[_\s-]?key/i, /access[_\s-]?token/i, /service[_\s-]?role/i, /\bcredential/i] },
   { gate: 'externalServiceGate', patterns: [/external\s+(service|api)/i, /third[-\s]?party\s+api/i, /call\s+.*\bapi\b/i] },
+  // Closure is owner-gated by `transitionPhase` (OWNER_ONLY_TARGETS), but an APPROVAL RECORD for a
+  // closure action was classifying as low/ungated because this gate had no pattern — so an
+  // implementer could self-decide it. Found by PROJECTOS-V3-FINAL-RUNTIME-E2E1A.
+  //
+  // The verb form must include the PAST TENSE (`closed`): `\bclos(e|ing|ure)\b` cannot match
+  // "closed", because the `\b` after `e` fails against the following `d` — so "mark phase X as
+  // closed" would have slipped through ungated. The first pattern also requires `phase` to be the
+  // DIRECT OBJECT (optionally articled), so ordinary work such as "close a GitHub issue in this
+  // phase" or "close the file handle during this phase" stays ungated instead of being swept in.
+  {
+    gate: 'closureAuthorityGate',
+    patterns: [
+      /\bclos(e|ed|ing|ure\s+of)\s+(?:the\s+|this\s+|a\s+)?phase\b/i,
+      /\bphase\b[^.]{0,40}?\bclos(ed|ing|ure)\b/i,
+    ],
+  },
 ];
 
 /** Risk level assigned per gate when matched. */
