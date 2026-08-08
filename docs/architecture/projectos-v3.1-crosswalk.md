@@ -1,7 +1,7 @@
 # ProjectOS V3.1 Roadmap-Integration & Status Crosswalk
 
 - **Document ID:** PROJECTOS-V3.1-CROSSWALK
-- **Version:** 1.4 (Phase 13 closure, 2026-08-04 — `PROJECTOS-V3-DESKTOP-AUTH-RECOVERY-PROOF1A`; v1.3 was `PROJECTOS-V3-CD-B4-CLOSURE-AUTHORITY-RECORD1A`, v1.2 `PROJECTOS-V3-ACCEPTANCE-DECISIONS-RECORD1A`, v1.1 `PROJECTOS-V3-RECORDS-RECONCILE1A`)
+- **Version:** 1.6 (execution readiness + 15/19 formal closure, 2026-08-08 — `PROJECTOS-V3-EXECUTION-READY-RECORD1A`; v1.4 was `PROJECTOS-V3-DESKTOP-AUTH-RECOVERY-PROOF1A`, v1.3 `PROJECTOS-V3-CD-B4-CLOSURE-AUTHORITY-RECORD1A`, v1.2 `PROJECTOS-V3-ACCEPTANCE-DECISIONS-RECORD1A`, v1.1 `PROJECTOS-V3-RECORDS-RECONCILE1A`)
 - **Owner:** Murad
 - **Status:** AUTHORITATIVE CURRENT STATUS CROSSWALK
 - **Approved-plan reference:** ProjectOS V3 Master Plan v1.0
@@ -16,6 +16,10 @@
 > **v1.3 CHANGE NOTE.** Version 1.3 persists the corrected CD-B4 closure-authority matrix (§8a, §8c, §8d) under the owner ruling of 2026-08-04. It replaces the v1.1/v1.2 blanket *IMPLEMENTED AND PUSHED / AWAITING ACCEPTANCE* classification with per-phase authority state, records that **`86ae19c` and `a43898d` remain OPEN**, and changes **no numbered V3 phase**: `acceptedPhaseCount` stays **3 / 19** and `EXECUTION_READY` stays **false**.
 
 > **v1.4 CHANGE NOTE.** Version 1.4 records the ChatGPT technical closure gate of 2026-08-04 closing numbered **Phase 13 `PROJECTOS-V3-DESKTOP-E2E-PROOF1A`** on the native desktop proof delivered by `PROJECTOS-V3-DESKTOP-AUTH-RECOVERY-PROOF1A` (accepted commits `1fcf416` and `fb203c6`). This is the first numbered V3 phase closed since Phase 2, so `acceptedPhaseCount` moves **3 -> 4 of 19**. `EXECUTION_READY` stays **false**, `installationAuthority` stays **NotAuthorised**, and `86ae19c` and `a43898d` stay **OPEN**. No other numbered phase changes state.
+
+> **v1.5 CHANGE NOTE.** Version 1.5 persists the owner/gatekeeper decisions taken on the read-only `PROJECTOS-V3-EXECUTION-READY-RULING1A`. **Programme/local `EXECUTION_READY` moves false → true**, scoped exclusively to governed LOCAL/SYNTHETIC delivery, because the single prerequisite this document itself named — the ProjectOS runtime-driven external-repository proof (§15 v1.1–v1.4, §17a step 3, carry-forward C2) — was delivered and is now formally **CLOSED** at accepted commit `d9035b4`. **Installation authority stays `NotAuthorised`. Live, production, provider and credential authority stays `NotAuthorised`.** The Rust host/live `EXECUTION_READY` constants stay **false** and are a **different flag**; never conflate them. `acceptedPhaseCount` stays **4 of 19** — `PROJECTOS-V3-FINAL-RUNTIME-E2E1A` is a gate, not a numbered roadmap phase — and `86ae19c` and `a43898d` stay **OPEN**. No numbered V3 phase changes state; V3 is **not complete**.
+
+> **v1.6 CHANGE NOTE — ELEVEN NUMBERED PHASES FORMALLY CLOSED.** Version 1.6 persists a second owner + gatekeeper decision taken on the read-only `PROJECTOS-V3-19-PHASE-CLOSURE-RECONCILE1A` audit, in the same governance commit as the readiness ruling above. Phases **3, 4, 5, 6, 7, 8, 9, 10, 11, 14 and 15** move from *IMPLEMENTATION ACCEPTED — OPEN* to **CLOSED**, taking `acceptedPhaseCount` from **4 to 15 of 19**. **Phase 18 is NOT retired**: only its July completion *claim* was superseded; the numbered phase remains **OPEN** as the final closure phase. Phases **12, 16, 17 and 18 remain OPEN** and now carry explicit acceptance criteria (§5b) — recorded prospectively, because the audit found that phases 3–18 never had any. §5c records the two-stack architecture ruling. `EXECUTION_READY` stays **true** (programme/local only), `installationAuthority` stays **NotAuthorised**, and V3 is **not complete**.
 
 > **WARNING — NOT A PLAN.** This document is an authoritative current-status and roadmap-integration crosswalk. It does **not** replace, amend or version the approved ProjectOS V3 Master Plan v1.0. The approved plan remains immutable at v1.0 (source commit `1aa36b9`). This crosswalk records status, integrates later workstreams (Forge, HARDEN/real-worker, CD-B4) that are **not** part of the original numbered V3 Phase 0–18 plan, and persists the **APPROVED DIRECTIONAL V3.1 ROADMAP STRUCTURE** (Track A–G). Directional-roadmap approval is **not** implementation authority: no Track C, Track D or other implementation phase is authorised merely because the directional structure is approved.
 
@@ -60,34 +64,100 @@ None of items 3–8 is a numbered V3 phase, so this ratification leaves `accepte
 | 0 | PROJECTOS-V3-BASELINE-RECONCILE1A | CLOSED AND PUSHED |
 | 1 | PROJECTOS-V3-MASTER-PLAN-MEMORY1A | CLOSED AND PUSHED |
 | 2 | PROJECTOS-V3-PLAN-DISCOVERY-IMPORT1A | CLOSED AND PUSHED |
-| 3 | PROJECTOS-V3-OWNER-CONTROL-PLANE-DESIGN1A | IMPLEMENTATION ACCEPTED — OPEN |
-| 4 | PROJECTOS-V3-LOCAL-SECRET-BROKER1A | IMPLEMENTATION ACCEPTED — OPEN |
-| 5 | PROJECTOS-V3-SECRET-OPERATION-BROKER1A | IMPLEMENTATION ACCEPTED — OPEN |
-| 6 | PROJECTOS-V3-OWNER-CHAT1A | IMPLEMENTATION ACCEPTED — OPEN |
-| 7 | PROJECTOS-V3-PROJECT-SESSION-LAUNCHER1A | IMPLEMENTATION ACCEPTED — OPEN |
-| 8 | PROJECTOS-V3-CLAUDE-DESKTOP-BRIDGE1A | IMPLEMENTATION ACCEPTED — OPEN |
-| 9 | PROJECTOS-V3-E2E-RUNNER1A | IMPLEMENTATION ACCEPTED — OPEN |
-| 10 | PROJECTOS-V3-APPROVAL-QUEUE1A | IMPLEMENTATION ACCEPTED — OPEN |
-| 11 | PROJECTOS-V3-PROVIDER-CONTEXT-GUARDS1A | IMPLEMENTATION ACCEPTED — OPEN |
-| 12 | PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A | IMPLEMENTATION ACCEPTED — OPEN (UI present; now also reads real host status, §8b) |
+| 3 | PROJECTOS-V3-OWNER-CONTROL-PLANE-DESIGN1A | **CLOSED** (2026-08-08) — owner control plane in `control-center/src/owner/`; 57 vitest, build, live browser proof at 5 breakpoints |
+| 4 | PROJECTOS-V3-LOCAL-SECRET-BROKER1A | **CLOSED** (2026-08-08) — `security/broker.cjs`; `validate-secret-broker` registered + green; sec/code review, HIGH+MEDIUM fixed |
+| 5 | PROJECTOS-V3-SECRET-OPERATION-BROKER1A | **CLOSED** (2026-08-08) — `security/operation-broker.cjs`; `validate-secret-operation-broker` registered + green; **2 CRITICAL fixed** |
+| 6 | PROJECTOS-V3-OWNER-CHAT1A | **CLOSED** (2026-08-08) — local deterministic NLU, no AI/metered API; 77 vitest; HIGH fixed; live browser proof |
+| 7 | PROJECTOS-V3-PROJECT-SESSION-LAUNCHER1A | **CLOSED** (2026-08-08) — `launcher/session-launcher.cjs`; `validate-session-launcher` registered + green; HIGH untrusted-root fixed |
+| 8 | PROJECTOS-V3-CLAUDE-DESKTOP-BRIDGE1A | **CLOSED** (2026-08-08) — `bridge/desktop-bridge.cjs`; `validate-desktop-bridge` registered + green; **CRITICAL denylist→allowlist fixed** |
+| 9 | PROJECTOS-V3-E2E-RUNNER1A | **CLOSED** (2026-08-08) — `e2e/e2e-runner.cjs`; 6 offline scenarios composing phases 4/5/7/8; `validate-e2e-runner` registered + green |
+| 10 | PROJECTOS-V3-APPROVAL-QUEUE1A | **CLOSED** (2026-08-08) — `approval/approval-queue.cjs`; cannot self-approve, fail-closed; `validate-approval-queue` registered + green |
+| 11 | PROJECTOS-V3-PROVIDER-CONTEXT-GUARDS1A | **CLOSED** (2026-08-08) — `guards/provider-context-guards.cjs`; default-REFUSED; `validate-provider-context-guards` registered + green; HIGH fail-open fixed |
+| 12 | PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A | **OPEN** — surface is inert/snapshot-driven by its own record; definition-of-complete bullet 6 (start/pause/gate/close from one control surface) is UNPROVEN. Criteria §5b |
 | 13 | PROJECTOS-V3-DESKTOP-E2E-PROOF1A | **CLOSED** (2026-08-04, ChatGPT technical closure gate) — native Tauri release proof, authenticated UI proof, responsive/accessibility proof, STOPPED -> UNAVAILABLE host correspondence, R1-R15 passed; evidence `1fcf416` + `fb203c6` and the `PROJECTOS-V3-DESKTOP-AUTH-RECOVERY-PROOF1A` CLOSED report |
-| 14 | PROJECTOS-V3-POLYGO-BASELINE-RECONCILE1A | IMPLEMENTATION ACCEPTED — OPEN (was BLOCKED in v1.0; see §12) |
-| 15 | PROJECTOS-V3-POLYGO-INSTALL-REENTRY1A | IMPLEMENTATION ACCEPTED — OPEN (was BLOCKED in v1.0; see §12) |
-| 16 | PROJECTOS-V3-POLYGO-PILOT1A | **OPEN — PROJECTOS RUNTIME-DRIVEN EXTERNAL E2E REQUIRED** (manual pilot done; see §12) |
-| 17 | PROJECTOS-V3-RELIABILITY-HARDENING1A | IMPLEMENTATION ACCEPTED — OPEN |
-| 18 | PROJECTOS-V3-FINAL-E2E-CLOSURE1A | **SUPERSEDED** — replaced by `PROJECTOS-V3-FINAL-RUNTIME-E2E1A` (§5a) |
+| 14 | PROJECTOS-V3-POLYGO-BASELINE-RECONCILE1A | **CLOSED** (2026-08-08) — trust anchor `b6e6993` + `e788d3c`; evidence is EXTERNAL to this repository (§12) |
+| 15 | PROJECTOS-V3-POLYGO-INSTALL-REENTRY1A | **CLOSED** (2026-08-08) — PolyGo install complete; evidence is EXTERNAL to this repository (§12) |
+| 16 | PROJECTOS-V3-POLYGO-PILOT1A | **OPEN** — needs real ProjectOS runtime × real PolyGo. The manual pilot proved the MODEL; `d9035b4` proved the RUNTIME on a disposable sandbox. Criteria §5b |
+| 17 | PROJECTOS-V3-RELIABILITY-HARDENING1A | **OPEN** — existing adversarial pass covers the `.cjs` chain ONLY, with zero coverage of `projectos/core` and `projectos/agent`. Runs AFTER Phase 16. Criteria §5b |
+| 18 | PROJECTOS-V3-FINAL-E2E-CLOSURE1A | **OPEN — NOT RETIRED.** Only the July completion *claim* was superseded (§5a). Remains the final V3 closure phase, after 12, 16, 17. Criteria §5b |
 
-**Numbered V3 closure ratio = 3 / 19** (phases 0, 1, 2 only; applies ONLY to the original numbered V3 roadmap; not product/shipping/CD-B4/Forge). **Unchanged by v1.1 and v1.2.**
+**Numbered V3 closure ratio = 15 / 19** (phases 0–11, 13, 14, 15; OPEN: 12, 16, 17, 18). Applies ONLY to the original numbered V3 roadmap; not product/shipping/CD-B4/Forge.
+
+**SUPERSEDED (v1.0–v1.5 text, retained):** ~~Numbered V3 closure ratio = 3 / 19 (phases 0, 1, 2 only). Unchanged by v1.1 and v1.2.~~ Phase 13 closed at v1.4 (→ 4); the eleven-phase closure at v1.6 (→ 15).
 
 ### 5a. What "IMPLEMENTATION ACCEPTED — OPEN" means (v1.2)
 
-The owner accepted, on **2026-08-04**, that the implementation of phases 3–12, 14–15 and 17 is **adequate**. That is **not closure**:
+**SUPERSEDED (v1.2 text, retained):** ~~The owner accepted, on **2026-08-04**, that the implementation of phases 3–12, 14–15 and 17 is **adequate**. That is **not closure**: the phase stays OPEN; it does not count toward `acceptedPhaseCount`, which stays 3; closure still requires the outstanding proof for its track.~~
 
-- the phase stays **OPEN**;
-- it does **not** count toward `acceptedPhaseCount`, which stays **3**;
-- closure still requires the outstanding proof for its track.
+**CURRENT (v1.6, 2026-08-08).** The `PROJECTOS-V3-19-PHASE-CLOSURE-RECONCILE1A` audit reconstructed the position from evidence rather than defending the recorded number, and found that for phases 3–11, 14 and 15 **no outstanding proof was ever named**. §5a's phrase "the outstanding proof for its track" was never resolved to a concrete criterion for them — because, as §5b records, phases 3–18 never had acceptance criteria at all. On that finding the owner and gatekeeper **formally closed those eleven phases** on the uniform evidence basis below. Phases 12, 16 and 17 were **not** closed, because each has a real, identifiable gap.
 
-**Phase 18 is SUPERSEDED, not deleted.** Its 2026-07-12 claim — *"PROJECTOS V3 LOCALLY COMPLETE AND PROVEN"* — predates the entire CD-B4 host chain, the real service installation and the PolyGo pilot, so it can no longer serve as the final gate. The replacement final gate is **`PROJECTOS-V3-FINAL-RUNTIME-E2E1A`**: the ProjectOS **runtime** driving a real external repository through its own `install` / `phase` / `report` / `close` workflow. The historical Phase 18 report is retained unchanged as evidence of what was true in July.
+**Closure basis applied to all eleven** (recorded once here rather than as eleven near-identical reports):
+
+- the recorded phase purpose is satisfied;
+- an accepted implementation exists at the accepted baseline — verified file-by-file at HEAD, not inferred from a report;
+- the phase validator is registered in `validate-all` and green in the 121-validator suite, where the phase has one;
+- security-reviewer and code-reviewer evidence exists and every CRITICAL/HIGH finding was corrected;
+- the accepted commits are ancestors of HEAD, i.e. genuinely pushed and reconciled;
+- no explicit unresolved phase-specific closure criterion remained.
+
+**No retrospective acceptance criteria were invented.** Closure was an owner/gatekeeper judgement on the evidence above. **Phases 14 and 15 close on evidence external to this repository** (`polygonia-apres/polygo`), which is not resolvable in this git history — a stated limitation, not a hidden one.
+
+**Phase 18: the CLAIM was superseded, the PHASE was not.** Its 2026-07-12 claim — *"PROJECTOS V3 LOCALLY COMPLETE AND PROVEN"* — predates the entire CD-B4 host chain, the real service installation and the PolyGo pilot, so it can no longer serve as the final gate; **`PROJECTOS-V3-FINAL-RUNTIME-E2E1A`** replaced it in that role and is CLOSED at `d9035b4`. **The numbered Phase 18 itself remains OPEN** as the final V3 closure phase, to run after phases 12, 16 and 17, with its own acceptance criteria in §5b. Claude cannot self-close it. The historical Phase 18 report is retained unchanged as evidence of what was true in July.
+
+### 5b. Acceptance criteria for the OPEN phases (v1.6, recorded prospectively)
+
+**Why this section exists.** The audit found a structural gap: the approved plan v1.0 defines `acceptanceCriteria` for **three** phases (0, 1, 2) in `projectos-v3.plan.json` while declaring `totalPhaseCount` 19. Phases 3–18 never had machine-readable criteria anywhere. That — not missing work — is why the counter sat at 4 / 19: closure could not be measured against a criterion that did not exist. The gap is fixed **prospectively only**; no criteria are back-dated onto the closed phases, and the plan stays byte-immutable.
+
+**Phase 12 — `PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A`**
+1. The Control Centre can drive **start / pause / gate / close**.
+2. Those actions reach the **canonical ProjectOS runtime** (§5c), not a parallel one.
+3. The worker cannot self-approve or self-close through the UI.
+4. State shown in the UI matches durable runtime state.
+5. Wrong-project operations fail closed.
+6. Responsive, accessibility and live-browser evidence.
+7. **No third governance runtime is introduced.**
+
+**Phase 16 — `PROJECTOS-V3-POLYGO-PILOT1A`**
+1. Real PolyGo repository. 2. Real ProjectOS runtime. 3. One bounded **non-production** phase. 4. PLAN READY enforced. 5. Correct repository, account and environment. 6. Evidence and report **generated by ProjectOS**. 7. Owner approval gate exercised. 8. Closure recorded through ProjectOS. 9. No production, send or payment effect. 10. Zero unrelated residue.
+
+**Phase 17 — `PROJECTOS-V3-RELIABILITY-HARDENING1A`**
+1. Runs **after** Phase 16. 2. Adversarial/reliability coverage includes the actual `projectos/core` and `projectos/agent` runtime. 3. Covers the Phase-12 integration seam. 4. Crash, interruption and recovery. 5. Wrong-project and isolation. 6. Approval bypass. 7. Cleanup and residue. 8. Only pilot-observed defects or load-bearing reliability gaps are fixed. **The existing adversarial coverage of the `.cjs` chain is accepted evidence and must be reused, not rebuilt.**
+
+**Phase 18 — `PROJECTOS-V3-FINAL-E2E-CLOSURE1A`**
+1. Phases 12, 16 and 17 closed. 2. Final definition-of-complete matrix. 3. Final evidence pack. 4. Final risk register. 5. Control Centre owner workflow proven. 6. Real PolyGo ProjectOS pilot proven. 7. Canonical-runtime reliability proven. 8. Records and counters reconciled. 9. No-secret proof. 10. No-unauthorised-production proof. 11. Owner/gatekeeper final closure.
+
+### 5c. Two-stack architecture ruling (v1.6)
+
+The audit found **two disconnected governed stacks** in this repository:
+
+1. the **`.cjs` chain** delivered by phases 3–12 and 17 — `security/broker`, `security/operation-broker`, `launcher/session-launcher`, `bridge/desktop-bridge`, `e2e/e2e-runner`, `approval/approval-queue`, `guards/provider-context-guards`, `control-center/src/owner/**`;
+2. the **TypeScript `@projectos/core` + `agent` runtime** that drove `PROJECTOS-V3-FINAL-RUNTIME-E2E1A`.
+
+Verified in both directions: `core/src` and `agent/src` contain **no** reference to any `.cjs` chain module, and the chain contains no `@projectos/core` import. Each has its own approval engine — `approval/approval-queue.cjs` and `core/src/approval.ts`.
+
+**Consequences.** `d9035b4` did **not** exercise phases 3–12 or 17 and is **not** their discharging proof — and was never recorded as such; the runtime-E2E condition was attached to **Phase 16 alone**. Stack 2 is the **canonical** runtime: it is what will drive PolyGo. **Phase 12 must connect the Control Centre to stack 2.** Do **not** build a third runtime; do **not** duplicate the approval, state or runner systems; prefer the smallest safe adapter/integration seam. No Phase 12 implementation is authorised by this document.
+
+### 5d. Phase 12 / Phase 13 dependency reconciliation (v1.6)
+
+**The apparent violation, stated plainly.** The approved V3 delivery plan **explicitly requires**:
+
+> *"PHASE 12 must complete before complete desktop proof."*
+> *"PHASE 13 must complete before the PolyGo pilot."*
+
+**Phase 13 is the complete desktop-proof phase.** The ledger in §5 now records **Phase 13 CLOSED** while **Phase 12 remains OPEN**, so the later-authority sequencing exception below is required. This is reinforced — not replaced — by the general rule in master plan §16: *"A phase may not be eligible for execution until its dependencies are recorded complete."* Without this note the ledger reads as an unexplained formal dependency violation. It is not one. It is a **specific, later-authority sequencing exception**, recorded here rather than left to be rediscovered.
+
+> **Records gap, flagged not hidden.** Those two dependency sentences are authoritative in the approved V3 delivery plan held by the owner/gatekeeper, but they are **not mirrored in this repository's copy** — `docs/architecture/projectos-v3-master-plan.md` carries only the generic §16 rule, and `projectos-v3.plan.json` declares `dependsOn` for phases 0–2 only. The dependency is cited above on owner/gatekeeper authority. Mirroring the delivery plan's per-phase dependencies into this repository is worth a future records phase; it is not attempted here and the SHA-pinned master plan is untouched.
+
+**How it arose.** Phase 13 was formally CLOSED on 2026-08-04 by the ChatGPT technical closure gate, on its own accepted native desktop proof (`1fcf416` + `fb203c6`, delivered under `PROJECTOS-V3-DESKTOP-AUTH-RECOVERY-PROOF1A`). That closure was correct on the evidence before it. A later programme reconciliation — `PROJECTOS-V3-19-PHASE-CLOSURE-RECONCILE1A` — then established that **Phase 12 retains a distinct residual definition-of-complete gap** that Phase 13's proof never addressed and was never scoped to address: **the owner Control Centre is not yet proven to drive start / pause / gate / close through the canonical ProjectOS `core`/`agent` runtime** (§5c). Phase 13 proved the desktop shell renders, authenticates and reports host status; it did not prove the surface *drives* the lifecycle.
+
+**The ruling.**
+
+- **Phase 13 remains CLOSED.** It is not reopened, and its accepted evidence is not disturbed.
+- **Phase 12 remains OPEN.**
+- **Retaining Phase 13's closure does NOT imply Phase 12 completion.** The two proved different things.
+- The earlier sequencing dependency is **superseded for this specific, already-accepted closure state** by the later owner/gatekeeper ruling.
+- **Phase 12 must still close before final Phase 18 closure** — the dependency is deferred, not discharged.
+- **This exception does not create a general right to bypass roadmap dependencies.** It is a specific historical reconciliation of one already-accepted closure, not a weakening of phase-dependency governance. Any future out-of-order closure needs its own explicit ruling.
 
 ## 6. Forge ledger
 - Synthetic/offline F1–F10: **IMPLEMENTED AND PUSHED**.
@@ -219,10 +289,19 @@ The pilot exercised: an exact seven-path boundary, a phase-specific validator, a
 > repository, so they do not yet run against an external root.
 > Manual governance proof ≠ runtime automation proof. Phases 14–16 are therefore **NO LONGER BLOCKED but NOT
 > ACCEPTED**, and the runtime proof remains mandatory — see §17a and C2.
+>
+> **UPDATE 2026-08-08.** The runtime half is now proven — but **on a disposable external repository, not on PolyGo**
+> (`PROJECTOS-V3-FINAL-RUNTIME-E2E1A`, CLOSED at `d9035b4`). Phases 14 and 15 are now **CLOSED** (v1.6, §5/§5a) on
+> their own completed evidence — installation and baseline reconciliation genuinely happened — with the stated
+> limitation that that evidence lives in `polygonia-apres/polygo` and is not resolvable in this repository's history.
+> **Phase 16 stays OPEN**: it requires exactly the combination neither proof supplies on its own — the **real
+> ProjectOS runtime** driving the **real PolyGo project** through one bounded, non-production governed workflow under
+> the existing approval controls (criteria §5b). Nothing here accepts Phase 16, and no PolyGo work is authorised by
+> this document.
 
 The commits above belong to the **PolyGo** repository (`polygonia-apres/polygo`), not to this repository. They are recorded here as external accepted evidence and are not resolvable in ProjectOS git history.
 
-**v1.2 owner decision (2026-08-04).** Phases 14 and 15 are **IMPLEMENTATION ACCEPTED — OPEN**: installation and the manually governed pilot are complete. Phase 16 is **OPEN — PROJECTOS RUNTIME-DRIVEN EXTERNAL E2E REQUIRED**. **No numbered phase closure is granted by this decision**, and `acceptedPhaseCount` stays 3.
+**SUPERSEDED (v1.2 owner decision of 2026-08-04, retained):** ~~Phases 14 and 15 are **IMPLEMENTATION ACCEPTED — OPEN**: installation and the manually governed pilot are complete. Phase 16 is **OPEN — PROJECTOS RUNTIME-DRIVEN EXTERNAL E2E REQUIRED**. No numbered phase closure is granted by this decision, and `acceptedPhaseCount` stays 3.~~ **Phases 14 and 15 were CLOSED at v1.6 (2026-08-08).** Phase 16's status is unchanged by that decision.
 
 ## 13. Superseded work
 Host-authority scaffold `823fd26` (superseded by synthetic `bff6a8d`); early identity-relocation (memory-noted). The 6-wave roadmap planning memory is superseded by this crosswalk as the status source.
@@ -247,12 +326,25 @@ The Track A–G structure has been approved by the owner/gatekeeper and is persi
 
 **CURRENT (v1.1, 2026-08-03).** Governed security engine (CD-B4) and Forge are built and pushed. The Windows host chain is **no longer synthetic-only**: a real `ProjectOSHost` service is installed and running, reporting Verified identity and Ready current-release status, read live by the Control Centre (§8b). PolyGo is installed and one governed pilot is complete and formally closed (§12). Formally accepted: V2, 3 numbered V3 phases, 5 CD-B4 phases. Everything else is implemented-and-pushed but unaccepted (§11).
 
-**EXECUTION_READY = false. Installation authority = NotAuthorised.**
+**Programme/local EXECUTION_READY = true. Installation authority = NotAuthorised. Live/production/provider/credential authority = NotAuthorised.**
 
-**Why `EXECUTION_READY` is still false — the accurate reason.** The outstanding item is the **ProjectOS runtime-driven external-project E2E proof**: ProjectOS itself must drive a small real external-repository phase through its own `install` / `phase` / `report` / `close` workflow. The Windows host proof and the PolyGo governance proof are **not** the missing items — both are delivered. Do not restate this flag as "the host is unproven" or "PolyGo governance is unproven"; neither is true.
+**SUPERSEDED (v1.1–v1.4 text, retained; the flag then read `EXECUTION_READY` **false**):** ~~**Why `EXECUTION_READY` is still false — the accurate reason.** The outstanding item is the **ProjectOS runtime-driven external-project E2E proof**: ProjectOS itself must drive a small real external-repository phase through its own `install` / `phase` / `report` / `close` workflow. The Windows host proof and the PolyGo governance proof are **not** the missing items — both are delivered.~~ **That prerequisite was delivered and accepted at `d9035b4` (`PROJECTOS-V3-FINAL-RUNTIME-E2E1A`, CLOSED).**
+
+**What programme/local `EXECUTION_READY = true` means — and does not mean.**
+
+It means ProjectOS may perform **governed LOCAL/SYNTHETIC project delivery** using the proven runtime and the existing gates. It is true *because* those gates hold, not in spite of them:
+
+- PLAN READY stays enforced, and `plan-governance-engine.cjs` rejects an implementer identity as plan approver;
+- project/repository isolation stays enforced — phase state is cwd-rooted, `install` refuses to overwrite without `--force`, and a phase in one project is invisible from another;
+- the implementer cannot approve itself (`approval.ts` requires role `owner` for any gated action) and cannot close itself (`phase.ts` `OWNER_ONLY_TARGETS`) — two independent controls, at the approval layer and at the state machine;
+- every owner gate — commit, push, phase closure, deploy, database, external send, payment, secrets — stays in force.
+
+It does **not** grant, and cannot grant: service installation; service start or reconfiguration; ProgramData, ACL or registry mutation; production deployment; production database mutation; real email/SMS; payment or refund; real provider credential use; C4 owner presence; or any protected effect. Those remain controlled by their own gates. This is structural, not merely policy: the delivery runtime's only impure edge is `agent/src/system.ts` `spawnSync`, whose four call sites are three read-only `git` reads and an opt-in `npm run validate`; there is no network call, no environment-variable credential read, and no real `ExecutionProvider` implementation — only `SyntheticExecutionProvider`.
+
+**Do not conflate two different flags.** The Rust `EXECUTION_READY: bool = false` constants in the host crates (`shared-host-runtime`, host-authority, proof-runner) are a **separate per-crate truthfulness pin** governing host/live authority. They remain **false** and are unaffected by this ruling.
 
 ## 16. Separate metric model (no merged overall ProjectOS percentage)
-- **V3 Phase 0–18 closure:** 3 / 19 — ACCEPTED METRIC (numbered roadmap only).
+- **V3 Phase 0–18 closure:** 15 / 19 — ACCEPTED METRIC (numbered roadmap only). OPEN: 12, 16, 17, 18. History: this section read `3 / 19` until v1.5 corrected a staleness left by the v1.4 Phase 13 closure (→ `4 / 19`); the v1.6 eleven-phase closure moves it to `15 / 19`. The authoritative record is `current-state.acceptedPhaseCount`.
 - **V2 programme:** CLOSED — ACCEPTED STATUS.
 - **CD-B4 formal closure count:** 5 named phases — ACCEPTED LEDGER COUNT (no percentage; no approved denominator).
 - **Forge formal status:** IMPLEMENTED AND PUSHED — FORMAL PROGRAMME CLOSURE NOT VERIFIED.
@@ -277,13 +369,29 @@ The Track A–G structure has been approved by the owner/gatekeeper and is persi
 
 Only step 3 is substantial engineering, and the code it exercises already exists.
 
+**All four steps are now DONE (v1.5, 2026-08-08).** Step 1 at `PROJECTOS-V3-CD-B4-CLOSURE-AUTHORITY-RECORD1A`; step 2 under `PROJECTOS-V3-DESKTOP-AUTH-RECOVERY-PROOF1A`; step 3 CLOSED at `d9035b4`; step 4 ruled and persisted by `PROJECTOS-V3-EXECUTION-READY-RECORD1A`.
+
+## 17b. Current critical path (v1.5, 2026-08-08)
+
+Listing is not implementation authority; each item still needs its own gate.
+
+1. **`PROJECTOS-V3-POLYGO-PILOT1A`** — numbered Phase 16, and the next substantive delivery phase. The **real** ProjectOS runtime against the **real** PolyGo project, one bounded non-production governed workflow under the existing approval controls. Both halves it depends on now exist separately (governance model proven manually on PolyGo; runtime proven on a disposable external repository) — this phase is the join. Criteria §5b.
+2. **`PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A`** — numbered Phase 12, definition-of-complete bullet 6. Must connect the Control Centre to the **canonical** runtime (§5c). Criteria §5b.
+3. **`PROJECTOS-V3-RELIABILITY-HARDENING1A`** — numbered Phase 17, **after** Phase 16, extending adversarial coverage to `core`/`agent` and the Phase-12 seam. Criteria §5b.
+4. **`PROJECTOS-V3-FINAL-E2E-CLOSURE1A`** — numbered Phase 18, the final closure phase. Criteria §5b.
+5. Still OPEN and unaffected: `86ae19c` closure, and owner authorisation of the direct `windows-future` dependency for `a43898d` — which must never be inferred.
+
+**These four are the entire remaining numbered roadmap.** Every other phase 0–18 is CLOSED (§5).
+
 RC / final closure still need Tracks B + C + F plus reliability and portability work; none of it is authorised by this crosswalk.
 
 ## 18. Next five phases
 
 **SUPERSEDED (v1.0 list, retained) — all five delivered:** ~~1. V3.1 rebaseline persistence — Track A. 2. CD-B4-PRODUCTION-OWNER-PRESENCE-PROVIDER-PREFLIGHT1A. 3. CD-B4-PRODUCTION-ELEVATION-PROVIDER-PREFLIGHT1A. 4. CD-B4-HOST-RUNTIME-AUTHORITY-COMPOSITION preflight. 5. CD-B4-PROTECTED-EFFECT-ADAPTER preflight (first real effect).~~ Delivered at `7cad460`, `86ae19c`, the acquisition/identity chain, the installer composition chain, and `0220048` respectively (§8a). Superseded by §17a.
 
-### 18a. Next critical programme sequence (v1.4, 2026-08-04)
+### 18a. Next critical programme sequence (v1.4, 2026-08-04) — SUPERSEDED by §17b
+
+**SUPERSEDED (v1.5, 2026-08-08), retained for history.** Items 1–3 were delivered by the credential-router track (merged at `87e2475`); item 4 is CLOSED at `d9035b4`; item 5 is this record. The live sequence is §17b, and `current-state.nextRecommendedPhase` now reads `PROJECTOS-V3-POLYGO-PILOT1A`.
 
 Recorded at Phase 13 closure. Listing is not implementation authority; each item still needs its own gate.
 
@@ -315,10 +423,10 @@ Any real effect, service install, SCM/ACL/ProgramData, elevation, real named pip
 - Durable production ledger.
 - Native Forge worker proof; Forge formal closure.
 - ~~**C1 — `PROJECTOS-V3-ACCEPTANCE-SWEEP1A`**~~ **DONE 2026-08-04** (read-only; decisions persisted by v1.2). Note: the "64 AWAITING-REVIEW reports" figure was an artefact of the **filename** convention — the Reports Index already recorded 34 rows CLOSED. Never measure acceptance debt from filenames.
-- **C2 — `PROJECTOS-V3-FINAL-RUNTIME-E2E1A`** — the ProjectOS runtime itself driving a real external repository through `install` / `phase` / `report` / `close`. Mandatory; gates `EXECUTION_READY`; replaces the superseded Phase 18.
+- ~~**C2 — `PROJECTOS-V3-FINAL-RUNTIME-E2E1A`** — the ProjectOS runtime itself driving a real external repository through `install` / `phase` / `report` / `close`. Mandatory; gates `EXECUTION_READY`; replaces the superseded Phase 18.~~ **DONE 2026-08-08 — formally CLOSED at accepted commit `d9035b4`.** ProjectOS drove a disposable external Git repository from nothing to a CLOSED phase through its own runtime, every transition recorded in its own phase history with the acting role. The run also found and fixed a real governance defect (`closureAuthorityGate` was defined and risk-rated but had no pattern, so a closure *approval record* classified as ungated; the closure transition itself was never bypassable). This discharged the sole stated `EXECUTION_READY` prerequisite — see §15.
 - ~~**C3 — `PROJECTOS-V3-CD-B4-CLOSURE-AUTHORITY-RECONCILE1A`**~~ **DONE 2026-08-04** (read-only 1A, corrected by 1B, persisted by `…-RECORD1A`). Outcome in §8a. **Two items remain OPEN**: `86ae19c` (`CD-B4-PRODUCTION-OWNER-PRESENCE-PROVIDER1A`, approved to push only) and `a43898d` (`CD-B4-WINDOWS-USER-VERIFICATION-ADAPTER1A`, blocked on owner authorisation of the direct `windows-future` dependency — **no such authorisation may be inferred**).
-- **C4 — `PROJECTOS-V3-DESKTOP-NATIVE-PROOF1A`** — native desktop-window proof for Phase 13.
-- **C5 — `PROJECTOS-V3-EXECUTION-READY-RULING1A`** — owner ruling, after C2–C4.
+- ~~**C4 — `PROJECTOS-V3-DESKTOP-NATIVE-PROOF1A`** — native desktop-window proof for Phase 13.~~ **DONE 2026-08-04** — delivered under `PROJECTOS-V3-DESKTOP-AUTH-RECOVERY-PROOF1A` (accepted `1fcf416`, `fb203c6`); Phase 13 CLOSED at v1.4. This row was left un-struck at v1.4; corrected at v1.5.
+- ~~**C5 — `PROJECTOS-V3-EXECUTION-READY-RULING1A`** — owner ruling, after C2–C4.~~ **DONE 2026-08-08** — ruling made read-only against current source; decisions persisted by `PROJECTOS-V3-EXECUTION-READY-RECORD1A` (this v1.5). Outcome in §15.
 - **C6 — Forge / HARDEN** — DEFERRED, non-blocking; native Windows worker proof still NOT RUN (§6a).
 
 ## 23. Source references

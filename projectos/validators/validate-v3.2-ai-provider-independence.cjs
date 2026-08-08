@@ -3,8 +3,15 @@
 // Fails closed. Proves the owner-approved V3.2 AI-provider-independence amendment is persisted correctly
 // and cannot silently: mutate the immutable v1.0 master plan, renumber historical phases, make VS Code
 // mandatory, drop a required provider phase, allow VS Code credential extraction, reorder the PolyGo
-// pilot before the dual-agent proof, authorise provider implementation, enable EXECUTION_READY, claim a
-// full VS Code IDE replacement, or publish an overall percentage. Structural, bounded assertions only.
+// pilot before the dual-agent proof, authorise provider implementation, claim a full VS Code IDE
+// replacement, or publish an overall percentage. Structural, bounded assertions only.
+//
+// EXECUTION READINESS (rebaselined 2026-08-08, PROJECTOS-V3-EXECUTION-READY-RECORD1A). V15 used to pin
+// `EXECUTION_READY = false`. The owner/gatekeeper ruling moved programme/LOCAL readiness to TRUE, so the
+// control MOVES rather than weakens: the amendment must now record programme/local readiness TRUE, must
+// NOT regress to the `= false` form, and must explicitly state that readiness authorises NO provider.
+// V14 (provider implementation NotAuthorised) and V16 (installation NotAuthorised) are unchanged and are
+// what stop local readiness being read as provider or installation authority.
 "use strict";
 const fs = require("fs");
 const path = require("path");
@@ -19,10 +26,12 @@ const STATE = path.join(ROOT, "projectos", "state", "projectos-v3.current-state.
 // Pinned byte-hash of the immutable approved plan v1.0 (working-tree bytes). Any edit changes it.
 const MASTER_PLAN_SHA256 = "7bd6235f5f5d948c720d8e386a18df69cb1d41ed6e6f820bcccd2f24a5675eaf";
 
-// The accepted next programme phase, per current-state and the owner/gatekeeper sequencing decision
-// of 2026-08-04. Rebaseline this deliberately when the programme sequence changes — it is a frozen
-// accepted fact, not a moving pointer.
-const ACCEPTED_NEXT_PHASE = "PROJECTOS-MULTI-PROJECT-CREDENTIAL-ROUTER1A";
+// The accepted next programme phase, per current-state and the owner/gatekeeper sequencing decision.
+// Rebaseline this deliberately when the programme sequence changes — it is a frozen accepted fact, not a
+// moving pointer. 2026-08-04: the multi-project credential router. 2026-08-08: the router track is
+// delivered and merged, the execution-readiness ruling is persisted, so the accepted next substantive
+// delivery phase is the PolyGo pilot (numbered Phase 16). Recording it here authorises NO PolyGo work.
+const ACCEPTED_NEXT_PHASE = "PROJECTOS-V3-POLYGO-PILOT1A";
 // Sequenced after the router, still OPEN, still recorded in the amendment. `a43898d` stays OPEN.
 const WINDOWS_ADAPTER_PREFLIGHT = "CD-B4-WINDOWS-USER-VERIFICATION-ADAPTER-PREFLIGHT1A";
 
@@ -114,9 +123,25 @@ function run() {
   // V14 — provider implementation NotAuthorised.
   if (!/NOT YET AUTHORISED FOR IMPLEMENTATION/.test(amend)) e.push("V14 amendment does not mark provider implementation NOT AUTHORISED");
 
-  // V15 — EXECUTION_READY false.
-  if (!/EXECUTION_READY\s*=\s*false/.test(amend)) e.push("V15 amendment does not record EXECUTION_READY = false");
-  if (/EXECUTION_READY\s*=\s*true/.test(amend)) e.push("V15 amendment records EXECUTION_READY = true");
+  // V15 — programme/LOCAL EXECUTION_READY true, scoped, and explicitly not provider authority.
+  const readinessLine = amend.split("\n").find((l) => /Programme\/local `?EXECUTION_READY\s*=\s*true/.test(l));
+  if (!readinessLine) e.push("V15 amendment does not record programme/local EXECUTION_READY = true");
+  // V15-i the live statement must not be struck through — this document supersedes prose in place, so a
+  // presence check alone would accept a RETRACTED assertion.
+  else if (readinessLine.indexOf("~~") !== -1)
+    e.push("V15 amendment records programme/local EXECUTION_READY = true only inside struck-through (superseded) text");
+  // V15-ii no UNQUALIFIED overclaim: a bare `EXECUTION_READY = true` would read as provider/live readiness.
+  if (/(?<![Pp]rogramme\/local `?)EXECUTION_READY\s*=\s*true/.test(amend))
+    e.push("V15 amendment contains an UNQUALIFIED EXECUTION_READY = true (the programme/local scope qualifier is mandatory)");
+  // V15a anti-regression: the superseded `= false` form must not reappear.
+  if (/EXECUTION_READY\s*=\s*false/.test(amend))
+    e.push("V15a amendment re-records EXECUTION_READY = false (superseded by the 2026-08-08 ruling)");
+  // V15b readiness must NOT be inferrable as provider/live authority. This is the check that keeps V14
+  // meaningful now that the readiness flag is true.
+  if (!/Execution readiness does not authorise a provider/i.test(amend))
+    e.push("V15b amendment does not state that execution readiness authorises no provider");
+  if (!/different flag/i.test(amend))
+    e.push("V15b amendment does not distinguish the programme flag from the host/live constants");
 
   // V16 — installation NotAuthorised.
   if (!/Installation authority:\s*\*?\*?NotAuthorised/i.test(amend) && !/installation[^\n]*NotAuthorised/i.test(amend))
@@ -127,6 +152,17 @@ function run() {
 
   // V18 — no overall completion percentage in the amendment.
   if (/\d+(?:\.\d+)?\s*%/.test(amend)) e.push("V18 amendment contains a percentage token (prohibited)");
+
+  // V19 — the amendment must carry the accepted numbered-phase position and the OPEN set, so the
+  // governance documents cannot drift apart on the counter. Asserted as text (no percentage token,
+  // which V18 forbids); the authoritative numbers live in current-state and are checked by the
+  // crosswalk validator.
+  if (!/Numbered V3 phase closure:\s*\*?\*?15 of 19/.test(amend))
+    e.push("V19 amendment does not record the accepted numbered-phase position 15 of 19");
+  if (!/OPEN:\s*\*?\*?12,\s*16,\s*17,\s*18/.test(amend))
+    e.push("V19 amendment does not record the OPEN phase set 12, 16, 17, 18");
+  if (!/V3 is \*?\*?not\*?\*? complete/i.test(amend))
+    e.push("V19 amendment does not state that V3 is not complete");
 
   // Plan version unchanged.
   if (st.activePlanVersion !== "1.0") e.push("current-state activePlanVersion changed from 1.0 (plan must stay immutable)");

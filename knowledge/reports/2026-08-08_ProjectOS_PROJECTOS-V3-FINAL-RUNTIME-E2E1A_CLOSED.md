@@ -1,4 +1,28 @@
-# PROJECTOS-V3-FINAL-RUNTIME-E2E1A — AWAITING REVIEW
+# PROJECTOS-V3-FINAL-RUNTIME-E2E1A — CLOSED
+
+## 0. Closure record (added 2026-08-08 by `PROJECTOS-V3-EXECUTION-READY-RECORD1A`)
+
+| | |
+|---|---|
+| **Status** | **CLOSED** |
+| **Accepted commit** | `d9035b4a3ef50ae9b1fac4a55cd56cf124804e0d` |
+| **Closed by** | owner + ChatGPT gatekeeper closure decision, 2026-08-08 |
+| **Effect** | Discharged the **single stated prerequisite** for programme/local `EXECUTION_READY`. Crosswalk carry-forward **C2 CLOSED**; §17a step 3 DONE. |
+| **Formal counters** | **UNCHANGED — `acceptedPhaseCount` 4 of 19.** This phase is a *gate*, not a numbered roadmap phase (it replaced the superseded Phase 18 completion claim as the final gate), so it does not increment the ratio. Numbered **Phase 16 stays OPEN** — it needs the real runtime against the *real PolyGo project*, which this disposable-sandbox proof deliberately did not attempt. |
+| **Not granted by this closure** | installation authority · service start/reconfiguration · ProgramData/ACL/registry mutation · production deploy or database mutation · real messaging or payment · real provider credential use · C4 owner presence. All remain under their own gates. The Rust host/live `EXECUTION_READY` constants remain **false**. |
+
+The body below is the original report, retained unaltered as the accepted evidence. Its §12 statement
+"Formal counters unchanged: 4/19, 21.1 %, `EXECUTION_READY` false" was correct when produced and is
+superseded only as to the programme/local readiness flag, which the 2026-08-08 ruling moved to **true**
+(scoped to governed LOCAL/SYNTHETIC delivery). The counters it quotes are unchanged and still current.
+
+Carry-forward items raised in §11 were classified by the ruling and **none blocks safe local execution**:
+the duplicate `projectos close` surface, free-text approval actions, and the missing one-step
+plan-import → plan-record command are **optional hardening**; the Control-Centre-driven variant is a
+**definition-of-complete** item (bullet 6), not a readiness item. The concurrent-session interference of
+§6 was resolved before the accepted commit — the other session's files landed separately at `ec20512`.
+
+---
 
 | | |
 |---|---|
@@ -6,7 +30,7 @@
 | **Phase** | PROJECTOS-V3-FINAL-RUNTIME-E2E1A |
 | **Baseline** | `projectos-v3` @ `7f53aa0ec48dff9b00677dafa0eb5689642f379e` = origin, 0/0, clean, 0 tags |
 | **Mode** | LOCAL END-TO-END DELIVERY PROOF |
-| **Decision requested** | **APPROVED TO COMMIT AND PUSH** |
+| **Decision requested** | **APPROVED TO COMMIT AND PUSH** — *granted; committed at `d9035b4`, since CLOSED (§0)* |
 
 **No production/staging deploy. No database mutation. No email/SMS/payment. No provider or secret access. No ProjectOSHost install/start. No ProgramData/ACL/registry mutation. No force push, no history rewrite. No real project mutated.**
 
