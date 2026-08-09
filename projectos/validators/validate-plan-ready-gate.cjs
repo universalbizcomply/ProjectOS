@@ -27,7 +27,13 @@ const CASES = [
   [FIX + "plan-secret-dbpassword.json", false, "raw secret"],
   [FIX + "plan-approval-implementer-authority.json", false, "approvalAuthority"],
   [FIX + "plan-approval-manual-tamperproof.json", false, "tamperProof"],
-  [FIX + "plan-approval-secure-no-evidence.json", false, "secureApprovalEvidence"]
+  [FIX + "plan-approval-secure-no-evidence.json", false, "secureApprovalEvidence"],
+  // Closure delegation: legal when scoped to its own project and closure-only; refused when it names
+  // another project (that would let one project's plan grant closure over another) or hands closure to
+  // the implementer. All three are schema-valid — the gate, not the shape, is what refuses.
+  [FIX + "plan-delegation-legal.json", true, null],
+  [FIX + "plan-delegation-escapes-project.json", false, "escape its project"],
+  [FIX + "plan-delegation-to-implementer.json", false, "implementer"]
 ];
 
 // Approval-binding shape checks (checkApprovalBinding directly): [relPath, expectLegal, needReason].

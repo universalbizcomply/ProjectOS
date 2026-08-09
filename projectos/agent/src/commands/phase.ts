@@ -22,7 +22,12 @@ import {
   type Role,
 } from '@projectos/core';
 import { loadPhase, savePhase, listPhaseIds } from '../phaseStore.js';
-import { loadGovernedContext, refusalLines } from '../governedContext.js';
+import {
+  loadGovernedContext,
+  refusalLines,
+  authorisePhase,
+  authorisationRefusalLines,
+} from '../governedContext.js';
 
 const ROLES: readonly Role[] = ['owner', 'advisor', 'implementer'];
 
@@ -63,6 +68,10 @@ function phaseNew(ctx: CommandContext, flags: Flags): CommandResult {
   // able to create a phase record it then governs.
   const gc = loadGovernedContext(sys, root);
   if (!gc.ok) return fail(2, refusalLines(gc));
+  // A ready plan for the right project still does not authorise ANY phase id. Prove the requested
+  // phase is one the owner approved, and that what it depends on is done, before anything is written.
+  const auth = authorisePhase(sys, root, gc.context, id);
+  if (!auth.ok) return fail(2, authorisationRefusalLines(auth));
   if (loadPhase(sys, root, id) !== null && flags['force'] !== true) {
     return fail(2, [`Phase ${id} already exists (pass --force to recreate)`]);
   }

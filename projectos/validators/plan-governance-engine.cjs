@@ -205,6 +205,9 @@ function evaluatePlanReady(plan) {
   for (const need of REQUIRED_FORBIDDEN_ACTIONS) if (!forbidden.includes(need)) reasons.push("governance.forbiddenActions missing: " + need);
   if (gov.noApiPolicy !== true) reasons.push("governance.noApiPolicy is not true");
 
+  // Closure delegation, when the owner has granted one, must be truthful and non-escalating.
+  for (const err of checkClosureDelegation(plan)) reasons.push(err);
+
   // Plan version recorded.
   if (!/^[0-9]+\.[0-9]+$/.test(plan.planVersion || "")) reasons.push("planVersion not recorded (X.Y)");
 
@@ -329,6 +332,36 @@ function checkApprovalBinding(plan) {
   return errors;
 }
 
+// Closure-delegation legality. The field is OPTIONAL: a plan without it delegates nothing and is
+// unaffected. When present it must be honest and must not escalate:
+//  - it delegates CLOSURE only, never a protected action;
+//  - neither party may be the implementer — Claude can never be granted, or grant, closure;
+//  - projectScope must name THIS plan's project, so a delegation cannot leak to another project;
+//  - closureAuthority must agree with delegatedTo, so the two records cannot disagree silently.
+// Returns [] when legal.
+const DELEGABLE_SCOPES = ["phase-closure", "programme-closure"];
+function checkClosureDelegation(plan) {
+  const errors = [];
+  const gov = (plan && plan.governance) || {};
+  const del = gov.closureDelegation;
+  if (del === undefined || del === null) return errors;          // nothing delegated — nothing to check
+  if (typeof del !== "object" || Array.isArray(del)) { errors.push("governance.closureDelegation must be an object"); return errors; }
+  if (!isNonEmptyString(del.delegatedBy)) errors.push("closureDelegation.delegatedBy missing");
+  else if (isImplementerIdentity(del.delegatedBy)) errors.push("closureDelegation.delegatedBy is the implementer — Claude cannot delegate closure authority");
+  else if (isNonEmptyString(gov.owner) && del.delegatedBy !== gov.owner) errors.push("closureDelegation.delegatedBy is not the recorded owner — only the owner can delegate closure");
+  if (!isNonEmptyString(del.delegatedTo)) errors.push("closureDelegation.delegatedTo missing");
+  else if (isImplementerIdentity(del.delegatedTo)) errors.push("closureDelegation.delegatedTo is the implementer — Claude cannot receive closure authority");
+  if (!isNonEmptyString(del.delegationDate)) errors.push("closureDelegation.delegationDate missing");
+  const scope = Array.isArray(del.delegatedScope) ? del.delegatedScope : null;
+  if (!scope || scope.length === 0) errors.push("closureDelegation.delegatedScope empty");
+  else for (const s of scope) if (DELEGABLE_SCOPES.indexOf(s) === -1) errors.push("closureDelegation.delegatedScope contains a non-delegable scope: " + s);
+  if (del.excludesProtectedActions !== true) errors.push("closureDelegation.excludesProtectedActions must be true — closure delegation never carries protected-action authority");
+  if (!isNonEmptyString(del.projectScope)) errors.push("closureDelegation.projectScope missing");
+  else if (del.projectScope !== plan.projectId) errors.push("closureDelegation.projectScope '" + del.projectScope + "' is not this plan's project '" + String(plan.projectId) + "' — a delegation must not escape its project");
+  if (isNonEmptyString(del.delegatedTo) && gov.closureAuthority !== del.delegatedTo) errors.push("governance.closureAuthority '" + String(gov.closureAuthority) + "' disagrees with closureDelegation.delegatedTo '" + del.delegatedTo + "'");
+  return errors;
+}
+
 // Version-record legality for an approved plan version. Returns [] when legal, else reasons.
 function checkVersionRecord(plan) {
   const errors = [];
@@ -360,6 +393,7 @@ module.exports = {
   isEligibleForE2E,
   checkVersionRecord,
   checkApprovalBinding,
+  checkClosureDelegation,
   isImplementerIdentity,
   isCredentialKey,
   validateAgainstSchema

@@ -53,7 +53,17 @@ const ACCEPTED_HEAD = "ec20512944be4fff7cc6ee740781fe95b41cf120";
 const ACCEPTED_PHASE_COUNT = 16;
 const TOTAL_PHASE_COUNT = 19;
 const ACCEPTED_PERCENTAGE = Math.round((ACCEPTED_PHASE_COUNT / TOTAL_PHASE_COUNT) * 1000) / 10;
-const CROSSWALK_VERSION = "1.7";
+const CROSSWALK_VERSION = "1.8";
+// The ACTIVE machine-readable plan version. This pin used to read "1.0" under the label "plan must
+// stay immutable". Two different artefacts were collapsed into that one word: the human-readable
+// master plan, which IS byte-immutable and is pinned by SHA-256 in validate-v3.2, and the machine
+// plan RECORD, which the owner may supersede. On the bounded owner approval of 2026-08-09 the record
+// moved to v1.1 (crosswalk §5e), so this control MOVES rather than weakens: the immutability that
+// actually mattered is still asserted, cross-file, by the v3.2 master-plan hash. An unapproved drift
+// away from the active version still fails here.
+const ACTIVE_PLAN_VERSION = "1.1";
+// The superseded version must remain retrievable, byte-identical, at this archive path.
+const ARCHIVED_PLAN_V1_0 = path.join(ROOT, "projectos", "state", "versions", "projectos-v3.plan.v1.0.json");
 const PHASE_13_ID = "PROJECTOS-V3-DESKTOP-E2E-PROOF1A";
 
 // The accepted per-phase position of the numbered roadmap. Asserted row-by-row against the §5 ledger so
@@ -357,8 +367,35 @@ function run() {
       for (const id of pend)
         if (expectedOpen.indexOf(id) === -1) e.push("current-state pendingPhases contains a phase the §5 ledger does not record OPEN: " + id);
 
-      if (st.activePlanVersion !== "1.0") e.push("current-state activePlanVersion changed from 1.0 (plan must stay immutable)");
+      if (st.activePlanVersion !== ACTIVE_PLAN_VERSION)
+        e.push("current-state activePlanVersion is not the active approved plan version " + ACTIVE_PLAN_VERSION + ": " + st.activePlanVersion);
     }
+  }
+
+  // 19a the superseded plan version must stay retrievable. A supersession that deletes its
+  // predecessor destroys version history, which is the one thing plan versioning exists to keep.
+  if (!fs.existsSync(ARCHIVED_PLAN_V1_0)) {
+    e.push("superseded plan v1.0 is not retained at projectos/state/versions/projectos-v3.plan.v1.0.json");
+  } else {
+    let archived = null;
+    try { archived = JSON.parse(fs.readFileSync(ARCHIVED_PLAN_V1_0, "utf8")); }
+    catch (x) { e.push("archived plan v1.0 is not valid JSON: " + x.message); }
+    if (archived && archived.planVersion !== "1.0") e.push("archived plan is not v1.0: " + archived.planVersion);
+    // And the live record must declare what it supersedes, so the chain is explicit rather than inferred.
+    const LIVE = path.join(ROOT, "projectos", "state", "projectos-v3.plan.json");
+    try {
+      const live = JSON.parse(fs.readFileSync(LIVE, "utf8"));
+      if (live.planVersion !== ACTIVE_PLAN_VERSION) e.push("live plan version is not " + ACTIVE_PLAN_VERSION + ": " + live.planVersion);
+      if (!live.approval || live.approval.supersedesPlanVersion !== "1.0")
+        e.push("live plan does not record that it supersedes v1.0");
+      // The delegation must stay ProjectOS-scoped and must never carry protected authority.
+      const del = (live.governance || {}).closureDelegation;
+      if (del) {
+        if (del.projectScope !== live.projectId) e.push("closureDelegation.projectScope escapes this project: " + del.projectScope);
+        if (del.excludesProtectedActions !== true) e.push("closureDelegation no longer excludes protected actions");
+        if (del.delegatedBy !== "Murad") e.push("closureDelegation.delegatedBy is not the owner: " + del.delegatedBy);
+      }
+    } catch (x) { e.push("live plan not readable: " + x.message); }
   }
 
   // 20 ledger exists.

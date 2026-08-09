@@ -25,6 +25,9 @@ const STATE = path.join(ROOT, "projectos", "state", "projectos-v3.current-state.
 
 // Pinned byte-hash of the immutable approved plan v1.0 (working-tree bytes). Any edit changes it.
 const MASTER_PLAN_SHA256 = "7bd6235f5f5d948c720d8e386a18df69cb1d41ed6e6f820bcccd2f24a5675eaf";
+// The ACTIVE machine-readable plan record version — a different artefact from the master-plan document
+// hashed above. Superseded v1.0 -> v1.1 on the bounded owner approval of 2026-08-09 (crosswalk §5e).
+const ACTIVE_PLAN_VERSION = "1.1";
 
 // The accepted next programme phase, per current-state and the owner/gatekeeper sequencing decision.
 // Rebaseline this deliberately when the programme sequence changes — it is a frozen accepted fact, not a
@@ -166,8 +169,13 @@ function run() {
   if (!/V3 is \*?\*?not\*?\*? complete/i.test(amend))
     e.push("V19 amendment does not state that V3 is not complete");
 
-  // Plan version unchanged.
-  if (st.activePlanVersion !== "1.0") e.push("current-state activePlanVersion changed from 1.0 (plan must stay immutable)");
+  // Active machine plan version. V1 above already pins the HUMAN-READABLE master plan by SHA-256, and
+  // that is the immutability this validator exists to protect. The machine plan RECORD is a separate
+  // artefact the owner may supersede: on the bounded owner approval of 2026-08-09 it moved to v1.1
+  // (crosswalk §5e). Pinning the record here is still a real control — an unapproved drift fails — but
+  // it must name the ACTIVE version, not a frozen "1.0" that would now be false.
+  if (st.activePlanVersion !== ACTIVE_PLAN_VERSION)
+    e.push("current-state activePlanVersion is not the active approved plan version " + ACTIVE_PLAN_VERSION + ": " + st.activePlanVersion);
 
   return e;
 }

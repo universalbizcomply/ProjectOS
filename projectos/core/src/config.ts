@@ -17,6 +17,17 @@ export interface SecretsPolicy {
   readonly notes?: string;
 }
 
+/**
+ * Where a project's governed plan memory lives, when it is not at the default
+ * `.projectops/plan.json`. Optional: a config without it keeps the default, so every existing
+ * installation is unaffected. Paths are project-root-relative; the surface that resolves them is
+ * responsible for refusing anything that escapes the project root.
+ */
+export interface PlanMemoryLocation {
+  readonly planPath?: string;
+  readonly currentStatePath?: string;
+}
+
 export interface ProjectConfig {
   readonly projectId: string;
   readonly projectName: string;
@@ -33,6 +44,7 @@ export interface ProjectConfig {
   readonly validators: readonly string[];
   readonly evidenceRequirements: readonly string[];
   readonly installStatus: InstallStatus;
+  readonly planMemory?: PlanMemoryLocation;
 }
 
 const REQUIRED_STRING_FIELDS: readonly (keyof ProjectConfig)[] = [
@@ -110,6 +122,28 @@ export function parseProjectConfig(raw: unknown): Result<ProjectConfig> {
     }
     if (typeof sp['redactionRequired'] !== 'boolean') {
       errors.push('secretsPolicy.redactionRequired must be a boolean');
+    }
+  }
+
+  // planMemory is optional. When present it must be an object of non-empty strings — a malformed
+  // one is refused here rather than silently ignored, which would fall back to the default plan
+  // location and quietly govern from a file the config did not name.
+  const pm = raw['planMemory'];
+  if (pm !== undefined) {
+    if (!isRecord(pm)) {
+      errors.push('planMemory must be an object');
+    } else {
+      for (const key of ['planPath', 'currentStatePath'] as const) {
+        const v = pm[key];
+        if (v !== undefined && (typeof v !== 'string' || v.length === 0)) {
+          errors.push(`planMemory.${key} must be a non-empty string`);
+        }
+      }
+      for (const key of Object.keys(pm)) {
+        if (key !== 'planPath' && key !== 'currentStatePath') {
+          errors.push(`planMemory has unknown field: ${key}`);
+        }
+      }
     }
   }
 

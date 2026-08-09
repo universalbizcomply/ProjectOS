@@ -4,7 +4,7 @@
   "projectName": "ProjectOS",
   "programmeId": "projectos-v3",
   "planId": "projectos-v3-master-plan",
-  "planVersion": "1.0",
+  "planVersion": "1.1",
   "planStatus": "PLAN READY",
 
   "businessVision": "ProjectOS is a Universal Project Delivery OS: a local, owner-controlled system that plans, governs, executes and proves software delivery end-to-end across many projects, with no external metered AI orchestration API. V3 extends the closed V2 foundation into an owner-controlled autonomous delivery system in which the owner approves a plan and ProjectOS drives controlled, gated execution against it.",
@@ -13,24 +13,37 @@
     "Plan-governance foundation: plan persistence, plan-memory model, current-state model, active-session model",
     "PLAN READY evidence gate and deterministic plan-status model",
     "Immutable plan versioning and deterministic staleness detection",
-    "New-project start constraint (validation decision only)"
+    "New-project start constraint (validation decision only)",
+    "Plan discovery and import of existing project plans into plan memory",
+    "Owner control-plane design and the owner Control Centre surface",
+    "Local secret broker and secret-operation broker (reference-only, no raw secret storage)",
+    "Owner chat using local deterministic language understanding only",
+    "Project-session launcher and the Claude desktop bridge",
+    "Offline E2E runner, approval queue and provider-context guards",
+    "Control Centre integration with the canonical @projectos/core + agent runtime",
+    "Native desktop E2E proof of the owner surface",
+    "PolyGo governed pilot: baseline reconcile, install re-entry and one bounded non-production phase",
+    "Reliability hardening of the canonical runtime and the Phase-12 integration seam",
+    "Final V3 end-to-end closure against the definition-of-complete",
+    "Deterministic approved-phase membership and dependency enforcement before any governed phase mutation"
   ],
   "excludedScope": [
-    "Owner chat UI, project selector UI, Start-E2E UI",
-    "Secret vault and secret-operation broker",
-    "VS Code launcher, Claude automation, ChatGPT automation",
-    "E2E phase runner and provider operations",
-    "PolyGo installation and any production or staging functionality",
-    "Any OpenAI, Anthropic, or metered AI-agent API integration"
+    "Any OpenAI, Anthropic, or metered AI-agent API integration",
+    "Production deployment, staging or live external mutation, and any database mutation",
+    "Real external send (email/SMS/WhatsApp), payment or refund",
+    "Provider credential access, raw secret storage and any real ExecutionProvider implementation",
+    "Windows service, ACL, ProgramData or registry mutation, and any installation authority",
+    "Forge, HARDEN/real-worker and CD-B4 workstreams — tracked separately, not numbered V3 phases",
+    "Any renumbering of the historical numbered V3 phases 0-18"
   ],
-  "successStandard": "The owner can approve a plan once and then supervise controlled, evidenced, gated delivery of a real project to its definition-of-complete — with no external AI API, no ungated irreversible action, and a complete audit trail — while retaining single-click authority to start, pause, gate and close.",
+  "successStandard": "ProjectOS V3 succeeds when the owner can approve a plan once and then supervise controlled, evidenced, gated delivery of a real project to its definition-of-complete — with no external AI API, no ungated irreversible action, and a complete audit trail — while retaining single-click authority to start, pause, gate and close.",
 
   "repository": {
     "repositoryPath": "C:/dev/ProjectOS",
     "expectedRemote": "origin/projectos-v3",
     "protectedBranches": ["main", "projectos-v2-core"],
-    "baselineCommit": "1aa36b9d05942b7e5168a2e878de775cc0159701",
-    "planPersistenceCommit": "de58428a671f26ac9774afe81fe845724254d537",
+    "baselineCommit": "11046f4a842dc979fa358acab570cc1194a58478",
+    "planPersistenceCommit": null,
     "planSourceBranch": "projectos-v3"
   },
 
@@ -82,9 +95,289 @@
       "acceptanceCriteria": ["Existing plans discovered", "Imported plans classified", "Conflicts surfaced for owner resolution"],
       "riskLevel": "medium",
       "autonomyLevel": "local-safe",
+      "requiredValidators": ["validate-all", "validate-plan-discovery-import"],
+      "requiredReviews": ["code-review", "security-review"],
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": ["commit", "push", "phase-closure"]
+    },
+    {
+      "phaseId": "PROJECTOS-V3-OWNER-CONTROL-PLANE-DESIGN1A",
+      "description": "Owner control-plane design delivered as control-center/src/owner. CLOSED 2026-08-08 on the uniform crosswalk §5a evidence basis.",
+      "dependsOn": ["PROJECTOS-V3-PLAN-DISCOVERY-IMPORT1A"],
+      "acceptanceCriteria": [
+        "RECORDED RETROSPECTIVELY at plan v1.1 from crosswalk §5a — this is the closure basis that was actually applied on 2026-08-08, not a criterion that governed the work; no criteria are back-dated as if they had.",
+        "Owner control plane exists at the accepted baseline in control-center/src/owner and its tests build and pass",
+        "security-review and code-review evidence exists with every CRITICAL/HIGH finding corrected, and the accepted commits are ancestors of HEAD"
+      ],
+      "riskLevel": "medium",
+      "autonomyLevel": "local-safe",
+      "requiredValidators": ["validate-all"],
+      "requiredReviews": ["code-review", "security-review"],
+      "requiredBrowserProof": true,
+      "requiredOwnerGates": ["commit", "push", "phase-closure"]
+    },
+    {
+      "phaseId": "PROJECTOS-V3-LOCAL-SECRET-BROKER1A",
+      "description": "Local secret broker at security/broker.cjs. CLOSED 2026-08-08 on the uniform crosswalk §5a evidence basis.",
+      "dependsOn": ["PROJECTOS-V3-OWNER-CONTROL-PLANE-DESIGN1A"],
+      "acceptanceCriteria": [
+        "RECORDED RETROSPECTIVELY at plan v1.1 from crosswalk §5a — the closure basis actually applied, not a pre-existing criterion",
+        "security/broker.cjs exists at the accepted baseline and validate-secret-broker is registered in validate-all and green",
+        "security-review and code-review evidence exists with every CRITICAL/HIGH finding corrected, and the accepted commits are ancestors of HEAD"
+      ],
+      "riskLevel": "high",
+      "autonomyLevel": "local-safe",
+      "requiredValidators": ["validate-all", "validate-secret-broker"],
+      "requiredReviews": ["code-review", "security-review"],
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": ["commit", "push", "phase-closure"]
+    },
+    {
+      "phaseId": "PROJECTOS-V3-SECRET-OPERATION-BROKER1A",
+      "description": "Secret-operation broker at security/operation-broker.cjs. CLOSED 2026-08-08 on the uniform crosswalk §5a evidence basis.",
+      "dependsOn": ["PROJECTOS-V3-LOCAL-SECRET-BROKER1A"],
+      "acceptanceCriteria": [
+        "RECORDED RETROSPECTIVELY at plan v1.1 from crosswalk §5a — the closure basis actually applied, not a pre-existing criterion",
+        "security/operation-broker.cjs exists at the accepted baseline and validate-secret-operation-broker is registered in validate-all and green",
+        "Two CRITICAL security findings were corrected; code-review evidence exists and the accepted commits are ancestors of HEAD"
+      ],
+      "riskLevel": "high",
+      "autonomyLevel": "local-safe",
+      "requiredValidators": ["validate-all", "validate-secret-operation-broker"],
+      "requiredReviews": ["code-review", "security-review"],
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": ["commit", "push", "phase-closure"]
+    },
+    {
+      "phaseId": "PROJECTOS-V3-OWNER-CHAT1A",
+      "description": "Owner chat using local deterministic language understanding only — no AI or metered API. CLOSED 2026-08-08 on the uniform crosswalk §5a evidence basis.",
+      "dependsOn": ["PROJECTOS-V3-SECRET-OPERATION-BROKER1A"],
+      "acceptanceCriteria": [
+        "RECORDED RETROSPECTIVELY at plan v1.1 from crosswalk §5a — the closure basis actually applied, not a pre-existing criterion",
+        "Owner chat uses local deterministic language understanding with no AI or metered API, and its tests build and pass",
+        "security-review and code-review evidence exists with every CRITICAL/HIGH finding corrected, and the accepted commits are ancestors of HEAD"
+      ],
+      "riskLevel": "medium",
+      "autonomyLevel": "local-safe",
+      "requiredValidators": ["validate-all"],
+      "requiredReviews": ["code-review", "security-review"],
+      "requiredBrowserProof": true,
+      "requiredOwnerGates": ["commit", "push", "phase-closure"]
+    },
+    {
+      "phaseId": "PROJECTOS-V3-PROJECT-SESSION-LAUNCHER1A",
+      "description": "Project-session launcher at launcher/session-launcher.cjs. CLOSED 2026-08-08 on the uniform crosswalk §5a evidence basis.",
+      "dependsOn": ["PROJECTOS-V3-OWNER-CHAT1A"],
+      "acceptanceCriteria": [
+        "RECORDED RETROSPECTIVELY at plan v1.1 from crosswalk §5a — the closure basis actually applied, not a pre-existing criterion",
+        "launcher/session-launcher.cjs exists at the accepted baseline and validate-session-launcher is registered in validate-all and green",
+        "The HIGH untrusted-root finding was corrected; code-review evidence exists and the accepted commits are ancestors of HEAD"
+      ],
+      "riskLevel": "medium",
+      "autonomyLevel": "local-safe",
+      "requiredValidators": ["validate-all", "validate-session-launcher"],
+      "requiredReviews": ["code-review", "security-review"],
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": ["commit", "push", "phase-closure"]
+    },
+    {
+      "phaseId": "PROJECTOS-V3-CLAUDE-DESKTOP-BRIDGE1A",
+      "description": "Claude desktop bridge at bridge/desktop-bridge.cjs. CLOSED 2026-08-08 on the uniform crosswalk §5a evidence basis.",
+      "dependsOn": ["PROJECTOS-V3-PROJECT-SESSION-LAUNCHER1A"],
+      "acceptanceCriteria": [
+        "RECORDED RETROSPECTIVELY at plan v1.1 from crosswalk §5a — the closure basis actually applied, not a pre-existing criterion",
+        "bridge/desktop-bridge.cjs exists at the accepted baseline and validate-desktop-bridge is registered in validate-all and green",
+        "The CRITICAL denylist-to-allowlist finding was corrected; code-review evidence exists and the accepted commits are ancestors of HEAD"
+      ],
+      "riskLevel": "high",
+      "autonomyLevel": "local-safe",
+      "requiredValidators": ["validate-all", "validate-desktop-bridge"],
+      "requiredReviews": ["code-review", "security-review"],
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": ["commit", "push", "phase-closure"]
+    },
+    {
+      "phaseId": "PROJECTOS-V3-E2E-RUNNER1A",
+      "description": "Offline E2E runner at e2e/e2e-runner.cjs composing phases 4, 5, 7 and 8. CLOSED 2026-08-08 on the uniform crosswalk §5a evidence basis.",
+      "dependsOn": ["PROJECTOS-V3-CLAUDE-DESKTOP-BRIDGE1A"],
+      "acceptanceCriteria": [
+        "RECORDED RETROSPECTIVELY at plan v1.1 from crosswalk §5a — the closure basis actually applied, not a pre-existing criterion",
+        "e2e/e2e-runner.cjs exists at the accepted baseline with six offline scenarios, and validate-e2e-runner is registered in validate-all and green",
+        "security-review and code-review evidence exists with every CRITICAL/HIGH finding corrected, and the accepted commits are ancestors of HEAD"
+      ],
+      "riskLevel": "medium",
+      "autonomyLevel": "local-safe",
+      "requiredValidators": ["validate-all", "validate-e2e-runner"],
+      "requiredReviews": ["code-review", "security-review"],
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": ["commit", "push", "phase-closure"]
+    },
+    {
+      "phaseId": "PROJECTOS-V3-APPROVAL-QUEUE1A",
+      "description": "Approval queue at approval/approval-queue.cjs — cannot self-approve, fail-closed. CLOSED 2026-08-08 on the uniform crosswalk §5a evidence basis.",
+      "dependsOn": ["PROJECTOS-V3-E2E-RUNNER1A"],
+      "acceptanceCriteria": [
+        "RECORDED RETROSPECTIVELY at plan v1.1 from crosswalk §5a — the closure basis actually applied, not a pre-existing criterion",
+        "approval/approval-queue.cjs exists at the accepted baseline, refuses self-approval and fails closed; validate-approval-queue is registered in validate-all and green",
+        "security-review and code-review evidence exists with every CRITICAL/HIGH finding corrected, and the accepted commits are ancestors of HEAD"
+      ],
+      "riskLevel": "high",
+      "autonomyLevel": "local-safe",
+      "requiredValidators": ["validate-all", "validate-approval-queue"],
+      "requiredReviews": ["code-review", "security-review"],
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": ["commit", "push", "phase-closure"]
+    },
+    {
+      "phaseId": "PROJECTOS-V3-PROVIDER-CONTEXT-GUARDS1A",
+      "description": "Provider-context guards at guards/provider-context-guards.cjs — default REFUSED. CLOSED 2026-08-08 on the uniform crosswalk §5a evidence basis.",
+      "dependsOn": ["PROJECTOS-V3-APPROVAL-QUEUE1A"],
+      "acceptanceCriteria": [
+        "RECORDED RETROSPECTIVELY at plan v1.1 from crosswalk §5a — the closure basis actually applied, not a pre-existing criterion",
+        "guards/provider-context-guards.cjs exists at the accepted baseline and defaults to REFUSED; validate-provider-context-guards is registered in validate-all and green",
+        "The HIGH fail-open finding was corrected; code-review evidence exists and the accepted commits are ancestors of HEAD"
+      ],
+      "riskLevel": "high",
+      "autonomyLevel": "local-safe",
+      "requiredValidators": ["validate-all", "validate-provider-context-guards"],
+      "requiredReviews": ["code-review", "security-review"],
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": ["commit", "push", "phase-closure"]
+    },
+    {
+      "phaseId": "PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A",
+      "description": "Connect the owner Control Centre to the canonical @projectos/core + agent runtime so start, pause, gate and close are driven through it. OPEN. Criteria recorded prospectively in crosswalk §5b.",
+      "dependsOn": ["PROJECTOS-V3-PROVIDER-CONTEXT-GUARDS1A"],
+      "acceptanceCriteria": [
+        "The Control Centre can drive start, pause, gate and close",
+        "Those actions reach the canonical ProjectOS runtime (crosswalk §5c), not a parallel one",
+        "The worker cannot self-approve or self-close through the UI",
+        "State shown in the UI matches durable runtime state",
+        "Wrong-project operations fail closed",
+        "Responsive, accessibility and live-browser evidence",
+        "No third governance runtime is introduced"
+      ],
+      "riskLevel": "high",
+      "autonomyLevel": "local-safe",
+      "requiredValidators": ["validate-all"],
+      "requiredReviews": ["code-review", "security-review"],
+      "requiredBrowserProof": true,
+      "requiredOwnerGates": ["commit", "push", "phase-closure"]
+    },
+    {
+      "phaseId": "PROJECTOS-V3-DESKTOP-E2E-PROOF1A",
+      "description": "Native desktop E2E proof of the owner surface. CLOSED 2026-08-04 by the ChatGPT technical closure gate on commits 1fcf416 and fb203c6. Closed ahead of Phase 12 under the specific later-authority sequencing exception recorded in crosswalk §5d; that exception is not a general right to bypass roadmap dependencies.",
+      "dependsOn": ["PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A"],
+      "acceptanceCriteria": [
+        "RECORDED RETROSPECTIVELY at plan v1.1 from the crosswalk §5 ledger row — the closure basis actually applied on 2026-08-04, not a pre-existing criterion",
+        "Native Tauri release proof, authenticated UI proof and responsive/accessibility proof exist",
+        "STOPPED to UNAVAILABLE host correspondence proven, R1-R15 passed, on accepted commits 1fcf416 and fb203c6"
+      ],
+      "riskLevel": "medium",
+      "autonomyLevel": "local-safe",
+      "requiredValidators": ["validate-all", "validate-desktop-e2e"],
+      "requiredReviews": ["code-review", "security-review"],
+      "requiredBrowserProof": true,
+      "requiredOwnerGates": ["commit", "push", "phase-closure"]
+    },
+    {
+      "phaseId": "PROJECTOS-V3-POLYGO-BASELINE-RECONCILE1A",
+      "description": "PolyGo baseline reconcile and trust anchor. CLOSED 2026-08-08 on the uniform crosswalk §5a evidence basis; its evidence is EXTERNAL to this repository.",
+      "dependsOn": ["PROJECTOS-V3-DESKTOP-E2E-PROOF1A"],
+      "acceptanceCriteria": [
+        "RECORDED RETROSPECTIVELY at plan v1.1 from crosswalk §5a — the closure basis actually applied, not a pre-existing criterion",
+        "A canonical PolyGo trust anchor exists at b6e6993 and e788d3c in polygonia-apres/polygo",
+        "STATED LIMITATION: the evidence is external to this repository and is not resolvable in this git history"
+      ],
+      "riskLevel": "medium",
+      "autonomyLevel": "local-safe",
       "requiredValidators": ["validate-all"],
       "requiredReviews": ["code-review", "security-review"],
       "requiredBrowserProof": false,
+      "requiredOwnerGates": ["commit", "push", "phase-closure"]
+    },
+    {
+      "phaseId": "PROJECTOS-V3-POLYGO-INSTALL-REENTRY1A",
+      "description": "PolyGo governance install re-entry. CLOSED 2026-08-08 on the uniform crosswalk §5a evidence basis; its evidence is EXTERNAL to this repository.",
+      "dependsOn": ["PROJECTOS-V3-POLYGO-BASELINE-RECONCILE1A"],
+      "acceptanceCriteria": [
+        "RECORDED RETROSPECTIVELY at plan v1.1 from crosswalk §5a — the closure basis actually applied, not a pre-existing criterion",
+        "The PolyGo ProjectOS install is complete in polygonia-apres/polygo",
+        "STATED LIMITATION: the evidence is external to this repository and is not resolvable in this git history"
+      ],
+      "riskLevel": "medium",
+      "autonomyLevel": "local-safe",
+      "requiredValidators": ["validate-all"],
+      "requiredReviews": ["code-review", "security-review"],
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": ["commit", "push", "phase-closure"]
+    },
+    {
+      "phaseId": "PROJECTOS-V3-POLYGO-PILOT1A",
+      "description": "First real ProjectOS-governed PolyGo phase. CLOSED 2026-08-09 by owner and ChatGPT gatekeeper against the criteria recorded prospectively in crosswalk §5b.",
+      "dependsOn": ["PROJECTOS-V3-POLYGO-INSTALL-REENTRY1A"],
+      "acceptanceCriteria": [
+        "Real PolyGo repository",
+        "Real ProjectOS runtime",
+        "One bounded non-production phase",
+        "PLAN READY enforced",
+        "Correct repository, account and environment",
+        "Evidence and report generated by ProjectOS",
+        "Owner approval gate exercised",
+        "Closure recorded through ProjectOS",
+        "No production, send or payment effect",
+        "Zero unrelated residue"
+      ],
+      "riskLevel": "high",
+      "autonomyLevel": "local-safe",
+      "requiredValidators": ["validate-all"],
+      "requiredReviews": ["code-review", "security-review"],
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": ["commit", "push", "phase-closure"]
+    },
+    {
+      "phaseId": "PROJECTOS-V3-RELIABILITY-HARDENING1A",
+      "description": "Reliability hardening of the canonical projectos/core and projectos/agent runtime and the Phase-12 integration seam. OPEN. Criteria recorded prospectively in crosswalk §5b.",
+      "dependsOn": ["PROJECTOS-V3-POLYGO-PILOT1A"],
+      "acceptanceCriteria": [
+        "Runs after Phase 16",
+        "Adversarial/reliability coverage includes the actual projectos/core and projectos/agent runtime",
+        "Covers the Phase-12 integration seam",
+        "Crash, interruption and recovery",
+        "Wrong-project and isolation",
+        "Approval bypass",
+        "Cleanup and residue",
+        "Only pilot-observed defects or load-bearing reliability gaps are fixed; the existing adversarial coverage of the .cjs chain is accepted evidence and is reused, not rebuilt"
+      ],
+      "riskLevel": "high",
+      "autonomyLevel": "local-safe",
+      "requiredValidators": ["validate-all", "validate-reliability-hardening"],
+      "requiredReviews": ["code-review", "security-review"],
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": ["commit", "push", "phase-closure"]
+    },
+    {
+      "phaseId": "PROJECTOS-V3-FINAL-E2E-CLOSURE1A",
+      "description": "Final V3 end-to-end closure against the definition-of-complete. OPEN — not retired; only the July 2026 completion claim was superseded. Criteria recorded prospectively in crosswalk §5b.",
+      "dependsOn": ["PROJECTOS-V3-RELIABILITY-HARDENING1A"],
+      "acceptanceCriteria": [
+        "Phases 12, 16 and 17 closed",
+        "Final definition-of-complete matrix",
+        "Final evidence pack",
+        "Final risk register",
+        "Control Centre owner workflow proven",
+        "Real PolyGo ProjectOS pilot proven",
+        "Canonical-runtime reliability proven",
+        "Records and counters reconciled",
+        "No-secret proof",
+        "No-unauthorised-production proof",
+        "Owner/gatekeeper final closure"
+      ],
+      "riskLevel": "high",
+      "autonomyLevel": "local-safe",
+      "requiredValidators": ["validate-all"],
+      "requiredReviews": ["code-review", "security-review"],
+      "requiredBrowserProof": true,
       "requiredOwnerGates": ["commit", "push", "phase-closure"]
     }
   ],
@@ -108,20 +401,29 @@
       "provider-credential-access", "store-real-secret", "modify-projectos-v2-core", "modify-v2-closure-records", "modify-polygo"
     ],
     "ownerOnlyActions": [
-      "approve-plan", "approve-plan-supersession", "approve-closure", "approve-commit", "approve-push",
+      "approve-plan", "approve-plan-supersession", "approve-material-scope-change", "approve-commit", "approve-push",
       "authorise-production-deploy", "authorise-database-mutation", "authorise-external-send",
-      "authorise-payment", "authorise-provider-access", "start-e2e", "pause", "resume"
+      "authorise-payment", "authorise-provider-access", "authorise-installation", "start-e2e", "pause", "resume"
     ],
-    "closureAuthority": "Murad",
+    "closureAuthority": "ChatGPT",
+    "closureDelegation": {
+      "delegatedBy": "Murad",
+      "delegatedTo": "ChatGPT",
+      "delegationDate": "2026-08-09",
+      "delegatedScope": ["phase-closure", "programme-closure"],
+      "projectScope": "projectos",
+      "excludesProtectedActions": true,
+      "notes": "ProjectOS-only delegation of routine phase closure and final V3 programme closure to the gatekeeper. Murad remains project owner and retains plan approval, plan supersession, material scope decisions and every protected action. The implementer (Claude Code) can neither approve nor close, and cannot act as either the owner or the gatekeeper. This delegation is scoped to projectScope and does not apply to any other project."
+    },
     "noApiPolicy": true
   },
 
   "approval": {
     "approvalStatus": "approved",
     "approvedBy": "Murad",
-    "approvalDate": "2026-07-11",
-    "approvalEvidenceReference": "PROJECTOS-V3-MASTER-PLAN-MEMORY1A phase authorisation (owner Murad, gatekeeper ChatGPT); baseline commit 1aa36b9d05942b7e5168a2e878de775cc0159701",
-    "supersedesPlanVersion": null,
+    "approvalDate": "2026-08-09",
+    "approvalEvidenceReference": "Owner Murad authorised a BOUNDED reconciliation of plan v1.0 to v1.1 on 2026-08-09 (reconcile the roadmap to the actual 19 numbered phases; preserve 16/19 with 12, 17 and 18 OPEN; preserve the definition-of-complete; preserve owner plan/scope/protected authority; record the ProjectOS-only closure delegation to the gatekeeper; preserve every protected gate; supersede v1.0 without rewriting historical v1.0 truth; resolve plan location without two authorities; support deterministic phase-membership and dependency enforcement; update metadata truthfully). The exact candidate was verified against that boundary and its sha256 is recorded in docs/architecture/projectos-v3.1-crosswalk.md §5e. Superseded plan v1.0 is retained byte-identical at projectos/state/versions/projectos-v3.plan.v1.0.json.",
+    "supersedesPlanVersion": "1.0",
     "approvalBinding": "MANUAL_GOVERNANCE_APPROVAL",
     "tamperProof": false,
     "approvalAuthority": "owner",
@@ -129,8 +431,8 @@
   },
 
   "staleness": {
-    "lastVerifiedCommit": "4c3f07623df44bfa03fd4a9f6f2fa0b476601795",
-    "lastVerifiedDate": "2026-07-12",
+    "lastVerifiedCommit": "11046f4a842dc979fa358acab570cc1194a58478",
+    "lastVerifiedDate": "2026-08-09",
     "stalenessStatus": "fresh",
     "stalenessReasons": [],
     "materialPlanInputs": [

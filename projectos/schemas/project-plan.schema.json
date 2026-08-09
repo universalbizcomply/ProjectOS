@@ -121,6 +121,26 @@
         "forbiddenActions": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
         "ownerOnlyActions": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
         "closureAuthority": { "type": "string", "minLength": 1 },
+        "closureDelegation": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "OPTIONAL. Present only when the owner has explicitly delegated phase/programme closure for THIS project. Absent means closureAuthority is held directly and nothing is delegated — so no existing plan changes meaning. projectScope pins the delegation to one projectId so it can never leak to another project, and excludesProtectedActions records that protected actions stay with the owner.",
+          "required": ["delegatedBy", "delegatedTo", "delegationDate", "delegatedScope", "projectScope", "excludesProtectedActions"],
+          "properties": {
+            "delegatedBy": { "type": "string", "minLength": 1, "description": "The owner who granted the delegation. Never the implementer." },
+            "delegatedTo": { "type": "string", "minLength": 1, "description": "Who may close. Never the implementer." },
+            "delegationDate": { "type": "string", "minLength": 1 },
+            "delegatedScope": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string", "enum": ["phase-closure", "programme-closure"] },
+              "description": "Closure only. Protected actions are not delegable through this field."
+            },
+            "projectScope": { "type": "string", "minLength": 1, "description": "The projectId this delegation applies to. Must equal the plan's projectId." },
+            "excludesProtectedActions": { "type": "boolean", "const": true, "description": "Must be true: closure delegation never carries protected-action authority." },
+            "notes": { "type": "string" }
+          }
+        },
         "noApiPolicy": { "type": "boolean" }
       }
     },

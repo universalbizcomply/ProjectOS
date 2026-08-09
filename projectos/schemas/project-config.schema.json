@@ -53,6 +53,16 @@
     "evidenceRequirements": { "type": "array", "items": { "type": "string" } },
     "installStatus": { "type": "string", "enum": ["not-installed", "planned", "installed", "deferred"] },
 
+    "planMemory": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "OPTIONAL. Where this project's governed plan memory lives, when it is NOT at the default `.projectops/plan.json`. Omitting it keeps the default, so every existing installation is unaffected. Paths are project-root-relative; absolute, drive-qualified and traversing paths are refused at load time so a config can never point governance at a file outside its own project.",
+      "properties": {
+        "planPath": { "type": "string", "minLength": 1, "description": "Root-relative path to the approved plan record. Default: .projectops/plan.json" },
+        "currentStatePath": { "type": "string", "minLength": 1, "description": "Root-relative path to the project's current-state record. When present, its completedPhases are an accepted source of phase-dependency evidence alongside durable phase records." }
+      }
+    },
+
     "reviewAgents": {
       "type": "array",
       "description": "Named review providers (e.g. ECC agents). Configuration only — ProjectOS does not auto-run them.",
