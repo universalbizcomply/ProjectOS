@@ -48,7 +48,6 @@ export interface GovernedCommandArgs {
   readonly phaseId?: string;
   readonly toStatus?: string;
   readonly role?: string;
-  readonly identity?: string;
   readonly note?: string;
   readonly approvalId?: string;
   readonly action?: string;
@@ -138,7 +137,7 @@ const ALLOWED_ROLES: Readonly<Record<GovernedVerb, readonly string[]>> = {
   'phase.advance': ['implementer'],
   'phase.stop': ['implementer'],
   'phase.resume': ['implementer'],
-  'phase.close': ['advisor'],
+  'phase.close': [],
   'approval.request': ['implementer'],
   'approval.decide': ['implementer', 'advisor'],
   'report.write': ['implementer'],
@@ -179,7 +178,12 @@ const ARG_SPEC: Readonly<
   'phase.advance': { accepts: ['phaseId', 'toStatus', 'role', 'note'], requires: ['phaseId', 'toStatus'] },
   'phase.stop': { accepts: ['phaseId', 'role', 'note'], requires: ['phaseId'] },
   'phase.resume': { accepts: ['phaseId', 'role', 'note'], requires: ['phaseId'] },
-  'phase.close': { accepts: ['phaseId', 'role', 'identity', 'note'], requires: ['phaseId', 'role', 'identity'] },
+  // CLOSURE TAKES NO ROLE AND NO IDENTITY. The renderer may REQUEST closure; it may not nominate or
+  // authenticate the authority that grants it. Accepting `identity: 'ChatGPT'` from an untrusted
+  // caller meant the caller was naming the party whose name confers the power — a filter on the
+  // string, not a control over the authority. The runtime derives the delegate from the ACTIVE
+  // APPROVED PLAN instead, so there is nothing here for a caller to supply or forge.
+  'phase.close': { accepts: ['phaseId', 'note'], requires: ['phaseId'] },
   'approval.request': { accepts: ['approvalId', 'action', 'role'], requires: ['approvalId', 'action'] },
   'approval.decide': { accepts: ['approvalId', 'decision', 'role', 'note'], requires: ['approvalId', 'decision'] },
   'report.write': { accepts: ['phaseId', 'role'], requires: ['phaseId'] },
@@ -310,16 +314,13 @@ export function toAgentInvocation(request: GovernedCommandRequest): GovernedInvo
         positionals: ['advance'],
         flags: withNote({ id: a.phaseId as string, to: 'draft', as: a.role ?? 'implementer' }),
       };
+    // No `as` and no `identity`: the agent resolves the delegated authority from the approved plan.
+    // A caller cannot name the delegate, so a caller cannot become one.
     case 'phase.close':
       return {
         command: 'phase',
         positionals: ['advance'],
-        flags: withNote({
-          id: a.phaseId as string,
-          to: 'closed',
-          as: a.role as string,
-          identity: a.identity as string,
-        }),
+        flags: withNote({ id: a.phaseId as string, to: 'closed', delegated: 'true' }),
       };
     case 'approval.request':
       return {

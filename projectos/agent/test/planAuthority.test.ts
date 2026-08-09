@@ -151,15 +151,19 @@ describe('plan location resolves to exactly one authority', () => {
     }
   });
 
-  it('T9 the active plan is v1.1 and records v1.0 as superseded', () => {
+  it('T9 the active plan declares its supersession chain, and the runtime governs from it', () => {
+    // Derived, not pinned to a version number: this held for v1.1 superseding v1.0 and must keep
+    // holding for every supersession after it.
     const plan = activePlan();
-    expect(plan['planVersion']).toBe('1.1');
-    expect((plan['approval'] as Record<string, unknown>)['supersedesPlanVersion']).toBe('1.0');
-    // ...and the runtime governs from that version, not from the archived one.
+    const version = plan['planVersion'] as string;
+    const supersedes = (plan['approval'] as Record<string, unknown>)['supersedesPlanVersion'];
+    expect(version).toMatch(/^[0-9]+.[0-9]+$/);
+    expect(typeof supersedes).toBe('string');
+    expect(supersedes).not.toBe(version);
     const sys = selfHosted();
     const r = loadGovernedContext(sys, ROOT);
     expect(r.ok).toBe(true);
-    if (r.ok) expect(r.context.plan['planVersion']).toBe('1.1');
+    if (r.ok) expect(r.context.plan['planVersion']).toBe(version);
   });
 
   it('T10 a project that declares no planMemory still resolves .projectops/plan.json', () => {

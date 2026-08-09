@@ -110,6 +110,12 @@ function phaseNew(ctx: CommandContext, flags: Flags): CommandResult {
   return ok([`Created phase ${id} (status: ${p.status})`]);
 }
 
+/** The role the transition is actually performed as: `--delegated` closes as the advisor. */
+function effectiveRoleFor(flags: Flags, role: Role, to: PhaseStatus): Role {
+  const delegated = flags['delegated'] === true || str(flags, 'delegated') === 'true';
+  return delegated && requiresOwner(to) ? 'advisor' : role;
+}
+
 function phaseAdvance(ctx: CommandContext, flags: Flags): CommandResult {
   const { sys, root } = ctx;
   const id = str(flags, 'id');
@@ -138,16 +144,30 @@ function phaseAdvance(ctx: CommandContext, flags: Flags): CommandResult {
   let basisNote: string | undefined;
   if (requiresOwner(to)) {
     const plan = gc.context.plan;
+    const delegation = delegationOf(plan);
+    // DELEGATED CLOSURE: the caller asks for closure under the plan's delegation but does NOT name
+    // the delegate. The runtime resolves who that is from the ACTIVE APPROVED PLAN, so an untrusted
+    // caller — the Control Centre renderer above all — can request closure without being able to
+    // nominate or authenticate the authority that grants it. Naming the delegate was the last place
+    // a caller could supply the string that confers the power.
+    const delegated = flags['delegated'] === true || str(flags, 'delegated') === 'true';
+    const effectiveRole: Role = delegated ? 'advisor' : role;
+    const effectiveIdentity = delegated
+      ? (delegation === null ? null : delegation.delegatedTo)
+      : str(flags, 'identity') === ''
+        ? null
+        : str(flags, 'identity');
     const decision = authoriseClosure({
       governedProjectId: gc.context.projectId,
       planProjectId: typeof plan['projectId'] === 'string' ? plan['projectId'] : '',
       owner: gov(plan, 'owner'),
       implementer: gov(plan, 'implementer'),
       closureAuthority: gov(plan, 'closureAuthority'),
-      delegation: delegationOf(plan),
-      actorRole: role,
-      actorIdentity: str(flags, 'identity') === '' ? null : str(flags, 'identity'),
+      delegation,
+      actorRole: effectiveRole,
+      actorIdentity: effectiveIdentity,
       scope: 'phase-closure',
+      phaseId: id,
     });
     if (!decision.ok) {
       // An owner with no identity flag is the ordinary path and must keep working unchanged; only a
@@ -163,7 +183,7 @@ function phaseAdvance(ctx: CommandContext, flags: Flags): CommandResult {
   // authorised — not merely that some role performed it.
   const finalNote =
     basisNote === undefined ? (note === '' ? undefined : note) : note === '' ? basisNote : `${note} — ${basisNote}`;
-  const r = transitionPhase(current, to, role, ctx.sys.now(), finalNote, grant);
+  const r = transitionPhase(current, to, effectiveRoleFor(flags, role, to), ctx.sys.now(), finalNote, grant);
   if (!r.ok) {
     // Owner-gated refusal is a governance block (exit 2); other illegal moves are 1.
     const code = r.error.includes("requires role 'owner'") ? 2 : 1;
@@ -171,7 +191,8 @@ function phaseAdvance(ctx: CommandContext, flags: Flags): CommandResult {
   }
   savePhase(sys, root, r.value);
   const how = basisNote === undefined ? '' : ` [${basisNote}]`;
-  return ok([`${id}: ${current.status} -> ${r.value.status} (by ${role})${how}`]);
+  const actedAs = effectiveRoleFor(flags, role, to);
+  return ok([`${id}: ${current.status} -> ${r.value.status} (by ${actedAs})${how}`]);
 }
 
 function phaseShow(ctx: CommandContext, flags: Flags): CommandResult {

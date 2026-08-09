@@ -48,7 +48,7 @@ describe('W1 an allowed, well-formed command is accepted', () => {
     'phase.advance': { phaseId: 'P1A', toStatus: 'validating' },
     'phase.stop': { phaseId: 'P1A' },
     'phase.resume': { phaseId: 'P1A' },
-    'phase.close': { phaseId: 'P1A', role: 'advisor', identity: 'ChatGPT' },
+    'phase.close': { phaseId: 'P1A' },
     'approval.request': { approvalId: 'A1', action: 'close the phase' },
     'approval.decide': { approvalId: 'A1', decision: 'approved' },
     'report.write': { phaseId: 'P1A' },
@@ -68,7 +68,7 @@ describe('W1 an allowed, well-formed command is accepted', () => {
       expect(['phase', 'approve', 'report']).toContain(inv!.command);
       // Flag NAMES are literals in the mapping; caller input only supplies VALUES.
       for (const name of Object.keys(inv!.flags)) {
-        expect(['id', 'to', 'as', 'identity', 'note', 'action', 'decision', 'phase']).toContain(name);
+        expect(['id', 'to', 'as', 'delegated', 'note', 'action', 'decision', 'phase']).toContain(name);
       }
       expect(inv!.flags).not.toHaveProperty('force');
       expect(inv!.flags).not.toHaveProperty('override');
@@ -211,10 +211,28 @@ describe('CRITICAL regression: a value can never become a flag', () => {
     }
   });
 
-  test('closure requires the delegate identity, and only the advisor role', () => {
-    expect(validateGovernedCommand(req({ verb: 'phase.close', args: { phaseId: 'P1A', role: 'advisor' } })).ok).toBe(false);
-    expect(validateGovernedCommand(req({ verb: 'phase.close', args: { phaseId: 'P1A', role: 'implementer', identity: 'X' } })).ok).toBe(false);
-    expect(validateGovernedCommand(req({ verb: 'phase.close', args: { phaseId: 'P1A', role: 'advisor', identity: 'ChatGPT' } })).ok).toBe(true);
+  test('the renderer cannot name or authenticate the gatekeeper', () => {
+    // The last place a caller could supply the string that confers the power. Closure now takes
+    // NO role and NO identity: the runtime resolves the delegate from the active approved plan.
+    for (const args of [
+      { phaseId: 'P1A', identity: 'ChatGPT' },
+      { phaseId: 'P1A', role: 'advisor', identity: 'ChatGPT' },
+      { phaseId: 'P1A', role: 'advisor' },
+      { phaseId: 'P1A', role: 'owner' },
+      { phaseId: 'P1A', identity: 'Murad' },
+    ]) {
+      const r = validateGovernedCommand(req({ verb: 'phase.close', args }));
+      expect(r.ok, JSON.stringify(args)).toBe(false);
+    }
+    // A bare closure REQUEST is accepted, and carries no authority claim at all.
+    const ok = validateGovernedCommand(req({ verb: 'phase.close', args: { phaseId: 'P1A' } }));
+    expect(ok.ok).toBe(true);
+    if (ok.ok) {
+      const inv = toAgentInvocation(ok.request)!;
+      expect(inv.flags).not.toHaveProperty('as');
+      expect(inv.flags).not.toHaveProperty('identity');
+      expect(inv.flags['delegated']).toBe('true');
+    }
   });
 });
 
@@ -231,7 +249,7 @@ describe('W17 protected actions are unreachable through this path', () => {
       refresh: {}, 'phase.start': { phaseId: 'P1A' },
       'phase.advance': { phaseId: 'P1A', toStatus: 'validating' },
       'phase.stop': { phaseId: 'P1A' }, 'phase.resume': { phaseId: 'P1A' },
-      'phase.close': { phaseId: 'P1A', role: 'advisor', identity: 'ChatGPT' },
+      'phase.close': { phaseId: 'P1A' },
       'approval.request': { approvalId: 'A1', action: 'close the phase' },
       'approval.decide': { approvalId: 'A1', decision: 'approved' },
       'report.write': { phaseId: 'P1A' },

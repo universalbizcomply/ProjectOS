@@ -120,15 +120,10 @@ export function GovernedActions({ state }: { state: GovernedProjection }) {
                   : 'No closure delegation is recorded for this project; closure is owner-only.'
               }
               onClick={() =>
-                void send(
-                  'phase.close',
-                  {
-                    phaseId: phase.phaseId,
-                    role: 'advisor',
-                    identity: state.authority.closureAuthority,
-                  },
-                  `close ${phase.phaseId}`,
-                )
+                // The request carries NO role and NO identity. The runtime resolves the delegate
+                // from the approved plan, so this surface cannot nominate the authority it is asking
+                // to act. The name shown on the button is display only.
+                void send('phase.close', { phaseId: phase.phaseId }, `close ${phase.phaseId}`)
               }
             >
               Close as {state.authority.closureAuthority}
