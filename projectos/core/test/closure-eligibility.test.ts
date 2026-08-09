@@ -10,7 +10,9 @@ import { describe, it, expect } from 'vitest';
 import {
   evaluateClosureEligibility,
   g4BasisNote,
+  isClosureTailPath,
   CLOSURE_READY_STATUS,
+  CLOSURE_TAIL_PATHS,
   type G4Facts,
 } from '../src/closureEligibility.js';
 import { authoriseClosure, type ClosureDelegation } from '../src/closureAuthority.js';
@@ -42,7 +44,9 @@ function facts(over: Partial<G4Facts> = {}): G4Facts {
     delegationValidForProject: true,
     authorityAssertedByCaller: false,
     decisionBoundToPhaseId: 'PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A',
-    evidenceHead: HEAD,
+    evidenceSubjectHead: HEAD,
+    subjectIsAncestorOfHead: true,
+    substantiveChangesSinceSubject: [],
     ...over,
   };
 }
@@ -191,8 +195,13 @@ describe('each G4 predicate refuses on its own', () => {
     expect(unmetCodes({ decisionBoundToPhaseId: '' })).toContain('G4-16');
   });
 
-  it('C10 evidence established at a different head is stale', () => {
-    const v = evaluateClosureEligibility(facts({ evidenceHead: 'b'.repeat(40) }));
+  it('C10/H4 a substantive change after the evidence subject is stale', () => {
+    const v = evaluateClosureEligibility(
+      facts({
+        evidenceSubjectHead: 'b'.repeat(40),
+        substantiveChangesSinceSubject: ['projectos/core/src/phase.ts'],
+      }),
+    );
     expect(v.eligible).toBe(false);
     expect(v.unmet.some((u) => u.code === 'G4-12' && u.detail.includes('re-establish'))).toBe(true);
   });
@@ -221,5 +230,99 @@ describe('each G4 predicate refuses on its own', () => {
     );
     expect(v.unmet.map((u) => u.code)).toEqual(expect.arrayContaining(['G4-4', 'G4-8', 'G4-5', 'G4-13']));
     expect(v.eligible).toBe(false);
+  });
+});
+
+
+/**
+ * PROVENANCE — the deadlock, and the rule that replaced it.
+ *
+ * Requiring the evidence commit to EQUAL the closing commit was unsatisfiable: closure evidence lives
+ * at a tracked path, so writing it dirties the tree, committing it advances HEAD past the evidence,
+ * and re-pointing the evidence advances HEAD again. A tracked commit cannot contain its own SHA.
+ *
+ * What the equality protected is preserved exactly — the thing tested must be the thing closed — so
+ * these tests are mostly attempts to slip a substantive change into the closure tail.
+ */
+describe('evidence-subject provenance', () => {
+  const SUBJECT = 'b'.repeat(40);
+
+  it('H1 subject == head, nothing changed since: eligible', () => {
+    expect(evaluateClosureEligibility(facts()).eligible).toBe(true);
+  });
+
+  it('H3/H12 a descendant head carrying ONLY closure-tail metadata is accepted', () => {
+    // This is the case the old rule made impossible, and it is the ordinary workflow.
+    const v = evaluateClosureEligibility(
+      facts({ evidenceSubjectHead: SUBJECT, subjectIsAncestorOfHead: true, substantiveChangesSinceSubject: [] }),
+    );
+    expect(v.eligible).toBe(true);
+  });
+
+  it('H8 a subject that is not an ancestor of the current head is refused', () => {
+    const v = evaluateClosureEligibility(
+      facts({ evidenceSubjectHead: SUBJECT, subjectIsAncestorOfHead: false }),
+    );
+    expect(v.eligible).toBe(false);
+    expect(v.unmet.some((u) => u.code === 'G4-12' && u.detail.includes('not an ancestor'))).toBe(true);
+  });
+
+  it('H4/H5/H6/H11 any substantive path in the tail makes the evidence stale', () => {
+    for (const path of [
+      'projectos/core/src/closureAuthority.ts',
+      'projectos/control-center/src/owner/OwnerControlPlane.tsx',
+      'projectos/state/projectos-v3.plan.json',
+      'projectos/validators/validate-all.cjs',
+      'docs/architecture/projectos-v3.1-crosswalk.md',
+      'projectos/control-center/src-tauri/src/app.rs',
+    ]) {
+      const v = evaluateClosureEligibility(
+        facts({ evidenceSubjectHead: SUBJECT, substantiveChangesSinceSubject: [path] }),
+      );
+      expect(v.eligible, path).toBe(false);
+      expect(v.unmet.some((u) => u.code === 'G4-12')).toBe(true);
+    }
+  });
+
+  it('the evidence must name a subject at all', () => {
+    const v = evaluateClosureEligibility(facts({ evidenceSubjectHead: null }));
+    expect(v.eligible).toBe(false);
+    expect(v.unmet.some((u) => u.code === 'G4-12' && u.detail.includes('no subject commit'))).toBe(true);
+  });
+
+  it('H2/H10 a dirty tree is still refused, and H9 an unreconciled remote too', () => {
+    expect(evaluateClosureEligibility(facts({ workingTreeClean: false })).eligible).toBe(false);
+    expect(evaluateClosureEligibility(facts({ remoteReconciled: false })).eligible).toBe(false);
+  });
+
+  it('the closure-tail allowlist admits exactly the workflow paths and nothing else', () => {
+    for (const ok of [
+      '.projectops/phases/PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A.json',
+      '.projectops/closure/PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A.json',
+      'knowledge/reports/2026-08-09_ProjectOS_X_CLOSED.md',
+      'knowledge/ProjectOS Reports Index.md',
+      'projectos/state/projectos-v3.current-state.json',
+      'projectos/state/projectos-v3.session.json',
+    ]) {
+      expect(isClosureTailPath(ok), ok).toBe(true);
+    }
+    for (const no of [
+      'projectos/state/projectos-v3.plan.json',
+      'projectos/state/versions/projectos-v3.plan.v1.2-candidate.json',
+      'projectos/core/src/phase.ts',
+      'projectos/validators/validate-all.cjs',
+      '.projectops/project-config.json',
+      '.projectops/closure/../../projectos/core/src/phase.ts',
+      '.projectops/phases/',
+      'knowledge/reports/',
+      'package.json',
+    ]) {
+      expect(isClosureTailPath(no), no).toBe(false);
+    }
+  });
+
+  it('the allowlist is small enough to read, and excludes the plan', () => {
+    expect(CLOSURE_TAIL_PATHS.length).toBeLessThanOrEqual(8);
+    expect(CLOSURE_TAIL_PATHS.some((p) => p.includes('plan'))).toBe(false);
   });
 });

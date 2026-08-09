@@ -30,7 +30,8 @@ function eligibleVerdict(phaseId = 'X1A') {
     reviewsComplete: true, unresolvedCriticalOrHigh: 0, protectedEffectOccurred: false,
     implementationHead: HEAD, remoteReconciled: true, workingTreeClean: true,
     delegationValidForProject: true, authorityAssertedByCaller: false,
-    decisionBoundToPhaseId: phaseId, evidenceHead: HEAD,
+    decisionBoundToPhaseId: phaseId, evidenceSubjectHead: HEAD,
+    subjectIsAncestorOfHead: true, substantiveChangesSinceSubject: [],
   };
   return evaluateClosureEligibility(f);
 }

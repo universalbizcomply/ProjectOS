@@ -67,14 +67,32 @@ export interface G4Facts {
   readonly implementationHead: string | null;
   readonly remoteReconciled: boolean;
   readonly workingTreeClean: boolean;
+  /**
+   * PROVENANCE. `evidenceSubjectHead` is the exact substantive commit whose code and runtime were
+   * tested and reviewed. `implementationHead` is the CURRENT governance head, which may legitimately
+   * be a later descendant carrying only closure-tail metadata.
+   *
+   * The first version of this gate required the two to be EQUAL, which was a deadlock: closure
+   * evidence lives at a tracked path, so writing it dirties the tree (G4-13), committing it advances
+   * HEAD past the evidence (G4-12), and re-pointing the evidence at the new head advances HEAD
+   * again. A tracked commit cannot contain its own final SHA. Found by gatekeeper source review.
+   *
+   * The purpose the equality was protecting is preserved exactly: THE THING TESTED MUST BE THE THING
+   * BEING CLOSED. That is now expressed as — the subject is an ancestor of the current head, and
+   * every path that changed between them is closure-tail metadata. One substantive file changing
+   * after the subject makes the evidence stale, as it always did.
+   */
+  readonly subjectIsAncestorOfHead: boolean;
+  /** Paths changed between the evidence subject and the current head that are NOT closure-tail. */
+  readonly substantiveChangesSinceSubject: readonly string[];
   /** G4-14 the delegation validated by `authoriseClosure`, scoped to this project. */
   readonly delegationValidForProject: boolean;
   /** G4-15 whether the implementer supplied any part of the authority. Must be false. */
   readonly authorityAssertedByCaller: boolean;
   /** G4-16 the phase the eligibility decision is bound to. */
   readonly decisionBoundToPhaseId: string;
-  /** The HEAD the evidence facts were established against, for staleness. */
-  readonly evidenceHead: string | null;
+  /** The commit the evidence facts were established against. */
+  readonly evidenceSubjectHead: string | null;
 }
 
 export interface G4Unmet {
@@ -154,18 +172,30 @@ export function evaluateClosureEligibility(facts: G4Facts): G4Verdict {
     `the eligibility decision is bound to '${facts.decisionBoundToPhaseId}', not '${facts.phaseId}'`,
   );
 
-  // Staleness: evidence established against a different commit than the one being closed is not
-  // evidence about this state. Folded into G4-12 rather than given its own predicate, because the
-  // question it answers — "is what we verified the thing we are closing?" — is the same question.
-  if (
-    facts.evidenceHead !== null &&
-    facts.implementationHead !== null &&
-    facts.evidenceHead !== facts.implementationHead
-  ) {
-    unmet.push({
-      code: 'G4-12',
-      detail: `evidence was established at ${facts.evidenceHead.slice(0, 7)} but the closure is against ${facts.implementationHead.slice(0, 7)}; re-establish it`,
-    });
+  // PROVENANCE. Same question as before — "is what we verified the thing we are closing?" — but
+  // asked in a way an ordinary closure workflow can actually satisfy.
+  if (facts.evidenceSubjectHead === null) {
+    unmet.push({ code: 'G4-12', detail: 'the evidence names no subject commit' });
+  } else if (facts.implementationHead === null) {
+    unmet.push({ code: 'G4-12', detail: 'the current head could not be established' });
+  } else if (facts.evidenceSubjectHead !== facts.implementationHead) {
+    // A later head is allowed ONLY as a descendant carrying nothing but closure-tail metadata.
+    if (!facts.subjectIsAncestorOfHead) {
+      unmet.push({
+        code: 'G4-12',
+        detail: `evidence subject ${facts.evidenceSubjectHead.slice(0, 7)} is not an ancestor of the current head ${facts.implementationHead.slice(0, 7)}`,
+      });
+    } else if (facts.substantiveChangesSinceSubject.length > 0) {
+      unmet.push({
+        code: 'G4-12',
+        detail:
+          `${facts.substantiveChangesSinceSubject.length} substantive path(s) changed after the evidence subject ` +
+          `${facts.evidenceSubjectHead.slice(0, 7)}, so the evidence is stale: ` +
+          facts.substantiveChangesSinceSubject.slice(0, 3).join(', ') +
+          (facts.substantiveChangesSinceSubject.length > 3 ? ' …' : '') +
+          '; re-establish it',
+      });
+    }
   }
 
   return { eligible: unmet.length === 0, unmet, satisfied };
@@ -173,9 +203,47 @@ export function evaluateClosureEligibility(facts: G4Facts): G4Verdict {
 
 /** The recorded basis for an eligible delegated closure. Truthful about what actually authorised it. */
 export function g4BasisNote(facts: G4Facts): string {
+  const subject = facts.evidenceSubjectHead === null ? 'an unrecorded commit' : facts.evidenceSubjectHead.slice(0, 7);
+  const head = facts.implementationHead === null ? 'an unrecorded head' : facts.implementationHead.slice(0, 7);
   return (
     `closed under the pre-issued ChatGPT ProjectOS G4 gate: all 16 predicates mechanically satisfied ` +
-    `against plan v${facts.activePlanVersion} at ${facts.implementationHead === null ? 'an unrecorded head' : facts.implementationHead.slice(0, 7)}, ` +
-    `under the owner-recorded ${facts.governedProjectId}-scoped closure delegation`
+    `against plan v${facts.activePlanVersion}, evidence subject ${subject}` +
+    (subject === head ? '' : ` (governance head ${head}, closure-tail metadata only)`) +
+    `, under the owner-recorded ${facts.governedProjectId}-scoped closure delegation`
+  );
+}
+
+/**
+ * Paths a closure TAIL may legitimately touch after the evidence subject commit.
+ *
+ * Deliberately narrow and derived from what the closure workflow actually writes: the phase
+ * lifecycle record, the closure evidence, the evidence report and its index, and the programme
+ * state/session records. NOT the plan, NOT any source, validator, schema or architecture document —
+ * a change to any of those is substantive and makes the evidence stale.
+ *
+ * Exported so a test can assert the list rather than restate it.
+ */
+export const CLOSURE_TAIL_PATHS: readonly string[] = [
+  '.projectops/phases/',
+  '.projectops/closure/',
+  'knowledge/reports/',
+  'knowledge/ProjectOS Reports Index.md',
+  'projectos/state/projectos-v3.current-state.json',
+  'projectos/state/projectos-v3.session.json',
+];
+
+/**
+ * Is this changed path permissible in a closure tail? Anything not matched is SUBSTANTIVE.
+ *
+ * Prefix matching against an explicit list rather than pattern matching: an allowlist that decides
+ * whether evidence is still valid should be readable at a glance and hard to widen by accident.
+ * Directory entries end in `/` and match only paths beneath them; file entries match exactly.
+ * Traversal is refused outright so `.projectops/closure/../../src/x.ts` cannot pass as tail.
+ */
+export function isClosureTailPath(path: string): boolean {
+  const p = path.replace(/\\/g, '/');
+  if (p.includes('..')) return false;
+  return CLOSURE_TAIL_PATHS.some((allowed) =>
+    allowed.endsWith('/') ? p.startsWith(allowed) && p.length > allowed.length : p === allowed,
   );
 }

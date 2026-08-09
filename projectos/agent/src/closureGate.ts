@@ -16,7 +16,7 @@ import type { System } from './system.js';
 import { join, projectopsDir } from './context.js';
 import type { GovernedContext } from './governedContext.js';
 import type { G4Facts, G4Verdict } from '@projectos/core';
-import { evaluateClosureEligibility } from '@projectos/core';
+import { evaluateClosureEligibility, isClosureTailPath } from '@projectos/core';
 
 /** Where the durable closure-evidence record for a phase lives. */
 export function closureEvidencePath(root: string, phaseId: string): string {
@@ -30,6 +30,8 @@ export function closureEvidencePath(root: string, phaseId: string): string {
  */
 interface ClosureEvidenceRecord {
   readonly phaseId?: unknown;
+  readonly evidenceSubjectHead?: unknown;
+  /** Accepted for records written before the field was renamed. */
   readonly establishedAtHead?: unknown;
   readonly validatorsPass?: unknown;
   readonly checksPass?: unknown;
@@ -53,6 +55,26 @@ function boolOrNull(v: unknown): boolean | null {
 }
 function numOrNull(v: unknown): number | null {
   return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
+/**
+ * Which paths changed between the evidence subject and the current head, split into closure-tail
+ * metadata and SUBSTANTIVE changes. A git failure yields a sentinel substantive entry rather than an
+ * empty list, so an unreadable diff can never read as "nothing changed".
+ */
+function changesSince(sys: System, root: string, subject: string): {
+  isAncestor: boolean;
+  substantive: readonly string[];
+} {
+  const anc = sys.exec('git', ['-C', root, 'merge-base', '--is-ancestor', subject, 'HEAD']);
+  if (anc.code !== 0) return { isAncestor: false, substantive: [] };
+  const diff = sys.exec('git', ['-C', root, 'diff', '--name-only', `${subject}..HEAD`]);
+  if (diff.code !== 0) return { isAncestor: true, substantive: ['<the diff since the evidence subject could not be read>'] };
+  const changed = diff.stdout
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+  return { isAncestor: true, substantive: changed.filter((f) => !isClosureTailPath(f)) };
 }
 
 /** `git` facts, computed live. Any failure is reported as NOT reconciled — never assumed clean. */
@@ -122,7 +144,14 @@ export function evaluateG4(
   const evidence = (readJson(sys, closureEvidencePath(root, phaseId)) ?? {}) as ClosureEvidenceRecord;
   // The record must name the phase it is about; one written for another phase is not evidence here.
   const boundPhase = typeof evidence.phaseId === 'string' ? evidence.phaseId : '';
-  const evidenceHead = typeof evidence.establishedAtHead === 'string' ? evidence.establishedAtHead : null;
+  const subject =
+    typeof evidence.evidenceSubjectHead === 'string'
+      ? evidence.evidenceSubjectHead
+      : typeof evidence.establishedAtHead === 'string'
+        ? evidence.establishedAtHead
+        : null;
+  // Ancestry and the changed-path classification are computed from git, never taken from the record.
+  const prov = subject === null ? { isAncestor: false, substantive: [] as readonly string[] } : changesSince(sys, root, subject);
 
   const facts: G4Facts = {
     governedProjectId: context.projectId,
@@ -147,7 +176,9 @@ export function evaluateG4(
     delegationValidForProject,
     authorityAssertedByCaller,
     decisionBoundToPhaseId: boundPhase,
-    evidenceHead,
+    evidenceSubjectHead: subject,
+    subjectIsAncestorOfHead: prov.isAncestor,
+    substantiveChangesSinceSubject: prov.substantive,
   };
 
   return { facts, verdict: evaluateClosureEligibility(facts) };
