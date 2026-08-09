@@ -151,7 +151,7 @@ production, or close its own phase.
 ## N. Governance state
 
 - Historical numbered V3 phases 0–18: unchanged, not renumbered.
-- Numbered V3 phase closure: **15 of 19** (2026-08-08). OPEN: **12, 16, 17, 18**. V3 is **not** complete.
+- Numbered V3 phase closure: **16 of 19** (2026-08-09). OPEN: **12, 17, 18**. V3 is **not** complete.
 - Provider implementation: **NotAuthorised**.
 - Programme/local `EXECUTION_READY = true` — ratified 2026-08-08 by `PROJECTOS-V3-EXECUTION-READY-RECORD1A`, **scoped exclusively to governed LOCAL/SYNTHETIC ProjectOS delivery**. It supersedes the v3.2-era record that this flag was **false**, which was correct when written.
 - **Execution readiness does not authorise a provider.** It grants no live, production, credential or provider authority, and no C4 owner presence. Provider implementation stays **NotAuthorised** above; no provider adapter may be inferred from this flag. The Rust host/live `EXECUTION_READY` constants are a **different flag** and stay **false**.

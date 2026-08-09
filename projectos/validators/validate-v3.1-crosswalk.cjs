@@ -48,21 +48,22 @@ const ACCEPTED_HEAD = "ec20512944be4fff7cc6ee740781fe95b41cf120";
 // The accepted numbered-roadmap position. The percentage is DERIVED, never independently asserted.
 // 2026-08-08: 4 -> 15 on the owner/gatekeeper closure of phases 3-11, 14, 15 (crosswalk v1.6 §5/§5a),
 // taken on the read-only PROJECTOS-V3-19-PHASE-CLOSURE-RECONCILE1A audit.
-const ACCEPTED_PHASE_COUNT = 15;
+// 2026-08-09: 15 -> 16 on the owner/gatekeeper closure of numbered Phase 16 PROJECTOS-V3-POLYGO-PILOT1A
+// (crosswalk v1.7), the first real ProjectOS-governed PolyGo phase.
+const ACCEPTED_PHASE_COUNT = 16;
 const TOTAL_PHASE_COUNT = 19;
 const ACCEPTED_PERCENTAGE = Math.round((ACCEPTED_PHASE_COUNT / TOTAL_PHASE_COUNT) * 1000) / 10;
-const CROSSWALK_VERSION = "1.6";
+const CROSSWALK_VERSION = "1.7";
 const PHASE_13_ID = "PROJECTOS-V3-DESKTOP-E2E-PROOF1A";
 
 // The accepted per-phase position of the numbered roadmap. Asserted row-by-row against the §5 ledger so
 // that neither an accidental closure nor an accidental reopen can pass. Scoped to the §5 ledger section
 // because §3's build-order table also has small integers in its first column.
-const LEDGER_CLOSED = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15];
-const LEDGER_OPEN = [12, 16, 17, 18];
+const LEDGER_CLOSED = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16];
+const LEDGER_OPEN = [12, 17, 18];
 // Phase 18 is OPEN, not retired: only its July completion CLAIM was superseded.
 const OPEN_PHASE_CRITERIA = [
   ["Phase 12", "PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A"],
-  ["Phase 16", "PROJECTOS-V3-POLYGO-PILOT1A"],
   ["Phase 17", "PROJECTOS-V3-RELIABILITY-HARDENING1A"],
   ["Phase 18", "PROJECTOS-V3-FINAL-E2E-CLOSURE1A"],
 ];
@@ -167,7 +168,7 @@ function run() {
       if (LEDGER_CLOSED.indexOf(n) !== -1 && (!closed || open)) e.push("§5 ledger phase " + n + " is not unambiguously CLOSED: " + row.slice(0, 90));
       if (LEDGER_OPEN.indexOf(n) !== -1 && (!open || closed)) e.push("§5 ledger phase " + n + " is not unambiguously OPEN: " + row.slice(0, 90));
     }
-    if (!/Numbered V3 closure ratio = 15 \/ 19/.test(cw)) e.push("crosswalk does not state the accepted ratio 15 / 19");
+    if (!/Numbered V3 closure ratio = 16 \/ 19/.test(cw)) e.push("crosswalk does not state the accepted ratio 16 / 19");
   }
 
   // 9d Phase 18 is OPEN and explicitly NOT retired — only its July completion claim was superseded.
@@ -343,6 +344,18 @@ function run() {
       // And the OPEN set must not be claimed as complete.
       for (const n of LEDGER_OPEN)
         if (done.indexOf(V3_PHASE_IDS[n]) !== -1) e.push("current-state completedPhases contains the OPEN phase " + V3_PHASE_IDS[n]);
+
+      // pendingPhases must be exactly the OPEN set. Without this, a phase could be recorded CLOSED and
+      // STILL sit in pendingPhases — the counters would agree while the file contradicted itself. Found
+      // by the Phase-16 closure mutation matrix, where re-adding a closed phase to pendingPhases passed.
+      const pend = Array.isArray(st.pendingPhases) ? st.pendingPhases : [];
+      const expectedOpen = LEDGER_OPEN.map((n) => V3_PHASE_IDS[n]);
+      if (pend.length !== expectedOpen.length)
+        e.push("current-state pendingPhases length " + pend.length + " != the " + expectedOpen.length + " OPEN phases");
+      for (const id of expectedOpen)
+        if (pend.indexOf(id) === -1) e.push("current-state pendingPhases is missing the OPEN phase " + id);
+      for (const id of pend)
+        if (expectedOpen.indexOf(id) === -1) e.push("current-state pendingPhases contains a phase the §5 ledger does not record OPEN: " + id);
 
       if (st.activePlanVersion !== "1.0") e.push("current-state activePlanVersion changed from 1.0 (plan must stay immutable)");
     }

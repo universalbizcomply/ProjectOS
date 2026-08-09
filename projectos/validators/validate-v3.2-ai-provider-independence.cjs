@@ -30,8 +30,10 @@ const MASTER_PLAN_SHA256 = "7bd6235f5f5d948c720d8e386a18df69cb1d41ed6e6f820bcccd
 // Rebaseline this deliberately when the programme sequence changes — it is a frozen accepted fact, not a
 // moving pointer. 2026-08-04: the multi-project credential router. 2026-08-08: the router track is
 // delivered and merged, the execution-readiness ruling is persisted, so the accepted next substantive
-// delivery phase is the PolyGo pilot (numbered Phase 16). Recording it here authorises NO PolyGo work.
-const ACCEPTED_NEXT_PHASE = "PROJECTOS-V3-POLYGO-PILOT1A";
+// delivery phase is the PolyGo pilot (numbered Phase 16). 2026-08-09: Phase 16 is CLOSED, so the accepted
+// next substantive phase is the Control Centre integration (numbered Phase 12) — the remaining
+// definition-of-complete gap. Recording it here authorises NO Phase-12 implementation.
+const ACCEPTED_NEXT_PHASE = "PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A";
 // Sequenced after the router, still OPEN, still recorded in the amendment. `a43898d` stays OPEN.
 const WINDOWS_ADAPTER_PREFLIGHT = "CD-B4-WINDOWS-USER-VERIFICATION-ADAPTER-PREFLIGHT1A";
 
@@ -157,10 +159,10 @@ function run() {
   // governance documents cannot drift apart on the counter. Asserted as text (no percentage token,
   // which V18 forbids); the authoritative numbers live in current-state and are checked by the
   // crosswalk validator.
-  if (!/Numbered V3 phase closure:\s*\*?\*?15 of 19/.test(amend))
-    e.push("V19 amendment does not record the accepted numbered-phase position 15 of 19");
-  if (!/OPEN:\s*\*?\*?12,\s*16,\s*17,\s*18/.test(amend))
-    e.push("V19 amendment does not record the OPEN phase set 12, 16, 17, 18");
+  if (!/Numbered V3 phase closure:\s*\*?\*?16 of 19/.test(amend))
+    e.push("V19 amendment does not record the accepted numbered-phase position 16 of 19");
+  if (!/OPEN:\s*\*?\*?12,\s*17,\s*18/.test(amend))
+    e.push("V19 amendment does not record the OPEN phase set 12, 17, 18");
   if (!/V3 is \*?\*?not\*?\*? complete/i.test(amend))
     e.push("V19 amendment does not state that V3 is not complete");
 

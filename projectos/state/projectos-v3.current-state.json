@@ -5,9 +5,9 @@
   "activePlanVersion": "1.0",
   "currentStatus": "IN EXECUTION",
   "completionMethod": "accepted-phase-ratio (temporary): acceptedPhaseCount / totalPhaseCount, SCOPED EXCLUSIVELY to the original numbered V3 roadmap (phases 0..18). Forge, HARDEN/real-worker and CD-B4 are LATER workstreams tracked separately in docs/architecture/projectos-v3.1-crosswalk.md and do NOT contribute to this ratio. Excludes the active unaccepted phase and pre-V3 maintenance. No merged overall ProjectOS percentage is published; product-capability and shipping-readiness are NOT YET CALCULABLE.",
-  "acceptedPhaseCount": 15,
+  "acceptedPhaseCount": 16,
   "totalPhaseCount": 19,
-  "completionPercentage": 78.9,
+  "completionPercentage": 84.2,
   "completedPhases": [
     "PROJECTOS-V3-BASELINE-RECONCILE1A",
     "PROJECTOS-V3-MASTER-PLAN-MEMORY1A",
@@ -23,12 +23,12 @@
     "PROJECTOS-V3-PROVIDER-CONTEXT-GUARDS1A",
     "PROJECTOS-V3-DESKTOP-E2E-PROOF1A",
     "PROJECTOS-V3-POLYGO-BASELINE-RECONCILE1A",
-    "PROJECTOS-V3-POLYGO-INSTALL-REENTRY1A"
+    "PROJECTOS-V3-POLYGO-INSTALL-REENTRY1A",
+    "PROJECTOS-V3-POLYGO-PILOT1A"
   ],
   "activePhase": null,
   "pendingPhases": [
     "PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A",
-    "PROJECTOS-V3-POLYGO-PILOT1A",
     "PROJECTOS-V3-RELIABILITY-HARDENING1A",
     "PROJECTOS-V3-FINAL-E2E-CLOSURE1A"
   ],
@@ -60,6 +60,8 @@
     "Phase 13 PROJECTOS-V3-DESKTOP-E2E-PROOF1A CLOSED 2026-08-04 by the ChatGPT technical closure gate on accepted commits 1fcf416ab8b08d162ee5948e338c80b81bee6841 and fb203c6a9add2ae9b4f8de15c7bd2dccfaed8ebc; acceptedPhaseCount 3 -> 4 of 19",
     "DISCHARGED 2026-08-08: CARRY-FORWARD PROJECTOS-V3-FINAL-RUNTIME-E2E1A — delivered and formally CLOSED at d9035b4a3ef50ae9b1fac4a55cd56cf124804e0d",
     "DISCHARGED 2026-08-08: CARRY-FORWARD PROJECTOS-V3-EXECUTION-READY-RULING1A — ruling made read-only, decisions persisted by PROJECTOS-V3-EXECUTION-READY-RECORD1A",
+    "PHASE 16 CLOSED (2026-08-09, owner + ChatGPT gatekeeper). PROJECTOS-V3-POLYGO-PILOT1A is CLOSED on the first real ProjectOS-governed PolyGo phase. Closure basis: real polygonia-apres/polygo repository; owner-approved PolyGo plan persisted at .projectops/plan.json (sha256 4d08e926ef80e5de4b69a415e21d4c49ef7d9dd2fff90a3dcbb26c6634f44fb3) with genuine PLAN READY, 0 unmet, evaluated by the real engine; canonical ProjectOS core/agent runtime drove the lifecycle; the runtime now CONSUMES and ENFORCES the approved plan before governed phase mutation (ProjectOS commit f53153203c91a37cca783b154fde77150f42b972) so wrong repository, wrong project identity, and absent/malformed/schema-invalid/not-ready plans all fail closed BEFORE any mutation; bounded real PolyGo work POLYGO-CARRY-FORWARD-TRUTH1A with a load-bearing 13/13 task validator (4/4 mutations caught); implementer self-approval REFUSED and self-closure REFUSED; runtime-generated evidence report; owner approval CFT-CLOSE-1 durably recorded at 2026-08-09T01:31:45.254Z BEFORE owner closure at 2026-08-09T01:32:04.687Z; PolyGo pilot commit db82e129ce094aa9af2975bf43d89797e454a1bc and closure commit aa2718cfb40f3b94d24225ddf151d041f2b83526 pushed and reconciled 0/0 on branch projectos-v3-polygo-pilot1a, never main; zero protected effects. acceptedPhaseCount 15 -> 16 of 19; completionPercentage 78.9 -> 84.2, DERIVED. Phases 12, 17 and 18 remain OPEN and V3 is NOT complete. Phase-16 closure grants NO installation, production, staging, database, send, payment, provider or credential authority.",
+    "PHASE-17 CARRY-FORWARD recorded at Phase-16 closure, none fixed: R17-1 governedContext resolves the schema/readiness engines by repo-relative path rather than through a @projectos/core plan module; R17-2 approve is not governed-context-gated; R17-3 report hardcodes knowledge/reports and ignores the target project's evidenceRequirements; R17-4 plan-import claim-extraction produces noisy false conflicts; R17-5 PolyGo origin/main carries pre-existing validator failures outside the pilot baseline; R17-6 closure approval and owner phase closure are INDEPENDENT controls - closureAuthorityGate governs the approval record and OWNER_ONLY_TARGETS/transitionPhase governs the transition, both independently deny implementer authority, but the transition does NOT mechanically require a matching approved closure record, so approval-before-closure is PROCEDURAL and was followed and evidenced at Phase-16 closure; R17-7 several PolyGo validators assert global WORKING-TREE cleanliness (no modified tracked file) rather than scoping to their own phase, so any legitimate governed phase trips them while its work is uncommitted - measured on a clean tree the PolyGo sweep is 147 discovered / 143 pass / 4 pre-existing failures, and those 4 fail identically at the untouched baseline 371a748.",
     "CARRY-FORWARD: 86ae19c closure review remains OPEN",
     "CARRY-FORWARD: a43898d windows-future dependency decision remains OPEN",
     "RESOLVED 2026-08-04 by PROJECTOS-V3-CROSSWALK-VALIDATOR-REBASELINE1A: validate-v3.1-crosswalk.cjs was rebaselined to the accepted Phase 13 position (acceptedPhaseCount 4 / 19, completionPercentage 21.1 derived, crosswalk v1.4, accepted head 4d36eea110b120c1043d65a19fb8814cf381f268). Root cause was one constant serving three different meanings: the CD-B4-PRODUCTION-IPC-PROVIDER1A closure commit, the crosswalk's document provenance, and the accepted programme head. They are now separate constants and the validator additionally asserts Phase 13 CLOSED, no duplicate phase-13 row, 86ae19c and a43898d still OPEN, and current-state cross-source agreement.",
@@ -83,7 +85,7 @@
     "PROTECTED-AUTHORITY blockers — separately gated and UNCHANGED by the 2026-08-08 execution-readiness ruling: installationAuthority NotAuthorised; C4, C6 and C7 open with C7 fail-closed by dependency; no real ExecutionProvider adapter exists (only SyntheticExecutionProvider) and provider implementation stays NOT AUTHORISED; CD-B4 86ae19c and a43898d remain OPEN."
   ],
   "lastEvidenceReference": "knowledge/reports/2026-08-08_ProjectOS_PROJECTOS-V3-FINAL-RUNTIME-E2E1A_CLOSED.md; knowledge/reports/2026-08-04_ProjectOS_PROJECTOS-V3-DESKTOP-AUTH-RECOVERY-PROOF1A_CLOSED.md; docs/architecture/projectos-v3.1-crosswalk.md",
-  "nextRecommendedPhase": "PROJECTOS-V3-POLYGO-PILOT1A",
+  "nextRecommendedPhase": "PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A",
   "lastUpdated": "2026-08-08",
   "updatedByRole": "implementer"
 }
