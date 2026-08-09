@@ -61,7 +61,10 @@
     "control-centre 214 PASS"
   ],
   "browserResults": [
-    "NOT RUN — BLOCKED ON AN OPERATOR-SUPPLIED PREREQUISITE. The repository's own desktop harness (projectos/control-center/test-desktop/smoke.mjs) requires two things: PROJECTOS_APP, a built control-centre executable, and MSEDGEDRIVER, a msedgedriver.exe matching the installed Edge. tauri-driver v2.0.6 IS installed at ~/.cargo/bin/tauri-driver.exe. Installed Edge is 151.0.4129.72. NO msedgedriver.exe exists anywhere under the user profile. The harness treats it as operator-supplied and it must be downloaded from Microsoft; fetching and executing a third-party binary is not something this session did unilaterally in a governance repository. Consequence: G4-8 cannot be satisfied, so Phase 12 CANNOT close. This is an environment prerequisite, not an architecture defect."
+    "PARTIAL — BROWSER LAYOUT/HONESTY PROOF DONE; DESKTOP GOVERNED-PATH PROOF STILL NOT RUN. Signed in against the real Vite build of the Control Centre and reached the Owner Control surface. ESTABLISHED: the surface correctly renders 'Not live — No ProjectOS runtime has reported yet. Showing the last recorded position, not live state.', which is the no-fake-success/disconnected criterion proven in a real browser; at 1440x900 there is NO horizontal overflow and no overflowing element; at 320x720 there is NO horizontal overflow, content wraps and the Not-live banner stays legible; the only console error is a favicon 404.",
+    "DEFECT FOUND at ~320px: the primary sidebar navigation consumes the entire first viewport, so the owner must scroll past nine nav items before any Owner Control content is visible. There is no narrow-viewport nav collapse. This is a genuine Phase-12 UI defect and is NOT fixed.",
+    "OBSERVATION: 9 of 15 visible buttons (the sidebar nav items) are under the 44px minimum touch target. Not yet assessed against the project's own accessibility bar.",
+    "NOT ESTABLISHED by the browser run, and required by G4-8: the governed WRITE path cannot be exercised in a browser at all — there is no Tauri host, so start/advance/stop/resume/refresh, a live governance refusal, disconnect/reconnect and the closure-not-ready refusal were NOT proven. Those need the desktop app."
   ],
   "ECCResults": [
     "code-review APPROVE on the bootstrap; not yet re-run on the Phase-12 slice"
@@ -77,7 +80,7 @@
   ],
   "currentAction": "G4 CLOSURE GATE DELIVERED. `delegated: true` is no longer an authority token. A delegated closure now requires BOTH the owner-recorded project-scoped delegation AND all 16 G4 predicates mechanically satisfied; authoriseClosure refuses G4_NOT_ESTABLISHED with no verdict and G4_NOT_SATISFIED with an unmet one, naming every outstanding predicate. Facts are DERIVED in agent/src/closureGate.ts (project, plan readiness, phase membership and state, git head, remote reconciliation, tree cleanliness, recorded protected effects) or read from a durable HEAD-BOUND evidence record; nothing is read off the closure request, and every unknown fails closed. Evidence bound to a different head is refused as stale. LIVE: a delegated close of Phase 12 is refused with 8 named unmet predicates including G4-8 (headed proof).",
   "blockedReason": null,
-  "nextSafeAction": "BLOCKER FOR PHASE 12 CLOSURE: supply msedgedriver.exe matching Edge 151.0.4129.72 and set MSEDGEDRIVER, then build the desktop app (npm run tauri build in projectos/control-center) and set PROJECTOS_APP. THEN: (1) run the headed proof at desktop, tablet, ~390px and ~320px, exercising advance/stop/resume/refresh, a governance refusal, disconnect/reconnect, keyboard-only navigation, focus, overflow and console errors; (2) write the durable closure-evidence record at .projectops/closure/PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A.json with phaseId, establishedAtHead, validatorsPass, checksPass, reviewsComplete, unresolvedCriticalOrHigh and headedProofPass — it must be established at the SAME head being closed or G4-12 refuses it as stale; (3) advance validating -> evidence -> awaiting_review -> awaiting_closure; (4) generate the ProjectOS evidence report; (5) request the delegated close, which now recomputes all 16 predicates. ONLY THEN Phase 17.",
+  "nextSafeAction": "BLOCKER UNCHANGED for G4-8: supply msedgedriver.exe matching Edge 151.0.4129.72 and set MSEDGEDRIVER. A `npx tauri build` was started this session and was still compiling when the session ended — re-run it and set PROJECTOS_APP to the produced executable. THEN run projectos/control-center/test-desktop/smoke.mjs and the full headed matrix at desktop, tablet, ~390px and ~320px, exercising the governed write path, a live refusal and reconnect. FIX FIRST, found by the browser run: at ~320px the sidebar nav fills the whole first screen before any content, and the nav buttons are under the 44px touch-target minimum. THEN: write the HEAD-bound closure-evidence record at .projectops/closure/PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A.json, advance validating -> evidence -> awaiting_review -> awaiting_closure, generate the evidence report, and request the delegated close, which recomputes all 16 G4 predicates.",
   "decisionRequired": null,
   "productionTouched": false,
   "deploymentOccurred": false,
@@ -87,6 +90,6 @@
   "secretCapabilityUsed": false,
   "rawSecretStored": false,
   "createdAt": "2026-08-09T03:12:54Z",
-  "updatedAt": "2026-08-09T16:20:00Z",
+  "updatedAt": "2026-08-09T16:35:00Z",
   "sessionStatus": "active"
 }
