@@ -56,13 +56,12 @@
     "validate-all ALL PASS — 123 registered validators on the final tree, then pushed and reconciled 0/0 at 6c131d4"
   ],
   "testResults": [
-    "core 150 PASS",
+    "core 170 PASS (+20 G4 eligibility cases C1-C14)",
     "agent 77 PASS",
-    "control-center 214 PASS (21 command-vocabulary tests including CRITICAL regressions)",
-    "cargo check clean"
+    "control-centre 214 PASS"
   ],
   "browserResults": [
-    "NOT RUN: the headed responsive/accessibility proof at desktop, tablet, ~390px and ~320px is still outstanding. It needs a Tauri desktop build, because the governed write path is only reachable inside the desktop host."
+    "NOT RUN — BLOCKED ON AN OPERATOR-SUPPLIED PREREQUISITE. The repository's own desktop harness (projectos/control-center/test-desktop/smoke.mjs) requires two things: PROJECTOS_APP, a built control-centre executable, and MSEDGEDRIVER, a msedgedriver.exe matching the installed Edge. tauri-driver v2.0.6 IS installed at ~/.cargo/bin/tauri-driver.exe. Installed Edge is 151.0.4129.72. NO msedgedriver.exe exists anywhere under the user profile. The harness treats it as operator-supplied and it must be downloaded from Microsoft; fetching and executing a third-party binary is not something this session did unilaterally in a governance repository. Consequence: G4-8 cannot be satisfied, so Phase 12 CANNOT close. This is an environment prerequisite, not an architecture defect."
   ],
   "ECCResults": [
     "code-review APPROVE on the bootstrap; not yet re-run on the Phase-12 slice"
@@ -76,9 +75,9 @@
   "databaseReviewResults": [
     "not-applicable: no database touched"
   ],
-  "currentAction": "PLAN v1.2 APPROVED AND ACTIVE. Owner Murad approved v1.2 on 2026-08-09 against candidate sha256 34ce49d90cfa6d18bdadc0dfcf0306ef08b67f7c0225ac405a61ea9b0af7660f, re-verified byte-for-byte before binding. v1.2 is live, PLAN READY with 0 unmet, and immediately effective: `phase new` for Phase 17 is refused DEPENDENCY_NOT_SATISFIED naming Phase 12, with zero residue. v1.1 and v1.0 are both retained under projectos/state/versions/. PHASE 12 AUTHORITY CORRECTION DONE: the renderer may REQUEST closure but can no longer nominate or authenticate the gatekeeper — `identity` is gone from the request surface, `phase.close` accepts no role and no identity, and the runtime resolves the delegate from the active approved plan and mints the phase-bound grant itself. Proven live: identity/role arguments refused outright, and a bare closure request passes authority then is refused by the LIFECYCLE (validating -> closed is illegal).",
+  "currentAction": "G4 CLOSURE GATE DELIVERED. `delegated: true` is no longer an authority token. A delegated closure now requires BOTH the owner-recorded project-scoped delegation AND all 16 G4 predicates mechanically satisfied; authoriseClosure refuses G4_NOT_ESTABLISHED with no verdict and G4_NOT_SATISFIED with an unmet one, naming every outstanding predicate. Facts are DERIVED in agent/src/closureGate.ts (project, plan readiness, phase membership and state, git head, remote reconciliation, tree cleanliness, recorded protected effects) or read from a durable HEAD-BOUND evidence record; nothing is read off the closure request, and every unknown fails closed. Evidence bound to a different head is refused as stale. LIVE: a delegated close of Phase 12 is refused with 8 named unmet predicates including G4-8 (headed proof).",
   "blockedReason": null,
-  "nextSafeAction": "Everything through the v1.2 activation and the Phase-12 authority correction is PUSHED and reconciled. To finish Phase 12: (1) run the headed Tauri proof at desktop, tablet, ~390px and ~320px — build the desktop app, exercise advance/stop/resume/refresh, a refusal, disconnect/reconnect, keyboard-only navigation and overflow; (2) advance validating -> evidence -> awaiting_review -> awaiting_closure; (3) generate the ProjectOS evidence report; (4) close through the corrected governed path, which derives the ChatGPT delegated authority internally — never `--as owner`, never a renderer-supplied identity. ONLY THEN start Phase 17, whose dependencies now mechanically require Phase 12 AND Phase 16 closed.",
+  "nextSafeAction": "BLOCKER FOR PHASE 12 CLOSURE: supply msedgedriver.exe matching Edge 151.0.4129.72 and set MSEDGEDRIVER, then build the desktop app (npm run tauri build in projectos/control-center) and set PROJECTOS_APP. THEN: (1) run the headed proof at desktop, tablet, ~390px and ~320px, exercising advance/stop/resume/refresh, a governance refusal, disconnect/reconnect, keyboard-only navigation, focus, overflow and console errors; (2) write the durable closure-evidence record at .projectops/closure/PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A.json with phaseId, establishedAtHead, validatorsPass, checksPass, reviewsComplete, unresolvedCriticalOrHigh and headedProofPass — it must be established at the SAME head being closed or G4-12 refuses it as stale; (3) advance validating -> evidence -> awaiting_review -> awaiting_closure; (4) generate the ProjectOS evidence report; (5) request the delegated close, which now recomputes all 16 predicates. ONLY THEN Phase 17.",
   "decisionRequired": null,
   "productionTouched": false,
   "deploymentOccurred": false,
@@ -88,6 +87,6 @@
   "secretCapabilityUsed": false,
   "rawSecretStored": false,
   "createdAt": "2026-08-09T03:12:54Z",
-  "updatedAt": "2026-08-09T15:45:00Z",
+  "updatedAt": "2026-08-09T16:20:00Z",
   "sessionStatus": "active"
 }
