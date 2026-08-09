@@ -56,9 +56,10 @@
     "validate-all ALL PASS — 123 registered validators on the final tree, then pushed and reconciled 0/0 at 6c131d4"
   ],
   "testResults": [
-    "core 170 PASS",
+    "core 178 PASS (+8 provenance)",
     "agent 77 PASS",
-    "control-centre 214 PASS"
+    "control-centre 214 PASS",
+    "123 validators ALL PASS"
   ],
   "browserResults": [
     "BROWSER LAYOUT/HONESTY PROOF: PASS at 1440, 768, 390 and 320. The surface correctly reports 'Not live — No ProjectOS runtime has reported yet' when no Tauri runtime is present. No horizontal overflow at any width. Console errors: 0.",
@@ -82,9 +83,9 @@
   "databaseReviewResults": [
     "not-applicable: no database touched"
   ],
-  "currentAction": "G4 CLOSURE GATE DELIVERED. `delegated: true` is no longer an authority token. A delegated closure now requires BOTH the owner-recorded project-scoped delegation AND all 16 G4 predicates mechanically satisfied; authoriseClosure refuses G4_NOT_ESTABLISHED with no verdict and G4_NOT_SATISFIED with an unmet one, naming every outstanding predicate. Facts are DERIVED in agent/src/closureGate.ts (project, plan readiness, phase membership and state, git head, remote reconciliation, tree cleanliness, recorded protected effects) or read from a durable HEAD-BOUND evidence record; nothing is read off the closure request, and every unknown fails closed. Evidence bound to a different head is refused as stale. LIVE: a delegated close of Phase 12 is refused with 8 named unmet predicates including G4-8 (headed proof).",
+  "currentAction": "G4 EVIDENCE/HEAD DEADLOCK FIXED at c127380 — the second of the two remaining Phase-12 engineering units. The gate required the evidence commit to EQUAL the closing commit, which no ordinary workflow could satisfy: closure evidence lives at a tracked path, so writing it dirties the tree (G4-13), committing it advances HEAD past the evidence (G4-12), and re-pointing the evidence advances HEAD again — a tracked commit cannot contain its own SHA. Replaced by provenance, NOT by relaxation: the evidence names an EVIDENCE SUBJECT HEAD, that subject must be an ANCESTOR of the current governance head, and every path changed between them must be closure-tail metadata. One substantive path changing after the subject still makes the evidence stale. The closure-tail allowlist is an explicit six-entry list (phase record, closure evidence, reports, reports index, current-state, session) that excludes the plan, all source, validators, schemas and architecture documents, and refuses traversal. Ancestry and the changed-path split are computed from git in the deriving layer, never read from the record; a git failure yields a sentinel substantive entry so an unreadable diff cannot read as 'nothing changed'. Core tests 170 -> 178; 123 validators ALL PASS.",
   "blockedReason": null,
-  "nextSafeAction": "ADOPT THE §9 FALLBACK: @wdio/tauri-service with driverProvider 'external' (verify the canonical current option name against current WebdriverIO/Tauri docs). DEV DEPENDENCIES ONLY; no cloud, no API key, no credential; it must drive the REAL ProjectOS binary, REAL sidecar and REAL canonical agent/core — a browser-mode mock is NOT acceptable for G4-8. Do NOT reopen the raw tauri-driver route: it is established defective (see browserResults). If WDIO external fails for the same native-driver reason, use the §11 embedded provider behind a Cargo feature such as webdriver-e2e, with mechanical proof that default and release builds do NOT contain it plus a validator enforcing that, and a dedicated security review. Once ANY genuine route works, STOP infrastructure work and run T1-T21, then the HEAD-bound closure evidence, advance, report, and the G4 delegated close. Also worth committing once a route works: smoke.mjs uses stdio:'ignore' for tauri-driver, which is what hid this for two sessions.",
+  "nextSafeAction": "ONE ENGINEERING UNIT REMAINS FOR PHASE 12: a genuine Tauri automation route, then T1-T21. Do NOT reopen the raw tauri-driver route — it is classified UPSTREAM TOOLING and abandoned. Adopt @wdio/tauri-service in projectos/control-center: dev dependencies only, ONE bounded external-provider session smoke; if it reproduces the same native-driver failure, go straight to the embedded provider behind a Cargo feature such as webdriver-e2e, with mechanical proof that default and release builds exclude the plugin (plus a registered validator so the isolation cannot silently regress) and a focused security review of the capability boundary. The E2E build may differ from production ONLY by that test instrumentation: React surface, Tauri app, IPC, sidecar, agent, core, durable .projectops state and the G4 gate must all be REAL. Once any genuine session exists, STOP framework work and run T1-T21 including the responsive re-proof at 1440/768/390/320. THEN, in this order: establish and push the substantive evidence subject HEAD (the G4 provenance fix is already in it), run reviews and validators against that HEAD, write the closure evidence naming that subject via evidenceSubjectHead, advance validating -> evidence -> awaiting_review -> awaiting_closure, generate the report, and request the delegated close — the tail commits are now legal because they touch only allowlisted paths.",
   "decisionRequired": null,
   "productionTouched": false,
   "deploymentOccurred": false,
@@ -94,6 +95,6 @@
   "secretCapabilityUsed": false,
   "rawSecretStored": false,
   "createdAt": "2026-08-09T03:12:54Z",
-  "updatedAt": "2026-08-09T17:15:00Z",
+  "updatedAt": "2026-08-09T17:40:00Z",
   "sessionStatus": "active"
 }
