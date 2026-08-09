@@ -265,9 +265,44 @@ describe('install', () => {
   });
 });
 
+/**
+ * Governed phase work now requires a governed context — a project config plus that project's own
+ * approved, READY plan (PROJECTOS-V3-POLYGO-PILOT1A). These tests predate that gate and used to run
+ * with no `.projectops` at all, so they seed the real ProjectOS config shape and ProjectOS's own
+ * accepted plan rather than a literal, which keeps them honest against the shipped schema.
+ */
+function makeGovernedCtx(): { ctx: CommandContext; sys: FakeSystem } {
+  const { ctx, sys } = makeCtx();
+  const fs = require('node:fs') as typeof import('node:fs');
+  const path = require('node:path') as typeof import('node:path');
+  const plan = fs.readFileSync(path.resolve(__dirname, '../../state/projectos-v3.plan.json'), 'utf8');
+  sys.files.set(
+    configPath('/repo'),
+    JSON.stringify({
+      projectId: 'projectos',
+      projectName: 'ProjectOS',
+      projectType: 'saas',
+      owner: 'Murad',
+      repo: 'universalbizcomply/ProjectOS',
+      localPath: 'C:/dev/ProjectOS',
+      protectedBranches: ['main'],
+      productionFreeze: true,
+      allowedActions: ['create-local-files'],
+      forbiddenActions: ['production-deploy'],
+      approvalGates: ['phase-closure'],
+      secretsPolicy: { allowSecretsInRepo: false, redactionRequired: true },
+      validators: ['validators/val-*.cjs'],
+      evidenceRequirements: ['evidence-pack'],
+      installStatus: 'installed',
+    }),
+  );
+  sys.files.set('/repo/.projectops/plan.json', plan);
+  return { ctx, sys };
+}
+
 describe('phase runtime', () => {
   it('new creates a persisted draft phase', () => {
-    const { ctx, sys } = makeCtx();
+    const { ctx, sys } = makeGovernedCtx();
     const r = run(ctx, ['phase', 'new', '--id', 'RT1A', '--project', 'ProjectOS']);
     expect(r.code).toBe(0);
     expect(r.lines.join('\n')).toContain('status: draft');
@@ -275,7 +310,7 @@ describe('phase runtime', () => {
   });
 
   it('new requires --id and refuses overwrite without --force', () => {
-    const { ctx } = makeCtx();
+    const { ctx } = makeGovernedCtx();
     expect(run(ctx, ['phase', 'new']).code).toBe(1);
     run(ctx, ['phase', 'new', '--id', 'RT1A']);
     expect(run(ctx, ['phase', 'new', '--id', 'RT1A']).code).toBe(2);
@@ -283,7 +318,7 @@ describe('phase runtime', () => {
   });
 
   it('advances along the happy path and records history', () => {
-    const { ctx } = makeCtx();
+    const { ctx } = makeGovernedCtx();
     run(ctx, ['phase', 'new', '--id', 'RT1A']);
     for (const to of ['prompted', 'implementing', 'validating', 'evidence', 'awaiting_review', 'awaiting_closure']) {
       const r = run(ctx, ['phase', 'advance', '--id', 'RT1A', '--to', to]);
@@ -295,7 +330,7 @@ describe('phase runtime', () => {
   });
 
   it('rejects illegal transitions with exit 1', () => {
-    const { ctx } = makeCtx();
+    const { ctx } = makeGovernedCtx();
     run(ctx, ['phase', 'new', '--id', 'RT1A']);
     const r = run(ctx, ['phase', 'advance', '--id', 'RT1A', '--to', 'closed', '--as', 'owner']);
     expect(r.code).toBe(1);
@@ -303,7 +338,7 @@ describe('phase runtime', () => {
   });
 
   it('blocks non-owner closure with exit 2 but allows owner', () => {
-    const { ctx } = makeCtx();
+    const { ctx } = makeGovernedCtx();
     run(ctx, ['phase', 'new', '--id', 'RT1A']);
     for (const to of ['prompted', 'implementing', 'validating', 'evidence', 'awaiting_review', 'awaiting_closure']) {
       run(ctx, ['phase', 'advance', '--id', 'RT1A', '--to', to]);
@@ -317,7 +352,7 @@ describe('phase runtime', () => {
   });
 
   it('validates flags and status names', () => {
-    const { ctx } = makeCtx();
+    const { ctx } = makeGovernedCtx();
     run(ctx, ['phase', 'new', '--id', 'RT1A']);
     expect(run(ctx, ['phase', 'advance', '--id', 'RT1A']).code).toBe(1);
     expect(run(ctx, ['phase', 'advance', '--id', 'RT1A', '--to', 'bogus']).code).toBe(1);
@@ -326,7 +361,7 @@ describe('phase runtime', () => {
   });
 
   it('list and show handle empty/missing gracefully', () => {
-    const { ctx } = makeCtx();
+    const { ctx } = makeGovernedCtx();
     expect(run(ctx, ['phase', 'list']).lines.join('\n')).toContain('No phases');
     expect(run(ctx, ['phase', 'show', '--id', 'X']).code).toBe(1);
     run(ctx, ['phase', 'new', '--id', 'A']);
@@ -335,7 +370,7 @@ describe('phase runtime', () => {
   });
 
   it('rejects unknown subcommands', () => {
-    const { ctx } = makeCtx();
+    const { ctx } = makeGovernedCtx();
     expect(run(ctx, ['phase', 'frob']).code).toBe(1);
   });
 });

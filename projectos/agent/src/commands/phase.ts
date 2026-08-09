@@ -22,6 +22,7 @@ import {
   type Role,
 } from '@projectos/core';
 import { loadPhase, savePhase, listPhaseIds } from '../phaseStore.js';
+import { loadGovernedContext, refusalLines } from '../governedContext.js';
 
 const ROLES: readonly Role[] = ['owner', 'advisor', 'implementer'];
 
@@ -58,6 +59,10 @@ function phaseNew(ctx: CommandContext, flags: Flags): CommandResult {
   const { sys, root } = ctx;
   const id = str(flags, 'id');
   if (id === '') return fail(1, ['`phase new` requires --id <PHASE-ID>']);
+  // Governed context BEFORE any state is written: an invalid or wrong-project context must not be
+  // able to create a phase record it then governs.
+  const gc = loadGovernedContext(sys, root);
+  if (!gc.ok) return fail(2, refusalLines(gc));
   if (loadPhase(sys, root, id) !== null && flags['force'] !== true) {
     return fail(2, [`Phase ${id} already exists (pass --force to recreate)`]);
   }
@@ -81,6 +86,11 @@ function phaseAdvance(ctx: CommandContext, flags: Flags): CommandResult {
   }
   const role = roleOf(flags);
   if (role === null) return fail(1, [`--as must be one of: ${ROLES.join(', ')}`]);
+
+  // Same gate on advance: a phase must not be moved through its lifecycle under a context that is
+  // not the approved plan's project, or under a plan that is no longer READY.
+  const gc = loadGovernedContext(sys, root);
+  if (!gc.ok) return fail(2, refusalLines(gc));
 
   const current = loadPhase(sys, root, id);
   if (current === null) return fail(1, [`No phase ${id} — run \`projectos phase new --id ${id}\``]);
