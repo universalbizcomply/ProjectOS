@@ -80,7 +80,7 @@
   ],
   "currentAction": "G4 CLOSURE GATE DELIVERED. `delegated: true` is no longer an authority token. A delegated closure now requires BOTH the owner-recorded project-scoped delegation AND all 16 G4 predicates mechanically satisfied; authoriseClosure refuses G4_NOT_ESTABLISHED with no verdict and G4_NOT_SATISFIED with an unmet one, naming every outstanding predicate. Facts are DERIVED in agent/src/closureGate.ts (project, plan readiness, phase membership and state, git head, remote reconciliation, tree cleanliness, recorded protected effects) or read from a durable HEAD-BOUND evidence record; nothing is read off the closure request, and every unknown fails closed. Evidence bound to a different head is refused as stale. LIVE: a delegated close of Phase 12 is refused with 8 named unmet predicates including G4-8 (headed proof).",
   "blockedReason": null,
-  "nextSafeAction": "BLOCKER UNCHANGED for G4-8: supply msedgedriver.exe matching Edge 151.0.4129.72 and set MSEDGEDRIVER. A `npx tauri build` was started this session and was still compiling when the session ended — re-run it and set PROJECTOS_APP to the produced executable. THEN run projectos/control-center/test-desktop/smoke.mjs and the full headed matrix at desktop, tablet, ~390px and ~320px, exercising the governed write path, a live refusal and reconnect. FIX FIRST, found by the browser run: at ~320px the sidebar nav fills the whole first screen before any content, and the nav buttons are under the 44px touch-target minimum. THEN: write the HEAD-bound closure-evidence record at .projectops/closure/PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A.json, advance validating -> evidence -> awaiting_review -> awaiting_closure, generate the evidence report, and request the delegated close, which recomputes all 16 G4 predicates.",
+  "nextSafeAction": "BLOCKER UNCHANGED for G4-8: supply msedgedriver.exe matching Edge 151.0.4129.72 and set MSEDGEDRIVER. THE DESKTOP APP IS BUILT: set PROJECTOS_APP=C:/dev/ProjectOS/projectos/control-center/src-tauri/target/release/projectos-control-center.exe (9.3 MB, built this session; MSI and NSIS bundles also produced). msedgedriver.exe is the ONLY remaining prerequisite. THEN run projectos/control-center/test-desktop/smoke.mjs and the full headed matrix at desktop, tablet, ~390px and ~320px, exercising the governed write path, a live refusal and reconnect. FIX FIRST, found by the browser run: at ~320px the sidebar nav fills the whole first screen before any content, and the nav buttons are under the 44px touch-target minimum. THEN: write the HEAD-bound closure-evidence record at .projectops/closure/PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A.json, advance validating -> evidence -> awaiting_review -> awaiting_closure, generate the evidence report, and request the delegated close, which recomputes all 16 G4 predicates.",
   "decisionRequired": null,
   "productionTouched": false,
   "deploymentOccurred": false,
@@ -90,6 +90,6 @@
   "secretCapabilityUsed": false,
   "rawSecretStored": false,
   "createdAt": "2026-08-09T03:12:54Z",
-  "updatedAt": "2026-08-09T16:35:00Z",
+  "updatedAt": "2026-08-09T16:40:00Z",
   "sessionStatus": "active"
 }
