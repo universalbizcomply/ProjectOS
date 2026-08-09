@@ -44,7 +44,7 @@
       "projectos-v2-core"
     ],
     "baselineCommit": "b848171ab1e9419097a33d369aeab836ef231572",
-    "planPersistenceCommit": null,
+    "planPersistenceCommit": "ee54794d50a53c1d4415aaee4a8e25356022f63e",
     "planSourceBranch": "projectos-v3"
   },
   "sourceDocuments": [
