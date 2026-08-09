@@ -13,6 +13,7 @@ export * from './approval.js';
 export * from './events.js';
 export * from './config.js';
 export * from './closureAuthority.js';
+export * from './closureEligibility.js';
 export * from './discovery.js';
 export * from './plugins.js';
 export * from './plugin-catalog.js';

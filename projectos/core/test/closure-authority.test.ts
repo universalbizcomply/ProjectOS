@@ -17,6 +17,23 @@ import {
   type ClosureDelegation,
 } from '../src/closureAuthority.js';
 import { createPhase, transitionPhase, type Phase } from '../src/phase.js';
+import { evaluateClosureEligibility, CLOSURE_READY_STATUS, type G4Facts } from '../src/closureEligibility.js';
+
+/** A fully satisfied G4 gate. The delegation is necessary; this is the other half. */
+const HEAD = 'a'.repeat(40);
+function eligibleVerdict(phaseId = 'X1A') {
+  const f: G4Facts = {
+    governedProjectId: 'projectos', planProjectId: 'projectos', activePlanVersion: '1.2',
+    planReady: true, planUnmetReasons: [], phaseId, phaseInActivePlan: true,
+    phaseStatus: CLOSURE_READY_STATUS, validatorsPass: true, checksPass: true,
+    evidenceReportPresent: true, headedProofRequired: false, headedProofPass: true,
+    reviewsComplete: true, unresolvedCriticalOrHigh: 0, protectedEffectOccurred: false,
+    implementationHead: HEAD, remoteReconciled: true, workingTreeClean: true,
+    delegationValidForProject: true, authorityAssertedByCaller: false,
+    decisionBoundToPhaseId: phaseId, evidenceHead: HEAD,
+  };
+  return evaluateClosureEligibility(f);
+}
 
 const DELEGATION: ClosureDelegation = {
   delegatedBy: 'Murad',
@@ -38,6 +55,7 @@ function input(over: Partial<ClosureAuthorityInput> = {}): ClosureAuthorityInput
     actorRole: 'advisor',
     actorIdentity: 'ChatGPT',
     scope: 'phase-closure',
+    eligibility: eligibleVerdict(),
     ...over,
   };
 }

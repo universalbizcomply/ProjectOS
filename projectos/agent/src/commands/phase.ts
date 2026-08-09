@@ -31,6 +31,7 @@ import {
   type Role,
 } from '@projectos/core';
 import { loadPhase, savePhase, listPhaseIds } from '../phaseStore.js';
+import { evaluateG4, g4RefusalLines } from '../closureGate.js';
 import {
   loadGovernedContext,
   refusalLines,
@@ -157,6 +158,23 @@ function phaseAdvance(ctx: CommandContext, flags: Flags): CommandResult {
       : str(flags, 'identity') === ''
         ? null
         : str(flags, 'identity');
+    // The G4 gate. A delegation names who MAY close; this proves the conditions actually hold.
+    // Facts are DERIVED here, never taken from the request — see closureGate.ts.
+    const callerAssertedAuthority =
+      str(flags, 'identity') !== '' || (delegated && str(flags, 'as') !== '' && str(flags, 'as') !== 'implementer');
+    const g4 = delegated
+      ? evaluateG4(
+          sys,
+          root,
+          gc.context,
+          id,
+          current.status,
+          { ready: true, reasons: [] },
+          delegation !== null,
+          callerAssertedAuthority,
+        )
+      : null;
+
     const decision = authoriseClosure({
       governedProjectId: gc.context.projectId,
       planProjectId: typeof plan['projectId'] === 'string' ? plan['projectId'] : '',
@@ -168,10 +186,12 @@ function phaseAdvance(ctx: CommandContext, flags: Flags): CommandResult {
       actorIdentity: effectiveIdentity,
       scope: 'phase-closure',
       phaseId: id,
+      ...(g4 === null ? {} : { eligibility: g4.verdict }),
     });
     if (!decision.ok) {
-      // An owner with no identity flag is the ordinary path and must keep working unchanged; only a
-      // genuine authority refusal reaches here.
+      // A G4 failure is reported predicate by predicate: an operator must see everything still
+      // outstanding, not just the first thing that failed.
+      if (g4 !== null && !g4.verdict.eligible) return fail(2, g4RefusalLines(g4.verdict));
       return fail(2, [`REFUSED (${decision.error})`]);
     }
     grant = decision.value;

@@ -24,6 +24,7 @@
  */
 import type { Role, Result } from './types.js';
 import { ok, err } from './types.js';
+import type { G4Verdict } from './closureEligibility.js';
 
 /** The delegable scopes. Protected actions are deliberately absent and must never be added. */
 export type ClosureScope = 'phase-closure' | 'programme-closure';
@@ -57,6 +58,13 @@ export interface ClosureAuthorityInput {
   readonly scope: ClosureScope;
   /** The phase this decision is about. Binds the grant so it cannot be replayed on another phase. */
   readonly phaseId?: string;
+  /**
+   * The G4 gate verdict. REQUIRED for a delegated close: the delegation says who MAY hold the
+   * conditional authority, and this says the conditions actually hold. Without it a delegated close
+   * is refused, so `delegated: true` can never by itself be an authority token.
+   * Not consulted for an owner close — an owner's authority is not conditional on this gate.
+   */
+  readonly eligibility?: G4Verdict;
 }
 
 export type ClosureRefusal =
@@ -70,7 +78,9 @@ export type ClosureRefusal =
   | 'DELEGATION_CARRIES_PROTECTED_ACTIONS'
   | 'AUTHORITY_DISAGREEMENT'
   | 'ACTOR_IDENTITY_MISSING'
-  | 'OWNER_IDENTITY_MISMATCH';
+  | 'OWNER_IDENTITY_MISMATCH'
+  | 'G4_NOT_ESTABLISHED'
+  | 'G4_NOT_SATISFIED';
 
 declare const CLOSURE_GRANT_BRAND: unique symbol;
 
@@ -212,6 +222,23 @@ export function authoriseClosure(input: ClosureAuthorityInput): Result<ClosureGr
     return refuse(
       'DELEGATION_WRONG_ACTOR',
       `'${input.actorIdentity}' is not the delegate '${d.delegatedTo}'`,
+    );
+  }
+
+  // The delegation is necessary and not sufficient. The conditions must be established AND met.
+  if (input.eligibility === undefined) {
+    return refuse(
+      'G4_NOT_ESTABLISHED',
+      'a delegated closure requires a G4 eligibility verdict; the delegation alone authorises nothing',
+    );
+  }
+  if (!input.eligibility.eligible) {
+    const unmet = input.eligibility.unmet;
+    return refuse(
+      'G4_NOT_SATISFIED',
+      `${unmet.length} G4 predicate(s) unmet: ` +
+        unmet.slice(0, 4).map((u) => `${u.code} ${u.detail}`).join('; ') +
+        (unmet.length > 4 ? ` (+${unmet.length - 4} more)` : ''),
     );
   }
 
