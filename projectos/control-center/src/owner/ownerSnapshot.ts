@@ -22,25 +22,39 @@ const OWNER_ONLY_ACTIONS: readonly string[] = [
   'Authorise provider access',
 ];
 
+/**
+ * LAST RECORDED position — NOT live state, and the surface labels it that way.
+ *
+ * PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A made the owner surface read the canonical runtime, so
+ * this literal is now only the fallback shown when no runtime has reported (a plain browser build,
+ * or before the sidecar is ready). It exists because rendering nothing is worse than rendering the
+ * last recorded position clearly marked as recorded.
+ *
+ * It drifted once already — it sat at 3 accepted phases while the canonical record said 16 — which
+ * is exactly why the surface must not depend on it when a runtime is available. `ownerSnapshot.test`
+ * pins every field here to `projectos/state/projectos-v3.current-state.json` so the drift cannot
+ * silently return.
+ */
 export const PROJECTOS_V3: OwnerControlModel = {
   projectId: 'projectos',
   projectName: 'ProjectOS (self)',
   programme: 'ProjectOS V3',
   planStatus: 'IN EXECUTION',
   activePhase: null,
-  nextRecommendedPhase: 'PROJECTOS-WHOLE-SYSTEM-UX-FUNCTIONALITY-DUPLICATION-AUDIT1A',
-  acceptedPhaseCount: 3,
+  nextRecommendedPhase: 'PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A',
+  acceptedPhaseCount: 16,
   totalPhaseCount: 19,
   risks: [
     'R1 (accepted carry-forward): owner approval is manual — not cryptographically bound.',
     'Automated local relay loop not yet implemented; the ChatGPT↔Claude relay is manual / partially automated.',
   ],
   blockers: [
-    'Phases 14–16 (PolyGo) are blocked: no authorised trust-anchored local repository. ProjectOS V3 is not closed.',
+    'Three numbered phases remain OPEN: 12 Control Centre integration, 17 reliability hardening, 18 final closure. ProjectOS V3 is not complete.',
+    'Protected authority is unchanged: installation, production, provider and credential authority all remain NotAuthorised.',
   ],
   decisionsRequired: [],
   nextSafeAction:
-    'Roadmap phases are built and proven locally; 3 of 19 are owner-accepted so far. Review the audit evidence and accept or hold each phase. This is a review step — nothing is deployed, closed, or authorised automatically.',
+    'This is the last recorded position, not live state. Start the ProjectOS runtime to see live governed state. 16 of 19 numbered phases are owner-accepted; phases 12, 17 and 18 remain open. Nothing is deployed, closed or authorised automatically.',
   restrictedActions: OWNER_ONLY_ACTIONS,
   safety: { productionFrozen: true, providerContacted: false, secretCapabilityUsed: false, apiUsed: false },
 };

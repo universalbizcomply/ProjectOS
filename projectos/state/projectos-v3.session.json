@@ -1,41 +1,74 @@
 {
   "schemaVersion": "1.0.0",
-  "sessionId": "projectos-v3-plan-discovery-import1a-session-1",
+  "sessionId": "projectos-v3-control-centre-integration1a-session-1",
   "projectId": "projectos",
   "planId": "projectos-v3-master-plan",
-  "planVersion": "1.0",
-  "phaseId": "PROJECTOS-V3-PLAN-DISCOVERY-IMPORT1A",
+  "planVersion": "1.1",
+  "phaseId": "PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A",
   "executionMode": "local-safe",
   "autonomyLevel": "local-safe",
   "repositoryPath": "C:/dev/ProjectOS",
   "branch": "projectos-v3",
-  "startingHead": "746ba49dc9629028cc274c5a7b954838d5ab088e",
-  "currentHead": "4c3f07623df44bfa03fd4a9f6f2fa0b476601795",
+  "startingHead": "11046f4a842dc979fa358acab570cc1194a58478",
+  "currentHead": "479438fd41ff4ad07f4bf4f16ef4247c0caed696",
   "filesInspected": [
-    "projectos/validators/plan-governance-engine.cjs",
-    "projectos/validators/validate-all.cjs",
-    "projectos/schemas/project-plan.schema.json"
+    "projectos/control-center/src/owner/ownerSnapshot.ts",
+    "projectos/control-center/src/owner/governedChain.ts",
+    "projectos/control-center/src/daemon/ipcCommands.ts",
+    "projectos/control-center/sidecar/host.mjs",
+    "projectos/control-center/src-tauri/src/app.rs",
+    "projectos/control-center/src-tauri/src/process/lifecycle.rs",
+    "projectos/bridge/daemon/src/constants.ts",
+    "projectos/bridge/daemon/src/types.ts"
   ],
   "filesChanged": [
-    "projectos/validators/plan-discovery-engine.cjs",
-    "projectos/schemas/source-discovery-manifest.schema.json",
-    "projectos/schemas/plan-import-result.schema.json",
-    "projectos/validators/validate-plan-discovery-import.cjs",
-    "projectos/examples/v3-import-fixtures/",
-    "projectos/state/projectos-v3.current-state.json",
-    "projectos/state/projectos-v3.session.json"
+    "projectos/control-center/src/governed/types.ts",
+    "projectos/control-center/src/governed/governedProjection.ts",
+    "projectos/control-center/src/owner/governedOwnerModel.ts",
+    "projectos/control-center/src/owner/OwnerControlPlane.tsx",
+    "projectos/control-center/src/owner/ownerSnapshot.ts",
+    "projectos/control-center/src/daemon/types.ts",
+    "projectos/control-center/src/daemon/store.ts",
+    "projectos/control-center/src/daemon/ipcProtocol.ts",
+    "projectos/control-center/src/daemon/daemonClient.ts",
+    "projectos/control-center/src/daemon/DaemonProvider.tsx",
+    "projectos/control-center/sidecar/host.mjs",
+    "projectos/control-center/tsconfig.node.json",
+    "projectos/control-center/test/governedProjection.test.ts",
+    "projectos/control-center/test/ownerModel.test.ts",
+    "projectos/control-center/test/ownerChat.test.ts",
+    ".projectops/phases/PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A.json"
   ],
-  "commandsRun": ["git status", "npm run validate", "node discovery engine smoke tests"],
-  "validatorResults": ["validate-all ALL PASS", "validate-plan-discovery-import PASS"],
-  "testResults": ["corpus behavioural + safety + determinism assertions PASS"],
-  "browserResults": ["not-applicable: no user-facing surface modified"],
-  "ECCResults": ["pending"],
-  "securityResults": ["pending"],
-  "codeReviewResults": ["pending"],
+  "commandsRun": [
+    "projectos phase new --id PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A",
+    "projectos phase advance --to prompted --as implementer",
+    "projectos phase advance --to implementing --as implementer",
+    "npm run validate",
+    "vitest run (core, agent, control-center)",
+    "npm run build:sidecar && npm run build",
+    "node sidecar/host.mjs --root C:/dev/ProjectOS (read-only live governed-state proof)"
+  ],
+  "validatorResults": [
+    "validate-all ALL PASS (122) at the bootstrap commit 44a8b04",
+    "validate:v3plan ALL PASS after the plan v1.1 persistence bind"
+  ],
+  "testResults": [
+    "core 128 PASS",
+    "agent 77 PASS (56 before this phase's bootstrap)",
+    "control-center 192 PASS — including the previously FAILING ownerSnapshot pin, now fixed"
+  ],
+  "browserResults": [
+    "NOT RUN: the headed responsive/accessibility proof at desktop, tablet, ~390px and ~320px is still outstanding for this phase"
+  ],
+  "ECCResults": ["code-review APPROVE on the bootstrap; not yet re-run on the Phase-12 slice"],
+  "securityResults": [
+    "security-review on the bootstrap: 0 CRITICAL, 1 HIGH FIXED (owner-transition required for dependency evidence), M1 symlink + L1 inert-delegation recorded; not yet re-run on the Phase-12 slice"
+  ],
+  "codeReviewResults": ["pending for the Phase-12 slice"],
   "databaseReviewResults": ["not-applicable: no database touched"],
-  "currentAction": "Phase 2 closed by owner and gatekeeper; authority-forgery fix accepted",
+  "currentAction": "PHASE 12 IN PROGRESS. The governed READ path is delivered and proven: the sidecar reads the CANONICAL @projectos/core records (never the bridge daemon's separate twelve-stage model), recomputes PLAN READY with the real engine, and emits a `kind: governed` transport message that the Control Centre renders live. The owner surface now shows plan v1.1, 16/19, and the real active phase, and labels itself Live or Not live.",
   "blockedReason": null,
-  "nextSafeAction": "Begin PROJECTOS-V3-OWNER-CONTROL-PLANE-DESIGN1A (Phase 3)",
+  "nextSafeAction": "Deliver the governed WRITE path so the Control Centre can drive start/pause/gate/close. The seam is identified: projectos/control-center/src-tauri/src/process/lifecycle.rs already has a generic `owner.write_request(...)` used only for the constant SNAPSHOT_REQUEST, so a governed command needs (1) a new #[tauri::command] beside daemon_request_snapshot in app.rs, (2) a sidecar stdin handler that calls the canonical @projectos/agent `run()` and returns its CommandResult verbatim, (3) UI verbs mapped onto the existing PHASE_TRANSITIONS rather than new lifecycle verbs. Then wire governance.closureDelegation into the core authority model (it is an inert record today), then the headed proof at four breakpoints, then the evidence report and closure.",
   "decisionRequired": null,
   "productionTouched": false,
   "deploymentOccurred": false,
@@ -44,7 +77,7 @@
   "paymentOccurred": false,
   "secretCapabilityUsed": false,
   "rawSecretStored": false,
-  "createdAt": "2026-07-12T00:00:00Z",
-  "updatedAt": "2026-07-12T00:00:00Z",
-  "sessionStatus": "complete"
+  "createdAt": "2026-08-09T03:12:54Z",
+  "updatedAt": "2026-08-09T04:30:00Z",
+  "sessionStatus": "active"
 }

@@ -16,6 +16,7 @@ export const INITIAL_STATE: LiveState = {
   projects: [],
   events: [],
   notifications: [],
+  governed: null,
 };
 
 export type Listener = () => void;

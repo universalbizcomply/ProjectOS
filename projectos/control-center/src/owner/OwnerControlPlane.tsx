@@ -10,8 +10,9 @@
 import { useMemo, useState } from 'react';
 import { OWNER_MODELS, PROJECTOS_V3 } from './ownerSnapshot';
 import { buildOwnerControlView, type OwnerControlModel, type OwnerBadge } from './ownerModel';
-import { useLifecycle } from '../daemon/DaemonProvider';
+import { useLifecycle, useGovernedState } from '../daemon/DaemonProvider';
 import type { LiveLifecycle } from '../daemon/types';
+import { ownerModelFromGoverned } from './governedOwnerModel';
 import { ProtectedOperationConfirmation } from './confirmation/ProtectedOperationConfirmation';
 import { SYNTHETIC_CONFIRMATION, SYNTHETIC_NOW_MS } from './confirmation/ownerConfirmationFixture';
 import {
@@ -57,8 +58,14 @@ function LifecycleBanner({ lifecycle }: { lifecycle: LiveLifecycle }) {
 export function OwnerControlPlane() {
   const [projectId, setProjectId] = useState<string>(PROJECTOS_V3.projectId);
   const lifecycle = useLifecycle();
+  // Live canonical state when the runtime has reported; otherwise the last RECORDED position, which
+  // the header labels as such. The surface never presents a record as if it were live.
+  const governed = useGovernedState();
+  const live = governed !== null && governed.connected ? governed : null;
   const model: OwnerControlModel =
-    OWNER_MODELS.find((m) => m.projectId === projectId) ?? PROJECTOS_V3;
+    live !== null
+      ? ownerModelFromGoverned(live)
+      : (OWNER_MODELS.find((m) => m.projectId === projectId) ?? PROJECTOS_V3);
   const view = useMemo(() => buildOwnerControlView(model), [model]);
 
   // Synthetic owner-confirmation preview state (Option C1). No authority, no Windows ceremony: a
@@ -86,7 +93,25 @@ export function OwnerControlPlane() {
         <div>
           <h1 id="ocp-title">Owner Control</h1>
           <p>{view.whereYouAre}</p>
+          <p className="ocp-source" data-testid="ocp-source">
+            {live !== null ? (
+              <>
+                <span className="ocp-badge ok">Live</span> Canonical runtime state · plan{' '}
+                {live.plan.planVersion} ·{' '}
+                {live.plan.ready ? 'PLAN READY (recomputed)' : 'plan NOT ready (recomputed)'} ·{' '}
+                {live.plan.planPath}
+              </>
+            ) : (
+              <>
+                <span className="ocp-badge mut">Not live</span>{' '}
+                {governed !== null && !governed.connected
+                  ? governed.detail
+                  : 'No ProjectOS runtime has reported yet. Showing the last recorded position, not live state.'}
+              </>
+            )}
+          </p>
         </div>
+        {live === null && (
         <label className="ocp-select">
           <span className="ocp-select-label">Project</span>
           <select
@@ -101,6 +126,7 @@ export function OwnerControlPlane() {
             ))}
           </select>
         </label>
+        )}
       </div>
 
       {/* Worker lifecycle — the primary emphasis while the local worker is not yet ready. */}

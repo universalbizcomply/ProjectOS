@@ -116,6 +116,12 @@ export class DaemonClient {
         this.#healthStream.set(message.health);
         this.store.update({ health: message.health });
         break;
+      case 'governed':
+        // Canonical governed state. Stored verbatim — the UI renders what the runtime reported and
+        // never recomputes authority for itself.
+        this.store.update({ governed: message.state });
+        this.#reconnect.reset();
+        break;
     }
   }
 

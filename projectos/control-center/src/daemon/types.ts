@@ -6,6 +6,8 @@
  * truth; these types only describe what the read-only UI renders.
  */
 
+import type { GovernedState } from '../governed/types.js';
+
 export type ConnectionState = 'disconnected' | 'connecting' | 'connected';
 
 export type LiveWorkerStatus =
@@ -164,6 +166,8 @@ export type TransportMessage =
   | { readonly kind: 'notification'; readonly notification: LiveNotification }
   | { readonly kind: 'health'; readonly health: LiveHealth }
   | { readonly kind: 'lifecycle'; readonly lifecycle: LiveLifecycle }
+  /** Canonical governed state, read from `@projectos/core` records — NOT the daemon's own model. */
+  | { readonly kind: 'governed'; readonly state: GovernedState }
   | { readonly kind: 'closed' };
 
 /** The complete observable UI state the store holds. */
@@ -178,4 +182,9 @@ export interface LiveState {
   readonly projects: readonly LiveProjectSummary[];
   readonly events: readonly LiveEvent[];
   readonly notifications: readonly LiveNotification[];
+  /**
+   * Canonical governed state from the ProjectOS runtime. `null` until the first governed message —
+   * in a plain browser build that is forever, and the surface says so rather than inventing a seed.
+   */
+  readonly governed: GovernedState | null;
 }

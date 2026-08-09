@@ -22,6 +22,7 @@ import type {
   LiveWorker,
   LiveEvent,
 } from './types.js';
+import type { GovernedState } from '../governed/types.js';
 
 const DaemonContext = createContext<DaemonClient | null>(null);
 
@@ -65,3 +66,8 @@ export const usePhases = (): readonly LivePhase[] => useSlice((s) => s.phases);
 export const useLiveProjects = (): readonly LiveProjectSummary[] => useSlice((s) => s.projects);
 export const useEvents = (): readonly LiveEvent[] => useSlice((s) => s.events);
 export const useNotifications = (): readonly LiveNotification[] => useSlice((s) => s.notifications);
+/**
+ * Canonical governed state from the ProjectOS runtime. `null` means the runtime has not reported
+ * yet — which the owner surface must render as "not connected", never as an assumed-good default.
+ */
+export const useGovernedState = (): GovernedState | null => useSlice((s) => s.governed);

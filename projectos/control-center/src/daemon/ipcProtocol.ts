@@ -5,7 +5,7 @@
  */
 import type { TransportMessage } from './types.js';
 
-const MESSAGE_KINDS = new Set(['snapshot', 'event', 'notification', 'health', 'closed']);
+const MESSAGE_KINDS = new Set(['snapshot', 'event', 'notification', 'health', 'governed', 'closed']);
 
 /** Encode a message as one newline-terminated JSON line (sidecar → stdout). */
 export function encodeMessageLine(message: TransportMessage): string {

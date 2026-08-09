@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { answerOwnerQuestion, rankIntents } from '../src/owner/ownerChatModel';
 import { PROJECTOS_V3, DEMO_ACME } from '../src/owner/ownerSnapshot';
+import { completionPercent } from '../src/owner/ownerModel';
 
 describe('answerOwnerQuestion — intents', () => {
   it('greets', () => {
@@ -23,7 +24,7 @@ describe('answerOwnerQuestion — intents', () => {
   it('answers progress with the completion label', () => {
     const a = answerOwnerQuestion(PROJECTOS_V3, 'how far along are we?');
     expect(a.intent).toBe('progress');
-    expect(a.answer).toContain('15.8%');
+    expect(a.answer).toContain(`${completionPercent(PROJECTOS_V3.acceptedPhaseCount, PROJECTOS_V3.totalPhaseCount)}%`);
   });
 
   it('reports no decisions when none are pending', () => {
@@ -100,7 +101,7 @@ describe('answerOwnerQuestion — natural language robustness', () => {
     expect(a.matchedIntents).toContain('status');
     expect(a.matchedIntents).toContain('progress');
     expect(a.answer).toContain(PROJECTOS_V3.planStatus);
-    expect(a.answer).toContain('15.8%');
+    expect(a.answer).toContain(`${completionPercent(PROJECTOS_V3.acceptedPhaseCount, PROJECTOS_V3.totalPhaseCount)}%`);
   });
 
   it('ranks the strongest intent first', () => {
