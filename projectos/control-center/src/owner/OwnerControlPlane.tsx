@@ -13,6 +13,7 @@ import { buildOwnerControlView, type OwnerControlModel, type OwnerBadge } from '
 import { useLifecycle, useGovernedState } from '../daemon/DaemonProvider';
 import type { LiveLifecycle } from '../daemon/types';
 import { ownerModelFromGoverned } from './governedOwnerModel';
+import { GovernedActions } from './GovernedActions';
 import { ProtectedOperationConfirmation } from './confirmation/ProtectedOperationConfirmation';
 import { SYNTHETIC_CONFIRMATION, SYNTHETIC_NOW_MS } from './confirmation/ownerConfirmationFixture';
 import {
@@ -183,6 +184,9 @@ export function OwnerControlPlane() {
         <h2>Next safe action</h2>
         <p className="ocp-next">{view.nextSafeAction}</p>
       </div>
+
+      {/* Governed actions — only ever shown against live runtime state. */}
+      {live !== null && <GovernedActions state={live} />}
 
       {/* Risks + blockers */}
       <div className="ocp-grid2">

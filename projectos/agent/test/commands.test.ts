@@ -345,7 +345,16 @@ describe('phase runtime', () => {
     }
     const blocked = run(ctx, ['phase', 'advance', '--id', 'PROJECTOS-V3-BASELINE-RECONCILE1A', '--to', 'closed', '--as', 'implementer']);
     expect(blocked.code).toBe(2);
-    expect(blocked.lines.join('\n')).toContain("requires role 'owner'");
+    // The refusal is now the specific authority code rather than the generic role message: the
+    // implementer is refused by the closure-authority decision BEFORE the state machine is reached.
+    expect(blocked.lines.join('\n')).toContain('IMPLEMENTER_CANNOT_CLOSE');
+    // The advisor is refused too, unless the approved plan delegates to that exact identity.
+    const noIdentity = run(ctx, ['phase', 'advance', '--id', 'PROJECTOS-V3-BASELINE-RECONCILE1A', '--to', 'closed', '--as', 'advisor']);
+    expect(noIdentity.code).toBe(2);
+    expect(noIdentity.lines.join('\n')).toContain('ACTOR_IDENTITY_MISSING');
+    const wrongIdentity = run(ctx, ['phase', 'advance', '--id', 'PROJECTOS-V3-BASELINE-RECONCILE1A', '--to', 'closed', '--as', 'advisor', '--identity', 'Someone Else']);
+    expect(wrongIdentity.code).toBe(2);
+    expect(wrongIdentity.lines.join('\n')).toContain('DELEGATION_WRONG_ACTOR');
     const owned = run(ctx, ['phase', 'advance', '--id', 'PROJECTOS-V3-BASELINE-RECONCILE1A', '--to', 'closed', '--as', 'owner', '--note', 'accepted']);
     expect(owned.code).toBe(0);
     expect(run(ctx, ['phase', 'show', '--id', 'PROJECTOS-V3-BASELINE-RECONCILE1A']).lines.join('\n')).toContain('accepted');

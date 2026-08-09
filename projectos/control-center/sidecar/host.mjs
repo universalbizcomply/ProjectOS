@@ -32,6 +32,8 @@ import { dirname, resolve as resolvePath, join as joinPath, isAbsolute } from 'n
 import { BridgeDaemon, nodeSystem, loadConfig } from '@projectos/bridge-daemon';
 import { InProcessTransport } from '../node-build/daemon/inProcessTransport.js';
 import { projectGovernedState } from '../node-build/governed/governedProjection.js';
+import { validateGovernedCommand, toAgentInvocation } from '../node-build/governed/governedCommands.js';
+import { phase as phaseCommand, approve as approveCommand, report as reportCommand, nodeSystem as agentSystem } from '@projectos/agent';
 
 const LIFECYCLE_PROTOCOL_VERSION = 1;
 /** Bounded: the id is a short non-secret correlator, never a credential. */
@@ -198,6 +200,69 @@ transport.onMessage((message) => {
   process.stdout.write(JSON.stringify(message) + '\n');
 });
 
+/**
+ * Execute one governed command against the CANONICAL runtime.
+ *
+ * The verb set is closed and the arguments are typed, so nothing the browser sends can become a
+ * command name, a flag name, a path or a shell string: `toAgentArgv` is a pure total function over
+ * that closed set. The agent's own `CommandResult` is returned VERBATIM — a refusal is reported as
+ * the runtime worded it, never reworded or softened by this layer.
+ *
+ * Writes are performed by the canonical agent, never by this file.
+ */
+function handleGovernedCommand(raw) {
+  const correlationId =
+    raw && typeof raw.correlationId === 'string' ? raw.correlationId.slice(0, 64) : 'unknown';
+  const emit = (code, lines, verb) => {
+    process.stdout.write(
+      JSON.stringify({ kind: 'governed-result', correlationId, code, lines, verb: verb ?? null }) + '\n',
+    );
+  };
+
+  const check = validateGovernedCommand(raw);
+  if (!check.ok) {
+    emit(2, [`REFUSED (${check.code}): ${check.detail}`], null);
+    return;
+  }
+  const root = governedRoot();
+  if (root === null) {
+    emit(2, ['REFUSED (NO_RUNTIME): no governed project root is available.'], check.request.verb);
+    return;
+  }
+
+  const invocation = toAgentInvocation(check.request);
+  if (invocation === null) {
+    // `refresh` performs nothing; it is served entirely by the existing read path.
+    emitGovernedState();
+    emit(0, ['Refreshed governed state.'], check.request.verb);
+    return;
+  }
+
+  // Called as a TYPED function, never as an argv line. There is no parsing step between the
+  // validated request and the runtime, so a value can never become a flag name.
+  const COMMANDS = { phase: phaseCommand, approve: approveCommand, report: reportCommand };
+  const fn = COMMANDS[invocation.command];
+  if (fn === undefined) {
+    emit(2, ['REFUSED (UNKNOWN_VERB): no canonical command for this verb.'], check.request.verb);
+    return;
+  }
+  let result;
+  try {
+    const ctx = { sys: agentSystem, root };
+    result =
+      invocation.command === 'report'
+        ? fn(ctx, invocation.flags)
+        : fn(ctx, invocation.flags, invocation.positionals);
+  } catch (e) {
+    emit(2, ['REFUSED (RUNTIME_ERROR): the governed command could not be executed.'], check.request.verb);
+    return;
+  }
+  emit(result.code, result.lines, check.request.verb);
+  // Re-read durable state AFTER the command, so the surface shows what actually persisted rather
+  // than what the command was expected to do.
+  emitGovernedState();
+}
+
 /** The governed project root: the first watched root that carries an installed `.projectops`. */
 function governedRoot() {
   for (const r of config.watchRoots) {
@@ -249,7 +314,14 @@ rl.on('line', (line) => {
   if (shuttingDown) return; // stop accepting commands
   try {
     const obj = JSON.parse(line);
-    if (!obj || typeof obj.cmd !== 'string') return;
+    if (!obj || typeof obj !== 'object') return;
+    // Governed commands are `kind`-discriminated and carry no `cmd`, so they are dispatched BEFORE
+    // the legacy `cmd` guard — which would otherwise drop them silently.
+    if (obj.kind === 'governed-command') {
+      handleGovernedCommand(obj);
+      return;
+    }
+    if (typeof obj.cmd !== 'string') return;
     if (obj.cmd === 'snapshot') {
       transport.requestSnapshot();
       // The owner surface's governed state is re-read on the same trigger, so one snapshot request

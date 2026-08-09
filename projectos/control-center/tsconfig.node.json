@@ -1,10 +1,12 @@
 {
-  "//": "Compiles ONLY the Node-side pieces the Tauri sidecar reuses — the daemon client (InProcessTransport) and the PURE governed projection — to node-build/. Browser/React files are never included here. The projection is compiled rather than reimplemented so the sidecar and the browser tests run the exact same derivation.",
+  "//": "Compiles ONLY the Node-side pieces the Tauri sidecar reuses \u2014 the daemon client (InProcessTransport) and the PURE governed projection \u2014 to node-build/. Browser/React files are never included here. The projection is compiled rather than reimplemented so the sidecar and the browser tests run the exact same derivation.",
   "compilerOptions": {
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "lib": ["ES2022"],
+    "lib": [
+      "ES2022"
+    ],
     "outDir": "node-build",
     "rootDir": "src",
     "strict": true,
@@ -13,5 +15,9 @@
     "sourceMap": false,
     "types": []
   },
-  "include": ["src/daemon/inProcessTransport.ts", "src/governed/governedProjection.ts"]
+  "include": [
+    "src/daemon/inProcessTransport.ts",
+    "src/governed/governedProjection.ts",
+    "src/governed/governedCommands.ts"
+  ]
 }

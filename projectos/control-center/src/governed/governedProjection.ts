@@ -232,7 +232,13 @@ export function projectGovernedState(inputs: GovernedInputs): GovernedProjection
   });
 
   const activePhase = phases.find((p) => (ACTIVE_STATUSES as readonly string[]).includes(p.status)) ?? null;
-  const nextStartablePhase = phases.find((p) => p.startable) ?? null;
+  // EXECUTION SEQUENCING, not a plan dependency. While a phase is in flight, starting another is
+  // never the safe next action, so no phase is offered as the next one to start. This does NOT
+  // falsify `startable` on the individual phases — the plan's declared dependencies are reported as
+  // they are — it only stops the surface pointing at a second phase while one is open. Recorded
+  // because plan v1.1 makes Phase 17 mechanically eligible from Phase 16 alone, so without this the
+  // surface would invite starting hardening while the integration phase was still unfinished.
+  const nextStartablePhase = activePhase !== null ? null : (phases.find((p) => p.startable) ?? null);
 
   const approval = obj(plan, 'approval');
   const supersedes = approval === undefined ? null : approval['supersedesPlanVersion'];

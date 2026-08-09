@@ -14,3 +14,7 @@ secret*
 *token*
 *.key
 *.pem
+# Bridge daemon runtime cache. Written by the sidecar's BridgeDaemon whenever the Control Centre
+# runs against this repository (first observed during PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A).
+# Generated state, never governance evidence — the governed records live in .projectops/phases/.
+.projectops/bridge/

@@ -134,6 +134,15 @@ describe('phase state comes from durable core records', () => {
     expect(p.nextStartablePhase === null || !done.has(p.nextStartablePhase.phaseId)).toBe(true);
   });
 
+  test('no phase is offered as next-to-start while another is in flight', () => {
+    // Plan v1.1 makes Phase 17 mechanically eligible from Phase 16 alone, so without this rule the
+    // surface would point at reliability hardening while the integration phase was still open.
+    const p = projectGovernedState(inputs());
+    expect(p.activePhase).not.toBeNull();
+    expect(p.nextStartablePhase).toBeNull();
+    expect(p.nextSafeAction).toContain('no other phase may start');
+  });
+
   test('unmet dependencies are computed, and the final phase has one', () => {
     const p = projectGovernedState(inputs());
     const last = p.phases[p.phases.length - 1];

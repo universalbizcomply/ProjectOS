@@ -10,6 +10,7 @@
  */
 import type { PhaseStatus, Role, Result } from './types.js';
 import { ok, err } from './types.js';
+import type { ClosureGrant } from './closureAuthority.js';
 
 /** Legal transitions per status. Empty array = terminal. */
 export const PHASE_TRANSITIONS: Readonly<Record<PhaseStatus, readonly PhaseStatus[]>> = {
@@ -74,7 +75,12 @@ export function createPhase(input: CreatePhaseInput): Phase {
 
 /**
  * Transition a phase to a new status. Returns a new Phase (never mutates).
- * Fails on illegal transitions and on non-owner attempts to close.
+ * Fails on illegal transitions and on unauthorised attempts to close.
+ *
+ * CLOSURE AUTHORITY. Closure is owner-only unless a `ClosureGrant` is supplied. A grant can only be
+ * minted by `authoriseClosure` — its brand is private to that module — so passing one is proof the
+ * delegation was actually validated against the approved plan, not merely asserted by the caller.
+ * With no grant the original rule stands unchanged: role `owner`, or refusal.
  */
 export function transitionPhase(
   phase: Phase,
@@ -82,11 +88,27 @@ export function transitionPhase(
   by: Role,
   at: string,
   note?: string,
+  grant?: ClosureGrant,
 ): Result<Phase> {
   if (!canTransition(phase.status, to)) {
     return err(`Illegal transition: ${phase.status} -> ${to}`);
   }
-  if (requiresOwner(to) && by !== 'owner') {
+  if (requiresOwner(to) && by !== 'owner' && grant === undefined) {
+    return err(`Transition to '${to}' requires role 'owner', got '${by}'`);
+  }
+  // A grant authorises CLOSURE only. It can never be used to reach any other transition, so a
+  // caller holding one for a legitimate close cannot reuse it elsewhere.
+  if (grant !== undefined && !requiresOwner(to)) {
+    return err(`A closure grant cannot authorise the transition to '${to}'`);
+  }
+  // A grant is bound to the phase it was minted for, so one obtained for a legitimate close cannot
+  // be replayed against a different phase.
+  if (grant !== undefined && grant.phaseId !== undefined && grant.phaseId !== phase.phaseId) {
+    return err(`Closure grant was issued for '${grant.phaseId}', not '${phase.phaseId}'`);
+  }
+  // The implementer can never close, grant or no grant. `authoriseClosure` refuses to mint a grant
+  // for the implementer; this is the second, independent check at the point of effect.
+  if (requiresOwner(to) && by === 'implementer') {
     return err(`Transition to '${to}' requires role 'owner', got '${by}'`);
   }
   const transition: PhaseTransition =

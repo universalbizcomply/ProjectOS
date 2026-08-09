@@ -497,6 +497,56 @@ impl DaemonLifecycleState {
         owner.write_request(SNAPSHOT_REQUEST)
     }
 
+    /// Longest governed command line this host will forward. A governed command is a short typed
+    /// envelope of identifiers; anything larger is not one, so it is refused rather than written.
+    const MAX_GOVERNED_REQUEST_BYTES: usize = 4096;
+
+    /// Forward ONE governed command line to the sidecar's stdin.
+    ///
+    /// This host does not interpret the command and holds no allowlist of its own: the vocabulary is
+    /// closed and validated on both sides in TypeScript (`validateGovernedCommand`), and the sidecar
+    /// re-validates every line it receives, so a second divergent copy of that policy here would be a
+    /// liability rather than a control. What this function DOES guarantee is transport safety, which
+    /// is genuinely its job:
+    ///
+    ///   * the daemon must be RUNNING_READ_ONLY and the instance must match, exactly as for a
+    ///     snapshot request — a command can never start, restart or reconfigure anything;
+    ///   * the payload must be a single line: an embedded newline would let one request smuggle a
+    ///     second command past the sidecar's per-line parse, so it is refused, not escaped;
+    ///   * the payload is bounded and must be non-empty;
+    ///   * a broken pipe becomes a typed failure and never a panic.
+    pub fn write_governed_request(
+        &self,
+        line: &str,
+        expect_instance: Option<&str>,
+    ) -> Result<(), ProcessError> {
+        if line.is_empty() || line.len() > Self::MAX_GOVERNED_REQUEST_BYTES {
+            return Err(ProcessError::DaemonNotReady);
+        }
+        // One line in, one command out. Rejecting embedded line breaks (rather than stripping them)
+        // keeps the guarantee simple: what the caller sent is what the sidecar parses.
+        if line.contains('\n') || line.contains('\r') {
+            return Err(ProcessError::DaemonNotReady);
+        }
+        let mut g = self
+            .inner
+            .lock()
+            .map_err(|_| ProcessError::LifecycleStateBlocked)?;
+        if !g.status.accepts_requests() {
+            return Err(ProcessError::DaemonNotReady);
+        }
+        if let (Some(want), Some(have)) = (expect_instance, g.instance.as_deref()) {
+            if want != have {
+                return Err(ProcessError::DaemonInstanceMismatch);
+            }
+        }
+        let owner = g.owner.as_mut().ok_or(ProcessError::DaemonNotReady)?;
+        let mut bytes = Vec::with_capacity(line.len() + 1);
+        bytes.extend_from_slice(line.as_bytes());
+        bytes.push(b'\n');
+        owner.write_request(&bytes)
+    }
+
     /// Record an observed process exit for `instance`. A stale instance must never move a
     /// replacement owner's state. Evidence is written OUTSIDE the lock.
     pub fn record_exit(&self, instance: &str) {

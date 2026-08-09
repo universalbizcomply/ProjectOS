@@ -7,9 +7,13 @@
  *
  * Subcommands:
  *   new     --id <ID> --project <p> [--objective <o>] [--force]
- *   advance --id <ID> --to <status> [--as owner|advisor|implementer] [--note <n>]
+ *   advance --id <ID> --to <status> [--as owner|advisor|implementer] [--identity <who>] [--note <n>]
  *   show    --id <ID>
  *   list
+ *
+ * Closure (`closed` / `closed_as_blocked`) is owner-only unless the approved plan records a
+ * project-scoped `governance.closureDelegation`; then the named delegate may close with
+ * `--as advisor --identity <delegate>`. The implementer can never close, by any route.
  */
 import type { CommandContext, CommandResult } from '../context.js';
 import { ok, fail } from '../context.js';
@@ -17,7 +21,12 @@ import { type Flags, str } from '../flags.js';
 import {
   createPhase,
   transitionPhase,
+  authoriseClosure,
+  grantNote,
+  requiresOwner,
   PHASE_TRANSITIONS,
+  type ClosureDelegation,
+  type ClosureGrant,
   type PhaseStatus,
   type Role,
 } from '@projectos/core';
@@ -38,6 +47,23 @@ function roleOf(flags: Flags): Role | null {
 
 function isPhaseStatus(s: string): s is PhaseStatus {
   return Object.prototype.hasOwnProperty.call(PHASE_TRANSITIONS, s);
+}
+
+/** Read `governance.<key>` off the approved plan as a string, or '' when absent. */
+function gov(plan: Record<string, unknown>, key: string): string {
+  const g = plan['governance'];
+  if (typeof g !== 'object' || g === null) return '';
+  const v = (g as Record<string, unknown>)[key];
+  return typeof v === 'string' ? v : '';
+}
+
+/** The plan's closure delegation, or null when it records none. Shape is schema-validated already. */
+function delegationOf(plan: Record<string, unknown>): ClosureDelegation | null {
+  const g = plan['governance'];
+  if (typeof g !== 'object' || g === null) return null;
+  const d = (g as Record<string, unknown>)['closureDelegation'];
+  if (typeof d !== 'object' || d === null || Array.isArray(d)) return null;
+  return d as unknown as ClosureDelegation;
 }
 
 export function phase(
@@ -104,15 +130,48 @@ function phaseAdvance(ctx: CommandContext, flags: Flags): CommandResult {
   const current = loadPhase(sys, root, id);
   if (current === null) return fail(1, [`No phase ${id} — run \`projectos phase new --id ${id}\``]);
 
+  // Closure authority. Closure stays owner-only unless the ACTIVE APPROVED PLAN records a
+  // delegation that covers this exact project, delegate and scope. The decision is made by the core
+  // authority module — this command never decides it — and the resulting grant is the only way a
+  // non-owner reaches a terminal state.
+  let grant: ClosureGrant | undefined;
+  let basisNote: string | undefined;
+  if (requiresOwner(to)) {
+    const plan = gc.context.plan;
+    const decision = authoriseClosure({
+      governedProjectId: gc.context.projectId,
+      planProjectId: typeof plan['projectId'] === 'string' ? plan['projectId'] : '',
+      owner: gov(plan, 'owner'),
+      implementer: gov(plan, 'implementer'),
+      closureAuthority: gov(plan, 'closureAuthority'),
+      delegation: delegationOf(plan),
+      actorRole: role,
+      actorIdentity: str(flags, 'identity') === '' ? null : str(flags, 'identity'),
+      scope: 'phase-closure',
+    });
+    if (!decision.ok) {
+      // An owner with no identity flag is the ordinary path and must keep working unchanged; only a
+      // genuine authority refusal reaches here.
+      return fail(2, [`REFUSED (${decision.error})`]);
+    }
+    grant = decision.value;
+    basisNote = grantNote(decision.value);
+  }
+
   const note = str(flags, 'note');
-  const r = transitionPhase(current, to, role, ctx.sys.now(), note === '' ? undefined : note);
+  // The recorded note carries the authority basis, so the durable history says HOW closure was
+  // authorised — not merely that some role performed it.
+  const finalNote =
+    basisNote === undefined ? (note === '' ? undefined : note) : note === '' ? basisNote : `${note} — ${basisNote}`;
+  const r = transitionPhase(current, to, role, ctx.sys.now(), finalNote, grant);
   if (!r.ok) {
     // Owner-gated refusal is a governance block (exit 2); other illegal moves are 1.
     const code = r.error.includes("requires role 'owner'") ? 2 : 1;
     return fail(code, [r.error]);
   }
   savePhase(sys, root, r.value);
-  return ok([`${id}: ${current.status} -> ${r.value.status} (by ${role})`]);
+  const how = basisNote === undefined ? '' : ` [${basisNote}]`;
+  return ok([`${id}: ${current.status} -> ${r.value.status} (by ${role})${how}`]);
 }
 
 function phaseShow(ctx: CommandContext, flags: Flags): CommandResult {

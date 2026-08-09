@@ -10,7 +10,7 @@
   "repositoryPath": "C:/dev/ProjectOS",
   "branch": "projectos-v3",
   "startingHead": "11046f4a842dc979fa358acab570cc1194a58478",
-  "currentHead": "479438fd41ff4ad07f4bf4f16ef4247c0caed696",
+  "currentHead": "8ceda4977ea4fac5e33ee8a08926d92c0cb53b37",
   "filesInspected": [
     "projectos/control-center/src/owner/ownerSnapshot.ts",
     "projectos/control-center/src/owner/governedChain.ts",
@@ -22,53 +22,64 @@
     "projectos/bridge/daemon/src/types.ts"
   ],
   "filesChanged": [
-    "projectos/control-center/src/governed/types.ts",
+    "projectos/core/src/closureAuthority.ts",
+    "projectos/core/src/phase.ts",
+    "projectos/core/src/index.ts",
+    "projectos/core/test/closure-authority.test.ts",
+    "projectos/agent/src/commands/phase.ts",
+    "projectos/agent/test/commands.test.ts",
+    "projectos/control-center/src/governed/governedCommands.ts",
+    "projectos/control-center/src/governed/governedClient.ts",
     "projectos/control-center/src/governed/governedProjection.ts",
-    "projectos/control-center/src/owner/governedOwnerModel.ts",
+    "projectos/control-center/src/owner/GovernedActions.tsx",
     "projectos/control-center/src/owner/OwnerControlPlane.tsx",
-    "projectos/control-center/src/owner/ownerSnapshot.ts",
-    "projectos/control-center/src/daemon/types.ts",
-    "projectos/control-center/src/daemon/store.ts",
-    "projectos/control-center/src/daemon/ipcProtocol.ts",
-    "projectos/control-center/src/daemon/daemonClient.ts",
-    "projectos/control-center/src/daemon/DaemonProvider.tsx",
+    "projectos/control-center/src/styles.css",
     "projectos/control-center/sidecar/host.mjs",
-    "projectos/control-center/tsconfig.node.json",
+    "projectos/control-center/src-tauri/src/app.rs",
+    "projectos/control-center/src-tauri/src/process/lifecycle.rs",
+    "projectos/control-center/test/governedCommands.test.ts",
     "projectos/control-center/test/governedProjection.test.ts",
-    "projectos/control-center/test/ownerModel.test.ts",
-    "projectos/control-center/test/ownerChat.test.ts",
+    "projectos/validators/val-projectos-v3-active-phase-consistency1a.cjs",
+    "projectos/validators/validate-all.cjs",
+    "projectos/state/projectos-v3.current-state.json",
+    "projectos/state/versions/projectos-v3.plan.v1.2-candidate.json",
     ".projectops/phases/PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A.json"
   ],
   "commandsRun": [
-    "projectos phase new --id PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A",
-    "projectos phase advance --to prompted --as implementer",
-    "projectos phase advance --to implementing --as implementer",
-    "npm run validate",
-    "vitest run (core, agent, control-center)",
-    "npm run build:sidecar && npm run build",
-    "node sidecar/host.mjs --root C:/dev/ProjectOS (read-only live governed-state proof)"
+    "projectos phase advance --to validating (driven THROUGH the governed write path, not the CLI)",
+    "cargo check (src-tauri) — clean",
+    "vitest run (core 150, agent 77, control-center 208)",
+    "npm run build / build:sidecar",
+    "node sidecar/host.mjs driven over its real stdin/stdout protocol (live write-path proof)"
   ],
   "validatorResults": [
     "validate-all ALL PASS (122) at the bootstrap commit 44a8b04",
     "validate:v3plan ALL PASS after the plan v1.1 persistence bind"
   ],
   "testResults": [
-    "core 128 PASS",
-    "agent 77 PASS (56 before this phase's bootstrap)",
-    "control-center 192 PASS — including the previously FAILING ownerSnapshot pin, now fixed"
+    "core 150 PASS",
+    "agent 77 PASS",
+    "control-center 214 PASS (21 command-vocabulary tests including CRITICAL regressions)",
+    "cargo check clean"
   ],
   "browserResults": [
-    "NOT RUN: the headed responsive/accessibility proof at desktop, tablet, ~390px and ~320px is still outstanding for this phase"
+    "NOT RUN: the headed responsive/accessibility proof at desktop, tablet, ~390px and ~320px is still outstanding. It needs a Tauri desktop build, because the governed write path is only reachable inside the desktop host."
   ],
-  "ECCResults": ["code-review APPROVE on the bootstrap; not yet re-run on the Phase-12 slice"],
+  "ECCResults": [
+    "code-review APPROVE on the bootstrap; not yet re-run on the Phase-12 slice"
+  ],
   "securityResults": [
-    "security-review on the bootstrap: 0 CRITICAL, 1 HIGH FIXED (owner-transition required for dependency evidence), M1 symlink + L1 inert-delegation recorded; not yet re-run on the Phase-12 slice"
+    "security-review: 1 CRITICAL (argv flag injection destroying an owner closure) FIXED by removing the argv round trip; 1 HIGH (self-asserted owner role reachable from the webview) FIXED by per-verb role restriction; MEDIUM verb-agnostic argument allowlist FIXED. Recorded and NOT fixed here: the Tauri command moves the pre-existing 'role is a self-asserted string' limitation from 'requires local shell access' to 'requires code execution in the renderer' — a materially larger surface for the same unauthenticated claim, flagged for owner awareness and Phase 17."
   ],
-  "codeReviewResults": ["pending for the Phase-12 slice"],
-  "databaseReviewResults": ["not-applicable: no database touched"],
-  "currentAction": "PHASE 12 IN PROGRESS. The governed READ path is delivered and proven: the sidecar reads the CANONICAL @projectos/core records (never the bridge daemon's separate twelve-stage model), recomputes PLAN READY with the real engine, and emits a `kind: governed` transport message that the Control Centre renders live. The owner surface now shows plan v1.1, 16/19, and the real active phase, and labels itself Live or Not live.",
+  "codeReviewResults": [
+    "code-review: 0 CRITICAL, 2 HIGH both FIXED (renderer could claim owner role; delegated closures invisible to dependency satisfaction), 1 MEDIUM FIXED (grant not bound to a phase), 2 LOW noted."
+  ],
+  "databaseReviewResults": [
+    "not-applicable: no database touched"
+  ],
+  "currentAction": "PHASE 12 WRITE PATH DELIVERED AND HARDENED AFTER REVIEW; PHASE NOT CLOSED. Closure delegation is live: core/src/closureAuthority.ts mints an unforgeable branded ClosureGrant only when the plan's project-scoped delegation validates, and transitionPhase accepts a non-owner closure ONLY with that grant, bound to the specific phase. A closed governed-command vocabulary carries owner intent from the UI through a new Tauri transport command to the canonical @projectos/agent; refusals are returned verbatim. Reviews found and FIXED: (CRITICAL) a note/action value could smuggle a bare --force through the agent's positional argv parser and silently overwrite a closed phase record, destroying an owner closure and its audit trail — the argv round trip is REMOVED, the mapping now hands a typed flags object straight to the command function so a value can never become a flag; (HIGH) the renderer could self-assert role owner and mint an owner grant with no identity — role is now restricted per verb and owner is unreachable from this channel; (HIGH) delegated closures were invisible to dependency satisfaction because both copies of the closed-check required by==owner — now single-sourced in core as isAuthoritativelyClosed, accepting owner or advisor; (MEDIUM) grants are bound to a phase id and per-verb argument allowlists replace the global one.",
   "blockedReason": null,
-  "nextSafeAction": "Deliver the governed WRITE path so the Control Centre can drive start/pause/gate/close. The seam is identified: projectos/control-center/src-tauri/src/process/lifecycle.rs already has a generic `owner.write_request(...)` used only for the constant SNAPSHOT_REQUEST, so a governed command needs (1) a new #[tauri::command] beside daemon_request_snapshot in app.rs, (2) a sidecar stdin handler that calls the canonical @projectos/agent `run()` and returns its CommandResult verbatim, (3) UI verbs mapped onto the existing PHASE_TRANSITIONS rather than new lifecycle verbs. Then wire governance.closureDelegation into the core authority model (it is an inert record today), then the headed proof at four breakpoints, then the evidence report and closure.",
+  "nextSafeAction": "1) Confirm the definitive validator run is green (the V5 exact-set Tauri command pin was AMENDED, not weakened, to admit daemon_governed_command; its exactness re-proven by mutation). 2) Commit and push the write path. 3) Run the headed proof: build the Tauri desktop app and exercise start/advance/stop/resume/refresh plus a refusal at desktop, tablet, ~390px and ~320px, checking keyboard focus and overflow. 4) Advance Phase 12 validating -> evidence -> awaiting_review -> awaiting_closure, generate the ProjectOS evidence report, then close with --as advisor --identity ChatGPT, which exercises the real delegation instead of impersonating the owner. 5) DO NOT START PHASE 17: it needs plan v1.2, whose candidate is at projectos/state/versions/projectos-v3.plan.v1.2-candidate.json, sha256 34ce49d90cfa6d18bdadc0dfcf0306ef08b67f7c0225ac405a61ea9b0af7660f, AWAITING MURAD'S APPROVAL and NOT active.",
   "decisionRequired": null,
   "productionTouched": false,
   "deploymentOccurred": false,
@@ -78,6 +89,6 @@
   "secretCapabilityUsed": false,
   "rawSecretStored": false,
   "createdAt": "2026-08-09T03:12:54Z",
-  "updatedAt": "2026-08-09T04:30:00Z",
+  "updatedAt": "2026-08-09T13:25:00Z",
   "sessionStatus": "active"
 }

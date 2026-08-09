@@ -61,6 +61,27 @@ fn daemon_request_snapshot(state: State<Arc<DaemonLifecycleState>>) -> Result<()
         .map_err(|e| e.next_safe_action().to_string())
 }
 
+/// Forward one governed command line to the sidecar.
+///
+/// The host is a TRANSPORT here, not an authority: it does not parse the verb, does not decide who
+/// may do what, and holds no allowlist of its own. The closed vocabulary is validated in the
+/// renderer before sending AND again in the sidecar before execution, and the actual governance
+/// decision — project identity, plan readiness, phase membership, dependencies, closure authority —
+/// is made by the canonical ProjectOS runtime. Duplicating any of that here would create a second
+/// policy to drift.
+///
+/// Rejected unless the lifecycle is RUNNING_READ_ONLY, exactly like `daemon_request_snapshot`.
+/// The reply arrives asynchronously on the existing `daemon://message` channel.
+#[tauri::command]
+fn daemon_governed_command(
+    state: State<Arc<DaemonLifecycleState>>,
+    request: String,
+) -> Result<(), String> {
+    state
+        .write_governed_request(&request, None)
+        .map_err(|e| e.next_safe_action().to_string())
+}
+
 /// Read-only lifecycle status. Returns only the safe projection — no PID, handle, path, instance id,
 /// stderr, or trust claim.
 #[tauri::command]
@@ -228,6 +249,7 @@ fn run_inner() {
         })
         .invoke_handler(tauri::generate_handler![
             daemon_request_snapshot,
+            daemon_governed_command,
             daemon_status,
             identity_status,
             crate::host_status::installed_host_status

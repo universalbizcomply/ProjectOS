@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A",
   "project": "ProjectOS",
   "objective": "Connect the owner Control Centre to the canonical @projectos/core + agent runtime so start, pause, gate and close are driven through it, with no third governance runtime.",
-  "status": "implementing",
+  "status": "validating",
   "history": [
     {
       "from": "draft",
@@ -17,6 +17,13 @@
       "by": "implementer",
       "at": "2026-08-09T03:12:54.346Z",
       "note": "Implementation begins: Control Centre -> existing Tauri IPC/sidecar -> canonical agent -> @projectos/core -> durable governed records."
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-08-09T11:57:05.671Z",
+      "note": "Governed write path exercised from the Control Centre command channel: UI verb to canonical agent to core to durable record."
     }
   ]
 }

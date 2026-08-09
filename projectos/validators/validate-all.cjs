@@ -90,6 +90,7 @@ const MODULES = [
   "val-projectos-session-router1a",
   "val-projectos-credential-router-adversarial1a",
   "val-projectos-v3-owner-presence-confirmation-ux1a",
+  "val-projectos-v3-active-phase-consistency1a",
   "validate-v3.1-crosswalk",
   "validate-v3.2-ai-provider-independence"
 ];

@@ -490,3 +490,31 @@ body {
   }
   .card:hover { transform: none; }
 }
+
+/* --- Governed runtime surface (PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A) -------------------
+   The source line tells the owner whether they are looking at live runtime state or the last
+   recorded position; the action row is the one place governed commands are issued. Buttons wrap
+   rather than overflow, so the narrow viewports stay usable. */
+.ocp-source { display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  margin-top: 6px; font-size: 13px; color: var(--text-dim); }
+
+.ocp-actions .ocp-actionrow { display: flex; flex-wrap: wrap; gap: 10px; margin: 4px 0 12px; }
+
+.ocp-btn { display: inline-flex; align-items: center; justify-content: center; min-height: 44px;
+  padding: 10px 16px; border-radius: 10px; border: 1px solid var(--line); background: #14181f;
+  color: var(--text); font-size: 14px; font-weight: 600; cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease; }
+.ocp-btn:hover:not(:disabled) { background: #1b212a; border-color: #2c3644; }
+.ocp-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ocp-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.ocp-btn.primary { background: var(--accent); border-color: var(--accent); color: #06111d; }
+.ocp-btn.primary:hover:not(:disabled) { filter: brightness(1.08); }
+
+.ocp-actionmsg { margin: 0 0 8px; font-size: 13px; color: var(--text-dim);
+  overflow-wrap: anywhere; }
+.ocp-actionmsg.crit { color: var(--crit); }
+
+@media (max-width: 420px) {
+  .ocp-actions .ocp-actionrow { flex-direction: column; align-items: stretch; }
+  .ocp-btn { width: 100%; }
+}

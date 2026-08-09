@@ -293,11 +293,20 @@ function run() {
   // AMENDED by CD-B4-PROJECTOSHOST-FUNCTIONAL-PILOT1A: the pinned set gains ONE read-only command,
   // `installed_host_status`. It stays an EXACT-set pin, so no window-fact command — or any other —
   // can be smuggled in, and this phase still registers no runtime trigger.
+  //
+  // AMENDED AGAIN by PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A, for the same reason and on the same
+  // terms as the identical pin in val-cd-b4-control-centre-window-observation-bridge1a: the set
+  // gains ONE command, `daemon_governed_command`, which forwards a single validated line to the
+  // sidecar's stdin so the owner surface can drive the canonical ProjectOS runtime. The control
+  // MOVES, it does not weaken — it stays an EXACT-set pin (re-proven by mutation: a smuggled extra
+  // command is still refused), this phase still adds no runtime trigger and no window fact, and the
+  // new command carries no authority: it refuses unless the daemon is RUNNING_READ_ONLY, bounds the
+  // payload, rejects embedded newlines, and leaves every governance decision to the runtime.
   {
     const st = path.join(ROOT, "projectos", "control-center", "src-tauri", "src");
     if (fs.existsSync(st)) {
       const app = read(path.join(st, "app.rs"));
-      if (!/generate_handler!\[\s*daemon_request_snapshot,\s*daemon_status,\s*identity_status,\s*crate::host_status::installed_host_status\s*\]/.test(app.replace(/\s+/g, " ")))
+      if (!/generate_handler!\[\s*daemon_request_snapshot,\s*daemon_governed_command,\s*daemon_status,\s*identity_status,\s*crate::host_status::installed_host_status\s*\]/.test(app.replace(/\s+/g, " ")))
         E("V9 the registered Tauri command set changed");
     }
   }
