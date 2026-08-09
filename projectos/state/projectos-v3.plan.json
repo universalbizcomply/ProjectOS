@@ -43,7 +43,7 @@
     "expectedRemote": "origin/projectos-v3",
     "protectedBranches": ["main", "projectos-v2-core"],
     "baselineCommit": "11046f4a842dc979fa358acab570cc1194a58478",
-    "planPersistenceCommit": null,
+    "planPersistenceCommit": "44a8b0421f4d8ed8834bb5f34a00ddb4cd53caab",
     "planSourceBranch": "projectos-v3"
   },
 
