@@ -10,7 +10,7 @@
   "repositoryPath": "C:/dev/ProjectOS",
   "branch": "projectos-v3",
   "startingHead": "11046f4a842dc979fa358acab570cc1194a58478",
-  "currentHead": "8ceda4977ea4fac5e33ee8a08926d92c0cb53b37",
+  "currentHead": "0593210146a339d15efda739b90a0bd4d1e56cda",
   "filesInspected": [
     "projectos/control-center/src/owner/ownerSnapshot.ts",
     "projectos/control-center/src/owner/governedChain.ts",
@@ -53,8 +53,7 @@
     "node sidecar/host.mjs driven over its real stdin/stdout protocol (live write-path proof)"
   ],
   "validatorResults": [
-    "validate-all ALL PASS (122) at the bootstrap commit 44a8b04",
-    "validate:v3plan ALL PASS after the plan v1.1 persistence bind"
+    "validate-all ALL PASS — 123 registered validators (122 before; +1 val-projectos-v3-active-phase-consistency1a) at the pushed commit 0593210"
   ],
   "testResults": [
     "core 150 PASS",
@@ -89,6 +88,6 @@
   "secretCapabilityUsed": false,
   "rawSecretStored": false,
   "createdAt": "2026-08-09T03:12:54Z",
-  "updatedAt": "2026-08-09T13:25:00Z",
+  "updatedAt": "2026-08-09T14:22:00Z",
   "sessionStatus": "active"
 }
