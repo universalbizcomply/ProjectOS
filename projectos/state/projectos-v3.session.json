@@ -85,7 +85,7 @@
   ],
   "currentAction": "G4 EVIDENCE/HEAD DEADLOCK FIXED at c127380 — the second of the two remaining Phase-12 engineering units. The gate required the evidence commit to EQUAL the closing commit, which no ordinary workflow could satisfy: closure evidence lives at a tracked path, so writing it dirties the tree (G4-13), committing it advances HEAD past the evidence (G4-12), and re-pointing the evidence advances HEAD again — a tracked commit cannot contain its own SHA. Replaced by provenance, NOT by relaxation: the evidence names an EVIDENCE SUBJECT HEAD, that subject must be an ANCESTOR of the current governance head, and every path changed between them must be closure-tail metadata. One substantive path changing after the subject still makes the evidence stale. The closure-tail allowlist is an explicit six-entry list (phase record, closure evidence, reports, reports index, current-state, session) that excludes the plan, all source, validators, schemas and architecture documents, and refuses traversal. Ancestry and the changed-path split are computed from git in the deriving layer, never read from the record; a git failure yields a sentinel substantive entry so an unreadable diff cannot read as 'nothing changed'. Core tests 170 -> 178; 123 validators ALL PASS.",
   "blockedReason": null,
-  "nextSafeAction": "ONE ENGINEERING UNIT REMAINS FOR PHASE 12: a genuine Tauri automation route, then T1-T21. Do NOT reopen the raw tauri-driver route — it is classified UPSTREAM TOOLING and abandoned. Adopt @wdio/tauri-service in projectos/control-center: dev dependencies only, ONE bounded external-provider session smoke; if it reproduces the same native-driver failure, go straight to the embedded provider behind a Cargo feature such as webdriver-e2e, with mechanical proof that default and release builds exclude the plugin (plus a registered validator so the isolation cannot silently regress) and a focused security review of the capability boundary. The E2E build may differ from production ONLY by that test instrumentation: React surface, Tauri app, IPC, sidecar, agent, core, durable .projectops state and the G4 gate must all be REAL. Once any genuine session exists, STOP framework work and run T1-T21 including the responsive re-proof at 1440/768/390/320. THEN, in this order: establish and push the substantive evidence subject HEAD (the G4 provenance fix is already in it), run reviews and validators against that HEAD, write the closure evidence naming that subject via evidenceSubjectHead, advance validating -> evidence -> awaiting_review -> awaiting_closure, generate the report, and request the delegated close — the tail commits are now legal because they touch only allowlisted paths.",
+  "nextSafeAction": "EMBEDDED PROVIDER is the selected route (external smoke failed, recorded in b4484e7). Add tauri-plugin-wdio + tauri-plugin-wdio-webdriver as OPTIONAL Cargo deps behind an explicit webdriver-e2e feature; default and release graphs must exclude BOTH. Prove P1-P10, add a registered validator so the isolation cannot regress, and run a focused security review of the capability boundary (the plugin exposes an execute/mock API - it must never reach a production build). Then run T1-T21 with PROJECTOS_DRIVER_PROVIDER=embedded. Do NOT reopen the raw tauri-driver or external routes.",
   "decisionRequired": null,
   "productionTouched": false,
   "deploymentOccurred": false,
@@ -96,5 +96,14 @@
   "rawSecretStored": false,
   "createdAt": "2026-08-09T03:12:54Z",
   "updatedAt": "2026-08-09T17:40:00Z",
-  "sessionStatus": "active"
+  "sessionStatus": "active",
+  "head": "b4484e7",
+  "desktopAutomation": {
+    "rawTauriDriver": "ABANDONED - classified UPSTREAM TOOLING",
+    "wdioAdopted": true,
+    "wdioService": "@wdio/tauri-service@1.3.0 (peer webdriverio ^9)",
+    "externalProviderSmoke": "FAILED - POST /session timed out after ~100s against the real release binary; materially equivalent to the raw-route DevToolsActivePort failure. Stop condition met; external provider not debugged further.",
+    "selectedProvider": "embedded - NOT YET IMPLEMENTED",
+    "requiredCrates": "tauri-plugin-wdio (required, all providers) + tauri-plugin-wdio-webdriver (embedded only); BOTH exist at 1.3.0 - verify with cargo search, NOT the crates.io HTTP API which returns 403 under its data-access policy"
+  }
 }
