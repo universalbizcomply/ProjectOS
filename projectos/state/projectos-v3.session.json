@@ -3,7 +3,7 @@
   "sessionId": "projectos-v3-control-centre-integration1a-session-1",
   "projectId": "projectos",
   "planId": "projectos-v3-master-plan",
-  "planVersion": "1.1",
+  "planVersion": "1.2",
   "phaseId": "PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A",
   "executionMode": "local-safe",
   "autonomyLevel": "local-safe",

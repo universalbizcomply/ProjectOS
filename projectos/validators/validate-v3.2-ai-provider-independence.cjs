@@ -27,7 +27,7 @@ const STATE = path.join(ROOT, "projectos", "state", "projectos-v3.current-state.
 const MASTER_PLAN_SHA256 = "7bd6235f5f5d948c720d8e386a18df69cb1d41ed6e6f820bcccd2f24a5675eaf";
 // The ACTIVE machine-readable plan record version — a different artefact from the master-plan document
 // hashed above. Superseded v1.0 -> v1.1 on the bounded owner approval of 2026-08-09 (crosswalk §5e).
-const ACTIVE_PLAN_VERSION = "1.1";
+const ACTIVE_PLAN_VERSION = "1.2";
 
 // The accepted next programme phase, per current-state and the owner/gatekeeper sequencing decision.
 // Rebaseline this deliberately when the programme sequence changes — it is a frozen accepted fact, not a

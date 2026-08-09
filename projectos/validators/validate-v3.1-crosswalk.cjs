@@ -61,7 +61,7 @@ const CROSSWALK_VERSION = "1.8";
 // moved to v1.1 (crosswalk §5e), so this control MOVES rather than weakens: the immutability that
 // actually mattered is still asserted, cross-file, by the v3.2 master-plan hash. An unapproved drift
 // away from the active version still fails here.
-const ACTIVE_PLAN_VERSION = "1.1";
+const ACTIVE_PLAN_VERSION = "1.2";
 // The superseded version must remain retrievable, byte-identical, at this archive path.
 const ARCHIVED_PLAN_V1_0 = path.join(ROOT, "projectos", "state", "versions", "projectos-v3.plan.v1.0.json");
 const PHASE_13_ID = "PROJECTOS-V3-DESKTOP-E2E-PROOF1A";
@@ -381,13 +381,31 @@ function run() {
     try { archived = JSON.parse(fs.readFileSync(ARCHIVED_PLAN_V1_0, "utf8")); }
     catch (x) { e.push("archived plan v1.0 is not valid JSON: " + x.message); }
     if (archived && archived.planVersion !== "1.0") e.push("archived plan is not v1.0: " + archived.planVersion);
-    // And the live record must declare what it supersedes, so the chain is explicit rather than inferred.
+    // And the live record must declare what it supersedes, so the chain is explicit rather than
+    // inferred. GENERALISED at the v1.2 activation: the first version of this check hardcoded
+    // "supersedes v1.0", which was true of v1.1 and false of every version after it — a check that
+    // only holds for one supersession is a check that breaks the moment the mechanism is used again.
+    // It now asserts the CHAIN: the live record names its immediate predecessor, and every superseded
+    // version is still retrievable under versions/.
     const LIVE = path.join(ROOT, "projectos", "state", "projectos-v3.plan.json");
     try {
       const live = JSON.parse(fs.readFileSync(LIVE, "utf8"));
       if (live.planVersion !== ACTIVE_PLAN_VERSION) e.push("live plan version is not " + ACTIVE_PLAN_VERSION + ": " + live.planVersion);
-      if (!live.approval || live.approval.supersedesPlanVersion !== "1.0")
-        e.push("live plan does not record that it supersedes v1.0");
+      const supersedes = live.approval && live.approval.supersedesPlanVersion;
+      if (typeof supersedes !== "string" || !/^[0-9]+\.[0-9]+$/.test(supersedes))
+        e.push("live plan does not record which version it supersedes");
+      else {
+        if (supersedes === live.planVersion) e.push("live plan supersedes itself: " + supersedes);
+        const priorPath = path.join(ROOT, "projectos", "state", "versions", "projectos-v3.plan.v" + supersedes + ".json");
+        if (!fs.existsSync(priorPath))
+          e.push("superseded plan v" + supersedes + " is not retained at " + path.relative(ROOT, priorPath).replace(/\\/g, "/"));
+        else {
+          try {
+            const prior = JSON.parse(fs.readFileSync(priorPath, "utf8"));
+            if (prior.planVersion !== supersedes) e.push("retained predecessor is not v" + supersedes + ": " + prior.planVersion);
+          } catch (x) { e.push("retained predecessor v" + supersedes + " is not valid JSON: " + x.message); }
+        }
+      }
       // The delegation must stay ProjectOS-scoped and must never carry protected authority.
       const del = (live.governance || {}).closureDelegation;
       if (del) {
