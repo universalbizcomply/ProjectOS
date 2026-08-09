@@ -35,7 +35,12 @@ export const config = {
 
   services: [['@wdio/tauri-service', { appBinaryPath: APP_BINARY, driverProvider }]],
 
-  capabilities: [{ browserName: 'tauri', 'tauri:options': { application: APP_BINARY } }],
+  // Only `browserName`. The application is named ONCE, in the service's `appBinaryPath` above.
+  // Naming it again under `tauri:options.application` makes two launch requests, and the Control
+  // Centre's single-instance guard correctly refuses the second — which surfaced as a session
+  // attached to a blank `data:,` document instead of the real window. The guard is right; the
+  // duplicate request was the defect.
+  capabilities: [{ browserName: 'tauri' }],
 
   logLevel: 'info',
   bail: 0,

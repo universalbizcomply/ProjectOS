@@ -237,8 +237,17 @@ fn run_inner() {
     // stale window can never yield a current observation.
     let owner_lifecycle = Arc::new(OwnerWindowLifecycleState::new());
 
-    let app = tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
+    let builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
+
+    // The embedded WebDriver server for the genuine desktop proof. Registration is COMPILE-TIME
+    // gated: without the `webdriver-e2e` feature this line does not exist in the binary, so an
+    // ordinary release build cannot start a WebDriver server no matter what it is asked to do —
+    // supplying TAURI_WEBDRIVER_PORT to a production binary has no effect, because there is nothing
+    // present to read it. An environment variable is a runtime request; the feature is an absence.
+    #[cfg(feature = "webdriver-e2e")]
+    let builder = builder.plugin(tauri_plugin_wdio_webdriver::init());
+
+    let app = builder
         .manage(state)
         .manage(identity_view)
         .manage(owner_lifecycle)

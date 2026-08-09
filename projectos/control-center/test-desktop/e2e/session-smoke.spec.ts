@@ -10,12 +10,25 @@
  */
 describe('T1 real ProjectOS desktop Tauri session', () => {
   it('establishes a session against the real release binary and exposes the real window', async () => {
-    const title = await browser.getTitle();
-    // The window must be the ProjectOS Control Centre, not a blank or substituted document.
-    expect(title).toContain('ProjectOS');
+    // The session attaches to the WebView before the document has finished loading, so the first
+    // read can legitimately see an empty title. Wait for the real document rather than asserting
+    // early — but wait for the REAL title, so a blank or substituted document still fails.
+    await browser.waitUntil(async () => (await browser.getTitle()).length > 0, {
+      timeout: 30_000,
+      timeoutMsg: 'the WebView never produced a document title',
+    });
+    expect(await browser.getTitle()).toContain('ProjectOS');
 
-    // A genuine session can reach the rendered application, not merely an empty WebView.
+    // A genuine session reaches the RENDERED application, not merely an empty mount point: React
+    // must have put something inside #root.
     const root = await $('#root');
-    expect(await root.isExisting()).toBe(true);
+    await root.waitForExist({ timeout: 30_000 });
+    await browser.waitUntil(
+      async () => (await root.getHTML(false)).trim().length > 0,
+      { timeout: 30_000, timeoutMsg: '#root never rendered any content' },
+    );
+
+    // The real Control Centre shell, not an error boundary or a blank shell.
+    expect(await $('nav[aria-label="Primary"]').isExisting()).toBe(true);
   });
 });

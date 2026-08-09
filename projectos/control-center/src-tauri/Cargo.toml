@@ -18,6 +18,21 @@ tauri-build = { version = "2", features = [] }
 # 3K-I-C-B: forwarded through the shared runtime to the canonical identity crate so a test-fixtures
 # build reproduces the accepted TestFixture identity classification exactly as before the relocation.
 test-fixtures = ["projectos-shared-host-runtime/test-fixtures"]
+# PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A: enables the EMBEDDED WebDriver server used by the
+# genuine desktop proof, and nothing else. The raw `tauri-driver` route and the WDIO external
+# provider both failed to establish a session against this binary; the embedded provider is the
+# supported route that remains.
+#
+# The Cargo feature IS the security boundary, exactly as `test-fixtures` is for the fixture target.
+# `optional = true` means the crate is absent from the default resolved graph, so an ordinary
+# `cargo build [--release]` and every Tauri bundle physically cannot contain the WebDriver server —
+# not merely "does not start it". Presence in Cargo.lock is NOT presence in the build.
+#
+# Deliberately minimal: this pulls in ONLY the embedded W3C server. The far more powerful
+# `tauri-plugin-wdio` — which adds arbitrary JavaScript execution, Tauri-command mocking and invoke
+# interception — is NOT enabled, because no acceptance criterion has been shown to require it. That
+# plugin would be able to fake the very governed chain the proof exists to demonstrate.
+webdriver-e2e = ["dep:tauri-plugin-wdio-webdriver"]
 
 [[bin]]
 # The authoritative ProjectOS Control Centre executable. `default-run` names it explicitly so that
@@ -37,6 +52,10 @@ required-features = ["test-fixtures"]
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
+# TEST-ONLY. Reachable only through the `webdriver-e2e` feature above; `optional = true` keeps it out
+# of the default and release graphs entirely. Official WebdriverIO crate (webdriverio/desktop-mobile),
+# MIT. Serves a localhost W3C WebDriver endpoint inside the app so no external driver is required.
+tauri-plugin-wdio-webdriver = { version = "1.3", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # PACKAGED-SIDECAR-IDENTITY1A: SHA-256 for pinned-runtime and daemon-artefact identity.
