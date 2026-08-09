@@ -382,6 +382,15 @@ body {
   .sidebar { flex-direction: row; flex-wrap: wrap; align-items: center; border-right: none; border-bottom: 1px solid var(--line); padding: 12px; }
   .sidebar .brand { padding: 0 8px 0 0; }
   .sidebar .sidefoot { display: none; }
+  /* The nav BUTTONS are inside <nav>, not direct children of .sidebar, so making the sidebar a
+     wrapping row never reached them: <nav> stayed a block and each button kept its full-width
+     base rule. At 320px that meant nine stacked rows filling the whole first viewport before any
+     Owner Control content — found by the real browser proof. Lay the nav out as its own wrapping
+     row, and give every item the 44px minimum touch target these widths imply. */
+  .sidebar nav[aria-label='Primary'] {
+    display: flex; flex-wrap: wrap; gap: 6px; flex: 1 1 100%; margin-top: 8px;
+  }
+  .navitem { width: auto; min-height: 44px; padding: 8px 12px; }
   .ocp-grid2 { grid-template-columns: 1fr; }
   .ocp .head { flex-direction: column; }
 }
