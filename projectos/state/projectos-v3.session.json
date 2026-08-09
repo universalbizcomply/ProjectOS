@@ -10,7 +10,7 @@
   "repositoryPath": "C:/dev/ProjectOS",
   "branch": "projectos-v3",
   "startingHead": "11046f4a842dc979fa358acab570cc1194a58478",
-  "currentHead": "6c131d42deddab14d860f0a9fc5955cd2b436c4d",
+  "currentHead": "94a01c60981d9bcfcfbd3cc275c30f7c6ff1336f",
   "filesInspected": [
     "projectos/control-center/src/owner/ownerSnapshot.ts",
     "projectos/control-center/src/owner/governedChain.ts",
@@ -62,14 +62,14 @@
     "123 validators ALL PASS"
   ],
   "browserResults": [
-    "BROWSER LAYOUT/HONESTY PROOF: PASS at 1440, 768, 390 and 320. The surface correctly reports 'Not live — No ProjectOS runtime has reported yet' when no Tauri runtime is present. No horizontal overflow at any width. Console errors: 0.",
-    "THREE DEFECTS FOUND BY THE PROOF AND FIXED at e4794c5: (1) the responsive rules made .sidebar a wrapping row, but the nav buttons live inside <nav>, which stayed a block — at 320px nine stacked rows filled the whole first viewport before any content; <nav> is now itself a wrapping row (320px 9 rows -> 5 with Owner Control visible without scrolling; 390px 4 rows; 768px 2 rows). (2) nine nav buttons were under the 44px touch minimum; now 0 under 44px at 320/390/768, unchanged above the 820px pointer breakpoint. (3) the favicon 404 was a real missing static reference, now pointing at the application's own 32x32 icon rather than suppressed.",
-    "EDGE WEBDRIVER OBTAINED AND VERIFIED under the gatekeeper ruling that it is a local test dependency, not an owner gate. Source https://msedgedriver.microsoft.com/151.0.4129.72/edgedriver_win64.zip (official Microsoft distribution). Version 151.0.4129.72, an exact match to installed Edge. Authenticode Status=Valid, signer CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US. SHA-256 FA206BBACC59E34D2010C997666CDA2C61F7400289CA605F73A5183F51F3E262. Stored OUTSIDE tracked source in the session scratchpad; the binary is not committed and git status stays clean.",
-    "DESKTOP AUTOMATION ROUTE — RAW tauri-driver ESTABLISHED DEFECTIVE (bounded round complete, per the §8 stop condition).",
-    "ALREADY ESTABLISHED AND NOT REPEATED: no instance collision (D1); the release executable starts, renders and spawns WebView2 normally on its own (D2, application EXONERATED); tauri-driver binds and serves /status but emits no stdout or stderr (D3).",
-    "R2 — THE DECISIVE DELTA. Mirroring the maintained upstream example (msedgedriver on PATH for the test process only, NO --native-driver, capabilities = tauri:options.application alone, no browserName): the ProjectOS app DOES launch — process count 2 during session creation, versus 0 with --native-driver. So `--native-driver` is what prevented the app launching at all. Session creation still fails, but differently: it now hangs ~61s and returns 'DevToolsActivePort file doesn't exist'. That is the signature of msedgedriver launching a binary with Chromium flags (--remote-debugging-port, --user-data-dir) and waiting for a DevToolsActivePort file a Tauri/WebView2 binary never writes. For WebView2 the debug port must be passed via WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS; a string scan of tauri-driver.exe 2.0.6 shows no such literal, which is consistent with the observed behaviour though not on its own conclusive.",
-    "CLASSIFICATION: UPSTREAM TOOLING ISSUE in the raw tauri-driver route (the crate describes itself as pre-alpha), NOT a ProjectOS application defect and NOT a ProjectOS harness authoring defect. Per the §8 stop condition, no further reverse-engineering of tauri-driver, no speculative Chromium flags, and no changes to ProjectOS production code to appease it.",
-    "CONSEQUENCE: G4-8 remains UNSATISFIED. Phase 12 CANNOT close. The G4 gate is behaving correctly."
+    "RAW tauri-driver route: ABANDONED, classified UPSTREAM TOOLING.",
+    "WDIO EXTERNAL provider: FAILED - POST /session timed out (b4484e7).",
+    "WDIO EMBEDDED provider: implemented and isolated behind the webdriver-e2e Cargo feature (94a01c6). Isolation proven P1-P6 and P10; P4/P5 proven live against a preserved production binary; validator val-projectos-v3-webdriver-e2e-isolation1a, 7/7 mutations.",
+    "T1 FAILS. A WebDriver session IS created and the app process is alive, but the session attaches to a blank data:, WebView2 document (1 handle, empty title), not the real ProjectOS window.",
+    "T1 diagnosis: msedgedriver is spawned by the embedded route and answers on 4444 and 4445 with an Edge build banner, so the session is an msedgedriver session on a NEW blank WebView2 rather than the app WebView. The embedded server IS live in the app (its Direct-eval probe 404s, which is the general-plugin route deliberately not installed). Removing the duplicate tauri:options.application launch request did NOT change it.",
+    "T1 not yet tried: (1) whether embedded window attachment needs the general tauri-plugin-wdio despite the docs - that is a REVIEW decision, not a silent dependency add; (2) a webview/window selection step after session creation; (3) omitting appBinaryPath so the plugin server is contacted directly instead of the app being pre-launched.",
+    "FORBIDDEN: do NOT assert T1-T21 against the blank data:, context - that is a browser-only proof and does not satisfy G4-8. Mocking is forbidden for acceptance evidence.",
+    "Accepted browser responsive proof at 1440/768/390/320 stands (e4794c5 era); native minWidth stays 900."
   ],
   "ECCResults": [
     "code-review APPROVE on the bootstrap; not yet re-run on the Phase-12 slice"
@@ -85,7 +85,7 @@
   ],
   "currentAction": "G4 EVIDENCE/HEAD DEADLOCK FIXED at c127380 — the second of the two remaining Phase-12 engineering units. The gate required the evidence commit to EQUAL the closing commit, which no ordinary workflow could satisfy: closure evidence lives at a tracked path, so writing it dirties the tree (G4-13), committing it advances HEAD past the evidence (G4-12), and re-pointing the evidence advances HEAD again — a tracked commit cannot contain its own SHA. Replaced by provenance, NOT by relaxation: the evidence names an EVIDENCE SUBJECT HEAD, that subject must be an ANCESTOR of the current governance head, and every path changed between them must be closure-tail metadata. One substantive path changing after the subject still makes the evidence stale. The closure-tail allowlist is an explicit six-entry list (phase record, closure evidence, reports, reports index, current-state, session) that excludes the plan, all source, validators, schemas and architecture documents, and refuses traversal. Ancestry and the changed-path split are computed from git in the deriving layer, never read from the record; a git failure yields a sentinel substantive entry so an unreadable diff cannot read as 'nothing changed'. Core tests 170 -> 178; 123 validators ALL PASS.",
   "blockedReason": null,
-  "nextSafeAction": "EMBEDDED PROVIDER is the selected route (external smoke failed, recorded in b4484e7). Add tauri-plugin-wdio + tauri-plugin-wdio-webdriver as OPTIONAL Cargo deps behind an explicit webdriver-e2e feature; default and release graphs must exclude BOTH. Prove P1-P10, add a registered validator so the isolation cannot regress, and run a focused security review of the capability boundary (the plugin exposes an execute/mock API - it must never reach a production build). Then run T1-T21 with PROJECTOS_DRIVER_PROVIDER=embedded. Do NOT reopen the raw tauri-driver or external routes.",
+  "nextSafeAction": "T1 STILL FAILS - do not claim a headed proof and do not close Phase 12. Continue diagnosing embedded window attachment only (see browserResults). Do NOT reopen raw tauri-driver or the external provider. Do NOT adopt tauri-plugin-wdio without an explicit review of its eval/mocking surface. The webdriver-e2e isolation work is committed and validated at 94a01c6 - do not redo it. Phase 12 stays validating; G4-8 correctly unsatisfied.",
   "decisionRequired": null,
   "productionTouched": false,
   "deploymentOccurred": false,
@@ -96,14 +96,5 @@
   "rawSecretStored": false,
   "createdAt": "2026-08-09T03:12:54Z",
   "updatedAt": "2026-08-09T17:40:00Z",
-  "sessionStatus": "active",
-  "head": "b4484e7",
-  "desktopAutomation": {
-    "rawTauriDriver": "ABANDONED - classified UPSTREAM TOOLING",
-    "wdioAdopted": true,
-    "wdioService": "@wdio/tauri-service@1.3.0 (peer webdriverio ^9)",
-    "externalProviderSmoke": "FAILED - POST /session timed out after ~100s against the real release binary; materially equivalent to the raw-route DevToolsActivePort failure. Stop condition met; external provider not debugged further.",
-    "selectedProvider": "embedded - NOT YET IMPLEMENTED",
-    "requiredCrates": "tauri-plugin-wdio (required, all providers) + tauri-plugin-wdio-webdriver (embedded only); BOTH exist at 1.3.0 - verify with cargo search, NOT the crates.io HTTP API which returns 403 under its data-access policy"
-  }
+  "sessionStatus": "active"
 }
