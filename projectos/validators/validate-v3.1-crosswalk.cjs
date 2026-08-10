@@ -65,7 +65,7 @@ const CROSSWALK_VERSION = "1.8";
 // moved to v1.1 (crosswalk §5e), so this control MOVES rather than weakens: the immutability that
 // actually mattered is still asserted, cross-file, by the v3.2 master-plan hash. An unapproved drift
 // away from the active version still fails here.
-const ACTIVE_PLAN_VERSION = "1.2";
+const ACTIVE_PLAN_VERSION = "1.3";
 // The superseded version must remain retrievable, byte-identical, at this archive path.
 const ARCHIVED_PLAN_V1_0 = path.join(ROOT, "projectos", "state", "versions", "projectos-v3.plan.v1.0.json");
 const PHASE_13_ID = "PROJECTOS-V3-DESKTOP-E2E-PROOF1A";
