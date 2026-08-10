@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-V3-FINAL-E2E-CLOSURE1A",
+  "project": "ProjectOS",
+  "objective": "Final V3 end-to-end closure against the definition-of-complete. OPEN — not retired; only the July 2026 completion claim was superseded. Criteria recorded prospectively in crosswalk §5b.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-08-10T18:50:38.591Z",
+      "note": "Phase 18 started for final V3 reconciliation, evidence and the owner gate"
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-08-10T19:10:49.083Z",
+      "note": "Phase 18 final reconciliation lifecycle"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-08-10T19:10:49.219Z",
+      "note": "Phase 18 final reconciliation lifecycle"
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-08-10T19:10:49.373Z",
+      "note": "Phase 18 final reconciliation lifecycle"
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-08-10T19:10:49.502Z",
+      "note": "Phase 18 final reconciliation lifecycle"
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-08-10T19:10:49.625Z",
+      "note": "Phase 18 final reconciliation lifecycle"
+    }
+  ]
+}

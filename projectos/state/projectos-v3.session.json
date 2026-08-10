@@ -1,16 +1,16 @@
 {
   "schemaVersion": "1.0.0",
-  "sessionId": "projectos-v3-control-centre-integration1a-session-1",
+  "sessionId": "projectos-v3-final-e2e-closure1a-session-1",
   "projectId": "projectos",
   "planId": "projectos-v3-master-plan",
   "planVersion": "1.3",
-  "phaseId": "PROJECTOS-V3-RELIABILITY-HARDENING1A",
+  "phaseId": "PROJECTOS-V3-FINAL-E2E-CLOSURE1A",
   "executionMode": "local-safe",
   "autonomyLevel": "local-safe",
   "repositoryPath": "C:/dev/ProjectOS",
   "branch": "projectos-v3",
-  "startingHead": "11046f4a842dc979fa358acab570cc1194a58478",
-  "currentHead": "2b362eb1281eee10a4d1bc8f0f1a5984e96e3d12",
+  "startingHead": "8997ec9a5d95e239d48e4357fac0237de9713b23",
+  "currentHead": "8997ec9a5d95e239d48e4357fac0237de9713b23",
   "filesInspected": [
     "projectos/control-center/src/owner/ownerSnapshot.ts",
     "projectos/control-center/src/owner/governedChain.ts",
@@ -71,10 +71,10 @@
   "databaseReviewResults": [
     "not-applicable: no database touched"
   ],
-  "currentAction": "PROJECTOS-V3-RELIABILITY-HARDENING1A CLOSED by the G4 gate at evidence subject 2b362eb. Programme 18/19 (94.7%).",
+  "currentAction": "Phase 18 PROJECTOS-V3-FINAL-E2E-CLOSURE1A started through the canonical runtime. Final V3 reconciliation, definition-of-complete matrix, fresh desktop smoke proof, final risk register and evidence pack. No feature work.",
   "blockedReason": "",
-  "nextSafeAction": "Phase 18 PROJECTOS-V3-FINAL-E2E-CLOSURE1A is the final V3 closure phase and is now dependency-satisfied. Do NOT start it without a fresh owner-led gate: it closes the programme. Carried forward from Phase 17: R17-1, R17-3, R17-6 and R17-8 with reasons recorded in docs/architecture/projectos-v3-phase17-r17-carryforward-reconciliation.md, and repeatable native-Windows foreground acquisition, which is a harness limitation and not a product defect.",
-  "decisionRequired": "",
+  "nextSafeAction": "Complete the final evidence pack and advance Phase 18 to awaiting_closure, then STOP. The final V3 closure is the owner/gatekeeper decision and must never be self-taken; 19/19 and 'V3 COMPLETE' must not be recorded anywhere until that decision exists.",
+  "decisionRequired": "FINAL OWNER/GATEKEEPER DECISION on ProjectOS V3 programme closure. Phase 18 is the last numbered phase.",
   "productionTouched": false,
   "deploymentOccurred": false,
   "databaseMutationOccurred": false,
@@ -83,6 +83,6 @@
   "secretCapabilityUsed": false,
   "rawSecretStored": false,
   "createdAt": "2026-08-09T03:12:54Z",
-  "updatedAt": "2026-08-10T18:20:00Z",
+  "updatedAt": "2026-08-10T20:05:00Z",
   "sessionStatus": "active"
 }
