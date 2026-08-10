@@ -1,6 +1,6 @@
 {
   "phaseId": "PROJECTOS-V3-FINAL-E2E-CLOSURE1A",
-  "evidenceSubjectHead": "1cddedb13187e157b4ae3318074336076970ce14",
+  "evidenceSubjectHead": "b25f161f8bee9c4ae97b981c3922c28f15a71472",
   "validatorsPass": true,
   "checksPass": true,
   "reviewsComplete": true,
@@ -10,8 +10,8 @@
   "establishedAt": "2026-08-10 22:30:00",
   "notes": [
     "THIS RECORD DOES NOT CLOSE ANYTHING. Phase 18 closes the ProjectOS V3 programme, and that decision belongs to the owner and the gatekeeper. This is the evidence their decision needs, prepared and left at awaiting_closure. No 19/19 or completion claim exists anywhere in the repository.",
-    "Evidence subject 1cddedb13187e157b4ae3318074336076970ce14 is pushed and reconciled 0/0 with origin/projectos-v3; only closure-tail metadata changes after it.",
-    "validate-all at the subject, from a clean tree: 126 registered modules, 126 PASS, 0 FAIL, exit 0. The run wrote .projectops/validation/1cddedb13187e157b4ae3318074336076970ce14.json, so validatorsPass above is checkable rather than asserted — G4-17 compares the plan's required validators against that record by name.",
+    "Evidence subject b25f161f8bee9c4ae97b981c3922c28f15a71472 is pushed and reconciled 0/0 with origin/projectos-v3; only closure-tail metadata changes after it.",
+    "validate-all at the subject, from a clean tree: 126 registered modules, 126 PASS, 0 FAIL, exit 0. The run wrote .projectops/validation/b25f161f8bee9c4ae97b981c3922c28f15a71472.json, so validatorsPass above is checkable rather than asserted — G4-17 compares the plan's required validators against that record by name.",
     "THE PHASE-18 AUTHORITY CORRECTION IS THE SUBSTANCE OF THIS SUBJECT. An implementer had closed Phase 18 by typing `--to closed --delegated`: nothing was spoofed, the delegate's identity came from the plan, and every G4 predicate passed — the system simply had no representation of a DECISION, so eligibility was silently sufficient. Closure now requires a committed decision record naming the authority the plan records, for BOTH the owner and the delegated basis, and a read-only `phase closure-eligibility` command answers the question without performing the act.",
     "THE ADVERSARIAL REVIEW OF THAT CORRECTION BROKE IT THREE MORE WAYS, all fixed at this subject and all regressed. Core did not defend itself: `transitionPhase` carved out `by === 'owner'`, so every protection lived in one caller and the Control Centre's project surface closed phases by calling core directly — core now demands an unforgeable grant for any closure. Decision replay via `phase new --force`, which erased the phase history the replay ledger lived in — consumption is now recorded in the decision itself and `--force` refuses a terminal phase. And a symlink defeated the committed check, because git was asked about the path while the bytes were read from the working tree — the decision is now read from the committed object with `git show`, so what is validated and what is committed are the same bytes.",
     "Also fixed: owner grants omitted the decisionId, so no owner closure could ever be seen as consuming one; a caller-supplied `--note` could poison the replay ledger because the id was parsed by an unanchored search; and the implementer-identity filter folded with NFKC, which recomposes accents.",
@@ -22,6 +22,7 @@
     "0 unresolved CRITICAL, 0 unresolved HIGH. MEDIUM/LOW are classified in the final risk register in the evidence pack. MANUAL_GOVERNANCE_APPROVAL with tamperProof false is stated there as an ACCEPTED NON-BLOCKING LIMITATION and is never presented as cryptographic tamper-proofing — the committed-decision requirement is an auditability boundary, not a signature.",
     "NO-SECRET: validate-no-secrets and validate-plan-no-secrets PASS, plus a targeted scan of .projectops, knowledge/reports, projectos/state and docs for secret VALUES. Every hit was a secret NAME in prose or inside a denylist regex.",
     "NO-UNAUTHORISED-PRODUCTION, from durable effect records rather than silence: all six session flags false, 12 forbidden actions in the plan, only SyntheticExecutionProvider exists, installationAuthority NotAuthorised, and a protected action was ATTEMPTED across the zero-relay handoff and REFUSED.",
-    "Protected effects: NONE. Tests at this subject: core 211, agent 106, control-centre 237."
+    "Protected effects: NONE. Tests at this subject: core 211, agent 106, control-centre 237.",
+    "EVIDENCE SUBJECT RE-ESTABLISHED AT b25f161 UNDER AN EXPLICIT GATEKEEPER RULING. The gate refused the first finalisation attempt: G4-12 found one substantive path changed after the previously accepted subject 1cddedb — the Phase-18 headed regression spec t22-final-closure-smoke.spec.ts, which I had committed alongside the evidence pack instead of keeping the evidence commit tail-only. I stopped rather than repair it, because moving the accepted subject on my own authority is the substitution this phase's whole correction exists to prevent. The gatekeeper reviewed the exact 1cddedb..b25f161 delta — one test spec plus governance material, no runtime source — and ruled Option A: b25f161 is the accepted final evidence subject. No history was rewritten, no allowlist widened, no source rolled back."
   ]
 }
