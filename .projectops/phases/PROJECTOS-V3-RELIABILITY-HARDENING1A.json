@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-V3-RELIABILITY-HARDENING1A",
   "project": "ProjectOS",
   "objective": "Reliability hardening of the canonical projectos/core and projectos/agent runtime and the Phase-12 integration seam. OPEN. Criteria recorded prospectively in crosswalk §5b.",
-  "status": "prompted",
+  "status": "awaiting_closure",
   "history": [
     {
       "from": "draft",
@@ -10,6 +10,41 @@
       "by": "implementer",
       "at": "2026-08-10T12:46:09.567Z",
       "note": "Design recorded at docs/architecture/projectos-v3-phase17-zero-relay-design.md: zero-relay executor consuming a permitted session-launcher spec, ownership lock, resume-instruction-only spawn, S1-S15 mapping. Also records a governance gap the owner must settle: neither plan v1.2 nor crosswalk 5b lists zero-relay among Phase 17 acceptance criteria, so G4 would permit closure without it."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-08-10T16:54:50.921Z",
+      "note": "Phase 17 lifecycle at evidence subject 7b98497"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-08-10T16:54:51.058Z",
+      "note": "Phase 17 lifecycle at evidence subject 7b98497"
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-08-10T16:54:51.207Z",
+      "note": "Phase 17 lifecycle at evidence subject 7b98497"
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-08-10T16:54:51.574Z",
+      "note": "Phase 17 lifecycle at evidence subject 7b98497"
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-08-10T16:54:51.728Z",
+      "note": "Phase 17 lifecycle at evidence subject 7b98497"
     }
   ]
 }
