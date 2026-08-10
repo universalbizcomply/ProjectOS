@@ -9,7 +9,7 @@
 | **Plan version** | v1.3, PLAN READY (recomputed by the engine, never read from the stored string) |
 | **Phase** | PROJECTOS-V3-FINAL-E2E-CLOSURE1A — numbered Phase 18 of 19 |
 | **Branch** | `projectos-v3` |
-| **Evidence subject** | `<EVIDENCE_SUBJECT>` |
+| **Evidence subject** | `deb11721e98e8ea9c1926995df7955e40e2901a7` |
 | **Position at this pack** | **18 / 19, 94.7%** — Phase 18 OPEN |
 | **Decision required** | **FINAL OWNER / GATEKEEPER CLOSURE OF PROJECTOS V3** |
 
@@ -159,15 +159,50 @@ v1.9, Reports Index, session and the active plan all agree. **No 19/19 anywhere.
 
 ## 13. Validation
 
-`node projectos/validators/validate-all.cjs` — **<VALIDATE_ALL>**. Registered module count and the
-aggregate command are reported as distinct numbers.
+`node projectos/validators/validate-all.cjs --record-evidence` at the evidence subject, from a clean
+tree:
+
+| Registered module count | PASS | FAIL | Aggregate |
+|---|---|---|---|
+| **126** | **126** | **0** | **ALL PASS, exit 0** |
+
+The registered module count and the aggregate command are reported as distinct numbers — the wrapper
+is not a module. The run wrote `.projectops/validation/deb11721e98e8ea9c1926995df7955e40e2901a7.json`,
+so this table is not a typed claim: G4-17 reads that record and compares the plan's required
+validators against it by name.
+
+Also run directly this phase: `validate-zero-relay-continuity` PASS, the 26-case failure matrix PASS,
+`val-projectos-v3-validation-evidence1a` PASS, `validate-no-secrets` PASS, `validate-plan-no-secrets`
+PASS, `validate-v3.1-crosswalk` PASS, `validate-v3.2-ai-provider-independence` PASS,
+`validate-current-project-state` PASS, `val-projectos-v3-active-phase-consistency1a` PASS,
+`validate-active-execution-session` PASS, `validate-report-index` PASS. Desktop: **T22 8/8**.
 
 ## 14. Review
 
 Security and code review were run on the substantive Phase-17 change set: 1 CRITICAL, 2 HIGH, 2
-MEDIUM and 1 LOW, **all fixed**, each with a regression case. Phase 18 introduces **no runtime code** —
-its delta is one WebDriver spec, documentation and governance records — and was self-reviewed:
-<REVIEW_NOTE>
+MEDIUM and 1 LOW, **all fixed**, each with a regression case.
+
+A code review was then run on the Phase-18 delta, and it **BLOCKED** the first version of this pack.
+Both findings were correct and both are fixed here:
+
+- **CRITICAL — the pack shipped with three unfilled template tokens** (`<EVIDENCE_SUBJECT>`,
+  `<VALIDATE_ALL>`, `<REVIEW_NOTE>`) while claiming "nothing is restated on trust". A closure pack
+  whose load-bearing citations are scaffolding cannot be verified by anyone. All three now carry real
+  values; this paragraph is the third.
+- **HIGH — the pack asserted Phase 18 was at `awaiting_closure` while the durable record said
+  `prompted`.** Rather than soften the sentence, the phase was walked through its governed lifecycle
+  so the statement became true, and §4 now discloses that T22 was taken while Phase 18 was still
+  `prompted` — so re-running T22e today would correctly fail on that assertion.
+
+The reviewer found the T22 spec itself sound: not satisfiable by a browser session, no tautological
+assertions, no mutation, correct chained selectors.
+
+**One defect was found by the validators during this phase and fixed** — `validate-zero-relay-continuity`
+judged a CLOSED phase's proof against the live tree, so every future commit would have staled evidence
+belonging to finished work and held `validate-all` red permanently. A closed phase is now pinned to
+the subject its closure evidence recorded, which is stricter. The pin then immediately caught that a
+post-closure re-run had overwritten the ledger G4 actually saw; the accepted evidence from `2b362eb`
+was restored and the re-run discarded.
 
 **0 unresolved CRITICAL · 0 unresolved HIGH.** MEDIUM/LOW are classified in §9.
 
