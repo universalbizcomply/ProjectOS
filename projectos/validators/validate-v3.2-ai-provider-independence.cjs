@@ -43,7 +43,11 @@ const ACTIVE_PLAN_VERSION = "1.3";
 // 2026-08-10: Phase 17 CLOSED by the G4 gate at evidence subject 2b362eb, so the accepted next
 // numbered phase is the final closure phase. Recording it here authorises NO Phase-18 work: Phase 18
 // closes the programme and needs a fresh owner-led gate.
-const ACCEPTED_NEXT_PHASE = "PROJECTOS-V3-FINAL-E2E-CLOSURE1A";
+// 2026-08-10: the numbered ProjectOS V3 programme is CLOSED at 19 of 19, so there is no next
+// numbered phase and current-state records none. Empty is the canonical completed value; it is NOT
+// a relaxation, because the check still fails if current-state names any phase as next — which is
+// what a silent reopen or an unapproved continuation would look like.
+const ACCEPTED_NEXT_PHASE = "";
 // Sequenced after the router, still OPEN, still recorded in the amendment. `a43898d` stays OPEN.
 const WINDOWS_ADAPTER_PREFLIGHT = "CD-B4-WINDOWS-USER-VERIFICATION-ADAPTER-PREFLIGHT1A";
 

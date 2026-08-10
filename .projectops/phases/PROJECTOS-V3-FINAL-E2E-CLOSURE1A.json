@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-V3-FINAL-E2E-CLOSURE1A",
   "project": "ProjectOS",
   "objective": "Final V3 end-to-end closure against the definition-of-complete. OPEN — not retired; only the July 2026 completion claim was superseded. Criteria recorded prospectively in crosswalk §5b.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-08-10T19:10:49.625Z",
       "note": "Phase 18 final reconciliation lifecycle"
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "advisor",
+      "at": "2026-08-10T22:23:30.645Z",
+      "note": "ProjectOS V3 final closure: owner Murad approved 2026-08-10 22:59 BST; gatekeeper ChatGPT ACCEPTED FOR CLOSURE — closed by ChatGPT under the projectos-scoped phase-closure delegation, decision GK-PROJECTOS-V3-FINAL-CLOSURE-20260810T2302Z"
     }
   ]
 }

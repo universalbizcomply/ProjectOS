@@ -137,7 +137,14 @@ describe('phase state comes from durable core records', () => {
   test('no phase is offered as next-to-start while another is in flight', () => {
     // Plan v1.1 makes Phase 17 mechanically eligible from Phase 16 alone, so without this rule the
     // surface would point at reliability hardening while the integration phase was still open.
-    const p = projectGovernedState(inputs());
+    //
+    // The programme is now CLOSED, so nothing is in flight in the live records and this scenario has
+    // to be stated rather than borrowed: put one phase back in flight in the FIXTURE.
+    const p = projectGovernedState(
+      inputs({
+        phaseRecords: [{ phaseId: 'PROJECTOS-V3-FINAL-E2E-CLOSURE1A', status: 'implementing', history: [] }],
+      }),
+    );
     expect(p.activePhase).not.toBeNull();
     expect(p.nextStartablePhase).toBeNull();
     // The invariant is that the surface points at the phase in flight and offers no other phase to

@@ -39,25 +39,25 @@ export const PROJECTOS_V3: OwnerControlModel = {
   projectId: 'projectos',
   projectName: 'ProjectOS (self)',
   programme: 'ProjectOS V3',
-  planStatus: 'IN EXECUTION',
-  activePhase: 'PROJECTOS-V3-FINAL-E2E-CLOSURE1A',
-  nextRecommendedPhase: 'PROJECTOS-V3-FINAL-E2E-CLOSURE1A',
-  acceptedPhaseCount: 18,
+  planStatus: 'COMPLETE',
+  activePhase: null,
+  nextRecommendedPhase: '',
+  acceptedPhaseCount: 19,
   totalPhaseCount: 19,
   risks: [
     'R1 (accepted carry-forward): owner approval is manual — not cryptographically bound.',
     'Automated local relay loop not yet implemented; the ChatGPT↔Claude relay is manual / partially automated.',
   ],
   blockers: [
-    'One numbered phase remains OPEN: 18 final closure. ProjectOS V3 is not complete.',
-    'Protected authority is unchanged: installation, production, provider and credential authority all remain NotAuthorised.',
+    'None for the numbered ProjectOS V3 programme, which is CLOSED at 19 of 19.',
+    'Protected authority is unchanged and is NOT granted by that closure: installation, production, provider and credential authority all remain NotAuthorised.',
   ],
   // Left empty deliberately. The final closure decision is LIVE governed state, and this snapshot is
   // the offline fallback for when no runtime has reported — putting a pending decision here would
   // make the fallback assert something it cannot know is still true.
   decisionsRequired: [],
   nextSafeAction:
-    'This is the last recorded position, not live state. Start the ProjectOS runtime to see live governed state. 18 of 19 numbered phases are owner-accepted; phase 18 is awaiting the final owner/gatekeeper decision. Nothing is deployed, closed or authorised automatically.',
+    'This is the last recorded position, not live state. Start the ProjectOS runtime to see live governed state. All 19 numbered ProjectOS V3 phases are owner-accepted and the programme is CLOSED. Any further work is a NEW ProjectOS-managed project under its own owner-approved plan. Nothing is deployed or authorised automatically.',
   restrictedActions: OWNER_ONLY_ACTIONS,
   safety: { productionFrozen: true, providerContacted: false, secretCapabilityUsed: false, apiUsed: false },
 };

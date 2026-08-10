@@ -106,44 +106,50 @@ describe('T22 final V3 closure smoke — the real desktop surface tells the trut
     expect(text).not.toContain('NOT ready');
   });
 
-  it('T22d shows the programme at 18 / 19 BEFORE final closure, and never at 19 / 19', async () => {
+  it('T22d shows the programme at 19 / 19 after closure, and no stale 94.7', async () => {
+    // Before closure this asserted 18/19 and `< 100`. The programme is now CLOSED on the owner's
+    // explicit approval and the gatekeeper's ruling, so the truthful surface is 19/19 — and the
+    // assertion moved with the truth rather than being deleted.
     const st = state();
-    expect(st.acceptedPhaseCount).toBe(18);
+    expect(st.acceptedPhaseCount).toBe(19);
     expect(st.totalPhaseCount).toBe(19);
-    expect(st.completionPercentage).toBe(94.7);
+    expect(st.completionPercentage).toBe(100);
     const meter = await $('.ocp-meter [role="progressbar"]');
     await meter.waitForExist({ timeout: 20_000 });
     const shown = Number(await meter.getAttribute('aria-valuenow'));
     expect(shown).toBe(st.completionPercentage);
-    // The one number that must not appear anywhere before the owner decides.
-    expect(shown).toBeLessThan(100);
+    expect(shown).toBe(100);
+    // No stale claim left behind on the canonical surface.
+    expect(await $('body').getText()).not.toContain('94.7');
   });
 
-  it('T22e Phase 17 is CLOSED and Phase 18 is the phase the surface is governing', async () => {
+  it('T22e Phases 17 AND 18 are CLOSED, and no phase is active', async () => {
     expect(phaseRecord(PHASE_17).status).toBe('closed');
-    expect(phaseRecord(PHASE_18).status).toBe('awaiting_closure');
-    expect(state().activePhase).toBe(PHASE_18);
+    expect(phaseRecord(PHASE_18).status).toBe('closed');
+    expect(state().activePhase).toBeNull();
 
-    // The surface offers exactly the action that matches Phase 18's real durable status. It could
-    // only do that by having read Phase 18 — so this is what proves WHICH phase it is on.
+    // A closed phase is terminal, so the surface must offer NO lifecycle action for it. Offering one
+    // would be the false-active-Phase-18 state this check exists to rule out.
     const offered = await offeredActions();
-    expect(offered.some((l) => l.startsWith('Close as'))).toBe(true);
-    // and not an action belonging to some other lifecycle state
     for (const wrong of ['Prepare the phase prompt', 'Begin implementation', 'Run validation', 'Collect evidence', 'Send for review', 'Send for closure']) {
       expect(offered).not.toContain(wrong);
     }
+    expect(offered.some((l) => l.startsWith('Close as'))).toBe(false);
   });
 
-  it('T22f owner pause/stop authority is present and truthful', async () => {
+  it('T22f the closed programme offers no stop/resume for a terminal phase', async () => {
     const offered = await offeredActions();
-    // Offered, per the real durable status — NOT exercised. `phase.stop` maps to `rolled_back`,
-    // which leads only back to `draft`, so clicking it would destroy Phase 18's progression to prove
-    // a control that is already visible. The control being offered is the claim; using it is not.
-    expect(offered).toContain('Stop');
-    expect(offered).not.toContain('Resume'); // Resume belongs to a rolled-back phase, and 18 is not
+    expect(offered).not.toContain('Stop');
+    expect(offered).not.toContain('Resume');
   });
 
-  it('T22i AN ELIGIBLE GATE DOES NOT CLOSE THE PHASE — the surface offers closure and the runtime refuses', async () => {
+  it.skip('T22i AN ELIGIBLE GATE DOES NOT CLOSE THE PHASE — superseded by the real closure', async () => {
+    // Kept, not deleted, and skipped rather than rewritten: it proved that an eligible gate does NOT
+    // close a phase, and it did that against a phase at `awaiting_closure`. Phase 18 is now CLOSED
+    // by the owner's approval and the gatekeeper's decision, so the surface no longer offers a
+    // closure control to click and the scenario cannot be reconstructed here. The property it proved
+    // is permanently covered by closureAuthorityBreach.test.ts R1–R8 and closure-decision.test.ts,
+    // which do not depend on the programme's position.
     // The Phase-18 authority defect in one assertion. All seventeen G4 predicates are satisfied at
     // this subject, so the ONLY thing standing between this surface and a closed programme is the
     // requirement that the gatekeeper have actually decided. Clicking Close must surface that

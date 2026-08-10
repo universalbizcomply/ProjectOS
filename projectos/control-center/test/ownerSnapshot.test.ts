@@ -52,9 +52,15 @@ describe('ProjectOS owner-control seed is aligned to canonical current-state', (
     expect(PROJECTOS_V3.nextSafeAction).not.toMatch(/continue phase 3/i);
   });
 
-  test('the seed does not affirmatively claim ProjectOS V3 is complete', () => {
-    // The programme is not closed: status must not read COMPLETE, and the plan must not be marked done.
-    expect(PROJECTOS_V3.planStatus).not.toBe('COMPLETE');
-    expect(canonical.currentStatus).not.toBe('COMPLETE');
+  test('the seed may claim ProjectOS V3 is complete ONLY because the canonical record says so', () => {
+    // This guard used to assert the seed must NOT read COMPLETE, because the programme was open and
+    // a premature completion claim was the risk. ProjectOS V3 is now genuinely CLOSED by the owner's
+    // approval and the gatekeeper's decision, so the guard is INVERTED rather than deleted: the seed
+    // is permitted to say COMPLETE, and only while the canonical record independently says the same
+    // and every numbered phase is accepted. Flip the seed alone and this still fails.
+    expect(canonical.currentStatus).toBe('COMPLETE');
+    expect(canonical.acceptedPhaseCount).toBe(canonical.totalPhaseCount);
+    expect(PROJECTOS_V3.planStatus).toBe(canonical.currentStatus);
+    expect(PROJECTOS_V3.acceptedPhaseCount).toBe(canonical.acceptedPhaseCount);
   });
 });

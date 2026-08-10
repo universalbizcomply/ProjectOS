@@ -27,19 +27,21 @@ describe('whereYouAre', () => {
     // "Between phases" means activePhase is null. This used to borrow the ProjectOS snapshot, which
     // happened to be between phases — and then Phase 18 started and the test was asserting the wrong
     // branch. The condition is now stated explicitly rather than borrowed from a moving fact.
-    const between = { ...PROJECTOS_V3, activePhase: null };
-    expect(whereYouAre(between)).toContain(`next is ${between.nextRecommendedPhase}`);
+    const between = { ...PROJECTOS_V3, activePhase: null, nextRecommendedPhase: 'SOME-NEXT-PHASE1A' };
+    expect(whereYouAre(between)).toContain('next is SOME-NEXT-PHASE1A');
   });
 
   it('names the ACTIVE phase when one is in flight', () => {
-    expect(PROJECTOS_V3.activePhase).not.toBeNull();
-    expect(whereYouAre(PROJECTOS_V3)).toContain(PROJECTOS_V3.activePhase as string);
+    const inFlight = { ...PROJECTOS_V3, activePhase: 'SOME-ACTIVE-PHASE1A' };
+    expect(whereYouAre(inFlight)).toContain('SOME-ACTIVE-PHASE1A');
   });
 });
 
 describe('buildOwnerControlView', () => {
   it('derives an IN EXECUTION view with green status and no decisions', () => {
-    const v = buildOwnerControlView(PROJECTOS_V3);
+    // The ProjectOS seed now reads COMPLETE, so the IN EXECUTION branch is stated explicitly rather
+    // than borrowed from a programme that has finished.
+    const v = buildOwnerControlView({ ...PROJECTOS_V3, planStatus: 'IN EXECUTION' });
     expect(v.planStatus).toBe('IN EXECUTION');
     expect(v.statusTone).toBe('ok');
     const pct = completionPercent(PROJECTOS_V3.acceptedPhaseCount, PROJECTOS_V3.totalPhaseCount);

@@ -10,7 +10,7 @@
   "repositoryPath": "C:/dev/ProjectOS",
   "branch": "projectos-v3",
   "startingHead": "8997ec9a5d95e239d48e4357fac0237de9713b23",
-  "currentHead": "8997ec9a5d95e239d48e4357fac0237de9713b23",
+  "currentHead": "b25f161f8bee9c4ae97b981c3922c28f15a71472",
   "filesInspected": [
     "projectos/control-center/src/owner/ownerSnapshot.ts",
     "projectos/control-center/src/owner/governedChain.ts",
@@ -71,10 +71,10 @@
   "databaseReviewResults": [
     "not-applicable: no database touched"
   ],
-  "currentAction": "Phase 18 PROJECTOS-V3-FINAL-E2E-CLOSURE1A started through the canonical runtime. Final V3 reconciliation, definition-of-complete matrix, fresh desktop smoke proof, final risk register and evidence pack. No feature work.",
+  "currentAction": "ProjectOS V3 CLOSED. Phase 18 closed through the trusted finalisation path, consuming committed gatekeeper decision GK-PROJECTOS-V3-FINAL-CLOSURE-20260810T2302Z exactly once. Programme 19/19, 100%, derived.",
   "blockedReason": "",
-  "nextSafeAction": "Complete the final evidence pack and advance Phase 18 to awaiting_closure, then STOP. The final V3 closure is the owner/gatekeeper decision and must never be self-taken; 19/19 and 'V3 COMPLETE' must not be recorded anywhere until that decision exists.",
-  "decisionRequired": "FINAL OWNER/GATEKEEPER DECISION on ProjectOS V3 programme closure. Phase 18 is the last numbered phase.",
+  "nextSafeAction": "None within ProjectOS V3 — the numbered programme is closed and must not be reopened. Any further work is a NEW ProjectOS-managed project or work package, started under its own owner-approved plan.",
+  "decisionRequired": "",
   "productionTouched": false,
   "deploymentOccurred": false,
   "databaseMutationOccurred": false,
@@ -83,6 +83,6 @@
   "secretCapabilityUsed": false,
   "rawSecretStored": false,
   "createdAt": "2026-08-09T03:12:54Z",
-  "updatedAt": "2026-08-10T20:05:00Z",
-  "sessionStatus": "active"
+  "updatedAt": "2026-08-10T23:10:00Z",
+  "sessionStatus": "complete"
 }
