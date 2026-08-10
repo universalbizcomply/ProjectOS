@@ -202,14 +202,24 @@ export function loadGovernedContext(sys: System, root: string): GovernedContextR
 
 export type PhaseAuthorisationRefusal = 'PHASE_NOT_AUTHORISED' | 'DEPENDENCY_NOT_SATISFIED';
 
+/**
+ * A phase as the ACTIVE APPROVED PLAN describes it. `description` is the owner-approved statement of
+ * what the phase is for, and it is returned to callers because the alternative — resolving the plan
+ * phase here to authorise it and then letting the caller invent its own content — is how
+ * `"objective": "<objective>"` reached a durable governed record.
+ */
+export interface AuthorisedPlanPhase {
+  readonly phaseId: string;
+  readonly description?: string;
+  readonly dependsOn?: readonly string[];
+  readonly requiredValidators?: readonly string[];
+}
+
 export type PhaseAuthorisationResult =
-  | { readonly ok: true }
+  | { readonly ok: true; readonly planPhase: AuthorisedPlanPhase }
   | { readonly ok: false; readonly code: PhaseAuthorisationRefusal; readonly detail: string };
 
-interface PlanPhase {
-  readonly phaseId: string;
-  readonly dependsOn?: readonly string[];
-}
+type PlanPhase = AuthorisedPlanPhase;
 
 function planPhases(plan: Record<string, unknown>): readonly PlanPhase[] {
   const raw = plan['phases'];
@@ -302,7 +312,7 @@ export function authorisePhase(
   }
 
   const deps = Array.isArray(target.dependsOn) ? target.dependsOn : [];
-  if (deps.length === 0) return { ok: true };
+  if (deps.length === 0) return { ok: true, planPhase: target };
 
   const { ids, stateProblem } = completedPhases(sys, root, context);
   const unmet = deps.filter((d) => !ids.has(d));
@@ -314,7 +324,7 @@ export function authorisePhase(
       detail: `phase '${phaseId}' depends on ${deps.length} phase(s); ${unmet.length} not recorded complete: ${unmet.join(', ')}${why}`,
     };
   }
-  return { ok: true };
+  return { ok: true, planPhase: target };
 }
 
 /** Render a phase-authorisation refusal for the CLI, in the same shape as a context refusal. */

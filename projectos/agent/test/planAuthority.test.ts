@@ -208,9 +208,17 @@ describe('approved-phase membership and dependencies gate creation', () => {
     }
   });
 
-  it('T7 an approved phase with satisfied dependencies is authorised', () => {
+  it('T7 an approved phase with satisfied dependencies is authorised, and returns the plan phase', () => {
     const sys = selfHosted();
-    expect(authorisePhase(sys, ROOT, ctxOf(sys), PHASE_12)).toEqual({ ok: true });
+    const r = authorisePhase(sys, ROOT, ctxOf(sys), PHASE_12);
+    expect(r.ok).toBe(true);
+    // The authorisation carries the approved phase itself, so a caller cannot authorise against the
+    // plan and then invent the phase's content — the defect that produced `objective: "<objective>"`.
+    if (r.ok) {
+      expect(r.planPhase.phaseId).toBe(PHASE_12);
+      expect(typeof r.planPhase.description).toBe('string');
+      expect((r.planPhase.description ?? '').length).toBeGreaterThan(0);
+    }
   });
 
   /** A phase-store-only project: no current-state declared, so the runtime's own records are the
@@ -236,7 +244,7 @@ describe('approved-phase membership and dependencies gate creation', () => {
       status: 'closed',
       history: [{ from: 'awaiting_closure', to: 'closed', by: 'owner', at: '2026-08-09T00:00:00Z' }],
     });
-    expect(authorisePhase(sys, ROOT, ctxOf(sys), PHASE_12)).toEqual({ ok: true });
+    expect(authorisePhase(sys, ROOT, ctxOf(sys), PHASE_12).ok).toBe(true);
   });
 
   it('a record that merely SAYS closed, with no owner transition, does NOT satisfy a dependency', () => {
@@ -289,7 +297,7 @@ describe('approved-phase membership and dependencies gate creation', () => {
     expect(phase({ sys, root: ROOT }, { id: P0, to: 'closed', as: 'implementer' }, ['advance']).code).toBe(2);
     expect(authorisePhase(sys, ROOT, ctxOf(sys), P1).ok).toBe(false);
     expect(phase({ sys, root: ROOT }, { id: P0, to: 'closed', as: 'owner' }, ['advance']).code).toBe(0);
-    expect(authorisePhase(sys, ROOT, ctxOf(sys), P1)).toEqual({ ok: true });
+    expect(authorisePhase(sys, ROOT, ctxOf(sys), P1).ok).toBe(true);
   });
 
   it('a declared but unreadable current-state fails CLOSED and says why', () => {
@@ -333,5 +341,111 @@ describe('`phase new` refuses BEFORE writing anything', () => {
     const res = phase({ sys, root: ROOT }, { id: PHASE_12, project: 'ProjectOS' }, ['new']);
     expect(res.code).toBe(0);
     expect(sys.writes).toEqual([`${ROOT}/.projectops/phases/${PHASE_12}.json`]);
+  });
+});
+
+/**
+ * A governed phase record must never say `<objective>`.
+ *
+ * The CLI used to default `--objective` to that literal and persist it. Nothing downstream reads the
+ * field, so the placeholder survived into a durable governance record and would have reached the
+ * closure report. The plan already states what every phase is for, and `authorisePhase` resolves that
+ * exact phase in order to authorise creation — so the approved description was in hand and discarded.
+ */
+describe('phase objective comes from the approved plan, never a placeholder', () => {
+  const stored = (sys: System, id: string): Record<string, unknown> =>
+    JSON.parse(sys.readText(`${ROOT}/.projectops/phases/${id}.json`) ?? '{}') as Record<string, unknown>;
+
+  function planDescriptionOf(id: string): string {
+    const phases = activePlan()['phases'] as readonly { phaseId: string; description: string }[];
+    const p = phases.find((x) => x.phaseId === id);
+    if (p === undefined) throw new Error(`no plan phase ${id}`);
+    return p.description;
+  }
+
+  it('O1 with no --objective, the record carries the approved plan description', () => {
+    const sys = selfHosted();
+    expect(phase({ sys, root: ROOT }, { id: PHASE_12 }, ['new']).code).toBe(0);
+    expect(stored(sys, PHASE_12)['objective']).toBe(planDescriptionOf(PHASE_12));
+  });
+
+  it('O2 the literal placeholder is never persisted, by any route', () => {
+    for (const supplied of [undefined, '', '   ', '<objective>', '<ONE_LINE_OBJECTIVE>']) {
+      const sys = selfHosted();
+      const flags = supplied === undefined ? { id: PHASE_12 } : { id: PHASE_12, objective: supplied };
+      expect(phase({ sys, root: ROOT }, flags, ['new']).code).toBe(0);
+      expect(stored(sys, PHASE_12)['objective']).toBe(planDescriptionOf(PHASE_12));
+    }
+  });
+
+  it('O3 a real caller-supplied objective is kept', () => {
+    const sys = selfHosted();
+    const res = phase({ sys, root: ROOT }, { id: PHASE_12, objective: '  Harden the seam.  ' }, ['new']);
+    expect(res.code).toBe(0);
+    expect(stored(sys, PHASE_12)['objective']).toBe('Harden the seam.');
+  });
+
+  it('O4 when the plan carries no usable description, creation is REFUSED and nothing is written', () => {
+    const gutted = activePlan();
+    const phases = (gutted['phases'] as { phaseId: string; description: string }[]).map((p) =>
+      p.phaseId === PHASE_12 ? { ...p, description: '<objective>' } : p,
+    );
+    gutted['phases'] = phases;
+    const sys = selfHosted({}, { [`${ROOT}/${PLAN_REL}`]: JSON.stringify(gutted) });
+    const res = phase({ sys, root: ROOT }, { id: PHASE_12 }, ['new']);
+    expect(res.code).toBe(2);
+    expect(res.lines.join(' ')).toContain('NO_OBJECTIVE');
+    expect(sys.writes).toEqual([]);
+  });
+
+  it('O5 reconcile-objective repairs a placeholder record and preserves status and history', () => {
+    const sys = selfHosted({}, {
+      [`${ROOT}/.projectops/phases/${PHASE_12}.json`]: JSON.stringify({
+        phaseId: PHASE_12,
+        project: 'ProjectOS',
+        objective: '<objective>',
+        status: 'prompted',
+        history: [{ from: 'draft', to: 'prompted', by: 'implementer', at: '2026-08-10T12:46:09.567Z' }],
+      }),
+    });
+    const res = phase({ sys, root: ROOT }, { id: PHASE_12 }, ['reconcile-objective']);
+    expect(res.code).toBe(0);
+    const after = stored(sys, PHASE_12);
+    expect(after['objective']).toBe(planDescriptionOf(PHASE_12));
+    expect(after['status']).toBe('prompted');
+    expect((after['history'] as unknown[]).length).toBe(1);
+  });
+
+  it('O6 reconcile-objective REFUSES to overwrite a real objective', () => {
+    const sys = selfHosted({}, {
+      [`${ROOT}/.projectops/phases/${PHASE_12}.json`]: JSON.stringify({
+        phaseId: PHASE_12,
+        project: 'ProjectOS',
+        objective: 'A real objective someone wrote.',
+        status: 'prompted',
+        history: [],
+      }),
+    });
+    const res = phase({ sys, root: ROOT }, { id: PHASE_12 }, ['reconcile-objective']);
+    expect(res.code).toBe(2);
+    expect(res.lines.join(' ')).toContain('OBJECTIVE_NOT_PLACEHOLDER');
+    expect(sys.writes).toEqual([]);
+    expect(stored(sys, PHASE_12)['objective']).toBe('A real objective someone wrote.');
+  });
+
+  it('O7 reconcile-objective cannot touch a phase the plan does not authorise', () => {
+    const sys = selfHosted({}, {
+      [`${ROOT}/.projectops/phases/MADE-UP-PHASE1A.json`]: JSON.stringify({
+        phaseId: 'MADE-UP-PHASE1A',
+        project: 'ProjectOS',
+        objective: '<objective>',
+        status: 'prompted',
+        history: [],
+      }),
+    });
+    const res = phase({ sys, root: ROOT }, { id: 'MADE-UP-PHASE1A' }, ['reconcile-objective']);
+    expect(res.code).toBe(2);
+    expect(res.lines.join(' ')).toContain('PHASE_NOT_AUTHORISED');
+    expect(sys.writes).toEqual([]);
   });
 });

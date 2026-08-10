@@ -10,6 +10,7 @@
  *   advance --id <ID> --to <status> [--as owner|advisor|implementer] [--identity <who>] [--note <n>]
  *   show    --id <ID>
  *   list
+ *   reconcile-objective --id <ID>
  *
  * Closure (`closed` / `closed_as_blocked`) is owner-only unless the approved plan records a
  * project-scoped `governance.closureDelegation`; then the named delegate may close with
@@ -82,9 +83,51 @@ export function phase(
       return phaseShow(ctx, flags);
     case 'list':
       return phaseList(ctx);
+    case 'reconcile-objective':
+      return phaseReconcileObjective(ctx, flags);
     default:
-      return fail(1, [`Unknown 'phase' subcommand: ${sub}`, 'Use: phase new|advance|show|list']);
+      return fail(1, [
+        `Unknown 'phase' subcommand: ${sub}`,
+        'Use: phase new|advance|show|list|reconcile-objective',
+      ]);
   }
+}
+
+/**
+ * A placeholder is not an objective.
+ *
+ * `phase new` used to default `--objective` to the literal string `<objective>` and persist it, so a
+ * governed phase record could carry a template token as its statement of purpose — and nothing ever
+ * looked: no schema field, no validator and no G4 predicate reads `objective`. The angle-bracket form
+ * is the shape every template in this repository uses for an unfilled slot, so it is the shape that
+ * must never survive into a durable record.
+ */
+export function isPlaceholderObjective(value: string): boolean {
+  const v = value.trim();
+  return v === '' || /^<.*>$/.test(v);
+}
+
+/**
+ * The objective a phase record should carry: the caller's, when they supplied a real one, otherwise
+ * the ACTIVE APPROVED PLAN's own description of the phase. The plan is the authority on what a phase
+ * is for, and `authorisePhase` has already resolved exactly that phase in order to authorise it —
+ * the previous code had the approved description in hand and threw it away.
+ */
+export function resolveObjective(
+  supplied: string,
+  planDescription: string | undefined,
+): { readonly ok: true; readonly objective: string } | { readonly ok: false; readonly reason: string } {
+  if (!isPlaceholderObjective(supplied)) return { ok: true, objective: supplied.trim() };
+  const fromPlan = (planDescription ?? '').trim();
+  if (isPlaceholderObjective(fromPlan)) {
+    return {
+      ok: false,
+      reason:
+        'no objective was supplied and the active approved plan records no usable description for this phase; ' +
+        'refusing rather than persisting a placeholder',
+    };
+  }
+  return { ok: true, objective: fromPlan };
 }
 
 function phaseNew(ctx: CommandContext, flags: Flags): CommandResult {
@@ -102,13 +145,55 @@ function phaseNew(ctx: CommandContext, flags: Flags): CommandResult {
   if (loadPhase(sys, root, id) !== null && flags['force'] !== true) {
     return fail(2, [`Phase ${id} already exists (pass --force to recreate)`]);
   }
+  // The objective comes from the owner-approved plan unless the caller supplied a real one. A
+  // placeholder is refused outright — a governed record must never say `<objective>`.
+  const objective = resolveObjective(str(flags, 'objective'), auth.planPhase.description);
+  if (!objective.ok) return fail(2, [`REFUSED (NO_OBJECTIVE): phase '${id}' — ${objective.reason}`]);
   const p = createPhase({
     phaseId: id,
     project: str(flags, 'project', 'ProjectOS'),
-    objective: str(flags, 'objective', '<objective>'),
+    objective: objective.objective,
   });
   savePhase(sys, root, p);
-  return ok([`Created phase ${id} (status: ${p.status})`]);
+  return ok([`Created phase ${id} (status: ${p.status})`, `  objective: ${p.objective}`]);
+}
+
+/**
+ * Repair a phase record that already carries a placeholder objective.
+ *
+ * Deliberately the narrowest possible correction: it refuses unless the STORED objective is a
+ * placeholder, it takes the replacement only from the active approved plan, and it changes nothing
+ * else — not the status, not the history. `phase new --force` would also overwrite the record, but it
+ * resets the lifecycle to `draft` and discards the transition history, which is a governance record,
+ * not scratch. Correcting a durable record is a bounded governance action and is written as one.
+ */
+function phaseReconcileObjective(ctx: CommandContext, flags: Flags): CommandResult {
+  const { sys, root } = ctx;
+  const id = str(flags, 'id');
+  if (id === '') return fail(1, ['`phase reconcile-objective` requires --id <PHASE-ID>']);
+
+  const gc = loadGovernedContext(sys, root);
+  if (!gc.ok) return fail(2, refusalLines(gc));
+  const auth = authorisePhase(sys, root, gc.context, id);
+  if (!auth.ok) return fail(2, authorisationRefusalLines(auth));
+
+  const current = loadPhase(sys, root, id);
+  if (current === null) return fail(1, [`No phase ${id}`]);
+  if (!isPlaceholderObjective(current.objective)) {
+    return fail(2, [
+      `REFUSED (OBJECTIVE_NOT_PLACEHOLDER): phase '${id}' already records a real objective; ` +
+        'this command repairs placeholders only and will not overwrite one.',
+    ]);
+  }
+  const resolved = resolveObjective('', auth.planPhase.description);
+  if (!resolved.ok) return fail(2, [`REFUSED (NO_OBJECTIVE): phase '${id}' — ${resolved.reason}`]);
+
+  savePhase(sys, root, { ...current, objective: resolved.objective });
+  return ok([
+    `Reconciled objective for ${id} from the active approved plan.`,
+    `  objective: ${resolved.objective}`,
+    `  status and history unchanged (${current.status}, ${current.history.length} transition(s))`,
+  ]);
 }
 
 /** The role the transition is actually performed as: `--delegated` closes as the advisor. */

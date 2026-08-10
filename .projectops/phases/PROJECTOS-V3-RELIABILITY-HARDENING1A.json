@@ -1,7 +1,7 @@
 {
   "phaseId": "PROJECTOS-V3-RELIABILITY-HARDENING1A",
   "project": "ProjectOS",
-  "objective": "<objective>",
+  "objective": "Reliability hardening of the canonical projectos/core and projectos/agent runtime and the Phase-12 integration seam. OPEN. Criteria recorded prospectively in crosswalk §5b.",
   "status": "prompted",
   "history": [
     {
