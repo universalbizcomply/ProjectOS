@@ -22,3 +22,12 @@ secret*
 # Local machine configuration for the bridge daemon: absolute watch roots, machine-specific.
 # The desktop E2E run generates it; it must never be committed.
 projectos/control-center/bridge.config.json
+
+# Zero-relay continuity: TRANSIENT runtime state only. The ledger, the checkpoint and the
+# continuation record ARE evidence and are tracked; these three are not. The ownership lock holds a
+# live pid and is meaningless in another checkout, the owner control file is a standing local
+# instruction rather than a record of what happened, and the brief is an input the supervisor
+# regenerates on every run. Committing them would be residue that a later handoff has to reconcile.
+.projectops/continuity/ownership.lock.json
+.projectops/continuity/owner-control.json
+.projectops/continuity/*.brief.json
