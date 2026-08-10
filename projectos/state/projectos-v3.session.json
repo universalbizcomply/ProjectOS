@@ -57,9 +57,8 @@
   ],
   "testResults": [
     "core 178 PASS, agent 77 PASS, control-centre 231 PASS",
-    "desktop: T1 PASS; T2-T15, T18, T19, T21 PASS; T12/T13 PASS",
-    "T16/T17 PASS with disclosed proportional evidence (native traversal observed; repeatable browser keyboard proof)",
-    "cargo check clean on the default and webdriver-e2e graphs; plugin absent from the default graph"
+    "desktop: T1 PASS; T2-T15, T18, T19, T21 PASS; T12/T13 PASS; T16/T17 proportional with disclosure",
+    "closure requested through the real UI: G4 refused with 3 unmet predicates (was 9); the durable record was unchanged, exactly as a refusal requires"
   ],
   "browserResults": [
     "Headed desktop proof: real ProjectOS Tauri app via its own embedded WebDriver server on 127.0.0.1, listener owned by the app process, msedgedriver 0, bundled tauri.localhost frontend, zero process residue.",
@@ -81,10 +80,10 @@
   "databaseReviewResults": [
     "not-applicable: no database touched"
   ],
-  "currentAction": "Phase 12 desktop proof COMPLETE. Evidence subject head 1e4981b is pushed and reconciled; the governance-only closure tail (closure evidence, report, index row) is written. Next and only remaining step: request closure through the real Control Centre and let G4 recompute.",
-  "blockedReason": null,
-  "nextSafeAction": "Request closure through the real Control Centre (Close as ChatGPT). The runtime must recompute all G4 predicates against evidence subject 1e4981b. If any predicate is unmet, capture the exact refusal and DO NOT close. If all pass, the internal phase-bound delegated grant closes Phase 12 and the programme becomes 17/19 (89.5%).",
-  "decisionRequired": null,
+  "currentAction": "Closure was REQUESTED through the real Control Centre and G4 REFUSED with 3 unmet predicates, down from 9. The evidence tail discharged G4-5, G4-6, G4-7, G4-8, G4-9, G4-10 and G4-16. The remaining three are all git-derived and share ONE root cause.",
+  "blockedReason": "G4 CANNOT PASS FROM THE DESKTOP APP: the daemon is spawned with a deliberately minimal environment - collect_system_vars(&[\"SystemRoot\"]) in src-tauri/src/process/authority.rs - so it has NO PATH and cannot execute git. Every git fact the gate derives therefore fails closed: G4-12 \"the current head could not be established\", G4-12 \"not pushed and reconciled\", G4-13 \"working tree has unexplained residue\". The tree WAS clean and reconciled 0/0 at the moment of the request, verified independently; the runtime simply could not see that. This is a genuine Phase-12 blocker and an architectural decision, not a typo.",
+  "nextSafeAction": "DO NOT CLOSE PHASE 12. Decide the git-facts route (Option C recommended: host-resolved absolute git.exe passed to the daemon, mirroring the existing node resolution). Implement it, re-run the desktop suite, re-establish evidenceSubjectHead, rewrite the closure tail against the new subject, and request closure again. Everything else for closure is already in place and proven: the tail is written and pushed, and the refusal path now shows the runtime verdict verbatim.",
+  "decisionRequired": "How the governed runtime should obtain git facts without widening the daemon environment. Option C is the one that matches existing architecture: the HOST already resolves an absolute node.exe rather than relying on PATH (resolve_development_node), so it could resolve git.exe the same way and pass that single absolute path to the daemon. Option A (add PATH to the daemon env) undoes deliberate hardening. Option B (derive git facts in the Rust host and hand them to the gate) moves a governance input across a trust boundary and needs its own review. Whichever is chosen is SUBSTANTIVE source, so the evidence subject must be re-established and the desktop proof re-run against it afterwards.",
   "productionTouched": false,
   "deploymentOccurred": false,
   "databaseMutationOccurred": false,
