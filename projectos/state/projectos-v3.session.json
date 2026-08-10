@@ -10,7 +10,7 @@
   "repositoryPath": "C:/dev/ProjectOS",
   "branch": "projectos-v3",
   "startingHead": "11046f4a842dc979fa358acab570cc1194a58478",
-  "currentHead": "e6736854d589fe07a7f273a06463e11c52c66240",
+  "currentHead": "909cb08de52d717c4a3bb623a056a7d2a7fbbea6",
   "filesInspected": [
     "projectos/control-center/src/owner/ownerSnapshot.ts",
     "projectos/control-center/src/owner/governedChain.ts",
@@ -53,25 +53,20 @@
     "node sidecar/host.mjs driven over its real stdin/stdout protocol (live write-path proof)"
   ],
   "validatorResults": [
-    "validate-all: 124 / 124 PASS, exit 0, on the tree at e673685",
-    "validate-active-execution-session and val-projectos-v3-active-phase-consistency1a re-run PASS after this session record was updated"
+    "validate-all: ALL PASS, exit 0, on the tree at 909cb08"
   ],
   "testResults": [
-    "desktop T1 PASS (embedded route, app-owned loopback server, bundled frontend)",
-    "desktop matrix 12 PASS / 3 FAIL",
-    "FAIL T10/T11: a REFUSED governed command is never surfaced to the owner",
-    "FAIL T16/T17: keyboard focus never leaves <body>, so the primary control is unreachable by Tab and its :focus-visible indicator never raises",
-    "core / agent / control-centre unit suites PASS as of e673685"
+    "control-centre 229 PASS (21 files), including 15 new governedClient result-correlation tests",
+    "desktop T1 PASS; matrix T2-T15, T18, T19, T21 PASS; T10/T11 now PASS",
+    "T16/T17 BLOCKED on environment, not fabricated as pass",
+    "T12/T13 NOT RUN"
   ],
   "browserResults": [
-    "ROUTE (do not reopen): raw tauri-driver ABANDONED; WDIO external provider FAILED; EMBEDDED provider is the accepted route, isolated behind the webdriver-e2e Cargo feature with validator val-projectos-v3-webdriver-e2e-isolation1a (7/7 mutations). P1-P6, P8 and P10 proven; P8 proven live (loopback listener owned by the app process).",
-    "E2E BUILD: npm run build:desktop:e2e -> tauri build --debug --no-bundle --features webdriver-e2e into src-tauri/target/webdriver-e2e/. --debug is REQUIRED: a release build is classified a packaged candidate and refuses to launch its development sidecar (ProductionIdentityUnavailable, no fallback), so the governed chain is unreachable from a release binary. The frontend is still the bundled one.",
-    "RUNTIME ROOT: wdio onPrepare writes projectos/control-center/bridge.config.json (gitignored) naming the repo root. Without it the daemon honestly reports that no governed project root was supplied and the governed surface never renders.",
-    "PASSING: T1, T2, T3, T4, T5, T6, T7, T8, T9, T14, T15, T18, T19, T21. T7 is the governed write path - three real transitions driven by clicks and each confirmed in the durable record written by core.",
-    "FAILING T10/T11 - PRODUCT DEFECT, CLOSURE BLOCKER: sendGovernedCommand returns ok as soon as the request is DISPATCHED; the outcome arrives later as a governed-result carrying the refusal lines, and GovernedActions never subscribes to it. Clicking Close at awaiting_closure shows \"Sent to the runtime\" while G4 silently refuses and nothing closes. Fix: subscribe to governed-result by correlationId and render its lines verbatim, with failure styling when code is non-zero.",
-    "FAILING T16/T17 - UNRESOLVED: tabbing 60 times never moves document.activeElement off body. Settle whether this is a real accessibility defect or a WebView2 key-dispatch limitation under WebDriver Classic before claiming either.",
-    "NOT YET RUN: T12 (disconnect honesty) and T13 (reconnect restores durable state).",
-    "TEST-SIDE LESSONS: a CSS prefix chained with a text selector in one string is not parsed by WebdriverIO and silently matches nothing; element handles go stale when the sidecar re-emits state and React re-renders; the lifecycle is one-way, so the matrix must assert durable history when no legal advance remains."
+    "T10/T11 PASS: clicking Close as ChatGPT surfaces REFUSED (G4_NOT_SATISFIED) with all 9 unmet predicates verbatim; phase stayed awaiting_closure; no closure entry written.",
+    "ROOT CAUSE FIXED: sendGovernedCommand resolved on DISPATCH; the verdict arrives later as a governed-result and nothing consumed it. requestGovernedCommand now registers the listener BEFORE dispatch (a fast result would otherwise be emitted into a listener that does not exist yet), correlates by id, renders runtime lines verbatim, fails on non-zero code, times out honestly, ignores foreign ids and always releases the listener.",
+    "T16 NATIVE KEYBOARD - ONE GOOD OBSERVATION, NOT REPRODUCIBLE: real OS input traversed Skip to content, Owner Control, Forge, Owner Chat, Safety & Providers, Projects, Mission Control, Workflow, Safety Gates, Integrations - every one with a visible focus indicator. Later runs could not raise the window: Windows denies foreground activation to a background test process (NOT_FOREGROUND), even with AttachThreadInput and the ALT-tap unlock. Recorded as ENVIRONMENT BLOCKED per the CASE C rule; NOT claimed as a pass.",
+    "WITHDRAWN: the earlier WebDriver-Tab result is not evidence in either direction - the embedded server dispatches a synthetic KeyboardEvent at document.activeElement and performs no native focus traversal. T16/T17 were removed from the WebDriver matrix and live only in t3-native-keyboard.spec.ts.",
+    "STILL OUTSTANDING for closure: T12/T13 disconnect/reconnect; T16/T17 repeatable native proof; responsive re-proof at 1440/768/390/320 because frontend source changed; ECC/security/code/authority/IPC/race/UX/accessibility/duplication reviews; evidence subject head; governance-only closure tail; final G4 request."
   ],
   "ECCResults": [
     "code-review APPROVE on the bootstrap; not yet re-run on the Phase-12 slice"
@@ -85,9 +80,9 @@
   "databaseReviewResults": [
     "not-applicable: no database touched"
   ],
-  "currentAction": "Phase 12 T2-T21 governed matrix run against the real ProjectOS desktop application. Phase 12 walked validating -> evidence -> awaiting_review -> awaiting_closure through REAL Control Centre clicks, each transition confirmed in the durable core record. Phase 12 is NOT closed and must not close on this evidence: three matrix tests fail and all three are genuine findings.",
+  "currentAction": "T10/T11 refusal-surfacing defect FIXED and re-proven against the real runtime: the owner now sees the exact G4 refusal (9 unmet predicates) instead of \"Sent to the runtime\". Phase 12 remains awaiting_closure and is NOT closed.",
   "blockedReason": null,
-  "nextSafeAction": "DO NOT CLOSE PHASE 12. Fix the T10/T11 refusal-surfacing defect in GovernedActions (subscribe to governed-result by correlationId and render the refusal verbatim), then settle T16/T17 keyboard focus, then add T12/T13. Re-run the matrix until T1-T21 all pass. Then reviews, full validators, establish evidenceSubjectHead, write the governance-only closure tail, and recompute G4. Phase 12 is already at awaiting_closure, so the closure request is the final step and G4 will keep refusing until the evidence record exists.",
+  "nextSafeAction": "DO NOT CLOSE PHASE 12. Next: (1) make the native keyboard proof repeatable - the blocker is Windows foreground activation from a background process, so consider running the helper from a foreground-owning context or an interactive session rather than changing any machine setting; (2) run T12/T13 disconnect/reconnect using the existing supported lifecycle; (3) responsive re-proof at 1440/768/390/320 since GovernedActions changed - check the long G4 refusal wraps and stays readable at 320px; (4) reviews; (5) full validators; (6) establish the final evidenceSubjectHead; (7) governance-only closure tail; (8) request closure through the real Control Centre, where the refusal or the close will now be visible.",
   "decisionRequired": null,
   "productionTouched": false,
   "deploymentOccurred": false,
