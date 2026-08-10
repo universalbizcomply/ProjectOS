@@ -51,6 +51,23 @@ function parseArgs(argv) {
   return out;
 }
 
+/**
+ * Append to the ledger, turning a refusal into a governed outcome rather than a stack trace.
+ *
+ * The ledger refuses an event that is not a legal successor — which is exactly what happens when a
+ * worker is started OUT OF BAND, with no permit and no spawn recorded before it. That refusal is the
+ * mechanism working, so it must read as one: a hand-started replacement should be told it cannot
+ * enter the record, not crash with a Node stack. Returns null on success, else the reason.
+ */
+function tryAppend(root, sessionId, event) {
+  try {
+    ledger.appendEvent(root, sessionId, event);
+    return null;
+  } catch (err) {
+    return err && err.message ? err.message : String(err);
+  }
+}
+
 function git(root, args) {
   try {
     return execFileSync("git", ["-C", root].concat(args), { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
@@ -142,7 +159,7 @@ function resume(root, projectId, sessionId) {
   }
 
   const verification = verifyContext(root, checkpoint);
-  ledger.appendEvent(root, sessionId, {
+  const appendProblem = tryAppend(root, sessionId, {
     type: "worker-b-verify",
     author: "worker",
     module: MODULE,
@@ -165,6 +182,12 @@ function resume(root, projectId, sessionId) {
       verified: verification.mismatches.length === 0,
     },
   });
+  if (appendProblem !== null) {
+    // The ledger would not accept this worker's first event. That happens when nothing permitted or
+    // spawned it — an out-of-band start — and the correct response is to stop, not to work anyway.
+    process.stderr.write(MODULE + ": refusing to continue — this worker cannot enter the handoff record: " + appendProblem + "\n");
+    return 2;
+  }
   if (verification.mismatches.length > 0) {
     process.stderr.write(MODULE + ": context mismatch — " + verification.mismatches.join("; ") + "\n");
     return 2;

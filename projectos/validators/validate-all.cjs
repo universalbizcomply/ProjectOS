@@ -93,6 +93,8 @@ const MODULES = [
   "val-projectos-v3-active-phase-consistency1a",
   "val-projectos-v3-webdriver-e2e-isolation1a",
   "val-projectos-v3-validation-evidence1a",
+  "validate-zero-relay-continuity",
+  "val-projectos-v3-zero-relay-failure-matrix1a",
   "validate-v3.1-crosswalk",
   "validate-v3.2-ai-provider-independence"
 ];

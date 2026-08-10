@@ -68,6 +68,75 @@ function ledgerFiles(dir) {
 }
 
 /**
+ * Paths that may change AFTER a proof without invalidating it — the proof's own records and the
+ * closure tail. Without this the validator is unsatisfiable: committing the evidence advances HEAD
+ * past the commit the proof was made at, and re-running the proof at the new HEAD produces evidence
+ * that must itself be committed. A tracked commit cannot contain its own SHA. This is the same
+ * subject/tail rule G4-12 already uses, applied to the same problem.
+ *
+ * The closure-tail half is MIRRORED from `projectos/core/src/closureEligibility.ts` and checked
+ * against it below, so the two cannot drift apart in silence. The core module is TypeScript compiled
+ * to a gitignored `dist/`, so it cannot simply be required from here.
+ */
+const CLOSURE_TAIL_MIRROR = [
+  ".projectops/phases/",
+  ".projectops/closure/",
+  "knowledge/reports/",
+  "knowledge/ProjectOS Reports Index.md",
+  "projectos/state/projectos-v3.current-state.json",
+  "projectos/state/projectos-v3.session.json",
+];
+const PROOF_TAIL_EXTRA = [".projectops/continuity/", ".projectops/validation/"];
+
+/** Fail loudly if the mirrored allowlist has drifted from the one the closure gate actually uses. */
+function tailMirrorProblems() {
+  const src = (() => {
+    try { return fs.readFileSync(path.join(ROOT, "projectos", "core", "src", "closureEligibility.ts"), "utf8"); }
+    catch (_) { return null; }
+  })();
+  if (src === null) return ["the closure-tail source could not be read to check the mirrored allowlist"];
+  const block = src.match(/CLOSURE_TAIL_PATHS: readonly string\[\] = \[([\s\S]*?)\];/);
+  if (block === null) return ["CLOSURE_TAIL_PATHS could not be located in closureEligibility.ts"];
+  const actual = Array.from(block[1].matchAll(/'([^']+)'/g)).map((m) => m[1]);
+  if (JSON.stringify(actual) !== JSON.stringify(CLOSURE_TAIL_MIRROR)) {
+    return ["the mirrored closure-tail allowlist has drifted from closureEligibility.ts: " + JSON.stringify(actual)];
+  }
+  return [];
+}
+
+function isProofTailPath(p) {
+  const q = p.replace(/\\/g, "/");
+  if (q.indexOf("..") !== -1) return false;
+  if (PROOF_TAIL_EXTRA.some((prefix) => q.startsWith(prefix) && q.length > prefix.length)) return true;
+  return CLOSURE_TAIL_MIRROR.some((a) => (a.endsWith("/") ? q.startsWith(a) && q.length > a.length : q === a));
+}
+
+/** Why a proof made at `subject` no longer describes the current `head`, or [] when it still does. */
+function staleProofProblems(subject, head) {
+  const e = tailMirrorProblems();
+  if (!HEX40.test(subject)) return e.concat(["Z4 the proof records no valid subject commit"]);
+  const anc = git(["merge-base", "--is-ancestor", subject, head]);
+  // `git` returns "" on success here; null means a non-zero exit.
+  if (anc === null) {
+    return e.concat(["Z4 the proof was made at " + subject.slice(0, 7) + ", which is not an ancestor of HEAD " + head.slice(0, 7) + "; re-run it"]);
+  }
+  const diff = git(["diff", "--name-only", subject + "..HEAD"]);
+  if (diff === null) return e.concat(["Z4 the diff since the proof subject could not be read"]);
+  const substantive = diff
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0)
+    .filter((p) => !isProofTailPath(p));
+  if (substantive.length > 0) {
+    return e.concat([
+      "Z4 " + substantive.length + " substantive path(s) changed after the proof subject " + subject.slice(0, 7) +
+        ", so the proof no longer describes this tree: " + substantive.slice(0, 3).join(", ") + "; re-run it",
+    ]);
+  }
+  return e;
+}
+
+/**
  * Judge ONE ledger. Returns error strings; [] means this ledger is a complete zero-relay proof.
  *
  * `opts.live` says whether the repository may be consulted. Fixtures are judged on their own
@@ -213,9 +282,7 @@ function judgeLedger(ledger, opts) {
     const head = git(["rev-parse", "HEAD"]);
     const branch = git(["rev-parse", "--abbrev-ref", "HEAD"]);
     if (head === null) e.push("Z4 HEAD could not be established to cross-check the ledger");
-    else if (String(observed.head) !== head) {
-      e.push("Z4 the proof was made at " + String(observed.head).slice(0, 7) + " but HEAD is now " + head.slice(0, 7) + "; re-run the proof at the evidence subject");
-    }
+    else if (String(observed.head) !== head) for (const problem of staleProofProblems(String(observed.head), head)) e.push(problem);
     if (branch !== null && String(observed.branch) !== branch) e.push("Z4 the proof was made on branch " + String(observed.branch) + ", not " + branch);
 
     // The checkpoint Worker B claims to have resumed must still exist and still say the same thing.
