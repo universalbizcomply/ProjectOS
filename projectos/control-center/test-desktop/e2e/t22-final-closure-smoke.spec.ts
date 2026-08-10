@@ -121,15 +121,15 @@ describe('T22 final V3 closure smoke — the real desktop surface tells the trut
 
   it('T22e Phase 17 is CLOSED and Phase 18 is the phase the surface is governing', async () => {
     expect(phaseRecord(PHASE_17).status).toBe('closed');
-    expect(phaseRecord(PHASE_18).status).toBe('prompted');
+    expect(phaseRecord(PHASE_18).status).toBe('awaiting_closure');
     expect(state().activePhase).toBe(PHASE_18);
 
-    // The surface offers exactly the one action that matches Phase 18's real durable status. It
-    // could only do that by having read Phase 18 — so this is what proves WHICH phase it is on.
+    // The surface offers exactly the action that matches Phase 18's real durable status. It could
+    // only do that by having read Phase 18 — so this is what proves WHICH phase it is on.
     const offered = await offeredActions();
-    expect(offered.some((l) => l === 'Begin implementation')).toBe(true);
+    expect(offered.some((l) => l.startsWith('Close as'))).toBe(true);
     // and not an action belonging to some other lifecycle state
-    for (const wrong of ['Prepare the phase prompt', 'Run validation', 'Collect evidence', 'Send for review', 'Send for closure']) {
+    for (const wrong of ['Prepare the phase prompt', 'Begin implementation', 'Run validation', 'Collect evidence', 'Send for review', 'Send for closure']) {
       expect(offered).not.toContain(wrong);
     }
   });
@@ -141,6 +141,50 @@ describe('T22 final V3 closure smoke — the real desktop surface tells the trut
     // a control that is already visible. The control being offered is the claim; using it is not.
     expect(offered).toContain('Stop');
     expect(offered).not.toContain('Resume'); // Resume belongs to a rolled-back phase, and 18 is not
+  });
+
+  it('T22i AN ELIGIBLE GATE DOES NOT CLOSE THE PHASE — the surface offers closure and the runtime refuses', async () => {
+    // The Phase-18 authority defect in one assertion. All seventeen G4 predicates are satisfied at
+    // this subject, so the ONLY thing standing between this surface and a closed programme is the
+    // requirement that the gatekeeper have actually decided. Clicking Close must surface that
+    // refusal, and the durable record must not move.
+    //
+    // This is the one place the proof deliberately clicks a governed control: the whole question is
+    // what happens when someone does.
+    const before = phaseRecord(PHASE_18).status;
+    expect(before).toBe('awaiting_closure');
+
+    const close = await (await $('.ocp-actions')).$$('button');
+    let clicked = false;
+    for (const btn of close) {
+      if ((await btn.getText()).trim().startsWith('Close as')) {
+        await btn.waitForClickable({ timeout: 20_000 });
+        await btn.click();
+        clicked = true;
+        break;
+      }
+    }
+    expect(clicked).toBe(true);
+
+    const msg = await $('.ocp-actionmsg');
+    await browser.waitUntil(async () => ((await msg.isExisting()) ? (await msg.getText()).length > 0 : false), {
+      timeout: 30_000,
+      timeoutMsg: 'the runtime returned no answer to the closure request',
+    });
+    // The surfaced string is a UI rendering of the runtime's refusal, so it is matched loosely — the
+    // load-bearing assertions are the durable ones below. What must not happen is a SUCCESS message.
+    const said = (await msg.getText()).replace(/\s+/g, ' ');
+    console.log(`T22i runtime answered: ${said}`);
+    expect(said.length).toBeGreaterThan(0);
+    expect(/REFUS|GATEKEEPER|not a decision|eligib/i.test(said)).toBe(true);
+    expect(/closed\b/i.test(said) && !/REFUS/i.test(said)).toBe(false);
+
+    // NOTHING MOVED. Not the durable record, not the counters, not the surface's claim.
+    expect(phaseRecord(PHASE_18).status).toBe('awaiting_closure');
+    expect(state().acceptedPhaseCount).toBe(18);
+    const meter = await $('.ocp-meter [role="progressbar"]');
+    expect(Number(await meter.getAttribute('aria-valuenow'))).toBe(94.7);
+    expect(await $('body').getText()).not.toContain('19 / 19');
   });
 
   it('T22g Refresh traverses the real runtime and repaints from canonical state', async () => {

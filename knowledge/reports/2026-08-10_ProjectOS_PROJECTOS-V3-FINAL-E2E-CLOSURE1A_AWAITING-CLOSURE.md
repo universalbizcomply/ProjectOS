@@ -9,7 +9,7 @@
 | **Plan version** | v1.3, PLAN READY (recomputed by the engine, never read from the stored string) |
 | **Phase** | PROJECTOS-V3-FINAL-E2E-CLOSURE1A — numbered Phase 18 of 19 |
 | **Branch** | `projectos-v3` |
-| **Evidence subject** | `deb11721e98e8ea9c1926995df7955e40e2901a7` |
+| **Evidence subject** | `1cddedb13187e157b4ae3318074336076970ce14` |
 | **Position at this pack** | **18 / 19, 94.7%** — Phase 18 OPEN |
 | **Decision required** | **FINAL OWNER / GATEKEEPER CLOSURE OF PROJECTOS V3** |
 
@@ -121,7 +121,8 @@ acquisition; a governed refusal escaping as a stack trace), all fixed, each with
 | R17-3 `report` hardcodes `knowledge/reports`, ignores `evidenceRequirements` | POST-V3 WORK | Misplaces evidence for an external project; mis-authorises nothing. Fixing it needs a plan-shaped decision about where a project declares its evidence location. |
 | R17-4 plan-import conflict noise | ACCEPTED NON-BLOCKING LIMITATION | Supersession is already reconciled rather than raised. The residual is the price of a control that must not silently discard competing evidence. |
 | R17-5 PolyGo `origin/main` pre-existing validator failures | NOT ACTIONABLE — EXTERNAL | This programme has no authority over that repository; excluded scope forbids modifying it. |
-| **R17-6 approval-before-closure is PROCEDURAL** | **ACCEPTED NON-BLOCKING LIMITATION** | `transitionPhase` does not mechanically require a matching approved closure record. It was followed and evidenced at Phases 16, 12 and 17. G4-17 established the exact shape a mechanical predicate would take, so this is now cheap to close post-V3. |
+| **R17-6 approval-before-closure is PROCEDURAL** | **SUBSTANTIALLY RESOLVED** by the closure-authority correction. `transitionPhase` now requires an unforgeable grant for ANY closure, and a grant requires a committed gatekeeper decision bound to the phase and the evidence subject. What remains procedural is only that the decision artefact is a governance record rather than a cryptographic signature — which is the tamperProof:false limitation above, not a separate gap. |
+| **The closure authority defect found this phase** | **RESOLVED at subject `1cddedb`** | An implementer could exercise the delegated closure authority by supplying a flag. Fixed, with the three further routes the adversarial review found, and regressed in core (S1–S5, B1–B5, L1–L9) and agent (R1–R8). |
 | R17-7 validators asserting global tree cleanliness | RESOLVED (pattern) / EXTERNAL (instances) | Pattern fixed: cleanliness is scoped to exclude the handoff's own records. Remaining instances are PolyGo's. |
 | **R17-8 plan-path containment is LEXICAL, not realpath** | **ACCEPTED NON-BLOCKING LIMITATION** | A symlink planted **inside** the project could resolve outside it. Planting it already requires local write access, and the pre-existing default `.projectops/plan.json` has carried the identical exposure since it was introduced. Closing it means adding a realpath capability to `System`, widening the runtime's impure surface — its own decision. |
 | R17-9 dependency evidence forgery residual | NOT A DEFECT | Consistent with the tamperProof:false model above; never claimed as tamper-proofing. |
@@ -220,6 +221,69 @@ orchestration — with ProjectOS's governance, evidence and owner authority rema
 either. **Nothing of this was built here and none of it affects Phase-18 closure scope.**
 
 ---
+
+## THE CLOSURE-AUTHORITY CORRECTION — what the breach actually exposed
+
+The gatekeeper refused to close on this evidence and was right to. The accidental closure below was
+not merely a mistake of mine; it exposed a **CRITICAL authority defect**, and the correction is the
+substance of this phase's final subject `1cddedb`.
+
+**The defect.** `--delegated` was doing two jobs: "evaluate under the plan's delegation" AND,
+implicitly, "the delegate has decided". Nothing in the system represented a DECISION, so G4
+eligibility was silently sufficient. Plan v1.3 says *"The implementer (Claude Code) can neither
+approve nor close"* — true of `approve`, untrue of `close`.
+
+**Source map, as the ruling required.** (A) any caller sets `delegated` — CLI, worker, and the
+renderer at `governedCommands.ts:323`. (B) it became an advisor role at `phase.ts`. (C) the delegate
+came from the plan — correct, and the reason nothing looked spoofed. (D) `authoriseClosure` minted a
+grant on delegation + eligibility. (E) `transitionPhase` + `savePhase` wrote it. (F) CLI, worker,
+renderer and trusted runtime were **not distinguishable at all**.
+
+**The correction, in three separable steps.** STEP A `phase closure-eligibility` — read-only, reports
+`G4_ELIGIBLE` / `G4_NOT_SATISFIED` and transitions nothing. STEP B a durable decision record at
+`.projectops/closure/decisions/<phaseId>.json`, bound to one phase, project, scope, evidence subject
+and id, naming the authority the **plan** records. STEP C finalisation consumes it, and refuses
+without it. **Uniform across both bases** — `--as owner` was the larger half of the same hole: a
+caller-supplied string that granted owner authority with no gate at all.
+
+**The adversarial review then broke the correction three more ways, all fixed:**
+
+| | Finding | Fix |
+|---|---|---|
+| CRITICAL | **Core did not defend itself.** `transitionPhase` carved out `by === 'owner'`, so every protection lived in one caller — and the Control Centre's project surface called core directly, closing phases with no gate evaluated at all. | Core requires an unforgeable **grant** for any closure, whatever the role. That surface no longer offers closure. |
+| CRITICAL | **Replay via `phase new --force`**, which erases the history the replay ledger lived in. Plus an unanchored note parse, so `--note "decision 00000000"` recorded a decoy id on *every* closure. | Consumption recorded in the **decision itself**; `--force` refuses a terminal phase; the id is read from the end of the note. |
+| CRITICAL/HIGH | **A symlink defeated "committed"** — git was asked about the path while bytes were read from the working tree, which follows links. | The decision is read from the **committed object** (`git show HEAD:<path>`), so validated bytes and committed bytes are the same by construction. |
+| HIGH | Owner grants omitted `decisionId`, so no owner closure could ever be seen as consuming one. | Both bases carry it. |
+| MEDIUM / LOW | NFKC folding let `Claudé` past the implementer filter; eligibility always reported under the delegated basis. | NFKD + strip marks; basis chosen from the plan. |
+
+**LIVE PROOF at the final subject, on a clean tree — this is the target the ruling set:**
+
+```
+$ projectos phase closure-eligibility --id PROJECTOS-V3-FINAL-E2E-CLOSURE1A
+  G4_ELIGIBLE — all 17 predicates satisfied
+  GATEKEEPER DECISION: NOT USABLE
+  => this phase MUST NOT be closed. Eligibility is not a decision, and this command decides nothing.
+
+$ projectos phase advance --id PROJECTOS-V3-FINAL-E2E-CLOSURE1A --to closed --delegated
+  REFUSED (ELIGIBLE_AWAITING_GATEKEEPER): all 17 G4 predicates are satisfied, but eligibility is not
+  a decision and this caller cannot make one on the gatekeeper's behalf.
+
+$ projectos phase advance ... --to closed --as owner
+  REFUSED (GATEKEEPER_DECISION_MISSING)
+```
+
+Both conditions the ruling demanded now hold simultaneously: **every G4 evidence condition is
+satisfied, AND an implementer cannot exercise the delegated closure authority.** Phase 18 stayed at
+`awaiting_closure`; the tree stayed clean.
+
+**Headed proof T22, 9/9** against the rebuilt real Control Centre, including **T22i**: clicking the
+surface's own Close control returns a runtime REFUSAL and moves nothing — record still
+`awaiting_closure`, meter still 94.7, no `19 / 19` anywhere. *Disclosure: that run's refusal cited
+G4-13 (the spec edit made the tree dirty at that moment), not ELIGIBLE_AWAITING_GATEKEEPER. The
+eligible-gate refusal is proven at the CLI above, on a clean tree. Both are refusals; only one of them
+was taken with every predicate satisfied, and this says which.*
+
+Tests at this subject: **core 211, agent 106, control-centre 237**, `validate-all` **126/126**.
 
 ## Implementer breach, disclosed
 
