@@ -22,6 +22,7 @@ import { type Flags, str } from '../flags.js';
 import {
   canTransition,
   createPhase,
+  isTerminal,
   transitionPhase,
   authoriseClosure,
   grantNote,
@@ -39,6 +40,7 @@ import {
   closureDecisionProblems,
   closureDecisionRelPath,
   readDecisionId,
+  markDecisionConsumed,
 } from '../closureGate.js';
 import {
   loadGovernedContext,
@@ -125,7 +127,10 @@ function phaseClosureEligibility(ctx: CommandContext, flags: Flags): CommandResu
 
   const delegation = delegationOf(gc.context.plan);
   const g4 = evaluateG4(sys, root, gc.context, id, current.status, { ready: true, reasons: [] }, delegation !== null, false);
-  const decisionProblems = closureDecisionProblems(sys, root, gc.context, id, current.history, 'delegated');
+  // Report under the basis this project actually uses: a delegation if the plan records one, the
+  // owner otherwise. Always asking about the delegate told an owner-only project its own valid
+  // decision was "not the recorded authority".
+  const decisionProblems = closureDecisionProblems(sys, root, gc.context, id, current.history, delegation === null ? 'owner' : 'delegated');
 
   const lines = [`closure eligibility for ${id} (status: ${current.status})`];
   if (g4.verdict.eligible) {
@@ -198,8 +203,19 @@ function phaseNew(ctx: CommandContext, flags: Flags): CommandResult {
   // phase is one the owner approved, and that what it depends on is done, before anything is written.
   const auth = authorisePhase(sys, root, gc.context, id);
   if (!auth.ok) return fail(2, authorisationRefusalLines(auth));
-  if (loadPhase(sys, root, id) !== null && flags['force'] !== true) {
+  const existing = loadPhase(sys, root, id);
+  if (existing !== null && flags['force'] !== true) {
     return fail(2, [`Phase ${id} already exists (pass --force to recreate)`]);
+  }
+  // `--force` MUST NOT resurrect a finished phase. It rewrites the record to `draft` with an empty
+  // history, which erased the closure and let the same gatekeeper decision close the phase a second
+  // time. Recreating a draft is a convenience; un-closing a governed phase is not, and it is not
+  // something an ungated, roleless command should be able to do.
+  if (existing !== null && isTerminal(existing.status)) {
+    return fail(2, [
+      `REFUSED (PHASE_IS_TERMINAL): ${id} is '${existing.status}'. --force recreates a phase from scratch, which would ` +
+        'erase a recorded closure and allow its decision to be replayed. A closed phase is not re-openable here.',
+    ]);
   }
   // The objective comes from the owner-approved plan unless the caller supplied a real one. A
   // placeholder is refused outright — a governed record must never say `<objective>`.
@@ -291,6 +307,7 @@ function phaseAdvance(ctx: CommandContext, flags: Flags): CommandResult {
   // non-owner reaches a terminal state.
   let grant: ClosureGrant | undefined;
   let basisNote: string | undefined;
+  let consumedDecisionId: string | undefined;
   if (requiresOwner(to)) {
     const plan = gc.context.plan;
     const delegation = delegationOf(plan);
@@ -380,11 +397,13 @@ function phaseAdvance(ctx: CommandContext, flags: Flags): CommandResult {
     }
     grant = decision.value;
     basisNote = grantNote(decision.value);
+    consumedDecisionId = decisionId;
   }
 
   const note = str(flags, 'note');
-  // The recorded note carries the authority basis, so the durable history says HOW closure was
-  // authorised — not merely that some role performed it.
+  // The recorded note carries the authority basis LAST, so the durable history says HOW closure was
+  // authorised — and so the decision id can be read back from a fixed position. When the caller's
+  // text came last, `--note "decision 00000000"` made the replay check read a decoy.
   const finalNote =
     basisNote === undefined ? (note === '' ? undefined : note) : note === '' ? basisNote : `${note} — ${basisNote}`;
   const r = transitionPhase(current, to, effectiveRoleFor(flags, role, to), ctx.sys.now(), finalNote, grant);
@@ -394,6 +413,8 @@ function phaseAdvance(ctx: CommandContext, flags: Flags): CommandResult {
     return fail(code, [r.error]);
   }
   savePhase(sys, root, r.value);
+  // Spend the decision, in the decision. A phase record can be reset; this cannot be reset with it.
+  if (consumedDecisionId !== undefined) markDecisionConsumed(sys, root, id, ctx.sys.now());
   const how = basisNote === undefined ? '' : ` [${basisNote}]`;
   const actedAs = effectiveRoleFor(flags, role, to);
   return ok([`${id}: ${current.status} -> ${r.value.status} (by ${actedAs})${how}`]);

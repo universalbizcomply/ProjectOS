@@ -60,6 +60,29 @@ export function decisionIsCommitted(sys: System, root: string, phaseId: string):
 }
 
 /**
+ * The decision AS COMMITTED — read from the git object, not from the working tree.
+ *
+ * Reading the file would validate bytes that git never saw. If the tracked path is a symlink, git
+ * records only the link target string while `readFileSync` follows it: the link is committed once
+ * and the content it resolves to can then be rewritten freely, invisible to `git diff`, `git log`
+ * and `git status`. The whole claimed boundary — "a forged decision is a visible diff" — would be
+ * gone. Reading the object makes "what is validated" and "what is committed" the same bytes by
+ * construction, so the question cannot arise.
+ *
+ * Any failure yields null, which the checker treats as no decision.
+ */
+export function readCommittedDecision(sys: System, root: string, phaseId: string): Record<string, unknown> | null {
+  const shown = sys.exec('git', ['-C', root, 'show', `HEAD:${closureDecisionRelPath(phaseId)}`]);
+  if (shown.code !== 0 || shown.stdout.trim().length === 0) return null;
+  try {
+    const parsed = JSON.parse(shown.stdout) as unknown;
+    return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * The durable evidence a closure needs and the runtime cannot compute for itself: whether the
  * validators and checks passed, whether reviews are complete, how many CRITICAL/HIGH findings remain,
  * and whether the required headed proof passed — each bound to the commit it was established at.
@@ -362,7 +385,26 @@ export function closureDecisionProblems(
         ? evidence.establishedAtHead
         : null;
 
-  return checkClosureDecision(readJson(sys, closureDecisionPath(root, phaseId)) as ClosureDecisionRecord | null, {
+  // The COMMITTED bytes are the decision. A working-tree read would validate content git never saw.
+  // The consumption marker is read from the working tree as well, because a decision spent since the
+  // last commit is still spent — so both are consulted and either one being set refuses.
+  const committed = readCommittedDecision(sys, root, phaseId);
+  const onDisk = readJson(sys, closureDecisionPath(root, phaseId));
+  if (committed === null && onDisk !== null) {
+    // Worth saying precisely: a decision was written but never committed. That is a different
+    // situation from "nobody has decided", and the operator's next step is different too.
+    return [
+      `a closure decision exists at ${closureDecisionRelPath(phaseId)} but is NOT committed. An uncommitted decision ` +
+        "has not passed the owner commit gate, which is the only thing that makes a forged one a visible diff under " +
+        "this programme's tamperProof:false model. Commit it.",
+    ];
+  }
+  const record: ClosureDecisionRecord | null =
+    committed === null
+      ? null
+      : ({ ...committed, ...(onDisk !== null && onDisk['consumedAt'] !== undefined ? { consumedAt: onDisk['consumedAt'] } : {}) } as ClosureDecisionRecord);
+
+  return checkClosureDecision(record, {
     phaseId,
     projectId: context.projectId,
     scope: 'phase-closure',
@@ -378,9 +420,24 @@ export function closureDecisionProblems(
  * — on its own it establishes nothing, and it is never used as a criterion.
  */
 export function readDecisionId(sys: System, root: string, phaseId: string): string | undefined {
-  const raw = readJson(sys, closureDecisionPath(root, phaseId));
+  const raw = readCommittedDecision(sys, root, phaseId);
   const id = raw === null ? undefined : raw['decisionId'];
   return typeof id === 'string' && id.length > 0 ? id : undefined;
+}
+
+/**
+ * Mark the decision spent, in the decision itself.
+ *
+ * Recorded here rather than only in the phase's history because `phase new --force` erases a phase
+ * record — reset it, walk the lifecycle again, and the same decision would close the phase twice.
+ * The decision file survives that.
+ */
+export function markDecisionConsumed(sys: System, root: string, phaseId: string, at: string): void {
+  const path = closureDecisionPath(root, phaseId);
+  const onDisk = readJson(sys, path);
+  const base = onDisk ?? readCommittedDecision(sys, root, phaseId);
+  if (base === null) return;
+  sys.writeText(path, JSON.stringify({ ...base, consumedAt: at }, null, 2) + '\n');
 }
 
 /** Render an unmet gate for the CLI: every outstanding predicate, named. */

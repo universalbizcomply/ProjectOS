@@ -126,7 +126,13 @@ const IMPLEMENTER_TOKENS = ['claude', 'anthropic', 'implementer', 'assistant', '
 const IMPLEMENTER_WORDS = new Set(['ai', 'bot', 'agent', 'llm', 'model']);
 
 export function isImplementerIdentity(name: string): boolean {
-  const lower = name.toLowerCase();
+  // Normalise before folding, so a homoglyph or an accent cannot spell past the token list. NFKC
+  // maps compatibility forms, and stripping combining marks turns `Claudé` into `claude`. This is
+  // defence in depth — the real boundary is the exact match against the plan's recorded owner or
+  // delegate — but a filter advertised as catching spelling variants should actually catch them.
+  // NFKD, not NFKC: decomposition is what separates `é` into `e` + a combining mark so the mark can
+  // be stripped. NFKC would recompose it and the accent would survive the fold.
+  const lower = name.normalize('NFKD').toLowerCase().replace(/\p{M}/gu, '');
   const stripped = lower.replace(/[^a-z]/g, '');
   if (IMPLEMENTER_TOKENS.some((t) => stripped.includes(t))) return true;
   return lower
@@ -192,6 +198,10 @@ export function authoriseClosure(input: ClosureAuthorityInput): Result<ClosureGr
       projectScope: input.governedProjectId,
       scope: input.scope,
       ...(input.phaseId === undefined ? {} : { phaseId: input.phaseId }),
+      // Carried for the owner basis too. Omitting it meant every owner closure wrote a history note
+      // with no decision reference, so `consumedDecisionIds` could never see an owner decision as
+      // consumed — replay detection was silently absent on the MORE privileged of the two bases.
+      ...(input.decisionId === undefined ? {} : { decisionId: input.decisionId }),
     } as ClosureGrant);
   }
 
@@ -337,9 +347,9 @@ export function isAuthoritativelyClosed(record: {
 
 /** Human-readable basis recorded on the phase history, so closure is auditable after the fact. */
 export function grantNote(grant: ClosureGrant): string {
-  if (grant.basis === 'owner') return `closed by owner ${grant.authorisedIdentity}`;
   // The decision id is written into the history deliberately: it is what makes a replay detectable,
-  // because `consumedDecisionIds` reads it back out of exactly this sentence.
+  // because `consumedDecisionIds` reads it back out of exactly this sentence. Both bases carry it.
   const decision = grant.decisionId === undefined ? '' : `, decision ${grant.decisionId}`;
+  if (grant.basis === 'owner') return `closed by owner ${grant.authorisedIdentity}${decision}`;
   return `closed by ${grant.authorisedIdentity} under the ${grant.projectScope}-scoped ${grant.scope} delegation${decision}`;
 }

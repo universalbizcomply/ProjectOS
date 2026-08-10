@@ -238,7 +238,7 @@ describe('a grant cannot be repurposed', () => {
   it('closure without a grant is still refused for the advisor', () => {
     const r = transitionPhase(atAwaitingClosure(), 'closed', 'advisor', '2026-08-09T01:00:00Z');
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toContain("requires role 'owner'");
+    if (!r.ok) expect(r.error).toContain('requires a closure grant');
   });
 
   it('an illegal transition is still illegal with a valid grant', () => {

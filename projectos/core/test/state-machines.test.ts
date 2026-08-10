@@ -48,22 +48,22 @@ describe('phase state machine', () => {
     if (!r.ok) expect(r.error).toContain('Illegal transition');
   });
 
-  it('allows owner to close from awaiting_closure', () => {
+  it('refuses to close WITHOUT A GRANT, even as owner', () => {
+    // The role string alone used to be enough for `owner`. That carve-out meant every protection —
+    // delegation, G4, the gatekeeper decision — lived in one caller of core rather than in core, and
+    // a different caller closing with `by: 'owner'` bypassed all of it. Core defends itself now.
     const p = { phaseId: 'X', project: 'p', objective: 'o', status: 'awaiting_closure' as const, history: [] };
     const r = transitionPhase(p, 'closed', 'owner', AT, 'accepted');
-    expect(r.ok).toBe(true);
-    if (r.ok) {
-      expect(r.value.status).toBe('closed');
-      expect(r.value.history[0]?.note).toBe('accepted');
-    }
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain('requires a closure grant');
   });
 
-  it('forbids non-owner from closing', () => {
+  it('forbids every role from closing without a grant', () => {
     const p = { phaseId: 'X', project: 'p', objective: 'o', status: 'awaiting_closure' as const, history: [] };
-    for (const role of ['implementer', 'advisor'] as const) {
+    for (const role of ['implementer', 'advisor', 'owner'] as const) {
       const r = transitionPhase(p, 'closed', role, AT);
-      expect(r.ok).toBe(false);
-      if (!r.ok) expect(r.error).toContain("requires role 'owner'");
+      expect(r.ok, role).toBe(false);
+      if (!r.ok) expect(r.error).toContain('requires a closure grant');
     }
   });
 

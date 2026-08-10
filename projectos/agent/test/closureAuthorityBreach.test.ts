@@ -110,6 +110,15 @@ function eligibleCheckout(files: Record<string, string> = {}): System & { writes
       if (args.includes('log')) return { code: 0, stdout: 'b'.repeat(40), stderr: '' };
       if (args.includes('diff')) return { code: 0, stdout: '', stderr: '' };
       if (args.includes('merge-base')) return { code: 0, stdout: '', stderr: '' };
+      // `git show HEAD:<path>` — the decision is read from the COMMITTED OBJECT, never from the
+      // working tree, so a symlinked path cannot serve bytes git never saw. The fixture models that
+      // by serving the object from the same store, which is what a committed file would produce.
+      if (args.includes('show')) {
+        const spec = args[args.length - 1] ?? '';
+        const rel = spec.startsWith('HEAD:') ? spec.slice('HEAD:'.length) : '';
+        const body = store[`${ROOT}/${rel}`];
+        return body === undefined ? { code: 128, stdout: '', stderr: 'path does not exist' } : { code: 0, stdout: body, stderr: '' };
+      }
       return { code: 0, stdout: '', stderr: '' };
     },
   };
@@ -192,16 +201,18 @@ describe('the disclosed breach cannot happen again', () => {
     const sys = eligibleCheckout({
       [`${ROOT}/.projectops/closure/decisions/${PHASE}.json`]: JSON.stringify(DECISION),
     });
-    // Same fixture, but git reports the decision path as never committed.
+    // Same fixture, but git has no committed object for the decision path and no log entry for it —
+    // exactly what an on-disk-only decision looks like.
     const uncommitted: System & { writes: string[] } = {
       ...sys,
       exec: (cmd: string, args: readonly string[]) =>
-        args.includes('log') ? { code: 1, stdout: '', stderr: '' } : sys.exec(cmd, args),
+        args.includes('log') || args.includes('show') ? { code: 1, stdout: '', stderr: '' } : sys.exec(cmd, args),
     };
     const r = phase({ sys: uncommitted, root: ROOT }, { id: PHASE, to: 'closed', delegated: true }, ['advance']);
     expect(r.code).toBe(2);
-    expect(r.lines.join(' ')).toContain('not committed');
+    expect(r.lines.join(' ')).toContain('is NOT committed');
     expect(statusOf(uncommitted)).toBe('awaiting_closure');
+    expect(uncommitted.writes).toEqual([]);
   });
 
   it('R5 a decision bound to other bytes, another phase or another actor does not close it', () => {

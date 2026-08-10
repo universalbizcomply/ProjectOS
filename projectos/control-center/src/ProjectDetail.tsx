@@ -126,14 +126,22 @@ export function ProjectDetail({ project, onBack }: { project: ProjectRow; onBack
                       {nexts.length === 0 && <span className="note">terminal</span>}
                       {nexts.map((to) => {
                         const gated = to === 'closed' || to === 'closed_as_blocked';
+                        // Closure is NOT offered here. This surface advanced phases by passing
+                        // `by: 'owner'` straight into the core state machine, so its Close button
+                        // closed a phase with no G4 gate, no delegation check and no gatekeeper
+                        // decision. Offering a control that must always refuse is worse than not
+                        // offering it: it invites the click and teaches the operator to ignore the
+                        // refusal. Closure lives in the governed runtime.
+                        if (gated) {
+                          return (
+                            <span key={to} className="note" title="Closure requires the G4 gate and a committed gatekeeper decision, through the governed runtime.">
+                              closure is governed elsewhere
+                            </span>
+                          );
+                        }
                         return (
-                          <button
-                            key={to}
-                            className={gated ? 'btn-gated' : 'btn-step'}
-                            disabled={busy}
-                            onClick={() => void onAdvance(p, to)}
-                          >
-                            {gated ? `${STATUS_LABEL[to]} 🔒` : `→ ${STATUS_LABEL[to]}`}
+                          <button key={to} className="btn-step" disabled={busy} onClick={() => void onAdvance(p, to)}>
+                            {`→ ${STATUS_LABEL[to]}`}
                           </button>
                         );
                       })}

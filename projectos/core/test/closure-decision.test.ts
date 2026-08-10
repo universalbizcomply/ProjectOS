@@ -14,6 +14,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   authoriseClosure,
+  grantNote,
   isImplementerIdentity,
   type ClosureAuthorityInput,
   type ClosureDelegation,
@@ -272,5 +273,65 @@ describe('THE LEGITIMATE PATH — a decision, bound and committed', () => {
 
   it('L9 a closure evidence record with no subject cannot be decided against', () => {
     expect(checkClosureDecision(GOOD_DECISION, expectations({ evidenceSubjectHead: null })).join(' ')).toContain('names no subject');
+  });
+});
+
+/**
+ * Findings from the adversarial review of the correction itself. Each broke the property in a way
+ * the identity/role logic never touched — by scope, by resettable state, or by what "committed"
+ * actually covered — so each gets a permanent case.
+ */
+describe('the review found four more ways through, and none of them work now', () => {
+  it('S1 core refuses ANY closure without a grant, including one performed as owner', () => {
+    // The old carve-out `by !== 'owner'` meant the string 'owner' was sufficient at the core
+    // boundary, so every protection lived in one caller and any other caller walked around it. The
+    // Control Centre's project surface did exactly that.
+    const at = '2026-08-10T22:00:00Z';
+    const p: Phase = { phaseId: PHASE, project: 'ProjectOS', objective: 'o', status: 'awaiting_closure', history: [] };
+    for (const role of ['owner', 'advisor', 'implementer'] as const) {
+      const r = transitionPhase(p, 'closed', role, at);
+      expect(r.ok, role).toBe(false);
+      if (!r.ok) expect(r.error, role).toContain('requires a closure grant');
+    }
+    // A real grant still closes it, so the rule is a gate and not a wall.
+    const granted = authoriseClosure(input({ decisionProblems: [], decisionId: 'GK-CLOSE-PHASE18-0001' }));
+    expect(granted.ok).toBe(true);
+    if (granted.ok) expect(transitionPhase(p, 'closed', 'advisor', at, undefined, granted.value).ok).toBe(true);
+  });
+
+  it('S2 a decision that has been consumed cannot be used again, even with a fresh phase history', () => {
+    // Replay tracking used to live only in the phase's history, which `phase new --force` erases.
+    // The marker is in the DECISION now, which a phase reset does not touch.
+    const spent = { ...GOOD_DECISION, consumedAt: '2026-08-10T21:30:00Z' };
+    const problems = checkClosureDecision(spent, expectations({ alreadyConsumedDecisionIds: [] }));
+    expect(problems.join(' ')).toContain('already consumed');
+    expect(authoriseClosure(input({ decisionProblems: problems })).ok).toBe(false);
+  });
+
+  it('S3 a caller-supplied note cannot poison the replay ledger', () => {
+    // `--note "decision 00000000"` used to be captured instead of the real id, because the search
+    // was unanchored and the caller's text came first. The id is read from the END of the note.
+    const real = 'closed by ChatGPT under the projectos-scoped phase-closure delegation, decision GK-REAL-0001';
+    expect(consumedDecisionIds([{ to: 'closed', note: `decision GK-DECOY-0000 — ${real}` }])).toEqual(['GK-REAL-0001']);
+    // A note that is ONLY a decoy yields nothing, rather than a false consumption.
+    expect(consumedDecisionIds([{ to: 'closed', note: 'decision GK-DECOY-0000' }])).toEqual([]);
+  });
+
+  it('S4 an owner closure records its decision id, so owner closures are visible to replay detection', () => {
+    // The owner grant omitted decisionId entirely, so `grantNote` produced a note with no decision
+    // reference and no owner closure could ever be seen as consuming anything.
+    const r = authoriseClosure(input({ actorRole: 'owner', actorIdentity: 'Murad', decisionProblems: [], decisionId: 'OWN-0001' }));
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.value.decisionId).toBe('OWN-0001');
+      expect(grantNote(r.value)).toContain('decision OWN-0001');
+      expect(consumedDecisionIds([{ to: 'closed', note: grantNote(r.value) }])).toEqual(['OWN-0001']);
+    }
+  });
+
+  it('S5 an implementer identity is caught through homoglyphs and diacritics', () => {
+    for (const name of ['Claude', 'Claudé', 'CLAUDE', 'c l a u d e', 'Anthropic']) {
+      expect(isImplementerIdentity(name), name).toBe(true);
+    }
   });
 });

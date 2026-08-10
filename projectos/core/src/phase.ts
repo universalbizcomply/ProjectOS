@@ -93,8 +93,17 @@ export function transitionPhase(
   if (!canTransition(phase.status, to)) {
     return err(`Illegal transition: ${phase.status} -> ${to}`);
   }
-  if (requiresOwner(to) && by !== 'owner' && grant === undefined) {
-    return err(`Transition to '${to}' requires role 'owner', got '${by}'`);
+  // A CLOSURE ALWAYS REQUIRES A GRANT — including one performed as `owner`.
+  //
+  // The old rule carved out `by === 'owner'`, which made the string `'owner'` sufficient on its own.
+  // Every protection built above this line — the delegation check, G4, and the gatekeeper decision —
+  // lived in ONE caller (`agent/src/commands/phase.ts`), so any other caller of core that passed
+  // `by: 'owner'` closed a phase with none of it. The Control Centre's project surface did exactly
+  // that. Core now defends itself instead of trusting whichever caller supplied the role.
+  if (requiresOwner(to) && grant === undefined) {
+    return err(
+      `Transition to '${to}' requires a closure grant from authoriseClosure; role '${by}' alone is not authority`,
+    );
   }
   // A grant authorises CLOSURE only. It can never be used to reach any other transition, so a
   // caller holding one for a legitimate close cannot reuse it elsewhere.

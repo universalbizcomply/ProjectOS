@@ -45,6 +45,15 @@ export interface ClosureDecisionRecord {
   readonly evidenceSubjectHead?: unknown;
   readonly decision?: unknown;
   readonly note?: unknown;
+  /**
+   * Written back when this decision is CONSUMED by a closure.
+   *
+   * Replay tracking used to live only in the phase's own history, which `phase new --force` erases:
+   * reset the record, walk the lifecycle again, and the same decision closed the phase a second
+   * time. Consumption is therefore recorded HERE, in the decision, which a phase reset does not
+   * touch. A decision that already carries this is spent.
+   */
+  readonly consumedAt?: unknown;
 }
 
 /** What the runtime knows independently, and against which the record is judged. */
@@ -99,6 +108,10 @@ export function checkClosureDecision(
   } else if (expect.alreadyConsumedDecisionIds.includes(record.decisionId)) {
     e.push(`decision ${record.decisionId} was already consumed by a closure of this phase and cannot be replayed`);
   }
+  // The consumption marker lives in the decision, so resetting the phase record cannot un-spend it.
+  if (record.consumedAt !== undefined && record.consumedAt !== null) {
+    e.push(`decision was already consumed at ${String(record.consumedAt)} and cannot be replayed`);
+  }
   if (record.decision !== 'close') {
     e.push(`the record does not decide to close (decision=${JSON.stringify(record.decision)})`);
   }
@@ -138,12 +151,23 @@ export function checkClosureDecision(
   return e;
 }
 
-/** The decision ids a phase's history records as already having closed it. */
+/**
+ * The decision ids a phase's history records as already having closed it.
+ *
+ * The id is read from the END of the note, because the note is `<caller text> — <authority basis>`
+ * and the authority basis is appended last. An unanchored search took the FIRST match, so a caller
+ * passing `--note "decision 00000000"` made every closure record a decoy id and the real one was
+ * never seen as consumed — replay tracking defeated from the first legitimate closure, with no
+ * `--force` needed.
+ *
+ * This is a secondary check. The primary one is the `consumedAt` marker written into the decision
+ * itself, which survives a phase-record reset that this cannot.
+ */
 export function consumedDecisionIds(history: readonly { readonly to?: unknown; readonly note?: unknown }[]): readonly string[] {
   const ids: string[] = [];
   for (const h of history) {
     if (h.to !== 'closed' || typeof h.note !== 'string') continue;
-    const m = /decision ([A-Za-z0-9_.:-]{8,128})/.exec(h.note);
+    const m = /, decision ([A-Za-z0-9_.:-]{8,128})$/.exec(h.note.trim());
     const id = m === null ? undefined : m[1];
     if (id !== undefined) ids.push(id);
   }

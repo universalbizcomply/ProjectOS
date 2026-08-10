@@ -316,10 +316,17 @@ describe('approved-phase membership and dependencies gate creation', () => {
         decision: 'close',
       }),
     });
+    const decisionRel = `.projectops/closure/decisions/${P0}.json`;
     const committed: System = {
       ...sys,
-      exec: (cmd: string, args: readonly string[]) =>
-        args.includes('log') ? { code: 0, stdout: 'e'.repeat(40), stderr: '' } : sys.exec(cmd, args),
+      exec: (cmd: string, args: readonly string[]) => {
+        if (args.includes('log')) return { code: 0, stdout: 'e'.repeat(40), stderr: '' };
+        // The decision is read from the committed object, so the fixture must serve one.
+        if (args.includes('show') && String(args[args.length - 1]).endsWith(decisionRel)) {
+          return { code: 0, stdout: sys.readText(`${ROOT}/${decisionRel}`) ?? '', stderr: '' };
+        }
+        return sys.exec(cmd, args);
+      },
     };
     expect(authorisePhase(committed, ROOT, ctxOf(committed), P1).ok).toBe(false);
     expect(phase({ sys: committed, root: ROOT }, { id: P0 }, ['new']).code).toBe(0);

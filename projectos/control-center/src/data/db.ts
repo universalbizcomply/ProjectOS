@@ -104,7 +104,16 @@ export async function createPhaseRow(
   return { error: error ? error.message : null };
 }
 
-/** Advance a phase to `to`, acting as the owner. Enforces the core state machine. */
+/**
+ * Advance a phase to `to`. Enforces the core state machine.
+ *
+ * CLOSURE IS NOT REACHABLE FROM HERE, and that is the point. This surface passed `by: 'owner'`
+ * straight into `transitionPhase`, so clicking its Close button closed a phase with no G4
+ * evaluation, no delegation check and no gatekeeper decision — every protection built for closure
+ * lived in the CLI/daemon path and this one walked around all of it. Found by the Phase-18 security
+ * review. Core now demands a grant for any closure, so this call would fail anyway; refusing here
+ * first means the operator gets an explanation instead of a state-machine error.
+ */
 export async function advancePhaseRow(
   row: PhaseRow,
   to: PhaseStatus,
@@ -113,6 +122,13 @@ export async function advancePhaseRow(
 ): Promise<{ error: string | null }> {
   const c = getClient();
   if (c === null) return { error: 'not configured' };
+  if (to === 'closed' || to === 'closed_as_blocked') {
+    return {
+      error:
+        'Closure is not available from this surface. A phase closes only through the governed runtime, ' +
+        'which requires the G4 gate and a committed gatekeeper decision.',
+    };
+  }
   const r = transitionPhase(rowToPhase(row), to, 'owner', at, note);
   if (!r.ok) return { error: r.error };
   const { error } = await c
