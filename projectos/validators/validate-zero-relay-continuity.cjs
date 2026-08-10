@@ -108,7 +108,12 @@ function isProofTailPath(p) {
   return CLOSURE_TAIL_MIRROR.some((a) => (a.endsWith("/") ? q.startsWith(a) && q.length > a.length : q === a));
 }
 
-/** Why a proof made at `subject` no longer describes the current `head`, or [] when it still does. */
+/**
+ * Why a proof made at `subject` no longer describes `head`, or [] when it still does.
+ *
+ * Used twice, deliberately with the same rule: against the live HEAD while a phase is OPEN, and
+ * against the ACCEPTED CLOSURE SUBJECT once it is closed.
+ */
 function staleProofProblems(subject, head) {
   const e = tailMirrorProblems();
   if (!HEX40.test(subject)) return e.concat(["Z4 the proof records no valid subject commit"]);
@@ -117,7 +122,9 @@ function staleProofProblems(subject, head) {
   if (anc === null) {
     return e.concat(["Z4 the proof was made at " + subject.slice(0, 7) + ", which is not an ancestor of HEAD " + head.slice(0, 7) + "; re-run it"]);
   }
-  const diff = git(["diff", "--name-only", subject + "..HEAD"]);
+  // Diff against the TARGET, not the literal HEAD: this function is also asked about a closed
+  // phase's accepted subject, and hardcoding HEAD there would measure the wrong distance.
+  const diff = git(["diff", "--name-only", subject + ".." + head]);
   if (diff === null) return e.concat(["Z4 the diff since the proof subject could not be read"]);
   const substantive = diff
     .split(/\r?\n/)
@@ -419,6 +426,57 @@ function run() {
       e.push("phase " + phaseId + " requires " + SELF + " but no continuity ledger for it exists under .projectops/continuity/");
       continue;
     }
+    // AN OPEN PHASE IS JUDGED AGAINST THE TREE; A CLOSED ONE AGAINST WHAT IT WAS CLOSED ON.
+    //
+    // While a phase is open its proof must still describe the tree being closed — that is the
+    // staleness rule, and it is what forced this proof to be re-taken three times during Phase 17.
+    // Once the phase is CLOSED that rule becomes wrong, and provably so: every later commit to the
+    // repository would stale a proof belonging to finished work, so the suite would go red forever
+    // and the only way back would be re-running a handoff for a phase nobody is working on. Found in
+    // Phase 18, when the very next commit after the Phase-17 closure did exactly that.
+    //
+    // The binding that matters for a closed phase is the one its CLOSURE EVIDENCE recorded: the proof
+    // must be the proof that was in front of the gate. That is checked below, and it is STRICTER than
+    // the staleness rule it replaces — the head is pinned to the accepted subject forever, so a later
+    // re-run cannot quietly become the evidence for a decision that was taken against a different one.
+    const closureEvidence = readJson(path.join(ROOT, ".projectops", "closure", phaseId + ".json"));
+    const phaseRecord = readJson(path.join(ROOT, ".projectops", "phases", phaseId + ".json"));
+    const isClosed = phaseRecord !== null && String(phaseRecord.status) === "closed";
+    const acceptedSubject = closureEvidence === null ? null : String(closureEvidence.evidenceSubjectHead);
+
+    if (isClosed) {
+      if (acceptedSubject === null || !HEX40.test(acceptedSubject)) {
+        e.push("phase " + phaseId + " is CLOSED but its closure evidence names no subject commit, so its zero-relay proof cannot be pinned");
+        continue;
+      }
+      // The proof's head is compared to the accepted subject by the SAME ancestor-and-tail rule G4-12
+      // uses, not by equality. A proof is necessarily taken BEFORE the commit that carries it — the
+      // evidence commit is the proof's own child — so demanding equality would reject every genuine
+      // proof there has ever been. What must hold is that nothing substantive happened between the
+      // proof and the commit the gate accepted.
+      const pinned = forPhase.map((x) => {
+        const errors = judgeLedger(x.ledger, { live: false, expectPhaseId: phaseId }).slice();
+        const verify = ledgerLib.chainEvent(x.ledger, "worker-b-verify");
+        const observedHead = verify === null ? null : String((verify.detail.observed || {}).head);
+        if (observedHead !== acceptedSubject) {
+          for (const problem of staleProofProblems(String(observedHead), acceptedSubject)) {
+            errors.push(problem.replace("HEAD", "the accepted closure subject " + acceptedSubject.slice(0, 7)));
+          }
+        }
+        return { file: path.basename(x.file), errors: errors };
+      });
+      if (!pinned.some((x) => x.errors.length === 0)) {
+        const closest = pinned.slice().sort((a, b) => a.errors.length - b.errors.length)[0];
+        e.push("phase " + phaseId + " is CLOSED but has no zero-relay proof pinned to its accepted subject " + acceptedSubject.slice(0, 7) + "; closest ledger " + closest.file + " fails: " + closest.errors.join("; "));
+      }
+      const closedStops = forPhase.map((x) => ({ file: path.basename(x.file), errors: judgeOwnerStop(x.ledger) }));
+      if (!closedStops.some((x) => x.errors.length === 0)) {
+        const closest = closedStops.slice().sort((a, b) => a.errors.length - b.errors.length)[0];
+        e.push("phase " + phaseId + " is CLOSED but has no proof that an owner stop is honoured; closest ledger " + closest.file + " fails: " + closest.errors.join("; "));
+      }
+      continue;
+    }
+
     // TWO proofs are required, and neither substitutes for the other: one complete handoff, and one
     // owner stop that was honoured at the last possible moment.
     const handoffs = forPhase.map((x) => ({ file: path.basename(x.file), errors: judgeLedger(x.ledger, { live: true, root: ROOT, expectPhaseId: phaseId }) }));

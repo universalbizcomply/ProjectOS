@@ -5,22 +5,22 @@
   "phaseId": "PROJECTOS-V3-RELIABILITY-HARDENING1A",
   "repositoryRoot": "C:\\dev\\ProjectOS",
   "branch": "projectos-v3",
-  "createdAt": "2026-08-10T18:18:57.607Z",
+  "createdAt": "2026-08-10T17:01:39.786Z",
   "events": [
     {
       "seq": 1,
       "type": "worker-a-checkpoint",
-      "at": "2026-08-10T18:18:57.886Z",
+      "at": "2026-08-10T17:01:39.935Z",
       "author": "worker",
       "actor": {
         "module": "worker-runtime",
-        "workerId": "worker-a-zr-projectos-v3-reliability-hardening1a-handoff-42352",
-        "pid": 42352,
+        "workerId": "worker-a-zr-projectos-v3-reliability-hardening1a-handoff-49080",
+        "pid": 49080,
         "parentPid": null
       },
       "detail": {
         "checkpointId": "zr-projectos-v3-reliability-hardening1a-handoff-cp1",
-        "head": "78e3e917be47dff8ddbc1caac2c48ae2710cc57c",
+        "head": "d84df98e925cc4b6ac8cea34e2a8bc2e2f32102d",
         "branch": "projectos-v3",
         "planVersion": "1.3",
         "phaseId": "PROJECTOS-V3-RELIABILITY-HARDENING1A",
@@ -31,12 +31,12 @@
     {
       "seq": 2,
       "type": "worker-a-release",
-      "at": "2026-08-10T18:18:57.890Z",
+      "at": "2026-08-10T17:01:39.940Z",
       "author": "worker",
       "actor": {
         "module": "worker-runtime",
-        "workerId": "worker-a-zr-projectos-v3-reliability-hardening1a-handoff-42352",
-        "pid": 42352,
+        "workerId": "worker-a-zr-projectos-v3-reliability-hardening1a-handoff-49080",
+        "pid": 49080,
         "parentPid": null
       },
       "detail": {
@@ -47,34 +47,34 @@
     {
       "seq": 3,
       "type": "worker-a-post-release-write-refused",
-      "at": "2026-08-10T18:18:57.893Z",
+      "at": "2026-08-10T17:01:39.944Z",
       "author": "worker",
       "actor": {
         "module": "worker-runtime",
-        "workerId": "worker-a-zr-projectos-v3-reliability-hardening1a-handoff-42352",
-        "pid": 42352,
+        "workerId": "worker-a-zr-projectos-v3-reliability-hardening1a-handoff-49080",
+        "pid": 49080,
         "parentPid": null
       },
       "detail": {
         "attempted": "governed write after release",
-        "refusal": "ownership-lock: refused — worker-a-zr-projectos-v3-reliability-hardening1a-handoff-42352 released ownership of this checkout and may no longer write"
+        "refusal": "ownership-lock: refused — worker-a-zr-projectos-v3-reliability-hardening1a-handoff-49080 released ownership of this checkout and may no longer write"
       }
     },
     {
       "seq": 4,
       "type": "continuation-permit",
-      "at": "2026-08-10T18:18:58.133Z",
+      "at": "2026-08-10T17:01:40.091Z",
       "author": "executor",
       "actor": {
         "module": "zero-relay-executor",
         "workerId": null,
-        "pid": 11812,
+        "pid": 1068,
         "parentPid": null
       },
       "detail": {
         "decision": "permitted",
         "launchSpecDecision": "READY_TO_LAUNCH",
-        "head": "78e3e917be47dff8ddbc1caac2c48ae2710cc57c",
+        "head": "d84df98e925cc4b6ac8cea34e2a8bc2e2f32102d",
         "branch": "projectos-v3",
         "workingTreeClean": true,
         "ownerControlState": "running",
@@ -85,17 +85,17 @@
     {
       "seq": 5,
       "type": "executor-spawn",
-      "at": "2026-08-10T18:18:58.144Z",
+      "at": "2026-08-10T17:01:40.108Z",
       "author": "executor",
       "actor": {
         "module": "zero-relay-executor",
         "workerId": null,
-        "pid": 11812,
+        "pid": 1068,
         "parentPid": null
       },
       "detail": {
-        "childPid": 45760,
-        "executorPid": 11812,
+        "childPid": 46004,
+        "executorPid": 1068,
         "entry": "projectos/worker/worker-runtime.cjs",
         "argv": [
           "--resume",
@@ -113,13 +113,13 @@
     {
       "seq": 6,
       "type": "worker-b-verify",
-      "at": "2026-08-10T18:18:58.391Z",
+      "at": "2026-08-10T17:01:40.235Z",
       "author": "worker",
       "actor": {
         "module": "worker-runtime",
-        "workerId": "worker-b-zr-projectos-v3-reliability-hardening1a-handoff-45760",
-        "pid": 45760,
-        "parentPid": 11812
+        "workerId": "worker-b-zr-projectos-v3-reliability-hardening1a-handoff-46004",
+        "pid": 46004,
+        "parentPid": 1068
       },
       "detail": {
         "instructionProvenance": "durable-state",
@@ -136,16 +136,16 @@
         "observed": {
           "repositoryRoot": "C:\\dev\\ProjectOS",
           "branch": "projectos-v3",
-          "head": "78e3e917be47dff8ddbc1caac2c48ae2710cc57c",
+          "head": "d84df98e925cc4b6ac8cea34e2a8bc2e2f32102d",
           "planVersion": "1.3",
           "phaseId": "PROJECTOS-V3-RELIABILITY-HARDENING1A",
-          "phaseStatus": "closed",
+          "phaseStatus": "awaiting_closure",
           "checkpointId": "zr-projectos-v3-reliability-hardening1a-handoff-cp1"
         },
         "expected": {
           "repositoryRoot": "C:\\dev\\ProjectOS",
           "branch": "projectos-v3",
-          "head": "78e3e917be47dff8ddbc1caac2c48ae2710cc57c",
+          "head": "d84df98e925cc4b6ac8cea34e2a8bc2e2f32102d",
           "planVersion": "1.3",
           "phaseId": "PROJECTOS-V3-RELIABILITY-HARDENING1A",
           "checkpointId": "zr-projectos-v3-reliability-hardening1a-handoff-cp1"
@@ -157,13 +157,13 @@
     {
       "seq": 7,
       "type": "protected-action-refused",
-      "at": "2026-08-10T18:18:58.614Z",
+      "at": "2026-08-10T17:01:40.448Z",
       "author": "worker",
       "actor": {
         "module": "worker-runtime",
-        "workerId": "worker-b-zr-projectos-v3-reliability-hardening1a-handoff-45760",
-        "pid": 45760,
-        "parentPid": 11812
+        "workerId": "worker-b-zr-projectos-v3-reliability-hardening1a-handoff-46004",
+        "pid": 46004,
+        "parentPid": 1068
       },
       "detail": {
         "attempted": "deploy-production",
@@ -174,13 +174,13 @@
     {
       "seq": 8,
       "type": "worker-b-continuation",
-      "at": "2026-08-10T18:18:58.617Z",
+      "at": "2026-08-10T17:01:40.450Z",
       "author": "worker",
       "actor": {
         "module": "worker-runtime",
-        "workerId": "worker-b-zr-projectos-v3-reliability-hardening1a-handoff-45760",
-        "pid": 45760,
-        "parentPid": 11812
+        "workerId": "worker-b-zr-projectos-v3-reliability-hardening1a-handoff-46004",
+        "pid": 46004,
+        "parentPid": 1068
       },
       "detail": {
         "action": "record-continuation-note",
@@ -195,12 +195,12 @@
     {
       "seq": 9,
       "type": "worker-b-release",
-      "at": "2026-08-10T18:18:58.622Z",
+      "at": "2026-08-10T17:01:40.452Z",
       "author": "worker",
       "actor": {
         "module": "worker-runtime",
-        "workerId": "worker-b-zr-projectos-v3-reliability-hardening1a-handoff-45760",
-        "pid": 45760,
+        "workerId": "worker-b-zr-projectos-v3-reliability-hardening1a-handoff-46004",
+        "pid": 46004,
         "parentPid": null
       },
       "detail": {
