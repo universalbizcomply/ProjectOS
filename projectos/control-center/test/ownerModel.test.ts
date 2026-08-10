@@ -24,9 +24,16 @@ describe('whereYouAre', () => {
     expect(whereYouAre(DEMO_ACME)).toContain('working phase ACME-P1A');
   });
   it('points to the next phase when between phases', () => {
-    // Derived from the model, not restated: the recorded snapshot's next phase is pinned to the
-    // canonical record by ownerSnapshot.test, so repeating the literal here would only duplicate it.
-    expect(whereYouAre(PROJECTOS_V3)).toContain(`next is ${PROJECTOS_V3.nextRecommendedPhase}`);
+    // "Between phases" means activePhase is null. This used to borrow the ProjectOS snapshot, which
+    // happened to be between phases — and then Phase 18 started and the test was asserting the wrong
+    // branch. The condition is now stated explicitly rather than borrowed from a moving fact.
+    const between = { ...PROJECTOS_V3, activePhase: null };
+    expect(whereYouAre(between)).toContain(`next is ${between.nextRecommendedPhase}`);
+  });
+
+  it('names the ACTIVE phase when one is in flight', () => {
+    expect(PROJECTOS_V3.activePhase).not.toBeNull();
+    expect(whereYouAre(PROJECTOS_V3)).toContain(PROJECTOS_V3.activePhase as string);
   });
 });
 

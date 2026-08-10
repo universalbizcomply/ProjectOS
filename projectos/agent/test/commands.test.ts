@@ -355,9 +355,14 @@ describe('phase runtime', () => {
     const wrongIdentity = run(ctx, ['phase', 'advance', '--id', 'PROJECTOS-V3-BASELINE-RECONCILE1A', '--to', 'closed', '--as', 'advisor', '--identity', 'Someone Else']);
     expect(wrongIdentity.code).toBe(2);
     expect(wrongIdentity.lines.join('\n')).toContain('DELEGATION_WRONG_ACTOR');
+    // AND THE OWNER IS REFUSED TOO, without a decision. `--as owner` is a caller-supplied string, so
+    // before the Phase-18 correction typing it was sufficient on its own — no gate, no decision.
+    // Closure now requires a committed decision naming the recorded authority, whichever basis is
+    // claimed; the legitimate owner path is proven in closureAuthorityBreach.test.ts R7.
     const owned = run(ctx, ['phase', 'advance', '--id', 'PROJECTOS-V3-BASELINE-RECONCILE1A', '--to', 'closed', '--as', 'owner', '--note', 'accepted']);
-    expect(owned.code).toBe(0);
-    expect(run(ctx, ['phase', 'show', '--id', 'PROJECTOS-V3-BASELINE-RECONCILE1A']).lines.join('\n')).toContain('accepted');
+    expect(owned.code).toBe(2);
+    expect(owned.lines.join('\n')).toContain('GATEKEEPER_DECISION_MISSING');
+    expect(run(ctx, ['phase', 'show', '--id', 'PROJECTOS-V3-BASELINE-RECONCILE1A']).lines.join('\n')).toContain('awaiting_closure');
   });
 
   it('validates flags and status names', () => {

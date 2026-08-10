@@ -15,8 +15,8 @@
 import type { System } from './system.js';
 import { join, projectopsDir } from './context.js';
 import type { GovernedContext } from './governedContext.js';
-import type { G4Facts, G4Verdict } from '@projectos/core';
-import { evaluateClosureEligibility, isClosureTailPath } from '@projectos/core';
+import type { G4Facts, G4Verdict, ClosureDecisionRecord } from '@projectos/core';
+import { evaluateClosureEligibility, isClosureTailPath, checkClosureDecision, consumedDecisionIds } from '@projectos/core';
 
 /** Where the durable closure-evidence record for a phase lives. */
 export function closureEvidencePath(root: string, phaseId: string): string {
@@ -27,6 +27,36 @@ export function closureEvidencePath(root: string, phaseId: string): string {
  *  record for another subject is a different file rather than a silently reused one. */
 export function validationRecordPath(root: string, subjectHead: string): string {
   return join(projectopsDir(root), 'validation', `${subjectHead}.json`);
+}
+
+/** Where the gatekeeper's closure DECISION for a phase lives. One canonical location, never a
+ *  caller-supplied path — a path argument would be one more thing the caller controls. */
+export function closureDecisionPath(root: string, phaseId: string): string {
+  return join(projectopsDir(root), 'closure', 'decisions', `${phaseId}.json`);
+}
+
+/** Repo-relative form of the same path, for git queries. */
+export function closureDecisionRelPath(phaseId: string): string {
+  return `.projectops/closure/decisions/${phaseId}.json`;
+}
+
+/**
+ * Is the decision COMMITTED, not merely sitting on disk?
+ *
+ * This is the whole difference between "someone wrote a file" and "someone put a decision through the
+ * owner's commit gate". `git log -1 -- <path>` answers it without trusting the file, and `git diff
+ * HEAD -- <path>` catches the case where a committed decision has since been edited in the working
+ * tree — which would otherwise let the committed version launder an uncommitted change.
+ *
+ * Any git failure returns false. An unverifiable decision is not a decision.
+ */
+export function decisionIsCommitted(sys: System, root: string, phaseId: string): boolean {
+  const rel = closureDecisionRelPath(phaseId);
+  const logged = sys.exec('git', ['-C', root, 'log', '-1', '--format=%H', '--', rel]);
+  if (logged.code !== 0 || logged.stdout.trim().length === 0) return false;
+  const dirty = sys.exec('git', ['-C', root, 'diff', '--name-only', 'HEAD', '--', rel]);
+  if (dirty.code !== 0) return false;
+  return dirty.stdout.trim().length === 0;
 }
 
 /**
@@ -292,6 +322,65 @@ export function evaluateG4(
   };
 
   return { facts, verdict: evaluateClosureEligibility(facts) };
+}
+
+/**
+ * Establish why the gatekeeper's decision is unusable, or `[]` when it is usable.
+ *
+ * Everything the record is judged against is DERIVED here: the delegate comes from the active
+ * approved plan, the evidence subject from the closure evidence, the committed fact from git, and the
+ * already-consumed ids from the phase's own history. The record supplies none of its own criteria.
+ */
+export function closureDecisionProblems(
+  sys: System,
+  root: string,
+  context: GovernedContext,
+  phaseId: string,
+  phaseHistory: readonly { readonly to?: unknown; readonly note?: unknown }[],
+  basis: 'owner' | 'delegated',
+): readonly string[] {
+  const plan = context.plan;
+  const governance = plan['governance'];
+  const gov = typeof governance === 'object' && governance !== null ? (governance as Record<string, unknown>) : {};
+  const delegation = gov['closureDelegation'] as Record<string, unknown> | undefined;
+  // WHOSE decision this must be comes from the plan and from the basis being claimed — never from the
+  // record, and never from the caller.
+  const expectedDecider =
+    basis === 'owner'
+      ? typeof gov['owner'] === 'string'
+        ? (gov['owner'] as string)
+        : ''
+      : typeof delegation?.['delegatedTo'] === 'string'
+        ? (delegation['delegatedTo'] as string)
+        : '';
+
+  const evidence = (readJson(sys, closureEvidencePath(root, phaseId)) ?? {}) as ClosureEvidenceRecord;
+  const subject =
+    typeof evidence.evidenceSubjectHead === 'string'
+      ? evidence.evidenceSubjectHead
+      : typeof evidence.establishedAtHead === 'string'
+        ? evidence.establishedAtHead
+        : null;
+
+  return checkClosureDecision(readJson(sys, closureDecisionPath(root, phaseId)) as ClosureDecisionRecord | null, {
+    phaseId,
+    projectId: context.projectId,
+    scope: 'phase-closure',
+    expectedDecider,
+    evidenceSubjectHead: subject,
+    isCommitted: decisionIsCommitted(sys, root, phaseId),
+    alreadyConsumedDecisionIds: consumedDecisionIds(phaseHistory),
+  });
+}
+
+/**
+ * The decision's own id, for recording on the history. Read only AFTER the decision has been checked
+ * — on its own it establishes nothing, and it is never used as a criterion.
+ */
+export function readDecisionId(sys: System, root: string, phaseId: string): string | undefined {
+  const raw = readJson(sys, closureDecisionPath(root, phaseId));
+  const id = raw === null ? undefined : raw['decisionId'];
+  return typeof id === 'string' && id.length > 0 ? id : undefined;
 }
 
 /** Render an unmet gate for the CLI: every outstanding predicate, named. */

@@ -20,6 +20,7 @@ import type { CommandContext, CommandResult } from '../context.js';
 import { ok, fail } from '../context.js';
 import { type Flags, str } from '../flags.js';
 import {
+  canTransition,
   createPhase,
   transitionPhase,
   authoriseClosure,
@@ -32,7 +33,13 @@ import {
   type Role,
 } from '@projectos/core';
 import { loadPhase, savePhase, listPhaseIds } from '../phaseStore.js';
-import { evaluateG4, g4RefusalLines } from '../closureGate.js';
+import {
+  evaluateG4,
+  g4RefusalLines,
+  closureDecisionProblems,
+  closureDecisionRelPath,
+  readDecisionId,
+} from '../closureGate.js';
 import {
   loadGovernedContext,
   refusalLines,
@@ -85,12 +92,61 @@ export function phase(
       return phaseList(ctx);
     case 'reconcile-objective':
       return phaseReconcileObjective(ctx, flags);
+    case 'closure-eligibility':
+      return phaseClosureEligibility(ctx, flags);
     default:
       return fail(1, [
         `Unknown 'phase' subcommand: ${sub}`,
-        'Use: phase new|advance|show|list|reconcile-objective',
+        'Use: phase new|advance|show|list|reconcile-objective|closure-eligibility',
       ]);
   }
+}
+
+/**
+ * STEP A — READ-ONLY eligibility. Answers "are the conditions for a closure decision satisfied?" and
+ * transitions nothing.
+ *
+ * This exists so that asking the question is no longer entangled with performing the act. Before it,
+ * the only way to find out whether G4 passed was to attempt the closure — and attempting it was
+ * enough to do it. Anyone may run this; it writes nothing, so there is nothing to protect.
+ *
+ * It deliberately reports the DECISION state too, because "eligible" alone is the answer that misled
+ * a reader into thinking closure was authorised.
+ */
+function phaseClosureEligibility(ctx: CommandContext, flags: Flags): CommandResult {
+  const { sys, root } = ctx;
+  const id = str(flags, 'id');
+  if (id === '') return fail(1, ['`phase closure-eligibility` requires --id <PHASE-ID>']);
+
+  const gc = loadGovernedContext(sys, root);
+  if (!gc.ok) return fail(2, refusalLines(gc));
+  const current = loadPhase(sys, root, id);
+  if (current === null) return fail(1, [`No phase ${id}`]);
+
+  const delegation = delegationOf(gc.context.plan);
+  const g4 = evaluateG4(sys, root, gc.context, id, current.status, { ready: true, reasons: [] }, delegation !== null, false);
+  const decisionProblems = closureDecisionProblems(sys, root, gc.context, id, current.history, 'delegated');
+
+  const lines = [`closure eligibility for ${id} (status: ${current.status})`];
+  if (g4.verdict.eligible) {
+    lines.push(`  G4_ELIGIBLE — all ${g4.verdict.satisfied.length} predicates satisfied`);
+  } else {
+    lines.push(`  G4_NOT_SATISFIED — ${g4.verdict.unmet.length} predicate(s) unmet:`);
+    for (const u of g4.verdict.unmet) lines.push(`    ${u.code}: ${u.detail}`);
+  }
+  if (decisionProblems.length === 0) {
+    lines.push('  GATEKEEPER DECISION: present, bound to this phase and subject, and committed');
+  } else {
+    lines.push('  GATEKEEPER DECISION: NOT USABLE');
+    for (const p of decisionProblems) lines.push(`    ${p}`);
+  }
+  lines.push(
+    g4.verdict.eligible && decisionProblems.length === 0
+      ? '  => the trusted finalisation path may close this phase'
+      : '  => this phase MUST NOT be closed. Eligibility is not a decision, and this command decides nothing.',
+  );
+  // Always exit 0: this is a question, and "not eligible" is a legitimate answer to it, not a failure.
+  return ok(lines);
 }
 
 /**
@@ -222,6 +278,13 @@ function phaseAdvance(ctx: CommandContext, flags: Flags): CommandResult {
   const current = loadPhase(sys, root, id);
   if (current === null) return fail(1, [`No phase ${id} — run \`projectos phase new --id ${id}\``]);
 
+  // LEGALITY BEFORE AUTHORITY. A transition that could never happen is reported as illegal, not as a
+  // missing decision: telling an operator to obtain the gatekeeper's decision for a `draft -> closed`
+  // move would send them to fetch an authority that would not help.
+  if (!canTransition(current.status, to)) {
+    return fail(1, [`Illegal transition: ${current.status} -> ${to}`]);
+  }
+
   // Closure authority. Closure stays owner-only unless the ACTIVE APPROVED PLAN records a
   // delegation that covers this exact project, delegate and scope. The decision is made by the core
   // authority module — this command never decides it — and the resulting grant is the only way a
@@ -245,8 +308,14 @@ function phaseAdvance(ctx: CommandContext, flags: Flags): CommandResult {
         : str(flags, 'identity');
     // The G4 gate. A delegation names who MAY close; this proves the conditions actually hold.
     // Facts are DERIVED here, never taken from the request — see closureGate.ts.
-    const callerAssertedAuthority =
-      str(flags, 'identity') !== '' || (delegated && str(flags, 'as') !== '' && str(flags, 'as') !== 'implementer');
+    // ANY caller-stated role or identity alongside `--delegated` is an assertion of authority.
+    //
+    // The earlier form excluded `--as implementer`, on the reasoning that naming yourself the
+    // implementer asserts nothing. But `--delegated` overrides the role to advisor, so
+    // `--delegated --as implementer` laundered an implementer invocation into a delegated close and
+    // slipped past G4-15 precisely because of that exclusion. The caller has no business stating a
+    // role here at all: under a delegation the runtime resolves it from the plan.
+    const callerAssertedAuthority = str(flags, 'identity') !== '' || (delegated && str(flags, 'as') !== '');
     const g4 = delegated
       ? evaluateG4(
           sys,
@@ -260,6 +329,24 @@ function phaseAdvance(ctx: CommandContext, flags: Flags): CommandResult {
         )
       : null;
 
+    // THE DECISION, established rather than assumed.
+    //
+    // `--delegated` used to be both the request AND, implicitly, the gatekeeper's decision: the
+    // runtime resolved the delegate's identity from the plan and then acted as though that delegate
+    // had spoken. It had not. An implementer typing this flag closed Phase 18 with every G4 predicate
+    // satisfied, which is exactly the point — eligibility was never the missing thing.
+    // Required for BOTH bases. `--as owner` is just as much a caller-supplied string as
+    // `--delegated`, and gating only the delegated path would have left the wider hole open.
+    const decisionProblems = closureDecisionProblems(
+      sys,
+      root,
+      gc.context,
+      id,
+      current.history,
+      delegated ? 'delegated' : 'owner',
+    );
+    const decisionId = readDecisionId(sys, root, id);
+
     const decision = authoriseClosure({
       governedProjectId: gc.context.projectId,
       planProjectId: typeof plan['projectId'] === 'string' ? plan['projectId'] : '',
@@ -272,11 +359,23 @@ function phaseAdvance(ctx: CommandContext, flags: Flags): CommandResult {
       scope: 'phase-closure',
       phaseId: id,
       ...(g4 === null ? {} : { eligibility: g4.verdict }),
+      decisionProblems,
+      ...(decisionId === undefined ? {} : { decisionId }),
     });
     if (!decision.ok) {
       // A G4 failure is reported predicate by predicate: an operator must see everything still
       // outstanding, not just the first thing that failed.
       if (g4 !== null && !g4.verdict.eligible) return fail(2, g4RefusalLines(g4.verdict));
+      // The eligible-but-undecided case is the common one and deserves its own answer, because it is
+      // not a fault: the work is ready and the authority has simply not spoken yet.
+      if (g4 !== null && g4.verdict.eligible && decisionProblems.length > 0) {
+        return fail(2, [
+          `REFUSED (ELIGIBLE_AWAITING_GATEKEEPER): all ${g4.verdict.satisfied.length} G4 predicates are satisfied, ` +
+            'but eligibility is not a decision and this caller cannot make one on the gatekeeper\'s behalf.',
+          ...decisionProblems.map((p) => `  ${p}`),
+          `  Record the decision at ${closureDecisionRelPath(id)} and commit it.`,
+        ]);
+      }
       return fail(2, [`REFUSED (${decision.error})`]);
     }
     grant = decision.value;

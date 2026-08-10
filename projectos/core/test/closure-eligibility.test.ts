@@ -90,9 +90,31 @@ describe('C14 every predicate genuinely true — and only then', () => {
       scope: 'phase-closure',
       phaseId: facts().phaseId,
       eligibility: evaluateClosureEligibility(facts()),
+      // A verified gatekeeper decision. Eligibility alone stopped being sufficient after an
+      // implementer closed Phase 18 with every predicate satisfied — see closure-decision.test.ts.
+      decisionProblems: [],
+      decisionId: 'GK-TEST-DECISION-0001',
     });
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.value.basis).toBe('delegated');
+  });
+
+  it('C14b the same fully eligible gate WITHOUT a decision refuses — eligibility is not a decision', () => {
+    const r = authoriseClosure({
+      governedProjectId: 'projectos',
+      planProjectId: 'projectos',
+      owner: 'Murad',
+      implementer: 'Claude Code',
+      closureAuthority: 'ChatGPT',
+      delegation: DELEGATION,
+      actorRole: 'advisor',
+      actorIdentity: 'ChatGPT',
+      scope: 'phase-closure',
+      phaseId: facts().phaseId,
+      eligibility: evaluateClosureEligibility(facts()),
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain('GATEKEEPER_DECISION_NOT_ESTABLISHED');
   });
 });
 
@@ -134,18 +156,26 @@ describe('the delegation alone authorises nothing', () => {
     }
   });
 
-  it('an OWNER close is not conditional on this gate', () => {
-    const r = authoriseClosure({
+  it('an OWNER close is not conditional on this gate — but it IS conditional on the owner deciding', () => {
+    const ownerInput = {
       governedProjectId: 'projectos',
       planProjectId: 'projectos',
       owner: 'Murad',
       implementer: 'Claude Code',
       closureAuthority: 'ChatGPT',
       delegation: DELEGATION,
-      actorRole: 'owner',
+      actorRole: 'owner' as const,
       actorIdentity: 'Murad',
-      scope: 'phase-closure',
-    });
+      scope: 'phase-closure' as const,
+    };
+    // `--as owner` is a caller-supplied string. Before the Phase-18 correction it was sufficient on
+    // its own — no G4, no decision, nothing. That was the larger half of the same defect.
+    expect(authoriseClosure(ownerInput).ok).toBe(false);
+    expect(authoriseClosure({ ...ownerInput, decisionProblems: ['no decision'] }).ok).toBe(false);
+
+    // With the owner's own verified decision it succeeds, and still without any G4 verdict: an
+    // owner's authority is not conditional on the evidence gate, only on having actually decided.
+    const r = authoriseClosure({ ...ownerInput, decisionProblems: [], decisionId: 'OWN-DECISION-0001' });
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.value.basis).toBe('owner');
   });

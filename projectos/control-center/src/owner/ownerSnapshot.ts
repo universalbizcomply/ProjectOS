@@ -40,21 +40,24 @@ export const PROJECTOS_V3: OwnerControlModel = {
   projectName: 'ProjectOS (self)',
   programme: 'ProjectOS V3',
   planStatus: 'IN EXECUTION',
-  activePhase: null,
-  nextRecommendedPhase: 'PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A',
-  acceptedPhaseCount: 16,
+  activePhase: 'PROJECTOS-V3-FINAL-E2E-CLOSURE1A',
+  nextRecommendedPhase: 'PROJECTOS-V3-FINAL-E2E-CLOSURE1A',
+  acceptedPhaseCount: 18,
   totalPhaseCount: 19,
   risks: [
     'R1 (accepted carry-forward): owner approval is manual — not cryptographically bound.',
     'Automated local relay loop not yet implemented; the ChatGPT↔Claude relay is manual / partially automated.',
   ],
   blockers: [
-    'Three numbered phases remain OPEN: 12 Control Centre integration, 17 reliability hardening, 18 final closure. ProjectOS V3 is not complete.',
+    'One numbered phase remains OPEN: 18 final closure. ProjectOS V3 is not complete.',
     'Protected authority is unchanged: installation, production, provider and credential authority all remain NotAuthorised.',
   ],
+  // Left empty deliberately. The final closure decision is LIVE governed state, and this snapshot is
+  // the offline fallback for when no runtime has reported — putting a pending decision here would
+  // make the fallback assert something it cannot know is still true.
   decisionsRequired: [],
   nextSafeAction:
-    'This is the last recorded position, not live state. Start the ProjectOS runtime to see live governed state. 16 of 19 numbered phases are owner-accepted; phases 12, 17 and 18 remain open. Nothing is deployed, closed or authorised automatically.',
+    'This is the last recorded position, not live state. Start the ProjectOS runtime to see live governed state. 18 of 19 numbered phases are owner-accepted; phase 18 is awaiting the final owner/gatekeeper decision. Nothing is deployed, closed or authorised automatically.',
   restrictedActions: OWNER_ONLY_ACTIONS,
   safety: { productionFrozen: true, providerContacted: false, secretCapabilityUsed: false, apiUsed: false },
 };

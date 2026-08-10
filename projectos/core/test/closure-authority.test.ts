@@ -59,6 +59,12 @@ function input(over: Partial<ClosureAuthorityInput> = {}): ClosureAuthorityInput
     actorIdentity: 'ChatGPT',
     scope: 'phase-closure',
     eligibility: eligibleVerdict(),
+    // A VERIFIED GATEKEEPER DECISION. These tests are about the delegation and the gate, so they
+    // supply a decision that was found and checked — `[]` means "looked up, nothing wrong with it".
+    // Its absence is a separate control with its own suite (closure-decision.test.ts B1/B2), and
+    // omitting it here would make every case below fail for the wrong reason.
+    decisionProblems: [],
+    decisionId: 'GK-TEST-DECISION-0001',
     ...over,
   };
 }

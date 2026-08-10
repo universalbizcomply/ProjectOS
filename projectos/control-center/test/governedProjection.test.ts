@@ -146,12 +146,21 @@ describe('phase state comes from durable core records', () => {
     expect(p.nextSafeAction).toContain(p.activePhase!.phaseId);
   });
 
-  test('unmet dependencies are computed, and the final phase has one', () => {
-    const p = projectGovernedState(inputs());
-    const last = p.phases[p.phases.length - 1];
+  test('unmet dependencies are computed, and a phase whose dependency is open is not startable', () => {
+    // This used to lean on the live programme position, where Phase 17 was open — then Phase 17
+    // closed and the assertion started passing vacuously in reverse. The unmet dependency is now
+    // created IN THE FIXTURE, so the property is about the computation rather than about where the
+    // programme happens to be.
+    const withoutP17 = projectGovernedState(inputs({ currentState: null }));
+    const last = withoutP17.phases[withoutP17.phases.length - 1];
     expect(last?.phaseId).toBe('PROJECTOS-V3-FINAL-E2E-CLOSURE1A');
     expect(last?.unmetDependencies).toContain('PROJECTOS-V3-RELIABILITY-HARDENING1A');
     expect(last?.startable).toBe(false);
+
+    // And the other half: with the real current-state, where Phase 17 IS closed, it is startable.
+    const now = projectGovernedState(inputs());
+    const nowLast = now.phases[now.phases.length - 1];
+    expect(nowLast?.unmetDependencies).toEqual([]);
   });
 
   test('completion evidence requires an OWNER closure, matching the runtime gate exactly', () => {

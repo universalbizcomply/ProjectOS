@@ -65,6 +65,20 @@ export interface ClosureAuthorityInput {
    * Not consulted for an owner close — an owner's authority is not conditional on this gate.
    */
   readonly eligibility?: G4Verdict;
+  /**
+   * Why the gatekeeper's DECISION is not usable, or `[]` when it is. REQUIRED for a delegated close.
+   *
+   * The defect this closes: `--delegated` was both the request and, implicitly, the decision. G4
+   * answers "are the conditions for a decision satisfied?"; nothing answered "has the delegate
+   * decided?", so eligibility alone closed a phase when an implementer typed the flag. The caller now
+   * has to present a decision it did not author, and this module refuses without one.
+   *
+   * `undefined` means the caller never looked, which is refused — distinct from `[]`, which means a
+   * decision was found and verified.
+   */
+  readonly decisionProblems?: readonly string[];
+  /** The id of the decision being consumed, recorded on the history so it cannot be replayed. */
+  readonly decisionId?: string;
 }
 
 export type ClosureRefusal =
@@ -80,7 +94,9 @@ export type ClosureRefusal =
   | 'ACTOR_IDENTITY_MISSING'
   | 'OWNER_IDENTITY_MISMATCH'
   | 'G4_NOT_ESTABLISHED'
-  | 'G4_NOT_SATISFIED';
+  | 'G4_NOT_SATISFIED'
+  | 'GATEKEEPER_DECISION_NOT_ESTABLISHED'
+  | 'GATEKEEPER_DECISION_MISSING';
 
 declare const CLOSURE_GRANT_BRAND: unique symbol;
 
@@ -97,6 +113,8 @@ export interface ClosureGrant {
   readonly scope: ClosureScope;
   /** The phase the grant was minted for, when one was named. `transitionPhase` enforces the match. */
   readonly phaseId?: string;
+  /** The gatekeeper decision this grant consumed. Written into the history so it cannot be replayed. */
+  readonly decisionId?: string;
 }
 
 function refuse(code: ClosureRefusal, detail: string): Result<ClosureGrant> {
@@ -140,13 +158,32 @@ export function authoriseClosure(input: ClosureAuthorityInput): Result<ClosureGr
     );
   }
 
-  // 2. Owner closure. Unchanged behaviour, plus one addition: a stated identity must actually BE the
-  //    recorded owner, so nobody can claim the owner role under another name.
+  // 2. Owner closure. A stated identity must actually BE the recorded owner — and, since the Phase-18
+  //    breach, the owner's DECISION must exist too.
+  //
+  //    The breach was reported as a delegation problem, and fixing only the delegated branch would
+  //    have left the larger hole untouched: `--as owner` is a caller-supplied string, so any caller
+  //    able to type it obtained owner authority outright, without even the G4 gate that the delegated
+  //    path at least required. The rule is therefore uniform — NO closure without a committed
+  //    decision naming the authority the plan records.
   if (input.actorRole === 'owner') {
     if (input.actorIdentity !== null && input.actorIdentity !== input.owner) {
       return refuse(
         'OWNER_IDENTITY_MISMATCH',
         `identity '${input.actorIdentity}' is not the recorded owner '${input.owner}'`,
+      );
+    }
+    if (input.decisionProblems === undefined) {
+      return refuse(
+        'GATEKEEPER_DECISION_NOT_ESTABLISHED',
+        "an owner closure requires the owner's decision to be looked up and verified; the caller did not establish it",
+      );
+    }
+    if (input.decisionProblems.length > 0) {
+      return refuse(
+        'GATEKEEPER_DECISION_MISSING',
+        input.decisionProblems.slice(0, 3).join('; ') +
+          (input.decisionProblems.length > 3 ? ` (+${input.decisionProblems.length - 3} more)` : ''),
       );
     }
     return ok({
@@ -242,12 +279,30 @@ export function authoriseClosure(input: ClosureAuthorityInput): Result<ClosureGr
     );
   }
 
+  // AND the delegate must actually have DECIDED. Eligibility is not a decision: the first version of
+  // this module treated a valid delegation plus a passing G4 as sufficient, so any caller able to
+  // request a delegated close obtained one. Checked last, after everything else holds, so the refusal
+  // an operator sees is the one that is actually outstanding.
+  if (input.decisionProblems === undefined) {
+    return refuse(
+      'GATEKEEPER_DECISION_NOT_ESTABLISHED',
+      'a delegated closure requires the gatekeeper decision to be looked up and verified; the caller did not establish it',
+    );
+  }
+  if (input.decisionProblems.length > 0) {
+    return refuse(
+      'GATEKEEPER_DECISION_MISSING',
+      input.decisionProblems.slice(0, 3).join('; ') + (input.decisionProblems.length > 3 ? ` (+${input.decisionProblems.length - 3} more)` : ''),
+    );
+  }
+
   return ok({
     basis: 'delegated',
     authorisedIdentity: d.delegatedTo,
     projectScope: d.projectScope,
     scope: input.scope,
     ...(input.phaseId === undefined ? {} : { phaseId: input.phaseId }),
+    ...(input.decisionId === undefined ? {} : { decisionId: input.decisionId }),
   } as ClosureGrant);
 }
 
@@ -282,7 +337,9 @@ export function isAuthoritativelyClosed(record: {
 
 /** Human-readable basis recorded on the phase history, so closure is auditable after the fact. */
 export function grantNote(grant: ClosureGrant): string {
-  return grant.basis === 'owner'
-    ? `closed by owner ${grant.authorisedIdentity}`
-    : `closed by ${grant.authorisedIdentity} under the ${grant.projectScope}-scoped ${grant.scope} delegation`;
+  if (grant.basis === 'owner') return `closed by owner ${grant.authorisedIdentity}`;
+  // The decision id is written into the history deliberately: it is what makes a replay detectable,
+  // because `consumedDecisionIds` reads it back out of exactly this sentence.
+  const decision = grant.decisionId === undefined ? '' : `, decision ${grant.decisionId}`;
+  return `closed by ${grant.authorisedIdentity} under the ${grant.projectScope}-scoped ${grant.scope} delegation${decision}`;
 }

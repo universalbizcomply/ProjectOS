@@ -90,6 +90,7 @@ function selfHosted(over: Record<string, unknown> = {}, files: Record<string, st
 }
 
 const PHASE_12 = 'PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A';
+const PHASE_17 = 'PROJECTOS-V3-RELIABILITY-HARDENING1A';
 const PHASE_18 = 'PROJECTOS-V3-FINAL-E2E-CLOSURE1A';
 
 describe('plan location resolves to exactly one authority', () => {
@@ -198,14 +199,25 @@ describe('approved-phase membership and dependencies gate creation', () => {
   });
 
   it('T6 an approved phase whose dependencies are incomplete is refused', () => {
-    // Phase 18 depends on Phase 17, which is OPEN in the accepted programme position.
-    const sys = selfHosted();
+    // Phase 18 depends on Phase 17. This used to read the accepted programme position directly,
+    // where Phase 17 was OPEN — and then Phase 17 closed and the test started asserting nothing. The
+    // dependency is now made incomplete IN THE FIXTURE, so the property survives the programme
+    // moving on, which is what it is actually about.
+    const state = activeState();
+    state['completedPhases'] = (state['completedPhases'] as string[]).filter((p) => p !== PHASE_17);
+    const sys = selfHosted({}, { [`${ROOT}/${STATE_REL}`]: JSON.stringify(state) });
     const r = authorisePhase(sys, ROOT, ctxOf(sys), PHASE_18);
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.code).toBe('DEPENDENCY_NOT_SATISFIED');
-      expect(r.detail).toContain('PROJECTOS-V3-RELIABILITY-HARDENING1A');
+      expect(r.detail).toContain(PHASE_17);
     }
+  });
+
+  it('T6b and once that dependency IS complete, the same phase is authorised', () => {
+    // The other half, so T6 cannot pass by refusing everything.
+    const sys = selfHosted();
+    expect(authorisePhase(sys, ROOT, ctxOf(sys), PHASE_18).ok).toBe(true);
   });
 
   it('T7 an approved phase with satisfied dependencies is authorised, and returns the plan phase', () => {
@@ -279,25 +291,46 @@ describe('approved-phase membership and dependencies gate creation', () => {
   it('an owner closure produced by the real lifecycle is accepted as evidence', () => {
     // End-to-end rather than a hand-written fixture: drive phase 0 through the real state machine to
     // `closed --as owner`, then require phase 1 (which depends on it) to become authorised.
+    const P0 = 'PROJECTOS-V3-BASELINE-RECONCILE1A';
+    const P1 = 'PROJECTOS-V3-MASTER-PLAN-MEMORY1A';
+    // Since the Phase-18 authority correction an owner closure also needs the OWNER'S DECISION, and
+    // that decision must be committed — `--as owner` alone is a caller-supplied string and confers
+    // nothing. The fixture therefore carries a real decision record, and `git log` reports it as
+    // committed, exactly as the live gate requires.
     const sys = fakeSystem({
       [`${ROOT}/.projectops/project-config.json`]: JSON.stringify({
         ...BASE_CONFIG,
         planMemory: { planPath: PLAN_REL },
       }),
       [`${ROOT}/${PLAN_REL}`]: JSON.stringify(activePlan()),
+      [`${ROOT}/.projectops/closure/${P0}.json`]: JSON.stringify({ phaseId: P0, evidenceSubjectHead: 'd'.repeat(40) }),
+      [`${ROOT}/.projectops/closure/decisions/${P0}.json`]: JSON.stringify({
+        schemaVersion: '1.0.0',
+        decisionId: 'OWNER-DECISION-P0-0001',
+        phaseId: P0,
+        projectId: 'projectos',
+        scope: 'phase-closure',
+        decidedBy: 'Murad',
+        decidedAt: '2026-08-09T00:00:00Z',
+        evidenceSubjectHead: 'd'.repeat(40),
+        decision: 'close',
+      }),
     });
-    const P0 = 'PROJECTOS-V3-BASELINE-RECONCILE1A';
-    const P1 = 'PROJECTOS-V3-MASTER-PLAN-MEMORY1A';
-    expect(authorisePhase(sys, ROOT, ctxOf(sys), P1).ok).toBe(false);
-    expect(phase({ sys, root: ROOT }, { id: P0 }, ['new']).code).toBe(0);
+    const committed: System = {
+      ...sys,
+      exec: (cmd: string, args: readonly string[]) =>
+        args.includes('log') ? { code: 0, stdout: 'e'.repeat(40), stderr: '' } : sys.exec(cmd, args),
+    };
+    expect(authorisePhase(committed, ROOT, ctxOf(committed), P1).ok).toBe(false);
+    expect(phase({ sys: committed, root: ROOT }, { id: P0 }, ['new']).code).toBe(0);
     for (const to of ['prompted', 'implementing', 'validating', 'evidence', 'awaiting_review', 'awaiting_closure']) {
-      expect(phase({ sys, root: ROOT }, { id: P0, to, as: 'implementer' }, ['advance']).code).toBe(0);
+      expect(phase({ sys: committed, root: ROOT }, { id: P0, to, as: 'implementer' }, ['advance']).code).toBe(0);
     }
     // Implementer closure is refused by the core; only the owner transition creates the evidence.
-    expect(phase({ sys, root: ROOT }, { id: P0, to: 'closed', as: 'implementer' }, ['advance']).code).toBe(2);
-    expect(authorisePhase(sys, ROOT, ctxOf(sys), P1).ok).toBe(false);
-    expect(phase({ sys, root: ROOT }, { id: P0, to: 'closed', as: 'owner' }, ['advance']).code).toBe(0);
-    expect(authorisePhase(sys, ROOT, ctxOf(sys), P1).ok).toBe(true);
+    expect(phase({ sys: committed, root: ROOT }, { id: P0, to: 'closed', as: 'implementer' }, ['advance']).code).toBe(2);
+    expect(authorisePhase(committed, ROOT, ctxOf(committed), P1).ok).toBe(false);
+    expect(phase({ sys: committed, root: ROOT }, { id: P0, to: 'closed', as: 'owner' }, ['advance']).code).toBe(0);
+    expect(authorisePhase(committed, ROOT, ctxOf(committed), P1).ok).toBe(true);
   });
 
   it('a declared but unreadable current-state fails CLOSED and says why', () => {
@@ -321,7 +354,11 @@ describe('`phase new` refuses BEFORE writing anything', () => {
   });
 
   it('T6 unsatisfied dependency writes nothing', () => {
-    const sys = selfHosted();
+    // Same correction as T6 above: the incompleteness is made in the fixture rather than borrowed
+    // from a programme position that has since moved on.
+    const state = activeState();
+    state['completedPhases'] = (state['completedPhases'] as string[]).filter((p) => p !== PHASE_17);
+    const sys = selfHosted({}, { [`${ROOT}/${STATE_REL}`]: JSON.stringify(state) });
     const res = phase({ sys, root: ROOT }, { id: PHASE_18 }, ['new']);
     expect(res.code).toBe(2);
     expect(res.lines.join(' ')).toContain('DEPENDENCY_NOT_SATISFIED');
