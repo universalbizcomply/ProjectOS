@@ -45,6 +45,24 @@ function writeLock(root, lock) {
 }
 
 /**
+ * Create the lock file only if it does not exist. Returns false when someone else created it first.
+ *
+ * `wx` is the whole point: the existence check and the creation are one operation in the filesystem,
+ * so two racing acquirers cannot both succeed. Any error other than EEXIST is also a refusal — a
+ * lock we could not create is a lock we do not hold.
+ */
+function createExclusive(root, lock) {
+  const p = lockPath(root);
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  try {
+    fs.writeFileSync(p, JSON.stringify(lock, null, 2) + "\n", { encoding: "utf8", flag: "wx" });
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+/**
  * Is the process holding this lock still running?
  *
  * `kill(pid, 0)` asks the OS without signalling. EPERM means the process exists and belongs to
@@ -121,7 +139,19 @@ function acquire(root, workerId, options) {
         ? { workerId: String(existing.holder && existing.holder.workerId), pid: existing.holder && existing.holder.pid }
         : null,
   };
-  writeLock(root, lock);
+
+  // ATOMICITY. Read-then-write is a race: two processes can both find the lock free, both build one,
+  // and both write — last write wins, silently, and there are two writers. Every acquisition path
+  // therefore ends in an EXCLUSIVE create (`wx`), where the filesystem arbitrates. Clearing a
+  // released or taken-over lock first is safe because the create still decides the winner: whoever
+  // loses gets EEXIST and REFUSES rather than retrying, which is the correct answer to "someone else
+  // got there first".
+  if (existing !== null) {
+    try { fs.unlinkSync(lockPath(root)); } catch (_) { /* gone already, or the create below refuses */ }
+  }
+  if (!createExclusive(root, lock)) {
+    return { acquired: false, lock: readLock(root), reason: "another process took ownership of this checkout first" };
+  }
   return { acquired: true, lock: lock, reason: "" };
 }
 

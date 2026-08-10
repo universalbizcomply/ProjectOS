@@ -6,8 +6,8 @@
  * command logic depends on this interface (never on node builtins directly), the commands
  * stay pure and deterministic.
  */
-import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync, statSync } from 'node:fs';
+import { basename, delimiter, dirname, isAbsolute, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 export interface ExecResult {
@@ -29,6 +29,47 @@ export interface System {
   listDir(path: string): readonly string[];
   /** Run a command, capturing output. Never throws; non-zero code is returned. */
   exec(cmd: string, args: readonly string[]): ExecResult;
+}
+
+/**
+ * `git`, resolved to ONE ABSOLUTE EXECUTABLE — never spawned by bare name.
+ *
+ * On Windows an unqualified command name resolves against the spawning process's current directory
+ * before PATH. The CLI is cwd-rooted by design, so that directory is the governed checkout: content
+ * that is untrusted until the owner reviews it. The closure gate derives head, branch, cleanliness,
+ * reconciliation and ancestry by running git, so a `git.exe` planted in a repository could decide
+ * whether its own phase may close — without needing to run a single line of malicious code, simply
+ * by answering "clean".
+ *
+ * `PROJECTOS_GIT_EXE` is honoured first: the daemon is launched with no PATH at all and the host
+ * binds it there (see control-center/sidecar/gitBoundSystem.mjs). Otherwise the first ABSOLUTE PATH
+ * entry holding a git executable wins. There is deliberately no fallback to bare-name resolution —
+ * when nothing binds, git calls fail and every fact derived from them fails closed, which refuses.
+ *
+ * Bound in PROJECTOS-V3-RELIABILITY-HARDENING1A after a security review found the bare-name call.
+ */
+const GIT_BASENAME = process.platform === 'win32' ? /^git\.exe$/i : /^git$/;
+const GIT_FILENAME = process.platform === 'win32' ? 'git.exe' : 'git';
+
+function isFile(p: string): boolean {
+  try {
+    return statSync(p).isFile();
+  } catch {
+    return false;
+  }
+}
+
+export function resolveBoundGit(env: NodeJS.ProcessEnv = process.env): string | null {
+  const bound = env['PROJECTOS_GIT_EXE'];
+  if (typeof bound === 'string' && bound.length > 0 && isAbsolute(bound) && GIT_BASENAME.test(basename(bound)) && isFile(bound)) {
+    return bound;
+  }
+  for (const dir of String(env['PATH'] ?? '').split(delimiter)) {
+    if (dir.length === 0 || !isAbsolute(dir)) continue;
+    const candidate = join(dir, GIT_FILENAME);
+    if (isFile(candidate)) return candidate;
+  }
+  return null;
 }
 
 /** The real Node-backed System used at runtime. */
@@ -61,7 +102,19 @@ export const nodeSystem: System = {
     }
   },
   exec(cmd, args) {
-    const r = spawnSync(cmd, [...args], { encoding: 'utf8', shell: false });
+    let executable = cmd;
+    if (cmd === 'git') {
+      const bound = resolveBoundGit();
+      if (bound === null) {
+        return {
+          code: 127,
+          stdout: '',
+          stderr: 'ProjectOS has no bound Git executable, so repository facts cannot be established.',
+        };
+      }
+      executable = bound;
+    }
+    const r = spawnSync(executable, [...args], { encoding: 'utf8', shell: false });
     return {
       code: r.status ?? 1,
       stdout: r.stdout ?? '',

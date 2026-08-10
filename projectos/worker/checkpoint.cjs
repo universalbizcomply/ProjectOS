@@ -19,7 +19,7 @@
  */
 const fs = require("fs");
 const path = require("path");
-const { continuityDir } = require("./continuity-ledger.cjs");
+const { continuityDir, assertSafeSessionId } = require("./continuity-ledger.cjs");
 const launcher = require("../launcher/session-launcher.cjs");
 
 const SCHEMA_VERSION = "1.0.0";
@@ -47,12 +47,14 @@ const CONTINUATION_KINDS = {
   },
 };
 
+// Every path built from a session id validates it here, not only at the write site — see
+// `assertSafeSessionId` in continuity-ledger.cjs for why the read sites matter more, not less.
 function checkpointPath(root, sessionId) {
-  return path.join(continuityDir(root), sessionId + ".checkpoint.json");
+  return path.join(continuityDir(root), assertSafeSessionId(sessionId) + ".checkpoint.json");
 }
 
 function continuationNotePath(root, sessionId) {
-  return path.join(continuityDir(root), sessionId + ".continuation.json");
+  return path.join(continuityDir(root), assertSafeSessionId(sessionId) + ".continuation.json");
 }
 
 /**
@@ -112,6 +114,7 @@ function writeCheckpoint(root, input) {
   return checkpoint;
 }
 
+/** Null on ANY failure, including an unsafe session id — an unreadable checkpoint is not a usable one. */
 function readCheckpoint(root, sessionId) {
   try {
     return JSON.parse(fs.readFileSync(checkpointPath(root, sessionId), "utf8").replace(/^﻿/, ""));

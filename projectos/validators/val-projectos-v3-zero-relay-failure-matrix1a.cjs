@@ -325,6 +325,115 @@ function runMatrix(dir, e) {
   // A worker takes no task, in either mode — the instruction channel does not exist.
   const withTask = spawnSync(process.execPath, [WORKER, "--root", dir, "--project", PROJECT, "--session", SESSION, "--task", "do something else"], { encoding: "utf8" });
   if (withTask.status === 0) e.push("worker accepted an invocation carrying a --task argument");
+
+  /* ---------------------------------------------------------------------------------------------
+   * Cases added after the Phase-17 security and code review. Each is a defect the review FOUND, so
+   * each gets a case: a fix without a test that would have caught it is a fix that can regress.
+   * ------------------------------------------------------------------------------------------- */
+
+  // 22 OWNER STOP BETWEEN VERIFICATION AND THE CONTINUATION. The review reproduced an uncaught
+  //    throw here: the ledger correctly refuses `worker-b-release` when the continuation never
+  //    happened, and that refusal escaped a `finally`, discarding the pending return. A governed
+  //    refusal must come back as an exit code, never as a stack trace.
+  freshLedger(dir, "sess_matrix_stopmid", facts);
+  advanceTo(dir, "sess_matrix_stopmid", "spawn", facts);
+  cpLib.writeCheckpoint(dir, {
+    sessionId: "sess_matrix_stopmid", projectId: PROJECT, phaseId: PHASE, planVersion: "9.9",
+    repositoryRoot: path.resolve(dir), branch: facts.branch, head: facts.head,
+    checkpointId: "cp-stopmid", writtenBy: "worker-a-matrix",
+    nextSafeAction: { kind: "record-continuation-note", params: { note: "must not run" } },
+  });
+  ownerLib.set(dir, "stopped", "owner");
+  const stopMid = spawnSync(process.execPath, [WORKER, "--resume", "--root", dir, "--project", PROJECT, "--session", "sess_matrix_stopmid"], { encoding: "utf8" });
+  fs.unlinkSync(ownerLib.controlPath(dir));
+  if (stopMid.status !== 3) e.push("22 owner stop mid-resume: expected the governed exit code 3, got " + String(stopMid.status));
+  if (String(stopMid.stderr).indexOf("Error:") !== -1 || String(stopMid.stderr).indexOf("    at ") !== -1) {
+    e.push("22 owner stop mid-resume: the refusal surfaced as a stack trace: " + String(stopMid.stderr).trim().split("\n")[0]);
+  }
+  const midLedger = ledgerLib.readLedger(dir, "sess_matrix_stopmid");
+  if (ledgerLib.eventsOfType(midLedger, "worker-b-continuation").length > 0) e.push("22 owner stop mid-resume: the continuation ran anyway");
+  if (ledgerLib.eventsOfType(midLedger, "owner-control-honoured").length === 0) e.push("22 owner stop mid-resume: the honoured stop was not recorded");
+  if (lockLib.currentHolder(dir) !== null) e.push("22 owner stop mid-resume: ownership was not released");
+
+  // 23 THE TREE IS DIRTIED AFTER THE PERMIT. The executor's clean check happens before the spawn;
+  //    nothing the worker verifies is working-tree-level, so without a re-check it would resume onto
+  //    changes nobody explained.
+  freshLedger(dir, "sess_matrix_dirtymid", facts);
+  advanceTo(dir, "sess_matrix_dirtymid", "spawn", facts);
+  cpLib.writeCheckpoint(dir, {
+    sessionId: "sess_matrix_dirtymid", projectId: PROJECT, phaseId: PHASE, planVersion: "9.9",
+    repositoryRoot: path.resolve(dir), branch: facts.branch, head: facts.head,
+    checkpointId: "cp-dirtymid", writtenBy: "worker-a-matrix",
+    nextSafeAction: { kind: "record-continuation-note", params: { note: "must not run" } },
+  });
+  fs.writeFileSync(path.join(dir, "appeared-after-the-permit.txt"), "x\n");
+  const dirtyMid = spawnSync(process.execPath, [WORKER, "--resume", "--root", dir, "--project", PROJECT, "--session", "sess_matrix_dirtymid"], { encoding: "utf8" });
+  fs.unlinkSync(path.join(dir, "appeared-after-the-permit.txt"));
+  if (dirtyMid.status === 0) e.push("23 tree dirtied after the permit: the worker continued anyway");
+  if (String(dirtyMid.stderr).indexOf("outside the handoff's own records") === -1) {
+    e.push("23 tree dirtied after the permit: the refusal does not name the unexplained changes: " + String(dirtyMid.stderr).trim().split("\n")[0]);
+  }
+
+  // 24 AN UNSAFE SESSION ID IS A PATH. Validated at the process boundary and at every path builder,
+  //    not only where a ledger is created.
+  const traversal = spawnSync(process.execPath, [WORKER, "--resume", "--root", dir, "--project", PROJECT, "--session", "../../elsewhere"], { encoding: "utf8" });
+  if (traversal.status === 0) e.push("24 unsafe session id: a traversing --session was accepted");
+  if (String(traversal.stderr).indexOf("safe session identifier") === -1) {
+    e.push("24 unsafe session id: refused without naming the reason: " + String(traversal.stderr).trim().split("\n")[0]);
+  }
+  for (const bad of ["../escape", "a/b", "with space", ""]) {
+    let threw = null;
+    try { ledgerLib.ledgerPath(dir, bad); } catch (err) { threw = err.message; }
+    if (threw === null) e.push("24 unsafe session id: ledgerPath built a path from " + JSON.stringify(bad));
+    let threwCp = null;
+    try { cpLib.checkpointPath(dir, bad); } catch (err) { threwCp = err.message; }
+    if (threwCp === null) e.push("24 unsafe session id: checkpointPath built a path from " + JSON.stringify(bad));
+  }
+
+  // 25 GIT IS BOUND TO AN ABSOLUTE EXECUTABLE. A bare command name resolves against the current
+  //    directory first on Windows, and the current directory here is the governed checkout — so a
+  //    planted `git.exe` could answer "clean" and decide whether a continuation proceeds.
+  const boundGitLib = require(path.join(ROOT, "projectos", "worker", "bound-git.cjs"));
+  const resolved = boundGitLib.resolveGit(dir, process.env);
+  if (resolved !== null && !path.isAbsolute(resolved)) e.push("25 bound git: resolved to a relative path " + resolved);
+  if (boundGitLib.resolveGit(dir, { PATH: dir }) !== null) e.push("25 bound git: resolved a git found INSIDE the governed checkout");
+  if (boundGitLib.resolveGit(dir, { PATH: "." }) !== null) e.push("25 bound git: resolved a git from a relative PATH entry");
+  if (boundGitLib.resolveGit(dir, { PROJECTOS_GIT_EXE: "git.exe" }) !== null) e.push("25 bound git: accepted a non-absolute PROJECTOS_GIT_EXE");
+  if (boundGitLib.resolveGit(dir, { PROJECTOS_GIT_EXE: path.join(dir, "git.exe") }) !== null) e.push("25 bound git: accepted a PROJECTOS_GIT_EXE that does not exist");
+  const unbound = boundGitLib.boundGit(dir, { PATH: "" });
+  if (unbound(["rev-parse", "HEAD"]) !== null) e.push("25 bound git: an unbindable git returned a fact instead of null");
+
+  // 26 GENUINELY CONCURRENT ACQUISITION. Sequential acquisition proves nothing about a race, so this
+  //    starts the contenders in PARALLEL — one harness process that spawns N children at once and
+  //    waits for all of them. Exactly one may win. Before the exclusive-create fix, read-then-write
+  //    let several of them believe they had the checkout.
+  const racer = path.join(dir, "race-child.cjs");
+  fs.writeFileSync(
+    racer,
+    'const l=require(' + JSON.stringify(path.join(ROOT, "projectos", "worker", "ownership-lock.cjs")) + ');\n' +
+      'const r=l.acquire(process.argv[2], process.argv[3], {});\n' +
+      'process.stdout.write(r.acquired ? "ACQUIRED" : "REFUSED");\n',
+  );
+  const harness = path.join(dir, "race-harness.cjs");
+  fs.writeFileSync(
+    harness,
+    'const { spawn } = require("child_process");\n' +
+      'const N = 6;\n' +
+      'let done = 0, acquired = 0;\n' +
+      'for (let i = 0; i < N; i++) {\n' +
+      '  const c = spawn(process.execPath, [' + JSON.stringify(racer) + ', process.argv[2], "racer-" + i], { stdio: ["ignore", "pipe", "ignore"] });\n' +
+      '  let out = "";\n' +
+      '  c.stdout.on("data", (d) => { out += String(d); });\n' +
+      '  c.on("close", () => { if (out.indexOf("ACQUIRED") !== -1) acquired++; if (++done === N) process.stdout.write(String(acquired)); });\n' +
+      '}\n',
+  );
+  try { fs.unlinkSync(lockLib.lockPath(dir)); } catch (_) { /* already gone */ }
+  const race = spawnSync(process.execPath, [harness, dir], { encoding: "utf8" });
+  const winners = Number(String(race.stdout).trim());
+  if (winners !== 1) {
+    e.push("26 concurrent acquisition: " + String(race.stdout).trim() + " of 6 CONCURRENT processes acquired the same free lock (expected exactly 1)");
+  }
+  try { fs.unlinkSync(lockLib.lockPath(dir)); } catch (_) { /* already gone */ }
 }
 
 function run() {

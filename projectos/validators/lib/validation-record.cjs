@@ -21,7 +21,7 @@
  */
 const fs = require("fs");
 const path = require("path");
-const { execFileSync } = require("child_process");
+const { boundGit } = require("../../worker/bound-git.cjs");
 
 const SCHEMA_VERSION = "1.0.0";
 const HEX40 = /^[0-9a-f]{40}$/;
@@ -36,22 +36,18 @@ function recordPath(root, head) {
   return path.join(root, ".projectops", "validation", head + ".json");
 }
 
-/** Capture git stdout, or null on any failure. Never throws — a git problem must not look clean. */
-function git(root, args) {
-  try {
-    return execFileSync("git", ["-C", root].concat(args), {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
-  } catch (_) {
-    return null;
-  }
-}
-
-/** The repository facts the record binds itself to. Any failure yields nulls, which refuse to write. */
+/**
+ * The repository facts the record binds itself to. Any failure yields nulls, which refuse to write.
+ *
+ * Git is invoked through an ABSOLUTE bound executable, never the bare name: this runs with the
+ * governed checkout as its working directory, and on Windows a bare command name resolves against
+ * that directory first — so a planted `git.exe` could otherwise dictate the head and cleanliness a
+ * validator run record binds itself to.
+ */
 function repoFacts(root) {
-  const head = git(root, ["rev-parse", "HEAD"]);
-  const status = git(root, ["status", "--porcelain"]);
+  const git = boundGit(root);
+  const head = git(["rev-parse", "HEAD"]);
+  const status = git(["status", "--porcelain"]);
   return {
     head: head !== null && HEX40.test(head) ? head : null,
     // `null` (git failed) is NOT clean. Only an empty porcelain output is.

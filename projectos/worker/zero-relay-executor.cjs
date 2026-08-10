@@ -23,8 +23,9 @@
  */
 const fs = require("fs");
 const path = require("path");
-const { spawn, execFileSync } = require("child_process");
+const { spawn } = require("child_process");
 
+const { boundGit } = require("./bound-git.cjs");
 const ledger = require("./continuity-ledger.cjs");
 const lock = require("./ownership-lock.cjs");
 const ownerControl = require("./owner-control.cjs");
@@ -58,16 +59,10 @@ function substantiveDirtyPaths(porcelain) {
 
 /** Live repository facts. Any git failure yields nulls, which every gate below treats as a refusal. */
 function repoFacts(root) {
-  const git = (args) => {
-    try {
-      return execFileSync("git", ["-C", root].concat(args), {
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "ignore"],
-      }).trim();
-    } catch (_) {
-      return null;
-    }
-  };
+  // ABSOLUTE git, never the bare name: an unqualified command resolves against the cwd first on
+  // Windows, and the cwd here is the governed checkout — untrusted content until the owner reviews
+  // it. A planted `git.exe` would otherwise decide whether a continuation may proceed.
+  const git = boundGit(root);
   const head = git(["rev-parse", "HEAD"]);
   const branch = git(["rev-parse", "--abbrev-ref", "HEAD"]);
   const status = git(["status", "--porcelain"]);
@@ -132,7 +127,10 @@ function evaluateContinuation(root, input) {
   if (checkpoint !== null && path.resolve(String(checkpoint.repositoryRoot)) !== path.resolve(root)) {
     refusals.push("checkpoint was written for a different checkout: " + String(checkpoint.repositoryRoot));
   }
-  if (input.requireCleanTree !== false && !facts.clean) {
+  // No caller-supplied escape hatch. An earlier draft had `requireCleanTree`, which nothing set and
+  // which sat there as a fail-open switch on untrusted input; a gate with an off switch is a gate
+  // whose absence is one keyword away.
+  if (!facts.clean) {
     refusals.push(
       "the working tree carries " + facts.dirtyPaths.length + " change(s) outside the handoff's own records, so a " +
         "continuation would resume onto unexplained modifications: " + facts.dirtyPaths.slice(0, 3).join(", "),

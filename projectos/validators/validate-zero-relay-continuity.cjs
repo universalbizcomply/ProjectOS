@@ -25,7 +25,6 @@
 // Created in PROJECTOS-V3-RELIABILITY-HARDENING1A.
 const fs = require("fs");
 const path = require("path");
-const { execFileSync } = require("child_process");
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const ledgerLib = require("../worker/continuity-ledger.cjs");
@@ -41,10 +40,8 @@ function readJson(p) {
   try { return JSON.parse(fs.readFileSync(p, "utf8").replace(/^﻿/, "")); } catch (_) { return null; }
 }
 
-function git(args) {
-  try { return execFileSync("git", ["-C", ROOT].concat(args), { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); }
-  catch (_) { return null; }
-}
+/** ABSOLUTE git — see worker/bound-git.cjs. A bare name resolves against the governed tree first. */
+const git = require("../worker/bound-git.cjs").boundGit(ROOT);
 
 /** The active approved plan, resolved the way the runtime resolves it. */
 function activePlan() {

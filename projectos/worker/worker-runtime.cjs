@@ -27,8 +27,9 @@
  */
 const fs = require("fs");
 const path = require("path");
-const { execFileSync } = require("child_process");
 
+const { boundGit } = require("./bound-git.cjs");
+const { repoFacts: executorFacts } = require("./zero-relay-executor.cjs");
 const ledger = require("./continuity-ledger.cjs");
 const lock = require("./ownership-lock.cjs");
 const ownerControl = require("./owner-control.cjs");
@@ -68,12 +69,9 @@ function tryAppend(root, sessionId, event) {
   }
 }
 
+/** ABSOLUTE git — see bound-git.cjs. A bare name would resolve against the governed checkout first. */
 function git(root, args) {
-  try {
-    return execFileSync("git", ["-C", root].concat(args), { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
-  } catch (_) {
-    return null;
-  }
+  return boundGit(root)(args);
 }
 
 /**
@@ -216,6 +214,20 @@ function resume(root, projectId, sessionId) {
 
     lock.assertOwner(root, workerId);
 
+    // The executor checked the tree was clean BEFORE the spawn. Between then and now a local write
+    // could have dirtied it without moving HEAD — which none of the verified fields would reveal,
+    // because they are all commit-level. Re-check here, for the same reason the owner's stop is
+    // re-read here: a gate evaluated by another process at another time is a claim, and the point of
+    // this design is that the worker does not have to rely on one.
+    const dirty = executorFacts(root).dirtyPaths;
+    if (dirty.length > 0) {
+      process.stderr.write(
+        MODULE + ": refusing to continue — the working tree gained " + dirty.length +
+          " change(s) outside the handoff's own records after the permit: " + dirty.slice(0, 3).join(", ") + "\n",
+      );
+      return 2;
+    }
+
     // PROTECTED-BOUNDARY PROBE, before doing anything else with ownership in hand.
     //
     // "The protected-action gates survive the handoff" cannot be evidenced by an absence: a
@@ -258,9 +270,15 @@ function resume(root, projectId, sessionId) {
     });
     return 0;
   } finally {
+    // Releasing must not be able to overwrite the answer. `worker-b-release` is only a legal
+    // successor once the continuation has happened, so on any early return — an owner stop, a
+    // protected-boundary defect — the ledger correctly refuses it. That refusal is bookkeeping about
+    // an event that did not occur, and a throw here would discard the pending `return` and surface
+    // as an uncaught exception instead of the governed exit code the caller is owed. Ownership is
+    // still released either way, which is the part that matters.
     const released = lock.release(root, workerId);
     if (released.ok) {
-      ledger.appendEvent(root, sessionId, {
+      tryAppend(root, sessionId, {
         type: "worker-b-release",
         author: "worker",
         module: MODULE,
@@ -369,6 +387,13 @@ function main(argv) {
   }
   if (typeof args.root !== "string" || typeof args.project !== "string" || typeof args.session !== "string") {
     process.stderr.write(MODULE + ": --root, --project and --session are required\n");
+    return 1;
+  }
+  // The session id becomes part of a filesystem path. Refuse an unsafe one HERE, at the process
+  // boundary, before any file is touched — this entry point is the one thing an out-of-band caller
+  // can reach.
+  if (!ledger.isSafeSessionId(args.session)) {
+    process.stderr.write(MODULE + ": --session is not a safe session identifier\n");
     return 1;
   }
   const root = path.resolve(args.root);

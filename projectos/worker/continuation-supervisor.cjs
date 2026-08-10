@@ -22,8 +22,9 @@
  */
 const fs = require("fs");
 const path = require("path");
-const { spawn, execFileSync } = require("child_process");
+const { spawn } = require("child_process");
 
+const { boundGit } = require("./bound-git.cjs");
 const ledger = require("./continuity-ledger.cjs");
 const executor = require("./zero-relay-executor.cjs");
 const launcher = require("../launcher/session-launcher.cjs");
@@ -31,12 +32,9 @@ const launcher = require("../launcher/session-launcher.cjs");
 const MODULE = "continuation-supervisor";
 const WORKER_ENTRY = path.join(__dirname, "worker-runtime.cjs");
 
+/** ABSOLUTE git — see bound-git.cjs. */
 function git(root, args) {
-  try {
-    return execFileSync("git", ["-C", root].concat(args), { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
-  } catch (_) {
-    return null;
-  }
+  return boundGit(root)(args);
 }
 
 /** Read the active plan the way the runtime does: from the location the project's config declares. */

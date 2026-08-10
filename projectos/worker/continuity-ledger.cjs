@@ -65,12 +65,30 @@ function continuityDir(root) {
   return path.join(root, ".projectops", "continuity");
 }
 
+/**
+ * A session id is part of a filesystem path, so it is validated wherever a path is BUILT, not only
+ * where a ledger is created. Validating at the creation site alone left every read and append site
+ * accepting `../../elsewhere` and collapsing it through `path.join` — a narrow traversal, but one
+ * reachable from the exact place this module is meant to defend: a worker invoked out of band with
+ * nothing but a `--session` argument.
+ */
+function assertSafeSessionId(sessionId) {
+  if (!SESSION_ID.test(String(sessionId))) {
+    throw new Error("continuity-ledger: unsafe session id " + JSON.stringify(String(sessionId)));
+  }
+  return String(sessionId);
+}
+
+function isSafeSessionId(sessionId) {
+  return SESSION_ID.test(String(sessionId));
+}
+
 function ledgerPath(root, sessionId) {
-  return path.join(continuityDir(root), sessionId + ".json");
+  return path.join(continuityDir(root), assertSafeSessionId(sessionId) + ".json");
 }
 
 function ledgerRelPath(sessionId) {
-  return ".projectops/continuity/" + sessionId + ".json";
+  return ".projectops/continuity/" + assertSafeSessionId(sessionId) + ".json";
 }
 
 function readLedger(root, sessionId) {
@@ -247,6 +265,8 @@ module.exports = {
   AUTHOR_ROLES,
   HEX40,
   continuityDir,
+  assertSafeSessionId,
+  isSafeSessionId,
   ledgerPath,
   ledgerRelPath,
   readLedger,
