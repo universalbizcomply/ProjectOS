@@ -160,7 +160,7 @@ function validatorRunFacts(
     };
   }
   const problems: string[] = [];
-  if (raw['schemaVersion'] !== '1.0.0') problems.push(`validator-run record schemaVersion is ${JSON.stringify(raw['schemaVersion'])}, expected "1.0.0"`);
+  if (raw['schemaVersion'] !== '1.1.0') problems.push(`validator-run record schemaVersion is ${JSON.stringify(raw['schemaVersion'])}, expected "1.1.0"`);
   const declared = raw['subjectHead'];
   if (typeof declared !== 'string' || !HEX40.test(declared)) problems.push('validator-run record subjectHead is not a 40-hex commit');
   else if (declared !== subjectHead) problems.push(`validator-run record is bound to ${declared.slice(0, 7)}, not the evidence subject ${subjectHead.slice(0, 7)}`);
@@ -197,6 +197,25 @@ function validatorRunFacts(
       continue;
     }
     if (r['passed'] === true) passing.push(name);
+  }
+
+  // THE AGGREGATE IS A NAME TOO. Plans require `validate-all`, which is the command that runs the
+  // modules and is deliberately not one of them — counting the wrapper as a module is the conflation
+  // that produced a wrong module count in prose. The gate found this by refusing a closure whose plan
+  // required `validate-all` and whose record could not name it. It is admitted only when the record
+  // says the WHOLE suite passed, and the record's own shape check ties that to every module result,
+  // so "validate-all passed" cannot be true while a module failed.
+  const aggregate = raw['aggregate'];
+  if (aggregate === null || typeof aggregate !== 'object' || Array.isArray(aggregate)) {
+    problems.push('validator-run record carries no aggregate command result');
+  } else {
+    const a = aggregate as Record<string, unknown>;
+    const name = a['name'];
+    if (typeof name !== 'string' || name.length === 0) problems.push('the aggregate command result has no name');
+    else if (seen.has(name)) problems.push(`the aggregate command ${name} is also listed as a registered module`);
+    else if (a['passed'] !== true && a['passed'] !== false) problems.push(`the aggregate command ${name} has no boolean 'passed'`);
+    else if (a['passed'] !== raw['aggregatePassed']) problems.push(`the aggregate command result contradicts aggregatePassed`);
+    else if (a['passed'] === true) passing.push(name);
   }
   return { passing, problems };
 }

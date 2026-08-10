@@ -23,7 +23,9 @@ const fs = require("fs");
 const path = require("path");
 const { boundGit } = require("../../worker/bound-git.cjs");
 
-const SCHEMA_VERSION = "1.0.0";
+const SCHEMA_VERSION = "1.1.0";
+/** The aggregate command's name — what plans mean when they require "validate-all". Not a module. */
+const AGGREGATE_NAME = "validate-all";
 const HEX40 = /^[0-9a-f]{40}$/;
 
 /** Where a record for `head` lives, relative to the project root. Forward slashes: it is compared
@@ -68,12 +70,22 @@ function buildRecord(input) {
     passed: r.passed === true,
     errorCount: Number.isFinite(r.errorCount) ? r.errorCount : -1,
   }));
+  const aggregatePassed = results.every((r) => r.passed);
   return {
     schemaVersion: SCHEMA_VERSION,
     subjectHead: input.subjectHead,
     generatedAt: input.generatedAt,
     workingTreeCleanAtRunStart: input.workingTreeCleanAtRunStart === true,
-    aggregatePassed: results.every((r) => r.passed),
+    aggregatePassed: aggregatePassed,
+    // THE AGGREGATE HAS A NAME, and it is not a module.
+    //
+    // Plans name `validate-all` in `requiredValidators` — it is the suite every phase requires. But
+    // the wrapper is not one of the registered modules, and counting it as one is precisely the
+    // conflation that produced "124/124" for a 123-module registry. So the record carries both, kept
+    // apart: `registeredModuleCount` + `results` are the modules, and `aggregate` is the command that
+    // ran them. The G4 gate found this gap by refusing a closure whose plan required `validate-all`
+    // and whose record could not name it.
+    aggregate: { name: AGGREGATE_NAME, passed: aggregatePassed },
     registeredModuleCount: input.registeredModuleCount,
     results,
   };
@@ -174,17 +186,34 @@ function checkRecordShape(record, expectedHead) {
   if (record.aggregatePassed === true && record.results.some((r) => r && r.passed !== true)) {
     e.push("aggregatePassed is true but at least one module result is not passing");
   }
+  if (record.aggregate === null || typeof record.aggregate !== "object") e.push("the aggregate command result is missing");
+  else {
+    if (record.aggregate.name !== AGGREGATE_NAME) e.push("aggregate.name is not " + AGGREGATE_NAME);
+    if (record.aggregate.passed !== record.aggregatePassed) e.push("aggregate.passed contradicts aggregatePassed");
+    if (record.results.some((r) => r && r.name === AGGREGATE_NAME)) e.push("the aggregate command is listed as a registered module");
+  }
   return e;
 }
 
-/** The names recorded as PASSING. The only list a gate may treat as evidence. */
+/**
+ * The names recorded as PASSING. The only list a gate may treat as evidence.
+ *
+ * Includes the AGGREGATE name when the whole suite passed, because that is the name plans actually
+ * write in `requiredValidators`. It is added from `aggregate.passed`, which `checkRecordShape` has
+ * already tied to every module result — so "validate-all passed" cannot be true while a module failed.
+ */
 function passingNames(record) {
   if (record === null || typeof record !== "object" || !Array.isArray(record.results)) return [];
-  return record.results.filter((r) => r && r.passed === true && typeof r.name === "string").map((r) => r.name);
+  const names = record.results.filter((r) => r && r.passed === true && typeof r.name === "string").map((r) => r.name);
+  if (record.aggregate !== null && typeof record.aggregate === "object" && record.aggregate.passed === true) {
+    names.push(String(record.aggregate.name));
+  }
+  return names;
 }
 
 module.exports = {
   SCHEMA_VERSION,
+  AGGREGATE_NAME,
   HEX40,
   recordRelPath,
   recordPath,

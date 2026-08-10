@@ -66,6 +66,13 @@ function producerRefusals(e) {
   // A fully passing run does say so.
   const allPass = LIB.planRecordWrite(clean, results(3), 3, NOW);
   if (!allPass.record.aggregatePassed) e.push("an all-passing run must record aggregatePassed");
+  // The AGGREGATE is nameable but is NOT a module: plans require `validate-all`, and counting the
+  // wrapper among the modules is the conflation that produced a wrong module count in prose.
+  if (allPass.record.aggregate.name !== LIB.AGGREGATE_NAME) e.push("the record does not name the aggregate command");
+  if (allPass.record.aggregate.passed !== true) e.push("an all-passing run must record the aggregate as passing");
+  if (allPass.record.registeredModuleCount !== 3) e.push("the aggregate was counted as a registered module");
+  if (LIB.passingNames(allPass.record).indexOf(LIB.AGGREGATE_NAME) === -1) e.push("passingNames omits the aggregate command of an all-passing run");
+  if (LIB.passingNames(r).indexOf(LIB.AGGREGATE_NAME) !== -1) e.push("a run with a failing module lent its name to the aggregate requirement");
 }
 
 /** Every malformed / mis-bound / self-contradictory record must be caught. */
@@ -75,8 +82,9 @@ function shapeMutations(e) {
     generatedAt: NOW,
     workingTreeCleanAtRunStart: true,
     registeredModuleCount: 2,
+    // Module names only — `validate-all` is the AGGREGATE and may never appear here.
     results: [
-      { name: "validate-all", passed: true, errorCount: 0 },
+      { name: "validate-project-plan", passed: true, errorCount: 0 },
       { name: "validate-zero-relay-continuity", passed: true, errorCount: 0 },
     ],
   });
@@ -106,6 +114,10 @@ function shapeMutations(e) {
   mut("passed is not a boolean", (r) => { r.results[1].passed = "true"; }, "passed");
   mut("errorCount is not an integer", (r) => { r.results[1].errorCount = 1.5; }, "errorCount");
   mut("claims aggregate pass over a failing module", (r) => { r.results[1].passed = false; }, "at least one module result is not passing");
+  mut("no aggregate command result", (r) => { delete r.aggregate; }, "aggregate command result is missing");
+  mut("aggregate renamed", (r) => { r.aggregate.name = "something-else"; }, "aggregate.name");
+  mut("aggregate contradicts the summary", (r) => { r.aggregate.passed = false; }, "contradicts aggregatePassed");
+  mut("aggregate smuggled in as a module", (r) => { r.results[1].name = LIB.AGGREGATE_NAME; }, "listed as a registered module");
   // A record naming a validator that did NOT pass must not leak into passingNames.
   const failing = JSON.parse(JSON.stringify(base));
   failing.results[1].passed = false;

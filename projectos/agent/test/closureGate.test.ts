@@ -77,14 +77,17 @@ const CLOSURE_EVIDENCE = JSON.stringify({
 
 function record(over: Record<string, unknown> = {}): string {
   return JSON.stringify({
-    schemaVersion: '1.0.0',
+    schemaVersion: '1.1.0',
     subjectHead: SUBJECT,
     generatedAt: '2026-08-10T00:00:00.000Z',
     workingTreeCleanAtRunStart: true,
     aggregatePassed: true,
+    aggregate: { name: 'validate-all', passed: true },
     registeredModuleCount: 2,
+    // Module names only. `validate-all` is the AGGREGATE — it is nameable as a requirement but is
+    // never one of the modules, and a record listing it as one is refused.
     results: [
-      { name: 'validate-all', passed: true, errorCount: 0 },
+      { name: 'validate-project-plan', passed: true, errorCount: 0 },
       { name: 'validate-zero-relay-continuity', passed: true, errorCount: 0 },
     ],
     ...over,
@@ -113,7 +116,12 @@ describe('required-validator facts are derived, never accepted', () => {
       [`${ROOT}/.projectops/validation/${SUBJECT}.json`]: record(),
     });
     expect(facts.requiredValidators).toEqual(['validate-all', 'validate-zero-relay-continuity']);
-    expect(facts.passingValidatorNames).toEqual(['validate-all', 'validate-zero-relay-continuity']);
+    // Modules first, then the aggregate command — both are names a plan may require.
+    expect(facts.passingValidatorNames).toEqual([
+      'validate-project-plan',
+      'validate-zero-relay-continuity',
+      'validate-all',
+    ]);
     expect(facts.validationRecordProblems).toEqual([]);
   });
 
@@ -201,13 +209,14 @@ describe('required-validator facts are derived, never accepted', () => {
     const { facts, verdict } = run(['validate-zero-relay-continuity'], {
       [`${ROOT}/.projectops/validation/${SUBJECT}.json`]: record({
         aggregatePassed: false,
+        aggregate: { name: 'validate-all', passed: false },
         results: [
-          { name: 'validate-all', passed: true, errorCount: 0 },
+          { name: 'validate-project-plan', passed: true, errorCount: 0 },
           { name: 'validate-zero-relay-continuity', passed: false, errorCount: 4 },
         ],
       }),
     });
-    expect(facts.passingValidatorNames).toEqual(['validate-all']);
+    expect(facts.passingValidatorNames).toEqual(['validate-project-plan']);
     expect(verdict.unmet.find((u) => u.code === 'G4-17')?.detail).toContain('validate-zero-relay-continuity');
   });
 
@@ -215,6 +224,44 @@ describe('required-validator facts are derived, never accepted', () => {
     const { facts, verdict } = run([]);
     expect(facts.requiredValidators).toEqual([]);
     expect(verdict.unmet.map((u) => u.code)).not.toContain('G4-17');
+  });
+
+  it('the AGGREGATE command is a nameable requirement, and only when the whole suite passed', () => {
+    // Plans require `validate-all`, which is the command that runs the modules and is deliberately
+    // not one of them. The G4 gate found this by refusing a real closure whose plan required
+    // `validate-all` and whose record could not name it.
+    const { facts, verdict } = run(['validate-all'], {
+      [`${ROOT}/.projectops/validation/${SUBJECT}.json`]: record(),
+    });
+    expect(facts.passingValidatorNames).toContain('validate-all');
+    expect(verdict.satisfied).toContain('G4-17');
+
+    // A failing suite must not lend its name to a requirement.
+    const failing = run(['validate-all'], {
+      [`${ROOT}/.projectops/validation/${SUBJECT}.json`]: record({
+        aggregatePassed: false,
+        aggregate: { name: 'validate-all', passed: false },
+        results: [
+          { name: 'validate-x', passed: true, errorCount: 0 },
+          { name: 'validate-y', passed: false, errorCount: 2 },
+        ],
+      }),
+    });
+    expect(failing.facts.passingValidatorNames).not.toContain('validate-all');
+    expect(failing.verdict.unmet.map((u) => u.code)).toContain('G4-17');
+
+    // And a record whose aggregate contradicts its own summary is refused rather than believed.
+    const lying = run(['validate-all'], {
+      [`${ROOT}/.projectops/validation/${SUBJECT}.json`]: record({ aggregate: { name: 'validate-all', passed: false } }),
+    });
+    expect(lying.facts.validationRecordProblems.join(' ')).toContain('contradicts aggregatePassed');
+    expect(lying.verdict.unmet.map((u) => u.code)).toContain('G4-17');
+
+    // A missing aggregate is a problem, not an absence to be shrugged at.
+    const absent = run(['validate-all'], {
+      [`${ROOT}/.projectops/validation/${SUBJECT}.json`]: record({ aggregate: undefined }),
+    });
+    expect(absent.facts.validationRecordProblems.join(' ')).toContain('no aggregate command result');
   });
 
   it('with everything in place the gate is satisfied on G4-17', () => {
