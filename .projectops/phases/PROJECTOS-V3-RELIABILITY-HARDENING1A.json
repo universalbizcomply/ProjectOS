@@ -1,0 +1,15 @@
+{
+  "phaseId": "PROJECTOS-V3-RELIABILITY-HARDENING1A",
+  "project": "ProjectOS",
+  "objective": "<objective>",
+  "status": "prompted",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-08-10T12:46:09.567Z",
+      "note": "Design recorded at docs/architecture/projectos-v3-phase17-zero-relay-design.md: zero-relay executor consuming a permitted session-launcher spec, ownership lock, resume-instruction-only spawn, S1-S15 mapping. Also records a governance gap the owner must settle: neither plan v1.2 nor crosswalk 5b lists zero-relay among Phase 17 acceptance criteria, so G4 would permit closure without it."
+    }
+  ]
+}

@@ -56,17 +56,9 @@
     "validate-all: 124 / 124 PASS, exit 0, on the tree carrying the Git capability"
   ],
   "testResults": [
-    "Rust 143 PASS (GIT1-GIT8, GIT12 among them)",
-    "control-centre 236 PASS (GIT9-GIT11 among them)",
-    "core 178 PASS, agent 77 PASS",
-    "proportional revalidation after the Git change: T1 PASS and the governed matrix PASS (T2-T15, T18, T19, T21)"
+    "Phase 17 started through the canonical runtime; dependency gate proven in both directions"
   ],
-  "browserResults": [
-    "GIT CAPABILITY PROVEN LIVE: with the old evidence still the subject, closure refused with ONE predicate - 7 substantive paths changed after 1e4981b so the evidence is stale. The git-execution failures are gone: no \"current head could not be established\", no false \"not pushed and reconciled\", no false \"working tree residue\". That message requires rev-parse, status, rev-list, merge-base and diff all to succeed.",
-    "Headed desktop proof: real ProjectOS Tauri app via its own embedded WebDriver server on 127.0.0.1, listener owned by the app process, msedgedriver 0, bundled tauri.localhost frontend.",
-    "Governed write path proven by real clicks: validating -> evidence -> awaiting_review -> awaiting_closure, each confirmed in the durable core record.",
-    "T12/T13 disconnect honesty and restart recovery PASS. Responsive PASS at 1440/768/390/320 with the real refusal text. T16/T17 proportional with the Windows foreground limitation disclosed."
-  ],
+  "browserResults": [],
   "ECCResults": [
     "code-review APPROVE on the bootstrap; not yet re-run on the Phase-12 slice"
   ],
@@ -79,10 +71,10 @@
   "databaseReviewResults": [
     "not-applicable: no database touched"
   ],
-  "currentAction": "PHASE 12 IS CLOSED. The canonical runtime recomputed every G4 predicate against evidence subject 7e65fe5, minted the internal phase-bound grant and recorded awaiting_closure -> closed (by advisor) under the owner-recorded projectos-scoped delegation. Programme 16 -> 17 of 19 (84.2% -> 89.5%).",
+  "currentAction": "Phase 17 STARTED through the canonical runtime (draft -> prompted). Dependency enforcement proven mechanically: Phase 17 was permitted because Phases 12 and 16 are closed, and Phase 18 was REFUSED with DEPENDENCY_NOT_SATISFIED because Phase 17 is not complete. Zero-relay design recorded at docs/architecture/projectos-v3-phase17-zero-relay-design.md. No implementation yet.",
   "blockedReason": "",
-  "nextSafeAction": "Phase 12 is closed - do not continue hardening it; non-critical improvements belong to Phase 17. Start PROJECTOS-V3-RELIABILITY-HARDENING1A through ProjectOS itself, which must mechanically prove its plan v1.2 dependencies (Phase 12 CLOSED and Phase 16 CLOSED). Its mandatory acceptance item remains ZERO-RELAY SESSION CONTINUITY: at a capacity boundary ProjectOS must checkpoint, exit safely, launch a fresh governed local worker that loads canonical state and resumes the exact next safe action, with NO engineering-prompt relay from Murad. Carry forward: repeatable native Windows foreground acquisition for automated accessibility testing (a harness limitation, not a product defect).",
-  "decisionRequired": "",
+  "nextSafeAction": "Implement the zero-relay executor per the recorded design: a component that consumes a session-launcher spec with permitted === true and starts a replacement worker with a RESUME INSTRUCTION ONLY, never a task. Keep the planner/executor split - the planner still cannot spawn, so a bug in it cannot start anything. Then the ownership lock (S1, S2, S11, S12), the pre-spawn refusals (S13, S14, S15), and the failure matrix. Acceptance is a LIVE run in which Worker A stops, ProjectOS starts Worker B, and no prompt is pasted by anyone; documentation and a checkpoint file are explicitly not acceptance. Also outstanding: canonical reliability carry-forwards R17-1 to R17-8, and the Phase-12 carry-forward of repeatable native Windows foreground acquisition (harness reliability, not a product defect).",
+  "decisionRequired": "OWNER DECISION, MATERIAL SCOPE: neither plan v1.2 nor crosswalk 5b lists zero-relay session continuity among the Phase 17 acceptance criteria - both record the same eight items (core/agent adversarial coverage, the Phase-12 seam, crash/interruption/recovery, wrong-project isolation, approval bypass, cleanup/residue, reuse of the accepted .cjs evidence). The standing directive makes zero-relay the primary acceptance item and forbids closing without a live proof. G4 recomputes against the PLAN, so as things stand the runtime would permit Phase 17 closure with zero-relay unproven. Either amend plan v1.2 Phase-17 acceptanceCriteria to record it (making the gate mechanical), or record explicitly that the directive governs closure above the plan (leaving the gate human). An implementer cannot resolve this.",
   "productionTouched": false,
   "deploymentOccurred": false,
   "databaseMutationOccurred": false,
