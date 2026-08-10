@@ -62,7 +62,7 @@ async function offeredActions(): Promise<string[]> {
   );
 }
 
-describe('T22 final V3 closure smoke — the real desktop surface tells the truth at 18 / 19', () => {
+describe('T22 final V3 closure smoke — the real desktop surface tells the truth at 19 / 19', () => {
   before(async () => {
     await browser.waitUntil(async () => (await browser.getTitle()).length > 0, { timeout: 30_000 });
     const root = await $('#root');
@@ -193,7 +193,12 @@ describe('T22 final V3 closure smoke — the real desktop surface tells the trut
     expect(await $('body').getText()).not.toContain('19 / 19');
   });
 
-  it('T22g Refresh traverses the real runtime and repaints from canonical state', async () => {
+  it.skip('T22g Refresh traverses the real runtime — superseded by the closed programme', async () => {
+    // Skipped, not deleted, and for the same reason as T22i: the governed action panel renders for a
+    // phase in flight, and with the programme CLOSED there is no phase to act on, so the Refresh
+    // control this exercised does not exist. That absence is itself the truthful post-closure state
+    // and is asserted by T22e/T22f. Refresh traversing the real chain was proven in the pre-closure
+    // run at 18/19, which the Phase-18 evidence pack records.
     const before = await sourceText();
     const btn = await (await $('.ocp-actions')).$('button=Refresh');
     await btn.waitForClickable({ timeout: 20_000 });
