@@ -86,6 +86,27 @@ describe('DaemonClient', () => {
     expect(transport.disconnects).toBeGreaterThan(0);
   });
 
+  test('governed state does not survive the connection that produced it', () => {
+    const { sched, transport, client } = setup();
+    client.start();
+    // A live projection arrives and the surface would render it as canonical, live truth.
+    transport.emit({
+      kind: 'governed',
+      state: { connected: true, projectId: 'projectos' } as never,
+    });
+    expect(client.store.getState().governed).toMatchObject({ connected: true });
+
+    // The runtime then dies. Governed state is a LIVE claim, so it must not outlive the connection —
+    // otherwise the owner keeps reading "Live · Canonical runtime state" against nothing at all.
+    transport.emit({ kind: 'closed' });
+
+    const governed = client.store.getState().governed;
+    expect(governed).not.toBeNull();
+    expect(governed!.connected).toBe(false);
+    // and the owner is told what to do about it, not merely that something is wrong
+    expect((governed as { detail: string }).detail).toContain('Restart ProjectOS');
+  });
+
   test('closed message triggers reconnect', () => {
     const { sched, transport, client } = setup();
     client.start();

@@ -146,6 +146,18 @@ export class DaemonClient {
 
   #down(): void {
     this.#conn.disconnected(this.#reconnect.attempt);
+    // Governed state is a LIVE claim, so it must not outlive the connection that produced it.
+    // Without this the last projection stayed in the store after the runtime died and the owner
+    // surface went on reporting "Live · Canonical runtime state" against a runtime that no longer
+    // existed — the precise dishonesty this surface is supposed to make impossible.
+    this.store.update({
+      governed: {
+        connected: false,
+        reason: 'RUNTIME_STOPPED',
+        detail:
+          'The ProjectOS runtime stopped responding, so this is no longer live state. Restart ProjectOS to reconnect.',
+      },
+    });
     this.#reconnect.schedule(() => this.#reconnect_attempt());
   }
 

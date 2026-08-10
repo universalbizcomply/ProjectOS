@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -55,6 +56,27 @@ export const config = {
       resolve(process.cwd(), 'bridge.config.json'),
       JSON.stringify({ watchRoots: [root] }, null, 2) + '\n',
     );
+  },
+
+  /**
+   * Leave no ProjectOS process behind between specs.
+   *
+   * This runs AFTER the WebDriver session is deleted, which matters: killing the app from inside a
+   * spec kills the embedded server the session is still talking to, and the teardown then fails on
+   * a connection it can no longer reach. It also guarantees the next spec gets a genuinely fresh
+   * instance rather than colliding with the single-instance guard, which is right to refuse a
+   * second one.
+   */
+  afterSession(): void {
+    try {
+      execFileSync('powershell', [
+        '-NoProfile',
+        '-Command',
+        'Get-Process -Name projectos-control-center -ErrorAction SilentlyContinue | Stop-Process -Force',
+      ]);
+    } catch {
+      // nothing left to stop
+    }
   },
 
   runner: 'local',

@@ -198,6 +198,27 @@ describe('requestGovernedCommand', () => {
     expect(r.order).toEqual([]);
   });
 
+  it('RC1 refuses without dispatching when the result channel cannot be opened', async () => {
+    const invoke = vi.fn();
+    const bridge: IpcBridge = {
+      isTauri: () => true,
+      invoke,
+      listen: async () => {
+        throw new Error('event channel unavailable');
+      },
+    };
+    const outcome = await requestGovernedCommand(bridge, 'phase.close', { phaseId: 'P' });
+
+    expect(outcome.ok).toBe(false);
+    expect(outcome.lines[0]).toContain('RESULT_CHANNEL');
+    // The whole point: an action we cannot observe the outcome of must not be sent at all.
+    expect(invoke).not.toHaveBeenCalled();
+    // and the owner is told plainly that nothing happened
+    expect(outcome.lines.join(' ')).toContain('Nothing has changed');
+    // no internals leaked to the owner
+    expect(outcome.lines.join(' ')).not.toContain('event channel unavailable');
+  });
+
   it('refuses outside the desktop app rather than pretending to send', async () => {
     const bridge: IpcBridge = {
       isTauri: () => false,

@@ -118,12 +118,25 @@ export async function requestGovernedCommand(
     settle = res;
   });
 
-  const unlisten = await bridge.listen(IPC_EVENT_CHANNEL, (payload) => {
-    const result = asGovernedResult(payload);
-    // A result for some other command must never resolve this one.
-    if (result === null || result.correlationId !== correlationId) return;
-    settle({ ok: result.code === 0, lines: result.lines });
-  });
+  // If the result channel cannot be established, the command is NOT sent. Dispatching anyway would
+  // ask the runtime to act while we already know we cannot observe or report what it decided — the
+  // owner would be left with an action in flight and no verdict, which is worse than not acting.
+  let unlisten: () => void;
+  try {
+    unlisten = await bridge.listen(IPC_EVENT_CHANNEL, (payload) => {
+      const result = asGovernedResult(payload);
+      // A result for some other command must never resolve this one.
+      if (result === null || result.correlationId !== correlationId) return;
+      settle({ ok: result.code === 0, lines: result.lines });
+    });
+  } catch {
+    return {
+      ok: false,
+      lines: [
+        'REFUSED (RESULT_CHANNEL): the result channel to the ProjectOS runtime could not be opened, so the action was not sent. Nothing has changed.',
+      ],
+    };
+  }
 
   let timer: ReturnType<typeof setTimeout> | null = null;
   try {
