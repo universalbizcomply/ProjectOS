@@ -35,7 +35,12 @@ export type G4Predicate =
   | 'G4-13'
   | 'G4-14'
   | 'G4-15'
-  | 'G4-16';
+  | 'G4-16'
+  | 'G4-17';
+
+/** How many predicates this gate checks. Derived, so a new one cannot be added without the basis
+ *  note that reports it becoming true again. */
+export const G4_PREDICATE_COUNT = 17;
 
 /**
  * The facts the gate needs. Every field is something the deriving layer must establish from the
@@ -93,6 +98,23 @@ export interface G4Facts {
   readonly decisionBoundToPhaseId: string;
   /** The commit the evidence facts were established against. */
   readonly evidenceSubjectHead: string | null;
+  /**
+   * G4-17 REQUIRED VALIDATORS, BY NAME.
+   *
+   * `validatorsPass` (G4-5) is one boolean in a durable record. It says a suite passed; it cannot say
+   * WHICH validators ran, so a phase whose approved plan demands a specific validator could close
+   * with that validator absent — and the plan's `requiredValidators` were read by nothing at all.
+   * These three facts close that: what the ACTIVE APPROVED PLAN demands for this phase, what a
+   * subject-bound validator-run record shows actually passed, and why that record cannot be trusted
+   * if it cannot be trusted.
+   *
+   * `requiredValidators` MUST come from the plan the runtime loaded, never from the closure request.
+   * `validationRecordProblems` is non-empty whenever the record is missing, malformed, or bound to a
+   * different subject — every one of which refuses, because an unreadable record is not a pass.
+   */
+  readonly requiredValidators: readonly string[];
+  readonly passingValidatorNames: readonly string[];
+  readonly validationRecordProblems: readonly string[];
 }
 
 export interface G4Unmet {
@@ -109,6 +131,44 @@ export interface G4Verdict {
 
 /** The only lifecycle state a phase may be closed from. */
 export const CLOSURE_READY_STATUS = 'awaiting_closure';
+
+/**
+ * G4-17: every validator the ACTIVE APPROVED PLAN requires for this phase is recorded as PASSING in
+ * a subject-bound validator-run record.
+ *
+ * Deliberately universal — it knows no phase and no validator name. A phase whose plan entry declares
+ * no required validators is vacuously satisfied, so no existing phase gains an invented requirement;
+ * a phase that declares one cannot close without it, whatever `validatorsPass` claims.
+ *
+ * The record is checked BEFORE the names: a missing or malformed or wrong-subject record refuses on
+ * its own terms rather than being read as "no passing validators", so the refusal says why.
+ */
+function requiredValidatorVerdict(facts: G4Facts): readonly [boolean, string] {
+  // A caller from untyped JavaScript can omit these. "Not established" is not "nothing required" —
+  // reading an absent list as an empty one would fail OPEN, which is the one thing this gate may
+  // never do — so an absent list refuses.
+  if (!Array.isArray(facts.requiredValidators) || !Array.isArray(facts.passingValidatorNames) || !Array.isArray(facts.validationRecordProblems)) {
+    return [false, "the phase's plan-required validators and their run evidence were not established"];
+  }
+  const required = facts.requiredValidators;
+  if (required.length === 0) return [true, ''];
+  if (facts.validationRecordProblems.length > 0) {
+    return [
+      false,
+      `the phase requires ${required.length} named validator(s) and the validator-run evidence cannot be trusted: ` +
+        facts.validationRecordProblems.slice(0, 3).join('; '),
+    ];
+  }
+  const passing = new Set(facts.passingValidatorNames);
+  const missing = required.filter((name) => !passing.has(name));
+  if (missing.length > 0) {
+    return [
+      false,
+      `${missing.length} plan-required validator(s) are not recorded as passing at the evidence subject: ${missing.join(', ')}`,
+    ];
+  }
+  return [true, ''];
+}
 
 /**
  * Evaluate the gate. Fails CLOSED on every unknown: a `null` evidence fact means "not established",
@@ -171,6 +231,7 @@ export function evaluateClosureEligibility(facts: G4Facts): G4Verdict {
     facts.decisionBoundToPhaseId === facts.phaseId,
     `the eligibility decision is bound to '${facts.decisionBoundToPhaseId}', not '${facts.phaseId}'`,
   );
+  check('G4-17', ...requiredValidatorVerdict(facts));
 
   // PROVENANCE. Same question as before — "is what we verified the thing we are closing?" — but
   // asked in a way an ordinary closure workflow can actually satisfy.
@@ -205,9 +266,13 @@ export function evaluateClosureEligibility(facts: G4Facts): G4Verdict {
 export function g4BasisNote(facts: G4Facts): string {
   const subject = facts.evidenceSubjectHead === null ? 'an unrecorded commit' : facts.evidenceSubjectHead.slice(0, 7);
   const head = facts.implementationHead === null ? 'an unrecorded head' : facts.implementationHead.slice(0, 7);
+  const validators =
+    facts.requiredValidators.length === 0
+      ? 'no plan-required validators'
+      : `plan-required validators [${facts.requiredValidators.join(', ')}] recorded passing at the subject`;
   return (
-    `closed under the pre-issued ChatGPT ProjectOS G4 gate: all 16 predicates mechanically satisfied ` +
-    `against plan v${facts.activePlanVersion}, evidence subject ${subject}` +
+    `closed under the pre-issued ChatGPT ProjectOS G4 gate: all ${G4_PREDICATE_COUNT} predicates mechanically ` +
+    `satisfied against plan v${facts.activePlanVersion}, ${validators}, evidence subject ${subject}` +
     (subject === head ? '' : ` (governance head ${head}, closure-tail metadata only)`) +
     `, under the owner-recorded ${facts.governedProjectId}-scoped closure delegation`
   );
@@ -233,6 +298,18 @@ export const CLOSURE_TAIL_PATHS: readonly string[] = [
 ];
 
 /**
+ * The ONE additional tail shape: a validator-run record named after a 40-hex subject commit.
+ *
+ * It has to be a tail path — the record can only be produced AFTER the subject exists, so writing it
+ * necessarily changes the tree after the commit it describes. It is admitted as an exact-shape
+ * pattern rather than as the directory `.projectops/validation/`, because a directory prefix would
+ * make ANY file under it non-substantive, including a hand-placed one with an arbitrary name. The
+ * record carries its own subject binding, so a stale one cannot masquerade as current: G4-17 checks
+ * the name, the internal `subjectHead`, and their agreement with the evidence subject.
+ */
+const VALIDATION_RECORD_PATH = /^\.projectops\/validation\/[0-9a-f]{40}\.json$/;
+
+/**
  * Is this changed path permissible in a closure tail? Anything not matched is SUBSTANTIVE.
  *
  * Prefix matching against an explicit list rather than pattern matching: an allowlist that decides
@@ -243,6 +320,7 @@ export const CLOSURE_TAIL_PATHS: readonly string[] = [
 export function isClosureTailPath(path: string): boolean {
   const p = path.replace(/\\/g, '/');
   if (p.includes('..')) return false;
+  if (VALIDATION_RECORD_PATH.test(p)) return true;
   return CLOSURE_TAIL_PATHS.some((allowed) =>
     allowed.endsWith('/') ? p.startsWith(allowed) && p.length > allowed.length : p === allowed,
   );

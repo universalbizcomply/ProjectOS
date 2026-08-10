@@ -13,6 +13,7 @@ import {
   isClosureTailPath,
   CLOSURE_READY_STATUS,
   CLOSURE_TAIL_PATHS,
+  G4_PREDICATE_COUNT,
   type G4Facts,
 } from '../src/closureEligibility.js';
 import { authoriseClosure, type ClosureDelegation } from '../src/closureAuthority.js';
@@ -47,6 +48,9 @@ function facts(over: Partial<G4Facts> = {}): G4Facts {
     evidenceSubjectHead: HEAD,
     subjectIsAncestorOfHead: true,
     substantiveChangesSinceSubject: [],
+    requiredValidators: ['validate-all'],
+    passingValidatorNames: ['validate-all', 'validate-desktop-e2e'],
+    validationRecordProblems: [],
     ...over,
   };
 }
@@ -69,7 +73,7 @@ describe('C14 every predicate genuinely true — and only then', () => {
     const v = evaluateClosureEligibility(facts());
     expect(v.eligible).toBe(true);
     expect(v.unmet).toEqual([]);
-    expect(v.satisfied).toHaveLength(16);
+    expect(v.satisfied).toHaveLength(G4_PREDICATE_COUNT);
     expect(g4BasisNote(facts())).toContain('pre-issued ChatGPT ProjectOS G4 gate');
   });
 
@@ -324,5 +328,176 @@ describe('evidence-subject provenance', () => {
   it('the allowlist is small enough to read, and excludes the plan', () => {
     expect(CLOSURE_TAIL_PATHS.length).toBeLessThanOrEqual(8);
     expect(CLOSURE_TAIL_PATHS.some((p) => p.includes('plan'))).toBe(false);
+  });
+
+  it('V10 a validator-run record is tail ONLY in its exact subject-named shape', () => {
+    // It must be a tail path at all — the record can only exist after the commit it describes. But
+    // admitting the DIRECTORY would make any hand-placed file under it non-substantive, which is a
+    // hole, so only `<40-hex>.json` qualifies.
+    expect(isClosureTailPath(`.projectops/validation/${'b'.repeat(40)}.json`)).toBe(true);
+    for (const no of [
+      '.projectops/validation/latest.json',
+      '.projectops/validation/notes.md',
+      '.projectops/validation/' + 'b'.repeat(39) + '.json',
+      '.projectops/validation/' + 'b'.repeat(41) + '.json',
+      '.projectops/validation/' + 'B'.repeat(40) + '.json',
+      '.projectops/validation/sub/' + 'b'.repeat(40) + '.json',
+      '.projectops/validation/',
+      '.projectops/validation/' + 'b'.repeat(40) + '.json.bak',
+    ]) {
+      expect(isClosureTailPath(no), no).toBe(false);
+    }
+    // And it cannot launder a source change: a substantive path stays substantive.
+    expect(isClosureTailPath('projectos/core/src/closureEligibility.ts')).toBe(false);
+  });
+});
+
+/**
+ * G4-17 — plan-declared required validators, proven BY NAME.
+ *
+ * The hole this closes: `validatorsPass` is one boolean, so a phase whose approved plan demands a
+ * specific validator could close with that validator never having run, and the plan's
+ * `requiredValidators` were read by nothing. Every case below is a closure that must not happen.
+ */
+describe('V required validators are proven by name, not by a boolean', () => {
+  it('V1 a declared validator with a passing bound result satisfies the predicate', () => {
+    const v = evaluateClosureEligibility(
+      facts({
+        requiredValidators: ['validate-all', 'validate-zero-relay-continuity'],
+        passingValidatorNames: ['validate-all', 'validate-zero-relay-continuity', 'validate-desktop-e2e'],
+      }),
+    );
+    expect(v.eligible).toBe(true);
+    expect(v.satisfied).toContain('G4-17');
+  });
+
+  it('V2 a required validator absent from the record REFUSES, and is named', () => {
+    const v = evaluateClosureEligibility(
+      facts({
+        requiredValidators: ['validate-all', 'validate-zero-relay-continuity'],
+        passingValidatorNames: ['validate-all'],
+      }),
+    );
+    expect(v.eligible).toBe(false);
+    const u = v.unmet.find((x) => x.code === 'G4-17');
+    expect(u).toBeDefined();
+    expect(u?.detail).toContain('validate-zero-relay-continuity');
+  });
+
+  it('V3 a required validator recorded as FAILING refuses — a failing run leaves it off the passing list', () => {
+    // The deriving layer only ever puts PASSING names in `passingValidatorNames`, so "failed" and
+    // "absent" reach the gate identically and both refuse. Asserted so the equivalence is deliberate.
+    const v = evaluateClosureEligibility(
+      facts({ requiredValidators: ['validate-reliability-hardening'], passingValidatorNames: [] }),
+    );
+    expect(v.unmet.map((x) => x.code)).toContain('G4-17');
+  });
+
+  it('V4 a missing validator-run record refuses', () => {
+    const v = evaluateClosureEligibility(
+      facts({
+        requiredValidators: ['validate-all'],
+        passingValidatorNames: [],
+        validationRecordProblems: ['no validator-run record at .projectops/validation/<subject>.json'],
+      }),
+    );
+    expect(v.eligible).toBe(false);
+    expect(v.unmet.find((x) => x.code === 'G4-17')?.detail).toContain('no validator-run record');
+  });
+
+  it('V5 a record bound to a different subject refuses even when the names all match', () => {
+    const v = evaluateClosureEligibility(
+      facts({
+        requiredValidators: ['validate-all'],
+        passingValidatorNames: ['validate-all'],
+        validationRecordProblems: ['validator-run record is bound to ccccccc, not the evidence subject aaaaaaa'],
+      }),
+    );
+    expect(v.eligible).toBe(false);
+    expect(v.unmet.find((x) => x.code === 'G4-17')?.detail).toContain('not the evidence subject');
+  });
+
+  it('V6 a malformed record refuses rather than reading as an empty pass list', () => {
+    const v = evaluateClosureEligibility(
+      facts({
+        requiredValidators: ['validate-all'],
+        passingValidatorNames: ['validate-all'],
+        validationRecordProblems: ['validator-run record has no results array'],
+      }),
+    );
+    expect(v.eligible).toBe(false);
+    expect(v.unmet.map((x) => x.code)).toContain('G4-17');
+  });
+
+  it('V7 validatorsPass=true does NOT substitute for a named required validator', () => {
+    // The precise defect: the closure evidence asserts the suite passed, and the gate believed it.
+    const v = evaluateClosureEligibility(
+      facts({
+        validatorsPass: true,
+        requiredValidators: ['validate-zero-relay-continuity'],
+        passingValidatorNames: ['validate-all', 'validate-reliability-hardening'],
+      }),
+    );
+    expect(v.satisfied).toContain('G4-5'); // the old boolean is still satisfied …
+    expect(v.eligible).toBe(false); // … and it is no longer enough.
+    expect(v.unmet.map((x) => x.code)).toEqual(['G4-17']);
+  });
+
+  it('V8 unrelated passing validators do not substitute for the missing required name', () => {
+    const v = evaluateClosureEligibility(
+      facts({
+        requiredValidators: ['validate-zero-relay-continuity'],
+        passingValidatorNames: Array.from({ length: 200 }, (_, i) => `validate-other-${i}`),
+      }),
+    );
+    expect(v.eligible).toBe(false);
+    expect(v.unmet.find((x) => x.code === 'G4-17')?.detail).toContain('validate-zero-relay-continuity');
+  });
+
+  it('V9 a phase declaring no required validators gains no invented requirement', () => {
+    // Vacuous truth on purpose: every already-closed phase and Phase 18 must keep behaving exactly
+    // as before. An empty record is irrelevant when the plan asks for nothing.
+    const v = evaluateClosureEligibility(
+      facts({
+        requiredValidators: [],
+        passingValidatorNames: [],
+        validationRecordProblems: ['no validator-run record at all'],
+      }),
+    );
+    expect(v.eligible).toBe(true);
+    expect(v.satisfied).toContain('G4-17');
+  });
+
+  it('V11 evidence cannot be reused across phases: the decision binding and the subject both hold', () => {
+    // Same passing validators, wrong phase -> G4-16 refuses; wrong subject -> G4-17 refuses. Reuse
+    // has to fail on BOTH axes, otherwise one record could close a second phase.
+    expect(unmetCodes({ decisionBoundToPhaseId: 'SOME-OTHER-PHASE1A' })).toContain('G4-16');
+    expect(
+      evaluateClosureEligibility(
+        facts({ validationRecordProblems: ['validator-run record is bound to another subject'] }),
+      ).unmet.map((x) => x.code),
+    ).toContain('G4-17');
+  });
+
+  it('V12 the required list is a FACT, and every name in it must be met', () => {
+    // The gate cannot invent or drop names: whatever the deriving layer read off the active approved
+    // plan is exactly what must appear. Proven over the whole subset lattice of a three-name list.
+    const required = ['a', 'b', 'c'];
+    for (let mask = 0; mask < 8; mask++) {
+      const passing = required.filter((_, i) => (mask & (1 << i)) !== 0);
+      const v = evaluateClosureEligibility(facts({ requiredValidators: required, passingValidatorNames: passing }));
+      expect(v.eligible, `mask ${mask}`).toBe(passing.length === 3);
+      if (passing.length < 3) {
+        const detail = v.unmet.find((x) => x.code === 'G4-17')?.detail ?? '';
+        for (const name of required.filter((n) => !passing.includes(n))) expect(detail).toContain(name);
+      }
+    }
+  });
+
+  it('the basis note tells the truth about which validators carried the closure', () => {
+    const note = g4BasisNote(facts({ requiredValidators: ['validate-all', 'validate-zero-relay-continuity'] }));
+    expect(note).toContain(`all ${G4_PREDICATE_COUNT} predicates`);
+    expect(note).toContain('validate-zero-relay-continuity');
+    expect(g4BasisNote(facts({ requiredValidators: [] }))).toContain('no plan-required validators');
   });
 });

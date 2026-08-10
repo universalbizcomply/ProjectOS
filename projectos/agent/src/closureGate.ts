@@ -23,6 +23,12 @@ export function closureEvidencePath(root: string, phaseId: string): string {
   return join(projectopsDir(root), 'closure', `${phaseId}.json`);
 }
 
+/** Where the validator-run record for a given subject commit lives. Named after the commit, so a
+ *  record for another subject is a different file rather than a silently reused one. */
+export function validationRecordPath(root: string, subjectHead: string): string {
+  return join(projectopsDir(root), 'validation', `${subjectHead}.json`);
+}
+
 /**
  * The durable evidence a closure needs and the runtime cannot compute for itself: whether the
  * validators and checks passed, whether reviews are complete, how many CRITICAL/HIGH findings remain,
@@ -118,6 +124,81 @@ function protectedEffectOccurred(sys: System, context: GovernedContext, root: st
 interface PlanPhase {
   readonly phaseId: string;
   readonly requiredBrowserProof?: boolean;
+  readonly requiredValidators?: readonly string[];
+}
+
+const HEX40 = /^[0-9a-f]{40}$/;
+
+/**
+ * What the validator runner actually recorded at `subjectHead`, or why that cannot be established.
+ *
+ * Read here, in the deriving layer, for the same reason every other fact is: the closure request may
+ * not supply it. The record is located BY the subject commit — so pointing the gate at a different
+ * subject means reading a different file, not reinterpreting this one — and its self-declared
+ * `subjectHead` is compared with the name rather than trusted, because a file named after a commit
+ * whose contents disagree is precisely the forgery the naming scheme is meant to make visible.
+ *
+ * Every failure path yields a PROBLEM, never an empty pass list: "no record" and "a record showing
+ * nothing passed" must not be indistinguishable, and neither may be read as satisfaction.
+ */
+function validatorRunFacts(
+  sys: System,
+  root: string,
+  subjectHead: string | null,
+): { passing: readonly string[]; problems: readonly string[] } {
+  if (subjectHead === null || !HEX40.test(subjectHead)) {
+    return { passing: [], problems: ['the closure evidence names no valid subject commit, so no validator-run record can be located'] };
+  }
+  const path = validationRecordPath(root, subjectHead);
+  const raw = readJson(sys, path);
+  if (raw === null) {
+    return {
+      passing: [],
+      problems: [
+        `no validator-run record at .projectops/validation/${subjectHead}.json — run \`node projectos/validators/validate-all.cjs --record-evidence\` at the evidence subject`,
+      ],
+    };
+  }
+  const problems: string[] = [];
+  if (raw['schemaVersion'] !== '1.0.0') problems.push(`validator-run record schemaVersion is ${JSON.stringify(raw['schemaVersion'])}, expected "1.0.0"`);
+  const declared = raw['subjectHead'];
+  if (typeof declared !== 'string' || !HEX40.test(declared)) problems.push('validator-run record subjectHead is not a 40-hex commit');
+  else if (declared !== subjectHead) problems.push(`validator-run record is bound to ${declared.slice(0, 7)}, not the evidence subject ${subjectHead.slice(0, 7)}`);
+  if (raw['workingTreeCleanAtRunStart'] !== true) problems.push('the validator run was not made from a clean working tree');
+  const count = raw['registeredModuleCount'];
+  const results = raw['results'];
+  if (!Array.isArray(results)) {
+    problems.push('validator-run record has no results array');
+    return { passing: [], problems };
+  }
+  if (typeof count !== 'number' || !Number.isInteger(count) || count < 1) problems.push('validator-run record registeredModuleCount is not a positive integer');
+  else if (results.length !== count) problems.push(`validator-run record lists ${results.length} result(s) for ${count} registered module(s)`);
+
+  const passing: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of results as readonly unknown[]) {
+    if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) {
+      problems.push('validator-run record contains a malformed result entry');
+      continue;
+    }
+    const r = entry as Record<string, unknown>;
+    const name = r['name'];
+    if (typeof name !== 'string' || name.length === 0) {
+      problems.push('validator-run record contains a result with no validator name');
+      continue;
+    }
+    if (seen.has(name)) {
+      problems.push(`validator-run record lists ${name} more than once`);
+      continue;
+    }
+    seen.add(name);
+    if (typeof r['passed'] !== 'boolean') {
+      problems.push(`validator-run record result for ${name} has no boolean 'passed'`);
+      continue;
+    }
+    if (r['passed'] === true) passing.push(name);
+  }
+  return { passing, problems };
 }
 
 /**
@@ -153,6 +234,13 @@ export function evaluateG4(
   // Ancestry and the changed-path classification are computed from git, never taken from the record.
   const prov = subject === null ? { isAncestor: false, substantive: [] as readonly string[] } : changesSince(sys, root, subject);
 
+  // What the ACTIVE APPROVED PLAN requires by name, and what the runner actually recorded. The
+  // required list is read off the plan the runtime loaded — never off the request.
+  const requiredValidators = Array.isArray(planPhase?.requiredValidators)
+    ? planPhase.requiredValidators.filter((v): v is string => typeof v === 'string' && v.length > 0)
+    : [];
+  const runFacts = validatorRunFacts(sys, root, subject);
+
   const facts: G4Facts = {
     governedProjectId: context.projectId,
     planProjectId: typeof plan['projectId'] === 'string' ? plan['projectId'] : '',
@@ -179,6 +267,9 @@ export function evaluateG4(
     evidenceSubjectHead: subject,
     subjectIsAncestorOfHead: prov.isAncestor,
     substantiveChangesSinceSubject: prov.substantive,
+    requiredValidators,
+    passingValidatorNames: runFacts.passing,
+    validationRecordProblems: runFacts.problems,
   };
 
   return { facts, verdict: evaluateClosureEligibility(facts) };

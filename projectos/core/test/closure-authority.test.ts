@@ -32,6 +32,8 @@ function eligibleVerdict(phaseId = 'X1A') {
     delegationValidForProject: true, authorityAssertedByCaller: false,
     decisionBoundToPhaseId: phaseId, evidenceSubjectHead: HEAD,
     subjectIsAncestorOfHead: true, substantiveChangesSinceSubject: [],
+    requiredValidators: ['validate-all'], passingValidatorNames: ['validate-all'],
+    validationRecordProblems: [],
   };
   return evaluateClosureEligibility(f);
 }

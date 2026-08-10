@@ -92,20 +92,54 @@ const MODULES = [
   "val-projectos-v3-owner-presence-confirmation-ux1a",
   "val-projectos-v3-active-phase-consistency1a",
   "val-projectos-v3-webdriver-e2e-isolation1a",
+  "val-projectos-v3-validation-evidence1a",
   "validate-v3.1-crosswalk",
   "validate-v3.2-ai-provider-independence"
 ];
 const scratch = require("./lib/scratch.cjs");
+const validationRecord = require("./lib/validation-record.cjs");
+const path = require("path");
+const ROOT = path.resolve(__dirname, "..", "..");
+
+// Opt-in evidence production. The default run is unchanged — developers run this suite constantly on
+// dirty trees, and writing a tracked record every time would be residue. `--record-evidence` is what
+// the closure workflow uses at the evidence subject commit.
+const RECORD_EVIDENCE = process.argv.slice(2).includes("--record-evidence");
+
+// REGISTERED MODULE COUNT vs the AGGREGATE COMMAND. These are different numbers and have been
+// conflated in prose before ("124/124" for a 123-module registry). The registry length is the only
+// module count; `validate-all` itself is the wrapper and is never a module.
+const REGISTERED_MODULE_COUNT = MODULES.length;
+
+const results = [];
 let total = 0;
 for (const m of MODULES) {
   let errs;
   // Release this validator's scratch as soon as it finishes — on pass, fail or crash. Without this,
   // every validator's directory stays alive until process exit and peak disk is the whole suite at once.
   try { errs = require("./" + m + ".cjs").run(); }
-  catch (e) { console.error("[" + m + "] CRASH: " + e.message); total += 1; scratch.cleanupAll(); continue; }
+  catch (e) {
+    console.error("[" + m + "] CRASH: " + e.message);
+    total += 1; scratch.cleanupAll();
+    // A crash is a FAILING result, never a missing one: an absent entry would read as "not required".
+    results.push({ name: m, passed: false, errorCount: 1 });
+    continue;
+  }
   finally { scratch.cleanupAll(); }
   if (errs.length) { errs.forEach(x => console.error("[" + m + "] FAIL: " + x)); total += errs.length; }
   else console.log("[" + m + "] PASS");
+  results.push({ name: m, passed: errs.length === 0, errorCount: errs.length });
 }
+
+if (RECORD_EVIDENCE) {
+  const w = validationRecord.writeRecord(ROOT, results, REGISTERED_MODULE_COUNT, new Date().toISOString());
+  if (w.written) console.log("validate-all: evidence recorded at " + path.relative(ROOT, w.path).replace(/\\/g, "/"));
+  else console.error("validate-all: evidence NOT recorded — " + w.reason);
+}
+
+console.log(
+  "validate-all: " + REGISTERED_MODULE_COUNT + " registered module(s), " +
+  results.filter((r) => r.passed).length + " PASS, " + results.filter((r) => !r.passed).length + " FAIL"
+);
 if (total) { console.error("validate-all: " + total + " error(s)"); process.exit(1); }
 console.log("validate-all: ALL PASS");
