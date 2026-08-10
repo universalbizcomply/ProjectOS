@@ -54,10 +54,14 @@ const ACCEPTED_HEAD = "ec20512944be4fff7cc6ee740781fe95b41cf120";
 // 7e65fe5, the grant minted internally, and the transition recorded `by: advisor` under the
 // owner-recorded projectos-scoped delegation. The implementer neither approved nor closed it.
 // (crosswalk v1.7), the first real ProjectOS-governed PolyGo phase.
-const ACCEPTED_PHASE_COUNT = 17;
+// 2026-08-10: 17 -> 18 on the G4 closure of numbered Phase 17 PROJECTOS-V3-RELIABILITY-HARDENING1A,
+// again decided by the runtime: all seventeen predicates recomputed at evidence subject 2b362eb —
+// including the G4-17 the phase itself added, which refused the closure once before the aggregate
+// command could be named by the validator-run record.
+const ACCEPTED_PHASE_COUNT = 18;
 const TOTAL_PHASE_COUNT = 19;
 const ACCEPTED_PERCENTAGE = Math.round((ACCEPTED_PHASE_COUNT / TOTAL_PHASE_COUNT) * 1000) / 10;
-const CROSSWALK_VERSION = "1.8";
+const CROSSWALK_VERSION = "1.9";
 // The ACTIVE machine-readable plan version. This pin used to read "1.0" under the label "plan must
 // stay immutable". Two different artefacts were collapsed into that one word: the human-readable
 // master plan, which IS byte-immutable and is pinned by SHA-256 in validate-v3.2, and the machine
@@ -73,11 +77,12 @@ const PHASE_13_ID = "PROJECTOS-V3-DESKTOP-E2E-PROOF1A";
 // The accepted per-phase position of the numbered roadmap. Asserted row-by-row against the §5 ledger so
 // that neither an accidental closure nor an accidental reopen can pass. Scoped to the §5 ledger section
 // because §3's build-order table also has small integers in its first column.
-const LEDGER_CLOSED = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
-const LEDGER_OPEN = [17, 18];
+const LEDGER_CLOSED = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17];
+const LEDGER_OPEN = [18];
 // Phase 18 is OPEN, not retired: only its July completion CLAIM was superseded.
+// Phase 17 left this list on its closure — the criteria a CLOSED phase still records are history, and
+// asserting them as OPEN criteria would reopen it by accident.
 const OPEN_PHASE_CRITERIA = [
-  ["Phase 17", "PROJECTOS-V3-RELIABILITY-HARDENING1A"],
   ["Phase 18", "PROJECTOS-V3-FINAL-E2E-CLOSURE1A"],
 ];
 // The gate that moved programme/local execution readiness to true. Frozen accepted fact.
@@ -181,7 +186,7 @@ function run() {
       if (LEDGER_CLOSED.indexOf(n) !== -1 && (!closed || open)) e.push("§5 ledger phase " + n + " is not unambiguously CLOSED: " + row.slice(0, 90));
       if (LEDGER_OPEN.indexOf(n) !== -1 && (!open || closed)) e.push("§5 ledger phase " + n + " is not unambiguously OPEN: " + row.slice(0, 90));
     }
-    if (!/Numbered V3 closure ratio = 17 \/ 19/.test(cw)) e.push("crosswalk does not state the accepted ratio 17 / 19");
+    if (!/Numbered V3 closure ratio = 18 \/ 19/.test(cw)) e.push("crosswalk does not state the accepted ratio 18 / 19");
   }
 
   // 9d Phase 18 is OPEN and explicitly NOT retired — only its July completion claim was superseded.

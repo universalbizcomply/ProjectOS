@@ -10,7 +10,7 @@
   "repositoryPath": "C:/dev/ProjectOS",
   "branch": "projectos-v3",
   "startingHead": "11046f4a842dc979fa358acab570cc1194a58478",
-  "currentHead": "4dfe2cb19b9754bb628fdd7ce21f816c45998178",
+  "currentHead": "2b362eb1281eee10a4d1bc8f0f1a5984e96e3d12",
   "filesInspected": [
     "projectos/control-center/src/owner/ownerSnapshot.ts",
     "projectos/control-center/src/owner/governedChain.ts",
@@ -71,9 +71,9 @@
   "databaseReviewResults": [
     "not-applicable: no database touched"
   ],
-  "currentAction": "Plan v1.3 ACTIVATED under explicit owner approval bound to candidate sha256 4d35bc34b5740aacc98c9350221603cc2dc611081dd53581024da98ce1e497f1. Phase 17 now carries a plan-bound zero-relay acceptance criterion and requires validate-zero-relay-continuity. Next: make plan-declared required validators mechanically enforceable at G4 before building the validator itself.",
+  "currentAction": "PROJECTOS-V3-RELIABILITY-HARDENING1A CLOSED by the G4 gate at evidence subject 2b362eb. Programme 18/19 (94.7%).",
   "blockedReason": "",
-  "nextSafeAction": "Implement the zero-relay executor per the recorded design: a component that consumes a session-launcher spec with permitted === true and starts a replacement worker with a RESUME INSTRUCTION ONLY, never a task. Keep the planner/executor split - the planner still cannot spawn, so a bug in it cannot start anything. Then the ownership lock (S1, S2, S11, S12), the pre-spawn refusals (S13, S14, S15), and the failure matrix. Acceptance is a LIVE run in which Worker A stops, ProjectOS starts Worker B, and no prompt is pasted by anyone; documentation and a checkpoint file are explicitly not acceptance. Also outstanding: canonical reliability carry-forwards R17-1 to R17-8, and the Phase-12 carry-forward of repeatable native Windows foreground acquisition (harness reliability, not a product defect).",
+  "nextSafeAction": "Phase 18 PROJECTOS-V3-FINAL-E2E-CLOSURE1A is the final V3 closure phase and is now dependency-satisfied. Do NOT start it without a fresh owner-led gate: it closes the programme. Carried forward from Phase 17: R17-1, R17-3, R17-6 and R17-8 with reasons recorded in docs/architecture/projectos-v3-phase17-r17-carryforward-reconciliation.md, and repeatable native-Windows foreground acquisition, which is a harness limitation and not a product defect.",
   "decisionRequired": "",
   "productionTouched": false,
   "deploymentOccurred": false,
@@ -83,6 +83,6 @@
   "secretCapabilityUsed": false,
   "rawSecretStored": false,
   "createdAt": "2026-08-09T03:12:54Z",
-  "updatedAt": "2026-08-10T14:30:00Z",
+  "updatedAt": "2026-08-10T18:20:00Z",
   "sessionStatus": "active"
 }
