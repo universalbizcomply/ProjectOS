@@ -31,7 +31,17 @@ console.log(`[build-e2e] CARGO_TARGET_DIR=${targetDir}`);
 // `shell: true` is required here: without it the spawn of the npx shim on Windows returned success
 // while running nothing at all, which is worse than failing — it left a stale binary in place and
 // the desktop proof silently ran against it.
-const result = spawnSync('npx tauri build --no-bundle --features webdriver-e2e', {
+// `--debug` is REQUIRED, and not for convenience. The app classifies a release build as a packaged
+// candidate and then refuses to launch its development sidecar at all
+// (`ProductionIdentityUnavailable`, with no fallback resolver) — a deliberate custody property, not
+// an obstacle to route around. A release E2E binary therefore reports "no ProjectOS runtime has
+// reported yet" forever, and the governed chain the proof exists to exercise is unreachable.
+//
+// `tauri build --debug` gives Development mode while STILL embedding `frontendDist`, so the proof
+// keeps the bundled frontend and only the optimisation level differs from a release build. The
+// webdriver-e2e feature gate is unchanged, and the ordinary release binary remains free of the
+// WebDriver server.
+const result = spawnSync('npx tauri build --debug --no-bundle --features webdriver-e2e', {
   cwd: controlCentre,
   env: { ...process.env, CARGO_TARGET_DIR: targetDir },
   stdio: 'inherit',

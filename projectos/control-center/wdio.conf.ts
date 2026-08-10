@@ -1,3 +1,6 @@
+import { writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 /**
  * WebdriverIO configuration for the genuine Tauri desktop proof (T1-T21).
  *
@@ -24,7 +27,7 @@
  * be mistaken for — or picked up in place of — the ordinary release artifact at
  * `target/release/projectos-control-center.exe`. The production executable contract is unchanged.
  */
-const APP_BINARY = './src-tauri/target/webdriver-e2e/release/projectos-control-center.exe';
+const APP_BINARY = './src-tauri/target/webdriver-e2e/debug/projectos-control-center.exe';
 
 const driverProvider = process.env.PROJECTOS_DRIVER_PROVIDER ?? 'embedded';
 if (driverProvider !== 'external' && driverProvider !== 'embedded') {
@@ -35,6 +38,25 @@ if (driverProvider !== 'external' && driverProvider !== 'embedded') {
 }
 
 export const config = {
+  /**
+   * Give the daemon the project root to govern.
+   *
+   * The sidecar reads its watch roots from `bridge.config.json` in its working directory (the
+   * control-centre folder) and the app passes none on the command line, so without this the runtime
+   * honestly reports "No governed project root was supplied" and the governed surface — the entire
+   * subject of T2-T21 — never renders.
+   *
+   * Written here, explicitly, every run: the proof must not depend on a config file that happens to
+   * be left on the machine. The file is gitignored because it holds absolute machine paths.
+   */
+  onPrepare(): void {
+    const root = resolve(process.cwd(), '..', '..');
+    writeFileSync(
+      resolve(process.cwd(), 'bridge.config.json'),
+      JSON.stringify({ watchRoots: [root] }, null, 2) + '\n',
+    );
+  },
+
   runner: 'local',
   specs: ['./test-desktop/e2e/**/*.spec.ts'],
   // The Control Centre enforces a real single-instance authority guard; a second worker would race
