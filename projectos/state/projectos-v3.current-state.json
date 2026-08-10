@@ -5,9 +5,9 @@
   "activePlanVersion": "1.2",
   "currentStatus": "IN EXECUTION",
   "completionMethod": "accepted-phase-ratio (temporary): acceptedPhaseCount / totalPhaseCount, SCOPED EXCLUSIVELY to the original numbered V3 roadmap (phases 0..18). Forge, HARDEN/real-worker and CD-B4 are LATER workstreams tracked separately in docs/architecture/projectos-v3.1-crosswalk.md and do NOT contribute to this ratio. Excludes the active unaccepted phase and pre-V3 maintenance. No merged overall ProjectOS percentage is published; product-capability and shipping-readiness are NOT YET CALCULABLE.",
-  "acceptedPhaseCount": 16,
+  "acceptedPhaseCount": 17,
   "totalPhaseCount": 19,
-  "completionPercentage": 84.2,
+  "completionPercentage": 89.5,
   "completedPhases": [
     "PROJECTOS-V3-BASELINE-RECONCILE1A",
     "PROJECTOS-V3-MASTER-PLAN-MEMORY1A",
@@ -24,11 +24,11 @@
     "PROJECTOS-V3-DESKTOP-E2E-PROOF1A",
     "PROJECTOS-V3-POLYGO-BASELINE-RECONCILE1A",
     "PROJECTOS-V3-POLYGO-INSTALL-REENTRY1A",
-    "PROJECTOS-V3-POLYGO-PILOT1A"
+    "PROJECTOS-V3-POLYGO-PILOT1A",
+    "PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A"
   ],
-  "activePhase": "PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A",
+  "activePhase": null,
   "pendingPhases": [
-    "PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A",
     "PROJECTOS-V3-RELIABILITY-HARDENING1A",
     "PROJECTOS-V3-FINAL-E2E-CLOSURE1A"
   ],
@@ -89,7 +89,7 @@
     "PROTECTED-AUTHORITY blockers — separately gated and UNCHANGED by the 2026-08-08 execution-readiness ruling: installationAuthority NotAuthorised; C4, C6 and C7 open with C7 fail-closed by dependency; no real ExecutionProvider adapter exists (only SyntheticExecutionProvider) and provider implementation stays NOT AUTHORISED; CD-B4 86ae19c and a43898d remain OPEN."
   ],
   "lastEvidenceReference": "knowledge/reports/2026-08-08_ProjectOS_PROJECTOS-V3-FINAL-RUNTIME-E2E1A_CLOSED.md; knowledge/reports/2026-08-04_ProjectOS_PROJECTOS-V3-DESKTOP-AUTH-RECOVERY-PROOF1A_CLOSED.md; docs/architecture/projectos-v3.1-crosswalk.md",
-  "nextRecommendedPhase": "PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A",
+  "nextRecommendedPhase": "PROJECTOS-V3-RELIABILITY-HARDENING1A",
   "lastUpdated": "2026-08-09",
   "updatedByRole": "implementer"
 }

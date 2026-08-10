@@ -36,7 +36,10 @@ const ACTIVE_PLAN_VERSION = "1.2";
 // delivery phase is the PolyGo pilot (numbered Phase 16). 2026-08-09: Phase 16 is CLOSED, so the accepted
 // next substantive phase is the Control Centre integration (numbered Phase 12) — the remaining
 // definition-of-complete gap. Recording it here authorises NO Phase-12 implementation.
-const ACCEPTED_NEXT_PHASE = "PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A";
+// 2026-08-10: Phase 12 CLOSED by the canonical runtime under the G4 gate (evidence subject
+// 7e65fe5), so the accepted next numbered phase moves to reliability hardening. Phase 17 depends on
+// BOTH Phase 12 and Phase 16 in plan v1.2, and both are now closed.
+const ACCEPTED_NEXT_PHASE = "PROJECTOS-V3-RELIABILITY-HARDENING1A";
 // Sequenced after the router, still OPEN, still recorded in the amendment. `a43898d` stays OPEN.
 const WINDOWS_ADAPTER_PREFLIGHT = "CD-B4-WINDOWS-USER-VERIFICATION-ADAPTER-PREFLIGHT1A";
 

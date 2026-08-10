@@ -49,8 +49,12 @@ const ACCEPTED_HEAD = "ec20512944be4fff7cc6ee740781fe95b41cf120";
 // 2026-08-08: 4 -> 15 on the owner/gatekeeper closure of phases 3-11, 14, 15 (crosswalk v1.6 §5/§5a),
 // taken on the read-only PROJECTOS-V3-19-PHASE-CLOSURE-RECONCILE1A audit.
 // 2026-08-09: 15 -> 16 on the owner/gatekeeper closure of numbered Phase 16 PROJECTOS-V3-POLYGO-PILOT1A
+// 2026-08-10: 16 -> 17 on the G4 closure of numbered Phase 12 PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A,
+// decided by the canonical runtime itself: every G4 predicate recomputed against evidence subject
+// 7e65fe5, the grant minted internally, and the transition recorded `by: advisor` under the
+// owner-recorded projectos-scoped delegation. The implementer neither approved nor closed it.
 // (crosswalk v1.7), the first real ProjectOS-governed PolyGo phase.
-const ACCEPTED_PHASE_COUNT = 16;
+const ACCEPTED_PHASE_COUNT = 17;
 const TOTAL_PHASE_COUNT = 19;
 const ACCEPTED_PERCENTAGE = Math.round((ACCEPTED_PHASE_COUNT / TOTAL_PHASE_COUNT) * 1000) / 10;
 const CROSSWALK_VERSION = "1.8";
@@ -69,11 +73,10 @@ const PHASE_13_ID = "PROJECTOS-V3-DESKTOP-E2E-PROOF1A";
 // The accepted per-phase position of the numbered roadmap. Asserted row-by-row against the §5 ledger so
 // that neither an accidental closure nor an accidental reopen can pass. Scoped to the §5 ledger section
 // because §3's build-order table also has small integers in its first column.
-const LEDGER_CLOSED = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16];
-const LEDGER_OPEN = [12, 17, 18];
+const LEDGER_CLOSED = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+const LEDGER_OPEN = [17, 18];
 // Phase 18 is OPEN, not retired: only its July completion CLAIM was superseded.
 const OPEN_PHASE_CRITERIA = [
-  ["Phase 12", "PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A"],
   ["Phase 17", "PROJECTOS-V3-RELIABILITY-HARDENING1A"],
   ["Phase 18", "PROJECTOS-V3-FINAL-E2E-CLOSURE1A"],
 ];
@@ -178,7 +181,7 @@ function run() {
       if (LEDGER_CLOSED.indexOf(n) !== -1 && (!closed || open)) e.push("§5 ledger phase " + n + " is not unambiguously CLOSED: " + row.slice(0, 90));
       if (LEDGER_OPEN.indexOf(n) !== -1 && (!open || closed)) e.push("§5 ledger phase " + n + " is not unambiguously OPEN: " + row.slice(0, 90));
     }
-    if (!/Numbered V3 closure ratio = 16 \/ 19/.test(cw)) e.push("crosswalk does not state the accepted ratio 16 / 19");
+    if (!/Numbered V3 closure ratio = 17 \/ 19/.test(cw)) e.push("crosswalk does not state the accepted ratio 17 / 19");
   }
 
   // 9d Phase 18 is OPEN and explicitly NOT retired — only its July completion claim was superseded.

@@ -3,7 +3,7 @@
 **Generated 2026-08-10 13:06:13 (local)**
 
 **Project** ProjectOS · **Phase** PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A (numbered phase 12 of 19)
-**Branch** `projectos-v3` · **Status at writing** `awaiting_closure`
+**Branch** `projectos-v3` · **Status** `closed`
 **Evidence subject head** `7e65fe5a313e8bc9e6cfacd275dbe08905039368` (pushed, reconciled 0/0, tree clean)
 **Active plan** ProjectOS V3 v1.2 · PLAN READY (recomputed by the plan engine)
 
@@ -133,7 +133,22 @@ byte-unchanged since the accepted `c127380`. 0 unresolved CRITICAL, 0 unresolved
 `externalSendOccurred=false` · `paymentOccurred=false` · `secretCapabilityUsed=false` ·
 `rawSecretStored=false`. **Protected effects: NONE.**
 
-## Decision requested
+## Outcome — CLOSED
 
-Closure of this phase under the pre-issued ChatGPT ProjectOS G4 gate, recomputed mechanically by the
-runtime. Claude is the implementer and can neither approve nor close.
+Closure was requested through the real Control Centre. The canonical runtime recomputed every G4
+predicate against evidence subject `7e65fe5`, found them satisfied, minted the internal phase-bound
+grant and closed the phase:
+
+```
+awaiting_closure -> closed (by advisor)
+note: closed by ChatGPT under the projectos-scoped phase-closure delegation
+```
+
+Recorded `by: advisor`, not `implementer`. Claude neither approved nor closed it: the request carried
+no role and no identity, and the runtime resolved the delegate from the approved plan.
+
+**Authority basis:** the owner-recorded ProjectOS-scoped delegation, the pre-issued ChatGPT G4 gate,
+all sixteen predicates mechanically satisfied, and verified evidence-subject provenance.
+
+**Programme:** acceptedPhaseCount 16 -> **17 of 19**, completion 84.2% -> **89.5%**. Phases 17 and 18
+remain OPEN and V3 is not complete.

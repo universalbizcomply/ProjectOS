@@ -77,7 +77,7 @@ None of items 3–8 is a numbered V3 phase, so this ratification leaves `accepte
 | 9 | PROJECTOS-V3-E2E-RUNNER1A | **CLOSED** (2026-08-08) — `e2e/e2e-runner.cjs`; 6 offline scenarios composing phases 4/5/7/8; `validate-e2e-runner` registered + green |
 | 10 | PROJECTOS-V3-APPROVAL-QUEUE1A | **CLOSED** (2026-08-08) — `approval/approval-queue.cjs`; cannot self-approve, fail-closed; `validate-approval-queue` registered + green |
 | 11 | PROJECTOS-V3-PROVIDER-CONTEXT-GUARDS1A | **CLOSED** (2026-08-08) — `guards/provider-context-guards.cjs`; default-REFUSED; `validate-provider-context-guards` registered + green; HIGH fail-open fixed |
-| 12 | PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A | **OPEN** — surface is inert/snapshot-driven by its own record; definition-of-complete bullet 6 (start/pause/gate/close from one control surface) is UNPROVEN. Criteria §5b |
+| 12 | PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A | **CLOSED 2026-08-10** by the canonical runtime under the pre-issued ChatGPT ProjectOS G4 gate, evidence subject `7e65fe5`. Definition-of-complete bullet 6 is now PROVEN: the owner drove `validating -> evidence -> awaiting_review -> awaiting_closure` by real clicks in the real Tauri Control Centre, each transition written by `@projectos/core`, and the closure itself was decided by G4 recomputing all sixteen predicates and recorded `by: advisor`. The surface is no longer inert or snapshot-driven. |
 | 13 | PROJECTOS-V3-DESKTOP-E2E-PROOF1A | **CLOSED** (2026-08-04, ChatGPT technical closure gate) — native Tauri release proof, authenticated UI proof, responsive/accessibility proof, STOPPED -> UNAVAILABLE host correspondence, R1-R15 passed; evidence `1fcf416` + `fb203c6` and the `PROJECTOS-V3-DESKTOP-AUTH-RECOVERY-PROOF1A` CLOSED report |
 | 14 | PROJECTOS-V3-POLYGO-BASELINE-RECONCILE1A | **CLOSED** (2026-08-08) — trust anchor `b6e6993` + `e788d3c`; evidence is EXTERNAL to this repository (§12) |
 | 15 | PROJECTOS-V3-POLYGO-INSTALL-REENTRY1A | **CLOSED** (2026-08-08) — PolyGo install complete; evidence is EXTERNAL to this repository (§12) |
@@ -85,7 +85,7 @@ None of items 3–8 is a numbered V3 phase, so this ratification leaves `accepte
 | 17 | PROJECTOS-V3-RELIABILITY-HARDENING1A | **OPEN** — existing adversarial pass covers the `.cjs` chain ONLY, with zero coverage of `projectos/core` and `projectos/agent`. Runs AFTER Phase 16. Criteria §5b |
 | 18 | PROJECTOS-V3-FINAL-E2E-CLOSURE1A | **OPEN — NOT RETIRED.** Only the July completion *claim* was superseded (§5a). Remains the final V3 closure phase, after 12, 16, 17. Criteria §5b |
 
-**Numbered V3 closure ratio = 16 / 19** (phases 0–11, 13, 14, 15, 16; OPEN: 12, 17, 18). Applies ONLY to the original numbered V3 roadmap; not product/shipping/CD-B4/Forge.
+**Numbered V3 closure ratio = 17 / 19** (phases 0–16; OPEN: 17, 18). Applies ONLY to the original numbered V3 roadmap; not product/shipping/CD-B4/Forge.
 
 **SUPERSEDED (v1.0–v1.5 text, retained):** ~~Numbered V3 closure ratio = 3 / 19 (phases 0, 1, 2 only). Unchanged by v1.1 and v1.2.~~ Phase 13 closed at v1.4 (→ 4); the eleven-phase closure at v1.6 (→ 15).
 

@@ -4,7 +4,7 @@
   "projectId": "projectos",
   "planId": "projectos-v3-master-plan",
   "planVersion": "1.2",
-  "phaseId": "PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A",
+  "phaseId": "PROJECTOS-V3-RELIABILITY-HARDENING1A",
   "executionMode": "local-safe",
   "autonomyLevel": "local-safe",
   "repositoryPath": "C:/dev/ProjectOS",
@@ -79,9 +79,9 @@
   "databaseReviewResults": [
     "not-applicable: no database touched"
   ],
-  "currentAction": "Git capability implemented (Option C) and PROVEN LIVE: the closure refusal moved 9 -> 3 -> 1 unmet predicates, and the remaining one is the correct one - evidence stale after substantive change. Governance tail rewritten against evidence subject 7e65fe5. Next: request closure through the real Control Centre.",
+  "currentAction": "PHASE 12 IS CLOSED. The canonical runtime recomputed every G4 predicate against evidence subject 7e65fe5, minted the internal phase-bound grant and recorded awaiting_closure -> closed (by advisor) under the owner-recorded projectos-scoped delegation. Programme 16 -> 17 of 19 (84.2% -> 89.5%).",
   "blockedReason": "",
-  "nextSafeAction": "Request closure through the real Control Centre (Close as ChatGPT) against evidence subject 7e65fe5. If G4 passes, Phase 12 closes and the programme becomes 17/19 (89.5%); persist and push the closure records. If it refuses, capture the exact predicate and do not broaden scope.",
+  "nextSafeAction": "Phase 12 is closed - do not continue hardening it; non-critical improvements belong to Phase 17. Start PROJECTOS-V3-RELIABILITY-HARDENING1A through ProjectOS itself, which must mechanically prove its plan v1.2 dependencies (Phase 12 CLOSED and Phase 16 CLOSED). Its mandatory acceptance item remains ZERO-RELAY SESSION CONTINUITY: at a capacity boundary ProjectOS must checkpoint, exit safely, launch a fresh governed local worker that loads canonical state and resumes the exact next safe action, with NO engineering-prompt relay from Murad. Carry forward: repeatable native Windows foreground acquisition for automated accessibility testing (a harness limitation, not a product defect).",
   "decisionRequired": "",
   "productionTouched": false,
   "deploymentOccurred": false,
