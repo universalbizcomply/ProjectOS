@@ -11,6 +11,7 @@
  * Created in PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A.
  */
 import type { IpcBridge } from '../daemon/ipcBridge.js';
+import { IPC_EVENT_CHANNEL } from '../daemon/ipcCommands.js';
 import {
   validateGovernedCommand,
   GOVERNED_COMMAND_KIND,
@@ -67,6 +68,105 @@ export async function sendGovernedCommand(
     const detail = typeof e === 'string' ? e : e instanceof Error ? e.message : 'the host refused the command';
     return { ok: false, lines: [`REFUSED (HOST): ${detail}`] };
   }
+}
+
+/** What the owner is finally told about a governed command. `ok` is the RUNTIME's verdict. */
+export interface GovernedOutcome {
+  readonly ok: boolean;
+  readonly lines: readonly string[];
+}
+
+/** How long to wait for the runtime's reply before reporting a truthful failure. */
+export const GOVERNED_RESULT_TIMEOUT_MS = 30_000;
+
+/**
+ * Send a governed command and report what the RUNTIME actually decided.
+ *
+ * `sendGovernedCommand` resolves as soon as the request is DISPATCHED, which is not the same thing
+ * as the command having worked. The outcome arrives later as a `governed-result` carrying the
+ * runtime's own lines. Nothing consumed it, so a refusal — including a G4 closure refusal — left the
+ * owner reading "Sent to the runtime" while the action had in fact been refused. That is the exact
+ * optimistic-success failure the surface promises not to commit.
+ *
+ * THE LISTENER IS REGISTERED BEFORE THE COMMAND IS DISPATCHED. A fast runtime can emit its result
+ * before a listener attached afterwards would exist, and that result is then gone forever. The
+ * ordering here is the fix for that race, not an incidental detail.
+ */
+export async function requestGovernedCommand(
+  bridge: IpcBridge,
+  verb: GovernedVerb,
+  args: GovernedCommandArgs,
+  options: { readonly correlationId?: string; readonly timeoutMs?: number } = {},
+): Promise<GovernedOutcome> {
+  const correlationId = options.correlationId ?? nextCorrelationId();
+  const timeoutMs = options.timeoutMs ?? GOVERNED_RESULT_TIMEOUT_MS;
+
+  const request = { kind: GOVERNED_COMMAND_KIND, verb, args, correlationId };
+  const check = validateGovernedCommand(request);
+  if (!check.ok) return { ok: false, lines: [`REFUSED (${check.code}): ${check.detail}`] };
+  if (!bridge.isTauri()) {
+    return {
+      ok: false,
+      lines: [
+        'No ProjectOS runtime is connected, so this action was not sent. Governed actions run in the desktop app, where the runtime is available.',
+      ],
+    };
+  }
+
+  let settle: (outcome: GovernedOutcome) => void = () => {};
+  const settled = new Promise<GovernedOutcome>((res) => {
+    settle = res;
+  });
+
+  const unlisten = await bridge.listen(IPC_EVENT_CHANNEL, (payload) => {
+    const result = asGovernedResult(payload);
+    // A result for some other command must never resolve this one.
+    if (result === null || result.correlationId !== correlationId) return;
+    settle({ ok: result.code === 0, lines: result.lines });
+  });
+
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    await bridge.invoke(GOVERNED_TAURI_COMMAND, { request: JSON.stringify(request) });
+  } catch (e) {
+    unlisten();
+    const detail = typeof e === 'string' ? e : e instanceof Error ? e.message : 'the host refused the command';
+    return { ok: false, lines: [`REFUSED (HOST): ${detail}`] };
+  }
+
+  const timedOut = new Promise<GovernedOutcome>((res) => {
+    timer = setTimeout(
+      () =>
+        res({
+          ok: false,
+          lines: [
+            'The runtime did not report a result before this command timed out. It may or may not have run — the state below is the only reliable answer.',
+          ],
+        }),
+      timeoutMs,
+    );
+  });
+
+  try {
+    return await Promise.race([settled, timedOut]);
+  } finally {
+    if (timer !== null) clearTimeout(timer);
+    unlisten();
+  }
+}
+
+/** A `governed-result` payload, however the transport delivered it, or null. */
+function asGovernedResult(payload: unknown): GovernedCommandResult | null {
+  if (isGovernedResult(payload)) return payload;
+  if (typeof payload === 'string') {
+    try {
+      const parsed: unknown = JSON.parse(payload);
+      if (isGovernedResult(parsed)) return parsed;
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 export function isGovernedResult(value: unknown): value is GovernedCommandResult {

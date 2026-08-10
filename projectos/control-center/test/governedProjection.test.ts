@@ -140,7 +140,10 @@ describe('phase state comes from durable core records', () => {
     const p = projectGovernedState(inputs());
     expect(p.activePhase).not.toBeNull();
     expect(p.nextStartablePhase).toBeNull();
-    expect(p.nextSafeAction).toContain('no other phase may start');
+    // The invariant is that the surface points at the phase in flight and offers no other phase to
+    // start. The exact wording is status-dependent — it changed the moment Phase 12 legitimately
+    // reached awaiting_closure — so assert the invariant, not the prose.
+    expect(p.nextSafeAction).toContain(p.activePhase!.phaseId);
   });
 
   test('unmet dependencies are computed, and the final phase has one', () => {

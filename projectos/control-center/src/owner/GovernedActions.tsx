@@ -13,7 +13,7 @@
  */
 import { useState } from 'react';
 import { tauriBridge } from '../daemon/tauriBridge';
-import { sendGovernedCommand } from '../governed/governedClient';
+import { requestGovernedCommand } from '../governed/governedClient';
 import type { GovernedCommandArgs, GovernedVerb } from '../governed/governedCommands';
 import type { GovernedProjection, GovernedPhaseView } from '../governed/types';
 
@@ -40,18 +40,14 @@ export function GovernedActions({ state }: { state: GovernedProjection }) {
 
   async function send(verb: GovernedVerb, args: GovernedCommandArgs, description: string) {
     setAction({ busy: true, lines: [`Asking the runtime to ${description}…`], failed: false });
-    const outcome = await sendGovernedCommand(tauriBridge, verb, args);
-    if (!outcome.ok) {
-      setAction({ busy: false, lines: outcome.lines, failed: true });
-      return;
-    }
-    // No optimistic update, and no explicit refresh needed: the sidecar re-emits governed state
-    // after every command, so the panel below repaints from re-read durable truth on its own.
-    setAction({
-      busy: false,
-      lines: [`Sent to the runtime. The state below refreshes when it replies.`],
-      failed: false,
-    });
+    // Wait for what the RUNTIME decided, not merely for the request to be dispatched. Reporting
+    // dispatch as though it were the outcome is how a G4 refusal used to reach the owner as
+    // "Sent to the runtime" — the action refused, and nothing said so.
+    const outcome = await requestGovernedCommand(tauriBridge, verb, args);
+    // The runtime's own words, verbatim, whether it agreed or refused. No optimistic update: the
+    // sidecar re-emits governed state after every command, so the state below repaints from re-read
+    // durable truth on its own.
+    setAction({ busy: false, lines: outcome.lines, failed: !outcome.ok });
   }
 
   const closure = state.authority.closureDelegation;

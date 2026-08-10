@@ -166,49 +166,10 @@ describe('T2-T21 governed matrix against the real ProjectOS runtime', () => {
     expect(await (await actionBtn('Resume')).isExisting()).toBe(status === 'rolled_back');
   });
 
-  it('T16 reaches the primary control by keyboard alone', async () => {
-    const label = primaryLabelFor(phaseRecord().status) as string;
-    // Read the focused element live rather than holding an element handle: the sidecar re-emits
-    // governed state, React re-renders, and a handle captured beforehand goes stale — which reads
-    // as "never focused" no matter how far you tab.
-    const focusedLabel = async (): Promise<string> =>
-      browser.execute(() => (document.activeElement?.textContent ?? '').trim());
-
-    let reached = false;
-    const seen: string[] = [];
-    for (let i = 0; i < 60; i += 1) {
-      await browser.keys(['Tab']);
-      const current = await focusedLabel();
-      if (current.length > 0 && seen[seen.length - 1] !== current) seen.push(current);
-      if (current.startsWith(label)) {
-        reached = true;
-        break;
-      }
-    }
-    if (!reached) console.log('T16 tab order reached:', JSON.stringify(seen));
-    expect(reached).toBe(true);
-  });
-
-  it('T17 gives the keyboard-focused control a visible focus indicator', async () => {
-    // Runs immediately after T16, so the primary control still holds real keyboard focus. That
-    // matters: the indicator is a `:focus-visible` rule, which a scripted .focus() would not raise.
-    const focus = await browser.execute(() => {
-      const el = document.activeElement as HTMLElement | null;
-      if (el === null) return null;
-      const s = getComputedStyle(el);
-      return {
-        label: (el.textContent ?? '').trim(),
-        outlineWidth: s.outlineWidth,
-        outlineStyle: s.outlineStyle,
-        boxShadow: s.boxShadow,
-      };
-    });
-    expect(focus).not.toBeNull();
-    expect(focus!.label.startsWith(primaryLabelFor(phaseRecord().status) as string)).toBe(true);
-    const hasOutline = parseFloat(focus!.outlineWidth || '0') > 0 && focus!.outlineStyle !== 'none';
-    const hasShadow = (focus!.boxShadow || 'none') !== 'none';
-    expect(hasOutline || hasShadow).toBe(true);
-  });
+  // T16/T17 are NOT here. The embedded WebDriver server implements Tab as a synthetic JavaScript
+  // KeyboardEvent dispatched at document.activeElement and does not perform native focus traversal,
+  // so a WebDriver Tab proves nothing about keyboard operability in either direction. They are
+  // proven with real OS input in t3-native-keyboard.spec.ts instead.
 
   it('T18 renders without horizontal overflow at the primary native size', async () => {
     await browser.setWindowSize(1200, 820);
