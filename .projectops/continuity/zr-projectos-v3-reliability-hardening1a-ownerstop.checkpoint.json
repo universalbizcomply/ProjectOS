@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "1.0.0",
+  "sessionId": "zr-projectos-v3-reliability-hardening1a-ownerstop",
+  "projectId": "projectos",
+  "phaseId": "PROJECTOS-V3-RELIABILITY-HARDENING1A",
+  "planVersion": "1.3",
+  "repositoryRoot": "C:\\dev\\ProjectOS",
+  "branch": "projectos-v3",
+  "head": "a650776fe6b390e384f19c05563d1eabf5672289",
+  "checkpointId": "zr-projectos-v3-reliability-hardening1a-ownerstop-cp1",
+  "writtenBy": "worker-a-zr-projectos-v3-reliability-hardening1a-ownerstop-32516",
+  "writtenAt": "2026-08-10T15:51:15.045Z",
+  "nextSafeAction": {
+    "kind": "record-continuation-note",
+    "params": {
+      "note": "This continuation must never run: the owner stops the project before the spawn."
+    }
+  }
+}
