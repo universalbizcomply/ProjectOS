@@ -16,12 +16,32 @@ import { ok, fail } from '../context.js';
 import { type Flags, str, bool } from '../flags.js';
 import { requestApproval, decide as coreDecide, type Role } from '@projectos/core';
 import { loadApproval, saveApproval, listApprovalIds } from '../approvalStore.js';
+import { loadGovernedContext, refusalLines } from '../governedContext.js';
 
 const ROLES: readonly Role[] = ['owner', 'advisor', 'implementer'];
 
 function roleOf(flags: Flags): Role | null {
   const a = str(flags, 'as', 'implementer');
   return (ROLES as readonly string[]).includes(a) ? (a as Role) : null;
+}
+
+/**
+ * R17-2. The approval loop is a governed MUTATION and had no governed-context gate.
+ *
+ * `phase` has been gated since Phase 16: it will not create or advance a phase unless the config in
+ * front of it names the project the approved plan is for, and unless that plan recomputes READY.
+ * `approve` writes decisions that authorise protected actions and had none of that — so an approval
+ * could be minted and decided in a checkout whose plan is for another project entirely, or under a
+ * plan that is no longer READY, and nothing would notice. The gap was not that approvals could be
+ * self-decided; the core already refuses that. It was that they were not bound to a project at all.
+ *
+ * Reads and listings stay ungated: showing what is already recorded changes nothing, and refusing to
+ * READ an approval because the plan went stale would hide the very records an operator needs in
+ * order to fix it.
+ */
+function governedOrRefusal(ctx: CommandContext): readonly string[] | null {
+  const gc = loadGovernedContext(ctx.sys, ctx.root);
+  return gc.ok ? null : refusalLines(gc);
 }
 
 export function approve(
@@ -50,6 +70,9 @@ function approveRequest(ctx: CommandContext, flags: Flags): CommandResult {
   if (id === '') return fail(1, ['`approve request` requires --id <ID>']);
   const action = str(flags, 'action');
   if (action === '') return fail(1, ['`approve request` requires --action "<text>"']);
+  // Before anything is written: the project in front of us must be the project the plan governs.
+  const refusal = governedOrRefusal(ctx);
+  if (refusal !== null) return fail(2, refusal);
   if (loadApproval(sys, root, id) !== null && !bool(flags, 'force')) {
     return fail(2, [`Approval ${id} already exists (pass --force)`]);
   }
@@ -77,6 +100,9 @@ function approveDecide(ctx: CommandContext, flags: Flags): CommandResult {
   }
   const by = roleOf(flags);
   if (by === null) return fail(1, [`--as must be one of: ${ROLES.join(', ')}`]);
+
+  const refusal = governedOrRefusal(ctx);
+  if (refusal !== null) return fail(2, refusal);
 
   const req = loadApproval(sys, root, id);
   if (req === null) return fail(1, [`No approval ${id} — run \`projectos approve request --id ${id}\``]);

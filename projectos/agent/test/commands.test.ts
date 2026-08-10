@@ -396,9 +396,14 @@ describe('phase runtime', () => {
   });
 });
 
+/**
+ * R17-2: the approval loop is a governed mutation and is now gated like `phase`. These tests use the
+ * governed context for the same reason the phase tests do — an approval decided in a checkout whose
+ * plan is for another project is exactly what the gate exists to refuse, and is asserted below.
+ */
 describe('approve loop', () => {
   it('gated request must be decided by owner; non-owner blocked (exit 2)', () => {
-    const { ctx } = makeCtx();
+    const { ctx } = makeGovernedCtx();
     const req = run(ctx, ['approve', 'request', '--id', 'A1', '--action', 'production deploy']);
     expect(req.code).toBe(0);
     expect(req.lines.join('\n')).toContain('gated:      true');
@@ -410,28 +415,53 @@ describe('approve loop', () => {
   });
 
   it('prohibited action needs --override even for owner', () => {
-    const { ctx } = makeCtx();
+    const { ctx } = makeGovernedCtx();
     run(ctx, ['approve', 'request', '--id', 'FP', '--action', 'force push to main']);
     expect(run(ctx, ['approve', 'decide', '--id', 'FP', '--decision', 'approved', '--as', 'owner']).code).toBe(2);
     expect(run(ctx, ['approve', 'decide', '--id', 'FP', '--decision', 'approved', '--as', 'owner', '--override']).code).toBe(0);
   });
 
   it('ungated action can be self-decided by the requester', () => {
-    const { ctx } = makeCtx();
+    const { ctx } = makeGovernedCtx();
     run(ctx, ['approve', 'request', '--id', 'R1', '--action', 'refactor a helper', '--as', 'implementer']);
     expect(run(ctx, ['approve', 'decide', '--id', 'R1', '--decision', 'approved', '--as', 'implementer']).code).toBe(0);
   });
 
   it('validates flags and missing records', () => {
-    const { ctx } = makeCtx();
+    const { ctx } = makeGovernedCtx();
     expect(run(ctx, ['approve', 'request', '--id', 'X']).code).toBe(1);
     expect(run(ctx, ['approve', 'request', '--action', 'x']).code).toBe(1);
     expect(run(ctx, ['approve', 'decide', '--id', 'X', '--decision', 'maybe', '--as', 'owner']).code).toBe(1);
     expect(run(ctx, ['approve', 'decide', '--id', 'MISSING', '--decision', 'approved', '--as', 'owner']).code).toBe(1);
   });
 
-  it('refuses duplicate request without --force; list/show handle empty', () => {
+  it('R17-2 an approval cannot be minted or decided outside a governed context', () => {
+    // No config, no plan: `phase` has refused this since Phase 16 and `approve` did not.
+    const { ctx: ungoverned } = makeCtx();
+    const minted = run(ungoverned, ['approve', 'request', '--id', 'A1', '--action', 'production deploy']);
+    expect(minted.code).toBe(2);
+    expect(minted.lines.join(' ')).toContain('NO_CONFIG');
+    expect(run(ungoverned, ['approve', 'decide', '--id', 'A1', '--decision', 'approved', '--as', 'owner']).code).toBe(2);
+
+    // A plan for another project cannot govern approvals in this checkout either.
+    const { ctx, sys } = makeGovernedCtx();
+    const cfg = JSON.parse(sys.files.get(configPath('/repo')) as string) as Record<string, unknown>;
+    sys.files.set(configPath('/repo'), JSON.stringify({ ...cfg, projectId: 'polygo' }));
+    const wrong = run(ctx, ['approve', 'request', '--id', 'A2', '--action', 'production deploy']);
+    expect(wrong.code).toBe(2);
+    expect(wrong.lines.join(' ')).toContain('WRONG_PROJECT');
+  });
+
+  it('R17-2 reading approvals stays ungated', () => {
+    // Refusing to READ a record because the plan went stale would hide the records an operator needs
+    // in order to fix it. Only the mutations are gated.
     const { ctx } = makeCtx();
+    expect(run(ctx, ['approve', 'list']).code).toBe(0);
+    expect(run(ctx, ['approve', 'show', '--id', 'NOPE']).code).toBe(1);
+  });
+
+  it('refuses duplicate request without --force; list/show handle empty', () => {
+    const { ctx } = makeGovernedCtx();
     expect(run(ctx, ['approve', 'list']).lines.join('\n')).toContain('No approvals');
     run(ctx, ['approve', 'request', '--id', 'A1', '--action', 'deploy to prod']);
     expect(run(ctx, ['approve', 'request', '--id', 'A1', '--action', 'x']).code).toBe(2);
