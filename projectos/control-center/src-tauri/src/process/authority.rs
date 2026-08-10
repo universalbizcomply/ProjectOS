@@ -13,8 +13,12 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use super::create::{ProcessSpec, SpecClassification};
-use super::dev_runtime::{resolve_development_node, strip_verbatim, RealRuntimeFs, RuntimeFs};
-use super::environment::{collect_system_vars, DAEMON_INSTANCE_ID_VAR};
+use super::dev_runtime::{
+    resolve_development_git, resolve_development_node, strip_verbatim, RealRuntimeFs, RuntimeFs,
+};
+use super::environment::{collect_system_vars, DAEMON_GIT_EXE_VAR, DAEMON_INSTANCE_ID_VAR};
+#[cfg(test)]
+use super::environment::SYSTEM_ALLOWLIST;
 use super::errors::ProcessError;
 // The application-mode CLASSIFIER now lives in the canonical low-level primitive crate, shared with
 // identity code. Launch AUTHORITY (below) stays here — the primitive classifies, it never grants.
@@ -36,6 +40,8 @@ pub(crate) struct DevelopmentDaemonLaunchAuthority {
     node_exe: PathBuf,
     host_script: PathBuf,
     dev_root: PathBuf,
+    /// The host-resolved absolute Git executable. Bound HERE, never chosen by a caller.
+    git_exe: PathBuf,
     daemon_instance_id: String,
 }
 
@@ -51,6 +57,13 @@ impl DevelopmentDaemonLaunchAuthority {
         env.push((
             DAEMON_INSTANCE_ID_VAR.to_string(),
             self.daemon_instance_id.clone(),
+        ));
+        // The one tool capability the daemon is given. It is a PATH to an executable, not a secret
+        // and not trust evidence, and it exists because the daemon has no PATH of its own: the
+        // closure gate must be able to run git, and nothing else may be searched for.
+        env.push((
+            DAEMON_GIT_EXE_VAR.to_string(),
+            self.git_exe.to_string_lossy().to_string(),
         ));
         Ok(ProcessSpec {
             executable: self.node_exe.to_string_lossy().to_string(),
@@ -124,11 +137,14 @@ pub(crate) fn resolve_launch_authority(
             let fs = RealRuntimeFs;
             let node_exe = resolve_development_node(&fs)?;
             let (host_script, dev_root) = resolve_dev_sidecar(&fs, &development_roots())?;
+            // Resolved from the HOST's PATH, as data, under the same rules as the Node runtime.
+            let git_exe = resolve_development_git(&fs)?;
             Ok(DaemonLaunchAuthority::Development(
                 DevelopmentDaemonLaunchAuthority {
                     node_exe,
                     host_script,
                     dev_root,
+                    git_exe,
                     daemon_instance_id,
                 },
             ))
@@ -197,6 +213,7 @@ mod tests {
             node_exe: PathBuf::from(r"C:\tools\node\node.exe"),
             host_script: PathBuf::from(r"C:\dev\cc\sidecar\host.mjs"),
             dev_root: PathBuf::from(r"C:\dev\cc"),
+            git_exe: PathBuf::from(r"C:\tools\git\cmd\git.exe"),
             daemon_instance_id: "host1-1".into(),
         };
         let spec = a.to_process_spec().unwrap();
@@ -210,6 +227,42 @@ mod tests {
             .any(|(n, v)| n == DAEMON_INSTANCE_ID_VAR && v == "host1-1"));
         // No PATH, no secrets.
         assert!(!spec.env.iter().any(|(n, _)| n.eq_ignore_ascii_case("PATH")));
+
+        // GIT6/GIT7: the resolved Git path is bound by the authority and travels as ONE explicit
+        // variable — and it does NOT bring a PATH with it. The daemon still cannot search for
+        // anything; it is told exactly where one tool lives.
+        assert!(spec
+            .env
+            .iter()
+            .any(|(n, v)| n == DAEMON_GIT_EXE_VAR && v == r"C:\tools\git\cmd\git.exe"));
+    }
+
+    #[test]
+    fn git_path_is_authority_bound_and_not_caller_supplied() {
+        // GIT8: `resolve_launch_authority` takes only a mode and an instance id. There is no
+        // parameter through which a renderer, a Tauri command or the sidecar could pass a Git path,
+        // so the only Git binding possible is the one the host resolved for itself.
+        let a = DevelopmentDaemonLaunchAuthority {
+            node_exe: PathBuf::from(r"C:	ools
+ode
+ode.exe"),
+            host_script: PathBuf::from(r"C:\dev\cc\sidecar\host.mjs"),
+            dev_root: PathBuf::from(r"C:\dev\cc"),
+            git_exe: PathBuf::from(r"C:\tools\git\cmd\git.exe"),
+            daemon_instance_id: "host1-1".into(),
+        };
+        let spec = a.to_process_spec().unwrap();
+        let git: Vec<_> = spec.env.iter().filter(|(n, _)| n == DAEMON_GIT_EXE_VAR).collect();
+        assert_eq!(git.len(), 1, "exactly one Git binding, never a list to choose from");
+        // and the environment stays the narrow internal set
+        for (name, _) in &spec.env {
+            assert!(
+                name == DAEMON_GIT_EXE_VAR
+                    || name == DAEMON_INSTANCE_ID_VAR
+                    || SYSTEM_ALLOWLIST.contains(&name.as_str()),
+                "unexpected variable in the daemon environment: {name}"
+            );
+        }
     }
 
     #[test]
@@ -218,6 +271,7 @@ mod tests {
             node_exe: PathBuf::from(r"C:\tools\node\node.exe"),
             host_script: PathBuf::from(r"C:\dev\cc\sidecar\host.mjs"),
             dev_root: PathBuf::from(r"C:\dev\cc"),
+            git_exe: PathBuf::from(r"C:\tools\git\cmd\git.exe"),
             daemon_instance_id: "host1-1".into(),
         };
         let spec = a.to_process_spec().unwrap();

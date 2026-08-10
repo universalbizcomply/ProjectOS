@@ -24,6 +24,8 @@ pub enum ProcessError {
     DevRuntimeNotFound,
     /// The fixed development sidecar entry point could not be resolved.
     DevSidecarNotFound,
+    /// The development Git executable could not be resolved from the host PATH.
+    DevGitNotFound,
 
     // ---- OWNERSHIP1B: lifecycle / readiness ----------------------------------------------------
     /// A lifecycle-shaped line was malformed, mis-statused, or carried unknown fields.
@@ -150,6 +152,9 @@ impl ProcessError {
             }
             ProcessError::DevSidecarNotFound => {
                 "The local worker entry point was not found in this development tree."
+            }
+            ProcessError::DevGitNotFound => {
+                "Git was not found on PATH. ProjectOS needs it to establish repository facts."
             }
             ProcessError::LifecycleMessageMalformed
             | ProcessError::LifecycleProtocolMismatch

@@ -25,6 +25,12 @@ pub const SYSTEM_ALLOWLIST: &[&str] = &["SystemRoot", "SystemDrive", "windir", "
 /// secret and NOT trust evidence; it exists so a daemon can announce which launch it belongs to.
 pub(crate) const DAEMON_INSTANCE_ID_VAR: &str = "PROJECTOS_DAEMON_INSTANCE_ID";
 
+/// The one tool capability the adapter may inject: an ABSOLUTE path to the Git executable the host
+/// resolved. It is a path, not a credential — it carries no authority beyond "this file is where
+/// git lives" — and it exists precisely so the daemon never needs a PATH to search. `PATH` itself
+/// stays un-allowlisted.
+pub(crate) const DAEMON_GIT_EXE_VAR: &str = "PROJECTOS_GIT_EXE";
+
 /// Variable-name fragments that must never appear in a child environment.
 const SECRET_SHAPED: &[&str] = &[
     "TOKEN",

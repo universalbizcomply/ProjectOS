@@ -28,12 +28,13 @@ import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { dirname, resolve as resolvePath, join as joinPath, isAbsolute } from 'node:path';
+import { dirname, resolve as resolvePath, join as joinPath, isAbsolute, basename } from 'node:path';
 import { BridgeDaemon, nodeSystem, loadConfig } from '@projectos/bridge-daemon';
 import { InProcessTransport } from '../node-build/daemon/inProcessTransport.js';
 import { projectGovernedState } from '../node-build/governed/governedProjection.js';
 import { validateGovernedCommand, toAgentInvocation } from '../node-build/governed/governedCommands.js';
 import { phase as phaseCommand, approve as approveCommand, report as reportCommand, nodeSystem as agentSystem } from '@projectos/agent';
+import { gitBoundSystem } from './gitBoundSystem.mjs';
 
 const LIFECYCLE_PROTOCOL_VERSION = 1;
 /** Bounded: the id is a short non-secret correlator, never a credential. */
@@ -248,7 +249,7 @@ function handleGovernedCommand(raw) {
   }
   let result;
   try {
-    const ctx = { sys: agentSystem, root };
+    const ctx = { sys: gitBoundSystem(agentSystem), root };
     result =
       invocation.command === 'report'
         ? fn(ctx, invocation.flags)
