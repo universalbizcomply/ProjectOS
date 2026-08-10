@@ -5,22 +5,22 @@
   "phaseId": "PROJECTOS-V3-RELIABILITY-HARDENING1A",
   "repositoryRoot": "C:\\dev\\ProjectOS",
   "branch": "projectos-v3",
-  "createdAt": "2026-08-10T17:01:39.352Z",
+  "createdAt": "2026-08-10T18:18:56.938Z",
   "events": [
     {
       "seq": 1,
       "type": "worker-a-checkpoint",
-      "at": "2026-08-10T17:01:39.534Z",
+      "at": "2026-08-10T18:18:57.194Z",
       "author": "worker",
       "actor": {
         "module": "worker-runtime",
-        "workerId": "worker-a-zr-projectos-v3-reliability-hardening1a-ownerstop-18008",
-        "pid": 18008,
+        "workerId": "worker-a-zr-projectos-v3-reliability-hardening1a-ownerstop-46748",
+        "pid": 46748,
         "parentPid": null
       },
       "detail": {
         "checkpointId": "zr-projectos-v3-reliability-hardening1a-ownerstop-cp1",
-        "head": "d84df98e925cc4b6ac8cea34e2a8bc2e2f32102d",
+        "head": "78e3e917be47dff8ddbc1caac2c48ae2710cc57c",
         "branch": "projectos-v3",
         "planVersion": "1.3",
         "phaseId": "PROJECTOS-V3-RELIABILITY-HARDENING1A",
@@ -31,12 +31,12 @@
     {
       "seq": 2,
       "type": "worker-a-release",
-      "at": "2026-08-10T17:01:39.537Z",
+      "at": "2026-08-10T18:18:57.198Z",
       "author": "worker",
       "actor": {
         "module": "worker-runtime",
-        "workerId": "worker-a-zr-projectos-v3-reliability-hardening1a-ownerstop-18008",
-        "pid": 18008,
+        "workerId": "worker-a-zr-projectos-v3-reliability-hardening1a-ownerstop-46748",
+        "pid": 46748,
         "parentPid": null
       },
       "detail": {
@@ -47,34 +47,34 @@
     {
       "seq": 3,
       "type": "worker-a-post-release-write-refused",
-      "at": "2026-08-10T17:01:39.538Z",
+      "at": "2026-08-10T18:18:57.201Z",
       "author": "worker",
       "actor": {
         "module": "worker-runtime",
-        "workerId": "worker-a-zr-projectos-v3-reliability-hardening1a-ownerstop-18008",
-        "pid": 18008,
+        "workerId": "worker-a-zr-projectos-v3-reliability-hardening1a-ownerstop-46748",
+        "pid": 46748,
         "parentPid": null
       },
       "detail": {
         "attempted": "governed write after release",
-        "refusal": "ownership-lock: refused — worker-a-zr-projectos-v3-reliability-hardening1a-ownerstop-18008 released ownership of this checkout and may no longer write"
+        "refusal": "ownership-lock: refused — worker-a-zr-projectos-v3-reliability-hardening1a-ownerstop-46748 released ownership of this checkout and may no longer write"
       }
     },
     {
       "seq": 4,
       "type": "continuation-permit",
-      "at": "2026-08-10T17:01:39.700Z",
+      "at": "2026-08-10T18:18:57.476Z",
       "author": "executor",
       "actor": {
         "module": "zero-relay-executor",
         "workerId": null,
-        "pid": 1068,
+        "pid": 11812,
         "parentPid": null
       },
       "detail": {
         "decision": "permitted",
         "launchSpecDecision": "READY_TO_LAUNCH",
-        "head": "d84df98e925cc4b6ac8cea34e2a8bc2e2f32102d",
+        "head": "78e3e917be47dff8ddbc1caac2c48ae2710cc57c",
         "branch": "projectos-v3",
         "workingTreeClean": true,
         "ownerControlState": "running",
@@ -85,12 +85,12 @@
     {
       "seq": 5,
       "type": "owner-control-honoured",
-      "at": "2026-08-10T17:01:39.703Z",
+      "at": "2026-08-10T18:18:57.481Z",
       "author": "executor",
       "actor": {
         "module": "zero-relay-executor",
         "workerId": null,
-        "pid": 1068,
+        "pid": 11812,
         "parentPid": null
       },
       "detail": {
