@@ -1,8 +1,10 @@
 # ProjectOS V3 — PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A — evidence
 
+**Generated 2026-08-10 13:06:13 (local)**
+
 **Project** ProjectOS · **Phase** PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A (numbered phase 12 of 19)
 **Branch** `projectos-v3` · **Status at writing** `awaiting_closure`
-**Evidence subject head** `1e4981b6fe4454a2fae72ca08dab6e935eebd1fb` (pushed, reconciled 0/0, tree clean)
+**Evidence subject head** `7e65fe5a313e8bc9e6cfacd275dbe08905039368` (pushed, reconciled 0/0, tree clean)
 **Active plan** ProjectOS V3 v1.2 · PLAN READY (recomputed by the plan engine)
 
 ## What the phase had to prove
@@ -59,6 +61,35 @@ outcome is worse than not acting.
 claim, so it is now replaced on disconnect with the canonical `RUNTIME_STOPPED` state carrying the
 owner's next safe action.
 
+## The final blocker: the runtime could not run git
+
+The gate derives head, cleanliness, reconciliation and ancestry by running git — and the daemon is
+launched with a deliberately minimal environment (SystemRoot only, no PATH) so it cannot inherit the
+developer's GitHub, Supabase, Vercel, AWS or npm credentials. With no PATH there is no `git`, so
+every fact failed closed and G4 refused a phase whose tree was in fact clean and reconciled:
+*"the current head could not be established"*.
+
+The hardening is right and stays. What was missing is that a tool the runtime legitimately needs was
+never bound for it. The **host** now resolves one absolute `git.exe` under the same guards it already
+applies to Node — PATH read as data in the host, never by the child, no current-directory entry, no
+relative, UNC or device path, canonical, exact filename, deterministic first match, no shell or
+`where.exe` — and passes only that path. `PATH` stays absent from the daemon environment, and no
+caller can supply the binding. The sidecar rebinds exactly `git` and **fails closed** with no PATH
+fallback, because silently searching for something else named git is how a different executable ends
+up deciding whether a phase may close.
+
+Proven live, by the refusal itself shrinking:
+
+| Attempt | Unmet predicates |
+|---|---|
+| Before any evidence | 9 |
+| With the evidence tail, no git | 3 — all of them git-execution failures |
+| With the Git capability | **1** — *"substantive paths changed after the evidence subject, so the evidence is stale"* |
+
+That last message can only be produced by successfully running `rev-parse`, `status`, `rev-list`,
+`merge-base` and `diff`. The runtime now establishes the real head, a genuinely clean tree and real
+0/0 reconciliation — and refuses for the correct reason.
+
 ## T16/T17 — what is and is not proven
 
 One genuine run of **real Windows keyboard input** against the real window traversed *Skip to
@@ -88,7 +119,7 @@ Recovery text visible at every width; zero console errors. Native `minWidth: 900
 
 ## Verification
 
-`validate-all` **124 / 124 PASS**, exit 0 · core 178 · agent 77 · control-centre 231 ·
+`validate-all` **124 / 124 PASS**, exit 0 · core 178 · agent 77 · control-centre 236 · Rust 143 ·
 `cargo check` clean on the default and `webdriver-e2e` graphs, plugin absent from the default graph ·
 frontend and sidecar builds clean · secrets, reporter and plan validators PASS · `git diff --check` clean.
 
