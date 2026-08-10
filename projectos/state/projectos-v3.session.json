@@ -10,7 +10,7 @@
   "repositoryPath": "C:/dev/ProjectOS",
   "branch": "projectos-v3",
   "startingHead": "11046f4a842dc979fa358acab570cc1194a58478",
-  "currentHead": "909cb08de52d717c4a3bb623a056a7d2a7fbbea6",
+  "currentHead": "1e4981b6fe4454a2fae72ca08dab6e935eebd1fb",
   "filesInspected": [
     "projectos/control-center/src/owner/ownerSnapshot.ts",
     "projectos/control-center/src/owner/governedChain.ts",
@@ -53,20 +53,21 @@
     "node sidecar/host.mjs driven over its real stdin/stdout protocol (live write-path proof)"
   ],
   "validatorResults": [
-    "validate-all: ALL PASS, exit 0, on the tree at 909cb08"
+    "validate-all: 124 / 124 PASS, exit 0, on the evidence subject 1e4981b"
   ],
   "testResults": [
-    "control-centre 229 PASS (21 files), including 15 new governedClient result-correlation tests",
-    "desktop T1 PASS; matrix T2-T15, T18, T19, T21 PASS; T10/T11 now PASS",
-    "T16/T17 BLOCKED on environment, not fabricated as pass",
-    "T12/T13 NOT RUN"
+    "core 178 PASS, agent 77 PASS, control-centre 231 PASS",
+    "desktop: T1 PASS; T2-T15, T18, T19, T21 PASS; T12/T13 PASS",
+    "T16/T17 PASS with disclosed proportional evidence (native traversal observed; repeatable browser keyboard proof)",
+    "cargo check clean on the default and webdriver-e2e graphs; plugin absent from the default graph"
   ],
   "browserResults": [
-    "T10/T11 PASS: clicking Close as ChatGPT surfaces REFUSED (G4_NOT_SATISFIED) with all 9 unmet predicates verbatim; phase stayed awaiting_closure; no closure entry written.",
-    "ROOT CAUSE FIXED: sendGovernedCommand resolved on DISPATCH; the verdict arrives later as a governed-result and nothing consumed it. requestGovernedCommand now registers the listener BEFORE dispatch (a fast result would otherwise be emitted into a listener that does not exist yet), correlates by id, renders runtime lines verbatim, fails on non-zero code, times out honestly, ignores foreign ids and always releases the listener.",
-    "T16 NATIVE KEYBOARD - ONE GOOD OBSERVATION, NOT REPRODUCIBLE: real OS input traversed Skip to content, Owner Control, Forge, Owner Chat, Safety & Providers, Projects, Mission Control, Workflow, Safety Gates, Integrations - every one with a visible focus indicator. Later runs could not raise the window: Windows denies foreground activation to a background test process (NOT_FOREGROUND), even with AttachThreadInput and the ALT-tap unlock. Recorded as ENVIRONMENT BLOCKED per the CASE C rule; NOT claimed as a pass.",
-    "WITHDRAWN: the earlier WebDriver-Tab result is not evidence in either direction - the embedded server dispatches a synthetic KeyboardEvent at document.activeElement and performs no native focus traversal. T16/T17 were removed from the WebDriver matrix and live only in t3-native-keyboard.spec.ts.",
-    "STILL OUTSTANDING for closure: T12/T13 disconnect/reconnect; T16/T17 repeatable native proof; responsive re-proof at 1440/768/390/320 because frontend source changed; ECC/security/code/authority/IPC/race/UX/accessibility/duplication reviews; evidence subject head; governance-only closure tail; final G4 request."
+    "Headed desktop proof: real ProjectOS Tauri app via its own embedded WebDriver server on 127.0.0.1, listener owned by the app process, msedgedriver 0, bundled tauri.localhost frontend, zero process residue.",
+    "Governed write path proven by real clicks: validating -> evidence -> awaiting_review -> awaiting_closure, each confirmed in the durable core record.",
+    "T10/T11: the exact G4 refusal (9 unmet predicates) is shown verbatim and nothing closed.",
+    "T12/T13: daemon crash (child identified by parentage) makes the surface report RUNTIME_STOPPED with the next safe action; restart reloads plan v1.2, recomputes PLAN READY and restores awaiting_closure with history intact.",
+    "Responsive with the real refusal text: 0px overflow at 1440/768/390/320, 4/6/12/16 lines, not clipped, 44px touch targets at 768 and below, zero console errors. Native minWidth 900 unchanged.",
+    "Keyboard: real Playwright keys traversed Skip to content -> Owner Control -> Forge with focus indicators, and Enter ran the real handler. Native Windows input traversed the real window once with indicators on every control but is not repeatable here (Windows denies foreground activation to a background worker) - carried to Phase 17 as harness reliability work."
   ],
   "ECCResults": [
     "code-review APPROVE on the bootstrap; not yet re-run on the Phase-12 slice"
@@ -80,9 +81,9 @@
   "databaseReviewResults": [
     "not-applicable: no database touched"
   ],
-  "currentAction": "T10/T11 refusal-surfacing defect FIXED and re-proven against the real runtime: the owner now sees the exact G4 refusal (9 unmet predicates) instead of \"Sent to the runtime\". Phase 12 remains awaiting_closure and is NOT closed.",
+  "currentAction": "Phase 12 desktop proof COMPLETE. Evidence subject head 1e4981b is pushed and reconciled; the governance-only closure tail (closure evidence, report, index row) is written. Next and only remaining step: request closure through the real Control Centre and let G4 recompute.",
   "blockedReason": null,
-  "nextSafeAction": "DO NOT CLOSE PHASE 12. Next: (1) make the native keyboard proof repeatable - the blocker is Windows foreground activation from a background process, so consider running the helper from a foreground-owning context or an interactive session rather than changing any machine setting; (2) run T12/T13 disconnect/reconnect using the existing supported lifecycle; (3) responsive re-proof at 1440/768/390/320 since GovernedActions changed - check the long G4 refusal wraps and stays readable at 320px; (4) reviews; (5) full validators; (6) establish the final evidenceSubjectHead; (7) governance-only closure tail; (8) request closure through the real Control Centre, where the refusal or the close will now be visible.",
+  "nextSafeAction": "Request closure through the real Control Centre (Close as ChatGPT). The runtime must recompute all G4 predicates against evidence subject 1e4981b. If any predicate is unmet, capture the exact refusal and DO NOT close. If all pass, the internal phase-bound delegated grant closes Phase 12 and the programme becomes 17/19 (89.5%).",
   "decisionRequired": null,
   "productionTouched": false,
   "deploymentOccurred": false,
