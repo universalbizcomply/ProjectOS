@@ -10,7 +10,7 @@
   "repositoryPath": "C:/dev/ProjectOS",
   "branch": "projectos-v3",
   "startingHead": "11046f4a842dc979fa358acab570cc1194a58478",
-  "currentHead": "94a01c60981d9bcfcfbd3cc275c30f7c6ff1336f",
+  "currentHead": "e6736854d589fe07a7f273a06463e11c52c66240",
   "filesInspected": [
     "projectos/control-center/src/owner/ownerSnapshot.ts",
     "projectos/control-center/src/owner/governedChain.ts",
@@ -53,24 +53,25 @@
     "node sidecar/host.mjs driven over its real stdin/stdout protocol (live write-path proof)"
   ],
   "validatorResults": [
-    "validate-all ALL PASS — 123 registered validators on the final tree, then pushed and reconciled 0/0 at 6c131d4"
+    "validate-all: 124 / 124 PASS, exit 0, on the tree at e673685",
+    "validate-active-execution-session and val-projectos-v3-active-phase-consistency1a re-run PASS after this session record was updated"
   ],
   "testResults": [
-    "core 178 PASS (+8 provenance)",
-    "agent 77 PASS",
-    "control-centre 214 PASS",
-    "123 validators ALL PASS"
+    "desktop T1 PASS (embedded route, app-owned loopback server, bundled frontend)",
+    "desktop matrix 12 PASS / 3 FAIL",
+    "FAIL T10/T11: a REFUSED governed command is never surfaced to the owner",
+    "FAIL T16/T17: keyboard focus never leaves <body>, so the primary control is unreachable by Tab and its :focus-visible indicator never raises",
+    "core / agent / control-centre unit suites PASS as of e673685"
   ],
   "browserResults": [
-    "RAW tauri-driver: ABANDONED (UPSTREAM TOOLING). WDIO EXTERNAL provider: FAILED, POST /session timed out (b4484e7). Do not reopen either.",
-    "EMBEDDED provider: WORKING. Isolated behind the webdriver-e2e Cargo feature (94a01c6); validator val-projectos-v3-webdriver-e2e-isolation1a, 7/7 mutations. P1-P6, P10 proven from the dependency graph; P4/P5 proven live against a preserved production binary.",
-    "T1 PASSES (2639d18). Measured: endpoint 127.0.0.1:4445; listener owned by projectos-control-center, address 127.0.0.1 only; msedgedriver=0; url http://tauri.localhost/; title ProjectOS - Control Center; #root rendered; nav[aria-label=Primary] present; zero test-created process residue.",
-    "P8 PROVEN LIVE by the same run: the WebDriver listener is loopback-only and owned by the ProjectOS webdriver-e2e process, not an external driver.",
-    "DEFECT 1 fixed: capability shape had diverged from the upstream embedded reference (only browserName), which put the session on an ordinary browser driver attached to a blank data:, document. Reference parity restored: wdio:enforceWebDriverClassic + tauri:options.application + wdio:tauriServiceOptions.",
-    "DEFECT 2 fixed: a cargo build --release E2E binary still loads devUrl, so the app was serving its frontend from a STALE Vite dev server on 5178 started hours earlier by an unrelated process. T1 was passing against a dev-served frontend. The E2E app is now built via the Tauri CLI so frontendDist is embedded; T1 asserts the tauri scheme and rejects the dev-server origin. URL moved from http://localhost:5178/ to http://tauri.localhost/.",
-    "E2E ARTIFACT SEPARATION: built by test-desktop/build-e2e.mjs into src-tauri/target/webdriver-e2e/ via an ABSOLUTE CARGO_TARGET_DIR (the Tauri CLI resolves a relative one against src-tauri and silently produced a doubled src-tauri/src-tauri path). The wrapper needs shell:true - without it the npx spawn returned SUCCESS while running nothing, leaving a stale binary the proof then ran against.",
-    "T2-T21 NOT RUN. Run them next with: npm run build:desktop:e2e then PROJECTOS_DRIVER_PROVIDER=embedded npx wdio run wdio.conf.ts. UI facts for assertions: nav labels Owner Control/Projects/Mission Control/Workflow/Safety Gates/Forge/Owner Chat/Safety & Providers; [data-testid=ocp-source] carries Live badge + plan version + PLAN READY (recomputed) + planPath; h1#ocp-title is Owner Control; governed actions live under h2 What you can do now with Refresh plus Prepare the phase prompt/Begin implementation/Run validation/Collect evidence/Send for review/Send for closure.",
-    "STILL FORBIDDEN: no tauri-plugin-wdio, no @wdio/tauri-plugin, no withGlobalTauri, no wdio capability, no mocking for acceptance evidence. Do not lower minWidth=900 for a native 320px window; the accepted browser responsive proof at 1440/768/390/320 stands unless frontend source changes."
+    "ROUTE (do not reopen): raw tauri-driver ABANDONED; WDIO external provider FAILED; EMBEDDED provider is the accepted route, isolated behind the webdriver-e2e Cargo feature with validator val-projectos-v3-webdriver-e2e-isolation1a (7/7 mutations). P1-P6, P8 and P10 proven; P8 proven live (loopback listener owned by the app process).",
+    "E2E BUILD: npm run build:desktop:e2e -> tauri build --debug --no-bundle --features webdriver-e2e into src-tauri/target/webdriver-e2e/. --debug is REQUIRED: a release build is classified a packaged candidate and refuses to launch its development sidecar (ProductionIdentityUnavailable, no fallback), so the governed chain is unreachable from a release binary. The frontend is still the bundled one.",
+    "RUNTIME ROOT: wdio onPrepare writes projectos/control-center/bridge.config.json (gitignored) naming the repo root. Without it the daemon honestly reports that no governed project root was supplied and the governed surface never renders.",
+    "PASSING: T1, T2, T3, T4, T5, T6, T7, T8, T9, T14, T15, T18, T19, T21. T7 is the governed write path - three real transitions driven by clicks and each confirmed in the durable record written by core.",
+    "FAILING T10/T11 - PRODUCT DEFECT, CLOSURE BLOCKER: sendGovernedCommand returns ok as soon as the request is DISPATCHED; the outcome arrives later as a governed-result carrying the refusal lines, and GovernedActions never subscribes to it. Clicking Close at awaiting_closure shows \"Sent to the runtime\" while G4 silently refuses and nothing closes. Fix: subscribe to governed-result by correlationId and render its lines verbatim, with failure styling when code is non-zero.",
+    "FAILING T16/T17 - UNRESOLVED: tabbing 60 times never moves document.activeElement off body. Settle whether this is a real accessibility defect or a WebView2 key-dispatch limitation under WebDriver Classic before claiming either.",
+    "NOT YET RUN: T12 (disconnect honesty) and T13 (reconnect restores durable state).",
+    "TEST-SIDE LESSONS: a CSS prefix chained with a text selector in one string is not parsed by WebdriverIO and silently matches nothing; element handles go stale when the sidecar re-emits state and React re-renders; the lifecycle is one-way, so the matrix must assert durable history when no legal advance remains."
   ],
   "ECCResults": [
     "code-review APPROVE on the bootstrap; not yet re-run on the Phase-12 slice"
@@ -84,9 +85,9 @@
   "databaseReviewResults": [
     "not-applicable: no database touched"
   ],
-  "currentAction": "G4 EVIDENCE/HEAD DEADLOCK FIXED at c127380 — the second of the two remaining Phase-12 engineering units. The gate required the evidence commit to EQUAL the closing commit, which no ordinary workflow could satisfy: closure evidence lives at a tracked path, so writing it dirties the tree (G4-13), committing it advances HEAD past the evidence (G4-12), and re-pointing the evidence advances HEAD again — a tracked commit cannot contain its own SHA. Replaced by provenance, NOT by relaxation: the evidence names an EVIDENCE SUBJECT HEAD, that subject must be an ANCESTOR of the current governance head, and every path changed between them must be closure-tail metadata. One substantive path changing after the subject still makes the evidence stale. The closure-tail allowlist is an explicit six-entry list (phase record, closure evidence, reports, reports index, current-state, session) that excludes the plan, all source, validators, schemas and architecture documents, and refuses traversal. Ancestry and the changed-path split are computed from git in the deriving layer, never read from the record; a git failure yields a sentinel substantive entry so an unreadable diff cannot read as 'nothing changed'. Core tests 170 -> 178; 123 validators ALL PASS.",
+  "currentAction": "Phase 12 T2-T21 governed matrix run against the real ProjectOS desktop application. Phase 12 walked validating -> evidence -> awaiting_review -> awaiting_closure through REAL Control Centre clicks, each transition confirmed in the durable core record. Phase 12 is NOT closed and must not close on this evidence: three matrix tests fail and all three are genuine findings.",
   "blockedReason": null,
-  "nextSafeAction": "T1 PASSES against the real bundled ProjectOS app - infrastructure work is DONE, do not reopen it. Next unit is T2-T21 on the genuine embedded session (build/run commands and the UI facts needed for assertions are in browserResults). After T2-T21: reviews, full validators, then establish the evidence subject head, write the governance-only closure tail, and recompute G4. Phase 12 stays validating until T2-T21 actually pass; G4-8 remains unsatisfied.",
+  "nextSafeAction": "DO NOT CLOSE PHASE 12. Fix the T10/T11 refusal-surfacing defect in GovernedActions (subscribe to governed-result by correlationId and render the refusal verbatim), then settle T16/T17 keyboard focus, then add T12/T13. Re-run the matrix until T1-T21 all pass. Then reviews, full validators, establish evidenceSubjectHead, write the governance-only closure tail, and recompute G4. Phase 12 is already at awaiting_closure, so the closure request is the final step and G4 will keep refusing until the evidence record exists.",
   "decisionRequired": null,
   "productionTouched": false,
   "deploymentOccurred": false,
