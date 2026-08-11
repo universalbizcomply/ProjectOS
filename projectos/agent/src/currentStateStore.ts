@@ -122,7 +122,10 @@ export function syncCurrentState(
     currentStatus: activePhase === null && completed.length === total && total > 0 ? 'COMPLETE' : existing['currentStatus'],
     acceptedPhaseCount: completed.length,
     totalPhaseCount: total,
-    completionPercentage: total === 0 ? 0 : Math.round((completed.length / total) * 100),
+    // One decimal place, matching the rule the projection and the programme validators already
+    // derive with. A whole number here disagreed with them by 0.3 and failed a test whose whole
+    // point is that the figure is derived rather than stored.
+    completionPercentage: total === 0 ? 0 : Math.round((completed.length / total) * 1000) / 10,
     completedPhases: completed,
     activePhase,
     pendingPhases: pending,

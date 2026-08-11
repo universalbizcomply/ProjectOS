@@ -56,6 +56,18 @@ function inputs(over: Partial<GovernedInputs> = {}): GovernedInputs {
   };
 }
 
+/**
+ * Phase ids taken from whichever plan is ACTIVE, never spelled out.
+ *
+ * Four tests below used to name V3 phases literally. The moment a second programme was approved they
+ * failed for a reason that had nothing to do with what they were testing — the same lesson two other
+ * tests in this file already record. A test about a computation must not be pinned to the programme
+ * that happened to be running when it was written.
+ */
+const PHASE_IDS = (plan['phases'] as { phaseId: string }[]).map((x) => x.phaseId);
+const LAST_ID = PHASE_IDS[PHASE_IDS.length - 1]!;
+const SECOND_LAST_ID = PHASE_IDS[PHASE_IDS.length - 2]!;
+
 describe('governed projection reflects canonical records, not a seed', () => {
   test('programme counters come from the canonical current-state file', () => {
     const p = projectGovernedState(inputs());
@@ -109,9 +121,14 @@ describe('phase state comes from durable core records', () => {
   });
 
   test('phases closed only by the programme record are marked as such, not as core-driven', () => {
-    const p = projectGovernedState(inputs());
+    // Stated in the FIXTURE. It used to be borrowed from the live programme, which worked only while
+    // the active plan happened to carry record-only closures; a programme whose phases are all closed
+    // through the runtime has none, and the assertion became impossible rather than false.
+    const p = projectGovernedState(
+      inputs({ currentState: { ...(currentState ?? {}), completedPhases: [LAST_ID] }, phaseRecords: [] }),
+    );
     const byRecord = p.phases.filter((x) => x.closedByRecord);
-    expect(byRecord.length).toBeGreaterThan(0);
+    expect(byRecord.map((x) => x.phaseId)).toContain(LAST_ID);
     for (const ph of byRecord) expect(ph.status).toBe('not-started');
   });
 
@@ -142,7 +159,7 @@ describe('phase state comes from durable core records', () => {
     // to be stated rather than borrowed: put one phase back in flight in the FIXTURE.
     const p = projectGovernedState(
       inputs({
-        phaseRecords: [{ phaseId: 'PROJECTOS-V3-FINAL-E2E-CLOSURE1A', status: 'implementing', history: [] }],
+        phaseRecords: [{ phaseId: LAST_ID, status: 'implementing', history: [] }],
       }),
     );
     expect(p.activePhase).not.toBeNull();
@@ -204,24 +221,28 @@ describe('phase state comes from durable core records', () => {
     // programme happens to be.
     const withoutP17 = projectGovernedState(inputs({ currentState: null }));
     const last = withoutP17.phases[withoutP17.phases.length - 1];
-    expect(last?.phaseId).toBe('PROJECTOS-V3-FINAL-E2E-CLOSURE1A');
-    expect(last?.unmetDependencies).toContain('PROJECTOS-V3-RELIABILITY-HARDENING1A');
+    expect(last?.phaseId).toBe(LAST_ID);
+    expect(last?.unmetDependencies).toContain(SECOND_LAST_ID);
     expect(last?.startable).toBe(false);
 
-    // And the other half: with the real current-state, where Phase 17 IS closed, it is startable.
-    const now = projectGovernedState(inputs());
-    const nowLast = now.phases[now.phases.length - 1];
-    expect(nowLast?.unmetDependencies).toEqual([]);
+    // And the other half, ALSO stated in the fixture. It used to read the live current-state and pass
+    // only while the programme happened to sit one phase from the end; under a freshly approved plan
+    // the same assertion is simply false, for a reason that has nothing to do with the computation.
+    const satisfied = projectGovernedState(
+      inputs({ currentState: { ...(currentState ?? {}), completedPhases: PHASE_IDS.slice(0, -1) } }),
+    );
+    const satisfiedLast = satisfied.phases[satisfied.phases.length - 1];
+    expect(satisfiedLast?.unmetDependencies).toEqual([]);
   });
 
   test('completion evidence requires an OWNER closure, matching the runtime gate exactly', () => {
-    const target = 'PROJECTOS-V3-RELIABILITY-HARDENING1A';
+    const target = SECOND_LAST_ID;
     const base = inputs({ currentState: null });
     const claimed = projectGovernedState({
       ...base,
       phaseRecords: [{ phaseId: target, status: 'closed', history: [] }],
     });
-    expect(claimed.phases.find((x) => x.phaseId === 'PROJECTOS-V3-FINAL-E2E-CLOSURE1A')?.unmetDependencies)
+    expect(claimed.phases.find((x) => x.phaseId === LAST_ID)?.unmetDependencies)
       .toContain(target);
 
     const ownerClosed = projectGovernedState({
@@ -234,8 +255,7 @@ describe('phase state comes from durable core records', () => {
         },
       ],
     });
-    expect(ownerClosed.phases.find((x) => x.phaseId === 'PROJECTOS-V3-FINAL-E2E-CLOSURE1A')?.unmetDependencies)
-      .toEqual([]);
+    expect(ownerClosed.phases.find((x) => x.phaseId === LAST_ID)?.unmetDependencies).toEqual([]);
   });
 });
 

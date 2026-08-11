@@ -7,7 +7,7 @@
   "completionMethod": "phase-closure",
   "acceptedPhaseCount": 1,
   "totalPhaseCount": 6,
-  "completionPercentage": 17,
+  "completionPercentage": 16.7,
   "completedPhases": [
     "PROJECTOS-RECOVERY-PLANNING-BRAIN1A"
   ],
@@ -22,13 +22,13 @@
   "deferredPhases": [],
   "acceptedCarryForward": [],
   "currentBranch": "projectos-post-v3-selfhost-pilot1a",
-  "currentHead": "30e3b3c984251e6e4dc96f39f03b3035b40830e7",
+  "currentHead": "fce50a8115f918737cde0d70c7335e07edfd2bd6",
   "currentRemoteHead": null,
   "workingTreeStatus": "dirty",
   "currentRisks": [],
   "currentBlockers": [],
   "lastEvidenceReference": "plan-approval decision PROJECTOS-RECOVERY-PLAN-APPROVAL-DECISION1A",
   "nextRecommendedPhase": "PROJECTOS-RECOVERY-PLAN-AUTHORITY1A",
-  "lastUpdated": "2026-08-11T12:50:52.415Z",
+  "lastUpdated": "2026-08-11T13:09:08.547Z",
   "updatedByRole": "implementer"
 }

@@ -113,7 +113,7 @@ describe('current state follows the phase records', () => {
     expect(s['completedPhases']).toEqual(['P-ONE1A']);
     expect(s['activePhase']).toBe('P-TWO1A');
     expect(s['acceptedPhaseCount']).toBe(1);
-    expect(s['completionPercentage']).toBe(33);
+    expect(s['completionPercentage']).toBe(33.3);
   });
 
   test('a delegate closure counts too — closure is delegable, and the record shows who', () => {

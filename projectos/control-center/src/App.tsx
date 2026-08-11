@@ -8,10 +8,9 @@ import {
   list,
   CORE_VERSION,
 } from '@projectos/core';
-import { PROJECTS, type ProjectRow } from './data/projects';
-import { fetchProjects, isSupabaseConfigured } from './data/supabase';
-import { createProject } from './data/db';
-import { ProjectDetail } from './ProjectDetail';
+import { inventoryFrom } from './data/governedInventory';
+import { useGovernedState } from './daemon/DaemonProvider';
+import { isSupabaseConfigured } from './data/supabase';
 import { getSession, onAuthChange, signOut, mustChangePassword } from './data/auth';
 import { Login } from './Login';
 import { ChangePassword } from './ChangePassword';
@@ -218,106 +217,82 @@ function Head({ title, sub }: { title: string; sub: string }) {
 }
 
 function Overview() {
-  const [projects, setProjects] = useState<readonly ProjectRow[]>(PROJECTS);
-  const [source, setSource] = useState<'supabase' | 'seed'>('seed');
-  const [selected, setSelected] = useState<ProjectRow | null>(null);
-  const [showNew, setShowNew] = useState(false);
-  const [np, setNp] = useState({ id: '', name: '', repo: '', type: 'saas' });
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  // The inventory is DERIVED from the governed projection — the runtime's own reading of the
+  // canonical records — and from nothing else. It used to come from a remote Supabase table, or from
+  // a thirteen-row static seed when that was absent, and either way the surface reported the result
+  // as "governed by ProjectOS". Three project universes in one application, and no way for the owner
+  // to tell which was real. See data/governedInventory.ts.
+  const governed = useGovernedState();
+  const inventory = inventoryFrom(governed);
 
-  async function reload() {
-    const r = await fetchProjects();
-    setProjects(r.rows);
-    setSource(r.source);
-  }
-  useEffect(() => {
-    let live = true;
-    fetchProjects().then((r) => {
-      if (live) {
-        setProjects(r.rows);
-        setSource(r.source);
-      }
-    });
-    return () => {
-      live = false;
-    };
-  }, []);
-
-  async function onCreateProject() {
-    setError(null);
-    if (np.id.trim() === '' || np.name.trim() === '') return setError('Id and name are required.');
-    setBusy(true);
-    const { error } = await createProject({ id: np.id.trim(), name: np.name.trim(), repo: np.repo.trim(), type: np.type });
-    setBusy(false);
-    if (error) return setError(error);
-    setShowNew(false);
-    setNp({ id: '', name: '', repo: '', type: 'saas' });
-    await reload();
+  if (inventory.kind === 'unavailable') {
+    return (
+      <>
+        <div className="head">
+          <div>
+            <h1>Projects</h1>
+            <p>ProjectOS cannot report its governed projects right now.</p>
+          </div>
+        </div>
+        <div className="card" role="status">
+          <h3>No governed truth available</h3>
+          <div className="repo">{inventory.reason}</div>
+          <p>{inventory.detail}</p>
+          <p className="muted">
+            Nothing is shown in place of it. &ldquo;ProjectOS governs no projects&rdquo; and
+            &ldquo;ProjectOS cannot currently tell you&rdquo; are different statements, and showing the
+            first when the second is true would be a guess wearing the clothes of a fact.
+          </p>
+        </div>
+      </>
+    );
   }
 
-  if (selected) {
-    return <ProjectDetail project={selected} onBack={() => { setSelected(null); void reload(); }} />;
-  }
-
-  const installed = projects.filter((p) => p.installStatus === 'installed').length;
-  const frozen = projects.filter((p) => p.productionFreeze).length;
-  const openPhases = projects.reduce((n, p) => n + p.openPhases, 0);
+  const rows = inventory.rows;
+  const frozen = rows.filter((p) => p.productionFreeze).length;
+  const active = rows.filter((p) => p.activePhase !== null).length;
   return (
     <>
       <div className="head">
         <div>
           <h1>Projects</h1>
-          <p>{projects.length} governed by ProjectOS · data: {source === 'supabase' ? 'live (Supabase)' : 'seed'}</p>
+          <p>
+            {rows.length} governed by ProjectOS · every figure below is read from the project&rsquo;s own
+            canonical records
+          </p>
         </div>
-        <button className="btn-new" onClick={() => setShowNew((v) => !v)}>+ New project</button>
       </div>
-
-      {showNew && (
-        <form className="newproj" onSubmit={(e) => { e.preventDefault(); void onCreateProject(); }}>
-          <label className="vh" htmlFor="np-id">Project id</label>
-          <input id="np-id" placeholder="id (e.g. acme-shop)" value={np.id} onChange={(e) => setNp({ ...np, id: e.target.value })} />
-          <label className="vh" htmlFor="np-name">Project name</label>
-          <input id="np-name" placeholder="Name" value={np.name} onChange={(e) => setNp({ ...np, name: e.target.value })} />
-          <label className="vh" htmlFor="np-repo">Repository</label>
-          <input id="np-repo" placeholder="repo (owner/name or blank)" value={np.repo} onChange={(e) => setNp({ ...np, repo: e.target.value })} />
-          <button type="submit" disabled={busy}>Create</button>
-          {error && <div className="login-error" role="alert" style={{ flexBasis: '100%' }}>{error}</div>}
-        </form>
-      )}
 
       <div className="kpis">
-        <div className="kpi accent"><div className="n">{projects.length}</div><div className="l">Governed projects</div></div>
-        <div className="kpi"><div className="n">{installed}</div><div className="l">.projectops installed</div></div>
+        <div className="kpi accent"><div className="n">{rows.length}</div><div className="l">Governed projects</div></div>
+        <div className="kpi"><div className="n">{active}</div><div className="l">With a phase running</div></div>
         <div className="kpi"><div className="n">{frozen}</div><div className="l">Production frozen</div></div>
-        <div className="kpi"><div className="n">{openPhases}</div><div className="l">Open phases</div></div>
       </div>
+
       <div className="grid">
-        {projects.map((p) => (
-          <div
-            className="card clickable"
-            key={p.id}
-            role="button"
-            tabIndex={0}
-            aria-label={`Open project ${p.name}`}
-            onClick={() => setSelected(p)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                setSelected(p);
-              }
-            }}
-          >
+        {rows.map((p) => (
+          <div className="card" key={p.id}>
             <h3>{p.name}</h3>
             <div className="repo">{p.repo}</div>
             <div className="row">
-              <span className="tag ok">{p.installStatus}</span>
+              <span className="tag ok">{p.planStatus}</span>
               {p.productionFreeze ? <span className="tag warn">freeze on</span> : <span className="tag mut">freeze off</span>}
-              {p.openPhases > 0 && <span className="tag mut">{p.openPhases} phases</span>}
-              <span className="open-hint">open →</span>
+              <span className="tag mut">{p.acceptedPhases}/{p.totalPhases} phases</span>
             </div>
+            <p className="muted">
+              {p.activePhase === null ? 'No phase is running.' : `Running: ${p.activePhase}`}
+            </p>
           </div>
         ))}
+      </div>
+
+      <div className="card">
+        <h3>Adding a project</h3>
+        <p>
+          A project joins this list by being REGISTERED, which pins the checkout roots that may claim
+          its id. Registration is an owner-confirmed action, so ProjectOS cannot add a project on its
+          own behalf — which is precisely what makes this list trustworthy.
+        </p>
       </div>
     </>
   );
