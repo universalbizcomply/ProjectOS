@@ -5,6 +5,8 @@
 **Baseline:** `d30dca03f4f73c1f4af41982508390bab1633430` (closed V3, 19/19, 100%)
 **Owner:** Murad · **Gatekeeper:** ChatGPT · **Implementer:** Claude
 **Started:** 2026-08-11 00:21 Europe/London
+**Last updated:** 2026-08-11 08:52 Europe/London (BST, UTC+1)
+**Commits so far:** `8d6c67b` (01:23) → `e96ba1f` (08:22) → `1a4b2ef` (08:47)
 
 This file is the pilot's durable state. It is written to disk deliberately so the pilot does not
 depend on conversational memory. It closes nothing and grants nothing.
@@ -220,7 +222,20 @@ byte-unchanged. No commit, no push, no force, no history rewrite. V3 not reopene
 
 ---
 
-## 5a. F3 — objective intake (checkpoint 2, commit `e96ba1f`)
+## 5a. F3 — objective intake (checkpoint 2)
+
+**Timeline, Europe/London (BST, UTC+1):**
+
+| When | What |
+|---|---|
+| 2026-08-11 01:23 | checkpoint 1 committed — `8d6c67b` (pushed 07:2x for remote review) |
+| 2026-08-11 08:08:45 | **the real pilot objective submitted through ProjectOS** — recorded in the objective record as `2026-08-11T07:08:45.224Z` UTC |
+| 2026-08-11 08:22 | checkpoint 2 committed — `e96ba1f` |
+| 2026-08-11 08:47 | journal updated — `1a4b2ef` |
+| 2026-08-11 08:50 | fourth confirming `validate-all`: 126/126 |
+
+Durable records store UTC (`submittedAt`, `generatedAt`); this table converts to local time for
+reading. The two are the same instant — never treat the offset as a discrepancy.
 
 **Built:** `projectos plan draft|drafts|show`, backed by `projectos/agent/src/planIntake.ts`. A thin
 seam onto the canonical `plan-discovery-engine.cjs` — the missing call, not a second planner. Engine
