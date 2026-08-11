@@ -63,6 +63,12 @@
       }
     },
 
+    "planSources": {
+      "type": "array",
+      "description": "OPTIONAL. Further root-relative documents this project declares as CURRENT PLANNING material, beyond planMemory. Plan discovery uses the declaration to decide which documents may shape a proposed plan. Declaring a document confers no authority: it cannot approve anything, cannot make itself or another document authoritative, and does not change what governs execution.",
+      "items": { "type": "string", "minLength": 1 }
+    },
+
     "reviewAgents": {
       "type": "array",
       "description": "Named review providers (e.g. ECC agents). Configuration only — ProjectOS does not auto-run them.",

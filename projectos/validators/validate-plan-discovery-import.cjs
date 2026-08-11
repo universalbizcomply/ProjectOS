@@ -265,6 +265,128 @@ function run() {
       eng.assignAuthorities(j, { repoEvidence: { repo: "owner/victim", projectId: "victim" } });
       if (j.find((s) => s.relPath === "y-plan.md").authority !== "AUTHORITATIVE") errors.push("(g) canonical config naming THIS repository must still bind AUTHORITATIVE");
     }
+
+    // (h) A DELIVERED PLAN IS HISTORY. Observed live: ProjectOS's own V3 plan — nineteen phases,
+    // nineteen recorded complete, programme closed — was still proposed back, in full, as the plan
+    // for a NEW objective. A plan every phase of which is done is the record of what was built.
+    {
+      const roleOf = (arr, rel) => {
+        eng.assignAuthorities(arr, {});
+        eng.assignPlanningRoles(arr, {});
+        return (arr.find((s) => s.relPath === rel) || {}).planningRole;
+      };
+      const cfgJson = JSON.stringify({ projectId: "done", planMemory: { planPath: "p.json", currentStatePath: "s.json" } });
+      const planJson = (ids) => JSON.stringify({ projectId: "done", definitionOfComplete: "x", phases: ids.map((id) => ({ phaseId: id, description: "d" })) });
+      const stateJson = (ids) => JSON.stringify({ projectId: "done", completedPhases: ids });
+
+      // every phase complete -> retired to history, and it proposes no phases
+      {
+        const arr = [fp(".projectops/config.json", cfgJson, ".json"), fp("p.json", planJson(["D-P1A", "D-P2A"]), ".json"), fp("s.json", stateJson(["D-P1A", "D-P2A"]), ".json")];
+        if (roleOf(arr, "p.json") !== "HISTORICAL_EVIDENCE") errors.push("(h) a plan whose every phase is recorded complete must be HISTORICAL_EVIDENCE");
+        if (roleOf(arr, "s.json") !== "CURRENT_PLANNING") errors.push("(h) the current-state record itself must stay CURRENT_PLANNING");
+        const r = eng.importFromSources(arr, { projectId: "done" });
+        if (r.draft.phaseCandidates.length !== 0) errors.push("(h) a delivered plan must propose no phase candidates, got " + r.draft.phaseCandidates.length);
+      }
+      // ONE phase outstanding -> still the current plan. The rule must retire only on complete evidence.
+      {
+        const arr = [fp(".projectops/config.json", cfgJson, ".json"), fp("p.json", planJson(["D-P1A", "D-P2A"]), ".json"), fp("s.json", stateJson(["D-P1A"]), ".json")];
+        if (roleOf(arr, "p.json") !== "CURRENT_PLANNING") errors.push("(h) a plan with an outstanding phase must remain CURRENT_PLANNING");
+      }
+      // A DECLARED record is not retired by a word in its own prose. This repository's current-state
+      // record describes which plan VERSIONS it supersedes, and the prose marker was retiring the
+      // live record to history on the strength of that word.
+      {
+        const arr = [
+          fp(".projectops/config.json", cfgJson, ".json"),
+          fp("p.json", planJson(["D-P1A"]), ".json"),
+          fp("s.json", JSON.stringify({ projectId: "done", completedPhases: [], note: "supersedes plan v1.2" }), ".json"),
+          fp("old-note.md", "# Note\nThis document supersedes nothing in particular.\nDefinition of complete: x.")
+        ];
+        if (roleOf(arr, "s.json") !== "CURRENT_PLANNING") errors.push("(h) a DECLARED record must not be retired to history by a prose supersedes marker");
+        if (roleOf(arr, "old-note.md") !== "HISTORICAL_EVIDENCE") errors.push("(h) an UNDECLARED document carrying a supersedes marker must still be historical");
+      }
+      // DENIAL OF PLAN: an UNDECLARED file claiming the completions must not retire the real plan.
+      // Otherwise anyone able to add one file could delete the current plan from every proposal.
+      {
+        const arr = [
+          fp(".projectops/config.json", JSON.stringify({ projectId: "done", planMemory: { planPath: "p.json" } }), ".json"),
+          fp("p.json", planJson(["D-P1A", "D-P2A"]), ".json"),
+          fp("planted-state.json", stateJson(["D-P1A", "D-P2A"]), ".json")
+        ];
+        if (roleOf(arr, "p.json") !== "CURRENT_PLANNING") errors.push("(h) an UNDECLARED completion record must not retire the declared plan");
+      }
+    }
+
+    // (i) A PLAN DOCUMENT IN MARKDOWN IS A PLAN. Most projects keep their plan as a document, and
+    // before this the engine scraped bare ids out of it: no purpose, no criteria, no dependencies.
+    {
+      const md = [
+        "# Recovery plan",
+        "projectId: mdp",
+        "Vision: a usable system.",
+        "Definition of complete: the owner can run the workflow end to end.",
+        "",
+        "## Approved scope",
+        "- scope one",
+        "",
+        "## Excluded scope",
+        "- not this",
+        "",
+        "## Phases",
+        "",
+        "### MD-P1A — First stage",
+        "Purpose: do the first thing.",
+        "Depends on: ",
+        "Acceptance criteria:",
+        "- criterion one",
+        "- criterion two",
+        "Required validators: validate-all",
+        "Required reviews: code-review, security-review",
+        "Owner gates: commit, push",
+        "",
+        "### MD-P2A — Second stage",
+        "Purpose: do the second thing.",
+        "Depends on: MD-P1A",
+        "Acceptance criteria:",
+        "- criterion three"
+      ].join("\n");
+      const sp = eng.extractPlanDocument(fp("recovery-plan.md", md));
+      if (sp === null) { errors.push("(i) a self-declaring markdown plan must be read as a plan"); }
+      else {
+        if (sp.definitionOfComplete !== "the owner can run the workflow end to end.") errors.push("(i) markdown definitionOfComplete not read");
+        if (sp.businessVision !== "a usable system.") errors.push("(i) markdown vision not read");
+        if (sp.approvedScope.length !== 1 || sp.excludedScope.length !== 1) errors.push("(i) markdown scope lists not read");
+        if (sp.phases.length !== 2) errors.push("(i) expected 2 markdown phases, got " + sp.phases.length);
+        const p1 = sp.phases[0], p2 = sp.phases[1];
+        if (!p1 || p1.description !== "do the first thing.") errors.push("(i) markdown phase purpose not read");
+        if (!p1 || p1.acceptanceCriteria.length !== 2) errors.push("(i) markdown acceptance criteria not read");
+        if (!p1 || p1.requiredReviews.length !== 2) errors.push("(i) markdown comma-separated list not read");
+        if (!p1 || p1.dependsOn.length !== 0) errors.push("(i) an empty 'Depends on:' must yield no dependency, got " + JSON.stringify(p1 && p1.dependsOn));
+        if (!p2 || p2.dependsOn[0] !== "MD-P1A") errors.push("(i) markdown dependency not read");
+      }
+      // A document that does NOT declare itself a plan must not manufacture phases, however
+      // plan-shaped its prose. Every repository is full of design notes mentioning phase ids.
+      const notes = "# Design notes\nWe should probably do ND-P1A first.\n## Phases\nsomething about ND-P2A.\n";
+      if (eng.extractMarkdownPlan(fp("notes.md", notes)) !== null) errors.push("(i) a document with no definition of complete must not be read as a plan");
+      const noPhases = "# Brief\nDefinition of complete: done.\nWe will do NP-P1A.\n";
+      if (eng.extractMarkdownPlan(fp("brief.md", noPhases)) !== null) errors.push("(i) a document with no Phases heading must not be read as a plan");
+    }
+
+    // (j) A GUESSED IDENTITY MUST NOT BE PERMANENT. assignAuthorities runs twice over the same array
+    // — once while discovery walks the tree, once when the caller's repository evidence is known.
+    // A downgrade to UNVERIFIED is not eligible for re-upgrade, so a wrong dominant identity guessed
+    // in the first pass used to be irreversible. Observed live: with no repository evidence the first
+    // pass took its identity from a test fixture, and every genuine source stating this repository's
+    // projectId was marked identity-mismatched before the truth arrived.
+    {
+      const real = fp("real-plan.md", "# Real\nprojectId: realproj\nDefinition of complete: x.\nPhase RL-P1A one.");
+      const fixture = fp("examples/fixture/plan.md", "# Fixture\nprojectId: acme-app\nDefinition of complete: y.\nPhase AC-P1A one.");
+      const arr = [fixture, real];
+      eng.assignAuthorities(arr, {});                                       // no evidence: identity guessed
+      eng.assignAuthorities(arr, { repoEvidence: { projectId: "realproj" } }); // truth arrives
+      if (real.authority === "UNVERIFIED") errors.push("(j) a source matching the TRUE project identity must not stay downgraded from a guessed one");
+      if (fixture.authority !== "UNVERIFIED") errors.push("(j) the source that genuinely mismatches the true identity must be downgraded, got " + fixture.authority);
+    }
   }
   // Mandatory authority-forgery regression tests A-F (gatekeeper commit gate).
   {

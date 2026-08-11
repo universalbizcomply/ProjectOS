@@ -207,6 +207,21 @@ function assignAuthorities(sources, ctx) {
   ctx = ctx || {};
   const gitVerify = typeof ctx.gitVerify === "function" ? ctx.gitVerify : null;
 
+  // RE-ENTRANT. This runs twice on the same array: `discoverPlanSources` calls it while walking the
+  // tree, and `importFromSources` calls it again once the caller's repository evidence is known.
+  // Without this reset the second pass inherited the first pass's conclusions — and since a downgrade
+  // to UNVERIFIED is not eligible for re-upgrade, a WRONG dominant identity guessed in the first pass
+  // was permanent. Observed live: with no repository evidence the first pass took its identity from
+  // whichever fixture it happened to read first ('acme-app'), and every genuine planning source
+  // stating `projectos` was marked "mismatched project identity" before the true identity arrived.
+  // Each pass therefore restarts from the single-source verdict and re-derives the cross-source one.
+  for (const s of sources) {
+    if (typeof s.selfAuthority === "string") {
+      s.authority = s.selfAuthority;
+      s.contradictoryEvidence = undefined;
+    }
+  }
+
   // SECURITY: only a config at a CANONICAL repository-convention path (or a caller-declared canonical
   // path) is trusted as an authority oracle — NOT any file that merely matches the loose PROJECT_CONFIG
   // signal. This prevents authority forgery by an attacker who plants an arbitrarily-named .json. The
@@ -415,17 +430,68 @@ function declaredPlanningPaths(sources, ctx) {
 }
 
 /**
+ * Phase ids the project's own DECLARED current-state records as complete.
+ *
+ * Only a DECLARED source is read. That restriction is the security property, not a detail: this set
+ * is used below to retire a plan from the current corpus, so an undeclared file claiming a hundred
+ * completions would otherwise be able to delete the real plan from the proposal — a denial-of-plan
+ * attack dressed as evidence. The declared set comes from the canonical config the trust oracle
+ * accepts, so nominating the completion record requires the same authority as nominating the plan.
+ */
+function declaredCompletedPhases(sources, declared) {
+  const done = new Set();
+  for (const s of sources) {
+    if (s.included === false || s.ext !== ".json") continue;
+    if (!declared.has(s.normRelPath)) continue;
+    let obj = null; try { obj = JSON.parse(stripBom(s.content || "")); } catch (_) { continue; }
+    if (!obj || typeof obj !== "object" || !Array.isArray(obj.completedPhases)) continue;
+    for (const id of obj.completedPhases) if (typeof id === "string" && id.trim() !== "") done.add(id.trim());
+  }
+  return done;
+}
+
+/**
+ * How many phases a declared plan has, when EVERY one of them is already recorded complete; 0
+ * otherwise.
+ *
+ * A plan all of whose phases are delivered is not a claim about what we are building now — it is the
+ * record of what was built. ProjectOS's own V3 plan is the live case: nineteen phases, nineteen
+ * closed, programme closed, and the engine still proposed all nineteen back as the plan for a NEW
+ * objective. That is not a proportionality nicety; it is wrong, and it would make every future
+ * objective in any finished project propose the finished work again.
+ *
+ * Deliberately conservative. A plan with one phase outstanding stays CURRENT_PLANNING, a plan with no
+ * phases is not judged at all, and a phase whose id is missing counts as not complete — so the rule
+ * can only retire a plan on complete evidence, never on partial evidence.
+ */
+function deliveredPhaseCount(src, completed) {
+  const sp = extractPlanDocument(src);
+  if (sp === null || sp.phases.length === 0) return 0;
+  const ids = sp.phases.map((p) => (typeof p.phaseId === "string" ? p.phaseId.trim() : "")).filter((x) => x !== "");
+  if (ids.length !== sp.phases.length) return 0;
+  return ids.every((id) => completed.has(id)) ? ids.length : 0;
+}
+
+/**
  * Assign a planning role to every source. Pure; mutates `planningRole` / `planningRoleEvidence` and
  * returns the sources. Called after authorities are assigned, so it can use them as evidence.
  */
 function assignPlanningRoles(sources, ctx) {
   const declared = declaredPlanningPaths(sources, ctx);
   const hasDeclaration = declared.size > 0;
+  const completed = declaredCompletedPhases(sources, declared);
   for (const s of sources) {
     let role, why;
     if (s.included === false) {
       role = "QUARANTINED";
       why = s.quarantineReason || s.exclusionReason || "excluded before semantic extraction";
+    } else if (declared.has(s.normRelPath)) {
+      // DECLARATION OUTRANKS PROSE. The canonical config saying "this is my plan / my current state"
+      // is evidence; the word "superseded" appearing somewhere inside that document is not. This
+      // repository's own current-state record describes which PLAN VERSIONS it supersedes, and the
+      // prose marker was retiring the live record to history on the strength of that word.
+      // A declared document can still be retired — but only on completion evidence, below.
+      role = "CURRENT_PLANNING"; why = "declared by the canonical project config";
     } else if (s.authority === "HISTORICAL" || s.authority === "SUPERSEDED") {
       role = "HISTORICAL_EVIDENCE";
       why = "authority " + s.authority + " — a record of past work, not the current plan";
@@ -435,8 +501,7 @@ function assignPlanningRoles(sources, ctx) {
     } else if (hasDeclaration) {
       // The project has SAID what its plan is. Everything else is context, however plan-shaped it
       // looks — this is what stops a repository full of past plans arguing with the current one.
-      if (declared.has(s.normRelPath)) { role = "CURRENT_PLANNING"; why = "declared by the canonical project config"; }
-      else if (s.authority === "AUTHORITATIVE") { role = "CURRENT_PLANNING"; why = "AUTHORITATIVE via a repository-backed binding"; }
+      if (s.authority === "AUTHORITATIVE") { role = "CURRENT_PLANNING"; why = "AUTHORITATIVE via a repository-backed binding"; }
       else { role = "SUPPORTING_CONTEXT"; why = "not named by the canonical project config's declared planning corpus"; }
     } else if (s.authority === "AUTHORITATIVE") {
       role = "CURRENT_PLANNING"; why = "AUTHORITATIVE via a repository-backed binding";
@@ -446,6 +511,15 @@ function assignPlanningRoles(sources, ctx) {
       role = "CURRENT_PLANNING"; why = "document type " + s.type + " states current delivery intent";
     } else {
       role = "SUPPORTING_CONTEXT"; why = "no current-planning signal";
+    }
+    // A DELIVERED plan is history, however it reached the current corpus. Applied once, after the
+    // chain, so every route into CURRENT_PLANNING is covered rather than the declared one only.
+    if (role === "CURRENT_PLANNING") {
+      const delivered = deliveredPhaseCount(s, completed);
+      if (delivered > 0) {
+        role = "HISTORICAL_EVIDENCE";
+        why = "a plan whose " + delivered + " phase(s) are ALL recorded complete by this project's own declared current-state — the record of delivered work, not today's plan (was: " + why + ")";
+      }
     }
     s.planningRole = role;
     s.planningRoleEvidence = why;
@@ -600,7 +674,7 @@ function buildPlanDraft(sources, repoEvidence, conflicts, duplicates) {
   const primary = selectAuthoritative(usable);
   const prov = [];
   // Structured planning sources, in the same precedence order the prose scan uses.
-  const structured = usable.map((s) => ({ s, sp: extractStructuredPlan(s) })).filter((x) => x.sp !== null);
+  const structured = usable.map((s) => ({ s, sp: extractPlanDocument(s) })).filter((x) => x.sp !== null);
   const field = (name, re, extract, structuredKey) => {
     // STRUCTURED EVIDENCE FIRST — a declared field is a statement, not a phrase that happened to
     // match a regex, so it is both more reliable and higher-confidence provenance.
@@ -608,7 +682,8 @@ function buildPlanDraft(sources, repoEvidence, conflicts, duplicates) {
       for (const { s, sp } of structured) {
         const v = sp[structuredKey];
         if (typeof v === "string" && v !== "") {
-          prov.push({ field: name, value: v, sourcePath: s.relPath, sourceChecksum: s.checksum, locator: "json-field:" + structuredKey, sourceAuthority: s.authority, extractionMethod: "structured-json", confidence: "high", competingSources: [], conflictRef: null, manualReviewRequired: false });
+          const md = sp.format === "markdown";
+          prov.push({ field: name, value: v, sourcePath: s.relPath, sourceChecksum: s.checksum, locator: (md ? "markdown-field:" : "json-field:") + structuredKey, sourceAuthority: s.authority, extractionMethod: md ? "structured-markdown" : "structured-json", confidence: "high", competingSources: [], conflictRef: null, manualReviewRequired: false });
           return v;
         }
       }
@@ -669,6 +744,7 @@ function extractStructuredPlan(src) {
   const str = (v) => (typeof v === "string" && v.trim() !== "" ? v.trim() : null);
   const arr = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === "string" && x.trim() !== "").map((x) => x.trim()) : []);
   return {
+    format: "json",
     projectId: str(obj.projectId),
     businessVision: str(obj.businessVision) || str(obj.vision),
     definitionOfComplete: str(obj.definitionOfComplete),
@@ -678,6 +754,136 @@ function extractStructuredPlan(src) {
   };
 }
 
+/**
+ * Read a PLAN DOCUMENT out of markdown.
+ *
+ * Most projects do not keep their plan as ProjectOS plan-memory JSON — they keep it as a document.
+ * Before this, such a plan yielded only id-shaped tokens scraped out of prose: no purpose, no
+ * acceptance criteria, no dependencies, so the owner was asked to approve a list of bare identifiers.
+ * The same fields the JSON reader returns are read here, from the layout a person writing a plan
+ * would use anyway.
+ *
+ * SELF-DECLARING, AND DELIBERATELY SO. A document is read as a plan only when it both states a
+ * definition of complete AND carries a `Phases` heading. Every repository is full of plan-shaped
+ * prose; without a self-declaration this reader would manufacture phase candidates out of design
+ * notes, which is the exact failure the planning-corpus work exists to end.
+ *
+ *   Vision: …
+ *   Definition of complete: …
+ *   ## Approved scope            (bullets)
+ *   ## Excluded scope            (bullets)
+ *   ## Phases
+ *   ### PHASE-ID-1A — Title
+ *   Purpose: …
+ *   Depends on: OTHER-ID-1A, …
+ *   Acceptance criteria:         (bullets)
+ *   Required validators: …       (comma-separated)
+ *   Required reviews: …
+ *   Owner gates: …
+ */
+const MD_PHASE_ID = /^([A-Z][A-Z0-9-]*\d[A-Z0-9-]*)\b\s*(?:[-—:]\s*)?(.*)$/;
+
+/** Split markdown into heading-delimited sections, each carrying the lines beneath its heading. */
+function markdownSections(text) {
+  const sections = [];
+  let current = null;
+  for (const raw of stripBom(text).split(/\r?\n/)) {
+    const line = raw.replace(/[ \t]+$/, "");
+    const h = /^(#{1,6})\s+(\S.*)$/.exec(line);
+    if (h) {
+      current = { level: h[1].length, title: h[2].trim(), lines: [] };
+      sections.push(current);
+    } else if (current !== null) {
+      current.lines.push(line);
+    }
+  }
+  return sections;
+}
+
+/** Bullets directly under a `Label:` line, plus any comma-separated values on the label line itself. */
+function labelledList(lines, label) {
+  const re = new RegExp("^\\s*(?:[-*]\\s*)?" + label + "\\s*:\\s*(.*)$", "i");
+  const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    const m = re.exec(lines[i]);
+    if (m === null) continue;
+    const inline = m[1].trim();
+    if (inline !== "") for (const v of inline.split(",")) { const t = v.trim(); if (t !== "") out.push(t); }
+    for (let j = i + 1; j < lines.length; j++) {
+      const b = /^\s*[-*]\s+(\S.*)$/.exec(lines[j]);
+      if (b === null) { if (lines[j].trim() === "") continue; break; }
+      out.push(b[1].trim());
+    }
+  }
+  return out;
+}
+
+/** The single inline value of a `Label:` line, or null. */
+function labelledValue(lines, label) {
+  const re = new RegExp("^\\s*(?:[-*]\\s*)?" + label + "\\s*:\\s*(\\S.*)$", "i");
+  for (const l of lines) { const m = re.exec(l); if (m !== null) return m[1].trim(); }
+  return null;
+}
+
+/** Bullets under a heading whose title matches `re`, across the whole document. */
+function bulletsUnderHeading(sections, re) {
+  for (const s of sections) {
+    if (!re.test(s.title)) continue;
+    const out = [];
+    for (const l of s.lines) { const b = /^\s*[-*]\s+(\S.*)$/.exec(l); if (b !== null) out.push(b[1].trim()); }
+    if (out.length > 0) return out;
+  }
+  return [];
+}
+
+function extractMarkdownPlan(src) {
+  if (!src || (src.ext !== ".md" && src.ext !== ".markdown")) return null;
+  const text = stripBom(src.content || "");
+  const doc = /^\s*definition of complete\s*:\s*(\S.*)$/im.exec(text);
+  const sections = markdownSections(text);
+  const phaseHeading = sections.some((s) => /^phases\b/i.test(s.title));
+  if (doc === null || !phaseHeading) return null;
+
+  const vision = /^\s*(?:business\s+)?vision\s*:\s*(\S.*)$/im.exec(text);
+  const phases = [];
+  for (const s of sections) {
+    const m = MD_PHASE_ID.exec(s.title);
+    if (m === null) continue;
+    const title = m[2].trim();
+    phases.push({
+      phaseId: m[1],
+      title: title === "" ? m[1] : title,
+      description: labelledValue(s.lines, "purpose") || labelledValue(s.lines, "description"),
+      scope: labelledValue(s.lines, "scope"),
+      exclusions: labelledList(s.lines, "exclusions"),
+      dependsOn: labelledList(s.lines, "depends on"),
+      acceptanceCriteria: labelledList(s.lines, "acceptance criteria"),
+      requiredValidators: labelledList(s.lines, "required validators"),
+      requiredReviews: labelledList(s.lines, "required reviews"),
+      requiredOwnerGates: labelledList(s.lines, "owner gates")
+    });
+  }
+  return {
+    format: "markdown",
+    projectId: (/^\s*projectId\s*:\s*([A-Za-z0-9._-]+)\s*$/im.exec(text) || [])[1] || null,
+    businessVision: vision === null ? null : vision[1].trim(),
+    definitionOfComplete: doc[1].trim(),
+    approvedScope: bulletsUnderHeading(sections, /approved scope/i),
+    excludedScope: bulletsUnderHeading(sections, /excluded scope|out of scope/i),
+    phases: phases
+  };
+}
+
+/**
+ * The plan a source states, in whichever form it states it. One entry point so a markdown plan and a
+ * JSON plan cannot drift into being treated differently by the draft builder and the phase builder.
+ */
+function extractPlanDocument(src) {
+  const json = extractStructuredPlan(src);
+  if (json !== null) return json;
+  return extractMarkdownPlan(src);
+}
+
 function buildPhaseCandidates(sources) {
   const candidates = [];
   // STRUCTURED FIRST. A declared JSON plan states its phases as data, with their real dependencies,
@@ -685,7 +891,7 @@ function buildPhaseCandidates(sources) {
   // id-shaped token out of prose, and it carries the fields an owner actually needs to review.
   const structuredIds = new Set();
   for (const s of sources) {
-    const sp = extractStructuredPlan(s);
+    const sp = extractPlanDocument(s);
     if (sp === null || sp.phases.length === 0) continue;
     for (const p of sp.phases) {
       const id = typeof p.phaseId === "string" ? p.phaseId.trim() : "";
@@ -705,7 +911,7 @@ function buildPhaseCandidates(sources) {
         ownerGates: strArr(p.requiredOwnerGates).length ? strArr(p.requiredOwnerGates) : ["phase-closure"],
         sourceReferences: [s.relPath],
         confidence: "high",
-        extractionMethod: "structured-json",
+        extractionMethod: sp.format === "markdown" ? "structured-markdown" : "structured-json",
         unresolvedQuestions: strArr(p.acceptanceCriteria).length ? [] : ["acceptance criteria not sourced"]
       });
     }
@@ -861,6 +1067,9 @@ function fingerprintPlanSource(input) {
   base.type = typeC.type; base.typeEvidence = typeC.evidence;
   const authC = classifyAuthority(base);
   base.authority = authC.authority;
+  // The single-source verdict, kept so a later cross-source pass can start from it again rather than
+  // from its own previous conclusion. See `assignAuthorities`.
+  base.selfAuthority = authC.authority;
   base.authorityEvidence = authC.evidence;
   base.included = authC.included !== undefined ? authC.included : true;
   base.quarantineReason = authC.quarantineReason || null;
@@ -924,7 +1133,8 @@ module.exports = {
   sha256, normalizeContent, isSafeRepoRelativePath, isWithinRoot, scanSecrets, looksBinary,
   extractHeadings, extractTitle, classifyPlanSource, classifyAuthority, assignAuthorities,
   isUntrustedInstruction, groupDuplicateSources, markCanonicalDuplicates,
-  extractStructuredPlan,
+  extractStructuredPlan, extractMarkdownPlan, extractPlanDocument, markdownSections,
+  declaredCompletedPhases, deliveredPhaseCount,
   extractClaims, detectPlanConflicts, reconcileRepositoryEvidence, selectAuthoritative,
   PLANNING_ROLES, PLANNING_TYPES, HISTORICAL_TYPES, declaredPlanningPaths, assignPlanningRoles, summarisePlanningCorpus,
   buildPlanDraft, buildPhaseCandidates, calculateImportStatus, validatePlanProvenance,

@@ -364,8 +364,13 @@ export function submitObjective(
   }
 
   // Discovery is the ENGINE's, bounded by the engine's own limits, rooted at the project only.
-  const found = engine.discoverPlanSources(root, {});
+  //
+  // The repository evidence goes in HERE as well as into the import. Discovery classifies authority
+  // as it walks, and without being told whose project this is it has to guess the dominant identity
+  // from the documents themselves — which against this repository meant a test fixture's projectId
+  // won, and every genuine planning source was marked identity-mismatched before the truth arrived.
   const repoEvidence = { repo: repository, branch, head: baseHead, projectId };
+  const found = engine.discoverPlanSources(root, { repoEvidence });
   const imported = engine.importFromSources(found.sources, repoEvidence, {});
 
   // Defence in depth. The engine does not return PLAN READY today; if it ever did, persisting it

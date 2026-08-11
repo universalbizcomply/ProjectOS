@@ -15,6 +15,9 @@
     "planPath": "projectos/state/projectos-v3.plan.json",
     "currentStatePath": "projectos/state/projectos-v3.current-state.json"
   },
+  "planSources": [
+    "docs/operational-recovery-plan.md"
+  ],
   "allowedActions": [
     "inspect-repository",
     "create-local-files",
