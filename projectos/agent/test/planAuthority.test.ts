@@ -220,45 +220,82 @@ describe('approved-phase membership and dependencies gate creation', () => {
     expect(authorisePhase(sys, ROOT, ctxOf(sys), PHASE_18).ok).toBe(true);
   });
 
-  it('T6c a DELEGATE closure satisfies a dependency, exactly as the runtime produces it', () => {
-    // Under a recorded closure delegation the runtime closes as `advisor`, and `transitionPhase`
-    // permits that ONLY with a grant resolved from the plan and a committed decision it consumed —
-    // so an `advisor` entry in a closed record already implies the grant path was taken. The rule
-    // accepted `owner` alone, so a properly closed phase did not satisfy the next phase's
-    // dependency; the chain only continued because the declared current-state happened to record the
-    // completion too. A rule that is right only when a second source agrees is not the rule.
+  it('C a GENUINE delegated closure — record plus its consumed decision — satisfies a dependency', () => {
+    // This test used to assert that `by: advisor` alone was sufficient. It was wrong, and the
+    // gatekeeper's source review caught it: a role is a string, this programme is tamperProof:false,
+    // and proving the IMPLEMENTER is rejected proves nothing about a forger who simply writes
+    // `advisor`. What must be established is the DECISION the closure consumed.
+    const plan = activePlan();
+    const del = (plan['governance'] as Record<string, unknown>)['closureDelegation'] as Record<string, unknown>;
+    const delegate = String(del['delegatedTo']);
     const state = activeState();
     state['completedPhases'] = (state['completedPhases'] as string[]).filter((p) => p !== PHASE_17);
-    const sys = selfHosted(
-      {},
-      {
+    const files = (decision: Record<string, unknown> | null): Record<string, string> => {
+      const f: Record<string, string> = {
         [`${ROOT}/${STATE_REL}`]: JSON.stringify(state),
         [`${ROOT}/.projectops/phases/${PHASE_17}.json`]: JSON.stringify({
           phaseId: PHASE_17,
           project: 'ProjectOS',
           objective: 'o',
           status: 'closed',
-          history: [{ from: 'awaiting_closure', to: 'closed', by: 'advisor', at: '2026-08-11T14:00:00Z' }],
+          history: [
+            {
+              from: 'awaiting_closure',
+              to: 'closed',
+              by: 'advisor',
+              at: '2026-08-11T14:00:00Z',
+              note: 'closed by the delegate, decision P17-CLOSURE-DECISION1A',
+            },
+          ],
         }),
-      },
-    );
-    expect(authorisePhase(sys, ROOT, ctxOf(sys), PHASE_18).ok).toBe(true);
+      };
+      if (decision !== null) {
+        f[`${ROOT}/.projectops/closure/decisions/${PHASE_17}.json`] = JSON.stringify(decision);
+      }
+      return f;
+    };
+    const genuine = {
+      schemaVersion: '1.0.0',
+      decisionId: 'P17-CLOSURE-DECISION1A',
+      phaseId: PHASE_17,
+      projectId: 'projectos',
+      scope: 'phase-closure',
+      decidedBy: delegate,
+      decidedAt: '2026-08-11T13:00:00Z',
+      evidenceSubjectHead: 'b'.repeat(40),
+      decision: 'close',
+      consumedAt: '2026-08-11T14:00:00Z',
+    };
 
-    // And the implementer still cannot manufacture one by writing the word.
-    const forged = selfHosted(
-      {},
-      {
-        [`${ROOT}/${STATE_REL}`]: JSON.stringify(state),
-        [`${ROOT}/.projectops/phases/${PHASE_17}.json`]: JSON.stringify({
-          phaseId: PHASE_17,
-          project: 'ProjectOS',
-          objective: 'o',
-          status: 'closed',
-          history: [{ from: 'awaiting_closure', to: 'closed', by: 'implementer', at: '2026-08-11T14:00:00Z' }],
-        }),
-      },
-    );
+    // C: the genuine pair is accepted.
+    const ok = selfHosted({}, files(genuine));
+    expect(authorisePhase(ok, ROOT, ctxOf(ok), PHASE_18).ok).toBe(true);
+
+    // A: THE DEFECT. The same advisor history with no decision behind it must NOT count.
+    const forged = selfHosted({}, files(null));
     expect(authorisePhase(forged, ROOT, ctxOf(forged), PHASE_18).ok).toBe(false);
+
+    // …nor when the decision names someone other than the delegate the plan records.
+    const stranger = selfHosted({}, files({ ...genuine, decidedBy: 'Mallory' }));
+    expect(authorisePhase(stranger, ROOT, ctxOf(stranger), PHASE_18).ok).toBe(false);
+
+    // …nor when it was authorised but never actually consumed by a closure.
+    const unspent = selfHosted({}, files({ ...genuine, consumedAt: undefined }));
+    expect(authorisePhase(unspent, ROOT, ctxOf(unspent), PHASE_18).ok).toBe(false);
+
+    // E: and the implementer still cannot close, by any route.
+    const impl = selfHosted({}, {
+      [`${ROOT}/${STATE_REL}`]: JSON.stringify(state),
+      [`${ROOT}/.projectops/phases/${PHASE_17}.json`]: JSON.stringify({
+        phaseId: PHASE_17,
+        project: 'ProjectOS',
+        objective: 'o',
+        status: 'closed',
+        history: [{ from: 'awaiting_closure', to: 'closed', by: 'implementer', at: '2026-08-11T14:00:00Z', note: 'decision P17-CLOSURE-DECISION1A' }],
+      }),
+      [`${ROOT}/.projectops/closure/decisions/${PHASE_17}.json`]: JSON.stringify(genuine),
+    });
+    expect(authorisePhase(impl, ROOT, ctxOf(impl), PHASE_18).ok).toBe(false);
   });
 
   it('T7 an approved phase with satisfied dependencies is authorised, and returns the plan phase', () => {
@@ -276,28 +313,103 @@ describe('approved-phase membership and dependencies gate creation', () => {
 
   /** A phase-store-only project: no current-state declared, so the runtime's own records are the
    *  ONLY completion evidence. `record` is the stored dependency phase. */
-  function phaseStoreOnly(record: Record<string, unknown>) {
-    return fakeSystem({
+  const DEP_PHASE = 'PROJECTOS-V3-PROVIDER-CONTEXT-GUARDS1A';
+  const DEP_DECISION_ID = 'DEP-CLOSURE-DECISION1A';
+
+  /** The decision the runtime would have written and consumed for a genuine closure of DEP_PHASE. */
+  function genuineDecision(over: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      schemaVersion: '1.0.0',
+      decisionId: DEP_DECISION_ID,
+      phaseId: DEP_PHASE,
+      projectId: 'projectos',
+      scope: 'phase-closure',
+      decidedBy: 'Murad',
+      decidedAt: '2026-08-09T00:00:00Z',
+      evidenceSubjectHead: 'a'.repeat(40),
+      decision: 'close',
+      consumedAt: '2026-08-09T00:05:00Z',
+      ...over,
+    };
+  }
+
+  /**
+   * A project whose only completion evidence is a phase record — and, optionally, the closure
+   * DECISION that authorised it. The pair is the point: a record alone must never be enough.
+   */
+  function phaseStoreOnly(record: Record<string, unknown>, decision?: Record<string, unknown> | null) {
+    const files: Record<string, string> = {
       [`${ROOT}/.projectops/project-config.json`]: JSON.stringify({
         ...BASE_CONFIG,
         planMemory: { planPath: PLAN_REL },
       }),
       [`${ROOT}/${PLAN_REL}`]: JSON.stringify(activePlan()),
-      [`${ROOT}/.projectops/phases/PROJECTOS-V3-PROVIDER-CONTEXT-GUARDS1A.json`]: JSON.stringify({
-        phaseId: 'PROJECTOS-V3-PROVIDER-CONTEXT-GUARDS1A',
+      [`${ROOT}/.projectops/phases/${DEP_PHASE}.json`]: JSON.stringify({
+        phaseId: DEP_PHASE,
         project: 'ProjectOS',
         objective: 'x',
         ...record,
       }),
-    });
+    };
+    if (decision !== undefined && decision !== null) {
+      files[`${ROOT}/.projectops/closure/decisions/${DEP_PHASE}.json`] = JSON.stringify(decision);
+    }
+    return fakeSystem(files);
   }
 
-  it('a dependency satisfied by an owner-closed durable phase record counts', () => {
-    const sys = phaseStoreOnly({
-      status: 'closed',
-      history: [{ from: 'awaiting_closure', to: 'closed', by: 'owner', at: '2026-08-09T00:00:00Z' }],
-    });
+  /** A closing history entry shaped exactly as `transitionPhase` writes it, naming its decision. */
+  function closedBy(by: string, decisionId: string = DEP_DECISION_ID) {
+    return [
+      {
+        from: 'awaiting_closure',
+        to: 'closed',
+        by,
+        at: '2026-08-09T00:00:00Z',
+        note: `closed under the projectos-scoped phase-closure delegation, decision ${decisionId}`,
+      },
+    ];
+  }
+
+  it('D a GENUINE owner closure — record plus its consumed decision — satisfies a dependency', () => {
+    const sys = phaseStoreOnly({ status: 'closed', history: closedBy('owner') }, genuineDecision());
     expect(authorisePhase(sys, ROOT, ctxOf(sys), PHASE_12).ok).toBe(true);
+  });
+
+  it('B an owner closure with NO decision behind it does NOT satisfy a dependency', () => {
+    // The sibling of the advisor bypass. `by: owner` is a string too, and leaving it unchecked
+    // merely because the defect was found through `advisor` would move the hole rather than close it.
+    const sys = phaseStoreOnly({ status: 'closed', history: closedBy('owner') });
+    const r = authorisePhase(sys, ROOT, ctxOf(sys), PHASE_12);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe('DEPENDENCY_NOT_SATISFIED');
+  });
+
+  it('F changing or removing the decision binding fails the dependency closed', () => {
+    const cases: readonly (Record<string, unknown> | null)[] = [
+      null,                                         // decision file removed
+      genuineDecision({ consumedAt: undefined }),   // authorised but never actually used
+      genuineDecision({ decision: 'reject' }),      // not a decision to close
+      genuineDecision({ phaseId: 'SOME-OTHER1A' }), // about a different phase
+      genuineDecision({ projectId: 'polygo' }),     // about a different project
+      genuineDecision({ decidedBy: 'Mallory' }),    // not the authority the plan records
+      genuineDecision({ decidedBy: 'Claude Code' }),// the implementer, by any spelling
+      genuineDecision({ decisionId: 'SOMETHING-ELSE1A' }), // not the decision the closure named
+    ];
+    for (const decision of cases) {
+      const sys = phaseStoreOnly({ status: 'closed', history: closedBy('owner') }, decision);
+      const r = authorisePhase(sys, ROOT, ctxOf(sys), PHASE_12);
+      expect(r.ok).toBe(false);
+    }
+  });
+
+  it('A a closing entry that names NO decision does not satisfy a dependency', () => {
+    // The note is where the runtime records the authority basis. Without it there is nothing to
+    // check the decision against, so the record is a claim about itself.
+    const sys = phaseStoreOnly(
+      { status: 'closed', history: [{ from: 'awaiting_closure', to: 'closed', by: 'advisor', at: '2026-08-09T00:00:00Z' }] },
+      genuineDecision({ decidedBy: 'ChatGPT' }),
+    );
+    expect(authorisePhase(sys, ROOT, ctxOf(sys), PHASE_12).ok).toBe(false);
   });
 
   it('a record that merely SAYS closed, with no owner transition, does NOT satisfy a dependency', () => {

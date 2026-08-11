@@ -18,8 +18,13 @@
  * Created in the post-V3 operational recovery programme.
  */
 import type { System } from './system.js';
-import { join } from './context.js';
+import { join, projectopsDir } from './context.js';
 import { loadPhase, listPhaseIds } from './phaseStore.js';
+import {
+  isGenuineClosure,
+  type ClosureDecisionRecord,
+  type ClosureAuthorityExpectations,
+} from '@projectos/core';
 import type { GovernedContext } from './governedContext.js';
 
 /** Statuses in which work has stopped, so the phase must not be reported as the active one. */
@@ -32,19 +37,22 @@ interface PhaseRecordish {
 }
 
 /**
- * A genuine owner-or-delegate closure, not merely the word "closed".
+ * A GENUINE closure — the same rule the dependency gate and the owner surface apply.
  *
- * Mirrors `governedContext.isOwnerClosed`. Duplicated deliberately rather than exported and shared:
- * the two are the same rule applied for different purposes, and the copy is four lines, whereas
- * coupling dependency evidence to state bookkeeping would mean a change to one silently changing
- * what the other accepts.
+ * This read the closing entry's role. That mattered more here than anywhere else: what this module
+ * writes into `completedPhases` is itself accepted as dependency evidence, so a rule that believed a
+ * role string would have laundered a forged phase record into the declared current-state and from
+ * there into the gate. Closing the bypass in the gate while leaving it open here would have moved
+ * it, not removed it.
  */
-function isProperlyClosed(p: PhaseRecordish): boolean {
-  if (p.status !== 'closed') return false;
-  const history = Array.isArray(p.history) ? p.history : [];
-  const last = history[history.length - 1];
-  return last !== undefined && last.to === 'closed' && (last.by === 'owner' || last.by === 'advisor');
+function isProperlyClosed(
+  p: PhaseRecordish,
+  decision: ClosureDecisionRecord | null,
+  expect: ClosureAuthorityExpectations,
+): boolean {
+  return isGenuineClosure(p as never, decision, expect);
 }
+
 
 export interface SyncResult {
   readonly synced: boolean;
@@ -82,9 +90,28 @@ export function syncCurrentState(
   // history and belongs to the record that programme wrote, not to this one.
   const mine = records.filter((r) => planPhases.includes(r.phaseId));
   const inFlight = mine.filter((r) => !NOT_IN_FLIGHT.has(r.status));
+  // The authority the ACTIVE PLAN records, and the decision each closure consumed. Both read here
+  // rather than assumed, for the reason in `isProperlyClosed`.
+  const gov = (context.plan['governance'] as Record<string, unknown> | undefined) ?? {};
+  const del = gov['closureDelegation'] as Record<string, unknown> | undefined;
+  const expectBase = {
+    projectId: context.projectId,
+    owner: typeof gov['owner'] === 'string' ? gov['owner'] : '',
+    delegate: del !== undefined && typeof del['delegatedTo'] === 'string' ? del['delegatedTo'] : null,
+  };
   const completed = planPhases.filter((id) => {
     const r = mine.find((x) => x.phaseId === id);
-    return r !== undefined && isProperlyClosed(r);
+    if (r === undefined) return false;
+    const raw = sys.readText(join(projectopsDir(root), 'closure', 'decisions', `${id}.json`));
+    let decision: ClosureDecisionRecord | null = null;
+    if (raw !== null) {
+      try {
+        decision = JSON.parse(raw) as ClosureDecisionRecord;
+      } catch {
+        decision = null;
+      }
+    }
+    return isProperlyClosed(r, decision, { ...expectBase, phaseId: id });
   });
   const blocked = mine.filter((r) => r.status === 'closed_as_blocked').map((r) => r.phaseId);
   const activePhase = inFlight.length === 1 ? inFlight[0]!.phaseId : null;

@@ -152,6 +152,86 @@ export function checkClosureDecision(
 }
 
 /**
+ * Is this closed phase record backed by the DECISION that authorised it?
+ *
+ * THE DEFECT THIS EXISTS FOR. Completion evidence read the closing history entry's ROLE — `owner`,
+ * or `advisor` for a delegated closure — and treated it as proof that the closure happened. A role
+ * is a string. This programme is `tamperProof: false` and says so everywhere, so anything able to
+ * write a phase record can write `by: advisor`, and a hand-written history would then satisfy the
+ * next phase's dependency with no committed decision behind it at all. Proving the IMPLEMENTER is
+ * rejected proves nothing about that, because the forger simply would not write `implementer`.
+ *
+ * WHAT IS CHECKED INSTEAD. The closing entry names the decision that authorised it — the runtime
+ * appends `, decision <id>` as the authority basis — and that decision must exist, be for this phase
+ * and this project, decide to close, name the authority the ACTIVE PLAN records, and carry the
+ * `consumedAt` marker the closure itself wrote. A forgery must now also produce a matching decision
+ * file, which is a committed, reviewable diff rather than one line inside a record nobody reads.
+ *
+ * WHAT IT STILL CANNOT PROMISE, stated rather than implied: this is not tamper-proofing and does not
+ * become it. Someone able to write both files can still write both. The boundary is unchanged — the
+ * owner's commit gate — and what changes is that a closure can no longer be manufactured from the
+ * phase record ALONE, which is the bypass that existed.
+ *
+ * Pure: the caller supplies the already-read decision, so the same rule runs in the runtime (which
+ * reads the file) and in the owner-facing projection (which cannot).
+ */
+export interface ClosureAuthorityExpectations {
+  readonly phaseId: string;
+  readonly projectId: string;
+  /** The plan's owner. An owner closure must name this identity. */
+  readonly owner: string;
+  /** The plan's closure delegate, when it records one. A delegated closure must name this identity. */
+  readonly delegate: string | null;
+}
+
+export function isGenuineClosure(
+  phase: { readonly status?: unknown; readonly history?: readonly { readonly to?: unknown; readonly by?: unknown; readonly note?: unknown }[] } | null,
+  decision: ClosureDecisionRecord | null,
+  expect: ClosureAuthorityExpectations,
+): boolean {
+  if (phase === null || phase.status !== 'closed') return false;
+  const history = Array.isArray(phase.history) ? phase.history : [];
+  const last = history[history.length - 1];
+  if (last === undefined || last.to !== 'closed') return false;
+
+  // The role still has to be a closing role — the implementer can never close, by any route.
+  const by = last.by;
+  const roleOk = by === 'owner' || by === 'advisor';
+  if (!roleOk) return false;
+
+  // …and the closing entry must NAME the decision that authorised it.
+  const named = consumedDecisionIds(history);
+  const decisionId = named[named.length - 1];
+  if (decisionId === undefined) return false;
+
+  if (decision === null) return false;
+  if (decision.decisionId !== decisionId) return false;
+  if (decision.phaseId !== expect.phaseId) return false;
+  if (decision.projectId !== expect.projectId) return false;
+  if (decision.decision !== 'close') return false;
+  // Spent BY that closure. An unconsumed decision describes an authorisation that was never used.
+  if (typeof decision.consumedAt !== 'string' || decision.consumedAt.trim() === '') return false;
+
+  // The decider is the plan's, never the record's claim about itself. An owner closure must be the
+  // owner's; a delegated one must be the delegate the plan names. The `by: owner` case is held to
+  // exactly the same standard — leaving it unchecked would be an obvious sibling bypass.
+  const expectedDecider = by === 'advisor' ? expect.delegate : expect.owner;
+  if (expectedDecider === null || expectedDecider === '') return false;
+  if (decision.decidedBy !== expectedDecider) return false;
+  if (isImplementerName(String(decision.decidedBy))) return false;
+  return true;
+}
+
+/** Minimal implementer check, kept here so the pure rule needs no other module. */
+function isImplementerName(name: string): boolean {
+  const stripped = name.toLowerCase().replace(/[^a-z]/g, '');
+  for (const s of ['claude', 'anthropic', 'implementer', 'assistant', 'copilot']) {
+    if (stripped.includes(s)) return true;
+  }
+  return ['ai', 'bot', 'agent', 'llm', 'model'].includes(name.trim().toLowerCase());
+}
+
+/**
  * The decision ids a phase's history records as already having closed it.
  *
  * The id is read from the END of the note, because the note is `<caller text> — <authority basis>`

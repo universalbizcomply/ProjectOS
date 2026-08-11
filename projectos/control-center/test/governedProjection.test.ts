@@ -64,6 +64,29 @@ function inputs(over: Partial<GovernedInputs> = {}): GovernedInputs {
  * tests in this file already record. A test about a computation must not be pinned to the programme
  * that happened to be running when it was written.
  */
+/** A closing history entry shaped as `transitionPhase` writes it, naming its authorising decision. */
+function closedBy(by: string, decisionId = 'TEST-CLOSURE-DECISION1A') {
+  return [{ from: 'awaiting_closure', to: 'closed', by, at: '2026-08-11T14:00:00Z', note: `closed, decision ${decisionId}` }];
+}
+
+/** The decision the runtime would have written and consumed for a genuine closure of `phaseId`. */
+function decisionFor(phaseId: string, over: Record<string, unknown> = {}): Record<string, unknown> {
+  const gov = plan['governance'] as Record<string, unknown>;
+  return {
+    schemaVersion: '1.0.0',
+    decisionId: 'TEST-CLOSURE-DECISION1A',
+    phaseId,
+    projectId: plan['projectId'],
+    scope: 'phase-closure',
+    decidedBy: gov['owner'],
+    decidedAt: '2026-08-11T13:00:00Z',
+    evidenceSubjectHead: 'c'.repeat(40),
+    decision: 'close',
+    consumedAt: '2026-08-11T14:00:00Z',
+    ...over,
+  };
+}
+
 const PHASE_IDS = (plan['phases'] as { phaseId: string }[]).map((x) => x.phaseId);
 const LAST_ID = PHASE_IDS[PHASE_IDS.length - 1]!;
 const SECOND_LAST_ID = PHASE_IDS[PHASE_IDS.length - 2]!;
@@ -235,23 +258,48 @@ describe('phase state comes from durable core records', () => {
     expect(satisfiedLast?.unmetDependencies).toEqual([]);
   });
 
-  test('a DELEGATE closure counts as complete, exactly as the runtime treats it', () => {
-    // Under a plan that records a closure delegation the runtime closes as `advisor`, having
-    // resolved the delegate from the plan and consumed a committed decision. The surface accepted
-    // `owner` alone, so a properly closed phase read as incomplete — disagreeing with the runtime
-    // and with the project's own current-state.
+  test('a GENUINE delegated closure counts as complete; a forged role string does not', () => {
+    // This asserted that `by: advisor` alone was enough. It was wrong: a role is a string, this
+    // programme is tamperProof:false, and anything able to write the phase record can write
+    // `advisor`. What must be established is the DECISION the closure consumed — so a forgery has to
+    // produce a matching committed decision file too, which is a reviewable diff rather than one
+    // line inside a record nobody reads.
     const target = SECOND_LAST_ID;
-    const p = projectGovernedState({
+    const gov = plan['governance'] as Record<string, unknown>;
+    const del = gov['closureDelegation'] as Record<string, unknown> | undefined;
+    const delegate = del === undefined ? null : String(del['delegatedTo']);
+    const records = [{ phaseId: target, status: 'closed', history: closedBy(delegate === null ? 'owner' : 'advisor') }];
+    const decision = decisionFor(target, delegate === null ? {} : { decidedBy: delegate });
+
+    // C / D: the genuine pair is accepted.
+    const genuine = projectGovernedState({
       ...inputs({ currentState: null }),
-      phaseRecords: [
-        {
-          phaseId: target,
-          status: 'closed',
-          history: [{ from: 'awaiting_closure', to: 'closed', by: 'advisor', at: '2026-08-11T14:00:00Z' }],
-        },
-      ],
+      phaseRecords: records,
+      closureDecisions: { [target]: decision },
     });
-    expect(p.phases.find((x) => x.phaseId === LAST_ID)?.unmetDependencies).toEqual([]);
+    expect(genuine.phases.find((x) => x.phaseId === LAST_ID)?.unmetDependencies).toEqual([]);
+
+    // A / B: the SAME record with no decision behind it is not a completion.
+    const forged = projectGovernedState({ ...inputs({ currentState: null }), phaseRecords: records });
+    expect(forged.phases.find((x) => x.phaseId === LAST_ID)?.unmetDependencies).toContain(target);
+
+    // F: every way of breaking the binding fails closed.
+    for (const broken of [
+      { ...decision, consumedAt: undefined },
+      { ...decision, decision: 'reject' },
+      { ...decision, decidedBy: 'Mallory' },
+      { ...decision, decidedBy: 'Claude Code' },
+      { ...decision, phaseId: 'SOMETHING-ELSE1A' },
+      { ...decision, projectId: 'polygo' },
+      { ...decision, decisionId: 'NOT-THE-ONE-NAMED1A' },
+    ]) {
+      const p = projectGovernedState({
+        ...inputs({ currentState: null }),
+        phaseRecords: records,
+        closureDecisions: { [target]: broken },
+      });
+      expect(p.phases.find((x) => x.phaseId === LAST_ID)?.unmetDependencies).toContain(target);
+    }
   });
 
   test('completion evidence requires an OWNER closure, matching the runtime gate exactly', () => {
@@ -266,13 +314,8 @@ describe('phase state comes from durable core records', () => {
 
     const ownerClosed = projectGovernedState({
       ...base,
-      phaseRecords: [
-        {
-          phaseId: target,
-          status: 'closed',
-          history: [{ from: 'awaiting_closure', to: 'closed', by: 'owner', at: '2026-08-09T00:00:00Z' }],
-        },
-      ],
+      phaseRecords: [{ phaseId: target, status: 'closed', history: closedBy('owner') }],
+      closureDecisions: { [target]: decisionFor(target) },
     });
     expect(ownerClosed.phases.find((x) => x.phaseId === LAST_ID)?.unmetDependencies).toEqual([]);
   });

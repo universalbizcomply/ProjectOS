@@ -21,7 +21,13 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import type { System } from './system.js';
 import { join, projectopsDir, configPath } from './context.js';
-import { parseProjectConfig, type ProjectConfig } from '@projectos/core';
+import {
+  parseProjectConfig,
+  isGenuineClosure,
+  type ProjectConfig,
+  type ClosureDecisionRecord,
+  type ClosureAuthorityExpectations,
+} from '@projectos/core';
 import { loadPhase, listPhaseIds } from './phaseStore.js';
 
 /** Plan location when the config declares none. Unchanged default — existing installs are untouched. */
@@ -239,19 +245,14 @@ function planPhases(plan: Record<string, unknown>): readonly PlanPhase[] {
  * `tamperProof: false` throughout — the real backstop for a forged record is the owner commit/push
  * gate, where the forgery is a visible diff. Raised by the bootstrap security review as H1.
  */
-function isOwnerClosed(p: { readonly status: string; readonly history?: readonly { readonly to: string; readonly by: string }[] }): boolean {
-  if (p.status !== 'closed') return false;
-  const history = Array.isArray(p.history) ? p.history : [];
-  const last = history[history.length - 1];
-  // Owner, or the delegate the plan names. This accepted the owner alone, which held only while
-  // every closure was the owner's own. Under a recorded closure delegation the runtime closes as
-  // `advisor`, and `transitionPhase` permits that ONLY with a grant it resolved from the plan and a
-  // committed decision it consumed — so an `advisor` entry in a closed record already implies the
-  // grant path. Refusing it meant a properly closed phase did not satisfy the next phase's
-  // dependency, and the chain only continued because the declared current-state happened to record
-  // the completion too. A rule that is right only when a second source agrees is not the rule.
-  return last !== undefined && last.to === 'closed' && (last.by === 'owner' || last.by === 'advisor');
+function isOwnerClosed(
+  p: { readonly phaseId?: string; readonly status: string; readonly history?: readonly { readonly to: string; readonly by: string }[] },
+  decision: ClosureDecisionRecord | null,
+  expect: ClosureAuthorityExpectations,
+): boolean {
+  return isGenuineClosure(p as never, decision, expect);
 }
+
 
 /**
  * Phases this project records as COMPLETE, from the sources the architecture already treats as
@@ -272,9 +273,24 @@ function completedPhases(
   context: GovernedContext,
 ): { readonly ids: ReadonlySet<string>; readonly stateProblem: string | null } {
   const ids = new Set<string>();
+  // The authority the ACTIVE PLAN records, read once. A closure is judged against the plan's own
+  // owner and delegate, never against whatever the phase record says about itself.
+  const gov = (context.plan['governance'] as Record<string, unknown> | undefined) ?? {};
+  const del = gov['closureDelegation'] as Record<string, unknown> | undefined;
+  const expectBase = {
+    projectId: context.projectId,
+    owner: typeof gov['owner'] === 'string' ? gov['owner'] : '',
+    delegate: del !== undefined && typeof del['delegatedTo'] === 'string' ? del['delegatedTo'] : null,
+  };
   for (const id of listPhaseIds(sys, root)) {
     const p = loadPhase(sys, root, id);
-    if (p !== null && isOwnerClosed(p)) ids.add(p.phaseId);
+    if (p === null) continue;
+    // The DECISION that authorised the closure, from its one canonical location. A closure that
+    // cannot produce it is not evidence of anything, however the record describes itself.
+    const decision = readJson(sys, join(projectopsDir(root), 'closure', 'decisions', `${p.phaseId}.json`));
+    if (isOwnerClosed(p, decision.ok ? (decision.value as ClosureDecisionRecord) : null, { ...expectBase, phaseId: p.phaseId })) {
+      ids.add(p.phaseId);
+    }
   }
 
   let stateProblem: string | null = null;

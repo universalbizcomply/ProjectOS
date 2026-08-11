@@ -28,7 +28,7 @@ afterEach(() => {
 
 const PLAN_PHASES = ['P-ONE1A', 'P-TWO1A', 'P-THREE1A'];
 
-function world(phases: Record<string, { status: string; history?: { to: string; by: string }[] }>, declareState = true): {
+function world(phases: Record<string, { status: string; history?: { to: string; by: string }[]; decision?: false }>, declareState = true): {
   root: string;
   sys: System;
   context: GovernedContext;
@@ -38,11 +38,33 @@ function world(phases: Record<string, { status: string; history?: { to: string; 
   created.push(root);
   mkdirSync(pjoin(root, '.projectops', 'phases'), { recursive: true });
   mkdirSync(pjoin(root, 'state'), { recursive: true });
+  mkdirSync(pjoin(root, '.projectops', 'closure', 'decisions'), { recursive: true });
   for (const [id, p] of Object.entries(phases)) {
+    const history = (p.history ?? []).map((h) => ({ ...h, note: `closed, decision ${id}-DECISION1A` }));
     writeFileSync(
       pjoin(root, '.projectops', 'phases', `${id}.json`),
-      JSON.stringify({ phaseId: id, project: 'X', objective: 'o', status: p.status, history: p.history ?? [] }, null, 2),
+      JSON.stringify({ phaseId: id, project: 'X', objective: 'o', status: p.status, history }, null, 2),
     );
+    // The decision that authorised the closure. A record alone is never completion evidence: what
+    // this module writes into completedPhases is itself read as dependency evidence, so believing a
+    // role string here would launder a forged record straight into the gate.
+    if (p.decision !== false && p.status === 'closed') {
+      writeFileSync(
+        pjoin(root, '.projectops', 'closure', 'decisions', `${id}.json`),
+        JSON.stringify({
+          schemaVersion: '1.0.0',
+          decisionId: `${id}-DECISION1A`,
+          phaseId: id,
+          projectId: 'x',
+          scope: 'phase-closure',
+          decidedBy: (p.history ?? []).some((h) => h.by === 'advisor') ? 'Grace' : 'Ada',
+          decidedAt: '2026-08-11T13:00:00.000Z',
+          evidenceSubjectHead: 'd'.repeat(40),
+          decision: 'close',
+          consumedAt: '2026-08-11T14:00:00.000Z',
+        }, null, 2),
+      );
+    }
   }
   const statePath = pjoin(root, 'state', 'current.json').replace(/\\/g, '/');
   writeFileSync(
@@ -78,7 +100,11 @@ function world(phases: Record<string, { status: string; history?: { to: string; 
   };
   const context: GovernedContext = {
     config: {} as GovernedContext['config'],
-    plan: { phases: PLAN_PHASES.map((phaseId) => ({ phaseId })) },
+    plan: {
+      phases: PLAN_PHASES.map((phaseId) => ({ phaseId })),
+      governance: { owner: 'Ada', closureDelegation: { delegatedTo: 'Grace' } },
+      projectId: 'x',
+    },
     projectId: 'x',
     planPath: pjoin(root, 'plan.json'),
     currentStatePath: declareState ? statePath : null,
@@ -133,6 +159,46 @@ describe('current state follows the phase records', () => {
     const s = stateOf(w.statePath);
     expect(s['completedPhases']).toEqual([]);
     expect(s['acceptedPhaseCount']).toBe(0);
+  });
+
+  test('A/B a closure with NO decision behind it is not a completion, whoever it names', () => {
+    for (const by of ['owner', 'advisor']) {
+      const w = world({ 'P-ONE1A': { status: 'closed', history: [{ to: 'closed', by }], decision: false } });
+      syncCurrentState(w.sys, w.root, w.context, 'implementer');
+      expect(stateOf(w.statePath)['completedPhases']).toEqual([]);
+    }
+  });
+
+  test('E the implementer can never be the decider, even if a plan names one as delegate', () => {
+    // Defence in depth for the case the other checks cannot reach: if a plan recorded the
+    // implementer as its closure delegate, every identity comparison would agree with itself. The
+    // implementer closing its own phases is the one thing the whole authority model exists to stop,
+    // so it is refused on the identity itself rather than on the comparison.
+    const w = world({ 'P-ONE1A': { status: 'closed', history: [{ to: 'closed', by: 'advisor' }] } });
+    writeFileSync(
+      pjoin(w.root, '.projectops', 'closure', 'decisions', 'P-ONE1A.json'),
+      JSON.stringify({
+        schemaVersion: '1.0.0',
+        decisionId: 'P-ONE1A-DECISION1A',
+        phaseId: 'P-ONE1A',
+        projectId: 'x',
+        scope: 'phase-closure',
+        decidedBy: 'Claude Code',
+        decidedAt: '2026-08-11T13:00:00.000Z',
+        evidenceSubjectHead: 'd'.repeat(40),
+        decision: 'close',
+        consumedAt: '2026-08-11T14:00:00.000Z',
+      }),
+    );
+    const ctx = {
+      ...w.context,
+      plan: {
+        ...(w.context.plan as Record<string, unknown>),
+        governance: { owner: 'Ada', closureDelegation: { delegatedTo: 'Claude Code' } },
+      },
+    } as typeof w.context;
+    syncCurrentState(w.sys, w.root, ctx, 'implementer');
+    expect(stateOf(w.statePath)['completedPhases']).toEqual([]);
   });
 
   test('a phase that is not in the approved plan shapes nothing', () => {

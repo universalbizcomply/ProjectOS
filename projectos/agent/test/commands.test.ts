@@ -387,8 +387,32 @@ describe('phase runtime', () => {
         project: 'ProjectOS',
         objective: 'x',
         status: 'closed',
-        // Owner-gated closure: dependency evidence requires the real transition, not the word.
-        history: [{ from: 'awaiting_closure', to: 'closed', by: 'owner', at: '2026-08-09T00:00:00Z' }],
+        // Dependency evidence requires the real closure AND the decision that authorised it — a
+        // role string alone is something anyone able to write this record could also write.
+        history: [
+          {
+            from: 'awaiting_closure',
+            to: 'closed',
+            by: 'owner',
+            at: '2026-08-09T00:00:00Z',
+            note: 'closed by the owner, decision BASELINE-CLOSURE1A',
+          },
+        ],
+      }),
+    );
+    sys.files.set(
+      '/repo/.projectops/closure/decisions/PROJECTOS-V3-BASELINE-RECONCILE1A.json',
+      JSON.stringify({
+        schemaVersion: '1.0.0',
+        decisionId: 'BASELINE-CLOSURE1A',
+        phaseId: 'PROJECTOS-V3-BASELINE-RECONCILE1A',
+        projectId: 'projectos',
+        scope: 'phase-closure',
+        decidedBy: 'Murad',
+        decidedAt: '2026-08-09T00:00:00Z',
+        evidenceSubjectHead: 'a'.repeat(40),
+        decision: 'close',
+        consumedAt: '2026-08-09T00:05:00Z',
       }),
     );
     run(ctx, ['phase', 'new', '--id', 'PROJECTOS-V3-MASTER-PLAN-MEMORY1A']);

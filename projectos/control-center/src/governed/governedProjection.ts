@@ -9,6 +9,11 @@
  * The one rule this module exists to enforce: the surface shows what the records SAY, never what a
  * hand-maintained snapshot claims. Created in PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A.
  */
+import {
+  isGenuineClosure,
+  type ClosureDecisionRecord,
+  type ClosureAuthorityExpectations,
+} from '@projectos/core';
 import type {
   GovernedAuthorityView,
   GovernedDelegationView,
@@ -33,6 +38,15 @@ export interface GovernedInputs {
   readonly currentState: Record<string, unknown> | null;
   /** Parsed `.projectops/phases/*.json` records. */
   readonly phaseRecords: readonly Record<string, unknown>[];
+  /**
+   * Parsed `.projectops/closure/decisions/*.json` records, keyed by phase id.
+   *
+   * Supplied because this module is pure and a browser cannot read files. Without them a closed
+   * phase record would be believed on the strength of its own role string, which is exactly the
+   * bypass this input exists to close. Absent (or an empty map) means no closure can be evidenced,
+   * which fails closed.
+   */
+  readonly closureDecisions?: Readonly<Record<string, Record<string, unknown>>>;
   /** Recomputed by the engine — the stored `planStatus` string is never trusted. */
   readonly readiness: ReadinessVerdict;
   readonly planPath: string;
@@ -122,21 +136,26 @@ function historyOf(rec: Record<string, unknown>): readonly GovernedTransition[] 
  * disagreed, the surface would offer a Start the runtime then refuses, or hide one it would allow.
  */
 /**
- * A GENUINE closure — by the owner, or by the delegate the plan names.
+ * A GENUINE closure — backed by the DECISION that authorised it, not by a role string.
  *
- * This accepted `by: 'owner'` alone, which was true only while every closure was the owner's own.
- * Under a plan that records a closure delegation the runtime closes as `advisor`, and it will only
- * do so having resolved the delegate's identity from the plan and consumed a committed decision —
- * so an `advisor` entry in a closed record already implies the grant path was taken. Refusing it
- * here made the surface report a properly closed phase as incomplete, disagreeing with the runtime
- * and with the project's own current-state: precisely the stale-status untruth this phase removes.
+ * This read the closing entry's role and believed it. A role is a string, and this programme is
+ * `tamperProof: false`: anything able to write a phase record can write `by: advisor`, so a
+ * hand-written history would have read as a completed phase on the owner's own surface. The rule is
+ * now the same one the runtime applies — the closing entry must name the decision that authorised
+ * it, and that decision must exist, be for this phase and project, decide to close, name the
+ * authority the ACTIVE PLAN records, and carry the consumption marker the closure wrote.
+ *
+ * The decisions arrive as an INPUT because this module is pure and the browser cannot read files;
+ * the sidecar, which can, supplies them. Same rule, one definition, two callers.
  */
-function isOwnerClosed(rec: Record<string, unknown>): boolean {
-  if (rec['status'] !== 'closed') return false;
-  const history = historyOf(rec);
-  const last = history[history.length - 1];
-  return last !== undefined && last.to === 'closed' && (last.by === 'owner' || last.by === 'advisor');
+function isOwnerClosed(
+  rec: Record<string, unknown>,
+  decision: ClosureDecisionRecord | null,
+  expect: ClosureAuthorityExpectations,
+): boolean {
+  return isGenuineClosure(rec as never, decision, expect);
 }
+
 
 function delegationOf(governance: Record<string, unknown> | undefined): GovernedDelegationView | null {
   const del = governance === undefined ? undefined : obj(governance, 'closureDelegation');
@@ -211,7 +230,18 @@ export function projectGovernedState(inputs: GovernedInputs): GovernedProjection
 
   // Completion evidence, from exactly the two sources the runtime itself accepts.
   const complete = new Set<string>();
-  for (const [id, rec] of recordById) if (isOwnerClosed(rec)) complete.add(id);
+  const govBlock = (plan['governance'] as Record<string, unknown> | undefined) ?? {};
+  const delBlock = govBlock['closureDelegation'] as Record<string, unknown> | undefined;
+  const closureExpect = {
+    projectId: typeof plan['projectId'] === 'string' ? plan['projectId'] : '',
+    owner: typeof govBlock['owner'] === 'string' ? govBlock['owner'] : '',
+    delegate: delBlock !== undefined && typeof delBlock['delegatedTo'] === 'string' ? delBlock['delegatedTo'] : null,
+  };
+  const decisions = inputs.closureDecisions ?? {};
+  for (const [id, rec] of recordById) {
+    const decision = (decisions[id] ?? null) as ClosureDecisionRecord | null;
+    if (isOwnerClosed(rec, decision, { ...closureExpect, phaseId: id })) complete.add(id);
+  }
   const recordedComplete = new Set(strArray(currentState ?? undefined, 'completedPhases'));
   for (const id of recordedComplete) complete.add(id);
 

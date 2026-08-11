@@ -112,6 +112,26 @@ function readPhaseRecords(root) {
   return out;
 }
 
+/**
+ * The closure DECISIONS, keyed by phase id.
+ *
+ * The projection is pure and cannot read files, so it is handed these. Without them a closed phase
+ * record would be believed on the strength of its own role string — and a role is a string anyone
+ * able to write the record can write. Reading them here is what lets the surface apply exactly the
+ * rule the runtime applies.
+ */
+function readClosureDecisions(root) {
+  const dir = joinPath(root, '.projectops', 'closure', 'decisions');
+  if (!existsSync(dir)) return {};
+  const out = {};
+  for (const f of readdirSync(dir)) {
+    if (!f.endsWith('.json')) continue;
+    const rec = readJsonFile(joinPath(dir, f));
+    if (rec !== null && typeof rec.phaseId === 'string') out[rec.phaseId] = rec;
+  }
+  return out;
+}
+
 /** Build the governed state for `root`, or an honest unavailable reason. Never throws. */
 function buildGovernedState(root, observedAt) {
   if (typeof root !== 'string' || root.length === 0 || !isAbsolute(root)) {
@@ -173,6 +193,7 @@ function buildGovernedState(root, observedAt) {
       plan,
       currentState,
       phaseRecords: readPhaseRecords(root),
+      closureDecisions: readClosureDecisions(root),
       readiness: engine.evaluatePlanReady(plan),
       planPath: declaredPlan === undefined ? DEFAULT_PLAN_RELPATH : declaredPlan,
       branch: null,
