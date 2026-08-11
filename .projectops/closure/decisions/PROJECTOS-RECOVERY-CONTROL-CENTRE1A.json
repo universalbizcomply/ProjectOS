@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "PROJECTOS-RECOVERY-CONTROL-CENTRE1A-CLOSURE-DECISION1A",
+  "phaseId": "PROJECTOS-RECOVERY-CONTROL-CENTRE1A",
+  "projectId": "projectos",
+  "scope": "phase-closure",
+  "decidedBy": "ChatGPT",
+  "decidedAt": "2026-08-11T18:20:00+01:00",
+  "evidenceSubjectHead": "c8f3a6da9f4ff0c73b87eea0f840ff1b33f6c527",
+  "decision": "close",
+  "note": "ACCEPTED FOR CLOSURE. The Control Centre recovery acceptance criteria are satisfied. The owner workflow now uses canonical governed inventory and runtime truth, supports objective intake without a terminal, and has live headed proof across the required responsive widths with basic keyboard/accessibility checks. The gatekeeper HIGH concerning role-string closure evidence has been corrected at source: a completed closure must now produce the decision that authorised it, with owner closures held to the same rule as delegated closures, and dependency evaluation, owner-facing projection and current-state synchronization share that authority rule. The corrected subject has a clean-tree validate-all result of 127/127 PASS, A-F adversarial proof with 8/8 mutations killed, repeated headed proof, zero unresolved CRITICAL/HIGH findings and no protected effect. The nine surfaces were regrouped rather than genuinely consolidated; further consolidation remains carry-forward. Accessibility proof is limited to the measured responsive, focusability, navigation and skip-link checks and is not represented as a full WCAG audit."
+}
