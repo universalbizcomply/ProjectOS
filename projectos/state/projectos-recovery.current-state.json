@@ -13,9 +13,8 @@
     "PROJECTOS-RECOVERY-PLAN-AUTHORITY1A",
     "PROJECTOS-RECOVERY-CONTROL-CENTRE1A"
   ],
-  "activePhase": null,
+  "activePhase": "PROJECTOS-RECOVERY-AUTONOMOUS-LOOP1A",
   "pendingPhases": [
-    "PROJECTOS-RECOVERY-AUTONOMOUS-LOOP1A",
     "PROJECTOS-RECOVERY-INSTALLED-APP1A",
     "PROJECTOS-RECOVERY-EXTERNAL-PROJECT1A"
   ],
@@ -23,13 +22,13 @@
   "deferredPhases": [],
   "acceptedCarryForward": [],
   "currentBranch": "projectos-post-v3-selfhost-pilot1a",
-  "currentHead": "681a5a462e6217b4da4407acc4eb09e1252e2ebf",
+  "currentHead": "507f3c64185b986fee45bffadda70e79d88973c1",
   "currentRemoteHead": null,
   "workingTreeStatus": "dirty",
   "currentRisks": [],
   "currentBlockers": [],
   "lastEvidenceReference": "plan-approval decision PROJECTOS-RECOVERY-PLAN-APPROVAL-DECISION1A",
   "nextRecommendedPhase": "PROJECTOS-RECOVERY-AUTONOMOUS-LOOP1A",
-  "lastUpdated": "2026-08-11T17:26:20.612Z",
-  "updatedByRole": "advisor"
+  "lastUpdated": "2026-08-11T19:56:42.112Z",
+  "updatedByRole": "implementer"
 }

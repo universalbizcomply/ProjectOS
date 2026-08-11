@@ -1,0 +1,7 @@
+{
+  "phaseId": "PROJECTOS-RECOVERY-AUTONOMOUS-LOOP1A",
+  "project": "projectos",
+  "objective": "After an approved PLAN READY plan, let ProjectOS run ordinary phases end to end with the governed Claude worker and without manual prompt relay.",
+  "status": "draft",
+  "history": []
+}

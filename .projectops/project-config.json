@@ -82,8 +82,8 @@
         "workerId": "claude-local",
         "kind": "claude-code-cli",
         "command": "C:/Users/murad/.local/bin/claude.exe",
-        "args": [],
-        "notes": "The owner's local Claude Code CLI. Absolute by requirement: a bare name would resolve against the governed checkout before PATH. No credential is passed and no Anthropic API is called — use-anthropic-api remains a forbidden action."
+        "args": ["--allowedTools", "Write(.projectops/execution/**),Edit(.projectops/execution/**)"],
+        "notes": "The owner's local Claude Code CLI. Absolute by requirement: a bare name would resolve against the governed checkout before PATH. No credential is passed and no Anthropic API is called — use-anthropic-api remains a forbidden action. The allowlist is the narrowest grant that lets the loop work at all: the first live run ended with the worker asking a human for permission to write the very findings and effects records the loop then refuses to proceed without, and a non-interactive worker has nobody to ask. It covers ONLY .projectops/execution/ — the run's own records. It grants nothing over source, and every other write still requires a decision the worker cannot make alone."
       }
     ]
   },

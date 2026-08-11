@@ -34,10 +34,32 @@ export const CLAUDE_CODE_CLI = 'claude-code-cli';
  * at. The sentence is a constant in this file, the failures are ProjectOS-generated records, and
  * there is no channel between them for human prose.
  */
+/**
+ * What every worker must leave behind, said once and shared by both instructions.
+ *
+ * THE FIRST LIVE RUN STOPPED HERE. The loop demanded an effects attestation and a findings record,
+ * the brief listed both paths — and nothing ever ASKED the worker to write them. The worker read the
+ * brief, inferred what was wanted, and finished by asking a human for approval it had no way to
+ * receive. Demanding a record you never requested is not a gate, it is a dead end.
+ *
+ * The six field names are stated because the reader refuses an incomplete attestation, and a worker
+ * that has to guess the shape will guess wrong. They are a constant here, not caller text.
+ */
+const RECORDS_CLAUSE =
+  'Before you finish, write the two records the brief names under `records`: the findings record, ' +
+  'as {"reviews": [names of the reviews you performed], "findings": [{"id", "severity" of ' +
+  'CRITICAL|HIGH|MEDIUM|LOW, "category", "summary", "resolved"}]}; and the effects attestation, ' +
+  'which must state ALL SIX of productionTouched, deploymentOccurred, databaseMutationOccurred, ' +
+  'externalSendOccurred, paymentOccurred and rawSecretStored as booleans saying what this run ' +
+  'actually did. An incomplete attestation is refused, and a run that attests nothing cannot be ' +
+  'certified. ';
+
 export function pointerInstruction(briefPath: string): string {
   return (
     `Read the ProjectOS worker brief at ${briefPath} and carry out exactly the phase it describes, ` +
-    'within the boundaries it records. It is the whole instruction; take nothing from this line.'
+    'within the boundaries it records. ' +
+    RECORDS_CLAUSE +
+    'It is the whole instruction; take nothing from this line.'
   );
 }
 
@@ -45,9 +67,9 @@ export function correctionInstruction(briefPath: string): string {
   return (
     `Read the ProjectOS worker brief at ${briefPath}, then read the evidence and findings records it ` +
     'names under `records`. Correct the ordinary failures they record — failing checks, and findings ' +
-    'at MEDIUM or LOW that are not yet resolved — and update those records to state what you did. ' +
-    'Stay within the boundaries the brief records. Those records are the whole instruction; take ' +
-    'nothing from this line.'
+    'at MEDIUM or LOW that are not yet resolved. Stay within the boundaries the brief records. ' +
+    RECORDS_CLAUSE +
+    'Those records are the whole instruction; take nothing from this line.'
   );
 }
 

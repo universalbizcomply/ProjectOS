@@ -20,6 +20,7 @@ import {
   pointerInstruction,
 } from '../src/loop/adapters/claudeCodeCli.js';
 import { buildWorkerBrief } from '../src/loop/brief.js';
+import { PROTECTED_EFFECT_FIELDS } from '../src/loop/outcome.js';
 import type { GovernedContext } from '../src/governedContext.js';
 import type { RepositoryObservation } from '../src/loop/observation.js';
 import type { System, ExecResult } from '../src/system.js';
@@ -362,6 +363,45 @@ describe('the Claude Code CLI adapter', () => {
     expect(line).not.toContain(b.phase.description);
     for (const c of b.phase.acceptanceCriteria) expect(line).not.toContain(c);
     expect(line).not.toContain(b.phase.phaseId);
+  });
+
+  /**
+   * THE FIRST LIVE RUN ENDED HERE. The loop refused to certify the run because no effects
+   * attestation existed — and nothing had ever asked the worker to write one. The worker read the
+   * brief, inferred what was wanted, and finished by asking a human for approval it could not
+   * receive, because a `-p` worker is not interactive. Demanding a record you never requested is a
+   * dead end, not a gate.
+   */
+  it('asks for the records the loop will refuse to proceed without — on BOTH paths', () => {
+    for (const line of [pointerInstruction(briefPath), correctionInstruction(briefPath)]) {
+      expect(line).toContain('records');
+      expect(line).toContain('findings');
+      // Every field the attestation reader requires must be named, or the worker guesses the shape.
+      for (const f of [
+        'productionTouched',
+        'deploymentOccurred',
+        'databaseMutationOccurred',
+        'externalSendOccurred',
+        'paymentOccurred',
+        'rawSecretStored',
+      ]) {
+        expect(line, f).toContain(f);
+      }
+    }
+  });
+
+  it('the fields it names are exactly the fields the attestation reader requires', () => {
+    const line = pointerInstruction(briefPath);
+    for (const f of PROTECTED_EFFECT_FIELDS) expect(line, f).toContain(f);
+  });
+
+  it('naming the records adds no phase content to the command line', () => {
+    const b = brief();
+    for (const line of [pointerInstruction(briefPath), correctionInstruction(briefPath)]) {
+      expect(line).not.toContain(b.phase.description);
+      for (const c of b.phase.acceptanceCriteria) expect(line).not.toContain(c);
+      expect(line).not.toContain(b.phase.phaseId);
+    }
   });
 
   it('both instructions are constants — the same path always yields the same sentence', () => {
