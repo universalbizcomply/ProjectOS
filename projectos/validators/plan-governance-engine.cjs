@@ -329,6 +329,30 @@ function checkApprovalBinding(plan) {
       errors.push("SECURE_OWNER_APPROVAL requires secureApprovalEvidence.signatureRef and identityRef");
     }
   }
+  // WHO IS THIS APPROVER? `approvalAuthority: owner` was checked, and `approvedBy` was checked not to
+  // be the implementer — but nothing checked that the approver was the OWNER, or anyone the owner
+  // named. Any other non-implementer string satisfied both tests, so a plan approved by a stranger
+  // read as an owner-authority approval. Either approvedBy IS the recorded owner, or the plan carries
+  // a delegation, from that owner, to exactly that person, for this project.
+  const gov = (plan && plan.governance) || {};
+  const owner = isNonEmptyString(gov.owner) ? gov.owner : null;
+  const approver = isNonEmptyString(appr.approvedBy) ? appr.approvedBy : null;
+  if (owner && approver && approver !== owner) {
+    const del = appr.approvalDelegation;
+    if (!del || typeof del !== "object" || Array.isArray(del)) {
+      errors.push("approval.approvedBy '" + approver + "' is not the recorded owner '" + owner + "' and no approval.approvalDelegation records that the owner delegated plan approval");
+    } else {
+      if (del.delegatedBy !== owner) errors.push("approvalDelegation.delegatedBy '" + String(del.delegatedBy) + "' is not the recorded owner '" + owner + "' — only the owner can delegate plan approval");
+      if (del.delegatedTo !== approver) errors.push("approvalDelegation.delegatedTo '" + String(del.delegatedTo) + "' is not the approver '" + approver + "'");
+      if (isImplementerIdentity(del.delegatedTo)) errors.push("approvalDelegation.delegatedTo is the implementer — Claude can never approve a plan");
+      const scope = Array.isArray(del.delegatedScope) ? del.delegatedScope : [];
+      if (!scope.includes("plan-approval")) errors.push("approvalDelegation.delegatedScope does not carry 'plan-approval'");
+      for (const s of scope) if (s !== "plan-approval") errors.push("approvalDelegation.delegatedScope contains a scope it may not grant: " + String(s));
+      if (del.excludesProtectedActions !== true) errors.push("approvalDelegation.excludesProtectedActions must be true — approving a plan never carries protected-action authority");
+      if (del.projectScope !== plan.projectId) errors.push("approvalDelegation.projectScope '" + String(del.projectScope) + "' is not this plan's project '" + String(plan.projectId) + "' — a delegation must not escape its project");
+      if (!isNonEmptyString(del.delegationDate)) errors.push("approvalDelegation.delegationDate missing");
+    }
+  }
   return errors;
 }
 

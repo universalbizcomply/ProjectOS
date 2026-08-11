@@ -22,6 +22,12 @@ Vision: ProjectOS is the front door Murad actually uses to deliver software — 
 
 Definition of complete: from the normal installed application the owner can select a real project and talk to ProjectOS in ordinary language by text or voice, without terminal or command syntax; ProjectOS keeps the relevant project and conversation context, turns that intent into a governed objective, generates a sensible plan, takes an approval decision from the recorded authority against that exact plan, recomputes PLAN READY independently, chooses an appropriate authorised AI worker for the capability the work needs and says which and why, starts or reconnects it, runs validators and reviews, fixes and retests ordinary defects without owner intervention, produces evidence, recovers across a restart, and completes one bounded run on a real external project — through one obvious workflow proven live at mobile, tablet and desktop widths, with no protected action taken without explicit authority and no unresolved CRITICAL or HIGH finding.
 
+Success standard: every item of the definition of complete is proven live rather than asserted, on this machine, by evidence a reviewer can re-run — and the closed ProjectOS V3 record is still intact when it is.
+
+## Environments
+
+- local — production freeze: yes
+
 ## Approved scope
 
 - Planning semantics: a broad discovery corpus, a narrow current-planning corpus, and a proposal proportional to the objective
@@ -56,6 +62,9 @@ Definition of complete: from the normal installed application the owner can sele
 Purpose: Make ProjectOS produce a plan proposal a person can read, by fixing the planning semantics rather than by editing the output.
 Scope: The plan discovery and import engine, its planning-corpus roles, and the trust rules that decide which documents may shape a plan.
 Depends on:
+Risk: medium
+Autonomy: local-safe
+Browser proof: no
 Acceptance criteria:
 - Discovery stays broad and every discovered source keeps its authority, provenance and evidence; the record and the CLI report the whole corpus, so narrowing what may shape a plan never hides what was found
 - Only current-planning material produces phase candidates, material conflicts and owner decisions; history, supporting context and quarantined material do not
@@ -72,6 +81,9 @@ Owner gates: commit, push, phase-closure
 Purpose: Let a specific generated draft — and nothing else — become an approved post-V3 plan with execution authority.
 Scope: The smallest safe extension of the existing approval machinery; a new post-V3 plan identity; activation of that plan.
 Depends on: PROJECTOS-RECOVERY-PLANNING-BRAIN1A
+Risk: high
+Autonomy: local-safe
+Browser proof: no
 Acceptance criteria:
 - An approval binds draft id, draft digest, project id, repository, branch, base commit and plan content, and is rechecked against the repository as it is at approval time
 - A changed draft, a moved repository state, a different project or a different repository each invalidate the approval and fail closed
@@ -87,6 +99,9 @@ Owner gates: commit, push, phase-closure
 Purpose: Make normal ProjectOS operation possible without a terminal or command syntax, through one obvious workflow the owner can drive by conversation or by voice.
 Scope: Owner-facing surfaces, project inventory, status truth, navigation, responsive layout, the conversational front door, and voice input and reply.
 Depends on: PROJECTOS-RECOVERY-PLAN-AUTHORITY1A
+Risk: medium
+Autonomy: local-safe
+Browser proof: yes
 Acceptance criteria:
 - One canonical project inventory drawn from ProjectOS configuration and state, with no hard-coded project seed and no separate Owner Chat project universe; any synthetic data is unmistakably separated from real operational state
 - Every owner-facing status is derived from canonical runtime truth, with no stale phase counts, no fixture state presented as live, and no contradictory next action
@@ -106,6 +121,9 @@ Owner gates: commit, push, phase-closure
 Purpose: After an approved PLAN READY plan, let ProjectOS choose an appropriate authorised AI worker and run ordinary phases end to end without manual prompt relay.
 Scope: A capability registry and routing policy; phase selection, worker instruction generation, session launch and reconnection, validation, review, evidence collection and ordinary-defect recovery.
 Depends on: PROJECTOS-RECOVERY-PLAN-AUTHORITY1A
+Risk: high
+Autonomy: gated-execution
+Browser proof: no
 Acceptance criteria:
 - A small capability registry records which authorised workers and models can do which kind of work — planning and deep reasoning, implementation, security review, code review, UI/UX, research, testing and verification, visual or multimodal work — and a deterministic policy selects a match for the capability a task needs
 - At least two different authorised workers or models are proven to be selected for different capability needs, the selection and its reason are visible to the owner, an unavailable preferred worker falls back safely, and the owner can override the choice
@@ -124,6 +142,9 @@ Owner gates: commit, push, phase-closure
 Purpose: Let the normal installed application do the whole workflow, using the existing Windows host and trust architecture.
 Scope: Packaged runtime identity and the smallest safe completion path for it.
 Depends on: PROJECTOS-RECOVERY-CONTROL-CENTRE1A, PROJECTOS-RECOVERY-AUTONOMOUS-LOOP1A
+Risk: high
+Autonomy: gated-execution
+Browser proof: yes
 Acceptance criteria:
 - The application launches from the Start Menu, reports a live runtime, opens the correct project, and accepts an objective, a plan and approved execution with no terminal
 - The installed application supports the same owner experience as development — conversation, voice where supported, worker routing and the one obvious workflow — securely, with no capability quietly dropped in the packaged build
@@ -139,6 +160,9 @@ Owner gates: commit, push, phase-closure, installation-authority
 Purpose: Prove the recovered system on a real project that is not ProjectOS itself.
 Scope: One small, bounded, non-production task in an already configured project.
 Depends on: PROJECTOS-RECOVERY-INSTALLED-APP1A
+Risk: high
+Autonomy: gated-execution
+Browser proof: yes
 Acceptance criteria:
 - The owner selects a real project and states the objective conversationally, and ProjectOS reads that real repository and drafts a plan for it
 - The delegated authority approves the plan, PLAN READY is recomputed, ProjectOS selects and starts an appropriate authorised worker, and the bounded work completes with automatic validation and evidence

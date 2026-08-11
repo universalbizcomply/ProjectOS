@@ -12,6 +12,7 @@ const MODULES = [
   "validate-project-plan", "validate-current-project-state", "validate-active-execution-session",
   "validate-plan-ready-gate", "validate-plan-status", "validate-plan-version", "validate-plan-staleness", "validate-plan-no-secrets",
   "validate-plan-discovery-import",
+  "validate-projectos-recovery-plan-authority1a",
   "validate-secret-broker",
   "validate-secret-operation-broker",
   "validate-session-launcher",

@@ -17,6 +17,7 @@ import type { CommandContext, CommandResult } from '../context.js';
 import { ok, fail } from '../context.js';
 import { planWorkflow, DEFAULT_WORKERS } from '@projectos/core';
 import { submitObjective, listDrafts, checkDraftBinding, type DraftRecord } from '../planIntake.js';
+import { approvePlan } from '../planApproval.js';
 
 function workflowPlan(): CommandResult {
   const planned = planWorkflow(DEFAULT_WORKERS);
@@ -60,6 +61,8 @@ function renderDraftSummary(d: DraftRecord): readonly string[] {
   return [
     `  status:              ${d.planStatus}`,
     `  authoritative:       ${String(d.authoritative)}`,
+    // The exact thing an approval is taken against. Printed so the approver can quote it.
+    `  plan digest:         ${d.planDigest ?? '(not recorded — regenerate this draft)'}`,
     `  project:             ${d.projectId}${d.repository === '' ? '' : ` (${d.repository})`}`,
     `  branch / base:       ${d.branch} @ ${d.baseHead.slice(0, 12)}`,
     `  sources considered:  ${d.discovery.sourcesConsidered} (${d.discovery.sourcesSkipped} skipped${d.discovery.truncated ? ', TRUNCATED' : ''})`,
@@ -158,6 +161,54 @@ function show(ctx: CommandContext, flags: Record<string, string | boolean>): Com
   ]);
 }
 
+/**
+ * `plan approve` — the only route to an approved plan, and therefore to execution authority.
+ *
+ * It decides nothing. It checks that someone the owner named has decided, in a committed record,
+ * about exactly this plan material, and then materialises the plan and lets the existing evaluator
+ * rule on readiness. Every refusal names what is missing.
+ */
+function approve(ctx: CommandContext, flags: Record<string, string | boolean>): CommandResult {
+  const s = (k: string): string => (typeof flags[k] === 'string' ? (flags[k] as string) : '');
+  const draftId = s('id');
+  const decisionId = s('decision');
+  if (draftId === '') return fail(1, ['`plan approve` requires --id <draftId> (see `plan drafts`)']);
+  if (decisionId === '') return fail(1, ['`plan approve` requires --decision <decisionId>']);
+
+  const result = approvePlan(ctx.sys, ctx.root, {
+    draftId,
+    decisionId,
+    // Defaults are the conventional ProjectOS locations; a project whose plan memory lives under
+    // version control elsewhere names its own.
+    planRelPath: s('plan-path') || '.projectops/plan.json',
+    stateRelPath: s('state-path') || '.projectops/current-state.json',
+    planId: s('plan-id') || 'plan',
+    programmeId: s('programme-id') || 'programme',
+  });
+
+  if (!result.ok) {
+    return fail(2, [
+      `REFUSED (${result.code}): this draft was not approved.`,
+      ...result.problems.map((p) => `  - ${p}`),
+      '',
+      'Nothing was written. No plan, no state, no activation.',
+    ]);
+  }
+  return ok([
+    'Plan APPROVED and activated.',
+    '',
+    `  plan id:        ${result.planId}`,
+    `  phases:         ${result.phaseCount}`,
+    `  plan digest:    ${result.planDigest}`,
+    `  decision:       ${result.decisionId} (now consumed; it cannot approve anything again)`,
+    `  plan record:    ${result.planPath}`,
+    `  current state:  ${result.statePath}`,
+    '',
+    'PLAN READY was recomputed by the plan evaluator, not copied from the record.',
+    'The previously active plan record was not modified.',
+  ]);
+}
+
 export function plan(
   ctx: CommandContext,
   flags: Record<string, string | boolean> = {},
@@ -173,6 +224,8 @@ export function plan(
       return drafts(ctx);
     case 'show':
       return show(ctx, flags);
+    case 'approve':
+      return approve(ctx, flags);
     default:
       return fail(1, [
         `Unknown 'plan' subcommand: ${sub}`,
@@ -182,6 +235,8 @@ export function plan(
         '  plan draft --objective "..."  submit an objective; generate a draft proposal',
         '  plan drafts                   list generated drafts',
         '  plan show [--id <id>]         show a generated draft',
+        '  plan approve --id <draftId> --decision <decisionId>',
+        '                                activate the plan a committed decision approved',
       ]);
   }
 }

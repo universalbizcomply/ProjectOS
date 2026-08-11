@@ -705,6 +705,7 @@ function buildPlanDraft(sources, repoEvidence, conflicts, duplicates) {
     projectIdCandidate: field("projectId", /projectId["\s:]+([A-Za-z0-9._-]+)/i, null, "projectId"),
     businessVision: field("businessVision", /(?:business\s*)?vision[:\s]+([^\n]{3,})/i, null, "businessVision"),
     definitionOfComplete: field("definitionOfComplete", /definition of complete[:\s]+([^\n]{3,})/i, null, "definitionOfComplete"),
+    successStandard: field("successStandard", /success standard[:\s]+([^\n]{3,})/i, null, "successStandard"),
     // Scope is what the owner is actually agreeing to, so a declared list is reported rather than
     // left empty. Prose scope is not inferred: an absent list stays absent.
     approvedScopeCandidates: (structured.find((x) => x.sp.approvedScope.length > 0) || { sp: { approvedScope: [] } }).sp.approvedScope,
@@ -714,7 +715,7 @@ function buildPlanDraft(sources, repoEvidence, conflicts, duplicates) {
     sourceInventory: usable.map((s) => s.relPath),
     conflicts: conflicts.map((c) => c.conflictId),
     unresolvedUnknowns: prov.filter((p) => p.value === "UNKNOWN").map((p) => p.field),
-    environmentCandidates: [],
+    environmentCandidates: (structured.find((x) => (x.sp.environments || []).length > 0) || { sp: { environments: [] } }).sp.environments,
     providerReferenceCandidates: [],
     safetyGateCandidates: [],
     criticalLockCandidates: [],
@@ -748,8 +749,10 @@ function extractStructuredPlan(src) {
     projectId: str(obj.projectId),
     businessVision: str(obj.businessVision) || str(obj.vision),
     definitionOfComplete: str(obj.definitionOfComplete),
+    successStandard: str(obj.successStandard),
     approvedScope: arr(obj.approvedScope),
     excludedScope: arr(obj.excludedScope),
+    environments: Array.isArray(obj.environments) ? obj.environments.filter((e) => e && typeof e === "object" && typeof e.environmentId === "string") : [],
     phases: Array.isArray(obj.phases) ? obj.phases.filter((p) => p && typeof p === "object") : []
   };
 }
@@ -845,11 +848,13 @@ function extractMarkdownPlan(src) {
   if (doc === null || !phaseHeading) return null;
 
   const vision = /^\s*(?:business\s+)?vision\s*:\s*(\S.*)$/im.exec(text);
+  const success = /^\s*success standard\s*:\s*(\S.*)$/im.exec(text);
   const phases = [];
   for (const s of sections) {
     const m = MD_PHASE_ID.exec(s.title);
     if (m === null) continue;
     const title = m[2].trim();
+    const proof = labelledValue(s.lines, "browser proof");
     phases.push({
       phaseId: m[1],
       title: title === "" ? m[1] : title,
@@ -860,7 +865,13 @@ function extractMarkdownPlan(src) {
       acceptanceCriteria: labelledList(s.lines, "acceptance criteria"),
       requiredValidators: labelledList(s.lines, "required validators"),
       requiredReviews: labelledList(s.lines, "required reviews"),
-      requiredOwnerGates: labelledList(s.lines, "owner gates")
+      requiredOwnerGates: labelledList(s.lines, "owner gates"),
+      // Governance attributes of a phase. Read, never guessed: a plan record needs them, and a
+      // default risk level or autonomy level invented at approval time would be a fabricated fact
+      // about how dangerous the owner considers the work.
+      riskLevel: lower(labelledValue(s.lines, "risk")),
+      autonomyLevel: lower(labelledValue(s.lines, "autonomy")),
+      requiredBrowserProof: proof === null ? null : /^(yes|true)$/i.test(proof.trim())
     });
   }
   return {
@@ -868,11 +879,19 @@ function extractMarkdownPlan(src) {
     projectId: (/^\s*projectId\s*:\s*([A-Za-z0-9._-]+)\s*$/im.exec(text) || [])[1] || null,
     businessVision: vision === null ? null : vision[1].trim(),
     definitionOfComplete: doc[1].trim(),
+    successStandard: success === null ? null : success[1].trim(),
     approvedScope: bulletsUnderHeading(sections, /approved scope/i),
     excludedScope: bulletsUnderHeading(sections, /excluded scope|out of scope/i),
+    // `- local — production freeze: yes`
+    environments: bulletsUnderHeading(sections, /^environments\b/i).map((b) => {
+      const parts = b.split(/\s+[-—:]\s+/);
+      return { environmentId: (parts[0] || "").trim(), productionFreeze: /production freeze\s*:?\s*(yes|true)/i.test(b) };
+    }).filter((e) => e.environmentId !== ""),
     phases: phases
   };
 }
+
+function lower(v) { return typeof v === "string" && v.trim() !== "" ? v.trim().toLowerCase() : null; }
 
 /**
  * The plan a source states, in whichever form it states it. One entry point so a markdown plan and a
@@ -909,6 +928,11 @@ function buildPhaseCandidates(sources) {
         expectedValidators: strArr(p.requiredValidators),
         requiredReviews: strArr(p.requiredReviews),
         ownerGates: strArr(p.requiredOwnerGates).length ? strArr(p.requiredOwnerGates) : ["phase-closure"],
+        // Carried through exactly as stated, or null. Null means the plan document did not say, and a
+        // consumer must obtain it rather than assume it.
+        riskLevel: typeof p.riskLevel === "string" && p.riskLevel.trim() !== "" ? p.riskLevel.trim().toLowerCase() : null,
+        autonomyLevel: typeof p.autonomyLevel === "string" && p.autonomyLevel.trim() !== "" ? p.autonomyLevel.trim().toLowerCase() : null,
+        requiredBrowserProof: typeof p.requiredBrowserProof === "boolean" ? p.requiredBrowserProof : null,
         sourceReferences: [s.relPath],
         confidence: "high",
         extractionMethod: sp.format === "markdown" ? "structured-markdown" : "structured-json",

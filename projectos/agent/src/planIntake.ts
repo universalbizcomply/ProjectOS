@@ -104,6 +104,15 @@ export interface DraftRecord {
   readonly schemaVersion: '1.0.0';
   readonly objectiveId: string;
   readonly authoritative: false;
+  /**
+   * Digest of the PLAN MATERIAL in this draft — the vision, definition of complete, success
+   * standard, scope, environments, phases, conflicts, owner decisions and planning sources. It is
+   * what an approval is taken against, so it deliberately excludes everything an approver is not
+   * approving: the generation timestamp, the commit, the branch, and the checksums of the several
+   * hundred unrelated files discovery walked past. Editing an unrelated file must not invalidate an
+   * approval; changing one word of the plan must.
+   */
+  readonly planDigest: string;
   readonly planStatus: string;
   readonly projectId: string;
   readonly repository: string;
@@ -151,6 +160,7 @@ export interface DiscoveryEngine {
   sha256(text: string): string;
   scanSecrets(text: string): readonly string[];
   isUntrustedInstruction(text: string): boolean;
+  isSafeRepoRelativePath(p: unknown): boolean;
   discoverPlanSources(
     rootDir: string,
     opts?: unknown,
@@ -208,16 +218,53 @@ export function draftsDir(root: string): string {
 function deriveObjectiveId(
   engine: DiscoveryEngine,
   projectId: string,
-  baseHead: string,
   objective: string,
 ): string | null {
-  // A unit separator cannot appear in any of the three inputs, so distinct triples cannot collide
-  // by concatenation.
+  // A unit separator cannot appear in either input, so distinct pairs cannot collide by
+  // concatenation.
+  //
+  // The base commit is deliberately NOT part of the identity. It was, and the consequence was that
+  // the SAME owner objective became a new objective after every commit: each run left another
+  // tracked record behind, and the one the owner had actually submitted was orphaned by the next
+  // commit. What is bound to a commit is the DRAFT — that is where staleness has to be detectable.
+  // An objective is what the owner wants; re-submitting it later refreshes its draft in place.
   const sep = String.fromCharCode(31);
-  const digest = engine.sha256(`${projectId}${sep}${baseHead}${sep}${objective}`);
+  const digest = engine.sha256(`${projectId}${sep}${objective}`);
   const hex = digest.includes(':') ? digest.slice(digest.lastIndexOf(':') + 1) : digest;
   const id = hex.slice(0, 16);
   return /^[0-9a-f]{16}$/.test(id) ? id : null;
+}
+
+/**
+ * The plan material an approval is taken against, in a fixed order so the digest is deterministic.
+ *
+ * Every field here is something the approver read. Everything omitted — `generatedAt`, `baseHead`,
+ * `branch`, the duplicate groups, the per-source checksums of the whole repository — is either not a
+ * plan decision or would make the digest change when an unrelated file is edited, which would turn
+ * "your approval is stale" into noise and train everyone to re-approve without reading.
+ */
+export function planMaterial(
+  draft: Pick<DraftRecord, 'planStatus' | 'projectId' | 'repository' | 'draft' | 'ownerDecisionsRequired' | 'planningCorpus'>,
+): string {
+  const d = draft.draft;
+  const pick = (k: string): unknown => d[k] ?? null;
+  return JSON.stringify([
+    ['planStatus', draft.planStatus],
+    ['projectId', draft.projectId],
+    ['repository', draft.repository],
+    ['projectIdCandidate', pick('projectIdCandidate')],
+    ['businessVision', pick('businessVision')],
+    ['definitionOfComplete', pick('definitionOfComplete')],
+    ['successStandard', pick('successStandard')],
+    ['approvedScopeCandidates', pick('approvedScopeCandidates')],
+    ['excludedScopeCandidates', pick('excludedScopeCandidates')],
+    ['environmentCandidates', pick('environmentCandidates')],
+    ['phaseCandidates', pick('phaseCandidates')],
+    ['conflicts', pick('conflicts')],
+    ['unresolvedUnknowns', pick('unresolvedUnknowns')],
+    ['ownerDecisionsRequired', draft.ownerDecisionsRequired],
+    ['currentPlanningSources', draft.planningCorpus.currentPlanningSources],
+  ]);
 }
 
 /** Trim and normalise line endings. Content is NEVER otherwise rewritten. */
@@ -306,27 +353,33 @@ export function checkObjective(engine: DiscoveryEngine, raw: unknown): IntakeRef
 /**
  * Submit an owner objective and generate a non-authoritative draft.
  *
- * Deterministic: the same objective, project and base commit produce the same `objectiveId` and
- * therefore rewrite the same two records rather than accumulating duplicates.
+ * Deterministic: the same objective and project produce the same `objectiveId` and therefore rewrite
+ * the same two records rather than accumulating duplicates.
  */
-export function submitObjective(
-  sys: System,
-  root: string,
-  rawObjective: unknown,
-  /**
-   * Test seam ONLY, and deliberately not exposed by any command. It exists so the
-   * `ENGINE_STATUS_NOT_PERSISTABLE` refusal — the one guard whose whole purpose is to survive a
-   * future engine change — can be driven at all. Without it that branch is unreachable and
-   * therefore unproven, which is exactly the state a defence-in-depth check must not be left in.
-   */
-  engineOverride?: DiscoveryEngine,
-): IntakeResult {
-  const engine = engineOverride ?? loadDiscoveryEngine();
+/** What a run of the engine against this repository produced, before anything is written down. */
+export interface Proposal {
+  readonly ok: true;
+  readonly projectId: string;
+  readonly repository: string;
+  readonly branch: string;
+  readonly baseHead: string;
+  readonly planDigest: string;
+  readonly status: string;
+  readonly imported: ReturnType<DiscoveryEngine['importFromSources']>;
+  readonly found: ReturnType<DiscoveryEngine['discoverPlanSources']>;
+  readonly ownerDecisionsRequired: readonly string[];
+  readonly planningCorpus: NonNullable<ReturnType<DiscoveryEngine['importFromSources']>['planningCorpus']>;
+}
 
-  const checked = checkObjective(engine, rawObjective);
-  if (!checked.ok) return checked;
-  const objective = checked.objective;
-
+/**
+ * Run discovery and import against the repository AS IT IS NOW, and return the proposal.
+ *
+ * Read-only, and shared by the two callers that must not disagree: the one that records a draft, and
+ * the one that later checks whether an approval still describes this repository. If approval
+ * recomputed the digest by a different route the two could drift, and an approval would be validated
+ * against something nobody proposed.
+ */
+export function buildProposal(sys: System, root: string, engine: DiscoveryEngine): Proposal | IntakeRefused {
   const cfg = readConfig(sys, root);
   if (!cfg.ok) {
     return {
@@ -383,7 +436,62 @@ export function submitObjective(
     };
   }
 
-  const objectiveId = deriveObjectiveId(engine, projectId, baseHead, objective);
+  const ownerDecisions = Array.isArray(imported.draft['ownerDecisionsRequired'])
+    ? (imported.draft['ownerDecisionsRequired'] as readonly string[])
+    : [];
+  const planningCorpus = imported.planningCorpus ?? {
+    totalDiscovered: found.sources.length,
+    counts: {},
+    currentPlanningSources: [],
+  };
+
+  return {
+    ok: true,
+    projectId,
+    repository,
+    branch,
+    baseHead,
+    planDigest: engine.sha256(
+      planMaterial({
+        planStatus: imported.status,
+        projectId,
+        repository,
+        draft: imported.draft,
+        ownerDecisionsRequired: ownerDecisions,
+        planningCorpus,
+      }),
+    ),
+    status: imported.status,
+    imported,
+    found,
+    ownerDecisionsRequired: ownerDecisions,
+    planningCorpus,
+  };
+}
+
+export function submitObjective(
+  sys: System,
+  root: string,
+  rawObjective: unknown,
+  /**
+   * Test seam ONLY, and deliberately not exposed by any command. It exists so the
+   * `ENGINE_STATUS_NOT_PERSISTABLE` refusal — the one guard whose whole purpose is to survive a
+   * future engine change — can be driven at all. Without it that branch is unreachable and
+   * therefore unproven, which is exactly the state a defence-in-depth check must not be left in.
+   */
+  engineOverride?: DiscoveryEngine,
+): IntakeResult {
+  const engine = engineOverride ?? loadDiscoveryEngine();
+
+  const checked = checkObjective(engine, rawObjective);
+  if (!checked.ok) return checked;
+  const objective = checked.objective;
+
+  const proposal = buildProposal(sys, root, engine);
+  if (!proposal.ok) return proposal;
+  const { projectId, repository, branch, baseHead, imported, found } = proposal;
+
+  const objectiveId = deriveObjectiveId(engine, projectId, objective);
   if (objectiveId === null) {
     return {
       ok: false,
@@ -411,15 +519,12 @@ export function submitObjective(
     .filter((s) => typeof s.content === 'string' && engine.isUntrustedInstruction(s.content))
     .map((s) => s.relPath);
 
-  const ownerDecisions = Array.isArray(imported.draft['ownerDecisionsRequired'])
-    ? (imported.draft['ownerDecisionsRequired'] as readonly string[])
-    : [];
-
   const draftRecord: DraftRecord = {
     schemaVersion: '1.0.0',
     objectiveId,
     authoritative: false,
-    planStatus: imported.status,
+    planDigest: proposal.planDigest,
+    planStatus: proposal.status,
     projectId,
     repository,
     branch,
@@ -437,8 +542,8 @@ export function submitObjective(
       truncated: found.truncated,
       instructionShapedSources,
     },
-    planningCorpus: imported.planningCorpus ?? { totalDiscovered: found.sources.length, counts: {}, currentPlanningSources: [] },
-    ownerDecisionsRequired: ownerDecisions,
+    planningCorpus: proposal.planningCorpus,
+    ownerDecisionsRequired: proposal.ownerDecisionsRequired,
     nextStep:
       'This is a PROPOSAL. It authorises nothing. An owner must approve it before any phase may start.',
   };

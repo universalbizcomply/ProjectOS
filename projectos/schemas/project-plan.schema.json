@@ -158,6 +158,26 @@
         "approvalBinding": { "type": "string", "enum": ["MANUAL_GOVERNANCE_APPROVAL", "SECURE_OWNER_APPROVAL"], "description": "How owner approval is bound. MANUAL relies on human governance + commit gate; SECURE requires secure evidence fields." },
         "tamperProof": { "type": "boolean", "description": "Whether the approval is cryptographically tamper-proof. Must be false until secure binding is implemented — no overclaim." },
         "approvalAuthority": { "type": "string", "enum": ["owner", "gatekeeper", "implementer"], "description": "Whose authority the approval represents. Only 'owner' is valid for PLAN READY." },
+        "approvalDelegation": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "OPTIONAL, and REQUIRED whenever approvedBy is not the recorded owner. Records that the owner delegated plan approval to a named person for this project, so that 'approvalAuthority: owner' with a different approvedBy is a checkable statement rather than a claim. Absent means the owner approved directly, so no existing plan changes meaning.",
+          "required": ["delegatedBy", "delegatedTo", "delegationDate", "delegatedScope", "projectScope", "excludesProtectedActions"],
+          "properties": {
+            "delegatedBy": { "type": "string", "minLength": 1, "description": "The owner who granted the delegation. Must be the plan's governance.owner, and never the implementer." },
+            "delegatedTo": { "type": "string", "minLength": 1, "description": "Who may approve a plan for this project. Never the implementer." },
+            "delegationDate": { "type": "string", "minLength": 1 },
+            "delegatedScope": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string", "enum": ["plan-approval"] },
+              "description": "Plan approval only. Protected actions and closure are not delegable through this field."
+            },
+            "projectScope": { "type": "string", "minLength": 1, "description": "The projectId this delegation applies to. Must equal the plan's projectId." },
+            "excludesProtectedActions": { "type": "boolean", "const": true },
+            "notes": { "type": "string" }
+          }
+        },
         "secureApprovalEvidence": {
           "type": ["object", "null"],
           "additionalProperties": false,
