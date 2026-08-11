@@ -11,9 +11,8 @@
   "completedPhases": [
     "PROJECTOS-RECOVERY-PLANNING-BRAIN1A"
   ],
-  "activePhase": null,
+  "activePhase": "PROJECTOS-RECOVERY-PLAN-AUTHORITY1A",
   "pendingPhases": [
-    "PROJECTOS-RECOVERY-PLAN-AUTHORITY1A",
     "PROJECTOS-RECOVERY-CONTROL-CENTRE1A",
     "PROJECTOS-RECOVERY-AUTONOMOUS-LOOP1A",
     "PROJECTOS-RECOVERY-INSTALLED-APP1A",
@@ -23,13 +22,13 @@
   "deferredPhases": [],
   "acceptedCarryForward": [],
   "currentBranch": "projectos-post-v3-selfhost-pilot1a",
-  "currentHead": "0ff392cabc76bb17c6c8e834bb40417b30010589",
+  "currentHead": "30e3b3c984251e6e4dc96f39f03b3035b40830e7",
   "currentRemoteHead": null,
   "workingTreeStatus": "dirty",
   "currentRisks": [],
   "currentBlockers": [],
   "lastEvidenceReference": "plan-approval decision PROJECTOS-RECOVERY-PLAN-APPROVAL-DECISION1A",
   "nextRecommendedPhase": "PROJECTOS-RECOVERY-PLAN-AUTHORITY1A",
-  "lastUpdated": "2026-08-11T12:50:01.758Z",
-  "updatedByRole": "advisor"
+  "lastUpdated": "2026-08-11T12:50:52.415Z",
+  "updatedByRole": "implementer"
 }
