@@ -14,7 +14,7 @@
  */
 import type { System } from './system.js';
 import { join, projectopsDir } from './context.js';
-import type { GovernedContext } from './governedContext.js';
+import { DEFAULT_PLAN_RELPATH, type GovernedContext } from './governedContext.js';
 import type { G4Facts, G4Verdict, ClosureDecisionRecord } from '@projectos/core';
 import { evaluateClosureEligibility, isClosureTailPath, checkClosureDecision, consumedDecisionIds } from '@projectos/core';
 
@@ -121,7 +121,44 @@ function numOrNull(v: unknown): number | null {
  * metadata and SUBSTANTIVE changes. A git failure yields a sentinel substantive entry rather than an
  * empty list, so an unreadable diff can never read as "nothing changed".
  */
-function changesSince(sys: System, root: string, subject: string): {
+/**
+ * The ACTIVE programme's state record, as a closure-tail path — or nothing.
+ *
+ * The static tail list in core names V3's state record by filename, so the recovery programme's
+ * ordinary lifecycle sync was read as a substantive change and G4-12 refused a phase that had done
+ * nothing wrong. The governed config declares which record this programme keeps, and it is the only
+ * authority on that; nothing is inferred from the filename.
+ *
+ * WHAT THE CONFIG MAY NOT NOMINATE. The config decides WHICH state record, but not what counts as
+ * one. A config that could name the active plan, itself, or a source file would be a config that
+ * could launder its own substantive changes into a closure tail — so the plan and the config are
+ * refused by exact comparison, and the path must live in the state directory where programme records
+ * are kept. That is a bound on location, not an inference from the filename: two programmes with
+ * quite different filenames both qualify, and no source, validator or schema path can.
+ */
+export function programmeStateTailPaths(context: GovernedContext): readonly string[] {
+  const memory = context.config.planMemory;
+  const declared = memory === undefined ? undefined : memory.currentStatePath;
+  if (typeof declared !== 'string' || declared.trim() === '') return [];
+  const p = declared.replace(/\\/g, '/').trim();
+  if (!p.startsWith(STATE_DIR) || p.length === STATE_DIR.length) return [];
+  if (p.slice(STATE_DIR.length).includes('/')) return [];
+  const planRel = (memory?.planPath ?? DEFAULT_PLAN_RELPATH).replace(/\\/g, '/').trim();
+  if (p === planRel || p === CONFIG_RELPATH) return [];
+  return [p];
+}
+
+const CONFIG_RELPATH = '.projectops/project-config.json';
+
+/** Where a programme's state record lives. A nominated path outside it is not a state record. */
+const STATE_DIR = 'projectos/state/';
+
+function changesSince(
+  sys: System,
+  root: string,
+  subject: string,
+  additionalTailPaths: readonly string[],
+): {
   isAncestor: boolean;
   substantive: readonly string[];
 } {
@@ -133,7 +170,7 @@ function changesSince(sys: System, root: string, subject: string): {
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter((l) => l.length > 0);
-  return { isAncestor: true, substantive: changed.filter((f) => !isClosureTailPath(f)) };
+  return { isAncestor: true, substantive: changed.filter((f) => !isClosureTailPath(f, additionalTailPaths)) };
 }
 
 /** `git` facts, computed live. Any failure is reported as NOT reconciled — never assumed clean. */
@@ -304,7 +341,10 @@ export function evaluateG4(
         ? evidence.establishedAtHead
         : null;
   // Ancestry and the changed-path classification are computed from git, never taken from the record.
-  const prov = subject === null ? { isAncestor: false, substantive: [] as readonly string[] } : changesSince(sys, root, subject);
+  const prov =
+    subject === null
+      ? { isAncestor: false, substantive: [] as readonly string[] }
+      : changesSince(sys, root, subject, programmeStateTailPaths(context));
 
   // What the ACTIVE APPROVED PLAN requires by name, and what the runner actually recorded. The
   // required list is read off the plan the runtime loaded — never off the request.

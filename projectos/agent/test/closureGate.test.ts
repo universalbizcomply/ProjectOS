@@ -14,7 +14,7 @@
  *     showing nothing" can never be mistaken for each other, and neither reads as satisfaction.
  */
 import { describe, it, expect } from 'vitest';
-import { evaluateG4, validationRecordPath } from '../src/closureGate.js';
+import { evaluateG4, programmeStateTailPaths, validationRecordPath } from '../src/closureGate.js';
 import type { GovernedContext } from '../src/governedContext.js';
 import type { System } from '../src/system.js';
 
@@ -269,5 +269,93 @@ describe('required-validator facts are derived, never accepted', () => {
       [`${ROOT}/.projectops/validation/${SUBJECT}.json`]: record(),
     });
     expect(verdict.satisfied).toContain('G4-17');
+  });
+});
+
+/**
+ * WHICH PROGRAMME'S STATE RECORD MAY MOVE IN A CLOSURE TAIL.
+ *
+ * The static list in core names V3's state record by filename, and the intent was always "the
+ * programme's state record". The post-V3 recovery programme keeps its own, so its ordinary lifecycle
+ * sync — the runtime writing down where it is — was classified SUBSTANTIVE and G4-12 refused a phase
+ * that had done nothing wrong. The governed config declares the path; it is the only authority, and
+ * nothing is inferred from the filename.
+ *
+ * Added after G4-12 blocked PROJECTOS-RECOVERY-AUTONOMOUS-LOOP1A at subject 4bb7c9c.
+ */
+describe('programmeStateTailPaths — the active programme, from the config alone', () => {
+  const RECOVERY = 'projectos/state/projectos-recovery.current-state.json';
+
+  function ctx(planMemory: unknown): GovernedContext {
+    return {
+      config: { planMemory } as GovernedContext['config'],
+      plan: planWith(['validate-all']),
+      projectId: 'projectos',
+      planPath: `${ROOT}/plan.json`,
+      currentStatePath: null,
+    };
+  }
+
+  it('offers the configured current-state path', () => {
+    expect(programmeStateTailPaths(ctx({ planPath: 'projectos/state/x.plan.json', currentStatePath: RECOVERY }))).toEqual([
+      RECOVERY,
+    ]);
+  });
+
+  it('offers nothing when no plan memory or no current-state is declared', () => {
+    expect(programmeStateTailPaths(ctx(undefined))).toEqual([]);
+    expect(programmeStateTailPaths(ctx({ planPath: 'projectos/state/x.plan.json' }))).toEqual([]);
+    expect(programmeStateTailPaths(ctx({ currentStatePath: '   ' }))).toEqual([]);
+  });
+
+  /**
+   * A config that could nominate the plan or itself would be a config that could launder its own
+   * substantive changes. Both stay substantive however the config describes them.
+   */
+  it('REFUSES to nominate the active plan as tail', () => {
+    expect(programmeStateTailPaths(ctx({ planPath: RECOVERY, currentStatePath: RECOVERY }))).toEqual([]);
+    expect(programmeStateTailPaths(ctx({ currentStatePath: '.projectops/plan.json' }))).toEqual([]);
+  });
+
+  it('REFUSES to nominate the project config as tail', () => {
+    expect(programmeStateTailPaths(ctx({ currentStatePath: '.projectops/project-config.json' }))).toEqual([]);
+  });
+
+  /**
+   * The config decides WHICH state record, not what counts as one. Found in self-review of this fix:
+   * the plan and config collisions were guarded, but a config naming a SOURCE file would have made
+   * that file closure-tail — and source must stay substantive whatever the config says.
+   */
+  it('REFUSES to nominate anything outside the state directory', () => {
+    for (const bad of [
+      'projectos/agent/src/loop/runner.ts',
+      'projectos/core/src/closureEligibility.ts',
+      'projectos/validators/validate-all.cjs',
+      'projectos/schemas/project-config.schema.json',
+      '.projectops/closure/PROJECTOS-RECOVERY-AUTONOMOUS-LOOP1A.json',
+      'package.json',
+      'projectos/state',
+      'projectos/state/',
+      'projectos/state/versions/projectos-v3.plan.v1.2-candidate.json',
+      'projectos/statex/projectos-recovery.current-state.json',
+      '../elsewhere/projectos-recovery.current-state.json',
+    ]) {
+      expect(programmeStateTailPaths(ctx({ currentStatePath: bad })), bad).toEqual([]);
+    }
+  });
+
+  it('accepts a differently-named state record — the config is the authority, not the filename', () => {
+    const other = 'projectos/state/some-future-programme.state.json';
+    expect(programmeStateTailPaths(ctx({ currentStatePath: other }))).toEqual([other]);
+  });
+
+  it('this repository’s own config nominates exactly its recovery state record', () => {
+    const real = JSON.parse(
+      (require('node:fs') as typeof import('node:fs')).readFileSync(
+        (require('node:path') as typeof import('node:path')).resolve(__dirname, '../../../.projectops/project-config.json'),
+        'utf8',
+      ),
+    ) as { planMemory?: unknown };
+    expect(programmeStateTailPaths(ctx(real.planMemory))).toEqual([RECOVERY]);
   });
 });

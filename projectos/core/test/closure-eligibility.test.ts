@@ -355,6 +355,87 @@ describe('evidence-subject provenance', () => {
     }
   });
 
+  /**
+   * The static list names V3's state record BY FILENAME, and the intent was always "the programme's
+   * state record". A second governed programme keeps its own, so the recovery programme's ordinary
+   * lifecycle sync was classified substantive and G4-12 refused a phase that had done nothing wrong.
+   * The caller supplies the ACTIVE programme's path; nothing is inferred from the name.
+   */
+  describe('the active programme’s state record, supplied by the caller', () => {
+    const RECOVERY = 'projectos/state/projectos-recovery.current-state.json';
+
+    it('1. the configured current-state path is closure-tail when supplied', () => {
+      expect(isClosureTailPath(RECOVERY, [RECOVERY])).toBe(true);
+    });
+
+    it('2. a different or unconfigured current-state file stays substantive', () => {
+      expect(isClosureTailPath(RECOVERY)).toBe(false);
+      expect(isClosureTailPath('projectos/state/projectos-other.current-state.json', [RECOVERY])).toBe(false);
+      expect(isClosureTailPath('projectos/state/projectos-forge.current-state.json', [RECOVERY])).toBe(false);
+    });
+
+    it('3-5. the plan, the config, source, validators and schemas stay substantive', () => {
+      for (const no of [
+        'projectos/state/projectos-recovery.plan.json',
+        'projectos/state/projectos-v3.plan.json',
+        '.projectops/project-config.json',
+        '.projectops/plan.json',
+        'projectos/core/src/closureEligibility.ts',
+        'projectos/agent/src/loop/runner.ts',
+        'projectos/validators/validate-all.cjs',
+        'projectos/schemas/project-config.schema.json',
+      ]) {
+        expect(isClosureTailPath(no, [RECOVERY]), no).toBe(false);
+      }
+    });
+
+    it('6. traversal and prefix lookalikes do not qualify, on either side', () => {
+      for (const no of [
+        'projectos/state/projectos-recovery.current-state.json.bak',
+        'projectos/state/projectos-recovery.current-state.jsonx',
+        'xprojectos/state/projectos-recovery.current-state.json',
+        'projectos/state/sub/projectos-recovery.current-state.json',
+        '.projectops/closure/../../projectos/state/projectos-recovery.current-state.json',
+      ]) {
+        expect(isClosureTailPath(no, [RECOVERY]), no).toBe(false);
+      }
+      // A traversing EXTRA is not admitted either, so a caller cannot smuggle one in.
+      expect(isClosureTailPath('projectos/core/src/phase.ts', ['projectos/state/../core/src/phase.ts'])).toBe(false);
+    });
+
+    it('6b. an extra cannot be a directory, so no caller can create a wildcard', () => {
+      expect(isClosureTailPath('projectos/state/anything.json', ['projectos/state/'])).toBe(false);
+      expect(isClosureTailPath('projectos/state/projectos-recovery.plan.json', ['projectos/state/'])).toBe(false);
+      for (const empty of ['', '   ']) {
+        expect(isClosureTailPath('projectos/state/x.json', [empty]), JSON.stringify(empty)).toBe(false);
+      }
+    });
+
+    it('7. V3 behaviour does not regress, with or without extras', () => {
+      for (const extras of [[] as string[], [RECOVERY]]) {
+        expect(isClosureTailPath('projectos/state/projectos-v3.current-state.json', extras)).toBe(true);
+        expect(isClosureTailPath('projectos/state/projectos-v3.session.json', extras)).toBe(true);
+        expect(isClosureTailPath('.projectops/phases/X.json', extras)).toBe(true);
+        expect(isClosureTailPath('projectos/state/projectos-v3.plan.json', extras)).toBe(false);
+      }
+    });
+
+    it('8. the exact Phase 4 provenance case is no longer a false G4-12', () => {
+      // What actually changed after subject 4bb7c9c: closure-tail metadata only.
+      const changedAfterSubject = [
+        '.projectops/closure/PROJECTOS-RECOVERY-AUTONOMOUS-LOOP1A.json',
+        '.projectops/phases/PROJECTOS-RECOVERY-AUTONOMOUS-LOOP1A.json',
+        `.projectops/validation/${'4'.repeat(40)}.json`,
+        'knowledge/reports/2026-08-11_ProjectOS_PROJECTOS-RECOVERY-AUTONOMOUS-LOOP1A_AWAITING-CLOSURE.md',
+        RECOVERY,
+      ];
+      const substantive = changedAfterSubject.filter((f) => !isClosureTailPath(f, [RECOVERY]));
+      expect(substantive).toEqual([]);
+      // Without the active programme's path it is exactly the one false positive that was reported.
+      expect(changedAfterSubject.filter((f) => !isClosureTailPath(f))).toEqual([RECOVERY]);
+    });
+  });
+
   it('the allowlist is small enough to read, and excludes the plan', () => {
     expect(CLOSURE_TAIL_PATHS.length).toBeLessThanOrEqual(8);
     expect(CLOSURE_TAIL_PATHS.some((p) => p.includes('plan'))).toBe(false);

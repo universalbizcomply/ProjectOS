@@ -316,11 +316,28 @@ const VALIDATION_RECORD_PATH = /^\.projectops\/validation\/[0-9a-f]{40}\.json$/;
  * whether evidence is still valid should be readable at a glance and hard to widen by accident.
  * Directory entries end in `/` and match only paths beneath them; file entries match exactly.
  * Traversal is refused outright so `.projectops/closure/../../src/x.ts` cannot pass as tail.
+ *
+ * `additionalExactPaths` exists because the static list above names V3's programme state record by
+ * FILENAME, and a second programme keeps its own. The list's intent was always "the programme's
+ * state record"; the implementation said "this one file", so the recovery programme's ordinary
+ * lifecycle sync was classified substantive and G4-12 refused a phase that had done nothing wrong.
+ * The caller supplies the ACTIVE programme's path from the governed config, which is the only
+ * authority on which programme is running.
+ *
+ * The extras are deliberately weaker than the static list, not stronger: EXACT files only. A
+ * directory entry is ignored, so a caller cannot turn `projectos/state/` — or anything else — into a
+ * wildcard. Traversal is refused on both sides of the comparison.
  */
-export function isClosureTailPath(path: string): boolean {
+export function isClosureTailPath(path: string, additionalExactPaths: readonly string[] = []): boolean {
   const p = path.replace(/\\/g, '/');
   if (p.includes('..')) return false;
   if (VALIDATION_RECORD_PATH.test(p)) return true;
+  for (const extra of additionalExactPaths) {
+    const e = extra.replace(/\\/g, '/').trim();
+    // Exact, non-empty, non-traversing, non-directory. Anything else is not admitted at all.
+    if (e === '' || e.includes('..') || e.endsWith('/')) continue;
+    if (p === e) return true;
+  }
   return CLOSURE_TAIL_PATHS.some((allowed) =>
     allowed.endsWith('/') ? p.startsWith(allowed) && p.length > allowed.length : p === allowed,
   );
