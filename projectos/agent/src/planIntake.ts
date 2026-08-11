@@ -122,6 +122,16 @@ export interface DraftRecord {
     readonly truncated: boolean;
     readonly instructionShapedSources: readonly string[];
   };
+  /**
+   * How the discovered corpus was divided. Reported so that narrowing what may SHAPE the plan never
+   * becomes hiding what was FOUND: an owner can see that 109 historical records were read and
+   * deliberately not treated as today's competing plan.
+   */
+  readonly planningCorpus: {
+    readonly totalDiscovered: number;
+    readonly counts: Record<string, number>;
+    readonly currentPlanningSources: readonly string[];
+  };
   /** Owner decisions the draft cannot make for itself. Empty is meaningful, not missing. */
   readonly ownerDecisionsRequired: readonly string[];
   readonly nextStep: string;
@@ -160,6 +170,7 @@ export interface DiscoveryEngine {
     draft: Record<string, unknown>;
     status: string;
     provenanceErrors: readonly string[];
+    planningCorpus?: { totalDiscovered: number; counts: Record<string, number>; currentPlanningSources: readonly string[] };
   };
 }
 
@@ -421,6 +432,7 @@ export function submitObjective(
       truncated: found.truncated,
       instructionShapedSources,
     },
+    planningCorpus: imported.planningCorpus ?? { totalDiscovered: found.sources.length, counts: {}, currentPlanningSources: [] },
     ownerDecisionsRequired: ownerDecisions,
     nextStep:
       'This is a PROPOSAL. It authorises nothing. An owner must approve it before any phase may start.',

@@ -63,6 +63,12 @@ function renderDraftSummary(d: DraftRecord): readonly string[] {
     `  project:             ${d.projectId}${d.repository === '' ? '' : ` (${d.repository})`}`,
     `  branch / base:       ${d.branch} @ ${d.baseHead.slice(0, 12)}`,
     `  sources considered:  ${d.discovery.sourcesConsidered} (${d.discovery.sourcesSkipped} skipped${d.discovery.truncated ? ', TRUNCATED' : ''})`,
+    // Narrowing what may SHAPE the plan must never look like hiding what was FOUND.
+    `  planning corpus:     ${(d.planningCorpus?.counts?.['CURRENT_PLANNING'] ?? 0)} current planning · ` +
+      `${(d.planningCorpus?.counts?.['SUPPORTING_CONTEXT'] ?? 0)} supporting context · ` +
+      `${(d.planningCorpus?.counts?.['HISTORICAL_EVIDENCE'] ?? 0)} historical evidence · ` +
+      `${(d.planningCorpus?.counts?.['QUARANTINED'] ?? 0)} quarantined`,
+    ...(d.planningCorpus?.currentPlanningSources ?? []).map((p, i) => `${i === 0 ? '  plan sources:        ' : '                       '}${p}`),
     `  phase candidates:    ${phases.length}`,
     `  conflicts:           ${d.conflicts.length}`,
     `  unknowns:            ${preview(unknowns)}`,

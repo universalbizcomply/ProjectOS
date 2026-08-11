@@ -57,7 +57,12 @@ const TYPE_SIGNALS = [
   ["PROJECT_CONFIG", /project[-_.]?config|\.projectops|projectops/i],
   ["CLAUDE_INSTRUCTIONS", /(^|[\\/])claude(\.md)?$/i],
   ["README_CONTEXT", /(^|[\\/])readme/i],
-  ["PROJECT_PLAN", /project[-_ ]?plan/i]
+  // A bare `plan.md` / `plans/` is a plan. Without this token the only recognised plan filenames
+  // were compound ones ("master plan", "project plan"), so a project whose plan is simply named
+  // `plan.md` produced an empty planning corpus and a draft with no phases — the plan was read,
+  // classified UNKNOWN, and quietly demoted to context. Last in the list, so every more specific
+  // signal above still wins.
+  ["PROJECT_PLAN", /project[-_ ]?plan|(^|[\\/_-])plans?([-_.]|$)/i]
 ];
 const AUTHORITY = ["AUTHORITATIVE", "CURRENT_SUPPORTING", "HISTORICAL", "SUPERSEDED", "DUPLICATE", "CONFLICTING", "UNVERIFIED", "EXCLUDED"];
 const PLAN_STATUSES = ["NO PLAN", "PLAN DISCOVERED", "PLAN CONFLICT", "PLAN DRAFTED", "AWAITING OWNER APPROVAL", "PLAN READY", "PLAN STALE", "PLAN BLOCKED"];
@@ -209,9 +214,22 @@ function assignAuthorities(sources, ctx) {
   // config's. The reports-index-reference upgrade is deliberately NOT an authority path (a referenced
   // CLOSED report remains HISTORICAL); index references are supporting context only.
   const callerCanonical = new Set((ctx.canonicalConfigPaths || []).map((p) => toPosix(p).toLowerCase()));
+  // TRUST ORACLE — LOCATION IS THE POINT, NOT THE FILENAME.
+  //
+  // This previously also accepted a bare top-level `project-config.json` / `config.json`. That made
+  // the oracle PLANTABLE: anyone able to add one file to the repository root could nominate any
+  // other document as the canonical plan, and the import would then label an attacker-authored file
+  // AUTHORITATIVE with high provenance confidence. It could never create execution authority — the
+  // status set still excludes PLAN READY and owner approval is still required — but it could
+  // mislead the human the draft exists to be reviewed by, which for a governance tool is the harm.
+  // Demonstrated live against this engine by the pilot's security review.
+  //
+  // Trust now requires the ProjectOS-controlled location: `.projectops/(project-)config.json`, or a
+  // path the CALLER declares canonical. A document merely NAMED like a config is still discovered
+  // and still readable as context — it just cannot confer authority on anything.
   function isCanonicalConfig(s) {
     const n = s.normRelPath;
-    return callerCanonical.has(n) || /^(project-)?config\.json$/.test(n) || /(^|\/)\.projectops\/(project-)?config\.json$/.test(n);
+    return callerCanonical.has(n) || /^\.projectops\/(project-)?config\.json$/.test(n);
   }
   const canonicalPaths = new Map(); // normalized target path -> { configPath, cfgProjectId|null }
   for (const s of sources) {
@@ -222,9 +240,10 @@ function assignAuthorities(sources, ctx) {
         const cfgId = typeof obj.projectId === "string" ? obj.projectId.toLowerCase() : null;
         // An OPTIONAL commit supplied BY the canonical config (trust origin = config, not the candidate).
         const cfgCommit = (typeof obj.planSourceCommit === "string" && /^[0-9a-f]{7,40}$/i.test(obj.planSourceCommit)) ? obj.planSourceCommit.toLowerCase() : null;
+        const cfgRepo = typeof obj.repo === "string" && obj.repo.trim() !== "" ? obj.repo.trim().toLowerCase() : null;
         for (const key of ["canonicalPlan", "masterPlan", "authoritativePlan", "plan", "authoritative"]) {
           const v = obj[key];
-          const add = (x) => { if (typeof x === "string") canonicalPaths.set(normRef(s.relPath, x), { configPath: s.relPath, cfgProjectId: cfgId, cfgCommit: cfgCommit }); };
+          const add = (x) => { if (typeof x === "string") canonicalPaths.set(normRef(s.relPath, x), { configPath: s.relPath, cfgProjectId: cfgId, cfgCommit: cfgCommit, cfgRepo: cfgRepo }); };
           if (typeof v === "string") add(v);
           if (Array.isArray(v)) v.forEach(add);
         }
@@ -232,8 +251,21 @@ function assignAuthorities(sources, ctx) {
     }
   }
 
-  let dominantId = null;
-  for (const s of sources) { if (s.authority === "AUTHORITATIVE") { const c = extractClaims(s); if (c.projectId) { dominantId = c.projectId.toLowerCase(); break; } } }
+  // WHOSE PROJECT IS THIS? The repository evidence answers it when supplied, and that answer is the
+  // only one with a trust origin outside the documents being judged.
+  //
+  // Without it the dominant identity was taken from the FIRST source that had already reached
+  // AUTHORITATIVE — and `classifyAuthority` grants AUTHORITATIVE to any JSON that merely SAYS
+  // `approvalStatus: approved` / `planStatus: PLAN READY`, wherever it sits. So a self-declaring
+  // document could both become authoritative and then define the identity every other source was
+  // measured against. Observed live, not theorised: a TEST FIXTURE plan under
+  // `projectos/examples/.../proj-clean/.projectops/plan.json` was selected as this repository's
+  // authoritative source. Identity now comes from the repository, and a structured record claiming
+  // another project's identity is downgraded like any other mismatch.
+  let dominantId = ctx.repoEvidence && typeof ctx.repoEvidence.projectId === "string" && ctx.repoEvidence.projectId.trim() !== ""
+    ? ctx.repoEvidence.projectId.trim().toLowerCase()
+    : null;
+  if (!dominantId) for (const s of sources) { if (s.authority === "AUTHORITATIVE") { const c = extractClaims(s); if (c.projectId) { dominantId = c.projectId.toLowerCase(); break; } } }
   if (!dominantId) for (const s of sources) { if (s.malicious || s.authority === "EXCLUDED") continue; const c = extractClaims(s); if (c.projectId) { dominantId = c.projectId.toLowerCase(); break; } }
 
   for (const s of sources) {
@@ -259,7 +291,25 @@ function assignAuthorities(sources, ctx) {
     // remains only an unverified document claim (available for reconciliation / owner review).
     let binding = null, evSource = null, evRef = null, verification = null;
     const canon = canonicalPaths.get(s.normRelPath);
-    if (canon && (!canon.cfgProjectId || !claims.projectId || claims.projectId.toLowerCase() === canon.cfgProjectId)) {
+    // IDENTITY MUST BE PRESENT ON BOTH SIDES AND MATCH. Previously a missing projectId on either
+    // the canonical config or the candidate satisfied this test, so "no identity stated" counted as
+    // "identity agrees" — silence read as consent. Both must say who they are, and say the same.
+    let identityOk = false;
+    if (canon) {
+      if (!canon.cfgProjectId) contradictory.push("canonical config declares no projectId");
+      else if (!claims.projectId) contradictory.push("candidate declares no projectId to match the canonical config");
+      else if (claims.projectId.toLowerCase() !== canon.cfgProjectId) contradictory.push("candidate projectId '" + claims.projectId + "' != canonical config projectId '" + canon.cfgProjectId + "'");
+      else identityOk = true;
+      // REPOSITORY IDENTITY. Enforced when both sides state it: a config naming another repository
+      // is not describing this checkout. When either side is silent it is RECORDED, not assumed —
+      // absence of a repo claim is not evidence of agreement, but neither is it a contradiction.
+      const evRepo = ctx.repoEvidence && typeof ctx.repoEvidence.repo === "string" ? ctx.repoEvidence.repo.toLowerCase() : null;
+      if (identityOk && canon.cfgRepo && evRepo && canon.cfgRepo !== evRepo) {
+        contradictory.push("canonical config repo '" + canon.cfgRepo + "' != repository evidence '" + evRepo + "'");
+        identityOk = false;
+      }
+    }
+    if (canon && identityOk) {
       let commitOk = true, commitNote = "";
       if (canon.cfgCommit) {
         if (gitVerify && gitVerify(canon.cfgCommit)) { commitNote = " + canonical-config-supplied commit verified"; evRef = canon.cfgCommit; }
@@ -284,6 +334,135 @@ function assignAuthorities(sources, ctx) {
     // (the conventional base for .projectops paths), not the config file's directory.
     return toPosix(ref.replace(/^\.\//, "")).toLowerCase();
   }
+}
+
+// ---------------------------------------------------------------------------- planning corpus
+//
+// BROAD DISCOVERY -> CURRENT PLANNING CORPUS -> DRAFT PLAN.
+//
+// Discovery should stay broad: a governance tool that cannot see the repository cannot reason about
+// it. But not everything discoverable is a claim about what we are building NOW. Against this
+// repository, treating every discoverable document as a competing current plan produced 442 sources,
+// 5,891 conflicts and 106 phase candidates — a draft no owner could read, in which the genuine
+// disagreements were indistinguishable from a hundred closed phase reports agreeing with history.
+//
+// Sources are therefore assigned a PLANNING ROLE. Nothing is hidden and nothing is deleted: every
+// source keeps its authority, provenance and evidence, and the draft reports the whole corpus. Only
+// the CURRENT_PLANNING role may manufacture conflicts, phase candidates and owner decisions.
+//
+//   CURRENT_PLANNING     may shape the proposed delivery plan
+//   SUPPORTING_CONTEXT   real, current, useful for understanding — but not a delivery claim
+//   HISTORICAL_EVIDENCE  retained for traceability; a record of past work, not today's plan
+//   QUARANTINED          secret-bearing or instruction-shaped; contributes nothing, by design
+//
+// The corpus is DECLARED where the project declares it. A canonical ProjectOS config that names its
+// plan (`planMemory.planPath`, `planMemory.currentStatePath`, or an explicit `planSources` array) is
+// stating which documents are the current plan, and that statement outranks any guess. Where nothing
+// is declared, role falls back to the engine's OWN existing type and authority classification —
+// never to directory names, which are not evidence.
+const PLANNING_ROLES = ["CURRENT_PLANNING", "SUPPORTING_CONTEXT", "HISTORICAL_EVIDENCE", "QUARANTINED"];
+
+/** Types that are, by their own document semantics, a statement of what is being delivered now. */
+const PLANNING_TYPES = new Set([
+  "MASTER_PLAN", "EXECUTION_PLAN", "PROJECT_PLAN", "IMPLEMENTATION_PLAN",
+  "PROJECT_CONFIG", "CURRENT_STATE", "ROADMAP"
+]);
+
+/** Types that are, by their own document semantics, a record of work already done. */
+const HISTORICAL_TYPES = new Set([
+  "CLOSURE_REPORT", "PHASE_REPORT", "AUDIT_LOG", "ROLLOUT_LOG", "PROJECT_LEDGER"
+]);
+
+/**
+ * Collect the planning corpus a canonical config DECLARES, normalised to repo-relative posix paths.
+ * Only a config the trust oracle accepts as canonical is read — the same rule that governs authority,
+ * so a plantable file cannot nominate the planning corpus either.
+ */
+function declaredPlanningPaths(sources, ctx) {
+  ctx = ctx || {};
+  const callerCanonical = new Set((ctx.canonicalConfigPaths || []).map((p) => toPosix(p).toLowerCase()));
+  const declared = new Set();
+  for (const s of sources) {
+    if (s.malicious || (s.secretHits && s.secretHits.length)) continue;
+    if (s.ext !== ".json") continue;
+    const n = s.normRelPath;
+    const canonical = callerCanonical.has(n) || /^\.projectops\/(project-)?config\.json$/.test(n);
+    if (!canonical) continue;
+    let obj = null; try { obj = JSON.parse(stripBom(s.content || "")); } catch (_) { obj = null; }
+    if (!obj || typeof obj !== "object") continue;
+    const before = declared.size;
+    const add = (x) => { if (typeof x === "string" && isSafeRepoRelativePath(x)) declared.add(toPosix(x.replace(/^\.\//, "")).toLowerCase()); };
+    // The canonical ProjectOS plan-memory contract.
+    if (obj.planMemory && typeof obj.planMemory === "object") {
+      add(obj.planMemory.planPath);
+      add(obj.planMemory.currentStatePath);
+    }
+    // An explicit, optional declaration for projects whose planning corpus is wider than that.
+    if (Array.isArray(obj.planSources)) obj.planSources.forEach(add);
+    // The existing canonical-plan reference keys are planning sources too.
+    for (const key of ["canonicalPlan", "masterPlan", "authoritativePlan", "plan", "authoritative"]) {
+      const v = obj[key];
+      if (typeof v === "string") add(v);
+      if (Array.isArray(v)) v.forEach(add);
+    }
+    // The config joins the corpus only if it actually NAMED one. A config that declares no plan has
+    // not declared a corpus, and treating it as one would leave a project with a config but no
+    // plan-memory contract with a "declared" corpus containing only the config — starving the draft
+    // of the very plan document sitting beside it. Caught by the intake tests, not by inspection.
+    if (before !== declared.size) declared.add(n);
+  }
+  return declared;
+}
+
+/**
+ * Assign a planning role to every source. Pure; mutates `planningRole` / `planningRoleEvidence` and
+ * returns the sources. Called after authorities are assigned, so it can use them as evidence.
+ */
+function assignPlanningRoles(sources, ctx) {
+  const declared = declaredPlanningPaths(sources, ctx);
+  const hasDeclaration = declared.size > 0;
+  for (const s of sources) {
+    let role, why;
+    if (s.included === false) {
+      role = "QUARANTINED";
+      why = s.quarantineReason || s.exclusionReason || "excluded before semantic extraction";
+    } else if (s.authority === "HISTORICAL" || s.authority === "SUPERSEDED") {
+      role = "HISTORICAL_EVIDENCE";
+      why = "authority " + s.authority + " — a record of past work, not the current plan";
+    } else if (HISTORICAL_TYPES.has(s.type)) {
+      role = "HISTORICAL_EVIDENCE";
+      why = "document type " + s.type + " records completed work";
+    } else if (hasDeclaration) {
+      // The project has SAID what its plan is. Everything else is context, however plan-shaped it
+      // looks — this is what stops a repository full of past plans arguing with the current one.
+      if (declared.has(s.normRelPath)) { role = "CURRENT_PLANNING"; why = "declared by the canonical project config"; }
+      else if (s.authority === "AUTHORITATIVE") { role = "CURRENT_PLANNING"; why = "AUTHORITATIVE via a repository-backed binding"; }
+      else { role = "SUPPORTING_CONTEXT"; why = "not named by the canonical project config's declared planning corpus"; }
+    } else if (s.authority === "AUTHORITATIVE") {
+      role = "CURRENT_PLANNING"; why = "AUTHORITATIVE via a repository-backed binding";
+    } else if (s.authority === "DUPLICATE") {
+      role = "SUPPORTING_CONTEXT"; why = "duplicate of a canonical member";
+    } else if (PLANNING_TYPES.has(s.type)) {
+      role = "CURRENT_PLANNING"; why = "document type " + s.type + " states current delivery intent";
+    } else {
+      role = "SUPPORTING_CONTEXT"; why = "no current-planning signal";
+    }
+    s.planningRole = role;
+    s.planningRoleEvidence = why;
+  }
+  return sources;
+}
+
+/** Summary of the whole corpus, so a narrowed plan never hides what was found. */
+function summarisePlanningCorpus(sources) {
+  const counts = { CURRENT_PLANNING: 0, SUPPORTING_CONTEXT: 0, HISTORICAL_EVIDENCE: 0, QUARANTINED: 0 };
+  const currentPlanningSources = [];
+  for (const s of sources) {
+    const r = s.planningRole || "SUPPORTING_CONTEXT";
+    counts[r] = (counts[r] || 0) + 1;
+    if (r === "CURRENT_PLANNING") currentPlanningSources.push(s.relPath);
+  }
+  return { counts, currentPlanningSources: currentPlanningSources.sort(), totalDiscovered: sources.length };
 }
 
 // Group duplicates deterministically. Returns array of groups {groupId, kind, members:[relPath...]}.
@@ -420,7 +599,20 @@ function buildPlanDraft(sources, repoEvidence, conflicts, duplicates) {
   const usable = sources.filter((s) => s.included && s.authority !== "EXCLUDED");
   const primary = selectAuthoritative(usable);
   const prov = [];
-  const field = (name, re, extract) => {
+  // Structured planning sources, in the same precedence order the prose scan uses.
+  const structured = usable.map((s) => ({ s, sp: extractStructuredPlan(s) })).filter((x) => x.sp !== null);
+  const field = (name, re, extract, structuredKey) => {
+    // STRUCTURED EVIDENCE FIRST — a declared field is a statement, not a phrase that happened to
+    // match a regex, so it is both more reliable and higher-confidence provenance.
+    if (structuredKey) {
+      for (const { s, sp } of structured) {
+        const v = sp[structuredKey];
+        if (typeof v === "string" && v !== "") {
+          prov.push({ field: name, value: v, sourcePath: s.relPath, sourceChecksum: s.checksum, locator: "json-field:" + structuredKey, sourceAuthority: s.authority, extractionMethod: "structured-json", confidence: "high", competingSources: [], conflictRef: null, manualReviewRequired: false });
+          return v;
+        }
+      }
+    }
     for (const s of usable) {
       const m = re.exec(s.content || "");
       if (m) {
@@ -435,11 +627,13 @@ function buildPlanDraft(sources, repoEvidence, conflicts, duplicates) {
 
   const draft = {
     schemaVersion: "1.0.0",
-    projectIdCandidate: field("projectId", /projectId["\s:]+([A-Za-z0-9._-]+)/i),
-    businessVision: field("businessVision", /(?:business\s*)?vision[:\s]+([^\n]{3,})/i),
-    definitionOfComplete: field("definitionOfComplete", /definition of complete[:\s]+([^\n]{3,})/i),
-    approvedScopeCandidates: [],
-    excludedScopeCandidates: [],
+    projectIdCandidate: field("projectId", /projectId["\s:]+([A-Za-z0-9._-]+)/i, null, "projectId"),
+    businessVision: field("businessVision", /(?:business\s*)?vision[:\s]+([^\n]{3,})/i, null, "businessVision"),
+    definitionOfComplete: field("definitionOfComplete", /definition of complete[:\s]+([^\n]{3,})/i, null, "definitionOfComplete"),
+    // Scope is what the owner is actually agreeing to, so a declared list is reported rather than
+    // left empty. Prose scope is not inferred: an absent list stays absent.
+    approvedScopeCandidates: (structured.find((x) => x.sp.approvedScope.length > 0) || { sp: { approvedScope: [] } }).sp.approvedScope,
+    excludedScopeCandidates: (structured.find((x) => x.sp.excludedScope.length > 0) || { sp: { excludedScope: [] } }).sp.excludedScope,
     repositoryFacts: repoEvidence || { note: "repository evidence not supplied" },
     authoritativeSource: primary ? primary.relPath : null,
     sourceInventory: usable.map((s) => s.relPath),
@@ -458,15 +652,71 @@ function buildPlanDraft(sources, repoEvidence, conflicts, duplicates) {
 }
 
 // Generate phase candidates ONLY where explicit evidence exists; otherwise a planning gap.
+/**
+ * Read a STRUCTURED plan out of a JSON planning source.
+ *
+ * A JSON plan is a plan. Without this the engine only understood prose: against this repository the
+ * canonical plan is `projectos/state/projectos-v3.plan.json`, which states its vision, its
+ * definition of complete, its approved and excluded scope and all nineteen phases as data — and the
+ * markdown regexes found none of it, so the draft reported "NEEDS SOURCE" for facts sitting in
+ * plain sight and proposed zero phases. Returns null for anything that is not a parseable object.
+ */
+function extractStructuredPlan(src) {
+  if (!src || src.ext !== ".json") return null;
+  let obj = null;
+  try { obj = JSON.parse(stripBom(src.content || "")); } catch (_) { return null; }
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) return null;
+  const str = (v) => (typeof v === "string" && v.trim() !== "" ? v.trim() : null);
+  const arr = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === "string" && x.trim() !== "").map((x) => x.trim()) : []);
+  return {
+    projectId: str(obj.projectId),
+    businessVision: str(obj.businessVision) || str(obj.vision),
+    definitionOfComplete: str(obj.definitionOfComplete),
+    approvedScope: arr(obj.approvedScope),
+    excludedScope: arr(obj.excludedScope),
+    phases: Array.isArray(obj.phases) ? obj.phases.filter((p) => p && typeof p === "object") : []
+  };
+}
+
 function buildPhaseCandidates(sources) {
   const candidates = [];
+  // STRUCTURED FIRST. A declared JSON plan states its phases as data, with their real dependencies,
+  // acceptance criteria, validators and owner gates — infinitely better evidence than scraping an
+  // id-shaped token out of prose, and it carries the fields an owner actually needs to review.
+  const structuredIds = new Set();
+  for (const s of sources) {
+    const sp = extractStructuredPlan(s);
+    if (sp === null || sp.phases.length === 0) continue;
+    for (const p of sp.phases) {
+      const id = typeof p.phaseId === "string" ? p.phaseId.trim() : "";
+      if (id === "" || structuredIds.has(id)) continue;
+      structuredIds.add(id);
+      const strArr = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === "string") : []);
+      candidates.push({
+        phaseId: id,
+        title: typeof p.title === "string" && p.title.trim() !== "" ? p.title.trim() : id,
+        purpose: typeof p.description === "string" && p.description.trim() !== "" ? p.description.trim() : "NEEDS OWNER DECISION",
+        scope: typeof p.scope === "string" && p.scope.trim() !== "" ? p.scope.trim() : "NEEDS SOURCE",
+        exclusions: strArr(p.exclusions),
+        dependencies: strArr(p.dependsOn),
+        acceptanceCriteria: strArr(p.acceptanceCriteria),
+        expectedValidators: strArr(p.requiredValidators),
+        requiredReviews: strArr(p.requiredReviews),
+        ownerGates: strArr(p.requiredOwnerGates).length ? strArr(p.requiredOwnerGates) : ["phase-closure"],
+        sourceReferences: [s.relPath],
+        confidence: "high",
+        extractionMethod: "structured-json",
+        unresolvedQuestions: strArr(p.acceptanceCriteria).length ? [] : ["acceptance criteria not sourced"]
+      });
+    }
+  }
   for (const s of sources) {
     const rows = /(^|\n)\s*(?:#{1,6}\s*)?(?:[Pp]hase\s+)?([A-Z][A-Z0-9-]{3,})\b[^\n]*/g;
     let m, seen = new Set();
     while ((m = rows.exec(s.content || "")) !== null) {
       const id = m[2];
       if (!/^[A-Z][A-Z0-9-]*\d[A-Z0-9-]*$/.test(id)) continue; // require a phase-id shape
-      if (seen.has(id)) continue; seen.add(id);
+      if (seen.has(id) || structuredIds.has(id)) continue; seen.add(id); // structured evidence wins
       candidates.push({ phaseId: id, title: id, purpose: "NEEDS OWNER DECISION", scope: "NEEDS SOURCE", exclusions: [], dependencies: [], acceptanceCriteria: [], expectedValidators: [], requiredReviews: [], ownerGates: ["phase-closure"], sourceReferences: [s.relPath], confidence: "low", unresolvedQuestions: ["acceptance criteria not sourced"] });
     }
   }
@@ -650,14 +900,23 @@ function markCanonicalDuplicates(sources, groups) {
 // caller-supplied gitVerify callback). options = { gitVerify?(commit)->bool, boundaryBlocked?:bool }.
 function importFromSources(sources, repoEvidence, options) {
   options = options || {};
-  assignAuthorities(sources, { repoEvidence: repoEvidence, gitVerify: options.gitVerify });
+  assignAuthorities(sources, { repoEvidence: repoEvidence, gitVerify: options.gitVerify, canonicalConfigPaths: options.canonicalConfigPaths });
   const duplicates = groupDuplicateSources(sources);
   markCanonicalDuplicates(sources, duplicates);
-  const conflicts = detectPlanConflicts(sources, repoEvidence);
-  const draft = buildPlanDraft(sources, repoEvidence, conflicts, duplicates);
-  const status = calculateImportStatus(draft, conflicts, sources, { boundaryBlocked: options.boundaryBlocked });
+
+  // Roles are assigned AFTER authorities and duplicates, so both are available as evidence, and
+  // BEFORE conflicts and phases, which are the two things a role is allowed to gate. The full
+  // source list still travels everywhere; only what may manufacture a claim is narrowed.
+  assignPlanningRoles(sources, { canonicalConfigPaths: options.canonicalConfigPaths });
+  const planningCorpus = summarisePlanningCorpus(sources);
+  const planningSources = sources.filter((s) => s.planningRole === "CURRENT_PLANNING");
+
+  const conflicts = detectPlanConflicts(planningSources, repoEvidence);
+  const draft = buildPlanDraft(planningSources, repoEvidence, conflicts, duplicates);
+  draft.planningCorpus = planningCorpus;
+  const status = calculateImportStatus(draft, conflicts, planningSources, { boundaryBlocked: options.boundaryBlocked });
   const provenanceErrors = validatePlanProvenance(draft);
-  return { duplicates, conflicts, draft, status, provenanceErrors };
+  return { duplicates, conflicts, draft, status, provenanceErrors, planningCorpus };
 }
 
 module.exports = {
@@ -665,7 +924,9 @@ module.exports = {
   sha256, normalizeContent, isSafeRepoRelativePath, isWithinRoot, scanSecrets, looksBinary,
   extractHeadings, extractTitle, classifyPlanSource, classifyAuthority, assignAuthorities,
   isUntrustedInstruction, groupDuplicateSources, markCanonicalDuplicates,
+  extractStructuredPlan,
   extractClaims, detectPlanConflicts, reconcileRepositoryEvidence, selectAuthoritative,
+  PLANNING_ROLES, PLANNING_TYPES, HISTORICAL_TYPES, declaredPlanningPaths, assignPlanningRoles, summarisePlanningCorpus,
   buildPlanDraft, buildPhaseCandidates, calculateImportStatus, validatePlanProvenance,
   discoverPlanSources, fingerprintPlanSource, importFromSources
 };
