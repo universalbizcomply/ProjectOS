@@ -2,6 +2,49 @@
   "phaseId": "PROJECTOS-RECOVERY-CONTROL-CENTRE1A",
   "project": "ProjectOS",
   "objective": "Make normal ProjectOS operation possible without a terminal, through one obvious workflow the owner can follow without training.",
-  "status": "draft",
-  "history": []
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-08-11T15:18:37.981Z",
+      "note": "Control Centre: canonical inventory 43340c69, one obvious workflow c09c8e79, delegated-closure truth c81aa75f, headed proof 1f965daf"
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-08-11T15:18:38.420Z",
+      "note": "Control Centre: canonical inventory 43340c69, one obvious workflow c09c8e79, delegated-closure truth c81aa75f, headed proof 1f965daf"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-08-11T15:18:38.925Z",
+      "note": "Control Centre: canonical inventory 43340c69, one obvious workflow c09c8e79, delegated-closure truth c81aa75f, headed proof 1f965daf"
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-08-11T15:18:39.236Z",
+      "note": "Control Centre: canonical inventory 43340c69, one obvious workflow c09c8e79, delegated-closure truth c81aa75f, headed proof 1f965daf"
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-08-11T15:18:39.499Z",
+      "note": "Control Centre: canonical inventory 43340c69, one obvious workflow c09c8e79, delegated-closure truth c81aa75f, headed proof 1f965daf"
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-08-11T15:18:39.906Z",
+      "note": "Control Centre: canonical inventory 43340c69, one obvious workflow c09c8e79, delegated-closure truth c81aa75f, headed proof 1f965daf"
+    }
+  ]
 }
