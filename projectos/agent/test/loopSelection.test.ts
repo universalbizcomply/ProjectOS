@@ -228,6 +228,24 @@ describe('verifyExecutionContext', () => {
     expect(v.mismatches.join(' ')).toContain('protected');
   });
 
+  /**
+   * The root becomes the working directory of every spawned worker and check. A relative one would
+   * be resolved against ProjectOS's ambient directory at spawn time — the ambiguity that binding the
+   * cwd exists to remove, arriving one step later.
+   */
+  it('refuses a governed root that is not an absolute path', () => {
+    const sys = fakeSystem({ exec: healthyGit() });
+    const v = verifyExecutionContext(sys, 'relative/checkout', contextWith(AB));
+    expect(v.mismatches.join(' ')).toContain('not an absolute path');
+  });
+
+  it('accepts both Windows and POSIX absolute roots', () => {
+    const sys = fakeSystem({ exec: healthyGit() });
+    for (const r of ['C:/dev/ProjectOS', 'C:\\dev\\ProjectOS', '/home/murad/projectos', '\\\\server\\share']) {
+      expect(verifyExecutionContext(sys, r, contextWith(AB)).mismatches.join(' '), r).not.toContain('absolute path');
+    }
+  });
+
   it('fails closed when git cannot answer', () => {
     const sys = fakeSystem({ exec: () => ({ code: 127, stdout: '', stderr: 'no git' }) });
     const v = verifyExecutionContext(sys, ROOT, contextWith(AB));

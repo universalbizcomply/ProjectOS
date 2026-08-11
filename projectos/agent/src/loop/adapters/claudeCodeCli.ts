@@ -96,11 +96,15 @@ export const claudeCodeCliAdapter: WorkerAdapter = {
         // The worker inherits no credential-shaped variable: the project forbids `use-anthropic-api`,
         // and an inherited key would make that forbidding decorative.
         scrubCredentials: true,
+        // AND it is placed in the governed repository, not wherever ProjectOS happened to be started.
+        // Telling a worker which repository is governed while spawning it somewhere else is not
+        // transferring context, it is describing it.
+        cwd: brief.repository.root,
       }),
     );
   },
 
-  rejoin(sys: System, worker: AuthorisedWorker, session: WorkerSession): WorkerOutcome {
+  rejoin(sys: System, worker: AuthorisedWorker, session: WorkerSession, brief: WorkerBrief): WorkerOutcome {
     if (session.providerRef === null || session.providerRef === '') {
       return {
         kind: 'refused',
@@ -109,11 +113,21 @@ export const claudeCodeCliAdapter: WorkerAdapter = {
           'a run that was never recorded cannot be resumed, and starting a fresh one silently would lose its work',
       };
     }
+    // ONLY the handle comes from the session record. Where to work and what to read come from the
+    // CURRENT brief the loop just verified and wrote — a worker that edited its own session record
+    // must not be able to move its successor or point it at another file.
     return outcomeFrom(
       sys.exec(
         worker.command,
-        [...worker.args, ...OUTPUT_ARGS, '--resume', session.providerRef, '-p', correctionInstruction(session.briefPath)],
-        { scrubCredentials: true },
+        [
+          ...worker.args,
+          ...OUTPUT_ARGS,
+          '--resume',
+          session.providerRef,
+          '-p',
+          correctionInstruction(brief.records.briefPath),
+        ],
+        { scrubCredentials: true, cwd: brief.repository.root },
       ),
     );
   },

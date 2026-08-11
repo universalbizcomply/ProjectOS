@@ -201,7 +201,7 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     // honest option is a fresh start, and it is said out loud rather than passed off as a reconnect.
     const rejoining = session.providerRef !== null && session.providerRef !== '';
     const outcome = rejoining
-      ? resolution.adapter.rejoin(sys, resolution.worker, session)
+      ? resolution.adapter.rejoin(sys, resolution.worker, session, brief)
       : resolution.adapter.start(sys, resolution.worker, brief, briefFile);
     const described = describeWorkerOutcome(outcome);
     lines.push(`attempt ${attempts + 1}: ${rejoining ? 'rejoined' : 'started'} ${resolution.worker.workerId}; ${described.line}`);

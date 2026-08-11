@@ -26,6 +26,16 @@ export interface ExecOptions {
    * and requires redaction; inheriting a key silently is how that forbidding becomes decorative.
    */
   readonly scrubCredentials?: boolean;
+  /**
+   * The working directory to spawn in. MUST come from an already-verified governed execution
+   * context — never `process.cwd()`, never a worker-writable record.
+   *
+   * Without it, `spawnSync` inherits ProjectOS's ambient cwd, so the loop would TELL a worker which
+   * repository is governed while mechanically placing it wherever ProjectOS happened to be started.
+   * The same gap makes a configured check's relative argument (`--prefix projectos/core`) resolve
+   * against the ambient directory rather than the governed root.
+   */
+  readonly cwd?: string;
 }
 
 export interface System {
@@ -141,6 +151,7 @@ export const nodeSystem: System = {
     const r = spawnSync(executable, [...args], {
       encoding: 'utf8',
       shell: false,
+      ...(options?.cwd === undefined ? {} : { cwd: options.cwd }),
       ...(options?.scrubCredentials === true ? { env: scrubbedEnv(process.env) } : {}),
     });
     return {

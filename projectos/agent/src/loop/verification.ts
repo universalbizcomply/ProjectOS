@@ -210,7 +210,10 @@ export function runCheck(sys: System, root: string, spec: CheckSpec): CheckResul
       at: sys.now(),
     };
   }
-  const r = sys.exec(spec.command, [...spec.args], { scrubCredentials: true });
+  // Run IN the governed repository. `--prefix projectos/core` and every other relative argument
+  // would otherwise resolve against whatever directory ProjectOS was started in, so a check could
+  // report a pass for a different checkout entirely.
+  const r = sys.exec(spec.command, [...spec.args], { scrubCredentials: true, cwd: root });
   return {
     id: spec.id,
     kind: spec.kind,

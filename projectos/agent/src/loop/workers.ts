@@ -78,7 +78,12 @@ export type WorkerOutcome =
 export interface WorkerAdapter {
   readonly kind: string;
   start(sys: System, worker: AuthorisedWorker, brief: WorkerBrief, briefPath: string): WorkerOutcome;
-  rejoin(sys: System, worker: AuthorisedWorker, session: WorkerSession): WorkerOutcome;
+  /**
+   * Resume a run. The CURRENT brief is passed alongside the session because the session record is a
+   * file the spawned worker can write to: the handle to resume is all that may be taken from it, and
+   * where to work and what to read must come from the brief the loop just verified and wrote.
+   */
+  rejoin(sys: System, worker: AuthorisedWorker, session: WorkerSession, brief: WorkerBrief): WorkerOutcome;
 }
 
 export type AdapterRegistry = Readonly<Record<string, WorkerAdapter>>;

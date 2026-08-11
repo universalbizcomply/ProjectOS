@@ -302,7 +302,7 @@ describe('the Claude Code CLI adapter', () => {
       exitCode: null,
       corrections: 0,
     };
-    const out = claudeCodeCliAdapter.rejoin(sys, { workerId: 'claude-local', kind: CLAUDE_CODE_CLI, command: CLAUDE, args: [] }, session);
+    const out = claudeCodeCliAdapter.rejoin(sys, { workerId: 'claude-local', kind: CLAUDE_CODE_CLI, command: CLAUDE, args: [] }, session, brief());
     expect(out.kind).toBe('refused');
     expect(sys.calls).toHaveLength(0);
   });
@@ -322,7 +322,7 @@ describe('the Claude Code CLI adapter', () => {
       exitCode: null,
       corrections: 0,
     };
-    claudeCodeCliAdapter.rejoin(sys, { workerId: 'claude-local', kind: CLAUDE_CODE_CLI, command: CLAUDE, args: [] }, session);
+    claudeCodeCliAdapter.rejoin(sys, { workerId: 'claude-local', kind: CLAUDE_CODE_CLI, command: CLAUDE, args: [] }, session, brief());
     expect(sys.calls[0].args).toContain('--resume');
     expect(sys.calls[0].args).toContain('abc-123');
   });
@@ -347,7 +347,7 @@ describe('the Claude Code CLI adapter', () => {
       exitCode: null,
       corrections: 1,
     };
-    claudeCodeCliAdapter.rejoin(sys, { workerId: 'claude-local', kind: CLAUDE_CODE_CLI, command: CLAUDE, args: [] }, session);
+    claudeCodeCliAdapter.rejoin(sys, { workerId: 'claude-local', kind: CLAUDE_CODE_CLI, command: CLAUDE, args: [] }, session, brief());
     const line = sys.calls[0].args.join(' ');
     expect(line).toContain(correctionInstruction(briefPath));
     expect(line).toContain(briefPath);

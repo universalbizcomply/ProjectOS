@@ -105,6 +105,13 @@ export function verifyExecutionContext(sys: System, root: string, context: Gover
   const observed = observeRepository(sys, root);
   const mismatches: string[] = [];
 
+  // The root becomes the working directory of every process the loop spawns. A RELATIVE root would
+  // be resolved by the OS against ProjectOS's ambient directory at spawn time — which is exactly the
+  // ambiguity binding the cwd exists to remove, arriving one step later.
+  if (!/^([A-Za-z]:[\\/]|\/|\\\\)/.test(root)) {
+    mismatches.push(`the governed root '${root}' is not an absolute path, so it cannot place a worker deterministically`);
+  }
+
   if (observed.head === null) {
     mismatches.push('HEAD could not be read from this checkout, so no repository fact can be established');
   }
