@@ -104,6 +104,59 @@ function isAbsolutePath(p: string): boolean {
 /** Anything that looks like a credential being handed to a worker. */
 const CREDENTIAL_SHAPED = /(api[_-]?key|token|secret|password|bearer)/i;
 
+/**
+ * The only file-writing authority a worker may be granted, and the reason it is a closed list.
+ *
+ * A RUN HAS TWO OWNERS. The worker owns what it ASSERTS — its findings and its effects attestation.
+ * ProjectOS owns what it STATES and what it OBSERVES — the brief the worker is judged against, the
+ * session record naming who owns the run, and the evidence collected about it. A worker that could
+ * rewrite the brief could change the contract it is measured by; one that could rewrite the evidence
+ * could launder its own run. Neither is a thing to leave to a pattern nobody checks.
+ *
+ * So the grant is not merely narrow by convention — it is enumerated here, and any Write or Edit
+ * authority that is not exactly one of these is REFUSED when the config is read. `.projectops/
+ * execution/**` was the original grant and is exactly the kind of quiet widening this refuses.
+ */
+export const WORKER_OWNED_RECORD_GRANTS: readonly string[] = [
+  'Write(.projectops/execution/*.findings.json)',
+  'Edit(.projectops/execution/*.findings.json)',
+  'Write(.projectops/execution/*.effects.json)',
+  'Edit(.projectops/execution/*.effects.json)',
+];
+
+/** ProjectOS's own records. A worker is never granted authority over these. */
+export const PROJECTOS_OWNED_RECORD_SUFFIXES: readonly string[] = ['.brief.json', '.session.json', '.evidence.json'];
+
+const WRITE_GRANT = /^(Write|Edit|MultiEdit|NotebookEdit)\s*\(/i;
+
+/**
+ * Why this worker's tool grants are unacceptable, or empty when they are fine.
+ *
+ * Only file-WRITING grants are policed. A worker reading widely is how it does its job; a worker
+ * writing outside the two records it owns is how a run stops being trustworthy.
+ */
+export function toolGrantProblems(args: readonly string[]): readonly string[] {
+  const problems: string[] = [];
+  for (const [i, arg] of args.entries()) {
+    if (arg !== '--allowedTools' && arg !== '--allowed-tools') continue;
+    const value = args[i + 1];
+    if (value === undefined) {
+      problems.push('--allowedTools is given with no value');
+      continue;
+    }
+    for (const grant of value.split(',').map((g) => g.trim()).filter((g) => g.length > 0)) {
+      if (!WRITE_GRANT.test(grant)) continue;
+      if (!WORKER_OWNED_RECORD_GRANTS.includes(grant)) {
+        problems.push(
+          `tool grant '${grant}' gives a worker write authority beyond the records it owns; ` +
+            `permitted: ${WORKER_OWNED_RECORD_GRANTS.join(', ')}`,
+        );
+      }
+    }
+  }
+  return problems;
+}
+
 function readWorkers(context: GovernedContext): {
   readonly workers: readonly AuthorisedWorker[];
   readonly defaultWorkerId: string | null;
@@ -156,6 +209,7 @@ function readWorkers(context: GovernedContext): {
         problems.push(`worker '${label}' passes a credential-shaped argument; the loop does not hand credentials to a worker`);
       }
     }
+    for (const p of toolGrantProblems(args)) problems.push(`worker '${label}': ${p}`);
     workers.push({ workerId, kind, command, args });
   }
 

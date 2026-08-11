@@ -82,8 +82,11 @@
         "workerId": "claude-local",
         "kind": "claude-code-cli",
         "command": "C:/Users/murad/.local/bin/claude.exe",
-        "args": ["--allowedTools", "Write(.projectops/execution/**),Edit(.projectops/execution/**)"],
-        "notes": "The owner's local Claude Code CLI. Absolute by requirement: a bare name would resolve against the governed checkout before PATH. No credential is passed and no Anthropic API is called — use-anthropic-api remains a forbidden action. The allowlist is the narrowest grant that lets the loop work at all: the first live run ended with the worker asking a human for permission to write the very findings and effects records the loop then refuses to proceed without, and a non-interactive worker has nobody to ask. It covers ONLY .projectops/execution/ — the run's own records. It grants nothing over source, and every other write still requires a decision the worker cannot make alone."
+        "args": [
+          "--allowedTools",
+          "Write(.projectops/execution/*.findings.json),Edit(.projectops/execution/*.findings.json),Write(.projectops/execution/*.effects.json),Edit(.projectops/execution/*.effects.json)"
+        ],
+        "notes": "The owner's local Claude Code CLI. Absolute by requirement: a bare name would resolve against the governed checkout before PATH. No credential is passed and no Anthropic API is called — use-anthropic-api remains a forbidden action. The allowlist grants exactly the two records the WORKER owns: its findings and its effects attestation. It deliberately does NOT cover *.brief.json, *.session.json or *.evidence.json — those are ProjectOS's, and a worker able to rewrite the brief it was judged against, or the evidence collected about it, could launder its own run. An earlier grant of .projectops/execution/** was too broad and was narrowed here; `workers.ts` refuses any grant that is not exactly one of these four patterns, so a future config cannot widen it silently."
       }
     ]
   },
