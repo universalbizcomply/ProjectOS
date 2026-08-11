@@ -170,14 +170,36 @@ export function OwnerControlPlane() {
         )}
       </div>
 
-      {/* Protected-action owner confirmation (Option C1) — the universal confirmation surface,
-          driven here by synthetic preview state. Replaces the former disabled decision preview. */}
-      <ProtectedOperationConfirmation
-        summary={SYNTHETIC_CONFIRMATION}
-        state={confirmState}
-        nowMs={SYNTHETIC_NOW_MS}
-        onIntent={handleConfirmIntent}
-      />
+      {/*
+        Protected-action owner confirmation (Option C1) — the universal confirmation surface.
+        It has NO real producer yet, so the only thing that can drive it here is fixture data.
+
+        It used to render open, unconditionally, immediately under "No decisions are waiting for
+        you" — so the owner home screen simultaneously said nothing needed them AND "ProjectOS
+        needs your approval / Apply a database migration / against the live production database /
+        This cannot be undone", with live-looking Approve and Refuse buttons. The synthetic banner
+        was present and honest, and it was still the most alarming thing on the screen.
+
+        It is now behind explicit owner intent and named as an example before it can be opened.
+        Nothing about the component or its 32 tests changes; only whether the owner is shown a
+        fabricated production decision they never asked to see.
+      */}
+      <details className="ocp-panel preview">
+        <summary>
+          Show an example approval screen
+          <span className="ocp-example-tag">Example only — not a real request</span>
+        </summary>
+        <p className="ocp-empty">
+          This is a demonstration of what ProjectOS shows when a protected action genuinely needs
+          your approval. Nothing here is pending, and nothing it offers can execute.
+        </p>
+        <ProtectedOperationConfirmation
+          summary={SYNTHETIC_CONFIRMATION}
+          state={confirmState}
+          nowMs={SYNTHETIC_NOW_MS}
+          onIntent={handleConfirmIntent}
+        />
+      </details>
 
       {/* Next safe action */}
       <div className="ocp-panel next">

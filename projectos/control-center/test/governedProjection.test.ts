@@ -153,6 +153,50 @@ describe('phase state comes from durable core records', () => {
     expect(p.nextSafeAction).toContain(p.activePhase!.phaseId);
   });
 
+  test('a finished programme says so, instead of inventing an unmet dependency', () => {
+    // Regression from the post-V3 self-hosting pilot: with every phase complete, nothing is
+    // startable — and the surface told the owner "every remaining phase has an unmet dependency.
+    // Close the phase it depends on first." There was no such phase.
+    //
+    // Completion is stated in the FIXTURE, derived from the plan's own phase list, rather than
+    // borrowed from the live programme happening to be at 19/19. Two tests below, this file already
+    // learned that lesson the hard way; a test pinned to the current position would start failing
+    // the day a phase is appended, for a reason that has nothing to do with this message.
+    const allIds = (plan['phases'] as { phaseId: string }[]).map((x) => x.phaseId);
+    const p = projectGovernedState(
+      inputs({ currentState: { ...(currentState ?? {}), completedPhases: allIds }, phaseRecords: [] }),
+    );
+    expect(p.activePhase).toBeNull();
+    expect(p.nextStartablePhase).toBeNull();
+    expect(p.nextSafeAction).toContain('Every phase in the approved plan is complete');
+    expect(p.nextSafeAction).not.toContain('unmet dependency');
+    // Completion must not read as permission to do anything further.
+    expect(p.nextSafeAction).toContain('new owner-approved plan');
+  });
+
+  test('a genuinely blocked programme still gets the dependency message', () => {
+    // The other half, and the one that actually pins the fix: the original wording must still fire
+    // when phases really are blocked, or one always-true message has simply replaced another.
+    //
+    // Getting there needs care. With no records at all the ROOT phase is startable, so the
+    // projection takes the "authorised to start" branch and never reaches the fallback — an earlier
+    // version of this test asserted against that state and proved nothing. Here the root phase
+    // carries a record that is NOT an owner closure: it is therefore neither startable (a record
+    // exists) nor complete (not owner-closed), which blocks everything that depends on it.
+    const rootId = (plan['phases'] as { phaseId: string }[])[0]?.phaseId ?? '';
+    const p = projectGovernedState(
+      inputs({
+        currentState: null,
+        phaseRecords: [{ phaseId: rootId, status: 'closed', history: [] }],
+      }),
+    );
+    expect(p.activePhase).toBeNull();
+    expect(p.nextStartablePhase).toBeNull();
+    expect(p.phases.some((x) => x.unmetDependencies.length > 0)).toBe(true);
+    expect(p.nextSafeAction).toContain('unmet dependency');
+    expect(p.nextSafeAction).not.toContain('Every phase in the approved plan is complete');
+  });
+
   test('unmet dependencies are computed, and a phase whose dependency is open is not startable', () => {
     // This used to lean on the live programme position, where Phase 17 was open — then Phase 17
     // closed and the assertion started passing vacuously in reverse. The unmet dependency is now

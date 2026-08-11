@@ -161,6 +161,7 @@ function deriveNextSafeAction(
   unmetReasons: readonly string[],
   active: GovernedPhaseView | null,
   nextStartable: GovernedPhaseView | null,
+  allPhasesComplete: boolean,
 ): string {
   if (!ready) {
     const first = unmetReasons[0] ?? 'the plan does not satisfy the evidence gate';
@@ -177,6 +178,13 @@ function deriveNextSafeAction(
   }
   if (nextStartable !== null) {
     return `${nextStartable.phaseId} is authorised and its dependencies are recorded complete. Starting it creates a draft phase record — nothing is deployed, closed or approved.`;
+  }
+  // A FINISHED programme and a BLOCKED one both reach here with nothing startable, and telling the
+  // owner to "close the phase it depends on first" when there is no such phase is simply untrue —
+  // it invites a search for work that does not exist. The two cases are separated, and the
+  // completion wording deliberately grants nothing: finishing this plan authorises no new work.
+  if (allPhasesComplete) {
+    return 'Every phase in the approved plan is complete. There is nothing to start here. New work needs a new owner-approved plan.';
   }
   return 'No approved phase is currently startable: every remaining phase has an unmet dependency. Close the phase it depends on first.';
 }
@@ -289,6 +297,9 @@ export function projectGovernedState(inputs: GovernedInputs): GovernedProjection
       readiness.reasons,
       activePhase,
       nextStartablePhase,
+      // Judged against the SAME completion evidence that decides dependencies, so the message can
+      // never disagree with the dependency arithmetic shown beside it.
+      phases.length > 0 && phases.every((p) => complete.has(p.phaseId)),
     ),
     observedAt: inputs.observedAt,
   };
