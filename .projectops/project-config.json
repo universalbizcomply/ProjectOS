@@ -12,11 +12,13 @@
   ],
   "productionFreeze": true,
   "planMemory": {
-    "planPath": "projectos/state/projectos-v3.plan.json",
-    "currentStatePath": "projectos/state/projectos-v3.current-state.json"
+    "planPath": "projectos/state/projectos-recovery.plan.json",
+    "currentStatePath": "projectos/state/projectos-recovery.current-state.json"
   },
   "planSources": [
-    "docs/operational-recovery-plan.md"
+    "docs/operational-recovery-plan.md",
+    "projectos/state/projectos-v3.plan.json",
+    "projectos/state/projectos-v3.current-state.json"
   ],
   "allowedActions": [
     "inspect-repository",
