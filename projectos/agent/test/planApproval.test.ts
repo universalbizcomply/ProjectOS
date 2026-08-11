@@ -24,6 +24,7 @@ import {
   PLAN_APPROVAL_DECISION_SCHEMA_VERSION,
   PLAN_APPROVAL_DELEGATION_SCHEMA_VERSION,
   loadGovernanceEngine,
+  loadCurrentStateSchema,
 } from '../src/planApproval.js';
 import { loadGovernedContext } from '../src/governedContext.js';
 import type { System } from '../src/system.js';
@@ -292,6 +293,12 @@ describe('exact plan approval — the happy path, once', () => {
     expect(r.ok ? '' : r.problems.join('; ')).toBe('');
     expect(r.ok).toBe(true);
     if (!r.ok) return;
+
+    // The current state is a governed record too and must satisfy its own schema.
+    const { engine: govEngine } = loadGovernanceEngine();
+    const state = JSON.parse(readFileSync(pjoin(w.root, 'state/recovery.current-state.json'), 'utf8')) as Record<string, unknown>;
+    const stateErrors = govEngine.validateAgainstSchema(state, loadCurrentStateSchema());
+    expect(stateErrors.join('; ')).toBe('');
 
     const plan = JSON.parse(readFileSync(pjoin(w.root, 'state/recovery.plan.json'), 'utf8')) as Record<string, unknown>;
     expect(plan['planStatus']).toBe('PLAN READY');

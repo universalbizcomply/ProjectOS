@@ -119,6 +119,12 @@ export function loadGovernanceEngine(): { engine: GovernanceEngine; schema: unkn
   };
 }
 
+export function loadCurrentStateSchema(): unknown {
+  const require_ = createRequire(import.meta.url);
+  const here = dirname(fileURLToPath(import.meta.url));
+  return require_(resolve(here, '../../schemas/current-project-state.schema.json')) as unknown;
+}
+
 export function authorityDir(root: string): string {
   return join(projectopsDir(root), 'authority');
 }
@@ -743,6 +749,9 @@ export function approvePlan(sys: System, root: string, opts: ApproveOptions): Ap
   if (!readiness.ready) return { ok: false, code: 'PLAN_NOT_READY', problems: readiness.reasons };
 
   const phases = materialised.plan['phases'] as { phaseId: string }[];
+  // A git fact, not a placeholder. `not-recorded` is not one of the two states a working tree can be
+  // in, and the record's own schema says so.
+  const porcelain = sys.exec('git', ['status', '--porcelain']);
   const state = {
     schemaVersion: '1.0.0',
     projectId: proposal.projectId,
@@ -762,14 +771,28 @@ export function approvePlan(sys: System, root: string, opts: ApproveOptions): Ap
     currentBranch: proposal.branch,
     currentHead: proposal.baseHead,
     currentRemoteHead: null,
-    workingTreeStatus: 'not-recorded',
+    workingTreeStatus: porcelain.code === 0 && porcelain.stdout.trim() === '' ? 'clean' : 'dirty',
     currentRisks: [],
     currentBlockers: [],
     lastEvidenceReference: `plan-approval decision ${opts.decisionId}`,
     nextRecommendedPhase: phases.length > 0 ? phases[0]!.phaseId : null,
     lastUpdated: now,
-    updatedByRole: 'projectos-runtime',
+    // The decision that caused this record. The delegate exercises the owner's authority, but the
+    // role that acted is the gatekeeper's, and the enum has no fourth option to hide behind.
+    updatedByRole: 'gatekeeper',
   };
+
+  // The current state is a governed record too, and it was being written without anything checking
+  // it against its own schema — two fields were outside their enums and nothing noticed.
+  //
+  // Defence in depth, and honestly unreachable today: every field above is either a constant inside
+  // its enum or a value the PLAN schema already rejects first, so no input drives this branch and a
+  // mutation that removes it survives. It is kept because the alternative is that the next change to
+  // this record's shape writes an invalid governed record silently, which is exactly what happened
+  // the first time. Recorded rather than quietly assumed away.
+  const stateSchema = loadCurrentStateSchema();
+  const stateErrors = gov.validateAgainstSchema(state, stateSchema);
+  if (stateErrors.length > 0) return { ok: false, code: 'PLAN_SCHEMA_INVALID', problems: stateErrors.map((e) => `current state: ${e}`) };
 
   const planPath = join(root, opts.planRelPath);
   const statePath = join(root, opts.stateRelPath);
