@@ -220,6 +220,45 @@ byte-unchanged. No commit, no push, no force, no history rewrite. V3 not reopene
 
 ---
 
+## 5a. F3 — objective intake (checkpoint 2, commit `e96ba1f`)
+
+**Built:** `projectos plan draft|drafts|show`, backed by `projectos/agent/src/planIntake.ts`. A thin
+seam onto the canonical `plan-discovery-engine.cjs` — the missing call, not a second planner. Engine
+resolved from the agent package's own URL so a target root cannot choose the code that governs it.
+
+**Authority:** an objective is input, a draft is a proposal. Neither reaches a governed plan path;
+neither creates a phase, an approval or execution authority; `PLAN READY` is excluded from the
+persistable set by an explicit refusal, not by assumption.
+
+**Live result on this repository** — 442 sources, 5,891 conflicts, 106 phase candidates,
+`PLAN CONFLICT`, 4.7MB draft. **The mechanism works; the generated draft is not usable as a
+proposal.** The engine treated 119 historical reports and the architecture docs as competing plan
+sources. This confirms carry-forward R17-4 at full scale and is finding **F10**, for an owner
+decision on discovery scope. It was NOT tuned away.
+
+**Two defects found and fixed in the doing:**
+
+1. The engine's `sha256()` returns a **prefixed** digest, so the derived id contained a colon. On
+   Windows `drafts/sha256:abc.json` does not create that file — it writes an **NTFS alternate data
+   stream** on a file called `sha256`, so the draft disappeared from every listing while appearing
+   to have been written. Ids are now `^[0-9a-f]{16}$`, checked not trusted.
+2. git facts failed **open** to the string `"unknown"`. `baseHead` exists so staleness can be
+   detected; two different repository states both recorded as `"unknown"` compare equal. Now fails
+   closed, matching the rule `system.ts` already states for bound git.
+
+**Reviews:** ECC security **0 CRITICAL / 0 HIGH**, one MEDIUM demonstrated live against the
+pre-existing engine (a plantable top-level `project-config.json` can steer which document is
+labelled AUTHORITATIVE — it cannot create authority, but it can mislead a reviewer; reported, not
+fixed here). ECC code review **2 HIGH, 6 MEDIUM, 3 LOW — all addressed**, including a phase-refusal
+test that had been re-testing a pre-existing control instead of the new module.
+
+**Green:** agent **133** (was 106), core **211**, Control Centre **239**, validate-all **126/126**
+(confirmed on three runs).
+
+**NOT done:** the Control Centre owner-facing intake surface (Step 5). The CLI is the canonical
+runtime path and carries the whole guarantee, but an owner still cannot type an objective in the
+desktop app. Recorded as the next bounded step rather than half-built and unproven.
+
 ## 6. Next safe action
 
 Complete the review/validation sweep for the two fixes, then hand the report to ChatGPT for the
