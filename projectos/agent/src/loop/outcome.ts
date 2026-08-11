@@ -47,17 +47,28 @@ export interface ReviewFinding {
 /**
  * Effects that end unattended execution, named exactly as the closure gate already names them so the
  * loop and the gate cannot disagree about what a protected effect is.
+ *
+ * EVERY FIELD IS REQUIRED, and required to be a boolean. An optional field lets `{}` certify a run
+ * that attested to nothing, which is the same fail-open the absent-record rule already closes,
+ * wearing a different hat: the answer "I did not say" would be read as "no". A worker must state a
+ * position on each effect, and stating none is not one.
+ *
+ * This is an ATTESTATION under the project's existing manual-governance model — `tamperProof: false`
+ * throughout. Anything that can write this file can write `false` into it. The backstop is the owner
+ * commit/push gate, where the claim is a visible diff; nothing here is cryptographic and nothing
+ * here should be described as tamper-proof.
  */
 export interface EffectsRecord {
-  readonly productionTouched?: boolean;
-  readonly deploymentOccurred?: boolean;
-  readonly databaseMutationOccurred?: boolean;
-  readonly externalSendOccurred?: boolean;
-  readonly paymentOccurred?: boolean;
-  readonly rawSecretStored?: boolean;
+  readonly productionTouched: boolean;
+  readonly deploymentOccurred: boolean;
+  readonly databaseMutationOccurred: boolean;
+  readonly externalSendOccurred: boolean;
+  readonly paymentOccurred: boolean;
+  readonly rawSecretStored: boolean;
 }
 
-const PROTECTED_FIELDS: readonly (keyof EffectsRecord)[] = [
+/** The fields an attestation must carry. Exported so the reader and the judge cannot drift apart. */
+export const PROTECTED_EFFECT_FIELDS: readonly (keyof EffectsRecord)[] = [
   'productionTouched',
   'deploymentOccurred',
   'databaseMutationOccurred',
@@ -76,10 +87,45 @@ export function blockingFindings(findings: readonly ReviewFinding[]): readonly R
   return findings.filter((f) => !f.resolved && (f.severity === 'CRITICAL' || f.severity === 'HIGH'));
 }
 
-/** Protected effects recorded for this run, by name. Empty means none was recorded. */
+/**
+ * The severities that are WORK: an unresolved LOW or MEDIUM goes back to the worker like a failing
+ * test does.
+ *
+ * Carrying them to the owner gate untouched was the quieter half of the same mistake as never
+ * retrying a failing check: the loop exists to correct ordinary defects, and a MEDIUM finding
+ * nobody acted on is an ordinary defect that reached the owner wearing "reviewed" as a label.
+ */
+export function correctableFindings(findings: readonly ReviewFinding[]): readonly ReviewFinding[] {
+  return findings.filter((f) => !f.resolved && (f.severity === 'MEDIUM' || f.severity === 'LOW'));
+}
+
+/** Protected effects the run attested to, by name. Empty means it attested `false` to every one. */
 export function protectedEffects(effects: EffectsRecord | null): readonly string[] {
   if (effects === null) return [];
-  return PROTECTED_FIELDS.filter((f) => effects[f] === true);
+  return PROTECTED_EFFECT_FIELDS.filter((f) => effects[f] === true);
+}
+
+/**
+ * Why this is not a usable attestation, or empty when it is.
+ *
+ * Kept beside the judge rather than in the reader so both use one rule: a field that is absent, or
+ * present as a string, a number or null, is not an answer. `"false"` is a particularly nasty case —
+ * it LOOKS like a denial and is truthy in JavaScript.
+ */
+export function attestationProblems(value: unknown): readonly string[] {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return ['the effects attestation is not an object'];
+  }
+  const rec = value as Record<string, unknown>;
+  const problems: string[] = [];
+  for (const field of PROTECTED_EFFECT_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(rec, field)) {
+      problems.push(`the effects attestation does not state ${field}`);
+    } else if (typeof rec[field] !== 'boolean') {
+      problems.push(`the effects attestation states ${field} as ${JSON.stringify(rec[field])}, which is not a boolean`);
+    }
+  }
+  return problems;
 }
 
 /** Reviews the plan requires that this run has no finding record for at all. */
@@ -118,7 +164,8 @@ export interface DecisionInput {
  *  3. an unresolved CRITICAL or HIGH stops next, ahead of ordinary defects, so a failing test can
  *     never mask a security finding by being retried first;
  *  4. a scope question is the owner's and is not a defect to be corrected;
- *  5. only then are failing checks treated as ordinary work — and only while attempts remain;
+ *  5. only then is ordinary work handled — failing checks AND unresolved LOW/MEDIUM findings, which
+ *     are the same kind of thing — and only while attempts remain;
  *  6. a run that attested nothing about its own effects cannot be certified, and a required review
  *     with no record is outstanding, not passed;
  *  7. everything green with reviews recorded reaches the owner gate, which is a stop with a name.
@@ -158,24 +205,31 @@ export function decideContinuation(input: DecisionInput): ContinuationDecision {
     return { kind: 'stop', reason: { code: 'SCOPE_DECISION', detail: scope } };
   }
 
+  // ORDINARY WORK: a failing check and an unresolved LOW/MEDIUM finding are the same kind of thing,
+  // and both go back to the worker under the same bound.
   const failed = input.checks.filter((c) => !c.passed);
-  if (failed.length > 0) {
+  const correctable = correctableFindings(input.findings);
+  if (failed.length > 0 || correctable.length > 0) {
+    const parts: string[] = [];
+    if (failed.length > 0) parts.push(`${failed.length} required check(s) failing: ${failed.map((c) => c.id).join(', ')}`);
+    if (correctable.length > 0) {
+      parts.push(
+        `${correctable.length} unresolved finding(s) at MEDIUM or LOW: ${correctable
+          .map((f) => `${f.severity} ${f.id}`)
+          .join(', ')}`,
+      );
+    }
+    const what = parts.join('; ');
     if (input.attemptsSpent >= MAX_CORRECTION_ATTEMPTS) {
       return {
         kind: 'stop',
         reason: {
           code: 'CORRECTION_EXHAUSTED',
-          detail:
-            `${failed.length} required check(s) still failing after ${input.attemptsSpent} correction attempt(s): ` +
-            `${failed.map((c) => c.id).join(', ')}. The defect resisted correction and is now a decision, not work.`,
+          detail: `${what} — still outstanding after ${input.attemptsSpent} correction attempt(s). It resisted correction and is now a decision, not work.`,
         },
       };
     }
-    return {
-      kind: 'retry',
-      attempt: input.attemptsSpent + 1,
-      detail: `${failed.length} required check(s) failing: ${failed.map((c) => c.id).join(', ')}`,
-    };
+    return { kind: 'retry', attempt: input.attemptsSpent + 1, detail: what };
   }
 
   // ABSENCE IS NOT INNOCENCE. A missing attestation was, in the first cut of this module, read as

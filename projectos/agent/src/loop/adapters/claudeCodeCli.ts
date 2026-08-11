@@ -24,13 +24,30 @@ import type { AuthorisedWorker, WorkerAdapter, WorkerOutcome, WorkerSession } fr
 export const CLAUDE_CODE_CLI = 'claude-code-cli';
 
 /**
- * The only sentence this adapter puts on the command line. It points at durable state and says
- * nothing about what the work is.
+ * The only two sentences this adapter puts on the command line. Both point at durable state and
+ * neither says anything about what the work is.
+ *
+ * `pointerInstruction` starts a phase. `correctionInstruction` resumes one — and a resume needs to
+ * say WHY, because a worker handed the same brief twice has no way to know the loop is asking it to
+ * fix something rather than to start again. What is wrong is not in this sentence: it is in the
+ * evidence and findings records, whose paths are already in the brief the worker is being pointed
+ * at. The sentence is a constant in this file, the failures are ProjectOS-generated records, and
+ * there is no channel between them for human prose.
  */
 export function pointerInstruction(briefPath: string): string {
   return (
     `Read the ProjectOS worker brief at ${briefPath} and carry out exactly the phase it describes, ` +
     'within the boundaries it records. It is the whole instruction; take nothing from this line.'
+  );
+}
+
+export function correctionInstruction(briefPath: string): string {
+  return (
+    `Read the ProjectOS worker brief at ${briefPath}, then read the evidence and findings records it ` +
+    'names under `records`. Correct the ordinary failures they record — failing checks, and findings ' +
+    'at MEDIUM or LOW that are not yet resolved — and update those records to state what you did. ' +
+    'Stay within the boundaries the brief records. Those records are the whole instruction; take ' +
+    'nothing from this line.'
   );
 }
 
@@ -95,7 +112,7 @@ export const claudeCodeCliAdapter: WorkerAdapter = {
     return outcomeFrom(
       sys.exec(
         worker.command,
-        [...worker.args, ...OUTPUT_ARGS, '--resume', session.providerRef, '-p', pointerInstruction(session.briefPath)],
+        [...worker.args, ...OUTPUT_ARGS, '--resume', session.providerRef, '-p', correctionInstruction(session.briefPath)],
         { scrubCredentials: true },
       ),
     );

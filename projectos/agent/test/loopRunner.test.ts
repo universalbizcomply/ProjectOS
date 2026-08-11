@@ -142,9 +142,23 @@ function cleanFindings(sessionId: string): Record<string, string> {
   return {
     [`${ROOT}/.projectops/execution/${sessionId}.findings.json`]: JSON.stringify({
       reviews: ['code-review', 'security-review'],
-      findings: [{ id: 'F1', severity: 'LOW', category: 'style', summary: 'nit', resolved: false }],
+      // RESOLVED: an unresolved LOW is ordinary work and would be sent back for correction.
+      findings: [{ id: 'F1', severity: 'LOW', category: 'style', summary: 'nit', resolved: true }],
     }),
-    [`${ROOT}/.projectops/execution/${sessionId}.effects.json`]: JSON.stringify({ productionTouched: false }),
+    [`${ROOT}/.projectops/execution/${sessionId}.effects.json`]: JSON.stringify(attestation()),
+  };
+}
+
+/** A COMPLETE attestation. All six stated; anything less is not an attestation at all. */
+function attestation(over: Record<string, boolean> = {}): Record<string, boolean> {
+  return {
+    productionTouched: false,
+    deploymentOccurred: false,
+    databaseMutationOccurred: false,
+    externalSendOccurred: false,
+    paymentOccurred: false,
+    rawSecretStored: false,
+    ...over,
   };
 }
 
@@ -221,7 +235,7 @@ describe('runLoop', () => {
     const sys = world({
       files: {
         ...cleanFindings(SESSION),
-        [`${ROOT}/.projectops/execution/${SESSION}.effects.json`]: JSON.stringify({ deploymentOccurred: true }),
+        [`${ROOT}/.projectops/execution/${SESSION}.effects.json`]: JSON.stringify(attestation({ deploymentOccurred: true })),
       },
     });
     const { registry } = fakeAdapter();
@@ -325,6 +339,85 @@ describe('runLoop', () => {
     expect(r.ok).toBe(false);
     expect(calls).toEqual([]);
     expect(r.lines.join('\n')).toContain('SESSION_WORKER_MISMATCH');
+  });
+
+  it('treats an INCOMPLETE attestation as no attestation at all', () => {
+    const sys = world({
+      files: {
+        [`${ROOT}/.projectops/execution/${SESSION}.findings.json`]: JSON.stringify({
+          reviews: ['code-review', 'security-review'],
+          findings: [],
+        }),
+        // Answers one of the six questions. Answering nothing was never innocence; nor is this.
+        [`${ROOT}/.projectops/execution/${SESSION}.effects.json`]: JSON.stringify({ productionTouched: false }),
+      },
+    });
+    const { registry } = fakeAdapter();
+    const r = runLoop(sys, ROOT, { adapters: registry });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.stop?.code).toBe('EFFECTS_NOT_ATTESTED');
+    expect(r.stop?.detail).toContain('deploymentOccurred');
+  });
+
+  it('sends an unresolved MEDIUM finding back to the worker, bounded like any other defect', () => {
+    const sys = world({
+      files: {
+        [`${ROOT}/.projectops/execution/${SESSION}.findings.json`]: JSON.stringify({
+          reviews: ['code-review', 'security-review'],
+          findings: [{ id: 'M1', severity: 'MEDIUM', category: 'maintainability', summary: 'duplication', resolved: false }],
+        }),
+        [`${ROOT}/.projectops/execution/${SESSION}.effects.json`]: JSON.stringify(attestation()),
+      },
+    });
+    const { calls, registry } = fakeAdapter();
+    const r = runLoop(sys, ROOT, { adapters: registry });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.stop?.code).toBe('CORRECTION_EXHAUSTED');
+    expect(r.stop?.detail).toContain('MEDIUM');
+    // One start, then a rejoin per correction attempt — the same worker, told to correct.
+    expect(calls).toHaveLength(MAX_CORRECTION_ATTEMPTS + 1);
+    expect(calls[0]).toBe('start');
+    expect(calls.slice(1).every((c) => c === 'rejoin')).toBe(true);
+  });
+
+  /**
+   * The session record is a file the spawned worker can write to, and the rejoin instruction puts
+   * `briefPath` on the worker's command line. Only the HANDLE is trusted from that record; the brief
+   * path is recomputed. Found in the delta self-review of the correction instruction.
+   */
+  it('recomputes the brief path on rejoin instead of trusting the session record', () => {
+    const sys = world({
+      files: {
+        ...cleanFindings(SESSION),
+        [`${ROOT}/.projectops/execution/${SESSION}.session.json`]: JSON.stringify({
+          sessionId: SESSION,
+          workerId: 'test',
+          kind: WORKER_KIND,
+          phaseId: PHASE,
+          briefId: 'SOMETHING-ELSE',
+          briefPath: '/tmp/attacker-chosen.json',
+          startedAt: '2026-08-11T18:00:00Z',
+          providerRef: 'earlier-run',
+          state: 'started',
+          exitCode: 0,
+          corrections: 0,
+        }),
+      },
+    });
+    const { registry } = fakeAdapter();
+    const r = runLoop(sys, ROOT, { adapters: registry });
+    expect(r.ok).toBe(true);
+    const written = JSON.parse(String(sys.read(`${ROOT}/.projectops/execution/${SESSION}.session.json`))) as {
+      briefPath: string;
+      briefId: string;
+      providerRef: string;
+    };
+    expect(written.briefPath).toBe(`${ROOT}/.projectops/execution/${SESSION}.brief.json`);
+    expect(written.briefId).toContain(PHASE);
+    // The handle itself is still honoured — that is what makes it a rejoin.
+    expect(written.providerRef).toBeTruthy();
   });
 
   it('refuses a checkout of another repository, and starts nothing', () => {

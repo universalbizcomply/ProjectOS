@@ -12,7 +12,13 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { authorisedWorkers, resolveWorker, type AdapterRegistry, type WorkerAdapter, type WorkerSession } from '../src/loop/workers.js';
-import { claudeCodeCliAdapter, BUILT_IN_ADAPTERS, CLAUDE_CODE_CLI, pointerInstruction } from '../src/loop/adapters/claudeCodeCli.js';
+import {
+  claudeCodeCliAdapter,
+  BUILT_IN_ADAPTERS,
+  CLAUDE_CODE_CLI,
+  correctionInstruction,
+  pointerInstruction,
+} from '../src/loop/adapters/claudeCodeCli.js';
 import { buildWorkerBrief } from '../src/loop/brief.js';
 import type { GovernedContext } from '../src/governedContext.js';
 import type { RepositoryObservation } from '../src/loop/observation.js';
@@ -319,5 +325,47 @@ describe('the Claude Code CLI adapter', () => {
     claudeCodeCliAdapter.rejoin(sys, { workerId: 'claude-local', kind: CLAUDE_CODE_CLI, command: CLAUDE, args: [] }, session);
     expect(sys.calls[0].args).toContain('--resume');
     expect(sys.calls[0].args).toContain('abc-123');
+  });
+
+  /**
+   * A resume must say WHY. A worker handed the same brief twice has no way to know the loop is
+   * asking it to fix something rather than to start again — but WHAT is wrong stays in the evidence
+   * and findings records, whose paths are already in the brief. Source review, MEDIUM.
+   */
+  it('tells a rejoined worker to correct what the records say, in a fixed sentence', () => {
+    const sys = recordingSystem();
+    const session: WorkerSession = {
+      sessionId: 's1',
+      workerId: 'claude-local',
+      kind: CLAUDE_CODE_CLI,
+      phaseId: PHASE,
+      briefId: `${PHASE}@${'c'.repeat(40)}`,
+      briefPath,
+      startedAt: '2026-08-11T18:00:00Z',
+      providerRef: 'abc-123',
+      state: 'started',
+      exitCode: null,
+      corrections: 1,
+    };
+    claudeCodeCliAdapter.rejoin(sys, { workerId: 'claude-local', kind: CLAUDE_CODE_CLI, command: CLAUDE, args: [] }, session);
+    const line = sys.calls[0].args.join(' ');
+    expect(line).toContain(correctionInstruction(briefPath));
+    expect(line).toContain(briefPath);
+    // It is a CORRECTION instruction, not the start instruction repeated.
+    expect(line).not.toContain(pointerInstruction(briefPath));
+    expect(correctionInstruction(briefPath)).not.toBe(pointerInstruction(briefPath));
+  });
+
+  it('the correction sentence carries no finding content — only where to read it', () => {
+    const b = brief();
+    const line = correctionInstruction(briefPath);
+    expect(line).not.toContain(b.phase.description);
+    for (const c of b.phase.acceptanceCriteria) expect(line).not.toContain(c);
+    expect(line).not.toContain(b.phase.phaseId);
+  });
+
+  it('both instructions are constants — the same path always yields the same sentence', () => {
+    expect(correctionInstruction(briefPath)).toBe(correctionInstruction(briefPath));
+    expect(pointerInstruction(briefPath)).toBe(pointerInstruction(briefPath));
   });
 });

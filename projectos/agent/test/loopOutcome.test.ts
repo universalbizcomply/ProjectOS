@@ -17,6 +17,7 @@ import {
   blockingFindings,
   protectedEffects,
   MAX_CORRECTION_ATTEMPTS,
+  PROTECTED_EFFECT_FIELDS,
   type EffectsRecord,
   type ReviewFinding,
 } from '../src/loop/outcome.js';
@@ -269,6 +270,19 @@ function finding(severity: ReviewFinding['severity'], resolved = false): ReviewF
   return { id: `F-${severity}`, severity, category: 'correctness', summary: 'a thing', resolved };
 }
 
+/** A complete attestation: all six effects stated, all false. Nothing less is an attestation. */
+function attested(over: Partial<EffectsRecord> = {}): EffectsRecord {
+  return {
+    productionTouched: false,
+    deploymentOccurred: false,
+    databaseMutationOccurred: false,
+    externalSendOccurred: false,
+    paymentOccurred: false,
+    rawSecretStored: false,
+    ...over,
+  };
+}
+
 /**
  * Everything green: checks pass, both required reviews recorded, and an effects attestation that
  * says nothing protected happened. `effects: {}` is an ATTESTATION; `effects: null` is silence, and
@@ -280,7 +294,7 @@ function greenInput(over: Partial<Parameters<typeof decideContinuation>[0]> = {}
     brief: b,
     checks: [PASS],
     findings: [] as ReviewFinding[],
-    effects: {} as EffectsRecord | null,
+    effects: attested() as EffectsRecord | null,
     reviewsRecorded: [...b.phase.requiredReviews],
     attemptsSpent: 0,
     ...over,
@@ -324,8 +338,41 @@ describe('decideContinuation', () => {
     if (d.kind === 'retry') expect(d.attempt).toBe(1);
   });
 
-  it('carries LOW and MEDIUM findings forward — they are work, not decisions', () => {
+  it('sends unresolved LOW and MEDIUM findings back as work, not on to the owner', () => {
     const d = decideContinuation(greenInput({ findings: [finding('LOW'), finding('MEDIUM')] }));
+    expect(d.kind).toBe('retry');
+    if (d.kind === 'retry') {
+      expect(d.attempt).toBe(1);
+      expect(d.detail).toContain('MEDIUM');
+      expect(d.detail).toContain('LOW');
+    }
+  });
+
+  it('corrects a MEDIUM finding even when every check passed', () => {
+    const d = decideContinuation(greenInput({ checks: [PASS], findings: [finding('MEDIUM')] }));
+    expect(d.kind).toBe('retry');
+  });
+
+  it('stops once LOW/MEDIUM findings resist correction to the bound', () => {
+    const d = decideContinuation(greenInput({ findings: [finding('LOW')], attemptsSpent: MAX_CORRECTION_ATTEMPTS }));
+    expect(d.kind).toBe('stop');
+    if (d.kind === 'stop') {
+      expect(d.reason.code).toBe('CORRECTION_EXHAUSTED');
+      expect(d.reason.detail).toContain('LOW');
+    }
+  });
+
+  it('reports a failing check and an unresolved finding together when both are outstanding', () => {
+    const d = decideContinuation(greenInput({ checks: [FAIL], findings: [finding('MEDIUM')] }));
+    expect(d.kind).toBe('retry');
+    if (d.kind === 'retry') {
+      expect(d.detail).toContain('validate-all');
+      expect(d.detail).toContain('MEDIUM');
+    }
+  });
+
+  it('a RESOLVED LOW or MEDIUM is done, and does not restart correction', () => {
+    const d = decideContinuation(greenInput({ findings: [finding('LOW', true), finding('MEDIUM', true)] }));
     expect(d.kind).toBe('stop');
     if (d.kind === 'stop') expect(d.reason.code).toBe('OWNER_GATE');
   });
@@ -349,7 +396,7 @@ describe('decideContinuation', () => {
   });
 
   it('a protected effect stops a run whose checks all passed', () => {
-    const d = decideContinuation(greenInput({ effects: { productionTouched: true } }));
+    const d = decideContinuation(greenInput({ effects: attested({ productionTouched: true }) }));
     expect(d.kind).toBe('stop');
     if (d.kind === 'stop') {
       expect(d.reason.code).toBe('PROTECTED_EFFECT');
@@ -358,7 +405,7 @@ describe('decideContinuation', () => {
   });
 
   it('a protected effect outranks even a CRITICAL finding', () => {
-    const d = decideContinuation(greenInput({ effects: { paymentOccurred: true }, findings: [finding('CRITICAL')] }));
+    const d = decideContinuation(greenInput({ effects: attested({ paymentOccurred: true }), findings: [finding('CRITICAL')] }));
     expect(d.kind).toBe('stop');
     if (d.kind === 'stop') expect(d.reason.code).toBe('PROTECTED_EFFECT');
   });
@@ -411,7 +458,7 @@ describe('decideContinuation', () => {
       brief: b,
       checks: [PASS],
       findings: [],
-      effects: {},
+      effects: attested(),
       reviewsRecorded: [],
       attemptsSpent: 0,
     });
@@ -425,9 +472,22 @@ describe('the classification helpers', () => {
     expect(blockingFindings(all).map((f) => f.severity)).toEqual(['CRITICAL', 'HIGH']);
   });
 
-  it('protectedEffects names every recorded effect and nothing else', () => {
-    expect(protectedEffects({ externalSendOccurred: true, rawSecretStored: false })).toEqual(['externalSendOccurred']);
+  it('protectedEffects names every effect a run admits to and nothing else', () => {
+    expect(protectedEffects(attested({ externalSendOccurred: true }))).toEqual(['externalSendOccurred']);
+    expect(protectedEffects(attested())).toEqual([]);
+    // An absent attestation admits nothing; the not-attested stop, not this function, judges that.
     expect(protectedEffects(null)).toEqual([]);
-    expect(protectedEffects({})).toEqual([]);
+  });
+
+  it('the fields it judges are exactly the fields an attestation must state', () => {
+    const allTrue = attested({
+      productionTouched: true,
+      deploymentOccurred: true,
+      databaseMutationOccurred: true,
+      externalSendOccurred: true,
+      paymentOccurred: true,
+      rawSecretStored: true,
+    });
+    expect(protectedEffects(allTrue)).toEqual([...PROTECTED_EFFECT_FIELDS]);
   });
 });

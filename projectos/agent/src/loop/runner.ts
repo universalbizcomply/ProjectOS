@@ -170,18 +170,26 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
 
   // A previous run's handle, when there is one. It is what makes a correction cycle a REJOIN of the
   // same worker rather than a fresh worker that knows nothing about the first one's work.
-  let session: WorkerSession = existing ?? {
+  //
+  // ONLY the handle is taken from the record. `briefPath` and `briefId` are recomputed, never read
+  // back: the session record is a file the spawned worker can write to, and the rejoin instruction
+  // puts that path on the worker's command line. A worker that edited its own session record could
+  // otherwise redirect the next rejoin at a file of its choosing — the same working-tree-trust
+  // mistake the committed-config gate exists to prevent, one record along.
+  let session: WorkerSession = {
+    ...(existing ?? {
+      startedAt: sys.now(),
+      providerRef: null,
+      state: 'started' as const,
+      exitCode: null,
+      corrections: 0,
+    }),
     sessionId,
     workerId: resolution.worker.workerId,
     kind: resolution.worker.kind,
     phaseId,
     briefId: brief.briefId,
     briefPath: briefFile,
-    startedAt: sys.now(),
-    providerRef: null,
-    state: 'started',
-    exitCode: null,
-    corrections: 0,
   };
 
   let attempts = 0;
@@ -227,9 +235,12 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
       stop = { code: 'REVIEW_OUTSTANDING', detail: findings.problem };
       break;
     }
+    // An attestation that is unreadable or incomplete is NOT an attestation. It is reported as the
+    // absence it is, rather than as a protected effect that was never claimed — `PROTECTED_EFFECT`
+    // means the run said it did something, and this run said nothing usable.
     const effects = store.readEffects(sys, root, sessionId);
     if (!effects.ok) {
-      stop = { code: 'PROTECTED_EFFECT', detail: effects.problem };
+      stop = { code: 'EFFECTS_NOT_ATTESTED', detail: effects.problem };
       break;
     }
 

@@ -16,7 +16,7 @@ import type { System } from '../system.js';
 import { join, projectopsDir } from '../context.js';
 import type { WorkerBrief } from './brief.js';
 import type { WorkerSession } from './workers.js';
-import type { EffectsRecord, ReviewFinding, Severity } from './outcome.js';
+import { attestationProblems, type EffectsRecord, type ReviewFinding, type Severity } from './outcome.js';
 import type { ExecutionEvidence } from './verification.js';
 
 const SAFE_SESSION_ID = /^[A-Za-z0-9_.-]{1,64}$/;
@@ -125,20 +125,28 @@ export function readFindings(sys: System, root: string, sessionId: string): Read
   return { ok: true, value: { reviews, findings } };
 }
 
-/** Effects this run reported about itself. Absent is none; unreadable is a problem, never none. */
+/**
+ * Effects this run reported about itself.
+ *
+ * Absent is `null` — no attestation, judged at certification. Present but INCOMPLETE is a problem,
+ * not a lenient `null` and certainly not an empty record: `{}` would otherwise certify a run that
+ * answered none of the six questions, which is the fail-open the absent-record rule already closes.
+ */
 export function readEffects(sys: System, root: string, sessionId: string): ReadResult<EffectsRecord | null> {
   const p = effectsPath(root, sessionId);
   const text = sys.readText(p);
   if (text === null) return { ok: true, value: null };
+  let parsed: unknown;
   try {
-    const parsed = JSON.parse(text) as unknown;
-    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return { ok: false, problem: `the effects record at ${p} is not an object` };
-    }
-    return { ok: true, value: parsed as EffectsRecord };
+    parsed = JSON.parse(text);
   } catch {
     return { ok: false, problem: `the effects record at ${p} exists but is not valid JSON; it is not evidence that nothing happened` };
   }
+  const problems = attestationProblems(parsed);
+  if (problems.length > 0) {
+    return { ok: false, problem: `${p}: ${problems.join('; ')}` };
+  }
+  return { ok: true, value: parsed as EffectsRecord };
 }
 
 /**
