@@ -52,6 +52,7 @@ describe('W1 an allowed, well-formed command is accepted', () => {
     'approval.request': { approvalId: 'A1', action: 'close the phase' },
     'approval.decide': { approvalId: 'A1', decision: 'approved' },
     'report.write': { phaseId: 'P1A' },
+    'plan.draft': { objective: 'Make the ordering flow simple enough to need no training at all.' },
   };
 
   test('every verb maps to a canonical typed invocation, or to null for refresh', () => {
@@ -65,10 +66,10 @@ describe('W1 an allowed, well-formed command is accepted', () => {
         continue;
       }
       expect(inv).not.toBeNull();
-      expect(['phase', 'approve', 'report']).toContain(inv!.command);
+      expect(['phase', 'approve', 'report', 'plan']).toContain(inv!.command);
       // Flag NAMES are literals in the mapping; caller input only supplies VALUES.
       for (const name of Object.keys(inv!.flags)) {
-        expect(['id', 'to', 'as', 'delegated', 'note', 'action', 'decision', 'phase']).toContain(name);
+        expect(['id', 'to', 'as', 'delegated', 'note', 'action', 'decision', 'phase', 'objective']).toContain(name);
       }
       expect(inv!.flags).not.toHaveProperty('force');
       expect(inv!.flags).not.toHaveProperty('override');
@@ -253,11 +254,12 @@ describe('W17 protected actions are unreachable through this path', () => {
       'approval.request': { approvalId: 'A1', action: 'close the phase' },
       'approval.decide': { approvalId: 'A1', decision: 'approved' },
       'report.write': { phaseId: 'P1A' },
+      'plan.draft': { objective: 'Make the ordering flow simple enough to need no training at all.' },
     };
     for (const verb of GOVERNED_VERBS) {
       const inv = toAgentInvocation(valid(req({ verb, args: args[verb] })));
       if (inv === null) continue;
-      expect(['phase', 'approve', 'report']).toContain(inv.command);
+      expect(['phase', 'approve', 'report', 'plan']).toContain(inv.command);
       expect(Object.keys(inv.flags)).not.toContain('force');
       expect(Object.keys(inv.flags)).not.toContain('override');
     }

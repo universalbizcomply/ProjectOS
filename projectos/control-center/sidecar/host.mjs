@@ -33,7 +33,7 @@ import { BridgeDaemon, nodeSystem, loadConfig } from '@projectos/bridge-daemon';
 import { InProcessTransport } from '../node-build/daemon/inProcessTransport.js';
 import { projectGovernedState } from '../node-build/governed/governedProjection.js';
 import { validateGovernedCommand, toAgentInvocation } from '../node-build/governed/governedCommands.js';
-import { phase as phaseCommand, approve as approveCommand, report as reportCommand, nodeSystem as agentSystem } from '@projectos/agent';
+import { phase as phaseCommand, approve as approveCommand, report as reportCommand, plan as planCommand, nodeSystem as agentSystem } from '@projectos/agent';
 import { gitBoundSystem } from './gitBoundSystem.mjs';
 
 const LIFECYCLE_PROTOCOL_VERSION = 1;
@@ -241,7 +241,7 @@ function handleGovernedCommand(raw) {
 
   // Called as a TYPED function, never as an argv line. There is no parsing step between the
   // validated request and the runtime, so a value can never become a flag name.
-  const COMMANDS = { phase: phaseCommand, approve: approveCommand, report: reportCommand };
+  const COMMANDS = { phase: phaseCommand, approve: approveCommand, report: reportCommand, plan: planCommand };
   const fn = COMMANDS[invocation.command];
   if (fn === undefined) {
     emit(2, ['REFUSED (UNKNOWN_VERB): no canonical command for this verb.'], check.request.verb);

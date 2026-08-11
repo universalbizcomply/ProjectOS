@@ -14,6 +14,7 @@ import { useLifecycle, useGovernedState } from '../daemon/DaemonProvider';
 import type { LiveLifecycle } from '../daemon/types';
 import { ownerModelFromGoverned } from './governedOwnerModel';
 import { GovernedActions } from './GovernedActions';
+import { ObjectiveIntake } from './ObjectiveIntake';
 import { ProtectedOperationConfirmation } from './confirmation/ProtectedOperationConfirmation';
 import { SYNTHETIC_CONFIRMATION, SYNTHETIC_NOW_MS } from './confirmation/ownerConfirmationFixture';
 import {
@@ -209,6 +210,12 @@ export function OwnerControlPlane() {
 
       {/* Governed actions — only ever shown against live runtime state. */}
       {live !== null && <GovernedActions state={live} />}
+
+      {/* Objective intake. Only against a LIVE runtime: without one there is nothing to submit to,
+          and an input box that silently does nothing is worse than no input box. */}
+      {live !== null && (
+        <ObjectiveIntake projectName={live.projectName} repository={live.repository.repo} />
+      )}
 
       {/* Risks + blockers */}
       <div className="ocp-grid2">

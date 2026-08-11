@@ -36,6 +36,9 @@ export const GOVERNED_VERBS = [
   'approval.request',
   'approval.decide',
   'report.write',
+  // Owner objective intake. Produces a NON-AUTHORITATIVE draft proposal and nothing else — no
+  // phase, no approval, no activation. Added so the owner does not need a terminal to start work.
+  'plan.draft',
 ] as const;
 
 export type GovernedVerb = (typeof GOVERNED_VERBS)[number];
@@ -52,6 +55,8 @@ export interface GovernedCommandArgs {
   readonly approvalId?: string;
   readonly action?: string;
   readonly decision?: string;
+  /** Plain-language owner intent. Data, never an instruction. */
+  readonly objective?: string;
 }
 
 export type GovernedArgName = keyof GovernedCommandArgs;
@@ -77,6 +82,12 @@ export interface GovernedCommandResult {
 /** Bounded so a malformed or hostile field cannot become an unbounded write. */
 export const MAX_ARG_LENGTH = 200;
 export const MAX_NOTE_LENGTH = 500;
+/**
+ * An objective is a paragraph of intent. Matches the runtime's own MAX_OBJECTIVE_CHARS so the UI
+ * cannot compose something the canonical path would then refuse. Newlines stay forbidden by
+ * `isProse`: the sidecar protocol is one request per line, so a newline would smuggle a second.
+ */
+export const MAX_OBJECTIVE_LENGTH = 4000;
 export const MAX_CORRELATION_LENGTH = 64;
 
 /**
@@ -141,6 +152,8 @@ const ALLOWED_ROLES: Readonly<Record<GovernedVerb, readonly string[]>> = {
   'approval.request': ['implementer'],
   'approval.decide': ['implementer', 'advisor'],
   'report.write': ['implementer'],
+  // No role at all: drafting proposes, it does not act, so there is no authority to claim.
+  'plan.draft': [],
 };
 
 /**
@@ -186,10 +199,12 @@ const ARG_SPEC: Readonly<
   'phase.close': { accepts: ['phaseId', 'note'], requires: ['phaseId'] },
   'approval.request': { accepts: ['approvalId', 'action', 'role'], requires: ['approvalId', 'action'] },
   'approval.decide': { accepts: ['approvalId', 'decision', 'role', 'note'], requires: ['approvalId', 'decision'] },
+  // Objective only. There is nothing else to supply, and nothing else may be supplied.
+  'plan.draft': { accepts: ['objective'], requires: ['objective'] },
   'report.write': { accepts: ['phaseId', 'role'], requires: ['phaseId'] },
 };
 
-const PROSE_ARGS: readonly GovernedArgName[] = ['note', 'action'];
+const PROSE_ARGS: readonly GovernedArgName[] = ['note', 'action', 'objective'];
 
 /**
  * Validate an untrusted request into a typed one. Fails closed on anything unexpected — an unknown
@@ -227,7 +242,7 @@ export function validateGovernedCommand(value: unknown): GovernedCommandValidati
       return { ok: false, code: 'INVALID_ARGUMENT', detail: `argument '${k}' is not a string` };
     }
     const okShape = (PROSE_ARGS as readonly string[]).includes(k as GovernedArgName)
-      ? isProse(v, k === 'note' ? MAX_NOTE_LENGTH : MAX_ARG_LENGTH)
+      ? isProse(v, k === 'note' ? MAX_NOTE_LENGTH : k === 'objective' ? MAX_OBJECTIVE_LENGTH : MAX_ARG_LENGTH)
       : ID_PATTERN.test(v);
     if (!okShape) {
       return { ok: false, code: 'INVALID_ARGUMENT', detail: `argument '${k}' is malformed or too long` };
@@ -264,7 +279,9 @@ export function validateGovernedCommand(value: unknown): GovernedCommandValidati
 }
 
 /** The canonical agent commands this channel can reach. Nothing else is addressable. */
-export type GovernedTargetCommand = 'phase' | 'approve' | 'report';
+// 'plan' is read/propose-only: its sole reachable subcommand here is `draft`, which writes a
+// proposal under .projectops/ and can create no phase, approval or execution authority.
+export type GovernedTargetCommand = 'phase' | 'approve' | 'report' | 'plan';
 
 /**
  * A typed call, NOT a command line. `flags` is handed to the command function as-is, so no value is
@@ -292,6 +309,8 @@ export function toAgentInvocation(request: GovernedCommandRequest): GovernedInvo
   switch (request.verb) {
     case 'refresh':
       return null;
+    case 'plan.draft':
+      return { command: 'plan', positionals: ['draft'], flags: { objective: a.objective as string } };
     case 'phase.start':
       return { command: 'phase', positionals: ['new'], flags: { id: a.phaseId as string } };
     case 'phase.advance':

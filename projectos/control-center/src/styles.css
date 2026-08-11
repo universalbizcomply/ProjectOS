@@ -342,6 +342,13 @@ body {
 .ocp-panel.decisions.active { border-color: #4a3d14; box-shadow: 0 0 0 1px #4a3d14 inset; }
 .ocp-panel.next { border-left: 3px solid var(--accent); }
 
+/* Objective intake. The one place an owner types, so it gets room to breathe and a readable
+   monospace echo of exactly what the runtime replied. */
+.ocp-panel.intake { border-left: 3px solid var(--accent); }
+.ocp-objective { width: 100%; box-sizing: border-box; resize: vertical; min-height: 84px; padding: 10px 12px; font: inherit; line-height: 1.45; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
+.ocp-objective:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.ocp-objective-help { margin: 6px 0 10px; font-size: 12px; color: var(--text-faint); }
+
 /* Opt-in example surface. Deliberately quiet: a demonstration must never compete visually with a
    real decision, and its label has to say what it is BEFORE it can be opened. */
 .ocp-panel.preview > summary { cursor: pointer; font-size: 13px; color: var(--text-faint); display: flex; align-items: center; gap: 10px; }
