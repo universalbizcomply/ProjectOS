@@ -34,6 +34,34 @@ const WIDTHS = [
 ] as const;
 
 /** Everything the audit records, printed at the end as one machine-readable block. */
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve as resolvePath, join as joinPath } from 'node:path';
+
+/**
+ * The ACTIVE programme's own facts, read from the same records the runtime governs from.
+ *
+ * Three assertions below named V3's plan version, its 19/19 position and its completed state. They
+ * were true of the programme running when they were written and became false the moment a second
+ * plan was approved — failing for a reason that has nothing to do with what a headed audit is for.
+ * The same lesson is already recorded twice in the unit suite; a proof harness must not need editing
+ * every time the programme it audits moves on.
+ */
+// This spec is ESM: `__dirname` does not exist here.
+const REPO_ROOT = resolvePath(dirname(fileURLToPath(import.meta.url)), '../../../..');
+function repoJson(rel: string): Record<string, unknown> {
+  return JSON.parse(readFileSync(joinPath(REPO_ROOT, rel), 'utf8')) as Record<string, unknown>;
+}
+const ACTIVE_CONFIG = repoJson('.projectops/project-config.json');
+const ACTIVE_MEMORY = ACTIVE_CONFIG['planMemory'] as Record<string, string>;
+const ACTIVE_PLAN = repoJson(ACTIVE_MEMORY['planPath']!);
+const ACTIVE_STATE = repoJson(ACTIVE_MEMORY['currentStatePath']!);
+const ACTIVE_PLAN_VERSION = String(ACTIVE_PLAN['planVersion']);
+const ACTIVE_ACCEPTED = Number(ACTIVE_STATE['acceptedPhaseCount']);
+const ACTIVE_TOTAL = Number(ACTIVE_STATE['totalPhaseCount']);
+const ACTIVE_PERCENT = Number(ACTIVE_STATE['completionPercentage']);
+const ACTIVE_PHASE = ACTIVE_STATE['activePhase'] === null ? null : String(ACTIVE_STATE['activePhase']);
+
 const findings: Record<string, unknown> = {};
 
 /**
@@ -91,19 +119,23 @@ describe('P1 self-hosting pilot — what the owner actually sees', function () {
     findings.liveSourceLine = text;
     expect(text).toContain('Live');
     expect(text).not.toContain('Not live');
-    expect(text).toContain('plan 1.3');
+    expect(text).toContain(`plan ${ACTIVE_PLAN_VERSION}`);
     expect(text).toContain('PLAN READY');
     const body = await $('body').getText();
     expect(body).not.toContain('Local worker unavailable');
   });
 
-  it('P1b the programme reads 19 / 19 at 100 with no active numbered phase', async () => {
+  it('P1b the programme position on screen matches the canonical record exactly', async () => {
     const meter = await $('.ocp-meter [role="progressbar"]');
     await meter.waitForExist({ timeout: 20_000 });
     const shown = Number(await meter.getAttribute('aria-valuenow'));
     findings.completionShown = shown;
-    expect(shown).toBe(100);
-    expect(await $('#main').getText()).toContain('19 of 19');
+    findings.completionRecorded = ACTIVE_PERCENT;
+    // Compared against the RECORD, not against a number typed here. A literal would have to be
+    // edited every time a phase closes, and an audit that needs editing to keep passing proves
+    // nothing about the day it was not edited.
+    expect(shown).toBe(ACTIVE_PERCENT);
+    expect(await $('#main').getText()).toContain(`${ACTIVE_ACCEPTED} of ${ACTIVE_TOTAL}`);
   });
 
   it('P1c records every surface: heading, controls, and whether it renders at all', async () => {
@@ -177,14 +209,28 @@ describe('P1 self-hosting pilot — what the owner actually sees', function () {
     expect(seen.summaryLabel).toContain('Example only');
   });
 
-  it('P1d2 a completed programme is told it is complete, not blocked by a phantom dependency', async () => {
+  it('P1d2 the next action names the real position and never invents a phantom dependency', async () => {
+    // The original defect: with every phase complete the surface said "every remaining phase has an
+    // unmet dependency. Close the phase it depends on first" — there was no such phase. That exact
+    // scenario is pinned by a FIXTURE in the unit suite, because a live programme cannot be both
+    // in-progress and finished at once. What a headed run can prove is the invariant that holds at
+    // whatever position the programme is actually at: the message describes THIS position, and never
+    // sends the owner looking for work that does not exist.
     await gotoView('Owner Control');
     const next = await browser.execute(
       () => (document.querySelector('.ocp-next')?.textContent ?? '').replace(/\s+/g, ' ').trim(),
     );
     findings.nextSafeAction = next;
-    expect(next).toContain('Every phase in the approved plan is complete');
-    expect(next).not.toContain('unmet dependency');
+    findings.activePhaseRecorded = ACTIVE_PHASE;
+    expect(next.length).toBeGreaterThan(0);
+    if (ACTIVE_PHASE !== null) {
+      // A phase is running: the surface must name THAT phase and must not claim a blocked programme.
+      expect(next).toContain(ACTIVE_PHASE);
+      expect(next).not.toContain('unmet dependency');
+    } else if (ACTIVE_ACCEPTED === ACTIVE_TOTAL) {
+      expect(next).toContain('Every phase in the approved plan is complete');
+      expect(next).not.toContain('unmet dependency');
+    }
   });
 
   it('P1e responsive: no horizontal overflow and nav stays reachable at every width', async () => {
