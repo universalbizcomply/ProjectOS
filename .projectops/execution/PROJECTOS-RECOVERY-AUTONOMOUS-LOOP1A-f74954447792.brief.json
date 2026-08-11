@@ -1,0 +1,85 @@
+{
+  "schemaVersion": "1.0.0",
+  "briefId": "PROJECTOS-RECOVERY-AUTONOMOUS-LOOP1A@f749544477929e8050dbaacd9fee778b438512e3",
+  "generatedAt": "2026-08-11T21:23:38.320Z",
+  "projectId": "projectos",
+  "projectName": "ProjectOS",
+  "repository": {
+    "root": "C:\\dev\\ProjectOS",
+    "remote": "universalbizcomply/ProjectOS",
+    "branch": "projectos-post-v3-selfhost-pilot1a",
+    "head": "f749544477929e8050dbaacd9fee778b438512e3"
+  },
+  "plan": {
+    "path": "C:\\dev\\ProjectOS/projectos/state/projectos-recovery.plan.json",
+    "planId": "projectos-operational-recovery-plan",
+    "planVersion": "1.0"
+  },
+  "phase": {
+    "phaseId": "PROJECTOS-RECOVERY-AUTONOMOUS-LOOP1A",
+    "description": "After an approved PLAN READY plan, let ProjectOS run ordinary phases end to end with the governed Claude worker and without manual prompt relay.",
+    "dependsOn": [
+      "PROJECTOS-RECOVERY-PLAN-AUTHORITY1A"
+    ],
+    "acceptanceCriteria": [
+      "ProjectOS determines the next authorised phase, verifies project, repository, branch and state, and creates bounded worker instructions from the approved plan",
+      "ProjectOS starts or reconnects the governed Claude worker and transfers the correct project and phase context automatically; no giant manual prompt relay is required for an ordinary phase",
+      "The worker seam is written so that adding another authorised worker later is a configuration change rather than a rewrite, but only the Claude worker is required to close this phase",
+      "Validators, tests and reviews run automatically, and diffs, changed files and browser or native proof are collected as evidence",
+      "An ordinary defect — a failing test, typecheck, lint, browser finding or LOW/MEDIUM review issue — is corrected and retested automatically and execution continues",
+      "Execution stops only for a material scope decision, an unresolved CRITICAL or HIGH finding, a protected effect, an authority decision, or final merge and closure"
+    ],
+    "riskLevel": "high",
+    "autonomyLevel": "gated-execution",
+    "requiredValidators": [
+      "validate-all"
+    ],
+    "requiredReviews": [
+      "code-review",
+      "security-review"
+    ],
+    "requiredBrowserProof": false,
+    "requiredOwnerGates": [
+      "commit",
+      "push",
+      "phase-closure"
+    ]
+  },
+  "records": {
+    "briefPath": "C:\\dev\\ProjectOS/.projectops/execution/PROJECTOS-RECOVERY-AUTONOMOUS-LOOP1A-f74954447792.brief.json",
+    "findingsPath": "C:\\dev\\ProjectOS/.projectops/execution/PROJECTOS-RECOVERY-AUTONOMOUS-LOOP1A-f74954447792.findings.json",
+    "effectsPath": "C:\\dev\\ProjectOS/.projectops/execution/PROJECTOS-RECOVERY-AUTONOMOUS-LOOP1A-f74954447792.effects.json",
+    "evidencePath": "C:\\dev\\ProjectOS/.projectops/execution/PROJECTOS-RECOVERY-AUTONOMOUS-LOOP1A-f74954447792.evidence.json"
+  },
+  "boundaries": {
+    "forbiddenActions": [
+      "production-deploy",
+      "production-db-mutation",
+      "real-email-sms-whatsapp",
+      "payment-or-live-charge",
+      "force-push",
+      "use-openai-api",
+      "use-anthropic-api",
+      "provider-credential-access",
+      "store-real-secret",
+      "modify-projectos-v2-core",
+      "modify-v2-closure-records",
+      "modify-polygo"
+    ],
+    "approvalGates": [
+      "commit",
+      "push",
+      "phase-closure",
+      "secrets-handling",
+      "production-deploy",
+      "production-db-mutation",
+      "real-email-sms-whatsapp",
+      "payment-or-live-charge"
+    ],
+    "protectedBranches": [
+      "main",
+      "projectos-v2-core"
+    ],
+    "productionFreeze": true
+  }
+}

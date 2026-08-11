@@ -127,12 +127,25 @@ export const WORKER_OWNED_RECORD_GRANTS: readonly string[] = [
 /** ProjectOS's own records. A worker is never granted authority over these. */
 export const PROJECTOS_OWNED_RECORD_SUFFIXES: readonly string[] = ['.brief.json', '.session.json', '.evidence.json'];
 
-const WRITE_GRANT = /^(Write|Edit|MultiEdit|NotebookEdit)\s*\(/i;
+/**
+ * Tools through which a worker could write a file.
+ *
+ * `Bash` is on this list and belongs there: a shell grant is a write grant wearing a different name,
+ * and an enforcement that policed `Write` while waving `Bash(*)` through would be theatre. `Task`
+ * and `Agent` are here for the same reason one step removed — they can dispatch something that
+ * writes.
+ *
+ * WHAT THIS CANNOT DO, stated rather than implied: it governs what THIS CONFIG may grant. It does
+ * not and cannot govern the CLI's own defaults or a user's settings files, which are outside
+ * ProjectOS. The boundary it enforces is "the project cannot widen worker authority quietly", not
+ * "the worker can do nothing else".
+ */
+const WRITE_CAPABLE_GRANT = /^(Write|Edit|MultiEdit|NotebookEdit|Bash|Task|Agent)\s*\(/i;
 
 /**
  * Why this worker's tool grants are unacceptable, or empty when they are fine.
  *
- * Only file-WRITING grants are policed. A worker reading widely is how it does its job; a worker
+ * Only WRITE-CAPABLE grants are policed. A worker reading widely is how it does its job; a worker
  * writing outside the two records it owns is how a run stops being trustworthy.
  */
 export function toolGrantProblems(args: readonly string[]): readonly string[] {
@@ -145,7 +158,7 @@ export function toolGrantProblems(args: readonly string[]): readonly string[] {
       continue;
     }
     for (const grant of value.split(',').map((g) => g.trim()).filter((g) => g.length > 0)) {
-      if (!WRITE_GRANT.test(grant)) continue;
+      if (!WRITE_CAPABLE_GRANT.test(grant)) continue;
       if (!WORKER_OWNED_RECORD_GRANTS.includes(grant)) {
         problems.push(
           `tool grant '${grant}' gives a worker write authority beyond the records it owns; ` +

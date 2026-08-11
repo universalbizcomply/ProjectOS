@@ -96,8 +96,21 @@ describe('toolGrantProblems', () => {
     }
   });
 
+  /**
+   * A shell grant is a write grant wearing a different name. Policing `Write` while waving `Bash(*)`
+   * through would be theatre. Missed by the governed worker's own review of this boundary; found
+   * when reading its findings.
+   */
+  it('REFUSES a shell or dispatch grant, which can write by another route', () => {
+    for (const grant of ['Bash(*)', 'Bash(rm -rf:*)', 'Task(*)', 'Agent(*)', 'bash(echo:*)']) {
+      const problems = toolGrantProblems(['--allowedTools', grant]);
+      expect(problems.length, grant).toBe(1);
+      expect(problems[0], grant).toContain(grant);
+    }
+  });
+
   it('leaves READ-shaped grants alone — reading widely is how a worker does its job', () => {
-    expect(toolGrantProblems(['--allowedTools', 'Read(**),Glob(**),Grep(**),Bash(git diff:*)'])).toEqual([]);
+    expect(toolGrantProblems(['--allowedTools', 'Read(**),Glob(**),Grep(**),WebFetch(*)'])).toEqual([]);
   });
 
   it('honours the --allowed-tools spelling too', () => {
