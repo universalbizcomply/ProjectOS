@@ -235,6 +235,25 @@ describe('phase state comes from durable core records', () => {
     expect(satisfiedLast?.unmetDependencies).toEqual([]);
   });
 
+  test('a DELEGATE closure counts as complete, exactly as the runtime treats it', () => {
+    // Under a plan that records a closure delegation the runtime closes as `advisor`, having
+    // resolved the delegate from the plan and consumed a committed decision. The surface accepted
+    // `owner` alone, so a properly closed phase read as incomplete — disagreeing with the runtime
+    // and with the project's own current-state.
+    const target = SECOND_LAST_ID;
+    const p = projectGovernedState({
+      ...inputs({ currentState: null }),
+      phaseRecords: [
+        {
+          phaseId: target,
+          status: 'closed',
+          history: [{ from: 'awaiting_closure', to: 'closed', by: 'advisor', at: '2026-08-11T14:00:00Z' }],
+        },
+      ],
+    });
+    expect(p.phases.find((x) => x.phaseId === LAST_ID)?.unmetDependencies).toEqual([]);
+  });
+
   test('completion evidence requires an OWNER closure, matching the runtime gate exactly', () => {
     const target = SECOND_LAST_ID;
     const base = inputs({ currentState: null });

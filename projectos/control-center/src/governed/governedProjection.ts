@@ -121,11 +121,21 @@ function historyOf(rec: Record<string, unknown>): readonly GovernedTransition[] 
  * dependency gate applies (`governedContext.isOwnerClosed`). Kept identical on purpose: if the two
  * disagreed, the surface would offer a Start the runtime then refuses, or hide one it would allow.
  */
+/**
+ * A GENUINE closure — by the owner, or by the delegate the plan names.
+ *
+ * This accepted `by: 'owner'` alone, which was true only while every closure was the owner's own.
+ * Under a plan that records a closure delegation the runtime closes as `advisor`, and it will only
+ * do so having resolved the delegate's identity from the plan and consumed a committed decision —
+ * so an `advisor` entry in a closed record already implies the grant path was taken. Refusing it
+ * here made the surface report a properly closed phase as incomplete, disagreeing with the runtime
+ * and with the project's own current-state: precisely the stale-status untruth this phase removes.
+ */
 function isOwnerClosed(rec: Record<string, unknown>): boolean {
   if (rec['status'] !== 'closed') return false;
   const history = historyOf(rec);
   const last = history[history.length - 1];
-  return last !== undefined && last.to === 'closed' && last.by === 'owner';
+  return last !== undefined && last.to === 'closed' && (last.by === 'owner' || last.by === 'advisor');
 }
 
 function delegationOf(governance: Record<string, unknown> | undefined): GovernedDelegationView | null {

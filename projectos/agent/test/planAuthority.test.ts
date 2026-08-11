@@ -220,6 +220,47 @@ describe('approved-phase membership and dependencies gate creation', () => {
     expect(authorisePhase(sys, ROOT, ctxOf(sys), PHASE_18).ok).toBe(true);
   });
 
+  it('T6c a DELEGATE closure satisfies a dependency, exactly as the runtime produces it', () => {
+    // Under a recorded closure delegation the runtime closes as `advisor`, and `transitionPhase`
+    // permits that ONLY with a grant resolved from the plan and a committed decision it consumed —
+    // so an `advisor` entry in a closed record already implies the grant path was taken. The rule
+    // accepted `owner` alone, so a properly closed phase did not satisfy the next phase's
+    // dependency; the chain only continued because the declared current-state happened to record the
+    // completion too. A rule that is right only when a second source agrees is not the rule.
+    const state = activeState();
+    state['completedPhases'] = (state['completedPhases'] as string[]).filter((p) => p !== PHASE_17);
+    const sys = selfHosted(
+      {},
+      {
+        [`${ROOT}/${STATE_REL}`]: JSON.stringify(state),
+        [`${ROOT}/.projectops/phases/${PHASE_17}.json`]: JSON.stringify({
+          phaseId: PHASE_17,
+          project: 'ProjectOS',
+          objective: 'o',
+          status: 'closed',
+          history: [{ from: 'awaiting_closure', to: 'closed', by: 'advisor', at: '2026-08-11T14:00:00Z' }],
+        }),
+      },
+    );
+    expect(authorisePhase(sys, ROOT, ctxOf(sys), PHASE_18).ok).toBe(true);
+
+    // And the implementer still cannot manufacture one by writing the word.
+    const forged = selfHosted(
+      {},
+      {
+        [`${ROOT}/${STATE_REL}`]: JSON.stringify(state),
+        [`${ROOT}/.projectops/phases/${PHASE_17}.json`]: JSON.stringify({
+          phaseId: PHASE_17,
+          project: 'ProjectOS',
+          objective: 'o',
+          status: 'closed',
+          history: [{ from: 'awaiting_closure', to: 'closed', by: 'implementer', at: '2026-08-11T14:00:00Z' }],
+        }),
+      },
+    );
+    expect(authorisePhase(forged, ROOT, ctxOf(forged), PHASE_18).ok).toBe(false);
+  });
+
   it('T7 an approved phase with satisfied dependencies is authorised, and returns the plan phase', () => {
     const sys = selfHosted();
     const r = authorisePhase(sys, ROOT, ctxOf(sys), PHASE_12);

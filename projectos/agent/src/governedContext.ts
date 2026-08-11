@@ -243,7 +243,14 @@ function isOwnerClosed(p: { readonly status: string; readonly history?: readonly
   if (p.status !== 'closed') return false;
   const history = Array.isArray(p.history) ? p.history : [];
   const last = history[history.length - 1];
-  return last !== undefined && last.to === 'closed' && last.by === 'owner';
+  // Owner, or the delegate the plan names. This accepted the owner alone, which held only while
+  // every closure was the owner's own. Under a recorded closure delegation the runtime closes as
+  // `advisor`, and `transitionPhase` permits that ONLY with a grant it resolved from the plan and a
+  // committed decision it consumed — so an `advisor` entry in a closed record already implies the
+  // grant path. Refusing it meant a properly closed phase did not satisfy the next phase's
+  // dependency, and the chain only continued because the declared current-state happened to record
+  // the completion too. A rule that is right only when a second source agrees is not the rule.
+  return last !== undefined && last.to === 'closed' && (last.by === 'owner' || last.by === 'advisor');
 }
 
 /**
