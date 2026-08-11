@@ -524,14 +524,31 @@ export interface ApproveOptions {
   readonly programmeId: string;
 }
 
-/** Is this path present in the committed tree at HEAD? `false` also covers "could not establish". */
-function isCommitted(sys: System, relPath: string): boolean {
-  const r = sys.exec('git', ['cat-file', '-e', `HEAD:${relPath}`]);
-  return r.code === 0;
+/**
+ * Ids that become FILENAMES. This is a security boundary, not a formatting nicety: both ids arrive
+ * from the command line and are joined onto a path, so anything path-shaped would let a caller read
+ * a record from outside the project — and, for the decision, write the consumption marker there.
+ * `.` and `:` are excluded even though they are legal in a record id, because `..` and a Windows
+ * drive letter are exactly the shapes that escape.
+ */
+const FILENAME_ID = /^[A-Za-z0-9_-]{8,128}$/;
+
+/**
+ * Read a record FROM THE COMMITTED BLOB at HEAD, never from the working tree.
+ *
+ * "Is it committed?" and "what does it say?" have to be the same question. Checking that a path
+ * exists at HEAD and then reading the working-tree file answers them separately, so an innocuous
+ * record could be committed while a different one sat on disk — and the second is the one that would
+ * be believed. `git show` also returns the blob as stored, so a checkout's line-ending conversion
+ * cannot change what was reviewed. Null means "not committed, or unreadable", which fails closed.
+ */
+function readCommittedJson(sys: System, relPath: string): Record<string, unknown> | null {
+  const r = sys.exec('git', ['show', `HEAD:${relPath}`]);
+  if (r.code !== 0) return null;
+  return parseObject(r.stdout);
 }
 
-function readJson(sys: System, path: string): Record<string, unknown> | null {
-  const text = sys.readText(path);
+function parseObject(text: string | null): Record<string, unknown> | null {
   if (text === null) return null;
   try {
     const v = JSON.parse(text) as unknown;
@@ -541,11 +558,40 @@ function readJson(sys: System, path: string): Record<string, unknown> | null {
   }
 }
 
+function readJson(sys: System, path: string): Record<string, unknown> | null {
+  return parseObject(sys.readText(path));
+}
+
+/**
+ * The refusal an operator actually needs when a record is sitting right there but is not committed.
+ * Without this the message is the accurate but baffling "no committed record exists" while the file
+ * is plainly on disk.
+ */
+function uncommittedButPresent(sys: System, root: string, rel: string, label: string): readonly string[] | null {
+  if (!sys.exists(join(root, rel))) return null;
+  return [
+    `${rel} exists in the working tree but is not committed, so it does not count. An uncommitted ` +
+      `${label} has not passed the owner commit gate, which is the only thing that makes a forged one a ` +
+      `visible diff under this programme's tamperProof:false model. Commit it and try again.`,
+  ];
+}
+
 /**
  * Approve one draft and activate the plan it proposes. The only route in this codebase by which a
  * record with `planStatus: PLAN READY` comes into existence.
  */
 export function approvePlan(sys: System, root: string, opts: ApproveOptions): ApprovalResult {
+  // Before either id touches a path. See FILENAME_ID.
+  for (const [label, id] of [['draft', opts.draftId], ['decision', opts.decisionId]] as const) {
+    if (!FILENAME_ID.test(id)) {
+      return {
+        ok: false,
+        code: 'UNSAFE_TARGET_PATH',
+        problems: [`the ${label} id '${id}' is not a plain identifier (letters, digits, underscore and hyphen only)`],
+      };
+    }
+  }
+
   const config = readJson(sys, join(projectopsDir(root), 'project-config.json'));
   if (config === null) return { ok: false, code: 'NO_CONFIG', problems: ['no readable .projectops/project-config.json'] };
 
@@ -602,32 +648,53 @@ export function approvePlan(sys: System, root: string, opts: ApproveOptions): Ap
   // A NEW plan is a NEW record. Approving a draft may not rewrite the plan the project is governed by
   // today: that record is either a live plan whose approval this decision is not, or — as here — the
   // record of a closed programme, which is history. Either way it is not this command's to edit.
-  const norm = (p: string): string => p.replace(/\\/g, '/').replace(/^\.\//, '').toLowerCase();
+  //
+  // Nor may it write over ANY existing file. The target is caller-supplied, so without this the
+  // command is a "write arbitrary JSON anywhere inside the repository" primitive wearing a governance
+  // hat, and one mistyped flag overwrites a source file.
+  const norm = (p: string): string =>
+    p.replace(/\\/g, '/').split('/').filter((s) => s !== '' && s !== '.').join('/').toLowerCase();
+  const declaredState = (config['planMemory'] as Record<string, unknown> | undefined)?.['currentStatePath'];
   for (const [label, rel] of [['plan', opts.planRelPath], ['current state', opts.stateRelPath]] as const) {
     if (!engine.isSafeRepoRelativePath(rel)) {
       return { ok: false, code: 'UNSAFE_TARGET_PATH', problems: [`the ${label} path '${rel}' is not a safe project-relative path`] };
     }
-    if (typeof declaredPlan === 'string' && norm(rel) === norm(declaredPlan)) {
+    for (const active of [declaredPlan, declaredState]) {
+      if (typeof active === 'string' && norm(rel) === norm(active)) {
+        return {
+          ok: false,
+          code: 'WOULD_OVERWRITE_ACTIVE_PLAN',
+          problems: [`refusing to write the ${label} over the currently active plan memory '${active}'`],
+        };
+      }
+    }
+    if (sys.exists(join(root, rel))) {
       return {
         ok: false,
         code: 'WOULD_OVERWRITE_ACTIVE_PLAN',
-        problems: [`refusing to write the ${label} over the currently active plan record '${declaredPlan}'`],
+        problems: [`refusing to write the ${label} over the existing file '${rel}' — a new plan is a new record`],
       };
     }
   }
 
+  // Both authority records are read from the committed blob, so what is checked is what was reviewed.
   const delegationRel = `.projectops/authority/plan-approval-delegation.json`;
-  const delegation = readJson(sys, planApprovalDelegationPath(root));
-  const delegationProblems = checkPlanApprovalDelegation(delegation, {
-    projectId: proposal.projectId,
-    recordedOwner,
-    isCommitted: isCommitted(sys, delegationRel),
-  });
+  const delegation = readCommittedJson(sys, delegationRel);
+  const delegationProblems =
+    (delegation === null ? uncommittedButPresent(sys, root, delegationRel, 'delegation') : null) ??
+    checkPlanApprovalDelegation(delegation, {
+      projectId: proposal.projectId,
+      recordedOwner,
+      isCommitted: delegation !== null,
+    });
   if (delegationProblems.length > 0) return { ok: false, code: 'DELEGATION_INVALID', problems: delegationProblems };
   const expectedDecider = String((delegation as PlanApprovalDelegationRecord).delegatedTo);
 
   const decisionRel = `.projectops/plan-decisions/${opts.decisionId}.json`;
-  const decision = readJson(sys, planDecisionPath(root, opts.decisionId));
+  const decision = readCommittedJson(sys, decisionRel);
+  const baseHead = decision?.['baseHead'];
+  const uncommittedDecision = decision === null ? uncommittedButPresent(sys, root, decisionRel, 'decision') : null;
+  if (uncommittedDecision !== null) return { ok: false, code: 'DECISION_INVALID', problems: uncommittedDecision };
   const decisionProblems = checkPlanApprovalDecision(decision, {
     projectId: proposal.projectId,
     repository: proposal.repository,
@@ -635,12 +702,23 @@ export function approvePlan(sys: System, root: string, opts: ApproveOptions): Ap
     draftId: opts.draftId,
     planDigest: proposal.planDigest,
     expectedDecider,
-    isCommitted: isCommitted(sys, decisionRel),
+    isCommitted: decision !== null,
+    // Only a well-formed commit id is ever handed to git, so a record cannot aim this at a symbolic
+    // ref or anything else that resolves to something it is not.
     baseHeadExists:
-      typeof decision?.['baseHead'] === 'string' &&
-      sys.exec('git', ['cat-file', '-e', `${String(decision['baseHead'])}^{commit}`]).code === 0,
+      typeof baseHead === 'string' &&
+      /^[0-9a-f]{40}$/.test(baseHead) &&
+      sys.exec('git', ['cat-file', '-e', `${baseHead}^{commit}`]).code === 0,
   });
   if (decisionProblems.length > 0) return { ok: false, code: 'DECISION_INVALID', problems: decisionProblems };
+  // The record must be the one that was asked for, not merely a valid one sitting at that path.
+  if (decision !== null && decision['decisionId'] !== opts.decisionId) {
+    return {
+      ok: false,
+      code: 'DECISION_INVALID',
+      problems: [`the record at ${decisionRel} calls itself ${JSON.stringify(decision['decisionId'])}, not '${opts.decisionId}'`],
+    };
+  }
 
   const now = sys.now();
   const materialised = materialisePlan({
@@ -700,9 +778,22 @@ export function approvePlan(sys: System, root: string, opts: ApproveOptions): Ap
 
   // Activation: the project now governs from the new plan. The previous plan record is left exactly
   // as it is — a closed programme's record is history and is never rewritten.
+  //
+  // The outgoing plan memory is KEPT as a declared planning source. Not tidiness: `planMemory` names
+  // one plan and one current state, so simply repointing it would drop the completion evidence that
+  // retires the finished programme, and the very next objective would be proposed the closed
+  // programme's phases all over again — the exact failure this recovery began with. Declaring them
+  // keeps them readable and keeps the retirement provable, and declaring a document confers no
+  // authority on it.
+  const carried = [
+    ...(Array.isArray(config['planSources']) ? (config['planSources'] as unknown[]).filter((x): x is string => typeof x === 'string') : []),
+    ...[declaredPlan, declaredState].filter((x): x is string => typeof x === 'string'),
+  ];
+  const planSources = carried.filter((p, i) => carried.findIndex((q) => norm(q) === norm(p)) === i);
   const nextConfig = {
     ...config,
     planMemory: { planPath: opts.planRelPath, currentStatePath: opts.stateRelPath },
+    planSources,
   };
   sys.writeText(join(projectopsDir(root), 'project-config.json'), `${JSON.stringify(nextConfig, null, 2)}\n`);
 

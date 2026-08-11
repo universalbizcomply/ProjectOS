@@ -146,8 +146,11 @@ interface World {
 
 /** Lets a test damage the governance the new plan inherits, to prove readiness is really recomputed. */
 let governanceOverride: Record<string, unknown> | null = null;
+/** repo-relative path (lowercased) -> the text git reports at HEAD, when it differs from the tree. */
+const committedOverride = new Map<string, string>();
 afterEach(() => {
   governanceOverride = null;
+  committedOverride.clear();
 });
 
 /**
@@ -213,13 +216,21 @@ function world(opts: { committed?: readonly string[]; planDoc?: string } = {}): 
       const key = args.join(' ');
       if (key === 'rev-parse HEAD') return { code: 0, stdout: HEAD, stderr: '' };
       if (key === 'rev-parse --abbrev-ref HEAD') return { code: 0, stdout: 'main', stderr: '' };
-      // `cat-file -e HEAD:<path>` answers "is this committed?"; `<sha>^{commit}` answers "does this
-      // commit exist?". Both fail closed for anything the test did not declare.
-      if (args[0] === 'cat-file' && args[1] === '-e') {
-        const ref = String(args[2] ?? '');
-        if (ref.startsWith('HEAD:')) return { code: committed.has(ref.slice(5).toLowerCase()) ? 0 : 1, stdout: '', stderr: '' };
-        if (ref === `${HEAD}^{commit}`) return { code: 0, stdout: '', stderr: '' };
-        return { code: 1, stdout: '', stderr: '' };
+      // `show HEAD:<path>` serves the COMMITTED blob. A path the test did not declare committed is
+      // absent from HEAD however present it is on disk — which is the whole point of the check.
+      // `committedOverride` lets a test commit one thing and leave a different one in the tree.
+      if (args[0] === 'show') {
+        const ref = String(args[1] ?? '');
+        if (!ref.startsWith('HEAD:')) return { code: 1, stdout: '', stderr: '' };
+        const rel = ref.slice(5);
+        if (!committed.has(rel.toLowerCase())) return { code: 1, stdout: '', stderr: `fatal: path '${rel}' does not exist in 'HEAD'` };
+        const override = committedOverride.get(rel.toLowerCase());
+        if (override !== undefined) return { code: 0, stdout: override, stderr: '' };
+        const abs = pjoin(root, rel);
+        return existsSync(abs) ? { code: 0, stdout: readFileSync(abs, 'utf8'), stderr: '' } : { code: 1, stdout: '', stderr: '' };
+      }
+      if (args[0] === 'cat-file' && args[1] === '-e' && String(args[2] ?? '') === `${HEAD}^{commit}`) {
+        return { code: 0, stdout: '', stderr: '' };
       }
       return { code: 1, stdout: '', stderr: '' };
     },
@@ -296,6 +307,27 @@ describe('exact plan approval — the happy path, once', () => {
     // Readiness is real: the governed context, which recomputes it, now resolves.
     const gc = loadGovernedContext(w.sys, w.root);
     expect(gc.ok ? gc.context.planPath : `refused: ${gc.code}`).toContain('recovery.plan.json');
+  });
+
+  test('activation keeps the finished programme retired instead of resurrecting it', () => {
+    const w = world({ committed: COMMITTED });
+    writeDelegation(w);
+    const id = writeDecision(w);
+    expect(run(w, id).ok).toBe(true);
+
+    // planMemory now names the new plan, and the outgoing plan memory is retained as a declared
+    // planning source — so the completion evidence that retires the old programme is still read.
+    const cfg = JSON.parse(readFileSync(pjoin(w.root, '.projectops/project-config.json'), 'utf8')) as Record<string, unknown>;
+    expect((cfg['planMemory'] as Record<string, unknown>)['planPath']).toBe('state/recovery.plan.json');
+    expect(cfg['planSources']).toContain('state/active.plan.json');
+    expect(cfg['planSources']).toContain('state/active.current-state.json');
+
+    // Proof, not inference: a fresh proposal must still contain only the new plan's phase.
+    const again = submitObjective(w.sys, w.root, 'A second objective, submitted after activation, for the same project.');
+    expect(again.ok).toBe(true);
+    if (!again.ok) return;
+    const ids = (again.draftRecord.draft['phaseCandidates'] as { phaseId: string }[]).map((p) => p.phaseId);
+    expect(ids).not.toContain('ACME-OLD1A');
   });
 
   test('the previously active plan record is left byte-identical', () => {
@@ -551,6 +583,116 @@ describe('exact plan approval — currentness and target safety', () => {
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.code).toBe('UNSAFE_TARGET_PATH');
+  });
+
+  test('what is checked is the COMMITTED record, not the file on disk', () => {
+    // The attack: commit a decision the reviewer would accept, then swap the file in the working
+    // tree for one that approves different plan material. Only the committed bytes may count.
+    const w = world({ committed: COMMITTED });
+    writeDelegation(w);
+    const id = writeDecision(w);
+    committedOverride.set(
+      `.projectops/plan-decisions/${id}.json`.toLowerCase(),
+      JSON.stringify(decision(w, { planDigest: 'sha256:' + '0'.repeat(64) })),
+    );
+    const r = run(w, id);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.code).toBe('DECISION_INVALID');
+    expect(r.problems.join(' ')).toMatch(/different plan material/i);
+  });
+
+  test('the same swap on the delegation is refused too', () => {
+    const w = world({ committed: COMMITTED });
+    writeDelegation(w);
+    const id = writeDecision(w);
+    committedOverride.set(
+      '.projectops/authority/plan-approval-delegation.json',
+      JSON.stringify(delegation({ delegatedTo: 'Mallory' })),
+    );
+    const r = run(w, id);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    // The committed delegation names Mallory, so the decision by Grace is not by the authority.
+    expect(r.code).toBe('DECISION_INVALID');
+    expect(r.problems.join(' ')).toMatch(/not the recorded plan-approval authority/i);
+  });
+
+  test('a path-shaped id cannot reach outside the project', () => {
+    const w = world({ committed: COMMITTED });
+    writeDelegation(w);
+    writeDecision(w);
+    for (const bad of ['../../etc/passwd', '..\\..\\evil', 'C:sneaky.json', 'a/b/c-decision']) {
+      const r = approvePlan(w.sys, w.root, {
+        draftId: w.draftId,
+        decisionId: bad,
+        planRelPath: 'state/recovery.plan.json',
+        stateRelPath: 'state/recovery.current-state.json',
+        planId: 'x',
+        programmeId: 'y',
+      });
+      expect(r.ok).toBe(false);
+      if (r.ok) return;
+      expect(r.code).toBe('UNSAFE_TARGET_PATH');
+    }
+  });
+
+  test('a decision file that calls itself something else is refused', () => {
+    const w = world({ committed: [COMMITTED[0]!, '.projectops/plan-decisions/RENAMED-DECISION.json'] });
+    writeDelegation(w);
+    const d = decision(w, { decisionId: 'ACME-PLAN-APPROVAL-DECISION1A' });
+    w.sys.writeText(pjoin(w.root, '.projectops/plan-decisions/RENAMED-DECISION.json'), JSON.stringify(d, null, 2));
+    const r = approvePlan(w.sys, w.root, {
+      draftId: w.draftId,
+      decisionId: 'RENAMED-DECISION',
+      planRelPath: 'state/recovery.plan.json',
+      stateRelPath: 'state/recovery.current-state.json',
+      planId: 'x',
+      programmeId: 'y',
+    });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.problems.join(' ')).toMatch(/calls itself/i);
+  });
+
+  test('a record-supplied ref is never handed to git unvalidated', () => {
+    // The refusal is the same either way, so this asserts the mechanism rather than the outcome: a
+    // string from an untrusted record must not reach git as a ref, where `HEAD`, `@{upstream}` or a
+    // branch name would resolve to something it is not.
+    const w = world({ committed: COMMITTED });
+    writeDelegation(w);
+    const id = writeDecision(w, { baseHead: 'HEAD' });
+    const refs: string[] = [];
+    const spy: System = { ...w.sys, exec: (cmd, args) => { refs.push(args.join(' ')); return w.sys.exec(cmd, args); } };
+    const r = approvePlan(spy, w.root, {
+      draftId: w.draftId,
+      decisionId: id,
+      planRelPath: 'state/recovery.plan.json',
+      stateRelPath: 'state/recovery.current-state.json',
+      planId: 'x',
+      programmeId: 'y',
+    });
+    expect(r.ok).toBe(false);
+    expect(refs.some((c) => c.includes('HEAD^{commit}'))).toBe(false);
+  });
+
+  test('an existing file is never written over', () => {
+    const w = world({ committed: COMMITTED });
+    writeDelegation(w);
+    const id = writeDecision(w);
+    writeFileSync(pjoin(w.root, 'state/occupied.json'), '{"important":true}');
+    const r = approvePlan(w.sys, w.root, {
+      draftId: w.draftId,
+      decisionId: id,
+      planRelPath: 'state/occupied.json',
+      stateRelPath: 'state/recovery.current-state.json',
+      planId: 'x',
+      programmeId: 'y',
+    });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.code).toBe('WOULD_OVERWRITE_ACTIVE_PLAN');
+    expect(readFileSync(pjoin(w.root, 'state/occupied.json'), 'utf8')).toBe('{"important":true}');
   });
 
   test('a plan document missing a governance attribute is refused rather than defaulted', () => {
