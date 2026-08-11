@@ -44,8 +44,11 @@ import { buildProposal, loadDiscoveryEngine, type DraftRecord, type Proposal } f
 export const PLAN_APPROVAL_DELEGATION_SCHEMA_VERSION = '1.0.0';
 export const PLAN_APPROVAL_DECISION_SCHEMA_VERSION = '1.0.0';
 
-/** The one scope this delegation may carry. Closure delegation is a separate, existing concept. */
+/** The one scope a plan-approval delegation may carry. Closure is delegated separately, below. */
 export const PLAN_APPROVAL_SCOPE = 'plan-approval';
+
+/** The only scopes a closure delegation may carry. Neither is authority to ACT. */
+export const CLOSURE_SCOPES: readonly string[] = ['phase-closure', 'programme-closure'];
 
 const HEX40 = /^[0-9a-f]{40}$/;
 const ID_SHAPE = /^[A-Za-z0-9_.:-]{8,128}$/;
@@ -133,6 +136,10 @@ export function planApprovalDelegationPath(root: string): string {
   return join(authorityDir(root), 'plan-approval-delegation.json');
 }
 
+export function closureDelegationPath(root: string): string {
+  return join(authorityDir(root), 'closure-delegation.json');
+}
+
 export function planDecisionsDir(root: string): string {
   return join(projectopsDir(root), 'plan-decisions');
 }
@@ -198,6 +205,50 @@ export function checkPlanApprovalDelegation(
         "only thing that makes a forged one a visible diff under this programme's tamperProof:false model",
     );
   }
+  return e;
+}
+
+/**
+ * Why this record is not a usable CLOSURE delegation, or `[]` when it is.
+ *
+ * Separate from the plan-approval delegation on purpose. Approving a plan and closing a phase are
+ * different authorities, and a record that could grant both would be a way to widen one by editing
+ * the other. Same trust basis as everything else here: it must be committed, and it grants no
+ * protected effect.
+ */
+export function checkClosureDelegationRecord(
+  record: PlanApprovalDelegationRecord | null,
+  expect: DelegationExpectations & { readonly programmeId: string },
+): readonly string[] {
+  if (record === null) return [];    // absent is legitimate — closure then stays where it already is
+  const { engine } = loadGovernanceEngine();
+  const e: string[] = [];
+  if (record.schemaVersion !== PLAN_APPROVAL_DELEGATION_SCHEMA_VERSION) {
+    e.push(`closure delegation schemaVersion is ${JSON.stringify(record.schemaVersion)}, expected "${PLAN_APPROVAL_DELEGATION_SCHEMA_VERSION}"`);
+  }
+  if (strOf(record.delegationId) === null || !ID_SHAPE.test(String(record.delegationId))) {
+    e.push('closure delegation has no usable delegationId');
+  }
+  if (record.projectId !== expect.projectId) {
+    e.push(`closure delegation is for project ${JSON.stringify(record.projectId)}, not '${expect.projectId}'`);
+  }
+  if (record.programmeScope !== expect.programmeId) {
+    e.push(`closure delegation is scoped to programme ${JSON.stringify(record.programmeScope)}, not '${expect.programmeId}'`);
+  }
+  if (record.delegatedBy !== expect.recordedOwner) {
+    e.push(`closure delegation claims to come from ${JSON.stringify(record.delegatedBy)}, who is not this project's recorded owner '${expect.recordedOwner}'`);
+  }
+  const to = strOf(record.delegatedTo);
+  if (to === null) e.push('closure delegation names no delegatedTo');
+  else if (engine.isImplementerIdentity(to)) e.push(`closure delegation names the implementer (${to}) — the implementer can never close`);
+  const scope = Array.isArray(record.delegatedScope) ? record.delegatedScope : null;
+  if (scope === null || scope.length === 0) e.push('closure delegation carries no scope');
+  else for (const s of scope) if (!CLOSURE_SCOPES.includes(String(s))) e.push(`closure delegation carries a scope it may not grant: ${JSON.stringify(s)}`);
+  if (record.excludesProtectedActions !== true) {
+    e.push('closure delegation must state excludesProtectedActions: true — closing something never carries protected-action authority');
+  }
+  if (strOf(record.delegationDate) === null) e.push('closure delegation records no delegationDate');
+  if (!expect.isCommitted) e.push('the closure delegation is not committed, so it has not passed the owner commit gate');
   return e;
 }
 
@@ -286,6 +337,11 @@ export interface MaterialiseInputs {
   readonly activePlan: Record<string, unknown>;
   readonly decision: PlanApprovalDecisionRecord;
   readonly delegation: PlanApprovalDelegationRecord;
+  /**
+   * The owner's closure delegation for THIS programme, when one is recorded. Absent means closure
+   * stays exactly where the project's active plan already puts it — carried forward, not invented.
+   */
+  readonly closureDelegation?: PlanApprovalDelegationRecord | null;
   readonly planId: string;
   readonly programmeId: string;
   readonly now: string;
@@ -383,6 +439,29 @@ export function materialisePlan(input: MaterialiseInputs): MaterialiseResult {
   const secrets = (input.config['secretsPolicy'] as Record<string, unknown> | undefined) ?? {};
   const decidedAt = strOf(input.decision.decidedAt) ?? input.now;
 
+  // CLOSURE AUTHORITY. Where the owner has recorded a closure delegation for this programme, the new
+  // plan states THAT — with this programme named in it — rather than inheriting a delegation whose
+  // own notes describe the previous programme. Where the owner has recorded none, the active plan's
+  // arrangement is carried forward unchanged, because an approval of a draft is not the moment to
+  // invent who may close.
+  const cd = input.closureDelegation ?? null;
+  const closureFromRecord = cd === null
+    ? null
+    : {
+        delegatedBy: String(cd.delegatedBy),
+        delegatedTo: String(cd.delegatedTo),
+        delegationDate: String(cd.delegationDate),
+        delegatedScope: (cd.delegatedScope as readonly string[]).slice(),
+        projectScope: input.proposal.projectId,
+        excludesProtectedActions: true,
+        notes:
+          `Recorded by owner ${String(cd.delegatedBy)} for programme '${input.programmeId}' in ` +
+          `${String(cd.delegationId)}. Closure only: it is not authority to act, and it excludes every ` +
+          `protected effect, which stays with the owner.`,
+      };
+  const closureDelegation = closureFromRecord ?? gov['closureDelegation'];
+  const closureAuthority = closureFromRecord !== null ? closureFromRecord.delegatedTo : (strOf(gov['closureAuthority']) ?? '');
+
   const plan: Record<string, unknown> = {
     schemaVersion: strOf(input.activePlan['schemaVersion']) ?? '1.0.0',
     projectId: input.proposal.projectId,
@@ -424,8 +503,8 @@ export function materialisePlan(input: MaterialiseInputs): MaterialiseResult {
       allowedActions: arrOfStrings(gov['allowedActions']),
       forbiddenActions: arrOfStrings(gov['forbiddenActions']),
       ownerOnlyActions: arrOfStrings(gov['ownerOnlyActions']),
-      closureAuthority: strOf(gov['closureAuthority']) ?? '',
-      ...(gov['closureDelegation'] !== undefined ? { closureDelegation: gov['closureDelegation'] } : {}),
+      closureAuthority,
+      ...(closureDelegation !== undefined ? { closureDelegation } : {}),
       noApiPolicy: gov['noApiPolicy'] === true,
     },
 
@@ -733,6 +812,19 @@ export function approvePlan(sys: System, root: string, opts: ApproveOptions): Ap
     };
   }
 
+  // Optional, and checked when present. Absent leaves closure exactly where the active plan puts it.
+  const closureRel = `.projectops/authority/closure-delegation.json`;
+  const closureDelegation = readCommittedJson(sys, closureRel);
+  const closureProblems =
+    (closureDelegation === null ? uncommittedButPresent(sys, root, closureRel, 'closure delegation') : null) ??
+    checkClosureDelegationRecord(closureDelegation, {
+      projectId: proposal.projectId,
+      recordedOwner,
+      isCommitted: closureDelegation !== null,
+      programmeId: opts.programmeId,
+    });
+  if (closureProblems.length > 0) return { ok: false, code: 'DELEGATION_INVALID', problems: closureProblems };
+
   const now = sys.now();
   const materialised = materialisePlan({
     proposal,
@@ -740,6 +832,7 @@ export function approvePlan(sys: System, root: string, opts: ApproveOptions): Ap
     activePlan,
     decision: decision as PlanApprovalDecisionRecord,
     delegation: delegation as PlanApprovalDelegationRecord,
+    closureDelegation,
     planId: opts.planId,
     programmeId: opts.programmeId,
     now,

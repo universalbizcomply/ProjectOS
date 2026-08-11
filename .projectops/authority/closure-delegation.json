@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "1.0.0",
+  "delegationId": "PROJECTOS-RECOVERY-CLOSURE-DELEGATION1A",
+  "projectId": "projectos",
+  "programmeScope": "projectos-operational-recovery",
+  "delegatedBy": "Murad",
+  "delegatedTo": "ChatGPT",
+  "delegatedScope": [
+    "phase-closure",
+    "programme-closure"
+  ],
+  "delegationDate": "2026-08-11",
+  "excludesProtectedActions": true,
+  "provenance": "Transcribed by the implementer (Claude) from owner Murad's operational-recovery directive of 2026-08-11 — 'Murad has now explicitly delegated to ChatGPT authority for this operational recovery programme to make technical gate decisions, make merge/acceptance decisions, make final operational-closure decision' and 'Murad has delegated final technical recovery closure authority to ChatGPT' — and reaffirmed by the owner's scope correction of the same date, which asks for this delegation to be recorded explicitly for the projectos-operational-recovery programme. The implementer wrote these bytes; the implementer did not grant this authority and cannot receive it.",
+  "trustBasis": "MANUAL_GOVERNANCE_APPROVAL, tamperProof false. No signature, and none is claimed. What makes this record trustworthy is that it is a distinct, reviewable artefact that must be COMMITTED before it has any effect, so a forged or misquoted delegation is a visible diff at the owner's commit and push gate.",
+  "excludes": [
+    "It is not authority to ACT. Closing a phase or a programme records a judgement about work already done; it performs nothing.",
+    "Every protected effect remains with the owner: production deployment, production or destructive database mutation, real email, SMS or messaging send, payment or live charge, raw credential access or rotation, secrets disclosure, Windows service installation or identity change, ACL, ProgramData or registry trust mutation, destructive machine operation, and force push.",
+    "Material commercial or scope change remains with the owner.",
+    "It is not plan-approval authority, which is delegated separately and recorded in plan-approval-delegation.json."
+  ],
+  "notes": "Scoped to projectId 'projectos' and programme 'projectos-operational-recovery'. It cannot be read as authority in any other project or programme, and it grants the implementer nothing."
+}

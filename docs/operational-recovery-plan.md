@@ -9,18 +9,20 @@ projectId: projectos
 > that exact draft.
 >
 > Owner: Murad. Gatekeeper / delegated technical authority: ChatGPT. Implementer: Claude.
-> Transcribed 2026-08-11 from the owner's operational-recovery directive of the same date, and
-> extended the same day by the owner's binding product-experience addendum, which adds the owner
-> experience requirements — a full UI/UX pilot, a free-flow conversational front door, voice, and
-> capability-based routing across more than one AI worker — into the existing stages rather than
-> creating new ones.
+> Transcribed 2026-08-11 from the owner's operational-recovery directive of the same date, extended
+> the same day by the owner's product-experience addendum, and then narrowed the same day by the
+> owner's scope correction: **get ProjectOS genuinely working and operable first**. The advanced
+> experience layer the addendum asked for — free-flow conversational chat, voice, and automatic
+> multi-AI capability routing — is recorded in the post-operational enhancement backlog below and is
+> deliberately not a condition of closing this programme. The basic owner interface is NOT deferred:
+> the workflow must be operable without a terminal.
 >
 > This is a POST-V3 programme. ProjectOS V3 is finished at 19 / 19 and is not reopened, renumbered or
 > rewritten by anything here.
 
 Vision: ProjectOS is the front door Murad actually uses to deliver software — open it, pick a project, say what the objective is, approve the plan ProjectOS proposes, and let it drive governed execution, stopping only for decisions a human genuinely has to make.
 
-Definition of complete: from the normal installed application the owner can select a real project and talk to ProjectOS in ordinary language by text or voice, without terminal or command syntax; ProjectOS keeps the relevant project and conversation context, turns that intent into a governed objective, generates a sensible plan, takes an approval decision from the recorded authority against that exact plan, recomputes PLAN READY independently, chooses an appropriate authorised AI worker for the capability the work needs and says which and why, starts or reconnects it, runs validators and reviews, fixes and retests ordinary defects without owner intervention, produces evidence, recovers across a restart, and completes one bounded run on a real external project — through one obvious workflow proven live at mobile, tablet and desktop widths, with no protected action taken without explicit authority and no unresolved CRITICAL or HIGH finding.
+Definition of complete: the normal installed application launches and is usable; the owner selects a configured project and types a plain-language objective in the interface, with no terminal needed for normal operation; ProjectOS generates a sensible, proportional plan, takes an approval decision from the recorded authority against that exact plan and recomputes PLAN READY independently; it then starts or reconnects the governed Claude worker, hands it the correct project and phase context without a giant manual prompt, runs tests, validators, reviews and evidence collection, corrects and retests ordinary defects and carries on, and stops only for a genuine authority or protected decision; a restart preserves the correct state; and one bounded, non-production run on a real external project completes end to end — through one obvious workflow that is simple, truthful, responsive and needs no training, with no protected action taken without explicit authority and no unresolved CRITICAL or HIGH finding.
 
 Success standard: every item of the definition of complete is proven live rather than asserted, on this machine, by evidence a reviewer can re-run — and the closed ProjectOS V3 record is still intact when it is.
 
@@ -35,11 +37,8 @@ Success standard: every item of the definition of complete is proven live rather
 - An exact plan-approval mechanism binding a decision to one draft, its digest, the project, the repository, the branch and the base commit
 - A new post-V3 recovery plan identity, activated only by a valid approval, with PLAN READY independently recomputed
 - The Control Centre as the owner's single front door: one canonical project inventory, truthful status, one obvious workflow, and a proven responsive layout
-- A complete owner UI/UX pilot: no training required, usable at every experience level, free of duplicated or conflicting operational surfaces
-- A free-flow conversational front door — plain language, retained project and conversation context — where conversation text is never itself execution authority
-- Voice input and, where the runtime supports it reliably, two-way voice conversation, feeding the same conversational and governance layer as text with no separate governance path
-- A small capability registry and deterministic routing policy that selects an authorised AI worker or model per capability, explains the choice, falls back safely and can be overridden by the owner
-- The autonomous execution loop: next authorised phase, bounded worker instructions, launch or reconnect the selected worker, validate, review, collect evidence, correct ordinary defects and continue
+- Enough owner interface to run the workflow without a terminal — project, objective, plan, approval, execution, decision, evidence, completion — simple, clear, truthful and no-training-required
+- The autonomous execution loop: next authorised phase, bounded worker instructions, launch or reconnect the governed Claude worker, validate, review, collect evidence, correct ordinary defects and continue
 - Making the normal installed application operational through the existing Windows host and trust architecture
 - One bounded, non-production acceptance run on a real external project
 
@@ -53,7 +52,24 @@ Success standard: every item of the definition of complete is proven live rather
 - Weakening packaged runtime identity, launch authority or any existing trust check in order to make the installed application run
 - Building a second planning engine, a second authority subsystem, or an alternative parallel workflow
 - Building a bespoke speech platform, an elaborate orchestration platform, or cloning another product's design
-- Any route by which a conversational or spoken message reaches a governed effect other than through the normal authority path
+- Everything in the post-operational enhancement backlog below: it is wanted, it is recorded, and it is deliberately NOT a condition of closing this programme
+- Advanced visual polish as a closure blocker — the interface must be usable and truthful, not beautiful
+
+## Post-operational enhancement backlog
+
+Owner decision of 2026-08-11: get ProjectOS genuinely working and operable FIRST, then build these
+properly rather than holding a usable product hostage to them. They remain wanted. They are not
+deleted, not forgotten, and not conditions of operational-recovery closure — each becomes a candidate
+objective for its own plan once this programme is closed.
+
+- ChatGPT-style free-flow conversational chat as the owner front door
+- Long-running conversational memory and context beyond what core operation needs
+- Voice commands, and two-way voice conversation
+- Automatic multi-AI and multi-model capability switching, and the capability router behind it
+- Proving two or more AI workers selected for different capability needs
+- Advanced UI animation and motion polish
+- Deeper Lovable- and Genspark-inspired experience work
+- Additional premium interface refinement
 
 ## Phases
 
@@ -94,42 +110,38 @@ Required validators: validate-projectos-recovery-plan-authority1a
 Required reviews: code-review, security-review
 Owner gates: commit, push, phase-closure
 
-### PROJECTOS-RECOVERY-CONTROL-CENTRE1A — The owner front door: one workflow, conversation and voice
+### PROJECTOS-RECOVERY-CONTROL-CENTRE1A — The owner front door: one obvious workflow
 
-Purpose: Make normal ProjectOS operation possible without a terminal or command syntax, through one obvious workflow the owner can drive by conversation or by voice.
-Scope: Owner-facing surfaces, project inventory, status truth, navigation, responsive layout, the conversational front door, and voice input and reply.
+Purpose: Make normal ProjectOS operation possible without a terminal, through one obvious workflow the owner can follow without training.
+Scope: Owner-facing surfaces, project inventory, objective entry, status truth, navigation and responsive layout.
 Depends on: PROJECTOS-RECOVERY-PLAN-AUTHORITY1A
 Risk: medium
 Autonomy: local-safe
 Browser proof: yes
 Acceptance criteria:
 - One canonical project inventory drawn from ProjectOS configuration and state, with no hard-coded project seed and no separate Owner Chat project universe; any synthetic data is unmistakably separated from real operational state
+- The owner selects a configured project and types a plain-language objective in the interface, and ProjectOS generates the plan from it — no terminal is required for normal operation
 - Every owner-facing status is derived from canonical runtime truth, with no stale phase counts, no fixture state presented as live, and no contradictory next action
-- The owner surface answers which project, what objective, what is happening, which AI worker is working and why, what passed, what failed, what needs the owner, what happens next, whether anything touches production, and whether the work is finished
-- Navigation presents one obvious workflow — project, conversation or objective, plan, approval, execution, decisions, evidence, completion — and surfaces that are not primary are merged, disclosed progressively or made reference material, without deleting useful capability
-- The owner can hold an ordinary conversation with ProjectOS in plain language: it understands intent, keeps the relevant project and conversation context across turns without the owner restating it, answers questions about current state, explains its reasoning, and turns intent into a governed objective or action
-- Conversation is never itself execution authority: an agreeing phrase in chat cannot approve, cannot start a gated action and cannot substitute for the governed decision path, and a proposed action is shown before any authority boundary
-- The owner can speak instead of typing, and can hear ProjectOS reply where the runtime supports it reliably, using existing operating-system, browser or runtime speech capability rather than a bespoke speech platform
-- Voice reaches the same conversational and governance layer as text, with no second governance path, and a misrecognised phrase cannot silently cause a protected action
-- The complete UI/UX pilot is live-proven at approximately 320, 390, 768, 1280 and 1440+ with no cutoff, no hidden control, no broken scrolling, keyboard operability and valid basic accessibility, using headed or native proof
+- The owner surface answers which project, what objective, what is happening, whether the worker is working, what passed, what failed, what needs the owner, what happens next, whether anything touches production, and whether the work is finished
+- Navigation presents one obvious workflow — project, objective, plan, approval, execution, decisions, evidence, completion — and surfaces that are not primary are merged, disclosed progressively or made reference material, without deleting useful capability
+- The workflow is live-proven at approximately 320, 390, 768, 1280 and 1440+ with no cutoff, no hidden control, no broken scrolling, keyboard operability and valid basic accessibility, using headed or native proof
+- Simple, clear and truthful is the bar. Visual polish beyond that is explicitly not required to close this phase
 Required validators: validate-all
 Required reviews: code-review, security-review, a11y-review
 Owner gates: commit, push, phase-closure
 
-### PROJECTOS-RECOVERY-AUTONOMOUS-LOOP1A — Close the autonomous execution loop across more than one AI worker
+### PROJECTOS-RECOVERY-AUTONOMOUS-LOOP1A — Close the autonomous execution loop
 
-Purpose: After an approved PLAN READY plan, let ProjectOS choose an appropriate authorised AI worker and run ordinary phases end to end without manual prompt relay.
-Scope: A capability registry and routing policy; phase selection, worker instruction generation, session launch and reconnection, validation, review, evidence collection and ordinary-defect recovery.
+Purpose: After an approved PLAN READY plan, let ProjectOS run ordinary phases end to end with the governed Claude worker and without manual prompt relay.
+Scope: Phase selection, worker instruction generation, session launch and reconnection, validation, review, evidence collection and ordinary-defect recovery.
 Depends on: PROJECTOS-RECOVERY-PLAN-AUTHORITY1A
 Risk: high
 Autonomy: gated-execution
 Browser proof: no
 Acceptance criteria:
-- A small capability registry records which authorised workers and models can do which kind of work — planning and deep reasoning, implementation, security review, code review, UI/UX, research, testing and verification, visual or multimodal work — and a deterministic policy selects a match for the capability a task needs
-- At least two different authorised workers or models are proven to be selected for different capability needs, the selection and its reason are visible to the owner, an unavailable preferred worker falls back safely, and the owner can override the choice
-- Routing changes who does the work and nothing else: every worker passes the same governance, gates and evidence requirements, no provider route bypasses them, and no credential crosses between providers
 - ProjectOS determines the next authorised phase, verifies project, repository, branch and state, and creates bounded worker instructions from the approved plan
-- ProjectOS launches or reconnects the selected worker and transfers the exact context automatically; no manual prompt relay is required for an ordinary phase
+- ProjectOS starts or reconnects the governed Claude worker and transfers the correct project and phase context automatically; no giant manual prompt relay is required for an ordinary phase
+- The worker seam is written so that adding another authorised worker later is a configuration change rather than a rewrite, but only the Claude worker is required to close this phase
 - Validators, tests and reviews run automatically, and diffs, changed files and browser or native proof are collected as evidence
 - An ordinary defect — a failing test, typecheck, lint, browser finding or LOW/MEDIUM review issue — is corrected and retested automatically and execution continues
 - Execution stops only for a material scope decision, an unresolved CRITICAL or HIGH finding, a protected effect, an authority decision, or final merge and closure
@@ -147,7 +159,7 @@ Autonomy: gated-execution
 Browser proof: yes
 Acceptance criteria:
 - The application launches from the Start Menu, reports a live runtime, opens the correct project, and accepts an objective, a plan and approved execution with no terminal
-- The installed application supports the same owner experience as development — conversation, voice where supported, worker routing and the one obvious workflow — securely, with no capability quietly dropped in the packaged build
+- The installed application supports the same owner workflow as development, securely, with no capability quietly dropped in the packaged build
 - A restart recovers the correct state
 - No security property is weakened to achieve it: no packaged-to-development fallback, no debug build presented as packaged, no trust in an arbitrary bridge configuration, identity checks remain enforced and launch authority remains enforced
 - Any protected machine change required to finish is stopped and returned to the owner as a specific authorisation request rather than performed
@@ -164,8 +176,8 @@ Risk: high
 Autonomy: gated-execution
 Browser proof: yes
 Acceptance criteria:
-- The owner selects a real project and states the objective conversationally, and ProjectOS reads that real repository and drafts a plan for it
-- The delegated authority approves the plan, PLAN READY is recomputed, ProjectOS selects and starts an appropriate authorised worker, and the bounded work completes with automatic validation and evidence
+- The owner selects a real project and types the objective in the interface, and ProjectOS reads that real repository and drafts a plan for it
+- The delegated authority approves the plan, PLAN READY is recomputed, ProjectOS starts the governed worker, and the bounded work completes with automatic validation and evidence
 - Ordinary defects are recovered automatically; the gatekeeper reviews and closure follows
 - Restarting ProjectOS afterwards recovers state correctly
 - No wrong repository, no cross-project state, no giant human prompt, no hidden production action and no hand-edited plan

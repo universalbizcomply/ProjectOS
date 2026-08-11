@@ -242,6 +242,25 @@ function world(opts: { committed?: readonly string[]; planDoc?: string } = {}): 
   return { root, sys, draftId: submitted.objective.objectiveId, planDigest: submitted.draftRecord.planDigest };
 }
 
+function closureRecord(over: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    schemaVersion: PLAN_APPROVAL_DELEGATION_SCHEMA_VERSION,
+    delegationId: 'ACME-CLOSURE-DELEGATION1A',
+    projectId: 'acme',
+    programmeScope: 'acme-recovery',
+    delegatedBy: OWNER,
+    delegatedTo: AUTHORITY,
+    delegatedScope: ['phase-closure', 'programme-closure'],
+    delegationDate: '2026-08-11',
+    excludesProtectedActions: true,
+    ...over,
+  };
+}
+
+function writeClosureDelegation(w: World, over: Record<string, unknown> = {}): void {
+  w.sys.writeText(pjoin(w.root, '.projectops/authority/closure-delegation.json'), JSON.stringify(closureRecord(over), null, 2));
+}
+
 function writeDelegation(w: World, over: Record<string, unknown> = {}): void {
   w.sys.writeText(pjoin(w.root, '.projectops/authority/plan-approval-delegation.json'), JSON.stringify(delegation(over), null, 2));
 }
@@ -711,6 +730,77 @@ describe('exact plan approval — currentness and target safety', () => {
     if (r.ok) return;
     expect(r.code).toBe('PLAN_INCOMPLETE');
     expect(r.problems.join(' ')).toMatch(/does not state a risk level/i);
+  });
+});
+
+describe('closure delegation — recorded by the owner, or carried forward untouched', () => {
+  const CLOSURE_PATH = '.projectops/authority/closure-delegation.json';
+
+  test('with no closure record, the active plan\'s arrangement is carried forward unchanged', () => {
+    const w = world({ committed: COMMITTED });
+    writeDelegation(w);
+    const id = writeDecision(w);
+    expect(run(w, id).ok).toBe(true);
+    const plan = JSON.parse(readFileSync(pjoin(w.root, 'state/recovery.plan.json'), 'utf8')) as Record<string, unknown>;
+    const gov = plan['governance'] as Record<string, unknown>;
+    expect(gov['closureAuthority']).toBe(OWNER);          // the fixture's active plan delegates nothing
+    expect(gov['closureDelegation']).toBeUndefined();
+  });
+
+  test('a committed closure record names this programme in the new plan', () => {
+    const w = world({ committed: [...COMMITTED, CLOSURE_PATH] });
+    writeDelegation(w);
+    writeClosureDelegation(w);
+    const id = writeDecision(w);
+    const r = run(w, id);
+    expect(r.ok ? '' : r.problems.join('; ')).toBe('');
+    const plan = JSON.parse(readFileSync(pjoin(w.root, 'state/recovery.plan.json'), 'utf8')) as Record<string, unknown>;
+    const gov = plan['governance'] as Record<string, unknown>;
+    const del = gov['closureDelegation'] as Record<string, unknown>;
+    expect(gov['closureAuthority']).toBe(AUTHORITY);
+    expect(del['delegatedBy']).toBe(OWNER);
+    expect(del['delegatedScope']).toEqual(['phase-closure', 'programme-closure']);
+    expect(del['projectScope']).toBe('acme');
+    expect(del['excludesProtectedActions']).toBe(true);
+    expect(String(del['notes'])).toContain('acme-recovery');
+    // And the readiness evaluator, which has its own closure-delegation rules, still says yes.
+    const { engine } = loadGovernanceEngine();
+    expect(engine.evaluatePlanReady(plan).ready).toBe(true);
+  });
+
+  const closureAttacks: readonly { name: string; over: Record<string, unknown>; match: RegExp }[] = [
+    { name: 'granted by someone who is not the owner', over: { delegatedBy: 'Mallory' }, match: /recorded owner/i },
+    { name: 'granted to the implementer', over: { delegatedTo: 'Claude Code' }, match: /implementer/i },
+    { name: 'scoped to another programme', over: { programmeScope: 'something-else' }, match: /scoped to programme/i },
+    { name: 'for another project', over: { projectId: 'other' }, match: /is for project/i },
+    { name: 'carrying a scope it may not grant', over: { delegatedScope: ['phase-closure', 'production-deploy'] }, match: /may not grant/i },
+    { name: 'claiming protected-action authority', over: { excludesProtectedActions: false }, match: /excludesProtectedActions/i },
+    { name: 'carrying no scope at all', over: { delegatedScope: [] }, match: /no scope/i },
+  ];
+  for (const a of closureAttacks) {
+    test(`a closure delegation ${a.name} is refused`, () => {
+      const w = world({ committed: [...COMMITTED, CLOSURE_PATH] });
+      writeDelegation(w);
+      writeClosureDelegation(w, a.over);
+      const id = writeDecision(w);
+      const r = run(w, id);
+      expect(r.ok).toBe(false);
+      if (r.ok) return;
+      expect(r.code).toBe('DELEGATION_INVALID');
+      expect(r.problems.join(' ')).toMatch(a.match);
+      expect(existsSync(pjoin(w.root, 'state/recovery.plan.json'))).toBe(false);
+    });
+  }
+
+  test('an uncommitted closure record is refused rather than ignored', () => {
+    const w = world({ committed: COMMITTED });
+    writeDelegation(w);
+    writeClosureDelegation(w);
+    const id = writeDecision(w);
+    const r = run(w, id);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.problems.join(' ')).toMatch(/not committed/i);
   });
 });
 

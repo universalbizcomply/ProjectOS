@@ -207,6 +207,38 @@ function run() {
     }
   }
 
+  // 8b. THE OWNER'S CLOSURE DELEGATION, when one exists. Closure and plan approval are different
+  // authorities and are recorded separately, so neither can be widened by editing the other.
+  const closureRel = ".projectops/authority/closure-delegation.json";
+  const closureAbs = path.join(ROOT, closureRel);
+  if (fs.existsSync(closureAbs)) {
+    const rec = readJSON(closureAbs);
+    if (rec === null) errors.push(closureRel + " is not readable JSON");
+    else {
+      const cfg = readJSON(path.join(ROOT, ".projectops", "project-config.json")) || {};
+      const declared = cfg.planMemory && cfg.planMemory.planPath;
+      const active = typeof declared === "string" ? readJSON(path.join(ROOT, declared)) : null;
+      const recordedOwner = active && active.governance ? active.governance.owner : null;
+      if (rec.schemaVersion !== "1.0.0") errors.push(closureRel + ": unexpected schemaVersion " + JSON.stringify(rec.schemaVersion));
+      if (rec.projectId !== cfg.projectId) errors.push(closureRel + ": projectId " + JSON.stringify(rec.projectId) + " is not this project's " + JSON.stringify(cfg.projectId));
+      if (!recordedOwner) errors.push(closureRel + ": no active plan records an owner to check the delegator against");
+      else if (rec.delegatedBy !== recordedOwner) errors.push(closureRel + ": delegatedBy " + JSON.stringify(rec.delegatedBy) + " is not the recorded owner " + JSON.stringify(recordedOwner));
+      if (gov.isImplementerIdentity(rec.delegatedTo)) errors.push(closureRel + ": delegates closure to the implementer");
+      const scope = Array.isArray(rec.delegatedScope) ? rec.delegatedScope : [];
+      if (scope.length === 0) errors.push(closureRel + ": carries no scope");
+      for (const s of scope) if (s !== "phase-closure" && s !== "programme-closure") errors.push(closureRel + ": carries a scope it may not grant: " + String(s));
+      if (rec.excludesProtectedActions !== true) errors.push(closureRel + ": must state excludesProtectedActions: true");
+      if (typeof rec.programmeScope !== "string" || rec.programmeScope.trim() === "") errors.push(closureRel + ": names no programmeScope, so it is not bound to a programme");
+      const secrets = disc.scanSecrets(JSON.stringify(rec));
+      if (secrets.length) errors.push(closureRel + ": secret-shaped content (" + secrets.join(", ") + ")");
+      // The two delegations must not collapse into one. Plan approval is not closure.
+      const approvalRec = fs.existsSync(delegationAbs) ? readJSON(delegationAbs) : null;
+      if (approvalRec && Array.isArray(approvalRec.delegatedScope) && approvalRec.delegatedScope.some((s) => scope.includes(s))) {
+        errors.push("the plan-approval and closure delegations share a scope — they must grant different authorities");
+      }
+    }
+  }
+
   // 9. NO DECISION RECORD MAY CARRY A SECRET, and none may claim to be its own authority.
   const decisionsDir = path.join(ROOT, ".projectops", "plan-decisions");
   if (fs.existsSync(decisionsDir)) {
