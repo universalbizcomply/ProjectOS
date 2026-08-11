@@ -16,6 +16,7 @@ import { approve } from './commands/approve.js';
 import { plan } from './commands/plan.js';
 import { plugins } from './commands/plugins.js';
 import { install } from './commands/install.js';
+import { run as runPhase } from './commands/run.js';
 import { CORE_VERSION } from '@projectos/core';
 
 export const AGENT_VERSION = '0.1.0';
@@ -67,6 +68,7 @@ export const HELP: readonly string[] = [
   '  phase <new|advance|show|list>  Run/persist a phase through its lifecycle',
   '  approve <request|decide|show|list>  Request/decide approvals (owner-gated)',
   '  plan [draft|drafts|show]     Execution plan; or submit an objective and generate a DRAFT',
+  '  run [--worker <id>] [--dry-run]  Advance the approved plan by one phase with the governed worker',
   '  plugins                      List the integration catalog (inert)',
   '  close --phase <ID>           Refuses — closure is owner-gated',
   '  version                      Print versions',
@@ -82,6 +84,8 @@ export function run(ctx: CommandContext, argv: readonly string[]): CommandResult
       return approve(ctx, flags, positionals);
     case 'plan':
       return plan(ctx, flags, positionals);
+    case 'run':
+      return runPhase(ctx, flags);
     case 'plugins':
       return plugins(ctx);
     case 'status':

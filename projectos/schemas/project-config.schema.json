@@ -144,6 +144,67 @@
       "type": "object",
       "description": "Maps review category -> evidence pack section heading.",
       "additionalProperties": { "type": "string" }
+    },
+
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workers"],
+      "description": "OPTIONAL. The workers this project authorises the execution loop to start. Omitting it means the loop has no authorised worker and refuses to start one, which is the safe default for every existing installation. Adding a worker is a change HERE, not a change to the loop.",
+      "properties": {
+        "defaultWorkerId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Which authorised worker the loop uses when none is named. Must be one of the workers below."
+        },
+        "checks": {
+          "type": "array",
+          "description": "OPTIONAL. Test, typecheck and lint commands the execution loop runs alongside the validators the plan requires. Validators come from the approved plan and are not configurable here; these are the project's own suites, which no plan can name.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "kind", "command"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "kind": { "type": "string", "enum": ["test", "typecheck", "lint"] },
+              "command": {
+                "type": "string",
+                "minLength": 1,
+                "description": "ABSOLUTE path to the executable, for the same reason worker commands are absolute."
+              },
+              "args": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        },
+        "workers": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["workerId", "kind", "command"],
+            "properties": {
+              "workerId": { "type": "string", "minLength": 1 },
+              "kind": {
+                "type": "string",
+                "enum": ["claude-code-cli"],
+                "description": "The adapter that knows how to start this worker. A new kind is a new adapter; a new worker of an existing kind is configuration only."
+              },
+              "command": {
+                "type": "string",
+                "minLength": 1,
+                "description": "ABSOLUTE path to the worker executable. A bare name is refused at load time: on Windows an unqualified name resolves against the governed checkout before PATH, so a planted executable in the repository could become the worker."
+              },
+              "args": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Fixed arguments the adapter prepends. Identifiers and paths only — this is not an instruction channel; the worker's instructions come from the durable brief."
+              },
+              "notes": { "type": "string" }
+            }
+          }
+        }
+      }
     }
   }
 }

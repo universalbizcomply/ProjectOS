@@ -55,6 +55,38 @@
     "redactionRequired": true,
     "notes": "No raw secret values are stored in plan memory, current state, sessions, reports or prompts. Providers are referenced by name only. Redaction is required for any sensitive value."
   },
+  "execution": {
+    "checks": [
+      {
+        "id": "core-tests",
+        "kind": "test",
+        "command": "C:/Program Files/nodejs/node.exe",
+        "args": ["C:/Program Files/nodejs/node_modules/npm/bin/npm-cli.js", "--prefix", "projectos/core", "test"]
+      },
+      {
+        "id": "agent-tests",
+        "kind": "test",
+        "command": "C:/Program Files/nodejs/node.exe",
+        "args": ["C:/Program Files/nodejs/node_modules/npm/bin/npm-cli.js", "--prefix", "projectos/agent", "test"]
+      },
+      {
+        "id": "agent-typecheck",
+        "kind": "typecheck",
+        "command": "C:/Program Files/nodejs/node.exe",
+        "args": ["C:/Program Files/nodejs/node_modules/npm/bin/npm-cli.js", "--prefix", "projectos/agent", "run", "typecheck:all"]
+      }
+    ],
+    "defaultWorkerId": "claude-local",
+    "workers": [
+      {
+        "workerId": "claude-local",
+        "kind": "claude-code-cli",
+        "command": "C:/Users/murad/.local/bin/claude.exe",
+        "args": [],
+        "notes": "The owner's local Claude Code CLI. Absolute by requirement: a bare name would resolve against the governed checkout before PATH. No credential is passed and no Anthropic API is called — use-anthropic-api remains a forbidden action."
+      }
+    ]
+  },
   "validators": [
     "projectos/validators/validate-all.cjs"
   ],

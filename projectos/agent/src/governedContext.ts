@@ -311,6 +311,30 @@ function completedPhases(
 }
 
 /**
+ * The completion set, exposed for callers that must reason about the WHOLE plan rather than one
+ * phase — the execution loop's phase selection, above all.
+ *
+ * It is deliberately the same function `authorisePhase` uses. A loop that decided completeness its
+ * own way would be a second completion ledger disagreeing with the gate that admits phases, and the
+ * first symptom would be a loop starting a phase the gate then refuses.
+ */
+export function completedPhaseIds(
+  sys: System,
+  root: string,
+  context: GovernedContext,
+): { readonly ids: ReadonlySet<string>; readonly stateProblem: string | null } {
+  return completedPhases(sys, root, context);
+}
+
+/**
+ * The phases of the active approved plan, in the order the plan declares them. Exposed for the same
+ * reason as `completedPhaseIds`: the loop must not re-parse the plan its own way.
+ */
+export function approvedPlanPhases(context: GovernedContext): readonly AuthorisedPlanPhase[] {
+  return planPhases(context.plan);
+}
+
+/**
  * Prove that `phaseId` is a phase of the ACTIVE APPROVED PLAN and that every phase it depends on is
  * recorded complete. Call it before any state is written. It never mutates and never throws.
  *

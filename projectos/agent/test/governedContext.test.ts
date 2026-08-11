@@ -106,7 +106,7 @@ describe('loadGovernedContext', () => {
 
   it('T5 refuses a structurally valid plan whose readiness is false, and does not trust planStatus', () => {
     const base = readyPlan();
-    const notReady = {
+    const notReady: Record<string, unknown> = {
       ...base,
       // planStatus still claims READY. The evaluator must overrule the stored string.
       approval: { ...(base['approval'] as Record<string, unknown>), approvalStatus: 'not-approved' },

@@ -1,0 +1,12 @@
+{
+  "//": "Type-checks the TESTS as well as the source. The shipping build deliberately excludes test/ (it must not reach dist), which meant a test fixture could contradict the very interface it exercised and nothing would notice: vitest strips types without checking them, and `typecheck` never looked at test/. Found by the PROJECTOS-RECOVERY-AUTONOMOUS-LOOP1A code review, which caught four such fixtures.",
+  "//noUncheckedIndexedAccess": "Off for tests only. A test that indexes calls[0] right after asserting the length is idiomatic and safe; leaving it on would have meant rewriting ~40 assertions across phases this one does not own, which is exactly the scope creep the review warned against. Every other strict flag stays on, so the errors this check exists to catch — a fixture missing a required field, a call with the wrong arity — still fail.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "noUncheckedIndexedAccess": false
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts"],
+  "exclude": ["dist", "node_modules"]
+}

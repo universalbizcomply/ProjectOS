@@ -16,6 +16,18 @@ export interface ExecResult {
   readonly stderr: string;
 }
 
+export interface ExecOptions {
+  /**
+   * Drop environment variables whose NAME looks like a credential before spawning.
+   *
+   * `spawnSync` inherits the whole parent environment, so an `ANTHROPIC_API_KEY` a developer set for
+   * unrelated tooling would be handed to every worker and every validator the loop runs — including
+   * validator scripts that live in the governed checkout. The project forbids `use-anthropic-api`
+   * and requires redaction; inheriting a key silently is how that forbidding becomes decorative.
+   */
+  readonly scrubCredentials?: boolean;
+}
+
 export interface System {
   cwd(): string;
   /** Current time as an ISO-8601 string. */
@@ -28,7 +40,19 @@ export interface System {
   /** List entry names in a directory, or [] if it does not exist. */
   listDir(path: string): readonly string[];
   /** Run a command, capturing output. Never throws; non-zero code is returned. */
-  exec(cmd: string, args: readonly string[]): ExecResult;
+  exec(cmd: string, args: readonly string[], options?: ExecOptions): ExecResult;
+}
+
+/** Environment variable names that must not be inherited by a spawned worker or check. */
+export const CREDENTIAL_ENV_NAME = /(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH)/i;
+
+/** A copy of `env` with credential-shaped NAMES removed. Values are never inspected or logged. */
+export function scrubbedEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = {};
+  for (const [k, v] of Object.entries(env)) {
+    if (!CREDENTIAL_ENV_NAME.test(k)) out[k] = v;
+  }
+  return out;
 }
 
 /**
@@ -101,7 +125,7 @@ export const nodeSystem: System = {
       return [];
     }
   },
-  exec(cmd, args) {
+  exec(cmd, args, options) {
     let executable = cmd;
     if (cmd === 'git') {
       const bound = resolveBoundGit();
@@ -114,7 +138,11 @@ export const nodeSystem: System = {
       }
       executable = bound;
     }
-    const r = spawnSync(executable, [...args], { encoding: 'utf8', shell: false });
+    const r = spawnSync(executable, [...args], {
+      encoding: 'utf8',
+      shell: false,
+      ...(options?.scrubCredentials === true ? { env: scrubbedEnv(process.env) } : {}),
+    });
     return {
       code: r.status ?? 1,
       stdout: r.stdout ?? '',
