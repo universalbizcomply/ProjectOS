@@ -380,11 +380,17 @@ describe('`phase new` refuses BEFORE writing anything', () => {
     expect(sys.writes).toEqual([]);
   });
 
-  it('T7 an authorised phase with satisfied dependencies is created', () => {
+  it('T7 an authorised phase with satisfied dependencies is created, and the durable state follows it', () => {
     const sys = selfHosted();
     const res = phase({ sys, root: ROOT }, { id: PHASE_12, project: 'ProjectOS' }, ['new']);
     expect(res.code).toBe(0);
-    expect(sys.writes).toEqual([`${ROOT}/.projectops/phases/${PHASE_12}.json`]);
+    // Two writes, and only two: the phase record, and the declared current-state that must not
+    // contradict it. Before this, opening a phase left the durable memory saying `activePhase: null`
+    // while a phase was plainly running.
+    expect(sys.writes).toEqual([
+      `${ROOT}/.projectops/phases/${PHASE_12}.json`,
+      `${ROOT}/${STATE_REL}`,
+    ]);
   });
 });
 

@@ -20,8 +20,8 @@ const { execFileSync } = require("child_process");
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const PHASES_DIR = path.join(ROOT, ".projectops", "phases");
-const STATE = path.join(ROOT, "projectos", "state", "projectos-v3.current-state.json");
-const SESSION = path.join(ROOT, "projectos", "state", "projectos-v3.session.json");
+const DEFAULT_STATE = path.join(ROOT, "projectos", "state", "projectos-v3.current-state.json");
+const DEFAULT_SESSION = path.join(ROOT, "projectos", "state", "projectos-v3.session.json");
 const CONFIG = path.join(ROOT, ".projectops", "project-config.json");
 
 // Terminal: the phase is finished. `rolled_back` is not terminal but is not in flight either — work
@@ -38,6 +38,60 @@ function gitCheck(args) {
   try { execFileSync("git", args, { cwd: ROOT, stdio: "ignore" }); return true; } catch (_) { return false; }
 }
 
+/**
+ * The current-state record this project DECLARES, falling back to the historical V3 location.
+ *
+ * The path used to be hard-coded. That was true for as long as ProjectOS had exactly one plan, and
+ * stopped being true the moment a second programme was approved: the validator went on checking the
+ * finished programme's record while the live one drifted unwatched. The config's `planMemory` is
+ * where a project says which record is current, and it is the same declaration `governedContext`
+ * already governs from — so this reads it rather than assuming.
+ */
+function statePath() {
+  try {
+    const cfg = readJson(CONFIG);
+    const rel = cfg && cfg.planMemory && cfg.planMemory.currentStatePath;
+    if (typeof rel === "string" && rel.trim() !== "" && !path.isAbsolute(rel) && !rel.split(/[\\/]/).includes("..")) {
+      const abs = path.join(ROOT, rel);
+      if (fs.existsSync(abs)) return abs;
+    }
+  } catch (_) { /* fall through to the default below; a malformed config is reported elsewhere */ }
+  return DEFAULT_STATE;
+}
+
+/** The active plan record, or null. Used to resolve which programme's session belongs to today. */
+function activePlan() {
+  let planPath = path.join(ROOT, ".projectops", "plan.json");
+  try {
+    const cfg = readJson(CONFIG);
+    const rel = cfg.planMemory && cfg.planMemory.planPath;
+    if (typeof rel === "string" && rel.length > 0) planPath = path.join(ROOT, rel);
+  } catch (_) { /* default */ }
+  try { return readJson(planPath); } catch (_) { return null; }
+}
+
+/**
+ * The ACTIVE programme's session record, named after its plan.
+ *
+ * A session belongs to the programme that ran it. The path was hard-coded to the V3 session, so once
+ * a second programme was approved the validator compared a FINISHED session's phase against the LIVE
+ * plan's active phase and reported a disagreement that was not one. The finished record is history
+ * and is left exactly as it is; when the active programme has not yet written a session, there is
+ * simply nothing to compare, which is the truthful answer rather than a manufactured one.
+ */
+function sessionPath() {
+  const plan = activePlan();
+  const planId = plan && typeof plan.planId === "string" ? plan.planId : null;
+  if (planId !== null) {
+    const named = path.join(ROOT, "projectos", "state", planId + ".session.json");
+    if (fs.existsSync(named)) return named;
+    // A different programme is active and has no session yet: do NOT fall back to another
+    // programme's record. Returning a path that does not exist skips the comparison, by design.
+    if (planId !== "projectos-v3-master-plan") return named;
+  }
+  return DEFAULT_SESSION;
+}
+
 /** Core phase records, keyed by id. The lifecycle authority — read, never second-guessed. */
 function coreRecords() {
   if (!fs.existsSync(PHASES_DIR)) return [];
@@ -51,6 +105,7 @@ function coreRecords() {
 
 function run() {
   const e = [];
+  const STATE = statePath();
   if (!fs.existsSync(STATE)) { e.push("missing current-state record"); return e; }
   let state;
   try { state = readJson(STATE); } catch (x) { e.push("current-state is not valid JSON: " + x.message); return e; }
@@ -109,6 +164,7 @@ function run() {
   // 5. The session record's head must be a REAL commit reachable from HEAD. It is deliberately NOT
   //    required to equal HEAD — a session legitimately records the last accepted/pushed head while
   //    work continues — but a fabricated, future or unrelated hash must fail closed.
+  const SESSION = sessionPath();
   if (fs.existsSync(SESSION)) {
     let session;
     try { session = readJson(SESSION); } catch (x) { e.push("session record is not valid JSON: " + x.message); session = null; }

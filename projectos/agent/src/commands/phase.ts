@@ -34,6 +34,7 @@ import {
   type Role,
 } from '@projectos/core';
 import { loadPhase, savePhase, listPhaseIds } from '../phaseStore.js';
+import { syncCurrentState, type SyncResult } from '../currentStateStore.js';
 import {
   evaluateG4,
   g4RefusalLines,
@@ -96,10 +97,12 @@ export function phase(
       return phaseReconcileObjective(ctx, flags);
     case 'closure-eligibility':
       return phaseClosureEligibility(ctx, flags);
+    case 'sync-state':
+      return phaseSyncState(ctx);
     default:
       return fail(1, [
         `Unknown 'phase' subcommand: ${sub}`,
-        'Use: phase new|advance|show|list|reconcile-objective|closure-eligibility',
+        'Use: phase new|advance|show|list|reconcile-objective|closure-eligibility|sync-state',
       ]);
   }
 }
@@ -227,7 +230,47 @@ function phaseNew(ctx: CommandContext, flags: Flags): CommandResult {
     objective: objective.objective,
   });
   savePhase(sys, root, p);
-  return ok([`Created phase ${id} (status: ${p.status})`, `  objective: ${p.objective}`]);
+  // The durable memory must not contradict the record we just wrote. See currentStateStore.
+  const sync = syncCurrentState(sys, root, gc.context, 'implementer');
+  return ok([
+    `Created phase ${id} (status: ${p.status})`,
+    `  objective: ${p.objective}`,
+    ...syncLines(sync),
+  ]);
+}
+
+/**
+ * Reconcile the declared current-state with the phase records, without moving any phase.
+ *
+ * The repair path for drift that already exists. Every transition now syncs, but a record written
+ * before that — or by a run that died between the two writes — leaves a disagreement that no legal
+ * transition can clear, because the phase is already where it should be. Refusing to offer a repair
+ * would mean the only fix was editing a governed record by hand, which is the thing this programme
+ * is trying to stop.
+ *
+ * It grants nothing: every field is recomputed from the core phase records and the approved plan, a
+ * phase counts as complete only on a genuine owner-or-delegate closure, and no caller input is read.
+ */
+function phaseSyncState(ctx: CommandContext): CommandResult {
+  const { sys, root } = ctx;
+  const gc = loadGovernedContext(sys, root);
+  if (!gc.ok) return fail(2, refusalLines(gc));
+  const sync = syncCurrentState(sys, root, gc.context, 'implementer');
+  if (!sync.synced) return fail(2, [`REFUSED: the current state was not updated — ${sync.reason ?? 'unknown reason'}`]);
+  return ok([
+    'Current state reconciled from the canonical phase records.',
+    `  active phase:  ${sync.activePhase ?? 'none'}`,
+    `  complete:      ${sync.completed}/${sync.total}`,
+    '',
+    'Nothing was granted: completion is only ever read from a genuine owner-or-delegate closure.',
+  ]);
+}
+
+/** One line about the durable state, always — silence about it is how it drifted in the first place. */
+function syncLines(sync: SyncResult): readonly string[] {
+  return sync.synced
+    ? [`  state:     active=${sync.activePhase ?? 'none'}, ${sync.completed}/${sync.total} complete`]
+    : [`  state:     NOT UPDATED — ${sync.reason ?? 'unknown reason'}`];
 }
 
 /**
@@ -417,7 +460,8 @@ function phaseAdvance(ctx: CommandContext, flags: Flags): CommandResult {
   if (consumedDecisionId !== undefined) markDecisionConsumed(sys, root, id, ctx.sys.now());
   const how = basisNote === undefined ? '' : ` [${basisNote}]`;
   const actedAs = effectiveRoleFor(flags, role, to);
-  return ok([`${id}: ${current.status} -> ${r.value.status} (by ${actedAs})${how}`]);
+  const sync = syncCurrentState(sys, root, gc.context, actedAs);
+  return ok([`${id}: ${current.status} -> ${r.value.status} (by ${actedAs})${how}`, ...syncLines(sync)]);
 }
 
 function phaseShow(ctx: CommandContext, flags: Flags): CommandResult {

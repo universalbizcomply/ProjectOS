@@ -9,9 +9,8 @@
   "totalPhaseCount": 6,
   "completionPercentage": 0,
   "completedPhases": [],
-  "activePhase": null,
+  "activePhase": "PROJECTOS-RECOVERY-PLANNING-BRAIN1A",
   "pendingPhases": [
-    "PROJECTOS-RECOVERY-PLANNING-BRAIN1A",
     "PROJECTOS-RECOVERY-PLAN-AUTHORITY1A",
     "PROJECTOS-RECOVERY-CONTROL-CENTRE1A",
     "PROJECTOS-RECOVERY-AUTONOMOUS-LOOP1A",
@@ -22,13 +21,13 @@
   "deferredPhases": [],
   "acceptedCarryForward": [],
   "currentBranch": "projectos-post-v3-selfhost-pilot1a",
-  "currentHead": "748d6a446eba6a2404e4447063670a245a0cd469",
+  "currentHead": "4330d1dc0efa8e3f55787dea571b5059db4c6b68",
   "currentRemoteHead": null,
-  "workingTreeStatus": "clean",
+  "workingTreeStatus": "dirty",
   "currentRisks": [],
   "currentBlockers": [],
   "lastEvidenceReference": "plan-approval decision PROJECTOS-RECOVERY-PLAN-APPROVAL-DECISION1A",
   "nextRecommendedPhase": "PROJECTOS-RECOVERY-PLANNING-BRAIN1A",
-  "lastUpdated": "2026-08-11T10:30:37.464Z",
-  "updatedByRole": "gatekeeper"
+  "lastUpdated": "2026-08-11T11:02:29.895Z",
+  "updatedByRole": "implementer"
 }
