@@ -66,7 +66,7 @@ export const HELP: readonly string[] = [
   '  report [--phase <ID>]        List reports, or write an evidence skeleton',
   '  phase <new|advance|show|list>  Run/persist a phase through its lifecycle',
   '  approve <request|decide|show|list>  Request/decide approvals (owner-gated)',
-  '  plan                         Show the workflow execution plan (worker per step)',
+  '  plan [draft|drafts|show]     Execution plan; or submit an objective and generate a DRAFT',
   '  plugins                      List the integration catalog (inert)',
   '  close --phase <ID>           Refuses — closure is owner-gated',
   '  version                      Print versions',
@@ -81,7 +81,7 @@ export function run(ctx: CommandContext, argv: readonly string[]): CommandResult
     case 'approve':
       return approve(ctx, flags, positionals);
     case 'plan':
-      return plan(ctx);
+      return plan(ctx, flags, positionals);
     case 'plugins':
       return plugins(ctx);
     case 'status':

@@ -18,6 +18,10 @@ secret*
 # runs against this repository (first observed during PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A).
 # Generated state, never governance evidence — the governed records live in .projectops/phases/.
 .projectops/bridge/
+# Generated draft proposals. A draft is regenerable output bound to a HEAD that moves, and against
+# this repository one run produced 4.7MB of conflict detail. The owner's OBJECTIVE record — the
+# durable intent — is tracked; the derived draft body is not.
+.projectops/drafts/
 
 # Local machine configuration for the bridge daemon: absolute watch roots, machine-specific.
 # The desktop E2E run generates it; it must never be committed.

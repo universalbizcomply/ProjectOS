@@ -1,13 +1,24 @@
 /**
- * `projectos plan` — show the execution plan: which worker owns each workflow step, and
- * which step is owner-gated. Uses the core orchestration over the default worker set.
- * Read-only.
+ * `projectos plan` — the plan surface.
+ *
+ *   plan                       the execution plan: which worker owns each workflow step (read-only)
+ *   plan draft --objective ..  submit an owner objective; generate a NON-AUTHORITATIVE draft
+ *   plan drafts                list generated drafts (read-only)
+ *   plan show --id <id>        show one generated draft in full (read-only)
+ *
+ * The bare `plan` behaviour is unchanged, so nothing that already depended on it moves.
+ *
+ * `plan draft` is the F3 bootstrap: before it, ProjectOS could refuse an unapproved phase but could
+ * not accept a new objective at all, so no new work could ever be authorised. It creates a proposal
+ * and nothing else — no phase, no approval, no execution authority. Every guarantee it relies on
+ * lives in `planIntake.ts` and in the canonical discovery engine; this file only renders.
  */
 import type { CommandContext, CommandResult } from '../context.js';
-import { ok } from '../context.js';
+import { ok, fail } from '../context.js';
 import { planWorkflow, DEFAULT_WORKERS } from '@projectos/core';
+import { submitObjective, listDrafts, checkDraftBinding, type DraftRecord } from '../planIntake.js';
 
-export function plan(_ctx: CommandContext): CommandResult {
+function workflowPlan(): CommandResult {
   const planned = planWorkflow(DEFAULT_WORKERS);
   const lines = ['Execution plan (default workers):'];
   for (const p of planned) {
@@ -16,4 +27,155 @@ export function plan(_ctx: CommandContext): CommandResult {
     lines.push(`  ${p.step.id.padEnd(10)} ${p.role.padEnd(11)} ${who}${gate}`);
   }
   return ok(lines);
+}
+
+/** The one sentence that must never be ambiguous: a draft is a proposal. */
+function authorityFooter(): readonly string[] {
+  return [
+    '',
+    'This is a PROPOSAL, not an approved plan.',
+    'It authorises nothing. No phase may start until an owner approves it.',
+  ];
+}
+
+/**
+ * Show at most a handful of ids and say how many were withheld.
+ *
+ * Not cosmetic. The first real submission against this repository produced 5,891 conflicts and the
+ * unbounded version printed every id — 135KB of terminal output in which the actual status was
+ * invisible. A summary that cannot be read is not a summary; the full set is in the draft record.
+ */
+function preview(ids: readonly string[], limit = 5): string {
+  if (ids.length === 0) return 'none';
+  if (ids.length <= limit) return ids.join(', ');
+  return `${ids.slice(0, limit).join(', ')} … and ${ids.length - limit} more (see the draft record)`;
+}
+
+function renderDraftSummary(d: DraftRecord): readonly string[] {
+  const draft = d.draft as Record<string, unknown>;
+  const phases = Array.isArray(draft['phaseCandidates']) ? (draft['phaseCandidates'] as unknown[]) : [];
+  const unknowns = Array.isArray(draft['unresolvedUnknowns'])
+    ? (draft['unresolvedUnknowns'] as readonly string[])
+    : [];
+  return [
+    `  status:              ${d.planStatus}`,
+    `  authoritative:       ${String(d.authoritative)}`,
+    `  project:             ${d.projectId}${d.repository === '' ? '' : ` (${d.repository})`}`,
+    `  branch / base:       ${d.branch} @ ${d.baseHead.slice(0, 12)}`,
+    `  sources considered:  ${d.discovery.sourcesConsidered} (${d.discovery.sourcesSkipped} skipped${d.discovery.truncated ? ', TRUNCATED' : ''})`,
+    `  phase candidates:    ${phases.length}`,
+    `  conflicts:           ${d.conflicts.length}`,
+    `  unknowns:            ${preview(unknowns)}`,
+    `  owner decisions:     ${d.ownerDecisionsRequired.length} — ${preview(d.ownerDecisionsRequired, 3)}`,
+    `  provenance errors:   ${d.provenanceErrors.length}`,
+    ...(d.discovery.instructionShapedSources.length === 0
+      ? []
+      : [
+          `  instruction-shaped sources (flagged, NOT obeyed): ${d.discovery.instructionShapedSources.length} — ${preview(d.discovery.instructionShapedSources, 3)}`,
+        ]),
+  ];
+}
+
+function draft(ctx: CommandContext, flags: Record<string, string | boolean>): CommandResult {
+  const raw = flags['objective'];
+  const result = submitObjective(ctx.sys, ctx.root, typeof raw === 'string' ? raw : undefined);
+  if (!result.ok) {
+    return fail(1, [`REFUSED (${result.code}): ${result.detail}`]);
+  }
+  const { objective, draftRecord, objectivePath, draftPath } = result;
+  return ok([
+    'Objective received. ProjectOS generated a draft plan.',
+    '',
+    `  objective id:        ${objective.objectiveId}`,
+    ...renderDraftSummary(draftRecord),
+    '',
+    `  objective record:    ${objectivePath}`,
+    `  draft record:        ${draftPath}`,
+    ...(objective.instructionShaped
+      ? ['', '  NOTE: the objective text contains instruction-shaped content. It was stored as data', '        and flagged. It confers no authority.']
+      : []),
+    ...authorityFooter(),
+  ]);
+}
+
+function drafts(ctx: CommandContext): CommandResult {
+  const all = listDrafts(ctx.sys, ctx.root);
+  if (all.length === 0) {
+    return ok(['No drafts. Submit an objective with: projectos plan draft --objective "..."']);
+  }
+  const lines = [`${all.length} draft(s), newest first:`];
+  for (const d of all) {
+    lines.push(`  ${d.objectiveId}  ${d.planStatus.padEnd(24)} ${d.generatedAt}`);
+  }
+  return ok([...lines, ...authorityFooter()]);
+}
+
+function show(ctx: CommandContext, flags: Record<string, string | boolean>): CommandResult {
+  const id = typeof flags['id'] === 'string' ? flags['id'] : '';
+  const all = listDrafts(ctx.sys, ctx.root);
+  const found = id === '' ? all[0] : all.find((d) => d.objectiveId === id);
+  if (found === undefined) {
+    return fail(1, [id === '' ? 'No drafts to show.' : `No draft with id '${id}'.`]);
+  }
+  // Re-verify the binding against the repository AS IT IS NOW, rather than reporting what the
+  // draft claims about itself. A draft is a file: it can be copied between checkouts, and the
+  // commit it was generated against moves on. Showing a stale or foreign draft without saying so
+  // is how a proposal for one project gets read as a proposal for another.
+  const head = ctx.sys.exec('git', ['rev-parse', 'HEAD']);
+  const cfgText = ctx.sys.readText(`${ctx.root}/.projectops/project-config.json`);
+  let binding: readonly string[] = [];
+  if (head.code === 0 && cfgText !== null) {
+    try {
+      const cfg = JSON.parse(cfgText) as Record<string, unknown>;
+      binding = checkDraftBinding(found, {
+        projectId: typeof cfg['projectId'] === 'string' ? cfg['projectId'] : '',
+        repository: typeof cfg['repo'] === 'string' ? cfg['repo'] : '',
+        head: head.stdout.trim(),
+      });
+    } catch {
+      binding = ['could not read the current project config to verify this draft against'];
+    }
+  } else {
+    binding = ['could not establish the current project identity or commit to verify this draft against'];
+  }
+
+  return ok([
+    `Draft ${found.objectiveId}`,
+    ...renderDraftSummary(found),
+    '',
+    `  next step:           ${found.nextStep}`,
+    '',
+    ...(binding.length === 0
+      ? ['  binding:             still matches this project, repository and commit']
+      : ['  binding PROBLEMS — this draft does not match the repository as it is now:', ...binding.map((p) => `    - ${p}`)]),
+    ...authorityFooter(),
+  ]);
+}
+
+export function plan(
+  ctx: CommandContext,
+  flags: Record<string, string | boolean> = {},
+  positionals: readonly string[] = [],
+): CommandResult {
+  const sub = positionals[0] ?? '';
+  switch (sub) {
+    case '':
+      return workflowPlan();
+    case 'draft':
+      return draft(ctx, flags);
+    case 'drafts':
+      return drafts(ctx);
+    case 'show':
+      return show(ctx, flags);
+    default:
+      return fail(1, [
+        `Unknown 'plan' subcommand: ${sub}`,
+        '',
+        'Usage:',
+        '  plan                          show the execution plan (worker per step)',
+        '  plan draft --objective "..."  submit an objective; generate a draft proposal',
+        '  plan drafts                   list generated drafts',
+        '  plan show [--id <id>]         show a generated draft',
+      ]);
+  }
 }
