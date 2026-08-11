@@ -1,12 +1,17 @@
 # PROJECTOS-RECOVERY-AUTONOMOUS-LOOP1A — Evidence Pack
 
+**Project:** ProjectOS
+**Programme:** ProjectOS Operational Recovery (post-V3)
+**Report generated:** 2026-08-11 23:36:43 (Europe/London, GMT Standard Time) — 2026-08-11 22:36:43 UTC
+**Evidence subject:** `99a39b13fb4c9b04711efe05efe498f17de1b78e`
+
 > Status: IMPLEMENTED-LOCALLY / AWAITING-CLOSURE. Closure is delegated to ChatGPT for this programme.
 
 1. **Project:** ProjectOS
 2. **Phase:** PROJECTOS-RECOVERY-AUTONOMOUS-LOOP1A — "After an approved PLAN READY plan, let ProjectOS run ordinary phases end to end with the governed Claude worker and without manual prompt relay."
 3. **Date:** 2026-08-11
-4. **Evidence subject:** `4bb7c9c384924a465838bd059a8da7e78408d051` on `projectos-post-v3-selfhost-pilot1a`. Integrated into the recovery branch from `projectos-recovery-phase4-prep` by fast-forward only — no merge commit, no rebase, no force push. Baseline before integration was `3f83ab6b`.
-5. **Files changed:** new — `projectos/agent/src/loop/{selection,observation,brief,workers,verification,outcome,session,runner}.ts`, `projectos/agent/src/loop/adapters/claudeCodeCli.ts`, `projectos/agent/src/commands/run.ts`, `projectos/agent/tsconfig.test.json`, and eight test files (`loopSelection`, `loopBrief`, `loopWorkers`, `loopOutcome`, `loopRunner`, `loopAttestation`, `loopExecutionContext`, `loopToolGrants`, `systemEnvScrub`); modified — `projectos/agent/src/{cli,system,governedContext}.ts`, `projectos/agent/package.json`, `projectos/agent/test/governedContext.test.ts`, `projectos/schemas/project-config.schema.json`, `.projectops/project-config.json`.
+4. **Evidence subject:** `99a39b13fb4c9b04711efe05efe498f17de1b78e` on `projectos-post-v3-selfhost-pilot1a`. Integrated into the recovery branch from `projectos-recovery-phase4-prep` by fast-forward only — no merge commit, no rebase, no force push. Baseline before integration was `3f83ab6b`.
+5. **Files changed:** the closure-gate provenance fix — `projectos/core/src/closureEligibility.ts`, `projectos/agent/src/closureGate.ts` and their tests; and the loop itself — new — `projectos/agent/src/loop/{selection,observation,brief,workers,verification,outcome,session,runner}.ts`, `projectos/agent/src/loop/adapters/claudeCodeCli.ts`, `projectos/agent/src/commands/run.ts`, `projectos/agent/tsconfig.test.json`, and eight test files (`loopSelection`, `loopBrief`, `loopWorkers`, `loopOutcome`, `loopRunner`, `loopAttestation`, `loopExecutionContext`, `loopToolGrants`, `systemEnvScrub`); modified — `projectos/agent/src/{cli,system,governedContext}.ts`, `projectos/agent/package.json`, `projectos/agent/test/governedContext.test.ts`, `projectos/schemas/project-config.schema.json`, `.projectops/project-config.json`.
 
 ## 6. Summary, against each acceptance criterion
 
@@ -151,12 +156,13 @@ changed any source file; the only files any worker wrote were its own two record
 
 ## 11. Validation
 
-`validate-all --record-evidence` run **once** against the frozen subject from a clean tree:
+`validate-all --record-evidence` run once against the frozen subject from a clean tree:
 **127 registered modules, 127 PASS, 0 FAIL, `aggregatePassed: true`,
 `workingTreeCleanAtRunStart: true`**, recorded at
-`.projectops/validation/4bb7c9c384924a465838bd059a8da7e78408d051.json`.
+`.projectops/validation/99a39b13fb4c9b04711efe05efe498f17de1b78e.json`. The earlier subject at
+`4bb7c9c` recorded the same 127/127 before the closure-gate fix moved the subject.
 
-Agent tests 349, core tests 211, typecheck clean over `src` **and** `test` — the test project is new,
+Agent tests 356, core tests 218, typecheck clean over `src` **and** `test` — the test project is new,
 because vitest strips types without checking them and four fixtures contradicted the interfaces they
 exercised.
 
@@ -168,6 +174,21 @@ exercised.
 - `.projectops/execution/` accumulates one record set per distinct HEAD, with no pruning.
 - The attestation is a worker assertion under the project's manual-governance model (`tamperProof: false`). Anything that can write the file can write `false` into it; the backstop is the owner commit gate, where the claim is a visible diff. Nothing here is cryptographic and nothing here claims to be.
 - Reviews are performed by the governed worker, not by an independent reviewer, on runs 2 and 3. The independent ECC review passes were run on the engineering boundary before integration.
+
+## 12b. The subject moved once, and why
+
+Engineering was complete and validated at `4bb7c9c`. G4-12 then refused the phase: the runtime's own
+lifecycle sync of `projectos-recovery.current-state.json` was classified substantive, because the
+closure-tail allowlist named V3's state record by filename while its stated intent was "the programme
+state/session records". That is a defect in the **gate**, not in this phase, and it would have refused
+every future programme the same way.
+
+It was not worked around. The state record was not reverted, the subject was not merely moved onto
+metadata, and no `projectos/state/**` wildcard was added. The gate now learns the active programme's
+state path from `planMemory.currentStatePath` in the governed config — the only authority on which
+programme is running — with the extras admitted as exact files only, and with the active plan, the
+project config and anything outside `projectos/state/` refused as nominations. That is a substantive
+source change, so it became the new subject `99a39b1`.
 
 ## 13. Protected-branch and programme integrity
 
