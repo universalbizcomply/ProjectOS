@@ -1,0 +1,13 @@
+{
+  "startedAt": "2026-08-11T20:28:45.625Z",
+  "providerRef": "158411fa-8b8f-426f-a8c1-d8142d200d16",
+  "state": "started",
+  "exitCode": 0,
+  "corrections": 0,
+  "sessionId": "PROJECTOS-RECOVERY-AUTONOMOUS-LOOP1A-934f9ce152c1",
+  "workerId": "claude-local",
+  "kind": "claude-code-cli",
+  "phaseId": "PROJECTOS-RECOVERY-AUTONOMOUS-LOOP1A",
+  "briefId": "PROJECTOS-RECOVERY-AUTONOMOUS-LOOP1A@934f9ce152c12e74bd9ea4d0dbcbcccaa644b6ae",
+  "briefPath": "C:\\dev\\ProjectOS/.projectops/execution/PROJECTOS-RECOVERY-AUTONOMOUS-LOOP1A-934f9ce152c1.brief.json"
+}

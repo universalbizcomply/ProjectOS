@@ -66,14 +66,37 @@ export function writeEvidence(sys: System, root: string, evidence: ExecutionEvid
   writeJson(sys, evidencePath(root, evidence.sessionId), evidence);
 }
 
-export function readSession(sys: System, root: string, sessionId: string): WorkerSession | null {
-  const text = sys.readText(sessionPath(root, sessionId));
-  if (text === null) return null;
+/**
+ * The session record, or the reason it cannot be used.
+ *
+ * A MALFORMED RECORD IS NOT AN ABSENT ONE — the same rule this module applies to findings and
+ * effects, and it was missing here. Treating unreadable as absent meant a worker could corrupt its
+ * own session record and the loop would start fresh: the worker-identity refusal would never fire
+ * (there is no record to disagree with), and a resumable run's handle would be silently discarded,
+ * losing the first worker's work. Both are exactly what those gates exist to prevent.
+ *
+ * Raised as CR-3 by the security review the governed worker performed on its own phase.
+ */
+export function readSession(sys: System, root: string, sessionId: string): ReadResult<WorkerSession | null> {
+  const p = sessionPath(root, sessionId);
+  const text = sys.readText(p);
+  if (text === null) return { ok: true, value: null };
+  let parsed: unknown;
   try {
-    return JSON.parse(text) as WorkerSession;
+    parsed = JSON.parse(text);
   } catch {
-    return null;
+    return { ok: false, problem: `the session record at ${p} exists but is not valid JSON; it is not evidence that no run owns this session` };
   }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return { ok: false, problem: `the session record at ${p} is not an object` };
+  }
+  const rec = parsed as Record<string, unknown>;
+  for (const field of ['sessionId', 'workerId', 'kind', 'phaseId'] as const) {
+    if (typeof rec[field] !== 'string' || rec[field] === '') {
+      return { ok: false, problem: `the session record at ${p} has no usable ${field}` };
+    }
+  }
+  return { ok: true, value: parsed as WorkerSession };
 }
 
 export interface FindingsRecord {

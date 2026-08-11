@@ -101,12 +101,6 @@ function planString(context: GovernedContext, key: string): string {
   return typeof v === 'string' ? v : '';
 }
 
-/**
- * Build the brief for one phase of the approved plan.
- *
- * Fails rather than improvises. A plan phase missing its description or acceptance criteria cannot
- * produce a brief, because the alternative is a worker told to do a phase whose contract is blank.
- */
 /** The record paths the loop derived for this run. Paths only — never content. */
 export interface BriefRecordPaths {
   readonly briefPath: string;
@@ -115,6 +109,12 @@ export interface BriefRecordPaths {
   readonly evidencePath: string;
 }
 
+/**
+ * Build the brief for one phase of the approved plan.
+ *
+ * Fails rather than improvises. A plan phase missing its description or acceptance criteria cannot
+ * produce a brief, because the alternative is a worker told to do a phase whose contract is blank.
+ */
 export function buildWorkerBrief(
   context: GovernedContext,
   phaseId: string,

@@ -148,7 +148,11 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
   // DIFFERENT worker — `--worker`, or an edited default — would otherwise inherit the first worker's
   // handle and hand it to a second executable that never created it, while the record kept naming
   // the first. Refuse: which worker owns a run is not something to resolve by guessing.
-  const existing = store.readSession(sys, root, sessionId);
+  const existingRead = store.readSession(sys, root, sessionId);
+  if (!existingRead.ok) {
+    return refused([`REFUSED (SESSION_UNREADABLE): ${existingRead.problem}`]);
+  }
+  const existing = existingRead.value;
   if (existing !== null && existing.workerId !== resolution.worker.workerId) {
     return refused([
       `REFUSED (SESSION_WORKER_MISMATCH): session '${sessionId}' belongs to worker '${existing.workerId}' (${existing.kind}), ` +

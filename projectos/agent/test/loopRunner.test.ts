@@ -420,6 +420,40 @@ describe('runLoop', () => {
     expect(written.providerRef).toBeTruthy();
   });
 
+  /**
+   * A malformed session record used to read as an ABSENT one, so a worker could corrupt its own
+   * record and the loop would start fresh: the worker-identity refusal could never fire, and a
+   * resumable handle would be silently discarded. Raised as CR-3 by the security review the governed
+   * worker performed on its own phase, during the live proof.
+   */
+  it('refuses an unreadable session record instead of treating it as absent', () => {
+    const sys = world({
+      files: {
+        ...cleanFindings(SESSION),
+        [`${ROOT}/.projectops/execution/${SESSION}.session.json`]: '{ not json',
+      },
+    });
+    const { calls, registry } = fakeAdapter();
+    const r = runLoop(sys, ROOT, { adapters: registry });
+    expect(r.ok).toBe(false);
+    expect(calls).toEqual([]);
+    expect(r.lines.join('\n')).toContain('SESSION_UNREADABLE');
+  });
+
+  it('refuses a session record that cannot say which worker owns it', () => {
+    const sys = world({
+      files: {
+        ...cleanFindings(SESSION),
+        [`${ROOT}/.projectops/execution/${SESSION}.session.json`]: JSON.stringify({ sessionId: SESSION, providerRef: 'ref-1' }),
+      },
+    });
+    const { calls, registry } = fakeAdapter();
+    const r = runLoop(sys, ROOT, { adapters: registry });
+    expect(r.ok).toBe(false);
+    expect(calls).toEqual([]);
+    expect(r.lines.join('\n')).toContain('workerId');
+  });
+
   it('refuses a checkout of another repository, and starts nothing', () => {
     const sys = world({ remote: 'https://github.com/acme/somewhere-else.git' });
     const { calls, registry } = fakeAdapter();
