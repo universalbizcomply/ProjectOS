@@ -1,13 +1,13 @@
 {
   "schemaVersion": "1.0.0",
-  "objectiveId": "a8369caa603eeb04",
+  "objectiveId": "f35d9acf797136cc",
   "objective": "Make ProjectOS genuinely usable as Murad's primary no-training-required project-delivery front door. Use ProjectOS against itself to discover and correct owner-experience, autonomy, workflow and truth defects. Unify competing project truths, remove misleading or duplicated operational surfaces, simplify navigation and owner decisions, preserve complete governance and protected-action controls, and prove the workflow on desktop, tablet and mobile-scale layouts. ProjectOS should autonomously handle safe project work after an owner-approved plan, with Claude as governed implementer and ChatGPT as independent gatekeeper. The owner should mainly provide the objective, approve the proposed plan, make genuine protected/commercial decisions, and approve final closure.",
   "authoritative": false,
   "projectId": "projectos",
   "repository": "universalbizcomply/ProjectOS",
   "branch": "projectos-post-v3-selfhost-pilot1a",
-  "baseHead": "51cfc910c860826bdf7650f03a64661fa87a5030",
-  "submittedAt": "2026-08-11T08:47:23.659Z",
+  "baseHead": "0da42cad5a82dbda0087e3c9f05ace7a0d3afde9",
+  "submittedAt": "2026-08-11T09:17:47.271Z",
   "submittedBy": "owner",
   "instructionShaped": false
 }
