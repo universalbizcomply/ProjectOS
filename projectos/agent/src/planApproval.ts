@@ -625,12 +625,19 @@ export function approvePlan(sys: System, root: string, opts: ApproveOptions): Ap
   const proposal = buildProposal(sys, root, engine);
   if (!proposal.ok) return { ok: false, code: 'PROPOSAL_FAILED', problems: [`${proposal.code}: ${proposal.detail}`] };
 
+  if (typeof draft.planDigest !== 'string') {
+    return {
+      ok: false,
+      code: 'DRAFT_SUPERSEDED',
+      problems: [`draft '${opts.draftId}' records no plan digest — it predates the approval mechanism. Regenerate it.`],
+    };
+  }
   if (draft.planDigest !== proposal.planDigest) {
     return {
       ok: false,
       code: 'DRAFT_SUPERSEDED',
       problems: [
-        `the stored draft proposes plan material ${String(draft.planDigest).slice(7, 19)}, but this repository now ` +
+        `the stored draft proposes plan material ${draft.planDigest.slice(7, 19)}, but this repository now ` +
           `proposes ${proposal.planDigest.slice(7, 19)}. Regenerate the draft and obtain a decision on the new one.`,
       ],
     };
