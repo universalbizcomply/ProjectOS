@@ -9,6 +9,7 @@ const fs = require("fs");
 const path = require("path");
 const ROOT = path.resolve(__dirname, "..", "..");
 const eng = require("./plan-discovery-engine.cjs");
+const govEng = require("./plan-governance-engine.cjs");
 function read(p) { return fs.readFileSync(p, "utf8").replace(/^﻿/, ""); }
 function readJSON(rel) { return JSON.parse(read(path.join(ROOT, rel))); }
 const FIX = "projectos/examples/v3-import-fixtures/";
@@ -364,6 +365,26 @@ function run() {
         if (!p1 || p1.dependsOn.length !== 0) errors.push("(i) an empty 'Depends on:' must yield no dependency, got " + JSON.stringify(p1 && p1.dependsOn));
         if (!p2 || p2.dependsOn[0] !== "MD-P1A") errors.push("(i) markdown dependency not read");
       }
+      // ORDER IS PART OF THE PLAN. Phase candidates were sorted by phaseId "for determinism", which
+      // destroyed the sequence the document states — so a plan whose second phase depends on its
+      // first came out with every dependency pointing at a LATER phase, and the plan-readiness
+      // evaluator (which requires dependencies to precede dependants) refused the entire plan.
+      // Caught by dry-running a real materialisation, not by inspection.
+      {
+        const ordered = [
+          "# Ordered", "Definition of complete: x.", "", "## Phases", "",
+          "### ZZ-P1A — first", "Purpose: p.", "Acceptance criteria:", "- a", "",
+          "### AA-P2A — second", "Purpose: p.", "Depends on: ZZ-P1A", "Acceptance criteria:", "- b", ""
+        ].join("\n");
+        const cands = eng.buildPhaseCandidates([fp("ordered-plan.md", ordered)]);
+        const ids = cands.map((c) => c.phaseId);
+        if (ids.join(",") !== "ZZ-P1A,AA-P2A") errors.push("(i) document phase order not preserved: " + ids.join(","));
+        // And the two engines must agree: the order the discovery engine emits has to satisfy the
+        // dependency rule the readiness evaluator enforces.
+        const depErrors = govEng.checkPhaseDeps(cands.map((c) => ({ phaseId: c.phaseId, dependsOn: c.dependencies })));
+        if (depErrors.length) errors.push("(i) proposed phase order fails the readiness dependency rule: " + depErrors.join("; "));
+      }
+
       // A document that does NOT declare itself a plan must not manufacture phases, however
       // plan-shaped its prose. Every repository is full of design notes mentioning phase ids.
       const notes = "# Design notes\nWe should probably do ND-P1A first.\n## Phases\nsomething about ND-P2A.\n";

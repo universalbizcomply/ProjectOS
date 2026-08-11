@@ -950,8 +950,25 @@ function buildPhaseCandidates(sources) {
       candidates.push({ phaseId: id, title: id, purpose: "NEEDS OWNER DECISION", scope: "NEEDS SOURCE", exclusions: [], dependencies: [], acceptanceCriteria: [], expectedValidators: [], requiredReviews: [], ownerGates: ["phase-closure"], sourceReferences: [s.relPath], confidence: "low", unresolvedQuestions: ["acceptance criteria not sourced"] });
     }
   }
-  // Deterministic order by phaseId then source.
-  return candidates.sort((a, b) => a.phaseId < b.phaseId ? -1 : a.phaseId > b.phaseId ? 1 : 0);
+  // ORDER IS PART OF THE PLAN.
+  //
+  // These used to be sorted by phaseId, for determinism. Document order is equally deterministic and
+  // is the plan's own statement of sequence, and sorting destroyed it: a plan whose first phase is
+  // PROJECTOS-RECOVERY-PLANNING-BRAIN1A and whose second depends on it came out alphabetically, so
+  // every dependency pointed at a LATER phase and the plan-readiness evaluator — which requires
+  // dependencies to precede dependants — refused the whole plan. Structured phases therefore keep the
+  // order their document states them in; only the prose-scraped fallback, which has no stated order
+  // to preserve, is sorted.
+  return candidates
+    .map((c, i) => ({ c, i }))
+    .sort((a, b) => {
+      const sa = a.c.extractionMethod === undefined ? 1 : 0;
+      const sb = b.c.extractionMethod === undefined ? 1 : 0;
+      if (sa !== sb) return sa - sb;                                   // structured first
+      if (sa === 1) return a.c.phaseId < b.c.phaseId ? -1 : a.c.phaseId > b.c.phaseId ? 1 : 0;
+      return a.i - b.i;                                                // document order
+    })
+    .map((x) => x.c);
 }
 
 // Import status: NEVER PLAN READY here.
