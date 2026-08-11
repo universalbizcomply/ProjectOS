@@ -24,16 +24,28 @@ import type { Session } from '@supabase/supabase-js';
 
 type View = 'control' | 'forge' | 'chat' | 'safety' | 'overview' | 'live' | 'workflow' | 'gates' | 'plugins';
 
-const NAV: ReadonlyArray<{ id: View; label: string }> = [
-  { id: 'control', label: 'Owner Control' },
-  { id: 'forge', label: 'Forge' },
+/**
+ * ONE OBVIOUS WORKFLOW, and everything else disclosed progressively.
+ *
+ * Nine equally-weighted destinations gave an owner nine plausible starting points and no indication
+ * which one was the way in. The workflow the owner actually runs — pick a project, state an
+ * objective, get a plan, approve it, watch execution, answer decisions, read evidence, finish — lives
+ * on two of them. The other seven are real and are kept: they are reference and support, not steps,
+ * and they are grouped as such rather than deleted. Nothing became unreachable.
+ */
+const NAV_PRIMARY: ReadonlyArray<{ id: View; label: string; hint: string }> = [
+  { id: 'overview', label: 'Projects', hint: 'Which project' },
+  { id: 'control', label: 'Owner Control', hint: 'Objective, plan, execution, decisions, evidence' },
+];
+
+const NAV_REFERENCE: ReadonlyArray<{ id: View; label: string }> = [
+  { id: 'live', label: 'Mission Control' },
   { id: 'chat', label: 'Owner Chat' },
   { id: 'safety', label: 'Safety & Providers' },
-  { id: 'overview', label: 'Projects' },
-  { id: 'live', label: 'Mission Control' },
-  { id: 'workflow', label: 'Workflow' },
   { id: 'gates', label: 'Safety Gates' },
+  { id: 'workflow', label: 'Workflow' },
   { id: 'plugins', label: 'Integrations' },
+  { id: 'forge', label: 'Forge' },
 ];
 
 /**
@@ -120,7 +132,7 @@ export function App() {
           <span>Control</span>
         </div>
         <nav aria-label="Primary">
-          {NAV.map((n) => (
+          {NAV_PRIMARY.map((n) => (
             <button
               type="button"
               key={n.id}
@@ -129,7 +141,23 @@ export function App() {
               onClick={() => setView(n.id)}
             >
               <span className="dot" />
-              {n.label}
+              <span className="navlabel">{n.label}</span>
+              <span className="navhint">{n.hint}</span>
+            </button>
+          ))}
+        </nav>
+        <nav aria-label="Reference and support" className="nav-reference">
+          <h2 className="navgroup">Reference &amp; support</h2>
+          {NAV_REFERENCE.map((n) => (
+            <button
+              type="button"
+              key={n.id}
+              className={`navitem quiet${view === n.id ? ' active' : ''}`}
+              aria-current={view === n.id ? 'page' : undefined}
+              onClick={() => setView(n.id)}
+            >
+              <span className="dot" />
+              <span className="navlabel">{n.label}</span>
             </button>
           ))}
         </nav>

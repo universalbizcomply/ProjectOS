@@ -31,9 +31,12 @@ const findings: Record<string, unknown> = {};
 
 async function gotoOwnerControl(): Promise<void> {
   await browser.execute(() => {
-    const nav = document.querySelector('nav[aria-label="Primary"]');
-    for (const b of Array.from(nav?.querySelectorAll('button') ?? [])) {
-      if ((b.textContent ?? '').trim() === 'Owner Control') { (b as HTMLButtonElement).click(); return; }
+    // A primary nav item now carries a hint alongside its label, so exact textContent no longer
+    // matches; read the label element where one exists.
+    for (const b of Array.from(document.querySelectorAll('nav button'))) {
+      const labelEl = b.querySelector('.navlabel');
+      const text = ((labelEl ?? b).textContent ?? '').trim();
+      if (text === 'Owner Control') { (b as HTMLButtonElement).click(); return; }
     }
   });
   await browser.pause(400);

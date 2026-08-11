@@ -46,12 +46,19 @@ const findings: Record<string, unknown> = {};
  */
 async function gotoView(label: string): Promise<void> {
   const clicked = await browser.execute((wanted: string) => {
-    const nav = document.querySelector('nav[aria-label="Primary"]');
-    if (nav === null) return false;
-    for (const b of Array.from(nav.querySelectorAll('button'))) {
-      if ((b.textContent ?? '').trim() === wanted) {
-        (b as HTMLButtonElement).click();
-        return true;
+    // EVERY nav landmark, not just the primary one. The workflow is now two primary destinations
+    // with the remaining seven grouped as reference and support, so a helper that searched only
+    // `nav[aria-label="Primary"]` would report a surface as missing when it is merely secondary —
+    // a false alarm about the exact thing this audit exists to check. The label is read from the
+    // label element where one exists, because a primary item also carries a hint.
+    for (const nav of Array.from(document.querySelectorAll('nav'))) {
+      for (const b of Array.from(nav.querySelectorAll('button'))) {
+        const labelEl = b.querySelector('.navlabel');
+        const text = ((labelEl ?? b).textContent ?? '').trim();
+        if (text === wanted) {
+          (b as HTMLButtonElement).click();
+          return true;
+        }
       }
     }
     return false;
@@ -288,8 +295,11 @@ describe('P1 self-hosting pilot — what the owner actually sees', function () {
         })),
         negativeTabIndex: focusable.filter((el) => el.getAttribute('tabindex') === '-1').length,
         firstIsProgrammaticallyFocusable: focusable[0] !== undefined && canFocus(focusable[0]),
+        // EVERY nav landmark. Grouping seven destinations as reference must not quietly make them
+        // mouse-only — demoting a surface is a presentation decision, not permission to drop it out
+        // of the keyboard path.
         navButtonsFocusable: Array.from(
-          document.querySelectorAll<HTMLElement>('nav[aria-label="Primary"] button'),
+          document.querySelectorAll<HTMLElement>('nav button'),
         ).every(canFocus),
       };
     });
