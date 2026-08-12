@@ -16,13 +16,16 @@
 //! entry uses only `development_identity` this phase, so `dead_code` is allowed module-wide.
 #![allow(dead_code)]
 
+pub mod anchor;
 pub mod canonical;
 pub mod composite;
 pub mod errors;
+pub mod es256;
 pub mod hash;
 pub mod manifest;
 pub mod mode;
 pub mod paths;
+pub mod production_verifier;
 pub mod types;
 pub mod verifier;
 

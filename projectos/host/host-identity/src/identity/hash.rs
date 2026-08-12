@@ -3,6 +3,14 @@
 
 use sha2::{Digest, Sha256};
 
+/// Raw SHA-256 digest of the given bytes. Signature verification needs the digest itself, not its
+/// hex rendering — hashing to text and back would be a needless conversion on a trust path.
+pub fn sha256_bytes(bytes: &[u8]) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    hasher.finalize().into()
+}
+
 /// Lower-case hex SHA-256 of the given bytes.
 pub fn sha256_hex(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
