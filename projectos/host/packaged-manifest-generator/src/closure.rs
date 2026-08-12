@@ -513,19 +513,18 @@ fn same_relative(actual: &Path, declared: &str) -> bool {
 /// The payload may contain the runtime, the daemon bundle, the manifest and the canonical signing
 /// bytes — and nothing else. The daemon bundle is scanned for run-time reaches outside the payload.
 ///
-/// SCOPE: THIS IS A PAYLOAD, NOT AN INSTALL ROOT. `payload_root` is the packaging tool's own output
-/// directory, which contains those four files and nothing more. It is NOT the directory the
-/// application is eventually installed into — that one also holds the Control Centre executable,
-/// `WebView2Loader.dll` and icons, none of which this validator knows about and all of which it
-/// would report as `UnattestedFile`.
+/// SCOPE: THIS IS A PAYLOAD, NOT AN INSTALL ROOT — and that collision is now RESOLVED.
 ///
-/// That is an unresolved collision, recorded here rather than papered over: `evaluate()` binds the
-/// manifest's relative paths beneath the INSTALL root (the running executable's directory), so at
-/// install time the payload's files must land there alongside the app's own. Whoever builds the
-/// installer must decide which of the two rules gives — the payload moving into a subdirectory the
-/// manifest names, or this walk learning the app's own file set. Deciding it here, with no installer
-/// to check the decision against, would just be guessing. Installation is out of scope for
-/// PROJECTOS-RECOVERY-INSTALLED-APP1A.
+/// `payload_root` contains those four files and nothing more. It was previously in tension with
+/// `evaluate()`, which bound the manifest's relative paths beneath the running executable's own
+/// directory: the installed application also holds the Control Centre executable,
+/// `WebView2Loader.dll` and icons, so "everything here is attested" could never be true and this
+/// walk would have reported the application's own files as unattested.
+///
+/// The payload is now an app-owned SUBDIRECTORY of the install root, named once by the packaging
+/// contract (`PAYLOAD_RELATIVE_ROOT`), and `EvalContext::payload_root` binds beneath that. So the
+/// two roots are separate things with separate names, this walk enumerates a closed set, and the
+/// installer's job is simply to place the payload directory where the contract says.
 pub fn verify_closure(payload_root: &Path) -> ClosureReport {
     let mut files = Vec::new();
     let mut unreadable = Vec::new();

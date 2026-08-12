@@ -75,6 +75,25 @@ pub use identity::manifest::{
     DaemonArtefactFormat, DaemonArtefactManifest, RuntimeManifest, TrustManifest,
 };
 
+/// PROJECTOS-RECOVERY-INSTALLED-APP1A: the INDEPENDENT installation observation.
+///
+/// `EvalContext::observed_installation` is the half of the corroboration check the manifest is not
+/// allowed to supply, and the Control Centre was passing `Unknown` — a placeholder that refused
+/// every packaged manifest for a reason unrelated to the manifest. Classification is re-exported so
+/// the Control Centre can make the real observation through THE existing classifier rather than
+/// growing a second one.
+///
+/// It grants nothing. `classify_installation` reads the running executable's canonical path and an
+/// evidence provider and returns a classification; the production provider reports `Unavailable`,
+/// so a Program Files location alone still yields `PerMachineUnverified`, which does NOT corroborate
+/// per-machine. `PerMachineVerified` is unreachable by construction.
+#[cfg(windows)]
+pub use identity::install_root::{
+    classify_installation, InstallationEvidence, InstallationEvidenceProvider, NoInstallerEvidence,
+};
+#[cfg(windows)]
+pub use identity::running_executable::RunningExecutable;
+
 /// The identity vocabulary a caller needs to assemble an `EvalContext` and read an outcome.
 pub use identity::composite::InstallationIdentity;
 pub use identity::errors::IdentityError;

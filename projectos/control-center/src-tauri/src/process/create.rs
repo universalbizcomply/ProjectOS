@@ -40,6 +40,9 @@ use projectos_windows_runtime_primitives::handles::{adopt, win32};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SpecClassification {
     SyntheticTest,
+    /// The packaged runtime: the pinned Node inside the attested payload, running the closed daemon
+    /// bundle. Descriptive only — it grants nothing and no code branches on it.
+    PackagedRuntime,
 }
 
 /// A closed, bounded process specification. It carries no shell text, no raw command line, no PATH

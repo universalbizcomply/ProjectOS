@@ -121,6 +121,17 @@ pub mod identity {
             IdentityState, InstallationIdentity, InstallationModel, Policy,
             ProductionEs256Verifier, RealFs, VerifiedPackagedIdentity,
         };
+
+        /// PROJECTOS-RECOVERY-INSTALLED-APP1A: the INDEPENDENT installation observation, so the
+        /// Control Centre can observe its own installation through THE existing classifier instead
+        /// of passing a placeholder or growing a second one. Read-only classification; the
+        /// production evidence provider reports `Unavailable`, so this cannot manufacture
+        /// corroboration.
+        #[cfg(windows)]
+        pub use projectos_host_identity::{
+            classify_installation, InstallationEvidence, InstallationEvidenceProvider,
+            NoInstallerEvidence, RunningExecutable,
+        };
     }
 
     /// TEST-ONLY proof minting, behind this crate's `test-fixtures` feature.

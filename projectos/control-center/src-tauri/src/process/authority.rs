@@ -22,11 +22,11 @@ use super::create::{ProcessSpec, SpecClassification};
 use super::dev_runtime::{
     resolve_development_git, resolve_development_node, strip_verbatim, RealRuntimeFs, RuntimeFs,
 };
+#[cfg(test)]
+use super::environment::SYSTEM_ALLOWLIST;
 use super::environment::{
     collect_system_vars, DAEMON_BRIDGE_CONFIG_VAR, DAEMON_GIT_EXE_VAR, DAEMON_INSTANCE_ID_VAR,
 };
-#[cfg(test)]
-use super::environment::SYSTEM_ALLOWLIST;
 use super::errors::ProcessError;
 // The application-mode CLASSIFIER now lives in the canonical low-level primitive crate, shared with
 // identity code. Launch AUTHORITY (below) stays here — the primitive classifies, it never grants.
@@ -34,6 +34,11 @@ use projectos_windows_runtime_primitives::app_mode::AppMode;
 // The SEALED proof of verified packaged identity, consumed through the shared runtime's safe
 // identity facade. This crate can receive and read one; it can never construct one.
 use projectos_shared_host_runtime::identity::packaged::VerifiedPackagedIdentity;
+// THE governed ProjectOS system root. Sealed, and a consequence of verified identity — see
+// `governed_root.rs` for why it cannot come from cwd, config, environment, argv or discovery.
+use super::governed_root::GovernedSystemRoot;
+#[cfg(windows)]
+use super::governed_root::{resolve_governed_system_root, InstalledSystemRoot};
 
 /// Bounded cooperative-shutdown grace for the real daemon.
 pub(crate) const DAEMON_GRACEFUL_SHUTDOWN: Duration = Duration::from_secs(5);
@@ -61,6 +66,12 @@ pub(crate) struct VerifiedPackagedDaemonLaunchAuthority {
     application_version: String,
     signer_id: String,
     daemon_instance_id: String,
+    /// The closed runtime payload this authority may launch — an app-owned subdirectory of the
+    /// install root, never a caller's path.
+    payload_root: PathBuf,
+    /// The ProjectOS SYSTEM root this installation is authorised to operate. Sealed: it can only
+    /// have come from `resolve_governed_system_root`, which itself demands the verified identity.
+    governed_system_root: GovernedSystemRoot,
 }
 
 impl VerifiedPackagedDaemonLaunchAuthority {
@@ -69,20 +80,83 @@ impl VerifiedPackagedDaemonLaunchAuthority {
     /// There is deliberately no variant of this that accepts an `IdentityOutcome`: that struct has
     /// public fields, so `IdentityOutcome { state: PackagedIdentityVerified, .. }` is writable by
     /// anyone, and accepting it would mean trusting a claim rather than a verification.
+    ///
+    /// The governed root is taken as a SEALED `GovernedSystemRoot` rather than a path, so this
+    /// constructor cannot be handed a directory somebody merely liked the look of. Both roots are
+    /// bound here and are private thereafter.
     pub(crate) fn from_verified_identity(
         identity: VerifiedPackagedIdentity,
         daemon_instance_id: String,
+        payload_root: PathBuf,
+        governed_system_root: GovernedSystemRoot,
     ) -> Self {
         Self {
             application_id: identity.application_id().to_string(),
             application_version: identity.application_version().to_string(),
             signer_id: identity.signer_id().to_string(),
             daemon_instance_id,
+            payload_root,
+            governed_system_root,
         }
     }
 
     pub(crate) fn daemon_instance_id(&self) -> &str {
         &self.daemon_instance_id
+    }
+
+    /// The ProjectOS system root this authority governs.
+    pub(crate) fn governed_system_root(&self) -> &std::path::Path {
+        self.governed_system_root.path()
+    }
+
+    /// The packaged runtime payload root this authority launches from.
+    pub(crate) fn payload_root(&self) -> &std::path::Path {
+        &self.payload_root
+    }
+
+    /// Build the fixed packaged specification. The caller supplies nothing.
+    ///
+    /// Everything is derived from values bound at construction, and every one of those came from
+    /// the trusted application build or from a verified identity:
+    ///   * the executable is the PINNED runtime inside the payload, at the contract's path — never
+    ///     an interpreter found on PATH;
+    ///   * the script is the closed daemon bundle inside the same payload;
+    ///   * the governed root is passed EXPLICITLY, so the daemon is told which ProjectOS it may
+    ///     operate rather than discovering one by scanning for a `.projectops` directory;
+    ///   * the working directory is the payload root — deterministic and app-owned. The daemon does
+    ///     not derive anything from it; it is set so nothing is inherited.
+    ///
+    /// `PROJECTOS_BRIDGE_CONFIG` is deliberately ABSENT. It is the development route for supplying
+    /// watch roots, and a packaged installation must not be redirectable by a configuration file.
+    pub(crate) fn to_process_spec(&self) -> Result<ProcessSpec, ProcessError> {
+        use projectos_packaged_runtime_contract as contract;
+
+        let node = self.payload_root.join(contract::RUNTIME_RELATIVE_PATH);
+        let daemon = self.payload_root.join(contract::DAEMON_RELATIVE_PATH);
+        if !node.is_file() || !daemon.is_file() {
+            return Err(ProcessError::PackagedRuntimeNotProvisioned);
+        }
+
+        let mut env = collect_system_vars(&["SystemRoot"]);
+        env.push((
+            DAEMON_INSTANCE_ID_VAR.to_string(),
+            self.daemon_instance_id.clone(),
+        ));
+        Ok(ProcessSpec {
+            executable: node.to_string_lossy().to_string(),
+            args: vec![
+                daemon.to_string_lossy().to_string(),
+                "--root".to_string(),
+                self.governed_system_root
+                    .path()
+                    .to_string_lossy()
+                    .to_string(),
+            ],
+            current_dir: self.payload_root.to_string_lossy().to_string(),
+            env,
+            graceful_shutdown: DAEMON_GRACEFUL_SHUTDOWN,
+            classification: SpecClassification::PackagedRuntime,
+        })
     }
 
     pub(crate) fn application_id(&self) -> &str {
@@ -204,6 +278,32 @@ fn development_roots() -> Vec<PathBuf> {
 /// redirected is a manifest an attacker chooses.
 pub(crate) const TRUST_MANIFEST_FILENAME: &str = "projectos-trust-manifest.json";
 
+/// THE APPLICATION INSTALL ROOT: the directory the running executable lives in.
+///
+/// Derived from `current_exe()` and nothing else — not cwd, not an environment variable, not a
+/// configuration file, each of which is something a caller can point elsewhere. It also holds the
+/// Tauri runtime DLLs, the icons and whatever the installer owns, none of which the trust manifest
+/// describes and none of which it should appear to.
+#[cfg(windows)]
+fn application_install_root() -> Result<PathBuf, ProcessError> {
+    let exe = std::env::current_exe().map_err(|_| ProcessError::ProductionIdentityUnavailable)?;
+    Ok(exe
+        .parent()
+        .ok_or(ProcessError::ProductionIdentityUnavailable)?
+        .to_path_buf())
+}
+
+/// THE PACKAGED RUNTIME PAYLOAD ROOT: one app-owned subdirectory of the install root.
+///
+/// Named once by the packaging contract and joined here. Keeping it separate from the install root
+/// is what lets the payload be a CLOSED set — pinned runtime, daemon bundle, manifest, canonical
+/// bytes and nothing else — so dependency closure can enumerate it without knowing the
+/// application's own file list.
+#[cfg(windows)]
+fn packaged_payload_root(install_root: &std::path::Path) -> PathBuf {
+    install_root.join(projectos_packaged_runtime_contract::PAYLOAD_RELATIVE_ROOT)
+}
+
 /// The packaged authority path — the FIRST production-reachable use of packaged identity evaluation.
 ///
 /// Everything the evaluation compares against comes from the trusted application build or from the
@@ -224,15 +324,12 @@ fn resolve_packaged_authority(
         evaluate_packaged_authority, EvalContext, Policy, ProductionEs256Verifier, RealFs,
     };
 
-    // The install root is where THIS executable lives. Not cwd, not an environment variable, not a
-    // configuration file — each of those is something a caller can point elsewhere.
-    let exe = std::env::current_exe().map_err(|_| ProcessError::ProductionIdentityUnavailable)?;
-    let install_root = exe
-        .parent()
-        .ok_or(ProcessError::ProductionIdentityUnavailable)?
-        .to_path_buf();
+    let install_root = application_install_root()?;
+    let payload_root = packaged_payload_root(&install_root);
 
-    let manifest_path = install_root.join(TRUST_MANIFEST_FILENAME);
+    // The manifest is part of the PAYLOAD, at a fixed name. Application-owned and deterministic: a
+    // manifest whose location could be redirected is a manifest an attacker chooses.
+    let manifest_path = payload_root.join(TRUST_MANIFEST_FILENAME);
     let fs = RealFs;
     let raw_manifest = match std::fs::read(&manifest_path) {
         Ok(bytes) => bytes,
@@ -247,7 +344,7 @@ fn resolve_packaged_authority(
     let verifier = ProductionEs256Verifier::from_embedded();
     let ctx = EvalContext {
         policy: Policy::Production,
-        install_root: &install_root,
+        payload_root: &payload_root,
         expected_application_id: PACKAGED_APPLICATION_ID,
         expected_application_version: env!("CARGO_PKG_VERSION"),
         expected_architecture: PACKAGED_ARCHITECTURE,
@@ -257,12 +354,22 @@ fn resolve_packaged_authority(
     };
 
     match evaluate_packaged_authority(&raw_manifest, &ctx, &fs) {
-        Ok(identity) => Ok(DaemonLaunchAuthority::Packaged(
-            VerifiedPackagedDaemonLaunchAuthority::from_verified_identity(
-                identity,
-                daemon_instance_id,
-            ),
-        )),
+        Ok(identity) => {
+            // The governed system root is a CONSEQUENCE of the verified identity, resolved through
+            // the approved seam. Production has no approved resolver, so this refuses — with its own
+            // reason rather than pretending the identity failed, and never by falling back to
+            // development.
+            let governed = resolve_governed_system_root(&identity, &InstalledSystemRoot)
+                .map_err(|_| ProcessError::PackagedRuntimeNotProvisioned)?;
+            Ok(DaemonLaunchAuthority::Packaged(
+                VerifiedPackagedDaemonLaunchAuthority::from_verified_identity(
+                    identity,
+                    daemon_instance_id,
+                    payload_root,
+                    governed,
+                ),
+            ))
+        }
         // EVERY failure ends here, closed and identically. The refusal is deliberately uniform: a
         // caller learning WHICH check rejected its manifest — signature, hash, corroboration,
         // version — is being handed a forgery oracle one bit at a time. The specific outcome is
@@ -273,21 +380,43 @@ fn resolve_packaged_authority(
 }
 
 /// Classify this installation from the running executable, independently of any manifest.
+///
+/// REAL OBSERVATION NOW. This returned `InstallationIdentity::Unknown` — a placeholder that refused
+/// every packaged manifest for a reason that had nothing to do with the manifest. It now calls THE
+/// existing classifier, the same one `classify_packaged_candidate` uses; no second classifier was
+/// added, and none should be.
+///
+/// WHAT IT STILL WILL NOT DO. Being under Program Files is not, on its own, a verified per-machine
+/// installation. `classify_installation` returns `PerMachineUnverified` for exactly that case — a
+/// copied tree satisfies it — and only independent installer evidence lifts it to
+/// `PerMachineEvidenceMatched`. `NoInstallerEvidence` is the production provider and reports
+/// `Unavailable`, because no approved installer record resolver exists yet. So production still does
+/// not corroborate, and it now says so for the right reason.
+///
+/// Failing to establish the running executable's identity at all falls to `Unknown`, which
+/// corroborates nothing.
 #[cfg(windows)]
 fn observed_installation() -> projectos_shared_host_runtime::identity::packaged::InstallationIdentity
 {
-    use projectos_shared_host_runtime::identity::packaged::InstallationIdentity;
-    // The composite startup identity already classifies the installation from the real executable
-    // location and installer evidence. Until that projection is threaded through, the conservative
-    // answer is the one that CANNOT corroborate a per-machine claim — so a manifest declaring
-    // PerMachine is refused rather than believed. Wiring the real classification is packaged-runtime
-    // work; weakening this default to unblock it would be the wrong direction.
-    InstallationIdentity::Unknown
+    use projectos_shared_host_runtime::identity::packaged::{
+        classify_installation, InstallationIdentity, NoInstallerEvidence, RunningExecutable,
+    };
+    match RunningExecutable::open_current() {
+        Some(exe) => classify_installation(&exe, &NoInstallerEvidence),
+        None => InstallationIdentity::Unknown,
+    }
 }
 
 /// The application identity this build expects a manifest to be about. Compiled in, never read from
 /// the manifest that is being judged.
-pub(crate) const PACKAGED_APPLICATION_ID: &str = "com.projectos.control-center";
+///
+/// ONE DECLARATION. This was `com.projectos.control-center` while `tauri.conf.json` stamped
+/// `com.universalbizcomply.projectos.control` into the actual Windows bundle. Nothing compared them,
+/// so a manifest generated for the real product would have been refused by the real product. Both
+/// now derive from the packaging contract, and `tauri_identifier_matches_the_packaging_contract`
+/// parses `tauri.conf.json` and fails if they ever drift again.
+pub(crate) const PACKAGED_APPLICATION_ID: &str =
+    projectos_packaged_runtime_contract::PACKAGED_APPLICATION_ID;
 
 /// The architecture and Node runtime version a packaged installation must carry, taken from THE
 /// packaging contract (PROJECTOS-RECOVERY-INSTALLED-APP1A).
@@ -432,17 +561,27 @@ mod tests {
         // parameter through which a renderer, a Tauri command or the sidecar could pass a Git path,
         // so the only Git binding possible is the one the host resolved for itself.
         let a = DevelopmentDaemonLaunchAuthority {
-            node_exe: PathBuf::from(r"C:	ools
+            node_exe: PathBuf::from(
+                r"C:	ools
 ode
-ode.exe"),
+ode.exe",
+            ),
             host_script: PathBuf::from(r"C:\dev\cc\sidecar\host.mjs"),
             dev_root: PathBuf::from(r"C:\dev\cc"),
             git_exe: PathBuf::from(r"C:\tools\git\cmd\git.exe"),
             daemon_instance_id: "host1-1".into(),
         };
         let spec = a.to_process_spec().unwrap();
-        let git: Vec<_> = spec.env.iter().filter(|(n, _)| n == DAEMON_GIT_EXE_VAR).collect();
-        assert_eq!(git.len(), 1, "exactly one Git binding, never a list to choose from");
+        let git: Vec<_> = spec
+            .env
+            .iter()
+            .filter(|(n, _)| n == DAEMON_GIT_EXE_VAR)
+            .collect();
+        assert_eq!(
+            git.len(),
+            1,
+            "exactly one Git binding, never a list to choose from"
+        );
         // and the environment stays the narrow internal set
         for (name, _) in &spec.env {
             assert!(
@@ -474,7 +613,11 @@ ode.exe"),
             .iter()
             .filter(|(n, _)| n == DAEMON_BRIDGE_CONFIG_VAR)
             .collect();
-        assert_eq!(bound.len(), 1, "exactly one binding, never a list to choose from");
+        assert_eq!(
+            bound.len(),
+            1,
+            "exactly one binding, never a list to choose from"
+        );
         assert_eq!(bound[0].1, r"C:\dev\cc\bridge.config.json");
         assert!(
             std::path::Path::new(&bound[0].1).is_absolute(),
@@ -544,7 +687,7 @@ mod packaged_authority_tests {
         }
     }
 
-    /// 6. Development identity cannot become packaged authority: the development branch constructs
+    /// [6] Development identity cannot become packaged authority: the development branch constructs
     /// `DevelopmentDaemonLaunchAuthority` and there is no conversion between the two authorities.
     #[test]
     fn development_authority_has_no_route_to_packaged() {
@@ -567,50 +710,192 @@ mod packaged_authority_tests {
 #[cfg(all(test, feature = "test-fixtures"))]
 mod packaged_authority_positive_control {
     use super::*;
+    use crate::process::governed_root::FixtureSystemRoot;
+    use projectos_packaged_runtime_contract as contract;
     use projectos_shared_host_runtime::identity::packaged::InstallationModel;
     use projectos_shared_host_runtime::identity::packaged_fixture::test_only_verified_identity;
 
-    /// 1. A verified packaged identity can create packaged authority, and the authority carries the
-    /// identity it was granted for.
-    #[test]
-    fn verified_identity_issues_packaged_authority() {
-        let identity = test_only_verified_identity(
-            "com.projectos.control-center",
+    const APP: &str = contract::PACKAGED_APPLICATION_ID;
+
+    fn identity() -> VerifiedPackagedIdentity {
+        test_only_verified_identity(
+            APP,
             "9.9.9",
             "projectos-signing-fixture",
             InstallationModel::PerMachine,
-        );
-        let authority = VerifiedPackagedDaemonLaunchAuthority::from_verified_identity(
-            identity,
-            "h-packaged".into(),
-        );
-        assert_eq!(authority.application_id(), "com.projectos.control-center");
+        )
+    }
+
+    /// A temporary INSTALL root containing an app-owned payload subdirectory with a real pinned
+    /// runtime file and a real daemon bundle file. Only the layout matters here, not the bytes.
+    fn installed_layout(name: &str) -> (PathBuf, PathBuf, PathBuf) {
+        let install_root = std::env::temp_dir().join(format!("projectos-install-{name}"));
+        let _ = std::fs::remove_dir_all(&install_root);
+        let payload = install_root.join(contract::PAYLOAD_RELATIVE_ROOT);
+        for rel in [
+            contract::RUNTIME_RELATIVE_PATH,
+            contract::DAEMON_RELATIVE_PATH,
+        ] {
+            let p = payload.join(std::path::Path::new(rel));
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(&p, b"payload byte").unwrap();
+        }
+        // The application's OWN files live beside the payload, not inside it.
+        std::fs::write(install_root.join("projectos-control-center.exe"), b"exe").unwrap();
+        std::fs::write(install_root.join("WebView2Loader.dll"), b"dll").unwrap();
+
+        let governed = std::env::temp_dir().join(format!("projectos-system-{name}"));
+        std::fs::create_dir_all(&governed).unwrap();
+        (install_root, payload, governed)
+    }
+
+    fn authority_for(name: &str) -> (VerifiedPackagedDaemonLaunchAuthority, PathBuf, PathBuf) {
+        let (_install, payload, governed) = installed_layout(name);
+        let root = resolve_governed_system_root(
+            &identity(),
+            &FixtureSystemRoot {
+                application_id: APP.to_string(),
+                root: governed.clone(),
+            },
+        )
+        .expect("a real absolute directory for this application resolves");
+        (
+            VerifiedPackagedDaemonLaunchAuthority::from_verified_identity(
+                identity(),
+                "h-packaged".into(),
+                payload.clone(),
+                root,
+            ),
+            payload,
+            governed,
+        )
+    }
+
+    /// [§10.1] A verified packaged identity issues packaged authority, and that authority carries
+    /// the identity it was granted for.
+    #[test]
+    fn verified_identity_issues_packaged_authority() {
+        let (authority, _, _) = authority_for("issues");
+        assert_eq!(authority.application_id(), APP);
         assert_eq!(authority.application_version(), "9.9.9");
         assert_eq!(authority.signer_id(), "projectos-signing-fixture");
         assert_eq!(authority.daemon_instance_id(), "h-packaged");
     }
 
-    /// The authority reaches the intended downstream boundary — and that boundary refuses for the
-    /// RIGHT reason. `PackagedRuntimeNotProvisioned` says the payload is missing; it does not claim
-    /// the identity failed, because the identity did not fail.
+    /// [§10.2] The payload is resolved from the APPLICATION-OWNED layout — a named subdirectory of
+    /// the install root — and the application's own files sit beside it, not inside it.
     #[test]
-    fn packaged_authority_reaches_the_launch_boundary_and_fails_on_the_payload_not_the_identity() {
-        let identity = test_only_verified_identity(
-            "com.projectos.control-center",
-            "9.9.9",
-            "projectos-signing-fixture",
-            InstallationModel::PerMachine,
+    fn the_payload_root_is_an_app_owned_subdirectory_of_the_install_root() {
+        let (install, payload, _) = installed_layout("layout");
+        assert_eq!(packaged_payload_root(&install), payload);
+        assert_eq!(
+            payload.parent().unwrap(),
+            install.as_path(),
+            "the payload is one level beneath the install root"
         );
-        let authority = DaemonLaunchAuthority::Packaged(
-            VerifiedPackagedDaemonLaunchAuthority::from_verified_identity(identity, "h-4".into()),
+        // The exe and its DLLs are in the install root and NOT in the payload.
+        assert!(install.join("projectos-control-center.exe").is_file());
+        assert!(!payload.join("projectos-control-center.exe").exists());
+        assert!(!payload.join("WebView2Loader.dll").exists());
+    }
+
+    /// [§10.6, §10.7] The governed root reaches the daemon startup boundary, EXPLICITLY. The daemon
+    /// is told which ProjectOS it may operate; it does not discover one.
+    #[test]
+    fn the_daemon_spec_carries_the_exact_governed_root_and_the_payload_runtime() {
+        let (authority, payload, governed) = authority_for("spec");
+        let spec = authority.to_process_spec().expect("payload is provisioned");
+
+        assert_eq!(
+            spec.executable,
+            payload
+                .join(std::path::Path::new(contract::RUNTIME_RELATIVE_PATH))
+                .to_string_lossy()
         );
-        let spec = match &authority {
-            DaemonLaunchAuthority::Development(dev) => dev.to_process_spec(),
-            DaemonLaunchAuthority::Packaged(_) => Err(ProcessError::PackagedRuntimeNotProvisioned),
-        };
+        assert_eq!(
+            spec.args[0],
+            payload
+                .join(std::path::Path::new(contract::DAEMON_RELATIVE_PATH))
+                .to_string_lossy()
+        );
+        assert_eq!(spec.args[1], "--root");
+        assert_eq!(spec.args[2], governed.to_string_lossy());
+        assert_eq!(spec.current_dir, payload.to_string_lossy());
         assert!(matches!(
-            spec,
-            Err(ProcessError::PackagedRuntimeNotProvisioned)
+            spec.classification,
+            SpecClassification::PackagedRuntime
         ));
+    }
+
+    /// [§11.4] Packaged mode is NOT given the development bridge configuration. That variable is the
+    /// development route for supplying watch roots, and a packaged installation must not be
+    /// redirectable by a configuration file.
+    #[test]
+    fn the_packaged_spec_carries_no_bridge_configuration_and_no_path() {
+        let (authority, _, _) = authority_for("env");
+        let spec = authority.to_process_spec().unwrap();
+        assert!(
+            !spec.env.iter().any(|(n, _)| n == DAEMON_BRIDGE_CONFIG_VAR),
+            "packaged mode must not receive a bridge configuration"
+        );
+        assert!(!spec.env.iter().any(|(n, _)| n.eq_ignore_ascii_case("PATH")));
+        for (name, _) in &spec.env {
+            assert!(
+                name == DAEMON_INSTANCE_ID_VAR || SYSTEM_ALLOWLIST.contains(&name.as_str()),
+                "unexpected variable in the packaged daemon environment: {name}"
+            );
+        }
+    }
+
+    /// [§11.10, §11.11] A payload in the WRONG subdirectory, or outside the app-owned layout
+    /// entirely, does not become launchable: the spec is built only from the bound payload root, and
+    /// it refuses when the runtime and daemon are not both there.
+    #[test]
+    fn a_payload_outside_the_app_owned_layout_is_not_launchable() {
+        let (install, _payload, governed) = installed_layout("wrong-subdir");
+        let root = resolve_governed_system_root(
+            &identity(),
+            &FixtureSystemRoot {
+                application_id: APP.to_string(),
+                root: governed,
+            },
+        )
+        .unwrap();
+
+        // A sibling directory that is NOT the contract's payload root, and a path outside the
+        // installation altogether. Neither yields a spec.
+        for wrong in [
+            install.join("not-the-payload"),
+            std::env::temp_dir().join("projectos-elsewhere-payload"),
+        ] {
+            std::fs::create_dir_all(&wrong).unwrap();
+            let a = VerifiedPackagedDaemonLaunchAuthority::from_verified_identity(
+                identity(),
+                "h-wrong".into(),
+                wrong.clone(),
+                root.clone(),
+            );
+            assert!(
+                matches!(
+                    a.to_process_spec(),
+                    Err(ProcessError::PackagedRuntimeNotProvisioned)
+                ),
+                "{} must not be launchable",
+                wrong.display()
+            );
+        }
+    }
+
+    /// [§11.6, §11.7] There is no argv and no manifest field that nominates the governed root. The
+    /// authority takes a SEALED `GovernedSystemRoot`, so a path is not even representable here — and
+    /// `resolve_launch_authority` takes only a mode and an instance id.
+    ///
+    /// Asserted by compilation as much as by this body; the following do not compile:
+    ///   VerifiedPackagedDaemonLaunchAuthority::from_verified_identity(id, "h".into(), p, "C:/x");
+    ///   resolve_launch_authority(AppMode::PackagedCandidate, "h".into(), "C:/other-root");
+    #[test]
+    fn the_governed_root_cannot_be_nominated_by_a_string() {
+        let (authority, _, governed) = authority_for("sealed");
+        assert_eq!(authority.governed_system_root(), governed.as_path());
     }
 }

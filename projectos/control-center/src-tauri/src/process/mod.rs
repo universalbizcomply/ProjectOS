@@ -27,7 +27,12 @@ pub(crate) mod command_line;
 pub(crate) mod dev_runtime;
 pub mod diagnostics;
 pub(crate) mod environment;
+
 pub mod errors;
+/// PROJECTOS-RECOVERY-INSTALLED-APP1A: THE governed ProjectOS system root. A sealed value that only
+/// a verified packaged identity can obtain, and that production cannot obtain at all until an
+/// approved resolver exists. Never cwd, config, environment, argv, manifest or directory discovery.
+pub(crate) mod governed_root;
 pub(crate) mod readiness;
 pub mod state;
 

@@ -122,7 +122,17 @@ impl IdentityFs for RealFs {
 /// env, argv, cwd, React, or a caller-supplied path.
 pub struct EvalContext<'a> {
     pub policy: Policy,
-    pub install_root: &'a Path,
+    /// The PACKAGED RUNTIME PAYLOAD root — the closed subject this manifest attests, and the root
+    /// the manifest's relative paths bind beneath.
+    ///
+    /// It was called `install_root`, and the name was doing real damage. The application install
+    /// root also holds the executable, the Tauri runtime DLLs and whatever the installer owns; the
+    /// manifest describes none of those and must not appear to. Binding manifest paths beneath the
+    /// install directory also put the payload and the application's own files in one namespace, so
+    /// "everything here is attested" could never be true and dependency closure had nothing it could
+    /// enumerate. They are separate roots because they are separate things: the payload root is an
+    /// app-owned subdirectory OF the install root, named once by the packaging contract.
+    pub payload_root: &'a Path,
     pub expected_application_id: &'a str,
     pub expected_application_version: &'a str,
     pub expected_architecture: &'a str,
@@ -222,7 +232,7 @@ pub fn evaluate(
     // 7. Runtime path: bind the manifest RELATIVE path beneath the install root (absolute/traversal
     //    rejected). This is the ONLY way a runtime path is produced — PATH lookup is structurally
     //    impossible because no code reads PATH or a caller-supplied path.
-    let runtime_path = match bind_runtime(ctx.install_root, &m.runtime.relative_path) {
+    let runtime_path = match bind_runtime(ctx.payload_root, &m.runtime.relative_path) {
         Ok(p) => p,
         Err(e) => return blocked(e),
     };
@@ -246,7 +256,7 @@ pub fn evaluate(
         return blocked(IdentityError::LooseModuleIdentityForbidden);
     }
     let artefact_path =
-        match paths::bind_relative(ctx.install_root, &m.daemon_artefact.relative_path) {
+        match paths::bind_relative(ctx.payload_root, &m.daemon_artefact.relative_path) {
             Some(p) => p,
             None => return blocked(IdentityError::DaemonArtefactNotFound),
         };

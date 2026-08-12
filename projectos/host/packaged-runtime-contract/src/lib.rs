@@ -49,22 +49,56 @@ pub const PACKAGED_NODE_BYTES: u64 = 91_426_304;
 /// origin nobody wrote down cannot be re-derived by anyone else.
 pub const PACKAGED_NODE_PROVENANCE: &str = r"C:\Program Files\nodejs\node.exe";
 
+/// THE application identity of the packaged product.
+///
+/// ONE DECLARATION, because there were two. `tauri.conf.json` stamps
+/// `com.universalbizcomply.projectos.control` into the Windows bundle — that is what the packaging
+/// configuration actually produces, so that is the product's identity — while the Control Centre
+/// compiled in `com.projectos.control-center` as the id a manifest must claim. Nothing compared
+/// them, so a manifest generated for the product would have been refused by the product.
+///
+/// The Tauri value wins because it is the one the packaging toolchain emits; the other was a
+/// parallel name nothing outside `authority.rs` used. A regression in the Control Centre parses
+/// `tauri.conf.json` and asserts its identifier still equals this constant, so the two cannot drift
+/// apart again in silence.
+pub const PACKAGED_APPLICATION_ID: &str = "com.universalbizcomply.projectos.control";
+
+/// The app-owned subdirectory of the APPLICATION INSTALL ROOT that holds the closed runtime payload.
+///
+/// THREE ROOTS, KEPT APART. They were being collapsed into one because development keeps everything
+/// close together:
+///
+///   * APPLICATION INSTALL ROOT — the directory the running executable lives in. It also holds the
+///     Tauri runtime DLLs, icons and whatever the installer owns. The trust manifest does not
+///     describe those and must not pretend to.
+///   * PACKAGED RUNTIME PAYLOAD ROOT — this subdirectory. The closed subject the manifest attests:
+///     the pinned runtime, the daemon bundle, the manifest and its canonical signing bytes, and
+///     nothing else. Keeping it separate is what lets dependency closure say "everything here is
+///     attested" without having to know the application's own file list.
+///   * GOVERNED PROJECTOS ROOT — what the daemon may operate on. Not this, and not derived from it.
+///
+/// On Windows a Tauri resource lands beside the executable, so a named subdirectory beside the
+/// executable is the smallest layout the existing packaging can produce. It is fixed here rather
+/// than configurable: a payload location a caller could redirect is a payload an attacker chooses.
+pub const PAYLOAD_RELATIVE_ROOT: &str = "runtime-payload";
+
 /// The only packaged platform.
 pub const PACKAGED_PLATFORM: &str = "windows";
 
 /// The only packaged architecture.
 pub const PACKAGED_ARCHITECTURE: &str = "x86_64";
 
-/// Where the pinned runtime sits inside the payload, relative to the install root.
+/// Where the pinned runtime sits inside the payload, relative to the PAYLOAD root.
 ///
 /// Fixed, never configurable. A runtime whose LOCATION could be redirected is a runtime an attacker
-/// chooses; `evaluate()` binds this relative path beneath the install root and never consults PATH.
+/// chooses; `evaluate()` binds this relative path beneath the payload root and never consults PATH.
 pub const RUNTIME_RELATIVE_PATH: &str = "runtime/node.exe";
 
-/// Where the single closed daemon bundle sits inside the payload, relative to the install root.
+/// Where the single closed daemon bundle sits inside the payload, relative to the PAYLOAD root.
 pub const DAEMON_RELATIVE_PATH: &str = "daemon/projectos-daemon.mjs";
 
-/// The manifest file name the application looks for beside its executable.
+/// The manifest file name, inside the PAYLOAD root. Part of the closed subject, not of the
+/// application's own directory: the manifest describes the payload and travels with it.
 pub const TRUST_MANIFEST_FILENAME: &str = "projectos-trust-manifest.json";
 
 /// The canonical signing payload, written beside the manifest for a later signing ceremony.
@@ -103,6 +137,27 @@ mod tests {
             // so the runtime and the daemon are separable units.
             assert!(p.contains('/'), "{p} must be nested inside the payload");
         }
+    }
+
+    /// The payload root is a single app-owned segment beneath the install root: not absolute, not
+    /// traversing, and not nested, so the layout an installer must produce is unambiguous.
+    #[test]
+    fn the_payload_root_is_one_plain_segment_beneath_the_install_root() {
+        assert!(!PAYLOAD_RELATIVE_ROOT.is_empty());
+        assert!(!PAYLOAD_RELATIVE_ROOT.contains(".."));
+        assert!(!PAYLOAD_RELATIVE_ROOT.contains('/'));
+        assert!(!PAYLOAD_RELATIVE_ROOT.contains('\\'));
+        assert!(!std::path::Path::new(PAYLOAD_RELATIVE_ROOT).is_absolute());
+    }
+
+    /// The application id is a reverse-DNS bundle identifier, the shape Windows packaging emits.
+    #[test]
+    fn the_application_id_is_a_reverse_dns_identifier() {
+        assert!(PACKAGED_APPLICATION_ID.contains('.'));
+        assert!(!PACKAGED_APPLICATION_ID.contains(' '));
+        assert!(PACKAGED_APPLICATION_ID
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-'));
     }
 
     /// The version is a plain dotted release, never a range, a tag or a `v` prefix: `evaluate()`

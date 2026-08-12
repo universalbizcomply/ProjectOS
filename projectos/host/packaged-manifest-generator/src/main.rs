@@ -39,11 +39,10 @@ fn arg(args: &[String], name: &str) -> Option<String> {
         .cloned()
 }
 
-const REQUIRED: [&str; 8] = [
+const REQUIRED: [&str; 7] = [
     "--node-exe",
     "--daemon-bundle",
     "--out",
-    "--application-id",
     "--application-version",
     "--build-id",
     "--signing-key-id",
@@ -60,6 +59,11 @@ fn usage() {
     );
     eprintln!("  --daemon-bundle   the single daemon artefact from `npm run build:daemon-bundle`");
     eprintln!("  --out             payload root to create; must not already contain anything");
+    eprintln!();
+    eprintln!(
+        "  the application id is NOT an input: it is {}",
+        contract::PACKAGED_APPLICATION_ID
+    );
     eprintln!();
     eprintln!("Assembles, verifies dependency closure, then generates an UNSIGNED manifest.");
     eprintln!("No signature is produced and no key is read. Installation is not performed.");
@@ -126,11 +130,10 @@ fn main() -> ExitCode {
     // ---- 3. generate ----------------------------------------------------------------------------
     let generated = match generate_unsigned_manifest(&ManifestInputs {
         payload_root: &payload.root,
-        application_id: &values[3],
-        application_version: &values[4],
-        build_id: &values[5],
-        signing_key_id: &values[6],
-        generated_at: &values[7],
+        application_version: &values[3],
+        build_id: &values[4],
+        signing_key_id: &values[5],
+        generated_at: &values[6],
     }) {
         Ok(g) => g,
         Err(e) => {

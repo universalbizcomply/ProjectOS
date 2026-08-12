@@ -36,7 +36,6 @@ pub const SIGNATURE_ALGORITHM: &str = "es256";
 pub struct ManifestInputs<'a> {
     /// The assembled payload root. Both artefact paths are bound beneath it, from the contract.
     pub payload_root: &'a Path,
-    pub application_id: &'a str,
     pub application_version: &'a str,
     pub build_id: &'a str,
     /// Identifier for the signing key that will later sign this. An identifier is not key material.
@@ -114,7 +113,6 @@ pub fn generate_unsigned_manifest(
     inputs: &ManifestInputs<'_>,
 ) -> Result<GeneratedManifest, GeneratorError> {
     for (name, value) in [
-        ("applicationId", inputs.application_id),
         ("applicationVersion", inputs.application_version),
         ("buildId", inputs.build_id),
         ("signingKeyId", inputs.signing_key_id),
@@ -122,7 +120,6 @@ pub fn generate_unsigned_manifest(
     ] {
         if value.trim().is_empty() {
             return Err(GeneratorError::RequiredFieldEmpty(match name {
-                "applicationId" => "applicationId",
                 "applicationVersion" => "applicationVersion",
                 "buildId" => "buildId",
                 "signingKeyId" => "signingKeyId",
@@ -155,7 +152,10 @@ pub fn generate_unsigned_manifest(
     let manifest = TrustManifest {
         schema_version: SCHEMA_VERSION,
         manifest_version: MANIFEST_VERSION,
-        application_id: inputs.application_id.to_string(),
+        // THE application identity, from the packaging contract. There is no input for it:
+        // a manifest whose application id a caller could choose would attest to whichever
+        // application wanted it accepted.
+        application_id: contract::PACKAGED_APPLICATION_ID.to_string(),
         application_version: inputs.application_version.to_string(),
         build_id: inputs.build_id.to_string(),
         // DECLARED, not evidenced. Whether this installation really is per-machine is a runtime

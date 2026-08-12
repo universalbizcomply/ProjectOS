@@ -24,7 +24,8 @@ use projectos_packaged_manifest_generator::{
 };
 use projectos_packaged_runtime_contract as contract;
 
-const APP_ID: &str = "com.projectos.control-center";
+/// THE application id is the packaging contract's, not a value this test chooses.
+const APP_ID: &str = contract::PACKAGED_APPLICATION_ID;
 const APP_VERSION: &str = "0.1.0";
 const BUILD_ID: &str = "build-fixture-1";
 const KEY_ID: &str = "projectos-signing-unprovisioned";
@@ -85,7 +86,6 @@ fn real_payload() -> &'static PathBuf {
 fn inputs(root: &Path) -> ManifestInputs<'_> {
     ManifestInputs {
         payload_root: root,
-        application_id: APP_ID,
         application_version: APP_VERSION,
         build_id: BUILD_ID,
         signing_key_id: KEY_ID,
@@ -256,7 +256,7 @@ fn a_manifest_declaring_another_runtime_version_is_refused_by_the_application() 
         &raw,
         &EvalContext {
             policy: Policy::Production,
-            install_root: root,
+            payload_root: root,
             expected_application_id: APP_ID,
             expected_application_version: APP_VERSION,
             expected_architecture: contract::PACKAGED_ARCHITECTURE,
@@ -514,7 +514,6 @@ fn derived_runtime_identity_and_hashes_cannot_be_supplied_by_a_caller() {
     // No caller-supplied string is being passed off as a digest.
     let i = inputs(root);
     for supplied in [
-        i.application_id,
         i.application_version,
         i.build_id,
         i.signing_key_id,
@@ -671,7 +670,7 @@ fn an_unsigned_manifest_cannot_establish_production_identity() {
     let verifier = ProductionEs256Verifier::from_embedded();
     let ctx = EvalContext {
         policy: Policy::Production,
-        install_root: root,
+        payload_root: root,
         expected_application_id: APP_ID,
         expected_application_version: APP_VERSION,
         expected_architecture: contract::PACKAGED_ARCHITECTURE,
@@ -689,6 +688,85 @@ fn an_unsigned_manifest_cannot_establish_production_identity() {
         Some(IdentityError::ManifestSignatureRequired),
         "the ONLY remaining reason to refuse must be the absent signature"
     );
+}
+
+/// [§8.15] A manifest DECLARING PerMachine is refused when the independent observation does not
+/// corroborate it — which is the state of a copied tree under a Program Files-looking path, and of
+/// any installation whose installer evidence is missing.
+///
+/// The manifest is the thing under suspicion; it cannot also be the witness. Every other reason to
+/// fail is removed, so what is being measured is the corroboration check alone.
+#[test]
+fn a_declared_per_machine_installation_is_refused_without_corroboration() {
+    let root = real_payload();
+    let g = generate_unsigned_manifest(&inputs(root)).unwrap();
+    assert_eq!(g.manifest.installation_model, InstallationModel::PerMachine);
+    let raw = g.manifest_json.as_bytes();
+    let verifier = ProductionEs256Verifier::from_embedded();
+
+    // Everything a real machine can currently observe, none of which corroborates per-machine:
+    // a copied tree, a per-user install, a Program Files path with no installer evidence, and the
+    // "could not establish it at all" answer.
+    for observed in [
+        InstallationIdentity::PortableOrCopied,
+        InstallationIdentity::PerUser,
+        InstallationIdentity::PerMachineUnverified,
+        InstallationIdentity::Unknown,
+        InstallationIdentity::Development,
+    ] {
+        let ctx = EvalContext {
+            policy: Policy::Production,
+            payload_root: root,
+            expected_application_id: APP_ID,
+            expected_application_version: APP_VERSION,
+            expected_architecture: contract::PACKAGED_ARCHITECTURE,
+            expected_runtime_version: contract::PACKAGED_NODE_VERSION,
+            verifier: Some(&verifier),
+            observed_installation: observed,
+        };
+        let outcome = *evaluate_packaged_authority(raw, &ctx, &RealFs)
+            .expect_err("an uncorroborated per-machine claim must never mint packaged identity");
+        assert_eq!(
+            outcome.failure,
+            Some(IdentityError::InstallationModelUncorroborated),
+            "observed {observed:?} must refuse for want of corroboration"
+        );
+    }
+}
+
+/// [§10.1] ...and a corroborated observation DOES progress past the installation-identity gate.
+///
+/// Without this the check above would be satisfied by a gate that refuses everything. The run still
+/// ends in refusal — there is no signature and no anchor — but it gets PAST installation identity
+/// and fails for the next reason instead, which is what "progressed past the gate" means.
+#[test]
+fn a_corroborated_per_machine_installation_progresses_past_the_installation_gate() {
+    let root = real_payload();
+    let g = generate_unsigned_manifest(&inputs(root)).unwrap();
+    let verifier = ProductionEs256Verifier::from_embedded();
+
+    for observed in [
+        InstallationIdentity::PerMachineEvidenceMatched,
+        InstallationIdentity::PerMachineVerified,
+    ] {
+        let ctx = EvalContext {
+            policy: Policy::Production,
+            payload_root: root,
+            expected_application_id: APP_ID,
+            expected_application_version: APP_VERSION,
+            expected_architecture: contract::PACKAGED_ARCHITECTURE,
+            expected_runtime_version: contract::PACKAGED_NODE_VERSION,
+            verifier: Some(&verifier),
+            observed_installation: observed,
+        };
+        let outcome = *evaluate_packaged_authority(g.manifest_json.as_bytes(), &ctx, &RealFs)
+            .expect_err("unsigned, so it still refuses — but not here");
+        assert_eq!(
+            outcome.failure,
+            Some(IdentityError::ManifestSignatureRequired),
+            "observed {observed:?} corroborates, so the refusal must come from the signature"
+        );
+    }
 }
 
 // ================================================================================================
