@@ -31,6 +31,11 @@ pub enum IdentityError {
     ApplicationVersionMismatch,
     ApplicationIdMismatch,
     InstallationModelUnsafe,
+    /// The manifest declared a per-machine installation that independently observed facts do not
+    /// corroborate. Distinct from `InstallationModelUnsafe`, which is the manifest declaring a model
+    /// that can never anchor production: this one is the manifest saying something that reality does
+    /// not confirm, and the two failures deserve different words.
+    InstallationModelUncorroborated,
     DevelopmentBuildNotTrusted,
     IdentityChangedAfterVerify,
     ProductionIdentityUnavailable,
@@ -79,6 +84,7 @@ impl IdentityError {
             IdentityError::ApplicationVersionMismatch
             | IdentityError::ApplicationIdMismatch
             | IdentityError::InstallationModelUnsafe
+            | IdentityError::InstallationModelUncorroborated
             | IdentityError::DevelopmentBuildNotTrusted => {
                 "Use a per-machine approved installation of the matching application version."
             }

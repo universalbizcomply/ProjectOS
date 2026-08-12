@@ -8,7 +8,8 @@ use std::path::{Path, PathBuf};
 
 use super::errors::IdentityError;
 use super::hash::sha256_hex;
-use super::manifest::{DaemonArtefactManifest, RuntimeManifest, TrustManifest};
+use super::composite::InstallationIdentity;
+use super::manifest::{DaemonArtefactFormat, DaemonArtefactManifest, RuntimeManifest, TrustManifest};
 use super::mode::Policy;
 use super::types::{IdentityState, InstallationModel};
 use super::verifier::{
@@ -95,7 +96,7 @@ fn base_manifest() -> TrustManifest {
         daemon_artefact: DaemonArtefactManifest {
             relative_path: ARTEFACT_REL.into(),
             sha256: sha256_hex(ARTEFACT_BYTES),
-            format: "single-bundle".into(),
+            format: DaemonArtefactFormat::SingleBundle,
             build_id: "build-123".into(),
         },
         generated_at: "1970-01-01T00:00:00.000Z".into(),
@@ -125,6 +126,9 @@ fn test_ctx<'a>(v: &'a dyn TrustManifestSignatureVerifier) -> EvalContext<'a> {
         expected_architecture: ARCH,
         expected_runtime_version: RT_VER,
         verifier: Some(v),
+        // Test policy never reaches the corroboration check; a per-machine observation keeps the
+        // fixture honest about what a real installation would look like.
+        observed_installation: InstallationIdentity::PerMachineEvidenceMatched,
     }
 }
 
@@ -137,6 +141,7 @@ fn prod_ctx<'a>(v: Option<&'a dyn TrustManifestSignatureVerifier>) -> EvalContex
         expected_architecture: ARCH,
         expected_runtime_version: RT_VER,
         verifier: v,
+        observed_installation: InstallationIdentity::PerMachineEvidenceMatched,
     }
 }
 
@@ -271,7 +276,7 @@ fn non_windows_platform_rejected() {
 fn loose_module_format_forbidden_in_production() {
     let mut m = base_manifest();
     m.installation_model = InstallationModel::PerMachine;
-    m.daemon_artefact.format = "loose-modules".into();
+    m.daemon_artefact.format = DaemonArtefactFormat::LooseModules;
     m.signing_key_id = "prod-key".into();
     m.signature_algorithm = "es256".into();
     m.signature = "sig".into(); // non-empty; we should fail on loose-modules before signature
@@ -532,4 +537,164 @@ fn full_production_chain_with_production_verifier_and_non_test_signer_verifies()
         !out.protected_approvals_disabled,
         "verified production identity may enable approvals downstream"
     );
+}
+
+// ---- installation corroboration (PROJECTOS-RECOVERY-INSTALLED-APP1A) -----------------------------
+
+/// A production context whose OBSERVED installation is whatever the caller says it saw.
+fn prod_ctx_observing<'a>(
+    v: Option<&'a dyn TrustManifestSignatureVerifier>,
+    observed: InstallationIdentity,
+) -> EvalContext<'a> {
+    EvalContext {
+        policy: Policy::Production,
+        install_root: Box::leak(Box::new(root())).as_path(),
+        expected_application_id: APP_ID,
+        expected_application_version: APP_VER,
+        expected_architecture: ARCH,
+        expected_runtime_version: RT_VER,
+        verifier: v,
+        observed_installation: observed,
+    }
+}
+
+/// A manifest that is entirely well-formed and declares the strongest installation model.
+fn per_machine_manifest() -> TrustManifest {
+    let mut m = base_manifest();
+    m.installation_model = InstallationModel::PerMachine;
+    m.signing_key_id = "prod-key".into();
+    m.signature_algorithm = "es256".into();
+    m.signature = "sig".into();
+    m
+}
+
+/// The defect: step 5 read the manifest's own declaration and nothing else, so any copied tree
+/// carrying a manifest that said "PerMachine" cleared the check that exists to establish it was
+/// per-machine. The manifest is the thing under suspicion; it cannot also be the witness.
+#[test]
+fn manifest_cannot_self_attest_a_per_machine_installation() {
+    let m = per_machine_manifest();
+    for observed in [
+        InstallationIdentity::Unknown,
+        InstallationIdentity::PortableOrCopied,
+        InstallationIdentity::PerUser,
+        InstallationIdentity::Development,
+        InstallationIdentity::TestFixture,
+        // "Looks like Program Files" is NOT corroboration — a copied tree satisfies it.
+        InstallationIdentity::PerMachineUnverified,
+    ] {
+        let out = evaluate(
+            &raw(&m),
+            &prod_ctx_observing(Some(&FakeProdVerifier), observed),
+            &FakeFs::with_runtime_and_artefact(),
+        );
+        assert_eq!(
+            out.failure,
+            Some(IdentityError::InstallationModelUncorroborated),
+            "observed {observed:?} must not corroborate a per-machine claim"
+        );
+        assert_ne!(out.state, IdentityState::PackagedIdentityVerified);
+    }
+}
+
+#[test]
+fn corroborated_per_machine_installation_proceeds_past_step_five() {
+    let m = per_machine_manifest();
+    for observed in [
+        InstallationIdentity::PerMachineEvidenceMatched,
+        InstallationIdentity::PerMachineVerified,
+    ] {
+        let out = evaluate(
+            &raw(&m),
+            &prod_ctx_observing(Some(&FakeProdVerifier), observed),
+            &FakeFs::with_runtime_and_artefact(),
+        );
+        // It gets past corroboration; whatever it fails on afterwards, it is not this.
+        assert_ne!(
+            out.failure,
+            Some(IdentityError::InstallationModelUncorroborated),
+            "observed {observed:?} corroborates per-machine"
+        );
+    }
+}
+
+/// Corroboration must never RESCUE a model that can never anchor production — the two checks are
+/// independent, and the weaker declaration still loses.
+#[test]
+fn a_corroborated_observation_does_not_rescue_an_unsafe_declared_model() {
+    for declared in [InstallationModel::PerUser, InstallationModel::Development] {
+        let mut m = per_machine_manifest();
+        m.installation_model = declared;
+        let out = evaluate(
+            &raw(&m),
+            &prod_ctx_observing(
+                Some(&FakeProdVerifier),
+                InstallationIdentity::PerMachineVerified,
+            ),
+            &FakeFs::with_runtime_and_artefact(),
+        );
+        assert_eq!(out.failure, Some(IdentityError::InstallationModelUnsafe));
+    }
+}
+
+/// Test policy is not production and must not acquire a new way to fail.
+#[test]
+fn corroboration_is_a_production_rule_only() {
+    let mut m = base_manifest();
+    m.installation_model = InstallationModel::PerUser;
+    sign_test(&mut m);
+    let ctx = EvalContext {
+        policy: Policy::Test,
+        install_root: Box::leak(Box::new(root())).as_path(),
+        expected_application_id: APP_ID,
+        expected_application_version: APP_VER,
+        expected_architecture: ARCH,
+        expected_runtime_version: RT_VER,
+        verifier: Some(&DeterministicTestVerifier),
+        observed_installation: InstallationIdentity::PortableOrCopied,
+    };
+    let out = evaluate(&raw(&m), &ctx, &FakeFs::with_runtime_and_artefact());
+    assert_eq!(out.state, IdentityState::TestIdentityVerified);
+}
+
+// ---- closed artefact format ---------------------------------------------------------------------
+
+/// The format was a free `String` checked against ONE denylist entry, so any format nobody thought
+/// to forbid was accepted as production identity by default. It is now an enum: an unrecognised
+/// value cannot be represented and dies at PARSE, before any trust decision is reached.
+#[test]
+fn an_unrecognised_artefact_format_fails_to_parse() {
+    for bogus in [
+        "\"loose-modules-v2\"",
+        "\"single-bundle-ish\"",
+        "\"\"",
+        "\"LooseModules\"",
+        "null",
+        "1",
+    ] {
+        let mut m = per_machine_manifest();
+        m.daemon_artefact.format = DaemonArtefactFormat::SingleBundle;
+        let text = String::from_utf8(raw(&m)).unwrap();
+        let tampered = text.replace("\"single-bundle\"", bogus);
+        assert_ne!(tampered, text, "the fixture must actually contain the format");
+        let out = evaluate(
+            tampered.as_bytes(),
+            &prod_ctx_observing(
+                Some(&FakeProdVerifier),
+                InstallationIdentity::PerMachineEvidenceMatched,
+            ),
+            &FakeFs::with_runtime_and_artefact(),
+        );
+        assert_eq!(
+            out.failure,
+            Some(IdentityError::ManifestMalformed),
+            "format {bogus} must not parse"
+        );
+    }
+}
+
+#[test]
+fn only_a_single_bundle_may_anchor_production() {
+    assert!(DaemonArtefactFormat::SingleBundle.can_anchor_production());
+    assert!(!DaemonArtefactFormat::LooseModules.can_anchor_production());
 }

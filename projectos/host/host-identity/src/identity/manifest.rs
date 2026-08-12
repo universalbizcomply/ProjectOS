@@ -27,8 +27,38 @@ pub struct RuntimeManifest {
 pub struct DaemonArtefactManifest {
     pub relative_path: String,
     pub sha256: String,
-    pub format: String,
+    pub format: DaemonArtefactFormat,
     pub build_id: String,
+}
+
+/// The CLOSED set of daemon artefact formats this build understands.
+///
+/// It was a free `String` checked against one literal denylist entry (`"loose-modules"`), which is
+/// the wrong shape for a trust decision: a denylist admits everything nobody thought to forbid, so
+/// a manifest naming any new format would have been accepted as production identity by default.
+/// An enum with `deny_unknown_fields` inverts that — an unrecognised format cannot be represented,
+/// so it fails at parse rather than sailing through evaluation.
+///
+/// `LooseModules` remains representable ON PURPOSE. It is a real development shape, and deleting it
+/// would only move the rejection from a place that explains itself to a parse error that does not.
+/// Production refuses it explicitly in `evaluate()`.
+///
+/// Closed by the gatekeeper's PROJECTOS-RECOVERY-INSTALLED-APP1A preflight ruling.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DaemonArtefactFormat {
+    /// One bundled artefact whose bytes are hashed as a unit. The only production-eligible shape.
+    SingleBundle,
+    /// A directory of loose modules. Development only — hashing one file proves nothing about the
+    /// rest, so it can never anchor production identity.
+    LooseModules,
+}
+
+impl DaemonArtefactFormat {
+    /// Whether this artefact shape may anchor production identity.
+    pub const fn can_anchor_production(self) -> bool {
+        matches!(self, DaemonArtefactFormat::SingleBundle)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

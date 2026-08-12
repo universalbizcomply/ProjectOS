@@ -103,6 +103,22 @@ pub enum InstallationIdentity {
     PerMachineVerified,
 }
 
+impl InstallationIdentity {
+    /// Do INDEPENDENTLY OBSERVED facts corroborate a per-machine installation?
+    ///
+    /// `PerMachineUnverified` deliberately does NOT. It means only "this path looks like Program
+    /// Files", which a copied tree satisfies; corroboration requires location AND installer or
+    /// registry evidence. This is the observation half of the manifest-vs-reality comparison in
+    /// `evaluate()` step 5 — the manifest declares, this is what was actually seen, and production
+    /// requires the two to agree.
+    pub const fn corroborates_per_machine(self) -> bool {
+        matches!(
+            self,
+            InstallationIdentity::PerMachineEvidenceMatched | InstallationIdentity::PerMachineVerified
+        )
+    }
+}
+
 /// F. Release freshness. Authenticity ≠ currency; without a trusted freshness source this stays
 /// `Unknown` (Phase-1B: always).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]

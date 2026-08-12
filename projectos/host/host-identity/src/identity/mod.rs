@@ -93,6 +93,7 @@ pub fn classify_packaged_candidate(
 
 use std::path::{Path, PathBuf};
 
+use composite::InstallationIdentity;
 use errors::IdentityError;
 use manifest::TrustManifest;
 use mode::Policy;
@@ -124,6 +125,10 @@ pub struct EvalContext<'a> {
     pub expected_runtime_version: &'a str,
     /// Signature verifier. Production requires `Some` and `is_production() == true`.
     pub verifier: Option<&'a dyn TrustManifestSignatureVerifier>,
+    /// What was INDEPENDENTLY OBSERVED of this installation, from the running executable's real
+    /// location and installer evidence. The manifest's `installationModel` is compared against it;
+    /// a manifest may declare, but it may not be its own witness. Never derived from the manifest.
+    pub observed_installation: InstallationIdentity,
 }
 
 const WINDOWS_PLATFORM: &str = "windows";
@@ -186,9 +191,24 @@ pub fn evaluate(
     if m.application_version != ctx.expected_application_version {
         return blocked(IdentityError::ApplicationVersionMismatch);
     }
-    // 5. Installation model — only PerMachine can anchor production.
-    if ctx.policy.is_production() && !m.installation_model.can_anchor_production() {
-        return blocked(IdentityError::InstallationModelUnsafe);
+    // 5. Installation model — only PerMachine can anchor production, AND the manifest's claim must
+    //    be corroborated by what was independently OBSERVED of this installation.
+    //
+    //    The check used to read the manifest's own declaration and nothing else, so a manifest
+    //    self-attested its installation safety: any copied tree carrying a manifest that said
+    //    "PerMachine" cleared the step that exists to establish it was per-machine. The manifest is
+    //    the thing under suspicion; it cannot also be the witness. Corroboration comes from
+    //    `classify_installation`, which reads the running executable's real location and installer
+    //    evidence.
+    //
+    //    Required by the gatekeeper's PROJECTOS-RECOVERY-INSTALLED-APP1A preflight ruling.
+    if ctx.policy.is_production() {
+        if !m.installation_model.can_anchor_production() {
+            return blocked(IdentityError::InstallationModelUnsafe);
+        }
+        if !ctx.observed_installation.corroborates_per_machine() {
+            return blocked(IdentityError::InstallationModelUncorroborated);
+        }
     }
     // 6. Platform + architecture binding (platform-not-windows and arch mismatch both close here).
     if m.runtime.platform != WINDOWS_PLATFORM || m.runtime.architecture != ctx.expected_architecture
@@ -216,8 +236,9 @@ pub fn evaluate(
     if m.runtime.expected_version != ctx.expected_runtime_version {
         return blocked(IdentityError::RuntimeVersionMismatch);
     }
-    // 11. Daemon artefact: loose modules are forbidden as production identity.
-    if ctx.policy.is_production() && m.daemon_artefact.format == "loose-modules" {
+    // 11. Daemon artefact: only a single hashed bundle may anchor production. The format is now a
+    //     closed enum, so an unrecognised shape cannot reach this check at all — it fails at parse.
+    if ctx.policy.is_production() && !m.daemon_artefact.format.can_anchor_production() {
         return blocked(IdentityError::LooseModuleIdentityForbidden);
     }
     let artefact_path =
