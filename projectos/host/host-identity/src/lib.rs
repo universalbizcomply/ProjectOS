@@ -49,6 +49,32 @@ pub use identity::composite::{CompositeIdentity, IdentityStatusView};
 /// key derivation through the shared runtime's facade).
 pub use identity::hash::sha256_hex;
 
+/// PROJECTOS-RECOVERY-INSTALLED-APP1A: packaged-identity evaluation and its SEALED success proof.
+///
+/// Added to the facade because packaged launch authority must be a CONSEQUENCE of verification, so
+/// the crate owning launch authority has to be able to DEMAND the proof. This grants no new power:
+/// `VerifiedPackagedIdentity` carries a private seal and has no public constructor, so a consumer
+/// can receive and read one but can never build one. Obtaining it means running the real evaluation
+/// and having it succeed under production policy against an embedded anchor — which, with no anchor
+/// provisioned, cannot happen at all.
+pub use identity::packaged_authority::{evaluate_packaged_authority, VerifiedPackagedIdentity};
+
+/// The production ES256 verifier and the evaluation inputs a caller must assemble. The verifier
+/// reports `is_production()` only when a well-formed anchor genuinely exists.
+pub use identity::production_verifier::ProductionEs256Verifier;
+pub use identity::{EvalContext, IdentityFs, RealFs};
+
+/// The identity vocabulary a caller needs to assemble an `EvalContext` and read an outcome.
+pub use identity::composite::InstallationIdentity;
+pub use identity::errors::IdentityError;
+pub use identity::mode::Policy;
+pub use identity::types::{IdentityOutcome, IdentityState, InstallationModel};
+
+/// TEST-ONLY proof minting, so a downstream authority boundary can be exercised without a signing
+/// ceremony. Absent from every default and release build.
+#[cfg(feature = "test-fixtures")]
+pub use identity::packaged_authority::test_only_verified_identity;
+
 /// Closed identity test-fixture surface (WINDOWS-PACKAGED-RUNTIME-IDENTITY1B/2B), relocated
 /// verbatim from the Control Center. Only exists under the non-default `test-fixtures` feature —
 /// absent from every default and release build. Exposes no verifier, no key, no manifest bytes, and

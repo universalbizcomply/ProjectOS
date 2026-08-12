@@ -44,6 +44,15 @@ pub enum ProcessError {
     LifecycleStateBlocked,
     /// Packaged identity is unverified, so no packaged daemon may launch. Never falls back to dev.
     ProductionIdentityUnavailable,
+    /// Packaged identity WAS verified and packaged launch authority exists — but the packaged
+    /// runtime payload it would launch (pinned runtime + daemon artefact) is not provisioned in this
+    /// build yet.
+    ///
+    /// Deliberately distinct from `ProductionIdentityUnavailable`: conflating them would report an
+    /// identity failure for a run whose identity verified perfectly, which is the sort of untruth
+    /// that sends someone to debug the wrong subsystem. It fails closed either way — and it never
+    /// falls back to development.
+    PackagedRuntimeNotProvisioned,
 
     // ---- RECOVERY-BARRIER1B: prior-daemon recovery barrier --------------------------------------
     /// The persisted lifecycle evidence record was malformed, wrong-scope, or inconsistent.
@@ -170,6 +179,9 @@ impl ProcessError {
             }
             ProcessError::ProductionIdentityUnavailable => {
                 "Packaged worker identity unavailable. Protected approvals unavailable."
+            }
+            ProcessError::PackagedRuntimeNotProvisioned => {
+                "Packaged runtime payload is not present in this build. Reinstall an approved release."
             }
             ProcessError::JobObjectCreateFailed
             | ProcessError::JobObjectConfigurationFailed

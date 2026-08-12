@@ -104,6 +104,34 @@ pub mod identity {
     pub mod hash {
         pub use projectos_host_identity::sha256_hex;
     }
+
+    /// The packaged-identity evaluation entry point and its SEALED success proof
+    /// (PROJECTOS-RECOVERY-INSTALLED-APP1A).
+    ///
+    /// Exposed because packaged launch authority must be a CONSEQUENCE of verification, and the
+    /// crate that owns launch authority therefore has to be able to demand the proof. Re-exporting
+    /// it hands over no new power: `VerifiedPackagedIdentity` has a private seal, so a consumer can
+    /// receive one and read it but can never construct one. The only way to obtain it is to run the
+    /// real evaluation and have it succeed under production policy against an embedded anchor.
+    ///
+    /// The test-only minting function is deliberately NOT re-exported here — see `packaged_fixture`.
+    pub mod packaged {
+        pub use projectos_host_identity::{
+            evaluate_packaged_authority, EvalContext, IdentityError, IdentityFs, IdentityOutcome,
+            IdentityState, InstallationIdentity, InstallationModel, Policy,
+            ProductionEs256Verifier, RealFs, VerifiedPackagedIdentity,
+        };
+    }
+
+    /// TEST-ONLY proof minting, behind this crate's `test-fixtures` feature.
+    ///
+    /// Kept in a separate module from `packaged` so the production surface and the fixture surface
+    /// are not one import away from each other. A normal build compiles neither this module nor the
+    /// function it re-exports, so no production path can reach fixture identity.
+    #[cfg(feature = "test-fixtures")]
+    pub mod packaged_fixture {
+        pub use projectos_host_identity::test_only_verified_identity;
+    }
 }
 
 /// Safe, effect-free host-authority contract facade (WINDOWS-PACKAGED-HOST-TRUST-ENFORCEMENT3K-I-D-B).

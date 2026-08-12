@@ -352,6 +352,12 @@ impl DaemonLifecycleState {
             .map_err(|e| self.startup_terminal(StartupPhase::Failed, DaemonStatus::Blocked, e))?;
         let spec = match &authority {
             DaemonLaunchAuthority::Development(dev) => dev.to_process_spec(),
+            // Packaged authority is real and was derived from verified identity — but the payload it
+            // would launch (pinned runtime + daemon artefact) is not provisioned in this build. It
+            // fails closed with its OWN error rather than borrowing the identity one, and it does
+            // not reach for the development resolver: a packaged run that quietly became a
+            // development run is precisely the fallback this boundary exists to prevent.
+            DaemonLaunchAuthority::Packaged(_) => Err(ProcessError::PackagedRuntimeNotProvisioned),
         }
         .map_err(|e| self.startup_terminal(StartupPhase::Failed, DaemonStatus::Blocked, e))?;
 

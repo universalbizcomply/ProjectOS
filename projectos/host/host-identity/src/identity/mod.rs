@@ -24,6 +24,7 @@ pub mod es256;
 pub mod hash;
 pub mod manifest;
 pub mod mode;
+pub mod packaged_authority;
 pub mod paths;
 pub mod production_verifier;
 pub mod types;
