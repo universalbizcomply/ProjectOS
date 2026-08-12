@@ -16,12 +16,14 @@
 //! itself, or scanning for the first `.projectops` directory. Every one of those lets the thing
 //! being governed choose its own governor. The root arrives through one seam or not at all.
 //!
-//! WHY PRODUCTION REFUSES TODAY. `InstalledSystemRoot` locates nothing. That is the honest state of
-//! the machine, not a stub pretending to work: the approved location for installed ProjectOS state
-//! is a Known Folder anchor that `canonical_record::symbolic_record_location` still expresses
-//! SYMBOLICALLY, because no approved resolver exists and writing one would be installer work this
-//! increment is not authorised to do. So a packaged run fails closed here — and it does NOT fall
-//! back to development.
+//! WHERE IT DOES COME FROM. `InstalledSystemRoot` reads the canonical installed-application record
+//! that an installer writes to ONE ProgramData path — located through `SHGetKnownFolderPath`, never
+//! `%ProgramData%` — and verified before any field is believed. The record must name the install
+//! root it was written for, and that is compared against where this executable actually is, so a
+//! record beside a copied tree describes a different installation and is refused.
+//!
+//! On a machine with no such record, production still fails closed here, and it does NOT fall back
+//! to development.
 //!
 //! WHY IT DEMANDS THE SEALED PROOF. `resolve_governed_system_root` takes a `&VerifiedPackagedIdentity`.
 //! A governed root is a CONSEQUENCE of verified packaged identity, exactly as launch authority is:
@@ -76,15 +78,46 @@ pub(crate) trait GovernedSystemRootSource {
     fn locate(&self, application_id: &str) -> Option<PathBuf>;
 }
 
-/// The PRODUCTION source. It locates nothing, because nothing approved exists to locate.
+/// The PRODUCTION source: the governed root named by the INSTALLER'S OWN RECORD.
 ///
-/// Deliberately not a lookup that happens to fail: there is no filesystem access here at all, so
-/// there is no directory an attacker could create to make it succeed.
-pub(crate) struct InstalledSystemRoot;
+/// It used to locate nothing, because no approved resolver existed. One does now — the canonical
+/// installed-application record at a single ProgramData path, whose location comes from
+/// `SHGetKnownFolderPath` rather than `%ProgramData%`, and whose contents are verified before any
+/// field is believed.
+///
+/// WHY THIS IS NOT "A FILE DECIDES". The record must name the install root it was written for, and
+/// that is compared against where this executable ACTUALLY is. So a record dropped beside a copied
+/// tree describes a different installation and is refused; the only record that can name a governed
+/// root is one written for the installation that is running. A whole-record digest makes editing one
+/// field detectable, and unknown fields are refused rather than ignored.
+///
+/// It still cannot confer trust. The governed root it yields is passed to
+/// `resolve_governed_system_root`, which demands the sealed `VerifiedPackagedIdentity` — so an
+/// installer record without a verified application is worth nothing at all.
+pub(crate) struct InstalledSystemRoot<'a> {
+    /// The installed application version this build expects the record to describe.
+    pub(crate) application_version: &'a str,
+    /// Where this executable actually is, derived from `current_exe()` by the caller.
+    pub(crate) observed_install_root: &'a std::path::Path,
+}
 
-impl GovernedSystemRootSource for InstalledSystemRoot {
-    fn locate(&self, _application_id: &str) -> Option<PathBuf> {
-        None
+impl GovernedSystemRootSource for InstalledSystemRoot<'_> {
+    fn locate(&self, application_id: &str) -> Option<PathBuf> {
+        #[cfg(windows)]
+        {
+            projectos_shared_host_runtime::identity::packaged::read_canonical_application_record(
+                application_id,
+                self.application_version,
+                self.observed_install_root,
+            )
+            .ok()
+            .map(|verified| verified.governed_system_root().to_path_buf())
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = application_id;
+            None
+        }
     }
 }
 
@@ -148,11 +181,26 @@ mod tests {
         )
     }
 
-    /// PRODUCTION FAILS CLOSED. There is no approved resolver, so a packaged run cannot obtain a
-    /// governed root at all — and it never silently becomes a development run.
+    /// PRODUCTION FAILS CLOSED ON THIS MACHINE. No installer has written a canonical record for an
+    /// installation rooted at this test binary's directory, so the production source yields nothing
+    /// and a packaged run obtains no governed root — and never silently becomes a development run.
+    ///
+    /// This is a real exercise of the production path, not a stub: it resolves ProgramData through
+    /// the Known Folder API and looks for the one canonical record. Nothing is written.
     #[test]
-    fn production_has_no_approved_resolver_and_refuses() {
-        let got = resolve_governed_system_root(&identity("com.example.app"), &InstalledSystemRoot);
+    fn production_refuses_without_an_installer_record_for_this_installation() {
+        let here = std::env::current_exe()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .to_path_buf();
+        let got = resolve_governed_system_root(
+            &identity("com.example.app"),
+            &InstalledSystemRoot {
+                application_version: "0.0.0-not-installed",
+                observed_install_root: &here,
+            },
+        );
         assert_eq!(got, Err(GovernedRootRefusal::NoApprovedResolver));
     }
 

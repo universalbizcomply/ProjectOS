@@ -22,8 +22,8 @@
 //! Created in PROJECTOS-RECOVERY-INSTALLED-APP1A.
 
 use super::anchor::{
-    anchor_is_wellformed, EmbeddedAnchor, PRODUCTION_ALGORITHM, RAW_P256_SIGNATURE_LEN,
-    PRODUCTION_ANCHOR,
+    anchor_is_wellformed, EmbeddedAnchor, PRODUCTION_ALGORITHM, PRODUCTION_ANCHOR,
+    RAW_P256_SIGNATURE_LEN,
 };
 use super::errors::IdentityError;
 use super::es256::{decode_hex, verify_es256};
@@ -38,14 +38,18 @@ pub struct ProductionEs256Verifier {
 impl ProductionEs256Verifier {
     /// The shipping verifier, bound to whatever anchor this build embeds.
     pub const fn from_embedded() -> Self {
-        Self { anchor: PRODUCTION_ANCHOR }
+        Self {
+            anchor: PRODUCTION_ANCHOR,
+        }
     }
 
     /// Bind an explicit anchor. Used by tests to exercise the real verification path with a real
     /// key pair, and by nothing else — the shipping application always uses `from_embedded`.
     #[cfg(any(test, feature = "test-fixtures"))]
     pub const fn with_anchor(anchor: EmbeddedAnchor) -> Self {
-        Self { anchor: Some(anchor) }
+        Self {
+            anchor: Some(anchor),
+        }
     }
 
     /// The anchor this verifier would use, if it is usable at all.
@@ -133,7 +137,9 @@ mod tests {
     fn the_shipping_verifier_is_not_production_without_an_anchor() {
         let v = ProductionEs256Verifier::from_embedded();
         assert!(!v.is_production());
-        let err = v.verify(&input("es256", KEY_ID, &"ab".repeat(64))).unwrap_err();
+        let err = v
+            .verify(&input("es256", KEY_ID, &"ab".repeat(64)))
+            .unwrap_err();
         assert_eq!(err, IdentityError::ProductionIdentityUnavailable);
     }
 
@@ -146,7 +152,8 @@ mod tests {
         });
         assert!(!v.is_production());
         assert_eq!(
-            v.verify(&input("es256", KEY_ID, &"ab".repeat(64))).unwrap_err(),
+            v.verify(&input("es256", KEY_ID, &"ab".repeat(64)))
+                .unwrap_err(),
             IdentityError::ProductionIdentityUnavailable
         );
     }
@@ -155,7 +162,15 @@ mod tests {
     #[test]
     fn only_es256_is_accepted() {
         let v = anchored();
-        for alg in ["es384", "rs256", "eddsa", "ES256", "es256 ", "", "test-fixture-sha256"] {
+        for alg in [
+            "es384",
+            "rs256",
+            "eddsa",
+            "ES256",
+            "es256 ",
+            "",
+            "test-fixture-sha256",
+        ] {
             assert_eq!(
                 v.verify(&input(alg, KEY_ID, &"ab".repeat(64))).unwrap_err(),
                 IdentityError::ManifestSignatureInvalid,
@@ -168,7 +183,12 @@ mod tests {
     #[test]
     fn a_manifest_naming_another_key_is_refused() {
         let v = anchored();
-        for id in ["another-key", "TEST-ONLY-fixture", "", "projectos-signing-test-2"] {
+        for id in [
+            "another-key",
+            "TEST-ONLY-fixture",
+            "",
+            "projectos-signing-test-2",
+        ] {
             assert_eq!(
                 v.verify(&input("es256", id, &"ab".repeat(64))).unwrap_err(),
                 IdentityError::ManifestSignerUnknown,
@@ -181,12 +201,12 @@ mod tests {
     fn a_malformed_signature_is_refused_before_any_crypto() {
         let v = anchored();
         for sig in [
-            "",                        // absent
-            "ab",                      // far too short
-            &"ab".repeat(63),          // one byte short
-            &"ab".repeat(65),          // one byte long
+            "",                                // absent
+            "ab",                              // far too short
+            &"ab".repeat(63),                  // one byte short
+            &"ab".repeat(65),                  // one byte long
             &format!("{}zz", "ab".repeat(63)), // right length, not hex
-            &"AB".repeat(64),          // upper-case hex is not the stated format
+            &"AB".repeat(64),                  // upper-case hex is not the stated format
         ] {
             assert_eq!(
                 v.verify(&input("es256", KEY_ID, sig)).unwrap_err(),
@@ -203,7 +223,8 @@ mod tests {
     fn a_wellformed_forgery_does_not_verify() {
         let v = anchored();
         assert_eq!(
-            v.verify(&input("es256", KEY_ID, &"11".repeat(64))).unwrap_err(),
+            v.verify(&input("es256", KEY_ID, &"11".repeat(64)))
+                .unwrap_err(),
             IdentityError::ManifestSignatureInvalid
         );
     }

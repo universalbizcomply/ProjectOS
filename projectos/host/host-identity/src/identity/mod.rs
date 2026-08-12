@@ -36,6 +36,9 @@ pub mod authenticode;
 #[cfg(windows)]
 pub mod canonical_record;
 pub mod install_root;
+/// PROJECTOS-RECOVERY-INSTALLED-APP1A: the installer-owned installed-application record.
+#[cfg(windows)]
+pub mod installed_application;
 #[cfg(windows)]
 pub mod publisher_policy;
 #[cfg(windows)]

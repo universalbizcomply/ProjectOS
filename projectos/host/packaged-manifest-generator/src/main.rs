@@ -39,8 +39,7 @@ fn arg(args: &[String], name: &str) -> Option<String> {
         .cloned()
 }
 
-const REQUIRED: [&str; 7] = [
-    "--node-exe",
+const REQUIRED: [&str; 6] = [
     "--daemon-bundle",
     "--out",
     "--application-version",
@@ -52,7 +51,11 @@ const REQUIRED: [&str; 7] = [
 fn usage() {
     eprintln!("usage: projectos-manifest-gen {}", REQUIRED.join(" <v> "));
     eprintln!();
-    eprintln!("  --node-exe        the candidate Node runtime; must be the pinned bytes");
+    eprintln!("  --node-exe        OPTIONAL candidate Node runtime; must be the pinned bytes.");
+    eprintln!(
+        "                    defaults to {}",
+        contract::PACKAGED_NODE_PROVENANCE
+    );
     eprintln!(
         "                    (sha256 {})",
         contract::PACKAGED_NODE_SHA256
@@ -83,9 +86,16 @@ fn main() -> ExitCode {
         }
     }
 
-    let node_exe = PathBuf::from(&values[0]);
-    let daemon_bundle = PathBuf::from(&values[1]);
-    let payload_root = PathBuf::from(&values[2]);
+    // The runtime source DEFAULTS to the provenance the packaging contract recorded, so a fresh
+    // checkout needs no hidden preparation and no machine-specific flag. An override exists because
+    // a build machine may keep Node elsewhere — and it is safe to allow, because the size and
+    // SHA-256 pin refuse anything that is not the exact runtime this build packages. Choosing WHERE
+    // to read the bytes from is not the same as choosing WHICH bytes are acceptable.
+    let node_exe = arg(&args, "--node-exe")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(contract::PACKAGED_NODE_PROVENANCE));
+    let daemon_bundle = PathBuf::from(&values[0]);
+    let payload_root = PathBuf::from(&values[1]);
 
     // ---- 1. assemble ----------------------------------------------------------------------------
     let payload = match assemble_payload(&AssembleInputs {
@@ -130,10 +140,10 @@ fn main() -> ExitCode {
     // ---- 3. generate ----------------------------------------------------------------------------
     let generated = match generate_unsigned_manifest(&ManifestInputs {
         payload_root: &payload.root,
-        application_version: &values[3],
-        build_id: &values[4],
-        signing_key_id: &values[5],
-        generated_at: &values[6],
+        application_version: &values[2],
+        build_id: &values[3],
+        signing_key_id: &values[4],
+        generated_at: &values[5],
     }) {
         Ok(g) => g,
         Err(e) => {

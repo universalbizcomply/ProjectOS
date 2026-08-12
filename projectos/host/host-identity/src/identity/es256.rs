@@ -82,14 +82,7 @@ pub fn verify_es256(
         }
 
         let mut key = BCRYPT_KEY_HANDLE::default();
-        let imported = BCryptImportKeyPair(
-            alg,
-            None,
-            BCRYPT_ECCPUBLIC_BLOB,
-            &mut key,
-            &blob,
-            0,
-        );
+        let imported = BCryptImportKeyPair(alg, None, BCRYPT_ECCPUBLIC_BLOB, &mut key, &blob, 0);
         if imported.is_err() {
             let _ = BCryptCloseAlgorithmProvider(alg, 0);
             return Err(IdentityError::ManifestSignatureInvalid);
@@ -162,7 +155,9 @@ mod tests {
         assert_eq!(decode_hex(""), Some(vec![]));
         // Upper case is refused: the stated format is lower-case hex, and two different texts
         // decoding to one signature is not a property a canonical format should have.
-        for bad in ["0", "0g", "zz", "04 ff", "04ff ", "0x04", "04\n", "04FF", "AB", "0A", "aB"] {
+        for bad in [
+            "0", "0g", "zz", "04 ff", "04ff ", "0x04", "04\n", "04FF", "AB", "0A", "aB",
+        ] {
             assert!(decode_hex(bad).is_none(), "{bad} must not decode");
         }
     }
@@ -234,16 +229,22 @@ mod fixture_key {
                     BCRYPT_OPEN_ALGORITHM_PROVIDER_FLAGS(0),
                 )
                 .ok()
-                .ok().expect("open ecdsa p256 provider");
+                .ok()
+                .expect("open ecdsa p256 provider");
                 let mut key = BCRYPT_KEY_HANDLE::default();
-                BCryptGenerateKeyPair(alg, &mut key, 256, 0).ok().expect("generate p256 pair");
-                BCryptFinalizeKeyPair(key, 0).ok().expect("finalize p256 pair");
+                BCryptGenerateKeyPair(alg, &mut key, 256, 0)
+                    .ok()
+                    .expect("generate p256 pair");
+                BCryptFinalizeKeyPair(key, 0)
+                    .ok()
+                    .expect("finalize p256 pair");
 
                 // Export the public blob, then rebuild the uncompressed X9.62 point CNG omits.
                 let mut needed = 0u32;
                 BCryptExportKey(key, None, BCRYPT_ECCPUBLIC_BLOB, None, &mut needed, 0)
                     .ok()
-                    .ok().expect("size public blob");
+                    .ok()
+                    .expect("size public blob");
                 let mut blob = vec![0u8; needed as usize];
                 BCryptExportKey(
                     key,
@@ -254,12 +255,17 @@ mod fixture_key {
                     0,
                 )
                 .ok()
-                .ok().expect("export public blob");
+                .ok()
+                .expect("export public blob");
                 // { magic: u32, cbKey: u32 } then X || Y.
                 let mut public_point = Vec::with_capacity(65);
                 public_point.push(0x04);
                 public_point.extend_from_slice(&blob[8..8 + 64]);
-                EphemeralKey { public_point, alg, key }
+                EphemeralKey {
+                    public_point,
+                    alg,
+                    key,
+                }
             }
         }
 
@@ -271,7 +277,8 @@ mod fixture_key {
                 let mut needed = 0u32;
                 BCryptSignHash(self.key, None, &digest, None, &mut needed, BCRYPT_FLAGS(0))
                     .ok()
-                    .ok().expect("size signature");
+                    .ok()
+                    .expect("size signature");
                 let mut sig = vec![0u8; needed as usize];
                 BCryptSignHash(
                     self.key,
@@ -282,7 +289,8 @@ mod fixture_key {
                     BCRYPT_FLAGS(0),
                 )
                 .ok()
-                .ok().expect("sign digest");
+                .ok()
+                .expect("sign digest");
                 sig
             }
         }
@@ -312,7 +320,11 @@ mod positive_control {
     fn a_genuine_signature_verifies() {
         let k = EphemeralKey::generate();
         let sig = k.sign(MESSAGE);
-        assert_eq!(sig.len(), RAW_P256_SIGNATURE_LEN, "CNG returns raw r||s for ECDSA");
+        assert_eq!(
+            sig.len(),
+            RAW_P256_SIGNATURE_LEN,
+            "CNG returns raw r||s for ECDSA"
+        );
         assert!(verify_es256(&k.public_point, MESSAGE, &sig).is_ok());
     }
 

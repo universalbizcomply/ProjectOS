@@ -359,8 +359,14 @@ fn resolve_packaged_authority(
             // the approved seam. Production has no approved resolver, so this refuses — with its own
             // reason rather than pretending the identity failed, and never by falling back to
             // development.
-            let governed = resolve_governed_system_root(&identity, &InstalledSystemRoot)
-                .map_err(|_| ProcessError::PackagedRuntimeNotProvisioned)?;
+            let governed = resolve_governed_system_root(
+                &identity,
+                &InstalledSystemRoot {
+                    application_version: env!("CARGO_PKG_VERSION"),
+                    observed_install_root: &install_root,
+                },
+            )
+            .map_err(|_| ProcessError::PackagedRuntimeNotProvisioned)?;
             Ok(DaemonLaunchAuthority::Packaged(
                 VerifiedPackagedDaemonLaunchAuthority::from_verified_identity(
                     identity,
@@ -399,12 +405,26 @@ fn resolve_packaged_authority(
 fn observed_installation() -> projectos_shared_host_runtime::identity::packaged::InstallationIdentity
 {
     use projectos_shared_host_runtime::identity::packaged::{
-        classify_installation, InstallationIdentity, NoInstallerEvidence, RunningExecutable,
+        classify_installation, InstallationIdentity, InstalledApplicationEvidence,
+        RunningExecutable,
     };
-    match RunningExecutable::open_current() {
-        Some(exe) => classify_installation(&exe, &NoInstallerEvidence),
-        None => InstallationIdentity::Unknown,
-    }
+    let Some(exe) = RunningExecutable::open_current() else {
+        return InstallationIdentity::Unknown;
+    };
+    let Ok(install_root) = application_install_root() else {
+        return InstallationIdentity::Unknown;
+    };
+    // The evidence is the installer's own record, verified against THIS installation. Absent or
+    // contradicted, it does not corroborate, and a Program Files location on its own still
+    // classifies as PerMachineUnverified.
+    classify_installation(
+        &exe,
+        &InstalledApplicationEvidence {
+            expected_application_id: PACKAGED_APPLICATION_ID,
+            expected_application_version: env!("CARGO_PKG_VERSION"),
+            observed_install_root: &install_root,
+        },
+    )
 }
 
 /// The application identity this build expects a manifest to be about. Compiled in, never read from

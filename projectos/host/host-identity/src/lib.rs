@@ -94,6 +94,35 @@ pub use identity::install_root::{
 #[cfg(windows)]
 pub use identity::running_executable::RunningExecutable;
 
+/// PROJECTOS-RECOVERY-INSTALLED-APP1A: the installer-owned installed-application record.
+///
+/// Re-exported so the Control Centre can obtain INSTALLATION EVIDENCE and the governed system root
+/// from facts an installer wrote, rather than inferring either from where it happens to be running.
+/// It confers no cryptographic trust: the record cannot select a verifier, name an anchor or carry
+/// key material, and the strongest identity it can corroborate is `PerMachineEvidenceMatched`.
+#[cfg(windows)]
+pub use identity::installed_application::{
+    canonical_application_record_path, compute_application_record_digest,
+    read_canonical_application_record, strongest_corroborated_identity, verify_application_record,
+    verify_application_record_bytes, ApplicationRecordError, InstalledApplicationEvidence,
+    InstalledApplicationRecordV1, VerifiedInstalledApplication, APPLICATION_RECORD_FILE_NAME,
+    APPLICATION_RECORD_SCHEMA_VERSION, PER_MACHINE_SCOPE,
+};
+
+/// PROJECTOS-RECOVERY-INSTALLED-APP1A: the ES256 VERIFICATION primitive and the formats it demands.
+///
+/// Re-exported so the owner signing tooling can CHECK a detached signature before it is attached to
+/// a manifest, using the very function the production verifier uses. Verification is not authority:
+/// this proves a signature matches a public key over some bytes, and decides nothing about whether
+/// that key is trusted — that judgement stays with the embedded anchor and `evaluate()`.
+///
+/// There is no signing counterpart here, and there must not be. ProjectOS never holds the owner's
+/// private key.
+pub use identity::anchor::{
+    PRODUCTION_ALGORITHM, RAW_P256_SIGNATURE_LEN, UNCOMPRESSED_P256_POINT_LEN,
+};
+pub use identity::es256::{decode_hex, verify_es256};
+
 /// The identity vocabulary a caller needs to assemble an `EvalContext` and read an outcome.
 pub use identity::composite::InstallationIdentity;
 pub use identity::errors::IdentityError;

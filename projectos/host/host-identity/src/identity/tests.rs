@@ -6,10 +6,12 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use super::composite::InstallationIdentity;
 use super::errors::IdentityError;
 use super::hash::sha256_hex;
-use super::composite::InstallationIdentity;
-use super::manifest::{DaemonArtefactFormat, DaemonArtefactManifest, RuntimeManifest, TrustManifest};
+use super::manifest::{
+    DaemonArtefactFormat, DaemonArtefactManifest, RuntimeManifest, TrustManifest,
+};
 use super::mode::Policy;
 use super::types::{IdentityState, InstallationModel};
 use super::verifier::{
@@ -119,7 +121,8 @@ fn raw(m: &TrustManifest) -> Vec<u8> {
 
 fn test_ctx<'a>(v: &'a dyn TrustManifestSignatureVerifier) -> EvalContext<'a> {
     EvalContext {
-        policy: Policy::Test,payload_root: Box::leak(Box::new(root())).as_path(),
+        policy: Policy::Test,
+        payload_root: Box::leak(Box::new(root())).as_path(),
         expected_application_id: APP_ID,
         expected_application_version: APP_VER,
         expected_architecture: ARCH,
@@ -133,7 +136,8 @@ fn test_ctx<'a>(v: &'a dyn TrustManifestSignatureVerifier) -> EvalContext<'a> {
 
 fn prod_ctx<'a>(v: Option<&'a dyn TrustManifestSignatureVerifier>) -> EvalContext<'a> {
     EvalContext {
-        policy: Policy::Production,payload_root: Box::leak(Box::new(root())).as_path(),
+        policy: Policy::Production,
+        payload_root: Box::leak(Box::new(root())).as_path(),
         expected_application_id: APP_ID,
         expected_application_version: APP_VER,
         expected_architecture: ARCH,
@@ -545,7 +549,8 @@ fn prod_ctx_observing<'a>(
     observed: InstallationIdentity,
 ) -> EvalContext<'a> {
     EvalContext {
-        policy: Policy::Production,payload_root: Box::leak(Box::new(root())).as_path(),
+        policy: Policy::Production,
+        payload_root: Box::leak(Box::new(root())).as_path(),
         expected_application_id: APP_ID,
         expected_application_version: APP_VER,
         expected_architecture: ARCH,
@@ -641,7 +646,8 @@ fn corroboration_is_a_production_rule_only() {
     m.installation_model = InstallationModel::PerUser;
     sign_test(&mut m);
     let ctx = EvalContext {
-        policy: Policy::Test,payload_root: Box::leak(Box::new(root())).as_path(),
+        policy: Policy::Test,
+        payload_root: Box::leak(Box::new(root())).as_path(),
         expected_application_id: APP_ID,
         expected_application_version: APP_VER,
         expected_architecture: ARCH,
@@ -672,7 +678,10 @@ fn an_unrecognised_artefact_format_fails_to_parse() {
         m.daemon_artefact.format = DaemonArtefactFormat::SingleBundle;
         let text = String::from_utf8(raw(&m)).unwrap();
         let tampered = text.replace("\"single-bundle\"", bogus);
-        assert_ne!(tampered, text, "the fixture must actually contain the format");
+        assert_ne!(
+            tampered, text,
+            "the fixture must actually contain the format"
+        );
         let out = evaluate(
             tampered.as_bytes(),
             &prod_ctx_observing(

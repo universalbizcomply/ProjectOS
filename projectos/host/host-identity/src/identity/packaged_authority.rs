@@ -83,15 +83,18 @@ pub fn evaluate_packaged_authority(
         outcome.signer.as_ref().map(|s| s.signer_id.clone()),
         outcome.installation_model,
     ) {
-        (Some(application_id), Some(application_version), Some(signer_id), Some(installation_model)) => {
-            Ok(VerifiedPackagedIdentity {
-                application_id,
-                application_version,
-                signer_id,
-                installation_model,
-                _seal: Seal,
-            })
-        }
+        (
+            Some(application_id),
+            Some(application_version),
+            Some(signer_id),
+            Some(installation_model),
+        ) => Ok(VerifiedPackagedIdentity {
+            application_id,
+            application_version,
+            signer_id,
+            installation_model,
+            _seal: Seal,
+        }),
         _ => Err(Box::new(outcome)),
     }
 }

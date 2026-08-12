@@ -84,7 +84,10 @@ mod tests {
             public_point: &GOOD,
         }));
         // Empty key id: nothing for the manifest's signingKeyId to match.
-        assert!(!anchor_is_wellformed(&EmbeddedAnchor { key_id: "", public_point: &GOOD }));
+        assert!(!anchor_is_wellformed(&EmbeddedAnchor {
+            key_id: "",
+            public_point: &GOOD
+        }));
         // Wrong length: a truncated paste.
         assert!(!anchor_is_wellformed(&EmbeddedAnchor {
             key_id: "k",

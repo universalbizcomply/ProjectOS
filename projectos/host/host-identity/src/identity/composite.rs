@@ -114,7 +114,8 @@ impl InstallationIdentity {
     pub const fn corroborates_per_machine(self) -> bool {
         matches!(
             self,
-            InstallationIdentity::PerMachineEvidenceMatched | InstallationIdentity::PerMachineVerified
+            InstallationIdentity::PerMachineEvidenceMatched
+                | InstallationIdentity::PerMachineVerified
         )
     }
 }

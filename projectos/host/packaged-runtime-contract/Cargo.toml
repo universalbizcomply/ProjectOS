@@ -10,3 +10,8 @@ description = "PROJECTOS-RECOVERY-INSTALLED-APP1A. THE packaging contract: the s
 unsafe_code = "forbid"
 
 [dependencies]
+
+[dev-dependencies]
+# Provenance proof only: re-hash the committed upstream checksum file. Not a runtime dependency —
+# this crate ships constants and nothing else.
+sha2 = "0.10"

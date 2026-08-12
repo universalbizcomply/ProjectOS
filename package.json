@@ -55,6 +55,7 @@
     "providers": "node projectos/scripts/projectos-credential-router.cjs providers",
     "operation": "node projectos/scripts/projectos-credential-router.cjs operation",
     "validate:credentials": "node projectos/validators/val-projectos-credential-vault1a.cjs && node projectos/validators/val-projectos-session-router1a.cjs && node projectos/validators/val-projectos-credential-router-adversarial1a.cjs",
+    "validate:packaging": "node projectos/validators/val-projectos-packaged-runtime-contract1a.cjs",
     "summary": "node projectos/scripts/print-framework-summary.cjs",
     "list": "node projectos/scripts/list-projectos-files.cjs"
   },

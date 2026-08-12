@@ -33,12 +33,42 @@ pub const PACKAGED_NODE_VERSION: &str = "24.14.1";
 /// verifies a candidate runtime against it and refuses on mismatch — that refusal is what makes the
 /// word "pinned" mean something.
 ///
-/// PROVENANCE IS NOT VERIFIED HERE. This digest pins WHICH bytes get packaged. It does not prove
-/// those bytes are the official nodejs.org distribution: confirming that needs the upstream
-/// `SHASUMS256.txt`, which is a network fetch this increment was not authorised to perform. Recorded
-/// as an open risk rather than papered over.
+/// PROVENANCE IS NOW VERIFIED. This digest is byte-identical to the `win-x64/node.exe` entry in the
+/// official `SHASUMS256.txt` that nodejs.org publishes for v24.14.1, checked during
+/// PROJECTOS-RECOVERY-INSTALLED-APP1A. The upstream file is committed beside this crate, so the
+/// check is repeatable OFFLINE forever — see `UPSTREAM_CHECKSUMS_FILE`.
 pub const PACKAGED_NODE_SHA256: &str =
     "58e74bf02fc5bbacc41dcb8bef089961cd5bddd37830b87784e4fc624d145d1f";
+
+/// The upstream checksum file this pin was verified against, committed as evidence.
+///
+/// BUILD-TIME EVIDENCE, NOT A RUNTIME DEPENDENCY. An installed ProjectOS never contacts nodejs.org
+/// to decide whether its own already-hashed runtime is trustworthy: the digest above is compared
+/// against the bytes on disk and that is the whole runtime check. This file exists so a reviewer can
+/// re-establish where the digest came from without taking anyone's word for it.
+pub const UPSTREAM_CHECKSUMS_FILE: &str = "provenance/node-v24.14.1-SHASUMS256.txt";
+
+/// SHA-256 of that checksum file, so the evidence itself is pinned and a silent edit is detectable.
+pub const UPSTREAM_CHECKSUMS_SHA256: &str =
+    "cbbb0113ad929e40430a7dd73f91ef1cffd18eec160af3ac592eba1924255bf3";
+
+/// The entry within the checksum file that the runtime pin must equal.
+pub const UPSTREAM_CHECKSUMS_ENTRY: &str = "win-x64/node.exe";
+
+/// WHAT WAS *NOT* VERIFIED, stated plainly.
+///
+/// nodejs.org also publishes `SHASUMS256.txt.sig`, an OpenPGP signature over that checksum file. It
+/// is committed beside the checksums, and it IS a valid signature — made by RSA key
+/// `890C08DB8579162FEE0DF9DB8BEAB4DFCF555EF4`. It has not been VERIFIED, because no trusted copy of
+/// the Node release keys exists on the build machine and importing one now would be trust on first
+/// use: it would establish a brand-new trust root on the strength of the same network fetch it is
+/// supposed to corroborate. That is a decision for an owner, not a side effect of a build.
+///
+/// So the chain today is: pinned digest == published digest. It is not: pinned digest == digest
+/// signed by a key ProjectOS trusts. The difference is recorded rather than glossed.
+pub const UPSTREAM_SIGNATURE_KEY_ID: &str = "890C08DB8579162FEE0DF9DB8BEAB4DFCF555EF4";
+/// Whether the OpenPGP signature over the checksum file has been verified against a trusted key.
+pub const UPSTREAM_SIGNATURE_VERIFIED: bool = false;
 
 /// Size in bytes of the pinned runtime. A cheap, independent cross-check: a candidate of the wrong
 /// length is rejected before 91 MB are hashed, and a transcription error in the digest above shows
@@ -158,6 +188,60 @@ mod tests {
         assert!(PACKAGED_APPLICATION_ID
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-'));
+    }
+
+    /// THE PROVENANCE PROOF, and it runs offline.
+    ///
+    /// The committed upstream checksum file must still hash to what we recorded, and the runtime pin
+    /// must still be exactly the digest nodejs.org published for `win-x64/node.exe`. Both halves
+    /// matter: without the file digest, the evidence could be edited to say anything; without the
+    /// entry check, the file could be genuine and unrelated to what we ship.
+    #[test]
+    fn the_runtime_pin_is_the_digest_nodejs_org_published() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(UPSTREAM_CHECKSUMS_FILE);
+        let bytes = std::fs::read(&path)
+            .unwrap_or_else(|e| panic!("committed provenance evidence missing at {path:?}: {e}"));
+
+        // The evidence file is itself pinned.
+        let digest = {
+            use std::fmt::Write as _;
+            let mut hasher = <sha2::Sha256 as sha2::Digest>::new();
+            sha2::Digest::update(&mut hasher, &bytes);
+            sha2::Digest::finalize(hasher)
+                .iter()
+                .fold(String::with_capacity(64), |mut acc, b| {
+                    let _ = write!(acc, "{b:02x}");
+                    acc
+                })
+        };
+        assert_eq!(
+            digest, UPSTREAM_CHECKSUMS_SHA256,
+            "the committed upstream checksum file has changed"
+        );
+
+        // And the pin is the published entry, matched as a whole line rather than as a substring.
+        let text = String::from_utf8(bytes).expect("the checksum file is text");
+        let expected_line = format!("{PACKAGED_NODE_SHA256}  {UPSTREAM_CHECKSUMS_ENTRY}");
+        assert!(
+            text.lines().any(|l| l.trim_end() == expected_line),
+            "the pinned runtime digest is not the published {UPSTREAM_CHECKSUMS_ENTRY} digest"
+        );
+    }
+
+    /// The unverified half is declared as such. If someone later verifies the signature against a
+    /// trusted key, this flag changes deliberately — it does not drift.
+    #[test]
+    // The assertion IS on a constant, deliberately. It is a tripwire: flipping
+    // `UPSTREAM_SIGNATURE_VERIFIED` to true must break a test, so that claiming the signature has
+    // been verified is a decision somebody makes on purpose rather than a line that slips through.
+    #[allow(clippy::assertions_on_constants)]
+    fn the_upstream_signature_is_declared_unverified() {
+        assert!(
+            !UPSTREAM_SIGNATURE_VERIFIED,
+            "if the Node release-key signature has genuinely been verified against a TRUSTED key, \
+             update this test and say where the trust in that key comes from"
+        );
+        assert_eq!(UPSTREAM_SIGNATURE_KEY_ID.len(), 40);
     }
 
     /// The version is a plain dotted release, never a range, a tag or a `v` prefix: `evaluate()`

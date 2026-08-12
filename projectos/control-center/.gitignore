@@ -6,3 +6,8 @@ node-build/
 # The single closed daemon artefact. Build output, reproducible from source by
 # `npm run build:daemon-bundle`; its identity lives in the trust manifest, not in git.
 dist-daemon/
+
+# The staged release payload Tauri maps to `runtime-payload/` beside the installed executable.
+# Build output: 91 MB of pinned runtime plus the closed daemon bundle and its manifest. Reproducible
+# from source by `npm run release:payload`; its identity lives in the trust manifest, not in git.
+dist-payload/

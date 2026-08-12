@@ -132,6 +132,15 @@ pub mod identity {
             classify_installation, InstallationEvidence, InstallationEvidenceProvider,
             NoInstallerEvidence, RunningExecutable,
         };
+
+        /// PROJECTOS-RECOVERY-INSTALLED-APP1A: installer-owned installation evidence and the
+        /// governed system root it names. Facts an installer wrote, verified against the running
+        /// installation — never inferred from where the executable happens to sit.
+        #[cfg(windows)]
+        pub use projectos_host_identity::{
+            read_canonical_application_record, ApplicationRecordError,
+            InstalledApplicationEvidence, VerifiedInstalledApplication,
+        };
     }
 
     /// TEST-ONLY proof minting, behind this crate's `test-fixtures` feature.

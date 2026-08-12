@@ -1,0 +1,107 @@
+================================================================================
+PROJECTOS INSTALLER - EFFECT MANIFEST
+================================================================================
+
+  NOT PRODUCTION-TRUSTED - OWNER SIGNING GATE PENDING.
+  This is a reviewable release CANDIDATE. Do not install it.
+
+installer filename    : ProjectOS Control Center_0.1.0_x64_en-US.msi
+installer type        : Windows Installer (MSI), built by WiX via Tauri
+installer size        : 37236736 bytes
+installer sha256      : 14e443a21dc78b74ef9b59a92eb86bb7b4b258b39b8f0b474ae1ed18b9303ed7
+source commit         : 6d64e4d598c72e649d24bb41dd16ce3aceb1fa1e (WORKING TREE DIRTY)
+authenticode status   : NotSigned
+signed                : NO - UNSIGNED / UNTRUSTED CANDIDATE
+
+IDENTITY AND SCOPE (Property table)
+  UpgradeCode | {E0D5D7AF-3631-53BF-9085-BE20BB8B99F7}
+  ALLUSERS | 1
+  Manufacturer | universalbizcomply
+  ProductCode | {03F74D5D-AEA5-4CFA-97BC-87A8FA470738}
+  ProductName | ProjectOS Control Center
+  ProductVersion | 0.1.0
+
+  ALLUSERS=1 means PER-MACHINE. A per-machine install writes under Program Files and
+  therefore REQUIRES ELEVATION (administrator consent) at install time.
+
+DIRECTORIES (id | parent | name)
+  INSTALLDIR | ProgramFiles64Folder | ProjectOS Control Center
+  DesktopFolder | TARGETDIR | Desktop
+  Ic1416e1bc2234efabc049d7f70b2f29b | INSTALLDIR | runtime-payload
+  I130d3bb561444974bc82889af6a29685 | Ic1416e1bc2234efabc049d7f70b2f29b | daemon
+  Iddb0a6beb2ed4748a908b2dc23de3b9e | Ic1416e1bc2234efabc049d7f70b2f29b | runtime
+  ApplicationProgramsFolder | ProgramMenuFolder | ProjectOS Control Center
+  TARGETDIR |  | SourceDir
+  ProgramFiles64Folder | TARGETDIR | PFiles
+  ProgramMenuFolder | TARGETDIR | .
+
+  INSTALLDIR sits under ProgramFiles64Folder. runtime-payload is its child, and the
+  packaged runtime payload (daemon/, runtime/) lives beneath that - the app-owned
+  subdirectory the packaging contract names.
+
+FILES INSTALLED (name | size | component)
+  projectos-control-center.exe | 9477632 | Path
+  projectos-trust-manifest.canonical | 729 | I57abb5a017104f7ca5b7b19fdc41b811
+  projectos-trust-manifest.json | 857 | I77bd9de8eaf8427e8946e40257484dd8
+  projectos-daemon.mjs | 294883 | Idaf15ca60a504e9fb389ae29d14dec92
+  node.exe | 91426304 | If81aad24a3684a2e87e1f8098343e15d
+
+   5 file(s) total.
+
+WINDOWS SERVICES
+  NONE. The installer declares no ServiceInstall table at all.
+
+REGISTRY KEYS AUTHORED BY THIS INSTALLER
+  NONE. There is no Registry table.
+
+  Windows Installer still records its OWN product registration under
+  HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\<ProductCode> and in the
+  Installer databases. That is platform behaviour for every MSI, not ProjectOS
+  configuration, and it is what makes the product appear in Apps and Features.
+
+PROGRAMDATA
+  NONE written by this installer.
+
+  The installed-application record the runtime reads from ProgramData is NOT yet
+  authored by this MSI. So an installation from this candidate finds no record,
+  obtains no corroborating installation evidence and no governed system root, and
+  fails closed. Authoring it is the next installer increment.
+
+SHORTCUTS (name | directory | target)
+  ProjectOS Control Center | ApplicationProgramsFolder | [!Path]
+  ProjectOS Control Center | DesktopFolder | [!Path]
+  Uninstall ProjectOS Control Center | INSTALLDIR | [System64Folder]msiexec.exe
+
+ACL CHANGES
+  NONE beyond installer/platform defaults. There is no LockPermissions table, so no
+  explicit ACL is authored. Files inherit the permissions of Program Files, which
+  Windows already protects from non-administrators. This is DISTINCT from deliberate
+  custom ACL hardening, of which there is NONE.
+
+CUSTOM ACTIONS (action | type)
+  LaunchApplication | 210
+  WixUIValidatePath | 65
+  WixUIPrintEula | 65
+  SetARPNOMODIFY | 51
+  DownloadAndInvokeBootstrapper | 1058
+  SetARPINSTALLLOCATION | 51
+
+  NOTE: DownloadAndInvokeBootstrapper is the Microsoft WebView2 runtime bootstrapper.
+  On a machine without WebView2 it DOWNLOADS FROM MICROSOFT during installation, so
+  the install is not offline there. This is Tauri default behaviour, not ProjectOS
+  configuration.
+
+ELEVATION
+  REQUIRED. Per-machine (ALLUSERS=1) installation into Program Files needs
+  administrator consent. The application itself does not self-elevate.
+
+UNINSTALL / ROLLBACK
+  Standard Windows Installer semantics. Every file above belongs to a component keyed
+  to this ProductCode, so uninstall removes exactly those files and the shortcuts, and
+  a failed install rolls back through the installer transaction. An Uninstall shortcut
+  invoking msiexec is installed alongside the application. ProgramData is not touched,
+  so nothing is left behind there - because nothing is put there.
+
+================================================================================
+DO NOT INSTALL. Owner signing gate pending; production anchor absent.
+================================================================================

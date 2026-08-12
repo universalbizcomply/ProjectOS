@@ -7,7 +7,7 @@
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5178",
     "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build"
+    "beforeBuildCommand": "npm run release:prepare"
   },
   "app": {
     "windows": [
@@ -23,11 +23,10 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
-    "resources": [
-      "../sidecar/host.mjs",
-      "../node-build/**/*"
-    ],
+    "targets": ["msi"],
+    "resources": {
+      "../dist-payload": "runtime-payload"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
