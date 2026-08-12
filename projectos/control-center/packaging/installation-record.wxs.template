@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  PROJECTOS-RECOVERY-INSTALLED-APP1A - the installer-owned installation record component.
+
+  An ADDITIVE WiX fragment, referenced from tauri.conf.json through wix.fragmentPaths and
+  wix.componentGroupRefs. Tauri's own generated main.wxs is untouched: there is no template
+  override, no second installer, no custom action, no service and no privileged helper. One MSI.
+
+  WHAT IT INSTALLS. Exactly one file, at the one canonical path the runtime reads:
+
+      <ProgramData>\ProjectOS\host\installation\application.v1.json
+
+  CommonAppDataFolder is the Windows Installer property for ProgramData, so the location comes from
+  the platform rather than from an environment variable - which matches the runtime, where the same
+  directory is resolved through SHGetKnownFolderPath and never through %ProgramData%.
+
+  THE CONTENT IS NOT AUTHORED HERE. The record's JSON is emitted by `projectos-install-record`,
+  which builds it from the canonical InstalledApplicationRecordV1 model, computes the digest with
+  the same function the reader uses, and verifies the result with the real reader before writing.
+  Hand-writing that JSON in XML would be a second copy of a versioned, digest-bound schema, kept in
+  step by nothing but attention.
+
+  UNINSTALL OWNS IT. The file is the component's KeyPath, so Windows Installer removes it when the
+  product is uninstalled and rolls it back if installation fails. The three RemoveFolder entries
+  take the directories with it, so no orphaned trust record and no empty ProjectOS tree survive an
+  uninstall. Nothing here is permanent-by-default.
+
+  IT GRANTS NOTHING. The record carries installation facts only: no secret, no key material, no
+  trust anchor, no signature algorithm and no project selection. A record without a verified
+  application is worth nothing, because the governed root it names is only ever consumed through the
+  sealed boundary that demands a VerifiedPackagedIdentity.
+
+  This file is a TEMPLATE. `@RECORD_SOURCE@` is replaced with the absolute path of the generated
+  record by packaging/build-release-payload.mjs. The generated .wxs is build output; this template
+  is the reviewable source.
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Fragment>
+    <!-- ProgramData\ProjectOS\host\installation - the same segments the runtime's canonical path
+         is built from, so there is one path vocabulary rather than two. -->
+    <DirectoryRef Id="TARGETDIR">
+      <Directory Id="CommonAppDataFolder">
+        <Directory Id="PROJECTOS_PROGRAMDATA_DIR" Name="ProjectOS">
+          <Directory Id="PROJECTOS_HOST_STATE_DIR" Name="host">
+            <Directory Id="PROJECTOS_INSTALLATION_DIR" Name="installation" />
+          </Directory>
+        </Directory>
+      </Directory>
+    </DirectoryRef>
+
+    <ComponentGroup Id="ProjectOSInstallationRecord">
+      <Component Id="ProjectOSInstallationRecordFile"
+                 Guid="{6F3C1B84-2E5A-4E31-9E2F-7C1A9D0B4F52}"
+                 Directory="PROJECTOS_INSTALLATION_DIR"
+                 Win64="yes">
+        <File Id="ProjectOSApplicationRecordV1"
+              Name="application.v1.json"
+              Source="@RECORD_SOURCE@"
+              KeyPath="yes" />
+
+        <!-- Take the directories back on uninstall, innermost first. Without these the empty
+             ProjectOS tree would remain in ProgramData after the product is gone. -->
+        <RemoveFolder Id="RemoveProjectOSInstallationDir"
+                      Directory="PROJECTOS_INSTALLATION_DIR"
+                      On="uninstall" />
+        <RemoveFolder Id="RemoveProjectOSHostStateDir"
+                      Directory="PROJECTOS_HOST_STATE_DIR"
+                      On="uninstall" />
+        <RemoveFolder Id="RemoveProjectOSProgramDataDir"
+                      Directory="PROJECTOS_PROGRAMDATA_DIR"
+                      On="uninstall" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+</Wix>

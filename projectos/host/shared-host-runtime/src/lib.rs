@@ -138,8 +138,11 @@ pub mod identity {
         /// installation — never inferred from where the executable happens to sit.
         #[cfg(windows)]
         pub use projectos_host_identity::{
-            read_canonical_application_record, ApplicationRecordError,
-            InstalledApplicationEvidence, VerifiedInstalledApplication,
+            canonical_application_record_path, compute_application_record_digest,
+            read_canonical_application_record, verify_application_record,
+            verify_application_record_bytes, ApplicationRecordError,
+            InstalledApplicationEvidence, InstalledApplicationRecordV1,
+            VerifiedInstalledApplication, PER_MACHINE_SCOPE,
         };
     }
 
@@ -151,6 +154,14 @@ pub mod identity {
     #[cfg(feature = "test-fixtures")]
     pub mod packaged_fixture {
         pub use projectos_host_identity::test_only_verified_identity;
+
+        /// The PURE installation classifier and its inputs. Test-only: a production caller
+        /// classifies the REAL running executable through `classify_installation`, and only a proof
+        /// needs to state the path it is classifying.
+        #[cfg(windows)]
+        pub use projectos_host_identity::test_fixtures::identity::{
+            classify_path, KnownRoots, ReparseState,
+        };
     }
 }
 

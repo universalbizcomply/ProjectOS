@@ -8,8 +8,8 @@ PROJECTOS INSTALLER - EFFECT MANIFEST
 installer filename    : ProjectOS Control Center_0.1.0_x64_en-US.msi
 installer type        : Windows Installer (MSI), built by WiX via Tauri
 installer size        : 37236736 bytes
-installer sha256      : 14e443a21dc78b74ef9b59a92eb86bb7b4b258b39b8f0b474ae1ed18b9303ed7
-source commit         : 6d64e4d598c72e649d24bb41dd16ce3aceb1fa1e (WORKING TREE DIRTY)
+installer sha256      : 17a4eca760ad8928e393039a992b2d9cd2bff16236a2a5a8eb716a85ea24c7ef
+source commit         : ec884c6f2cafaec69568f69a78e64d683aecec66 (WORKING TREE DIRTY)
 authenticode status   : NotSigned
 signed                : NO - UNSIGNED / UNTRUSTED CANDIDATE
 
@@ -17,7 +17,7 @@ IDENTITY AND SCOPE (Property table)
   UpgradeCode | {E0D5D7AF-3631-53BF-9085-BE20BB8B99F7}
   ALLUSERS | 1
   Manufacturer | universalbizcomply
-  ProductCode | {03F74D5D-AEA5-4CFA-97BC-87A8FA470738}
+  ProductCode | {701F3886-F186-4E8D-A858-F3E08FFD5D00}
   ProductName | ProjectOS Control Center
   ProductVersion | 0.1.0
 
@@ -27,13 +27,17 @@ IDENTITY AND SCOPE (Property table)
 DIRECTORIES (id | parent | name)
   INSTALLDIR | ProgramFiles64Folder | ProjectOS Control Center
   DesktopFolder | TARGETDIR | Desktop
-  Ic1416e1bc2234efabc049d7f70b2f29b | INSTALLDIR | runtime-payload
-  I130d3bb561444974bc82889af6a29685 | Ic1416e1bc2234efabc049d7f70b2f29b | daemon
-  Iddb0a6beb2ed4748a908b2dc23de3b9e | Ic1416e1bc2234efabc049d7f70b2f29b | runtime
+  I898d112d69bb41b8b15c29bd2bf24833 | INSTALLDIR | runtime-payload
+  I784d1b41a9bc4643aec1c6f762b63ebe | I898d112d69bb41b8b15c29bd2bf24833 | daemon
+  Id2fb51a109814418ae00c516334d2dbb | I898d112d69bb41b8b15c29bd2bf24833 | runtime
   ApplicationProgramsFolder | ProgramMenuFolder | ProjectOS Control Center
+  PROJECTOS_INSTALLATION_DIR | PROJECTOS_HOST_STATE_DIR | installation
   TARGETDIR |  | SourceDir
   ProgramFiles64Folder | TARGETDIR | PFiles
   ProgramMenuFolder | TARGETDIR | .
+  PROJECTOS_HOST_STATE_DIR | PROJECTOS_PROGRAMDATA_DIR | host
+  PROJECTOS_PROGRAMDATA_DIR | CommonAppDataFolder | ProjectOS
+  CommonAppDataFolder | TARGETDIR | .
 
   INSTALLDIR sits under ProgramFiles64Folder. runtime-payload is its child, and the
   packaged runtime payload (daemon/, runtime/) lives beneath that - the app-owned
@@ -41,31 +45,50 @@ DIRECTORIES (id | parent | name)
 
 FILES INSTALLED (name | size | component)
   projectos-control-center.exe | 9477632 | Path
-  projectos-trust-manifest.canonical | 729 | I57abb5a017104f7ca5b7b19fdc41b811
-  projectos-trust-manifest.json | 857 | I77bd9de8eaf8427e8946e40257484dd8
-  projectos-daemon.mjs | 294883 | Idaf15ca60a504e9fb389ae29d14dec92
-  node.exe | 91426304 | If81aad24a3684a2e87e1f8098343e15d
+  application.v1.json | 432 | ProjectOSInstallationRecordFile
+  projectos-trust-manifest.canonical | 729 | I21563dfedd304c15a0545ef623d11fd5
+  projectos-trust-manifest.json | 857 | I84575305f716453b80e41ec55385f49a
+  projectos-daemon.mjs | 294883 | I6b6e0912477b4defa3e1bd074e097f98
+  node.exe | 91426304 | I9c99205000d041e4adeb46898cc98420
 
-   5 file(s) total.
+   6 file(s) total.
 
 WINDOWS SERVICES
   NONE. The installer declares no ServiceInstall table at all.
 
-REGISTRY KEYS AUTHORED BY THIS INSTALLER
-  NONE. There is no Registry table.
+REGISTRY KEYS AUTHORED BY THIS INSTALLER (root | key | name | value)
+  1 | Software\universalbizcomply\ProjectOS Control Center | Desktop Shortcut | #1
+  1 | Software\universalbizcomply\ProjectOS Control Center | InstallDir | [INSTALLDIR]
+  1 | Software\universalbizcomply\ProjectOS Control Center | Uninstaller Shortcut | #1
+  1 | Software\universalbizcomply\ProjectOS Control Center | Start Menu Shortcut | #1
 
-  Windows Installer still records its OWN product registration under
-  HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\<ProductCode> and in the
-  Installer databases. That is platform behaviour for every MSI, not ProjectOS
-  configuration, and it is what makes the product appear in Apps and Features.
+PROGRAMDATA (directory id | parent | name)
+  PROJECTOS_INSTALLATION_DIR | PROJECTOS_HOST_STATE_DIR | installation
+  PROJECTOS_HOST_STATE_DIR | PROJECTOS_PROGRAMDATA_DIR | host
+  PROJECTOS_PROGRAMDATA_DIR | CommonAppDataFolder | ProjectOS
 
-PROGRAMDATA
-  NONE written by this installer.
+  The installer AUTHORS the canonical installed-application record at
+  <ProgramData>\ProjectOS\host\installation\application.v1.json.
 
-  The installed-application record the runtime reads from ProgramData is NOT yet
-  authored by this MSI. So an installation from this candidate finds no record,
-  obtains no corroborating installation evidence and no governed system root, and
-  fails closed. Authoring it is the next installer increment.
+  That record is what gives an installation its corroborating per-machine evidence
+  and names the governed ProjectOS SYSTEM root. It carries no secret, no key
+  material and no trust anchor: it states installation facts, and the governed root
+  it names is only ever consumed through the sealed boundary that demands a verified
+  packaged identity. A record without a verified application is worth nothing.
+
+PROGRAMDATA REMOVAL ON UNINSTALL (key | component | directory | mode)
+  INSTALLDIR | CMP_UninstallShortcut | INSTALLDIR | 2
+  DesktopFolder | ApplicationShortcutDesktop | DesktopFolder | 2
+  ApplicationProgramsFolder | ApplicationShortcut | ApplicationProgramsFolder | 2
+  RemoveProjectOSInstallationDir | ProjectOSInstallationRecordFile | PROJECTOS_INSTALLATION_DIR | 2
+  RemoveProjectOSHostStateDir | ProjectOSInstallationRecordFile | PROJECTOS_HOST_STATE_DIR | 2
+  RemoveProjectOSProgramDataDir | ProjectOSInstallationRecordFile | PROJECTOS_PROGRAMDATA_DIR | 2
+
+  InstallMode 2 is msidbRemoveFileInstallModeOnRemove: removed on UNINSTALL. The
+  record file is its component KeyPath, so Windows Installer removes the file itself
+  and rolls it back if installation fails; the three entries owned by
+  ProjectOSInstallationRecordFile take the ProjectOS ProgramData directories with it.
+  No orphaned trust record and no empty ProjectOS tree survive a normal uninstall.
 
 SHORTCUTS (name | directory | target)
   ProjectOS Control Center | ApplicationProgramsFolder | [!Path]

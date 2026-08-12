@@ -13,7 +13,8 @@
 # hashtables and nested arrays from the results; PowerShell unrolls single-row results differently
 # at different call sites, and three attempts to defend against that each produced a different wrong
 # answer. An effect manifest that is subtly wrong is worse than none, so this one does the simple
-# thing. Where a table is ABSENT that is reported as NONE rather than left to be assumed.
+# thing. Where a table is ABSENT that is reported as NONE; where a query FAILS on a table that
+# exists, that is reported as an ERROR - never as NONE.
 #
 # ASCII ONLY. Windows PowerShell 5.1 reads a .ps1 without a BOM as ANSI, so anything else mojibakes.
 
@@ -27,9 +28,28 @@ if (-not $msi) { Write-Output "no MSI found in $bundleDir - run 'npx tauri build
 $installer = New-Object -ComObject WindowsInstaller.Installer
 $db = $installer.GetType().InvokeMember('OpenDatabase', 'InvokeMethod', $null, $installer, @($msi.FullName, 0))
 
+# Every table the MSI actually contains. Used to tell ABSENT apart from FAILED - see below.
+$script:TableNames = @()
+$tv = $db.GetType().InvokeMember('OpenView', 'InvokeMethod', $null, $db, @('SELECT `Name` FROM `_Tables`'))
+$tv.GetType().InvokeMember('Execute', 'InvokeMethod', $null, $tv, $null)
+while ($true) {
+  $rec = $tv.GetType().InvokeMember('Fetch', 'InvokeMethod', $null, $tv, $null)
+  if ($null -eq $rec) { break }
+  $script:TableNames += [string]$rec.GetType().InvokeMember('StringData', 'GetProperty', $null, $rec, @(1))
+}
+$tv.GetType().InvokeMember('Close', 'InvokeMethod', $null, $tv, $null) | Out-Null
+
 # Print every row of a query, one line each, fields separated by ' | '. Returns the row count, or
-# -1 when the table does not exist at all.
-function Show-Query([string]$sql, [string]$indent = '  ') {
+# -1 when the table genuinely does not exist.
+#
+# THE BUG THIS NOW PREVENTS. The first version wrapped the query in a try/catch and reported an
+# absent table on ANY failure. `Key` and `Value` are RESERVED WORDS in MSI SQL, so
+# `SELECT Root, Key, Name FROM Registry` threw - and the manifest confidently reported
+# "REGISTRY KEYS: NONE" for an installer that authors four of them. A swallowed error became a
+# reassuring answer, which is the worst thing an effect manifest can do. Identifiers are now quoted,
+# and a failure on a table that EXISTS is reported as an ERROR rather than as NONE.
+function Show-Query([string]$sql, [string]$table, [string]$indent = '  ') {
+  if ($script:TableNames -notcontains $table) { return -1 }
   $n = 0
   try {
     $view = $db.GetType().InvokeMember('OpenView', 'InvokeMethod', $null, $db, @($sql))
@@ -57,8 +77,10 @@ function Show-Query([string]$sql, [string]$indent = '  ') {
     }
     $view.GetType().InvokeMember('Close', 'InvokeMethod', $null, $view, $null) | Out-Null
   } catch {
-    # An absent table is a FACT, not an error: the installer declares none of that effect.
-    return -1
+    # The table EXISTS but could not be read. That is a defect in this script, not an absence of
+    # effect, and it must never be presented as NONE.
+    [Console]::WriteLine($indent + "ERROR: table '$table' exists but could not be read: $($_.Exception.Message)")
+    return -2
   }
   return $n
 }
@@ -87,14 +109,14 @@ else { Write-Output 'signed                : NO - UNSIGNED / UNTRUSTED CANDIDATE
 Write-Output ''
 
 Write-Output 'IDENTITY AND SCOPE (Property table)'
-$null = Show-Query "SELECT Property, Value FROM Property WHERE Property='ProductName' OR Property='ProductVersion' OR Property='Manufacturer' OR Property='ProductCode' OR Property='UpgradeCode' OR Property='ALLUSERS'"
+$null = Show-Query 'SELECT `Property`,`Value` FROM `Property` WHERE `Property`=''ProductName'' OR `Property`=''ProductVersion'' OR `Property`=''Manufacturer'' OR `Property`=''ProductCode'' OR `Property`=''UpgradeCode'' OR `Property`=''ALLUSERS''' 'Property'
 Write-Output ''
 Write-Output '  ALLUSERS=1 means PER-MACHINE. A per-machine install writes under Program Files and'
 Write-Output '  therefore REQUIRES ELEVATION (administrator consent) at install time.'
 Write-Output ''
 
 Write-Output 'DIRECTORIES (id | parent | name)'
-$null = Show-Query 'SELECT Directory, Directory_Parent, DefaultDir FROM Directory'
+$null = Show-Query 'SELECT `Directory`,`Directory_Parent`,`DefaultDir` FROM `Directory`' 'Directory'
 Write-Output ''
 Write-Output '  INSTALLDIR sits under ProgramFiles64Folder. runtime-payload is its child, and the'
 Write-Output '  packaged runtime payload (daemon/, runtime/) lives beneath that - the app-owned'
@@ -102,18 +124,19 @@ Write-Output '  subdirectory the packaging contract names.'
 Write-Output ''
 
 Write-Output 'FILES INSTALLED (name | size | component)'
-$fileCount = Show-Query 'SELECT FileName, FileSize, Component_ FROM File'
+$fileCount = Show-Query 'SELECT `FileName`,`FileSize`,`Component_` FROM `File`' 'File'
 Write-Output ''
 Write-Output "  $fileCount file(s) total."
 Write-Output ''
 
 Write-Output 'WINDOWS SERVICES'
-$svc = Show-Query 'SELECT Name FROM ServiceInstall'
-if ($svc -le 0) { Write-Output '  NONE. The installer declares no ServiceInstall table at all.' }
+$svc = Show-Query 'SELECT `Name` FROM `ServiceInstall`' 'ServiceInstall'
+if ($svc -eq -1) { Write-Output '  NONE. The installer declares no ServiceInstall table at all.' }
+elseif ($svc -eq 0) { Write-Output '  NONE. The ServiceInstall table is empty.' }
 Write-Output ''
 
-Write-Output 'REGISTRY KEYS AUTHORED BY THIS INSTALLER'
-$reg = Show-Query 'SELECT Root, Key, Name FROM Registry'
+Write-Output 'REGISTRY KEYS AUTHORED BY THIS INSTALLER (root | key | name | value)'
+$reg = Show-Query 'SELECT `Root`,`Key`,`Name`,`Value` FROM `Registry`' 'Registry'
 if ($reg -le 0) {
   Write-Output '  NONE. There is no Registry table.'
   Write-Output ''
@@ -124,22 +147,42 @@ if ($reg -le 0) {
 }
 Write-Output ''
 
-Write-Output 'PROGRAMDATA'
-Write-Output '  NONE written by this installer.'
+Write-Output 'PROGRAMDATA (directory id | parent | name)'
+$pd = Show-Query 'SELECT `Directory`,`Directory_Parent`,`DefaultDir` FROM `Directory` WHERE `Directory_Parent`=''CommonAppDataFolder'' OR `Directory`=''PROJECTOS_HOST_STATE_DIR'' OR `Directory`=''PROJECTOS_INSTALLATION_DIR''' 'Directory'
+if ($pd -eq -1 -or $pd -eq 0) { Write-Output '  NONE written by this installer.' }
+else {
+  Write-Output ''
+  Write-Output '  The installer AUTHORS the canonical installed-application record at'
+  Write-Output '  <ProgramData>\ProjectOS\host\installation\application.v1.json.'
+  Write-Output ''
+  Write-Output '  That record is what gives an installation its corroborating per-machine evidence'
+  Write-Output '  and names the governed ProjectOS SYSTEM root. It carries no secret, no key'
+  Write-Output '  material and no trust anchor: it states installation facts, and the governed root'
+  Write-Output '  it names is only ever consumed through the sealed boundary that demands a verified'
+  Write-Output '  packaged identity. A record without a verified application is worth nothing.'
+}
 Write-Output ''
-Write-Output '  The installed-application record the runtime reads from ProgramData is NOT yet'
-Write-Output '  authored by this MSI. So an installation from this candidate finds no record,'
-Write-Output '  obtains no corroborating installation evidence and no governed system root, and'
-Write-Output '  fails closed. Authoring it is the next installer increment.'
+
+Write-Output 'PROGRAMDATA REMOVAL ON UNINSTALL (key | component | directory | mode)'
+$rm = Show-Query 'SELECT `FileKey`,`Component_`,`DirProperty`,`InstallMode` FROM `RemoveFile`' 'RemoveFile'
+if ($rm -le 0) { Write-Output '  NONE' }
+else {
+  Write-Output ''
+  Write-Output '  InstallMode 2 is msidbRemoveFileInstallModeOnRemove: removed on UNINSTALL. The'
+  Write-Output '  record file is its component KeyPath, so Windows Installer removes the file itself'
+  Write-Output '  and rolls it back if installation fails; the three entries owned by'
+  Write-Output '  ProjectOSInstallationRecordFile take the ProjectOS ProgramData directories with it.'
+  Write-Output '  No orphaned trust record and no empty ProjectOS tree survive a normal uninstall.'
+}
 Write-Output ''
 
 Write-Output 'SHORTCUTS (name | directory | target)'
-$sc = Show-Query 'SELECT Name, Directory_, Target FROM Shortcut'
+$sc = Show-Query 'SELECT `Name`,`Directory_`,`Target` FROM `Shortcut`' 'Shortcut'
 if ($sc -le 0) { Write-Output '  NONE' }
 Write-Output ''
 
 Write-Output 'ACL CHANGES'
-$acl = Show-Query 'SELECT LockObject, Table FROM LockPermissions'
+$acl = Show-Query 'SELECT `LockObject`,`Table` FROM `LockPermissions`' 'LockPermissions'
 if ($acl -le 0) {
   Write-Output '  NONE beyond installer/platform defaults. There is no LockPermissions table, so no'
   Write-Output '  explicit ACL is authored. Files inherit the permissions of Program Files, which'
@@ -149,7 +192,7 @@ if ($acl -le 0) {
 Write-Output ''
 
 Write-Output 'CUSTOM ACTIONS (action | type)'
-$ca = Show-Query 'SELECT Action, Type FROM CustomAction'
+$ca = Show-Query 'SELECT `Action`,`Type` FROM `CustomAction`' 'CustomAction'
 if ($ca -le 0) { Write-Output '  NONE' }
 else {
   Write-Output ''

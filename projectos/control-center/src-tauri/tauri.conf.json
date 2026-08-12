@@ -12,18 +12,22 @@
   "app": {
     "windows": [
       {
-        "title": "ProjectOS · Control Center",
+        "title": "ProjectOS \u00b7 Control Center",
         "width": 1200,
         "height": 820,
         "minWidth": 900,
         "minHeight": 600
       }
     ],
-    "security": { "csp": null }
+    "security": {
+      "csp": null
+    }
   },
   "bundle": {
     "active": true,
-    "targets": ["msi"],
+    "targets": [
+      "msi"
+    ],
     "resources": {
       "../dist-payload": "runtime-payload"
     },
@@ -33,6 +37,16 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "wix": {
+        "fragmentPaths": [
+          "generated/installation-record.wxs"
+        ],
+        "componentGroupRefs": [
+          "ProjectOSInstallationRecord"
+        ]
+      }
+    }
   }
 }

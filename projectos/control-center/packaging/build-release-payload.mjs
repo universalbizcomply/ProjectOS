@@ -21,7 +21,7 @@
  * Created in PROJECTOS-RECOVERY-INSTALLED-APP1A (installer trust record + release candidate).
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -32,6 +32,49 @@ const GENERATOR = join(PROJECTOS_ROOT, 'host', 'packaged-manifest-generator');
 
 /** Where the payload is staged. Tauri maps this directory to `runtime-payload/` beside the exe. */
 const PAYLOAD_OUT = join(CONTROL_CENTER, 'dist-payload');
+
+/**
+ * The installer-owned installation record, and the WiX fragment that installs it.
+ *
+ * Both are build output. The record's CONTENT comes from the canonical model via
+ * `projectos-install-record`; the fragment is expanded from a committed template with the record's
+ * absolute path substituted, because WiX resolves a File Source against candle's working directory
+ * rather than the .wxs location and that directory is Tauri's to choose, not ours.
+ */
+const RECORD_OUT = join(CONTROL_CENTER, 'dist-installer', 'application.v1.json');
+const FRAGMENT_TEMPLATE = join(HERE, 'installation-record.wxs.template');
+const FRAGMENT_OUT = join(CONTROL_CENTER, 'src-tauri', 'generated', 'installation-record.wxs');
+
+/**
+ * THE INSTALL ROOT THE RECORD DESCRIBES.
+ *
+ * It must equal where the MSI actually installs, because the runtime compares the record's
+ * installRoot against `current_exe().parent()` and refuses a mismatch. This is the MSI's DEFAULT
+ * INSTALLDIR: ProgramFiles64Folder + the Tauri productName.
+ *
+ * KNOWN LIMITATION, stated rather than hidden: Tauri's generated installer uses WixUI_InstallDir
+ * with ConfigurableDirectory="INSTALLDIR", so a user CAN choose another directory. The record is
+ * static, so such an installation produces a record whose installRoot does not match and the runtime
+ * refuses it - fail-closed and safe, but a silent no-op for that user. Guaranteeing the invariant
+ * needs either a custom action that composes the record at install time, or a template override that
+ * removes the browse dialog; both are larger mechanisms than this increment authorises.
+ */
+const PRODUCT_NAME = JSON.parse(
+  readFileSync(join(CONTROL_CENTER, 'src-tauri', 'tauri.conf.json'), 'utf8'),
+).productName;
+const DEFAULT_INSTALL_ROOT = `C:\\Program Files\\${PRODUCT_NAME}`;
+
+/** The governed ProjectOS SYSTEM root, from the project configuration rather than invented here. */
+const GOVERNED_SYSTEM_ROOT = (() => {
+  const explicit = process.env.PROJECTOS_GOVERNED_SYSTEM_ROOT;
+  if (typeof explicit === 'string' && explicit.length > 0) return explicit;
+  const config = JSON.parse(
+    readFileSync(join(PROJECTOS_ROOT, '..', '.projectops', 'project-config.json'), 'utf8'),
+  );
+  // `localPath` is the ProjectOS local framework repository - the SYSTEM root, not a selected
+  // product repository. Normalised to Windows separators because the record is compared as a path.
+  return String(config.localPath).replace(/\//g, '\\');
+})();
 const DAEMON_BUNDLE = join(CONTROL_CENTER, 'dist-daemon', 'projectos-daemon.mjs');
 
 /** The application version, from the ONE place Tauri stamps it. */
@@ -143,6 +186,36 @@ run(
   ],
   PROJECTOS_ROOT,
 );
+
+// ---- 5. the installer-owned installation record, and the fragment that installs it -------------
+rmSync(join(CONTROL_CENTER, 'dist-installer'), { recursive: true, force: true });
+run(
+  'cargo',
+  [
+    'run', '--quiet', '--release',
+    '--manifest-path', join(GENERATOR, 'Cargo.toml'),
+    '--bin', 'projectos-install-record',
+    '--',
+    '--out', RECORD_OUT,
+    '--application-version', APP_VERSION,
+    '--install-root', DEFAULT_INSTALL_ROOT,
+    '--governed-system-root', GOVERNED_SYSTEM_ROOT,
+    '--installation-id', `projectos-${buildId()}`,
+  ],
+  PROJECTOS_ROOT,
+);
+
+mkdirSync(dirname(FRAGMENT_OUT), { recursive: true });
+writeFileSync(
+  FRAGMENT_OUT,
+  // replaceAll, with a FUNCTION replacement, and both halves matter. `replace` substitutes only the
+  // FIRST occurrence — which was the one in the template's own comment describing the placeholder,
+  // leaving the real Source attribute untouched and the build failing on a literal '@RECORD_SOURCE@'.
+  // The function form also stops `$` sequences in a Windows path being read as replacement patterns.
+  readFileSync(FRAGMENT_TEMPLATE, 'utf8').replaceAll('@RECORD_SOURCE@', () => RECORD_OUT),
+  'utf8',
+);
+console.log(`installer fragment  : ${FRAGMENT_OUT}`);
 
 console.log('');
 console.log(`release payload ready: ${PAYLOAD_OUT}`);

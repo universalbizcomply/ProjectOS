@@ -155,6 +155,71 @@ const packagedSpec = authoritySrc.match(
 check(packagedSpec && !packagedSpec[0].includes("DAEMON_BRIDGE_CONFIG_VAR"),
   "the packaged launch spec must not carry the development bridge configuration");
 
+// ---- 8. the installer authors the canonical installation record ---------------------------------
+//
+// The runtime requires installer-owned evidence. If the MSI stops shipping the record, an
+// installation silently loses its per-machine corroboration and its governed system root, and fails
+// closed for a reason nobody changed on purpose. These checks make that a build failure instead.
+const wix = (tauriConf.bundle.windows || {}).wix || {};
+check(Array.isArray(wix.fragmentPaths) && wix.fragmentPaths.length > 0,
+  "tauri wix.fragmentPaths must reference the installation-record fragment");
+check(Array.isArray(wix.componentGroupRefs) &&
+      wix.componentGroupRefs.includes("ProjectOSInstallationRecord"),
+  "tauri wix.componentGroupRefs must include ProjectOSInstallationRecord, or the fragment is compiled but never installed");
+
+const fragmentTemplate = read(path.join(CONTROL_CENTER, "packaging", "installation-record.wxs.template"));
+check(fragmentTemplate.includes("CommonAppDataFolder"),
+  "the record must be installed beneath ProgramData via CommonAppDataFolder, not a literal path");
+for (const segment of ["ProjectOS", "host", "installation", "application.v1.json"]) {
+  check(fragmentTemplate.includes(segment),
+    `the record fragment must use the canonical path segment ${segment}`);
+}
+// Uninstall ownership: without these the trust record outlives the product that vouched for it.
+//
+// Deliberately NOT a regex. The first attempt used `[\s\S]` inside a JS TEMPLATE LITERAL, where the
+// backslashes are consumed by the string before the RegExp ever sees them — the pattern became
+// `[sS]` and matched nothing, so a correct fragment was reported broken. Two plain substring checks
+// say the same thing and cannot be mis-escaped.
+check(fragmentTemplate.split("<RemoveFolder").length - 1 === 3,
+  "the record fragment must declare exactly three RemoveFolder entries");
+for (const dir of ["PROJECTOS_INSTALLATION_DIR", "PROJECTOS_HOST_STATE_DIR", "PROJECTOS_PROGRAMDATA_DIR"]) {
+  check(fragmentTemplate.includes(`Directory="${dir}"`),
+    `the record fragment must remove ${dir} on uninstall`);
+}
+check(/KeyPath="yes"/.test(fragmentTemplate),
+  "the record file must be its component KeyPath, so uninstall and rollback own it");
+
+// The record's CONTENT comes from the canonical model, never hand-written JSON in XML.
+check(!/schemaVersion|recordDigest/.test(fragmentTemplate),
+  "the record fragment must not author record JSON; the canonical model emits it");
+const recordTool = stripTestModule(stripRustComments(
+  read(path.join(GENERATOR, "src", "bin", "projectos-install-record.rs"))));
+check(/InstalledApplicationRecordV1/.test(recordTool) &&
+      /compute_application_record_digest/.test(recordTool),
+  "the record generator must build the record from the canonical model and digest");
+check(/verify_application_record/.test(recordTool),
+  "the record generator must verify with the real reader before writing");
+// What the record may CARRY is a property of the MODEL, not of the tool's help text. The first
+// version scanned the tool's source and tripped on the line that says the record carries no trust
+// anchor — forbidding the word rather than the field. The fields are what matter.
+const recordModel = stripTestModule(stripRustComments(read(
+  path.join(ROOT, "projectos", "host", "host-identity", "src", "identity", "installed_application.rs"),
+)));
+const structBody = (recordModel.match(/pub struct InstalledApplicationRecordV1 \{[\s\S]*?\n\}/) || [""])[0];
+check(structBody.length > 0, "the installed-application record model must be present");
+for (const forbidden of ["private", "secret", "password", "anchor", "public_key", "signature", "algorithm"]) {
+  check(!structBody.includes(forbidden),
+    `the installation record model must have no ${forbidden} field`);
+}
+check(!recordTool.includes("--private-key") && !recordTool.includes("private_key"),
+  "the record generator must have no private-key surface");
+
+const pipelineRecord = read(path.join(CONTROL_CENTER, "packaging", "build-release-payload.mjs"));
+check(pipelineRecord.includes("projectos-install-record"),
+  "the release pipeline must generate the installation record");
+check(pipelineRecord.includes("@RECORD_SOURCE@"),
+  "the release pipeline must expand the installation-record fragment template");
+
 // ---- report --------------------------------------------------------------------------------------
 if (failures.length > 0) {
   console.error("val-projectos-packaged-runtime-contract1a FAILED");

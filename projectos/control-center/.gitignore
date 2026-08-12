@@ -11,3 +11,9 @@ dist-daemon/
 # Build output: 91 MB of pinned runtime plus the closed daemon bundle and its manifest. Reproducible
 # from source by `npm run release:payload`; its identity lives in the trust manifest, not in git.
 dist-payload/
+
+# The installer-owned installation record and the WiX fragment that installs it. Build output:
+# the record is emitted by projectos-install-record from the canonical model, and the fragment is
+# expanded from packaging/installation-record.wxs.template, which is the reviewable source.
+dist-installer/
+src-tauri/generated/
