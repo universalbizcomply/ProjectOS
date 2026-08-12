@@ -1,23 +1,39 @@
-﻿================================================================================
+================================================================================
 PROJECTOS INSTALLER - EFFECT MANIFEST
 ================================================================================
 
-  NOT PRODUCTION-TRUSTED - OWNER SIGNING GATE PENDING.
   This is a reviewable release CANDIDATE. Do not install it.
+
+PROJECTOS MANIFEST TRUST
+  STATUS              : SIGNED / VERIFIED against the embedded anchor
+  signingKeyId        : projectos-signing-20260812
+  signatureAlgorithm  : es256
+  buildId             : b8b40e00dc35
+  generatedAt         : 2026-08-12T18:00:00.000Z
+  canonical bytes     : 712
+  canonical sha256    : b02ad3b0d6de1ea74baa068479c46123cae08d3e01ab49abdfdc944b9a931df0
+  embedded anchor     : 04c8ddcd420db70a2868ee51ec34b507be8579ce9fb3cd7a392e364a974540976bb7bec77c9cbe04a92d2c202dc243d5af987b76ce09bfacd0bf6804b500880754
+
+  The signature covers the canonical bytes and is NOT part of them, so attaching it
+  cannot change what it signs. It is verified against the PUBLIC anchor embedded in
+  the application binary - the manifest does not get to nominate its own verifier.
 
 installer filename    : ProjectOS Control Center_0.1.0_x64_en-US.msi
 installer type        : Windows Installer (MSI), built by WiX via Tauri
 installer size        : 37236736 bytes
-installer sha256      : ff5b40e4bf08073e6e383e3c32b932e28b81dd3704ce9fa05da624c769471591
-source commit         : 1891118c20544238a29a79a8e4886749232eed0b (WORKING TREE DIRTY)
-authenticode status   : NotSigned
-signed                : NO - UNSIGNED / UNTRUSTED CANDIDATE
+installer sha256      : 1d90a541be298cdf2b7590278f826d9b2de6a5de9a8f5541fba332bdd267dede
+source commit         : b8b40e00dc35d1b79edddc822d5aa64f3764c071 (WORKING TREE DIRTY)
+WINDOWS AUTHENTICODE (a SEPARATE matter from ProjectOS manifest trust)
+  installer status    : NotSigned
+  STATUS              : NOT SIGNED
+  Windows will show an unknown-publisher prompt. This does NOT affect the ProjectOS
+  manifest trust chain above, which needs no certificate authority.
 
 IDENTITY AND SCOPE (Property table)
   UpgradeCode | {E0D5D7AF-3631-53BF-9085-BE20BB8B99F7}
   ALLUSERS | 1
   Manufacturer | universalbizcomply
-  ProductCode | {504E3964-04CC-4639-9DC9-113CC4007F8B}
+  ProductCode | {8D068633-2211-4175-94F7-22B0D6C9880D}
   ProductName | ProjectOS Control Center
   ProductVersion | 0.1.0
 
@@ -91,9 +107,9 @@ INSTALL LOCATION - FIXED, NOT CHOSEN
 DIRECTORIES (id | parent | name)
   DesktopFolder | TARGETDIR | Desktop
   INSTALLDIR | ProgramFiles64Folder | ProjectOS Control Center
-  I46f2e71a983b4950bf2c8b4036f717e1 | INSTALLDIR | runtime-payload
-  Ifee96727b27e4a839ebea227eefd7f11 | I46f2e71a983b4950bf2c8b4036f717e1 | daemon
-  I6c195f69adfd47dba14546dafe99df73 | I46f2e71a983b4950bf2c8b4036f717e1 | runtime
+  Id51bf78edb364088a205b46be4581c14 | INSTALLDIR | runtime-payload
+  I8fa9713c09544c31a5736c057cc2a4a1 | Id51bf78edb364088a205b46be4581c14 | daemon
+  I38d13277b42a4451bb34c2cebec9b31a | Id51bf78edb364088a205b46be4581c14 | runtime
   ApplicationProgramsFolder | ProgramMenuFolder | ProjectOS Control Center
   PROJECTOS_INSTALLATION_DIR | PROJECTOS_HOST_STATE_DIR | installation
   TARGETDIR |  | SourceDir
@@ -108,12 +124,12 @@ DIRECTORIES (id | parent | name)
   subdirectory the packaging contract names.
 
 FILES INSTALLED (name | size | component)
-  projectos-control-center.exe | 9477632 | Path
-  application.v1.json | 432 | ProjectOSInstallationRecordFile
-  projectos-trust-manifest.canonical | 729 | I2effb05392754d92a44b639036d93531
-  projectos-trust-manifest.json | 857 | I79a238f326cd4c589403eb2ca4e31461
-  projectos-daemon.mjs | 294883 | I0ecbcd93469b4f2782e86310dfc2c473
-  node.exe | 91426304 | Icad66a9ed50b4e3eab98bd8d807db35b
+  projectos-control-center.exe | 9478144 | Path
+  application.v1.json | 426 | ProjectOSInstallationRecordFile
+  projectos-trust-manifest.canonical | 712 | Id94b5c3b8be44e9ca905f10e56959f16
+  projectos-trust-manifest.json | 968 | I921fafa5ddc44e09957fbb71483ab0b8
+  projectos-daemon.mjs | 294883 | Ibbace6aed90b44b0aff81cd8a24858c6
+  node.exe | 91426304 | Id6559441152440daa8b2c5a6c8723212
 
   6 file(s) total.
 
@@ -190,5 +206,5 @@ UNINSTALL / ROLLBACK
   it and its directories away again on uninstall.
 
 ================================================================================
-DO NOT INSTALL. Owner signing gate pending; production anchor absent.
+DO NOT INSTALL. Installation authority is a SEPARATE owner decision.
 ================================================================================

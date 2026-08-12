@@ -49,7 +49,27 @@ fn declared_install_root(raw: &[u8]) -> PathBuf {
     PathBuf::from(record.install_root)
 }
 
+/// Skip a proof whose build output is absent — or REFUSE TO SKIP, when the caller says these proofs
+/// are the point of the run.
+///
+/// WHY THIS IS NOT JUST AN `eprintln!`. `dist-payload/` is build output and is gitignored, so on a
+/// fresh clone or a CI runner that has not run `npm run release:payload` and the signing ceremony,
+/// every test in this file returns early and the suite reports "ok". A green suite would then be
+/// entirely compatible with the production trust chain never having been exercised once — the
+/// strongest claims in this file, silently proving nothing. A skipped proof protects nothing.
+///
+/// Setting `PROJECTOS_REQUIRE_SIGNED_PAYLOAD=1` turns every skip into a failure, so a release gate
+/// can demand that these proofs actually ran. It is opt-in because a developer working on unrelated
+/// code should not be forced to perform a signing ceremony to run the test suite.
 fn skip(reason: &str) {
+    let required = std::env::var("PROJECTOS_REQUIRE_SIGNED_PAYLOAD")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    assert!(
+        !required,
+        "PROJECTOS_REQUIRE_SIGNED_PAYLOAD is set, so this proof may not be skipped: {reason}. \
+         Run `npm run release:payload` with the release signing inputs first.",
+    );
     eprintln!("SKIPPED: {reason}. Run `npm run release:payload` in projectos/control-center.");
 }
 
@@ -103,28 +123,41 @@ fn the_shipped_record_corroborates_per_machine_and_names_the_governed_root() {
     );
 }
 
-/// [§12.10] With that evidence, the sealed packaged authority reaches the NEXT fail-closed boundary
-/// — the absent signature — rather than failing earlier for want of installation evidence.
+/// [PRODUCTION MANIFEST TRUST2A] THE WHOLE CHAIN, through real components, end to end.
 ///
-/// This is the point of the whole increment: the installer-owned record removes the installation
-/// blocker, and what remains is exactly the owner signing gate.
+/// REPLACES `with_installer_evidence_the_remaining_refusal_is_the_absent_signature`. That test
+/// asserted the remaining blocker was the missing owner signature — true right up until the owner
+/// signed. It did not stop being meaningful; it was overtaken by the event it was waiting for, and
+/// it failed loudly the moment the signature arrived, which is what a fail-closed assertion is
+/// supposed to do. What it proved — that installation evidence is no longer the blocker — is now
+/// proved more strongly: the evaluation SUCCEEDS.
+///
+/// NOTHING HERE IS A FIXTURE. The manifest is the one the owner actually signed, read from the
+/// payload the installer packages. The verifier is `from_embedded()` — the shipping verifier bound
+/// to the anchor compiled into this build, not a test verifier and not a caller-supplied key. The
+/// policy is Production. A successful return is a `VerifiedPackagedIdentity`, which is sealed and
+/// has no public constructor, so holding one IS the proof that evaluation succeeded.
 #[test]
-fn with_installer_evidence_the_remaining_refusal_is_the_absent_signature() {
+fn the_owner_signed_manifest_mints_verified_packaged_identity() {
     use projectos_shared_host_runtime::identity::packaged::{
-        evaluate_packaged_authority, EvalContext, IdentityError, Policy, ProductionEs256Verifier,
-        RealFs,
+        evaluate_packaged_authority, EvalContext, InstallationModel, Policy,
+        ProductionEs256Verifier, RealFs,
     };
 
-    // Built WITHOUT a `..` component: `bind_runtime` refuses a payload root containing traversal,
-    // and it is right to — a root that can walk upwards is a root that can leave the payload.
     let payload = control_center().join("dist-payload");
-    let manifest = payload.join(contract::TRUST_MANIFEST_FILENAME);
-    let Ok(raw_manifest) = std::fs::read(&manifest) else {
+    let Ok(raw_manifest) = std::fs::read(payload.join(contract::TRUST_MANIFEST_FILENAME)) else {
         return skip("the generated trust manifest is absent");
     };
+    // Only meaningful against a SIGNED manifest. A developer payload is unsigned by design, and
+    // this proof is about the production ceremony rather than about local builds.
+    let parsed: serde_json::Value =
+        serde_json::from_slice(&raw_manifest).expect("the manifest parses");
+    if parsed["signature"].as_str().unwrap_or("").is_empty() {
+        return skip("the payload manifest is unsigned");
+    }
 
     let verifier = ProductionEs256Verifier::from_embedded();
-    let outcome = *evaluate_packaged_authority(
+    let identity = evaluate_packaged_authority(
         &raw_manifest,
         &EvalContext {
             policy: Policy::Production,
@@ -134,17 +167,143 @@ fn with_installer_evidence_the_remaining_refusal_is_the_absent_signature() {
             expected_architecture: contract::PACKAGED_ARCHITECTURE,
             expected_runtime_version: contract::PACKAGED_NODE_VERSION,
             verifier: Some(&verifier),
-            // What the installer-owned record now yields on a real per-machine installation.
             observed_installation: InstallationIdentity::PerMachineEvidenceMatched,
         },
         &RealFs,
     )
-    .expect_err("an unsigned manifest must never mint packaged identity");
+    .expect("the owner-signed manifest must mint packaged identity");
 
+    assert_eq!(identity.application_id(), contract::PACKAGED_APPLICATION_ID);
+    assert_eq!(identity.application_version(), env!("CARGO_PKG_VERSION"));
+    // The signer is the EMBEDDED anchor's key id, reported by the verifier rather than copied out
+    // of the manifest — a manifest naming another signer never reaches this point at all.
     assert_eq!(
-        outcome.failure,
-        Some(IdentityError::ManifestSignatureRequired),
-        "installation evidence is no longer the blocker; the signature is"
+        identity.signer_id(),
+        "projectos-signing-20260812",
+        "identity must be attributed to the owner signing key",
+    );
+    assert_eq!(identity.installation_model(), InstallationModel::PerMachine);
+}
+
+/// The same evaluation, refused for every way the signed material can be wrong.
+///
+/// Each case starts from the REAL signed manifest and changes exactly one thing, so a refusal is
+/// attributable to that change and to nothing else. Only the fact of refusal is asserted, never
+/// which check refused: a caller that learns which check rejected its forgery is being handed an
+/// oracle one bit at a time, which is why the production path answers uniformly.
+#[test]
+fn the_production_path_refuses_every_way_the_signed_material_can_be_wrong() {
+    use projectos_shared_host_runtime::identity::packaged::{
+        evaluate_packaged_authority, EvalContext, Policy, ProductionEs256Verifier, RealFs,
+    };
+
+    let payload = control_center().join("dist-payload");
+    let Ok(raw_manifest) = std::fs::read(payload.join(contract::TRUST_MANIFEST_FILENAME)) else {
+        return skip("the generated trust manifest is absent");
+    };
+    let base: serde_json::Value =
+        serde_json::from_slice(&raw_manifest).expect("the manifest parses");
+    if base["signature"].as_str().unwrap_or("").is_empty() {
+        return skip("the payload manifest is unsigned");
+    }
+    let verifier = ProductionEs256Verifier::from_embedded();
+
+    let refuses = |bytes: &[u8]| {
+        evaluate_packaged_authority(
+            bytes,
+            &EvalContext {
+                policy: Policy::Production,
+                payload_root: &payload,
+                expected_application_id: contract::PACKAGED_APPLICATION_ID,
+                expected_application_version: env!("CARGO_PKG_VERSION"),
+                expected_architecture: contract::PACKAGED_ARCHITECTURE,
+                expected_runtime_version: contract::PACKAGED_NODE_VERSION,
+                verifier: Some(&verifier),
+                observed_installation: InstallationIdentity::PerMachineEvidenceMatched,
+            },
+            &RealFs,
+        )
+        .is_err()
+    };
+
+    let mutate = |f: &dyn Fn(&mut serde_json::Value)| {
+        let mut m = base.clone();
+        f(&mut m);
+        serde_json::to_vec(&m).expect("the mutated manifest serialises")
+    };
+    let text = |v: &str| serde_json::Value::String(v.to_string());
+
+    // A flipped signature byte.
+    let flipped = mutate(&|m| {
+        let s = m["signature"]
+            .as_str()
+            .expect("signature present")
+            .to_string();
+        let first = if s.starts_with('a') { "b" } else { "a" };
+        m["signature"] = text(&format!("{first}{}", &s[1..]));
+    });
+    assert!(refuses(&flipped), "a changed signature must refuse");
+
+    // No signature at all.
+    assert!(
+        refuses(&mutate(&|m| m["signature"] = text(""))),
+        "a missing signature must refuse",
+    );
+
+    // Right idea, wrong shape.
+    assert!(
+        refuses(&mutate(&|m| m["signature"] = text("not-hex"))),
+        "a malformed signature must refuse",
+    );
+
+    // Another signer. `signingKeyId` is INSIDE the canonical bytes, so changing it invalidates the
+    // very signature that covers it — and it no longer names the embedded anchor either.
+    assert!(
+        refuses(&mutate(
+            &|m| m["signingKeyId"] = text("projectos-signing-somebody-else")
+        )),
+        "another signer must refuse",
+    );
+
+    // A test identity must never buy production trust.
+    assert!(
+        refuses(&mutate(&|m| m["signingKeyId"] = text("TEST-ONLY-key-1"))),
+        "a TEST-ONLY signer must refuse under production policy",
+    );
+
+    // The application owns the algorithm; the manifest does not get to choose it.
+    assert!(
+        refuses(&mutate(&|m| m["signatureAlgorithm"] = text("rs256"))),
+        "a non-es256 algorithm must refuse",
+    );
+
+    // A signed-over field. `buildId` has no counterpart on disk, so nothing else in the pipeline
+    // can object to it — the ONLY thing that can refuse this manifest is the signature no longer
+    // matching. That makes this case, and not the artefact cases below, the proof that the
+    // signature genuinely covers the manifest's declarative fields.
+    assert!(
+        refuses(&mutate(&|m| m["buildId"] = text("000000000000"))),
+        "a changed signed field must refuse",
+    );
+
+    // THE ATTESTED ARTEFACTS — and precisely what these two do NOT prove.
+    //
+    // Each declares a hash that no longer matches the bytes on disk, so `evaluate` refuses at the
+    // artefact hash comparison, which runs BEFORE signature verification. They are therefore proof
+    // that the declared hashes are checked against the real files, and NOT proof that the signature
+    // covers those fields — the signature check is never reached. An earlier version of this
+    // comment claimed the latter; it would have kept passing even if the canonical view had stopped
+    // covering `runtime` and `daemonArtefact` entirely, which is exactly the regression it appeared
+    // to guard. Signature coverage of the declarative fields is proven by the `buildId` case above;
+    // that these two fields are inside the signed view is fixed in `canonical.rs`.
+    let zeros = "0".repeat(64);
+    assert!(
+        refuses(&mutate(&|m| m["daemonArtefact"]["sha256"] = text(&zeros))),
+        "a daemon hash that does not match the bytes on disk must refuse",
+    );
+    assert!(
+        refuses(&mutate(&|m| m["runtime"]["sha256"] = text(&zeros))),
+        "a runtime hash that does not match the bytes on disk must refuse",
     );
 }
 

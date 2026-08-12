@@ -98,8 +98,91 @@ Write-Output '==================================================================
 Write-Output 'PROJECTOS INSTALLER - EFFECT MANIFEST'
 Write-Output '================================================================================'
 Write-Output ''
-Write-Output '  NOT PRODUCTION-TRUSTED - OWNER SIGNING GATE PENDING.'
 Write-Output '  This is a reviewable release CANDIDATE. Do not install it.'
+Write-Output ''
+
+# TWO DIFFERENT SIGNATURES, REPORTED SEPARATELY AND NEVER CONFLATED.
+#
+#   PROJECTOS MANIFEST TRUST - the owner's ES256 signature over the canonical manifest bytes,
+#   verified against the public anchor compiled into the application. This is what decides whether
+#   the packaged runtime may launch. It is ProjectOS's own trust chain and needs no certificate
+#   authority, no Authenticode and no third party.
+#
+#   WINDOWS AUTHENTICODE - a code-signing signature over the installer and executable, which is what
+#   SmartScreen and the UAC prompt show a user. It is a DIFFERENT question with different machinery,
+#   and Phase 5 does not require it.
+#
+# Reporting one as though it were the other would either overstate what is trusted or understate it.
+$payloadDir = Join-Path $root 'dist-payload'
+$manifestPath = Join-Path $payloadDir 'projectos-trust-manifest.json'
+$canonicalPath = Join-Path $payloadDir 'projectos-trust-manifest.canonical'
+Write-Output 'PROJECTOS MANIFEST TRUST'
+if ((Test-Path $manifestPath) -and (Test-Path $canonicalPath)) {
+  $m = Get-Content $manifestPath -Raw | ConvertFrom-Json
+  $canonicalBytes = (Get-Item $canonicalPath).Length
+  $canonicalSha = (Get-FileHash -Algorithm SHA256 $canonicalPath).Hash.ToLower()
+  $hasSig = -not [string]::IsNullOrEmpty($m.signature)
+  # VERIFY, DO NOT ASSUME. An earlier draft printed "SIGNED / VERIFIED" whenever the signature field
+  # was merely non-empty, which is a claim about cryptography made without doing any. This performs
+  # the real ECDSA P-256 check, and against the anchor COMPILED INTO THE APPLICATION rather than any
+  # key handed to this script - the same key the shipped binary will use and the only one that
+  # decides trust.
+  #
+  # THE ANCHOR IS RE-DERIVED FROM anchor.rs ON PURPOSE, even though build-release-payload.mjs
+  # already parses the same constant. Sharing that work would mean reading a value the BUILD
+  # produced, and an effect manifest that trusts build output can be told what to say by the build.
+  # This document exists to be independent of the thing it describes, so it goes back to the source
+  # of truth. The cost is a few lines of duplicated regex; the alternative costs the independence.
+  $verified = $false
+  $verifyError = ''
+  $anchorHex = ''
+  if ($hasSig) {
+    try {
+      $anchorFile = Join-Path (Split-Path -Parent $root) 'host\host-identity\src\identity\anchor.rs'
+      $anchorSrc = Get-Content $anchorFile -Raw
+      $anchorSrc = $anchorSrc.Substring(0, $anchorSrc.IndexOf('#[cfg(test)]'))
+      $arr = [regex]::Match($anchorSrc, 'const OWNER_PUBLIC_POINT[\s\S]*?=\s*\[([\s\S]*?)\];').Groups[1].Value
+      $pt = [byte[]]([regex]::Matches($arr, '0x([0-9a-fA-F]{2})') | ForEach-Object { [Convert]::ToByte($_.Groups[1].Value, 16) })
+      $anchorHex = ($pt | ForEach-Object { $_.ToString('x2') }) -join ''
+      $sigBytes = [byte[]]( ($m.signature -split '(..)' | Where-Object { $_ } ) | ForEach-Object { [Convert]::ToByte($_, 16) } )
+      $ecdsa = [System.Security.Cryptography.ECDsa]::Create()
+      $ecdsa.ImportParameters([System.Security.Cryptography.ECParameters]@{
+        Curve = [System.Security.Cryptography.ECCurve]::CreateFromFriendlyName('nistP256')
+        Q     = [System.Security.Cryptography.ECPoint]@{ X = $pt[1..32]; Y = $pt[33..64] }
+      })
+      $verified = $ecdsa.VerifyData(
+        [System.IO.File]::ReadAllBytes($canonicalPath), $sigBytes,
+        [System.Security.Cryptography.HashAlgorithmName]::SHA256)
+    } catch {
+      # COULD NOT VERIFY is a different fact from VERIFIED AND FAILED. Both are fail-closed, but an
+      # operator told "signature failed" will hunt a signing problem that does not exist when the
+      # real fault is this script (an unreadable anchor, a changed constant name). Say which.
+      $verifyError = $_.Exception.Message
+    }
+  }
+  if (-not $hasSig) { Write-Output '  STATUS              : UNSIGNED - owner signing gate pending' }
+  elseif ($verified) { Write-Output '  STATUS              : SIGNED / VERIFIED against the embedded anchor' }
+  elseif ($verifyError) {
+    Write-Output '  STATUS              : SIGNED but COULD NOT BE VERIFIED HERE - DO NOT SHIP'
+    Write-Output "  verification fault  : $verifyError"
+    Write-Output '  This is a fault in THIS SCRIPT or its inputs, not proof that the signature is'
+    Write-Output '  bad. Treat it as unverified until it verifies.'
+  }
+  else { Write-Output '  STATUS              : SIGNED but VERIFICATION FAILED - DO NOT SHIP' }
+  Write-Output "  signingKeyId        : $($m.signingKeyId)"
+  Write-Output "  signatureAlgorithm  : $($m.signatureAlgorithm)"
+  Write-Output "  buildId             : $($m.buildId)"
+  Write-Output "  generatedAt         : $($m.generatedAt)"
+  Write-Output "  canonical bytes     : $canonicalBytes"
+  Write-Output "  canonical sha256    : $canonicalSha"
+  if ($anchorHex) { Write-Output "  embedded anchor     : $anchorHex" }
+  Write-Output ''
+  Write-Output '  The signature covers the canonical bytes and is NOT part of them, so attaching it'
+  Write-Output '  cannot change what it signs. It is verified against the PUBLIC anchor embedded in'
+  Write-Output '  the application binary - the manifest does not get to nominate its own verifier.'
+} else {
+  Write-Output '  NOT PRESENT - run the release payload pipeline first.'
+}
 Write-Output ''
 Write-Output "installer filename    : $($msi.Name)"
 Write-Output 'installer type        : Windows Installer (MSI), built by WiX via Tauri'
@@ -107,9 +190,14 @@ Write-Output "installer size        : $($msi.Length) bytes"
 Write-Output "installer sha256      : $sha"
 if ($dirty) { Write-Output "source commit         : $commit (WORKING TREE DIRTY)" }
 else { Write-Output "source commit         : $commit" }
-Write-Output "authenticode status   : $($sig.Status)"
-if ($sig.Status -eq 'Valid') { Write-Output 'signed                : YES' }
-else { Write-Output 'signed                : NO - UNSIGNED / UNTRUSTED CANDIDATE' }
+Write-Output 'WINDOWS AUTHENTICODE (a SEPARATE matter from ProjectOS manifest trust)'
+Write-Output "  installer status    : $($sig.Status)"
+if ($sig.Status -eq 'Valid') { Write-Output '  STATUS              : SIGNED' }
+else {
+  Write-Output '  STATUS              : NOT SIGNED'
+  Write-Output '  Windows will show an unknown-publisher prompt. This does NOT affect the ProjectOS'
+  Write-Output '  manifest trust chain above, which needs no certificate authority.'
+}
 Write-Output ''
 
 Write-Output 'IDENTITY AND SCOPE (Property table)'
@@ -270,5 +358,5 @@ Write-Output '  installed-application record is written there, and the RemoveFil
 Write-Output '  it and its directories away again on uninstall.'
 Write-Output ''
 Write-Output '================================================================================'
-Write-Output 'DO NOT INSTALL. Owner signing gate pending; production anchor absent.'
+Write-Output 'DO NOT INSTALL. Installation authority is a SEPARATE owner decision.'
 Write-Output '================================================================================'
