@@ -328,3 +328,54 @@ fn the_shipped_record_is_internally_consistent() {
 
     let _ = classify_installation; // the production path uses this; referenced so it stays imported
 }
+
+// ================================================================================================
+// THE FIXED INSTALL ROOT
+// ================================================================================================
+
+/// [MSI FIXED INSTALL ROOT1A] The record names the ONE directory the MSI can install into.
+///
+/// The runtime compares the record's `installRoot` against the directory the executable actually
+/// runs from and refuses a mismatch. That check is only safe to ship if the installer cannot
+/// install anywhere else — otherwise the product offers a choice it then refuses, which is a defect
+/// dressed as governance. The installer side of the invariant is enforced in the WiX template and
+/// read back from the built MSI's Dialog, Control, Feature and AppSearch tables (see
+/// packaging/INSTALLER-EFFECT-MANIFEST.txt). This is the RECORD side: the value the installer
+/// writes must be exactly `<Program Files>\<ProductName>`, composed the same way WiX composes
+/// INSTALLDIR from ProgramFiles64Folder and the product name.
+///
+/// WHAT THIS DOES NOT CLAIM. Not that the root can never be overridden — an administrator may pass
+/// `INSTALLDIR=...` to msiexec and Windows Installer will honour it. That override is out of scope
+/// deliberately, and it is not silent: the installation records one root, installs to another, and
+/// the runtime refuses to launch it. Loud and closed, rather than quietly wrong.
+#[test]
+fn the_record_names_the_one_directory_the_installer_can_use() {
+    let Some(raw) = shipped_record_bytes() else {
+        return skip("the shipped record has not been generated");
+    };
+    let declared = declared_install_root(&raw);
+
+    // The product name is the installer's, not this test's: read it from the Tauri configuration
+    // the WiX build consumes, so a rename cannot leave this proof asserting a stale directory.
+    let conf: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(control_center().join("src-tauri/tauri.conf.json"))
+            .expect("tauri.conf.json is readable"),
+    )
+    .expect("tauri.conf.json parses");
+    let product = conf["productName"].as_str().expect("productName is set");
+
+    let expected = Path::new(r"C:\Program Files").join(product);
+    assert_eq!(
+        declared, expected,
+        "the record must name the MSI's fixed install root; \
+         a divergence here ships an installation the runtime will refuse",
+    );
+
+    // And the parent must be Program Files itself — a per-machine location that requires
+    // elevation to write, which is what makes the installed bytes worth verifying at all.
+    assert_eq!(
+        declared.parent().expect("the install root has a parent"),
+        Path::new(r"C:\Program Files"),
+        "the install root must sit directly beneath Program Files",
+    );
+}

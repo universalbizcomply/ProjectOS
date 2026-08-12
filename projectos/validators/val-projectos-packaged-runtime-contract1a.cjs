@@ -220,6 +220,148 @@ check(pipelineRecord.includes("projectos-install-record"),
 check(pipelineRecord.includes("@RECORD_SOURCE@"),
   "the release pipeline must expand the installation-record fragment template");
 
+// ---- 9. the install root is FIXED, and cannot drift back ----------------------------------------
+//
+// The canonical record names ONE install root and the runtime refuses a mismatch, so an installer
+// that lets a user pick a different directory offers a choice that produces an installation
+// ProjectOS will not run. The custom WiX template exists solely to remove that choice; these checks
+// exist so it cannot be silently undone.
+check(typeof wix.template === "string" && wix.template.length > 0,
+  "tauri wix.template must point at the ProjectOS WiX template that fixes the install root");
+const templatePath = path.join(CONTROL_CENTER, "src-tauri", wix.template);
+if (!fs.existsSync(templatePath)) {
+  failures.push(`the WiX template is missing at ${wix.template}`);
+} else {
+  const template = read(templatePath);
+  // TWO VIEWS, DELIBERATELY. The DELTA markers live in XML comments, so the marker check needs the
+  // full text. The forbidden-token checks must NOT read those same comments: each delta explains
+  // what it removed, and naming the removed thing is exactly how a comment-blind scan reports a
+  // correct template as broken. Markup is what ships; prose is not.
+  const markup = template.replace(/<!--[\s\S]*?-->/g, " ");
+
+  // The three intentional differences from Tauri's own template, each marked so a reviewer can find
+  // them and a silent revert is visible.
+  for (const delta of ["PROJECTOS DELTA 1 of 3", "PROJECTOS DELTA 2 of 3", "PROJECTOS DELTA 3 of 3"]) {
+    check(template.includes(delta), `the WiX template must retain ${delta}`);
+  }
+
+  // DELTA 1: a UI set that does not CONTAIN a directory dialog, rather than one that merely hides it.
+  // An absent dialog is readable from the MSI's own Dialog table; an unreachable one is not.
+  check(markup.includes('<UIRef Id="WixUI_Minimal" />'),
+    "the WiX template must use WixUI_Minimal, which contains no InstallDirDlg");
+  check(!markup.includes("WixUI_InstallDir"),
+    "the WiX template must not reference WixUI_InstallDir");
+  check(!markup.includes("InstallDirDlg"),
+    "the WiX template must not name InstallDirDlg in markup");
+  check(!markup.includes("WIXUI_INSTALLDIR"),
+    "the WiX template must not set WIXUI_INSTALLDIR; there is no directory dialog to point at");
+
+  // DELTA 2: no feature may be redirected.
+  check(!markup.includes("ConfigurableDirectory"),
+    "no feature may declare ConfigurableDirectory, or INSTALLDIR becomes selectable again");
+
+  // DELTA 3: no previous-install registry value may move the install root. A stale key left by an
+  // earlier install would relocate the installation without the installer ever asking.
+  check(!markup.includes("PrevInstallDir"),
+    "the WiX template must not search the registry for a previous install directory");
+  check(!/<RegistrySearch[^>]*INSTALLDIR/.test(markup) && !/Property Id="INSTALLDIR"/.test(markup),
+    "nothing may set the INSTALLDIR property from a search or a property default");
+
+  // ---- the UI surface itself, constrained POSITIVELY -------------------------------------------
+  //
+  // WHY THE CHECKS ABOVE ARE NOT ENOUGH. They deny the specific names WixUI's own directory dialog
+  // uses. That makes them a denylist, and a denylist only stops the author who reuses those names.
+  // A hand-written dialog with any other Id, holding a PathEdit control bound to INSTALLDIR and
+  // reached by a NewDialog publish, satisfies every check above while restoring exactly the choice
+  // this template exists to remove. Naming forbidden things cannot establish that no unnamed thing
+  // exists — only a positive constraint on what the template may contain can.
+  //
+  // So: this template declares NO dialogs and NO controls of its own. Every dialog in the built MSI
+  // comes from the referenced WixUI library set, which is what makes "WixUI_Minimal contains no
+  // InstallDirDlg" a complete statement rather than a partial one. Any dialog or control authored
+  // here is outside the reviewed surface and must fail, whatever it is called.
+  const dialogElements = (markup.match(/<Dialog[\s>]/g) || []).length;
+  const controlElements = (markup.match(/<Control[\s>]/g) || []).length;
+  check(dialogElements === 0,
+    `the WiX template must author no dialogs of its own (found ${dialogElements}); ` +
+    "all dialogs must come from the referenced WixUI set, or the InstallDirDlg argument is void");
+  check(controlElements === 0,
+    `the WiX template must author no controls of its own (found ${controlElements}); ` +
+    "a control bound to INSTALLDIR reintroduces the directory chooser under any name");
+
+  // Exactly ONE UI set may be referenced, and only one that contains no directory dialog.
+  const uiRefs = markup.match(/<UIRef\s+Id="([^"]+)"/g) || [];
+  check(uiRefs.length === 1, `exactly one UIRef is expected, found ${uiRefs.length}`);
+  const UI_SETS_WITHOUT_A_DIRECTORY_DIALOG = ["WixUI_Minimal"];
+  for (const ref of uiRefs) {
+    const id = ref.match(/Id="([^"]+)"/)[1];
+    check(UI_SETS_WITHOUT_A_DIRECTORY_DIALOG.includes(id),
+      `UI set ${id} is not known to be free of a directory dialog`);
+  }
+
+  // The only publish this template may author is the launch-app checkbox. A NewDialog publish is
+  // how a custom dialog would be reached, and SetTargetPath is how one would move the install root.
+  const publishes = markup.match(/<Publish\b[^>]*>/g) || [];
+  check(publishes.length === 1,
+    `the WiX template must author exactly one Publish (the launch-app checkbox), found ${publishes.length}`);
+  for (const p of publishes) {
+    check(!/Event="NewDialog"/.test(p), "no Publish may route to another dialog");
+    check(!/Event="SetTargetPath"/.test(p), "no Publish may set the target path");
+  }
+  check(!markup.includes("SetTargetPath"),
+    "nothing in the template may set the install target path");
+  for (const controlType of ["PathEdit", "DirectoryCombo", "DirectoryList", "SelectionTree"]) {
+    check(!markup.includes(controlType),
+      `the WiX template must contain no ${controlType} control`);
+  }
+
+  // The install root itself: derived from the platform Program Files folder, never a literal path.
+  check(/<Directory Id="INSTALLDIR"/.test(markup),
+    "the WiX template must declare INSTALLDIR");
+  check(markup.includes("PlatformProgramFilesFolder") || markup.includes("ProgramFiles64Folder"),
+    "INSTALLDIR must sit beneath the platform Program Files folder");
+  // Per-machine, or the record's per-machine scope is a lie the runtime will refuse. WiX compiles
+  // InstallScope="perMachine" to ALLUSERS=1; the source form is what this file controls.
+  check(/InstallScope="perMachine"/.test(markup),
+    "the MSI must be per-machine to match the record's installation scope");
+}
+
+// ---- 10. the vendored template is pinned to the Tauri that produced it --------------------------
+//
+// The template above is a SNAPSHOT of Tauri's own, taken from the CLI that was installed when this
+// increment was written, with three marked deltas. That freezes it: a later Tauri release can fix
+// its template — new required properties, WiX-toolset compatibility, escaping — and this build will
+// keep succeeding against the stale copy, silently, because the copy is what Tauri is told to use.
+// Nothing about a successful build would reveal the drift.
+//
+// This does not diff the two templates, which would need the CLI's native binary unpacked. It does
+// the one thing that makes the drift IMPOSSIBLE TO MISS: pins the CLI version the snapshot was taken
+// from. A Tauri bump fails here, and the fix is to re-extract the template, re-apply the three
+// deltas, and re-inspect the built MSI — not to raise this number.
+const TEMPLATE_SNAPSHOT_TAURI_CLI = "2.11.4";
+const cliPkgPath = path.join(CONTROL_CENTER, "node_modules", "@tauri-apps", "cli", "package.json");
+if (!fs.existsSync(cliPkgPath)) {
+  // Dependencies not installed. Not a drift signal, and not something to fail a repository check on.
+  console.error("  note: @tauri-apps/cli is not installed; template pin not checked");
+} else {
+  const cliVersion = JSON.parse(read(cliPkgPath)).version;
+  check(cliVersion === TEMPLATE_SNAPSHOT_TAURI_CLI,
+    `the vendored WiX template was taken from @tauri-apps/cli ${TEMPLATE_SNAPSHOT_TAURI_CLI} but ` +
+    `${cliVersion} is installed — re-extract the template, re-apply the three deltas, and ` +
+    "re-inspect the built MSI before updating this pin");
+}
+
+// THE INVARIANT ITSELF. The installer is fixed to <ProgramFiles>\<ProductName>; the record it writes
+// must name that same directory, because the runtime compares the record against the directory the
+// executable actually runs from and refuses a mismatch. These are two halves of one equality — if
+// they diverge, the installer produces an installation ProjectOS will not launch.
+const productName = String(tauriConf.productName || "").trim();
+check(productName.length > 0, "tauri productName must be set; it names the install directory");
+check(pipelineRecord.includes("Program Files") && pipelineRecord.includes("PRODUCT_NAME"),
+  "the record's install root must be composed from Program Files and the product name");
+check(pipelineRecord.includes("--install-root"),
+  "the release pipeline must pass the fixed install root to the record generator");
+
 // ---- report --------------------------------------------------------------------------------------
 if (failures.length > 0) {
   console.error("val-projectos-packaged-runtime-contract1a FAILED");

@@ -52,12 +52,34 @@ const FRAGMENT_OUT = join(CONTROL_CENTER, 'src-tauri', 'generated', 'installatio
  * installRoot against `current_exe().parent()` and refuses a mismatch. This is the MSI's DEFAULT
  * INSTALLDIR: ProgramFiles64Folder + the Tauri productName.
  *
- * KNOWN LIMITATION, stated rather than hidden: Tauri's generated installer uses WixUI_InstallDir
- * with ConfigurableDirectory="INSTALLDIR", so a user CAN choose another directory. The record is
- * static, so such an installation produces a record whose installRoot does not match and the runtime
- * refuses it - fail-closed and safe, but a silent no-op for that user. Guaranteeing the invariant
- * needs either a custom action that composes the record at install time, or a template override that
- * removes the browse dialog; both are larger mechanisms than this increment authorises.
+ * A STATIC RECORD IS ONLY SAFE BECAUSE THE INSTALL ROOT IS FIXED. Tauri's stock installer uses
+ * WixUI_InstallDir with ConfigurableDirectory="INSTALLDIR", so a user could pick another directory
+ * and receive an installation the runtime silently refuses - a choice the product offers and then
+ * rejects. `packaging/wix/main.wxs` overrides that template to remove the choice: WixUI_Minimal
+ * (which does not CONTAIN a directory dialog), no ConfigurableDirectory, and no registry search that
+ * could relocate the install. The removal is verified from the built MSI's own Dialog, Control,
+ * Feature and AppSearch tables in packaging/INSTALLER-EFFECT-MANIFEST.txt.
+ *
+ * WHAT REMAINS, stated rather than hidden.
+ *
+ * 1. An administrator can still pass INSTALLDIR=... to msiexec directly. That is not defended
+ *    against, and it does not need to be - such an install records this root, installs elsewhere,
+ *    and the runtime refuses to launch it. Loud and closed.
+ *
+ * 2. KNOWN LIMITATION - THE DRIVE LETTER IS ASSUMED. This literal says `C:`, but WiX resolves
+ *    INSTALLDIR from ProgramFiles64Folder, which follows the drive Windows is installed on. On a
+ *    machine where that is not C:, the MSI installs to e.g. `D:\Program Files\...` while this
+ *    record still says `C:\...`, and the runtime refuses a LEGITIMATE, untampered installation.
+ *    It fails closed rather than open, so it is a reliability defect and not a security one - but
+ *    it is a real installation path this MSI permits and ProjectOS would refuse, which is the
+ *    thing this whole increment exists to prevent.
+ *
+ *    IT CANNOT BE FIXED HERE. The record is composed ONCE at build time and shipped as a static
+ *    file; the target machine's system drive is not knowable then. Closing it needs the record
+ *    composed at INSTALL time from the resolved INSTALLDIR - a custom action, which is a larger
+ *    mechanism than this increment authorises and which must be an owner decision, because a
+ *    custom action that writes the trust-adjacent record is exactly the kind of thing that should
+ *    not be introduced quietly. Recorded for that decision rather than worked around.
  */
 const PRODUCT_NAME = JSON.parse(
   readFileSync(join(CONTROL_CENTER, 'src-tauri', 'tauri.conf.json'), 'utf8'),

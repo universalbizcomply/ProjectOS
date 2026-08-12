@@ -31,7 +31,7 @@ $db = $installer.GetType().InvokeMember('OpenDatabase', 'InvokeMethod', $null, $
 # Every table the MSI actually contains. Used to tell ABSENT apart from FAILED - see below.
 $script:TableNames = @()
 $tv = $db.GetType().InvokeMember('OpenView', 'InvokeMethod', $null, $db, @('SELECT `Name` FROM `_Tables`'))
-$tv.GetType().InvokeMember('Execute', 'InvokeMethod', $null, $tv, $null)
+$tv.GetType().InvokeMember('Execute', 'InvokeMethod', $null, $tv, $null) | Out-Null
 while ($true) {
   $rec = $tv.GetType().InvokeMember('Fetch', 'InvokeMethod', $null, $tv, $null)
   if ($null -eq $rec) { break }
@@ -53,7 +53,11 @@ function Show-Query([string]$sql, [string]$table, [string]$indent = '  ') {
   $n = 0
   try {
     $view = $db.GetType().InvokeMember('OpenView', 'InvokeMethod', $null, $db, @($sql))
-    $view.GetType().InvokeMember('Execute', 'InvokeMethod', $null, $view, $null)
+    # Out-Null, NOT bare. Execute's return value would otherwise join this function's OUTPUT
+    # STREAM, so `$n = Show-Query ...` yields an ARRAY rather than the row count and every
+    # `-eq 0` / `-le 0` test on it silently misbehaves. Same PowerShell trap as the row printing
+    # below, and it hid the InstallDirDlg result until it was caught here.
+    $view.GetType().InvokeMember('Execute', 'InvokeMethod', $null, $view, $null) | Out-Null
     while ($true) {
       $rec = $view.GetType().InvokeMember('Fetch', 'InvokeMethod', $null, $view, $null)
       if ($null -eq $rec) { break }
@@ -113,6 +117,55 @@ $null = Show-Query 'SELECT `Property`,`Value` FROM `Property` WHERE `Property`='
 Write-Output ''
 Write-Output '  ALLUSERS=1 means PER-MACHINE. A per-machine install writes under Program Files and'
 Write-Output '  therefore REQUIRES ELEVATION (administrator consent) at install time.'
+Write-Output ''
+
+Write-Output 'INSTALL LOCATION - FIXED, NOT CHOSEN'
+Write-Output ''
+Write-Output '  ProjectOS refuses to run an installation whose recorded install root does not match'
+Write-Output '  the directory the executable actually runs from. An installer that let a user pick a'
+Write-Output '  different directory would therefore offer a choice that produces an installation'
+Write-Output '  ProjectOS will not launch. The choice is removed rather than the check weakened.'
+Write-Output ''
+Write-Output '  Evidence, read from this MSI:'
+Write-Output ''
+Write-Output '  1. the directory dialog does not exist in this installer:'
+$idd = Show-Query 'SELECT `Dialog` FROM `Dialog` WHERE `Dialog`=''InstallDirDlg''' 'Dialog' '       '
+if ($idd -eq 0) { Write-Output '       ABSENT. InstallDirDlg is not in the Dialog table - not merely skipped.' }
+elseif ($idd -gt 0) { Write-Output '       PRESENT - THE INSTALL ROOT IS SELECTABLE. THIS IS A DEFECT.' }
+else { Write-Output '       ERROR or no Dialog table - see above.' }
+Write-Output ''
+Write-Output '  2. no control of any kind can browse or type a directory:'
+$dctl = Show-Query 'SELECT `Dialog_`,`Control`,`Type` FROM `Control` WHERE `Type`=''PathEdit'' OR `Type`=''DirectoryCombo'' OR `Type`=''DirectoryList''' 'Control' '       '
+if ($dctl -eq 0) { Write-Output '       NONE. No PathEdit, DirectoryCombo or DirectoryList control exists.' }
+elseif ($dctl -gt 0) { Write-Output '       PRESENT - THE INSTALL ROOT IS EDITABLE. THIS IS A DEFECT.' }
+Write-Output ''
+Write-Output '  3. no feature may be redirected (ConfigurableDirectory must be empty for all):'
+$null = Show-Query 'SELECT `Feature`,`Directory_` FROM `Feature`' 'Feature' '       '
+Write-Output ''
+Write-Output '  4. nothing searches for a previous install directory. AppSearch sets only:'
+$as = Show-Query 'SELECT `Property`,`Signature_` FROM `AppSearch`' 'AppSearch' '       '
+if ($as -eq 0 -or $as -eq -1) { Write-Output '       NONE.' }
+Write-Output '       INSTALLDIR is absent from that list, so no stale registry value from an earlier'
+Write-Output '       install can silently relocate this one.'
+Write-Output ''
+Write-Output '  5. the dialogs this installer actually contains:'
+$null = Show-Query 'SELECT `Dialog` FROM `Dialog`' 'Dialog' '       '
+Write-Output ''
+Write-Output '  SCOPE OF THIS CLAIM. This concerns the NORMAL INSTALLER USER FLOW: what a person'
+Write-Output '  running the MSI can choose. It is NOT a claim that the install root cannot be'
+Write-Output '  overridden at all. An administrator can still pass INSTALLDIR=... on an msiexec'
+Write-Output '  command line, and Windows Installer will honour it. That is not defended against'
+Write-Output '  here, and it is not silent: such an installation records one root, installs to'
+Write-Output '  another, and ProjectOS REFUSES to launch it. The failure is loud and fails closed.'
+Write-Output ''
+Write-Output '  KNOWN LIMITATION - THE SYSTEM DRIVE IS ASSUMED TO BE C:. INSTALLDIR resolves from'
+Write-Output '  ProgramFiles64Folder, which follows the drive Windows is installed on, but the'
+Write-Output '  installed-application record is composed once at BUILD time and hardcodes C:. On a'
+Write-Output '  machine where Windows is not on C:, a LEGITIMATE untampered install would be'
+Write-Output '  refused at launch. That fails closed, not open - a reliability defect, not a'
+Write-Output '  security one - but it is a real installation path this MSI permits and ProjectOS'
+Write-Output '  would refuse. Closing it requires composing the record at INSTALL time via a custom'
+Write-Output '  action, which is an OWNER DECISION and is deliberately not taken here.'
 Write-Output ''
 
 Write-Output 'DIRECTORIES (id | parent | name)'
@@ -212,8 +265,9 @@ Write-Output 'UNINSTALL / ROLLBACK'
 Write-Output '  Standard Windows Installer semantics. Every file above belongs to a component keyed'
 Write-Output '  to this ProductCode, so uninstall removes exactly those files and the shortcuts, and'
 Write-Output '  a failed install rolls back through the installer transaction. An Uninstall shortcut'
-Write-Output '  invoking msiexec is installed alongside the application. ProgramData is not touched,'
-Write-Output '  so nothing is left behind there - because nothing is put there.'
+Write-Output '  invoking msiexec is installed alongside the application. ProgramData IS touched: the'
+Write-Output '  installed-application record is written there, and the RemoveFile entries above take'
+Write-Output '  it and its directories away again on uninstall.'
 Write-Output ''
 Write-Output '================================================================================'
 Write-Output 'DO NOT INSTALL. Owner signing gate pending; production anchor absent.'

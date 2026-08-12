@@ -45,7 +45,8 @@
         ],
         "componentGroupRefs": [
           "ProjectOSInstallationRecord"
-        ]
+        ],
+        "template": "../packaging/wix/main.wxs"
       }
     }
   }
