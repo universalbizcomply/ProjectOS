@@ -389,6 +389,29 @@ if (!fs.existsSync(templatePath)) {
     "the WiX template must declare INSTALLDIR");
   check(markup.includes("PlatformProgramFilesFolder") || markup.includes("ProgramFiles64Folder"),
     "INSTALLDIR must sit beneath the platform Program Files folder");
+
+  // AND DIRECTLY BENEATH IT — a depth assumption another file depends on.
+  //
+  // `resolve_packaged_git` in src/process/authority.rs derives the Program Files root as
+  // `install_root.parent()`, which is only the Program Files root while INSTALLDIR is a DIRECT
+  // child of the platform folder. Identity's own corroboration is looser: it accepts any descendant
+  // of Program Files, so nesting the application one level deeper would keep passing there while
+  // the packaged Git capability silently started refusing. Closed and safe, but silent — and the
+  // two facts live in different crates, so nothing else would connect them. Pinned here, where the
+  // layout is actually decided.
+  const platformFolder = markup.match(
+    /<Directory Id="\$\(var\.PlatformProgramFilesFolder\)"[^>]*>([\s\S]*?)<\/Directory>/,
+  );
+  check(platformFolder !== null,
+    "the platform Program Files directory element must be present in the template");
+  if (platformFolder) {
+    const inner = platformFolder[1];
+    check(/<Directory Id="INSTALLDIR"/.test(inner),
+      "INSTALLDIR must be a DIRECT child of the platform Program Files folder; " +
+      "resolve_packaged_git derives the Program Files root as install_root.parent()");
+    check(!/<Directory Id="(?!INSTALLDIR)/.test(inner),
+      "no directory may sit between the platform Program Files folder and INSTALLDIR");
+  }
   // Per-machine, or the record's per-machine scope is a lie the runtime will refuse. WiX compiles
   // InstallScope="perMachine" to ALLUSERS=1; the source form is what this file controls.
   check(/InstallScope="perMachine"/.test(markup),

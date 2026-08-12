@@ -53,6 +53,16 @@ pub enum ProcessError {
     /// that sends someone to debug the wrong subsystem. It fails closed either way — and it never
     /// falls back to development.
     PackagedRuntimeNotProvisioned,
+    /// Packaged identity verified, the payload IS present — but the one machine-owned Git the
+    /// packaged daemon is allowed to use was not found where a packaged installation may look.
+    ///
+    /// Distinct from `PackagedRuntimeNotProvisioned` for the same reason that one is distinct from
+    /// an identity failure: reporting "the payload is missing" when the payload is sitting on disk
+    /// sends someone to reinstall a release that was never the problem. The governance runtime
+    /// derives repository facts by running Git, so without it those facts cannot be established —
+    /// and a gate that cannot establish its facts refuses. That refusal is correct, but it must be
+    /// reported as a missing capability rather than dressed up as governance.
+    PackagedGitNotProvisioned,
 
     // ---- RECOVERY-BARRIER1B: prior-daemon recovery barrier --------------------------------------
     /// The persisted lifecycle evidence record was malformed, wrong-scope, or inconsistent.
@@ -182,6 +192,12 @@ impl ProcessError {
             }
             ProcessError::PackagedRuntimeNotProvisioned => {
                 "Packaged runtime payload is not present in this build. Reinstall an approved release."
+            }
+            // Says only what is true. No path, because naming where the application looked tells a
+            // reader how to place a file there; no "install Git and retry", because that reads as a
+            // supported remedy for a decision the owner has not taken.
+            ProcessError::PackagedGitNotProvisioned => {
+                "Packaged Git capability is unavailable. Repository facts cannot be established."
             }
             ProcessError::JobObjectCreateFailed
             | ProcessError::JobObjectConfigurationFailed

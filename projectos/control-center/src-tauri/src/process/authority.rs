@@ -20,12 +20,13 @@
 //!
 //! What has not changed: it still NEVER falls back to development. Failure is still refusal.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use super::create::{ProcessSpec, SpecClassification};
 use super::dev_runtime::{
-    resolve_development_git, resolve_development_node, strip_verbatim, RealRuntimeFs, RuntimeFs,
+    accept_candidate_named, is_clean_absolute, is_local_absolute, resolve_development_git,
+    resolve_development_node, strip_verbatim, RealRuntimeFs, RuntimeFs, GIT_EXE,
 };
 #[cfg(test)]
 use super::environment::SYSTEM_ALLOWLIST;
@@ -57,6 +58,27 @@ pub(crate) enum DaemonLaunchAuthority {
     Packaged(VerifiedPackagedDaemonLaunchAuthority),
 }
 
+/// THE launch specification for either authority — the one place the enum is turned into a spec.
+///
+/// Extracted so it can be TESTED. It previously lived inline in `lifecycle.rs`, and a regression
+/// written against a copy of that match passed happily while the real arm was reverted: a test that
+/// mirrors code proves only that the mirror is consistent with itself. Both the lifecycle and the
+/// regression now call this, so reverting the packaged arm fails the test.
+///
+/// Neither arm is privileged here and nothing downstream branches on which one produced the spec.
+pub(crate) fn process_spec_for(
+    authority: &DaemonLaunchAuthority,
+) -> Result<ProcessSpec, ProcessError> {
+    match authority {
+        DaemonLaunchAuthority::Development(dev) => dev.to_process_spec(),
+        // Packaged now LAUNCHES. This arm returned `PackagedRuntimeNotProvisioned`
+        // unconditionally, which was true when written — no payload was built then — and became a
+        // lie once the installer began shipping one: a real installation would verify its identity
+        // perfectly and then be told its payload was missing while it sat beside the executable.
+        DaemonLaunchAuthority::Packaged(packaged) => packaged.to_process_spec(),
+    }
+}
+
 /// Packaged launch authority: the CONSEQUENCE of verified packaged identity, never a claim about it.
 ///
 /// Every field is private and bound at construction, exactly like the development authority. The
@@ -77,6 +99,113 @@ pub(crate) struct VerifiedPackagedDaemonLaunchAuthority {
     /// The ProjectOS SYSTEM root this installation is authorised to operate. Sealed: it can only
     /// have come from `resolve_governed_system_root`, which itself demands the verified identity.
     governed_system_root: GovernedSystemRoot,
+    /// The ONE machine-owned Git this packaged installation may run. Sealed: a `ResolvedPackagedGit`
+    /// can only have come from `resolve_packaged_git`, so `to_process_spec` has nothing to be told
+    /// and no caller — in this crate or any other — can name a different executable.
+    git_exe: ResolvedPackagedGit,
+}
+
+/// The one relative location a PACKAGED installation may look for Git.
+///
+/// Deliberately a fixed sibling of the application's own Program Files directory, and nothing else.
+/// Development resolves Git by searching PATH, which is correct there — a developer's PATH is their
+/// own statement of intent. A packaged, per-machine installation must not inherit that: PATH is
+/// user-writable, so a `git.exe` dropped in any user directory that happens to precede the real one
+/// would become the executable a machine-wide installation runs. The fixed candidate cannot be
+/// influenced by a user, a governed repository, a configuration file, the working directory, or the
+/// environment this application was launched with.
+const PACKAGED_GIT_RELATIVE: [&str; 3] = ["Git", "cmd", GIT_EXE];
+
+/// A Git path that came from `resolve_packaged_git` and from nowhere else.
+///
+/// The private field is the whole point, and it mirrors `GovernedSystemRoot`: possessing one of
+/// these IS the evidence that the approved resolver produced it. Before this existed the authority
+/// held a bare `PathBuf`, which was safe only because there happened to be exactly one production
+/// call site — a property maintained by review rather than by the compiler. A future edit adding a
+/// second caller would not have failed to build; now it cannot supply a path at all without going
+/// through the resolver.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct ResolvedPackagedGit(PathBuf);
+
+impl ResolvedPackagedGit {
+    fn path(&self) -> &Path {
+        &self.0
+    }
+
+    /// TEST-ONLY minting, so fixtures can exercise the DOWNSTREAM boundary without a real machine
+    /// layout. Behind `test-fixtures`, which never ships, so a release build cannot construct one
+    /// except through the resolver.
+    #[cfg(any(test, feature = "test-fixtures"))]
+    pub(crate) fn test_only(path: PathBuf) -> Self {
+        Self(path)
+    }
+}
+
+/// Resolve the packaged Git capability, or refuse.
+///
+/// `install_root` must be the VERIFIED install root — the directory the observed executable really
+/// runs from, which identity evaluation has already matched against the installation record. Its
+/// parent is the Program Files root, and the candidate is that parent plus one fixed relative path.
+///
+/// WHAT THIS DOES NOT DO, each for a reason: it does not read PATH, `PROJECTOS_GIT_EXE`, argv,
+/// `project-config.json`, `bridge.config.json` or the registry; it does not call `where.exe`,
+/// `SearchPathW` or a shell; it does not search the governed repository, the working directory or
+/// LocalAppData; and it has no development fallback. Every one of those is a channel some other
+/// principal could write to, which would make "which Git does a machine-wide installation run?"
+/// their answer instead of the installation's.
+///
+/// A DEPTH ASSUMPTION THAT LIVES IN ANOTHER FILE. `install_root.parent()` is the Program Files root
+/// only because the installer nests `INSTALLDIR` DIRECTLY under the platform Program Files folder —
+/// see `packaging/wix/main.wxs`, whose Directory tree is
+/// `$(var.PlatformProgramFilesFolder)` -> `INSTALLDIR`. Note that identity's own corroboration is
+/// looser: `install_root.rs::classify_path` accepts any descendant of Program Files, not only a
+/// direct child, so it would keep passing if the installer ever nested one level deeper while this
+/// resolver started refusing. The refusal would be closed and safe but silent, so the direct nesting
+/// is pinned by the packaging validator rather than left as an assumption two files apart.
+///
+/// The guards themselves are `dev_runtime`'s, reused rather than rewritten — their own comment says
+/// the executable name is a parameter precisely so Git does not get a second, subtly different
+/// resolver. One extra check is added here: the canonical target must still live beneath the same
+/// canonical Program Files root, so a link placed at the fixed location cannot redirect execution
+/// out of the machine-owned tree.
+fn resolve_packaged_git(
+    fs: &dyn RuntimeFs,
+    install_root: &Path,
+) -> Result<ResolvedPackagedGit, ProcessError> {
+    let program_files = install_root
+        .parent()
+        .ok_or(ProcessError::PackagedGitNotProvisioned)?;
+    if !is_clean_absolute(program_files) || !is_local_absolute(program_files) {
+        return Err(ProcessError::PackagedGitNotProvisioned);
+    }
+    let mut candidate = program_files.to_path_buf();
+    for segment in PACKAGED_GIT_RELATIVE {
+        candidate.push(segment);
+    }
+
+    let resolved = accept_candidate_named(fs, &candidate, GIT_EXE)
+        .ok_or(ProcessError::PackagedGitNotProvisioned)?;
+
+    // CONTAINMENT. `accept_candidate_named` already refuses a canonical target that escaped to a
+    // network or device path; this refuses one that stayed local but left Program Files — a
+    // junction at the fixed location pointing into a user-writable directory would otherwise pass
+    // every other check while handing execution to whoever can write there.
+    let canonical_root = strip_verbatim(
+        fs.canonicalize(program_files)
+            .ok_or(ProcessError::PackagedGitNotProvisioned)?,
+    );
+    // Both sides come from the SAME `canonicalize` + `strip_verbatim` pipeline on the same volume,
+    // so `starts_with` compares consistently-normalised components rather than raw strings. That
+    // matters twice over: it defeats the string-prefix trick where `C:\Program FilesEvil` appears
+    // to sit under `C:\Program Files`, and it means Windows' case-insensitivity cannot cause a
+    // false refusal, because neither side is spelled by a caller. Confirmed against the real
+    // installation (both resolved to `\?\C:\Program Files...` with identical on-disk casing) —
+    // live evidence, not a CI assertion: the test double canonicalises by identity and so cannot
+    // model case normalisation at all.
+    if !resolved.starts_with(&canonical_root) {
+        return Err(ProcessError::PackagedGitNotProvisioned);
+    }
+    Ok(ResolvedPackagedGit(resolved))
 }
 
 impl VerifiedPackagedDaemonLaunchAuthority {
@@ -94,6 +223,7 @@ impl VerifiedPackagedDaemonLaunchAuthority {
         daemon_instance_id: String,
         payload_root: PathBuf,
         governed_system_root: GovernedSystemRoot,
+        git_exe: ResolvedPackagedGit,
     ) -> Self {
         Self {
             application_id: identity.application_id().to_string(),
@@ -102,6 +232,7 @@ impl VerifiedPackagedDaemonLaunchAuthority {
             daemon_instance_id,
             payload_root,
             governed_system_root,
+            git_exe,
         }
     }
 
@@ -146,6 +277,14 @@ impl VerifiedPackagedDaemonLaunchAuthority {
         env.push((
             DAEMON_INSTANCE_ID_VAR.to_string(),
             self.daemon_instance_id.clone(),
+        ));
+        // The ONE tool capability a packaged daemon receives, already resolved and sealed into this
+        // authority. The daemon has no PATH, so this variable is the only way it can run Git at all
+        // — and because it was bound at construction from the verified install root, nothing the
+        // caller, the environment or the governed repository says can change which Git that is.
+        env.push((
+            DAEMON_GIT_EXE_VAR.to_string(),
+            self.git_exe.path().to_string_lossy().to_string(),
         ));
         Ok(ProcessSpec {
             executable: node.to_string_lossy().to_string(),
@@ -373,12 +512,19 @@ fn resolve_packaged_authority(
                 },
             )
             .map_err(|_| ProcessError::PackagedRuntimeNotProvisioned)?;
+            // Resolved only NOW, after identity succeeded, from the install root that identity
+            // itself matched against the installation record. Resolving it earlier would mean
+            // deciding what an unverified application may execute.
+            // A RuntimeFs, not the identity `RealFs`: this is filesystem probing for an
+            // executable, not identity evaluation, and the two abstractions stay separate.
+            let git_exe = resolve_packaged_git(&RealRuntimeFs, &install_root)?;
             Ok(DaemonLaunchAuthority::Packaged(
                 VerifiedPackagedDaemonLaunchAuthority::from_verified_identity(
                     identity,
                     daemon_instance_id,
                     payload_root,
                     governed,
+                    git_exe,
                 ),
             ))
         }
@@ -512,6 +658,173 @@ mod tests {
         fn canonicalize(&self, p: &std::path::Path) -> Option<PathBuf> {
             (self.files.contains(p) || self.dirs.contains(p)).then(|| p.to_path_buf())
         }
+    }
+
+    // ============================================================================================
+    // PACKAGED GIT CAPABILITY (PROJECTOS-RECOVERY-INSTALLED-APP1A / PACKAGED-DAEMON-LAUNCH1A)
+    // ============================================================================================
+
+    /// A filesystem whose canonicalisation can REDIRECT, so a link at the fixed location can be
+    /// modelled. `FakeFs` above canonicalises to identity, which cannot express that case.
+    struct RedirectFs {
+        files: HashSet<PathBuf>,
+        dirs: HashSet<PathBuf>,
+        links: Vec<(PathBuf, PathBuf)>,
+    }
+    impl RedirectFs {
+        fn new(files: &[&str], dirs: &[&str]) -> Self {
+            Self {
+                files: files.iter().map(PathBuf::from).collect(),
+                dirs: dirs.iter().map(PathBuf::from).collect(),
+                links: Vec::new(),
+            }
+        }
+        fn redirecting(mut self, from: &str, to: &str) -> Self {
+            self.links.push((PathBuf::from(from), PathBuf::from(to)));
+            self
+        }
+    }
+    impl RuntimeFs for RedirectFs {
+        fn is_file(&self, p: &std::path::Path) -> bool {
+            self.files.contains(p)
+        }
+        fn canonicalize(&self, p: &std::path::Path) -> Option<PathBuf> {
+            for (from, to) in &self.links {
+                if from == p {
+                    return Some(to.clone());
+                }
+            }
+            (self.files.contains(p) || self.dirs.contains(p)).then(|| p.to_path_buf())
+        }
+    }
+
+    const TEST_INSTALL_ROOT: &str = r"C:\Program Files\ProjectOS Control Center";
+    const TEST_REAL_GIT: &str = r"C:\Program Files\Git\cmd\git.exe";
+
+    fn machine_with_git() -> RedirectFs {
+        RedirectFs::new(&[TEST_REAL_GIT], &[r"C:\Program Files"])
+    }
+
+    /// The fixed Program Files sibling resolves, and it is the only thing consulted.
+    #[test]
+    fn pg1_the_fixed_program_files_sibling_resolves() {
+        let got = resolve_packaged_git(&machine_with_git(), Path::new(TEST_INSTALL_ROOT))
+            .expect("the fixed candidate resolves");
+        assert_eq!(got.path(), Path::new(TEST_REAL_GIT));
+    }
+
+    /// An absent candidate fails closed, and with the TRUTHFUL error. Reporting
+    /// `PackagedRuntimeNotProvisioned` here would send someone to reinstall a release whose payload
+    /// is sitting on disk and was never the problem.
+    #[test]
+    fn pg2_a_missing_candidate_fails_closed_with_the_truthful_error() {
+        let fs = RedirectFs::new(&[], &[r"C:\Program Files"]);
+        assert_eq!(
+            resolve_packaged_git(&fs, Path::new(TEST_INSTALL_ROOT)),
+            Err(ProcessError::PackagedGitNotProvisioned),
+        );
+    }
+
+    /// A link at the fixed location whose canonical target leaves Program Files is refused. This is
+    /// the case the containment check exists for: every other guard passes.
+    #[test]
+    fn pg3_a_candidate_canonicalising_outside_program_files_refuses() {
+        let escaped = r"C:\Users\murad\AppData\Local\evil\git.exe";
+        let fs = RedirectFs::new(&[TEST_REAL_GIT], &[r"C:\Program Files"])
+            .redirecting(TEST_REAL_GIT, escaped);
+        assert_eq!(
+            resolve_packaged_git(&fs, Path::new(TEST_INSTALL_ROOT)),
+            Err(ProcessError::PackagedGitNotProvisioned),
+        );
+    }
+
+    /// A UNC/network install root cannot produce a packaged Git capability.
+    #[test]
+    fn pg4_a_network_install_root_refuses() {
+        let unc_root = r"\\server\share\ProjectOS Control Center";
+        let fs = RedirectFs::new(&[r"\\server\share\Git\cmd\git.exe"], &[r"\\server\share"]);
+        assert_eq!(
+            resolve_packaged_git(&fs, Path::new(unc_root)),
+            Err(ProcessError::PackagedGitNotProvisioned),
+        );
+    }
+
+    /// The final name must be git.exe; a file that merely lives at the fixed path is not enough.
+    #[test]
+    fn pg5_a_wrong_final_filename_refuses() {
+        let wrong = r"C:\Program Files\Git\cmd\git.exe.bak";
+        let fs = RedirectFs::new(&[TEST_REAL_GIT], &[r"C:\Program Files"])
+            .redirecting(TEST_REAL_GIT, wrong);
+        assert_eq!(
+            resolve_packaged_git(&fs, Path::new(TEST_INSTALL_ROOT)),
+            Err(ProcessError::PackagedGitNotProvisioned),
+        );
+    }
+
+    /// A hostile `git.exe` planted anywhere else has ZERO effect on packaged resolution.
+    ///
+    /// PATH is user-writable, so if it could influence this, anyone able to write a directory early
+    /// in their own PATH would choose the executable a machine-wide installation runs. The planted
+    /// executables here EXIST on the fake filesystem — under a user profile, and under plausible
+    /// override and shim locations — so a resolver that searched PATH, honoured `PROJECTOS_GIT_EXE`,
+    /// or preferred any discovered `git.exe` would return one of them. It returns the fixed
+    /// candidate instead.
+    ///
+    /// DELIBERATELY NO `std::env::set_var` HERE. An earlier version set PATH and `PROJECTOS_GIT_EXE`
+    /// for real to make the point. Environment variables are process-global and the harness runs
+    /// tests in parallel threads, so that version could corrupt the two tests in this same binary
+    /// that resolve DEVELOPMENT node and git from the real PATH — a test that intermittently breaks
+    /// its neighbours is worse than the property it defends. The resolver's signature is
+    /// `(fs, install_root)`: there is no environment parameter to poison, and this asserts the
+    /// behaviour that would change if one were ever added.
+    #[test]
+    fn pg6_planted_git_executables_elsewhere_cannot_influence_packaged_resolution() {
+        let on_path = r"C:\Users\murad\AppData\Local\hostile\git.exe";
+        let planted_override = r"C:\Users\murad\AppData\Local\planted\git.exe";
+        let user_shim = r"C:\Users\murad\scoop\shims\git.exe";
+        let fs = RedirectFs::new(
+            &[TEST_REAL_GIT, on_path, planted_override, user_shim],
+            &[r"C:\Program Files"],
+        );
+        assert_eq!(
+            resolve_packaged_git(&fs, Path::new(TEST_INSTALL_ROOT)),
+            Ok(ResolvedPackagedGit(PathBuf::from(TEST_REAL_GIT))),
+            "only the fixed Program Files candidate may be chosen",
+        );
+    }
+
+    /// With the fixed candidate ABSENT, a planted executable is still never substituted: the
+    /// resolver refuses rather than falling back to something it found elsewhere. This is the half
+    /// that would actually break if a PATH search or an ambient override were reintroduced.
+    #[test]
+    fn pg7_with_the_fixed_candidate_absent_nothing_else_is_substituted() {
+        let planted = r"C:\Users\murad\AppData\Local\planted\git.exe";
+        let fs = RedirectFs::new(&[planted], &[r"C:\Program Files"]);
+        assert_eq!(
+            resolve_packaged_git(&fs, Path::new(TEST_INSTALL_ROOT)),
+            Err(ProcessError::PackagedGitNotProvisioned),
+        );
+    }
+
+    /// The resolver's ONLY input is the verified install root — not cwd, config or argv, none of
+    /// which it reads. A different verified root gives a different answer; nothing else can.
+    #[test]
+    fn pg8_the_only_input_is_the_verified_install_root() {
+        let fs = machine_with_git();
+        assert_eq!(
+            resolve_packaged_git(&fs, Path::new(TEST_INSTALL_ROOT)),
+            Ok(ResolvedPackagedGit(PathBuf::from(TEST_REAL_GIT))),
+        );
+        assert_eq!(
+            resolve_packaged_git(&fs, Path::new(r"D:\Elsewhere\ProjectOS Control Center")),
+            Err(ProcessError::PackagedGitNotProvisioned),
+        );
+    }
+
+    /// The refusal is a PRE-CREATION failure: no child was started, so no process can exist.
+    #[test]
+    fn pg9_a_packaged_git_refusal_asserts_no_process_exists() {
+        assert!(!ProcessError::PackagedGitNotProvisioned.process_may_exist());
     }
 
     #[test]
@@ -742,6 +1055,7 @@ mod packaged_authority_positive_control {
     use projectos_shared_host_runtime::identity::packaged_fixture::test_only_verified_identity;
 
     const APP: &str = contract::PACKAGED_APPLICATION_ID;
+    const FIXTURE_GIT: &str = r"C:\Program Files\Git\cmd\git.exe";
 
     fn identity() -> VerifiedPackagedIdentity {
         test_only_verified_identity(
@@ -791,10 +1105,78 @@ mod packaged_authority_positive_control {
                 "h-packaged".into(),
                 payload.clone(),
                 root,
+                // A fixed absolute stand-in for the machine-owned Git the real resolver produces.
+                // The RESOLVER's own rules are proven in the unit tests above; what this module
+                // proves is what the packaged child is handed once a path has been sealed in.
+                ResolvedPackagedGit::test_only(PathBuf::from(FIXTURE_GIT)),
             ),
             payload,
             governed,
         )
+    }
+
+    /// [PACKAGED-DAEMON-LAUNCH1A] The lifecycle's packaged arm now PRODUCES A SPEC.
+    ///
+    /// It used to be `Packaged(_) => Err(PackagedRuntimeNotProvisioned)` unconditionally, so a real
+    /// installation could verify its identity perfectly and still be told its payload was missing
+    /// while that payload sat beside the executable. This walks the enum exactly as
+    /// `lifecycle.rs` does, so the behaviour is pinned by a test rather than living only in a match
+    /// arm that a future edit could quietly revert.
+    #[test]
+    fn the_lifecycle_packaged_arm_yields_a_spec_rather_than_a_permanent_refusal() {
+        let (authority, payload, governed) = authority_for("lifecycle-arm");
+        let launch = DaemonLaunchAuthority::Packaged(authority);
+
+        // THE function lifecycle calls — not a copy of it. A copy passed while the real arm was
+        // reverted, which is how this test learned to call the thing itself.
+        let spec = process_spec_for(&launch).expect("a valid packaged authority must yield a spec");
+
+        // And it is the PACKAGED spec: the pinned runtime inside the installed payload, the closed
+        // daemon bundle, and the governed root passed explicitly.
+        assert!(spec
+            .executable
+            .starts_with(&payload.to_string_lossy().to_string()));
+        assert_eq!(spec.args[1], "--root");
+        assert_eq!(spec.args[2], governed.to_string_lossy());
+        assert_eq!(spec.classification, SpecClassification::PackagedRuntime);
+    }
+
+    /// The packaged child carries the sealed Git capability — and still carries nothing else.
+    ///
+    /// The capability is the ONLY thing added by this increment, so this asserts both halves: that
+    /// exactly one Git path is granted, and that granting it did not quietly open the child to PATH,
+    /// a bridge configuration, or anything credential-shaped.
+    #[test]
+    fn the_packaged_child_environment_grants_git_and_nothing_else() {
+        let (authority, _payload, _governed) = authority_for("env-git");
+        let spec = authority
+            .to_process_spec()
+            .expect("the packaged spec builds");
+
+        let git: Vec<_> = spec
+            .env
+            .iter()
+            .filter(|(n, _)| n == DAEMON_GIT_EXE_VAR)
+            .collect();
+        assert_eq!(git.len(), 1, "exactly one Git capability is granted");
+        assert_eq!(git[0].1, FIXTURE_GIT);
+
+        for forbidden in ["PATH", DAEMON_BRIDGE_CONFIG_VAR] {
+            assert!(
+                !spec.env.iter().any(|(n, _)| n == forbidden),
+                "the packaged child must not carry {forbidden}",
+            );
+        }
+        for (name, _) in &spec.env {
+            let lower = name.to_ascii_lowercase();
+            for shape in ["token", "secret", "password", "cookie", "session"] {
+                assert!(
+                    !lower.contains(shape),
+                    "the packaged child must not carry a {shape}-shaped variable ({name})",
+                );
+            }
+        }
+        assert_eq!(spec.classification, SpecClassification::PackagedRuntime);
     }
 
     /// [§10.1] A verified packaged identity issues packaged authority, and that authority carries
@@ -867,7 +1249,15 @@ mod packaged_authority_positive_control {
         assert!(!spec.env.iter().any(|(n, _)| n.eq_ignore_ascii_case("PATH")));
         for (name, _) in &spec.env {
             assert!(
-                name == DAEMON_INSTANCE_ID_VAR || SYSTEM_ALLOWLIST.contains(&name.as_str()),
+                // The packaged environment allowlist. It grew by EXACTLY ONE entry in
+                // PACKAGED-DAEMON-LAUNCH1A: the Git capability, which the governance runtime needs
+                // to establish repository facts and which the daemon cannot obtain any other way,
+                // having no PATH. Kept as a closed list rather than relaxed to a prefix or a
+                // "contains" rule, so the next variable added to a packaged child is a deliberate,
+                // reviewed act and not a side effect.
+                name == DAEMON_INSTANCE_ID_VAR
+                    || name == DAEMON_GIT_EXE_VAR
+                    || SYSTEM_ALLOWLIST.contains(&name.as_str()),
                 "unexpected variable in the packaged daemon environment: {name}"
             );
         }
@@ -900,6 +1290,7 @@ mod packaged_authority_positive_control {
                 "h-wrong".into(),
                 wrong.clone(),
                 root.clone(),
+                ResolvedPackagedGit::test_only(PathBuf::from(FIXTURE_GIT)),
             );
             assert!(
                 matches!(
@@ -916,8 +1307,13 @@ mod packaged_authority_positive_control {
     /// authority takes a SEALED `GovernedSystemRoot`, so a path is not even representable here — and
     /// `resolve_launch_authority` takes only a mode and an instance id.
     ///
-    /// Asserted by compilation as much as by this body; the following do not compile:
-    ///   VerifiedPackagedDaemonLaunchAuthority::from_verified_identity(id, "h".into(), p, "C:/x");
+    /// The Git capability is sealed the same way as of PACKAGED-DAEMON-LAUNCH1A: it is a
+    /// `ResolvedPackagedGit`, which only `resolve_packaged_git` can construct, so neither root nor
+    /// tool is representable as a string a caller chose.
+    ///
+    /// Asserted by compilation as much as by this body; none of the following compile:
+    ///   VerifiedPackagedDaemonLaunchAuthority::from_verified_identity(id, "h".into(), p, "C:/x", g);
+    ///   VerifiedPackagedDaemonLaunchAuthority::from_verified_identity(id, "h".into(), p, r, "C:/git.exe");
     ///   resolve_launch_authority(AppMode::PackagedCandidate, "h".into(), "C:/other-root");
     #[test]
     fn the_governed_root_cannot_be_nominated_by_a_string() {

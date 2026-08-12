@@ -35,7 +35,7 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
-use super::authority::{resolve_launch_authority, DaemonLaunchAuthority};
+use super::authority::resolve_launch_authority;
 use super::errors::ProcessError;
 use super::evidence::{EvidenceRecord, EvidenceStore};
 use super::owner::{JobBoundProcessOwner, RealResumeApi};
@@ -350,16 +350,13 @@ impl DaemonLifecycleState {
         let instance = self.next_instance_id();
         let authority = resolve_launch_authority(detect_app_mode(), instance.clone())
             .map_err(|e| self.startup_terminal(StartupPhase::Failed, DaemonStatus::Blocked, e))?;
-        let spec = match &authority {
-            DaemonLaunchAuthority::Development(dev) => dev.to_process_spec(),
-            // Packaged authority is real and was derived from verified identity — but the payload it
-            // would launch (pinned runtime + daemon artefact) is not provisioned in this build. It
-            // fails closed with its OWN error rather than borrowing the identity one, and it does
-            // not reach for the development resolver: a packaged run that quietly became a
-            // development run is precisely the fallback this boundary exists to prevent.
-            DaemonLaunchAuthority::Packaged(_) => Err(ProcessError::PackagedRuntimeNotProvisioned),
-        }
-        .map_err(|e| self.startup_terminal(StartupPhase::Failed, DaemonStatus::Blocked, e))?;
+        // ONE seam, in authority.rs, so it can be tested directly. Both arms produce a
+        // `ProcessSpec` and nothing below branches on which: the recovery barrier, suspended
+        // creation, evidence, resume gate, readiness handshake and Job ownership are one path for
+        // development and packaged alike, because a packaged run that took a different route would
+        // be a second lifecycle nobody had proven.
+        let spec = super::authority::process_spec_for(&authority)
+            .map_err(|e| self.startup_terminal(StartupPhase::Failed, DaemonStatus::Blocked, e))?;
 
         let (tx, rx): (Sender<String>, Receiver<String>) = std::sync::mpsc::channel();
 

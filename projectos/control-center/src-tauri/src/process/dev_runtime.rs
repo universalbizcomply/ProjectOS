@@ -93,7 +93,7 @@ pub(crate) fn strip_verbatim(p: PathBuf) -> PathBuf {
 }
 
 /// True when the path is absolute AND contains no traversal component.
-fn is_clean_absolute(p: &Path) -> bool {
+pub(crate) fn is_clean_absolute(p: &Path) -> bool {
     p.is_absolute() && !p.components().any(|c| matches!(c, Component::ParentDir))
 }
 
@@ -102,7 +102,11 @@ fn is_clean_absolute(p: &Path) -> bool {
 /// The executable name is a parameter so Git reuses these guards EXACTLY rather than getting a
 /// second, subtly different resolver. It is not a generic external-tool framework: the only callers
 /// pass one of two fixed constants.
-fn accept_candidate_named(fs: &dyn RuntimeFs, candidate: &Path, exe: &str) -> Option<PathBuf> {
+pub(crate) fn accept_candidate_named(
+    fs: &dyn RuntimeFs,
+    candidate: &Path,
+    exe: &str,
+) -> Option<PathBuf> {
     if !fs.is_file(candidate) {
         return None;
     }
