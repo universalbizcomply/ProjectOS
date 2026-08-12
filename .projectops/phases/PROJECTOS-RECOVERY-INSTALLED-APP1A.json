@@ -1,0 +1,22 @@
+{
+  "phaseId": "PROJECTOS-RECOVERY-INSTALLED-APP1A",
+  "project": "projectos",
+  "objective": "Let the normal installed application do the whole workflow, using the existing Windows host and trust architecture.",
+  "status": "implementing",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-08-12T08:51:12.240Z",
+      "note": "Phase 5 packaged identity corrections; trust-anchor owner gate pending"
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-08-12T08:51:12.494Z",
+      "note": "Phase 5 packaged identity corrections; trust-anchor owner gate pending"
+    }
+  ]
+}
