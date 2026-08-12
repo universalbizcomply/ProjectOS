@@ -74,6 +74,12 @@ projectos-shared-host-runtime = { path = "../../host/shared-host-runtime" }
 # ONLY to build UNTRUSTED window observations and to name the sealed verifier / opaque binding types. The
 # adapter's default graph mints nothing; this crate cannot construct the verifier or a binding.
 projectos-host-windows-owner-verification = { path = "../../host/windows-owner-verification" }
+# PROJECTOS-RECOVERY-INSTALLED-APP1A: THE packaging contract — which Node runtime a packaged
+# installation carries and where the payload puts things. Constants only: no code, no dependencies,
+# no key material. It is a dependency so this crate's packaged expectations and the packaging tool's
+# output derive from ONE declaration; two literals describing one fact drift, and the day they do, a
+# correctly assembled payload is refused by the application that assembled it.
+projectos-packaged-runtime-contract = { path = "../../host/packaged-runtime-contract" }
 
 # WINDOWS-PROCESS-CREATION1A: atomic job-bound child creation. Already present in Cargo.lock
 # (transitive via tauri) — this only promotes it to a direct dependency and enables the minimum

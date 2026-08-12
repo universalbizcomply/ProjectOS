@@ -274,10 +274,20 @@ fn observed_installation() -> projectos_shared_host_runtime::identity::packaged:
 /// The application identity this build expects a manifest to be about. Compiled in, never read from
 /// the manifest that is being judged.
 pub(crate) const PACKAGED_APPLICATION_ID: &str = "com.projectos.control-center";
-pub(crate) const PACKAGED_ARCHITECTURE: &str = "x86_64";
-/// The Node runtime version a packaged installation must carry. Pinned here so the manifest cannot
-/// nominate its own; provisioning the matching runtime is packaged-dependency-closure work.
-pub(crate) const PACKAGED_RUNTIME_VERSION: &str = "22.11.0";
+
+/// The architecture and Node runtime version a packaged installation must carry, taken from THE
+/// packaging contract (PROJECTOS-RECOVERY-INSTALLED-APP1A).
+///
+/// `PACKAGED_RUNTIME_VERSION` was the literal `"22.11.0"` — a version no packaging step ever
+/// provisioned, describing a runtime that did not exist. It is now bound to the same constant the
+/// packaging tool writes into `runtime.expectedVersion`, and the contract enforces that pin by
+/// SHA-256 when the payload is assembled. `evaluate()` compares the manifest's declared version
+/// against this one and refuses a mismatch, so packager and application cannot drift apart quietly:
+/// they read the same declaration, and a disagreement is a refusal rather than a silent acceptance.
+pub(crate) const PACKAGED_ARCHITECTURE: &str =
+    projectos_packaged_runtime_contract::PACKAGED_ARCHITECTURE;
+pub(crate) const PACKAGED_RUNTIME_VERSION: &str =
+    projectos_packaged_runtime_contract::PACKAGED_NODE_VERSION;
 
 /// Non-Windows builds have no packaged installation to verify.
 #[cfg(not(windows))]

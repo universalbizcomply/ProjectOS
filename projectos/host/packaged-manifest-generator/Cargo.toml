@@ -1,0 +1,22 @@
+[package]
+name = "projectos-packaged-manifest-generator"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "UNLICENSED"
+description = "PROJECTOS-RECOVERY-INSTALLED-APP1A. The packaging tool for a ProjectOS installation, in three steps that must happen in this order: ASSEMBLE a closed payload (copy the SHA-256-pinned Node runtime and the one daemon bundle, refusing any other bytes), verify DEPENDENCY CLOSURE (the payload must not reach back into the development tree, the working directory or node_modules), and only then GENERATE the unsigned trust manifest by hashing the bytes actually assembled. It reuses the canonical signing-byte function from projectos-host-identity rather than reimplementing it, so signer and verifier can never disagree about what was signed. It NEVER signs, never generates or reads a private key, never embeds a trust anchor, never installs, and never emits a signature: the signature field is always empty, so an unsigned manifest cannot be mistaken for a verified one."
+
+[[bin]]
+name = "projectos-manifest-gen"
+path = "src/main.rs"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[dependencies]
+# The canonical manifest model, the ONE canonical signing-byte function, and SHA-256.
+projectos-host-identity = { path = "../host-identity" }
+# THE packaging contract: which runtime is pinned, where things sit in the payload. One declaration,
+# shared with the application that later judges the payload.
+projectos-packaged-runtime-contract = { path = "../packaged-runtime-contract" }
+serde_json = "1"

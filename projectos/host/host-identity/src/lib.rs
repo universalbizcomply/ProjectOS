@@ -64,6 +64,17 @@ pub use identity::packaged_authority::{evaluate_packaged_authority, VerifiedPack
 pub use identity::production_verifier::ProductionEs256Verifier;
 pub use identity::{EvalContext, IdentityFs, RealFs};
 
+/// The manifest model and THE canonical signing-byte function.
+///
+/// Re-exported so the manifest GENERATOR consumes the very same canonicalisation the verifier does.
+/// Two implementations of "which bytes are signed" is the classic way a signature scheme becomes
+/// decorative: they agree on every case anyone tested and disagree on the one that matters. There is
+/// one implementation, and this is it.
+pub use identity::canonical::canonical_bytes;
+pub use identity::manifest::{
+    DaemonArtefactFormat, DaemonArtefactManifest, RuntimeManifest, TrustManifest,
+};
+
 /// The identity vocabulary a caller needs to assemble an `EvalContext` and read an outcome.
 pub use identity::composite::InstallationIdentity;
 pub use identity::errors::IdentityError;

@@ -1,0 +1,12 @@
+[package]
+name = "projectos-packaged-runtime-contract"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "UNLICENSED"
+description = "PROJECTOS-RECOVERY-INSTALLED-APP1A. THE packaging contract: the single committed source of truth for the exact Node runtime a packaged ProjectOS installation carries, its SHA-256 pin, the fixed payload layout and the packaged file names. It holds constants only — no code, no dependencies, no filesystem, no clock, no key material. Both the packaging tool that assembles a payload and the application that later judges one derive their expectations from HERE, so the two can never disagree about which runtime is packaged."
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[dependencies]

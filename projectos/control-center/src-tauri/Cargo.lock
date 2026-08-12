@@ -2759,6 +2759,7 @@ version = "0.1.0"
 dependencies = [
  "projectos-host-windows-local-ipc",
  "projectos-host-windows-owner-verification",
+ "projectos-packaged-runtime-contract",
  "projectos-shared-host-runtime",
  "projectos-windows-runtime-primitives",
  "serde",
@@ -2826,6 +2827,10 @@ dependencies = [
  "projectos-windows-runtime-primitives",
  "windows",
 ]
+
+[[package]]
+name = "projectos-packaged-runtime-contract"
+version = "0.0.0"
 
 [[package]]
 name = "projectos-shared-host-runtime"

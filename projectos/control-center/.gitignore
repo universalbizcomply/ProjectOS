@@ -2,3 +2,7 @@
 
 # Node sidecar build output
 node-build/
+
+# The single closed daemon artefact. Build output, reproducible from source by
+# `npm run build:daemon-bundle`; its identity lives in the trust manifest, not in git.
+dist-daemon/
