@@ -131,16 +131,34 @@ mod tests {
         }
     }
 
-    /// The shipping build has no anchor, so it is not a production verifier and says so. This is
-    /// what makes a keyless build fail closed instead of looking wired.
+    /// REPLACES `the_shipping_verifier_is_not_production_without_an_anchor`.
+    ///
+    /// That test asserted the keyless state: no anchor, therefore not a production verifier. The
+    /// owner has provisioned the anchor, so the fact to protect is now the opposite one — the
+    /// shipping build IS a production verifier, and it is bound to the owner's key specifically
+    /// rather than to any key. The fail-closed-without-a-usable-anchor path has not stopped being
+    /// covered: `a_malformed_anchor_is_not_production_either`, below, drives exactly that branch.
     #[test]
-    fn the_shipping_verifier_is_not_production_without_an_anchor() {
+    fn the_shipping_verifier_is_production_and_bound_to_the_owner_key() {
         let v = ProductionEs256Verifier::from_embedded();
-        assert!(!v.is_production());
+        assert!(
+            v.is_production(),
+            "the shipping build embeds the owner anchor and must be production-grade",
+        );
+
+        // Bound to THAT key: a manifest naming another signer is refused before any signature maths.
         let err = v
-            .verify(&input("es256", KEY_ID, &"ab".repeat(64)))
+            .verify(&input("es256", "some-other-key", &"ab".repeat(64)))
             .unwrap_err();
-        assert_eq!(err, IdentityError::ProductionIdentityUnavailable);
+        assert_eq!(err, IdentityError::ManifestSignerUnknown);
+
+        // And the algorithm is the application's, not the manifest's. Named via the embedded anchor
+        // rather than a repeated literal, so this asserts against the key the build actually has.
+        let embedded = PRODUCTION_ANCHOR.expect("the production anchor is provisioned");
+        let err = v
+            .verify(&input("rs256", embedded.key_id, &"ab".repeat(64)))
+            .unwrap_err();
+        assert_eq!(err, IdentityError::ManifestSignatureInvalid);
     }
 
     #[test]

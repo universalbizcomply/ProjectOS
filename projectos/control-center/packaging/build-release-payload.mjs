@@ -21,6 +21,7 @@
  * Created in PROJECTOS-RECOVERY-INSTALLED-APP1A (installer trust record + release candidate).
  */
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -131,7 +132,7 @@ function runNode(script, args, cwd) {
  * than silently attributed to a clean commit.
  */
 function buildId() {
-  const explicit = process.env.PROJECTOS_BUILD_ID;
+  const explicit = RELEASE.buildId;
   if (typeof explicit === 'string' && explicit.length > 0) return explicit;
   try {
     const commit = execFileSync('git', ['rev-parse', '--short=12', 'HEAD'], {
@@ -152,12 +153,100 @@ function buildId() {
  * overridable so a reproducible build can pin it.
  */
 function generatedAt() {
-  const explicit = process.env.PROJECTOS_GENERATED_AT;
+  const explicit = RELEASE.generatedAt;
   if (typeof explicit === 'string' && explicit.length > 0) return explicit;
+  // A wall clock is correct ONLY for a development payload nobody will sign. Every release mode
+  // pins this, enforced above, because an unpinned timestamp makes the signed subject unrepeatable.
   return new Date().toISOString().replace(/\.\d+Z$/, '.000Z');
 }
 
+/**
+ * THE PRODUCTION SIGNING CEREMONY, and why this exists.
+ *
+ * The owner signs the canonical manifest bytes on a machine ProjectOS never touches, and hands back
+ * two PUBLIC artefacts: a public key and a detached signature. Those bytes are the subject. Three
+ * fields inside them - `signingKeyId`, `buildId` and `generatedAt` - mean the subject is only
+ * reproducible if all three are pinned. `generatedAt` defaults to a wall clock, so without pinning,
+ * every regeneration produces a different subject and any signature over the previous one is dead.
+ *
+ * THE FAILURE THIS CLOSES. `tauri build` runs `release:prepare`, which runs this script, which wipes
+ * `dist-payload` and regenerates. An externally attached signature was therefore erased by the very
+ * build that was supposed to ship it. The fix is not to stop regenerating - it is to make
+ * regeneration BYTE-IDENTICAL and then re-attach, so the build reproduces exactly the subject the
+ * owner signed and refuses if it cannot.
+ *
+ * WHAT NEVER ENTERS. No private key, no key store, no signing. This reads a public key and a
+ * detached signature from disk and hands them to `projectos-manifest-sign`, which has no private-key
+ * input to give it. Signing stays outside ProjectOS.
+ */
+const RELEASE = (() => {
+  const get = (name) => {
+    const v = process.env[name];
+    return typeof v === 'string' && v.length > 0 ? v : null;
+  };
+  const inputs = {
+    keyId: get('PROJECTOS_SIGNING_KEY_ID'),
+    buildId: get('PROJECTOS_BUILD_ID'),
+    generatedAt: get('PROJECTOS_GENERATED_AT'),
+    publicKeyFile: get('PROJECTOS_PUBLIC_KEY_FILE'),
+    signatureFile: get('PROJECTOS_SIGNATURE_FILE'),
+    canonicalSha256: get('PROJECTOS_CANONICAL_SHA256'),
+  };
+  // WHAT MAKES A RUN A RELEASE. Naming a signing key, or supplying signature material, is the
+  // declaration of intent. Pinning only the build id or only the timestamp is NOT: those were
+  // independently overridable before this contract existed, and a labelled reproducible development
+  // payload is a legitimate thing to want. Gating them behind the release rules would have quietly
+  // removed a capability while fixing an unrelated defect.
+  const RELEASE_INTENT = ['keyId', 'publicKeyFile', 'signatureFile'];
+  const declaresRelease = RELEASE_INTENT.some((k) => inputs[k] !== null);
+  if (!declaresRelease) return { mode: 'development', ...inputs };
+
+  // FAIL CLOSED ON PARTIAL INPUT. A release run that fell back to a wall clock or a placeholder key
+  // id would produce something that looks like a release candidate and can never be signed - the
+  // exact defect that wasted the first ceremony. Anything incomplete stops here and says what is
+  // missing, because all three of these fields are inside the bytes the owner signs.
+  const supplied = Object.entries(inputs).filter(([, v]) => v !== null).map(([k]) => k);
+  const missing = ['keyId', 'buildId', 'generatedAt'].filter((k) => inputs[k] === null);
+  if (missing.length > 0) {
+    throw new Error(
+      `release signing inputs are incomplete: ${supplied.join(', ')} supplied but ` +
+        `${missing.join(', ')} missing. A reproducible subject needs the signing key id, the ` +
+        'build id and the generated-at timestamp pinned together, because all three are inside ' +
+        'the signed bytes.',
+    );
+  }
+  if (inputs.keyId.includes('unprovisioned') || inputs.keyId.includes('placeholder')) {
+    throw new Error(
+      `a release subject may not name the placeholder key id "${inputs.keyId}"; ` +
+        'the manifest would declare a signer no build can ever anchor',
+    );
+  }
+  // The signature half is optional: preparing the subject FOR signing is a legitimate release run.
+  // But a public key without a signature, or the reverse, is always a mistake.
+  const hasPub = inputs.publicKeyFile !== null;
+  const hasSig = inputs.signatureFile !== null;
+  if (hasPub !== hasSig) {
+    throw new Error(
+      'a detached signature and its public key must be supplied together; ' +
+        `got ${hasPub ? 'public key only' : 'signature only'}`,
+    );
+  }
+  // The expected subject digest is REQUIRED once a signature is in play. Without it the drift
+  // check silently does not run, and a rebuild whose bytes moved fails later with a signature
+  // error instead of the honest cause. The cryptography still fails closed either way — this is
+  // about the build telling the truth about WHY, which is what makes a ceremony repeatable.
+  if (hasSig && inputs.canonicalSha256 === null) {
+    throw new Error(
+      'PROJECTOS_CANONICAL_SHA256 is required when attaching a detached signature: the build ' +
+        'must confirm it reproduced the exact subject the owner signed before accepting a ' +
+        'signature for it',
+    );
+  }
+  return { mode: hasSig ? 'release-signed' : 'release-subject', ...inputs };
+})();
+
 console.log('ProjectOS release payload');
+console.log(`  mode                : ${RELEASE.mode}`);
 console.log(`  application version : ${APP_VERSION}`);
 
 // ---- 1. the daemon bundle -----------------------------------------------------------------------
@@ -199,15 +288,117 @@ run(
     APP_VERSION,
     '--build-id',
     buildId(),
-    // The key that WILL sign this, named but absent. The manifest is emitted unsigned; naming the
-    // key id is not the same as having it, and nothing here reads key material.
+    // The key that WILL sign this, named BEFORE canonicalisation because `signingKeyId` is inside
+    // the signed bytes. Naming it afterwards is what invalidated the first ceremony's signature.
     '--signing-key-id',
-    process.env.PROJECTOS_SIGNING_KEY_ID ?? 'projectos-signing-unprovisioned',
+    RELEASE.keyId ?? 'projectos-signing-unprovisioned',
     '--generated-at',
     generatedAt(),
   ],
   PROJECTOS_ROOT,
 );
+
+// ---- 4b. the owner's detached signature, verified and attached ----------------------------------
+//
+// This runs AFTER generation on purpose. The generator emits the manifest unsigned and writes the
+// canonical bytes; only then is there a subject to check a signature against. Attachment goes
+// through `projectos-manifest-sign`, which verifies before writing and refuses if attaching would
+// change the canonical bytes - so a signature can never end up stored against bytes it does not
+// cover. There is no private-key path here because that tool has no private-key input.
+{
+  const canonicalPath = join(PAYLOAD_OUT, 'projectos-trust-manifest.canonical');
+  const canonical = readFileSync(canonicalPath);
+  const actualSha = createHash('sha256').update(canonical).digest('hex');
+  console.log(`canonical subject   : ${canonical.length} bytes, sha256 ${actualSha}`);
+
+  // THE SUBJECT MUST BE THE ONE THAT WAS SIGNED. Checked before the signature is even read, so a
+  // drifted build fails on the honest cause - the bytes moved - rather than on a confusing
+  // signature error. This is what makes the regenerate-then-reattach sequence safe.
+  if (RELEASE.canonicalSha256 && RELEASE.canonicalSha256 !== actualSha) {
+    throw new Error(
+      `the regenerated canonical subject is not the one that was signed.\n` +
+        `  expected sha256: ${RELEASE.canonicalSha256}\n` +
+        `  actual   sha256: ${actualSha}\n` +
+        'Refusing to attach a signature to different bytes. Check that the signing key id, ' +
+        'build id and generated-at inputs match the ceremony exactly.',
+    );
+  }
+
+  if (RELEASE.mode === 'release-signed') {
+    // THE SIGNATURE MUST BE CHECKED AGAINST THE KEY THE APPLICATION ACTUALLY EMBEDS.
+    //
+    // `projectos-manifest-sign verify` checks against whatever public key it is handed. Handing it
+    // the same file that was used to attach is self-consistent by construction: any key pair would
+    // pass, print "VERIFIED", and exit 0 — while the shipped binary, which only ever verifies
+    // against its compiled-in anchor, would refuse the result at launch. That is not a trust hole
+    // (the embedded anchor is the only thing that decides trust), but it is a whole release cycle
+    // spent to discover a wrong key. This increment exists because one ceremony was already lost
+    // that way, so the wrong key must fail HERE, loudly, before anything is packaged.
+    const anchorSrc = readFileSync(
+      join(PROJECTOS_ROOT, 'host', 'host-identity', 'src', 'identity', 'anchor.rs'),
+      'utf8',
+    );
+    const production = anchorSrc.slice(0, anchorSrc.indexOf('#[cfg(test)]') + 1 || undefined);
+    const pointMatch = production.match(/const OWNER_PUBLIC_POINT[\s\S]*?=\s*\[([\s\S]*?)\];/);
+    const keyIdMatch = production.match(/PRODUCTION_KEY_ID:\s*&str\s*=\s*"([^"]+)"/);
+    if (!pointMatch || !keyIdMatch) {
+      throw new Error('cannot read the embedded production anchor from anchor.rs');
+    }
+    const embeddedPoint = Buffer.from(
+      pointMatch[1].match(/0x[0-9a-fA-F]{2}/g).map((h) => parseInt(h, 16)),
+    ).toString('hex');
+    const suppliedPoint = readFileSync(RELEASE.publicKeyFile, 'utf8').trim().toLowerCase();
+
+    if (suppliedPoint !== embeddedPoint) {
+      throw new Error(
+        'the supplied public key is not the key this build embeds.\n' +
+          `  embedded anchor: ${embeddedPoint}\n` +
+          `  supplied key   : ${suppliedPoint}\n` +
+          'A signature verified against a key the application does not trust would package a ' +
+          'release the shipped binary refuses at launch.',
+      );
+    }
+    if (RELEASE.keyId !== keyIdMatch[1]) {
+      throw new Error(
+        `the signing key id "${RELEASE.keyId}" is not the embedded anchor's ` +
+          `"${keyIdMatch[1]}"; the manifest would name a signer this build cannot verify`,
+      );
+    }
+    console.log(`anchor match        : supplied key IS the embedded anchor (${keyIdMatch[1]})`);
+
+    const sign = (args) =>
+      run(
+        'cargo',
+        [
+          'run', '--quiet', '--release',
+          '--manifest-path', join(GENERATOR, 'Cargo.toml'),
+          '--bin', 'projectos-manifest-sign',
+          '--', ...args,
+        ],
+        PROJECTOS_ROOT,
+      );
+    sign([
+      'attach',
+      '--payload', PAYLOAD_OUT,
+      '--signature', `@${RELEASE.signatureFile}`,
+      '--public-key', `@${RELEASE.publicKeyFile}`,
+      '--signing-key-id', RELEASE.keyId,
+    ]);
+    // Verify what was just written, through the same interface a reviewer would use. Attaching and
+    // trusting the attach is not a proof; reading it back is.
+    sign(['verify', '--payload', PAYLOAD_OUT, '--public-key', `@${RELEASE.publicKeyFile}`]);
+
+    const after = createHash('sha256')
+      .update(readFileSync(canonicalPath))
+      .digest('hex');
+    if (after !== actualSha) {
+      throw new Error('attaching the signature changed the canonical bytes — refusing');
+    }
+    console.log('manifest signature  : ATTACHED and VERIFIED');
+  } else {
+    console.log('manifest signature  : none (unsigned payload)');
+  }
+}
 
 // ---- 5. the installer-owned installation record, and the fragment that installs it -------------
 rmSync(join(CONTROL_CENTER, 'dist-installer'), { recursive: true, force: true });
@@ -241,4 +432,12 @@ console.log(`installer fragment  : ${FRAGMENT_OUT}`);
 
 console.log('');
 console.log(`release payload ready: ${PAYLOAD_OUT}`);
-console.log('NOT PRODUCTION-TRUSTED — the manifest is UNSIGNED and the owner signing gate is pending.');
+// TELL THE TRUTH ABOUT WHAT THIS RUN PRODUCED. This line used to be unconditional, so a
+// successfully signed release printed "ATTACHED and VERIFIED" and then flatly contradicted itself
+// four lines later. During a signing ceremony that is exactly the message an operator relies on.
+if (RELEASE.mode === 'release-signed') {
+  console.log('PROJECTOS MANIFEST TRUST: SIGNED and VERIFIED against the embedded anchor.');
+  console.log('Authenticode is a SEPARATE matter and is NOT addressed here.');
+} else {
+  console.log('NOT PRODUCTION-TRUSTED — the manifest is UNSIGNED and the owner signing gate is pending.');
+}

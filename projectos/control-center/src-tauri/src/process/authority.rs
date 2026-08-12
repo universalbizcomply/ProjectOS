@@ -12,8 +12,13 @@
 //! embedded anchor. So packaged authority remains unforgeable: not because the type is missing, but
 //! because the only way to obtain the thing it demands is to actually verify.
 //!
-//! With no anchor provisioned, evaluation cannot succeed, so packaged mode still ends at
-//! `ProductionIdentityUnavailable` — and NEVER falls back to development.
+//! THIS PATH IS NOW LIVE. It previously could not succeed at all: no production anchor was
+//! provisioned, so the verifier was never production-grade and packaged mode always ended at
+//! `ProductionIdentityUnavailable`. The owner provisioned the anchor on 2026-08-12, so this is a
+//! real trust decision over the manifest found at the payload root — it can now SUCCEED, and what
+//! it grants is packaged launch authority.
+//!
+//! What has not changed: it still NEVER falls back to development. Failure is still refusal.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -313,9 +318,10 @@ fn packaged_payload_root(install_root: &std::path::Path) -> PathBuf {
 ///   * observed installation — classified from the executable's real location and installer evidence;
 ///   * verifier — the production ES256 verifier bound to the embedded anchor.
 ///
-/// With no anchor provisioned the verifier is not production-grade, so evaluation ends at
-/// `ProductionIdentityUnavailable` and this returns exactly that. It does NOT fall through to the
-/// development resolver, and there is no branch here that could.
+/// The anchor is provisioned, so the verifier IS production-grade and this evaluation can succeed.
+/// It succeeds only on a manifest that the embedded anchor's key actually signed; everything else —
+/// an unsigned manifest, another signer, a tampered byte — ends in refusal. It does NOT fall through
+/// to the development resolver, and there is no branch here that could.
 #[cfg(windows)]
 fn resolve_packaged_authority(
     daemon_instance_id: String,

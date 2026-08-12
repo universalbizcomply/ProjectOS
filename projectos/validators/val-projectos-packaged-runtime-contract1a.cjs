@@ -362,6 +362,64 @@ check(pipelineRecord.includes("Program Files") && pipelineRecord.includes("PRODU
 check(pipelineRecord.includes("--install-root"),
   "the release pipeline must pass the fixed install root to the record generator");
 
+// ---- 11. the production signing ceremony fails closed on partial input --------------------------
+//
+// WHY THIS RUNS THE SCRIPT INSTEAD OF READING IT. `signingKeyId`, `buildId` and `generatedAt` are
+// all INSIDE the canonical signed bytes, so a subject is only reproducible when all three are
+// pinned. The first ceremony failed because the key id was left at its placeholder: the owner signed
+// bytes naming a signer no build could ever anchor, and the signature — cryptographically perfect —
+// was unusable. A grep for the guard would pass whether or not the guard actually fires. Running the
+// script with deliberately incomplete input and observing the refusal is the only check that proves
+// the behaviour. It is cheap: the validation happens before any build work.
+const { spawnSync } = require("child_process");
+const PIPELINE = path.join(CONTROL_CENTER, "packaging", "build-release-payload.mjs");
+
+function refuses(label, env, expected) {
+  const r = spawnSync(process.execPath, [PIPELINE], {
+    cwd: CONTROL_CENTER,
+    env: { ...process.env, ...env },
+    encoding: "utf8",
+    timeout: 60_000,
+  });
+  const output = `${r.stdout || ""}${r.stderr || ""}`;
+  check(r.status !== 0, `the release pipeline must refuse ${label}`);
+  check(output.includes(expected),
+    `refusing ${label} must explain why; expected text about "${expected}"`);
+}
+
+const PINNED = "2026-01-01T00:00:00.000Z";
+refuses(
+  "a release run with no pinned build id or timestamp",
+  { PROJECTOS_SIGNING_KEY_ID: "projectos-signing-20260812",
+    PROJECTOS_BUILD_ID: "", PROJECTOS_GENERATED_AT: "" },
+  "release signing inputs are incomplete",
+);
+refuses(
+  "a release subject naming the placeholder key id",
+  { PROJECTOS_SIGNING_KEY_ID: "projectos-signing-unprovisioned",
+    PROJECTOS_BUILD_ID: "deadbeef", PROJECTOS_GENERATED_AT: PINNED },
+  "placeholder key id",
+);
+refuses(
+  "a detached signature supplied without its public key",
+  { PROJECTOS_SIGNING_KEY_ID: "projectos-signing-20260812",
+    PROJECTOS_BUILD_ID: "deadbeef", PROJECTOS_GENERATED_AT: PINNED,
+    PROJECTOS_SIGNATURE_FILE: "nonexistent.hex", PROJECTOS_PUBLIC_KEY_FILE: "" },
+  "must be supplied together",
+);
+
+// The attachment step must go through the bounded tool, never hand-edit the manifest, and the
+// build must check the subject digest before accepting a signature for it.
+const pipelineSrc = read(PIPELINE);
+check(pipelineSrc.includes("projectos-manifest-sign"),
+  "the release pipeline must attach through projectos-manifest-sign, not by editing JSON");
+check(pipelineSrc.includes("PROJECTOS_CANONICAL_SHA256"),
+  "the release pipeline must be able to verify the subject digest before attaching");
+for (const forbidden of ["PROJECTOS_PRIVATE_KEY", "--private-key", "privateKey", "NCrypt"]) {
+  check(!pipelineSrc.includes(forbidden),
+    `the release pipeline must have no private-key input (${forbidden})`);
+}
+
 // ---- report --------------------------------------------------------------------------------------
 if (failures.length > 0) {
   console.error("val-projectos-packaged-runtime-contract1a FAILED");
