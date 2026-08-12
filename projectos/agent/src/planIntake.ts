@@ -29,10 +29,7 @@
  *
  * Created in the post-V3 self-hosting pilot (F3).
  */
-import { createRequire } from 'node:module';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
+import { governanceEngines } from './governanceEngines.js';
 import type { System } from './system.js';
 import { join, projectopsDir } from './context.js';
 
@@ -185,14 +182,12 @@ export interface DiscoveryEngine {
 }
 
 /**
- * Resolve the canonical engine from this package's own location, never from the target root.
+ * The canonical engine, composed by the entrypoint rather than resolved from the target root.
  * Same reasoning as `governedContext.loadEngine`: the project being governed must not be able to
  * choose the code that governs it.
  */
 export function loadDiscoveryEngine(): DiscoveryEngine {
-  const require_ = createRequire(import.meta.url);
-  const here = dirname(fileURLToPath(import.meta.url));
-  return require_(resolve(here, '../../validators/plan-discovery-engine.cjs')) as DiscoveryEngine;
+  return governanceEngines().discovery as unknown as DiscoveryEngine;
 }
 
 export function objectivesDir(root: string): string {

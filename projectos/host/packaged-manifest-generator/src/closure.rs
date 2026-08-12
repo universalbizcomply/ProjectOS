@@ -70,9 +70,96 @@ impl ClosureReport {
     }
 }
 
-/// Node built-in specifiers always carry the `node:` scheme in this bundle's output, so anything
-/// without it is a package that had to come from somewhere.
+/// The explicit scheme form of a Node built-in.
 const BUILTIN_SCHEME: &str = "node:";
+
+/// Node built-ins by bare name.
+///
+/// WHY THIS LIST EXISTS, AND WHY IT IS NOT A RELAXATION. The rule used to be "a specifier without
+/// the `node:` scheme is a package that had to come from somewhere", which held only while every
+/// linked module was first-party ESM written with the scheme. Linking the canonical CommonJS
+/// governance engines brought in `require("path")`, `require("fs")` and `require("crypto")` — the
+/// scheme-less spelling CommonJS has always used.
+///
+/// A bare built-in name cannot be an ambient dependency: Node resolves built-ins BEFORE consulting
+/// `node_modules`, so `require("fs")` reaches the runtime's own module whatever is installed. There
+/// is no payload for it to be missing from. A bare specifier that is NOT on this list — `leftpad`,
+/// `@projectos/agent` — is still reported exactly as before.
+///
+/// KEEP IN STEP with the set in `control-center/packaging/build-daemon-bundle.mjs`. That one decides
+/// what the packaged daemon may resolve at RUN time; this one decides what the validator accepts at
+/// build time. They were briefly out of step over `zlib` — the banner allowed it, this list did not,
+/// so a linked module using it would have been reported as an unbundled package while running fine.
+const NODE_BUILTINS: [&str; 36] = [
+    "assert",
+    "async_hooks",
+    "buffer",
+    "child_process",
+    "cluster",
+    "console",
+    "constants",
+    "crypto",
+    "dgram",
+    "dns",
+    "domain",
+    "events",
+    "fs",
+    "http",
+    "http2",
+    "https",
+    "inspector",
+    "module",
+    "net",
+    "os",
+    "path",
+    "perf_hooks",
+    "process",
+    "punycode",
+    "querystring",
+    "readline",
+    "stream",
+    "string_decoder",
+    "timers",
+    "tls",
+    "tty",
+    "url",
+    "util",
+    "v8",
+    "worker_threads",
+    "zlib",
+];
+
+/// True for `node:fs`, `fs`, and `fs/promises`-style sub-paths of a built-in.
+fn is_node_builtin(specifier: &str) -> bool {
+    let bare = specifier.strip_prefix(BUILTIN_SCHEME).unwrap_or(specifier);
+    let root = bare.split('/').next().unwrap_or(bare);
+    NODE_BUILTINS.contains(&root)
+}
+
+/// True when a literal REFERENCES a `node_modules` directory, rather than merely containing the word.
+///
+/// WHY THIS IS PRECISION AND NOT PERMISSION. The rule used to fire on any literal containing
+/// `node_modules`, which reported two directory-name lists — the bridge daemon's `ignoredFolders`
+/// and the discovery engine's `SKIP_DIRS`, both of which exist to SKIP `node_modules` — as though
+/// they were dependencies on it. A bare token in a set of names resolves nothing.
+///
+/// A reference has a separator against it: `node_modules/pkg`, `…/node_modules`, the Windows
+/// spellings. Those still fire. And a bare `node_modules` used where a module specifier belongs is
+/// still caught by `UnbundledModule`, because it is not a Node built-in.
+fn references_node_modules(literal: &str) -> bool {
+    const NEEDLE: &str = "node_modules";
+    let bytes = literal.as_bytes();
+    let sep = |c: u8| c == b'/' || c == b'\\';
+    literal.match_indices(NEEDLE).any(|(at, _)| {
+        let before = at.checked_sub(1).map(|i| sep(bytes[i])).unwrap_or(false);
+        let after = bytes
+            .get(at + NEEDLE.len())
+            .copied()
+            .map(sep)
+            .unwrap_or(false);
+        before || after
+    })
+}
 
 /// Callees whose FIRST argument is a module specifier.
 const SPECIFIER_CALLEES: [&str; 2] = ["require", "import"];
@@ -329,7 +416,7 @@ fn scan_daemon_bundle(text: &str) -> Vec<ClosureFinding> {
             if segment.is_empty() {
                 continue;
             }
-            if segment.contains("node_modules") {
+            if references_node_modules(segment) {
                 findings.push(ClosureFinding::NodeModulesReference {
                     line: line_no,
                     literal: segment.to_string(),
@@ -380,7 +467,7 @@ fn scan_daemon_bundle(text: &str) -> Vec<ClosureFinding> {
                 .as_deref()
                 .is_some_and(|c| SPECIFIER_CALLEES.contains(&c));
         if is_specifier
-            && !literal.starts_with(BUILTIN_SCHEME)
+            && !is_node_builtin(literal)
             && !literal.starts_with('.')
             && !literal.starts_with('/')
         {
@@ -495,6 +582,70 @@ mod tests {
             f.is_empty(),
             "node: builtins are provided by the runtime: {f:?}"
         );
+    }
+
+    /// Built-ins by BARE name are provided by the runtime. CommonJS has always spelled them this
+    /// way, and Node resolves them before it consults `node_modules`, so there is no payload for
+    /// them to be missing from.
+    #[test]
+    fn bare_node_builtins_are_not_unbundled_modules() {
+        for line in [
+            "var path = __require(\"path\");",
+            "var fs = __require(\"fs\");",
+            "var crypto = __require(\"crypto\");",
+            "import { readFile } from \"fs/promises\";",
+            "import { x } from \"node:stream/web\";",
+        ] {
+            let f = scan_daemon_bundle(line);
+            assert!(f.is_empty(), "{line} must not be reported: {f:?}");
+        }
+    }
+
+    /// ...and the relaxation stops exactly there. A bare specifier that is NOT a built-in is still a
+    /// package that had to come from somewhere.
+    #[test]
+    fn a_bare_non_builtin_specifier_is_still_reported() {
+        for spec in ["leftpad", "@projectos/agent", "node_modules", "fs-extra"] {
+            let f = scan_daemon_bundle(&format!("var m = __require(\"{spec}\");"));
+            assert!(
+                f.iter()
+                    .any(|x| matches!(x, ClosureFinding::UnbundledModule { .. })),
+                "{spec} must still be reported: {f:?}"
+            );
+        }
+    }
+
+    /// `node_modules` as a directory NAME in an ignore list resolves nothing. Both the bridge
+    /// daemon's `ignoredFolders` and the discovery engine's `SKIP_DIRS` list it in order to SKIP it.
+    #[test]
+    fn node_modules_as_a_bare_directory_name_is_not_a_reference() {
+        let f = scan_daemon_bundle(
+            "var SKIP_DIRS = new Set([\".git\", \"node_modules\", \"dist\", \"target\"]);",
+        );
+        assert!(
+            !f.iter()
+                .any(|x| matches!(x, ClosureFinding::NodeModulesReference { .. })),
+            "{f:?}"
+        );
+    }
+
+    /// ...but an actual PATH into `node_modules` still is, in every spelling.
+    #[test]
+    fn a_path_into_node_modules_is_still_reported() {
+        for p in [
+            "node_modules/leftpad/index.js",
+            "./node_modules/x",
+            "C:/dev/ProjectOS/node_modules",
+            r"..\node_modules\x",
+            "/usr/lib/node_modules/y",
+        ] {
+            let f = scan_daemon_bundle(&format!("var p = \"{}\";", p.replace('\\', "\\\\")));
+            assert!(
+                f.iter()
+                    .any(|x| matches!(x, ClosureFinding::NodeModulesReference { .. })),
+                "{p} must still be reported: {f:?}"
+            );
+        }
     }
 
     #[test]

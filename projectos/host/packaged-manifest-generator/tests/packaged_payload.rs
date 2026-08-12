@@ -55,7 +55,8 @@ fn real_daemon_bundle() -> PathBuf {
 }
 
 /// A stand-in daemon bundle: real bytes, closed by construction. Used wherever the test is about the
-/// manifest rather than about the real daemon's (currently open) dependency closure.
+/// manifest itself rather than about the real daemon, which has its own proofs below and is now
+/// closed — this one keeps the manifest proofs independent of whether the bundle has been built.
 const CLOSED_DAEMON: &[u8] =
     b"import { readFileSync } from \"node:fs\";\nexport const daemon = 1;\n";
 
@@ -589,15 +590,18 @@ fn a_file_the_manifest_does_not_describe_is_reported() {
     ));
 }
 
-/// [§8.13c] THE REAL DAEMON, measured rather than assumed.
+/// [§8.13c] THE REAL DAEMON IS CLOSED, measured rather than assumed.
 ///
-/// This does not assert the real bundle is closed, because it is NOT: it resolves
-/// `../../validators/*.cjs` at run time through `createRequire`, from inside bundled dependencies
-/// rather than only from the entry file. What is proved is that the validator SEES it — an open
-/// payload cannot reach the manifest step. Skipped only when the bundle has not been built, and it
-/// says so loudly rather than passing quietly.
+/// This assertion used to run the other way. The real bundle resolved `../../validators/*.cjs` and
+/// `../../schemas/*.json` at run time through `createRequire`, from inside linked dependencies as
+/// well as from the entry file, and this test asserted the validator SAW that. The daemon has since
+/// been closed — the engines are linked INTO the artefact rather than fetched from a checkout — so
+/// the same measurement, against the same real bytes, now asserts the opposite.
+///
+/// Skipped only when the bundle has not been built, and it says so loudly rather than passing
+/// quietly.
 #[test]
-fn the_real_daemon_bundle_is_measured_for_closure() {
+fn the_real_daemon_bundle_is_closed() {
     let bundle = real_daemon_bundle();
     if !bundle.is_file() {
         eprintln!(
@@ -616,17 +620,39 @@ fn the_real_daemon_bundle_is_measured_for_closure() {
     .unwrap();
 
     let report = verify_closure(&root);
-    let escapes: Vec<_> = report
-        .findings
-        .iter()
-        .filter(|f| matches!(f, ClosureFinding::SourceTreeEscape { .. }))
-        .collect();
     assert!(
-        !escapes.is_empty(),
-        "the real daemon bundle resolves the development tree at run time; if this ever becomes \
-         empty the daemon was closed and this test should become an is_closed() assertion"
+        report.is_closed(),
+        "the real daemon bundle must not reach outside the payload: {:?}",
+        report.findings
     );
-    assert!(!report.is_closed());
+}
+
+/// [§8.13d] And the real bundle carries no development-tree reference at all.
+///
+/// A second, independent reading of the same artefact. Closure is a judgement assembled from rules,
+/// and a rule can be wrong; this is the blunt version — the literal strings that used to be there,
+/// absent. If the rules ever drift, these two disagree and someone has to look.
+#[test]
+fn the_real_daemon_bundle_carries_no_development_tree_reference() {
+    let bundle = real_daemon_bundle();
+    if !bundle.is_file() {
+        eprintln!("SKIPPED: real daemon bundle absent at {}", bundle.display());
+        return;
+    }
+    let text = std::fs::read_to_string(&bundle).expect("the bundle is text");
+    for forbidden in [
+        "../../validators",
+        "../../schemas",
+        "process.cwd()",
+        "NODE_PATH",
+        r"C:\dev",
+        "bridge.config.json",
+    ] {
+        assert!(
+            !text.contains(forbidden),
+            "the packaged daemon must not contain {forbidden}"
+        );
+    }
 }
 
 /// [§8.14] An unsigned manifest cannot establish production identity.

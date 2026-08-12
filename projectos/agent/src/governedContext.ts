@@ -16,9 +16,7 @@
  * location, never to the caller's cwd — so the same engines apply when the CLI drives an external
  * project. No JSON parsing, schema logic, readiness logic or identity logic is duplicated here.
  */
-import { createRequire } from 'node:module';
-import { fileURLToPath } from 'node:url';
-import { dirname, resolve } from 'node:path';
+import { governanceEngines } from './governanceEngines.js';
 import type { System } from './system.js';
 import { join, projectopsDir, configPath } from './context.js';
 import {
@@ -68,11 +66,8 @@ interface PlanEngine {
 }
 
 function loadEngine(): { engine: PlanEngine; schema: unknown } {
-  const require_ = createRequire(import.meta.url);
-  const here = dirname(fileURLToPath(import.meta.url));
-  const engine = require_(resolve(here, '../../validators/plan-governance-engine.cjs')) as PlanEngine;
-  const schema = require_(resolve(here, '../../schemas/project-plan.schema.json')) as unknown;
-  return { engine, schema };
+  const { governance, planSchema } = governanceEngines();
+  return { engine: governance, schema: planSchema };
 }
 
 function readJson(sys: System, path: string): { ok: true; value: unknown } | { ok: false } {

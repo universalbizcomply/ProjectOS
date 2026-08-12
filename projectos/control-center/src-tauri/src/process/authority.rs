@@ -22,7 +22,9 @@ use super::create::{ProcessSpec, SpecClassification};
 use super::dev_runtime::{
     resolve_development_git, resolve_development_node, strip_verbatim, RealRuntimeFs, RuntimeFs,
 };
-use super::environment::{collect_system_vars, DAEMON_GIT_EXE_VAR, DAEMON_INSTANCE_ID_VAR};
+use super::environment::{
+    collect_system_vars, DAEMON_BRIDGE_CONFIG_VAR, DAEMON_GIT_EXE_VAR, DAEMON_INSTANCE_ID_VAR,
+};
 #[cfg(test)]
 use super::environment::SYSTEM_ALLOWLIST;
 use super::errors::ProcessError;
@@ -125,6 +127,18 @@ impl DevelopmentDaemonLaunchAuthority {
         env.push((
             DAEMON_GIT_EXE_VAR.to_string(),
             self.git_exe.to_string_lossy().to_string(),
+        ));
+        // The DEVELOPMENT bridge configuration, as one absolute path bound here. The daemon no
+        // longer reads `bridge.config.json` from its working directory, so this is the only way it
+        // can receive one — and only development binds it. Injected unconditionally: whether the
+        // file exists is the daemon's business, and probing for it here would make the authority's
+        // behaviour depend on the state of the very file it is trying to name.
+        env.push((
+            DAEMON_BRIDGE_CONFIG_VAR.to_string(),
+            self.dev_root
+                .join("bridge.config.json")
+                .to_string_lossy()
+                .to_string(),
         ));
         Ok(ProcessSpec {
             executable: self.node_exe.to_string_lossy().to_string(),
@@ -434,10 +448,38 @@ ode.exe"),
             assert!(
                 name == DAEMON_GIT_EXE_VAR
                     || name == DAEMON_INSTANCE_ID_VAR
+                    || name == DAEMON_BRIDGE_CONFIG_VAR
                     || SYSTEM_ALLOWLIST.contains(&name.as_str()),
                 "unexpected variable in the daemon environment: {name}"
             );
         }
+    }
+
+    /// The DEVELOPMENT bridge configuration is bound by the authority, as ONE absolute path beneath
+    /// the development root. The daemon no longer reads `bridge.config.json` from its working
+    /// directory, so this is the only route by which it can receive one — and there is no parameter
+    /// through which a caller could choose it.
+    #[test]
+    fn the_development_bridge_config_is_authority_bound_and_absolute() {
+        let a = DevelopmentDaemonLaunchAuthority {
+            node_exe: PathBuf::from(r"C:\tools\node\node.exe"),
+            host_script: PathBuf::from(r"C:\dev\cc\sidecar\host.mjs"),
+            dev_root: PathBuf::from(r"C:\dev\cc"),
+            git_exe: PathBuf::from(r"C:\tools\git\cmd\git.exe"),
+            daemon_instance_id: "host1-1".into(),
+        };
+        let spec = a.to_process_spec().unwrap();
+        let bound: Vec<_> = spec
+            .env
+            .iter()
+            .filter(|(n, _)| n == DAEMON_BRIDGE_CONFIG_VAR)
+            .collect();
+        assert_eq!(bound.len(), 1, "exactly one binding, never a list to choose from");
+        assert_eq!(bound[0].1, r"C:\dev\cc\bridge.config.json");
+        assert!(
+            std::path::Path::new(&bound[0].1).is_absolute(),
+            "a relative value is the ambient behaviour under another name"
+        );
     }
 
     #[test]

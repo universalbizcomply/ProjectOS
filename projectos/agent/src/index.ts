@@ -1,5 +1,10 @@
 /** ProjectOS Local Agent — public API (for tests and programmatic use). */
 export * from './system.js';
+// The composition seam. An entrypoint supplies the governance engines; this package never resolves
+// them for itself. `nodeGovernanceEngines.js` is deliberately NOT re-exported here: it carries the
+// development-tree paths, and re-exporting it would drag them into every consumer's module graph —
+// including the packaged daemon bundle, which is the one place they must not appear.
+export * from './governanceEngines.js';
 export * from './context.js';
 export * from './flags.js';
 export * from './templates.js';

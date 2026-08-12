@@ -31,6 +31,20 @@ pub(crate) const DAEMON_INSTANCE_ID_VAR: &str = "PROJECTOS_DAEMON_INSTANCE_ID";
 /// stays un-allowlisted.
 pub(crate) const DAEMON_GIT_EXE_VAR: &str = "PROJECTOS_GIT_EXE";
 
+/// The DEVELOPMENT bridge configuration, as ONE absolute path (PROJECTOS-RECOVERY-INSTALLED-APP1A).
+///
+/// The daemon used to read `bridge.config.json` as a bare relative name, which resolved against
+/// whatever directory it happened to start in. That is a redirection primitive: the file chooses the
+/// daemon's watch roots, and therefore which repository it treats as governed, so anyone who could
+/// place a file beside the launch directory could point the daemon elsewhere. Working directory is
+/// not authority.
+///
+/// The path is now bound by the launch authority, like the Git executable above, and only the
+/// DEVELOPMENT authority binds it. Packaged launches inject nothing, so a packaged daemon has no
+/// configuration file and cannot be given one; the daemon additionally refuses a relative value,
+/// because a relative value is the ambient behaviour under another name.
+pub(crate) const DAEMON_BRIDGE_CONFIG_VAR: &str = "PROJECTOS_BRIDGE_CONFIG";
+
 /// Variable-name fragments that must never appear in a child environment.
 const SECRET_SHAPED: &[&str] = &[
     "TOKEN",

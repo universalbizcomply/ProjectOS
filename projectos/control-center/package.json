@@ -11,6 +11,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build:sidecar": "tsc -p tsconfig.node.json",
     "build:daemon-bundle": "npm run build:sidecar && node packaging/build-daemon-bundle.mjs",
+    "verify:packaged-daemon": "node packaging/verify-packaged-daemon.mjs",
     "test": "vitest run",
     "coverage": "vitest run --coverage",
     "test:desktop": "node test-desktop/smoke.mjs",

@@ -33,10 +33,7 @@
  *
  * Created in the post-V3 operational recovery programme (Stage 2).
  */
-import { createRequire } from 'node:module';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
+import { governanceEngines } from './governanceEngines.js';
 import type { System } from './system.js';
 import { join, projectopsDir } from './context.js';
 import { buildProposal, loadDiscoveryEngine, type DraftRecord, type Proposal } from './planIntake.js';
@@ -112,20 +109,14 @@ interface GovernanceEngine {
   validateAgainstSchema(obj: unknown, schema: unknown): readonly string[];
 }
 
-/** Resolved from THIS package, never from the target root — same rule as `governedContext`. */
+/** Composed by the entrypoint, never resolved from the target root — same rule as `governedContext`. */
 export function loadGovernanceEngine(): { engine: GovernanceEngine; schema: unknown } {
-  const require_ = createRequire(import.meta.url);
-  const here = dirname(fileURLToPath(import.meta.url));
-  return {
-    engine: require_(resolve(here, '../../validators/plan-governance-engine.cjs')) as GovernanceEngine,
-    schema: require_(resolve(here, '../../schemas/project-plan.schema.json')) as unknown,
-  };
+  const { governance, planSchema } = governanceEngines();
+  return { engine: governance, schema: planSchema };
 }
 
 export function loadCurrentStateSchema(): unknown {
-  const require_ = createRequire(import.meta.url);
-  const here = dirname(fileURLToPath(import.meta.url));
-  return require_(resolve(here, '../../schemas/current-project-state.schema.json')) as unknown;
+  return governanceEngines().currentStateSchema;
 }
 
 export function authorityDir(root: string): string {

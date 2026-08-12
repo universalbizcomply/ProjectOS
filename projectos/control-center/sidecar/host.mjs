@@ -26,15 +26,41 @@
  */
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { createInterface } from 'node:readline';
-import { createRequire } from 'node:module';
-import { fileURLToPath } from 'node:url';
-import { dirname, resolve as resolvePath, join as joinPath, isAbsolute, basename } from 'node:path';
+import { resolve as resolvePath, join as joinPath, isAbsolute, basename } from 'node:path';
 import { BridgeDaemon, nodeSystem, loadConfig } from '@projectos/bridge-daemon';
 import { InProcessTransport } from '../node-build/daemon/inProcessTransport.js';
 import { projectGovernedState } from '../node-build/governed/governedProjection.js';
 import { validateGovernedCommand, toAgentInvocation } from '../node-build/governed/governedCommands.js';
-import { phase as phaseCommand, approve as approveCommand, report as reportCommand, plan as planCommand, nodeSystem as agentSystem } from '@projectos/agent';
+import { phase as phaseCommand, approve as approveCommand, report as reportCommand, plan as planCommand, nodeSystem as agentSystem, setGovernanceEngines } from '@projectos/agent';
 import { gitBoundSystem } from './gitBoundSystem.mjs';
+
+/* --- THE GOVERNANCE ENGINES, COMPOSED HERE ---------------------------------------------------
+ * These four are the canonical governance artefacts from `projectos/validators` and
+ * `projectos/schemas`. They used to be resolved at RUN time, by each consumer, with
+ * `require(resolve(here, '../../validators/…'))`. That worked in a development checkout and only
+ * there: from a packaged installation the same relative path points outside the payload, at a
+ * ProjectOS source tree the installation does not have.
+ *
+ * As STATIC imports they are linked into the daemon bundle at build time, so the packaged artefact
+ * carries the engines themselves rather than a path to where they used to live. The security
+ * property is unchanged and slightly stronger: the code that governs a project is fixed when the
+ * artefact is built and covered by its digest, so a governed project cannot substitute it — and now
+ * neither can anything else.
+ *
+ * In development this file runs directly under Node, which resolves the same four files from the
+ * checkout. One program, one set of engines; only the route differs.
+ */
+import governanceEngine from '../../validators/plan-governance-engine.cjs';
+import discoveryEngine from '../../validators/plan-discovery-engine.cjs';
+import planSchema from '../../schemas/project-plan.schema.json' with { type: 'json' };
+import currentStateSchema from '../../schemas/current-project-state.schema.json' with { type: 'json' };
+
+setGovernanceEngines({
+  governance: governanceEngine,
+  discovery: discoveryEngine,
+  planSchema,
+  currentStateSchema,
+});
 
 const LIFECYCLE_PROTOCOL_VERSION = 1;
 /** Bounded: the id is a short non-secret correlator, never a credential. */
@@ -55,6 +81,33 @@ function readInstanceId() {
   return raw;
 }
 
+/**
+ * The daemon's bridge configuration, if the launcher gave it one.
+ *
+ * IT IS NEVER READ FROM THE WORKING DIRECTORY. This used to be
+ * `existsSync('bridge.config.json')` — a bare relative name, resolved against whatever directory the
+ * process happened to start in. That is a redirection primitive: drop a `bridge.config.json` beside
+ * wherever the daemon is launched and you choose its watch roots, and therefore which repository it
+ * treats as governed. cwd is not authority.
+ *
+ * The path now arrives as ONE absolute path in `PROJECTOS_BRIDGE_CONFIG`, injected by the
+ * development launch authority, which is the existing explicit development boundary. A packaged
+ * installation sets nothing, so a packaged daemon has no configuration file at all and cannot be
+ * pointed at one. A relative value is refused rather than resolved, because a relative value is the
+ * ambient behaviour under another name.
+ */
+function readBridgeConfigText() {
+  const declared = process.env.PROJECTOS_BRIDGE_CONFIG;
+  if (typeof declared !== 'string' || declared.length === 0) return null;
+  if (!isAbsolute(declared)) return null;
+  if (!existsSync(declared)) return null;
+  try {
+    return readFileSync(declared, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
 function resolveConfig() {
   const roots = [];
   for (let i = 2; i < process.argv.length; i += 1) {
@@ -63,8 +116,7 @@ function resolveConfig() {
       i += 1;
     }
   }
-  const raw = existsSync('bridge.config.json') ? readFileSync('bridge.config.json', 'utf8') : null;
-  const { config } = loadConfig(raw);
+  const { config } = loadConfig(readBridgeConfigText());
   return { ...config, watchRoots: [...config.watchRoots, ...roots] };
 }
 
@@ -77,12 +129,11 @@ function resolveConfig() {
  * `plan-governance-engine.cjs` does that, resolved beside this package so a target project cannot
  * substitute its own engine.
  */
-const require_ = createRequire(import.meta.url);
-const HERE = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_PLAN_RELPATH = '.projectops/plan.json';
 
+/** The engine linked into this artefact at build time — the same one the agent package was given. */
 function loadEngine() {
-  return require_(resolvePath(HERE, '../../validators/plan-governance-engine.cjs'));
+  return governanceEngine;
 }
 
 function readJsonFile(path) {

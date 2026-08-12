@@ -106,10 +106,42 @@ export function resolveBoundGit(env: NodeJS.ProcessEnv = process.env): string | 
   return null;
 }
 
+/**
+ * The process root, supplied by the entrypoint that composes the program.
+ *
+ * `nodeSystem.cwd()` used to return `process.cwd()` directly. For the CLI that is correct — it is
+ * cwd-rooted by design — but the SAME `nodeSystem` is imported by the packaged daemon, which has no
+ * meaningful working directory: it is started by the host, and whatever directory it lands in is an
+ * accident of the launcher, not a statement about which project is governed. Shipping an ambient
+ * `process.cwd()` inside the packaged artefact meant the packaged daemon carried a latent way to
+ * derive a governed location from that accident.
+ *
+ * So the root is now given rather than discovered. The CLI passes its own cwd (legitimate input);
+ * the daemon passes nothing and any caller that reaches for `cwd()` there is refused rather than
+ * silently answered.
+ */
+let processRoot: string | null = null;
+
+/** Supply the process root. Called by the entrypoint, once, before anything governed runs. */
+export function setProcessRoot(root: string): void {
+  processRoot = root;
+}
+
+/** TEST-ONLY. Clear the root so a test can prove the refusal path. */
+export function resetProcessRootForTest(): void {
+  processRoot = null;
+}
+
 /** The real Node-backed System used at runtime. */
 export const nodeSystem: System = {
   cwd() {
-    return process.cwd();
+    if (processRoot === null) {
+      throw new Error(
+        'PROCESS_ROOT_NOT_SET: the entrypoint must call setProcessRoot(). A governed location is ' +
+          'never derived from the ambient working directory.',
+      );
+    }
+    return processRoot;
   },
   now() {
     return new Date().toISOString();
