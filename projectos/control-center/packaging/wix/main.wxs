@@ -20,9 +20,16 @@
             Manufacturer="{{manufacturer}}"
             Version="{{version}}">
 
+        <!-- PROJECTOS DELTA 4 of 4 (PROJECTOS-RECOVERY-INSTALLED-APP1A): InstallerVersion 450 -> 500.
+             The installation-record component authors an explicit file ACL through the standard
+             MsiLockPermissionsEx table, which is a Windows Installer 5.0 feature. Declaring 4.5
+             while depending on a 5.0 table is the dangerous combination: an older engine would
+             install the product happily and SILENTLY SKIP the ACL, reproducing the unreadable
+             record this fix exists to remove - with no error to notice. 500 makes the requirement
+             explicit, and every Windows that can run this application ships Installer 5.0. -->
         <Package Id="*"
                  Keywords="Installer"
-                 InstallerVersion="450"
+                 InstallerVersion="500"
                  Languages="0"
                  Compressed="yes"
                  InstallScope="perMachine"
@@ -70,7 +77,7 @@
         <Property Id="ARPURLUPDATEINFO" Value="{{homepage}}"/>
         {{/if}}
 
-        <!-- PROJECTOS DELTA 3 of 3 (PROJECTOS-RECOVERY-INSTALLED-APP1A): the previous-install
+        <!-- PROJECTOS DELTA 3 of 4 (PROJECTOS-RECOVERY-INSTALLED-APP1A): the previous-install
              RegistrySearch is removed. It set INSTALLDIR from an HKCU value written by an earlier
              NSIS or MSI install, so a stale key could silently move this installation somewhere
              the canonical ProgramData record does not name - the same mismatch the directory
@@ -88,7 +95,7 @@
 
         </UI>
 
-        <!-- PROJECTOS DELTA 1 of 3 (PROJECTOS-RECOVERY-INSTALLED-APP1A): WixUI_Minimal, not
+        <!-- PROJECTOS DELTA 1 of 4 (PROJECTOS-RECOVERY-INSTALLED-APP1A): WixUI_Minimal, not
              WixUI_InstallDir.
 
              The installer must not offer an install location. The canonical installation record in
@@ -213,7 +220,7 @@
         </Feature>
         {{/each~}}
 
-        <!-- PROJECTOS DELTA 2 of 3: ConfigurableDirectory removed. It is what makes a
+        <!-- PROJECTOS DELTA 2 of 4: ConfigurableDirectory removed. It is what makes a
              feature directory selectable at all, so leaving it would keep INSTALLDIR
              redirectable even with the dialog gone. -->
         <Feature

@@ -323,13 +323,47 @@ if ($sc -le 0) { Write-Output '  NONE' }
 Write-Output ''
 
 Write-Output 'ACL CHANGES'
-$acl = Show-Query 'SELECT `LockObject`,`Table` FROM `LockPermissions`' 'LockPermissions'
-if ($acl -le 0) {
-  Write-Output '  NONE beyond installer/platform defaults. There is no LockPermissions table, so no'
-  Write-Output '  explicit ACL is authored. Files inherit the permissions of Program Files, which'
-  Write-Output '  Windows already protects from non-administrators. This is DISTINCT from deliberate'
-  Write-Output '  custom ACL hardening, of which there is NONE.'
+Write-Output ''
+Write-Output '  Legacy LockPermissions table (must be ABSENT - never mixed with MsiLockPermissionsEx):'
+$acl = Show-Query 'SELECT `LockObject`,`Table` FROM `LockPermissions`' 'LockPermissions' '    '
+if ($acl -eq -1) { Write-Output '    ABSENT.' }
+elseif ($acl -eq 0) { Write-Output '    present but empty.' }
+else { Write-Output '    *** PRESENT - the legacy and modern ACL tables must not coexist ***' }
+Write-Output ''
+Write-Output '  MsiLockPermissionsEx (object | table | SDDL):'
+$ex = Show-Query 'SELECT `LockObject`,`Table`,`SDDLText` FROM `MsiLockPermissionsEx`' 'MsiLockPermissionsEx' '    '
+if ($ex -eq -1 -or $ex -eq 0) {
+  Write-Output '    NONE. No explicit ACL is authored; every file inherits from its parent.'
+} else {
+  Write-Output ''
+  Write-Output '    ONE explicit ACL, on ONE file: the installation record. It exists because'
+  Write-Output '    inheritance is not safe here - the ProjectOSHost custody tree above it is'
+  Write-Output '    PROTECTED and non-inheriting, so a record relying on inheritance became readable'
+  Write-Output '    only by SYSTEM and the Control Centre could not read it at all.'
+  Write-Output ''
+  Write-Output '    D:P          protected; a later change to a parent cannot silently widen this'
+  Write-Output '    FA;;;SY      LocalSystem      full control'
+  Write-Output '    FA;;;BA      Administrators   full control'
+  Write-Output '    FR;;;BU      Users            GENERIC READ ONLY - no write, no delete, no DAC'
+  Write-Output ''
+  Write-Output '    The ProjectOSHost custody DIRECTORIES are NOT touched by this installer: the'
+  Write-Output '    Table column above is File, not CreateFolder, so nothing widens the tree.'
 }
+Write-Output ''
+Write-Output '  Directory-level ACL authoring (must be NONE):'
+$dirAcl = 0
+if ($script:TableNames -contains 'MsiLockPermissionsEx') {
+  $view = $db.GetType().InvokeMember('OpenView','InvokeMethod',$null,$db,@('SELECT `Table` FROM `MsiLockPermissionsEx`'))
+  $view.GetType().InvokeMember('Execute','InvokeMethod',$null,$view,$null) | Out-Null
+  while ($true) {
+    $rec = $view.GetType().InvokeMember('Fetch','InvokeMethod',$null,$view,$null)
+    if ($null -eq $rec) { break }
+    if ([string]$rec.GetType().InvokeMember('StringData','GetProperty',$null,$rec,@(1)) -ne 'File') { $dirAcl++ }
+  }
+  $view.GetType().InvokeMember('Close','InvokeMethod',$null,$view,$null) | Out-Null
+}
+if ($dirAcl -eq 0) { Write-Output '    NONE. Every authored ACL targets a File object.' }
+else { Write-Output "    *** $dirAcl non-File ACL row(s) - a directory ACL would widen custody ***" }
 Write-Output ''
 
 Write-Output 'CUSTOM ACTIONS (action | type)'

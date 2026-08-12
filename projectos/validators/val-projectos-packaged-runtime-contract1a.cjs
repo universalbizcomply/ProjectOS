@@ -168,6 +168,75 @@ check(Array.isArray(wix.componentGroupRefs) &&
   "tauri wix.componentGroupRefs must include ProjectOSInstallationRecord, or the fragment is compiled but never installed");
 
 const fragmentTemplate = read(path.join(CONTROL_CENTER, "packaging", "installation-record.wxs.template"));
+// Strip XML comments before scanning for what the markup must and must not contain. The commentary
+// necessarily discusses the very things some of these checks forbid, and prose is not markup.
+const fragmentMarkup = fragmentTemplate.replace(/<!--[\s\S]*?-->/g, " ");
+
+// ---- the record's file-specific ACL -------------------------------------------------------------
+//
+// The first real installation proved that relying on inheritance is not safe here: the ProgramData
+// tree was already hardened by the ProjectOSHost custody work with a PROTECTED, non-inheriting DACL,
+// so the record inherited nothing and became unreadable even to an elevated administrator. The
+// Control Centre could not read its own installation record and packaged identity could not
+// complete. These checks keep the explicit grant present, keep it MINIMAL, and keep it confined to
+// the one file.
+const EXPECTED_RECORD_SDDL = "D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FR;;;BU)";
+check(fragmentMarkup.includes(`<PermissionEx Sddl="${EXPECTED_RECORD_SDDL}" />`),
+  `the record must carry exactly the approved file ACL ${EXPECTED_RECORD_SDDL}`);
+check((fragmentMarkup.match(/<PermissionEx/g) || []).length === 1,
+  "exactly one PermissionEx may be authored, and it must be the record's");
+
+// Core PermissionEx emits the standard MsiLockPermissionsEx table. util:PermissionEx is the
+// custom-action-based SecureObjects element, and this installer authors no custom action.
+check(!fragmentMarkup.includes("util:PermissionEx") && !fragmentMarkup.includes("UtilExtension"),
+  "the record ACL must use core PermissionEx, not the custom-action-based util:PermissionEx");
+check(!/<CustomAction/.test(fragmentMarkup),
+  "the installation-record fragment must author no custom action");
+// The legacy table and the modern one must never both appear in one package.
+check(!/<Permission\s/.test(fragmentMarkup),
+  "the legacy Permission element (LockPermissions) must not be mixed with PermissionEx");
+
+// The ACL belongs to the FILE. A directory-level grant would widen the ProjectOSHost custody tree,
+// which is exactly what this fix must not do.
+const fileElement = (fragmentMarkup.match(/<File[\s\S]*?<\/File>/) || [""])[0];
+check(fileElement.includes("<PermissionEx"),
+  "the PermissionEx must sit on the record File, not on a Directory or Component");
+// NO REGEX HERE, DELIBERATELY. The first version built this pattern with `new RegExp` from a
+// TEMPLATE LITERAL containing `[\s\S]`. The literal consumes the backslashes before the RegExp
+// ever sees them, so the class compiled to `[sS]` — matching only the letters s and S. The guard
+// became dead code that always passed, and a mutation test appeared to confirm it ONLY because the
+// injected element happened to sit immediately after the tag, where a zero-length match succeeds.
+// Same trap as the RemoveFolder check further up, which carries the same warning. Plain index
+// arithmetic cannot be mis-escaped.
+for (const dir of ["PROJECTOS_PROGRAMDATA_DIR", "PROJECTOS_HOST_STATE_DIR", "PROJECTOS_INSTALLATION_DIR"]) {
+  const at = fragmentMarkup.indexOf(`Id="${dir}"`);
+  if (at === -1) {
+    failures.push(`the record fragment must declare the ${dir} directory`);
+    continue;
+  }
+  // From this directory's declaration to wherever it ends: a self-closing tag ends at the next
+  // `/>`, a container at its `</Directory>`. Take whichever comes first, and refuse an ACL in it.
+  const selfClose = fragmentMarkup.indexOf("/>", at);
+  const close = fragmentMarkup.indexOf("</Directory>", at);
+  const ends = [selfClose, close].filter((i) => i !== -1);
+  const end = ends.length ? Math.min(...ends) : fragmentMarkup.length;
+  check(!fragmentMarkup.slice(at, end).includes("<PermissionEx"),
+    `no ACL may be authored on the ${dir} directory; the ProjectOSHost custody tree stays as it is`);
+}
+// Users get READ. Anything that would let a normal user alter the record turns evidence into a
+// self-signed claim, so the forbidden right letters are named explicitly.
+for (const forbidden of ["(A;;FA;;;BU)", "(A;;GA;;;BU)", "(A;;FW;;;BU)", "(A;;FA;;;WD)", "(A;;FW;;;WD)", "(A;;FA;;;AU)", "(A;;FW;;;AU)"]) {
+  check(!fragmentMarkup.includes(forbidden),
+    `the record ACL must not contain ${forbidden} — normal users get read only`);
+}
+// The PROTECTED flag, read from the SDDL the TEMPLATE actually authors. The first version asserted
+// `EXPECTED_RECORD_SDDL.startsWith("D:P")` — a constant in this file compared against itself, which
+// cannot fail and therefore checks nothing, while reading as though it inspected the fragment.
+const authoredSddl = (fragmentMarkup.match(/<PermissionEx[^>]*Sddl="([^"]*)"/) || [])[1];
+check(typeof authoredSddl === "string" && authoredSddl.startsWith("D:P"),
+  "the record ACL must be a PROTECTED DACL, so a parent change cannot silently widen it");
+
+
 check(fragmentTemplate.includes("CommonAppDataFolder"),
   "the record must be installed beneath ProgramData via CommonAppDataFolder, not a literal path");
 for (const segment of ["ProjectOS", "host", "installation", "application.v1.json"]) {
@@ -241,7 +310,7 @@ if (!fs.existsSync(templatePath)) {
 
   // The three intentional differences from Tauri's own template, each marked so a reviewer can find
   // them and a silent revert is visible.
-  for (const delta of ["PROJECTOS DELTA 1 of 3", "PROJECTOS DELTA 2 of 3", "PROJECTOS DELTA 3 of 3"]) {
+  for (const delta of ["PROJECTOS DELTA 1 of 4", "PROJECTOS DELTA 2 of 4", "PROJECTOS DELTA 3 of 4", "PROJECTOS DELTA 4 of 4"]) {
     check(template.includes(delta), `the WiX template must retain ${delta}`);
   }
 
@@ -324,6 +393,13 @@ if (!fs.existsSync(templatePath)) {
   // InstallScope="perMachine" to ALLUSERS=1; the source form is what this file controls.
   check(/InstallScope="perMachine"/.test(markup),
     "the MSI must be per-machine to match the record's installation scope");
+
+  // DELTA 4: MsiLockPermissionsEx, which gives the installation record its explicit ACL, is a
+  // Windows Installer 5.0 feature. Declaring less while depending on it is the dangerous
+  // combination — an older engine installs happily and SILENTLY SKIPS the ACL, reproducing the
+  // unreadable record with no error to notice.
+  check(/InstallerVersion="500"/.test(markup),
+    "the package must declare InstallerVersion 500; MsiLockPermissionsEx needs Windows Installer 5.0");
 }
 
 // ---- 10. the vendored template is pinned to the Tauri that produced it --------------------------

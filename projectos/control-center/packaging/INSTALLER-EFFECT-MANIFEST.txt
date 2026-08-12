@@ -20,9 +20,9 @@ PROJECTOS MANIFEST TRUST
 
 installer filename    : ProjectOS Control Center_0.1.0_x64_en-US.msi
 installer type        : Windows Installer (MSI), built by WiX via Tauri
-installer size        : 37236736 bytes
-installer sha256      : 1d90a541be298cdf2b7590278f826d9b2de6a5de9a8f5541fba332bdd267dede
-source commit         : b8b40e00dc35d1b79edddc822d5aa64f3764c071 (WORKING TREE DIRTY)
+installer size        : 37240832 bytes
+installer sha256      : b1ffa5bba38165417c275c23d2b8b1246998df70e7be5f484eac0f4338ef8c2e
+source commit         : 7de0edc7312f9bb181e44e25ad1c6d9b286c8a35 (WORKING TREE DIRTY)
 WINDOWS AUTHENTICODE (a SEPARATE matter from ProjectOS manifest trust)
   installer status    : NotSigned
   STATUS              : NOT SIGNED
@@ -33,7 +33,7 @@ IDENTITY AND SCOPE (Property table)
   UpgradeCode | {E0D5D7AF-3631-53BF-9085-BE20BB8B99F7}
   ALLUSERS | 1
   Manufacturer | universalbizcomply
-  ProductCode | {8D068633-2211-4175-94F7-22B0D6C9880D}
+  ProductCode | {963AE579-2267-4609-928F-3EEC47436B92}
   ProductName | ProjectOS Control Center
   ProductVersion | 0.1.0
 
@@ -107,9 +107,9 @@ INSTALL LOCATION - FIXED, NOT CHOSEN
 DIRECTORIES (id | parent | name)
   DesktopFolder | TARGETDIR | Desktop
   INSTALLDIR | ProgramFiles64Folder | ProjectOS Control Center
-  Id51bf78edb364088a205b46be4581c14 | INSTALLDIR | runtime-payload
-  I8fa9713c09544c31a5736c057cc2a4a1 | Id51bf78edb364088a205b46be4581c14 | daemon
-  I38d13277b42a4451bb34c2cebec9b31a | Id51bf78edb364088a205b46be4581c14 | runtime
+  Iec742789922e4d4bb3a79b67c31da20c | INSTALLDIR | runtime-payload
+  I59d813710bf546a68253d878003e38e7 | Iec742789922e4d4bb3a79b67c31da20c | daemon
+  I9054283efe5f46f39481312a38c4fccb | Iec742789922e4d4bb3a79b67c31da20c | runtime
   ApplicationProgramsFolder | ProgramMenuFolder | ProjectOS Control Center
   PROJECTOS_INSTALLATION_DIR | PROJECTOS_HOST_STATE_DIR | installation
   TARGETDIR |  | SourceDir
@@ -126,10 +126,10 @@ DIRECTORIES (id | parent | name)
 FILES INSTALLED (name | size | component)
   projectos-control-center.exe | 9478144 | Path
   application.v1.json | 426 | ProjectOSInstallationRecordFile
-  projectos-trust-manifest.canonical | 712 | Id94b5c3b8be44e9ca905f10e56959f16
-  projectos-trust-manifest.json | 968 | I921fafa5ddc44e09957fbb71483ab0b8
-  projectos-daemon.mjs | 294883 | Ibbace6aed90b44b0aff81cd8a24858c6
-  node.exe | 91426304 | Id6559441152440daa8b2c5a6c8723212
+  projectos-trust-manifest.canonical | 712 | Ide1a2ee4f882447cb3ef451559c7eb9c
+  projectos-trust-manifest.json | 968 | Id97f32ef817f4c7d9a20a9aca17d5652
+  projectos-daemon.mjs | 294883 | If0de0293465d47c7b163bcd83eb3a003
+  node.exe | 91426304 | Icfa2ababa186444ea51bd8c617c8f1c5
 
   6 file(s) total.
 
@@ -176,10 +176,28 @@ SHORTCUTS (name | directory | target)
   Uninstall ProjectOS Control Center | INSTALLDIR | [System64Folder]msiexec.exe
 
 ACL CHANGES
-  NONE beyond installer/platform defaults. There is no LockPermissions table, so no
-  explicit ACL is authored. Files inherit the permissions of Program Files, which
-  Windows already protects from non-administrators. This is DISTINCT from deliberate
-  custom ACL hardening, of which there is NONE.
+
+  Legacy LockPermissions table (must be ABSENT - never mixed with MsiLockPermissionsEx):
+    ABSENT.
+
+  MsiLockPermissionsEx (object | table | SDDL):
+    ProjectOSApplicationRecordV1 | File | D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FR;;;BU)
+
+    ONE explicit ACL, on ONE file: the installation record. It exists because
+    inheritance is not safe here - the ProjectOSHost custody tree above it is
+    PROTECTED and non-inheriting, so a record relying on inheritance became readable
+    only by SYSTEM and the Control Centre could not read it at all.
+
+    D:P          protected; a later change to a parent cannot silently widen this
+    FA;;;SY      LocalSystem      full control
+    FA;;;BA      Administrators   full control
+    FR;;;BU      Users            GENERIC READ ONLY - no write, no delete, no DAC
+
+    The ProjectOSHost custody DIRECTORIES are NOT touched by this installer: the
+    Table column above is File, not CreateFolder, so nothing widens the tree.
+
+  Directory-level ACL authoring (must be NONE):
+    NONE. Every authored ACL targets a File object.
 
 CUSTOM ACTIONS (action | type)
   LaunchApplication | 210
