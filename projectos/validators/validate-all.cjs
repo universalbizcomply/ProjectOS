@@ -87,6 +87,7 @@ const MODULES = [
   "val-projectoshost-ipc-peer-contract-reconciliation1a",
   "val-projectoshost-configured-owner-enrolment-record1a",
   "val-projectos-packaged-runtime-contract1a",
+  "val-projectos-release-workspace-freshness1a",
   "val-projectos-validator-scratch-lifecycle1a",
   "val-projectos-credential-vault1a",
   "val-projectos-session-router1a",

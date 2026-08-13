@@ -2,7 +2,8 @@
 /**
  * THE release payload pipeline, in the only order that is safe.
  *
- *   build the daemon bundle
+ *   rebuild the workspace packages the daemon links (core, agent, bridge daemon)
+ *     -> build the daemon bundle
  *     -> assemble the closed runtime payload (pinned runtime + that bundle)
  *     -> dependency closure MUST PASS
  *     -> generate the unsigned trust manifest and its canonical signing bytes
@@ -248,6 +249,38 @@ const RELEASE = (() => {
 console.log('ProjectOS release payload');
 console.log(`  mode                : ${RELEASE.mode}`);
 console.log(`  application version : ${APP_VERSION}`);
+
+// ---- 0. the workspace packages the daemon links -------------------------------------------------
+//
+// THE BUNDLE IS ONLY AS CURRENT AS THE `dist` IT LINKS. `@projectos/core`, `@projectos/agent` and
+// `@projectos/bridge-daemon` are `file:` dependencies resolved to each package's BUILD OUTPUT, not
+// its source. Nothing downstream rebuilds them, so the linker happily consumed whatever `dist`
+// happened to be lying around: a stale one silently shipped old runtime behaviour inside a payload
+// whose manifest and signature attest to current source, and an absent one failed the release on a
+// missing module rather than building it. Both are the same defect — the canonical release path did
+// not own its own inputs.
+//
+// Removed before rebuilt, because `tsc` overwrites but does not delete: output for a source file
+// that has since been renamed or removed would otherwise survive indefinitely and travel into the
+// signed payload. Each package is built with ITS OWN TypeScript and its own tsconfig, the same two
+// things `npm run build` would use in that directory — this owns the ORDER, not the definition of
+// how a package builds.
+const WORKSPACE_PACKAGES = [
+  { name: '@projectos/core', dir: join(PROJECTOS_ROOT, 'core') },
+  { name: '@projectos/agent', dir: join(PROJECTOS_ROOT, 'agent') },
+  { name: '@projectos/bridge-daemon', dir: join(PROJECTOS_ROOT, 'bridge', 'daemon') },
+];
+
+for (const pkg of WORKSPACE_PACKAGES) {
+  const dist = join(pkg.dir, 'dist');
+  rmSync(dist, { recursive: true, force: true });
+  runNode(join(pkg.dir, 'node_modules', 'typescript', 'bin', 'tsc'), ['-p', 'tsconfig.json'], pkg.dir);
+  if (!existsSync(join(dist, 'index.js'))) {
+    console.error(`build-release-payload: ${pkg.name} did not produce ${join(dist, 'index.js')}`);
+    process.exit(1);
+  }
+  console.log(`workspace package   : ${pkg.name} rebuilt from source`);
+}
 
 // ---- 1. the daemon bundle -----------------------------------------------------------------------
 // The two steps `build:daemon-bundle` performs, called directly: transpile the sidecar's TypeScript,
