@@ -22,13 +22,13 @@
   "deferredPhases": [],
   "acceptedCarryForward": [],
   "currentBranch": "projectos-post-v3-selfhost-pilot1a",
-  "currentHead": "4d916f81116931a48174b6ef3f9de86001a5c6b9",
+  "currentHead": "86e18a21d38e770f2d922355090c03ad23623034",
   "currentRemoteHead": null,
-  "workingTreeStatus": "dirty",
+  "workingTreeStatus": "clean",
   "currentRisks": [],
   "currentBlockers": [],
   "lastEvidenceReference": "plan-approval decision PROJECTOS-RECOVERY-PLAN-APPROVAL-DECISION1A",
   "nextRecommendedPhase": "PROJECTOS-RECOVERY-INSTALLED-APP1A",
-  "lastUpdated": "2026-08-12T08:51:12.597Z",
+  "lastUpdated": "2026-08-13T09:03:43.897Z",
   "updatedByRole": "implementer"
 }
