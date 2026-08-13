@@ -17,7 +17,8 @@ import type { CommandContext, CommandResult } from '../context.js';
 import { ok, fail } from '../context.js';
 import { planWorkflow, DEFAULT_WORKERS } from '@projectos/core';
 import { submitObjective, listDrafts, checkDraftBinding, type DraftRecord } from '../planIntake.js';
-import { approvePlan } from '../planApproval.js';
+import { approvePlan, FILENAME_ID } from '../planApproval.js';
+import { loadGovernedContext } from '../governedContext.js';
 
 function workflowPlan(): CommandResult {
   const planned = planWorkflow(DEFAULT_WORKERS);
@@ -168,6 +169,107 @@ function show(ctx: CommandContext, flags: Record<string, string | boolean>): Com
  * about exactly this plan material, and then materialises the plan and lets the existing evaluator
  * rule on readiness. Every refusal names what is missing.
  */
+/**
+ * `plan activate` — the owner-workflow wrapper around `plan approve`.
+ *
+ * WHY THIS EXISTS RATHER THAN CALLING `plan approve` DIRECTLY. The low-level command defaults its
+ * destination to `.projectops/plan.json`, which is right for a manual operator naming their own
+ * paths and wrong for a button. `approvePlan` refuses to overwrite an existing record — correctly,
+ * since an activated plan is an immutable one — so a fixed filename makes activation work exactly
+ * once per project and then refuse forever. Every activation needs a destination of its own.
+ *
+ * IT DERIVES, IT DOES NOT DECIDE. The four values below are mechanical consequences of the draft id
+ * and of the currently active plan. None of them is accepted from a caller, and this function
+ * performs no authority check of its own: it hands everything to `approvePlan`, which remains the
+ * only thing that verifies delegation, decision, digest, decider and readiness.
+ */
+function activate(ctx: CommandContext, flags: Record<string, string | boolean>): CommandResult {
+  const s = (k: string): string => (typeof flags[k] === 'string' ? (flags[k] as string) : '');
+  const draftId = s('id');
+  const decisionId = s('decision');
+  if (draftId === '') return fail(1, ['`plan activate` requires --id <draftId> (see `plan drafts`)']);
+  if (decisionId === '') return fail(1, ['`plan activate` requires --decision <decisionId>']);
+
+  // BEFORE THE ID BECOMES PART OF A PATH. `approvePlan` validates both ids too, but it does so after
+  // this function has already interpolated the draft id into a filename — too late to matter here.
+  // Same pattern, imported rather than restated, so the two cannot diverge.
+  if (!FILENAME_ID.test(draftId)) {
+    return fail(2, [
+      'REFUSED (UNSAFE_TARGET_PATH): the draft id is not a plain identifier.',
+      '  - letters, digits, underscore and hyphen only',
+      '',
+      'Nothing was written.',
+    ]);
+  }
+
+  // THE PROGRAMME IS THE ONE ALREADY IN FORCE, read from the active approved plan through the
+  // trusted config route — never invented and never accepted from the caller. Closure delegation is
+  // programme-scoped, so a fabricated programme id would silently invalidate the committed closure
+  // delegation and produce a plan nobody can close. Starting a NEW programme is a governance act,
+  // not a side effect of pressing Activate.
+  const governed = loadGovernedContext(ctx.sys, ctx.root);
+  if (!governed.ok) {
+    return fail(2, [
+      `REFUSED (${governed.code}): the active approved plan could not be read.`,
+      `  - ${governed.detail}`,
+      '',
+      'Nothing was written.',
+    ]);
+  }
+  //
+  // THE CHECK BELOW IS NARROWING, NOT THE DEFENCE. `plan['programmeId']` is typed `unknown`, so it
+  // has to be narrowed before it can be passed on. It is not what stops a plan without a programme:
+  // `programmeId` is `required` with `minLength: 1` in the plan schema, and `loadGovernedContext`
+  // validates against that schema and refuses with `PLAN_SCHEMA_INVALID` before it ever returns a
+  // context. A plan missing one is therefore already refused above. This branch is kept because the
+  // narrowing is needed anyway and a silent `undefined` reaching `approvePlan` would be worse than a
+  // redundant refusal — but it is belt-and-braces, and describing it as the guarantee would be a
+  // claim the code does not earn.
+  const activeProgramme = governed.context.plan['programmeId'];
+  if (typeof activeProgramme !== 'string' || activeProgramme.trim() === '') {
+    return fail(2, [
+      'REFUSED (NO_ACTIVE_PROGRAMME): the active approved plan declares no programmeId.',
+      '  - an activation joins the programme already in force; it does not start one',
+      '',
+      'Nothing was written.',
+    ]);
+  }
+
+  // A NEW PLAN IS A NEW RECORD. Named from the draft so two activations in the same programme
+  // cannot collide, and so the previous plan keeps its own file rather than being written over.
+  const result = approvePlan(ctx.sys, ctx.root, {
+    draftId,
+    decisionId,
+    planRelPath: `.projectops/plan-${draftId}.json`,
+    stateRelPath: `.projectops/current-state-${draftId}.json`,
+    planId: `plan-${draftId}`,
+    programmeId: activeProgramme,
+  });
+
+  if (!result.ok) {
+    return fail(2, [
+      `REFUSED (${result.code}): this draft was not activated.`,
+      ...result.problems.map((p) => `  - ${p}`),
+      '',
+      'Nothing was written. No plan, no state, no activation.',
+    ]);
+  }
+  return ok([
+    'Plan ACTIVATED.',
+    '',
+    `  plan id:        ${result.planId}`,
+    `  programme:      ${activeProgramme}`,
+    `  phases:         ${result.phaseCount}`,
+    `  plan digest:    ${result.planDigest}`,
+    `  decision:       ${result.decisionId} (now consumed; it cannot approve anything again)`,
+    `  plan record:    ${result.planPath}`,
+    `  current state:  ${result.statePath}`,
+    '',
+    'PLAN READY was recomputed by the plan evaluator, not copied from the record.',
+    'The previously active plan record was not modified.',
+  ]);
+}
+
 function approve(ctx: CommandContext, flags: Record<string, string | boolean>): CommandResult {
   const s = (k: string): string => (typeof flags[k] === 'string' ? (flags[k] as string) : '');
   const draftId = s('id');
@@ -178,8 +280,11 @@ function approve(ctx: CommandContext, flags: Record<string, string | boolean>): 
   const result = approvePlan(ctx.sys, ctx.root, {
     draftId,
     decisionId,
-    // Defaults are the conventional ProjectOS locations; a project whose plan memory lives under
-    // version control elsewhere names its own.
+    // THE DESTINATION, NOT THE CURRENT PLAN. `planMemory.planPath` names the plan in force NOW;
+    // these name where the newly activated one is written, and `approvePlan` repoints planMemory at
+    // them afterwards. Deriving these from planMemory would aim the approval at the active record,
+    // which the engine refuses outright — and rightly, since it would overwrite the plan whose owner
+    // it just read. So they stay a convention a project may override with --plan-path/--state-path.
     planRelPath: s('plan-path') || '.projectops/plan.json',
     stateRelPath: s('state-path') || '.projectops/current-state.json',
     planId: s('plan-id') || 'plan',
@@ -226,6 +331,8 @@ export function plan(
       return show(ctx, flags);
     case 'approve':
       return approve(ctx, flags);
+    case 'activate':
+      return activate(ctx, flags);
     default:
       return fail(1, [
         `Unknown 'plan' subcommand: ${sub}`,
@@ -236,7 +343,10 @@ export function plan(
         '  plan drafts                   list generated drafts',
         '  plan show [--id <id>]         show a generated draft',
         '  plan approve --id <draftId> --decision <decisionId>',
-        '                                activate the plan a committed decision approved',
+        '                                low-level: activate to explicit --plan-path/--state-path',
+        '  plan activate --id <draftId> --decision <decisionId>',
+        '                                activate the plan a committed decision approved,',
+        '                                deriving new record paths and keeping the programme',
       ]);
   }
 }

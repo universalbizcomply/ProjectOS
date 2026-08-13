@@ -27,6 +27,7 @@ import {
   loadCurrentStateSchema,
 } from '../src/planApproval.js';
 import { loadGovernedContext } from '../src/governedContext.js';
+import { plan as planCommand } from '../src/commands/plan.js';
 import type { System } from '../src/system.js';
 
 const created: string[] = [];
@@ -301,6 +302,317 @@ function run(w: World, decisionId: string) {
     programmeId: 'acme-recovery',
   });
 }
+
+/**
+ * OWNER-WORKFLOW-PLAN-ACTIVATION1A — the refusals the owner UI now depends on.
+ *
+ * The engine already enforced every one of these; none had a test. Untested enforcement is
+ * enforcement that can be deleted without anything going red, and these are precisely the checks
+ * standing between a browser button and an unapproved plan becoming executable.
+ */
+/**
+ * `plan activate` — the owner-workflow wrapper (OWNER-WORKFLOW-PLAN-ACTIVATION1B).
+ *
+ * THE DEFECT THESE EXIST TO PREVENT. The browser route first called `plan approve`, whose
+ * destination defaults to the single fixed filename `.projectops/plan.json`. `approvePlan` refuses
+ * to overwrite an existing record — correctly, because an activated plan is immutable — so that
+ * default made activation work exactly once per project and refuse forever after. ProjectOS is not
+ * a one-plan system.
+ *
+ * `plan activate` derives a record path per draft, and takes the programme from the plan already in
+ * force rather than inventing one. It decides nothing else: `approvePlan` still owns every question
+ * of authority.
+ */
+describe('plan activate derives destinations and keeps the programme in force', () => {
+  const ACTIVATE_COMMITTED = [
+    '.projectops/authority/plan-approval-delegation.json',
+    '.projectops/plan-decisions/ACME-PLAN-APPROVAL-DECISION1A.json',
+    '.projectops/plan-decisions/ACME-PLAN-APPROVAL-DECISION2B.json',
+  ];
+
+  function activateVia(w: World, draftId: string, decisionId: string) {
+    return planCommand({ sys: w.sys, root: w.root }, { id: draftId, decision: decisionId }, ['activate']);
+  }
+
+  test('[8] a new plan is a NEW record; the previously active plan is untouched', () => {
+    const w = world({ committed: ACTIVATE_COMMITTED });
+    writeDelegation(w);
+    const id = writeDecision(w);
+
+    const before = readFileSync(pjoin(w.root, 'state/active.plan.json'), 'utf8');
+    const beforeState = readFileSync(pjoin(w.root, 'state/active.current-state.json'), 'utf8');
+
+    const r = activateVia(w, w.draftId, id);
+    expect(r.code, r.lines.join(' | ')).toBe(0);
+
+    // Derived, never supplied.
+    const planPath = pjoin(w.root, `.projectops/plan-${w.draftId}.json`);
+    const statePath = pjoin(w.root, `.projectops/current-state-${w.draftId}.json`);
+    expect(existsSync(planPath)).toBe(true);
+    expect(existsSync(statePath)).toBe(true);
+
+    const activated = JSON.parse(readFileSync(planPath, 'utf8')) as Record<string, unknown>;
+    expect(activated['planStatus']).toBe('PLAN READY');
+    expect(activated['planId']).toBe(`plan-${w.draftId}`);
+    // The programme is the one already in force, taken from the active plan.
+    expect(activated['programmeId']).toBe('acme-v1');
+
+    // The old bytes are exactly the old bytes. Activation moves a POINTER.
+    expect(readFileSync(pjoin(w.root, 'state/active.plan.json'), 'utf8')).toBe(before);
+    expect(readFileSync(pjoin(w.root, 'state/active.current-state.json'), 'utf8')).toBe(beforeState);
+
+    // planMemory now names the new records.
+    const cfg = JSON.parse(readFileSync(pjoin(w.root, '.projectops/project-config.json'), 'utf8')) as Record<string, unknown>;
+    const memory = cfg['planMemory'] as Record<string, unknown>;
+    expect(memory['planPath']).toBe(`.projectops/plan-${w.draftId}.json`);
+    expect(memory['currentStatePath']).toBe(`.projectops/current-state-${w.draftId}.json`);
+    // And the outgoing plan is retained as a planning source rather than deleted.
+    expect(JSON.stringify(cfg['planSources'])).toContain('state/active.plan.json');
+  });
+
+  test('[9] a SECOND plan activates in the same programme without touching the first', () => {
+    const w = world({ committed: ACTIVATE_COMMITTED });
+    writeDelegation(w);
+    const firstDecision = writeDecision(w);
+    const firstDraft = w.draftId;
+
+    expect(activateVia(w, firstDraft, firstDecision).code).toBe(0);
+    const planA = pjoin(w.root, `.projectops/plan-${firstDraft}.json`);
+    const planABytes = readFileSync(planA, 'utf8');
+
+    // A second objective, drafted AFTER the first activation — the repository's plan material has
+    // legitimately moved on, so a draft made earlier would be superseded, and should be.
+    const second = submitObjective(w.sys, w.root, 'Make the returns process quick and predictable for staff.');
+    if (!second.ok) throw new Error(`could not draft again: ${second.code}`);
+    const secondDraft = second.objective.objectiveId;
+    const secondDecision = writeDecision(w, {
+      decisionId: 'ACME-PLAN-APPROVAL-DECISION2B',
+      draftId: secondDraft,
+      planDigest: second.draftRecord.planDigest,
+    });
+
+    const r2 = activateVia(w, secondDraft, secondDecision);
+    expect(r2.code, r2.lines.join(' | ')).toBe(0);
+
+    const planB = pjoin(w.root, `.projectops/plan-${secondDraft}.json`);
+    expect(existsSync(planB)).toBe(true);
+    expect(planB).not.toBe(planA);
+    // Plan A is immutable: still there, still byte-identical.
+    expect(readFileSync(planA, 'utf8')).toBe(planABytes);
+    // The pointer moved to B.
+    const cfg = JSON.parse(readFileSync(pjoin(w.root, '.projectops/project-config.json'), 'utf8')) as Record<string, unknown>;
+    expect((cfg['planMemory'] as Record<string, unknown>)['planPath']).toBe(`.projectops/plan-${secondDraft}.json`);
+    // Same programme throughout.
+    const b = JSON.parse(readFileSync(planB, 'utf8')) as Record<string, unknown>;
+    expect(b['programmeId']).toBe('acme-v1');
+    // Both decisions are separately spent.
+    for (const d of [firstDecision, secondDecision]) {
+      const rec = JSON.parse(readFileSync(pjoin(w.root, `.projectops/plan-decisions/${d}.json`), 'utf8')) as Record<string, unknown>;
+      expect(typeof rec['consumedAt']).toBe('string');
+    }
+  });
+
+  test('[10] the same draft cannot be activated twice, and nothing is overwritten', () => {
+    const w = world({ committed: ACTIVATE_COMMITTED });
+    writeDelegation(w);
+    const id = writeDecision(w);
+    expect(activateVia(w, w.draftId, id).code).toBe(0);
+
+    const planPath = pjoin(w.root, `.projectops/plan-${w.draftId}.json`);
+    const bytes = readFileSync(planPath, 'utf8');
+
+    const again = activateVia(w, w.draftId, id);
+    expect(again.code).not.toBe(0);
+    expect(again.lines.join(' ')).toMatch(/REFUSED/);
+    // The record is exactly as it was: no truncate, no replace.
+    expect(readFileSync(planPath, 'utf8')).toBe(bytes);
+  });
+
+  test('[11] a programme-scoped closure delegation stays VALID because the programme is derived', () => {
+    // THE REAL SCOPE PROOF, not a restatement of the assignment.
+    //
+    // Asserting "the new plan's programmeId equals the active plan's" only proves the wrapper copied
+    // a field. What matters is the consequence: closure delegation is programme-SCOPED, so a
+    // fabricated programme id would put the committed closure delegation out of scope and the
+    // activation would be refused outright ("scoped to programme ..."). This fixture scopes the
+    // closure delegation to the programme the active plan actually declares, and the activation only
+    // succeeds — and only carries the closure arrangement — while the derived id matches it.
+    const w = world({ committed: [...ACTIVATE_COMMITTED, '.projectops/authority/closure-delegation.json'] });
+    writeDelegation(w);
+    const activeProgramme = String(
+      (JSON.parse(readFileSync(pjoin(w.root, 'state/active.plan.json'), 'utf8')) as Record<string, unknown>)['programmeId'],
+    );
+    writeClosureDelegation(w, { programmeScope: activeProgramme });
+    const id = writeDecision(w);
+
+    const r = activateVia(w, w.draftId, id);
+    expect(r.code, r.lines.join(' | ')).toBe(0);
+
+    const activated = JSON.parse(
+      readFileSync(pjoin(w.root, `.projectops/plan-${w.draftId}.json`), 'utf8'),
+    ) as Record<string, unknown>;
+    expect(activated['programmeId']).toBe(activeProgramme);
+
+    // The closure delegation was accepted and carried into the new plan — which is only possible
+    // because the programme it is scoped to is the programme this activation used.
+    const gov = activated['governance'] as Record<string, unknown>;
+    const closure = gov['closureDelegation'] as Record<string, unknown>;
+    expect(closure).toBeTruthy();
+    expect(gov['closureAuthority']).toBe(AUTHORITY);
+    expect(String(closure['notes'])).toContain(activeProgramme);
+  });
+
+  test('[11-mutation] an invented programme id would put that same delegation out of scope', () => {
+    // The other half of the proof, driven through the ENGINE with an invented id — showing what the
+    // wrapper avoids by deriving. If `activate` ever fabricated a programme, this is the refusal a
+    // real project would hit, and it would surface as an unclosable plan rather than as an error at
+    // activation time if the delegation happened to be absent.
+    const w = world({ committed: [...ACTIVATE_COMMITTED, '.projectops/authority/closure-delegation.json'] });
+    writeDelegation(w);
+    const activeProgramme = String(
+      (JSON.parse(readFileSync(pjoin(w.root, 'state/active.plan.json'), 'utf8')) as Record<string, unknown>)['programmeId'],
+    );
+    writeClosureDelegation(w, { programmeScope: activeProgramme });
+    const id = writeDecision(w);
+
+    const invented = approvePlan(w.sys, w.root, {
+      draftId: w.draftId,
+      decisionId: id,
+      planRelPath: `.projectops/plan-${w.draftId}.json`,
+      stateRelPath: `.projectops/current-state-${w.draftId}.json`,
+      planId: `plan-${w.draftId}`,
+      programmeId: `programme-${w.draftId}`, // exactly what the wrapper must never do
+    });
+
+    expect(invented.ok).toBe(false);
+    if (!invented.ok) expect(invented.problems.join('; ')).toMatch(/scoped to programme/i);
+    expect(existsSync(pjoin(w.root, `.projectops/plan-${w.draftId}.json`))).toBe(false);
+  });
+
+  test('[6] an active plan with no programmeId refuses rather than defaulting one', () => {
+    const w = world({ committed: ACTIVATE_COMMITTED });
+    writeDelegation(w);
+    const id = writeDecision(w);
+
+    const activePath = pjoin(w.root, 'state/active.plan.json');
+    const active = JSON.parse(readFileSync(activePath, 'utf8')) as Record<string, unknown>;
+    delete active['programmeId'];
+    writeFileSync(activePath, JSON.stringify(active, null, 2));
+
+    const r = activateVia(w, w.draftId, id);
+    expect(r.code).not.toBe(0);
+    // THE REFUSAL COMES FROM THE SCHEMA, and this asserts that rather than the wrapper's own
+    // narrowing branch. `programmeId` is `required`/`minLength: 1` in the plan schema, so
+    // `loadGovernedContext` refuses with PLAN_SCHEMA_INVALID before the wrapper reads the field at
+    // all. An earlier version of this test claimed to prove the NO_ACTIVE_PROGRAMME branch; it
+    // never reached it, which is the difference between a test passing and a test proving.
+    expect(r.lines.join(' ')).toMatch(/PLAN_SCHEMA_INVALID/);
+    expect(r.lines.join(' ')).toMatch(/programmeId/);
+    // Either way, the behaviour the gate requires holds: no programme is defaulted and nothing runs.
+    expect(existsSync(pjoin(w.root, `.projectops/plan-${w.draftId}.json`))).toBe(false);
+  });
+
+  test('[12] a path-shaped draft id is refused BEFORE it becomes a filename', () => {
+    const w = world({ committed: ACTIVATE_COMMITTED });
+    writeDelegation(w);
+    writeDecision(w);
+    for (const bad of ['../../evil', 'a'.repeat(200), 'has space', 'x:stream', 'short']) {
+      const r = activateVia(w, bad, 'ACME-PLAN-APPROVAL-DECISION1A');
+      expect(r.code, bad).not.toBe(0);
+      expect(r.lines.join(' '), bad).toMatch(/REFUSED|requires/);
+    }
+    // Nothing resembling a plan record was created anywhere under .projectops.
+    // Note the .json filter: '.projectops/plan-decisions' is a DIRECTORY that also starts 'plan-'.
+    const written = readdirSync(pjoin(w.root, '.projectops')).filter((f) => f.startsWith('plan-') && f.endsWith('.json'));
+    expect(written).toEqual([]);
+  });
+
+  test('[12b] a path-shaped DECISION id is refused through this entry point too', () => {
+    // The wrapper never joins the decision id to a path itself — it forwards it and `approvePlan`
+    // validates it before use. That is why this is refused, and asserting it HERE keeps the promise
+    // attached to the entry point a caller actually reaches, rather than only to the engine.
+    const w = world({ committed: ACTIVATE_COMMITTED });
+    writeDelegation(w);
+    writeDecision(w);
+    for (const bad of ['../../evil', 'x:stream', 'a/b/c', 'has space', 'short']) {
+      const r = activateVia(w, w.draftId, bad);
+      expect(r.code, bad).not.toBe(0);
+      expect(r.lines.join(' '), bad).toMatch(/REFUSED/);
+    }
+    expect(existsSync(pjoin(w.root, `.projectops/plan-${w.draftId}.json`))).toBe(false);
+  });
+
+  test('[13] activation still refuses without a committed decision', () => {
+    const w = world({ committed: ['.projectops/authority/plan-approval-delegation.json'] });
+    writeDelegation(w);
+    const id = writeDecision(w);
+    const r = activateVia(w, w.draftId, id);
+    expect(r.code).not.toBe(0);
+    expect(r.lines.join(' ')).toMatch(/REFUSED/);
+    expect(existsSync(pjoin(w.root, `.projectops/plan-${w.draftId}.json`))).toBe(false);
+  });
+});
+
+describe('activation refuses every way the decision can be wrong', () => {
+  test('[A/B] a decision that exists on disk but was never COMMITTED activates nothing', () => {
+    const w = world({ committed: ['.projectops/authority/plan-approval-delegation.json'] });
+    writeDelegation(w);
+    // Written, readable, well-formed — and not committed. Working-tree text is not a decision.
+    const id = writeDecision(w);
+    const r = run(w, id);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.problems.join('; ')).toMatch(/commit|committed/i);
+  });
+
+  test('[A] a draft with no decision file at all activates nothing', () => {
+    const w = world({ committed: ['.projectops/authority/plan-approval-delegation.json'] });
+    writeDelegation(w);
+    const r = run(w, 'ACME-PLAN-APPROVAL-DECISION1A');
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.problems.join('; ')).toMatch(/no committed plan-approval decision/i);
+  });
+
+  test('[D] a decision taken for another repository is refused', () => {
+    const w = world({ committed: COMMITTED });
+    writeDelegation(w);
+    const id = writeDecision(w, { repository: 'github.com/someone-else/other-repo' });
+    const r = run(w, id);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.problems.join('; ')).toMatch(/repository/i);
+  });
+
+  test('[E] a decision taken on another branch is refused', () => {
+    const w = world({ committed: COMMITTED });
+    writeDelegation(w);
+    const id = writeDecision(w, { branch: 'some-other-branch' });
+    const r = run(w, id);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.problems.join('; ')).toMatch(/branch/i);
+  });
+
+  test('[F] a decision approving a DIFFERENT draft cannot activate this one', () => {
+    const w = world({ committed: COMMITTED });
+    writeDelegation(w);
+    const id = writeDecision(w, { draftId: 'some-other-draft-id' });
+    const r = run(w, id);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.problems.join('; ')).toMatch(/approves draft/i);
+  });
+
+  test('[I] a decision the IMPLEMENTER signed cannot activate a plan', () => {
+    const w = world({ committed: COMMITTED });
+    writeDelegation(w);
+    const id = writeDecision(w, { decidedBy: 'Claude Code' });
+    const r = run(w, id);
+    expect(r.ok).toBe(false);
+    // Refused as the WRONG DECIDER, which is the check that fires first: the delegation names
+    // Grace, so a decision signed by anyone else — implementer or not — never reaches the
+    // implementer-specific branch. That branch is not dead: it guards the case where a delegation
+    // itself names the implementer, and the delegation tests below cover exactly that. Asserting
+    // the implementer wording here would have asserted a message this input cannot produce.
+    if (!r.ok) expect(r.problems.join('; ')).toMatch(/decision was taken by/i);
+  });
+});
 
 describe('exact plan approval — the happy path, once', () => {
   test('a committed delegation plus a committed decision about this exact plan material activates a new plan', () => {

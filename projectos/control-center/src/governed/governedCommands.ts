@@ -39,6 +39,15 @@ export const GOVERNED_VERBS = [
   // Owner objective intake. Produces a NON-AUTHORITATIVE draft proposal and nothing else — no
   // phase, no approval, no activation. Added so the owner does not need a terminal to start work.
   'plan.draft',
+  // ACTIVATION IS NOT APPROVAL, and the distinction is the whole reason this verb exists.
+  //
+  // It asks the runtime to activate a plan that a COMMITTED approval decision has ALREADY approved.
+  // It cannot create that decision, name who approved it, or stand in for an approver: it carries
+  // two identifiers and nothing else, and every question of authority is answered downstream by
+  // `approvePlan` against records in the repository. If no valid committed decision exists for the
+  // named draft, this verb produces a refusal — which is the correct outcome, not a failure of the
+  // seam. Drafting proposes; a decision approves; this only materialises what was already approved.
+  'plan.activate',
 ] as const;
 
 export type GovernedVerb = (typeof GOVERNED_VERBS)[number];
@@ -57,6 +66,19 @@ export interface GovernedCommandArgs {
   readonly decision?: string;
   /** Plain-language owner intent. Data, never an instruction. */
   readonly objective?: string;
+  /** WHICH proposal the owner is activating. An identifier, not a path and not authority. */
+  readonly draftId?: string;
+  /**
+   * WHICH committed decision approves it. Also data: naming a decision does not make it valid.
+   *
+   * The runtime cannot derive this today — a decision records the `draftId` it approves, but nothing
+   * enumerates the decisions directory, so there is no read-model that could select "the unique
+   * valid committed decision for this draft". Rather than invent that discovery here, the caller
+   * names the decision and the engine judges it: committed, unconsumed, right project, repository,
+   * branch, draft, plan digest and decider. A caller naming the wrong decision gets a refusal, not
+   * an approval.
+   */
+  readonly decisionId?: string;
 }
 
 export type GovernedArgName = keyof GovernedCommandArgs;
@@ -94,6 +116,14 @@ export const MAX_CORRELATION_LENGTH = 64;
  * Identifiers must START with an alphanumeric. Without that anchor `--force` and `-f` are valid
  * identifiers — every character is in the class — and an identifier beginning with `-` is not an
  * identifier at all once it reaches an argv parser: it is a flag.
+ *
+ * THIS PATTERN IS NOT SUFFICIENT FOR A VALUE THAT REACHES A FILESYSTEM PATH. It permits `.` and `:`,
+ * so `..` and a Windows drive letter are both spellable here, and an NTFS alternate data stream is
+ * `name:stream`. That is deliberate — record ids legitimately contain dots — and it is safe only
+ * because the runtime re-validates on the far side: `approvePlan` runs both ids through a stricter
+ * `FILENAME_ID` (`[A-Za-z0-9_-]{8,128}`, no dot, no colon) BEFORE either is joined to a path. If a
+ * future verb forwards a caller-supplied identifier to something that builds a path, it needs an
+ * equivalent check of its own; passing this one is not the guarantee it looks like.
  */
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/;
 const CORRELATION_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
@@ -154,6 +184,10 @@ const ALLOWED_ROLES: Readonly<Record<GovernedVerb, readonly string[]>> = {
   'report.write': ['implementer'],
   // No role at all: drafting proposes, it does not act, so there is no authority to claim.
   'plan.draft': [],
+  // No role either, and for a stronger reason. The authority for activation lives in a committed
+  // decision made by the delegate the ACTIVE approved plan records. There is no role this channel
+  // could claim that would add to that, and any role it could claim would only be a claim.
+  'plan.activate': [],
 };
 
 /**
@@ -201,6 +235,10 @@ const ARG_SPEC: Readonly<
   'approval.decide': { accepts: ['approvalId', 'decision', 'role', 'note'], requires: ['approvalId', 'decision'] },
   // Objective only. There is nothing else to supply, and nothing else may be supplied.
   'plan.draft': { accepts: ['objective'], requires: ['objective'] },
+  // Two identifiers, both REQUIRED, and nothing else — no role, no note, no path, no approver, no
+  // delegation. Neither is prose, so both are validated as identifiers before they are forwarded,
+  // and `approvePlan` re-validates them under a stricter pattern before either touches a path.
+  'plan.activate': { accepts: ['draftId', 'decisionId'], requires: ['draftId', 'decisionId'] },
   'report.write': { accepts: ['phaseId', 'role'], requires: ['phaseId'] },
 };
 
@@ -311,6 +349,18 @@ export function toAgentInvocation(request: GovernedCommandRequest): GovernedInvo
       return null;
     case 'plan.draft':
       return { command: 'plan', positionals: ['draft'], flags: { objective: a.objective as string } };
+    // `plan activate`, NOT `plan approve`. Both end in the same `approvePlan` engine — the only
+    // route by which a record with `planStatus: PLAN READY` comes into existence — but `approve` is
+    // the low-level command whose destination defaults to a single fixed filename. Since an
+    // activated plan is immutable and the engine refuses to overwrite one, that default would let
+    // this button work exactly once per project and then refuse forever. `activate` derives a record
+    // path of its own from the draft id and keeps the programme already in force.
+    case 'plan.activate':
+      return {
+        command: 'plan',
+        positionals: ['activate'],
+        flags: { id: a.draftId as string, decision: a.decisionId as string },
+      };
     case 'phase.start':
       return { command: 'phase', positionals: ['new'], flags: { id: a.phaseId as string } };
     case 'phase.advance':

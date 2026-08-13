@@ -53,6 +53,7 @@ describe('W1 an allowed, well-formed command is accepted', () => {
     'approval.decide': { approvalId: 'A1', decision: 'approved' },
     'report.write': { phaseId: 'P1A' },
     'plan.draft': { objective: 'Make the ordering flow simple enough to need no training at all.' },
+    'plan.activate': { draftId: 'draft-20260813-a1b2c3', decisionId: 'PROJECTOS-DECISION1A' },
   };
 
   test('every verb maps to a canonical typed invocation, or to null for refresh', () => {
@@ -255,6 +256,7 @@ describe('W17 protected actions are unreachable through this path', () => {
       'approval.decide': { approvalId: 'A1', decision: 'approved' },
       'report.write': { phaseId: 'P1A' },
       'plan.draft': { objective: 'Make the ordering flow simple enough to need no training at all.' },
+      'plan.activate': { draftId: 'draft-20260813-a1b2c3', decisionId: 'PROJECTOS-DECISION1A' },
     };
     for (const verb of GOVERNED_VERBS) {
       const inv = toAgentInvocation(valid(req({ verb, args: args[verb] })));
@@ -263,5 +265,85 @@ describe('W17 protected actions are unreachable through this path', () => {
       expect(Object.keys(inv.flags)).not.toContain('force');
       expect(Object.keys(inv.flags)).not.toContain('override');
     }
+  });
+});
+
+/**
+ * PLAN ACTIVATION — the boundary half.
+ *
+ * These prove what the CHANNEL refuses. What a valid-looking request then has to survive is a
+ * different and stronger set of checks in `approvePlan`, covered by the agent's own suite: committed
+ * delegation, committed decision, unconsumed decision, matching project, repository, branch, draft
+ * and plan digest, expected decider, implementer-cannot-approve, and an independently recomputed
+ * PLAN READY. Nothing here can substitute for that, and nothing here tries to.
+ */
+describe('plan.activate cannot be turned into an approval by the caller', () => {
+  const good = { draftId: 'draft-20260813-a1b2c3', decisionId: 'PROJECTOS-DECISION1A' };
+
+  test('[L] the renderer cannot supply an approver, a role or an authority identity', () => {
+    for (const extra of [
+      { role: 'owner' },
+      { role: 'advisor' },
+      { role: 'implementer' },
+      { decision: 'approved' },
+      { approvalId: 'A1' },
+      { note: 'approved by the owner' },
+    ]) {
+      const r = validateGovernedCommand(req({ verb: 'plan.activate', args: { ...good, ...extra } }));
+      expect(r.ok, JSON.stringify(extra)).toBe(false);
+    }
+  });
+
+  test('[L] no argument can carry a path, a delegation or a command line', () => {
+    for (const bad of [
+      { draftId: '../../.projectops/authority/plan-approval-delegation.json' },
+      { decisionId: '../plan-decisions/other' },
+      // Built from a char code so no source-processing step can quietly strip the separator.
+      { draftId: `C:${String.fromCharCode(92)}dev${String.fromCharCode(92)}evil` },
+      { decisionId: 'x --force' },
+      { draftId: 'a b' },
+      { decisionId: '' },
+    ]) {
+      const r = validateGovernedCommand(req({ verb: 'plan.activate', args: { ...good, ...bad } }));
+      expect(r.ok, JSON.stringify(bad)).toBe(false);
+    }
+  });
+
+  test('[L] both identifiers are REQUIRED — a draft alone cannot activate anything', () => {
+    for (const partial of [{ draftId: good.draftId }, { decisionId: good.decisionId }, {}]) {
+      const r = validateGovernedCommand(req({ verb: 'plan.activate', args: partial }));
+      expect(r.ok, JSON.stringify(partial)).toBe(false);
+      if (!r.ok) expect(r.code).toBe('MISSING_ARGUMENT');
+    }
+  });
+
+  test('[N] activation maps to the CANONICAL plan activate operation, not a copy', () => {
+    const inv = toAgentInvocation(valid(req({ verb: 'plan.activate', args: good })));
+    expect(inv).toEqual({
+      command: 'plan',
+      positionals: ['activate'],
+      flags: { id: good.draftId, decision: good.decisionId },
+    });
+  });
+
+  test('[O] plan.draft remains non-authoritative and cannot reach approve', () => {
+    const inv = toAgentInvocation(
+      valid(req({ verb: 'plan.draft', args: { objective: 'Ship the thing that makes invoices simple.' } })),
+    );
+    expect(inv!.positionals).toEqual(['draft']);
+    expect(Object.keys(inv!.flags)).toEqual(['objective']);
+    // And drafting cannot borrow activation's arguments.
+    const sneak = validateGovernedCommand(
+      req({ verb: 'plan.draft', args: { objective: 'x'.repeat(20), decisionId: 'PROJECTOS-DECISION1A' } }),
+    );
+    expect(sneak.ok).toBe(false);
+  });
+
+  test('flag NAMES are literals: caller input only ever becomes a flag VALUE', () => {
+    const inv = toAgentInvocation(
+      valid(req({ verb: 'plan.activate', args: { draftId: 'draft-1a2b3c4d', decisionId: 'DECISION-1A2B' } })),
+    );
+    expect(Object.keys(inv!.flags).sort()).toEqual(['decision', 'id']);
+    for (const v of Object.values(inv!.flags)) expect(String(v).startsWith('-')).toBe(false);
   });
 });

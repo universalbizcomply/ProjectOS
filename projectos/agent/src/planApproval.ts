@@ -606,8 +606,13 @@ export interface ApproveOptions {
  * a record from outside the project — and, for the decision, write the consumption marker there.
  * `.` and `:` are excluded even though they are legal in a record id, because `..` and a Windows
  * drive letter are exactly the shapes that escape.
+ *
+ * EXPORTED so a caller that DERIVES a path from one of these ids can apply the same test before it
+ * builds that path. `plan activate` does exactly that: it interpolates the draft id into a record
+ * filename, which happens before `approvePlan` gets a chance to check anything. A second, separately
+ * written pattern there would be the classic way these two drift apart.
  */
-const FILENAME_ID = /^[A-Za-z0-9_-]{8,128}$/;
+export const FILENAME_ID = /^[A-Za-z0-9_-]{8,128}$/;
 
 /**
  * Read a record FROM THE COMMITTED BLOB at HEAD, never from the working tree.

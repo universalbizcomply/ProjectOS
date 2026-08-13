@@ -10,9 +10,19 @@
  * happen in the canonical engine behind the governed-command channel — there is no second planner in
  * the renderer, and nothing on this screen can create a phase, an approval or execution authority.
  *
- * There is intentionally no approve/activate control. Turning a proposal into an executable plan is
- * an authority-creating step and it is not built yet; offering a button that looked like it would do
- * that is precisely the kind of thing this pilot exists to stop.
+ * ACTIVATION IS NOT APPROVAL, and this screen is careful about the difference.
+ *
+ * There is no approve control, because approving is an authority-creating act and a web page must
+ * never perform one. What there IS, is activation: asking the runtime to materialise the plan that a
+ * COMMITTED approval decision has already approved elsewhere. The two identifiers it sends name
+ * WHICH proposal and WHICH decision; they are data. Whether that decision is real, committed,
+ * unconsumed, for this project, this repository, this branch, this draft and this exact plan
+ * material — and whether the person who took it was entitled to — is decided by `approvePlan`
+ * against records in the repository, and this screen cannot influence any of it.
+ *
+ * So the button says "Activate approved plan", never "Approve". If no valid decision exists, the
+ * runtime refuses and its refusal is shown verbatim. A button that looked like it conferred approval
+ * is precisely the kind of thing this pilot exists to stop.
  *
  * Created in the post-V3 self-hosting pilot (F3 / F10).
  */
@@ -33,6 +43,9 @@ interface Outcome {
 export function ObjectiveIntake({ projectName, repository }: { projectName: string; repository: string }) {
   const [objective, setObjective] = useState('');
   const [outcome, setOutcome] = useState<Outcome>({ busy: false, lines: [], failed: false });
+  const [draftId, setDraftId] = useState('');
+  const [decisionId, setDecisionId] = useState('');
+  const [activation, setActivation] = useState<Outcome>({ busy: false, lines: [], failed: false });
 
   const trimmed = objective.trim();
   // A newline would smuggle a second request into the sidecar's per-line protocol, so the runtime
@@ -47,6 +60,19 @@ export function ObjectiveIntake({ projectName, repository }: { projectName: stri
     const result = await requestGovernedCommand(tauriBridge, 'plan.draft', { objective: trimmed });
     // The runtime's own words, whether it proposed or refused. Never reworded, never summarised.
     setOutcome({ busy: false, lines: result.lines, failed: !result.ok });
+  }
+
+  const activationBlocked = draftId.trim() === '' || decisionId.trim() === '' || activation.busy;
+
+  async function activate(): Promise<void> {
+    setActivation({ busy: true, lines: ['Asking ProjectOS to activate the approved plan…'], failed: false });
+    const result = await requestGovernedCommand(tauriBridge, 'plan.activate', {
+      draftId: draftId.trim(),
+      decisionId: decisionId.trim(),
+    });
+    // Verbatim again. A refusal here is the governed answer, not an error to be smoothed over, and
+    // there is deliberately no optimistic local state that could claim success the runtime withheld.
+    setActivation({ busy: false, lines: result.lines, failed: !result.ok });
   }
 
   return (
@@ -104,9 +130,63 @@ export function ObjectiveIntake({ projectName, repository }: { projectName: stri
       )}
 
       <p className="ocp-empty">
-        Anything ProjectOS proposes is a suggestion until you approve it. Approving a plan is a
-        separate decision and is not offered on this screen.
+        Anything ProjectOS proposes is a suggestion until it is approved. Approving is a separate,
+        recorded decision — it is not something this screen can do.
       </p>
+
+      <h2>Activate an approved plan</h2>
+      <p className="ocp-empty">
+        Once a plan-approval decision has been recorded and committed, ProjectOS can turn that
+        proposal into the active plan. This does not approve anything: it asks ProjectOS to act on a
+        decision that already exists. If there is no valid committed decision, ProjectOS will say so.
+      </p>
+
+      <label className="vh" htmlFor="ocp-draft-id">
+        Draft
+      </label>
+      <input
+        id="ocp-draft-id"
+        className="ocp-objective"
+        type="text"
+        value={draftId}
+        disabled={activation.busy}
+        placeholder="Which proposal (draft id)"
+        onChange={(e) => setDraftId(e.target.value)}
+      />
+
+      <label className="vh" htmlFor="ocp-decision-id">
+        Decision
+      </label>
+      <input
+        id="ocp-decision-id"
+        className="ocp-objective"
+        type="text"
+        value={decisionId}
+        disabled={activation.busy}
+        placeholder="Which recorded decision (decision id)"
+        onChange={(e) => setDecisionId(e.target.value)}
+      />
+
+      <div className="ocp-actionrow">
+        <button
+          type="button"
+          className="ocp-btn"
+          disabled={activationBlocked}
+          onClick={() => void activate()}
+        >
+          {activation.busy ? 'Working…' : 'Activate approved plan'}
+        </button>
+      </div>
+
+      {activation.lines.length > 0 && (
+        <pre
+          className={`ocp-actionmsg${activation.failed ? ' failed' : ''}`}
+          role="status"
+          aria-live="polite"
+        >
+          {activation.lines.join('\n')}
+        </pre>
+      )}
     </div>
   );
 }
