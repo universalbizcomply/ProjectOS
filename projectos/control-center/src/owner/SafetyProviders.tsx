@@ -6,15 +6,35 @@
  * owner-only actions are not performed here; this surface only displays what the backend decided.
  * Created in PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A.
  */
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { PROJECTOS_V3, OWNER_MODELS } from './ownerSnapshot';
 import { chainFor, decisionTone, statusTone, GOVERNED_CHAINS } from './governedChain';
 import { buildOwnerControlView } from './ownerModel';
+import { useGovernedState } from '../daemon/DaemonProvider';
+import { ownerModelFromGoverned } from './governedOwnerModel';
 
 export function SafetyProviders() {
   const [projectId, setProjectId] = useState<string>(PROJECTOS_V3.projectId);
   const chain = chainFor(projectId);
-  const model = OWNER_MODELS.find((m) => m.projectId === projectId) ?? PROJECTOS_V3;
+
+  // SAFETY IS A CLAIM ABOUT WHAT THE RUNTIME HAS DONE, so it comes from the runtime whenever there
+  // is one. Read unconditionally from the recorded snapshot, these badges asserted "Production
+  // frozen · No provider contacted · No secret used · No AI API used" from a hardcoded literal —
+  // reassuring, unfalsifiable, and exactly the shape of claim that must never be stale. Owner Chat
+  // failed the same way against the same constant.
+  //
+  // Only when the live projection describes THE SELECTED PROJECT. The selector below is driven by
+  // GOVERNED_CHAINS, which is deliberately left alone: pairing this project's live safety with
+  // another project's approval chain would trade a stale badge for an incoherent screen.
+  const governed = useGovernedState();
+  const live = governed !== null && governed.connected && governed.projectId === projectId ? governed : null;
+  const model = useMemo(
+    () =>
+      live !== null
+        ? ownerModelFromGoverned(live)
+        : (OWNER_MODELS.find((m) => m.projectId === projectId) ?? PROJECTOS_V3),
+    [live, projectId],
+  );
   const safetyBadges = buildOwnerControlView(model).safetyBadges;
   const pending = chain.approvalItems.filter((i) => i.status === 'pending').length;
 

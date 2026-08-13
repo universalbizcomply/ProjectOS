@@ -136,10 +136,17 @@ function answerFor(intent: ChatIntent, view: OwnerControlView, model: OwnerContr
       );
     case 'status':
       return `Plan status is ${view.planStatus}. ${view.whereYouAre}`;
-    case 'progress':
+    case 'progress': {
+      // `??` alone let an EMPTY STRING through and rendered "Next up is ." — a sentence with a hole
+      // in it. A model that records no next phase does so as '' just as readily as null, so the
+      // guard has to be emptiness, not nullishness.
+      const next = model.nextRecommendedPhase?.trim();
       return `${view.completionLabel}. ${
-        model.activePhase ? `Currently on ${model.activePhase}.` : `Next up is ${model.nextRecommendedPhase ?? 'to be decided'}.`
+        model.activePhase
+          ? `Currently on ${model.activePhase}.`
+          : `Next up is ${next !== undefined && next !== '' ? next : 'to be decided'}.`
       }`;
+    }
     case 'decisions':
       return view.hasDecisions
         ? `There ${view.decisionsRequired.length === 1 ? 'is 1 decision' : `are ${view.decisionsRequired.length} decisions`} waiting for you:\n${list(

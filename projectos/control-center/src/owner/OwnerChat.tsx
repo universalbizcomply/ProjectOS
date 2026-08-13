@@ -1,14 +1,24 @@
 /**
- * Owner Chat — a plain-language Q&A panel over the local project snapshot.
+ * Owner Chat — a plain-language Q&A panel over the project's governed state.
  *
- * Fully offline and deterministic: every answer is produced by `answerOwnerQuestion` from the selected
- * project's OwnerControlModel. No AI model, no network, no metered API. Owner-only actions are never
+ * Fully offline and deterministic: every answer is produced by `answerOwnerQuestion` from an
+ * OwnerControlModel. No AI model, no network, no metered API. Owner-only actions are never
  * performed here — the responder explains them but routes authorisation back to the owner.
  * Created in PROJECTOS-V3-OWNER-CHAT1A.
+ *
+ * IT ANSWERS FROM THE SAME SOURCE OWNER CONTROL RENDERS FROM. This panel used to read
+ * `OWNER_MODELS` unconditionally, which is the offline fallback: the last RECORDED position of the
+ * closed V3 programme. Owner Control had already been taught to prefer the live runtime, so the two
+ * surfaces answered from different sources at the same moment — Owner Control showed the recovery
+ * plan IN EXECUTION at 4 of 6, while this panel told the owner the plan was COMPLETE at 19 of 19 and
+ * that no runtime was running. A status surface that contradicts the canonical one is worse than no
+ * status surface, so the selection below is deliberately the same expression Owner Control uses.
  */
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { OWNER_MODELS, PROJECTOS_V3 } from './ownerSnapshot';
 import { answerOwnerQuestion, BASE_SUGGESTIONS, type ChatAnswer } from './ownerChatModel';
+import { useGovernedState } from '../daemon/DaemonProvider';
+import { ownerModelFromGoverned } from './governedOwnerModel';
 import type { OwnerControlModel } from './ownerModel';
 
 interface ChatTurn {
@@ -23,20 +33,34 @@ function greeting(model: OwnerControlModel): ChatTurn {
 
 export function OwnerChat() {
   const [projectId, setProjectId] = useState<string>(PROJECTOS_V3.projectId);
-  const model: OwnerControlModel = OWNER_MODELS.find((m) => m.projectId === projectId) ?? PROJECTOS_V3;
+  const governed = useGovernedState();
+  const live = governed !== null && governed.connected ? governed : null;
+  const model: OwnerControlModel = useMemo(
+    () =>
+      live !== null
+        ? ownerModelFromGoverned(live)
+        : (OWNER_MODELS.find((m) => m.projectId === projectId) ?? PROJECTOS_V3),
+    [live, projectId],
+  );
 
   const [turns, setTurns] = useState<readonly ChatTurn[]>(() => [greeting(model)]);
   const [draft, setDraft] = useState('');
   const nextId = useRef(1);
 
-  const suggestions = BASE_SUGGESTIONS;
-
-  function reset(nextProjectId: string) {
-    const next = OWNER_MODELS.find((m) => m.projectId === nextProjectId) ?? PROJECTOS_V3;
-    setProjectId(nextProjectId);
+  // WHAT THE ANSWERS CAME FROM. Answers already on screen were produced from whichever model was in
+  // force when they were asked, so when the source changes underneath them they become stale claims
+  // about a project the panel is no longer describing. The runtime connects asynchronously, so this
+  // is the normal path, not an edge case: the greeting is rendered before the daemon reports. Reset
+  // the log rather than leave recorded-position answers sitting above live ones.
+  const sourceKey = live !== null ? `live:${model.projectId}` : `recorded:${projectId}`;
+  const [answeredFrom, setAnsweredFrom] = useState(sourceKey);
+  if (answeredFrom !== sourceKey) {
+    setAnsweredFrom(sourceKey);
     nextId.current = 1;
-    setTurns([greeting(next)]);
+    setTurns([greeting(model)]);
   }
+
+  const suggestions = BASE_SUGGESTIONS;
 
   function ask(question: string) {
     const q = question.trim();
@@ -55,14 +79,19 @@ export function OwnerChat() {
           <h1 id="ochat-title">Owner Chat</h1>
           <p>Ask about this project. Answers come only from its current status — no external calls.</p>
         </div>
-        <label className="ocp-select">
-          <span className="ocp-select-label">Project</span>
-          <select value={projectId} onChange={(e) => reset(e.target.value)} aria-label="Select project">
-            {OWNER_MODELS.map((m) => (
-              <option key={m.projectId} value={m.projectId}>{m.projectName}</option>
-            ))}
-          </select>
-        </label>
+        {/* Only offered when there is no live runtime. A live projection describes ONE governed
+            project, so letting the owner pick a different one here would answer about a project the
+            runtime is not reporting on. Owner Control hides its selector for the same reason. */}
+        {live === null && (
+          <label className="ocp-select">
+            <span className="ocp-select-label">Project</span>
+            <select value={projectId} onChange={(e) => setProjectId(e.target.value)} aria-label="Select project">
+              {OWNER_MODELS.map((m) => (
+                <option key={m.projectId} value={m.projectId}>{m.projectName}</option>
+              ))}
+            </select>
+          </label>
+        )}
       </div>
 
       <div className="ochat-log" role="log" aria-live="polite" aria-label="Conversation">
