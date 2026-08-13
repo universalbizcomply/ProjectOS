@@ -1,8 +1,9 @@
 "use strict";
 // WINDOWS-PACKAGED-HOST-TRUST-ENFORCEMENT3K-I-C-B. Prove the canonical identity/publisher-trust
-// implementation lives EXACTLY ONCE in projectos-host-identity: the fifteen relocated source files
-// and three relocated integration tests exist there and nowhere in the Control Center; unsafe FFI is
-// confined to the two accepted files with SAFETY documentation; serde_json stays inside host-identity
+// implementation lives EXACTLY ONCE in projectos-host-identity: the governed set of identity source
+// files and three relocated integration tests exist there and nowhere in the Control Center; unsafe
+// FFI is confined to the accepted FFI files with SAFETY documentation; serde_json stays inside
+// host-identity
 // (the shared runtime keeps forbid(unsafe_code) and a serde_json-free src); the dependency direction
 // is acyclic; the publisher policy remains empty and fail-closed with no bypass route; and no
 // process/IPC/authority/service/credential/signing route exists. Evergreen structural checks —
@@ -52,12 +53,45 @@ function count(re, s) {
 // and its read-only provider, which replaced the all-zero placeholder. It contains no unsafe, performs
 // no filesystem access, and is bound by the FORBIDDEN_ROUTES scan below like every other file here.
 const IDENTITY_FILES = [
-  "authenticode.rs", "canonical.rs", "canonical_record.rs", "composite.rs", "errors.rs", "hash.rs",
-  "install_root.rs", "manifest.rs", "mod.rs", "mode.rs", "paths.rs", "publisher_policy.rs",
+  "anchor.rs", "authenticode.rs", "canonical.rs", "canonical_record.rs", "composite.rs", "errors.rs",
+  "es256.rs", "hash.rs", "install_root.rs", "installed_application.rs", "manifest.rs", "mod.rs",
+  "mode.rs", "packaged_authority.rs", "paths.rs", "production_verifier.rs", "publisher_policy.rs",
   "running_executable.rs", "tests.rs", "types.rs", "verifier.rs",
 ];
 const IDENTITY_TESTS = ["identity_authenticode.rs", "identity_composite.rs", "identity_installation.rs"];
-const UNSAFE_ALLOWED = new Set(["authenticode.rs", "running_executable.rs"]);
+
+/**
+ * The identity files permitted to contain `unsafe`, each a dedicated FFI boundary and nothing else.
+ *
+ * `es256.rs` was ADDED DELIBERATELY, after reading it, not to make this validator green. It holds
+ * exactly ONE production `unsafe` block, inside `#[cfg(windows)] verify_es256`, plus three inside a
+ * `#[cfg(all(test, windows))]` module that generates an ephemeral key so the genuine / altered-message
+ * / wrong-key / altered-signature controls can exist at all. What was checked against the code rather
+ * than against its comments:
+ *   * key length, the 0x04 uncompressed tag and signature length are all rejected BEFORE any FFI call,
+ *     so malformed input never reaches the provider;
+ *   * every handle is closed on all three exits — provider-open failure opens none, import failure
+ *     closes the algorithm, and the success path destroys the key and closes the algorithm BEFORE the
+ *     verification result is even examined;
+ *   * production verifies and never signs: `BCryptSignHash`, `BCryptGenerateKeyPair` and
+ *     `BCryptFinalizeKeyPair` appear only under `cfg(all(test, windows))`, and no private-key or
+ *     key-store route exists in this crate at all;
+ *   * no pointer or buffer escapes the function — it returns `Result<(), IdentityError>`;
+ *   * non-Windows builds return `ManifestSignatureInvalid` rather than pretending to verify;
+ *   * every failure returns the SAME error, so a forger learns nothing about which part was wrong.
+ *
+ * Adding a path here is a trust decision. The per-unit SAFETY check below still applies to these
+ * files, and the count check above still refuses any file that is not on the governed list.
+ *
+ * PATHS, NOT FILENAMES — relative to `host-identity/src`, forward-slashed, matched whole. The
+ * acceptance is of these reviewed files at these locations, and of nothing that merely shares a name
+ * with them.
+ */
+const UNSAFE_ALLOWED = new Set([
+  "identity/authenticode.rs",
+  "identity/es256.rs",
+  "identity/running_executable.rs",
+]);
 
 // Effect/policy routes the identity crate must never contain.
 const FORBIDDEN_ROUTES = [
@@ -86,13 +120,30 @@ function run() {
   if (/projectos-control-center|projectos-shared-host-runtime/.test(toml)) errors.push("host-identity depends on control-center or shared-host-runtime (cycle)");
 
   // 2. Exact relocated file sets.
+  // THE INVENTORY IS RECURSIVE AND IS A SET, not a count of one directory's direct children.
+  //
+  // `readdirSync` saw only the top level, so `identity/anything/helper.rs` was invisible: a whole
+  // subtree could be added to the governed crate and this check would still report the expected
+  // number of files. A count is also the wrong comparison — one file removed and one added scores
+  // equal and passes. Compare exact forward-slashed paths relative to `src/identity` against the
+  // approved set, and say which side each difference is on. The approved entries are flat filenames,
+  // so any nested path is by construction absent from the set and fails.
   const idDir = path.join(HID, "src", "identity");
+  const approved = new Set(IDENTITY_FILES);
+  const actualId = fs.existsSync(idDir)
+    ? rsFiles(idDir).map((f) => path.relative(idDir, f).replace(/\\/g, "/")).sort()
+    : [];
+  const actualSet = new Set(actualId);
   for (const f of IDENTITY_FILES) {
-    if (!fs.existsSync(path.join(idDir, f))) errors.push("missing relocated identity file: " + f);
+    if (!actualSet.has(f)) errors.push("missing approved identity file: " + f);
   }
-  const actualId = fs.existsSync(idDir) ? fs.readdirSync(idDir).filter((f) => f.endsWith(".rs")) : [];
-  if (actualId.length !== IDENTITY_FILES.length)
-    errors.push("host-identity identity file count " + actualId.length + " != " + IDENTITY_FILES.length);
+  for (const f of actualId) {
+    if (!approved.has(f))
+      errors.push(
+        "identity file '" + f + "' is not in the approved inventory of " +
+          IDENTITY_FILES.length + " files",
+      );
+  }
   for (const t of IDENTITY_TESTS) {
     if (!fs.existsSync(path.join(HID, "tests", t))) errors.push("missing relocated identity test: " + t);
     if (fs.existsSync(path.join(CC, "tests", t))) errors.push("old Control Center identity test still exists: " + t);
@@ -102,14 +153,33 @@ function run() {
 
   // 3. Unsafe containment + SAFETY docs + serde_json confinement inside host-identity.
   for (const f of rsFiles(path.join(HID, "src"))) {
-    const base = path.basename(f);
     const raw = read(f);
     const code = stripComments(raw);
     const unsafeUnits = count(/unsafe\s*(fn|\{)/g, code);
-    if (unsafeUnits > 0 && !UNSAFE_ALLOWED.has(base))
-      errors.push(path.relative(ROOT, f).replace(/\\/g, "/") + ": unsafe outside the two accepted identity FFI files");
-    if (unsafeUnits > 0 && count(/safety/gi, raw) < 1)
-      errors.push(path.relative(ROOT, f).replace(/\\/g, "/") + ": unsafe without SAFETY documentation");
+    // THE WHOLE PATH, never the basename. Matching on `path.basename` meant any file called
+    // `es256.rs` anywhere under src/ inherited the exemption — `src/anything/es256.rs` would have
+    // been waved through exactly like the reviewed `src/identity/es256.rs`. The acceptance is of a
+    // specific reviewed file at a specific location, so the comparison has to be the specific
+    // location. Relative to the crate's `src`, forward-slashed, compared whole: no suffix match, no
+    // directory prefix, nothing that a new file could satisfy by being named well.
+    const relToSrc = path.relative(path.join(HID, "src"), f).replace(/\\/g, "/");
+    if (unsafeUnits > 0 && !UNSAFE_ALLOWED.has(relToSrc))
+      errors.push(
+        path.relative(ROOT, f).replace(/\\/g, "/") +
+          ": unsafe at '" + relToSrc + "', which is not an accepted FFI path (" +
+          [...UNSAFE_ALLOWED].join(", ") + ")",
+      );
+    // ONE SAFETY EXPLANATION PER UNSAFE UNIT. The old rule accepted a single case-insensitive
+    // "safety" anywhere in the file, so a file with five unsafe blocks and one leftover mention of
+    // the word passed — and a NEW unsafe block added beside documented ones needed no justification
+    // at all. Count the markers exactly, and report both numbers so a failure says which side moved.
+    const safetyMarkers = count(/SAFETY:/g, raw);
+    if (unsafeUnits > 0 && safetyMarkers < unsafeUnits)
+      errors.push(
+        path.relative(ROOT, f).replace(/\\/g, "/") +
+          ": " + unsafeUnits + " unsafe unit(s) but only " + safetyMarkers +
+          " SAFETY: marker(s) — every unsafe unit needs its own justification",
+      );
     for (const { re, why } of FORBIDDEN_ROUTES) {
       if (re.test(code)) errors.push(path.relative(ROOT, f).replace(/\\/g, "/") + ": " + why);
     }

@@ -16,7 +16,17 @@ const CONTRACT = path.join(ROOT, "projectos", "host", "packaged-runtime-contract
 const CONTROL_CENTER = path.join(ROOT, "projectos", "control-center");
 const GENERATOR = path.join(ROOT, "projectos", "host", "packaged-manifest-generator");
 
-const failures = [];
+/**
+ * validate-all requires every registered module to expose `run(): string[]`. This file printed its
+ * own result and called process.exit at import time instead, so requiring it CRASHED the aggregate
+ * run ("require(...).run is not a function") while still passing when executed directly -- a
+ * validator that looks green standalone and protects nothing in the suite.
+ *
+ * The checks below are unchanged in text and order; they are only enclosed. `failures` is now a
+ * fresh local per call, so calling run() twice cannot inherit the first run's errors.
+ */
+function run() {
+  const failures = [];
 function check(condition, message) {
   if (!condition) failures.push(message);
 }
@@ -520,9 +530,17 @@ for (const forbidden of ["PROJECTOS_PRIVATE_KEY", "--private-key", "privateKey",
 }
 
 // ---- report --------------------------------------------------------------------------------------
-if (failures.length > 0) {
-  console.error("val-projectos-packaged-runtime-contract1a FAILED");
-  for (const f of failures) console.error(`  - ${f}`);
-  process.exit(1);
+  return failures;
 }
-console.log("val-projectos-packaged-runtime-contract1a OK");
+
+module.exports = { run };
+
+if (require.main === module) {
+  const failures = run();
+  if (failures.length > 0) {
+    console.error("val-projectos-packaged-runtime-contract1a FAILED");
+    for (const f of failures) console.error(`  - ${f}`);
+    process.exit(1);
+  }
+  console.log("val-projectos-packaged-runtime-contract1a OK");
+}

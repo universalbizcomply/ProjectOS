@@ -17,15 +17,36 @@ import { requestGovernedCommand } from '../governed/governedClient';
 import type { GovernedCommandArgs, GovernedVerb } from '../governed/governedCommands';
 import type { GovernedProjection, GovernedPhaseView } from '../governed/types';
 
-/** The next lifecycle step for a phase, in plain language. Derived, never authored per-button. */
+/**
+ * The next lifecycle step for a phase, in plain language. Derived, never authored per-button.
+ *
+ * EVERY ENTRY HERE RECORDS A STAGE CHANGE AND NOTHING ELSE. Each dispatches `phase.advance` to the
+ * next status; not one of them executes, collects or sends anything.
+ *
+ * The whole map used to be written in the imperative — "Run validation", "Collect evidence", "Send
+ * for review" — and every one of those was a claim about work the button does not do. "Run
+ * validation" was the one caught live: the phase entered the `validating` stage, no validator ran,
+ * and no route from this surface to one exists (there is no validation verb in GOVERNED_VERBS at
+ * all; `projectos validate` is a separate CLI command). Fixing that label alone would have left five
+ * siblings making the same promise, so the map is stated uniformly as what it is: moving a recorded
+ * stage. `STAGE_ONLY_NOTE` says the rest, once, wherever any of these is shown.
+ *
+ * The destinations are unchanged. This is a correction to what the owner is told, not to what the
+ * runtime is asked.
+ */
 const NEXT_STEP: Readonly<Record<string, { readonly to: string; readonly label: string }>> = {
-  draft: { to: 'prompted', label: 'Prepare the phase prompt' },
-  prompted: { to: 'implementing', label: 'Begin implementation' },
-  implementing: { to: 'validating', label: 'Run validation' },
-  validating: { to: 'evidence', label: 'Collect evidence' },
-  evidence: { to: 'awaiting_review', label: 'Send for review' },
-  awaiting_review: { to: 'awaiting_closure', label: 'Send for closure' },
+  draft: { to: 'prompted', label: 'Record prompt ready' },
+  prompted: { to: 'implementing', label: 'Move to implementation' },
+  implementing: { to: 'validating', label: 'Move to validation' },
+  validating: { to: 'evidence', label: 'Move to evidence' },
+  evidence: { to: 'awaiting_review', label: 'Move to review' },
+  awaiting_review: { to: 'awaiting_closure', label: 'Move to closure review' },
 };
+
+/** Shown beside whichever stage-transition button is offered, and referenced as its description. */
+const STAGE_ONLY_NOTE =
+  'This only changes the recorded phase stage. It does not perform the work or send anything.';
+const STAGE_ONLY_NOTE_ID = 'ocp-stage-only-note';
 
 interface ActionState {
   readonly busy: boolean;
@@ -93,6 +114,9 @@ export function GovernedActions({ state }: { state: GovernedProjection }) {
               type="button"
               className="ocp-btn primary"
               disabled={action.busy}
+              // The note is the button's accessible description, so a screen-reader user is told what
+              // the action does NOT do at the same moment a sighted user reads it — not afterwards.
+              aria-describedby={STAGE_ONLY_NOTE_ID}
               onClick={() =>
                 void send(
                   'phase.advance',
@@ -157,6 +181,15 @@ export function GovernedActions({ state }: { state: GovernedProjection }) {
             Refresh
           </button>
         </div>
+      )}
+
+      {/* Adjacent to the stage-transition action and referenced by it via aria-describedby. Rendered
+          whenever any mapped transition is offered, because every one of them is stage-only — a note
+          attached to a single label would imply the others do more. */}
+      {state.plan.ready && phase !== null && next !== undefined && (
+        <p className="ocp-note" id={STAGE_ONLY_NOTE_ID}>
+          {STAGE_ONLY_NOTE}
+        </p>
       )}
 
       {action.lines.length > 0 && (

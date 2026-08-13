@@ -391,6 +391,9 @@ body {
 .ocp-next { margin: 0; font-size: 15px; color: var(--text); line-height: 1.5; }
 .ocp-sub { margin: -4px 0 12px; font-size: 12px; color: var(--text-dim); }
 .ocp-empty { margin: 0; font-size: 13px; color: var(--text-faint); }
+/* Sits directly under the action it qualifies. Same weight as the surrounding explanatory copy: it
+   is a correction to what the button might be assumed to do, not a warning. */
+.ocp-note { margin: 8px 0 0; font-size: 13px; color: var(--text-faint); }
 .ocp-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--text-dim); line-height: 1.5; }
 .ocp-list.warn li { color: var(--warn); }
 

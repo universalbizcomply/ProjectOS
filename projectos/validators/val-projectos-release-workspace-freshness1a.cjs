@@ -16,7 +16,17 @@ const path = require("path");
 const ROOT = path.resolve(__dirname, "..", "..");
 const PIPELINE = path.join(ROOT, "projectos", "control-center", "packaging", "build-release-payload.mjs");
 
-const failures = [];
+/**
+ * validate-all requires every registered module to expose `run(): string[]`. This file printed its
+ * own result and called process.exit at import time instead, so requiring it CRASHED the aggregate
+ * run ("require(...).run is not a function") while still passing when executed directly -- a
+ * validator that looks green standalone and protects nothing in the suite.
+ *
+ * The checks below are unchanged in text and order; they are only enclosed. `failures` is now a
+ * fresh local per call, so calling run() twice cannot inherit the first run's errors.
+ */
+function run() {
+  const failures = [];
 function check(condition, message) {
   if (!condition) failures.push(message);
 }
@@ -105,10 +115,18 @@ for (const dir of [["core"], ["agent"], ["bridge", "daemon"]]) {
   );
 }
 
-if (failures.length > 0) {
-  console.error("FAIL val-projectos-release-workspace-freshness1a");
-  for (const f of failures) console.error(`  - ${f}`);
-  process.exit(1);
+  return failures;
 }
-console.log("PASS val-projectos-release-workspace-freshness1a");
-console.log("  the canonical release path removes and rebuilds core, agent and bridge-daemon before linking");
+
+module.exports = { run };
+
+if (require.main === module) {
+  const failures = run();
+  if (failures.length > 0) {
+    console.error("FAIL val-projectos-release-workspace-freshness1a");
+    for (const f of failures) console.error(`  - ${f}`);
+    process.exit(1);
+  }
+  console.log("PASS val-projectos-release-workspace-freshness1a");
+  console.log("  the canonical release path removes and rebuilds core, agent and bridge-daemon before linking");
+}
