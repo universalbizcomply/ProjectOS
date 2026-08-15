@@ -5,16 +5,17 @@
   "activePlanVersion": "1.0",
   "currentStatus": "PLAN READY",
   "completionMethod": "phase-closure",
-  "acceptedPhaseCount": 4,
+  "acceptedPhaseCount": 5,
   "totalPhaseCount": 6,
-  "completionPercentage": 66.7,
+  "completionPercentage": 83.3,
   "completedPhases": [
     "PROJECTOS-RECOVERY-PLANNING-BRAIN1A",
     "PROJECTOS-RECOVERY-PLAN-AUTHORITY1A",
     "PROJECTOS-RECOVERY-CONTROL-CENTRE1A",
-    "PROJECTOS-RECOVERY-AUTONOMOUS-LOOP1A"
+    "PROJECTOS-RECOVERY-AUTONOMOUS-LOOP1A",
+    "PROJECTOS-RECOVERY-INSTALLED-APP1A"
   ],
-  "activePhase": "PROJECTOS-RECOVERY-INSTALLED-APP1A",
+  "activePhase": null,
   "pendingPhases": [
     "PROJECTOS-RECOVERY-EXTERNAL-PROJECT1A"
   ],
@@ -22,13 +23,13 @@
   "deferredPhases": [],
   "acceptedCarryForward": [],
   "currentBranch": "projectos-post-v3-selfhost-pilot1a",
-  "currentHead": "cab71a5dfd63e22c9c0b0ee23609f2245d5eb81a",
+  "currentHead": "2f49106625b16e0f0f52ea94dbd510d11e4883d2",
   "currentRemoteHead": null,
   "workingTreeStatus": "dirty",
   "currentRisks": [],
   "currentBlockers": [],
   "lastEvidenceReference": "plan-approval decision PROJECTOS-RECOVERY-PLAN-APPROVAL-DECISION1A",
-  "nextRecommendedPhase": "PROJECTOS-RECOVERY-INSTALLED-APP1A",
-  "lastUpdated": "2026-08-15T11:08:39.321Z",
-  "updatedByRole": "implementer"
+  "nextRecommendedPhase": "PROJECTOS-RECOVERY-EXTERNAL-PROJECT1A",
+  "lastUpdated": "2026-08-15T15:28:49.026Z",
+  "updatedByRole": "advisor"
 }

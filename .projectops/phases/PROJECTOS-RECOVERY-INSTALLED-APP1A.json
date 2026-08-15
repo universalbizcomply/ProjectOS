@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-RECOVERY-INSTALLED-APP1A",
   "project": "projectos",
   "objective": "Let the normal installed application do the whole workflow, using the existing Windows host and trust architecture.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -41,6 +41,13 @@
       "to": "awaiting_closure",
       "by": "implementer",
       "at": "2026-08-15T11:08:39.196Z"
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "advisor",
+      "at": "2026-08-15T15:28:48.903Z",
+      "note": "owner-accepted residual HIGH, unresolved and carried forward: SR-1 — closed by ChatGPT under the projectos-scoped phase-closure delegation, decision PROJECTOS-RECOVERY-INSTALLED-APP1A-CLOSURE-DECISION1A"
     }
   ]
 }
