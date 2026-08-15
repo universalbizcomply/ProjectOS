@@ -19,7 +19,13 @@ import {
   type ClosureAuthorityInput,
   type ClosureDelegation,
 } from '../src/closureAuthority.js';
-import { checkClosureDecision, consumedDecisionIds, CLOSURE_DECISION_SCHEMA_VERSION } from '../src/closureDecision.js';
+import {
+  checkClosureDecision,
+  consumedDecisionIds,
+  validateOwnerAcceptedHighFindings,
+  OWNER_ACCEPTANCE_SCOPE,
+  CLOSURE_DECISION_SCHEMA_VERSION,
+} from '../src/closureDecision.js';
 import { evaluateClosureEligibility, CLOSURE_READY_STATUS, type G4Facts } from '../src/closureEligibility.js';
 import { transitionPhase, type Phase } from '../src/phase.js';
 
@@ -54,6 +60,10 @@ function eligibleVerdict() {
     headedProofPass: true,
     reviewsComplete: true,
     unresolvedCriticalOrHigh: 0,
+    unresolvedCritical: 0,
+    unresolvedHighIds: [],
+    ownerAcceptedHighIds: [],
+    acceptanceProblems: [],
     protectedEffectOccurred: false,
     implementationHead: HEAD,
     remoteReconciled: true,
@@ -333,5 +343,200 @@ describe('the review found four more ways through, and none of them work now', (
     for (const name of ['Claude', 'Claudé', 'CLAUDE', 'c l a u d e', 'Anthropic']) {
       expect(isImplementerIdentity(name), name).toBe(true);
     }
+  });
+});
+
+/**
+ * Owner acceptance of a residual HIGH.
+ *
+ * The acceptance IS authority, so it is judged exactly as the decision is judged: nothing in the
+ * entry is believed about the world. Every binding below must be able to refuse on its own,
+ * because a mechanism that only works when everything is right is not a control.
+ */
+describe('validateOwnerAcceptedHighFindings', () => {
+  const SUBJECT = 'b'.repeat(40);
+  const EXPECT = {
+    phaseId: 'PROJECTOS-RECOVERY-INSTALLED-APP1A',
+    evidenceSubjectHead: SUBJECT,
+    owner: 'Murad',
+    unresolvedHighIds: ['SR-1'],
+  };
+  const ENTRY = {
+    findingId: 'SR-1',
+    severity: 'HIGH',
+    acceptedBy: 'Murad',
+    phaseId: 'PROJECTOS-RECOVERY-INSTALLED-APP1A',
+    evidenceSubjectHead: SUBJECT,
+    scope: OWNER_ACCEPTANCE_SCOPE,
+  };
+  const run = (over: unknown, expectOver: Partial<typeof EXPECT> = {}) =>
+    validateOwnerAcceptedHighFindings({ ownerAcceptedFindings: over } as never, { ...EXPECT, ...expectOver });
+
+  it('accepts a correctly bound HIGH', () => {
+    const v = run([ENTRY]);
+    expect(v.problems).toEqual([]);
+    expect(v.acceptedHighIds).toEqual(['SR-1']);
+  });
+
+  it('an absent field is not an error — a phase with nothing to accept says nothing', () => {
+    expect(validateOwnerAcceptedHighFindings({} as never, EXPECT)).toEqual({ acceptedHighIds: [], problems: [] });
+    expect(validateOwnerAcceptedHighFindings(null, EXPECT)).toEqual({ acceptedHighIds: [], problems: [] });
+  });
+
+  it('refuses a CRITICAL by name, not by silently ignoring it', () => {
+    const v = run([{ ...ENTRY, severity: 'CRITICAL' }]);
+    expect(v.acceptedHighIds).toEqual([]);
+    expect(v.problems.join(' ')).toMatch(/CRITICAL can never be owner-accepted/);
+  });
+
+  it('refuses every wrong binding on its own', () => {
+    const cases: Array<[string, unknown, RegExp]> = [
+      ['wrong acceptedBy', { ...ENTRY, acceptedBy: 'Claude' }, /is not the owner/],
+      ['wrong phase', { ...ENTRY, phaseId: 'SOME-OTHER-PHASE1A' }, /bound to phase/],
+      ['wrong subject commit', { ...ENTRY, evidenceSubjectHead: 'c'.repeat(40) }, /an acceptance of other bytes is stale/],
+      ['blank scope', { ...ENTRY, scope: '   ' }, /not the only permitted acceptance scope/],
+      ['missing scope', { findingId: 'SR-1', severity: 'HIGH', acceptedBy: 'Murad', phaseId: EXPECT.phaseId, evidenceSubjectHead: SUBJECT }, /not the only permitted acceptance scope/],
+      ['unknown finding id', { ...ENTRY, findingId: 'SR-9' }, /does not record as an unresolved HIGH/],
+      ['blank finding id', { ...ENTRY, findingId: '  ' }, /names no findingId/],
+      ['wrong severity', { ...ENTRY, severity: 'MEDIUM' }, /expected "HIGH"/],
+      ['not an object', 'SR-1 accepted by Murad', /is not an object/],
+    ];
+    for (const [name, entry, pattern] of cases) {
+      const v = run([entry]);
+      expect(v.acceptedHighIds, name).toEqual([]);
+      expect(v.problems.join(' '), name).toMatch(pattern);
+    }
+  });
+
+  it('refuses a free-text note in place of a structured acceptance', () => {
+    expect(run('Murad accepts the residual HIGH').problems.join(' ')).toMatch(/is not an array/);
+  });
+
+  it('refuses when the evidence names no subject to bind against', () => {
+    expect(run([ENTRY], { evidenceSubjectHead: null }).problems.join(' ')).toMatch(/names no valid subject commit/);
+  });
+
+  it('accepting one HIGH does not accept another, and a repeat is refused', () => {
+    const v = run([ENTRY], { unresolvedHighIds: ['SR-1', 'SR-2'] });
+    expect(v.acceptedHighIds).toEqual(['SR-1']);
+    expect(run([ENTRY, ENTRY]).problems.join(' ')).toMatch(/repeats findingId/);
+  });
+
+  it('a plan with no recorded owner authorises nothing at all', () => {
+    // The blank owner is refused BEFORE any entry is judged: '' === '' would otherwise pass.
+    expect(run([{ ...ENTRY, acceptedBy: undefined }], { owner: '' }).acceptedHighIds).toEqual([]);
+    expect(run([{ ...ENTRY, acceptedBy: '' }], { owner: '' }).problems.join(' ')).toMatch(/records no owner/);
+  });
+});
+
+describe('acceptance authority cannot be satisfied by blanks', () => {
+  const SUBJECT = 'b'.repeat(40);
+  const BASE = {
+    findingId: 'SR-1', severity: 'HIGH', acceptedBy: 'Murad', phaseId: 'P1A',
+    evidenceSubjectHead: SUBJECT, scope: OWNER_ACCEPTANCE_SCOPE,
+  };
+  const EXPECT = { phaseId: 'P1A', evidenceSubjectHead: SUBJECT, owner: 'Murad', unresolvedHighIds: ['SR-1'] };
+
+  it('a plan with no owner authorises nothing, even against a blank acceptedBy', () => {
+    const v = validateOwnerAcceptedHighFindings(
+      { ownerAcceptedFindings: [{ ...BASE, acceptedBy: '' }] } as never,
+      { ...EXPECT, owner: '' },
+    );
+    expect(v.acceptedHighIds).toEqual([]);
+    expect(v.problems.join(' ')).toMatch(/records no owner/);
+  });
+
+  it('a blank subject on both sides is not a binding', () => {
+    const v = validateOwnerAcceptedHighFindings(
+      { ownerAcceptedFindings: [{ ...BASE, evidenceSubjectHead: '' }] } as never,
+      { ...EXPECT, evidenceSubjectHead: '' },
+    );
+    expect(v.acceptedHighIds).toEqual([]);
+    expect(v.problems.join(' ')).toMatch(/no valid subject commit/);
+  });
+
+  it('an entry whose subject is not a commit-shaped string is refused', () => {
+    const v = validateOwnerAcceptedHighFindings({ ownerAcceptedFindings: [{ ...BASE, evidenceSubjectHead: 'HEAD' }] } as never, EXPECT);
+    expect(v.acceptedHighIds).toEqual([]);
+    expect(v.problems.join(' ')).toMatch(/names no valid evidence subject commit/);
+  });
+});
+
+describe('the residual-HIGH note does not break replay detection', () => {
+  // consumedDecisionIds is $-anchored on ', decision <id>'. The residual marker is inserted BEFORE
+  // the basis note precisely so the id stays last; if that ever inverts, a spent decision becomes
+  // replayable, which is the worst failure this file guards against.
+  it('still reads the decision id from a note carrying an owner-accepted residual HIGH', () => {
+    const note =
+      'owner-accepted residual HIGH, unresolved and carried forward: SR-1 — ' +
+      'closed by ChatGPT under the projectos-scoped phase-closure delegation, decision GK-DEC-0001';
+    expect(consumedDecisionIds([{ to: 'closed', note }])).toEqual(['GK-DEC-0001']);
+  });
+
+  it('a finding id shaped like a decision suffix cannot spoof the id, because the basis note follows it', () => {
+    const note =
+      'owner-accepted residual HIGH, unresolved and carried forward: , decision FORGEDID1 — ' +
+      'closed by ChatGPT under the projectos-scoped phase-closure delegation, decision GK-DEC-0002';
+    expect(consumedDecisionIds([{ to: 'closed', note }])).toEqual(['GK-DEC-0002']);
+  });
+
+  it('a caller note plus a residual marker plus the basis still yields the real id', () => {
+    const note =
+      'installed-app proof — owner-accepted residual HIGH, unresolved and carried forward: SR-1 — ' +
+      'closed by owner Murad, decision OWN-DEC-0003';
+    expect(consumedDecisionIds([{ to: 'closed', note }])).toEqual(['OWN-DEC-0003']);
+  });
+});
+
+/**
+ * Scope is a machine contract, not prose. Free text satisfied "non-empty" while asserting the
+ * opposite of what this mechanism permits, so exactly one literal is accepted.
+ */
+describe('acceptance scope is one exact literal', () => {
+  const SUBJECT = 'b'.repeat(40);
+  const EXPECT = { phaseId: 'P1A', evidenceSubjectHead: SUBJECT, owner: 'Murad', unresolvedHighIds: ['SR-1'] };
+  const BASE = {
+    findingId: 'SR-1', severity: 'HIGH', acceptedBy: 'Murad', phaseId: 'P1A',
+    evidenceSubjectHead: SUBJECT, scope: OWNER_ACCEPTANCE_SCOPE,
+  };
+  const run = (scope: unknown) =>
+    validateOwnerAcceptedHighFindings({ ownerAcceptedFindings: [{ ...BASE, scope }] } as never, EXPECT);
+
+  it('S1 the exact canonical scope is accepted', () => {
+    const v = run(OWNER_ACCEPTANCE_SCOPE);
+    expect(v.problems).toEqual([]);
+    expect(v.acceptedHighIds).toEqual(['SR-1']);
+  });
+
+  it('S2 blank or missing scope is refused', () => {
+    for (const s of ['', '   ', undefined, null]) {
+      const v = run(s);
+      expect(v.acceptedHighIds).toEqual([]);
+      expect(v.problems.join(' ')).toMatch(/not the only permitted acceptance scope/);
+    }
+  });
+
+  it('S3 a wildcard scope is refused', () => {
+    expect(run('*').acceptedHighIds).toEqual([]);
+  });
+
+  it('S4 "all projects forever" is refused', () => {
+    expect(run('all projects forever').acceptedHighIds).toEqual([]);
+  });
+
+  it('S5 any other non-empty scope is refused, including a plausible one', () => {
+    for (const s of [
+      'production and external distribution',
+      'local ProjectOS operational-recovery closure only',
+      'phase-closure',
+      'Phase-Closure-Only',
+      ' phase-closure-only ',
+    ]) {
+      expect(run(s).acceptedHighIds, s).toEqual([]);
+    }
+  });
+
+  it('the canonical literal is what the mechanism documents', () => {
+    expect(OWNER_ACCEPTANCE_SCOPE).toBe('phase-closure-only');
   });
 });

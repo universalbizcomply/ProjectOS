@@ -142,6 +142,15 @@ function phaseClosureEligibility(ctx: CommandContext, flags: Flags): CommandResu
     lines.push(`  G4_NOT_SATISFIED — ${g4.verdict.unmet.length} predicate(s) unmet:`);
     for (const u of g4.verdict.unmet) lines.push(`    ${u.code}: ${u.detail}`);
   }
+  // An owner-accepted HIGH must never read as a clean phase. G4-10 being satisfied says only that a
+  // recorded owner decision stopped it BLOCKING; the finding is still HIGH, still unresolved and
+  // still carried. Printing nothing here would make "accepted" and "absent" look identical.
+  if (g4.facts.ownerAcceptedHighIds.length > 0) {
+    lines.push(
+      `  RESIDUAL HIGH, OWNER-ACCEPTED — unresolved and carried forward, NOT fixed: ` +
+        g4.facts.ownerAcceptedHighIds.join(', '),
+    );
+  }
   if (decisionProblems.length === 0) {
     lines.push('  GATEKEEPER DECISION: present, bound to this phase and subject, and committed');
   } else {
@@ -351,6 +360,8 @@ function phaseAdvance(ctx: CommandContext, flags: Flags): CommandResult {
   let grant: ClosureGrant | undefined;
   let basisNote: string | undefined;
   let consumedDecisionId: string | undefined;
+  /** Set when this closure relied on an owner-accepted residual HIGH, so the durable note can say so. */
+  let residualNote = '';
   if (requiresOwner(to)) {
     const plan = gc.context.plan;
     const delegation = delegationOf(plan);
@@ -441,14 +452,30 @@ function phaseAdvance(ctx: CommandContext, flags: Flags): CommandResult {
     grant = decision.value;
     basisNote = grantNote(decision.value);
     consumedDecisionId = decisionId;
+    if (g4 !== null && g4.facts.ownerAcceptedHighIds.length > 0) {
+      residualNote = `owner-accepted residual HIGH, unresolved and carried forward: ${g4.facts.ownerAcceptedHighIds.join(', ')}`;
+    }
   }
 
   const note = str(flags, 'note');
+  // A closure that carried an owner-accepted residual HIGH must SAY SO in the durable history. The
+  // dry-run command printed it, but that output is disposable; without this the permanent record of
+  // such a closure read exactly like a clean, zero-findings one, and an auditor would have to know
+  // to go and open the decision file to discover otherwise. It goes BEFORE the basis note so the
+  // decision id stays last, where `consumedDecisionIds` reads it. Found by ECC review.
+  const noteParts = [note, residualNote].filter((s) => s !== '');
+  const callerNote = noteParts.join(' — ');
   // The recorded note carries the authority basis LAST, so the durable history says HOW closure was
   // authorised — and so the decision id can be read back from a fixed position. When the caller's
   // text came last, `--note "decision 00000000"` made the replay check read a decoy.
   const finalNote =
-    basisNote === undefined ? (note === '' ? undefined : note) : note === '' ? basisNote : `${note} — ${basisNote}`;
+    basisNote === undefined
+      ? callerNote === ''
+        ? undefined
+        : callerNote
+      : callerNote === ''
+        ? basisNote
+        : `${callerNote} — ${basisNote}`;
   const r = transitionPhase(current, to, effectiveRoleFor(flags, role, to), ctx.sys.now(), finalNote, grant);
   if (!r.ok) {
     // Owner-gated refusal is a governance block (exit 2); other illegal moves are 1.

@@ -18,6 +18,136 @@
  * Created in PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A.
  */
 
+/**
+ * G4-10: no unresolved CRITICAL or HIGH finding blocks this closure.
+ *
+ * Zero findings passes exactly as it always did — that path is untouched and is checked first, so a
+ * phase with nothing outstanding never consults an acceptance at all.
+ *
+ * Beyond that, a residual finding blocks closure UNLESS it is a HIGH the owner explicitly accepted
+ * in the committed closure decision, bound to this phase, this subject commit and this finding. A
+ * CRITICAL is never acceptable, and neither is a HIGH whose acceptance is missing, malformed or
+ * bound elsewhere. Every uncertainty resolves to a refusal: an unestablished CRITICAL count while
+ * anything is outstanding cannot prove the residue is only HIGH, so it refuses.
+ *
+ * An accepted HIGH is NOT fixed, NOT downgraded and NOT absent. It stays a HIGH in the evidence and
+ * in `unresolvedCriticalOrHigh`; this predicate says only that the owner decided it does not block
+ * THIS closure. The refusal text keeps saying so.
+ */
+function unresolvedFindingsVerdict(facts: G4Facts): [boolean, string] {
+  // A count is a whole number of findings. The deriving layer admits any finite number, so a record
+  // carrying -1 or 0.5 would otherwise walk straight through the comparisons below — and a NEGATIVE
+  // critical count is the dangerous one: `critical > 0` is false for -1, which would hide a CRITICAL
+  // behind a nonsense number. Anything that is not a plain non-negative integer is not a count.
+  const isCount = (n: number | null): n is number => n !== null && Number.isInteger(n) && n >= 0;
+
+  const total = facts.unresolvedCriticalOrHigh;
+  if (!isCount(total)) {
+    return [
+      false,
+      total === null
+        ? 'the count of unresolved CRITICAL/HIGH findings is not established'
+        : `the unresolved CRITICAL/HIGH count ${total} is not a whole number of findings`,
+    ];
+  }
+  // ZERO IS NOT A PASSWORD.
+  //
+  // The zero path used to return PASS unconditionally, before any of the newer facts were read. That
+  // made the aggregate the single word that opened the gate: a record claiming 0 outstanding while
+  // its own split said 1 CRITICAL, or while it named an unresolved HIGH, or while it carried an
+  // unusable acceptance, closed without anyone looking. Zero still passes — but only when nothing
+  // else in the record contradicts it. A genuine legacy record (no split, no ids, no acceptance)
+  // is untouched: `unresolvedCritical` of null is exactly what those records have.
+  if (total === 0) {
+    const contradictions: string[] = [];
+    if (facts.unresolvedCritical !== null && facts.unresolvedCritical !== 0) {
+      contradictions.push(`the split records ${facts.unresolvedCritical} CRITICAL`);
+    }
+    if (!Array.isArray(facts.unresolvedHighIds)) contradictions.push('the unresolved HIGH findings were not enumerated');
+    else if (facts.unresolvedHighIds.length > 0) {
+      contradictions.push(`${facts.unresolvedHighIds.length} HIGH finding(s) are named: ${facts.unresolvedHighIds.join(', ')}`);
+    }
+    if (!Array.isArray(facts.ownerAcceptedHighIds)) contradictions.push('the owner-acceptance facts were not established');
+    else if (facts.ownerAcceptedHighIds.length > 0) {
+      contradictions.push(`${facts.ownerAcceptedHighIds.length} acceptance(s) are recorded against a phase with nothing outstanding`);
+    }
+    if (!Array.isArray(facts.acceptanceProblems)) contradictions.push('the acceptance diagnostics were not established');
+    else if (facts.acceptanceProblems.length > 0) {
+      contradictions.push(`an unusable owner acceptance is claimed: ${facts.acceptanceProblems.slice(0, 2).join('; ')}`);
+    }
+    if (contradictions.length > 0) {
+      return [false, `the evidence reports 0 unresolved CRITICAL/HIGH, but ${contradictions.join('; ')}`];
+    }
+    return [true, ''];
+  }
+
+  if (!Array.isArray(facts.ownerAcceptedHighIds) || !Array.isArray(facts.acceptanceProblems)) {
+    return [false, `${total} unresolved CRITICAL/HIGH finding(s) and the owner-acceptance facts were not established`];
+  }
+  if (facts.acceptanceProblems.length > 0) {
+    return [
+      false,
+      `${total} unresolved CRITICAL/HIGH finding(s); the owner acceptance is not usable: ` +
+        facts.acceptanceProblems.slice(0, 3).join('; '),
+    ];
+  }
+  if (!isCount(facts.unresolvedCritical)) {
+    return [
+      false,
+      `${total} unresolved CRITICAL/HIGH finding(s) and the CRITICAL count is not established, so none of them can ` +
+        `be shown to be an acceptable HIGH`,
+    ];
+  }
+  if (facts.unresolvedCritical > 0) {
+    return [false, `${facts.unresolvedCritical} unresolved CRITICAL finding(s); a CRITICAL can never be owner-accepted`];
+  }
+  // COVERAGE IS BY NAME, NEVER BY COUNT.
+  //
+  // An earlier version compared the number of acceptances against the AGGREGATE unresolved count,
+  // and that was wrong in a way that mattered: the aggregate and the enumerated id list are two
+  // independently written fields of the same evidence record, so an aggregate of 1 alongside
+  // ['SR-1','SR-2','SR-3'] let ONE valid acceptance satisfy the arithmetic while SR-2 and SR-3 —
+  // real, unresolved, never accepted by anyone — went through unmentioned. Counts agreeing is not
+  // the property; every named HIGH being individually accepted is. Found by ECC review.
+  const highIds = facts.unresolvedHighIds;
+  if (!Array.isArray(highIds)) {
+    return [false, `${total} unresolved CRITICAL/HIGH finding(s) and the unresolved HIGH findings were not enumerated`];
+  }
+  // IDENTITIES, NOT OCCURRENCES.
+  //
+  // Everything below counts `highIds.length` and matches by id, which only means what it should if
+  // the ids are distinct. With ['SR-1','SR-1'] the length is 2, so an aggregate of 2 looks
+  // consistent, and the single acceptance of SR-1 covers BOTH entries — one acceptance silently
+  // discharging two claimed findings. Deduplicating quietly would hide the same contradiction, so
+  // the duplicate is named and refused.
+  const duplicate = highIds.find((id, i) => highIds.indexOf(id) !== i);
+  if (duplicate !== undefined) {
+    return [
+      false,
+      `the evidence lists unresolved HIGH finding '${duplicate}' more than once; finding identities must be unique, ` +
+        `or one acceptance would discharge several`,
+    ];
+  }
+  // The record must also agree with itself. If the halves do not sum to the whole, it is describing
+  // some other set of findings than the one it enumerates, and nothing here can be trusted.
+  if (facts.unresolvedCritical + highIds.length !== total) {
+    return [
+      false,
+      `the evidence contradicts itself: ${total} unresolved, but ${facts.unresolvedCritical} CRITICAL plus ` +
+        `${highIds.length} named HIGH`,
+    ];
+  }
+  const acceptedSet = new Set(facts.ownerAcceptedHighIds);
+  const unaccepted = highIds.filter((id) => !acceptedSet.has(id));
+  if (unaccepted.length > 0) {
+    return [
+      false,
+      `${unaccepted.length} of ${highIds.length} unresolved HIGH finding(s) carry no owner acceptance: ${unaccepted.join(', ')}`,
+    ];
+  }
+  return [true, `${highIds.length} owner-accepted residual HIGH finding(s), unresolved and carried forward`];
+}
+
 /** The predicate identifiers, so a refusal names exactly what was unmet. */
 export type G4Predicate =
   | 'G4-1'
@@ -66,6 +196,24 @@ export interface G4Facts {
   readonly headedProofPass: boolean | null;
   readonly reviewsComplete: boolean | null;
   readonly unresolvedCriticalOrHigh: number | null;
+  /**
+   * G4-10 SEVERITY SPLIT AND OWNER ACCEPTANCE.
+   *
+   * `unresolvedCriticalOrHigh` is one combined count, which cannot answer the only question that
+   * decides whether a residual finding may be accepted: is it a CRITICAL or a HIGH. These four facts
+   * answer it, and say who accepted what.
+   *
+   * `unresolvedCritical` is the CRITICAL count alone — `null` when the evidence does not establish it,
+   * which fails closed the moment anything is unresolved. `unresolvedHighIds` names the unresolved
+   * HIGH findings, so an acceptance must point at one that exists. `ownerAcceptedHighIds` are the
+   * acceptances the deriving layer VALIDATED against the committed decision, and `acceptanceProblems`
+   * is why any claimed acceptance was refused — mirroring the G4-17 shape, where the reason a record
+   * cannot be trusted travels with the record rather than being collapsed into a boolean.
+   */
+  readonly unresolvedCritical: number | null;
+  readonly unresolvedHighIds: readonly string[];
+  readonly ownerAcceptedHighIds: readonly string[];
+  readonly acceptanceProblems: readonly string[];
   /** G4-11 whether any protected effect was recorded. */
   readonly protectedEffectOccurred: boolean;
   /** G4-12 / G4-13 repository state at the decision point. */
@@ -210,13 +358,7 @@ export function evaluateClosureEligibility(facts: G4Facts): G4Verdict {
     'the phase requires a headed/desktop proof and no passing proof is recorded',
   );
   check('G4-9', facts.reviewsComplete === true, 'required code/security/ECC reviews are not recorded as complete');
-  check(
-    'G4-10',
-    facts.unresolvedCriticalOrHigh === 0,
-    facts.unresolvedCriticalOrHigh === null
-      ? 'the count of unresolved CRITICAL/HIGH findings is not established'
-      : `${facts.unresolvedCriticalOrHigh} unresolved CRITICAL/HIGH finding(s)`,
-  );
+  check('G4-10', ...unresolvedFindingsVerdict(facts));
   check('G4-11', !facts.protectedEffectOccurred, 'a protected effect was recorded for this phase');
   check(
     'G4-12',

@@ -28,6 +28,7 @@ function eligibleVerdict(phaseId = 'X1A') {
     phaseStatus: CLOSURE_READY_STATUS, validatorsPass: true, checksPass: true,
     evidenceReportPresent: true, headedProofRequired: false, headedProofPass: true,
     reviewsComplete: true, unresolvedCriticalOrHigh: 0, protectedEffectOccurred: false,
+    unresolvedCritical: 0, unresolvedHighIds: [], ownerAcceptedHighIds: [], acceptanceProblems: [],
     implementationHead: HEAD, remoteReconciled: true, workingTreeClean: true,
     delegationValidForProject: true, authorityAssertedByCaller: false,
     decisionBoundToPhaseId: phaseId, evidenceSubjectHead: HEAD,

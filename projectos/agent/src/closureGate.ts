@@ -16,7 +16,13 @@ import type { System } from './system.js';
 import { join, projectopsDir } from './context.js';
 import { DEFAULT_PLAN_RELPATH, type GovernedContext } from './governedContext.js';
 import type { G4Facts, G4Verdict, ClosureDecisionRecord } from '@projectos/core';
-import { evaluateClosureEligibility, isClosureTailPath, checkClosureDecision, consumedDecisionIds } from '@projectos/core';
+import {
+  evaluateClosureEligibility,
+  isClosureTailPath,
+  checkClosureDecision,
+  consumedDecisionIds,
+  validateOwnerAcceptedHighFindings,
+} from '@projectos/core';
 
 /** Where the durable closure-evidence record for a phase lives. */
 export function closureEvidencePath(root: string, phaseId: string): string {
@@ -96,6 +102,11 @@ interface ClosureEvidenceRecord {
   readonly checksPass?: unknown;
   readonly reviewsComplete?: unknown;
   readonly unresolvedCriticalOrHigh?: unknown;
+  /** The CRITICAL half of that count, and the ids of the unresolved HIGH findings. Absent on records
+   *  written before owner acceptance existed, which is harmless while the count is 0 and fails
+   *  closed the moment it is not. */
+  readonly unresolvedCritical?: unknown;
+  readonly unresolvedHighIds?: unknown;
   readonly headedProofPass?: unknown;
 }
 
@@ -353,6 +364,23 @@ export function evaluateG4(
     : [];
   const runFacts = validatorRunFacts(sys, root, subject);
 
+  // OWNER-ACCEPTED HIGH FINDINGS. Read from the COMMITTED decision only — the same bytes the gate
+  // already treats as the decision, for the same reason: an acceptance that has not passed the owner
+  // commit gate is not a visible diff, and so is not authority. A working-tree read here would let an
+  // uncommitted acceptance satisfy G4-10 while the decision itself was still being refused.
+  const unresolvedHighIds = Array.isArray(evidence.unresolvedHighIds)
+    ? evidence.unresolvedHighIds.filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+    : [];
+  const planGovernance = plan['governance'];
+  const planGov =
+    typeof planGovernance === 'object' && planGovernance !== null ? (planGovernance as Record<string, unknown>) : {};
+  // The owner is the ACTIVE APPROVED PLAN's, never the decision record's claim about who accepted.
+  const owner = typeof planGov['owner'] === 'string' ? planGov['owner'] : '';
+  const acceptance = validateOwnerAcceptedHighFindings(
+    readCommittedDecision(sys, root, phaseId) as ClosureDecisionRecord | null,
+    { phaseId, evidenceSubjectHead: subject, owner, unresolvedHighIds },
+  );
+
   const facts: G4Facts = {
     governedProjectId: context.projectId,
     planProjectId: typeof plan['projectId'] === 'string' ? plan['projectId'] : '',
@@ -369,6 +397,10 @@ export function evaluateG4(
     headedProofPass: boolOrNull(evidence.headedProofPass),
     reviewsComplete: boolOrNull(evidence.reviewsComplete),
     unresolvedCriticalOrHigh: numOrNull(evidence.unresolvedCriticalOrHigh),
+    unresolvedCritical: numOrNull(evidence.unresolvedCritical),
+    unresolvedHighIds,
+    ownerAcceptedHighIds: acceptance.acceptedHighIds,
+    acceptanceProblems: acceptance.problems,
     protectedEffectOccurred: protectedEffectOccurred(sys, context, root),
     implementationHead: git.head,
     remoteReconciled: git.reconciled,

@@ -38,6 +38,10 @@ function facts(over: Partial<G4Facts> = {}): G4Facts {
     headedProofPass: true,
     reviewsComplete: true,
     unresolvedCriticalOrHigh: 0,
+    unresolvedCritical: 0,
+    unresolvedHighIds: [],
+    ownerAcceptedHighIds: [],
+    acceptanceProblems: [],
     protectedEffectOccurred: false,
     implementationHead: HEAD,
     remoteReconciled: true,
@@ -610,5 +614,223 @@ describe('V required validators are proven by name, not by a boolean', () => {
     expect(note).toContain(`all ${G4_PREDICATE_COUNT} predicates`);
     expect(note).toContain('validate-zero-relay-continuity');
     expect(g4BasisNote(facts({ requiredValidators: [] }))).toContain('no plan-required validators');
+  });
+});
+
+/**
+ * G4-10 owner-accepted residual HIGH.
+ *
+ * The gate used to demand a combined CRITICAL/HIGH count of zero, which could not represent an
+ * authority the governance model already grants: the owner may accept a residual HIGH. These cover
+ * the boundary in both directions — what an acceptance may do, and everything it may never do.
+ */
+describe('G4-10 an owner-accepted residual HIGH, and only that', () => {
+  const ACCEPTED = { unresolvedCriticalOrHigh: 1, unresolvedCritical: 0, unresolvedHighIds: ['SR-1'], ownerAcceptedHighIds: ['SR-1'] };
+
+  it('still passes on zero findings with no acceptance anywhere — existing behaviour is untouched', () => {
+    expect(unmetCodes({})).not.toContain('G4-10');
+    // A record predating the mechanism establishes neither the split nor the ids.
+    expect(unmetCodes({ unresolvedCritical: null, unresolvedHighIds: [], ownerAcceptedHighIds: [] })).not.toContain('G4-10');
+  });
+
+  it('refuses an unresolved finding that nobody accepted', () => {
+    expect(unmetCodes({ unresolvedCriticalOrHigh: 1, unresolvedCritical: 0, unresolvedHighIds: ['SR-1'] })).toContain('G4-10');
+  });
+
+  it('accepts one owner-accepted HIGH', () => {
+    expect(unmetCodes(ACCEPTED)).not.toContain('G4-10');
+  });
+
+  it('never accepts a CRITICAL, however it is labelled', () => {
+    expect(
+      unmetCodes({ unresolvedCriticalOrHigh: 1, unresolvedCritical: 1, unresolvedHighIds: [], ownerAcceptedHighIds: ['CR-1'] }),
+    ).toContain('G4-10');
+    const v = evaluateClosureEligibility(
+      facts({ unresolvedCriticalOrHigh: 1, unresolvedCritical: 1, unresolvedHighIds: [], ownerAcceptedHighIds: ['CR-1'] }),
+    );
+    expect(v.unmet.find((u) => u.code === 'G4-10')?.detail).toMatch(/CRITICAL can never be owner-accepted/);
+  });
+
+  it('refuses a second, unaccepted HIGH — accepting one does not accept another', () => {
+    expect(unmetCodes({ ...ACCEPTED, unresolvedCriticalOrHigh: 2, unresolvedHighIds: ['SR-1', 'SR-2'] })).toContain('G4-10');
+  });
+
+  it('refuses when the acceptance could not be validated at all', () => {
+    expect(unmetCodes({ ...ACCEPTED, ownerAcceptedHighIds: [], acceptanceProblems: ['bound to the wrong phase'] })).toContain('G4-10');
+  });
+
+  it('fails closed when the CRITICAL count is unknown while something is outstanding', () => {
+    expect(unmetCodes({ ...ACCEPTED, unresolvedCritical: null })).toContain('G4-10');
+  });
+
+  it('an acceptance for a finding that is not outstanding is filtered out at the validator, not here', () => {
+    // Coverage is now judged by NAME over the enumerated list, so a stray extra id in the accepted
+    // set cannot inflate a count into passing. The validator refuses such an entry before it ever
+    // reaches these facts (see closure-decision.test.ts 'unknown finding id').
+    expect(unmetCodes({ ...ACCEPTED, ownerAcceptedHighIds: ['SR-1', 'SR-2'] })).not.toContain('G4-10');
+    expect(unmetCodes({ ...ACCEPTED, unresolvedHighIds: ['SR-1', 'SR-2'], unresolvedCriticalOrHigh: 2 })).toContain('G4-10');
+  });
+
+  it('reports an accepted HIGH as accepted-and-carried, never as fixed or absent', () => {
+    const v = evaluateClosureEligibility(facts(ACCEPTED));
+    expect(v.unmet.map((u) => u.code)).not.toContain('G4-10');
+    expect(JSON.stringify(v)).not.toMatch(/fixed|resolved/i);
+  });
+});
+
+describe('G4-10 a count that is not a count cannot open the gate', () => {
+  const BASE = { unresolvedCriticalOrHigh: 1, unresolvedHighIds: ['SR-1'], ownerAcceptedHighIds: ['SR-1'] };
+
+  it('refuses a NEGATIVE critical count — the guard is > 0, so -1 would otherwise hide a CRITICAL', () => {
+    expect(unmetCodes({ ...BASE, unresolvedCritical: -1 })).toContain('G4-10');
+  });
+
+  it('refuses fractional or non-integer counts on either half', () => {
+    expect(unmetCodes({ ...BASE, unresolvedCritical: 0.5 })).toContain('G4-10');
+    expect(unmetCodes({ ...BASE, unresolvedCriticalOrHigh: 1.5, unresolvedCritical: 0 })).toContain('G4-10');
+    expect(unmetCodes({ ...BASE, unresolvedCriticalOrHigh: Number.NaN, unresolvedCritical: 0 })).toContain('G4-10');
+  });
+
+  it('refuses a negative total, which must never read as "nothing outstanding"', () => {
+    expect(unmetCodes({ unresolvedCriticalOrHigh: -1, unresolvedCritical: 0 })).toContain('G4-10');
+  });
+});
+
+/**
+ * The ECC-found CRITICAL: coverage was compared by COUNT against the aggregate, not by NAME against
+ * the enumerated list. One valid acceptance then satisfied the arithmetic while other real,
+ * unresolved, unaccepted HIGH findings passed unmentioned.
+ */
+describe('G4-10 coverage is by name, never by count', () => {
+  it('refuses when the aggregate understates the enumerated HIGH list', () => {
+    const codes = unmetCodes({
+      unresolvedCriticalOrHigh: 1,
+      unresolvedCritical: 0,
+      unresolvedHighIds: ['SR-1', 'SR-2', 'SR-3'],
+      ownerAcceptedHighIds: ['SR-1'],
+    });
+    expect(codes).toContain('G4-10');
+  });
+
+  it('names the findings that carry no acceptance', () => {
+    const v = evaluateClosureEligibility(
+      facts({
+        unresolvedCriticalOrHigh: 3,
+        unresolvedCritical: 0,
+        unresolvedHighIds: ['SR-1', 'SR-2', 'SR-3'],
+        ownerAcceptedHighIds: ['SR-1'],
+      }),
+    );
+    const d = v.unmet.find((u) => u.code === 'G4-10')?.detail ?? '';
+    expect(d).toContain('SR-2');
+    expect(d).toContain('SR-3');
+  });
+
+  it('refuses a record whose halves do not sum to its own total', () => {
+    expect(
+      unmetCodes({ unresolvedCriticalOrHigh: 5, unresolvedCritical: 0, unresolvedHighIds: ['SR-1'], ownerAcceptedHighIds: ['SR-1'] }),
+    ).toContain('G4-10');
+  });
+
+  it('an acceptance naming something not outstanding cannot substitute for one that is', () => {
+    expect(
+      unmetCodes({
+        unresolvedCriticalOrHigh: 1,
+        unresolvedCritical: 0,
+        unresolvedHighIds: ['SR-2'],
+        ownerAcceptedHighIds: ['SR-1'],
+      }),
+    ).toContain('G4-10');
+  });
+
+  it('passes only when every named HIGH is individually accepted', () => {
+    expect(
+      unmetCodes({
+        unresolvedCriticalOrHigh: 2,
+        unresolvedCritical: 0,
+        unresolvedHighIds: ['SR-1', 'SR-2'],
+        ownerAcceptedHighIds: ['SR-1', 'SR-2'],
+      }),
+    ).not.toContain('G4-10');
+  });
+});
+
+/**
+ * Zero is not a password. The aggregate used to open the gate before any other fact was read, so a
+ * record claiming 0 while its own split or id list said otherwise closed unexamined.
+ */
+describe('G4-10 a zero total cannot bypass contradictory facts', () => {
+  it('Z1 total 0 with a CRITICAL in the split refuses', () => {
+    expect(unmetCodes({ unresolvedCriticalOrHigh: 0, unresolvedCritical: 1 })).toContain('G4-10');
+  });
+
+  it('Z2 total 0 while a HIGH is named refuses', () => {
+    expect(unmetCodes({ unresolvedCriticalOrHigh: 0, unresolvedHighIds: ['SR-1'] })).toContain('G4-10');
+  });
+
+  it('Z3 total 0 with an acceptance recorded refuses', () => {
+    expect(unmetCodes({ unresolvedCriticalOrHigh: 0, ownerAcceptedHighIds: ['SR-1'] })).toContain('G4-10');
+  });
+
+  it('Z4 total 0 with an unusable claimed acceptance refuses', () => {
+    expect(unmetCodes({ unresolvedCriticalOrHigh: 0, acceptanceProblems: ['ownerAcceptedFindings[0] is not an object'] })).toContain('G4-10');
+  });
+
+  it('Z5 a genuine legacy zero-finding record still passes', () => {
+    expect(
+      unmetCodes({
+        unresolvedCriticalOrHigh: 0,
+        unresolvedCritical: null,
+        unresolvedHighIds: [],
+        ownerAcceptedHighIds: [],
+        acceptanceProblems: [],
+      }),
+    ).not.toContain('G4-10');
+  });
+
+  it('names what contradicted the zero', () => {
+    const v = evaluateClosureEligibility(facts({ unresolvedCriticalOrHigh: 0, unresolvedHighIds: ['SR-7'] }));
+    expect(v.unmet.find((u) => u.code === 'G4-10')?.detail).toContain('SR-7');
+  });
+});
+
+/**
+ * Finding identities must be unique. With ['SR-1','SR-1'] the length is 2, so an aggregate of 2
+ * looks consistent and ONE acceptance discharges BOTH entries.
+ */
+describe('G4-10 unresolved HIGH identities must be unique', () => {
+  it('D1 a duplicated unresolved HIGH id refuses, and is named', () => {
+    const over = {
+      unresolvedCriticalOrHigh: 2,
+      unresolvedCritical: 0,
+      unresolvedHighIds: ['SR-1', 'SR-1'],
+      ownerAcceptedHighIds: ['SR-1'],
+    };
+    expect(unmetCodes(over)).toContain('G4-10');
+    const d = evaluateClosureEligibility(facts(over)).unmet.find((u) => u.code === 'G4-10')?.detail ?? '';
+    expect(d).toContain('SR-1');
+    expect(d).toMatch(/more than once/);
+  });
+
+  it('D2 two distinct HIGH ids with only one accepted refuses', () => {
+    expect(
+      unmetCodes({
+        unresolvedCriticalOrHigh: 2,
+        unresolvedCritical: 0,
+        unresolvedHighIds: ['SR-1', 'SR-2'],
+        ownerAcceptedHighIds: ['SR-1'],
+      }),
+    ).toContain('G4-10');
+  });
+
+  it('D3 two distinct HIGH ids, both individually accepted, passes', () => {
+    expect(
+      unmetCodes({
+        unresolvedCriticalOrHigh: 2,
+        unresolvedCritical: 0,
+        unresolvedHighIds: ['SR-1', 'SR-2'],
+        ownerAcceptedHighIds: ['SR-1', 'SR-2'],
+      }),
+    ).not.toContain('G4-10');
   });
 });

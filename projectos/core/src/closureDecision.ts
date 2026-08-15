@@ -46,6 +46,24 @@ export interface ClosureDecisionRecord {
   readonly decision?: unknown;
   readonly note?: unknown;
   /**
+   * Residual HIGH findings the OWNER has explicitly accepted for this closure.
+   *
+   * G4-10 requires zero unresolved CRITICAL/HIGH. That is right for a CRITICAL and right for a HIGH
+   * nobody has looked at, but the governance model gives the owner final authority to accept a
+   * residual HIGH, and the gate had no way to represent that — so a truthfully recorded, explicitly
+   * accepted HIGH was indistinguishable from an ignored one. The count-only fact could express
+   * "one HIGH remains" and nothing about who decided what.
+   *
+   * It lives HERE rather than in a new waiver file because this record is already the durable
+   * closure authority: bound to the phase, bound to the evidence subject, checked against the plan's
+   * decider, and required to be COMMITTED. A separate acceptance file would have to re-earn all four
+   * and would be a second place to look for the same kind of fact.
+   *
+   * Each entry is judged by `validateOwnerAcceptedHighFindings`. Nothing here downgrades a severity
+   * or removes a finding: an accepted HIGH stays a HIGH, stays unresolved, and stays visible.
+   */
+  readonly ownerAcceptedFindings?: unknown;
+  /**
    * Written back when this decision is CONSUMED by a closure.
    *
    * Replay tracking used to live only in the phase's own history, which `phase new --force` erases:
@@ -79,6 +97,21 @@ export interface ClosureDecisionExpectations {
 }
 
 export const CLOSURE_DECISION_SCHEMA_VERSION = '1.0.0';
+
+/**
+ * The ONLY scope an owner acceptance may carry.
+ *
+ * Scope was free text, and free text is not a contract: "*", "all projects forever" and "production
+ * and external distribution" all satisfied "non-empty" while saying the opposite of what this
+ * mechanism permits. A machine-enforced scope has to be a value the machine can actually compare, so
+ * there is exactly one, and anything else is refused.
+ *
+ * It carries no phase or commit information deliberately — the entry's `phaseId` and
+ * `evidenceSubjectHead` already bind those, and duplicating them into a free-form string would give
+ * two places to disagree. Human limitations (no production approval, no external distribution, the
+ * finding remains carried) belong in the decision's `note`, which is read by people, not by this.
+ */
+export const OWNER_ACCEPTANCE_SCOPE = 'phase-closure-only';
 const HEX40 = /^[0-9a-f]{40}$/;
 const DECISION_ID = /^[A-Za-z0-9_.:-]{8,128}$/;
 
@@ -149,6 +182,147 @@ export function checkClosureDecision(
     );
   }
   return e;
+}
+
+/** What an owner acceptance must be judged against. Every field is established by the runtime. */
+export interface OwnerAcceptanceExpectations {
+  readonly phaseId: string;
+  /** The subject the closure evidence is bound to. An acceptance of other bytes is not this one. */
+  readonly evidenceSubjectHead: string | null;
+  /** The governed project's OWNER, read from the project config — never from the record. */
+  readonly owner: string;
+  /** Ids of the findings actually recorded as unresolved HIGH at that subject. */
+  readonly unresolvedHighIds: readonly string[];
+}
+
+/** The outcome of judging the acceptances: which HIGH ids are validly accepted, and every reason
+ *  a claimed acceptance was refused. */
+export interface OwnerAcceptanceVerdict {
+  readonly acceptedHighIds: readonly string[];
+  readonly problems: readonly string[];
+}
+
+/**
+ * Which owner acceptances in a decision are usable, and why any are not.
+ *
+ * PURE, and fail-closed in every direction. An acceptance is authority, so it is judged the way the
+ * decision itself is judged: nothing in the entry is believed about the world. The phase, the subject
+ * commit and the accepting identity are compared against what the runtime established, and the
+ * finding id must name a finding the evidence ALREADY records as an unresolved HIGH — so an
+ * acceptance cannot invent the finding it forgives, nor reach a finding of another phase or another
+ * commit.
+ *
+ * CRITICAL is refused explicitly rather than by omission. "Only HIGH is listed" would make an
+ * accepted CRITICAL a silent no-op that still read as accepted somewhere; it must be a loud refusal.
+ *
+ * WHAT THIS IS NOT. It is not tamper-proofing and does not become it. This programme is
+ * `tamperProof: false`: anything able to write the decision file can write an acceptance into it.
+ * The boundary is the same one every other governed record relies on — the owner's commit gate,
+ * where a forged acceptance is a visible diff in a file the gate already refuses to read uncommitted.
+ */
+export function validateOwnerAcceptedHighFindings(
+  record: ClosureDecisionRecord | null,
+  expect: OwnerAcceptanceExpectations,
+): OwnerAcceptanceVerdict {
+  const raw = record?.ownerAcceptedFindings;
+  // Absent is not an error: a phase with nothing to accept says nothing, exactly as before.
+  if (raw === undefined || raw === null) return { acceptedHighIds: [], problems: [] };
+  if (!Array.isArray(raw)) {
+    return { acceptedHighIds: [], problems: ['ownerAcceptedFindings is present but is not an array'] };
+  }
+
+  // A plan with no recorded owner cannot authorise anything. Without this, `expect.owner` of '' and
+  // an entry's `acceptedBy` of '' compare EQUAL, and an acceptance with no identity behind it passes
+  // the authority check. `isGenuineClosure` already refuses a blank expected decider for exactly this
+  // reason; this is the same rule in the same file. Found by ECC review.
+  if (expect.owner.trim().length === 0) {
+    return {
+      acceptedHighIds: [],
+      problems: ['the active plan records no owner, so no HIGH acceptance can be authorised'],
+    };
+  }
+
+  const problems: string[] = [];
+  const accepted: string[] = [];
+  const seen = new Set<string>();
+
+  raw.forEach((entry: unknown, i: number) => {
+    const at = `ownerAcceptedFindings[${i}]`;
+    if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) {
+      problems.push(`${at} is not an object`);
+      return;
+    }
+    const a = entry as Record<string, unknown>;
+    const id = typeof a['findingId'] === 'string' ? a['findingId'].trim() : '';
+
+    // Severity first: a CRITICAL must be refused by name, whatever else the entry gets right.
+    if (a['severity'] === 'CRITICAL') {
+      problems.push(`${at} attempts to accept a CRITICAL finding${id === '' ? '' : ` (${id})`}; a CRITICAL can never be owner-accepted`);
+      return;
+    }
+    if (a['severity'] !== 'HIGH') {
+      problems.push(`${at} has severity ${JSON.stringify(a['severity'])}, expected "HIGH"`);
+      return;
+    }
+    if (id === '') {
+      problems.push(`${at} names no findingId`);
+      return;
+    }
+    if (seen.has(id)) {
+      problems.push(`${at} repeats findingId '${id}'; one acceptance covers one finding`);
+      return;
+    }
+    seen.add(id);
+
+    // Authority. The owner is the config's, never the record's claim about itself.
+    if (a['acceptedBy'] !== expect.owner) {
+      problems.push(`${at} was accepted by ${JSON.stringify(a['acceptedBy'])}, who is not the owner '${expect.owner}'`);
+      return;
+    }
+    // Binding. Wrong phase or wrong bytes is not this acceptance.
+    if (a['phaseId'] !== expect.phaseId) {
+      problems.push(`${at} is bound to phase ${JSON.stringify(a['phaseId'])}, not '${expect.phaseId}'`);
+      return;
+    }
+    if (expect.evidenceSubjectHead === null || !HEX40.test(expect.evidenceSubjectHead)) {
+      problems.push(`${at} cannot be bound: the closure evidence names no valid subject commit`);
+      return;
+    }
+    // The entry's own subject must LOOK like a commit before it is compared. Equality alone would
+    // let '' match a '' subject read off a malformed evidence record — the same shape check
+    // `checkClosureDecision` already applies to the decision's own subject. Found by ECC review.
+    if (typeof a['evidenceSubjectHead'] !== 'string' || !HEX40.test(a['evidenceSubjectHead'])) {
+      problems.push(`${at} names no valid evidence subject commit`);
+      return;
+    }
+    if (a['evidenceSubjectHead'] !== expect.evidenceSubjectHead) {
+      problems.push(
+        `${at} was accepted against ${JSON.stringify(a['evidenceSubjectHead'])}, but the closure evidence subject is ` +
+          `${expect.evidenceSubjectHead.slice(0, 7)} — an acceptance of other bytes is stale`,
+      );
+      return;
+    }
+    // Scope must be the one canonical literal. "Non-empty" let '*' and 'all projects forever'
+    // through, which is a blanket waiver wearing a field name. Exact equality, or refuse.
+    if (a['scope'] !== OWNER_ACCEPTANCE_SCOPE) {
+      problems.push(
+        `${at} records scope ${JSON.stringify(a['scope'])}, not the only permitted acceptance scope ` +
+          `'${OWNER_ACCEPTANCE_SCOPE}'`,
+      );
+      return;
+    }
+    // The finding must already be recorded as an unresolved HIGH. Acceptance forgives a finding the
+    // evidence knows about; it cannot conjure one, and it cannot reach a finding that is not HIGH.
+    if (!expect.unresolvedHighIds.includes(id)) {
+      problems.push(
+        `${at} accepts '${id}', which the closure evidence does not record as an unresolved HIGH finding at this subject`,
+      );
+      return;
+    }
+    accepted.push(id);
+  });
+
+  return { acceptedHighIds: accepted, problems };
 }
 
 /**
