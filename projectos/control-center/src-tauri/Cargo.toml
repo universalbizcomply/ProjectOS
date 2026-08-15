@@ -80,6 +80,12 @@ projectos-host-windows-owner-verification = { path = "../../host/windows-owner-v
 # output derive from ONE declaration; two literals describing one fact drift, and the day they do, a
 # correctly assembled payload is refused by the application that assembled it.
 projectos-packaged-runtime-contract = { path = "../../host/packaged-runtime-contract" }
+# PROJECTOS-PHASE6-SECTION-C: THE installed-project registry. The one route by which this application
+# learns which projects it may govern, read from the protected ProgramData installation directory and
+# validated against the repositories it names. It is a dependency rather than a second local reader so
+# there is ONE schema, ONE set of refusals and ONE path vocabulary; the crate resolves ProgramData
+# through the same Known Folder primitive already in this graph and takes no caller-supplied path.
+projectos-project-registry = { path = "../../host/project-registry" }
 
 # WINDOWS-PROCESS-CREATION1A: atomic job-bound child creation. Already present in Cargo.lock
 # (transitive via tauri) — this only promotes it to a direct dependency and enables the minimum

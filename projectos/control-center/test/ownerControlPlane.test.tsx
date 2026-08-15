@@ -43,13 +43,14 @@ describe('OwnerControlPlane · worker lifecycle banner (RECOVERY-BARRIER1D)', ()
 
   test('no banner before any lifecycle is known', () => {
     mount();
-    expect(screen.queryByRole('status')).toBeNull();
+    expect(screen.queryByTestId('lifecycle-banner')).toBeNull();
   });
 
   test('shows the Recovering message on the default surface, as a live status', () => {
     const { transport } = mount();
     act(() => transport.emit(lifecycleMsg('RECOVERING', RECOVERING_MESSAGE)));
-    const banner = screen.getByRole('status');
+    const banner = screen.getByTestId('lifecycle-banner');
+    expect(banner.getAttribute('role')).toBe('status');
     expect(banner.textContent).toContain(RECOVERING_MESSAGE);
     expect(banner.getAttribute('aria-live')).toBe('polite');
   });
@@ -57,7 +58,8 @@ describe('OwnerControlPlane · worker lifecycle banner (RECOVERY-BARRIER1D)', ()
   test('shows the Blocked message and marks it critical', () => {
     const { transport } = mount();
     act(() => transport.emit(lifecycleMsg('BLOCKED', BLOCKED_MESSAGE)));
-    const banner = screen.getByRole('status');
+    const banner = screen.getByTestId('lifecycle-banner');
+    expect(banner.getAttribute('role')).toBe('status');
     expect(banner.textContent).toContain(BLOCKED_MESSAGE);
     expect(banner.className).toContain('crit');
   });
@@ -65,7 +67,7 @@ describe('OwnerControlPlane · worker lifecycle banner (RECOVERY-BARRIER1D)', ()
   test('the banner disappears once the worker is ready', () => {
     const { transport } = mount();
     act(() => transport.emit(lifecycleMsg('RECOVERING', RECOVERING_MESSAGE)));
-    expect(screen.getByRole('status')).toBeTruthy();
+    expect(screen.getByTestId('lifecycle-banner')).toBeTruthy();
     act(() =>
       transport.emit(lifecycleMsg('RUNNING_READ_ONLY', 'Local worker ready for read-only operation.')),
     );
@@ -75,7 +77,7 @@ describe('OwnerControlPlane · worker lifecycle banner (RECOVERY-BARRIER1D)', ()
   test('never leaks an identifier through the banner', () => {
     const { transport } = mount();
     act(() => transport.emit(lifecycleMsg('BLOCKED', BLOCKED_MESSAGE)));
-    const text = screen.getByRole('status').textContent ?? '';
+    const text = screen.getByTestId('lifecycle-banner').textContent ?? '';
     for (const leak of ['pid', 'S-1-5', 'C:\\', '.exe', 'mutex', 'handle', '0x']) {
       expect(text.includes(leak)).toBe(false);
     }

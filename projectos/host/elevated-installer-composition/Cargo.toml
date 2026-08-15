@@ -15,12 +15,26 @@ default = []
 # construct no anchor, no target and no write authorisation at all.
 fixture-composition = [
     "projectos-host-canonical-installation-identity-writer/fixture-writer",
+    # PROJECTOS-PHASE6-SECTION-C: the fixture publication runs the SAME sequence production runs, so
+    # it needs the same replacement primitive. It still resolves no Known Folder and derives no
+    # production destination — the fixture supplies a disposable one.
+    "dep:projectos-windows-runtime-primitives",
+    "dep:projectos-host-protected-file-primitives",
 ]
 # The PRODUCTION dry run: read-only Known Folder resolution plus artefact evidence, stopping at the
 # frozen effect-authority gate. Non-default, and it authorises nothing — the gate still refuses.
 installer-dry-run = [
     "projectos-host-canonical-installation-identity-writer/installer-windows",
     "dep:projectos-windows-runtime-primitives",
+]
+
+# THE OWNER-APPROVED INSTALLED-PROJECT REGISTRY PUBLICATION. Non-default and additive: it turns on the
+# approved ProgramData anchor resolution and the elevation/replacement primitives. Without it this
+# crate can derive no destination and perform no publication at all.
+registry-publish-effect = [
+    "projectos-host-canonical-installation-identity-writer/installer-windows",
+    "dep:projectos-windows-runtime-primitives",
+    "dep:projectos-host-protected-file-primitives",
 ]
 
 # THE OWNER-APPROVED INSTALLATION EFFECT. Non-default and additive: it turns on the writer's installer
@@ -32,6 +46,16 @@ installer-effect = [
 ]
 
 [dependencies]
+# PROJECTOS-PHASE6-SECTION-C. THE installed-project registry contract: schema, validation and the pure
+# registration planner. Reused so the elevated side revalidates with the SAME rules the unelevated
+# planner used, rather than a second copy of them that could drift into being more permissive.
+projectos-project-registry = { path = "../project-registry" }
+# The two Windows primitives the publication needs: the process-token elevation question, and the only
+# replacement primitive that preserves a destination's own security descriptor. Optional, so the
+# default graph links neither.
+projectos-host-protected-file-primitives = { path = "../protected-file-primitives", optional = true }
+# SHA-256 for the staleness digest. Same version already used across this dependency graph.
+sha2 = "0.10"
 # The CLOSED canonical identity writer and record contract. Reused, never duplicated.
 projectos-host-canonical-installation-identity-writer = { path = "../canonical-installation-identity-writer" }
 projectos-host-identity = { path = "../host-identity" }

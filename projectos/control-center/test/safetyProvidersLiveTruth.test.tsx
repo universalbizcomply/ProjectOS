@@ -140,12 +140,36 @@ describe('Safety & Providers safety badges follow live governed truth', () => {
     );
     expect(badges()).toContain('Production LIVE');
 
-    // Switching to a project the runtime is not reporting on must drop back to that project's
-    // recorded model, not keep asserting ProjectOS's live safety over Acme's approval queue.
-    const select = screen.getByLabelText('Select project') as HTMLSelectElement;
-    const other = Array.from(select.options).map((o) => o.value).find((v) => v !== 'projectos');
-    expect(other, 'the fixture needs a second governed chain').toBeTruthy();
-    fireEvent.change(select, { target: { value: other } });
+    // REBASELINED by PROJECTOS-PHASE6-SECTION-C. The page no longer chooses its own project — the
+    // authoritative selection does — so the property is driven the way it actually occurs in the
+    // product: the owner selects a project the runtime is not reporting on. The invariant is
+    // unchanged and slightly stronger, because the page cannot avoid it by refusing to switch.
+    act(() =>
+      transport.emit({
+        kind: 'governed-projects',
+        inventory: {
+          projects: [
+            {
+              projectId: 'acme-store',
+              projectName: 'Acme Store',
+              repositoryRoot: 'C:\\dev\\Acme',
+              repository: 'acme/store',
+            },
+          ],
+          registryStatus: 'ok',
+          refusedCount: 0,
+          selectedProjectId: 'acme-store',
+        },
+      }),
+    );
     expect(badges()).not.toContain('Production LIVE');
+  });
+
+  /** And it has no selector of its own to switch with. */
+  test('there is no project selector on this page', () => {
+    mount();
+    expect(screen.queryByLabelText('Select project')).toBeNull();
+    expect(screen.queryAllByRole('combobox')).toHaveLength(0);
+    expect(screen.queryByTestId('selected-project-identity-pending')).not.toBeNull();
   });
 });

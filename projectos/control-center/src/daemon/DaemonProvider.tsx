@@ -22,7 +22,7 @@ import type {
   LiveWorker,
   LiveEvent,
 } from './types.js';
-import type { GovernedState } from '../governed/types.js';
+import type { GovernedState, GovernedProjectsInventory } from '../governed/types.js';
 
 const DaemonContext = createContext<DaemonClient | null>(null);
 
@@ -71,3 +71,12 @@ export const useNotifications = (): readonly LiveNotification[] => useSlice((s) 
  * yet — which the owner surface must render as "not connected", never as an assumed-good default.
  */
 export const useGovernedState = (): GovernedState | null => useSlice((s) => s.governed);
+/**
+ * The installed projects this ProjectOS may govern, and which one is selected.
+ *
+ * `null` means the runtime has not reported an inventory yet. It is NOT "there are no projects" and
+ * must never be rendered as one — the difference matters, because one invites the owner to register
+ * a project and the other invites them to wait.
+ */
+export const useGovernedProjects = (): GovernedProjectsInventory | null =>
+  useSlice((s) => s.governedProjects);

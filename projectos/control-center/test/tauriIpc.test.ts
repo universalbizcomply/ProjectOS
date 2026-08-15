@@ -327,3 +327,54 @@ describe('createDesktopTransport', () => {
     expect(IPC_EVENT_CHANNEL).toBe('daemon://message');
   });
 });
+
+/**
+ * THE INVENTORY IS STRUCTURALLY CHECKED AT THE WIRE BOUNDARY (PROJECTOS-PHASE6-SECTION-C).
+ *
+ * Every other message kind here is accepted on the strength of its discriminant alone. The inventory
+ * is not: it decides WHICH project the surface believes it is looking at, so a malformed one — from
+ * version skew between a sidecar and a browser bundle, or from a defect upstream — is dropped at the
+ * boundary rather than rendered as though it satisfied the type it is cast to.
+ */
+describe('governed-projects payloads are validated, not merely discriminated', () => {
+  const valid = {
+    kind: 'governed-projects',
+    inventory: {
+      projects: [
+        {
+          projectId: 'projectos',
+          projectName: 'ProjectOS',
+          repositoryRoot: 'C:\dev\ProjectOS',
+          repository: 'universalbizcomply/ProjectOS',
+        },
+      ],
+      registryStatus: 'ok',
+      refusedCount: 0,
+      selectedProjectId: 'projectos',
+    },
+  };
+
+  test('a well-formed inventory parses', () => {
+    expect(parseMessageLine(JSON.stringify(valid))).toEqual(valid);
+  });
+
+  test('a malformed inventory is refused rather than cast', () => {
+    const malformed: unknown[] = [
+      { kind: 'governed-projects' },
+      { kind: 'governed-projects', inventory: null },
+      { kind: 'governed-projects', inventory: [] },
+      { kind: 'governed-projects', inventory: { ...valid.inventory, projects: 'all of them' } },
+      { kind: 'governed-projects', inventory: { ...valid.inventory, refusedCount: 'none' } },
+      { kind: 'governed-projects', inventory: { ...valid.inventory, registryStatus: 7 } },
+      { kind: 'governed-projects', inventory: { ...valid.inventory, selectedProjectId: 7 } },
+      { kind: 'governed-projects', inventory: { ...valid.inventory, projects: [{ projectId: 'x' }] } },
+      {
+        kind: 'governed-projects',
+        inventory: { ...valid.inventory, projects: [{ ...valid.inventory.projects[0], repositoryRoot: 5 }] },
+      },
+    ];
+    for (const payload of malformed) {
+      expect(parseMessageLine(JSON.stringify(payload)), JSON.stringify(payload)).toBeNull();
+    }
+  });
+});

@@ -1,0 +1,33 @@
+[package]
+name = "projectos-project-registry"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "UNLICENSED"
+description = "THE canonical installed-project registry: the versioned schema for <ProgramData>/ProjectOS/host/installation/projects.v1.json, its fail-closed validating reader, and the pure registration planner that produces the canonical bytes for a new entry. It resolves ProgramData ONLY through the approved Known Folder primitive, never %ProgramData%, cwd, argv, an environment variable or a repository file. It performs NO elevation, applies NO ACL, publishes no bytes to a protected location, launches nothing, and mints no trust: a registry entry is machine-local configuration that names where a project is, never evidence that anything about it was verified."
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[features]
+# Binds the validated registry to `projectos_host_core::storage::ProjectRegistryReader`, the accepted
+# service-private seam. NON-DEFAULT on purpose: the Control Centre does not depend on
+# `projectos-host-core`, and the future Host Service — the only consumer that trait exists for — does
+# not exist yet. Enabling it drags core (and its authority graph) into whatever build turns it on, so
+# the binding is compiled and TESTED here rather than forced on the desktop application.
+host-core-binding = ["dep:projectos-host-core"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# The frozen path vocabulary — product name, host-state segment, installation subdirectory. Imported
+# rather than re-spelled so this crate defines no second set of path segments. host-identity does NOT
+# depend on this crate, so the direction is one-way and no cycle is possible.
+projectos-host-identity = { path = "../host-identity" }
+# Optional; see the `host-core-binding` feature.
+projectos-host-core = { path = "../core", optional = true }
+
+[target.'cfg(windows)'.dependencies]
+# The approved read-only Known Folder resolver. The SAME primitive `installed_application.rs` uses to
+# locate `application.v1.json`, so both records in the installation directory are found the same way.
+projectos-windows-runtime-primitives = { path = "../windows-runtime-primitives" }

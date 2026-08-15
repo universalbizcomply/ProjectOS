@@ -9,7 +9,10 @@
 //! WHAT IT IS NOT. It is not a product repository. The installed application is expected to govern
 //! several registered projects over time, and binding it permanently to one checkout would make that
 //! impossible. Project SELECTION happens above this root, through the canonical ProjectOS registry
-//! that lives inside it. This type establishes the trusted system root and stops there.
+//! that belongs to the INSTALLED HOST and lives in protected ProgramData beside the installation's
+//! other machine-local records — never inside a governed repository, and never inside this root,
+//! which is state the daemon may write. This type establishes the trusted system root and stops
+//! there.
 //!
 //! WHERE IT MAY NOT COME FROM, and there is no code path for any of them: `process.cwd()`, a
 //! `bridge.config.json`, an environment variable, argv, a manifest field, the governed project

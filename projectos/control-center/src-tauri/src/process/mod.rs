@@ -33,6 +33,9 @@ pub mod errors;
 /// a verified packaged identity can obtain, and that production cannot obtain at all until an
 /// approved resolver exists. Never cwd, config, environment, argv, manifest or directory discovery.
 pub(crate) mod governed_root;
+/// PROJECTOS-PHASE6-SECTION-C: THE installed-project registry, as this host consumes it. Sealed
+/// validated roots plus a closed status token; no caller-supplied path, no discovery, no fallback.
+pub(crate) mod installed_projects;
 pub(crate) mod readiness;
 pub mod state;
 

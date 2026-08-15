@@ -24,13 +24,28 @@
  *
  * Run `npm run build:sidecar` first (emits node-build/) so the import below resolves.
  */
-import { readFileSync, existsSync, readdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { resolve as resolvePath, join as joinPath, isAbsolute, basename } from 'node:path';
 import { BridgeDaemon, nodeSystem, loadConfig } from '@projectos/bridge-daemon';
 import { InProcessTransport } from '../node-build/daemon/inProcessTransport.js';
-import { projectGovernedState } from '../node-build/governed/governedProjection.js';
+import {
+  projectGovernedState,
+  ACTIVE_PHASE_STATUSES,
+} from '../node-build/governed/governedProjection.js';
 import { validateGovernedCommand, toAgentInvocation } from '../node-build/governed/governedCommands.js';
+import {
+  parseProjectArgs,
+  buildProjectInventory,
+  toInventoryMessage,
+  resolveProjectRoot,
+  decideSelection,
+  defaultSelection,
+  restoreSelection,
+  serialiseSelection,
+  SELECTION_FILE_NAME,
+  GOVERNED_PROJECTS_MESSAGE_KIND,
+} from '../node-build/governed/projectInventory.js';
 import { phase as phaseCommand, approve as approveCommand, report as reportCommand, plan as planCommand, nodeSystem as agentSystem, setGovernanceEngines } from '@projectos/agent';
 import { gitBoundSystem } from './gitBoundSystem.mjs';
 
@@ -108,16 +123,60 @@ function readBridgeConfigText() {
   }
 }
 
+const projectArgs = parseProjectArgs(process.argv.slice(2));
+
+/**
+ * The development bridge configuration text, read EXACTLY ONCE at startup.
+ *
+ * One read, one answer. Reading it separately for "is there one?" and "what does it say?" lets a
+ * transient I/O failure make those two answers disagree, which would leave the daemon deciding it is
+ * in development while loading the defaults of a run that has no configuration.
+ */
+const BRIDGE_CONFIG_TEXT = readBridgeConfigText();
+
+/**
+ * The governed SYSTEM root: framework state this daemon may read and write. It is NOT a project.
+ * Absent in development, where there is no installed host to name one.
+ */
+function systemRoot() {
+  const first = projectArgs.systemRoots[0];
+  return typeof first === 'string' && isAbsolute(first) ? resolvePath(first) : null;
+}
+
+/**
+ * The roots this daemon may govern.
+ *
+ * PACKAGED: exactly the `--project-root` values the host read from the protected registry. The watch
+ * roots are NOT consulted, so a packaged daemon governs the registry's projects and nothing else.
+ *
+ * DEVELOPMENT: the host passes no project roots, so the watch roots from the authority-bound
+ * `PROJECTOS_BRIDGE_CONFIG` are used instead. That is the existing, accepted development boundary —
+ * one absolute path injected by the development launch authority — and a packaged installation sets
+ * that variable nowhere, so this branch is unreachable from one.
+ */
+/**
+ * Whether this run is a DEVELOPMENT run. Decided ONCE, at startup, from TWO independent signals.
+ *
+ * A bridge configuration is present AND no registry status was supplied. The second condition is the
+ * one that matters: the packaged launch authority ALWAYS passes `--project-registry-status`, even
+ * when zero projects validated, so its presence is proof the launcher was the packaged one. Relying
+ * on the absence of `PROJECTOS_BRIDGE_CONFIG` alone would make this file's safety depend entirely on
+ * an environment allowlist maintained in another crate; if that allowlist were ever loosened, this
+ * would silently accept the redirection. Now it takes both.
+ */
+const DEVELOPMENT_RUN = BRIDGE_CONFIG_TEXT !== null && projectArgs.registryStatus === null;
+
+function candidateProjects(config) {
+  if (projectArgs.suppliedProjects.length > 0) return projectArgs.suppliedProjects;
+  if (!DEVELOPMENT_RUN) return [];
+  // DEVELOPMENT ONLY. The watch roots come from the authority-bound absolute path the development
+  // launch authority injected, and carry no registry-bound identity because there is no registry.
+  return config.watchRoots.map((root) => ({ boundProjectId: null, repositoryRoot: root }));
+}
+
 function resolveConfig() {
-  const roots = [];
-  for (let i = 2; i < process.argv.length; i += 1) {
-    if (process.argv[i] === '--root' && process.argv[i + 1]) {
-      roots.push(process.argv[i + 1]);
-      i += 1;
-    }
-  }
-  const { config } = loadConfig(readBridgeConfigText());
-  return { ...config, watchRoots: [...config.watchRoots, ...roots] };
+  const { config } = loadConfig(BRIDGE_CONFIG_TEXT);
+  return { ...config, watchRoots: [...config.watchRoots, ...projectArgs.systemRoots] };
 }
 
 /* --- governed state (READ-ONLY) -------------------------------------------------------------
@@ -130,6 +189,8 @@ function resolveConfig() {
  * substitute its own engine.
  */
 const DEFAULT_PLAN_RELPATH = '.projectops/plan.json';
+/** The project's own configuration, relative to its repository root. Spelled once. */
+const PROJECT_CONFIG_SEGMENTS = ['.projectops', 'project-config.json'];
 
 /** The engine linked into this artefact at build time — the same one the agent package was given. */
 function loadEngine() {
@@ -186,9 +247,16 @@ function readClosureDecisions(root) {
 /** Build the governed state for `root`, or an honest unavailable reason. Never throws. */
 function buildGovernedState(root, observedAt) {
   if (typeof root !== 'string' || root.length === 0 || !isAbsolute(root)) {
-    return { connected: false, reason: 'NO_RUNTIME', detail: 'No governed project root was supplied.' };
+    return {
+      connected: false,
+      reason: 'NO_RUNTIME',
+      detail:
+        inventory.projects.length === 0
+          ? 'No installed project is available to govern.'
+          : 'No project is selected. Choose one to see its plan and state.',
+    };
   }
-  const cfg = readJsonFile(joinPath(root, '.projectops', 'project-config.json'));
+  const cfg = readProjectConfig(root);
   if (cfg === null) {
     return {
       connected: false,
@@ -297,6 +365,37 @@ function handleGovernedCommand(raw) {
     emit(2, [`REFUSED (${check.code}): ${check.detail}`], null);
     return;
   }
+  // SELECTION IS HANDLED HERE, before any project root is required — it is the verb that DECIDES
+  // which root the others use. It reaches no canonical agent command and writes nothing inside any
+  // project; the only thing it can change is which of the host-supplied projects this surface reads.
+  if (check.request.verb === 'project.select') {
+    // `emitGovernedState` refreshes on its way out, so the decision below reads the inventory this
+    // command was dispatched against rather than re-deriving it twice per command.
+    refreshInventory();
+    const outcome = decideSelection(
+      inventory,
+      check.request.args.projectId,
+      selectedProjectId,
+      governedWorkActive(),
+    );
+    if (!outcome.ok) {
+      emit(2, [`REFUSED (${outcome.code}): ${outcome.detail}`], check.request.verb);
+      emitGovernedState({ refresh: false });
+      return;
+    }
+    selectedProjectId = outcome.projectId;
+    const remembered = persistSelection(outcome.projectId);
+    emit(
+      0,
+      remembered
+        ? [`Selected ${outcome.projectId}.`]
+        : [`Selected ${outcome.projectId}. It could not be remembered for the next start.`],
+      check.request.verb,
+    );
+    emitGovernedState({ refresh: false });
+    return;
+  }
+
   const root = governedRoot();
   if (root === null) {
     emit(2, ['REFUSED (NO_RUNTIME): no governed project root is available.'], check.request.verb);
@@ -326,7 +425,10 @@ function handleGovernedCommand(raw) {
       invocation.command === 'report'
         ? fn(ctx, invocation.flags)
         : fn(ctx, invocation.flags, invocation.positionals);
-  } catch (e) {
+  } catch {
+    // Redacted on purpose — a raw error can carry a path — but not silent: without a marker a
+    // governed-command crash leaves no operational trace at all.
+    process.stderr.write('projectos sidecar: governed command failed [redacted]\n');
     emit(2, ['REFUSED (RUNTIME_ERROR): the governed command could not be executed.'], check.request.verb);
     return;
   }
@@ -336,14 +438,71 @@ function handleGovernedCommand(raw) {
   emitGovernedState();
 }
 
-/** The governed project root: the first watched root that carries an installed `.projectops`. */
-function governedRoot() {
-  for (const r of config.watchRoots) {
-    if (typeof r === 'string' && existsSync(joinPath(r, '.projectops', 'project-config.json'))) {
-      return resolvePath(r);
+/* --- THE INSTALLED-PROJECT INVENTORY AND THE OWNER'S SELECTION -------------------------------
+ *
+ * The governed project root used to be "the first watched root that carries a `.projectops`" — a
+ * scan, and therefore a redirection primitive: whoever could place a `.projectops` directory in a
+ * watched root chose which repository ProjectOS governed. It is now the root of the project the
+ * owner SELECTED, out of the set the installed host validated against the protected registry.
+ *
+ * Selection carries an ID. It never carries a path: `resolveProjectRoot` looks the id up in this
+ * inventory, so the only roots reachable are the ones already here.
+ */
+
+/** Read one project's own configuration, or null. Never throws. */
+function readProjectConfig(root) {
+  return readJsonFile(joinPath(root, ...PROJECT_CONFIG_SEGMENTS));
+}
+
+let inventory = buildProjectInventory(
+  candidateProjects(config),
+  readProjectConfig,
+  projectArgs.registryStatus,
+);
+
+/** Where the selection is remembered: beneath the governed SYSTEM root, never inside a project. */
+function selectionPath() {
+  const root = systemRoot();
+  return root === null ? null : joinPath(root, SELECTION_FILE_NAME);
+}
+
+/**
+ * Restore the remembered selection, then fall back to the single-project default.
+ *
+ * A remembered id is re-resolved against THIS run's inventory, so a project that has since been
+ * unregistered, re-badged or broken restores to nothing rather than to a stale root.
+ */
+function initialSelection() {
+  const path = selectionPath();
+  let text = null;
+  if (path !== null && existsSync(path)) {
+    try {
+      text = readFileSync(path, 'utf8');
+    } catch {
+      text = null;
     }
   }
-  return null;
+  return restoreSelection(text, inventory) ?? defaultSelection(inventory);
+}
+
+let selectedProjectId = initialSelection();
+
+/** Remember the selection. A failure to persist is reported by the next restart, never swallowed
+ *  into a false claim that it was saved — the caller's success does not depend on it. */
+function persistSelection(projectId) {
+  const path = selectionPath();
+  if (path === null) return false;
+  try {
+    writeFileSync(path, serialiseSelection(projectId), 'utf8');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The governed project root: the SELECTED project's root, or null when none is selected. */
+function governedRoot() {
+  return selectedProjectId === null ? null : resolveProjectRoot(inventory, selectedProjectId);
 }
 
 /**
@@ -351,10 +510,60 @@ function governedRoot() {
  * `kind`-discriminated transport message. Reusing the existing protocol rather than inventing a
  * parallel one means the encode/parse pair, the client dispatch and the store all stay single-sourced.
  */
-function emitGovernedState() {
+function emitGovernedState({ refresh = true } = {}) {
+  if (refresh) refreshInventory();
+  // The inventory FIRST, so the surface knows which project the state that follows belongs to
+  // and can never paint one project's plan under another project's name.
+  process.stdout.write(
+    JSON.stringify({
+      kind: GOVERNED_PROJECTS_MESSAGE_KIND,
+      // Built by the shared serialiser, so the wire shape and the type the renderer consumes come
+      // from ONE declaration rather than from a hand-written literal that can drift away from it.
+      inventory: toInventoryMessage(inventory, selectedProjectId),
+    }) + '\n',
+  );
   const state = buildGovernedState(governedRoot(), new Date().toISOString());
   process.stdout.write(JSON.stringify({ kind: 'governed', state }) + '\n');
 }
+
+/**
+ * Re-derive the inventory from the roots this daemon was given.
+ *
+ * The ROOTS never change while the daemon runs — they came from the host, which read the
+ * protected registry once — but a repository can be re-badged underneath them, and an id derived
+ * at startup would then be a stale claim. Re-deriving means a project that changed identity stops
+ * matching its remembered selection instead of silently continuing to answer to it.
+ */
+function refreshInventory() {
+  inventory = buildProjectInventory(
+    candidateProjects(config),
+    readProjectConfig,
+    projectArgs.registryStatus,
+  );
+  if (selectedProjectId !== null && resolveProjectRoot(inventory, selectedProjectId) === null) {
+    selectedProjectId = defaultSelection(inventory);
+  }
+}
+
+/**
+ * Whether governed work is open in the CURRENTLY selected project.
+ *
+ * FAILS CLOSED WHEN IT CANNOT TELL. `buildGovernedState` gives up before it reads a single phase
+ * record if the configuration or the plan cannot be read — so a locked, corrupted or mid-edit
+ * project would report "not connected" while a phase was genuinely open on disk, and a gate that
+ * read that as "no work" would permit exactly the switch it exists to prevent. Unreadable therefore
+ * counts as ACTIVE. The phase records are read directly, independently of whether the plan parses,
+ * so an unreadable PLAN beside readable phases still gives a truthful answer rather than a
+ * pessimistic one.
+ */
+function governedWorkActive() {
+  const root = governedRoot();
+  if (root === null) return false;
+  if (readProjectConfig(root) === null) return true;
+  const records = readPhaseRecords(root);
+  return records.some((record) => ACTIVE_PHASE_STATUSES.includes(record && record.status));
+}
+
 
 // --- startup, in order; readiness is announced only after ALL of it ---------------------------
 daemon.start();

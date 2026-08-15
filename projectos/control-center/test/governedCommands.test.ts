@@ -54,6 +54,7 @@ describe('W1 an allowed, well-formed command is accepted', () => {
     'report.write': { phaseId: 'P1A' },
     'plan.draft': { objective: 'Make the ordering flow simple enough to need no training at all.' },
     'plan.activate': { draftId: 'draft-20260813-a1b2c3', decisionId: 'PROJECTOS-DECISION1A' },
+    'project.select': { projectId: 'projectos' },
   };
 
   test('every verb maps to a canonical typed invocation, or to null for refresh', () => {
@@ -62,7 +63,10 @@ describe('W1 an allowed, well-formed command is accepted', () => {
       expect(r.ok, verb).toBe(true);
       if (!r.ok) continue;
       const inv = toAgentInvocation(r.request);
-      if (verb === 'refresh') {
+      // `refresh` and `project.select` reach NO canonical agent command. Both are served entirely at
+      // the host/daemon boundary — one re-reads state, the other decides which project is being read
+      // — so neither has an argv, a flag or a positional for a value to escape through.
+      if (verb === 'refresh' || verb === 'project.select') {
         expect(inv).toBeNull();
         continue;
       }
@@ -257,6 +261,7 @@ describe('W17 protected actions are unreachable through this path', () => {
       'report.write': { phaseId: 'P1A' },
       'plan.draft': { objective: 'Make the ordering flow simple enough to need no training at all.' },
       'plan.activate': { draftId: 'draft-20260813-a1b2c3', decisionId: 'PROJECTOS-DECISION1A' },
+      'project.select': { projectId: 'projectos' },
     };
     for (const verb of GOVERNED_VERBS) {
       const inv = toAgentInvocation(valid(req({ verb, args: args[verb] })));
@@ -345,5 +350,62 @@ describe('plan.activate cannot be turned into an approval by the caller', () => 
     );
     expect(Object.keys(inv!.flags).sort()).toEqual(['decision', 'id']);
     for (const v of Object.values(inv!.flags)) expect(String(v).startsWith('-')).toBe(false);
+  });
+});
+
+/**
+ * PROJECT SELECTION — the boundary half (PROJECTOS-PHASE6-SECTION-C).
+ *
+ * The verb exists so the owner can choose WHICH installed project the surface reads. What these
+ * prove is that it can carry nothing else: no path, no root, no role, no note. What a valid-looking
+ * id then has to survive is `decideSelection`, which resolves it against the inventory the installed
+ * host supplied — covered in `projectInventory.test.ts`.
+ */
+describe('project.select carries an id and nothing else', () => {
+  test('it requires a projectId and accepts no other argument', () => {
+    const missing = validateGovernedCommand(req({ verb: 'project.select', args: {} }));
+    expect(missing.ok).toBe(false);
+    if (!missing.ok) expect(missing.code).toBe('MISSING_ARGUMENT');
+
+    for (const extra of [
+      { projectId: 'projectos', repositoryRoot: 'C:\\dev\\ProjectOS' },
+      { projectId: 'projectos', root: 'C:\\dev\\ProjectOS' },
+      { projectId: 'projectos', path: 'C:\\dev\\ProjectOS' },
+      { projectId: 'projectos', role: 'owner' },
+      { projectId: 'projectos', note: 'please' },
+      { projectId: 'projectos', phaseId: 'P1A' },
+    ]) {
+      const r = validateGovernedCommand(req({ verb: 'project.select', args: extra }));
+      expect(r.ok, JSON.stringify(extra)).toBe(false);
+      if (!r.ok) expect(r.code).toBe('INVALID_ARGUMENT');
+    }
+  });
+
+  /**
+   * A PATH IS NOT AN IDENTIFIER. The identifier pattern refuses a value carrying a separator, a
+   * leading dash or whitespace, so the path shapes an attacker would reach for are rejected at the
+   * channel — before the inventory lookup that would refuse them again.
+   */
+  test('it refuses path-shaped and flag-shaped values', () => {
+    for (const projectId of [
+      'C:\\dev\\ProjectOS',
+      'C:/dev/ProjectOS',
+      '../ProjectOS',
+      '\\\\server\\share',
+      '/etc/passwd',
+      '--force',
+      '-f',
+      'project os',
+      '',
+    ]) {
+      const r = validateGovernedCommand(req({ verb: 'project.select', args: { projectId } }));
+      expect(r.ok, projectId).toBe(false);
+    }
+  });
+
+  test('a well-formed id validates and reaches no canonical command', () => {
+    const r = validateGovernedCommand(req({ verb: 'project.select', args: { projectId: 'projectos' } }));
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(toAgentInvocation(r.request)).toBeNull();
   });
 });

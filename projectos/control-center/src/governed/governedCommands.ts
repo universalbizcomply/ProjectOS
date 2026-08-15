@@ -48,6 +48,11 @@ export const GOVERNED_VERBS = [
   // named draft, this verb produces a refusal — which is the correct outcome, not a failure of the
   // seam. Drafting proposes; a decision approves; this only materialises what was already approved.
   'plan.activate',
+  // PROJECT SELECTION. It carries a project ID and NOTHING else — never a repository path, never a
+  // root, never a directory. The ID is a KEY into the set of projects the host already validated
+  // against the protected registry, so an unknown ID selects nothing and a well-formed ID that
+  // happens to look like a path is still only ever compared, never joined to anything.
+  'project.select',
 ] as const;
 
 export type GovernedVerb = (typeof GOVERNED_VERBS)[number];
@@ -79,6 +84,15 @@ export interface GovernedCommandArgs {
    * an approval.
    */
   readonly decisionId?: string;
+  /**
+   * WHICH registered project the owner is selecting. A stable identifier and nothing else.
+   *
+   * It never becomes a path. The daemon resolves it by looking it up among the projects the host
+   * supplied from the protected registry; if it is not there, selection is refused. So the WebView
+   * cannot assert, inject or imply a repository location — the only thing it can do is name one of
+   * the projects the installed host already decided it may govern.
+   */
+  readonly projectId?: string;
 }
 
 export type GovernedArgName = keyof GovernedCommandArgs;
@@ -188,6 +202,9 @@ const ALLOWED_ROLES: Readonly<Record<GovernedVerb, readonly string[]>> = {
   // decision made by the delegate the ACTIVE approved plan records. There is no role this channel
   // could claim that would add to that, and any role it could claim would only be a claim.
   'plan.activate': [],
+  // Selection is not an act of authority over a project; it decides which project the surface is
+  // looking at. There is no role to claim and none is accepted.
+  'project.select': [],
 };
 
 /**
@@ -240,6 +257,8 @@ const ARG_SPEC: Readonly<
   // and `approvePlan` re-validates them under a stricter pattern before either touches a path.
   'plan.activate': { accepts: ['draftId', 'decisionId'], requires: ['draftId', 'decisionId'] },
   'report.write': { accepts: ['phaseId', 'role'], requires: ['phaseId'] },
+  // One identifier, required, and nothing else. No path, no root, no environment, no role.
+  'project.select': { accepts: ['projectId'], requires: ['projectId'] },
 };
 
 const PROSE_ARGS: readonly GovernedArgName[] = ['note', 'action', 'objective'];
@@ -346,6 +365,11 @@ export function toAgentInvocation(request: GovernedCommandRequest): GovernedInvo
 
   switch (request.verb) {
     case 'refresh':
+      return null;
+    // Selection is served entirely by the host/daemon boundary: it changes WHICH project the surface
+    // reads, and performs no governed action inside any project. There is deliberately no canonical
+    // agent command for it, so there is nothing here for a value to be forwarded into.
+    case 'project.select':
       return null;
     case 'plan.draft':
       return { command: 'plan', positionals: ['draft'], flags: { objective: a.objective as string } };

@@ -127,6 +127,16 @@ pub enum AclPrincipal {
     LocalSystem,
     /// `S-1-5-32-544`.
     BuiltinAdministrators,
+    /// `S-1-5-32-545`.
+    ///
+    /// DELIBERATELY NAMEABLE, and deliberately BROAD. This crate classifies Builtin Users as a broad
+    /// principal and refuses one by default, which is the right default for a custody root. It is
+    /// nameable because one production object genuinely must be world-readable: the installed-project
+    /// registry, which the Control Centre reads while running as an ordinary user. Naming it does not
+    /// permit it — a policy still has to opt in through `allow_broad_principals_any_access`, and
+    /// `allow_broad_principals_write` stays false, so the most this principal can ever be granted here
+    /// is READ.
+    BuiltinUsers,
     /// The account SID of the calling process. Intended for SYNTHETIC TEST FIXTURES; no production
     /// service principal is authorised in this phase.
     CurrentInteractiveUser,
@@ -146,6 +156,7 @@ impl AclPrincipal {
         match self {
             Self::LocalSystem => Ok(OwnedSid::local_system()),
             Self::BuiltinAdministrators => Ok(OwnedSid::builtin_administrators()),
+            Self::BuiltinUsers => Ok(OwnedSid::builtin_users()),
             Self::CurrentInteractiveUser => crate::windows::current_account_sid(),
             Self::ExplicitSid(sid) => Ok(sid.clone()),
         }
@@ -157,6 +168,7 @@ impl AclPrincipal {
         match self {
             Self::LocalSystem => "LocalSystem",
             Self::BuiltinAdministrators => "BuiltinAdministrators",
+            Self::BuiltinUsers => "BuiltinUsers",
             Self::CurrentInteractiveUser => "CurrentInteractiveUser",
             Self::ExplicitSid(_) => "ExplicitSid(redacted)",
         }

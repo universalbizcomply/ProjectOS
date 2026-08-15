@@ -69,8 +69,14 @@ const CORE_STATUSES: readonly GovernedPhaseStatus[] = [
   'rolled_back',
 ];
 
-/** Statuses that mean the phase is being worked right now. */
-const ACTIVE_STATUSES: readonly GovernedPhaseStatus[] = [
+/**
+ * Statuses that mean the phase is being worked right now.
+ *
+ * EXPORTED because the daemon's project-switch gate must ask the same question this projection
+ * answers. A second copy over there would be free to drift, and a drifted copy would refuse switches
+ * the owner was told were safe — or permit ones they were told were not.
+ */
+export const ACTIVE_PHASE_STATUSES: readonly GovernedPhaseStatus[] = [
   'draft',
   'prompted',
   'implementing',
@@ -279,7 +285,7 @@ export function projectGovernedState(inputs: GovernedInputs): GovernedProjection
     };
   });
 
-  const activePhase = phases.find((p) => (ACTIVE_STATUSES as readonly string[]).includes(p.status)) ?? null;
+  const activePhase = phases.find((p) => (ACTIVE_PHASE_STATUSES as readonly string[]).includes(p.status)) ?? null;
   // EXECUTION SEQUENCING, not a plan dependency. While a phase is in flight, starting another is
   // never the safe next action, so no phase is offered as the next one to start. This does NOT
   // falsify `startable` on the individual phases — the plan's declared dependencies are reported as

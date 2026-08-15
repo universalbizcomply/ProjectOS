@@ -18,6 +18,7 @@
   "include": [
     "src/daemon/inProcessTransport.ts",
     "src/governed/governedProjection.ts",
-    "src/governed/governedCommands.ts"
+    "src/governed/governedCommands.ts",
+    "src/governed/projectInventory.ts"
   ]
 }

@@ -161,19 +161,30 @@ describe('Owner Chat answers from live governed state, not the recorded fallback
     expect(text).toContain('projectos-operational-recovery-plan');
   });
 
-  test('no project selector while live — a projection describes one governed project', () => {
+  /**
+      * REBASELINED by PROJECTOS-PHASE6-SECTION-C. This panel used to carry its own project
+      * `<select>` over a static fixture list, hidden while a runtime was live. The owner decided
+      * that Owner Control holds the ONE interactive selector, so the property is now stronger: this
+      * page has NO project selector at any time, and instead STATES which project it is about.
+      */
+  test('there is no project selector here at all, live or offline', () => {
     const { transport } = mount(<OwnerChat />);
-    expect(screen.queryByLabelText('Select project')).not.toBeNull();
+    expect(screen.queryByLabelText('Select project')).toBeNull();
+    expect(screen.queryByTestId('selected-project-identity-pending')).not.toBeNull();
     goLive(transport);
     expect(screen.queryByLabelText('Select project')).toBeNull();
+    expect(screen.queryAllByRole('combobox')).toHaveLength(0);
   });
 
   test('a disconnected runtime falls back rather than asserting stale live state', () => {
     const { transport } = mount(<OwnerChat />);
     goLive(transport);
+    expect(log()).toContain('projectos-operational-recovery-plan');
     act(() => transport.emit({ kind: 'closed' }));
-    // Back to the recorded position, and the selector returns with it.
-    expect(screen.queryByLabelText('Select project')).not.toBeNull();
+    // Back to the RECORDED position — asserted on what the panel says, not on the presence of a
+    // control. The recorded V3 programme is complete; the live recovery plan is not.
+    ask('How far along are we?');
+    expect(log()).toContain('19 of 19');
   });
 });
 
@@ -211,7 +222,10 @@ describe('a missing next phase never renders as a sentence with a hole in it', (
   // the pre-fix code passes it too. Drive the offline path, which is where '' actually occurs.
   test('the recorded fallback reads "to be decided", not "Next up is ."', () => {
     mount(<OwnerChat />);
-    expect(screen.queryByLabelText('Select project')).not.toBeNull(); // confirms the offline path
+    // Confirms the OFFLINE path by what the panel is showing — no runtime has reported, so no
+    // project is selected. (It used to confirm this by the presence of a selector that no longer
+    // exists; the fixture selectors were removed in PROJECTOS-PHASE6-SECTION-C.)
+    expect(screen.queryByTestId('selected-project-identity-pending')).not.toBeNull();
     ask('How far along are we?');
 
     const text = log();

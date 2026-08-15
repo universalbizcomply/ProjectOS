@@ -571,3 +571,60 @@ body {
   .ocp-actions .ocp-actionrow { flex-direction: column; align-items: stretch; }
   .ocp-btn { width: 100%; }
 }
+
+/* --- Project selector (PROJECTOS-PHASE6-SECTION-C) -------------------------------------------
+   Sits above everything that acts on a project, so the owner always knows which project the plan
+   and the governed actions below belong to.
+
+   It carries its own class names rather than reusing `.ocp-select`, because it is laid out inline
+   inside a horizontal strip while `.ocp-select` stacks its label above its control inside the page
+   header. The SURFACE tokens are shared (`--bg-panel`, `--bg-elev`, `--line`, `--radius`), so the
+   two controls still look like one system; only the layout differs. */
+.ops-selector {
+  background: var(--bg-panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px 18px;
+  margin-bottom: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 20px;
+}
+.ops-selector h2 {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  flex: 0 0 auto;
+}
+.ops-selected { margin: 0; font-size: 14px; flex: 1 1 auto; min-width: 220px; overflow-wrap: anywhere; }
+.ops-selected strong { font-weight: 600; }
+.ops-select { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+.ops-select-label {
+  font-size: 11px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+.ops-select select {
+  /* `--bg-elev`, matching `.ocp-select select`. A control whose background equals its own
+     panel's leaves only a 1px low-contrast border to mark its edge, which fails WCAG 1.4.11. */
+  background: var(--bg-elev);
+  color: inherit;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font: inherit;
+}
+.ops-select select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* `aria-disabled`, not `disabled` — the control keeps focus, so it needs its own busy appearance. */
+.ops-select select[aria-disabled='true'] { opacity: 0.6; cursor: progress; }
+.ops-registry { margin: 0; font-size: 13px; color: var(--text-faint); flex: 1 1 100%; }
+.ops-refusal { flex: 1 1 100%; font-size: 13px; color: var(--crit); }
+.ops-refusal p { margin: 4px 0 0; }
+/* The read-only project identity carried by every page that is ABOUT a project but does not choose
+   one. Same surface language as the selector; no control affordance, because there is no control. */
+.ops-identity { margin: 0; font-size: 13px; color: var(--text-dim); flex: 1 1 auto; overflow-wrap: anywhere; }
+.ops-identity strong { color: var(--text); font-weight: 600; }

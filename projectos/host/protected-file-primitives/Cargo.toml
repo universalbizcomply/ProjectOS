@@ -1,0 +1,21 @@
+[package]
+name = "projectos-host-protected-file-primitives"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "UNLICENSED"
+description = "Two Windows primitives an ELEVATED publisher of protected machine configuration needs and std does not provide: a process-token elevation question, and ReplaceFileW — the only replacement primitive that preserves a destination's own security descriptor and object identity. It owns NO policy: no path resolution, no destination choice, no elevation request, no consent, no ACL composition, no ProgramData, no service, no registry, no network, no credential. unsafe is confined to the single source file and every block carries a SAFETY comment."
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[target.'cfg(windows)'.dependencies]
+# The canonical owned-handle RAII wrapper. Reused rather than re-implemented: a second handle
+# abstraction is a second place for a handle to leak.
+projectos-windows-runtime-primitives = { path = "../windows-runtime-primitives" }
+windows = { version = "0.61.3", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_Threading",
+    "Win32_Storage_FileSystem",
+] }

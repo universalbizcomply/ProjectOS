@@ -10,11 +10,12 @@
 import { useMemo, useState } from 'react';
 import { OWNER_MODELS, PROJECTOS_V3 } from './ownerSnapshot';
 import { buildOwnerControlView, type OwnerControlModel, type OwnerBadge } from './ownerModel';
-import { useLifecycle, useGovernedState } from '../daemon/DaemonProvider';
+import { useGovernedProjects, useLifecycle, useGovernedState } from '../daemon/DaemonProvider';
 import type { LiveLifecycle } from '../daemon/types';
 import { ownerModelFromGoverned } from './governedOwnerModel';
 import { GovernedActions } from './GovernedActions';
 import { ObjectiveIntake } from './ObjectiveIntake';
+import { ProjectSelector } from './ProjectSelector';
 import { ProtectedOperationConfirmation } from './confirmation/ProtectedOperationConfirmation';
 import { SYNTHETIC_CONFIRMATION, SYNTHETIC_NOW_MS } from './confirmation/ownerConfirmationFixture';
 import {
@@ -45,11 +46,15 @@ function lifecycleTone(state: LiveLifecycle['state']): 'crit' | 'warn' {
  * failed or still-recovering worker. The message is the host's own `nextSafeAction`, verbatim.
  */
 function LifecycleBanner({ lifecycle }: { lifecycle: LiveLifecycle }) {
+  // `data-testid` so its own tests can assert THIS element is the live status region, rather than
+  // asserting it is the only one on the page — which stopped being true the moment the project
+  // selector above it gained its own (required) live regions.
   return (
     <div
       className={`ocp-panel ocp-lifecycle ${lifecycleTone(lifecycle.state)}`}
       role="status"
       aria-live="polite"
+      data-testid="lifecycle-banner"
     >
       <h2>Local worker</h2>
       <p className="ocp-lifecycle-msg">{lifecycle.nextSafeAction}</p>
@@ -58,16 +63,24 @@ function LifecycleBanner({ lifecycle }: { lifecycle: LiveLifecycle }) {
 }
 
 export function OwnerControlPlane() {
-  const [projectId, setProjectId] = useState<string>(PROJECTOS_V3.projectId);
+  // WHICH PROJECT the recorded fallback should describe — taken from the authoritative selection,
+  // not hardcoded. Hardcoding it meant this page could render the selector saying "Working on Dead
+  // Aisle" directly above a "where you are" line beginning "ProjectOS", which is a plain-text
+  // contradiction of itself on the one page that owns the selector.
+  const inventory = useGovernedProjects();
+  const projectId = inventory?.selectedProjectId ?? PROJECTOS_V3.projectId;
   const lifecycle = useLifecycle();
   // Live canonical state when the runtime has reported; otherwise the last RECORDED position, which
   // the header labels as such. The surface never presents a record as if it were live.
   const governed = useGovernedState();
   const live = governed !== null && governed.connected ? governed : null;
+  // A RECORDED model exists only for the projects the snapshot knows. For any other registered
+  // project there is no recorded position at all, and substituting ProjectOS's would describe a
+  // different project under this one's name.
+  const recorded = OWNER_MODELS.find((m) => m.projectId === projectId) ?? null;
   const model: OwnerControlModel =
-    live !== null
-      ? ownerModelFromGoverned(live)
-      : (OWNER_MODELS.find((m) => m.projectId === projectId) ?? PROJECTOS_V3);
+    live !== null ? ownerModelFromGoverned(live) : (recorded ?? PROJECTOS_V3);
+  const noRecordedPosition = live === null && recorded === null;
   const view = useMemo(() => buildOwnerControlView(model), [model]);
 
   // Synthetic owner-confirmation preview state (Option C1). No authority, no Windows ceremony: a
@@ -113,23 +126,24 @@ export function OwnerControlPlane() {
             )}
           </p>
         </div>
-        {live === null && (
-        <label className="ocp-select">
-          <span className="ocp-select-label">Project</span>
-          <select
-            value={projectId}
-            onChange={(e) => setProjectId(e.target.value)}
-            aria-label="Select project"
-          >
-            {OWNER_MODELS.map((m) => (
-              <option key={m.projectId} value={m.projectId}>
-                {m.projectName}
-              </option>
-            ))}
-          </select>
-        </label>
-        )}
       </div>
+
+      {/* WHICH PROJECT. First, and above everything that acts on one, so the owner can never read a
+          plan or press a governed action without seeing which project it belongs to. It lists only
+          the projects the installed host validated against the protected registry, and it submits a
+          project ID — there is no path input here, and no route by which one could be supplied. */}
+      <ProjectSelector />
+
+      {noRecordedPosition && (
+        <div className="ocp-panel warn" role="status" data-testid="ocp-no-recorded-position">
+          <h2>Nothing to show yet</h2>
+          <p>
+            No runtime has reported for this project, and there is no earlier position on record for
+            it. What follows is not about this project — start the local worker to see its real
+            state.
+          </p>
+        </div>
+      )}
 
       {/* Worker lifecycle — the primary emphasis while the local worker is not yet ready. */}
       {isPreReady(lifecycle) && <LifecycleBanner lifecycle={lifecycle} />}

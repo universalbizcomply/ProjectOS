@@ -122,6 +122,12 @@ export class DaemonClient {
         this.store.update({ governed: message.state });
         this.#reconnect.reset();
         break;
+      case 'governed-projects':
+        // The installed-project inventory and the current selection. Stored verbatim for the same
+        // reason: which projects exist is the installed host's answer, not the renderer's.
+        this.store.update({ governedProjects: message.inventory });
+        this.#reconnect.reset();
+        break;
     }
   }
 

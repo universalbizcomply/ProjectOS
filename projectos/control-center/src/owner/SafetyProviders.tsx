@@ -6,15 +6,23 @@
  * owner-only actions are not performed here; this surface only displays what the backend decided.
  * Created in PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A.
  */
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { PROJECTOS_V3, OWNER_MODELS } from './ownerSnapshot';
-import { chainFor, decisionTone, statusTone, GOVERNED_CHAINS } from './governedChain';
+import { chainFor, decisionTone, statusTone } from './governedChain';
 import { buildOwnerControlView } from './ownerModel';
-import { useGovernedState } from '../daemon/DaemonProvider';
+import { useGovernedProjects, useGovernedState } from '../daemon/DaemonProvider';
+import { SelectedProjectIdentity } from './SelectedProjectIdentity';
 import { ownerModelFromGoverned } from './governedOwnerModel';
 
 export function SafetyProviders() {
-  const [projectId, setProjectId] = useState<string>(PROJECTOS_V3.projectId);
+  // WHICH PROJECT, decided by the ONE authoritative selection and never by this page.
+  //
+  // Its own `<select>` over `GOVERNED_CHAINS` is gone. A safety surface that could be pointed at a
+  // different project from the one Owner Control is acting on is a safety surface that can reassure
+  // the owner about the wrong thing. There is no setter here now, so nothing on this page can
+  // override, shadow or locally remember a selection.
+  const inventory = useGovernedProjects();
+  const projectId = inventory?.selectedProjectId ?? PROJECTOS_V3.projectId;
   const chain = chainFor(projectId);
 
   // SAFETY IS A CLAIM ABOUT WHAT THE RUNTIME HAS DONE, so it comes from the runtime whenever there
@@ -36,7 +44,13 @@ export function SafetyProviders() {
     [live, projectId],
   );
   const safetyBadges = buildOwnerControlView(model).safetyBadges;
-  const pending = chain.approvalItems.filter((i) => i.status === 'pending').length;
+  // The approval queue and provider-guard table come from the fixture chain, which knows only the
+  // projects the snapshot shipped with. For any other registered project there is no chain, and
+  // showing ProjectOS's would put one project's approvals under another project's name.
+  const chainDescribesThisProject = chain.projectId === projectId;
+  const pending = chainDescribesThisProject
+    ? chain.approvalItems.filter((i) => i.status === 'pending').length
+    : 0;
 
   return (
     <section className="ocp" aria-labelledby="sp-title">
@@ -45,18 +59,21 @@ export function SafetyProviders() {
           <h1 id="sp-title">Safety &amp; Providers</h1>
           <p>What the governed chain decided for this project — approvals, provider guards, and safety. Read-only.</p>
         </div>
-        <label className="ocp-select">
-          <span className="ocp-select-label">Project</span>
-          <select value={projectId} onChange={(e) => setProjectId(e.target.value)} aria-label="Select project">
-            {GOVERNED_CHAINS.map((c) => (
-              <option key={c.projectId} value={c.projectId}>{c.projectName}</option>
-            ))}
-          </select>
-        </label>
+        <SelectedProjectIdentity />
       </div>
 
-      {/* Safety state */}
-      <div className="ocp-panel">
+      {!chainDescribesThisProject && (
+        <div className="ocp-panel warn" role="status" data-testid="sp-no-chain">
+          <h2>Nothing recorded for this project</h2>
+          <p>
+            No approvals or provider decisions have been recorded for this project yet, so the
+            sections below are empty rather than borrowed from another one.
+          </p>
+        </div>
+      )}
+
+      {/* Safety state. Announced as a group: everything in it changes when the project does. */}
+      <div className="ocp-panel" role="status" aria-live="polite">
         <h2>Safety state</h2>
         <div className="ocp-badges">
           {safetyBadges.map((b, i) => <span key={i} className={`ocp-badge ${b.tone}`}>{b.label}</span>)}
@@ -66,7 +83,7 @@ export function SafetyProviders() {
       {/* Approval queue */}
       <div className={`ocp-panel decisions${pending > 0 ? ' active' : ''}`}>
         <h2>Owner approval queue{pending > 0 ? ` · ${pending} pending` : ''}</h2>
-        {chain.approvalItems.length ? (
+        {chainDescribesThisProject && chain.approvalItems.length ? (
           <ul className="ocp-decisions">
             {chain.approvalItems.map((item) => (
               <li key={item.id} className="ocp-decision">

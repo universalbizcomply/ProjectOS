@@ -17,7 +17,8 @@
 import { useMemo, useRef, useState } from 'react';
 import { OWNER_MODELS, PROJECTOS_V3 } from './ownerSnapshot';
 import { answerOwnerQuestion, BASE_SUGGESTIONS, type ChatAnswer } from './ownerChatModel';
-import { useGovernedState } from '../daemon/DaemonProvider';
+import { useGovernedProjects, useGovernedState } from '../daemon/DaemonProvider';
+import { SelectedProjectIdentity } from './SelectedProjectIdentity';
 import { ownerModelFromGoverned } from './governedOwnerModel';
 import type { OwnerControlModel } from './ownerModel';
 
@@ -32,7 +33,15 @@ function greeting(model: OwnerControlModel): ChatTurn {
 }
 
 export function OwnerChat() {
-  const [projectId, setProjectId] = useState<string>(PROJECTOS_V3.projectId);
+  // WHICH PROJECT, decided by the ONE authoritative selection and never by this page.
+  //
+  // It used to hold its own `useState` over a static fixture list, so the owner could put this panel
+  // on a different project from the one Owner Control was acting on — and answer questions about it
+  // in the first person. There is no setter here now: the project cannot be overridden, shadowed or
+  // locally remembered. `PROJECTOS_V3` remains only as the RECORDED position to answer from while
+  // nothing is selected, which is the same fallback this panel has always used.
+  const inventory = useGovernedProjects();
+  const projectId = inventory?.selectedProjectId ?? PROJECTOS_V3.projectId;
   const governed = useGovernedState();
   const live = governed !== null && governed.connected ? governed : null;
   const model: OwnerControlModel = useMemo(
@@ -79,19 +88,11 @@ export function OwnerChat() {
           <h1 id="ochat-title">Owner Chat</h1>
           <p>Ask about this project. Answers come only from its current status — no external calls.</p>
         </div>
-        {/* Only offered when there is no live runtime. A live projection describes ONE governed
-            project, so letting the owner pick a different one here would answer about a project the
-            runtime is not reporting on. Owner Control hides its selector for the same reason. */}
-        {live === null && (
-          <label className="ocp-select">
-            <span className="ocp-select-label">Project</span>
-            <select value={projectId} onChange={(e) => setProjectId(e.target.value)} aria-label="Select project">
-              {OWNER_MODELS.map((m) => (
-                <option key={m.projectId} value={m.projectId}>{m.projectName}</option>
-              ))}
-            </select>
-          </label>
-        )}
+        {/* Always shown, not conditionally. The old control was hidden while a runtime was live,
+            because offering a CHOICE there would have answered about a project the runtime was not
+            reporting on. Stating which project the answers are about has the opposite property: it
+            is most useful exactly when there is a live runtime to be wrong about. */}
+        <SelectedProjectIdentity />
       </div>
 
       <div className="ochat-log" role="log" aria-live="polite" aria-label="Conversation">

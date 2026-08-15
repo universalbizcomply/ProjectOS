@@ -45,6 +45,12 @@ use projectos_shared_host_runtime::identity::packaged::VerifiedPackagedIdentity;
 use super::governed_root::GovernedSystemRoot;
 #[cfg(windows)]
 use super::governed_root::{resolve_governed_system_root, InstalledSystemRoot};
+// THE installed-project registry. Sealed, and read from the protected ProgramData installation
+// directory — see `installed_projects.rs` for why it cannot come from cwd, config, environment,
+// argv, the governed project or discovery.
+#[cfg(windows)]
+use super::installed_projects::resolve_registered_projects;
+use super::installed_projects::{append_registry_args, RegisteredProjects};
 
 /// Bounded cooperative-shutdown grace for the real daemon.
 pub(crate) const DAEMON_GRACEFUL_SHUTDOWN: Duration = Duration::from_secs(5);
@@ -103,6 +109,11 @@ pub(crate) struct VerifiedPackagedDaemonLaunchAuthority {
     /// can only have come from `resolve_packaged_git`, so `to_process_spec` has nothing to be told
     /// and no caller — in this crate or any other — can name a different executable.
     git_exe: ResolvedPackagedGit,
+    /// The projects this installation may govern, read from the protected registry and validated
+    /// against the repositories they name. Sealed for the same reason the roots above are: a
+    /// `RegisteredProjects` can only have come from `resolve_registered_projects`, which takes no
+    /// arguments at all, so there is no parameter through which a project root could be nominated.
+    registered_projects: RegisteredProjects,
 }
 
 /// The one relative location a PACKAGED installation may look for Git.
@@ -224,6 +235,7 @@ impl VerifiedPackagedDaemonLaunchAuthority {
         payload_root: PathBuf,
         governed_system_root: GovernedSystemRoot,
         git_exe: ResolvedPackagedGit,
+        registered_projects: RegisteredProjects,
     ) -> Self {
         Self {
             application_id: identity.application_id().to_string(),
@@ -233,6 +245,7 @@ impl VerifiedPackagedDaemonLaunchAuthority {
             payload_root,
             governed_system_root,
             git_exe,
+            registered_projects,
         }
     }
 
@@ -286,16 +299,23 @@ impl VerifiedPackagedDaemonLaunchAuthority {
             DAEMON_GIT_EXE_VAR.to_string(),
             self.git_exe.path().to_string_lossy().to_string(),
         ));
+        let mut args = vec![
+            daemon.to_string_lossy().to_string(),
+            "--root".to_string(),
+            self.governed_system_root
+                .path()
+                .to_string_lossy()
+                .to_string(),
+        ];
+        // The GOVERNABLE PROJECTS, passed explicitly and one at a time. The daemon is TOLD which
+        // repositories it may govern; it does not find them by scanning, by reading a configuration
+        // file, or by treating the system root above as a project. A refused registry contributes
+        // no roots at all — only the token saying why — so a packaged installation whose registry
+        // cannot be validated governs nothing rather than governing whatever it stumbles across.
+        append_registry_args(&mut args, &self.registered_projects);
         Ok(ProcessSpec {
             executable: node.to_string_lossy().to_string(),
-            args: vec![
-                daemon.to_string_lossy().to_string(),
-                "--root".to_string(),
-                self.governed_system_root
-                    .path()
-                    .to_string_lossy()
-                    .to_string(),
-            ],
+            args,
             current_dir: self.payload_root.to_string_lossy().to_string(),
             env,
             graceful_shutdown: DAEMON_GRACEFUL_SHUTDOWN,
@@ -518,6 +538,11 @@ fn resolve_packaged_authority(
             // A RuntimeFs, not the identity `RealFs`: this is filesystem probing for an
             // executable, not identity evaluation, and the two abstractions stay separate.
             let git_exe = resolve_packaged_git(&RealRuntimeFs, &install_root)?;
+            // Resolved only NOW, after identity succeeded, and from nothing but the canonical
+            // protected location. A registry that is missing, malformed or self-contradictory
+            // yields zero projects rather than a refusal to launch: the owner then has a surface
+            // that says so, instead of an application that will not start and cannot explain why.
+            let registered_projects = resolve_registered_projects();
             Ok(DaemonLaunchAuthority::Packaged(
                 VerifiedPackagedDaemonLaunchAuthority::from_verified_identity(
                     identity,
@@ -525,6 +550,7 @@ fn resolve_packaged_authority(
                     payload_root,
                     governed,
                     git_exe,
+                    registered_projects,
                 ),
             ))
         }
@@ -1050,6 +1076,9 @@ mod packaged_authority_tests {
 mod packaged_authority_positive_control {
     use super::*;
     use crate::process::governed_root::FixtureSystemRoot;
+    use crate::process::installed_projects::{
+        RegistryStatus, PROJECT_ID_FLAG, PROJECT_ROOT_FLAG, REGISTRY_STATUS_FLAG,
+    };
     use projectos_packaged_runtime_contract as contract;
     use projectos_shared_host_runtime::identity::packaged::InstallationModel;
     use projectos_shared_host_runtime::identity::packaged_fixture::test_only_verified_identity;
@@ -1090,6 +1119,16 @@ mod packaged_authority_positive_control {
     }
 
     fn authority_for(name: &str) -> (VerifiedPackagedDaemonLaunchAuthority, PathBuf, PathBuf) {
+        authority_with_projects(
+            name,
+            RegisteredProjects::for_test(Vec::new(), RegistryStatus::Missing),
+        )
+    }
+
+    fn authority_with_projects(
+        name: &str,
+        projects: RegisteredProjects,
+    ) -> (VerifiedPackagedDaemonLaunchAuthority, PathBuf, PathBuf) {
         let (_install, payload, governed) = installed_layout(name);
         let root = resolve_governed_system_root(
             &identity(),
@@ -1109,6 +1148,7 @@ mod packaged_authority_positive_control {
                 // The RESOLVER's own rules are proven in the unit tests above; what this module
                 // proves is what the packaged child is handed once a path has been sealed in.
                 ResolvedPackagedGit::test_only(PathBuf::from(FIXTURE_GIT)),
+                projects,
             ),
             payload,
             governed,
@@ -1291,6 +1331,7 @@ mod packaged_authority_positive_control {
                 wrong.clone(),
                 root.clone(),
                 ResolvedPackagedGit::test_only(PathBuf::from(FIXTURE_GIT)),
+                RegisteredProjects::for_test(Vec::new(), RegistryStatus::Missing),
             );
             assert!(
                 matches!(
@@ -1319,5 +1360,136 @@ mod packaged_authority_positive_control {
     fn the_governed_root_cannot_be_nominated_by_a_string() {
         let (authority, _, governed) = authority_for("sealed");
         assert_eq!(authority.governed_system_root(), governed.as_path());
+    }
+
+    // ============================================================================================
+    // THE INSTALLED-PROJECT REGISTRY REACHES THE DAEMON (PROJECTOS-PHASE6-SECTION-C)
+    // ============================================================================================
+
+    /// [C3] The packaged child is TOLD which projects it may govern — one `--project-root` per
+    /// registry-validated root — and it is told the registry status too. Nothing else changed: the
+    /// system root still arrives as `--root`, and the two are not interchangeable.
+    #[test]
+    fn the_packaged_spec_carries_the_registry_validated_project_roots() {
+        let roots = vec![
+            ("projectos".to_string(), PathBuf::from(r"C:\dev\ProjectOS")),
+            ("dead-aisle".to_string(), PathBuf::from(r"C:\dev\DeadAisle")),
+        ];
+        let (authority, _payload, governed) = authority_with_projects(
+            "projects",
+            RegisteredProjects::for_test(roots.clone(), RegistryStatus::Ok),
+        );
+        let spec = authority
+            .to_process_spec()
+            .expect("the packaged spec builds");
+
+        assert_eq!(spec.args[1], "--root");
+        assert_eq!(spec.args[2], governed.to_string_lossy());
+        let passed: Vec<&String> = spec
+            .args
+            .windows(2)
+            .filter(|pair| pair[0] == PROJECT_ROOT_FLAG)
+            .map(|pair| &pair[1])
+            .collect();
+        assert_eq!(passed.len(), 2, "one flag per validated project");
+        assert_eq!(passed[0], &roots[0].1.to_string_lossy().to_string());
+        assert_eq!(passed[1], &roots[1].1.to_string_lossy().to_string());
+        // And each root is preceded by the id the registry bound it to.
+        let ids: Vec<&String> = spec
+            .args
+            .windows(2)
+            .filter(|pair| pair[0] == PROJECT_ID_FLAG)
+            .map(|pair| &pair[1])
+            .collect();
+        assert_eq!(ids, vec!["projectos", "dead-aisle"]);
+        assert!(spec
+            .args
+            .windows(2)
+            .any(|pair| pair[0] == REGISTRY_STATUS_FLAG && pair[1] == "ok"));
+    }
+
+    /// [C3, A5] A registry that could not be validated yields a launchable worker that governs
+    /// NOTHING. The refusal travels as a closed token so the owner can be told why, and no root
+    /// travels at all — a broken registry must not fall back to governing whatever is nearby.
+    #[test]
+    fn a_refused_registry_governs_no_project_and_says_why() {
+        for (status, token) in [
+            (RegistryStatus::Missing, "missing"),
+            (RegistryStatus::Malformed, "malformed"),
+            (RegistryStatus::Invalid, "invalid"),
+        ] {
+            let (authority, _, _) = authority_with_projects(
+                &format!("refused-{token}"),
+                RegisteredProjects::for_test(Vec::new(), status),
+            );
+            let spec = authority
+                .to_process_spec()
+                .expect("the packaged spec builds");
+            assert!(
+                !spec.args.iter().any(|a| a == PROJECT_ROOT_FLAG),
+                "a refused registry must contribute no project root"
+            );
+            assert!(spec
+                .args
+                .windows(2)
+                .any(|pair| pair[0] == REGISTRY_STATUS_FLAG && pair[1] == token));
+        }
+    }
+
+    /// [C3] The governed SYSTEM root is never passed as a project root. They are different things:
+    /// one is framework state the daemon writes, the other is a repository it governs, and a system
+    /// root that arrived as a project would make the daemon govern its own state directory.
+    #[test]
+    fn the_governed_system_root_is_never_passed_as_a_project_root() {
+        let (authority, _, governed) = authority_with_projects(
+            "no-system-root-as-project",
+            RegisteredProjects::for_test(
+                vec![("projectos".to_string(), PathBuf::from(r"C:\dev\ProjectOS"))],
+                RegistryStatus::Ok,
+            ),
+        );
+        let spec = authority
+            .to_process_spec()
+            .expect("the packaged spec builds");
+        let project_roots: Vec<&String> = spec
+            .args
+            .windows(2)
+            .filter(|pair| pair[0] == PROJECT_ROOT_FLAG)
+            .map(|pair| &pair[1])
+            .collect();
+        assert!(
+            !project_roots
+                .iter()
+                .any(|root| *root == &governed.to_string_lossy().to_string()),
+            "the system root must never appear as a project root"
+        );
+    }
+
+    /// Granting the registry did not widen the packaged child's environment: it is argv only. A
+    /// project list that arrived as an environment variable would be one more channel to poison.
+    #[test]
+    fn the_registry_travels_as_argv_and_not_as_environment() {
+        let (authority, _, _) = authority_with_projects(
+            "argv-only",
+            RegisteredProjects::for_test(
+                vec![("projectos".to_string(), PathBuf::from(r"C:\dev\ProjectOS"))],
+                RegistryStatus::Ok,
+            ),
+        );
+        let spec = authority
+            .to_process_spec()
+            .expect("the packaged spec builds");
+        for (name, value) in &spec.env {
+            assert!(
+                name == DAEMON_INSTANCE_ID_VAR
+                    || name == DAEMON_GIT_EXE_VAR
+                    || SYSTEM_ALLOWLIST.contains(&name.as_str()),
+                "unexpected variable in the packaged daemon environment: {name}"
+            );
+            assert!(
+                !value.contains(r"C:\dev\ProjectOS"),
+                "no project root may travel in the environment"
+            );
+        }
     }
 }

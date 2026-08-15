@@ -36,6 +36,10 @@ pub mod dry_run;
 #[cfg(all(windows, feature = "installer-effect"))]
 pub mod effect;
 pub mod plan;
+/// PROJECTOS-PHASE6-SECTION-C: the elevated publication of the installed-project registry. The
+/// production entry point is gated on `registry-publish-effect`; the contract types, the descriptor
+/// policy and the fixture route are always compiled so they can be reviewed and tested.
+pub mod registry_publish;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 

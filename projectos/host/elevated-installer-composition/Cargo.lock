@@ -112,12 +112,15 @@ version = "0.0.0"
 dependencies = [
  "projectos-host-canonical-installation-identity-writer",
  "projectos-host-identity",
+ "projectos-host-protected-file-primitives",
  "projectos-host-windows-acl-policy",
  "projectos-host-windows-activation-plan",
  "projectos-host-windows-root-custody",
  "projectos-host-windows-service-control",
  "projectos-host-windows-service-installation-contract",
+ "projectos-project-registry",
  "projectos-windows-runtime-primitives",
+ "sha2",
 ]
 
 [[package]]
@@ -139,6 +142,14 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+]
+
+[[package]]
+name = "projectos-host-protected-file-primitives"
+version = "0.0.0"
+dependencies = [
+ "projectos-windows-runtime-primitives",
+ "windows",
 ]
 
 [[package]]
@@ -201,6 +212,16 @@ dependencies = [
  "projectos-host-windows-activation-plan",
  "projectos-host-windows-capability-preflight",
  "thiserror",
+]
+
+[[package]]
+name = "projectos-project-registry"
+version = "0.0.0"
+dependencies = [
+ "projectos-host-identity",
+ "projectos-windows-runtime-primitives",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

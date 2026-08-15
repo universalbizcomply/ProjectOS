@@ -5,7 +5,19 @@
  */
 import type { TransportMessage } from './types.js';
 
-const MESSAGE_KINDS = new Set(['snapshot', 'event', 'notification', 'health', 'governed', 'closed']);
+// `governed-projects` carries the installed-project INVENTORY: which projects this installation may
+// govern and which one is selected. It is a separate kind from `governed` because it answers a
+// different question — WHICH project, not what state that project is in — and collapsing the two
+// would let a surface paint one project's plan under another project's name.
+const MESSAGE_KINDS = new Set([
+  'snapshot',
+  'event',
+  'notification',
+  'health',
+  'governed',
+  'governed-projects',
+  'closed',
+]);
 
 /** Encode a message as one newline-terminated JSON line (sidecar → stdout). */
 export function encodeMessageLine(message: TransportMessage): string {
@@ -25,7 +37,35 @@ export function parseMessageLine(line: string): TransportMessage | null {
   if (obj === null || typeof obj !== 'object') return null;
   const kind = (obj as { kind?: unknown }).kind;
   if (typeof kind !== 'string' || !MESSAGE_KINDS.has(kind)) return null;
+  // A STRUCTURAL check for the inventory, not merely a kind check.
+  //
+  // Every other kind here is cast on the strength of its discriminant alone, which is a pre-existing
+  // weakness of this parser. The inventory is not given the same treatment: it decides WHICH project
+  // the surface believes it is looking at, so a malformed one — from version skew between a sidecar
+  // and a browser bundle, or from a defect upstream — must be dropped at the boundary rather than
+  // rendered as though it satisfied the type it is cast to.
+  if (kind === 'governed-projects' && !isGovernedProjectsPayload(obj)) return null;
   return obj as TransportMessage;
+}
+
+/** Whether a parsed line really carries a `GovernedProjectsInventory`. */
+function isGovernedProjectsPayload(value: object): boolean {
+  const inventory = (value as { inventory?: unknown }).inventory;
+  if (inventory === null || typeof inventory !== 'object' || Array.isArray(inventory)) return false;
+  const rec = inventory as Record<string, unknown>;
+  if (!Array.isArray(rec['projects'])) return false;
+  if (typeof rec['refusedCount'] !== 'number' || !Number.isFinite(rec['refusedCount'])) return false;
+  if (rec['registryStatus'] !== null && typeof rec['registryStatus'] !== 'string') return false;
+  if (rec['selectedProjectId'] !== null && typeof rec['selectedProjectId'] !== 'string') return false;
+  return rec['projects'].every(
+    (project) =>
+      project !== null &&
+      typeof project === 'object' &&
+      typeof (project as Record<string, unknown>)['projectId'] === 'string' &&
+      typeof (project as Record<string, unknown>)['projectName'] === 'string' &&
+      typeof (project as Record<string, unknown>)['repositoryRoot'] === 'string' &&
+      typeof (project as Record<string, unknown>)['repository'] === 'string',
+  );
 }
 
 export interface SidecarCommand {

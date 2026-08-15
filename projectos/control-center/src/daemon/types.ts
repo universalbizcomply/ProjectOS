@@ -7,6 +7,7 @@
  */
 
 import type { GovernedState } from '../governed/types.js';
+import type { GovernedProjectsInventory } from '../governed/types.js';
 
 export type ConnectionState = 'disconnected' | 'connecting' | 'connected';
 
@@ -168,6 +169,14 @@ export type TransportMessage =
   | { readonly kind: 'lifecycle'; readonly lifecycle: LiveLifecycle }
   /** Canonical governed state, read from `@projectos/core` records — NOT the daemon's own model. */
   | { readonly kind: 'governed'; readonly state: GovernedState }
+  /**
+   * WHICH projects this installation may govern, and which one is selected.
+   *
+   * Produced by the daemon from the roots the Rust host read out of the protected registry. The
+   * renderer never adds to it, never reorders it and never selects from anywhere else: a project the
+   * host did not supply is simply not here, so it cannot be chosen.
+   */
+  | { readonly kind: 'governed-projects'; readonly inventory: GovernedProjectsInventory }
   | { readonly kind: 'closed' };
 
 /** The complete observable UI state the store holds. */
@@ -187,4 +196,9 @@ export interface LiveState {
    * in a plain browser build that is forever, and the surface says so rather than inventing a seed.
    */
   readonly governed: GovernedState | null;
+  /**
+   * The installed projects and the current selection. `null` until the first inventory message —
+   * absence means "not known yet", never "there are none".
+   */
+  readonly governedProjects: GovernedProjectsInventory | null;
 }

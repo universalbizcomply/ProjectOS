@@ -157,3 +157,30 @@ export function isGovernedStateMessage(value: unknown): value is GovernedStateMe
   const state = rec['state'];
   return typeof state === 'object' && state !== null && 'connected' in state;
 }
+
+/**
+ * ONE installed project the owner may select. Non-secret, non-authoritative: it says what a project
+ * is called and where it lives, and grants nothing.
+ */
+export interface GovernedProjectSummary {
+  readonly projectId: string;
+  readonly projectName: string;
+  readonly repositoryRoot: string;
+  /** The repository identity from the project's own configuration (`owner/name`, or `none`). */
+  readonly repository: string;
+}
+
+/**
+ * The installed-project inventory as the daemon reports it.
+ *
+ * `registryStatus` is the closed token the Rust host produced when it read the protected registry —
+ * `ok`, `missing`, `malformed`, `invalid`, `unreadable`, `anchor-unresolved` — or `null` in a
+ * development run, where there is no installed host and therefore no registry to read.
+ */
+export interface GovernedProjectsInventory {
+  readonly projects: readonly GovernedProjectSummary[];
+  readonly registryStatus: string | null;
+  /** How many supplied roots did not survive validation. A number, never a path. */
+  readonly refusedCount: number;
+  readonly selectedProjectId: string | null;
+}
