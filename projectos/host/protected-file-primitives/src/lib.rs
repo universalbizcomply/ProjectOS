@@ -79,8 +79,8 @@ pub fn is_process_elevated() -> Result<bool, ProtectedFileError> {
     // RAII from here: the token handle is closed exactly once on drop, on every path below including
     // the error ones. SAFETY: `OpenProcessToken` succeeded and transferred ownership of `token` to
     // us; no other owner exists.
-    let owned =
-        unsafe { projectos_windows_runtime_primitives::handles::adopt(token) }.ok_or(ProtectedFileError::TokenUnavailable)?;
+    let owned = unsafe { projectos_windows_runtime_primitives::handles::adopt(token) }
+        .ok_or(ProtectedFileError::TokenUnavailable)?;
 
     let mut elevation = TOKEN_ELEVATION::default();
     let mut returned: u32 = 0;
@@ -98,6 +98,33 @@ pub fn is_process_elevated() -> Result<bool, ProtectedFileError> {
     };
     queried.map_err(|_| ProtectedFileError::TokenUnavailable)?;
     Ok(elevation.TokenIsElevated != 0)
+}
+
+/// Whether standard input is an INTERACTIVE console.
+///
+/// A registration that may be approved by a piped or redirected stream is not an owner confirmation;
+/// it is an unattended one wearing a confirmation's clothes. `GetConsoleMode` succeeds only on a real
+/// console handle, so a pipe, a file and a closed handle all answer `false`.
+///
+/// This proves the KEYSTROKES came from a console, not who typed them. It is a check against
+/// automation, not an identity or presence proof, and nothing here should be read as one.
+#[must_use]
+pub fn is_stdin_interactive() -> bool {
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::System::Console::{
+        GetConsoleMode, GetStdHandle, CONSOLE_MODE, STD_INPUT_HANDLE,
+    };
+
+    // SAFETY: `GetStdHandle` returns a borrowed pseudo-handle that must not be closed; it is used
+    // only for the duration of the `GetConsoleMode` query below.
+    let handle: HANDLE = match unsafe { GetStdHandle(STD_INPUT_HANDLE) } {
+        Ok(h) if !h.is_invalid() => h,
+        _ => return false,
+    };
+    let mut mode = CONSOLE_MODE::default();
+    // SAFETY: `handle` is a live standard-handle value and `mode` is an owned local alive across the
+    // call. A non-console handle simply fails, which is the answer we want.
+    unsafe { GetConsoleMode(handle, &mut mode) }.is_ok()
 }
 
 /// Replace `destination`'s contents with `replacement`, PRESERVING the destination's own security
@@ -140,6 +167,24 @@ mod tests {
     /// The elevation question is ANSWERED, whichever way. A test process is normally not elevated,
     /// but asserting the value would make the test depend on how it was launched; what matters is
     /// that the primitive returns a definite answer rather than failing.
+    /// The interactivity question is ANSWERED, whichever way. Under `cargo test` stdin is not a
+    /// console, so this is normally `false`; asserting the value would make the test depend on how it
+    /// was launched. What matters is that it never panics and never fails open.
+    #[test]
+    fn the_interactivity_question_is_answerable_and_defaults_closed() {
+        // Two real properties, neither of them a tautology: it returns rather than panicking or
+        // blocking on a read, and it is DETERMINISTIC for one handle. A check that flickered would be
+        // worse than none, because a confirmation gate would then depend on when it was asked.
+        let first = is_stdin_interactive();
+        for _ in 0..5 {
+            assert_eq!(
+                is_stdin_interactive(),
+                first,
+                "the interactivity answer must not change under repetition"
+            );
+        }
+    }
+
     #[test]
     fn the_elevation_question_is_answerable() {
         assert!(is_process_elevated().is_ok());

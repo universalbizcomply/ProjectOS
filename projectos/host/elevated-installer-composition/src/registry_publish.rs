@@ -21,11 +21,17 @@
 //!   stale plan, never to skip a check.
 //! * It creates no service, starts nothing, deletes nothing, and writes nowhere else.
 //!
-//! ## What it does not claim
+//! ## The threat boundary, stated truthfully
 //!
-//! It does not resist a local administrator. Administrators and SYSTEM remain privileged exactly as
-//! Windows defines. The registry is protected machine-local CONFIGURATION, not a signed artefact,
-//! and nothing here may describe it as signed.
+//! `NT AUTHORITY\SYSTEM`, `BUILTIN\Administrators` and `NT SERVICE\ProjectOSHost` are TRUSTED
+//! WRITERS to this protected installation area. The Windows DACL grants Administrators Full Control
+//! and this operation runs as one of them, so **nothing here protects the registry from a compromised
+//! administrator** and no text in this crate may claim it does. What the descriptor does protect
+//! against is an ORDINARY user, who holds read and nothing else — which is the whole point, because
+//! the governed repositories and the person who owns them are ordinary users.
+//!
+//! The registry is protected machine-local CONFIGURATION, not a signed artefact, and nothing here may
+//! describe it as signed.
 //!
 //! Created in PROJECTOS-PHASE6-SECTION-C.
 
@@ -60,7 +66,12 @@ use sha2::{Digest, Sha256};
 ))]
 use std::path::Path;
 
-/// The exact phrase the owner must transcribe to authorise ONE registry publication.
+/// The exact phrase an ADMINISTRATOR types to confirm ONE registry publication.
+///
+/// HUMAN CONFIRMATION, AND NOTHING ELSE. It is not secret material, not a capability, not
+/// owner-presence proof, and not protection against a compromised administrator. It exists so a
+/// protected write cannot happen without a person reading what it will do and acknowledging it at a
+/// console. Its value is public and appears in this file.
 pub const REGISTRY_PUBLISH_PHRASE: &str =
     "APPROVED: publish the ProjectOS installed-project registry";
 
@@ -225,11 +236,17 @@ pub fn production_destination() -> Result<std::path::PathBuf, RegistryPublishRef
 /// # Errors
 /// [`RegistryPublishRefusal`] naming the first failure. Any previous valid registry is left usable.
 #[cfg(all(windows, feature = "registry-publish-effect"))]
-pub fn publish_project_registry(
+///
+/// `pub(crate)`, DELIBERATELY. The interactive-console requirement lives in `admin::run`, so a caller
+/// that reached this function directly would skip it while looking, from its own call site, exactly
+/// as confirmed as the real command. Outside this crate the only route in is `admin::run`, which
+/// cannot be reached without a console.
+pub(crate) fn publish_project_registry(
     approval_phrase: &str,
     plan: &PlannedRegistration,
 ) -> Result<RegistryPublishOutcome, RegistryPublishRefusal> {
-    // 1. OWNER APPROVAL. Nothing below is reachable without it.
+    // 1. THE HUMAN-CONFIRMATION PHRASE. NOT owner approval and NOT owner-presence proof — see the
+    //    constant's own documentation. It is one of several gates, not the authority.
     if approval_phrase != REGISTRY_PUBLISH_PHRASE {
         return Err(RegistryPublishRefusal::ApprovalPhraseMismatch);
     }
@@ -510,6 +527,16 @@ pub mod fixture {
         publish_into(destination, apply, verify, plan)
     }
 }
+
+/// The manual administrator command that drives this publication.
+///
+/// Compiled alongside the publication machinery it orchestrates, and gated exactly as that machinery
+/// is: a default build contains neither, so a shipped artefact has no registration command at all.
+#[cfg(all(
+    windows,
+    any(feature = "registry-publish-effect", feature = "fixture-composition")
+))]
+pub mod admin;
 
 #[cfg(all(windows, test, feature = "fixture-composition"))]
 mod tests;

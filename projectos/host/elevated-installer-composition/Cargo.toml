@@ -6,6 +6,14 @@ publish = false
 license = "UNLICENSED"
 description = "CD-B4-ELEVATED-INSTALLER-IDENTITY-COMPOSITION1A. The sealed ELEVATED-INSTALLER composition boundary: it evaluates the installation preconditions, derives the sealed production InstallerTarget from the approved ProgramData anchor, and produces a READ-ONLY installation plan whose ordering places the canonical identity record before any service step. It performs NO installation effect: no Known Folder resolution, no ProgramData or Program Files write, no directory creation under production roots, no ACL, registry or SCM mutation, no service install or start, no elevation request, no production RNG. Runtime, Tauri and renderer crates must NOT depend on this crate."
 
+# THE MANUAL ADMINISTRATOR REGISTRATION COMMAND. `required-features` is the packaging boundary: a
+# default build does not produce this binary at all, so a shipped artefact cannot contain it. It
+# self-elevates nothing and launches nothing — an administrator runs it in a terminal they opened.
+[[bin]]
+name = "projectos-register-project"
+path = "src/bin/projectos-register-project.rs"
+required-features = ["registry-publish-effect"]
+
 [lints.rust]
 unsafe_code = "forbid"
 

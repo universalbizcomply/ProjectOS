@@ -257,6 +257,78 @@ describe('install', () => {
     expect(run(ctx, ['install', '--target', '/proj']).code).toBe(1);
   });
 
+  /**
+   * REGISTRATION IS OUT OF BAND, and this command says so rather than doing it.
+   *
+   * `projectos install` runs as the owner, unelevated. The installed ProjectOS keeps its project
+   * list in protected machine configuration that ordinary users may read and not write, so this
+   * command cannot register anything — it prints the administrator's next step instead.
+   */
+  it('points at the administrator registration command and performs no registration', () => {
+    const { ctx, sys } = makeCtx();
+    const r = run(ctx, ['install', '--target', '/proj', '--id', 'bizcomply']);
+    const text = r.lines.join(String.fromCharCode(10));
+
+    expect(text).toContain('projectos-register-project plan');
+    expect(text).toContain('an administrator registers it once');
+    expect(text).toContain('id             bizcomply');
+    expect(text).toContain('root           /proj');
+    // It performs nothing itself. It never emits an INVOCABLE publish command, and never names the
+    // protected destination — telling a reader where the file is tells them where to put one.
+    expect(text).not.toContain('projectos-register-project publish');
+    expect(text).not.toContain('ProgramData');
+    expect(text).not.toContain('projects.v1.json');
+    expect(text).not.toContain('APPROVED:');
+    // And it wrote only inside the target repository.
+    for (const path of sys.files.keys()) {
+      expect(path.startsWith('/proj')).toBe(true);
+    }
+  });
+
+  /**
+   * THE POINTER IS NOT A COMMAND LINE, and that is the point.
+   *
+   * This text is read beside an ADMINISTRATOR terminal. `$`, `(`, `)` and a backtick are all legal
+   * in a Windows path, and PowerShell evaluates `$(...)` even inside double quotes — so a directory
+   * named `C:\proj\$(...)` spliced into a quoted argument would execute on paste, with whatever
+   * privileges that terminal holds. The values are printed as fields instead, so there is no command
+   * line for them to escape from.
+   */
+  it('never builds a pasteable command line out of the caller id or target', () => {
+    const { ctx } = makeCtx();
+    const hostile = '/proj/$(whoami)';
+    const r = run(ctx, ['install', '--target', hostile, '--id', 'a"b`c$d']);
+    const text = r.lines.join(String.fromCharCode(10));
+
+    // The values appear, as fields — never inside a quoted argument on a runnable line.
+    expect(text).toContain('root           ' + hostile);
+    expect(text).not.toContain('--root "');
+    expect(text).not.toContain('--id a"b`c$d');
+    for (const line of r.lines) {
+      const runnable = line.trim().startsWith('projectos-register-project');
+      if (runnable) {
+        expect(line).not.toContain(hostile);
+        expect(line).not.toContain('a"b`c$d');
+      }
+    }
+  });
+
+  it('strips control characters from the values it prints', () => {
+    const { ctx } = makeCtx();
+    const r = run(ctx, [
+      'install',
+      '--target',
+      '/proj',
+      '--id',
+      'ok' + String.fromCharCode(10) + '  frozen         false',
+    ]);
+    const text = r.lines.join(String.fromCharCode(10));
+    // A newline in a value could otherwise forge a line and make the instructions say something
+    // they do not.
+    expect(text).toContain('id             ok  frozen         false');
+    expect(r.lines.filter((l) => l.trim().startsWith('frozen'))).toHaveLength(1);
+  });
+
   it('refuses to overwrite an existing install without --force', () => {
     const { ctx } = makeCtx();
     run(ctx, ['install', '--target', '/proj', '--id', 'x']);
