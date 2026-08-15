@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "PROJECTOS-RECOVERY-INSTALLED-APP1A-CLOSURE-DECISION1A",
+  "phaseId": "PROJECTOS-RECOVERY-INSTALLED-APP1A",
+  "projectId": "projectos",
+  "scope": "phase-closure",
+  "decidedBy": "ChatGPT",
+  "decidedAt": "2026-08-15T15:55:31+01:00",
+  "evidenceSubjectHead": "cab71a5dfd63e22c9c0b0ee23609f2245d5eb81a",
+  "decision": "close",
+  "note": "ChatGPT authorises closure based on the installed and live-proven cab71a5 release. Owner-accepted residual HIGH, unresolved and carried forward: SR-1. Acceptance is limited to this phase closure. decision PROJECTOS-RECOVERY-INSTALLED-APP1A-CLOSURE-DECISION1A",
+  "ownerAcceptedFindings": [
+    {
+      "findingId": "SR-1",
+      "severity": "HIGH",
+      "acceptedBy": "Murad",
+      "phaseId": "PROJECTOS-RECOVERY-INSTALLED-APP1A",
+      "evidenceSubjectHead": "cab71a5dfd63e22c9c0b0ee23609f2245d5eb81a",
+      "scope": "phase-closure-only"
+    }
+  ]
+}
