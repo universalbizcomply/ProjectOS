@@ -565,7 +565,18 @@ body {
 
 .ocp-actionmsg { margin: 0 0 8px; font-size: 13px; color: var(--text-dim);
   overflow-wrap: anywhere; }
-.ocp-actionmsg.crit { color: var(--crit); }
+/* The refusal blocks are <pre>, and a <pre> defaults to `white-space: pre`, which never wraps —
+   so the `overflow-wrap` above was INERT there. Measured on the real stylesheet: one long refusal
+   rendered as a single line 1208px wide inside a 520px box, and because the overflow is visible it
+   painted straight out of the panel and gave the whole page a horizontal scrollbar. `pre-wrap`
+   keeps the line structure a multi-line refusal depends on and wraps the overlong ones. Scoped to
+   `pre` on purpose: the other consumer is a <p> that joins its lines with a space and already
+   wraps. */
+pre.ocp-actionmsg { white-space: pre-wrap; }
+/* Two components say "this is a refusal" with two different class names — `crit` from
+   GovernedActions, `failed` from ObjectiveIntake — and only the first was ever styled. A refused
+   objective therefore rendered in ordinary dim body colour, with no error signal at all. */
+.ocp-actionmsg.crit, .ocp-actionmsg.failed { color: var(--crit); }
 
 @media (max-width: 420px) {
   .ocp-actions .ocp-actionrow { flex-direction: column; align-items: stretch; }

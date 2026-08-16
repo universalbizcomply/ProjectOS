@@ -420,7 +420,10 @@ function handleGovernedCommand(raw) {
   }
   let result;
   try {
-    const ctx = { sys: gitBoundSystem(agentSystem), root };
+    // `root` is bound as git's working directory, not just handed to the command: the packaged
+    // daemon's own cwd is the runtime payload root, which is not a repository, so every ambient
+    // git call would otherwise fail closed there. See gitBoundSystem.
+    const ctx = { sys: gitBoundSystem(agentSystem, process.env, root), root };
     result =
       invocation.command === 'report'
         ? fn(ctx, invocation.flags)

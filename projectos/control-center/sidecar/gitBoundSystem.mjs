@@ -17,9 +17,22 @@ import { isAbsolute, basename } from 'node:path';
  * searching for something else named `git` would be how a different executable ends up deciding
  * whether a phase may close.
  *
- * Created in PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A.
+ * WHERE git RUNS IS PART OF THE BINDING, NOT AN ACCIDENT. Binding only the executable left half the
+ * problem open. The packaged daemon is launched with its working directory set to the runtime
+ * payload root, which is not a repository at all; every git call that named its repository with
+ * `-C <root>` kept working, and every call that relied on an ambient working directory — the CLI's
+ * legitimate assumption — silently ran in `…\runtime-payload` and got `fatal: not a git repository`.
+ * That surfaced to the owner as `REPOSITORY_FACTS_UNAVAILABLE` when submitting the first objective
+ * from the packaged interface: a missing capability wearing the costume of a governance refusal.
+ *
+ * So the governed project root is bound HERE, at the one seam every git call already passes through,
+ * rather than by threading a cwd through each of the callers that assumed one. An explicit
+ * `options.cwd` still wins, and an argv `-C` still wins over both because git acts on it first.
+ *
+ * Created in PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A; working directory bound in
+ * PROJECTOS-RECOVERY-EXTERNAL-PROJECT1A.
  */
-export function gitBoundSystem(base, env = process.env) {
+export function gitBoundSystem(base, env = process.env, projectRoot) {
   return {
     ...base,
     exec(command, args, options) {
@@ -39,7 +52,22 @@ export function gitBoundSystem(base, env = process.env) {
             'ProjectOS has no bound Git executable, so repository facts cannot be established.',
         };
       }
-      return base.exec(bound, args, options);
+
+      // A root that is not absolute would be resolved against whatever directory the daemon happens
+      // to have been started in — which is the exact defect this binding exists to close, so it is
+      // refused rather than quietly ignored. Absent (the CLI, which is legitimately cwd-rooted) is
+      // not the same as present-and-wrong, and only the latter is an error.
+      if (projectRoot !== undefined && (typeof projectRoot !== 'string' || !isAbsolute(projectRoot))) {
+        return {
+          code: 127,
+          stdout: '',
+          stderr:
+            'ProjectOS has no absolute governed project root, so repository facts cannot be established.',
+        };
+      }
+
+      const bindCwd = projectRoot !== undefined && options?.cwd === undefined;
+      return base.exec(bound, args, bindCwd ? { ...options, cwd: projectRoot } : options);
     },
   };
 }

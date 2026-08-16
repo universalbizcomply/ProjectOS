@@ -13,11 +13,13 @@ import { gitBoundSystem } from '../sidecar/gitBoundSystem.mjs';
 
 const GIT = 'C:\\tools\\git\\cmd\\git.exe';
 
+const ROOT = 'C:\\dev\\deadaisle';
+
 function baseSystem() {
-  const calls: { command: string; args: readonly string[] }[] = [];
+  const calls: { command: string; args: readonly string[]; options?: { cwd?: string } }[] = [];
   const base = {
-    exec: vi.fn((command: string, args: readonly string[]) => {
-      calls.push({ command, args });
+    exec: vi.fn((command: string, args: readonly string[], options?: { cwd?: string }) => {
+      calls.push({ command, args, options });
       return { code: 0, stdout: 'ok', stderr: '' };
     }),
     readText: () => null,
@@ -82,6 +84,79 @@ describe('gitBoundSystem', () => {
 
     expect(calls.map((c) => c.command)).toEqual(['node', 'npm', 'gitk', 'git.exe']);
     expect(calls.some((c) => c.command === GIT)).toBe(false);
+  });
+
+  /* --- WHERE git RUNS (PROJECTOS-RECOVERY-EXTERNAL-PROJECT1A) --------------------------------
+   *
+   * The packaged daemon's own working directory is the runtime payload root, which is not a
+   * repository. Binding the executable alone left every ambient git call — the ones the CLI-era
+   * code legitimately writes without `-C` — running there and failing closed, which reached the
+   * owner as `REPOSITORY_FACTS_UNAVAILABLE` on the very first objective. */
+
+  it('GIT12 runs git in the governed project root when the caller names no directory', () => {
+    const { base, calls } = baseSystem();
+    const sys = gitBoundSystem(base, { PROJECTOS_GIT_EXE: GIT }, ROOT);
+
+    sys.exec('git', ['rev-parse', '--abbrev-ref', 'HEAD']);
+
+    expect(calls[0].command).toBe(GIT);
+    expect(calls[0].options?.cwd).toBe(ROOT);
+    // the arguments stay untouched — this binds a directory, it does not rewrite the command
+    expect(calls[0].args).toEqual(['rev-parse', '--abbrev-ref', 'HEAD']);
+  });
+
+  it('GIT12 lets an explicit caller cwd win over the bound root', () => {
+    const { base, calls } = baseSystem();
+    const sys = gitBoundSystem(base, { PROJECTOS_GIT_EXE: GIT }, ROOT);
+
+    sys.exec('git', ['status', '--porcelain'], { cwd: 'C:\\dev\\elsewhere' });
+
+    expect(calls[0].options?.cwd).toBe('C:\\dev\\elsewhere');
+  });
+
+  it('GIT12 passes `-C` callers through unchanged, so they keep naming their own repository', () => {
+    const { base, calls } = baseSystem();
+    const sys = gitBoundSystem(base, { PROJECTOS_GIT_EXE: GIT }, ROOT);
+
+    sys.exec('git', ['-C', 'C:\\dev\\other', 'rev-parse', 'HEAD']);
+
+    // `-C` is still in argv untouched, and git acts on it before anything else, so it wins over
+    // the bound cwd. The binding cannot redirect a call that already named its repository.
+    expect(calls[0].args).toEqual(['-C', 'C:\\dev\\other', 'rev-parse', 'HEAD']);
+  });
+
+  it('GIT12 binds no directory when no root is given, so the cwd-rooted CLI is unaffected', () => {
+    const { base, calls } = baseSystem();
+    const sys = gitBoundSystem(base, { PROJECTOS_GIT_EXE: GIT });
+
+    sys.exec('git', ['rev-parse', 'HEAD']);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].options?.cwd).toBeUndefined();
+  });
+
+  it('GIT13 fails closed on a root that is not absolute, rather than resolving it ambiently', () => {
+    for (const root of ['deadaisle', '.\\deadaisle', '..\\deadaisle', '', 42 as unknown as string]) {
+      const { base, calls } = baseSystem();
+      const sys = gitBoundSystem(base, { PROJECTOS_GIT_EXE: GIT }, root);
+
+      const result = sys.exec('git', ['rev-parse', 'HEAD']);
+
+      // A relative root would be resolved against whatever directory the daemon started in — the
+      // exact defect this binding closes — so nothing may run at all.
+      expect(result.code, `root must be refused: ${String(root)}`).not.toBe(0);
+      expect(calls, `nothing may be executed for root: ${String(root)}`).toHaveLength(0);
+    }
+  });
+
+  it('GIT13 never binds the governed root onto a non-git command', () => {
+    const { base, calls } = baseSystem();
+    const sys = gitBoundSystem(base, { PROJECTOS_GIT_EXE: GIT }, ROOT);
+
+    sys.exec('node', ['--version']);
+
+    expect(calls[0].command).toBe('node');
+    expect(calls[0].options?.cwd).toBeUndefined();
   });
 
   it('preserves the rest of the System surface', () => {
