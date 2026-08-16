@@ -127,6 +127,16 @@ export const WORKER_OWNED_RECORD_GRANTS: readonly string[] = [
   'Edit(.projectops/execution/*.findings.json)',
   'Write(.projectops/execution/*.effects.json)',
   'Edit(.projectops/execution/*.effects.json)',
+  // THE PROOF SURFACE, and nothing else in the repository.
+  //
+  // A worker that may write only its own findings and attestation cannot REPAIR anything, so the
+  // correction cycle — a failing check going back to the worker and coming out fixed — had no way to
+  // be demonstrated, or to happen. This adds one narrow governance path so a phase can carry a
+  // fixture the worker is allowed to correct. It is still a closed list: `.projectops/proof/*.json`
+  // holds no product code, no plan, no authority record and no configuration, so widening this does
+  // not widen what a worker can reach in the project it is working on.
+  'Write(.projectops/proof/*.json)',
+  'Edit(.projectops/proof/*.json)',
 ];
 
 /** ProjectOS's own records. A worker is never granted authority over these. */

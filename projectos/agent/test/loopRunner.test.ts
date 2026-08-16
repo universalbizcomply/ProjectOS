@@ -11,7 +11,8 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it, expect } from 'vitest';
-import { runLoop } from '../src/loop/runner.js';
+import { runLoop as runLoopRaw } from '../src/loop/runner.js';
+import { invocationIdFor } from '../src/loop/invocation.js';
 import { MAX_CORRECTION_ATTEMPTS } from '../src/loop/outcome.js';
 import type { AdapterRegistry, WorkerAdapter } from '../src/loop/workers.js';
 import type { System, ExecResult } from '../src/system.js';
@@ -162,7 +163,23 @@ function attestation(over: Record<string, boolean> = {}): Record<string, boolean
   };
 }
 
-const SESSION = `${PHASE}-${HEAD.slice(0, 12)}`;
+/**
+ * Deterministic invocation facts for every run in this file.
+ *
+ * The session id now carries the invocation, so a fresh `--execute` cannot silently continue an
+ * earlier worker. Fixing pid and the fake clock keeps the id derivable here rather than hardcoded.
+ */
+const FACTS = { pid: 4242, ppid: 1717, argv: ['C:/node.exe', 'projectos.js', 'run', '--execute'], cwd: 'C:/dev/x' };
+const NOW = '2026-08-11T19:00:00Z';
+const RUN_ID = invocationIdFor(PHASE, NOW, FACTS.pid).slice(0, 8);
+const SESSION = `${PHASE}-${HEAD.slice(0, 12)}-${RUN_ID}`;
+/** The id a RESUME addresses: same phase and commit, with no run discriminator. */
+const RESUMED_SESSION = `${PHASE}-${HEAD.slice(0, 12)}`;
+
+/** Every run in this file carries the same deterministic invocation unless it overrides it. */
+function runLoop(sys: Parameters<typeof runLoopRaw>[0], root: string, options: Parameters<typeof runLoopRaw>[2] = {}) {
+  return runLoopRaw(sys, root, { invocation: FACTS, ...options });
+}
 
 describe('runLoop', () => {
   it('a dry run writes the brief and starts nothing', () => {
@@ -632,5 +649,109 @@ describe('runLoop', () => {
     runLoop(sys, ROOT, { dryRun: true, adapters: registry, invocation: FACTS });
     expect(calls).toEqual([]);
     expect(sys.read(invocationFile)).toBeNull();
+  });
+  /* ----------------------------------------------------------------------------------------------
+   * CORRECTION A — a fresh live execution gets a session of its own.
+   *
+   * The session id was phase+commit, so a second `--execute` at the same commit found the earlier
+   * record, adopted its `providerRef` and CONTINUED that worker — which is how a new invocation id
+   * came to be stamped onto a historical, unexplained execution. Continuing is now `--resume`.
+   * ------------------------------------------------------------------------------------------- */
+
+  const OTHER_FACTS = { ...FACTS, pid: 9999 };
+
+  it('two live executions at the same commit get separate sessions', () => {
+    const first = runLoop(world({ files: cleanFindings(SESSION) }), ROOT, { adapters: fakeAdapter().registry });
+    const second = runLoop(world(), ROOT, { adapters: fakeAdapter().registry, invocation: OTHER_FACTS });
+
+    expect(first.ok && second.ok).toBe(true);
+    if (!first.ok || !second.ok) return;
+    expect(first.sessionId).not.toBe(second.sessionId);
+    // Both still name the phase and the commit; only the run discriminator differs.
+    expect(first.sessionId.startsWith(RESUMED_SESSION)).toBe(true);
+    expect(second.sessionId.startsWith(RESUMED_SESSION)).toBe(true);
+  });
+
+  it('a second execution cannot overwrite the first invocation or its session', () => {
+    const sys = world({ files: cleanFindings(SESSION) });
+    runLoop(sys, ROOT, { adapters: fakeAdapter().registry });
+    const firstInvocation = String(sys.read(`${ROOT}/.projectops/execution/${SESSION}.invocation.json`));
+    const firstSession = String(sys.read(`${ROOT}/.projectops/execution/${SESSION}.session.json`));
+
+    runLoop(sys, ROOT, { adapters: fakeAdapter().registry, invocation: OTHER_FACTS });
+
+    // The first run's records are byte-identical afterwards: the second wrote its own, elsewhere.
+    expect(String(sys.read(`${ROOT}/.projectops/execution/${SESSION}.invocation.json`))).toBe(firstInvocation);
+    expect(String(sys.read(`${ROOT}/.projectops/execution/${SESSION}.session.json`))).toBe(firstSession);
+  });
+
+  it('an ordinary live execution never adopts an existing session’s provider handle', () => {
+    // A session record exists at the RESUME id, carrying a handle — exactly the shape that used to
+    // be picked up silently.
+    const sys = world({
+      files: {
+        ...cleanFindings(SESSION),
+        [`${ROOT}/.projectops/execution/${RESUMED_SESSION}.session.json`]: JSON.stringify({
+          sessionId: RESUMED_SESSION,
+          workerId: 'test',
+          kind: WORKER_KIND,
+          phaseId: PHASE,
+          briefId: 'old',
+          briefPath: 'old',
+          startedAt: '2026-08-11T00:00:00Z',
+          providerRef: 'historical-provider',
+          state: 'started',
+          exitCode: 0,
+          corrections: 0,
+        }),
+      },
+    });
+    const { calls, registry } = fakeAdapter();
+
+    const r = runLoop(sys, ROOT, { adapters: registry });
+
+    expect(calls).toEqual(['start']);
+    expect(calls).not.toContain('rejoin');
+    if (!r.ok) return;
+    expect(r.sessionId).not.toBe(RESUMED_SESSION);
+    const written = JSON.parse(String(sys.read(`${ROOT}/.projectops/execution/${SESSION}.session.json`))) as Record<string, unknown>;
+    expect(written['providerRef']).not.toBe('historical-provider');
+    // And the historical record is exactly as it was.
+    const historical = JSON.parse(String(sys.read(`${ROOT}/.projectops/execution/${RESUMED_SESSION}.session.json`))) as Record<string, unknown>;
+    expect(historical['providerRef']).toBe('historical-provider');
+    expect(historical['startedAt']).toBe('2026-08-11T00:00:00Z');
+  });
+
+  it('--resume is the only way to continue an earlier session, and it still binds', () => {
+    const sys = world({
+      files: {
+        ...cleanFindings(RESUMED_SESSION),
+        [`${ROOT}/.projectops/execution/${RESUMED_SESSION}.session.json`]: JSON.stringify({
+          sessionId: RESUMED_SESSION,
+          workerId: 'test',
+          kind: WORKER_KIND,
+          phaseId: PHASE,
+          briefId: 'old',
+          briefPath: 'old',
+          startedAt: '2026-08-11T00:00:00Z',
+          providerRef: 'historical-provider',
+          state: 'started',
+          exitCode: 0,
+          corrections: 0,
+        }),
+      },
+    });
+    const { calls, registry } = fakeAdapter();
+
+    const r = runLoop(sys, ROOT, { adapters: registry, resume: true });
+
+    expect(calls).toEqual(['rejoin']);
+    if (!r.ok) return;
+    expect(r.sessionId).toBe(RESUMED_SESSION);
+    const inv = JSON.parse(String(sys.read(`${ROOT}/.projectops/execution/${RESUMED_SESSION}.invocation.json`))) as Record<string, any>;
+    const ses = JSON.parse(String(sys.read(`${ROOT}/.projectops/execution/${RESUMED_SESSION}.session.json`))) as Record<string, any>;
+    const evi = JSON.parse(String(sys.read(`${ROOT}/.projectops/execution/${RESUMED_SESSION}.evidence.json`))) as Record<string, any>;
+    expect(ses['invocationId']).toBe(inv['invocationId']);
+    expect(evi['invocationId']).toBe(inv['invocationId']);
   });
 });

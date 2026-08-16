@@ -60,6 +60,14 @@ export interface RunOptions {
    * exists and, importantly, what it does NOT establish.
    */
   readonly invocation?: InvocationFacts;
+  /**
+   * Continue the session this phase and commit already have, instead of starting a new one.
+   *
+   * Rejoining used to happen by ITSELF: the session id was phase+commit, so a second `--execute` at
+   * the same commit found the earlier record, adopted its `providerRef` and continued that worker.
+   * Continuing an earlier run is a different operation from starting one and now takes saying so.
+   */
+  readonly resume?: boolean;
   /** Adapter registry. Injected so a test can register a worker kind without spawning a process. */
   readonly adapters?: AdapterRegistry;
 }
@@ -109,9 +117,28 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
   if (selection.kind === 'stop') return refused(selectionStopLines(selection.reason));
   const phaseId = selection.planPhase.phaseId;
 
+  // THE INVOCATION IS ESTABLISHED BEFORE THE SESSION, because it now names it.
+  //
+  // A fresh live execution gets a session of its own. `--resume` addresses an existing session by
+  // name instead, and is the ONLY way to continue an earlier worker — which is what makes rejoining
+  // a deliberate operation rather than something that happens because the commit did not move.
+  const facts: InvocationFacts = options.invocation ?? {
+    pid: process.pid,
+    ppid: process.ppid,
+    argv: process.argv,
+    cwd: process.cwd(),
+  };
+  const invokedAt = sys.now();
+  const invocationId = invocationIdFor(phaseId, invokedAt, facts.pid);
+  const resuming = options.resume === true;
+
   // The session id, and therefore every record path, is fixed before the brief is built: the worker
   // is told where to write its attestation, and the loop refuses to certify a run without one.
-  const sessionId = store.sessionIdFor(phaseId, String(verification.observed.head));
+  const sessionId = store.sessionIdFor(
+    phaseId,
+    String(verification.observed.head),
+    resuming ? undefined : invocationId.slice(0, 8),
+  );
   if (sessionId === null) {
     return refused([
       `REFUSED (UNSAFE_PHASE_ID): phase '${phaseId}' does not make a safe record name, so this run can have no durable records`,
@@ -197,16 +224,9 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
   // WRITTEN BEFORE ANYTHING IS SPAWNED, and deliberately not before the dry-run return above: a run
   // that starts nothing has no invocation to account for. Everything downstream carries this id, so
   // "what started this worker?" is answerable from the records themselves.
-  const facts: InvocationFacts = options.invocation ?? {
-    pid: process.pid,
-    ppid: process.ppid,
-    argv: process.argv,
-    cwd: process.cwd(),
-  };
-  const invokedAt = sys.now();
   const invocation = writeInvocation(sys, root, {
     schemaVersion: INVOCATION_SCHEMA_VERSION,
-    invocationId: invocationIdFor(sessionId, invokedAt, facts.pid),
+    invocationId,
     createdAt: invokedAt,
     projectId: String(context.config.projectId),
     phaseId,

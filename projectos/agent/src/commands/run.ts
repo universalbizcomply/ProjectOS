@@ -48,6 +48,7 @@ export function run(ctx: CommandContext, flags: Flags): CommandResult {
   const result = runLoop(ctx.sys, ctx.root, {
     ...(worker === '' ? {} : { workerId: worker }),
     dryRun,
+    resume: bool(flags, 'resume'),
   });
   if (!result.ok) return fail(1, result.lines);
   // A stop is a governed outcome, not an error: the loop did its job and the next move is someone
