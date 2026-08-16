@@ -193,6 +193,98 @@ fn parse(args: &[String]) -> Result<Invocation, AdminRefusal> {
     })
 }
 
+/// Every character PowerShell's tokenizer accepts as a SINGLE-QUOTE string delimiter.
+///
+/// It is not only the ASCII apostrophe. PowerShell also honours the typographic quotes U+2018,
+/// U+2019, U+201A and U+201B as delimiters, and all four are legal in an NTFS name — so a value
+/// carrying one would close a literal that had doubled `'` alone.
+fn is_powershell_quote(ch: char) -> bool {
+    matches!(ch, '\'' | '\u{2018}' | '\u{2019}' | '\u{201a}' | '\u{201b}')
+}
+
+/// Repair a value for WINDOWS ARGUMENT DELIVERY — the layer BELOW the PowerShell literal.
+///
+/// Quoting the literal only settles how POWERSHELL reads the value. PowerShell then hands a native
+/// program its arguments as one command line, adding double quotes around any argument containing
+/// whitespace, and the C runtime unquotes it with a rule of its own: a run of backslashes
+/// immediately before a quote is HALVED and the quote taken as escaped. So an argument that both
+/// contains a space and ends in a backslash — `C:\my repo\` — arrives with its closing quote
+/// swallowed, absorbing every flag that followed it into the path. Doubling the trailing run makes
+/// the halving restore exactly what was meant.
+///
+/// This applies ONLY when PowerShell will add the quotes. Doubling an unquoted argument would
+/// deliver two backslashes where the path has one, which is why the whitespace test is not
+/// decoration.
+///
+/// VERIFIED AGAINST WINDOWS POWERSHELL 5.1, AND ONLY THAT. PowerShell 7.3 and later default
+/// `$PSNativeCommandArgumentPassing` to `Standard` on Windows, which builds the argument list
+/// correctly by itself — so on PS7 this repair would land on top of correct escaping and deliver one
+/// backslash too many. The consequence is a REFUSAL, never a wrong registration: the digest binds
+/// the raw root, so an altered argument is stale by construction (see
+/// `a23_a_root_that_differs_from_the_plan_can_never_publish`). A repository path that both contains
+/// whitespace and ends in a separator would therefore be un-registerable from PS7 until this is made
+/// version-aware. That is an open limitation, recorded rather than guessed at, because no PowerShell
+/// 7 exists on the machine this was written against.
+///
+/// One visible consequence: for such a path the displayed proposal shows `C:\my repo\` while the
+/// pasted line carries `'C:\my repo\\'`. The runtime undoes the difference, but the two do not read
+/// identically.
+fn windows_argv_safe(value: &str) -> String {
+    if !value.chars().any(char::is_whitespace) || !value.ends_with('\\') {
+        return value.to_string();
+    }
+    let kept = value.trim_end_matches('\\');
+    format!("{kept}{}", "\\".repeat((value.len() - kept.len()) * 2))
+}
+
+/// Encode one untrusted value as a POWERSHELL SINGLE-QUOTED LITERAL.
+///
+/// The `publish` line below is meant to be PASTED INTO A SHELL, so every value spliced into it is
+/// shell input, not text. PowerShell expands `$(...)`, `$name` and backtick escapes INSIDE DOUBLE
+/// QUOTES — and `$`, `(`, `)`, a backtick, `&`, `;` and an apostrophe are all legal in a Windows
+/// directory name. A repository at `C:\proj\$(iwr ...|iex)` rendered inside double quotes would
+/// therefore execute on paste, in an ADMINISTRATOR terminal, with our own instruction as the
+/// delivery vehicle.
+///
+/// Inside a SINGLE-quoted literal PowerShell expands nothing whatsoever; the only character that can
+/// end the string is a quote. So this doubles every quote — the whole family, see
+/// [`is_powershell_quote`] — and wraps the result. That family was MEASURED, not assumed: every code
+/// point in the Basic Multilingual Plane was fed through PowerShell 5.1's own parser, and exactly
+/// five terminate a single-quoted literal.
+///
+/// Quoting settles how PowerShell READS the value. Getting it to the program intact is a second
+/// problem, handled by [`windows_argv_safe`] above.
+///
+/// Control characters are DROPPED rather than encoded, because a value carrying a newline could
+/// forge further lines and make the instruction appear to say something it does not. A Windows path
+/// cannot contain one and the root printed here has already been proven to exist on disk, so this
+/// guards the display layer; it does not repair the value. A dropped character changes the argument,
+/// and `publish` re-validates everything it is given, so the altered command refuses rather than
+/// registering something unintended.
+fn ps_literal(value: &str) -> String {
+    let cleaned: String = value.chars().filter(|ch| !ch.is_control()).collect();
+    let delivered = windows_argv_safe(&cleaned);
+    let mut out = String::with_capacity(delivered.len() + 2);
+    out.push('\'');
+    for ch in delivered.chars() {
+        if is_powershell_quote(ch) {
+            out.push(ch);
+        }
+        out.push(ch);
+    }
+    out.push('\'');
+    out
+}
+
+/// Render an untrusted value as one line of DISPLAY text.
+///
+/// Nothing here is pasted into a shell, so it is not quoted. Control characters — and only those —
+/// are dropped, for the same reason as in [`ps_literal`]: a carriage return or newline is what lets
+/// one value forge a second line and make this block appear to say something it does not.
+fn display_value(value: &str) -> String {
+    value.chars().filter(|ch| !ch.is_control()).collect()
+}
+
 /// Print the complete proposed registration. The SAME rendering is used by `plan` and by `publish`,
 /// so the administrator confirms exactly what they were shown.
 fn show(
@@ -202,14 +294,17 @@ fn show(
     destination: &str,
 ) {
     console.print("Proposed installed-project registration");
-    console.print(&format!("  project ID            {}", proposed.project_id));
+    console.print(&format!(
+        "  project ID            {}",
+        display_value(&proposed.project_id)
+    ));
     console.print(&format!(
         "  repository root       {}",
-        proposed.repository_root
+        display_value(&proposed.repository_root)
     ));
     console.print(&format!(
         "  permitted environments {}",
-        proposed.permitted_environments.join(", ")
+        display_value(&proposed.permitted_environments.join(", "))
     ));
     console.print(&format!(
         "  production frozen     {}",
@@ -254,13 +349,19 @@ pub fn run(
 
     if !invocation.publish {
         console.print("");
-        console.print("Nothing was written. To register this project, open an Administrator");
-        console.print("terminal and run:");
+        console.print("Nothing was written. To register this project:");
+        console.print("  Open Windows PowerShell 5.1 as Administrator (powershell.exe).");
+        console.print("  PowerShell 7 (pwsh) is not supported for the line below.");
+        console.print("Then run this line:");
+        // EVERY caller-supplied value is a single-quoted PowerShell literal — see `ps_literal`.
+        // `--frozen` and `--expect-digest` are left bare deliberately: one is `true`/`false` and the
+        // other is 64 lowercase hex characters, both produced here from validated data rather than
+        // echoed from the caller, so neither can carry a shell character in the first place.
         console.print(&format!(
-            "  {COMMAND_NAME} publish --id {} --root \"{}\" --environments {} --frozen {} --expect-digest {digest}",
-            invocation.proposed.project_id,
-            invocation.proposed.repository_root,
-            invocation.proposed.permitted_environments.join(","),
+            "  {COMMAND_NAME} publish --id {} --root {} --environments {} --frozen {} --expect-digest {digest}",
+            ps_literal(&invocation.proposed.project_id),
+            ps_literal(&invocation.proposed.repository_root),
+            ps_literal(&invocation.proposed.permitted_environments.join(",")),
             invocation.proposed.production_frozen,
         ));
         return Ok(RegistryPublishOutcome::AlreadyCurrent);

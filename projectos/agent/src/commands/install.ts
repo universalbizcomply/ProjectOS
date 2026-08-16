@@ -90,23 +90,26 @@ export function install(ctx: CommandContext, flags: Flags): CommandResult {
     // write. So this prints the next step rather than performing it, and the desktop app has no
     // "Add project" button for the same reason.
     //
-    // THE VALUES ARE PRINTED AS FIELDS, NEVER SPLICED INTO A COMMAND LINE. This text is meant to be
-    // read beside an ADMINISTRATOR terminal, and `--id` / `--target` are whatever the caller typed.
-    // A path is allowed to contain `$`, `(`, `)` and a backtick, so a directory named
-    // `C:\proj\$(...)` pasted inside a quoted argument would be evaluated by PowerShell before the
-    // registration command ever ran — an injection into an elevated shell, contributed by us. There
-    // is no command line here to inject into.
+    // THE VALUES ARE PRINTED AS FIELDS, NEVER SPLICED INTO A COMMAND LINE. `--id` and `--target` are
+    // whatever the caller typed, and a path is allowed to contain `$`, `(`, `)` and a backtick — so a
+    // directory named `C:\proj\$(...)` pasted inside a quoted argument would be evaluated by
+    // PowerShell before the registration command ever ran, an injection contributed by us. There is
+    // no command line here to inject into. `plan` itself is read-only and needs no elevation; only
+    // the publication step it prints does, which is why the two are named separately below.
     //
     // The digest is deliberately NOT computed here either. It is a digest of the canonical registry
     // bytes, and a second implementation of that encoding in this file could drift from the one that
     // actually writes them — so the registration command computes and shows it instead.
     'To let the installed ProjectOS govern this project, an administrator registers it once.',
-    'In an Administrator terminal, run `projectos-register-project plan` with these values:',
+    'Open a normal Windows PowerShell 5.1 terminal (powershell.exe), unelevated, and run',
+    '`projectos-register-project plan` with these values:',
     `  id             ${printable(id)}`,
     `  root           ${printable(target)}`,
     '  environments   development',
     '  frozen         true',
     'It writes nothing. It prints the full proposal — including the registry digest and where it',
-    'would be written — and then the exact publish command to run.',
+    'would be written — then the exact command that performs the registration. Only that second',
+    'step writes, and it needs Windows PowerShell 5.1 as Administrator (powershell.exe).',
+    'PowerShell 7 (pwsh) is not supported for these generated commands in this phase.',
   ]);
 }

@@ -637,6 +637,496 @@ fn a14_no_webview_or_packaged_runtime_caller_exists() {
     }
 }
 
+// =================================================================================================
+// THE GENERATED PUBLISH COMMAND IS SHELL INPUT, NOT TEXT.
+//
+// `plan` ends by printing a line the administrator PASTES INTO POWERSHELL. Every caller-supplied
+// value on that line is therefore shell input. A Windows directory name may legally contain `$`,
+// `(`, `)`, a backtick, `&`, `;` and an apostrophe — and PowerShell expands `$(...)` even inside
+// DOUBLE quotes — so a double-quoted root would execute on paste, in an elevated terminal, with our
+// own instruction as the delivery vehicle. These prove the line cannot be escaped.
+//
+// Hostile strings below are TEST DATA. Nothing here is executed by any shell.
+// =================================================================================================
+
+/// Decode a PowerShell single-quoted literal exactly as PowerShell's tokenizer does: the literal
+/// ends at the first quote NOT followed by another quote, and a doubled quote yields one literal
+/// quote. Returns the decoded value and the byte index just past the closing quote.
+///
+/// Modelling the tokenizer — rather than asserting on substrings — is what makes these tests
+/// meaningful: the returned END INDEX is where PowerShell would stop treating input as a string, so
+/// comparing it against the encoding's length proves nothing can escape into command position.
+fn ps_decode(text: &str) -> (String, usize) {
+    let mut chars = text.char_indices();
+    let (_, open) = chars.next().expect("a literal cannot be empty");
+    assert!(
+        is_powershell_quote(open),
+        "not a single-quoted literal: {text:?}"
+    );
+    let mut out = String::new();
+    while let Some((i, ch)) = chars.next() {
+        if !is_powershell_quote(ch) {
+            out.push(ch);
+            continue;
+        }
+        match chars.clone().next() {
+            // A doubled quote is one literal quote, and the string continues.
+            Some((_, next)) if is_powershell_quote(next) => {
+                out.push(next);
+                chars.next();
+            }
+            // Anything else closes the string — this is where an injection would begin.
+            _ => return (out, i + ch.len_utf8()),
+        }
+    }
+    panic!("unterminated literal: {text:?}")
+}
+
+/// The one generated line the administrator is meant to paste.
+fn publish_line(output: &str) -> String {
+    let mut found: Vec<&str> = output
+        .lines()
+        .filter(|l| l.trim_start().starts_with(COMMAND_NAME))
+        .collect();
+    assert_eq!(
+        found.len(),
+        1,
+        "exactly one runnable line may be printed:\n{output}"
+    );
+    found.pop().unwrap().trim().to_string()
+}
+
+/// Read the single-quoted argument that follows `flag` on the generated line, decoded the way
+/// PowerShell would read it, together with whatever text follows the closing quote.
+fn argument_after<'a>(line: &'a str, flag: &str) -> (String, &'a str) {
+    let rest = line
+        .split_once(&format!("{flag} "))
+        .unwrap_or_else(|| panic!("{flag} must appear on the generated line: {line}"))
+        .1;
+    let (value, end) = ps_decode(rest);
+    (value, &rest[end..])
+}
+
+/// [A/B/C] THE INSTRUCTION NAMES THE EXACT SHELL, EXECUTABLE AND ELEVATION IT WAS TESTED AGAINST.
+///
+/// "An Administrator terminal" is not a contract, and neither is "PowerShell". The quoting on the
+/// generated line is Windows PowerShell 5.1's: it is wrong for `cmd.exe`, where a single quote is an
+/// ordinary character, and PowerShell 7 passes native arguments by a different rule
+/// (`$PSNativeCommandArgumentPassing = Standard`) that `windows_argv_safe` is not written for.
+/// Naming the version, the executable and the elevation is part of the encoding being correct, and
+/// the pwsh exclusion has to be stated rather than left to be discovered.
+#[test]
+fn a16_the_plan_pins_windows_powershell_51_as_administrator() {
+    let dir = scratch("shell-named");
+    let root = dir.join("repo");
+    repository(&root, "projectos");
+    let mut console = FakeConsole::new(false, None);
+
+    run(
+        &args("plan", &root, &[]),
+        &mut console,
+        &SpyPublisher::default(),
+        LABEL,
+    )
+    .expect("plan succeeds");
+
+    let out = console.output();
+
+    // [D] Find the instruction line FIRST, so the assertions below cannot quietly stop running if
+    // the wording moves — the failure mode that made an earlier guard test vacuous.
+    let shell_line = out
+        .lines()
+        .find(|l| l.contains("Windows PowerShell 5.1"))
+        .unwrap_or_else(|| panic!("the plan must name the shell it was tested against:\n{out}"));
+
+    // [B] version, executable and elevation, all on the line the administrator reads.
+    for required in ["Windows PowerShell 5.1", "Administrator", "powershell.exe"] {
+        assert!(
+            shell_line.contains(required),
+            "the instruction must name {required:?}: {shell_line}"
+        );
+    }
+
+    // [C] pwsh is named only to EXCLUDE it. EVERY line mentioning it must carry the exclusion —
+    // asserting merely that "not supported" appears SOMEWHERE is too weak, and a mutation that
+    // reworded one line into an endorsement survived exactly that version of this check.
+    let pwsh_lines: Vec<&str> = out
+        .lines()
+        .filter(|l| l.contains("pwsh") || l.contains("PowerShell 7"))
+        .collect();
+    assert!(
+        !pwsh_lines.is_empty(),
+        "the exclusion must be stated, not left to be discovered:\n{out}"
+    );
+    for line in pwsh_lines {
+        assert!(
+            line.contains("not supported"),
+            "every line naming PowerShell 7 must exclude it: {line}"
+        );
+    }
+}
+
+/// [B, G] EVERY generated argument is a single-quoted literal, and NOTHING on the line is
+/// double-quoted. Double quotes are precisely the defect this corrects: PowerShell expands `$(...)`,
+/// `$name` and backtick escapes inside them.
+#[test]
+fn a17_generated_arguments_are_single_quoted_and_never_double_quoted() {
+    let dir = scratch("single-quoted");
+    let root = dir.join("repo");
+    repository(&root, "projectos");
+    let mut console = FakeConsole::new(false, None);
+
+    run(
+        &args("plan", &root, &[]),
+        &mut console,
+        &SpyPublisher::default(),
+        LABEL,
+    )
+    .expect("plan succeeds");
+
+    let out = console.output();
+    let line = publish_line(&out);
+
+    // One encoding rule, applied to every caller-supplied value — including the ones whose current
+    // validation already restricts them. A rule with exceptions is a rule nobody can check.
+    assert_eq!(argument_after(&line, "--id").0, "projectos");
+    assert_eq!(
+        argument_after(&line, "--root").0,
+        root.to_string_lossy().to_string()
+    );
+    assert_eq!(argument_after(&line, "--environments").0, "development");
+    assert!(line.contains("--id 'projectos'"), "line: {line}");
+    assert!(
+        line.contains("--environments 'development'"),
+        "line: {line}"
+    );
+
+    // The fixed-vocabulary values stay bare, deliberately.
+    assert!(line.contains("--frozen true"), "line: {line}");
+
+    assert!(
+        !line.contains('"'),
+        "no generated argument may be double-quoted: {line}"
+    );
+    assert!(
+        !out.contains("--root \""),
+        "the corrected defect must not reappear anywhere:\n{out}"
+    );
+}
+
+/// [C, D, E] POWERSHELL METACHARACTERS SURVIVE AS TEXT, INSIDE ONE ARGUMENT.
+///
+/// `$()`, a backtick, `&` and `;` are exercised END TO END through a REAL directory. `|`, `<` and
+/// `>` are proven against the encoder directly and NOT through a path, because Windows forbids them
+/// in a file name — faking one into a path would prove only that the test fixture lies.
+#[test]
+fn a18_powershell_metacharacters_stay_literal_inside_one_argument() {
+    // Legal in an NTFS name, every one of them active in PowerShell.
+    let hostile = "repo $(whoami) `n & ; it's here";
+    let dir = scratch("metacharacters");
+    let root = dir.join(hostile);
+    repository(&root, "projectos");
+    let mut console = FakeConsole::new(false, None);
+
+    run(
+        &args("plan", &root, &[]),
+        &mut console,
+        &SpyPublisher::default(),
+        LABEL,
+    )
+    .expect("plan succeeds");
+
+    let out = console.output();
+    let line = publish_line(&out);
+    let (decoded, after) = argument_after(&line, "--root");
+
+    // The whole root arrives as ONE argument, byte for byte...
+    assert_eq!(decoded, root.to_string_lossy().to_string());
+    assert!(decoded.contains("$(whoami)"), "decoded: {decoded}");
+    assert!(decoded.contains('`'), "decoded: {decoded}");
+    // ...and nothing hostile escaped past the closing quote into command position.
+    assert!(
+        after.starts_with(" --environments "),
+        "the root argument must end exactly where the next flag begins, not before: {after:?}"
+    );
+
+    // The characters Windows will not put in a path are still part of the one encoding rule.
+    for hostile in ["a|b", "a>b", "a<b", "a&b", "a;b", "a$(b)c", "a`b"] {
+        let encoded = ps_literal(hostile);
+        let (value, end) = ps_decode(&encoded);
+        assert_eq!(value, hostile, "encoding must be lossless: {encoded}");
+        assert_eq!(
+            end,
+            encoded.len(),
+            "nothing may terminate the literal early: {encoded}"
+        );
+    }
+}
+
+/// [F] THE ONE CHARACTER THAT CAN CLOSE A SINGLE-QUOTED LITERAL IS DOUBLED — and it is not only the
+/// ASCII apostrophe.
+///
+/// PowerShell's tokenizer accepts U+2018, U+2019, U+201A and U+201B as string delimiters too, and
+/// all four are legal in an NTFS name. Doubling `'` alone would leave `C:\x\u{2019}; iwr ...|iex; \u{2019}`
+/// able to close the literal and start a new statement — the original defect, moved one character
+/// along. The end-index assertion is what proves it cannot.
+#[test]
+fn a19_every_powershell_quote_character_is_doubled() {
+    // The owner's own example, exactly.
+    assert_eq!(ps_literal("O'Brien"), "'O''Brien'");
+
+    for quote in ['\'', '\u{2018}', '\u{2019}', '\u{201a}', '\u{201b}'] {
+        let value = format!("C:\\repos\\Murad{quote}s Projects");
+        let encoded = ps_literal(&value);
+
+        assert!(
+            encoded.contains(&format!("{quote}{quote}")),
+            "{quote:?} must be doubled: {encoded}"
+        );
+        let (decoded, end) = ps_decode(&encoded);
+        assert_eq!(decoded, value, "encoding must be lossless: {encoded}");
+        assert_eq!(
+            end,
+            encoded.len(),
+            "{quote:?} must not close the literal early: {encoded}"
+        );
+    }
+
+    // And end to end, through a real directory named with an apostrophe.
+    let dir = scratch("apostrophe");
+    let root = dir.join("Murad's repo");
+    repository(&root, "projectos");
+    let mut console = FakeConsole::new(false, None);
+    run(
+        &args("plan", &root, &[]),
+        &mut console,
+        &SpyPublisher::default(),
+        LABEL,
+    )
+    .expect("plan succeeds");
+
+    let line = publish_line(&console.output());
+    let (decoded, after) = argument_after(&line, "--root");
+    assert_eq!(decoded, root.to_string_lossy().to_string());
+    assert!(after.starts_with(" --environments "), "after: {after:?}");
+}
+
+/// [H] NO UNTRUSTED VALUE CAN FORGE A LINE, A COMMAND, OR A FLAG.
+///
+/// A newline would let a value print instructions of its own — an argument that reads as guidance is
+/// as dangerous as one that executes. Control characters are dropped, so a forged line cannot exist;
+/// and because the value is then no longer the real one, `publish` re-validates and refuses rather
+/// than registering something the administrator did not read.
+#[test]
+fn a20_no_untrusted_value_can_forge_a_line_or_a_command() {
+    for forgery in [
+        "C:\\repo\nprojectos-register-project publish --id evil",
+        "C:\\repo\r\n  destination           C:\\somewhere\\else",
+        "C:\\repo\u{7f}--frozen false",
+    ] {
+        let encoded = ps_literal(forgery);
+        assert_eq!(
+            encoded.lines().count(),
+            1,
+            "an encoded value must never span lines: {encoded:?}"
+        );
+        assert!(
+            !encoded.contains('\n') && !encoded.contains('\r'),
+            "control characters must be dropped, not carried: {encoded:?}"
+        );
+        // Whatever survives stays INSIDE the literal — it is an argument, not a command.
+        let (_, end) = ps_decode(&encoded);
+        assert_eq!(end, encoded.len(), "value escaped its argument: {encoded}");
+    }
+
+    // The display block is not shell input, but it is still one line per field.
+    assert_eq!(display_value("a\nb\r\nc"), "abc");
+
+    // End to end, the plan prints exactly one runnable line and no forged field.
+    let dir = scratch("no-forgery");
+    let root = dir.join("repo");
+    repository(&root, "projectos");
+    let mut console = FakeConsole::new(false, None);
+    run(
+        &args("plan", &root, &[]),
+        &mut console,
+        &SpyPublisher::default(),
+        LABEL,
+    )
+    .expect("plan succeeds");
+    let out = console.output();
+    publish_line(&out);
+    assert_eq!(
+        out.lines()
+            .filter(|l| l.contains("destination           "))
+            .count(),
+        1,
+        "exactly one destination may ever be shown:\n{out}"
+    );
+}
+
+/// Parse ONE argument from a Windows command line the way the C runtime does — the rule that makes a
+/// trailing backslash dangerous: a run of backslashes before a quote is halved, and the quote is
+/// escaped when the run was odd.
+fn parse_c_runtime(command_line: &str) -> String {
+    let mut out = String::new();
+    let mut backslashes = 0usize;
+    let mut in_quotes = false;
+    for ch in command_line.chars() {
+        match ch {
+            '\\' => backslashes += 1,
+            '"' => {
+                out.push_str(&"\\".repeat(backslashes / 2));
+                if backslashes.is_multiple_of(2) {
+                    in_quotes = !in_quotes;
+                } else {
+                    out.push('"');
+                }
+                backslashes = 0;
+            }
+            _ => {
+                out.push_str(&"\\".repeat(backslashes));
+                backslashes = 0;
+                if !in_quotes && ch.is_whitespace() {
+                    return out; // the argument ends here
+                }
+                out.push(ch);
+            }
+        }
+    }
+    out.push_str(&"\\".repeat(backslashes));
+    out
+}
+
+/// What `std::env::args()` actually receives after a pasted argument passes through BOTH layers:
+/// PowerShell reads the single-quoted literal, then hands the value to a native program inside a
+/// command line, which the C runtime unquotes.
+fn delivered_argument(encoded: &str, followed_by: &str) -> String {
+    let (value, end) = ps_decode(encoded);
+    assert_eq!(end, encoded.len(), "literal must be self-contained: {encoded}");
+    // PowerShell quotes a native argument only when it contains whitespace.
+    if !value.chars().any(char::is_whitespace) {
+        return value;
+    }
+    parse_c_runtime(&format!("\"{value}\" {followed_by}"))
+}
+
+/// TWO LAYERS, NOT ONE — and the second one bites without a single shell metacharacter in sight.
+///
+/// Settling how PowerShell READS the value is only half the journey. PowerShell then passes it to a
+/// native program inside a command line, and the C runtime halves a backslash run sitting before the
+/// closing quote. A root that merely contains a space and ends with a separator — `C:\my repo\` —
+/// therefore arrives having SWALLOWED the flags that followed it, and the command refuses with a
+/// message about the wrong thing. This is the round trip that matters: whatever the root, what the
+/// program receives is the root.
+#[test]
+fn a21_every_root_arrives_byte_identical_through_both_delivery_layers() {
+    for root in [
+        r"C:\repo",
+        r"C:\repo\",
+        r"C:\my repo",
+        r"C:\my repo\",
+        r"C:\my repo\\\",
+        r"C:\Murad's repo\",
+        r"C:\dev\deadaisle-phase6-proof1a",
+        "C:\\x $(whoami) `n & ; it's here",
+        "C:\\x \u{2019}quoted\u{2019} repo\\",
+    ] {
+        let delivered = delivered_argument(&ps_literal(root), "--environments 'development'");
+        assert_eq!(
+            delivered, root,
+            "root must arrive intact: encoded {}",
+            ps_literal(root)
+        );
+    }
+}
+
+/// And the model above is not self-fulfilling: WITHOUT the argument-delivery repair, the C runtime
+/// really does swallow the following flags. This is the defect `windows_argv_safe` exists for,
+/// demonstrated rather than asserted.
+#[test]
+fn a22_without_the_delivery_repair_a_trailing_separator_absorbs_the_next_flag() {
+    let unrepaired = "\"C:\\my repo\\\" --environments 'development'";
+    let swallowed = parse_c_runtime(unrepaired);
+    assert!(
+        swallowed.contains("--environments"),
+        "the model must reproduce the swallow it guards against, got {swallowed:?}"
+    );
+    // The repair removes exactly that.
+    let repaired = delivered_argument(&ps_literal(r"C:\my repo\"), "--environments 'development'");
+    assert_eq!(repaired, r"C:\my repo\");
+}
+
+/// THE FAIL-CLOSED PROMISE, AS A CONTROL RATHER THAN A SENTENCE.
+///
+/// Both encoders may ALTER a value: control characters are dropped, and a trailing separator run is
+/// doubled for argument delivery. Everything rests on one promise — if what reaches `publish` is not
+/// what was planned, nothing is written. Until now that promise was only asserted in a doc comment.
+///
+/// It rests in turn on a dependency nothing in this crate states: the digest binds the RAW
+/// `repository_root`. The registry's `normalise_root` DOES strip trailing separators, spaces and
+/// dots, but only for the duplicate comparison. If that normalisation ever moved into the stored
+/// entry, a root mangled in delivery would re-canonicalise to identical bytes, the digest would
+/// MATCH, and fail-closed would quietly become fail-open. The second case below pins exactly that.
+#[test]
+fn a23_a_root_that_differs_from_the_plan_can_never_publish() {
+    let dir = scratch("fail-closed");
+    let root = dir.join("repo");
+    repository(&root, "projectos");
+    let publisher = SpyPublisher::default();
+
+    let mut console = FakeConsole::new(false, None);
+    run(&args("plan", &root, &[]), &mut console, &publisher, LABEL).expect("plan succeeds");
+    let digest = planned_digest(&console.output());
+
+    // 1. The mangled root the UNREPAIRED command produced: the path having absorbed the flags that
+    //    followed it. It is not a directory, so planning refuses before anything else happens.
+    let mangled = format!("{} --environments development", root.to_string_lossy());
+    let mut console = FakeConsole::new(true, Some(PHRASE));
+    let refusal = run(
+        &args(
+            "publish",
+            Path::new(&mangled),
+            &["--expect-digest", &digest],
+        ),
+        &mut console,
+        &publisher,
+        LABEL,
+    )
+    .expect_err("a mangled root must never publish");
+    assert!(
+        matches!(refusal, AdminRefusal::PlanRefused(_)),
+        "expected the plan to refuse, got {refusal:?}"
+    );
+
+    // 2. A root that is the SAME DIRECTORY but not the same string — `...\repo\` rather than
+    //    `...\repo`. Both are valid, both plan; the digest must still say they are different, which
+    //    is what makes an altered argument detectable at all.
+    let with_separator = format!("{}\\", root.to_string_lossy());
+    let mut console = FakeConsole::new(true, Some(PHRASE));
+    let refusal = run(
+        &args(
+            "publish",
+            Path::new(&with_separator),
+            &["--expect-digest", &digest],
+        ),
+        &mut console,
+        &publisher,
+        LABEL,
+    )
+    .expect_err("a root differing only by a separator must not inherit the plan's digest");
+    assert!(
+        matches!(
+            refusal,
+            AdminRefusal::PublishRefused(RegistryPublishRefusal::PlanStale)
+        ),
+        "expected staleness, got {refusal:?}"
+    );
+
+    // Neither reached the publisher, and neither was ever asked to confirm.
+    assert_eq!(publisher.called(), 0, "nothing may be published");
+}
+
 /// Every source file beneath a directory, skipping build output and dependencies.
 fn sources_under(root: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
