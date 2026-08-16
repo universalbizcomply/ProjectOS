@@ -235,6 +235,11 @@ export function runChecks(sys: System, root: string, specs: readonly CheckSpec[]
 
 export interface ExecutionEvidence {
   readonly schemaVersion: string;
+  /**
+   * The invocation that started the run this evidence describes. Absent only on evidence collected
+   * before the provenance control existed — see `invocation.ts`.
+   */
+  readonly invocationId?: string;
   readonly sessionId: string;
   readonly phaseId: string;
   readonly briefId: string;

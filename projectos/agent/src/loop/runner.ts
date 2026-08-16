@@ -37,6 +37,14 @@ import { BUILT_IN_ADAPTERS } from './adapters/claudeCodeCli.js';
 import { collectEvidence, configuredChecks, requiredChecks, runChecks, type CheckResult } from './verification.js';
 import { decideContinuation, loopStopLines, MAX_CORRECTION_ATTEMPTS, type LoopStop } from './outcome.js';
 import * as store from './session.js';
+import {
+  digestOf,
+  invocationIdFor,
+  redactArgv,
+  writeInvocation,
+  INVOCATION_SCHEMA_VERSION,
+  type InvocationFacts,
+} from './invocation.js';
 
 export interface RunOptions {
   /** Which authorised worker to use. Omitted takes the project's default. */
@@ -46,6 +54,12 @@ export interface RunOptions {
    * decision still reported, so the run can be reviewed before anything is spawned.
    */
   readonly dryRun?: boolean;
+  /**
+   * The process that invoked ProjectOS, recorded before any worker is spawned. Injected so a test
+   * can assert deterministic values; a real run supplies its own — see `invocation.ts` for why this
+   * exists and, importantly, what it does NOT establish.
+   */
+  readonly invocation?: InvocationFacts;
   /** Adapter registry. Injected so a test can register a worker kind without spawning a process. */
   readonly adapters?: AdapterRegistry;
 }
@@ -180,6 +194,41 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
   // puts that path on the worker's command line. A worker that edited its own session record could
   // otherwise redirect the next rejoin at a file of its choosing — the same working-tree-trust
   // mistake the committed-config gate exists to prevent, one record along.
+  // WRITTEN BEFORE ANYTHING IS SPAWNED, and deliberately not before the dry-run return above: a run
+  // that starts nothing has no invocation to account for. Everything downstream carries this id, so
+  // "what started this worker?" is answerable from the records themselves.
+  const facts: InvocationFacts = options.invocation ?? {
+    pid: process.pid,
+    ppid: process.ppid,
+    argv: process.argv,
+    cwd: process.cwd(),
+  };
+  const invokedAt = sys.now();
+  const invocation = writeInvocation(sys, root, {
+    schemaVersion: INVOCATION_SCHEMA_VERSION,
+    invocationId: invocationIdFor(sessionId, invokedAt, facts.pid),
+    createdAt: invokedAt,
+    projectId: String(context.config.projectId),
+    phaseId,
+    sessionId,
+    repository: {
+      root,
+      branch: verification.observed.branch,
+      head: verification.observed.head,
+    },
+    executionMode: 'live',
+    process: {
+      pid: facts.pid,
+      ppid: facts.ppid,
+      argv: redactArgv(facts.argv),
+      cwd: facts.cwd,
+    },
+    workerId: resolution.worker.workerId,
+    workerKind: resolution.worker.kind,
+    brief: { path: briefFile, briefId: brief.briefId, digest: digestOf(brief) },
+  });
+  lines.push(`Invocation: ${invocation.invocationId} (pid ${facts.pid}, parent ${facts.ppid})`);
+
   let session: WorkerSession = {
     ...(existing ?? {
       startedAt: sys.now(),
@@ -188,6 +237,7 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
       exitCode: null,
       corrections: 0,
     }),
+    invocationId: invocation.invocationId,
     sessionId,
     workerId: resolution.worker.workerId,
     kind: resolution.worker.kind,
@@ -224,14 +274,14 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     // code would sit in the evidence beside a failed run looking like reassurance.
     if (described.refusal !== null) {
       stop = { code: 'WORKER_REFUSED', detail: described.refusal };
-      store.writeEvidence(sys, root, collectEvidence(sys, root, { sessionId, brief, checks: [] }));
+      store.writeEvidence(sys, root, { ...collectEvidence(sys, root, { sessionId, brief, checks: [] }), invocationId: invocation.invocationId });
       break;
     }
 
     const checks: readonly CheckResult[] = runChecks(sys, root, requiredChecks(sys, root, brief, suites.checks));
     for (const c of checks) lines.push(`  ${c.passed ? 'PASS' : 'FAIL'} ${c.kind} ${c.id}`);
 
-    const evidence = collectEvidence(sys, root, { sessionId, brief, checks });
+    const evidence = { ...collectEvidence(sys, root, { sessionId, brief, checks }), invocationId: invocation.invocationId };
     store.writeEvidence(sys, root, evidence);
 
     const findings = store.readFindings(sys, root, sessionId);

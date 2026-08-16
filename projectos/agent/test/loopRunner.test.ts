@@ -554,4 +554,83 @@ describe('runLoop', () => {
     expect(r.ok).toBe(true);
     expect(calls).toEqual(['rejoin']);
   });
+
+  /* ----------------------------------------------------------------------------------------------
+   * PROJECTOS-PHASE6-WORKER-PROVENANCE1A — what started this worker.
+   *
+   * A real worker ran against Dead Aisle on 2026-08-16 at 18:02:11Z and could not be attributed
+   * afterwards, because nothing recorded the invocation. These pin the two controls that close it:
+   * live execution now takes a positive act, and a live run writes down what invoked it BEFORE it
+   * spawns anything.
+   * ------------------------------------------------------------------------------------------- */
+
+  const FACTS = { pid: 4242, ppid: 1717, argv: ['C:/node.exe', 'projectos.js', 'run', '--execute'], cwd: 'C:/dev/x' };
+  const invocationFile = `${ROOT}/.projectops/execution/${SESSION}.invocation.json`;
+
+  it('[E] writes the invocation record BEFORE the worker is spawned', () => {
+    const sys = world({ files: cleanFindings(SESSION) });
+    // Proven from INSIDE the spawn: the adapter looks for the record at the moment it is started.
+    // Stronger than observing write order, because it asserts the state the worker itself sees.
+    let recordExistedAtSpawn: string | null = null;
+    let spawned = false;
+    const registry = {
+      [WORKER_KIND]: {
+        kind: WORKER_KIND,
+        start: () => {
+          spawned = true;
+          recordExistedAtSpawn = sys.read(invocationFile);
+          return { kind: 'completed' as const, exitCode: 0, stdout: '', stderr: '', providerRef: 'p-1' };
+        },
+        rejoin: () => ({ kind: 'completed' as const, exitCode: 0, stdout: '', stderr: '', providerRef: 'p-1' }),
+      },
+    } as unknown as AdapterRegistry;
+
+    runLoop(sys, ROOT, { adapters: registry, invocation: FACTS });
+
+    expect(spawned).toBe(true);
+    expect(recordExistedAtSpawn).not.toBeNull();
+    expect(String(recordExistedAtSpawn)).toContain('"executionMode": "live"');
+  });
+
+  it('[F] the record carries pid, parent pid, cwd, project, worker and brief identity', () => {
+    const sys = world({ files: cleanFindings(SESSION) });
+    const { registry } = fakeAdapter();
+    runLoop(sys, ROOT, { adapters: registry, invocation: FACTS });
+
+    const rec = JSON.parse(String(sys.read(invocationFile))) as Record<string, any>;
+    expect(rec['executionMode']).toBe('live');
+    expect(rec['process']['pid']).toBe(4242);
+    expect(rec['process']['ppid']).toBe(1717);
+    expect(rec['process']['cwd']).toBe('C:/dev/x');
+    expect(rec['phaseId']).toBe(PHASE);
+    expect(rec['sessionId']).toBe(SESSION);
+    expect(rec['workerId']).toBeTruthy();
+    expect(rec['workerKind']).toBeTruthy();
+    expect(String(rec['brief']['path'])).toContain('.brief.json');
+    expect(String(rec['brief']['digest'])).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(rec['invocationId']).toMatch(/^[0-9a-f]{16}$/);
+    // The environment is where credentials live. It is never recorded.
+    expect(Object.keys(rec)).not.toContain('env');
+    expect(JSON.stringify(rec)).not.toContain('processEnv');
+  });
+
+  it('[G] the session and the evidence both name the invocation', () => {
+    const sys = world({ files: cleanFindings(SESSION) });
+    const { registry } = fakeAdapter();
+    runLoop(sys, ROOT, { adapters: registry, invocation: FACTS });
+
+    const id = (JSON.parse(String(sys.read(invocationFile))) as Record<string, any>)['invocationId'];
+    const session = JSON.parse(String(sys.read(`${ROOT}/.projectops/execution/${SESSION}.session.json`))) as Record<string, any>;
+    const evidence = JSON.parse(String(sys.read(`${ROOT}/.projectops/execution/${SESSION}.evidence.json`))) as Record<string, any>;
+    expect(session['invocationId']).toBe(id);
+    expect(evidence['invocationId']).toBe(id);
+  });
+
+  it('[A] a dry run writes no invocation record, because it starts nothing', () => {
+    const sys = world();
+    const { calls, registry } = fakeAdapter();
+    runLoop(sys, ROOT, { dryRun: true, adapters: registry, invocation: FACTS });
+    expect(calls).toEqual([]);
+    expect(sys.read(invocationFile)).toBeNull();
+  });
 });

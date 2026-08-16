@@ -33,6 +33,11 @@ export interface AuthorisedWorker {
 }
 
 export interface WorkerSession {
+  /**
+   * The invocation that started this worker. Absent only on sessions written before the provenance
+   * control existed — those stay unattributable, and are not to be back-filled.
+   */
+  readonly invocationId?: string;
   readonly sessionId: string;
   readonly workerId: string;
   readonly kind: string;

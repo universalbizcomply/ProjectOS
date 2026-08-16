@@ -435,6 +435,53 @@ function makeGovernedCtx(): { ctx: CommandContext; sys: FakeSystem } {
   return { ctx, sys };
 }
 
+/**
+ * PROJECTOS-PHASE6-WORKER-PROVENANCE1A — starting a real worker takes a positive act.
+ *
+ * `dryRun: bool(flags, 'dry-run')` made LIVE the default, so a bare `projectos run` spawned a real
+ * Claude worker and the difference between preparing and executing was the ABSENCE of a flag. On
+ * 2026-08-16 a real worker ran against Dead Aisle with no attributable invocation. These pin the
+ * contract that replaced it. They assert REFUSALS only, so none of them can start anything.
+ */
+describe('run: explicit live-execution intent', () => {
+  const ctx = (): CommandContext => makeCtx().ctx;
+
+  it('[B] refuses when neither --dry-run nor --execute is given', () => {
+    const r = run(ctx(), ['run']);
+    expect(r.code).not.toBe(0);
+    const text = r.lines.join(String.fromCharCode(10));
+    expect(text).toContain('NO_EXECUTION_INTENT');
+    // The refusal has to tell the operator both ways forward, or it just blocks them.
+    expect(text).toContain('--dry-run');
+    expect(text).toContain('--execute');
+    expect(text).toContain('Nothing was prepared and nothing was started.');
+  });
+
+  it('[C] refuses when --dry-run and --execute are both given', () => {
+    const r = run(ctx(), ['run', '--dry-run', '--execute']);
+    expect(r.code).not.toBe(0);
+    const text = r.lines.join(String.fromCharCode(10));
+    expect(text).toContain('CONFLICTING_INTENT');
+    expect(text).toContain('Nothing was prepared and nothing was started.');
+  });
+
+  it('[D] --execute passes the intent through rather than being refused for lacking it', () => {
+    // The fixture is not a governed project, so the loop refuses for its OWN reason. What matters is
+    // that it is no longer refused for missing intent: the flag reached the loop.
+    const r = run(ctx(), ['run', '--execute']);
+    const text = r.lines.join(String.fromCharCode(10));
+    expect(text).not.toContain('NO_EXECUTION_INTENT');
+    expect(text).not.toContain('CONFLICTING_INTENT');
+  });
+
+  it('[D2] --dry-run alone likewise reaches the loop', () => {
+    const r = run(ctx(), ['run', '--dry-run']);
+    const text = r.lines.join(String.fromCharCode(10));
+    expect(text).not.toContain('NO_EXECUTION_INTENT');
+    expect(text).not.toContain('CONFLICTING_INTENT');
+  });
+});
+
 describe('phase runtime', () => {
   it('new creates a persisted draft phase', () => {
     const { ctx, sys } = makeGovernedCtx();
