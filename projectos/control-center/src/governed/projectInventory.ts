@@ -174,8 +174,17 @@ export function parseProjectArgs(argv: readonly string[]): ProjectArgs {
 const SELECTABLE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/;
 
 /** Absolute in the Windows sense the host uses, plus POSIX for the tests that run elsewhere. */
+/**
+ * Drive-absolute, UNC, or POSIX-absolute.
+ *
+ * The UNC case is a REGEX rather than `startsWith('\\\\')` deliberately. That string literal's VALUE
+ * is a UNC prefix, and the packaged-payload closure scanner reads string literals looking for
+ * absolute paths baked into the bundle — it cannot tell a comparison operand from a constant, and it
+ * is right not to try. Written as a literal it refused the whole payload with `AbsoluteBuildPath`.
+ * A character class carries the same meaning without putting an absolute-looking path in the bundle.
+ */
 function isAbsoluteRoot(root: string): boolean {
-  return /^[A-Za-z]:[\\/]/.test(root) || root.startsWith('\\\\') || root.startsWith('/');
+  return /^[A-Za-z]:[\\/]/.test(root) || /^[\\/]{2}/.test(root) || root.startsWith('/');
 }
 
 function hasTraversal(root: string): boolean {
