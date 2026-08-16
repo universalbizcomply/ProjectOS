@@ -40,6 +40,23 @@ import { buildProposal, loadDiscoveryEngine, type DraftRecord, type Proposal } f
 
 export const PLAN_APPROVAL_DELEGATION_SCHEMA_VERSION = '1.0.0';
 export const PLAN_APPROVAL_DECISION_SCHEMA_VERSION = '1.0.0';
+export const PLAN_GENESIS_SCHEMA_VERSION = '1.0.0';
+
+/**
+ * The first-plan genesis record, project-root-relative.
+ *
+ * Held as a constant because the refusal text has to name it: an operator told only that "no owner
+ * could be established" cannot act, and this is the one file that fixes it.
+ */
+export const PLAN_GENESIS_REL = '.projectops/authority/plan-genesis.json';
+
+/**
+ * The governed project configuration, project-root-relative.
+ *
+ * Read from the COMMITTED blob for one decision only — whether this project is eligible for
+ * first-plan bootstrap. See the precedence block in `approvePlan`.
+ */
+export const PROJECT_CONFIG_REL = '.projectops/project-config.json';
 
 /** The one scope a plan-approval delegation may carry. Closure is delegated separately, below. */
 export const PLAN_APPROVAL_SCOPE = 'plan-approval';
@@ -64,6 +81,38 @@ export interface PlanApprovalDelegationRecord {
   readonly programmeScope?: unknown;
   readonly notes?: unknown;
 }
+
+/**
+ * The record that answers ONE question: who is the owner, before any plan exists to record one?
+ *
+ * It is deliberately the smallest authority record in this file. It approves nothing, delegates
+ * nothing and authorises nothing — it supplies `recordedOwner` for a project's FIRST approval, and
+ * only when no active plan is declared at all. Every later approval reads the owner from the active
+ * approved plan, exactly as before.
+ */
+export interface PlanGenesisRecord {
+  readonly schemaVersion?: unknown;
+  readonly genesisId?: unknown;
+  readonly projectId?: unknown;
+  /** The complete initial governance, in the plan schema's own field names. */
+  readonly governance?: unknown;
+}
+
+/**
+ * The governance a first plan must carry, named and typed exactly as the plan schema requires.
+ *
+ * Deliberately NOT a second schema framework: these are the same field names the plan itself uses,
+ * checked here so a genesis record that could never produce a schema-valid plan is refused while the
+ * operator can still act on it, rather than surfacing later as an opaque PLAN_SCHEMA_INVALID.
+ *
+ * `noApiPolicy` is deliberately not listed: `materialisePlan` always emits a boolean for it, so the
+ * plan schema is satisfied either way and a check here would be dead. It still has to be RIGHT,
+ * though — the PLAN READY evaluator refuses a plan whose `noApiPolicy` is not `true`, so in practice
+ * a usable genesis record carries it. That refusal is the evaluator's to make, not this function's,
+ * and bootstrapping a project must not bootstrap it past the safety floor every other plan meets.
+ */
+const GENESIS_GOVERNANCE_TEXT: readonly string[] = ['owner', 'gatekeeper', 'implementer', 'closureAuthority'];
+const GENESIS_GOVERNANCE_LISTS: readonly string[] = ['allowedActions', 'forbiddenActions', 'ownerOnlyActions'];
 
 export interface PlanApprovalDecisionRecord {
   readonly schemaVersion?: unknown;
@@ -129,6 +178,10 @@ export function planApprovalDelegationPath(root: string): string {
 
 export function closureDelegationPath(root: string): string {
   return join(authorityDir(root), 'closure-delegation.json');
+}
+
+export function planGenesisPath(root: string): string {
+  return join(authorityDir(root), 'plan-genesis.json');
 }
 
 export function planDecisionsDir(root: string): string {
@@ -197,6 +250,72 @@ export function checkPlanApprovalDelegation(
     );
   }
   return e;
+}
+
+/**
+ * Why this record is not a usable first-plan genesis, or `[]` when it is. Pure — no I/O.
+ *
+ * IT ESTABLISHES AN IDENTITY, NOT A PERMISSION. Genesis supplies `recordedOwner` and nothing else:
+ * the plan-approval delegation is still required, still read from the committed blob, and still
+ * decides who may actually approve. A project with a perfect genesis record and no delegation is
+ * refused exactly as it was before this record existed — which is the point, because a record that
+ * both named the owner and granted approval would be a self-signed approval.
+ *
+ * THE OWNER MAY NOT BE THE IMPLEMENTER. Without this, the implementer writes one small file, becomes
+ * the recorded owner, then delegates plan approval to itself — the whole authority chain unwound at
+ * its root. The delegation's own implementer exclusion cannot catch it, because that check compares
+ * against `recordedOwner`, which would by then be the implementer.
+ */
+export function checkPlanGenesis(record: PlanGenesisRecord | null, expect: { readonly projectId: string }): readonly string[] {
+  if (record === null) {
+    return [
+      `this project declares no active plan and has no committed ${PLAN_GENESIS_REL}. A project ` +
+        'approving its FIRST plan needs one: it records who the owner is, before any plan exists to ' +
+        'record it. Every later approval reads the owner from the active approved plan instead.',
+    ];
+  }
+  const { engine } = loadGovernanceEngine();
+  const e: string[] = [];
+  if (record.schemaVersion !== PLAN_GENESIS_SCHEMA_VERSION) {
+    e.push(`genesis schemaVersion is ${JSON.stringify(record.schemaVersion)}, expected "${PLAN_GENESIS_SCHEMA_VERSION}"`);
+  }
+  if (strOf(record.genesisId) === null || !ID_SHAPE.test(String(record.genesisId))) {
+    e.push('genesis has no usable genesisId');
+  }
+  // Authority does not cross project boundaries. A genesis copied from another repository names a
+  // real owner and would otherwise pass.
+  if (record.projectId !== expect.projectId) {
+    e.push(`genesis is for project ${JSON.stringify(record.projectId)}, not '${expect.projectId}'`);
+  }
+  // THE COMPLETE INITIAL GOVERNANCE, checked to the same requirements the plan schema will apply.
+  // A first plan has no predecessor to inherit governance from, so this record is the only source —
+  // which is why it must be complete here rather than half-supplied and patched with defaults.
+  const governance = typeof record.governance === 'object' && record.governance !== null && !Array.isArray(record.governance)
+    ? (record.governance as Record<string, unknown>)
+    : null;
+  if (governance === null) {
+    e.push('genesis carries no governance object — a first plan has no predecessor to inherit governance from');
+    return e;
+  }
+  for (const field of GENESIS_GOVERNANCE_TEXT) {
+    if (strOf(governance[field]) === null) e.push(`genesis governance.${field} is missing or empty`);
+  }
+  for (const field of GENESIS_GOVERNANCE_LISTS) {
+    const list = governance[field];
+    if (!Array.isArray(list) || list.length === 0 || !list.every((v) => strOf(v) !== null)) {
+      e.push(`genesis governance.${field} must be a non-empty list of non-empty strings`);
+    }
+  }
+  const owner = strOf(governance['owner']);
+  if (owner !== null && engine.isImplementerIdentity(owner)) {
+    e.push(`genesis names the implementer (${owner}) as owner — the implementer can never be the owner authority`);
+  }
+  return e;
+}
+
+/** The genesis record's governance, once `checkPlanGenesis` has accepted it. */
+function genesisGovernance(record: PlanGenesisRecord): Record<string, unknown> {
+  return record.governance as Record<string, unknown>;
 }
 
 /**
@@ -321,11 +440,23 @@ export function checkPlanApprovalDecision(
  * to satisfy a schema would be a fabricated fact about what the owner agreed to.
  * --------------------------------------------------------------------------------------------- */
 
+/** Where a plan's governance came from. A first plan has no predecessor to carry it forward from. */
+export type GovernanceSource = 'active-plan' | 'genesis';
+
 export interface MaterialiseInputs {
   readonly proposal: Proposal;
   readonly config: Record<string, unknown>;
-  /** The project's current active approved plan — the source of already-approved governance. */
+  /**
+   * The source of already-approved governance: the project's active approved plan, or — for a FIRST
+   * plan, which has no predecessor — the governance snapshot from the committed genesis record.
+   */
   readonly activePlan: Record<string, unknown>;
+  /**
+   * Which of the two it was. The approval evidence states this in words, so it must not be inferred:
+   * a first plan claiming governance was "carried forward" would be describing a predecessor that
+   * never existed.
+   */
+  readonly governanceSource?: GovernanceSource;
   readonly decision: PlanApprovalDecisionRecord;
   readonly delegation: PlanApprovalDelegationRecord;
   /**
@@ -512,8 +643,12 @@ export function materialisePlan(input: MaterialiseInputs): MaterialiseResult {
         `excluding every protected action. ProjectOS re-ran discovery against the repository before writing this ` +
         `record and the recomputed plan digest still matched the approved one. MANUAL_GOVERNANCE_APPROVAL with ` +
         `tamperProof false — a human governance approval bound by the owner's commit gate, NOT a cryptographic one. ` +
-        `Governance is carried forward unchanged from the project's active owner-approved plan; this approval ` +
-        `created no new authority, changed no protected-action rule, and did not modify any existing plan record.`,
+        (input.governanceSource === 'genesis'
+          ? `Governance is the initial snapshot recorded in the committed first-plan genesis authority record, this ` +
+            `project having had no previously approved plan to carry it forward from; `
+          : `Governance is carried forward unchanged from the project's active owner-approved plan; `) +
+        `this approval created no new authority, changed no protected-action rule, and did not modify any ` +
+        `existing plan record.`,
       supersedesPlanVersion: null,
       approvalBinding: 'MANUAL_GOVERNANCE_APPROVAL',
       tamperProof: false,
@@ -565,6 +700,7 @@ export type ApprovalRefusal =
   | 'NO_DRAFT'
   | 'PROPOSAL_FAILED'
   | 'NO_ACTIVE_PLAN'
+  | 'GENESIS_INVALID'
   | 'DELEGATION_INVALID'
   | 'DECISION_INVALID'
   | 'DRAFT_SUPERSEDED'
@@ -718,19 +854,83 @@ export function approvePlan(sys: System, root: string, opts: ApproveOptions): Ap
     };
   }
 
-  // The active approved plan is the only place the owner's identity is recorded by owner authority.
-  const declaredPlan = (config['planMemory'] as Record<string, unknown> | undefined)?.['planPath'];
-  const activePlan = typeof declaredPlan === 'string' ? readJson(sys, join(root, declaredPlan)) : null;
-  const recordedOwner = strOf((activePlan?.['governance'] as Record<string, unknown> | undefined)?.['owner']);
-  if (activePlan === null || recordedOwner === null) {
-    return {
-      ok: false,
-      code: 'NO_ACTIVE_PLAN',
-      problems: [
-        'this project has no active approved plan recording an owner, so there is nothing against which to check ' +
-          'who may approve a new one',
-      ],
-    };
+  // WHO THE OWNER IS. Two sources, in STRICT precedence — and the distinction between them is the
+  // whole security of this block.
+  //
+  // A DECLARED active plan is authoritative and MUST resolve. If `planMemory.planPath` is declared
+  // but the plan behind it is missing, unreadable or records no owner, that is a DAMAGED GOVERNED
+  // PROJECT — never a new one. It fails closed here and genesis is NOT consulted. A fallback would
+  // mean deleting one file downgrades an established project to bootstrap state, where a fresh owner
+  // identity could be introduced against a plan nobody can read; the attacker would not need to
+  // forge an owner, only to break a path.
+  //
+  // Only the total ABSENCE of a declaration can be a genuine first plan.
+  const planMemory = config['planMemory'] as Record<string, unknown> | undefined;
+  const declaredPlan = planMemory?.['planPath'];
+  const declaresActivePlan = declaredPlan !== undefined && declaredPlan !== null;
+
+  // The governance the NEW plan inherits. For an established project that is the active plan itself.
+  // For a first plan there is no approved governance yet except one fact — who the owner is — so the
+  // genesis record seeds exactly that field and nothing else. Everything the plan still needs comes
+  // from the draft and is judged by the plan evaluator, unchanged.
+  let activePlan: Record<string, unknown>;
+  let recordedOwner: string | null;
+  /** Which of the two sources the approval evidence must name. Succession unless proven otherwise. */
+  let governanceSource: GovernanceSource = 'active-plan';
+  if (declaresActivePlan) {
+    const declared = typeof declaredPlan === 'string' ? readJson(sys, join(root, declaredPlan)) : null;
+    recordedOwner = strOf((declared?.['governance'] as Record<string, unknown> | undefined)?.['owner']);
+    if (declared === null || recordedOwner === null) {
+      return {
+        ok: false,
+        code: 'NO_ACTIVE_PLAN',
+        problems: [
+          `this project declares an active plan at ${JSON.stringify(declaredPlan)}, but it could not be read ` +
+            'or records no owner, so there is nothing against which to check who may approve a new one. ' +
+            'Repair the declared plan: a damaged plan is not a new project, and the first-plan genesis ' +
+            'record deliberately does not apply here.',
+        ],
+      };
+    }
+    activePlan = declared;
+  } else {
+    // NO WORKING-TREE DECLARATION — but that alone must not open the bootstrap door.
+    //
+    // `project-config.json` is read from the working tree everywhere else in this function, and the
+    // implementer can write it. If the bootstrap decision rested on that copy alone, deleting
+    // `planMemory` from it would make an established project eligible for genesis again, and a stale
+    // genesis record would then re-supply an owner the project has since moved on from. So the
+    // ELIGIBILITY question is asked of the COMMITTED configuration, which only the owner's commit
+    // gate can change. The succession path above still reads the working tree, as it always has.
+    const committedConfig = readCommittedJson(sys, PROJECT_CONFIG_REL);
+    const committedDeclared = (committedConfig?.['planMemory'] as Record<string, unknown> | undefined)?.['planPath'];
+    if (committedDeclared !== undefined && committedDeclared !== null) {
+      return {
+        ok: false,
+        code: 'NO_ACTIVE_PLAN',
+        problems: [
+          `the committed ${PROJECT_CONFIG_REL} declares an active plan at ${JSON.stringify(committedDeclared)}, but the ` +
+            'working copy no longer does. A project that has been governed by a plan is not a first-plan project, ' +
+            'so genesis does not apply. Restore planMemory in the working configuration, or repair the plan it names.',
+        ],
+      };
+    }
+
+    const genesis = readCommittedJson(sys, PLAN_GENESIS_REL);
+    const uncommitted = genesis === null ? uncommittedButPresent(sys, root, PLAN_GENESIS_REL, 'genesis record') : null;
+    if (uncommitted !== null) return { ok: false, code: 'GENESIS_INVALID', problems: uncommitted };
+    if (genesis === null) return { ok: false, code: 'NO_ACTIVE_PLAN', problems: checkPlanGenesis(null, { projectId: proposal.projectId }) };
+    const genesisProblems = checkPlanGenesis(genesis, { projectId: proposal.projectId });
+    if (genesisProblems.length > 0) return { ok: false, code: 'GENESIS_INVALID', problems: genesisProblems };
+    // Narrowing only. `checkPlanGenesis` has already refused an absent or blank owner.
+    // THE COMPLETE INITIAL GOVERNANCE SNAPSHOT, passed through as the record states it. Nothing is
+    // fabricated and no field is defaulted: `checkPlanGenesis` has already refused any record that
+    // could not produce a schema-valid plan.
+    const governance = genesisGovernance(genesis);
+    recordedOwner = strOf(governance['owner']);
+    if (recordedOwner === null) return { ok: false, code: 'GENESIS_INVALID', problems: ['genesis governance.owner is missing or empty'] };
+    activePlan = { governance };
+    governanceSource = 'genesis';
   }
 
   // A NEW plan is a NEW record. Approving a draft may not rewrite the plan the project is governed by
@@ -829,6 +1029,7 @@ export function approvePlan(sys: System, root: string, opts: ApproveOptions): Ap
     decision: decision as PlanApprovalDecisionRecord,
     delegation: delegation as PlanApprovalDelegationRecord,
     closureDelegation,
+    governanceSource,
     planId: opts.planId,
     programmeId: opts.programmeId,
     now,

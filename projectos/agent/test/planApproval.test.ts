@@ -23,6 +23,9 @@ import {
   checkPlanApprovalDelegation,
   PLAN_APPROVAL_DECISION_SCHEMA_VERSION,
   PLAN_APPROVAL_DELEGATION_SCHEMA_VERSION,
+  PLAN_GENESIS_SCHEMA_VERSION,
+  PLAN_GENESIS_REL,
+  PROJECT_CONFIG_REL,
   loadGovernanceEngine,
   loadCurrentStateSchema,
 } from '../src/planApproval.js';
@@ -159,7 +162,7 @@ afterEach(() => {
  * A project with a plan document, an active approved plan, and one generated draft.
  * `committed` lists the repo-relative paths git will report as present at HEAD.
  */
-function world(opts: { committed?: readonly string[]; planDoc?: string } = {}): World {
+function world(opts: { committed?: readonly string[]; planDoc?: string; noPlanMemory?: boolean } = {}): World {
   const root = mkdtempSync(pjoin(tmpdir(), 'projectos-approve-')).replace(/\\/g, '/');
   created.push(root);
   mkdirSync(pjoin(root, '.projectops'), { recursive: true });
@@ -195,7 +198,12 @@ function world(opts: { committed?: readonly string[]; planDoc?: string } = {}): 
         evidenceRequirements: ['evidence-pack'],
         installStatus: 'installed',
         secretsPolicy: { allowSecretsInRepo: false, redactionRequired: true, notes: 'no raw secrets' },
-        planMemory: { planPath: 'state/active.plan.json', currentStatePath: 'state/active.current-state.json' },
+        // A FRESHLY INSTALLED PROJECT DECLARES NO PLAN MEMORY, which is exactly what `projectos
+        // install` writes. Note the fixture still leaves `state/active.plan.json` on disk: bootstrap
+        // is keyed on the DECLARATION, never on a file happening to exist.
+        ...(opts.noPlanMemory === true
+          ? {}
+          : { planMemory: { planPath: 'state/active.plan.json', currentStatePath: 'state/active.current-state.json' } }),
         planSources: ['docs-plan.md'],
       },
       null,
@@ -302,6 +310,364 @@ function run(w: World, decisionId: string) {
     programmeId: 'acme-recovery',
   });
 }
+
+/* ------------------------------------------------------------------------------------------------
+ * PROJECTOS-PHASE6-FIRST-PLAN-GENESIS1A — the FIRST plan a project ever approves.
+ *
+ * Every test above this point seeds an active approved plan, because that is where `recordedOwner`
+ * comes from. A freshly installed project has none — `install` writes no `planMemory` — so before
+ * this correction no new project could approve its first plan at all, and the `NO_ACTIVE_PLAN`
+ * refusal that said so had no test of its own.
+ *
+ * Genesis answers exactly one question: WHO IS THE OWNER, before a plan exists to record one. It
+ * approves nothing and delegates nothing; the delegation and the decision are untouched.
+ * --------------------------------------------------------------------------------------------- */
+
+const GENESIS_COMMITTED = [PLAN_GENESIS_REL, ...COMMITTED];
+
+/**
+ * The complete initial governance a first plan carries, in the plan schema's own field names.
+ *
+ * It mirrors the established plan fixture deliberately: a genesis snapshot has to satisfy the SAME
+ * PLAN READY evaluator as any other plan, including the forbidden-action floor and `noApiPolicy`.
+ * A thinner record is refused — proven by the incomplete-governance cases below — which is the point:
+ * bootstrapping a project does not bootstrap it past the safety rules.
+ */
+const GENESIS_GOVERNANCE: Record<string, unknown> = {
+  owner: OWNER,
+  gatekeeper: AUTHORITY,
+  implementer: 'Claude Code',
+  closureAuthority: AUTHORITY,
+  allowedActions: ['inspect-repository'],
+  forbiddenActions: [
+    'production-deploy',
+    'production-db-mutation',
+    'real-email-sms-whatsapp',
+    'payment-or-live-charge',
+    'force-push',
+    'use-openai-api',
+    'use-anthropic-api',
+  ],
+  ownerOnlyActions: ['approve-plan'],
+  noApiPolicy: true,
+};
+
+function genesisRecord(over: Record<string, unknown> = {}, governanceOver: Record<string, unknown> | null = {}): Record<string, unknown> {
+  return {
+    schemaVersion: PLAN_GENESIS_SCHEMA_VERSION,
+    genesisId: 'ACME-PLAN-GENESIS1A',
+    projectId: 'acme',
+    ...(governanceOver === null ? {} : { governance: { ...GENESIS_GOVERNANCE, ...governanceOver } }),
+    ...over,
+  };
+}
+
+function writeGenesis(w: World, over: Record<string, unknown> = {}, governanceOver: Record<string, unknown> | null = {}): void {
+  w.sys.writeText(pjoin(w.root, PLAN_GENESIS_REL), JSON.stringify(genesisRecord(over, governanceOver), null, 2));
+}
+
+/** A fresh project: no plan memory declared, genesis + delegation + decision all in place. */
+function freshProject(
+  over: Record<string, unknown> = {},
+  committed: readonly string[] = GENESIS_COMMITTED,
+  governanceOver: Record<string, unknown> | null = {},
+): World {
+  const w = world({ committed, noPlanMemory: true });
+  writeGenesis(w, over, governanceOver);
+  writeDelegation(w);
+  return w;
+}
+
+describe('first-plan genesis authority', () => {
+  /** [A1] The case that was impossible before: a brand-new project approving its first plan. */
+  test('A1 approves the first plan of a project that has never had one', () => {
+    const w = freshProject();
+    const id = writeDecision(w);
+
+    const r = run(w, id);
+
+    expect(r.ok, `first approval refused: ${r.ok ? '' : `${r.code} ${r.problems.join(' | ')}`}`).toBe(true);
+  });
+
+  /** [A2] And it is an ORDINARY approval — every post-approval guarantee still holds. */
+  test('A2 binds the digest, consumes the decision and repoints plan memory', () => {
+    const w = freshProject();
+    const id = writeDecision(w);
+
+    const r = run(w, id);
+    if (!r.ok) throw new Error(`${r.code}: ${r.problems.join(' | ')}`);
+
+    // The existing output contract, unchanged.
+    expect(r.planDigest).toBe(w.planDigest);
+    expect(r.decisionId).toBe(id);
+    expect(r.planPath).toContain('recovery.plan.json');
+    expect(r.phaseCount).toBeGreaterThan(0);
+
+    // The decision is spent and cannot be replayed.
+    const spent = JSON.parse(readFileSync(pjoin(w.root, `.projectops/plan-decisions/${id}.json`), 'utf8'));
+    expect(spent['consumedAt']).toBeTruthy();
+
+    // planMemory now names the new records — the project is no longer a bootstrap case.
+    const cfg = JSON.parse(readFileSync(pjoin(w.root, '.projectops/project-config.json'), 'utf8'));
+    const memory = cfg['planMemory'] as Record<string, unknown>;
+    expect(memory['planPath']).toBe('state/recovery.plan.json');
+
+    // THE EXACT BOOTSTRAP GOVERNANCE, field for field — not defaults, not empty strings.
+    const newPlan = JSON.parse(readFileSync(pjoin(w.root, 'state/recovery.plan.json'), 'utf8'));
+    const gov = newPlan['governance'] as Record<string, unknown>;
+    for (const [field, value] of Object.entries(GENESIS_GOVERNANCE)) {
+      expect(gov[field], `governance.${field}`).toEqual(value);
+    }
+
+    // And the approval evidence tells the truth about where it came from: a first plan carried
+    // nothing forward, because there was no predecessor to carry anything forward from.
+    const evidence = String((newPlan['approval'] as Record<string, unknown>)['approvalEvidenceReference']);
+    expect(evidence).toContain('genesis authority record');
+    expect(evidence).not.toContain('carried forward');
+  });
+
+  /** The successor path must keep saying what it always said. */
+  test('A2b a successor plan still reports governance as carried forward', () => {
+    const w = world({ committed: COMMITTED });
+    writeDelegation(w);
+    const id = writeDecision(w);
+
+    const r = run(w, id);
+    if (!r.ok) throw new Error(`${r.code}: ${r.problems.join(' | ')}`);
+
+    const newPlan = JSON.parse(readFileSync(pjoin(w.root, 'state/recovery.plan.json'), 'utf8'));
+    const evidence = String((newPlan['approval'] as Record<string, unknown>)['approvalEvidenceReference']);
+    expect(evidence).toContain('carried forward');
+    expect(evidence).not.toContain('genesis authority record');
+  });
+
+  /** Incomplete governance is refused HERE, with a field name, not later as an opaque schema error. */
+  test('refuses genesis governance that could never produce a schema-valid plan', () => {
+    const cases: readonly [string, Record<string, unknown> | null, string][] = [
+      ['no governance object at all', null, 'carries no governance'],
+      ['blank gatekeeper', { gatekeeper: '' }, 'governance.gatekeeper'],
+      ['missing implementer', { implementer: undefined }, 'governance.implementer'],
+      ['blank closureAuthority', { closureAuthority: '  ' }, 'governance.closureAuthority'],
+      ['empty allowedActions', { allowedActions: [] }, 'governance.allowedActions'],
+      ['forbiddenActions not a list', { forbiddenActions: 'production-deploy' }, 'governance.forbiddenActions'],
+      ['ownerOnlyActions holding a blank', { ownerOnlyActions: [''] }, 'governance.ownerOnlyActions'],
+    ];
+    for (const [label, governanceOver, expected] of cases) {
+      const w = freshProject({}, GENESIS_COMMITTED, governanceOver);
+      const id = writeDecision(w);
+
+      const r = run(w, id);
+
+      expect(r.ok, label).toBe(false);
+      if (r.ok) continue;
+      expect(r.code, label).toBe('GENESIS_INVALID');
+      expect(r.problems.join(' '), label).toContain(expected);
+    }
+  });
+
+  /**
+   * [S8] THE BOOTSTRAP DOOR IS NOT OPENED BY EDITING THE WORKING TREE.
+   *
+   * `project-config.json` is implementer-writable. If eligibility rested on that copy alone, deleting
+   * `planMemory` from it would make an established project a "first-plan" project again, and a stale
+   * genesis record would re-supply an owner the project has since moved past. Eligibility is therefore
+   * asked of the COMMITTED configuration, which only the owner's commit gate can change.
+   */
+  test('S8 refuses bootstrap when the COMMITTED config still declares an active plan', () => {
+    const w = world({ committed: [...GENESIS_COMMITTED, PROJECT_CONFIG_REL], noPlanMemory: true });
+    writeGenesis(w);
+    writeDelegation(w);
+    const id = writeDecision(w);
+
+    // The working tree has no planMemory; the committed blob still does.
+    const committedCfg = JSON.parse(readFileSync(pjoin(w.root, '.projectops/project-config.json'), 'utf8'));
+    committedCfg['planMemory'] = { planPath: 'state/active.plan.json', currentStatePath: 'state/active.current-state.json' };
+    committedOverride.set(PROJECT_CONFIG_REL.toLowerCase(), JSON.stringify(committedCfg));
+
+    const r = run(w, id);
+
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.code).toBe('NO_ACTIVE_PLAN');
+    expect(r.problems.join(' ')).toContain('committed');
+    expect(r.problems.join(' ')).toContain('is not a first-plan project');
+  });
+
+  /** [S1] A file on disk is not authority. Only the committed blob counts. */
+  test('S1 refuses a genesis that is present but not committed', () => {
+    const w = freshProject({}, COMMITTED); // genesis written, but not listed as committed
+    const id = writeDecision(w);
+
+    const r = run(w, id);
+
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.code).toBe('GENESIS_INVALID');
+    expect(r.problems.join(' ')).toContain('not committed');
+  });
+
+  /** [S2] Authority does not cross project boundaries — a genesis copied from another repo fails. */
+  test('S2 refuses a genesis recorded for a different project', () => {
+    const w = freshProject({ projectId: 'other-project' });
+    const id = writeDecision(w);
+
+    const r = run(w, id);
+
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.code).toBe('GENESIS_INVALID');
+    expect(r.problems.join(' ')).toContain('other-project');
+  });
+
+  /**
+   * [S3] The implementer may not make itself the owner.
+   *
+   * This is the root of the whole chain: the delegation's own implementer exclusion compares against
+   * `recordedOwner`, so an implementer who became the owner would pass it.
+   */
+  test('S3 refuses a genesis naming the implementer as owner', () => {
+    const w = freshProject({}, GENESIS_COMMITTED, { owner: 'Claude Code' });
+    const id = writeDecision(w);
+
+    const r = run(w, id);
+
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.code).toBe('GENESIS_INVALID');
+    expect(r.problems.join(' ')).toContain('implementer');
+  });
+
+  /** [S3b] And the delegation's own implementer exclusion is untouched by any of this. */
+  test('S3b still refuses a delegation to the implementer on the first plan', () => {
+    const w = world({ committed: GENESIS_COMMITTED, noPlanMemory: true });
+    writeGenesis(w);
+    writeDelegation(w, { delegatedTo: 'Claude Code' });
+    const id = writeDecision(w, { decidedBy: 'Claude Code' });
+
+    const r = run(w, id);
+
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.code).toBe('DELEGATION_INVALID');
+    expect(r.problems.join(' ')).toContain('implementer');
+  });
+
+  /** [S4] An unsupported schemaVersion fails closed rather than being read leniently. */
+  test('S4 refuses a genesis with a wrong or missing schemaVersion', () => {
+    for (const over of [{ schemaVersion: '2.0.0' }, { schemaVersion: undefined }]) {
+      const w = freshProject(over);
+      const id = writeDecision(w);
+
+      const r = run(w, id);
+
+      expect(r.ok).toBe(false);
+      if (r.ok) continue;
+      expect(r.code).toBe('GENESIS_INVALID');
+      expect(r.problems.join(' ')).toContain('schemaVersion');
+    }
+  });
+
+  /**
+   * [S5] PRECEDENCE. With a valid active plan declared, genesis is not consulted at all — even a
+   * perfectly valid one naming a different owner.
+   *
+   * Proven by consequence rather than by inspection: the delegation is `delegatedBy` the ACTIVE
+   * plan's owner. If genesis were winning, that delegation would be refused as coming from someone
+   * who is not the recorded owner.
+   */
+  test('S5 ignores genesis entirely when an active plan is declared', () => {
+    const w = world({ committed: GENESIS_COMMITTED }); // planMemory IS declared
+    writeGenesis(w, { owner: 'Someone Else' });
+    writeDelegation(w); // delegatedBy: OWNER, the ACTIVE plan's owner
+    const id = writeDecision(w);
+
+    const r = run(w, id);
+
+    expect(r.ok, `the active plan's owner should have been authoritative: ${r.ok ? '' : r.problems.join(' | ')}`).toBe(true);
+  });
+
+  /** [S5b] The mirror: a delegation from the genesis owner is refused while an active plan exists. */
+  test('S5b refuses a delegation from the genesis owner when an active plan is declared', () => {
+    const w = world({ committed: GENESIS_COMMITTED });
+    writeGenesis(w, { owner: 'Someone Else' });
+    writeDelegation(w, { delegatedBy: 'Someone Else' });
+    const id = writeDecision(w);
+
+    const r = run(w, id);
+
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.code).toBe('DELEGATION_INVALID');
+    expect(r.problems.join(' ')).toContain('Someone Else');
+  });
+
+  /**
+   * [S6] LOAD-BEARING. A declared-but-broken active plan is a DAMAGED project, never a new one.
+   *
+   * Without this, deleting one file downgrades an established project to bootstrap state, where a
+   * fresh owner identity could be introduced. The attacker would not have to forge an owner — only
+   * to break a path.
+   */
+  test('S6 fails closed when the declared active plan is missing, and genesis does not rescue it', () => {
+    const w = world({ committed: GENESIS_COMMITTED }); // planMemory declared...
+    rmSync(pjoin(w.root, 'state/active.plan.json')); // ...but the plan it names is gone
+    writeGenesis(w); // a perfectly valid genesis, which must NOT apply
+    writeDelegation(w);
+    const id = writeDecision(w);
+
+    const r = run(w, id);
+
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.code).toBe('NO_ACTIVE_PLAN');
+    expect(r.problems.join(' ')).toContain('declares an active plan');
+    expect(r.problems.join(' ')).toContain('does not apply');
+  });
+
+  /** [S6b] Same rule when the declared plan is present but records no owner. */
+  test('S6b fails closed when the declared active plan records no owner', () => {
+    governanceOverride = { owner: '' };
+    const w = world({ committed: GENESIS_COMMITTED });
+    writeGenesis(w);
+    writeDelegation(w);
+    const id = writeDecision(w);
+
+    const r = run(w, id);
+
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.code).toBe('NO_ACTIVE_PLAN');
+  });
+
+  /** [S7] Genesis establishes an identity, never a permission. Delegation is still required. */
+  test('S7 refuses a first plan that has genesis but no delegation', () => {
+    const w = world({ committed: [PLAN_GENESIS_REL, '.projectops/plan-decisions/ACME-PLAN-APPROVAL-DECISION1A.json'], noPlanMemory: true });
+    writeGenesis(w);
+    // No delegation written and none committed.
+    const id = writeDecision(w);
+
+    const r = run(w, id);
+
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.code).toBe('DELEGATION_INVALID');
+  });
+
+  /** With neither an active plan nor any genesis, the refusal must SAY what to do. */
+  test('refuses with actionable guidance when a fresh project has no genesis at all', () => {
+    const w = world({ committed: COMMITTED, noPlanMemory: true });
+    writeDelegation(w);
+    const id = writeDecision(w);
+
+    const r = run(w, id);
+
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.code).toBe('NO_ACTIVE_PLAN');
+    expect(r.problems.join(' ')).toContain(PLAN_GENESIS_REL);
+    expect(r.problems.join(' ')).toContain('FIRST');
+  });
+});
 
 /**
  * OWNER-WORKFLOW-PLAN-ACTIVATION1A — the refusals the owner UI now depends on.
