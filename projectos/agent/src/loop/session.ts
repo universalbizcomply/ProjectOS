@@ -180,6 +180,11 @@ export function readEffects(sys: System, root: string, sessionId: string): ReadR
  * A phase id comes from the plan, and the plan is a file — so this is untrusted input reaching a path,
  * and the loop must be able to REFUSE it in its own words instead of dying with a stack trace.
  */
+/** Whether a caller-supplied session id is safe to turn into a record path. */
+export function isSafeSessionId(sessionId: string): boolean {
+  return SAFE_SESSION_ID.test(sessionId);
+}
+
 /**
  * The id for one execution session.
  *
@@ -189,7 +194,8 @@ export function readEffects(sys: System, root: string, sessionId: string): ReadR
  * new invocation id was stamped onto a historical record. A run that starts a worker must get its
  * own session; continuing an earlier one is a different operation and now says so explicitly.
  *
- * Omit `runId` only for a resume, which is addressing a session that already exists by name.
+ * A resume does not call this at all: it is GIVEN the id of the session it continues, because an
+ * id derived here would name a session no execution ever wrote.
  */
 export function sessionIdFor(phaseId: string, head: string, runId?: string): string | null {
   const base = `${phaseId}-${head.slice(0, 12)}`;

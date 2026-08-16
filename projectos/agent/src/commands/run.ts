@@ -45,10 +45,23 @@ export function run(ctx: CommandContext, flags: Flags): CommandResult {
     ]);
   }
 
+  const resume = bool(flags, 'resume');
+  const session = str(flags, 'session');
+  if (resume && session === '') {
+    return fail(2, [
+      'REFUSED (NO_SESSION_NAMED): `--resume` continues one named session and will not guess which.',
+      '  - `projectos run --execute --resume --session <sessionId>`',
+      '  - the id is on the run you are continuing; its records are in .projectops/execution/',
+      '',
+      'Nothing was prepared and nothing was started.',
+    ]);
+  }
+
   const result = runLoop(ctx.sys, ctx.root, {
     ...(worker === '' ? {} : { workerId: worker }),
     dryRun,
-    resume: bool(flags, 'resume'),
+    resume,
+    ...(session === '' ? {} : { resumeSessionId: session }),
   });
   if (!result.ok) return fail(1, result.lines);
   // A stop is a governed outcome, not an error: the loop did its job and the next move is someone

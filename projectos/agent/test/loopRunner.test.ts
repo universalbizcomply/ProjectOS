@@ -743,7 +743,7 @@ describe('runLoop', () => {
     });
     const { calls, registry } = fakeAdapter();
 
-    const r = runLoop(sys, ROOT, { adapters: registry, resume: true });
+    const r = runLoop(sys, ROOT, { adapters: registry, resume: true, resumeSessionId: RESUMED_SESSION });
 
     expect(calls).toEqual(['rejoin']);
     if (!r.ok) return;
@@ -753,5 +753,52 @@ describe('runLoop', () => {
     const evi = JSON.parse(String(sys.read(`${ROOT}/.projectops/execution/${RESUMED_SESSION}.evidence.json`))) as Record<string, any>;
     expect(ses['invocationId']).toBe(inv['invocationId']);
     expect(evi['invocationId']).toBe(inv['invocationId']);
+  });
+  /* ----------------------------------------------------------------------------------------------
+   * A RESUME NAMES ITS SESSION.
+   *
+   * Review of the previous commit found the gap: `--resume` derived `phase-head`, but every live
+   * execution writes `phase-head-runId`, so a resume looked at an id no run produces, found nothing,
+   * and STARTED A FRESH WORKER while reporting a resume. Failing open, on the one path whose whole
+   * purpose is continuity.
+   * ------------------------------------------------------------------------------------------- */
+
+  it('a resume that names no session refuses instead of starting a fresh worker', () => {
+    const sys = world({ files: cleanFindings(SESSION) });
+    const { calls, registry } = fakeAdapter();
+
+    const r = runLoop(sys, ROOT, { adapters: registry, resume: true });
+
+    expect(r.ok).toBe(false);
+    expect(calls).toEqual([]);
+    expect(r.lines.join(String.fromCharCode(10))).toContain('NO_SESSION_NAMED');
+  });
+
+  it('a resume naming a session that does not exist refuses rather than starting one', () => {
+    const sys = world({ files: cleanFindings(SESSION) });
+    const { calls, registry } = fakeAdapter();
+
+    const r = runLoop(sys, ROOT, {
+      adapters: registry,
+      resume: true,
+      resumeSessionId: `${PHASE}-ffffffffffff-deadbeef`,
+    });
+
+    expect(r.ok).toBe(false);
+    expect(calls).toEqual([]);
+    expect(r.lines.join(String.fromCharCode(10))).toContain('NO_SUCH_SESSION');
+  });
+
+  it('a session id from a real execution is the id a resume can name', () => {
+    // The two halves that used to disagree: what an execution WRITES and what a resume READS.
+    const sys = world({ files: cleanFindings(SESSION) });
+    const first = runLoop(sys, ROOT, { adapters: fakeAdapter().registry });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+
+    expect(sys.read(`${ROOT}/.projectops/execution/${first.sessionId}.session.json`)).not.toBeNull();
+    const { calls, registry } = fakeAdapter();
+    runLoop(sys, ROOT, { adapters: registry, resume: true, resumeSessionId: first.sessionId });
+    expect(calls).toEqual(['rejoin']);
   });
 });

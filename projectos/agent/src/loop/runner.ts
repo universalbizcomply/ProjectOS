@@ -68,6 +68,8 @@ export interface RunOptions {
    * Continuing an earlier run is a different operation from starting one and now takes saying so.
    */
   readonly resume?: boolean;
+  /** The session a resume continues. Required with `resume`; never derived. */
+  readonly resumeSessionId?: string;
   /** Adapter registry. Injected so a test can register a worker kind without spawning a process. */
   readonly adapters?: AdapterRegistry;
 }
@@ -132,17 +134,23 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
   const invocationId = invocationIdFor(phaseId, invokedAt, facts.pid);
   const resuming = options.resume === true;
 
-  // The session id, and therefore every record path, is fixed before the brief is built: the worker
-  // is told where to write its attestation, and the loop refuses to certify a run without one.
-  const sessionId = store.sessionIdFor(
-    phaseId,
-    String(verification.observed.head),
-    resuming ? undefined : invocationId.slice(0, 8),
-  );
-  if (sessionId === null) {
-    return refused([
-      `REFUSED (UNSAFE_PHASE_ID): phase '${phaseId}' does not make a safe record name, so this run can have no durable records`,
-    ]);
+  // A RESUME NAMES ITS SESSION. It cannot derive one, because every fresh execution now carries a run
+  // discriminator — so a resume that guessed `phase-head` would look at an id no execution ever
+  // writes, find nothing, and START A NEW WORKER while reporting a resume. That is worse than
+  // refusing: it loses the stuck worker's conversation and says nothing.
+  const sessionId = resuming
+    ? (options.resumeSessionId ?? '')
+    : store.sessionIdFor(phaseId, String(verification.observed.head), invocationId.slice(0, 8));
+  if (sessionId === null || sessionId === '' || !store.isSafeSessionId(sessionId)) {
+    return refused(
+      resuming
+        ? [
+            'REFUSED (NO_SESSION_NAMED): `--resume` continues one named session and will not guess which.',
+            '  - pass `--session <sessionId>`; the id is on the run you are continuing, and its records',
+            '    are in .projectops/execution/',
+          ]
+        : [`REFUSED (UNSAFE_PHASE_ID): phase '${phaseId}' does not make a safe record name, so this run can have no durable records`],
+    );
   }
   const briefFile = store.briefPath(root, sessionId);
 
@@ -194,6 +202,16 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     return refused([`REFUSED (SESSION_UNREADABLE): ${existingRead.problem}`]);
   }
   const existing = existingRead.value;
+  // A RESUME WITH NOTHING TO RESUME IS A REFUSAL, not a fresh start. Starting one here would spawn a
+  // new worker while the operator believes an earlier one was continued — the same fail-open the
+  // named-session rule above closes, one step further in.
+  if (resuming && existing === null) {
+    return refused([
+      `REFUSED (NO_SUCH_SESSION): there is no session '${sessionId}' to resume.`,
+      '  - check the id against the records in .projectops/execution/',
+      '  - to start new work instead, run without `--resume`',
+    ]);
+  }
   if (existing !== null && existing.workerId !== resolution.worker.workerId) {
     return refused([
       `REFUSED (SESSION_WORKER_MISMATCH): session '${sessionId}' belongs to worker '${existing.workerId}' (${existing.kind}), ` +
@@ -270,9 +288,10 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
   let stop: LoopStop | null = null;
 
   for (;;) {
-    // Rejoin whenever a handle exists — including the one a PREVIOUS invocation recorded, which is
-    // what makes `projectos run` resumable rather than restart-only. Without a handle the only
-    // honest option is a fresh start, and it is said out loud rather than passed off as a reconnect.
+    // Rejoin whenever a handle exists. A handle from a PREVIOUS invocation only appears here when
+    // the operator named that session with `--resume --session`; it is never inherited by
+    // accident. Without a handle the only honest option is a fresh start, and the line below says
+    // so rather than passing it off as a reconnect.
     const rejoining = session.providerRef !== null && session.providerRef !== '';
     const outcome = rejoining
       ? resolution.adapter.rejoin(sys, resolution.worker, session, brief)
