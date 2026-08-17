@@ -29,6 +29,28 @@ The ruling approves commercial limits only. It does not instruct the implementer
 read or expose credential material, and the implementer stops at the point where a real
 billing or key-provisioning action is required.
 
+### Least privilege, as confirmed by the owner on 2026-08-18
+
+**`api.responses.write` is sufficient for the Responses API workload and is the initial approved
+role and key scope.** Broader Model Request capability is **not** pre-granted as a precaution; if a
+live call ever proves it necessary, that is a separate change with a recorded reason.
+
+**Secure MCP Tunnel permissions are a separate future credential and authority gate.** They are not
+added to the gatekeeper service account at this step, and the gatekeeper credential does not carry
+them.
+
+### Credential reference, corrected before provisioning
+
+The vault reference is **`ProjectOS/projectos/development/openai/gatekeeper-api-key`**.
+
+The third segment is the ENVIRONMENT, not a fixed namespace: `projectos/credentials/reference.cjs`
+defines the grammar as `ProjectOS/<project>/<environment>/<provider>/<credential>` and freezes the
+vocabulary to `development | staging | production`, refusing anything else. This programme's approved
+plan declares one environment, `local`, with `productionFreeze: true`. `local` is not an accepted
+value, so `development` is the truthful designation available. An earlier draft said `production`;
+under a production freeze that would have been the first production-designated credential in this
+repository and it would have been false.
+
 ---
 
 ## 1. The decision being asked for

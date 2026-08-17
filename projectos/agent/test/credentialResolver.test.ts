@@ -90,8 +90,18 @@ describe('the vault resolver', () => {
   });
 
   it('maps the agent reference to exactly one vault reference', () => {
-    expect(VAULT_REFERENCE[REF]).toBe('ProjectOS/projectos/production/openai/gatekeeper-api-key');
+    expect(VAULT_REFERENCE[REF]).toBe('ProjectOS/projectos/development/openai/gatekeeper-api-key');
     expect(Object.keys(VAULT_REFERENCE)).toHaveLength(1);
+  });
+
+  // THE THIRD SEGMENT IS THE ENVIRONMENT, and this programme's plan declares `local` under a
+  // production freeze. `local` is not in the grammar's frozen vocabulary, so `development` is the
+  // truthful designation available — and no reference this project holds may say `production` while
+  // the freeze stands.
+  it('names no production environment while the programme is production-frozen', () => {
+    for (const ref of Object.values(VAULT_REFERENCE)) {
+      expect(ref.split('/')[2]).toBe('development');
+    }
   });
 
   it('resolves through the existing credential store and hands the value only to the callback', () => {

@@ -44,9 +44,24 @@ import {
  * A TABLE, NOT A TRANSFORMATION. A rule that derived one from the other would quietly produce a
  * plausible reference for a name nobody provisioned, and the failure would arrive as "credential
  * missing" rather than "that is not a credential this project has".
+ *
+ * WHY `development` AND NOT `production`. The third segment is the ENVIRONMENT, per the reference
+ * grammar in `projectos/credentials/reference.cjs` — `ProjectOS/<project>/<environment>/<provider>/
+ * <credential>`, with `ENVIRONMENTS` frozen to development, staging, production and anything else
+ * refused. This programme's approved plan declares exactly one environment, `local`, with
+ * `productionFreeze: true`. `local` is not a value the grammar accepts, so the truthful designation
+ * within the vocabulary that exists is `development`.
+ *
+ * An earlier version of this table said `production`, justified by the idea that the segment
+ * described the system being authenticated to rather than the environment ProjectOS is running in.
+ * The module's own grammar says otherwise, and writing `production` into a governed reference under
+ * a production freeze would have made the first production-designated credential in this repository
+ * a false one. The risk classification is unaffected: `gatekeeper-api-key` is not on the session
+ * allowlist, so it classifies `operation` either way and can never be projected into a child
+ * environment.
  */
 export const VAULT_REFERENCE: Readonly<Record<string, string>> = Object.freeze({
-  OPENAI_GATEKEEPER_KEY: 'ProjectOS/projectos/production/openai/gatekeeper-api-key',
+  OPENAI_GATEKEEPER_KEY: 'ProjectOS/projectos/development/openai/gatekeeper-api-key',
 });
 
 export interface WindowsVaultResolverOptions {
