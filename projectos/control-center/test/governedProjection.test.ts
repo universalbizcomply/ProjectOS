@@ -89,7 +89,48 @@ function decisionFor(phaseId: string, over: Record<string, unknown> = {}): Recor
 
 const PHASE_IDS = (plan['phases'] as { phaseId: string }[]).map((x) => x.phaseId);
 const LAST_ID = PHASE_IDS[PHASE_IDS.length - 1]!;
-const SECOND_LAST_ID = PHASE_IDS[PHASE_IDS.length - 2]!;
+
+/* ------------------------------------------------------------------------------------------------
+ * A PROGRAMME SHAPE THE TESTS OWN, rather than whichever programme happens to be active.
+ *
+ * Several assertions below need a chain: a last phase that DEPENDS on a second-last one, so that
+ * "unmet dependency", "not startable" and "a delegated closure satisfies the dependency" can be
+ * expressed at all. Borrowing that from `config.planMemory.planPath` worked only while the active
+ * plan happened to have two or more phases. When a legitimately approved single-phase programme
+ * became authoritative, `SECOND_LAST_ID` was `undefined` and those assertions became IMPOSSIBLE
+ * rather than false — the same trap already recorded a few tests below, where one test was moved
+ * onto stated fixture data for exactly this reason.
+ *
+ * The fixture clones the real plan, so governance, closure delegation and schema shape stay genuine
+ * and readiness is still computed by the real engine; only the phase list is stated here. Tests that
+ * are really about the live repository keep reading the live plan.
+ * ---------------------------------------------------------------------------------------------- */
+const FIXTURE_PHASE = (plan['phases'] as Record<string, unknown>[])[0]!;
+function fixturePhase(id: string, dependsOn: readonly string[]): Record<string, unknown> {
+  return { ...FIXTURE_PHASE, phaseId: id, dependsOn: [...dependsOn] };
+}
+const FX_FIRST = 'FIXTURE-PHASE-ONE1A';
+const FX_SECOND_LAST = 'FIXTURE-PHASE-TWO1A';
+const FX_LAST = 'FIXTURE-PHASE-THREE1A';
+const FIXTURE_IDS = [FX_FIRST, FX_SECOND_LAST, FX_LAST];
+const FIXTURE_PLAN: Record<string, unknown> = {
+  ...plan,
+  phases: [
+    fixturePhase(FX_FIRST, []),
+    fixturePhase(FX_SECOND_LAST, [FX_FIRST]),
+    fixturePhase(FX_LAST, [FX_SECOND_LAST]),
+  ],
+};
+/** Inputs over the stated programme shape. Readiness still comes from the real engine. */
+function fixtureInputs(over: Partial<GovernedInputs> = {}): GovernedInputs {
+  return inputs({
+    plan: FIXTURE_PLAN,
+    readiness: engine.evaluatePlanReady(FIXTURE_PLAN),
+    currentState: null,
+    phaseRecords: [],
+    ...over,
+  });
+}
 
 describe('governed projection reflects canonical records, not a seed', () => {
   test('programme counters come from the canonical current-state file', () => {
@@ -134,12 +175,24 @@ describe('governed projection reflects canonical records, not a seed', () => {
 
 describe('phase state comes from durable core records', () => {
   test('a phase with a live record shows its real core status and history', () => {
-    const records = phaseRecords();
-    // This repository is mid-Phase-12, so at least one live record must exist for this to be a real test.
-    expect(records.length).toBeGreaterThan(0);
-    const p = projectGovernedState(inputs());
+    // STATED, not borrowed. This asserted that the repository was mid-phase with at least one live
+    // record, which is a fact about today's programme rather than about the projection. A programme
+    // whose phase has not been started yet has no such record and the test became impossible.
+    const p = projectGovernedState(
+      fixtureInputs({
+        phaseRecords: [
+          {
+            phaseId: FX_FIRST,
+            status: 'implementing',
+            history: [{ from: 'draft', to: 'implementing', by: 'implementer', at: '2026-08-17T00:00:00.000Z' }],
+          },
+        ],
+      }),
+    );
     const live = p.phases.find((x) => x.status !== 'not-started' && !x.closedByRecord);
     expect(live).toBeDefined();
+    expect(live?.phaseId).toBe(FX_FIRST);
+    expect(live?.status).toBe('implementing');
     expect(live?.history.length).toBeGreaterThan(0);
   });
 
@@ -223,11 +276,12 @@ describe('phase state comes from durable core records', () => {
     // version of this test asserted against that state and proved nothing. Here the root phase
     // carries a record that is NOT an owner closure: it is therefore neither startable (a record
     // exists) nor complete (not owner-closed), which blocks everything that depends on it.
-    const rootId = (plan['phases'] as { phaseId: string }[])[0]?.phaseId ?? '';
+    // A blocked programme needs something to be blocked BY, so the shape is stated: the root carries
+    // a non-owner-closure record, which leaves the phases that depend on it genuinely unmet. A
+    // single-phase programme has no dependants and could never express this.
     const p = projectGovernedState(
-      inputs({
-        currentState: null,
-        phaseRecords: [{ phaseId: rootId, status: 'closed', history: [] }],
+      fixtureInputs({
+        phaseRecords: [{ phaseId: FX_FIRST, status: 'closed', history: [] }],
       }),
     );
     expect(p.activePhase).toBeNull();
@@ -242,17 +296,17 @@ describe('phase state comes from durable core records', () => {
     // closed and the assertion started passing vacuously in reverse. The unmet dependency is now
     // created IN THE FIXTURE, so the property is about the computation rather than about where the
     // programme happens to be.
-    const withoutP17 = projectGovernedState(inputs({ currentState: null }));
-    const last = withoutP17.phases[withoutP17.phases.length - 1];
-    expect(last?.phaseId).toBe(LAST_ID);
-    expect(last?.unmetDependencies).toContain(SECOND_LAST_ID);
+    const open = projectGovernedState(fixtureInputs());
+    const last = open.phases[open.phases.length - 1];
+    expect(last?.phaseId).toBe(FX_LAST);
+    expect(last?.unmetDependencies).toContain(FX_SECOND_LAST);
     expect(last?.startable).toBe(false);
 
     // And the other half, ALSO stated in the fixture. It used to read the live current-state and pass
     // only while the programme happened to sit one phase from the end; under a freshly approved plan
     // the same assertion is simply false, for a reason that has nothing to do with the computation.
     const satisfied = projectGovernedState(
-      inputs({ currentState: { ...(currentState ?? {}), completedPhases: PHASE_IDS.slice(0, -1) } }),
+      fixtureInputs({ currentState: { completedPhases: FIXTURE_IDS.slice(0, -1) } }),
     );
     const satisfiedLast = satisfied.phases[satisfied.phases.length - 1];
     expect(satisfiedLast?.unmetDependencies).toEqual([]);
@@ -264,7 +318,8 @@ describe('phase state comes from durable core records', () => {
     // `advisor`. What must be established is the DECISION the closure consumed — so a forgery has to
     // produce a matching committed decision file too, which is a reviewable diff rather than one
     // line inside a record nobody reads.
-    const target = SECOND_LAST_ID;
+    // Stated shape: the closure has to satisfy a DEPENDANT, which a single-phase programme has none of.
+    const target = FX_SECOND_LAST;
     const gov = plan['governance'] as Record<string, unknown>;
     const del = gov['closureDelegation'] as Record<string, unknown> | undefined;
     const delegate = del === undefined ? null : String(del['delegatedTo']);
@@ -273,15 +328,15 @@ describe('phase state comes from durable core records', () => {
 
     // C / D: the genuine pair is accepted.
     const genuine = projectGovernedState({
-      ...inputs({ currentState: null }),
+      ...fixtureInputs(),
       phaseRecords: records,
       closureDecisions: { [target]: decision },
     });
-    expect(genuine.phases.find((x) => x.phaseId === LAST_ID)?.unmetDependencies).toEqual([]);
+    expect(genuine.phases.find((x) => x.phaseId === FX_LAST)?.unmetDependencies).toEqual([]);
 
     // A / B: the SAME record with no decision behind it is not a completion.
-    const forged = projectGovernedState({ ...inputs({ currentState: null }), phaseRecords: records });
-    expect(forged.phases.find((x) => x.phaseId === LAST_ID)?.unmetDependencies).toContain(target);
+    const forged = projectGovernedState({ ...fixtureInputs(), phaseRecords: records });
+    expect(forged.phases.find((x) => x.phaseId === FX_LAST)?.unmetDependencies).toContain(target);
 
     // F: every way of breaking the binding fails closed.
     for (const broken of [
@@ -294,22 +349,23 @@ describe('phase state comes from durable core records', () => {
       { ...decision, decisionId: 'NOT-THE-ONE-NAMED1A' },
     ]) {
       const p = projectGovernedState({
-        ...inputs({ currentState: null }),
+        ...fixtureInputs(),
         phaseRecords: records,
         closureDecisions: { [target]: broken },
       });
-      expect(p.phases.find((x) => x.phaseId === LAST_ID)?.unmetDependencies).toContain(target);
+      expect(p.phases.find((x) => x.phaseId === FX_LAST)?.unmetDependencies).toContain(target);
     }
   });
 
   test('completion evidence requires an OWNER closure, matching the runtime gate exactly', () => {
-    const target = SECOND_LAST_ID;
-    const base = inputs({ currentState: null });
+    // Stated shape, for the same reason: the owner closure must satisfy a phase that depends on it.
+    const target = FX_SECOND_LAST;
+    const base = fixtureInputs();
     const claimed = projectGovernedState({
       ...base,
       phaseRecords: [{ phaseId: target, status: 'closed', history: [] }],
     });
-    expect(claimed.phases.find((x) => x.phaseId === LAST_ID)?.unmetDependencies)
+    expect(claimed.phases.find((x) => x.phaseId === FX_LAST)?.unmetDependencies)
       .toContain(target);
 
     const ownerClosed = projectGovernedState({
@@ -317,7 +373,7 @@ describe('phase state comes from durable core records', () => {
       phaseRecords: [{ phaseId: target, status: 'closed', history: closedBy('owner') }],
       closureDecisions: { [target]: decisionFor(target) },
     });
-    expect(ownerClosed.phases.find((x) => x.phaseId === LAST_ID)?.unmetDependencies).toEqual([]);
+    expect(ownerClosed.phases.find((x) => x.phaseId === FX_LAST)?.unmetDependencies).toEqual([]);
   });
 });
 

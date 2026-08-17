@@ -349,13 +349,24 @@ describe('programmeStateTailPaths — the active programme, from the config alon
     expect(programmeStateTailPaths(ctx({ currentStatePath: other }))).toEqual([other]);
   });
 
-  it('this repository’s own config nominates exactly its recovery state record', () => {
+  /**
+   * DERIVED, NEVER NAMED. This used to assert the literal recovery state record, which made it a
+   * claim about which programme happens to be active rather than about the function: the day a new
+   * owner-approved programme became authoritative it failed, though nothing was wrong. What the
+   * function promises is that the tail path comes from the CONFIG and from nowhere else, so the
+   * expectation is read from the same config the runtime reads. It now survives any legitimate
+   * programme change, and it still fails if the function invents, hardcodes or drops the path.
+   */
+  it('this repository’s own config decides its programme state record, whichever programme is active', () => {
     const real = JSON.parse(
       (require('node:fs') as typeof import('node:fs')).readFileSync(
         (require('node:path') as typeof import('node:path')).resolve(__dirname, '../../../.projectops/project-config.json'),
         'utf8',
       ),
-    ) as { planMemory?: unknown };
-    expect(programmeStateTailPaths(ctx(real.planMemory))).toEqual([RECOVERY]);
+    ) as { planMemory?: { currentStatePath?: unknown } };
+    const declared = real.planMemory?.currentStatePath;
+    // A repository that declares no current-state path would make the assertion vacuous.
+    expect(typeof declared).toBe('string');
+    expect(programmeStateTailPaths(ctx(real.planMemory))).toEqual([declared]);
   });
 });
