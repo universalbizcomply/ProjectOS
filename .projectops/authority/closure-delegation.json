@@ -1,23 +1,23 @@
 {
   "schemaVersion": "1.0.0",
-  "delegationId": "PROJECTOS-RECOVERY-CLOSURE-DELEGATION1A",
+  "delegationId": "PROJECTOS-AUTONOMOUS-SELF-HOSTING-CLOSURE-DELEGATION1A",
   "projectId": "projectos",
-  "programmeScope": "projectos-operational-recovery",
+  "programmeScope": "projectos-autonomous-self-hosting",
   "delegatedBy": "Murad",
   "delegatedTo": "ChatGPT",
   "delegatedScope": [
     "phase-closure",
     "programme-closure"
   ],
-  "delegationDate": "2026-08-11",
+  "delegationDate": "2026-08-17",
   "excludesProtectedActions": true,
-  "provenance": "Transcribed by the implementer (Claude) from owner Murad's operational-recovery directive of 2026-08-11 — 'Murad has now explicitly delegated to ChatGPT authority for this operational recovery programme to make technical gate decisions, make merge/acceptance decisions, make final operational-closure decision' and 'Murad has delegated final technical recovery closure authority to ChatGPT' — and reaffirmed by the owner's scope correction of the same date, which asks for this delegation to be recorded explicitly for the projectos-operational-recovery programme. The implementer wrote these bytes; the implementer did not grant this authority and cannot receive it.",
-  "trustBasis": "MANUAL_GOVERNANCE_APPROVAL, tamperProof false. No signature, and none is claimed. What makes this record trustworthy is that it is a distinct, reviewable artefact that must be COMMITTED before it has any effect, so a forged or misquoted delegation is a visible diff at the owner's commit and push gate.",
+  "provenance": "Transcribed by the implementer (Claude) from owner Murad's closure-delegation decision of 2026-08-17, which authorises ChatGPT phase-closure and programme-closure authority for programme 'projectos-autonomous-self-hosting' within exactly the scope recorded here. The implementer wrote these bytes; the implementer did not grant this authority and cannot. It was recorded because activation of the new programme refused while the only committed closure delegation named the retired recovery programme, and the owner chose to delegate closure for the new programme rather than retain it personally.",
+  "trustBasis": "MANUAL_GOVERNANCE_APPROVAL, tamperProof false. There is no signature here and none is claimed. What makes this record trustworthy is that it is a distinct, reviewable artefact that must be COMMITTED before it has any effect, so a forged or misquoted delegation is a visible diff at the owner's commit and push gate. If the owner did not say this, the owner can see that it says so and reject it.",
+  "supersedesAtThisPath": "PROJECTOS-RECOVERY-CLOSURE-DELEGATION1A. ProjectOS reads exactly one closure delegation per project, at this fixed path, so recording this one necessarily replaces the recovery record here. That record is preserved in history at commit 851dd0d, its programme is CLOSED at 6/6 and its closure decision is already consumed, so nothing depends on its continued presence. This record does NOT extend, revive, re-scope or inherit it: the recovery delegation applied only to programme 'projectos-operational-recovery', this one applies only to 'projectos-autonomous-self-hosting', and the programme scope of a closure delegation has always been enforced.",
   "excludes": [
-    "It is not authority to ACT. Closing a phase or a programme records a judgement about work already done; it performs nothing.",
-    "Every protected effect remains with the owner: production deployment, production or destructive database mutation, real email, SMS or messaging send, payment or live charge, raw credential access or rotation, secrets disclosure, Windows service installation or identity change, ACL, ProgramData or registry trust mutation, destructive machine operation, and force push.",
+    "Every protected effect remains with the owner: production deployment, production or destructive database mutation, real email, SMS or messaging send, payment or live charge, raw credential access or rotation, secrets disclosure, OpenAI API credential provisioning, API billing activation, credit purchase or API spend, Secure MCP Tunnel credential activation, Windows service installation or identity change, ACL, ProgramData or registry trust mutation, destructive machine operation, and force push.",
     "Material commercial or scope change remains with the owner.",
-    "It is not plan-approval authority, which is delegated separately and recorded in plan-approval-delegation.json."
+    "This delegation carries closure decisions only. It is not authority to act, and it is not plan-approval authority — the owner approved this programme's plan personally and no plan-approval delegation exists for it."
   ],
-  "notes": "Scoped to projectId 'projectos' and programme 'projectos-operational-recovery'. It cannot be read as authority in any other project or programme, and it grants the implementer nothing."
+  "notes": "Scoped to projectId 'projectos' AND to programme 'projectos-autonomous-self-hosting'. It cannot be read as authority in any other project or any other programme, and it grants the implementer nothing: Claude may never exercise closure authority, which the runtime enforces independently of this record. The owner remains ultimate authority and may revoke or override this delegation."
 }
