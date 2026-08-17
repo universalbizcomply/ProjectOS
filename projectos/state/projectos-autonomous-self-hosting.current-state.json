@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "1.0.0",
+  "projectId": "projectos",
+  "activePlanId": "projectos-autonomous-self-hosting-plan",
+  "activePlanVersion": "1.0",
+  "currentStatus": "PLAN READY",
+  "completionMethod": "phase-closure",
+  "acceptedPhaseCount": 0,
+  "totalPhaseCount": 1,
+  "completionPercentage": 0,
+  "completedPhases": [],
+  "activePhase": null,
+  "pendingPhases": [
+    "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A"
+  ],
+  "blockedPhases": [],
+  "deferredPhases": [],
+  "acceptedCarryForward": [],
+  "currentBranch": "projectos-post-v3-selfhost-pilot1a",
+  "currentHead": "0a38e6ecd3d32a399cb30cb52c509da4c479c5ee",
+  "currentRemoteHead": null,
+  "workingTreeStatus": "clean",
+  "currentRisks": [],
+  "currentBlockers": [],
+  "lastEvidenceReference": "plan-approval decision PROJECTOS-AUTONOMOUS-SELF-HOSTING-PLAN-APPROVAL-DECISION1B",
+  "nextRecommendedPhase": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+  "lastUpdated": "2026-08-17T13:20:00.612Z",
+  "updatedByRole": "gatekeeper"
+}

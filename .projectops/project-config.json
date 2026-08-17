@@ -12,14 +12,16 @@
   ],
   "productionFreeze": true,
   "planMemory": {
-    "planPath": "projectos/state/projectos-recovery.plan.json",
-    "currentStatePath": "projectos/state/projectos-recovery.current-state.json"
+    "planPath": "projectos/state/projectos-autonomous-self-hosting.plan.json",
+    "currentStatePath": "projectos/state/projectos-autonomous-self-hosting.current-state.json"
   },
   "planSources": [
     "docs/projectos-autonomous-self-hosting-plan.md",
     "docs/operational-recovery-plan.md",
     "projectos/state/projectos-v3.plan.json",
-    "projectos/state/projectos-v3.current-state.json"
+    "projectos/state/projectos-v3.current-state.json",
+    "projectos/state/projectos-recovery.plan.json",
+    "projectos/state/projectos-recovery.current-state.json"
   ],
   "allowedActions": [
     "inspect-repository",
@@ -103,7 +105,7 @@
           "--allowedTools",
           "Write(.projectops/execution/*.findings.json),Edit(.projectops/execution/*.findings.json),Write(.projectops/execution/*.effects.json),Edit(.projectops/execution/*.effects.json)"
         ],
-        "notes": "The owner's local Claude Code CLI. Absolute by requirement: a bare name would resolve against the governed checkout before PATH. No credential is passed and no Anthropic API is called \u2014 use-anthropic-api remains a forbidden action. The allowlist grants exactly the two records the WORKER owns: its findings and its effects attestation. It deliberately does NOT cover *.brief.json, *.session.json or *.evidence.json \u2014 those are ProjectOS's, and a worker able to rewrite the brief it was judged against, or the evidence collected about it, could launder its own run. An earlier grant of .projectops/execution/** was too broad and was narrowed here; `workers.ts` refuses any grant that is not exactly one of these four patterns, so a future config cannot widen it silently."
+        "notes": "The owner's local Claude Code CLI. Absolute by requirement: a bare name would resolve against the governed checkout before PATH. No credential is passed and no Anthropic API is called — use-anthropic-api remains a forbidden action. The allowlist grants exactly the two records the WORKER owns: its findings and its effects attestation. It deliberately does NOT cover *.brief.json, *.session.json or *.evidence.json — those are ProjectOS's, and a worker able to rewrite the brief it was judged against, or the evidence collected about it, could launder its own run. An earlier grant of .projectops/execution/** was too broad and was narrowed here; `workers.ts` refuses any grant that is not exactly one of these four patterns, so a future config cannot widen it silently."
       }
     ]
   },
