@@ -75,6 +75,8 @@ ChatGPT by the owner (copy/paste)"*.
 
 ## Environments
 
+- local — production freeze: yes
+
 Local development only. No staging, no production. Non-production, reversible, local-only work.
 
 ## Approved scope
