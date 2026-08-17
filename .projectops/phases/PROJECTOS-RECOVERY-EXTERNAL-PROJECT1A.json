@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-RECOVERY-EXTERNAL-PROJECT1A",
   "project": "ProjectOS",
   "objective": "Use ProjectOS to select Dead Aisle and run one read-only governed worker task that validates its Godot project identity, main scene and existing headless regression entrypoint, producing durable evidence without changing Dead Aisle product source.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-08-17T00:16:02.884Z",
       "note": "EVIDENCE COMPLETE - AWAITING CHATGPT FORMAL CLOSURE. The implementer cannot close; awaiting_closure exits only to closed/closed_as_blocked and both are owner-gated."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "advisor",
+      "at": "2026-08-17T01:21:49.962Z",
+      "note": "ChatGPT formal decision PROJECTOS-RECOVERY-EXTERNAL-PROJECT1A-CLOSURE-DECISION1A: 22/22 frozen acceptance criteria PASS. Closed under the closure delegation Murad recorded in PROJECTOS-RECOVERY-CLOSURE-DELEGATION1A; owner Murad approved this transition conditional on G4 reporting fully eligible, and G4 reported all 17 predicates satisfied at subject d188ef795db3a4738fd247661b70ca7ad327876e. — closed by ChatGPT under the projectos-scoped phase-closure delegation, decision PROJECTOS-RECOVERY-EXTERNAL-PROJECT1A-CLOSURE-DECISION1A"
     }
   ]
 }
