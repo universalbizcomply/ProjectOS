@@ -145,7 +145,11 @@ export interface DecisionExpectations {
   readonly draftId: string;
   /** Recomputed from the repository as it is now, not read from the draft file. */
   readonly planDigest: string;
-  /** Whoever the committed delegation names. Never the record's claim about itself. */
+  /**
+   * Who may take this decision. Whoever an APPLICABLE committed delegation names — matching this
+   * project, this programme and the plan-approval scope — and otherwise the recorded owner, because
+   * where no delegation applies the authority never moved. Never the record's claim about itself.
+   */
   readonly expectedDecider: string;
   readonly isCommitted: boolean;
   /** Does the commit the decision names exist in this repository? */
@@ -202,7 +206,7 @@ function strOf(v: unknown): string | null {
  */
 export function checkPlanApprovalDelegation(
   record: PlanApprovalDelegationRecord | null,
-  expect: DelegationExpectations,
+  expect: DelegationExpectations & { readonly programmeId: string },
 ): readonly string[] {
   if (record === null) {
     return [
@@ -220,6 +224,15 @@ export function checkPlanApprovalDelegation(
   }
   if (record.projectId !== expect.projectId) {
     e.push(`delegation is for project ${JSON.stringify(record.projectId)}, not '${expect.projectId}'`);
+  }
+  // PROGRAMME SCOPE IS AUTHORITY, NOT A LABEL. The field was recorded from the beginning and read by
+  // nobody, so a delegation granted for one programme silently carried into the next one — which is
+  // how a retired programme's delegation came to sit in front of a new programme's approval. The
+  // closure delegation has always enforced its own programme scope; this makes plan approval agree.
+  if (record.programmeScope !== expect.programmeId) {
+    e.push(
+      `delegation is scoped to programme ${JSON.stringify(record.programmeScope)}, not '${expect.programmeId}'`,
+    );
   }
   // The delegator is the owner the ACTIVE APPROVED PLAN records. A record that names its own
   // delegator would be granting itself the authority to grant authority.
@@ -458,7 +471,8 @@ export interface MaterialiseInputs {
    */
   readonly governanceSource?: GovernanceSource;
   readonly decision: PlanApprovalDecisionRecord;
-  readonly delegation: PlanApprovalDelegationRecord;
+  /** The applicable delegation, or `null` when the owner approved directly. */
+  readonly delegation: PlanApprovalDelegationRecord | null;
   /**
    * The owner's closure delegation for THIS programme, when one is recorded. Absent means closure
    * stays exactly where the project's active plan already puts it — carried forward, not invented.
@@ -637,10 +651,15 @@ export function materialisePlan(input: MaterialiseInputs): MaterialiseResult {
       approvalEvidenceReference:
         `Plan-approval decision ${String(input.decision.decisionId)} by ${String(input.decision.decidedBy)}, ` +
         `taken against draft ${String(input.decision.draftId)} with plan digest ${String(input.decision.planDigest)} ` +
-        `at commit ${String(input.decision.baseHead)} on branch ${input.proposal.branch}. The authority to take it is ` +
-        `delegation ${String(input.delegation.delegationId)}, recorded by owner ${String(input.delegation.delegatedBy)} ` +
-        `on ${String(input.delegation.delegationDate)} and scoped to '${PLAN_APPROVAL_SCOPE}' for this project only, ` +
-        `excluding every protected action. ProjectOS re-ran discovery against the repository before writing this ` +
+        `at commit ${String(input.decision.baseHead)} on branch ${input.proposal.branch}. ` +
+        (input.delegation === null
+          ? `The authority to take it is the owner's own: no plan-approval delegation applies to this project and ` +
+            `programme, so approval never moved away from the recorded owner and the decision above is the owner's. `
+          : `The authority to take it is delegation ${String(input.delegation.delegationId)}, recorded by owner ` +
+            `${String(input.delegation.delegatedBy)} on ${String(input.delegation.delegationDate)} and scoped to ` +
+            `'${PLAN_APPROVAL_SCOPE}' for programme '${String(input.delegation.programmeScope)}' in this project only, ` +
+            `excluding every protected action. `) +
+        `ProjectOS re-ran discovery against the repository before writing this ` +
         `record and the recomputed plan digest still matched the approved one. MANUAL_GOVERNANCE_APPROVAL with ` +
         `tamperProof false — a human governance approval bound by the owner's commit gate, NOT a cryptographic one. ` +
         (input.governanceSource === 'genesis'
@@ -652,17 +671,27 @@ export function materialisePlan(input: MaterialiseInputs): MaterialiseResult {
       supersedesPlanVersion: null,
       approvalBinding: 'MANUAL_GOVERNANCE_APPROVAL',
       tamperProof: false,
-      // The AUTHORITY is the owner's; the decider is the delegate the owner named. The delegation
-      // record is what makes that statement checkable rather than a claim.
+      // The AUTHORITY is the owner's either way. When the owner named a delegate, the delegation
+      // record is what makes that statement checkable rather than a claim; when no delegation
+      // applies, the owner approved in person and there is no delegation to record. `null` says that
+      // honestly instead of fabricating a self-delegation, which is refused elsewhere as delegating
+      // nothing.
       approvalAuthority: 'owner',
-      approvalDelegation: {
-        delegatedBy: String(input.delegation.delegatedBy),
-        delegatedTo: String(input.delegation.delegatedTo),
-        delegationDate: String(input.delegation.delegationDate),
-        delegatedScope: [PLAN_APPROVAL_SCOPE],
-        projectScope: input.proposal.projectId,
-        excludesProtectedActions: true,
-      },
+      // The schema makes this OPTIONAL and required only when `approvedBy` is not the recorded owner.
+      // Owner-direct approval is exactly that case inverted, so the key is OMITTED rather than set to
+      // null: there is no delegation to describe, and saying so by absence keeps the record honest.
+      ...(input.delegation === null
+        ? {}
+        : {
+            approvalDelegation: {
+              delegatedBy: String(input.delegation.delegatedBy),
+              delegatedTo: String(input.delegation.delegatedTo),
+              delegationDate: String(input.delegation.delegationDate),
+              delegatedScope: [PLAN_APPROVAL_SCOPE],
+              projectScope: input.proposal.projectId,
+              excludesProtectedActions: true,
+            },
+          }),
       secureApprovalEvidence: null,
     },
 
@@ -734,6 +763,15 @@ export interface ApproveOptions {
   readonly stateRelPath: string;
   readonly planId: string;
   readonly programmeId: string;
+  /**
+   * Set when this approval STARTS a programme rather than continuing the one in force.
+   *
+   * Starting a programme is the owner's act, so no delegation applies to it: a delegate was given
+   * authority over a named programme, never over the creation of new ones. Without this, naming a
+   * programme would decide which delegation applies — which is how a retired delegation could be
+   * revived by pointing an approval at the programme it happened to name.
+   */
+  readonly startsNewProgramme?: boolean;
 }
 
 /**
@@ -968,15 +1006,51 @@ export function approvePlan(sys: System, root: string, opts: ApproveOptions): Ap
   // Both authority records are read from the committed blob, so what is checked is what was reviewed.
   const delegationRel = `.projectops/authority/plan-approval-delegation.json`;
   const delegation = readCommittedJson(sys, delegationRel);
-  const delegationProblems =
-    (delegation === null ? uncommittedButPresent(sys, root, delegationRel, 'delegation') : null) ??
-    checkPlanApprovalDelegation(delegation, {
+
+  // WHO MAY APPROVE, and why this is two questions rather than one.
+  //
+  // A delegation APPLIES only to the project and programme it names, carrying the plan-approval
+  // scope. Anything else is somebody else's delegation and must not stand in front of this approval.
+  // When none applies, authority has not moved anywhere: it stays with the recorded owner, who may
+  // approve directly. The refusal text has always said exactly that — "Only the owner … can approve
+  // a plan for this project unless the owner has recorded a delegation" — while no code path let the
+  // owner do it, so a project whose delegation named a finished programme could not be approved by
+  // anyone at all. Delegating to the owner is refused elsewhere as delegating nothing, so a synthetic
+  // self-delegation was never the answer either.
+  //
+  // This cannot escalate. The owner is already the highest plan-approval authority, and the decision
+  // still has to be signed by that exact identity and committed through the owner's own commit gate.
+  // The implementer is refused as decider further down, on every route.
+  const applies =
+    opts.startsNewProgramme !== true &&
+    delegation !== null &&
+    delegation['projectId'] === proposal.projectId &&
+    delegation['programmeScope'] === opts.programmeId &&
+    Array.isArray(delegation['delegatedScope']) &&
+    (delegation['delegatedScope'] as readonly unknown[]).includes(PLAN_APPROVAL_SCOPE);
+
+  let expectedDecider: string;
+  if (applies) {
+    // An applicable delegation is judged in full. A malformed one for THIS programme is an error, not
+    // a quiet fall-through to owner approval, because the owner meant it to be used.
+    const delegationProblems = checkPlanApprovalDelegation(delegation, {
       projectId: proposal.projectId,
       recordedOwner,
-      isCommitted: delegation !== null,
+      isCommitted: true,
+      programmeId: opts.programmeId,
     });
-  if (delegationProblems.length > 0) return { ok: false, code: 'DELEGATION_INVALID', problems: delegationProblems };
-  const expectedDecider = String((delegation as PlanApprovalDelegationRecord).delegatedTo);
+    if (delegationProblems.length > 0) return { ok: false, code: 'DELEGATION_INVALID', problems: delegationProblems };
+    expectedDecider = String((delegation as PlanApprovalDelegationRecord).delegatedTo);
+  } else {
+    // An uncommitted delegation still refuses rather than silently becoming owner approval, so an
+    // operator who wrote one and forgot the commit gate is told that, instead of being asked for a
+    // signature they did not expect to give.
+    if (delegation === null) {
+      const uncommitted = uncommittedButPresent(sys, root, delegationRel, 'delegation');
+      if (uncommitted !== null) return { ok: false, code: 'DELEGATION_INVALID', problems: uncommitted };
+    }
+    expectedDecider = recordedOwner;
+  }
 
   const decisionRel = `.projectops/plan-decisions/${opts.decisionId}.json`;
   const decision = readCommittedJson(sys, decisionRel);
@@ -1027,7 +1101,7 @@ export function approvePlan(sys: System, root: string, opts: ApproveOptions): Ap
     config,
     activePlan,
     decision: decision as PlanApprovalDecisionRecord,
-    delegation: delegation as PlanApprovalDelegationRecord,
+    delegation: applies ? (delegation as PlanApprovalDelegationRecord) : null,
     closureDelegation,
     governanceSource,
     planId: opts.planId,

@@ -138,6 +138,10 @@ function delegation(over: Record<string, unknown> = {}): Record<string, unknown>
     delegatedScope: ['plan-approval'],
     delegationDate: '2026-08-11',
     excludesProtectedActions: true,
+    // Programme scope is now ENFORCED for plan approval, as it always has been for closure. The
+    // default names the programme these tests approve INTO — the authority is to approve the new
+    // programme's plan, not the active one — so the delegated route stays exercised.
+    programmeScope: 'acme-recovery',
     ...over,
   };
 }
@@ -639,18 +643,21 @@ describe('first-plan genesis authority', () => {
     expect(r.code).toBe('NO_ACTIVE_PLAN');
   });
 
-  /** [S7] Genesis establishes an identity, never a permission. Delegation is still required. */
-  test('S7 refuses a first plan that has genesis but no delegation', () => {
+  /** [S7] Genesis establishes an identity, never a permission. With no delegation the owner is
+   *  the only approver, so a delegate's decision is refused. */
+  test('S7 refuses a first-plan decision that is not the owner when no delegation applies', () => {
     const w = world({ committed: [PLAN_GENESIS_REL, '.projectops/plan-decisions/ACME-PLAN-APPROVAL-DECISION1A.json'], noPlanMemory: true });
     writeGenesis(w);
-    // No delegation written and none committed.
+    // No delegation written and none committed, so authority never moved: it stays with the owner.
+    // The decision here is the DELEGATE's, and a delegate with no delegation is nobody.
     const id = writeDecision(w);
 
     const r = run(w, id);
 
     expect(r.ok).toBe(false);
     if (r.ok) return;
-    expect(r.code).toBe('DELEGATION_INVALID');
+    expect(r.code).toBe('DECISION_INVALID');
+    expect(r.problems.join(' ')).toMatch(/not the recorded plan-approval authority/i);
   });
 
   /** With neither an active plan nor any genesis, the refusal must SAY what to do. */
@@ -702,7 +709,7 @@ describe('plan activate derives destinations and keeps the programme in force', 
 
   test('[8] a new plan is a NEW record; the previously active plan is untouched', () => {
     const w = world({ committed: ACTIVATE_COMMITTED });
-    writeDelegation(w);
+    writeDelegation(w, { programmeScope: 'acme-v1' }); // activate derives the ACTIVE plan's programme
     const id = writeDecision(w);
 
     const before = readFileSync(pjoin(w.root, 'state/active.plan.json'), 'utf8');
@@ -738,7 +745,7 @@ describe('plan activate derives destinations and keeps the programme in force', 
 
   test('[9] a SECOND plan activates in the same programme without touching the first', () => {
     const w = world({ committed: ACTIVATE_COMMITTED });
-    writeDelegation(w);
+    writeDelegation(w, { programmeScope: 'acme-v1' }); // activate derives the ACTIVE plan's programme
     const firstDecision = writeDecision(w);
     const firstDraft = w.draftId;
 
@@ -780,7 +787,7 @@ describe('plan activate derives destinations and keeps the programme in force', 
 
   test('[10] the same draft cannot be activated twice, and nothing is overwritten', () => {
     const w = world({ committed: ACTIVATE_COMMITTED });
-    writeDelegation(w);
+    writeDelegation(w, { programmeScope: 'acme-v1' }); // activate derives the ACTIVE plan's programme
     const id = writeDecision(w);
     expect(activateVia(w, w.draftId, id).code).toBe(0);
 
@@ -804,7 +811,7 @@ describe('plan activate derives destinations and keeps the programme in force', 
     // closure delegation to the programme the active plan actually declares, and the activation only
     // succeeds — and only carries the closure arrangement — while the derived id matches it.
     const w = world({ committed: [...ACTIVATE_COMMITTED, '.projectops/authority/closure-delegation.json'] });
-    writeDelegation(w);
+    writeDelegation(w, { programmeScope: 'acme-v1' }); // activate derives the ACTIVE plan's programme
     const activeProgramme = String(
       (JSON.parse(readFileSync(pjoin(w.root, 'state/active.plan.json'), 'utf8')) as Record<string, unknown>)['programmeId'],
     );
@@ -834,7 +841,9 @@ describe('plan activate derives destinations and keeps the programme in force', 
     // real project would hit, and it would surface as an unclosable plan rather than as an error at
     // activation time if the delegation happened to be absent.
     const w = world({ committed: [...ACTIVATE_COMMITTED, '.projectops/authority/closure-delegation.json'] });
-    writeDelegation(w);
+    // Plan approval is scoped to the INVENTED programme so it passes, isolating the closure
+    // delegation as the thing the invented id puts out of scope — which is what this proves.
+    writeDelegation(w, { programmeScope: `programme-${w.draftId}` });
     const activeProgramme = String(
       (JSON.parse(readFileSync(pjoin(w.root, 'state/active.plan.json'), 'utf8')) as Record<string, unknown>)['programmeId'],
     );
@@ -857,7 +866,7 @@ describe('plan activate derives destinations and keeps the programme in force', 
 
   test('[6] an active plan with no programmeId refuses rather than defaulting one', () => {
     const w = world({ committed: ACTIVATE_COMMITTED });
-    writeDelegation(w);
+    writeDelegation(w, { programmeScope: 'acme-v1' }); // activate derives the ACTIVE plan's programme
     const id = writeDecision(w);
 
     const activePath = pjoin(w.root, 'state/active.plan.json');
@@ -880,7 +889,7 @@ describe('plan activate derives destinations and keeps the programme in force', 
 
   test('[12] a path-shaped draft id is refused BEFORE it becomes a filename', () => {
     const w = world({ committed: ACTIVATE_COMMITTED });
-    writeDelegation(w);
+    writeDelegation(w, { programmeScope: 'acme-v1' }); // activate derives the ACTIVE plan's programme
     writeDecision(w);
     for (const bad of ['../../evil', 'a'.repeat(200), 'has space', 'x:stream', 'short']) {
       const r = activateVia(w, bad, 'ACME-PLAN-APPROVAL-DECISION1A');
@@ -898,7 +907,7 @@ describe('plan activate derives destinations and keeps the programme in force', 
     // validates it before use. That is why this is refused, and asserting it HERE keeps the promise
     // attached to the entry point a caller actually reaches, rather than only to the engine.
     const w = world({ committed: ACTIVATE_COMMITTED });
-    writeDelegation(w);
+    writeDelegation(w, { programmeScope: 'acme-v1' }); // activate derives the ACTIVE plan's programme
     writeDecision(w);
     for (const bad of ['../../evil', 'x:stream', 'a/b/c', 'has space', 'short']) {
       const r = activateVia(w, w.draftId, bad);
@@ -910,7 +919,7 @@ describe('plan activate derives destinations and keeps the programme in force', 
 
   test('[13] activation still refuses without a committed decision', () => {
     const w = world({ committed: ['.projectops/authority/plan-approval-delegation.json'] });
-    writeDelegation(w);
+    writeDelegation(w, { programmeScope: 'acme-v1' }); // activate derives the ACTIVE plan's programme
     const id = writeDecision(w);
     const r = activateVia(w, w.draftId, id);
     expect(r.code).not.toBe(0);
@@ -922,7 +931,7 @@ describe('plan activate derives destinations and keeps the programme in force', 
 describe('activation refuses every way the decision can be wrong', () => {
   test('[A/B] a decision that exists on disk but was never COMMITTED activates nothing', () => {
     const w = world({ committed: ['.projectops/authority/plan-approval-delegation.json'] });
-    writeDelegation(w);
+    writeDelegation(w, { programmeScope: 'acme-v1' }); // activate derives the ACTIVE plan's programme
     // Written, readable, well-formed — and not committed. Working-tree text is not a decision.
     const id = writeDecision(w);
     const r = run(w, id);
@@ -932,7 +941,7 @@ describe('activation refuses every way the decision can be wrong', () => {
 
   test('[A] a draft with no decision file at all activates nothing', () => {
     const w = world({ committed: ['.projectops/authority/plan-approval-delegation.json'] });
-    writeDelegation(w);
+    writeDelegation(w, { programmeScope: 'acme-v1' }); // activate derives the ACTIVE plan's programme
     const r = run(w, 'ACME-PLAN-APPROVAL-DECISION1A');
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.problems.join('; ')).toMatch(/no committed plan-approval decision/i);
@@ -940,7 +949,7 @@ describe('activation refuses every way the decision can be wrong', () => {
 
   test('[D] a decision taken for another repository is refused', () => {
     const w = world({ committed: COMMITTED });
-    writeDelegation(w);
+    writeDelegation(w, { programmeScope: 'acme-v1' }); // activate derives the ACTIVE plan's programme
     const id = writeDecision(w, { repository: 'github.com/someone-else/other-repo' });
     const r = run(w, id);
     expect(r.ok).toBe(false);
@@ -949,7 +958,7 @@ describe('activation refuses every way the decision can be wrong', () => {
 
   test('[E] a decision taken on another branch is refused', () => {
     const w = world({ committed: COMMITTED });
-    writeDelegation(w);
+    writeDelegation(w, { programmeScope: 'acme-v1' }); // activate derives the ACTIVE plan's programme
     const id = writeDecision(w, { branch: 'some-other-branch' });
     const r = run(w, id);
     expect(r.ok).toBe(false);
@@ -958,7 +967,7 @@ describe('activation refuses every way the decision can be wrong', () => {
 
   test('[F] a decision approving a DIFFERENT draft cannot activate this one', () => {
     const w = world({ committed: COMMITTED });
-    writeDelegation(w);
+    writeDelegation(w, { programmeScope: 'acme-v1' }); // activate derives the ACTIVE plan's programme
     const id = writeDecision(w, { draftId: 'some-other-draft-id' });
     const r = run(w, id);
     expect(r.ok).toBe(false);
@@ -967,7 +976,7 @@ describe('activation refuses every way the decision can be wrong', () => {
 
   test('[I] a decision the IMPLEMENTER signed cannot activate a plan', () => {
     const w = world({ committed: COMMITTED });
-    writeDelegation(w);
+    writeDelegation(w, { programmeScope: 'acme-v1' }); // activate derives the ACTIVE plan's programme
     const id = writeDecision(w, { decidedBy: 'Claude Code' });
     const r = run(w, id);
     expect(r.ok).toBe(false);
@@ -1068,10 +1077,10 @@ describe('exact plan approval — nothing else grants it', () => {
       match: /no committed plan-approval decision/i,
     },
     {
-      name: 'no delegation — only the owner may approve, and the owner has named nobody',
+      name: 'no delegation — authority stays with the owner, so a delegate decision is refused',
       setup: (w) => writeDecision(w),
-      code: 'DELEGATION_INVALID',
-      match: /no committed plan-approval delegation/i,
+      code: 'DECISION_INVALID',
+      match: /not the recorded plan-approval authority/i,
     },
     {
       name: 'the delegation is on disk but not committed',
@@ -1343,7 +1352,7 @@ describe('exact plan approval — currentness and target safety', () => {
 
   test('a decision file that calls itself something else is refused', () => {
     const w = world({ committed: [COMMITTED[0]!, '.projectops/plan-decisions/RENAMED-DECISION.json'] });
-    writeDelegation(w);
+    writeDelegation(w, { programmeScope: 'y' }); // this approval targets programme 'y'
     const d = decision(w, { decisionId: 'ACME-PLAN-APPROVAL-DECISION1A' });
     w.sys.writeText(pjoin(w.root, '.projectops/plan-decisions/RENAMED-DECISION.json'), JSON.stringify(d, null, 2));
     const r = approvePlan(w.sys, w.root, {
@@ -1549,12 +1558,224 @@ describe('exact plan approval — readiness is recomputed, not asserted', () => 
   });
 });
 
+/* ------------------------------------------------------------------------------------------------
+ * PROJECTOS-BOOTSTRAP-PLAN-APPROVAL-REPAIR1A — who may approve, and for WHICH programme.
+ *
+ * Two defects were repaired together because they are one defect seen from two sides. A
+ * plan-approval delegation recorded a `programmeScope` that nothing read, so a delegation granted
+ * for a finished programme silently stood in front of the next programme's approval. And the
+ * refusal text promised that "only the owner can approve a plan for this project unless the owner
+ * has recorded a delegation" while no code path let the owner do it — so a project whose delegation
+ * named a retired programme could be approved by nobody at all.
+ *
+ * The rule now: a delegation applies to the project and programme it names, carrying the
+ * plan-approval scope. Where none applies, authority never moved and the owner approves directly.
+ * ---------------------------------------------------------------------------------------------- */
+describe('plan-approval authority — programme scope and the owner-direct path', () => {
+  /** The exact shape of the live defect: a delegation for a CLOSED programme must not carry over. */
+  test('a delegation scoped to another programme does not grant approval for this one', () => {
+    const w = world({ committed: COMMITTED });
+    writeDelegation(w, { programmeScope: 'acme-operational-recovery' }); // a different programme
+    const id = writeDecision(w); // decided by the delegate
+
+    const r = run(w, id); // approves into 'acme-recovery'
+
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.code).toBe('DECISION_INVALID');
+    expect(r.problems.join(' ')).toMatch(/not the recorded plan-approval authority/i);
+  });
+
+  test('the owner may approve directly when no delegation exists at all', () => {
+    const w = world({ committed: ['.projectops/plan-decisions/ACME-PLAN-APPROVAL-DECISION1A.json'] });
+    const id = writeDecision(w, { decidedBy: OWNER });
+
+    const r = run(w, id);
+
+    expect(r.ok, JSON.stringify((r as { problems?: unknown }).problems)).toBe(true);
+  });
+
+  test('the owner may approve directly when the only delegation is for another programme', () => {
+    const w = world({ committed: COMMITTED });
+    writeDelegation(w, { programmeScope: 'acme-operational-recovery' });
+    const id = writeDecision(w, { decidedBy: OWNER });
+
+    const r = run(w, id);
+
+    expect(r.ok, JSON.stringify((r as { problems?: unknown }).problems)).toBe(true);
+  });
+
+  test('a delegate cannot approve when no delegation applies', () => {
+    const w = world({ committed: ['.projectops/plan-decisions/ACME-PLAN-APPROVAL-DECISION1A.json'] });
+    const id = writeDecision(w, { decidedBy: AUTHORITY });
+
+    const r = run(w, id);
+
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.code).toBe('DECISION_INVALID');
+    expect(r.problems.join(' ')).toMatch(/not the recorded plan-approval authority/i);
+  });
+
+  /** A delegation deliberately created for THIS programme still works — the repair narrows, not bans. */
+  test('a correctly programme-scoped delegation still grants the delegate approval', () => {
+    const w = world({ committed: COMMITTED });
+    writeDelegation(w, { programmeScope: 'acme-recovery' });
+    const id = writeDecision(w, { decidedBy: AUTHORITY });
+
+    const r = run(w, id);
+
+    expect(r.ok, JSON.stringify((r as { problems?: unknown }).problems)).toBe(true);
+  });
+
+  /** The owner-direct path must not become a way in for the implementer. */
+  test('the implementer cannot approve even when the owner path is the live one', () => {
+    const w = world({ committed: ['.projectops/plan-decisions/ACME-PLAN-APPROVAL-DECISION1A.json'] });
+    const id = writeDecision(w, { decidedBy: 'Claude Code' });
+
+    const r = run(w, id);
+
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.problems.join(' ')).toMatch(/not the recorded plan-approval authority|implementer/i);
+  });
+
+  /** THE ESCALATION THE OWNER PATH COULD HAVE OPENED. If the recorded owner were itself an
+   *  implementer identity, owner-direct approval would make `decidedBy` match `expectedDecider` and
+   *  the wrong-decider branch would NOT fire. The implementer check has to catch it instead. */
+  test('the implementer cannot approve even when the recorded owner IS an implementer identity', () => {
+    governanceOverride = { owner: 'Claude Code' };
+    const w = world({ committed: ['.projectops/plan-decisions/ACME-PLAN-APPROVAL-DECISION1A.json'] });
+    const id = writeDecision(w, { decidedBy: 'Claude Code' });
+
+    const r = run(w, id);
+
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    // The EXACT decider guard, not merely any sentence containing "implementer": this repository
+    // defends the same property in more than one layer, and a loose match cannot tell which one
+    // fired. Asserting the precise refusal is what makes removing this guard a failing test.
+    expect(r.problems).toContain(
+      'decision was taken by the implementer — the implementer can never approve a plan',
+    );
+  });
+
+  test('a delegation for another project still does not apply, and the owner remains the approver', () => {
+    const w = world({ committed: COMMITTED });
+    writeDelegation(w, { projectId: 'other', programmeScope: 'acme-recovery' });
+    const delegateAttempt = run(w, writeDecision(w, { decidedBy: AUTHORITY }));
+
+    expect(delegateAttempt.ok).toBe(false);
+    if (!delegateAttempt.ok) {
+      expect(delegateAttempt.problems.join(' ')).toMatch(/not the recorded plan-approval authority/i);
+    }
+  });
+
+  /** Approving a plan never widens protected authority, on either route. */
+  test('owner-direct approval carries no protected-action authority', () => {
+    const w = world({ committed: ['.projectops/plan-decisions/ACME-PLAN-APPROVAL-DECISION1A.json'] });
+    const id = writeDecision(w, { decidedBy: OWNER });
+
+    const r = run(w, id);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+
+    const plan = JSON.parse(readFileSync(pjoin(w.root, 'state/recovery.plan.json'), 'utf8')) as Record<string, unknown>;
+    const gov = plan['governance'] as Record<string, unknown>;
+    const source = activePlan()['governance'] as Record<string, unknown>;
+    // COMPARED AGAINST THE SOURCE, not merely asserted to be array-shaped. Checking the type only
+    // would pass just as happily if the approval had widened either set, which is the thing this test
+    // is named after. Raised by code review.
+    expect(gov['ownerOnlyActions']).toEqual(source['ownerOnlyActions']);
+    expect(gov['forbiddenActions']).toEqual(source['forbiddenActions']);
+    expect(gov['allowedActions']).toEqual(source['allowedActions']);
+    expect(gov['owner']).toBe(OWNER);
+    // And the approval records the owner route honestly: authority is the owner's, with no
+    // delegation described, because none applied.
+    const approval = plan['approval'] as Record<string, unknown>;
+    expect(approval['approvalAuthority']).toBe('owner');
+    expect(approval['approvedBy']).toBe(OWNER);
+    expect('approvalDelegation' in approval).toBe(false);
+  });
+
+  /* THE ENTRY POINT MATTERS AS MUCH AS THE RULE. `plan approve` used to take the programme from a
+   * bare `--programme-id` flag, so a caller could re-point the scope comparison at whatever a stale
+   * delegation happened to name and have that retired authority accepted for a different programme —
+   * defeating the scope check through a supported command. Raised by security review; these two prove
+   * the entry point now derives the programme from the plan in force. */
+  test('plan approve cannot revive a stale delegation by naming its programme', () => {
+    const w = world({ committed: COMMITTED });
+    // The exploit: a once-legitimate delegation for a programme that is not the one in force.
+    writeDelegation(w, { programmeScope: 'acme-recovery' });
+    const id = writeDecision(w, { decidedBy: AUTHORITY });
+
+    const r = planCommand(
+      { sys: w.sys, root: w.root },
+      { id: w.draftId, decision: id, 'programme-id': 'acme-recovery', 'plan-path': 'state/recovery.plan.json', 'state-path': 'state/recovery.current-state.json' },
+      ['approve'],
+    );
+
+    // Naming a programme other than the one in force STARTS a programme, which is the owner's act,
+    // so no delegation applies and the delegate is not the approver.
+    expect(r.code).not.toBe(0);
+    expect(r.lines.join(' ')).toMatch(/not the recorded plan-approval authority/i);
+    expect(existsSync(pjoin(w.root, 'state/recovery.plan.json'))).toBe(false);
+  });
+
+  test('the owner CAN start a new programme by naming it, which is the point of the flag', () => {
+    const w = world({ committed: COMMITTED });
+    writeDelegation(w, { programmeScope: 'acme-recovery' }); // irrelevant to a new programme
+    const id = writeDecision(w, { decidedBy: OWNER });
+
+    const r = planCommand(
+      { sys: w.sys, root: w.root },
+      { id: w.draftId, decision: id, 'programme-id': 'acme-next', 'plan-path': 'state/recovery.plan.json', 'state-path': 'state/recovery.current-state.json' },
+      ['approve'],
+    );
+
+    expect(r.code, r.lines.join(' | ')).toBe(0);
+    const plan = JSON.parse(readFileSync(pjoin(w.root, 'state/recovery.plan.json'), 'utf8')) as Record<string, unknown>;
+    expect(plan['programmeId']).toBe('acme-next');
+  });
+
+  test('plan approve cannot be pointed at a retired programme to revive a stale delegation', () => {
+    const w = world({ committed: COMMITTED });
+    // A once-legitimate delegation for a programme that is not the one in force.
+    writeDelegation(w, { programmeScope: 'acme-recovery' });
+    const id = writeDecision(w, { decidedBy: AUTHORITY });
+
+    // No --programme-id at all: the command must derive 'acme-v1' from the plan in force, so the
+    // stale delegation does not apply and the delegate is not the approver.
+    const r = planCommand(
+      { sys: w.sys, root: w.root },
+      { id: w.draftId, decision: id, 'plan-path': 'state/recovery.plan.json', 'state-path': 'state/recovery.current-state.json' },
+      ['approve'],
+    );
+
+    expect(r.code).not.toBe(0);
+    expect(r.lines.join(' ')).toMatch(/not the recorded plan-approval authority/i);
+    expect(existsSync(pjoin(w.root, 'state/recovery.plan.json'))).toBe(false);
+  });
+
+  /** The pure check refuses a programme mismatch on its own, with no I/O. */
+  test('the delegation check refuses a programme mismatch by itself', () => {
+    const problems = checkPlanApprovalDelegation(delegation({ programmeScope: 'something-else' }), {
+      projectId: 'acme',
+      recordedOwner: OWNER,
+      isCommitted: true,
+      programmeId: 'acme-recovery',
+    });
+    expect(problems.join(' ')).toMatch(/scoped to programme/i);
+  });
+});
+
 describe('exact plan approval — the pure checks refuse on their own', () => {
   test('a delegation for another project is refused', () => {
     const problems = checkPlanApprovalDelegation(delegation({ projectId: 'other' }), {
       projectId: 'acme',
       recordedOwner: OWNER,
       isCommitted: true,
+      programmeId: 'acme-recovery',
     });
     expect(problems.join(' ')).toMatch(/is for project/i);
   });
@@ -1564,6 +1785,7 @@ describe('exact plan approval — the pure checks refuse on their own', () => {
       projectId: 'acme',
       recordedOwner: OWNER,
       isCommitted: true,
+      programmeId: 'acme-recovery',
     });
     expect(problems.join(' ')).toMatch(/delegates nothing/i);
   });

@@ -277,6 +277,37 @@ function approve(ctx: CommandContext, flags: Record<string, string | boolean>): 
   if (draftId === '') return fail(1, ['`plan approve` requires --id <draftId> (see `plan drafts`)']);
   if (decisionId === '') return fail(1, ['`plan approve` requires --decision <decisionId>']);
 
+  // THE PROGRAMME DECIDES WHICH DELEGATION APPLIES, SO THE CALLER MAY NOT CHOOSE IT.
+  //
+  // A plan-approval delegation now applies only to the programme it names, and `programmeId` is the
+  // value that check compares against. While this arrived as a bare `--programme-id` flag, anyone
+  // could re-point the comparison at whatever a stale delegation happened to say and have that
+  // retired authority accepted for a different programme — reproducing the exact defect the scope
+  // check exists to close, through a supported command. The same flag also gates the closure
+  // delegation, so it could carry a retired closure authority into the new plan as well.
+  //
+  // So where a plan is already in force, the programme is read from it through the trusted config
+  // route, exactly as `plan activate` does. A caller may still PASS the flag, but only to say the
+  // same thing: a disagreement is refused rather than silently preferred either way. Where no plan is
+  // in force this is a project's FIRST plan, there is no programme yet and no earlier delegation that
+  // could be stale, so the flag remains the only available source.
+  const governedForProgramme = loadGovernedContext(ctx.sys, ctx.root);
+  const declaredProgramme = s('programme-id');
+  let programmeId = declaredProgramme;
+  let startsNewProgramme = false;
+  if (governedForProgramme.ok) {
+    const activeProgramme = governedForProgramme.context.plan['programmeId'];
+    if (typeof activeProgramme === 'string' && activeProgramme.trim() !== '') {
+      // CONTINUING the programme in force is the default, and the caller does not get to name it.
+      // DECLARING a different one starts a new programme, which is the owner's act: no delegation
+      // applies to it, so naming a programme can never be the thing that decides which delegation
+      // applies. That is what closes the bypass, and it leaves starting a programme possible.
+      programmeId = declaredProgramme === '' ? activeProgramme : declaredProgramme;
+      startsNewProgramme = declaredProgramme !== '' && declaredProgramme !== activeProgramme;
+    }
+  }
+  if (programmeId === '') programmeId = 'programme';
+
   const result = approvePlan(ctx.sys, ctx.root, {
     draftId,
     decisionId,
@@ -288,7 +319,8 @@ function approve(ctx: CommandContext, flags: Record<string, string | boolean>): 
     planRelPath: s('plan-path') || '.projectops/plan.json',
     stateRelPath: s('state-path') || '.projectops/current-state.json',
     planId: s('plan-id') || 'plan',
-    programmeId: s('programme-id') || 'programme',
+    programmeId,
+    startsNewProgramme,
   });
 
   if (!result.ok) {
