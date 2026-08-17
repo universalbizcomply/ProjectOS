@@ -36,6 +36,7 @@ import {
 import { BUILT_IN_ADAPTERS } from './adapters/claudeCodeCli.js';
 import { collectEvidence, configuredChecks, requiredChecks, runChecks, type CheckResult } from './verification.js';
 import { decideContinuation, loopStopLines, MAX_CORRECTION_ATTEMPTS, type LoopStop } from './outcome.js';
+import { takeGatekeeperTurn, type GatekeeperTurnDeps } from './gatekeeperTurn.js';
 import * as store from './session.js';
 import {
   digestOf,
@@ -72,6 +73,19 @@ export interface RunOptions {
   readonly resumeSessionId?: string;
   /** Adapter registry. Injected so a test can register a worker kind without spawning a process. */
   readonly adapters?: AdapterRegistry;
+  /**
+   * The unattended reviewer, when one is configured.
+   *
+   * ABSENT BY DEFAULT, AND THE DEFAULT BUILD IS UNCHANGED BY THIS. With no gatekeeper the loop stops
+   * exactly where it always stopped and the owner carries it onward — which is the correct behaviour
+   * while no reviewer exists, and means wiring this in cannot alter a run nobody configured. When one
+   * IS configured, a stop the reviewer may answer becomes a request instead of the end of the run.
+   */
+  readonly gatekeeper?: GatekeeperTurnDeps;
+  /** Owner gates the approved plan names for this phase; the reviewer may never grant one. */
+  readonly ownerOnlyActions?: readonly string[];
+  /** Who the approved plan says reviews. Never derived from a caller flag. */
+  readonly expectedDecider?: string;
 }
 
 export type RunResult =
@@ -286,6 +300,52 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
 
   let attempts = 0;
   let stop: LoopStop | null = null;
+  // Decisions already acted on IN THIS RUN. A restart re-derives the same request id, so a decision
+  // that was applied once is refused as a replay rather than applied again.
+  const consumedDecisionIds: string[] = [];
+  let gatekeeperLedger = options.gatekeeper?.ledger ?? [];
+
+  /**
+   * Hand a stop to the reviewer and say what the loop should do next.
+   *
+   * Returns null when there is no reviewer, or when the stop is one the reviewer may not answer — in
+   * both cases the stop stands and the run ends where it always did.
+   */
+  const consultGatekeeper = (candidate: LoopStop, evidenceText: string): 'retry' | 'proceed' | null => {
+    const deps = options.gatekeeper;
+    if (deps === undefined) return null;
+
+    const turn = takeGatekeeperTurn(
+      {
+        stop: candidate,
+        projectId: context.projectId,
+        phaseId,
+        subjectCommit: verification.observed.head ?? '',
+        repositoryRoot: root,
+        evidenceText,
+        ownerOnlyActions: options.ownerOnlyActions ?? brief.phase.requiredOwnerGates,
+        expectedDecider: options.expectedDecider ?? '',
+        at: sys.now(),
+      },
+      { ...deps, ledger: gatekeeperLedger, consumedDecisionIds },
+    );
+    lines.push(...turn.lines);
+
+    // The cost is recorded whether or not the answer was usable: the call happened.
+    if (turn.ledgerEntry !== null) gatekeeperLedger = [...gatekeeperLedger, turn.ledgerEntry];
+    if (turn.request !== null) consumedDecisionIds.push(`GKDEC-${turn.request.requestId}`);
+
+    if (turn.action.kind === 'owner') {
+      lines.push(...turn.action.reasons.map((r) => `  ${r}`));
+      return null;
+    }
+    if (turn.action.kind === 'proceed') {
+      lines.push(`  gatekeeper: ${turn.action.detail}`);
+      return 'proceed';
+    }
+    lines.push(`  gatekeeper requires an amendment: ${turn.action.instruction}`);
+    return 'retry';
+  };
 
   for (;;) {
     // Rejoin whenever a handle exists. A handle from a PREVIOUS invocation only appears here when
@@ -348,6 +408,29 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     });
 
     if (decision.kind === 'stop') {
+      // THE RELAY REMOVAL, at the one place the loop used to end. A reviewer that requires an
+      // amendment sends the phase back through the SAME bounded correction budget as an ordinary
+      // failing check — it does not get its own, and it cannot reset the one that exists.
+      const evidenceText = JSON.stringify(
+        {
+          phaseId,
+          stop: decision.reason,
+          checks: checks.map((c) => ({ id: c.id, kind: c.kind, passed: c.passed })),
+          findings: findings.value.findings,
+          reviewsRecorded: findings.value.reviews,
+          effects: effects.value,
+          attemptsSpent: attempts,
+        },
+        null,
+        1,
+      );
+      const outcome = consultGatekeeper(decision.reason, evidenceText);
+      if (outcome === 'proceed') break;
+      if (outcome === 'retry' && attempts < MAX_CORRECTION_ATTEMPTS) {
+        attempts += 1;
+        lines.push(`  correcting under gatekeeper direction (attempt ${attempts} of ${MAX_CORRECTION_ATTEMPTS})`);
+        continue;
+      }
       stop = decision.reason;
       break;
     }

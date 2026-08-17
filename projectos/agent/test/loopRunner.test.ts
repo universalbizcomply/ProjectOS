@@ -14,6 +14,8 @@ import { describe, it, expect } from 'vitest';
 import { runLoop as runLoopRaw } from '../src/loop/runner.js';
 import { invocationIdFor } from '../src/loop/invocation.js';
 import { MAX_CORRECTION_ATTEMPTS } from '../src/loop/outcome.js';
+import { inMemoryResolverForTests } from '../src/loop/credentialResolver.js';
+import { APPROVED_PILOT_POLICY } from '@projectos/core';
 import type { AdapterRegistry, WorkerAdapter } from '../src/loop/workers.js';
 import type { System, ExecResult } from '../src/system.js';
 
@@ -800,5 +802,157 @@ describe('runLoop', () => {
     const { calls, registry } = fakeAdapter();
     runLoop(sys, ROOT, { adapters: registry, resume: true, resumeSessionId: first.sessionId });
     expect(calls).toEqual(['rejoin']);
+  });
+});
+
+/**
+ * THE RELAY REMOVAL, PROVEN IN THE REAL LOOP.
+ *
+ * Everything above this point runs with no gatekeeper configured, which is the default and must stay
+ * unchanged — those tests are the evidence that wiring a reviewer in cannot alter a run nobody
+ * configured. These four prove the other half: that when a reviewer IS configured, the loop actually
+ * consults it at the point it used to end, and still refuses everything it always refused.
+ */
+describe('runLoop with an unattended gatekeeper', () => {
+  const REF = 'PROJECTOS_GATEKEEPER_OPENAI_KEY';
+  const RATE = {
+    model: 'gpt-5.6-terra',
+    inputMicroUsdPerMillion: 1_250_000,
+    cachedInputMicroUsdPerMillion: 125_000,
+    outputMicroUsdPerMillion: 10_000_000,
+  };
+
+  const decisionBody = (decision: string, instruction: string | null) =>
+    JSON.stringify({
+      id: 'resp_aaaaaaaaaaaaaaaa',
+      created_at: '2026-08-11T19:00:05Z',
+      output: [
+        {
+          content: [
+            {
+              type: 'output_text',
+              text: JSON.stringify({
+                decision,
+                reason: 'reviewed',
+                nextClaudeInstruction: instruction,
+                allowedActions: ['implement'],
+                forbiddenActions: ['commit', 'push'],
+                ownerApprovalRequired: false,
+                risks: [],
+                carryForward: [],
+              }),
+            },
+          ],
+        },
+      ],
+      usage: { input_tokens: 1000, input_tokens_details: { cached_tokens: 0 }, output_tokens: 100 },
+    });
+
+  function gatekeeper(reply: { status: number; body: string } | 'error', sent: string[] = []) {
+    return {
+      transport: {
+        transportId: 'openai-primary',
+        kind: 'openai-responses' as const,
+        model: 'gpt-5.6-terra',
+        capabilities: ['submit-request', 'receive-decision'],
+        credentialRef: REF,
+        commercialApproval: true,
+      },
+      availability: { reachable: true },
+      resolver: inMemoryResolverForTests(REF, 'sk-test-000000000000000000'),
+      http: {
+        post(req: { body: string }) {
+          sent.push(req.body);
+          return reply === 'error'
+            ? ({ kind: 'transport-error', detail: 'ECONNRESET' } as const)
+            : ({ kind: 'response', status: reply.status, body: reply.body } as const);
+        },
+      },
+      modelPolicy: APPROVED_PILOT_POLICY,
+      rateCards: { 'gpt-5.6-terra': RATE, 'gpt-5.6-luna': RATE },
+      budget: { warnAtMicroUsd: 2_000_000, hardStopAtMicroUsd: 5_000_000 },
+      ledger: [],
+      threadBinding: {
+        schemaVersion: '1.0.0',
+        projectId: 'projectos',
+        repositoryRoot: ROOT,
+        providerThreadId: 'resp_7f3a9c2e5b81d40a',
+        transportId: 'openai-primary',
+        createdAt: '2026-08-11T18:00:00Z',
+      },
+      consumedDecisionIds: [],
+    };
+  }
+
+  const highFinding = () => ({
+    [`${ROOT}/.projectops/execution/${SESSION}.findings.json`]: JSON.stringify({
+      reviews: ['code-review', 'security-review'],
+      findings: [{ id: 'S1', severity: 'HIGH', category: 'security', summary: 'unsafe path', resolved: false }],
+    }),
+  });
+
+  it('consults the reviewer at the stop the loop used to end on', () => {
+    const sys = world({ files: highFinding() });
+    const { registry } = fakeAdapter();
+    const sent: string[] = [];
+    const r = runLoop(sys, ROOT, {
+      adapters: registry,
+      expectedDecider: 'ChatGPT',
+      gatekeeper: gatekeeper({ status: 200, body: decisionBody('AMENDMENT_REQUIRED', 'Narrow the query.') }, sent),
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(sent.length).toBeGreaterThan(0);
+    expect(r.lines.join('\n')).toContain('gatekeeper requires an amendment: Narrow the query.');
+  });
+
+  it('sends the amendment back through the SAME bounded correction budget', () => {
+    const sys = world({ files: highFinding() });
+    const { calls, registry } = fakeAdapter();
+    const sent: string[] = [];
+    const r = runLoop(sys, ROOT, {
+      adapters: registry,
+      expectedDecider: 'ChatGPT',
+      gatekeeper: gatekeeper({ status: 200, body: decisionBody('AMENDMENT_REQUIRED', 'Narrow the query.') }, sent),
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    // The reviewer keeps asking for the same amendment; the loop does not retry forever, and the
+    // reviewer does not get a correction budget of its own.
+    expect(calls.length).toBeLessThanOrEqual(MAX_CORRECTION_ATTEMPTS + 1);
+    expect(r.stop).not.toBeNull();
+  });
+
+  it('stops for the owner when the reviewer cannot be reached, and never continues silently', () => {
+    const sys = world({ files: highFinding() });
+    const { registry } = fakeAdapter();
+    const r = runLoop(sys, ROOT, {
+      adapters: registry,
+      expectedDecider: 'ChatGPT',
+      gatekeeper: gatekeeper('error'),
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.stop?.code).toBe('UNRESOLVED_CRITICAL_OR_HIGH');
+    const text = r.lines.join('\n');
+    expect(text).toContain('ACCEPT RISK & CONTINUE WITH CLAUDE SELF-REVIEW');
+    expect(text).toContain('WAIT FOR OPENAI');
+    expect(text).toContain('STOP WORK');
+  });
+
+  it('never asks the reviewer about the owner gate', () => {
+    const sys = world({ files: cleanFindings(SESSION) });
+    const { registry } = fakeAdapter();
+    const sent: string[] = [];
+    const r = runLoop(sys, ROOT, {
+      adapters: registry,
+      expectedDecider: 'ChatGPT',
+      gatekeeper: gatekeeper({ status: 200, body: decisionBody('APPROVED_TO_PROCEED', 'ship it') }, sent),
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.stop?.code).toBe('OWNER_GATE');
+    // Nothing was sent: an owner gate is not a question for a reviewer.
+    expect(sent).toEqual([]);
   });
 });

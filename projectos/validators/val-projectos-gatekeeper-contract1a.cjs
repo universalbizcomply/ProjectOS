@@ -48,6 +48,12 @@ const CONTRACT_MODULES = [
   path.join(CORE_SRC, "gatekeeperModelPolicy.ts"),
   path.join(CORE_SRC, "ownerGateReceipt.ts"),
   path.join(AGENT_LOOP, "gatekeeperRouting.ts"),
+  // The orchestration and the transport reach the world only through INJECTED ports, so they belong
+  // under the same purity rule as the contracts: a direct fs, child_process or network import here
+  // would be the whole safety argument leaking away one convenience at a time. The vault resolver is
+  // deliberately NOT in this list - executing the credential store is its entire job.
+  path.join(AGENT_LOOP, "gatekeeperTurn.ts"),
+  path.join(AGENT_LOOP, "transports", "openaiResponses.ts"),
 ];
 
 // --- The owner's rulings of 2026-08-17, pinned in a second file ---------------------------------
@@ -74,6 +80,10 @@ const ALLOWED_IMPORTS = [
   "@projectos/core",
   "./gatekeeperTransport.js",
   "./outcome.js",
+  "./credentialResolver.js",
+  "./gatekeeperRouting.js",
+  "./transports/openaiResponses.js",
+  "../credentialResolver.js",
 ];
 
 /** Capabilities that would make a "decide only" module able to act. */
