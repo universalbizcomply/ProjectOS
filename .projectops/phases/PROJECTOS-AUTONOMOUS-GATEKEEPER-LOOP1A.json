@@ -1,0 +1,7 @@
+{
+  "phaseId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+  "project": "ProjectOS",
+  "objective": "Let ProjectOS coordinate OpenAI governance and Claude implementation by itself, so the owner supplies an objective once and never again carries a prompt, report or gate decision between them.",
+  "status": "draft",
+  "history": []
+}
