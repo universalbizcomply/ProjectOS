@@ -26,6 +26,18 @@
 import type { GatekeeperVerdict } from '@projectos/core';
 import type { LoopStop, LoopStopCode } from './outcome.js';
 
+/**
+ * Characters that are printable but reorder what a reader sees.
+ *
+ * GK-SEC-002, raised by the loop's own worker against this code. The sanitisers filtered on
+ * `ch >= ' '`, which keeps every Unicode bidirectional override and format character: U+202A-U+202E
+ * and U+2066-U+2069 are all above the space. Text carrying them renders in an order that has nothing
+ * to do with its bytes, so a refusal quoted into a governance record - or an instruction shown to a
+ * reviewer - can be made to READ as the opposite of what it says. Stripped, not escaped: nothing
+ * legitimate in an identifier, an operation name or a governance instruction needs them.
+ */
+const REORDERING = /[‪-‮⁦-⁩‎‏؜]/g;
+
 export type StopAudience = 'gatekeeper' | 'owner';
 
 export interface StopRoute {
@@ -204,7 +216,9 @@ export function applyVerdictToStop(stop: LoopStop, checked: CheckedDecision): Ne
       // it is truncated and stripped of control characters. An unbounded instruction is both a
       // practical hazard (it is carried into records and prompts) and an honesty problem: the loop
       // should not relay arbitrary volumes of model text as though ProjectOS had authored it.
-      const instruction = Array.from(nextInstruction.trim())
+      // Bidi and format characters are stripped first: they are printable, so a filter on `ch >= ' '`
+      // keeps them, and they reorder what a reader sees without changing the bytes. GK-SEC-002.
+      const instruction = Array.from(nextInstruction.replace(REORDERING, '').trim())
         .filter((ch) => ch >= ' ' || ch === '\n')
         .join('')
         .slice(0, 2000);

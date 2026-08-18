@@ -129,6 +129,7 @@ function deps(over: Partial<GatekeeperTurnDeps> = {}): GatekeeperTurnDeps {
     budget: { warnAtMicroUsd: 2_000_000, hardStopAtMicroUsd: 5_000_000 },
     ledger: [],
     threadBinding: BINDING,
+    transportDecider: 'ChatGPT',
     consumedDecisionIds: [],
     ...over,
   };

@@ -39,7 +39,15 @@ function ownerSecretsGateApproved(ctx: CommandContext): boolean {
   if (phaseId === null) return false;
   if (!receiptIsCommitted(ctx.sys, ctx.root, phaseId, 'secrets-handling')) return false;
   const receipt = readCommittedReceipt(ctx.sys, ctx.root, phaseId, 'secrets-handling');
-  return receipt !== null && receipt['ownerChoice'] === 'APPROVE' && receipt['gateName'] === 'secrets-handling';
+  // THE RECORD'S OWN PHASE IS CHECKED, not only the path it was found at. The filename already binds
+  // the phase, so this is defence in depth rather than a hole being closed - but a record whose
+  // contents disagree with where it lives is not a record to act on. GK-SEC-003.
+  return (
+    receipt !== null &&
+    receipt['ownerChoice'] === 'APPROVE' &&
+    receipt['gateName'] === 'secrets-handling' &&
+    receipt['phaseId'] === phaseId
+  );
 }
 
 /**
@@ -137,6 +145,7 @@ export function run(ctx: CommandContext, flags: Flags): CommandResult {
       ledger,
       threadBinding: gk.config.threadBinding,
       previousResponseId: readPreviousResponseId(ctx.sys, ctx.root),
+      transportDecider: gk.config.transportDecider,
       consumedDecisionIds: consumedDecisionIds(ledger),
     };
   }

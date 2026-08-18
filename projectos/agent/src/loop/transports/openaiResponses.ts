@@ -116,6 +116,17 @@ export function systemInstruction(request: GatekeeperRequest): string {
 
 export interface OpenAiTransportConfig {
   readonly model: string;
+  /**
+   * Who this endpoint IS, as configured — stamped onto the record as its provenance.
+   *
+   * NOT THE SAME VALUE AS `expectedDecider`, and deliberately not derived from it. GK-SEC-004 was
+   * raised against a hardcoded 'ChatGPT' here, and the obvious repair — stamp whatever the runtime
+   * expects — would have been worse: `checkGatekeeperDecision` compares the record's `decidedBy`
+   * against the decider the governing authority names, and if both sides came from one value that
+   * comparison could never fail. This says what the configured transport claims to be; the plan's
+   * delegation says who is permitted to decide; the check is the meeting of two independent sources.
+   */
+  readonly decidedBy: string;
   readonly credentialRef: string;
   /** The provider thread this project's governance lives in, when one has been established. */
   readonly previousResponseId?: string | null;
@@ -299,7 +310,7 @@ export function submitToOpenAi(
     nextClaudeInstruction: decisionJson['nextClaudeInstruction'],
     risks: decisionJson['risks'],
     carryForward: decisionJson['carryForward'],
-    decidedBy: 'ChatGPT',
+    decidedBy: config.decidedBy,
     decidedAt: readString(parsed, 'created_at') ?? '',
   };
 

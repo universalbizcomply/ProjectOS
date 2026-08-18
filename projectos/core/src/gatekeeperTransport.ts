@@ -267,7 +267,10 @@ export function selectGatekeeperTransport(
       // not something a record should carry verbatim, so it is truncated and stripped to printable
       // characters before it is quoted.
       const detail = typeof availability.detail === 'string' ? availability.detail : '';
-      const safeDetail = Array.from(detail).filter((ch) => ch >= ' ').join('').slice(0, 200);
+      const safeDetail = Array.from(detail.replace(/[‪-‮⁦-⁩‎‏؜]/g, ''))
+        .filter((ch) => ch >= ' ')
+        .join('')
+        .slice(0, 200);
       reasons.push(
         `transport '${descriptor.transportId}' is not reachable` +
           (safeDetail !== '' ? `: ${safeDetail}` : ''),

@@ -37,13 +37,38 @@ export const GATEKEEPER_CONFIG_REL = '.projectops/gatekeeper.json';
 export const GATEKEEPER_LEDGER_REL = '.projectops/gatekeeper-ledger.json';
 export const GATEKEEPER_THREAD_REL = '.projectops/gatekeeper-thread.json';
 
+/**
+ * The decider the COMMITTED delegation names for this programme.
+ *
+ * READ FROM GIT, NOT FROM THE WORKING TREE, and not from `gatekeeper.json`. The transport's own
+ * configuration says who it claims to be; this says who the owner delegated to. Keeping them in
+ * different files - one of which only counts once committed - is what stops the identity check
+ * comparing a value with itself. GK-SEC-004.
+ */
+export function committedDelegatedDecider(sys: System, root: string, programmeId: string): string | null {
+  const rel = '.projectops/authority/closure-delegation.json';
+  const shown = sys.exec('git', ['-C', root, 'show', `HEAD:${rel}`]);
+  if (shown.code !== 0 || shown.stdout.trim() === '') return null;
+  try {
+    const d = JSON.parse(shown.stdout) as Record<string, unknown>;
+    if (d['programmeScope'] !== programmeId) return null;
+    const to = d['delegatedTo'];
+    return typeof to === 'string' && to.trim() !== '' ? to.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
 export interface GatekeeperConfig {
   readonly transport: GatekeeperTransportDescriptor;
   readonly modelPolicy: ModelPolicy;
   readonly rateCards: Readonly<Record<string, RateCard>>;
   readonly budget: BudgetPolicy;
   readonly threadBinding: GovernanceThreadBinding;
+  /** Who may decide, per the committed delegation. */
   readonly expectedDecider: string;
+  /** Who the configured transport claims to be. Checked against the above, never derived from it. */
+  readonly transportDecider: string;
 }
 
 export type ConfigLoad =
@@ -131,8 +156,21 @@ export function loadGatekeeperConfig(sys: System, root: string): ConfigLoad {
     ),
   );
 
-  const expectedDecider = typeof raw['expectedDecider'] === 'string' ? raw['expectedDecider'].trim() : '';
-  if (expectedDecider === '') reasons.push('gatekeeper config names no expectedDecider');
+  const transportRaw = (raw['transport'] ?? {}) as Record<string, unknown>;
+  const transportDecider =
+    typeof transportRaw['decidedBy'] === 'string' ? transportRaw['decidedBy'].trim() : '';
+  if (transportDecider === '') reasons.push('gatekeeper config transport names no decidedBy');
+
+  // The authority comes from the COMMITTED delegation, never from this file.
+  const programmeId = typeof raw['programmeId'] === 'string' ? raw['programmeId'].trim() : '';
+  const expectedDecider = programmeId === '' ? null : committedDelegatedDecider(sys, root, programmeId);
+  if (programmeId === '') reasons.push('gatekeeper config names no programmeId, so no delegation can be resolved');
+  else if (expectedDecider === null) {
+    reasons.push(
+      `no committed delegation for programme '${programmeId}' names a decider; a review decision has no ` +
+        'authority behind it until the owner has committed one',
+    );
+  }
 
   const threadBinding = raw['threadBinding'] as GovernanceThreadBinding | undefined;
   if (threadBinding === undefined) reasons.push('gatekeeper config declares no threadBinding');
@@ -150,7 +188,8 @@ export function loadGatekeeperConfig(sys: System, root: string): ConfigLoad {
         hardStopAtMicroUsd: Number(budgetRaw['hardStopAtMicroUsd']),
       },
       threadBinding: threadBinding as GovernanceThreadBinding,
-      expectedDecider,
+      expectedDecider: expectedDecider as string,
+      transportDecider,
     },
   };
 }

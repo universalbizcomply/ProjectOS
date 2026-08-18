@@ -880,6 +880,7 @@ describe('runLoop with an unattended gatekeeper', () => {
         transportId: 'openai-primary',
         createdAt: '2026-08-11T18:00:00Z',
       },
+      transportDecider: 'ChatGPT',
       consumedDecisionIds: [],
     };
   }

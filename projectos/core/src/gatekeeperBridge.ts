@@ -167,8 +167,20 @@ function text(v: unknown): string | null {
  * whatever reads convincingly to whoever opens the file next. So the echo is truncated hard and
  * stripped of everything that is not plainly printable.
  */
+/**
+ * Characters that are printable but reorder what a reader sees.
+ *
+ * GK-SEC-002, raised by the loop's own worker against this code. The sanitisers filtered on
+ * `ch >= ' '`, which keeps every Unicode bidirectional override and format character: U+202A-U+202E
+ * and U+2066-U+2069 are all above the space. Text carrying them renders in an order that has nothing
+ * to do with its bytes, so a refusal quoted into a governance record - or an instruction shown to a
+ * reviewer - can be made to READ as the opposite of what it says. Stripped, not escaped: nothing
+ * legitimate in an identifier, an operation name or a governance instruction needs them.
+ */
+const REORDERING = /[‪-‮⁦-⁩‎‏؜]/g;
+
 function safeEcho(value: string): string {
-  const cleaned = Array.from(value)
+  const cleaned = Array.from(value.replace(REORDERING, ''))
     .filter((ch) => ch >= ' ' && ch !== '')
     .join('')
     .slice(0, 64);

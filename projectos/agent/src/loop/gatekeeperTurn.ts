@@ -113,6 +113,8 @@ export interface GatekeeperTurnDeps {
    * continues the CONVERSATION and can only exist after one.
    */
   readonly previousResponseId?: string | null;
+  /** Who the configured transport claims to be. Stamped as the decision's provenance. */
+  readonly transportDecider: string;
   readonly consumedDecisionIds: readonly string[];
   /** Set only for a local rehearsal route; see `gatekeeperTransport.ts`. */
   readonly rehearsalOnly?: boolean;
@@ -299,6 +301,7 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
           input.evidenceText,
           {
             model,
+            decidedBy: deps.transportDecider,
             credentialRef: transport.credentialRef ?? '',
             previousResponseId: deps.previousResponseId ?? null,
           },
