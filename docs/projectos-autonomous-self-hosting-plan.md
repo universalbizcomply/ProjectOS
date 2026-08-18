@@ -127,7 +127,7 @@ Local development only. No staging, no production. Non-production, reversible, l
 ### PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A — Close the OpenAI/Claude governance loop
 
 Purpose: Let ProjectOS coordinate OpenAI governance and Claude implementation by itself, so the owner supplies an objective once and never again carries a prompt, report or gate decision between them.
-Scope: One OpenAI gatekeeper transport adapter, a machine-readable gatekeeper decision contract, per-project governance-thread binding, a cost ledger with budget policy, a fail-safe unavailability path, an owner-risk degraded mode with reconciliation, and the validators and tests that hold those honest.
+Scope: One OpenAI gatekeeper transport adapter, a machine-readable gatekeeper decision contract, per-project governance-thread binding, a cost ledger with budget policy, a fail-safe unavailability path, an owner-risk degraded mode with reconciliation, and the validators and tests that hold those honest. Implementation of this phase may additionally modify projectos/agent/src/loop/runner.ts, solely to connect the validated correction authority to the existing worker invocation; that path is implementation scope only and is never writable by the autonomous correction worker.
 Depends on:
 Risk: high
 Autonomy: gated-execution

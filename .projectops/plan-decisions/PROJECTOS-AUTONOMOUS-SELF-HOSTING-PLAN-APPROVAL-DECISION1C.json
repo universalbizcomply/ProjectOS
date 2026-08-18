@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "PROJECTOS-AUTONOMOUS-SELF-HOSTING-PLAN-APPROVAL-DECISION1C",
+  "decision": "approve",
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-post-v3-selfhost-pilot1a",
+  "baseHead": "cf44f849842ae3879bb0ac95ce5b376222d90892",
+  "draftId": "35316a7a7ad3acd6",
+  "planDigest": "sha256:6f5dc5ad25db013929755298c11ce6606259a5e87824db0ae503ebafe6e59201",
+  "decidedBy": "Murad",
+  "decidedAt": "2026-08-18T11:09:00+01:00",
+  "note": "DIRECT OWNER APPROVAL of a MINIMAL amendment to the already-approved plan of programme projectos-autonomous-self-hosting. The approved change is limited to adding projectos/agent/src/loop/runner.ts to the phase IMPLEMENTATION scope, solely to connect the validated correction authority to the existing worker invocation. runner.ts must never become writable by the autonomous correction worker, and that restriction is written into the approved scope text itself, not only into code. WHY THE AMENDMENT EXISTS: acceptance criterion 10 requires a real validator-driven correction cycle, which requires the correction authority to be connected to the worker; tracing the call chain showed the grants reach the worker only through worker.args at the adapter invocation in runner.ts, and no already-in-scope path can perform that wiring. The earlier proposal of projectos/agent/src/loop/** was REJECTED as wider than the approved scope, because that directory also contains workers.ts, outcome.ts and runner.ts - the machinery that bounds the correction worker itself - so a correction worker able to write there could widen its own authority. UNCHANGED: all seventeen acceptance criteria byte-identically, the programme, the phase, the objective, autonomy level gated-execution, risk level high, required validator validate-all, required reviews code-review and security-review, owner gates commit, push, phase-closure, secrets-handling and payment-or-live-charge, every protected-action restriction, and the single local environment with productionFreeze true. No new acceptance criterion, no new product scope, no broadened business objective. This approval supersedes DECISION1B as the authority for activation; DECISION1B remains immutable historical evidence bound to sha256:8e06658918. Approval authorises local, non-production governance work only and does not authorise push, force push, tags, production, production database mutation, real sends, payments or refunds, credential changes, or phase or programme closure.",
+  "provenance": "Transcribed by the implementer (Claude) from owner Murad's approval message of 2026-08-18, which named this exact digest, draft and base head. The implementer amended one sentence of the plan document at the owner's direction, computed the digest through the existing plan machinery, and did not grant this authority.",
+  "trustBasis": "MANUAL_GOVERNANCE_APPROVAL, tamperProof false. No signature is claimed. The record is a distinct reviewable artefact bound to one digest, and a forged approval is a visible diff at the owner's own commit gate."
+}
