@@ -12,8 +12,8 @@
   ],
   "productionFreeze": true,
   "planMemory": {
-    "planPath": "projectos/state/projectos-autonomous-self-hosting.plan.json",
-    "currentStatePath": "projectos/state/projectos-autonomous-self-hosting.current-state.json"
+    "planPath": ".projectops/plan.json",
+    "currentStatePath": ".projectops/current-state.json"
   },
   "planSources": [
     "docs/projectos-autonomous-self-hosting-plan.md",
@@ -21,13 +21,16 @@
     "projectos/state/projectos-v3.plan.json",
     "projectos/state/projectos-v3.current-state.json",
     "projectos/state/projectos-recovery.plan.json",
-    "projectos/state/projectos-recovery.current-state.json"
+    "projectos/state/projectos-recovery.current-state.json",
+    "projectos/state/projectos-autonomous-self-hosting.plan.json",
+    "projectos/state/projectos-autonomous-self-hosting.current-state.json"
   ],
   "allowedActions": [
     "inspect-repository",
     "create-local-files",
     "run-local-validation",
-    "produce-evidence-report"
+    "produce-evidence-report",
+    "use-openai-gatekeeper-api"
   ],
   "forbiddenActions": [
     "production-deploy",
@@ -35,7 +38,6 @@
     "real-email-sms-whatsapp",
     "payment-or-live-charge",
     "force-push",
-    "use-openai-api",
     "use-anthropic-api",
     "provider-credential-access",
     "store-real-secret",
