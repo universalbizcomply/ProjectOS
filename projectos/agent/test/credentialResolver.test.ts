@@ -165,7 +165,7 @@ describe('the vault resolver', () => {
   });
 
   it('scrubs credential-shaped environment names from the child it spawns', () => {
-    const calls: Array<{ options?: { scrubCredentials?: boolean } }> = [];
+    const calls: Array<{ options: { scrubCredentials?: boolean } | undefined }> = [];
     const sys = {
       exists: () => true,
       exec: (_c: string, _a: readonly string[], options?: { scrubCredentials?: boolean }) => {

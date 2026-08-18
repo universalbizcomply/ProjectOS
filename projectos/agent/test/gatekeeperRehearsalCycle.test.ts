@@ -51,7 +51,6 @@ const REHEARSAL: GatekeeperTransportDescriptor = {
   model: 'rehearsal-stub',
   capabilities: ['submit-request', 'receive-decision'],
   commercialApproval: false,
-  credentialRef: undefined,
 };
 
 const RATE: RateCard = {

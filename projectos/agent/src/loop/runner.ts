@@ -37,6 +37,7 @@ import { BUILT_IN_ADAPTERS } from './adapters/claudeCodeCli.js';
 import { collectEvidence, configuredChecks, requiredChecks, runChecks, type CheckResult } from './verification.js';
 import { decideContinuation, loopStopLines, MAX_CORRECTION_ATTEMPTS, type LoopStop } from './outcome.js';
 import { takeGatekeeperTurn, type GatekeeperTurnDeps } from './gatekeeperTurn.js';
+import type { LedgerEntry } from '@projectos/core';
 import * as store from './session.js';
 import {
   digestOf,
@@ -82,6 +83,15 @@ export interface RunOptions {
    * IS configured, a stop the reviewer may answer becomes a request instead of the end of the run.
    */
   readonly gatekeeper?: GatekeeperTurnDeps;
+  /**
+   * Called after every gatekeeper turn that actually reached the reviewer.
+   *
+   * THE LOOP DOES NOT WRITE THE LEDGER ITSELF. Spend and thread continuity are durable state, and
+   * where durable state lives is the command's concern, not the loop's — the loop stays testable
+   * without a filesystem. A caller that ignores this callback gets a correct run whose spend is
+   * forgotten, which is why the command wires it and the tests assert it is called.
+   */
+  readonly onGatekeeperTurn?: (entry: LedgerEntry, providerResponseId: string | null) => void;
   /** Owner gates the approved plan names for this phase; the reviewer may never grant one. */
   readonly ownerOnlyActions?: readonly string[];
   /** Who the approved plan says reviews. Never derived from a caller flag. */
@@ -332,7 +342,10 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     lines.push(...turn.lines);
 
     // The cost is recorded whether or not the answer was usable: the call happened.
-    if (turn.ledgerEntry !== null) gatekeeperLedger = [...gatekeeperLedger, turn.ledgerEntry];
+    if (turn.ledgerEntry !== null) {
+      gatekeeperLedger = [...gatekeeperLedger, turn.ledgerEntry];
+      options.onGatekeeperTurn?.(turn.ledgerEntry, turn.providerResponseId);
+    }
     if (turn.request !== null) consumedDecisionIds.push(`GKDEC-${turn.request.requestId}`);
 
     if (turn.action.kind === 'owner') {

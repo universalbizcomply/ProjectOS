@@ -1,0 +1,50 @@
+{
+  "schemaVersion": "1.0.0",
+  "enabled": true,
+  "note": "Live gatekeeper configuration. Deliberately NOT in project-config.json: that file is covered by the plan fingerprint, so a rate-card change there would make the approved plan STALE. This governs WHICH endpoint and at WHAT price; the plan governs what may happen.",
+  "expectedDecider": "ChatGPT",
+  "transport": {
+    "transportId": "openai-primary",
+    "kind": "openai-responses",
+    "model": "gpt-5.6-terra",
+    "capabilities": [
+      "submit-request",
+      "receive-decision"
+    ],
+    "credentialRef": "OPENAI_GATEKEEPER_KEY",
+    "commercialApproval": true
+  },
+  "modelPolicy": {
+    "routineModel": "gpt-5.6-luna",
+    "strongModel": "gpt-5.6-terra"
+  },
+  "rateCards": {
+    "gpt-5.6-terra": {
+      "model": "gpt-5.6-terra",
+      "inputMicroUsdPerMillion": 1250000,
+      "cachedInputMicroUsdPerMillion": 125000,
+      "outputMicroUsdPerMillion": 10000000
+    },
+    "gpt-5.6-luna": {
+      "model": "gpt-5.6-luna",
+      "inputMicroUsdPerMillion": 100000,
+      "cachedInputMicroUsdPerMillion": 10000,
+      "outputMicroUsdPerMillion": 400000
+    }
+  },
+  "budget": {
+    "initialCreditMicroUsd": 5000000,
+    "warnAtMicroUsd": 2000000,
+    "hardStopAtMicroUsd": 5000000,
+    "autoRecharge": false
+  },
+  "budgetRaiseAuthorities": [],
+  "threadBinding": {
+    "schemaVersion": "1.0.0",
+    "projectId": "projectos",
+    "repositoryRoot": "c:/dev/ProjectOS",
+    "providerThreadId": "projectos-gk-thread-0001",
+    "transportId": "openai-primary",
+    "createdAt": "2026-08-18T02:41:00+01:00"
+  }
+}

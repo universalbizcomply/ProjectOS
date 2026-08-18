@@ -1,0 +1,27 @@
+{
+  "schemaVersion": "1.0.0",
+  "recordId": "PROJECTOS-GATEKEEPER-LOOP1A-OWNER-SCREEN-FACT1A",
+  "projectId": "projectos",
+  "phaseId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+  "subjectCommit": "b9619f7cc84528597c293c426c7b56d545415637",
+  "observedBy": "Murad",
+  "observedAt": "2026-08-18T02:41:00+01:00",
+  "kind": "owner-screen-observation",
+  "facts": {
+    "chatgptDeveloperMode": "ENABLED",
+    "chatgptEnforceCspInDeveloperMode": "ENABLED",
+    "openaiPlatformTunnels": "AVAILABLE",
+    "openaiTunnelClientDownload": "AVAILABLE",
+    "openaiCreateTunnel": "AVAILABLE",
+    "chatgptNewPlugin": "AVAILABLE",
+    "chatgptConnectionModes": [
+      "Server URL",
+      "Tunnel"
+    ],
+    "chatgptTunnelSelectable": true,
+    "chatgptCreateTunnelFromPluginScreen": "AVAILABLE"
+  },
+  "note": "Owner-screen observation resolving acceptance criterion 14, which requires that whether ChatGPT Developer mode and the Secure MCP Tunnel are available on the owner's own account is established as a fact from the owner's screen BEFORE the bridge is built, and recorded. Both sides were verified directly by the owner: the OpenAI platform shows Organization Settings -> Tunnels with 'Create your first tunnel to connect MCP servers behind a firewall', and ChatGPT's New Plugin screen offers Tunnel as a selectable Connection mode. SECURE MCP TUNNEL: AVAILABLE. CHATGPT CUSTOM MCP/PLUGIN VIA TUNNEL: AVAILABLE. Consequently criteria 15 and 16 are NOT conditionally skipped: they require the live minimal ProjectOS MCP owner-bridge proof. No tunnel has been created and no tunnel credential exists; that remains a separate owner gate.",
+  "provenance": "Transcribed by the implementer (Claude) from owner Murad's message of 2026-08-18. The implementer did not and cannot observe the owner's account screens; this record carries the owner's observation, not the implementer's.",
+  "trustBasis": "MANUAL_GOVERNANCE_APPROVAL, tamperProof false. This is an OBSERVATION record, not an authority record: it grants nothing. It is committed so that the phase's claim about account capability rests on a dated statement by the owner rather than on documentation or inference."
+}

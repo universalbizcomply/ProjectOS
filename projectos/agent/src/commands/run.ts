@@ -14,6 +14,56 @@ import type { CommandContext, CommandResult } from '../context.js';
 import { ok, fail } from '../context.js';
 import { type Flags, str, bool } from '../flags.js';
 import { runLoop } from '../loop/runner.js';
+import { loadGovernedContext } from '../governedContext.js';
+import {
+  loadGatekeeperConfig,
+  readLedger,
+  readPreviousResponseId,
+  consumedDecisionIds,
+  appendLedger,
+  writePreviousResponseId,
+} from '../loop/gatekeeperConfig.js';
+import { windowsVaultResolver } from '../loop/windowsVaultResolver.js';
+import { nodeHttpPort } from '../loop/transports/nodeHttpPort.js';
+import { ownerGateReceiptRelPath, receiptIsCommitted, readCommittedReceipt } from '../loop/ownerGateReceipts.js';
+
+/**
+ * Has the owner approved credential use for the active phase?
+ *
+ * READ FROM THE COMMITTED TREE. A receipt sitting in the working tree is a file the loop itself could
+ * have written; the commit is the owner action a model cannot perform, and it is the whole of the
+ * separation this record relies on.
+ */
+function ownerSecretsGateApproved(ctx: CommandContext): boolean {
+  const phaseId = activePhaseId(ctx);
+  if (phaseId === null) return false;
+  if (!receiptIsCommitted(ctx.sys, ctx.root, phaseId, 'secrets-handling')) return false;
+  const receipt = readCommittedReceipt(ctx.sys, ctx.root, phaseId, 'secrets-handling');
+  return receipt !== null && receipt['ownerChoice'] === 'APPROVE' && receipt['gateName'] === 'secrets-handling';
+}
+
+/**
+ * The phase the governed state says is active. Never a caller's claim.
+ *
+ * Read through `loadGovernedContext` so the path comes from the project's own configuration rather
+ * than from a guess about where state lives — an earlier version of this function looked in
+ * `.projectops/`, where this project's current-state file is not.
+ */
+function activePhaseId(ctx: CommandContext): string | null {
+  const governed = loadGovernedContext(ctx.sys, ctx.root);
+  if (!governed.ok) return null;
+  const statePath = governed.context.currentStatePath;
+  if (statePath === null) return null;
+  const text = ctx.sys.readText(statePath);
+  if (text === null) return null;
+  try {
+    const parsed = JSON.parse(text) as Record<string, unknown>;
+    const id = parsed['activePhase'];
+    return typeof id === 'string' && id.trim() !== '' ? id.trim() : null;
+  } catch {
+    return null;
+  }
+}
 
 export function run(ctx: CommandContext, flags: Flags): CommandResult {
   const worker = str(flags, 'worker');
@@ -57,11 +107,55 @@ export function run(ctx: CommandContext, flags: Flags): CommandResult {
     ]);
   }
 
+  // THE REVIEWER, WHEN ONE IS CONFIGURED.
+  //
+  // Absent configuration is not an error: the loop then stops for the owner exactly as it always did,
+  // which is right for every project that has not opted in. A configuration that is present but
+  // BROKEN is a refusal — running unreviewed because the reviewer was misconfigured is the failure
+  // this whole phase exists to prevent.
+  const gk = loadGatekeeperConfig(ctx.sys, ctx.root);
+  if (!gk.ok && !('absent' in gk)) {
+    return fail(2, ['REFUSED (GATEKEEPER_MISCONFIGURED): a gatekeeper is configured but cannot be used.', ...gk.reasons.map((r) => `  - ${r}`)]);
+  }
+
+  let gatekeeper;
+  let expectedDecider = '';
+  if (gk.ok) {
+    // Credential release needs the owner's committed secrets-handling receipt. It is read from the
+    // git object store, never from the working tree, and never asserted by the loop about itself.
+    const ownerConfirmation = ownerSecretsGateApproved(ctx);
+    const ledger = readLedger(ctx.sys, ctx.root);
+    expectedDecider = gk.config.expectedDecider;
+    gatekeeper = {
+      transport: gk.config.transport,
+      availability: { reachable: true },
+      resolver: windowsVaultResolver({ sys: ctx.sys, root: ctx.root, ownerConfirmation }),
+      http: nodeHttpPort(),
+      modelPolicy: gk.config.modelPolicy,
+      rateCards: gk.config.rateCards,
+      budget: gk.config.budget,
+      ledger,
+      threadBinding: gk.config.threadBinding,
+      previousResponseId: readPreviousResponseId(ctx.sys, ctx.root),
+      consumedDecisionIds: consumedDecisionIds(ledger),
+    };
+  }
+
   const result = runLoop(ctx.sys, ctx.root, {
     ...(worker === '' ? {} : { workerId: worker }),
     dryRun,
     resume,
     ...(session === '' ? {} : { resumeSessionId: session }),
+    ...(gatekeeper === undefined
+      ? {}
+      : {
+          gatekeeper,
+          expectedDecider,
+          onGatekeeperTurn: (entry, responseId) => {
+            appendLedger(ctx.sys, ctx.root, entry);
+            writePreviousResponseId(ctx.sys, ctx.root, responseId);
+          },
+        }),
   });
   if (!result.ok) return fail(1, result.lines);
   // A stop is a governed outcome, not an error: the loop did its job and the next move is someone
