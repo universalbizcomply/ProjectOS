@@ -71,6 +71,7 @@ function readHiddenLine(prompt) {
     // Code points, not UTF-16 units: `for...of` yields whole code points, so backspace must remove a
     // whole code point too. Slicing the string by -1 would leave an unpaired surrogate behind.
     const codePoints = [];
+    let controlSeen = null;
     input.setRawMode(true);
     input.resume();
     input.setEncoding("utf8");
@@ -81,6 +82,16 @@ function readHiddenLine(prompt) {
           input.pause();
           input.removeListener("data", onData);
           process.stdout.write("\n");
+          if (codePoints.length === 0 && controlSeen !== null) {
+            reject(new Error(
+              "nothing was entered except a control key (U+" +
+              controlSeen.charCodeAt(0).toString(16).padStart(4, "0").toUpperCase() +
+              "). This prompt runs in raw mode, where Ctrl+V is delivered as a control character " +
+              "instead of pasting. Use RIGHT-CLICK to paste, or Ctrl+Shift+V in Windows Terminal, " +
+              "then run the command again. Nothing was stored."
+            ));
+            return;
+          }
           resolve(codePoints.join(""));
           return;
         }
@@ -93,6 +104,12 @@ function readHiddenLine(prompt) {
           return;
         }
         if (ch === "\b" || ch === "\u007f") { codePoints.pop(); continue; }
+        // A CONTROL CHARACTER IS NEVER PART OF A CREDENTIAL, and in raw mode the terminal delivers
+        // Ctrl-V as the literal SYN character (U+0016) rather than performing a paste. Accepting it
+        // silently is how a one-character "credential" gets stored and only fails much later, at the
+        // provider, with an error pointing nowhere near the prompt. Observed for real on 2026-08-18:
+        // a stored value of exactly U+0016. Refused here, where the cause is obvious.
+        if (ch < " " || ch === "") { controlSeen = ch; continue; }
         codePoints.push(ch);
       }
     };

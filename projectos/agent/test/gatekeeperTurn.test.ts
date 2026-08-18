@@ -347,10 +347,27 @@ describe('multi-project isolation', () => {
     expect(result.action.kind).toBe('owner');
   });
 
-  it('carries the project\'s own thread into the request', () => {
+  // THE BINDING PROVES ISOLATION; IT IS NOT THE CONVERSATION. An earlier version sent the binding's
+  // own id as `previous_response_id` and the first live call returned HTTP 400 - ProjectOS's record
+  // of WHICH conversation this is had been mistaken for the provider's record of what was said last.
+  // They are separate facts, and only one of them exists before any call has been made.
+  it('does not send the thread binding id as the provider conversation id', () => {
     const fake = fakeHttp(okReply(AMENDMENT));
     takeGatekeeperTurn(input(), deps({ http: fake.http }));
-    expect(fake.sent[0]?.body).toContain('resp_7f3a9c2e5b81d40a');
+    expect(fake.sent[0]?.body).not.toContain('previous_response_id');
+    expect(fake.sent[0]?.body).not.toContain('resp_7f3a9c2e5b81d40a');
+  });
+
+  it('continues the conversation only from an id the provider actually issued', () => {
+    const fake = fakeHttp(okReply(AMENDMENT));
+    takeGatekeeperTurn(input(), deps({ http: fake.http, previousResponseId: 'resp_realone123456' }));
+    expect(fake.sent[0]?.body).toContain('previous_response_id');
+    expect(fake.sent[0]?.body).toContain('resp_realone123456');
+  });
+
+  it('returns the provider response id so the next turn can continue the thread', () => {
+    const result = takeGatekeeperTurn(input(), deps());
+    expect(result.providerResponseId).toBe('resp_abc123def456');
   });
 });
 

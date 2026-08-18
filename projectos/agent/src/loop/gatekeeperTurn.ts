@@ -102,6 +102,17 @@ export interface GatekeeperTurnDeps {
   /** Everything spent so far. Read, never written, by this module. */
   readonly ledger: readonly LedgerEntry[];
   readonly threadBinding: GovernanceThreadBinding | null;
+  /**
+   * The provider's id for the previous turn in this project's governance conversation.
+   *
+   * SEPARATE FROM THE THREAD BINDING, and the separation was learned the hard way: the first live
+   * call sent the binding's `providerThreadId` as `previous_response_id` and OpenAI answered
+   * HTTP 400, because ProjectOS's own record of which conversation this is had been mistaken for the
+   * provider's record of what was said last. They are different facts. The binding proves ISOLATION —
+   * that this project owns this conversation — and exists before any call has been made. This
+   * continues the CONVERSATION and can only exist after one.
+   */
+  readonly previousResponseId?: string | null;
   readonly consumedDecisionIds: readonly string[];
   /** Set only for a local rehearsal route; see `gatekeeperTransport.ts`. */
   readonly rehearsalOnly?: boolean;
@@ -119,6 +130,8 @@ export interface GatekeeperTurnResult {
   readonly ledgerEntry: LedgerEntry | null;
   /** Present when the turn ended in the owner's three-way choice. */
   readonly ownerChoices: readonly string[] | null;
+  /** The provider's id for this turn, to be carried into the next one. Null when nothing was sent. */
+  readonly providerResponseId: string | null;
 }
 
 function ownerAction(reasons: readonly string[]): NextLoopAction {
@@ -174,6 +187,7 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
       request: null,
       ledgerEntry: null,
       ownerChoices: null,
+      providerResponseId: null,
     };
   }
 
@@ -216,6 +230,7 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
         request,
         ledgerEntry: null,
         ownerChoices: null,
+        providerResponseId: null,
       };
     }
   }
@@ -244,6 +259,7 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
       request,
       ledgerEntry: null,
       ownerChoices: null,
+      providerResponseId: null,
     };
   }
   lines.push(`tier ${selectTier(ask)} -> model ${model}`);
@@ -270,6 +286,7 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
       request,
       ledgerEntry: null,
       ownerChoices: null,
+      providerResponseId: null,
     };
   }
 
@@ -283,7 +300,7 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
           {
             model,
             credentialRef: transport.credentialRef ?? '',
-            previousResponseId: readThreadId(deps.threadBinding),
+            previousResponseId: deps.previousResponseId ?? null,
           },
           deps.resolver,
           deps.http,
@@ -321,12 +338,14 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
     problems,
   });
 
-  return { action, lines, request, ledgerEntry: entry, ownerChoices: null };
-}
-
-function readThreadId(binding: GovernanceThreadBinding | null): string | null {
-  const id = binding?.providerThreadId;
-  return typeof id === 'string' && id.trim() !== '' ? id.trim() : null;
+  return {
+    action,
+    lines,
+    request,
+    ledgerEntry: entry,
+    ownerChoices: null,
+    providerResponseId: outcome.providerResponseId,
+  };
 }
 
 /**
@@ -353,5 +372,6 @@ function unavailable(
     request,
     ledgerEntry: null,
     ownerChoices: GATEKEEPER_UNAVAILABLE_OWNER_CHOICES,
+    providerResponseId: null,
   };
 }

@@ -1,0 +1,238 @@
+{
+  "schemaVersion": "1.0.0",
+  "phaseId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+  "projectId": "projectos",
+  "subjectCommit": "6c2b59f9a4973f95b969342e860a316d9b4639c3",
+  "at": "2026-08-18T00:14:17.743Z",
+  "transport": {
+    "transportId": "openai-primary",
+    "kind": "openai-responses",
+    "credentialRef": "OPENAI_GATEKEEPER_KEY"
+  },
+  "rateCards": {
+    "gpt-5.6-terra": {
+      "model": "gpt-5.6-terra",
+      "inputMicroUsdPerMillion": 1250000,
+      "cachedInputMicroUsdPerMillion": 125000,
+      "outputMicroUsdPerMillion": 10000000
+    },
+    "gpt-5.6-luna": {
+      "model": "gpt-5.6-luna",
+      "inputMicroUsdPerMillion": 100000,
+      "cachedInputMicroUsdPerMillion": 10000,
+      "outputMicroUsdPerMillion": 400000
+    }
+  },
+  "budget": {
+    "warnAtMicroUsd": 2000000,
+    "hardStopAtMicroUsd": 5000000
+  },
+  "results": [
+    {
+      "id": "1",
+      "title": "real OpenAI reviewer call",
+      "passed": true,
+      "detail": "answered and accepted; cost 3979 micro-USD; loop action retry",
+      "live": true
+    },
+    {
+      "id": "2",
+      "title": "schema-valid decision bound to project/phase/subject/request",
+      "passed": true,
+      "detail": "request GKREQ-fd491549ba9c71526f757d8b, model gpt-5.6-terra; the reviewer answered and ProjectOS accepted it as bound to this project, phase, subject and request",
+      "live": false
+    },
+    {
+      "id": "6",
+      "title": "one controlled automatic correction cycle",
+      "passed": true,
+      "detail": "the reviewer required an amendment and the loop took it as a bounded retry: Make one bounded contract amendment: add WORKER_REFUSED to the terminal stop-code routing table and route it to the implementer/remediation audience used for co",
+      "live": true
+    },
+    {
+      "id": "5",
+      "title": "OpenAI automatically reviews the returned evidence",
+      "passed": true,
+      "detail": "second review answered; action=owner",
+      "live": true
+    },
+    {
+      "id": "7",
+      "title": "restart/resume without duplicate request or charge",
+      "passed": true,
+      "detail": "same request id re-derived: true; ledger calls before 3, after replaying an entry 3 (duplicates ignored 1)",
+      "live": false
+    },
+    {
+      "id": "8",
+      "title": "replay and stale-decision refusal",
+      "passed": true,
+      "detail": "replay refused: true; a decision for another subject never reaches the loop",
+      "live": false
+    },
+    {
+      "id": "9",
+      "title": "cross-project isolation",
+      "passed": true,
+      "detail": "foreign project refused before sending; other checkout refused; shared checkout detected across the set (1 problem(s))",
+      "live": false
+    },
+    {
+      "id": "10",
+      "title": "OpenAI unavailable / spend-limit path",
+      "passed": true,
+      "detail": "unreachable -> owner choice, nothing sent; at the $5 ceiling the call is refused BEFORE it is made",
+      "live": false
+    },
+    {
+      "id": "11",
+      "title": "WAIT / ACCEPT RISK & CONTINUE / STOP offered",
+      "passed": true,
+      "detail": "WAIT FOR OPENAI  |  ACCEPT RISK & CONTINUE WITH CLAUDE SELF-REVIEW  |  STOP WORK",
+      "live": false
+    },
+    {
+      "id": "12",
+      "title": "owner-risk degraded-mode continuation",
+      "passed": true,
+      "detail": "a committed, bounded, owner-signed grant is accepted; the same grant asking for push is refused; an uncommitted grant is refused",
+      "live": false
+    },
+    {
+      "id": "13",
+      "title": "OpenAI reconciliation after degraded mode",
+      "passed": true,
+      "detail": "before: gate blocked (W1); after a live reconciliation review: cleared",
+      "live": true
+    },
+    {
+      "id": "4",
+      "title": "evidence returns to ProjectOS and is carried into the next request",
+      "passed": true,
+      "detail": "the corrected evidence produced a new bound request (GKREQ-ffb8b1c1331444a1ec1c3d4e); the governance thread continued from the provider id issued by the first turn",
+      "live": false
+    },
+    {
+      "id": "3",
+      "title": "ProjectOS automatically continues to the implementer",
+      "passed": true,
+      "detail": "ProjectOS turned the reviewer's decision into the implementer's next instruction with no human in between: Make one bounded contract amendment: add WORKER_REFUSED to the terminal stop-code routing table and route it to the impl",
+      "live": false
+    },
+    {
+      "id": "15",
+      "title": "the loop continues only on a verdict that permits continuing",
+      "passed": true,
+      "detail": "first review: retry (continued); correction review: retry (continued); evidence re-review: owner (stopped); reconciliation review: retry (continued)",
+      "live": false
+    },
+    {
+      "id": "14",
+      "title": "zero owner OpenAI<->Claude relay",
+      "passed": true,
+      "detail": "every request above was formed, sent, checked and applied by ProjectOS; no prompt or decision passed through a person",
+      "live": false
+    }
+  ],
+  "ledger": [
+    {
+      "requestId": "GKREQ-fd491549ba9c71526f757d8b",
+      "model": "gpt-5.6-terra",
+      "usage": {
+        "inputTokens": 647,
+        "cachedInputTokens": 0,
+        "outputTokens": 317
+      },
+      "costMicroUsd": 3979,
+      "at": "2026-08-18T00:13:49.482Z"
+    },
+    {
+      "requestId": "GKREQ-06dfd2589438b6ba69972aa8",
+      "model": "gpt-5.6-terra",
+      "usage": {
+        "inputTokens": 1215,
+        "cachedInputTokens": 0,
+        "outputTokens": 410
+      },
+      "costMicroUsd": 5619,
+      "at": "2026-08-18T00:13:59.724Z"
+    },
+    {
+      "requestId": "GKREQ-ffb8b1c1331444a1ec1c3d4e",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "inputTokens": 1267,
+        "cachedInputTokens": 0,
+        "outputTokens": 330
+      },
+      "costMicroUsd": 259,
+      "at": "2026-08-18T00:13:54.523Z"
+    },
+    {
+      "requestId": "GKREQ-1abdd8e7b46435826c2b6f30",
+      "model": "gpt-5.6-terra",
+      "usage": {
+        "inputTokens": 1857,
+        "cachedInputTokens": 0,
+        "outputTokens": 493
+      },
+      "costMicroUsd": 7251,
+      "at": "2026-08-18T00:14:11.290Z"
+    }
+  ],
+  "totals": {
+    "phaseMicroUsd": 17108,
+    "projectMicroUsd": 17108,
+    "monthMicroUsd": 17108,
+    "callCount": 4,
+    "duplicatesIgnored": 0
+  },
+  "budgetStatus": "OK",
+  "transcript": [
+    {
+      "scenario": 1,
+      "lines": [
+        "gatekeeper request GKREQ-fd491549ba9c71526f757d8b (security-review) for UNRESOLVED_CRITICAL_OR_HIGH",
+        "tier strong -> model gpt-5.6-terra",
+        "budget OK: month 0 micro-USD, this call ~8151",
+        "gatekeeper answered; recorded 3979 micro-USD against GKREQ-fd491549ba9c71526f757d8b"
+      ],
+      "action": "retry",
+      "requestId": "GKREQ-fd491549ba9c71526f757d8b"
+    },
+    {
+      "scenario": 5,
+      "lines": [
+        "gatekeeper request GKREQ-ffb8b1c1331444a1ec1c3d4e (evidence-review) for REVIEW_OUTSTANDING",
+        "tier routine -> model gpt-5.6-luna",
+        "budget OK: month 3979 micro-USD, this call ~341",
+        "gatekeeper answered; recorded 259 micro-USD against GKREQ-ffb8b1c1331444a1ec1c3d4e"
+      ],
+      "action": "owner",
+      "requestId": "GKREQ-ffb8b1c1331444a1ec1c3d4e"
+    },
+    {
+      "scenario": 6,
+      "lines": [
+        "gatekeeper request GKREQ-06dfd2589438b6ba69972aa8 (correction-exhausted) for CORRECTION_EXHAUSTED",
+        "tier strong -> model gpt-5.6-terra",
+        "budget OK: month 3979 micro-USD, this call ~8196",
+        "gatekeeper answered; recorded 5619 micro-USD against GKREQ-06dfd2589438b6ba69972aa8"
+      ],
+      "action": "retry",
+      "requestId": "GKREQ-06dfd2589438b6ba69972aa8"
+    },
+    {
+      "scenario": 13,
+      "lines": [
+        "gatekeeper request GKREQ-1abdd8e7b46435826c2b6f30 (correction-exhausted) for CORRECTION_EXHAUSTED",
+        "tier strong -> model gpt-5.6-terra",
+        "budget OK: month 9857 micro-USD, this call ~8166",
+        "gatekeeper answered; recorded 7251 micro-USD against GKREQ-1abdd8e7b46435826c2b6f30"
+      ],
+      "action": "retry",
+      "requestId": "GKREQ-1abdd8e7b46435826c2b6f30"
+    }
+  ],
+  "note": "Live acceptance evidence. The OpenAI leg is real: real credential, real network, real Responses API. Scenarios marked live made a paid call; the rest are refusals that deliberately send nothing. No credential value appears in this record."
+}

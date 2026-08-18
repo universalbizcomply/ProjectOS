@@ -118,7 +118,7 @@ export function windowsVaultResolver(options: WindowsVaultResolverOptions): Cred
 
       const result = options.sys.exec(
         'powershell',
-        ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script, 'get', '-Target', vaultRef],
+        ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script, '-Action', 'get', '-Target', vaultRef],
         // The credential scrubber strips credential-shaped NAMES from the child's environment. It is
         // asked for here too: this child has no business inheriting any other process's key.
         { scrubCredentials: true, cwd: options.root },
