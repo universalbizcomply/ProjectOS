@@ -29,7 +29,7 @@
  * Created in PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A for acceptance criteria 7 and 11.
  */
 import { createHash } from 'node:crypto';
-import { join } from 'node:path';
+import { isAbsolute, join, relative } from 'node:path';
 import type { System } from '../system.js';
 import {
   checkDegradedModeGrant,
@@ -547,13 +547,26 @@ export function consumeDegradedGrant(
  * authorised. Reading the object rather than the file is what makes the bytes checked and the bytes
  * committed the same bytes.
  */
-export function committedGovernanceOwner(sys: System, root: string, planRelPath: string): string | null {
-  const rel = planRelPath.split(String.fromCharCode(92)).join("/").replace(/^[.][/]/, "");
+export function committedGovernanceOwner(sys: System, root: string, planPath: string): string | null {
+  const rel = repoRelativeGitPath(root, planPath);
+  if (rel === null) return null;
   const logged = sys.exec('git', ['-C', root, 'log', '-1', '--format=%H', '--', rel]);
   if (logged.code !== 0 || logged.stdout.trim().length === 0) return null;
   const dirty = sys.exec('git', ['-C', root, 'diff', '--name-only', 'HEAD', '--', rel]);
   if (dirty.code !== 0 || dirty.stdout.trim().length > 0) return null;
-  const shown = sys.exec('git', ['-C', root, 'show', `HEAD:${rel}`]);
+  // `HEAD:./<rel>` AND NOT `HEAD:<rel>` — THE TWO FORMS ADDRESS DIFFERENT FILES.
+  //
+  // A pathspec after `--` resolves against the current directory, which `-C root` makes the root.
+  // `<rev>:<path>` does NOT: per gitrevisions it resolves against the TOP OF THE WORKING TREE unless
+  // it begins with `./` or `../`. So for any root that is a subdirectory of its repository — a
+  // project checked out inside a larger one, which this repository's own example fixtures are — the
+  // first two calls would establish "committed and unmodified" about the root's plan while this one
+  // read the plan at the repository top. Verified rather than reasoned: from proj-clean,
+  // `HEAD:.projectops/plan.json` returns ProjectOS's own plan with owner Murad, while that project's
+  // committed plan is projectId `acme-app` and records no owner at all — a refusal silently turned
+  // into an acceptance, and the whole point of reading the object is that the bytes checked and the
+  // bytes read are the same bytes. `./` costs nothing at the top level, where both forms agree.
+  const shown = sys.exec('git', ['-C', root, 'show', `HEAD:./${rel}`]);
   if (shown.code !== 0) return null;
   try {
     const plan = JSON.parse(shown.stdout) as Record<string, unknown>;
@@ -563,6 +576,77 @@ export function committedGovernanceOwner(sys: System, root: string, planRelPath:
   } catch {
     return null;
   }
+}
+
+/**
+ * The repository-relative git path for a plan the CALLER names however it names it.
+ *
+ * FOUND BY THE FIRST LIVE EXERCISE, NOT BY ANY TEST. `committedGovernanceOwner` took its argument
+ * to be repo-relative and merely normalised separators. The real caller is `runner.ts`, which passes
+ * `context.planPath`, and `loadGovernedContext` builds that as `join(root, rel)` — ABSOLUTE. So
+ * every git call became `git show HEAD:C:/dev/ProjectOS/.projectops/plan-….json`, which git rejects
+ * with "exists on disk, but not in 'HEAD'", the owner resolved to null, and degraded mode refused
+ * with "no committed approved plan records an owner" while a committed plan recorded one. It failed
+ * CLOSED, which is why it was safe — and it made the path unreachable for the owner too.
+ *
+ * Every existing test for this function constructed a relative path by hand, so all of them agreed
+ * with the function instead of with its caller. A boundary proven only against inputs of its own
+ * choosing is not proven; the regression tests for this go through the real governed context.
+ *
+ * WHAT IS ACCEPTED, AND WHAT IS REFUSED. An absolute path inside the root is reduced to the path git
+ * knows. A repo-relative path still works, because nothing says the only caller must stay the only
+ * caller. Everything else is null — a different drive, a UNC share, a drive-RELATIVE `C:plan.json`,
+ * anything above the root, any `..` segment, a path that reduces to nothing, a non-absolute root
+ * that could not anchor an absolute path, and a leading `:`, which would be git PATHSPEC MAGIC
+ * rather than a filename: `:(glob)…` as the dirty-check pathspec could match nothing and make
+ * "unmodified since HEAD" vacuously true. Refusing costs a caller nothing — it is the same
+ * fail-closed answer as an absent plan — and the alternative is authority derived from a path that
+ * does not mean what it appears to mean.
+ *
+ * WHAT IS NOT REFUSED, STATED SO NO LATER READER OVERTRUSTS THIS. Ordinary fnmatch metacharacters
+ * (`*`, `?`, `[`) are left alone. A pathspec globs and `<rev>:<path>` does not, so a path carrying
+ * them can in principle have its dirty check answered about a different file from the one read —
+ * but only if a filename containing them is COMMITTED and holds a valid plan, and the implementer
+ * cannot commit. Where no such file exists, `show` prints something that is not plan JSON and the
+ * parse refuses. Raised by review and left deliberately: refusing them here would be hardening
+ * beyond the defect, not closing a reachable hole.
+ */
+function repoRelativeGitPath(root: string, planPath: string): string | null {
+  if (typeof planPath !== 'string' || planPath.length === 0) return null;
+  if (planPath.includes('\0') || root.includes('\0')) return null;
+
+  const drivePrefixed = /^[a-zA-Z]:/;
+  // `C:plan.json` is DRIVE-RELATIVE, not absolute: Windows resolves it against that drive's own
+  // current directory, so the same argument names different files from different working
+  // directories — the very ambiguity the root guard below exists to refuse, arriving through the
+  // other parameter. No caller produces one (`join` never does, and the config route is already
+  // filtered), and no plan is ever legitimately named this way, so it is refused rather than
+  // resolved. The governance engine's own path predicate refuses the same shape.
+  if (drivePrefixed.test(planPath) && !isAbsolute(planPath)) return null;
+
+  let rel = planPath;
+  if (isAbsolute(planPath)) {
+    // An absolute path can only be reduced against an absolute root. A relative root would be
+    // resolved against the process cwd, and a cwd that is not the root is exactly the ambiguity
+    // that must not decide whose plan grants authority.
+    if (!isAbsolute(root)) return null;
+    rel = relative(root, planPath);
+  }
+
+  const posix = rel.split(String.fromCharCode(92)).join('/');
+  // A different drive or a UNC share survives `relative` unchanged and is still rooted here.
+  if (isAbsolute(posix) || drivePrefixed.test(posix) || posix.startsWith('/')) return null;
+  if (posix.startsWith(':')) return null;
+
+  // An empty segment is a doubled or trailing slash — and, when the whole string is empty, a path
+  // that reduced to the root itself. Neither names a plan record.
+  const segments: string[] = [];
+  for (const seg of posix.split('/')) {
+    if (seg === '.') continue;
+    if (seg === '..' || seg === '') return null;
+    segments.push(seg);
+  }
+  return segments.length === 0 ? null : segments.join('/');
 }
 
 export const DEGRADED_OPERATIONS = ['implement'] as const;

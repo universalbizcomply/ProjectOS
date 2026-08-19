@@ -14,9 +14,10 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, isAbsolute, join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import type { System } from '../src/system.js';
+import { loadGovernedContext } from '../src/governedContext.js';
 import {
   authorityWrapper,
   degradedWorkSubject,
@@ -1113,6 +1114,301 @@ describe('ENTRY PROOF D2 — the recorded owner is read from the plan AS COMMITT
     // The old working-tree read is gone.
     expect(runner).not.toContain("context.plan['governance']");
     expect(runner).toContain('absent, uncommitted, or modified since');
+  });
+});
+
+/* ------------------------------------------------------------------------------------------------
+ * PATH PROOF — the caller shape the runner ACTUALLY passes, and the outage route it unblocks.
+ *
+ * WHY THESE EXIST. ENTRY PROOF D2 above proved `committedGovernanceOwner` against paths the TEST
+ * chose, and every one of them was repo-relative. The real caller is `runner.ts`, which passes
+ * `context.planPath` — and `loadGovernedContext` builds that with `join(root, rel)`, so it is
+ * ABSOLUTE. The function treated it as relative, every git call failed, the owner resolved to null,
+ * and the first live degraded-mode attempt refused with "no committed approved plan records an
+ * owner" while a committed plan recorded one. It failed closed, so nothing unsafe happened; it also
+ * meant the degraded route was unreachable for the owner, and no outage identity could be derived.
+ *
+ * So these do not construct a path by hand. They go through the real `loadGovernedContext` and use
+ * what it hands the runner, which is the only thing that would have caught this.
+ * --------------------------------------------------------------------------------------------- */
+
+describe('PATH PROOF — the real caller shape, and the outage route it unblocks', () => {
+  const CONFIG = {
+    projectId: PROJECT,
+    projectName: 'ProjectOS',
+    projectType: 'saas',
+    owner: OWNER,
+    repo: 'universalbizcomply/ProjectOS',
+    localPath: 'C:/dev/ProjectOS',
+    protectedBranches: ['main'],
+    productionFreeze: true,
+    allowedActions: ['create-local-files'],
+    forbiddenActions: ['production-deploy'],
+    approvalGates: ['phase-closure'],
+    secretsPolicy: { allowSecretsInRepo: false, redactionRequired: true },
+    validators: ['validators/val-*.cjs'],
+    evidenceRequirements: ['evidence-pack'],
+    installStatus: 'installed',
+  };
+
+  /** ProjectOS's own approved plan, so the fixture cannot drift from the shipped schema or rules. */
+  const readyPlan = () =>
+    JSON.parse(
+      readFileSync(new URL('../../state/projectos-v3.plan.json', import.meta.url), 'utf8'),
+    ) as Record<string, unknown>;
+
+  /** A temp repo governed exactly the way `loadGovernedContext` governs a real checkout. */
+  function governedRepo(declaredPlanRel?: string): {
+    root: string;
+    sys: System;
+    head: string;
+    planRel: string;
+  } {
+    const { root, sys } = repo();
+    const planRel = declaredPlanRel ?? '.projectops/plan.json';
+    const config =
+      declaredPlanRel === undefined ? CONFIG : { ...CONFIG, planMemory: { planPath: declaredPlanRel } };
+    writeFileSync(join(root, '.projectops', 'project-config.json'), `${JSON.stringify(config, null, 2)}\n`);
+    writeFileSync(join(root, ...planRel.split('/')), `${JSON.stringify(readyPlan(), null, 2)}\n`);
+    commitAll(root, 'governed fixture: config + approved plan');
+    const head = execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+    return { root, sys, head, planRel };
+  }
+
+  /** The governed context or a thrown fixture error — never a silently skipped assertion. */
+  function planPathOf(sys: System, root: string): string {
+    const governed = loadGovernedContext(sys, root);
+    if (!governed.ok) throw new Error(`fixture is not governed: ${governed.code} ${governed.detail}`);
+    return governed.context.planPath;
+  }
+
+  /** Same System, but every git invocation is recorded, so the path git SAW can be asserted. */
+  function recordingSys(base: System): { sys: System; calls: string[][] } {
+    const calls: string[][] = [];
+    const inner = base as unknown as {
+      exec(c: string, a: readonly string[]): { code: number; stdout: string; stderr: string };
+    };
+    const sys = {
+      ...(base as unknown as object),
+      exec: (command: string, args: readonly string[]) => {
+        calls.push([command, ...args]);
+        return inner.exec(command, args);
+      },
+    } as unknown as System;
+    return { sys, calls };
+  }
+
+  it('A — the absolute path the governed context produces resolves the committed owner', () => {
+    const { root, sys } = governedRepo();
+    const planPath = planPathOf(sys, root);
+    // The shape that broke it. Asserted, not assumed: if this ever stops being absolute the reason
+    // these tests exist has changed and someone must look.
+    expect(isAbsolute(planPath)).toBe(true);
+    expect(committedGovernanceOwner(sys, root, planPath)).toBe(OWNER);
+  });
+
+  it('A2 — and for a config-declared plan record, which is how ProjectOS governs itself', () => {
+    const rel = '.projectops/plan-35316a7a7ad3acd6-36e79927c769.json';
+    const { root, sys } = governedRepo(rel);
+    const planPath = planPathOf(sys, root);
+    expect(isAbsolute(planPath)).toBe(true);
+    expect(committedGovernanceOwner(sys, root, planPath)).toBe(OWNER);
+  });
+
+  it('B — the git object it reads is the repo-relative plan path, never the absolute one', () => {
+    const rel = '.projectops/plan-fixture-record.json';
+    const { root, sys: base } = governedRepo(rel);
+    const planPath = planPathOf(base, root);
+    const { sys, calls } = recordingSys(base);
+
+    expect(committedGovernanceOwner(sys, root, planPath)).toBe(OWNER);
+
+    const shows = calls.filter((c) => c[3] === 'show');
+    expect(shows).toHaveLength(1);
+    // `./` is load-bearing, not decoration — without it this addresses the repository top rather
+    // than the root, which is what B2 demonstrates going wrong.
+    expect(shows[0]?.[4]).toBe(`HEAD:./${rel}`);
+    // `-C <root>` is the only argument allowed to carry the root; nothing else may.
+    const carriedRoot = calls.flatMap((c) => c.filter((a, i) => i !== 2 && a.includes(root)));
+    expect(carriedRoot).toEqual([]);
+  });
+
+  it('B2 — a root INSIDE a larger repository reads its own plan, not the one at the top', () => {
+    // FOUND BY ADVERSARIAL REVIEW, AND IT WAS THE FIX ITSELF THAT MADE IT REACHABLE. A pathspec
+    // after `--` resolves against `-C root`; `<rev>:<path>` resolves against the TOP of the working
+    // tree unless it starts with `./`. So "committed and unmodified" was being established about
+    // one file while the owner was read from another — and the outer plan here records an owner
+    // while the inner one does not, which turns a refusal into an acceptance.
+    const { root: outer, sys } = repo();
+    writeFileSync(join(outer, '.projectops', 'project-config.json'), `${JSON.stringify(CONFIG, null, 2)}\n`);
+    writeFileSync(join(outer, '.projectops', 'plan.json'), `${JSON.stringify(readyPlan(), null, 2)}\n`);
+
+    // A second governed project checked out INSIDE that repository, with no owner of its own.
+    const inner = join(outer, 'nested');
+    mkdirSync(join(inner, '.projectops'), { recursive: true });
+    const innerPlan = readyPlan();
+    delete (innerPlan['governance'] as Record<string, unknown>)['owner'];
+    writeFileSync(join(inner, '.projectops', 'project-config.json'), `${JSON.stringify(CONFIG, null, 2)}\n`);
+    writeFileSync(join(inner, '.projectops', 'plan.json'), `${JSON.stringify(innerPlan, null, 2)}\n`);
+    commitAll(outer, 'outer plan with an owner, nested plan without one');
+
+    // Same repository, same commit, same relative path — only the root differs.
+    expect(committedGovernanceOwner(sys, outer, join(outer, '.projectops', 'plan.json'))).toBe(OWNER);
+    expect(committedGovernanceOwner(sys, inner, join(inner, '.projectops', 'plan.json'))).toBeNull();
+  });
+
+  it('C — the owner is the committed one, checked against git independently', () => {
+    const { root, sys } = governedRepo();
+    const committed = JSON.parse(
+      execFileSync('git', ['-C', root, 'show', 'HEAD:.projectops/plan.json'], { encoding: 'utf8' }),
+    ) as { governance: { owner: string } };
+    expect(committedGovernanceOwner(sys, root, planPathOf(sys, root))).toBe(committed.governance.owner);
+  });
+
+  it('D — a plan modified since HEAD still refuses, absolute path or not', () => {
+    const { root, sys } = governedRepo();
+    const planPath = planPathOf(sys, root);
+    expect(committedGovernanceOwner(sys, root, planPath)).toBe(OWNER);
+
+    const plan = readyPlan();
+    (plan['governance'] as Record<string, unknown>)['owner'] = 'Somebody Else';
+    writeFileSync(join(root, '.projectops', 'plan.json'), `${JSON.stringify(plan, null, 2)}\n`);
+
+    // Neither copy is trusted: modified since commit is a refusal, not a choice between them.
+    expect(committedGovernanceOwner(sys, root, planPath)).toBeNull();
+  });
+
+  it.each([
+    ['an absolute path outside the root', (root: string) => join(root, '..', 'outside-plan.json')],
+    ['the root directory itself', (root: string) => root],
+    ['a different drive', () => 'D:/elsewhere/plan.json'],
+    ['a UNC share', () => '//server/share/plan.json'],
+    ['a rooted posix path', () => '/etc/plan.json'],
+    ['a relative traversal', () => '../outside/plan.json'],
+    ['a traversal buried mid-path', () => '.projectops/../../outside/plan.json'],
+    ['git pathspec magic', () => ':(glob).projectops/**'],
+    ['an empty path', () => ''],
+    ['the current directory', () => '.'],
+    ['a path of nothing but dot segments', () => './././'],
+    ['a path carrying a NUL', () => `.projectops/pl${String.fromCharCode(0)}an.json`],
+  ])('E — refuses %s before any git call', (_label, make) => {
+    const { root, sys: base } = governedRepo();
+    // The fixture itself is sound, so a null below is the path being refused and nothing else.
+    expect(committedGovernanceOwner(base, root, planPathOf(base, root))).toBe(OWNER);
+
+    const { sys, calls } = recordingSys(base);
+    expect(committedGovernanceOwner(sys, root, make(root))).toBeNull();
+    // AND THE REFUSAL IS THE REDUCTION'S, NOT GIT'S. Asserting only the null would pass with every
+    // one of these guards removed, because git refuses most of them by itself — which is how a
+    // guard survives mutation while its test still goes green. A path that reaches git has already
+    // been accepted as a name for something inside this repository.
+    expect(calls).toEqual([]);
+  });
+
+  it('E2 — a non-string path refuses rather than throwing out of the authority check', () => {
+    // The types say this cannot happen; a crash inside the degraded gate would be worse than a
+    // refusal if it ever did, and an untested guard is the same as no guard.
+    const { root, sys: base } = governedRepo();
+    const { sys, calls } = recordingSys(base);
+    expect(committedGovernanceOwner(sys, root, undefined as unknown as string)).toBeNull();
+    expect(calls).toEqual([]);
+  });
+
+  it('F — a repo-relative path still resolves, so the earlier caller shape is not broken', () => {
+    const { root, sys } = governedRepo();
+    expect(committedGovernanceOwner(sys, root, '.projectops/plan.json')).toBe(OWNER);
+    expect(committedGovernanceOwner(sys, root, './.projectops/plan.json')).toBe(OWNER);
+    expect(
+      committedGovernanceOwner(sys, root, ['.projectops', 'plan.json'].join(String.fromCharCode(92))),
+    ).toBe(OWNER);
+  });
+
+  it('G — an absolute path against a non-absolute root refuses rather than guessing a cwd', () => {
+    const { root, sys } = governedRepo();
+    const planPath = planPathOf(sys, root);
+    expect(committedGovernanceOwner(sys, '.', planPath)).toBeNull();
+    expect(committedGovernanceOwner(sys, '', planPath)).toBeNull();
+  });
+
+  it('G2 — and refuses even when a cwd WOULD resolve that relative root onto the right repo', () => {
+    // THE CASE THAT MAKES G MORE THAN A FORMALITY. With the process cwd an ancestor of the root,
+    // `relative(leaf, planPath)` yields a clean in-repo path and `git -C leaf` finds the repository
+    // — so without the guard this succeeds, and the plan whose owner grants degraded authority was
+    // chosen by an ambient cwd nobody stated. Refusing costs the real caller nothing: it passes
+    // `process.cwd()`, which is always absolute.
+    const { root, sys } = governedRepo();
+    const planPath = planPathOf(sys, root);
+    const parent = join(root, '..');
+    const leaf = basename(root);
+    const before = process.cwd();
+    try {
+      process.chdir(parent);
+      expect(committedGovernanceOwner(sys, leaf, planPath)).toBeNull();
+    } finally {
+      process.chdir(before);
+    }
+  });
+
+  it('G3 — a drive-RELATIVE path is refused even when the cwd would make it resolve correctly', () => {
+    // THE SAME AMBIGUITY, ARRIVING THROUGH THE OTHER PARAMETER. `C:x` is resolved against drive C's
+    // own current directory, so with the cwd inside the root this names the real plan and would be
+    // accepted — the argument would have meant a different file from anywhere else. Raised by
+    // review; the first test written for it proved nothing, because from an unrelated cwd the path
+    // reduces to a `..` traversal and is refused a step later for the wrong reason.
+    const { root, sys: base } = governedRepo();
+    expect(isAbsolute(root) && root.slice(0, 2).toUpperCase() === 'C:').toBe(true);
+    const before = process.cwd();
+    try {
+      process.chdir(root);
+      const { sys, calls } = recordingSys(base);
+      expect(committedGovernanceOwner(sys, root, 'C:.projectops/plan.json')).toBeNull();
+      expect(calls).toEqual([]);
+    } finally {
+      process.chdir(before);
+    }
+  });
+
+  it('H — the runner still passes the governed context path, which is the shape proven above', () => {
+    const runner = readFileSync(new URL('../src/loop/runner.ts', import.meta.url), 'utf8');
+    expect(runner).toContain('committedGovernanceOwner(sys, root, context.planPath)');
+    const governed = readFileSync(new URL('../src/governedContext.ts', import.meta.url), 'utf8');
+    // The absolute path is deliberate — `resolveWithinRoot` joins it onto the root.
+    expect(governed).toContain('return { ok: true, path: join(root, rel) };');
+  });
+
+  it('I — with the owner resolved, the route reaches the outage identity instead of refusing', () => {
+    // FIXTURE ONLY. No real grant, no real outage, no discovery run — this proves the ROUTE, which
+    // is exactly the step the live attempt could never reach.
+    const { root, sys, head } = governedRepo();
+
+    // 1. the gate that refused the live attempt.
+    const owner = committedGovernanceOwner(sys, root, planPathOf(sys, root));
+    expect(owner).toBe(OWNER);
+
+    // 2. no grant is committed, so there is no wrapper and the subject is the run's own head.
+    const wrapper = authorityWrapper(sys, root, PHASE, GRANT_ID);
+    expect(wrapper.kind).toBe('none');
+    const subject = degradedWorkSubject(sys, root, wrapper);
+    expect(subject.subjectCommit).toBe(head);
+
+    // 3. the identity the live run could never produce.
+    const outage = deriveUnavailabilityId({
+      projectId: PROJECT,
+      phaseId: PHASE,
+      subjectCommit: head,
+      stopCode: 'CORRECTION_EXHAUSTED',
+      reasons: ['the gatekeeper could not be reached'],
+    });
+    expect(outage).toMatch(/^GKOUT-[0-9a-f]{24}$/);
+
+    // 4. and the route still stops there. Reaching the outage is not authority to continue: with no
+    //    committed grant there is nothing to authorise, which is the discovery run's correct end.
+    const decision = authoriseDegradedContinuation(sys, root, {
+      ...authInput(head, outage),
+      recordedOwner: owner as string,
+    });
+    expect(decision.authorised).toBe(false);
+    expect(decision.grant).toBeNull();
   });
 });
 
