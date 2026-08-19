@@ -18,7 +18,10 @@ import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import type { System } from '../src/system.js';
 import {
+  committedGovernanceOwner,
   runDegradedWork,
+  isDegradedOperation,
+  DEGRADED_OPERATIONS,
   ALWAYS_OWNER_ONLY,
   enforcedOwnerOnlyActions,
   deriveUnavailabilityId,
@@ -886,9 +889,9 @@ describe('PROOF 7 — the runner cannot bypass the mechanism', () => {
     expect(runner).not.toContain('authoriseDegradedContinuation');
     expect(runner).not.toContain('readFromCommittedTree');
     expect(runner).toContain('runDegradedWork');
-    // The work is handed over as a callback; the runner never invokes it itself.
-    expect(runner).toContain('cfg.work');
-    expect(runner).not.toMatch(/cfg\.work\s*\(/);
+    // STRONGER THAN BEFORE: the work is no longer supplied by a caller at all. The runner builds
+    // it from the closed vocabulary, so there is no callback to hand in and none to invoke early.
+    expect(runner).not.toContain('cfg.work');
   });
 
   it('the authority proving a spend cannot be built outside the module', () => {
@@ -897,5 +900,212 @@ describe('PROOF 7 — the runner cannot bypass the mechanism', () => {
     // construct a ConsumedAuthority — which is why a boolean was not good enough here.
     expect(source).toContain('declare const consumedAuthorityBrand: unique symbol');
     expect(source).not.toContain('export const consumedAuthorityBrand');
+  });
+});
+
+/* ------------------------------------------------------------------------------------------------
+ * THE LIVE ENTRY. Making the reviewed path reachable without making it reachable by accident, and
+ * without giving a caller any way to assert authority it has not got.
+ * --------------------------------------------------------------------------------------------- */
+
+const runnerSource = () => readFileSync(new URL('../src/loop/runner.ts', import.meta.url), 'utf8');
+const runCommandSource = () => readFileSync(new URL('../src/commands/run.ts', import.meta.url), 'utf8');
+
+describe('ENTRY PROOF A — default OFF', () => {
+  it('does not configure degraded mode unless a grant is named', () => {
+    const cmd = runCommandSource();
+    // The option is spread in only when a grant id was supplied AND the operation is known.
+    expect(cmd).toContain("degradedGrant === '' || !isDegradedOperation(degradedOperation)");
+    // Nothing enables it from an outage, a config file, or an environment variable.
+    expect(cmd).not.toContain('process.env');
+  });
+
+  it('the runner treats an unset option as NOT_CONFIGURED and changes nothing else', () => {
+    expect(runnerSource()).toContain("if (cfg === undefined) return { kind: 'NOT_CONFIGURED' }");
+  });
+});
+
+describe('ENTRY PROOF B — unavailable but no committed grant', () => {
+  it('refuses and does no work when the named grant is not committed', () => {
+    const { root, sys, head } = repo();
+    const outage = outageFor(head);
+    writeGrant(root, grantBody(head, outage)); // present on disk, never committed
+
+    let calls = 0;
+    const outcome = runDegradedWork(sys, root, runInput(head, outage), () => { calls += 1; });
+    expect(calls).toBe(0);
+    expect(outcome.kind).toBe('REFUSED');
+    expect(consumedGrantIds(sys, root)).toEqual([]);
+  });
+
+  it('refuses when no grant exists at all', () => {
+    const { root, sys, head } = repo();
+    let calls = 0;
+    const outcome = runDegradedWork(sys, root, runInput(head, outageFor(head)), () => { calls += 1; });
+    expect(calls).toBe(0);
+    expect(outcome.kind).toBe('REFUSED');
+  });
+});
+
+describe('ENTRY PROOF C — authority cannot be asserted by CLI or config', () => {
+  it('exposes no flag for owner, provenance, or grant validity', () => {
+    const cmd = runCommandSource();
+    // Assert on the flags actually READ, not on prose: the comment above the entry deliberately
+    // NAMES the flags that must never exist, and a substring match trips over its own warning.
+    const flagReads = [...cmd.matchAll(/(?:str|bool)\(flags, '([^']+)'\)/g)].map((m) => m[1]);
+    expect(flagReads).toContain('degraded-grant');
+    expect(flagReads).toContain('degraded-operation');
+    for (const forbidden of ['owner', 'recorded-owner', 'committed', 'grant-valid', 'provenance']) {
+      expect(flagReads).not.toContain(forbidden);
+    }
+    // And no flag value is ever passed into the loop options as authority.
+    expect(cmd).not.toContain('recordedOwner:');
+    expect(cmd).not.toContain('readFromCommittedTree');
+  });
+
+  it('the runner option carries only a grant pointer and a closed operation', () => {
+    const runner = runnerSource();
+    const block = runner.slice(
+      runner.indexOf('readonly degradedMode?: {'),
+      runner.indexOf('readonly correctionMaximumPaths'),
+    );
+    expect(block).toContain('readonly grantId: string;');
+    expect(block).toContain('readonly operation: DegradedOperation;');
+    // No owner, no provenance, no caller-supplied work.
+    expect(block).not.toContain('recordedOwner');
+    expect(block).not.toContain('readFromCommittedTree');
+    expect(block).not.toContain('work:');
+  });
+
+  it('refuses an operation outside the closed vocabulary', () => {
+    expect(isDegradedOperation('implement')).toBe(true);
+    for (const bad of ['commit', 'push', 'deploy', 'bash', '']) {
+      expect(isDegradedOperation(bad)).toBe(false);
+    }
+    expect(DEGRADED_OPERATIONS).toEqual(['implement']);
+    expect(runCommandSource()).toContain('DEGRADED_OPERATION_UNKNOWN');
+  });
+});
+
+describe('ENTRY PROOF D — governed bindings are derived, not supplied', () => {
+  it('takes the recorded owner from the approved plan governance block', () => {
+    const runner = runnerSource();
+    // From the plan AS COMMITTED — see ENTRY PROOF D2 for why the working-tree read was wrong.
+    expect(runner).toContain('committedGovernanceOwner(sys, root, context.planPath)');
+    expect(runner).toContain('recordedOwner: governedOwner');
+    // And refuses rather than guessing when no committed plan states an owner.
+    expect(runner).toContain('records no governance owner');
+  });
+
+  it('takes project, phase, subject and outage from the run itself', () => {
+    const runner = runnerSource();
+    const call = runner.slice(runner.indexOf('const outcome = runDegradedWork('));
+    const head = call.slice(0, call.indexOf('    );'));
+    expect(head).toContain('projectId: context.projectId');
+    expect(head).toContain('subjectCommit: verification.observed.head');
+    expect(head).toContain('unavailabilityId,');
+    // The outage id is derived from the real unavailability, not accepted from anywhere.
+    expect(runner).toContain('deriveUnavailabilityId({');
+  });
+});
+
+describe('ENTRY PROOF E — the live entry reaches only the reviewed gateway', () => {
+  it('routes through runDegradedWork and cannot bypass its guarantees', () => {
+    const runner = runnerSource();
+    expect(runner).toContain('runDegradedWork');
+    expect(runner).not.toContain('consumeDegradedGrant');
+    expect(runner).not.toContain('authoriseDegradedContinuation');
+    expect(runner).not.toContain('loadDegradedModeGrant');
+  });
+
+  it('runs a further attempt only via a flag the verified spend sets', () => {
+    const runner = runnerSource();
+    // Set inside the callback runDegradedWork invokes, and nowhere else.
+    expect(runner.match(/degradedAttemptAuthorised = true/g) ?? []).toHaveLength(1);
+    // Cleared on use, so one grant buys one attempt.
+    expect(runner).toContain('degradedAttemptAuthorised = false;');
+  });
+});
+
+describe('ENTRY PROOF F — protected actions are refused before execution', () => {
+  it.each(['commit', 'push', 'phase-closure', 'secrets-handling', 'payment-or-live-charge'])(
+    'cannot even be named as the operation: %s',
+    (action) => {
+      expect(isDegradedOperation(action)).toBe(false);
+    },
+  );
+
+  it('and is refused by the grant check too, if one somehow reached it', () => {
+    const { root, sys, head } = repo();
+    const outage = outageFor(head);
+    writeGrant(root, grantBody(head, outage));
+    commitAll(root, 'fixture grant');
+    let calls = 0;
+    const outcome = runDegradedWork(sys, root, runInput(head, outage, { operation: 'commit' }), () => { calls += 1; });
+    expect(outcome.kind).toBe('REFUSED');
+    expect(calls).toBe(0);
+  });
+});
+
+describe('ENTRY PROOF G — no real work in this step', () => {
+  it('this repository holds no degraded grant and no use record', () => {
+    // Asserted against the REAL checkout, not a fixture: nothing in this step created authority.
+    const authority = readdirSync(new URL('../../../.projectops/authority/', import.meta.url));
+    expect(authority.filter((f) => f.includes('degraded-grant'))).toEqual([]);
+    const execution = readdirSync(new URL('../../../.projectops/execution/', import.meta.url));
+    expect(execution.filter((f) => f.startsWith('degraded-use.'))).toEqual([]);
+  });
+});
+
+describe('ENTRY PROOF D2 — the recorded owner is read from the plan AS COMMITTED', () => {
+  // FOUND BY ADVERSARIAL REVIEW. The owner came from `context.plan`, which `loadGovernedContext`
+  // reads from the working tree — while the comment claimed it was digest-bound and unauthorable.
+  // Every other owner-authority input on this path is read from git; this now matches them.
+  const planRel = '.projectops/plan.json';
+  const writePlan = (root: string, owner: unknown) => {
+    const body = owner === undefined ? { governance: {} } : { governance: { owner } };
+    writeFileSync(join(root, ...planRel.split('/')), `${JSON.stringify(body, null, 2)}\n`);
+  };
+
+  it('reads the committed owner, not the working-tree one', () => {
+    const { root, sys } = repo();
+    writePlan(root, 'Murad');
+    commitAll(root, 'plan with owner');
+    // Rewrite it on disk only — the classic working-tree substitution.
+    writePlan(root, 'Somebody Else');
+
+    // Modified since commit → refuses outright rather than trusting either copy.
+    expect(committedGovernanceOwner(sys, root, planRel)).toBeNull();
+  });
+
+  it('returns the committed owner when the tree is clean', () => {
+    const { root, sys } = repo();
+    writePlan(root, 'Murad');
+    commitAll(root, 'plan with owner');
+    expect(committedGovernanceOwner(sys, root, planRel)).toBe('Murad');
+  });
+
+  it('refuses an uncommitted plan, however well-formed', () => {
+    const { root, sys } = repo();
+    writePlan(root, 'Murad'); // written, never committed
+    expect(committedGovernanceOwner(sys, root, planRel)).toBeNull();
+  });
+
+  it.each([[undefined], [''], ['   '], [42], [null]])(
+    'refuses when the committed plan states no usable owner (%s)',
+    (owner) => {
+      const { root, sys } = repo();
+      writePlan(root, owner);
+      commitAll(root, 'plan without a usable owner');
+      expect(committedGovernanceOwner(sys, root, planRel)).toBeNull();
+    },
+  );
+
+  it('the runner refuses rather than falling back to the working-tree plan', () => {
+    const runner = readFileSync(new URL('../src/loop/runner.ts', import.meta.url), 'utf8');
+    expect(runner).toContain('committedGovernanceOwner(sys, root, context.planPath)');
+    // The old working-tree read is gone.
+    expect(runner).not.toContain("context.plan['governance']");
+    expect(runner).toContain('absent, uncommitted, or modified since');
   });
 });

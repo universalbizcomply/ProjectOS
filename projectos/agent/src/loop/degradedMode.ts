@@ -508,6 +508,59 @@ export function consumeDegradedGrant(
   return { persisted: true, workId, problem: null };
 }
 
+/**
+ * What degraded mode may be asked to do. A CLOSED vocabulary, deliberately.
+ *
+ * The alternative — a caller-supplied command, script or callback reaching the CLI — would make
+ * degraded mode a general execution surface that happens to check a grant first, which is the
+ * opposite of a bounded authority. Only names in this list can be requested, and each maps to work
+ * ProjectOS already knows how to do under its ordinary governance.
+ *
+ * `implement` is one further governed worker attempt: the same authorised worker, with the same
+ * grants it already had, run once more without a review in front of it. That is exactly what
+ * "continue implementing on the owner's risk" means, and it reuses the loop's existing execution
+ * path rather than inventing a second one.
+ */
+/**
+ * The recorded owner, from the plan AS COMMITTED — not from the plan on disk.
+ *
+ * FOUND BY ADVERSARIAL REVIEW, AND THE COMMENT WAS THE WORSE HALF OF THE BUG. The runner read
+ * `context.plan.governance.owner`, and `loadGovernedContext` reads `plan.json` with an ordinary file
+ * read — so the value the grant was checked against came from a file the implementer can rewrite,
+ * while the code claimed it was "digest-bound and owner-approved... the one statement a caller
+ * cannot author". Every other owner-authority input on this path is already read from git: the
+ * grant, and the secrets-handling receipt. This makes the owner match them.
+ *
+ * The same two questions as everywhere else — committed at all, and unmodified since — and the same
+ * fail-closed answer: no owner means no risk acceptance can be checked against one, so nothing is
+ * authorised. Reading the object rather than the file is what makes the bytes checked and the bytes
+ * committed the same bytes.
+ */
+export function committedGovernanceOwner(sys: System, root: string, planRelPath: string): string | null {
+  const rel = planRelPath.split(String.fromCharCode(92)).join("/").replace(/^[.][/]/, "");
+  const logged = sys.exec('git', ['-C', root, 'log', '-1', '--format=%H', '--', rel]);
+  if (logged.code !== 0 || logged.stdout.trim().length === 0) return null;
+  const dirty = sys.exec('git', ['-C', root, 'diff', '--name-only', 'HEAD', '--', rel]);
+  if (dirty.code !== 0 || dirty.stdout.trim().length > 0) return null;
+  const shown = sys.exec('git', ['-C', root, 'show', `HEAD:${rel}`]);
+  if (shown.code !== 0) return null;
+  try {
+    const plan = JSON.parse(shown.stdout) as Record<string, unknown>;
+    const gov = (plan['governance'] as Record<string, unknown> | undefined) ?? {};
+    const owner = typeof gov['owner'] === 'string' ? gov['owner'].trim() : '';
+    return owner === '' ? null : owner;
+  } catch {
+    return null;
+  }
+}
+
+export const DEGRADED_OPERATIONS = ['implement'] as const;
+export type DegradedOperation = (typeof DEGRADED_OPERATIONS)[number];
+
+export function isDegradedOperation(value: string): value is DegradedOperation {
+  return (DEGRADED_OPERATIONS as readonly string[]).includes(value);
+}
+
 /* ------------------------------------------------------------------------------------------------
  * The end-to-end sequence, so the ordering is a property of the code rather than of the caller.
  * --------------------------------------------------------------------------------------------- */

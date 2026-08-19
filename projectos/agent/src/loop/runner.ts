@@ -38,9 +38,10 @@ import { collectEvidence, configuredChecks, requiredChecks, runChecks, type Chec
 import { decideContinuation, loopStopLines, MAX_CORRECTION_ATTEMPTS, type LoopStop } from './outcome.js';
 import { takeGatekeeperTurn, type GatekeeperTurnDeps } from './gatekeeperTurn.js';
 import {
+  committedGovernanceOwner,
   deriveUnavailabilityId,
   runDegradedWork,
-  type ConsumedAuthority,
+  type DegradedOperation,
   type DegradedOutcome,
 } from './degradedMode.js';
 import { authoriseCorrection, pathsNamedIn, within as withinPath } from './correctionBoundary.js';
@@ -113,18 +114,24 @@ export interface RunOptions {
    * anything is spent.
    */
   readonly degradedMode?: {
-    readonly grantId: string;
-    readonly operation: string;
-    readonly recordedOwner: string;
     /**
-     * The bounded work itself, invoked ONLY after the grant has been spent and that spend verified.
+     * WHICH committed grant to look for. A pointer, never an authority.
      *
-     * REQUIRED, and passed INTO the degraded sequence rather than performed after it. That is what
-     * makes "consume before work" a property of the code: there is no path to this callback that
-     * skips the persisted consumption, because the runner never gets the chance to call it itself.
-     * It receives the `ConsumedAuthority` that spending produced — a value no caller can fabricate.
+     * Naming a grant asserts nothing: the record still has to exist in the git object store, bind
+     * this project, phase, subject commit and outage, name the recorded owner, stay inside its
+     * scope and bound, and not already be spent. A wrong id simply finds nothing.
      */
-    readonly work: (authority: ConsumedAuthority) => void;
+    readonly grantId: string;
+    /**
+     * What to do, from the closed vocabulary. Not a command, not a script, not a callback.
+     *
+     * EVERY OTHER INPUT IS DERIVED, NOT ACCEPTED. The recorded owner comes from the approved plan's
+     * own governance block, the project and phase from the governed context, the subject from the
+     * observed head, and the outage identity from the unavailability that actually happened. There
+     * is deliberately no option through which a caller could supply an owner, a provenance flag, or
+     * the work itself — authority a caller can state is not authority.
+     */
+    readonly operation: DegradedOperation;
   };
   /**
    * The paths this phase's APPROVED SCOPE permits a correction to write.
@@ -437,6 +444,8 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
   let gatekeeperLedger = options.gatekeeper?.ledger ?? [];
   /** What the degraded path did, so the caller can tell refusal from a spent grant. */
   let degradedOutcome: DegradedOutcome | undefined;
+  /** Set only by the callback `runDegradedWork` invokes, i.e. only after a verified spend. */
+  let degradedAttemptAuthorised = false;
 
   /**
    * The owner's ACCEPT RISK path, taken only when they have already committed the grant.
@@ -465,6 +474,21 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     const cfg = options.degradedMode;
     if (cfg === undefined) return { kind: 'NOT_CONFIGURED' };
 
+    // THE RECORDED OWNER, READ FROM THE PLAN AS COMMITTED — not from the plan on disk.
+    //
+    // `loadGovernedContext` reads plan.json with an ordinary file read, so `context.plan` is
+    // working-tree bytes the implementer can rewrite. Every other owner-authority input here is read
+    // from git — the grant, the secrets receipt — and this now matches them. Raised by adversarial
+    // review, which caught the earlier comment claiming a digest binding the code did not perform.
+    const governedOwner = committedGovernanceOwner(sys, root, context.planPath);
+    if (governedOwner === null) {
+      lines.push('  degraded mode REFUSED: no committed approved plan records an owner, so no risk acceptance can be checked against one');
+      return {
+        kind: 'REFUSED',
+        reasons: ['the approved plan, as committed, records no governance owner (absent, uncommitted, or modified since)'],
+      };
+    }
+
     const unavailabilityId = deriveUnavailabilityId({
       projectId: context.projectId,
       phaseId,
@@ -483,12 +507,20 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
         subjectCommit: verification.observed.head ?? '',
         unavailabilityId,
         grantId: cfg.grantId,
-        recordedOwner: cfg.recordedOwner,
+        // THE RECORDED OWNER, FROM THE APPROVED PLAN'S OWN GOVERNANCE BLOCK. Never a flag, never a
+        // config value a caller chose: the plan is digest-bound and owner-approved, so this is the
+        // one statement of who the owner is that a caller cannot author.
+        recordedOwner: governedOwner,
         ownerOnlyActions: options.ownerOnlyActions ?? brief.phase.requiredOwnerGates,
         operation: cfg.operation,
         at: sys.now(),
       },
-      cfg.work,
+      // THE WORK, BUILT HERE FROM THE CLOSED VOCABULARY — never handed in by a caller. It records
+      // that the attempt was authorised; the attempt itself is the loop's ordinary worker path,
+      // reached only because this returned WORK_DONE, so the spend is durable before anything runs.
+      () => {
+        degradedAttemptAuthorised = true;
+      },
     );
 
     if (outcome.kind === 'REFUSED') {
@@ -701,6 +733,17 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     const applyReviewerAnswer = (reason: LoopStop): 'continue' | 'break' | 'proceed' => {
       const answer = consultGatekeeper(reason, evidenceFor(reason));
       if (answer === 'proceed') return 'proceed';
+      // THE OWNER'S COMMITTED RISK ACCEPTANCE, ALREADY SPENT BY THE TIME THIS IS TRUE.
+      //
+      // `degradedAttemptAuthorised` is set only by the callback `runDegradedWork` invokes, which it
+      // reaches only past a persisted, read-back-verified consumption — so one further attempt runs
+      // here on a grant that is already recorded as spent, never on the promise of one. The flag is
+      // cleared immediately: a grant buys one attempt, and the next needs its own authorisation.
+      if (degradedAttemptAuthorised) {
+        degradedAttemptAuthorised = false;
+        lines.push(`  continuing UNREVIEWED under the owner's committed risk acceptance`);
+        return 'continue';
+      }
       if (answer !== 'retry' || correctionsApplied.length >= MAX_CORRECTION_ATTEMPTS) {
         stop = reason;
         return 'break';

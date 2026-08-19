@@ -14,6 +14,7 @@ import type { CommandContext, CommandResult } from '../context.js';
 import { ok, fail } from '../context.js';
 import { type Flags, str, bool } from '../flags.js';
 import { runLoop } from '../loop/runner.js';
+import { isDegradedOperation, DEGRADED_OPERATIONS } from '../loop/degradedMode.js';
 import { loadGovernedContext } from '../governedContext.js';
 import {
   loadGatekeeperConfig,
@@ -150,11 +151,38 @@ export function run(ctx: CommandContext, flags: Flags): CommandResult {
     };
   }
 
+  // CONTINUING WITHOUT A REVIEWER, ON THE OWNER'S COMMITTED RISK.
+  //
+  // OFF UNLESS ASKED FOR, BY NAME. Without `--degraded-grant` this stays undefined and the loop
+  // behaves exactly as it always has: the reviewer being unreachable ends the run at the owner's
+  // three choices. Nothing about an outage enables this on its own — an unreachable gatekeeper is
+  // not consent, and the flag is not consent either. It names WHICH committed grant to look for,
+  // and if no such grant is committed, nothing is authorised and no work happens.
+  //
+  // THE FLAG CARRIES NO AUTHORITY. There is deliberately no `--owner`, no `--committed`, no
+  // `--grant-valid`, and no way to pass an operation outside the closed vocabulary. The owner, the
+  // project, the phase, the subject commit and the outage identity are all derived from governed
+  // state inside the loop; a caller can point at a grant, and nothing more.
+  const degradedGrant = str(flags, 'degraded-grant');
+  const degradedOperation = str(flags, 'degraded-operation') || 'implement';
+  if (degradedGrant !== '' && !isDegradedOperation(degradedOperation)) {
+    return fail(2, [
+      `REFUSED (DEGRADED_OPERATION_UNKNOWN): '${degradedOperation}' is not something degraded mode can do.`,
+      `  - permitted: ${DEGRADED_OPERATIONS.join(', ')}`,
+      '  - degraded mode is a bounded authority, not a way to run an arbitrary command unreviewed',
+      '',
+      'Nothing was prepared and nothing was started.',
+    ]);
+  }
+
   const result = runLoop(ctx.sys, ctx.root, {
     ...(worker === '' ? {} : { workerId: worker }),
     dryRun,
     resume,
     ...(session === '' ? {} : { resumeSessionId: session }),
+    ...(degradedGrant === '' || !isDegradedOperation(degradedOperation)
+      ? {}
+      : { degradedMode: { grantId: degradedGrant, operation: degradedOperation } }),
     ...(gatekeeper === undefined
       ? {}
       : {
