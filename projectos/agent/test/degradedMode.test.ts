@@ -18,6 +18,8 @@ import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import type { System } from '../src/system.js';
 import {
+  authorityWrapper,
+  degradedWorkSubject,
   committedGovernanceOwner,
   runDegradedWork,
   isDegradedOperation,
@@ -479,7 +481,9 @@ describe('PROOF E2 — an unreadable use record refuses; it never reads as "neve
 
     const again = authoriseDegradedContinuation(sys, root, authInput(head, outage));
     expect(again.authorised).toBe(false);
-    expect(again.reasons.join(' ')).toContain('modified or removed in the working tree');
+    // TWO INDEPENDENT REASONS NOW REFUSE THIS, and either is sufficient: committing the use record
+    // moved HEAD past the authority commit, and deleting the committed record is itself a refusal.
+    expect(again.reasons.join(' ')).toMatch(/history has moved past the authority commit|modified or removed in the working tree/);
   });
 
   it('an absent record is still the ordinary first-use case, and authorises', () => {
@@ -1002,7 +1006,9 @@ describe('ENTRY PROOF D — governed bindings are derived, not supplied', () => 
     const call = runner.slice(runner.indexOf('const outcome = runDegradedWork('));
     const head = call.slice(0, call.indexOf('    );'));
     expect(head).toContain('projectId: context.projectId');
-    expect(head).toContain('subjectCommit: verification.observed.head');
+    // The subject is the DERIVED work baseline, not HEAD — see SUBJECT PROOF A.
+    expect(head).toContain('subjectCommit: workSubject');
+    expect(runner).toContain('authorityWrapper(sys, root, phaseId, cfg.grantId)');
     expect(head).toContain('unavailabilityId,');
     // The outage id is derived from the real unavailability, not accepted from anywhere.
     expect(runner).toContain('deriveUnavailabilityId({');
@@ -1107,5 +1113,284 @@ describe('ENTRY PROOF D2 — the recorded owner is read from the plan AS COMMITT
     // The old working-tree read is gone.
     expect(runner).not.toContain("context.plan['governance']");
     expect(runner).toContain('absent, uncommitted, or modified since');
+  });
+});
+
+/* ------------------------------------------------------------------------------------------------
+ * THE AUTHORITY WRAPPER. A grant has authority only once committed, and committing it moves HEAD —
+ * so a grant bound to the reviewed baseline would invalidate itself the moment it became real. The
+ * grant commit is read as a wrapper: it changes the grant and nothing else, so its parent is still
+ * the work the owner approved. Nothing about the subject binding is weakened to achieve that.
+ * --------------------------------------------------------------------------------------------- */
+
+/** H0 → commit only the grant → H1. Returns both, so a test can assert the relationship. */
+function withAuthorityCommit(
+  root: string,
+  body: Record<string, unknown>,
+  alsoChange?: { readonly path: string; readonly content: string },
+): { h0: string; h1: string } {
+  const sha = () => execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  const h0 = sha();
+  writeGrant(root, body);
+  if (alsoChange !== undefined) {
+    writeFileSync(join(root, ...alsoChange.path.split('/')), alsoChange.content);
+  }
+  commitAll(root, 'owner commits the degraded grant');
+  return { h0, h1: sha() };
+}
+
+describe('SUBJECT PROOF A — the grant commit no longer invalidates its own binding', () => {
+  it('accepts a grant bound to H0 when HEAD is the authority commit H1', () => {
+    const { root, sys } = repo();
+    const h0 = execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+    const outage = outageFor(h0);
+    const { h1 } = withAuthorityCommit(root, grantBody(h0, outage));
+
+    expect(h1).not.toBe(h0); // committing the grant DID move HEAD — that is the paradox
+    const wrapper = authorityWrapper(sys, root, PHASE, GRANT_ID);
+    expect(wrapper.kind).toBe('wrapper');
+    if (wrapper.kind === 'wrapper') {
+      expect(wrapper.grantCommit).toBe(h1);
+      expect(wrapper.subjectCommit).toBe(h0); // the work is still H0
+    }
+
+    // And the grant, which names H0, is accepted against that derived subject.
+    const result = authoriseDegradedContinuation(sys, root, authInput(h0, outage));
+    expect(result.authorised).toBe(true);
+  });
+
+  it('does not treat the authority commit as code drift', () => {
+    const { root, sys } = repo();
+    const h0 = execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+    const outage = outageFor(h0);
+    withAuthorityCommit(root, grantBody(h0, outage));
+
+    const result = authoriseDegradedContinuation(sys, root, authInput(h0, outage));
+    expect(result.reasons.join(' ')).not.toContain('risk accepted for other work');
+  });
+});
+
+describe('SUBJECT PROOF B — a bundled code change is refused', () => {
+  it('refuses when the authority commit carries anything besides the grant', () => {
+    const { root, sys } = repo();
+    const h0 = execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+    const outage = outageFor(h0);
+    // The grant AND a source change in the same commit — approval of H0 must not carry this.
+    withAuthorityCommit(root, grantBody(h0, outage), { path: 'README.md', content: 'smuggled change\n' });
+
+    const wrapper = authorityWrapper(sys, root, PHASE, GRANT_ID);
+    expect(wrapper.kind).toBe('invalid');
+    if (wrapper.kind === 'invalid') {
+      expect(wrapper.problems.join(' ')).toContain('changes 2 path(s)');
+      expect(wrapper.problems.join(' ')).toContain('nothing else');
+    }
+
+    const result = authoriseDegradedContinuation(sys, root, authInput(h0, outage));
+    expect(result.authorised).toBe(false);
+    expect(consumedGrantIds(sys, root)).toEqual([]);
+  });
+});
+
+describe('SUBJECT PROOF C — HEAD moved past the authority commit', () => {
+  it('refuses when anything was committed after the grant', () => {
+    const { root, sys } = repo();
+    const h0 = execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+    const outage = outageFor(h0);
+    withAuthorityCommit(root, grantBody(h0, outage));
+    // H2: ordinary work after the approval. The approved baseline is no longer what is here.
+    writeFileSync(join(root, 'README.md'), 'later work\n');
+    commitAll(root, 'work after the grant');
+
+    const wrapper = authorityWrapper(sys, root, PHASE, GRANT_ID);
+    expect(wrapper.kind).toBe('invalid');
+    if (wrapper.kind === 'invalid') {
+      expect(wrapper.problems.join(' ')).toContain('history has moved past the authority commit');
+    }
+    expect(authoriseDegradedContinuation(sys, root, authInput(h0, outage)).authorised).toBe(false);
+  });
+});
+
+describe('SUBJECT PROOF D — a grant naming the wrong subject is refused', () => {
+  it('refuses when the grant names something other than the derived baseline', () => {
+    const { root, sys } = repo();
+    const h0 = execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+    const outage = outageFor(h0);
+    // A well-formed authority commit, but the grant inside names a different subject.
+    withAuthorityCommit(root, grantBody('b'.repeat(40), outage));
+
+    const wrapper = authorityWrapper(sys, root, PHASE, GRANT_ID);
+    expect(wrapper.kind).toBe('wrapper'); // the WRAPPER is clean…
+    const result = authoriseDegradedContinuation(sys, root, authInput(h0, outage));
+    expect(result.authorised).toBe(false); // …and the grant's own binding still refuses
+    expect(result.reasons.join(' ')).toContain('risk accepted for other work');
+  });
+
+  it('an invalid wrapper never falls back to HEAD', () => {
+    // Falling back is how a bundled change or a moved HEAD would be waved through.
+    const { root, sys, head } = repo();
+    const invalid = degradedWorkSubject(sys, root, { kind: 'invalid', problems: ['nope'] });
+    expect(invalid.subjectCommit).toBeNull();
+    // Whereas no wrapper at all is the ordinary discovery case — and the subject is read from git
+    // here, not taken from a caller, so the guarantee holds before a grant exists too.
+    const none = degradedWorkSubject(sys, root, { kind: 'none', reason: 'no committed grant' });
+    expect(none.subjectCommit).toBe(head);
+  });
+});
+
+describe('SUBJECT PROOF E — the outage identity is stable across the authority commit', () => {
+  it('derives the same id at discovery H0 and at proof H1', () => {
+    const { root, sys } = repo();
+    const h0 = execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+
+    // DISCOVERY, at H0: no grant committed, so the subject is the run's own head.
+    const atDiscovery = degradedWorkSubject(sys, root, authorityWrapper(sys, root, PHASE, GRANT_ID));
+    expect(atDiscovery.subjectCommit).toBe(h0);
+    const discoveryOutage = outageFor(atDiscovery.subjectCommit!);
+
+    // The owner commits the grant naming that outage. HEAD becomes H1.
+    const { h1 } = withAuthorityCommit(root, grantBody(h0, discoveryOutage));
+
+    // PROOF, at H1: the subject resolves back to H0, so the id is unchanged.
+    const atProof = degradedWorkSubject(sys, root, authorityWrapper(sys, root, PHASE, GRANT_ID));
+    expect(atProof.subjectCommit).toBe(h0);
+    expect(outageFor(atProof.subjectCommit!)).toBe(discoveryOutage);
+
+    // And the grant, bound to that id, is accepted.
+    expect(authoriseDegradedContinuation(sys, root, authInput(h0, discoveryOutage)).authorised).toBe(true);
+  });
+
+  it('a different work subject is a different outage — stability is not blindness', () => {
+    const a = outageFor('a'.repeat(40));
+    const b = outageFor('b'.repeat(40));
+    expect(a).not.toBe(b);
+  });
+});
+
+describe('SUBJECT PROOF F — no regression in the committed-truth guarantees', () => {
+  it('an uncommitted grant is still refused, wrapper or not', () => {
+    const { root, sys, head } = repo();
+    const outage = outageFor(head);
+    writeGrant(root, grantBody(head, outage)); // written, never committed
+    expect(authorityWrapper(sys, root, PHASE, GRANT_ID).kind).toBe('none');
+    expect(authoriseDegradedContinuation(sys, root, authInput(head, outage)).authorised).toBe(false);
+  });
+
+  it('a dirty committed grant is still refused', () => {
+    const { root, sys } = repo();
+    const h0 = execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+    const outage = outageFor(h0);
+    withAuthorityCommit(root, grantBody(h0, outage));
+    writeGrant(root, grantBody(h0, outage, { maxWorkItems: 99 })); // widened on disk only
+
+    const result = authoriseDegradedContinuation(sys, root, authInput(h0, outage));
+    expect(result.authorised).toBe(false);
+  });
+
+  it('protected scope, bounds and replay are unchanged under a valid wrapper', () => {
+    const { root, sys } = repo();
+    const h0 = execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+    const outage = outageFor(h0);
+    withAuthorityCommit(root, grantBody(h0, outage, { maxWorkItems: 1 }));
+
+    const auth = authoriseDegradedContinuation(sys, root, authInput(h0, outage));
+    expect(auth.authorised).toBe(true);
+    // protected action still refused
+    expect(degradedOperationProblems(auth.grant!, 'commit', []).length).toBeGreaterThan(0);
+    // bound still enforced
+    consumeDegradedGrant(sys, root, {
+      grant: auth.grant!, unavailabilityId: outage, projectId: PROJECT, phaseId: PHASE,
+      summary: 'the one item', at: '2026-08-19T15:00:00.000Z',
+    });
+    expect(authoriseDegradedContinuation(sys, root, authInput(h0, outage)).authorised).toBe(false);
+  });
+
+  it('a grant naming a protected action is still refused outright', () => {
+    const { root, sys } = repo();
+    const h0 = execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+    const outage = outageFor(h0);
+    withAuthorityCommit(root, grantBody(h0, outage, { grantedScope: ['implement', 'push'] }));
+    const result = authoriseDegradedContinuation(sys, root, authInput(h0, outage));
+    expect(result.authorised).toBe(false);
+    expect(result.reasons.join(' ')).toContain("owner-only action 'push'");
+  });
+});
+
+describe('SUBJECT PROOF G — a merge can never be an authority wrapper', () => {
+  // FOUND BY ADVERSARIAL REVIEW, AND IT IS THE ATTACK THE ONE-PATH CHECK WAS SUPPOSED TO STOP.
+  // `git show --name-only` on a MERGE prints the dense combined diff, which suppresses any path
+  // whose merged content matches one parent. So a merge whose only conflicted path is the grant
+  // reports exactly one changed path — the grant — while code merged in cleanly from the second
+  // parent is invisible to this check AND to an owner running `git show` on the same commit.
+  // `^` would then take parent 1 as a clean baseline while the worker runs against a HEAD that
+  // carries the smuggled files.
+  it('refuses a merge commit even when it reports exactly one changed path', () => {
+    const { root, sys } = repo();
+    const git = (...args: string[]) => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8' });
+    const h0 = git('rev-parse', 'HEAD').trim();
+    const outage = outageFor(h0);
+
+    // BRANCH 1: the grant, with placeholder content so the merge conflicts on exactly this path.
+    git('checkout', '-q', '-b', 'authority');
+    writeGrant(root, grantBody(h0, outage, { reason: 'placeholder A' }));
+    commitAll(root, 'grant, draft A');
+
+    // BRANCH 2 from H0: arbitrary code, and no touch to the grant path.
+    git('checkout', '-q', h0);
+    git('checkout', '-q', '-b', 'smuggled');
+    writeFileSync(join(root, 'evil.ts'), 'export const smuggled = true;\n');
+    commitAll(root, 'unrelated code the owner never approved');
+
+    // MERGE: evil.ts arrives cleanly (hidden by the combined diff); the grant conflicts and is
+    // resolved to the real, legitimate-looking record — the only path the combined diff reports.
+    git('checkout', '-q', 'authority');
+    try {
+      git('merge', '--no-commit', '--no-ff', 'smuggled');
+    } catch {
+      // a conflict here is expected; the resolution follows
+    }
+    writeGrant(root, grantBody(h0, outage));
+    git('add', '-A');
+    git('commit', '-q', '--no-edit', '-m', 'merge, resolving only the grant');
+
+    const mergeSha = git('rev-parse', 'HEAD').trim();
+    // The premise of the attack, asserted rather than assumed: two parents, and the combined diff
+    // really does report only the grant path.
+    const parentCount = git('rev-list', '--parents', '-n', '1', mergeSha).trim().split(/\s+/).length - 1;
+    expect(parentCount).toBe(2);
+    expect(existsSync(join(root, 'evil.ts'))).toBe(true); // the smuggled file IS in the tree
+    const combined = git('show', '--name-only', '--format=', mergeSha).trim();
+    expect(combined).not.toContain('evil.ts'); // …and invisible to the check the fix had to survive
+
+    // THE FIX: refused on the parent count, before the path check can be fooled.
+    const wrapper = authorityWrapper(sys, root, PHASE, GRANT_ID);
+    expect(wrapper.kind).toBe('invalid');
+    if (wrapper.kind === 'invalid') {
+      expect(wrapper.problems.join(' ')).toContain('2 parent(s)');
+      expect(wrapper.problems.join(' ')).toContain('single-parent commit');
+    }
+
+    // And nothing is authorised or spent.
+    const result = authoriseDegradedContinuation(sys, root, authInput(h0, outage));
+    expect(result.authorised).toBe(false);
+    expect(consumedGrantIds(sys, root)).toEqual([]);
+  });
+
+  it('an ordinary single-parent authority commit is still accepted', () => {
+    // The fix must refuse merges without refusing the real thing.
+    const { root, sys } = repo();
+    const h0 = execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+    const outage = outageFor(h0);
+    withAuthorityCommit(root, grantBody(h0, outage));
+
+    const wrapper = authorityWrapper(sys, root, PHASE, GRANT_ID);
+    expect(wrapper.kind).toBe('wrapper');
+    expect(authoriseDegradedContinuation(sys, root, authInput(h0, outage)).authorised).toBe(true);
+  });
+
+  it('asks git for the parent count rather than inferring it', () => {
+    const source = readFileSync(new URL('../src/loop/degradedMode.ts', import.meta.url), 'utf8');
+    expect(source).toContain("'rev-list', '--parents', '-n', '1'");
+    // And renames cannot collapse two paths into one under an ambient diff.renames setting.
+    expect(source).toContain("'--name-only', '--no-renames'");
   });
 });

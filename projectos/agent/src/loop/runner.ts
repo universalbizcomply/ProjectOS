@@ -38,7 +38,9 @@ import { collectEvidence, configuredChecks, requiredChecks, runChecks, type Chec
 import { decideContinuation, loopStopLines, MAX_CORRECTION_ATTEMPTS, type LoopStop } from './outcome.js';
 import { takeGatekeeperTurn, type GatekeeperTurnDeps } from './gatekeeperTurn.js';
 import {
+  authorityWrapper,
   committedGovernanceOwner,
+  degradedWorkSubject,
   deriveUnavailabilityId,
   runDegradedWork,
   type DegradedOperation,
@@ -489,10 +491,29 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
       };
     }
 
+    // THE WORK SUBJECT, WHICH IS NOT ALWAYS HEAD.
+    //
+    // A grant has authority only once committed, and committing it MOVES HEAD — so binding to HEAD
+    // would make every grant invalidate the very baseline it names. The grant commit is an authority
+    // WRAPPER: it changes the grant record and nothing else, so its parent is still the work the
+    // owner reviewed. Before any grant is committed there is no wrapper and the run's own head is
+    // the subject, which is what makes the discovery run and the proof run agree.
+    const wrapper = authorityWrapper(sys, root, phaseId, cfg.grantId);
+    const subject = degradedWorkSubject(sys, root, wrapper);
+    if (subject.subjectCommit === null) {
+      lines.push('  degraded mode REFUSED: the authority commit is not a clean wrapper over the approved work:');
+      lines.push(...subject.problems.map((p) => `    ${p}`));
+      return { kind: 'REFUSED', reasons: subject.problems };
+    }
+    const workSubject = subject.subjectCommit;
+    if (wrapper.kind === 'wrapper') {
+      lines.push(`  degraded mode: authority commit ${wrapper.grantCommit.slice(0, 7)} over work ${workSubject.slice(0, 7)}`);
+    }
+
     const unavailabilityId = deriveUnavailabilityId({
       projectId: context.projectId,
       phaseId,
-      subjectCommit: verification.observed.head ?? '',
+      subjectCommit: workSubject,
       stopCode: candidate.code,
       reasons,
     });
@@ -504,7 +525,7 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
       {
         projectId: context.projectId,
         phaseId,
-        subjectCommit: verification.observed.head ?? '',
+        subjectCommit: workSubject,
         unavailabilityId,
         grantId: cfg.grantId,
         // THE RECORDED OWNER, FROM THE APPROVED PLAN'S OWN GOVERNANCE BLOCK. Never a flag, never a

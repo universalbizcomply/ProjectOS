@@ -40,7 +40,7 @@ import {
   type ReconciliationRecord,
   type ReconciliationState,
 } from '@projectos/core';
-import { loadDegradedModeGrant, isSafeGrantId } from './degradedModeGrants.js';
+import { loadDegradedModeGrant, isSafeGrantId, degradedGrantRelPath } from './degradedModeGrants.js';
 
 export const DEGRADED_STORE_SCHEMA_VERSION = '1.0.0';
 
@@ -322,11 +322,22 @@ export function authoriseDegradedContinuation(
   root: string,
   input: DegradedAuthorisationInput,
 ): DegradedAuthorisation {
+  // THE AUTHORITY WRAPPER IS CHECKED HERE, NOT ONLY BY THE RUNNER. Leaving it to the caller would be
+  // the same mistake as leaving `readFromCommittedTree` to the caller: a direct caller would get an
+  // authorisation that never asked whether the grant commit was a clean wrapper over the approved
+  // work. The subject is DERIVED from it too, so a caller cannot name one.
+  const wrapper = authorityWrapper(sys, root, input.phaseId, input.grantId);
+  const derived = degradedWorkSubject(sys, root, wrapper);
+  if (derived.subjectCommit === null) {
+    return { authorised: false, reasons: derived.problems, grant: null, unavailabilityId: input.unavailabilityId, remaining: 0 };
+  }
+  const effectiveSubject = derived.subjectCommit;
+
   const loaded = loadDegradedModeGrant(sys, root, input.phaseId, input.grantId);
   const problems = checkDegradedModeGrant(loaded.grant, {
     projectId: input.projectId,
     phaseId: input.phaseId,
-    subjectCommit: input.subjectCommit,
+    subjectCommit: effectiveSubject,
     unavailabilityId: input.unavailabilityId,
     recordedOwner: input.recordedOwner,
     ownerOnlyActions: enforcedOwnerOnlyActions(input.ownerOnlyActions),
@@ -679,4 +690,130 @@ export function runDegradedWork(
     outstandingWorkIds: debt.outstandingWorkIds,
     workError,
   };
+}
+
+/* ------------------------------------------------------------------------------------------------
+ * The authority wrapper: a grant commit must not invalidate the binding it carries.
+ * --------------------------------------------------------------------------------------------- */
+
+/**
+ * What the grant commit says about the work it authorises.
+ *
+ * THE PARADOX THIS SOLVES. A grant has authority only once committed, and it binds a subject commit.
+ * The owner reviews the work at H0 and writes `subjectCommit: H0` — but committing that record
+ * CREATES H1, so by the time the grant has authority, HEAD is no longer the commit it names. Bind the
+ * run to HEAD and the grant refuses itself; the proof sequence is impossible, not merely awkward.
+ * I proposed exactly that sequence and it could never have run.
+ *
+ * THE FIX IS TO READ THE COMMIT FOR WHAT IT IS: an authority WRAPPER around a work baseline. The
+ * grant commit changes one thing — the grant — so its parent is still the work the owner reviewed.
+ * The subject is therefore `parent(grantCommit)`, established from git rather than from anything the
+ * grant or a caller says about itself.
+ *
+ * NOTHING IS WEAKENED TO ACHIEVE THAT, and the checks are the point:
+ *   - HEAD must BE the grant commit. If history moved on, the work is no longer what was approved.
+ *   - the grant commit must change the grant record and NOTHING else, so approval of H0 cannot
+ *     silently carry code, config or governance smuggled into the same commit.
+ *   - the grant's own `subjectCommit` must still equal the derived parent — that binding is untouched
+ *     and is still checked by `checkDegradedModeGrant`.
+ */
+export type AuthorityWrapper =
+  | { readonly kind: 'none'; readonly reason: string }
+  | { readonly kind: 'invalid'; readonly problems: readonly string[] }
+  | { readonly kind: 'wrapper'; readonly grantCommit: string; readonly subjectCommit: string };
+
+const HEX40_SHA = /^[0-9a-f]{40}$/;
+
+export function authorityWrapper(sys: System, root: string, phaseId: string, grantId: string): AuthorityWrapper {
+  const rel = degradedGrantRelPath(phaseId, grantId);
+  if (rel === null) return { kind: 'none', reason: `unsafe grant id '${grantId}'` };
+
+  const logged = sys.exec('git', ['-C', root, 'log', '-1', '--format=%H', '--', rel]);
+  const grantCommit = logged.code === 0 ? logged.stdout.trim() : '';
+  // NOT AN ERROR. Before the owner commits anything there is no wrapper, and the run's own head is
+  // the work subject — which is exactly the discovery run that tells the owner which outage to bind.
+  if (!HEX40_SHA.test(grantCommit)) {
+    return { kind: 'none', reason: `no committed grant '${grantId}' for phase ${phaseId}` };
+  }
+
+  const problems: string[] = [];
+
+  // A MERGE CAN NEVER BE AN AUTHORITY WRAPPER, and this is checked first because every other check
+  // below is unreliable on one. `git show --name-only` on a merge shows the DENSE COMBINED diff:
+  // any path whose merged content matches one parent is suppressed entirely. So a merge whose only
+  // conflicted path is the grant reports exactly one changed path — the grant — while arbitrary code
+  // brought in cleanly from the second parent is invisible both to that check and to an owner
+  // running `git show` on the same commit. `^` would then silently take parent 1 as a clean
+  // baseline while the worker runs against a HEAD carrying the smuggled files. Found by adversarial
+  // review; the count is read from `rev-list --parents`, which states the shape rather than
+  // inferring it.
+  const parents = sys.exec('git', ['-C', root, 'rev-list', '--parents', '-n', '1', grantCommit]);
+  const parentCount = parents.code === 0 ? Math.max(0, parents.stdout.trim().split(/\s+/).filter((x) => x !== '').length - 1) : -1;
+  if (parentCount !== 1) {
+    problems.push(
+      `the authority commit ${grantCommit.slice(0, 7)} has ${parentCount < 0 ? 'an unreadable number of' : parentCount} parent(s); ` +
+        'an authority commit must be an ordinary single-parent commit, because a merge can hide ' +
+        'changes from both this check and the owner reviewing it',
+    );
+  }
+
+  const head = sys.exec('git', ['-C', root, 'rev-parse', 'HEAD']);
+  const headSha = head.code === 0 ? head.stdout.trim() : '';
+  if (headSha !== grantCommit) {
+    problems.push(
+      `the grant was committed as ${grantCommit.slice(0, 7)} but HEAD is ${headSha.slice(0, 7) || 'unreadable'}; ` +
+        'history has moved past the authority commit, so the work is no longer the work that was approved',
+    );
+  }
+
+  // ONE COMMIT, ONE RECORD. `--name-only` over the commit itself; anything beyond the grant means the
+  // owner's approval of a baseline would also be carrying whatever else rode along with it.
+  // `--no-renames`, so an ambient `diff.renames` cannot report a rename as a single path.
+  const changed = sys.exec('git', ['-C', root, 'show', '--name-only', '--no-renames', '--format=', grantCommit]);
+  const paths = changed.code === 0 ? changed.stdout.split('\n').map((l) => l.trim()).filter((l) => l !== '') : [];
+  if (changed.code !== 0) {
+    problems.push(`the paths changed by ${grantCommit.slice(0, 7)} could not be read, so it cannot be accepted as an authority commit`);
+  } else if (paths.length !== 1 || paths[0] !== rel) {
+    problems.push(
+      `the authority commit ${grantCommit.slice(0, 7)} changes ${paths.length} path(s) (${paths.join(', ') || 'none'}); ` +
+        `it must change exactly ${rel} and nothing else, or approval of the baseline would also authorise what rode with it`,
+    );
+  }
+
+  const parent = sys.exec('git', ['-C', root, 'rev-parse', `${grantCommit}^`]);
+  const subjectCommit = parent.code === 0 ? parent.stdout.trim() : '';
+  if (!HEX40_SHA.test(subjectCommit)) {
+    problems.push(`the authority commit ${grantCommit.slice(0, 7)} has no readable parent, so no work baseline can be established`);
+  }
+
+  if (problems.length > 0) return { kind: 'invalid', problems };
+  return { kind: 'wrapper', grantCommit, subjectCommit };
+}
+
+/**
+ * The commit the degraded work is judged against.
+ *
+ * `observedHead` when nothing has been committed yet — the discovery run — and the wrapper's parent
+ * once the owner has committed the grant, so the same work has the same identity before and after
+ * the authority commit. An INVALID wrapper resolves to null: it must refuse, never quietly fall back
+ * to HEAD, because falling back is how a bundled code change or a moved HEAD would be waved through.
+ */
+export function degradedWorkSubject(
+  sys: System,
+  root: string,
+  wrapper: AuthorityWrapper,
+): { readonly subjectCommit: string | null; readonly problems: readonly string[] } {
+  if (wrapper.kind === 'wrapper') return { subjectCommit: wrapper.subjectCommit, problems: [] };
+  if (wrapper.kind === 'invalid') return { subjectCommit: null, problems: wrapper.problems };
+  // NO WRAPPER YET — the discovery run. The subject is HEAD, read from git HERE rather than accepted
+  // from a caller: the guarantee that a caller cannot name a subject should hold in both cases, not
+  // only once a grant has been committed. Raised as an API-contract gap by adversarial review; it
+  // was not reachable, because the one production caller passed an observed head, but a guarantee
+  // that depends on a caller's discipline is a convention rather than a guarantee.
+  const head = sys.exec('git', ['-C', root, 'rev-parse', 'HEAD']);
+  const sha = head.code === 0 ? head.stdout.trim() : '';
+  if (!HEX40_SHA.test(sha)) {
+    return { subjectCommit: null, problems: ['the current HEAD could not be read, so no work subject can be established'] };
+  }
+  return { subjectCommit: sha, problems: [] };
 }
