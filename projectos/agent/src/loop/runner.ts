@@ -37,8 +37,14 @@ import { BUILT_IN_ADAPTERS } from './adapters/claudeCodeCli.js';
 import { collectEvidence, configuredChecks, requiredChecks, runChecks, type CheckResult } from './verification.js';
 import { decideContinuation, loopStopLines, MAX_CORRECTION_ATTEMPTS, type LoopStop } from './outcome.js';
 import { takeGatekeeperTurn, type GatekeeperTurnDeps } from './gatekeeperTurn.js';
+import {
+  deriveUnavailabilityId,
+  runDegradedWork,
+  type ConsumedAuthority,
+  type DegradedOutcome,
+} from './degradedMode.js';
 import { authoriseCorrection, pathsNamedIn, within as withinPath } from './correctionBoundary.js';
-import type { LedgerEntry } from '@projectos/core';
+import { gateBlockedByReconciliation, type LedgerEntry } from '@projectos/core';
 import * as store from './session.js';
 import {
   digestOf,
@@ -94,6 +100,33 @@ export interface RunOptions {
    */
   readonly onGatekeeperTurn?: (entry: LedgerEntry, providerResponseId: string | null) => void;
   /**
+   * Continuing without a reviewer, on the owner's committed risk.
+   *
+   * ABSENT BY DEFAULT, exactly like `gatekeeper` above, and for the same reason: with this unset the
+   * loop stops at the owner's three-way choice precisely where it always did, so wiring it in cannot
+   * alter a run nobody configured. When it IS set, the loop looks for the owner's COMMITTED grant —
+   * and finding none, still stops. There is no configuration under which degraded mode begins
+   * without a committed grant.
+   *
+   * `grantId` names which grant to look for; the owner chose ACCEPT RISK by committing it. `operation`
+   * is the single non-protected thing this run would do, checked against the grant's scope before
+   * anything is spent.
+   */
+  readonly degradedMode?: {
+    readonly grantId: string;
+    readonly operation: string;
+    readonly recordedOwner: string;
+    /**
+     * The bounded work itself, invoked ONLY after the grant has been spent and that spend verified.
+     *
+     * REQUIRED, and passed INTO the degraded sequence rather than performed after it. That is what
+     * makes "consume before work" a property of the code: there is no path to this callback that
+     * skips the persisted consumption, because the runner never gets the chance to call it itself.
+     * It receives the `ConsumedAuthority` that spending produced — a value no caller can fabricate.
+     */
+    readonly work: (authority: ConsumedAuthority) => void;
+  };
+  /**
    * The paths this phase's APPROVED SCOPE permits a correction to write.
    *
    * DERIVED BY THE CALLER FROM THE APPROVED PLAN, never from a reviewer and never from here. An
@@ -116,6 +149,8 @@ export type RunResult =
       readonly sessionId: string;
       readonly stop: LoopStop | null;
       readonly attempts: number;
+      /** What the degraded-mode path did, when one was configured and the reviewer was unreachable. */
+      readonly degraded?: DegradedOutcome | undefined;
     };
 
 function refused(lines: readonly string[]): RunResult {
@@ -400,6 +435,90 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
   // that was applied once is refused as a replay rather than applied again.
   const consumedDecisionIds: string[] = [];
   let gatekeeperLedger = options.gatekeeper?.ledger ?? [];
+  /** What the degraded path did, so the caller can tell refusal from a spent grant. */
+  let degradedOutcome: DegradedOutcome | undefined;
+
+  /**
+   * The owner's ACCEPT RISK path, taken only when they have already committed the grant.
+   *
+   * WHAT THIS DOES NOT DO. It does not clear the stop. Degraded mode is permission to keep
+   * IMPLEMENTING unreviewed, not permission to call the run a success, so the stop stands either way
+   * and the caller sees exactly what was authorised and what debt it incurred.
+   *
+   * ORDER IS THE SAFETY PROPERTY: authorise, check the operation against the granted scope, persist
+   * the consumption AND the debt, and only then would the work run. A failed write means no work.
+   */
+  /**
+   * The owner's ACCEPT RISK path, taken only when they have already committed the grant.
+   *
+   * WHAT THIS DOES NOT DO. It does not clear the stop. Degraded mode is permission to keep
+   * IMPLEMENTING unreviewed, not permission to call the run a success, so the stop stands either way
+   * and the caller sees exactly what was authorised and what debt it incurred.
+   *
+   * ORDERING IS NO LONGER THIS FUNCTION'S RESPONSIBILITY. `runDegradedWork` takes the bounded work
+   * as an argument and reaches it only through a persisted, read-back-verified consumption — so the
+   * runner cannot perform the work first, cannot perform it after a failed write, and cannot
+   * fabricate the authority that proves the grant was spent. All this does is supply the inputs and
+   * report the structured outcome.
+   */
+  const degradedContinuation = (candidate: LoopStop, reasons: readonly string[]): DegradedOutcome => {
+    const cfg = options.degradedMode;
+    if (cfg === undefined) return { kind: 'NOT_CONFIGURED' };
+
+    const unavailabilityId = deriveUnavailabilityId({
+      projectId: context.projectId,
+      phaseId,
+      subjectCommit: verification.observed.head ?? '',
+      stopCode: candidate.code,
+      reasons,
+    });
+    lines.push(`  degraded mode: outage ${unavailabilityId}`);
+
+    const outcome = runDegradedWork(
+      sys,
+      root,
+      {
+        projectId: context.projectId,
+        phaseId,
+        subjectCommit: verification.observed.head ?? '',
+        unavailabilityId,
+        grantId: cfg.grantId,
+        recordedOwner: cfg.recordedOwner,
+        ownerOnlyActions: options.ownerOnlyActions ?? brief.phase.requiredOwnerGates,
+        operation: cfg.operation,
+        at: sys.now(),
+      },
+      cfg.work,
+    );
+
+    if (outcome.kind === 'REFUSED') {
+      lines.push('  degraded mode REFUSED; nothing was authorised and no work was done:');
+      lines.push(...outcome.reasons.map((r) => `    ${r}`));
+      return outcome;
+    }
+    if (outcome.kind === 'CONSUMPTION_FAILED') {
+      lines.push('  degraded mode REFUSED: the grant could not be recorded as spent, so no unreviewed work started');
+      lines.push(`    ${outcome.problem}`);
+      return outcome;
+    }
+    if (outcome.kind === 'WORK_DONE') {
+      lines.push(
+        `  degraded mode AUTHORISED '${cfg.operation}' as ${outcome.workId} ` +
+          `(${outcome.remainingAfter} work item(s) left after this)`,
+      );
+      if (outcome.workError !== null) {
+        lines.push(`  the bounded work failed, and the grant is still spent: ${outcome.workError}`);
+      }
+      if (outcome.reconciliationRequired) {
+        lines.push(...gateBlockedByReconciliation({
+          required: true,
+          outstandingWorkIds: outcome.outstandingWorkIds,
+          reasons: [`${outcome.outstandingWorkIds.length} degraded-mode work item(s) await reconciliation`],
+        }).map((r) => `  ${r}`));
+      }
+    }
+    return outcome;
+  };
 
   /**
    * Hand a stop to the reviewer and say what the loop should do next.
@@ -436,6 +555,13 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
 
     if (turn.action.kind === 'owner') {
       lines.push(...turn.action.reasons.map((r) => `  ${r}`));
+      // THE OWNER'S THIRD CHOICE, WHEN THEY HAVE ALREADY COMMITTED IT.
+      //
+      // The loop cannot ask a question and wait, so it does not pretend to: a committed grant
+      // recording ACCEPT RISK is the owner having chosen it, and no grant means this returns null
+      // and the run stops at the choice exactly as before. `ownerChoices` is only non-null when the
+      // reviewer was genuinely unreachable, so a stop the reviewer DECLINED can never take this path.
+      if (turn.ownerChoices !== null) degradedOutcome = degradedContinuation(candidate, turn.action.reasons);
       return null;
     }
     if (turn.action.kind === 'proceed') {
@@ -678,5 +804,5 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
 
   if (stop !== null) lines.push(...loopStopLines(stop));
   lines.push(`Evidence: ${store.evidencePath(root, sessionId)}`);
-  return { ok: true, lines, phaseId, sessionId, stop, attempts };
+  return { ok: true, lines, phaseId, sessionId, stop, attempts, degraded: degradedOutcome };
 }
