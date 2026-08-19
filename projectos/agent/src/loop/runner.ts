@@ -35,7 +35,14 @@ import {
 } from './workers.js';
 import { BUILT_IN_ADAPTERS } from './adapters/claudeCodeCli.js';
 import { collectEvidence, configuredChecks, requiredChecks, runChecks, type CheckResult } from './verification.js';
-import { decideContinuation, loopStopLines, MAX_CORRECTION_ATTEMPTS, type LoopStop } from './outcome.js';
+import {
+  decideContinuation,
+  loopStopLines,
+  MAX_CORRECTION_ATTEMPTS,
+  type EffectsRecord,
+  type LoopStop,
+  type ReviewFinding,
+} from './outcome.js';
 import { takeGatekeeperTurn, type GatekeeperTurnDeps } from './gatekeeperTurn.js';
 import {
   authorityWrapper,
@@ -627,6 +634,149 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     return 'retry';
   };
 
+  /**
+   * Take the reviewer's answer and, if it asked for a correction, authorise one.
+   *
+   * `continue` means a correction was authorised and another attempt should run; `break` means the
+   * run ends here; `proceed` means the reviewer cleared the stop.
+   */
+  /**
+   * What the reviewer is shown, in two clearly separated parts.
+   *
+   * PART A IS THE MECHANISM; PART B IS THE FAILURE. The first live Criterion 10 chain handed over one
+   * undifferentiated blob: a failing fixture together with every open finding about the correction
+   * machinery itself. That asks the reviewer to decide whether this architecture should be used while
+   * simultaneously asking it to use it, and it answered AWAITING_OWNER — correctly, on the evidence it
+   * was given. Separating them hides nothing: the worker's own review, including every unresolved
+   * finding, is still carried in full under `workerReview`.
+   *
+   * MISSING EVIDENCE IS REPORTED AS MISSING, NEVER MANUFACTURED. Three stops happen BEFORE the
+   * evidence they would normally carry exists: a worker that refused ran no checks; an unreadable
+   * findings record has no findings; an unattested run has no effects. Those parts now arrive as
+   * `{ available: false, why }` carrying the exact reason. The alternative — an empty findings list,
+   * or `effects: null`, or six `false`s — would show the reviewer a run that reviewed cleanly and
+   * touched nothing, which is the fail-open these stops exist to prevent. A reviewer cannot approve
+   * an absent attestation into existence, and it must not be shown one that looks present.
+   */
+  type EvidencePart<T> = { readonly available: true; readonly value: T } | { readonly available: false; readonly why: string };
+  const unavailable = (why: string): EvidencePart<never> => ({ available: false, why });
+  const evidenceFor = (
+    reason: LoopStop,
+    parts: {
+      readonly checks: EvidencePart<readonly CheckResult[]>;
+      readonly findings: EvidencePart<{ readonly reviews: readonly string[]; readonly findings: readonly ReviewFinding[] }>;
+      readonly effects: EvidencePart<EffectsRecord | null>;
+    },
+  ): string => {
+    const f = parts.findings;
+    const c = parts.checks;
+    return JSON.stringify(
+      {
+        correctionMechanism: {
+          what: 'a bounded correction worker, already implemented, tested and in use',
+          workerWritableMaximum: correctionMaximum,
+          workerMayNeverWrite: scopePaths,
+          grantsIssued: 'Edit(path) and Write(path) only; no shell, so no git, no commit, no push',
+          correctionsApplied: correctionsApplied.length,
+          correctionBudgetRemaining: MAX_CORRECTION_ATTEMPTS - correctionsApplied.length,
+          unresolvedCritical: f.available
+            ? f.value.findings.filter((x) => !x.resolved && x.severity === 'CRITICAL').length
+            : null,
+          unresolvedHigh: f.available
+            ? f.value.findings.filter((x) => !x.resolved && x.severity === 'HIGH').length
+            : null,
+        },
+        currentFailure: {
+          phaseId,
+          stop: reason,
+          failingChecks: c.available
+            ? c.value
+                .filter((x) => !x.passed)
+                .map((x) => ({ id: x.id, kind: x.kind, exitCode: x.exitCode, output: x.output.slice(-CHECK_OUTPUT_TAIL) }))
+            : c,
+          passingChecks: c.available ? c.value.filter((x) => x.passed).map((x) => x.id) : c,
+        },
+        workerReview: f.available ? { reviewsRecorded: f.value.reviews, findings: f.value.findings } : f,
+        effects: parts.effects.available ? parts.effects.value : parts.effects,
+        attemptsSpent: attempts,
+      },
+      null,
+      1,
+    );
+  };
+
+  const applyReviewerAnswer = (reason: LoopStop, evidenceText: string): 'continue' | 'break' | 'proceed' => {
+    const answer = consultGatekeeper(reason, evidenceText);
+    if (answer === 'proceed') return 'proceed';
+    // THE OWNER'S COMMITTED RISK ACCEPTANCE, ALREADY SPENT BY THE TIME THIS IS TRUE.
+    //
+    // `degradedAttemptAuthorised` is set only by the callback `runDegradedWork` invokes, which it
+    // reaches only past a persisted, read-back-verified consumption — so one further attempt runs
+    // here on a grant that is already recorded as spent, never on the promise of one. The flag is
+    // cleared immediately: a grant buys one attempt, and the next needs its own authorisation.
+    if (degradedAttemptAuthorised) {
+      degradedAttemptAuthorised = false;
+      lines.push(`  continuing UNREVIEWED under the owner's committed risk acceptance`);
+      return 'continue';
+    }
+    if (answer !== 'retry' || correctionsApplied.length >= MAX_CORRECTION_ATTEMPTS) {
+      stop = reason;
+      return 'break';
+    }
+    // AN AMENDMENT WITHOUT ITS DECISION IS NOT AN AMENDMENT. `''` would deduplicate against a
+    // previous `''` in `correctionsApplied` and look like a spent decision, or - worse - pass as
+    // a fresh one. `authoriseCorrection` refuses an empty id too; this refuses it here so the
+    // loop never even asks.
+    if (lastInstruction === null || lastDecisionId === null) {
+      lines.push('  the gatekeeper asked for a correction but no decision was recorded for it; nothing was authorised');
+      stop = reason;
+      return 'break';
+    }
+    // THE REVIEWER ASKED FOR A CORRECTION. What it may touch is decided here, against the phase's
+    // approved maximum - never against what the amendment asked for. The amendment can only
+    // narrow: `authoriseCorrection` refuses any path the approved scope does not already permit.
+    const authorised = authoriseCorrection(
+      {
+        requestedPaths: pathsNamedIn(lastInstruction),
+        projectId: context.projectId,
+        phaseId,
+        subjectCommit: verification.observed.head ?? '',
+        decisionId: lastDecisionId,
+      },
+      {
+        maximumPaths: correctionMaximum,
+        projectId: context.projectId,
+        phaseId,
+        subjectCommit: verification.observed.head ?? '',
+        consumedDecisionIds: correctionsApplied,
+        attemptsRemaining: MAX_CORRECTION_ATTEMPTS - correctionsApplied.length,
+      },
+    );
+    if (!authorised.ok) {
+      // A correction the approved scope does not permit is not narrowed silently - the run stops
+      // and says which path was refused, because a quietly dropped path looks like a fix.
+      lines.push('  the correction the gatekeeper asked for is outside what this phase authorises:');
+      lines.push(...authorised.reasons.map((r) => `    - ${r}`));
+      lastInstruction = null;
+      lastDecisionId = null;
+      stop = reason;
+      return 'break';
+    }
+    correctionsApplied.push(lastDecisionId);
+    // CONSUMED MEANS GONE. Leaving these set let the NEXT stop reuse the previous amendment: a
+    // turn that returned no decision leaves `lastDecisionId` unchanged, and the loop would then
+    // authorise a second correction against an instruction the reviewer never gave for it.
+    // Raised as CORR-STALE-DECISION-ID by the live reviewer against this file.
+    lastInstruction = null;
+    lastDecisionId = null;
+    lines.push(
+      `  correcting under gatekeeper direction (correction ${correctionsApplied.length} of ${MAX_CORRECTION_ATTEMPTS}); ` +
+        `authorised to write: ${authorised.correction.paths.join(', ')}`,
+    );
+    correctionGrants = authorised.correction.grants;
+    return 'continue';
+  };
+
   for (;;) {
     // Rejoin whenever a handle exists. A handle from a PREVIOUS invocation only appears here when
     // the operator named that session with `--resume --session`; it is never inherited by
@@ -671,8 +821,32 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     // burn the full suite to learn what the exit code already said, and a green suite over unchanged
     // code would sit in the evidence beside a failed run looking like reassurance.
     if (described.refusal !== null) {
-      stop = { code: 'WORKER_REFUSED', detail: described.refusal };
+      const refused: LoopStop = { code: 'WORKER_REFUSED', detail: described.refusal };
       store.writeEvidence(sys, root, { ...collectEvidence(sys, root, { sessionId, brief, checks: [] }), invocationId: invocation.invocationId });
+      // ROUTED, NOT ENDED. `STOP_ROUTES` says this stop is the gatekeeper's — "a refusal is
+      // information about the brief; the brief may be amended but the refusal may not be overruled" —
+      // and until now the loop broke here and never asked. Nothing about the refusal is overruled:
+      // APPROVED_TO_PROCEED is not applicable to this stop, so the only answers available are an
+      // amendment, DO_NOT_PROCEED, or the owner.
+      // WHAT IT ACTUALLY LEFT BEHIND, NOT WHAT A REFUSAL USUALLY MEANS. Saying "it recorded no
+      // review" and "it attested nothing" without looking was asserting two facts this branch had
+      // not checked — in the very place the comment above promises evidence is never manufactured.
+      // A worker can attest truthfully and THEN exit non-zero, and that attestation is the reviewer's
+      // most consequential input: it is what can turn an amendment into AWAITING_OWNER. Only the
+      // checks are genuinely absent here, because this branch demonstrably runs none.
+      const refusedFindings = store.readFindings(sys, root, sessionId);
+      const refusedEffects = store.readEffects(sys, root, sessionId);
+      const answered = applyReviewerAnswer(refused, evidenceFor(refused, {
+        checks: unavailable('the worker refused, so no checks were run'),
+        findings: refusedFindings.ok
+          ? { available: true, value: refusedFindings.value }
+          : unavailable(refusedFindings.problem),
+        effects: refusedEffects.ok
+          ? { available: true, value: refusedEffects.value }
+          : unavailable(refusedEffects.problem),
+      }));
+      if (answered === 'continue') continue;
+      if (stop === null) stop = refused;
       break;
     }
 
@@ -684,7 +858,22 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
 
     const findings = store.readFindings(sys, root, sessionId);
     if (!findings.ok) {
-      stop = { code: 'REVIEW_OUTSTANDING', detail: findings.problem };
+      const outstanding: LoopStop = { code: 'REVIEW_OUTSTANDING', detail: findings.problem };
+      // THE ATTESTATION IS READ EVEN THOUGH THE REVIEW IS NOT. An unreadable findings record used to
+      // mean the effects record was never consulted at all, so this branch could send a run onward
+      // for correction while an attestation on disk said production had been touched — nobody had
+      // looked. The two records are independent; one being corrupt is no reason to withhold the
+      // other from the reviewer, and this is the one it must not be denied.
+      const outstandingEffects = store.readEffects(sys, root, sessionId);
+      const answered = applyReviewerAnswer(outstanding, evidenceFor(outstanding, {
+        checks: { available: true, value: checks },
+        findings: unavailable(findings.problem),
+        effects: outstandingEffects.ok
+          ? { available: true, value: outstandingEffects.value }
+          : unavailable(outstandingEffects.problem),
+      }));
+      if (answered === 'continue') continue;
+      if (stop === null) stop = outstanding;
       break;
     }
     // An attestation that is unreadable or incomplete is NOT an attestation. It is reported as the
@@ -692,7 +881,14 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     // means the run said it did something, and this run said nothing usable.
     const effects = store.readEffects(sys, root, sessionId);
     if (!effects.ok) {
-      stop = { code: 'EFFECTS_NOT_ATTESTED', detail: effects.problem };
+      const unattested: LoopStop = { code: 'EFFECTS_NOT_ATTESTED', detail: effects.problem };
+      const answered = applyReviewerAnswer(unattested, evidenceFor(unattested, {
+        checks: { available: true, value: checks },
+        findings: { available: true, value: findings.value },
+        effects: unavailable(effects.problem),
+      }));
+      if (answered === 'continue') continue;
+      if (stop === null) stop = unattested;
       break;
     }
 
@@ -706,128 +902,16 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
       workerRefusal: described.refusal,
     });
 
-    /**
-     * What the reviewer is shown, in two clearly separated parts.
-     *
-     * PART A IS THE MECHANISM; PART B IS THE FAILURE. The first live Criterion 10 chain handed over
-     * one undifferentiated blob: a failing fixture together with every open finding about the
-     * correction machinery itself. That asks the reviewer to decide whether this architecture should
-     * be used while simultaneously asking it to use it, and it answered AWAITING_OWNER - correctly,
-     * on the evidence it was given. Separating them hides nothing: the worker's own review,
-     * including every unresolved finding, is still carried in full under `workerReview`.
-     */
-    const evidenceFor = (reason: LoopStop): string =>
-      JSON.stringify(
-        {
-          correctionMechanism: {
-            what: 'a bounded correction worker, already implemented, tested and in use',
-            workerWritableMaximum: correctionMaximum,
-            workerMayNeverWrite: scopePaths,
-            grantsIssued: 'Edit(path) and Write(path) only; no shell, so no git, no commit, no push',
-            correctionsApplied: correctionsApplied.length,
-            correctionBudgetRemaining: MAX_CORRECTION_ATTEMPTS - correctionsApplied.length,
-            unresolvedCritical: findings.value.findings.filter((f) => !f.resolved && f.severity === 'CRITICAL').length,
-            unresolvedHigh: findings.value.findings.filter((f) => !f.resolved && f.severity === 'HIGH').length,
-          },
-          currentFailure: {
-            phaseId,
-            stop: reason,
-            failingChecks: checks
-              .filter((c) => !c.passed)
-              .map((c) => ({ id: c.id, kind: c.kind, exitCode: c.exitCode, output: c.output.slice(-CHECK_OUTPUT_TAIL) })),
-            passingChecks: checks.filter((c) => c.passed).map((c) => c.id),
-          },
-          workerReview: { reviewsRecorded: findings.value.reviews, findings: findings.value.findings },
-          effects: effects.value,
-          attemptsSpent: attempts,
-        },
-        null,
-        1,
-      );
-
-    /**
-     * Take the reviewer's answer and, if it asked for a correction, authorise one.
-     *
-     * `continue` means a correction was authorised and another attempt should run; `break` means the
-     * run ends here; `proceed` means the reviewer cleared the stop.
-     */
-    const applyReviewerAnswer = (reason: LoopStop): 'continue' | 'break' | 'proceed' => {
-      const answer = consultGatekeeper(reason, evidenceFor(reason));
-      if (answer === 'proceed') return 'proceed';
-      // THE OWNER'S COMMITTED RISK ACCEPTANCE, ALREADY SPENT BY THE TIME THIS IS TRUE.
-      //
-      // `degradedAttemptAuthorised` is set only by the callback `runDegradedWork` invokes, which it
-      // reaches only past a persisted, read-back-verified consumption — so one further attempt runs
-      // here on a grant that is already recorded as spent, never on the promise of one. The flag is
-      // cleared immediately: a grant buys one attempt, and the next needs its own authorisation.
-      if (degradedAttemptAuthorised) {
-        degradedAttemptAuthorised = false;
-        lines.push(`  continuing UNREVIEWED under the owner's committed risk acceptance`);
-        return 'continue';
-      }
-      if (answer !== 'retry' || correctionsApplied.length >= MAX_CORRECTION_ATTEMPTS) {
-        stop = reason;
-        return 'break';
-      }
-      // AN AMENDMENT WITHOUT ITS DECISION IS NOT AN AMENDMENT. `''` would deduplicate against a
-      // previous `''` in `correctionsApplied` and look like a spent decision, or - worse - pass as
-      // a fresh one. `authoriseCorrection` refuses an empty id too; this refuses it here so the
-      // loop never even asks.
-      if (lastInstruction === null || lastDecisionId === null) {
-        lines.push('  the gatekeeper asked for a correction but no decision was recorded for it; nothing was authorised');
-        stop = reason;
-        return 'break';
-      }
-      // THE REVIEWER ASKED FOR A CORRECTION. What it may touch is decided here, against the phase's
-      // approved maximum - never against what the amendment asked for. The amendment can only
-      // narrow: `authoriseCorrection` refuses any path the approved scope does not already permit.
-      const authorised = authoriseCorrection(
-        {
-          requestedPaths: pathsNamedIn(lastInstruction),
-          projectId: context.projectId,
-          phaseId,
-          subjectCommit: verification.observed.head ?? '',
-          decisionId: lastDecisionId,
-        },
-        {
-          maximumPaths: correctionMaximum,
-          projectId: context.projectId,
-          phaseId,
-          subjectCommit: verification.observed.head ?? '',
-          consumedDecisionIds: correctionsApplied,
-          attemptsRemaining: MAX_CORRECTION_ATTEMPTS - correctionsApplied.length,
-        },
-      );
-      if (!authorised.ok) {
-        // A correction the approved scope does not permit is not narrowed silently - the run stops
-        // and says which path was refused, because a quietly dropped path looks like a fix.
-        lines.push('  the correction the gatekeeper asked for is outside what this phase authorises:');
-        lines.push(...authorised.reasons.map((r) => `    - ${r}`));
-        lastInstruction = null;
-        lastDecisionId = null;
-        stop = reason;
-        return 'break';
-      }
-      correctionsApplied.push(lastDecisionId);
-      // CONSUMED MEANS GONE. Leaving these set let the NEXT stop reuse the previous amendment: a
-      // turn that returned no decision leaves `lastDecisionId` unchanged, and the loop would then
-      // authorise a second correction against an instruction the reviewer never gave for it.
-      // Raised as CORR-STALE-DECISION-ID by the live reviewer against this file.
-      lastInstruction = null;
-      lastDecisionId = null;
-      lines.push(
-        `  correcting under gatekeeper direction (correction ${correctionsApplied.length} of ${MAX_CORRECTION_ATTEMPTS}); ` +
-          `authorised to write: ${authorised.correction.paths.join(', ')}`,
-      );
-      correctionGrants = authorised.correction.grants;
-      return 'continue';
-    };
 
     if (decision.kind === 'stop') {
       // THE RELAY REMOVAL, at the one place the loop used to end. A reviewer that requires an
       // amendment sends the phase back through the SAME bounded correction budget as an ordinary
       // failing check - it does not get its own, and it cannot reset the one that exists.
-      const answered = applyReviewerAnswer(decision.reason);
+      const answered = applyReviewerAnswer(decision.reason, evidenceFor(decision.reason, {
+        checks: { available: true, value: checks },
+        findings: { available: true, value: findings.value },
+        effects: { available: true, value: effects.value },
+      }));
       if (answered === 'continue') continue;
       break;
     }
@@ -852,13 +936,18 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     // through the same routing table, the same bindings and the same bounded authorisation.
     const failing = checks.filter((c) => !c.passed);
     if (failing.length > 0 && !attemptHadCorrectionAuthority && options.gatekeeper !== undefined) {
-      const answered = applyReviewerAnswer({
+      const exhausted: LoopStop = {
         code: 'CORRECTION_EXHAUSTED',
         detail:
           `${failing.length} required check(s) failing: ${failing.map((c) => c.id).join(', ')} — the worker holds no ` +
           'write authority over the failing target, so a further identical attempt cannot change it. ' +
           `${decision.detail}`,
-      });
+      };
+      const answered = applyReviewerAnswer(exhausted, evidenceFor(exhausted, {
+        checks: { available: true, value: checks },
+        findings: { available: true, value: findings.value },
+        effects: { available: true, value: effects.value },
+      }));
       if (answered === 'continue') continue;
       if (answered === 'break') break;
     }

@@ -19,6 +19,7 @@
  */
 import type { GovernedContext } from '../governedContext.js';
 import type { RepositoryObservation } from './observation.js';
+import { PROTECTED_EFFECT_FIELDS } from './outcome.js';
 
 export const BRIEF_SCHEMA_VERSION = '1.0.0';
 
@@ -28,6 +29,19 @@ export const BRIEF_SCHEMA_VERSION = '1.0.0';
  * which is an owner decision and is reported as one.
  */
 export const MAX_BRIEF_CHARS = 16_000;
+
+/**
+ * The effects-record contract, derived from the reader's own field list.
+ *
+ * One constant, two consumers: the brief that tells the worker, and `attestationProblems` that
+ * refuses the result. Deriving rather than restating is what makes "the shape demanded IS the shape
+ * described" a property of the code instead of a comment.
+ */
+export const EFFECTS_CONTRACT = {
+  location: 'top-level',
+  valueType: 'boolean',
+  requiredFields: PROTECTED_EFFECT_FIELDS as readonly string[],
+} as const;
 
 export interface WorkerBrief {
   readonly schemaVersion: string;
@@ -69,6 +83,30 @@ export interface WorkerBrief {
     readonly findingsPath: string;
     readonly effectsPath: string;
     readonly evidencePath: string;
+    /**
+     * The SHAPE the effects record must have, not prose about it.
+     *
+     * THE SECOND LIVE DISCOVERY DIED HERE, AND THE FIRST ONE SURVIVED BY LUCK. The worker
+     * instruction named the six fields but described them only as a list — while giving the
+     * FINDINGS record an explicit object literal. So one run wrote the six at top level and was
+     * certified; the next wrote the same six, truthfully, nested under `attestation`, and was
+     * refused `EFFECTS_NOT_ATTESTED`. Both attested honestly; the contract was ambiguous about
+     * nesting, and whether a run reached the reviewer at all turned on how the worker read a
+     * sentence.
+     *
+     * This is derived from `PROTECTED_EFFECT_FIELDS` — the same constant the reader validates
+     * against — so the shape the worker is told and the shape the loop demands cannot drift. It is
+     * generated, never caller-supplied: no argument reaches it, which is why exempting it from the
+     * provenance walk (see `effectsContractProblems`) is a stronger check and not a weaker one.
+     */
+    readonly effectsContract: {
+      /** Where they go: the record's own top level, not nested under any key. */
+      readonly location: 'top-level';
+      /** What each value must be. */
+      readonly valueType: 'boolean';
+      /** Every field that must be present. */
+      readonly requiredFields: readonly string[];
+    };
   };
   /** The limits the worker is bound by, copied from the project config it is running under. */
   readonly boundaries: {
@@ -168,7 +206,7 @@ export function buildWorkerBrief(
       requiredBrowserProof: phase['requiredBrowserProof'] === true,
       requiredOwnerGates: strings(phase['requiredOwnerGates']),
     },
-    records,
+    records: { ...records, effectsContract: EFFECTS_CONTRACT },
     boundaries: {
       forbiddenActions: context.config.forbiddenActions,
       approvalGates: context.config.approvalGates,
@@ -231,6 +269,10 @@ export function briefProvenanceProblems(
 
   const problems: string[] = [];
   const walk = (value: unknown, path: string, key: string): void => {
+    // The one subtree the walk cannot judge, because it is generated rather than copied. It is not
+    // waved through: `effectsContractProblems` pins it to one exact value, which is a stricter test
+    // than "appears somewhere in the plan". The skip is by exact PATH, so nothing else inherits it.
+    if (path === 'brief.records.effectsContract') return;
     if (typeof value === 'string') {
       if (isExempt(key)) return;
       if (value.length > 0 && !sources.includes(JSON.stringify(value).slice(1, -1))) {
@@ -247,5 +289,52 @@ export function briefProvenanceProblems(
     }
   };
   walk(brief, 'brief', 'brief');
+  return [...problems, ...effectsContractProblems(brief)];
+}
+
+/**
+ * The effects contract is EXACTLY the generated one, or the brief is refused.
+ *
+ * WHY THIS EXISTS RATHER THAN A PROVENANCE EXEMPTION ON ITS OWN. The walk above proves a string came
+ * from the plan, the config or the checkout. The contract comes from none of those — it is derived
+ * from the reader's own constant — so the walk cannot clear it, and simply exempting the subtree
+ * would open precisely the instruction channel the exemption list exists to keep shut: anything
+ * could then be written under `effectsContract` and skipped.
+ *
+ * Equality is the stronger answer, and it has to be equality of the WHOLE object. Checking the three
+ * named fields and letting anything else through would leave the one subtree the walk cannot see
+ * defended by a test that does not look at what was added — which is how a "helpful hint" would get
+ * into a brief with both checks reporting clean. So the key set is pinned too. Field names come from
+ * `PROTECTED_EFFECT_FIELDS`, so if the reader ever demands a seventh field and this is not
+ * regenerated, every brief is refused rather than quietly telling workers the old shape.
+ */
+export function effectsContractProblems(brief: WorkerBrief): readonly string[] {
+  const c = brief.records?.effectsContract;
+  if (c === null || typeof c !== 'object') return ['the brief states no effects-record contract'];
+  const problems: string[] = [];
+  // THE KEY SET IS PART OF THE PIN. Checking three named fields and ignoring the rest would make
+  // this "a superset of three fields", not "one exact value" — and since the walk no longer looks
+  // inside this subtree, an unexamined extra key is the one place in the brief where a string is
+  // checked by nothing at all. That is precisely the free-text channel the walk exists to close.
+  const keys = Object.keys(c).sort();
+  const expected = Object.keys(EFFECTS_CONTRACT).sort();
+  if (keys.length !== expected.length || keys.some((k, i) => k !== expected[i])) {
+    problems.push(
+      `the effects contract carries ${JSON.stringify(keys)}, not exactly ${JSON.stringify(expected)}`,
+    );
+  }
+  if (c.location !== EFFECTS_CONTRACT.location) {
+    problems.push(`the effects contract states location '${String(c.location)}', not '${EFFECTS_CONTRACT.location}'`);
+  }
+  if (c.valueType !== EFFECTS_CONTRACT.valueType) {
+    problems.push(`the effects contract states valueType '${String(c.valueType)}', not '${EFFECTS_CONTRACT.valueType}'`);
+  }
+  const want = [...EFFECTS_CONTRACT.requiredFields];
+  const got = Array.isArray(c.requiredFields) ? [...c.requiredFields] : [];
+  if (got.length !== want.length || want.some((f, i) => got[i] !== f)) {
+    problems.push(
+      `the effects contract lists ${JSON.stringify(got)}, not the fields the reader requires: ${JSON.stringify(want)}`,
+    );
+  }
   return problems;
 }

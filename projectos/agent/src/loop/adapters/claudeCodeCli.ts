@@ -19,6 +19,7 @@
  */
 import type { System } from '../../system.js';
 import type { WorkerBrief } from '../brief.js';
+import { PROTECTED_EFFECT_FIELDS } from '../outcome.js';
 import type { AuthorisedWorker, WorkerAdapter, WorkerOutcome, WorkerSession } from '../workers.js';
 
 export const CLAUDE_CODE_CLI = 'claude-code-cli';
@@ -42,17 +43,23 @@ export const CLAUDE_CODE_CLI = 'claude-code-cli';
  * brief, inferred what was wanted, and finished by asking a human for approval it had no way to
  * receive. Demanding a record you never requested is not a gate, it is a dead end.
  *
- * The six field names are stated because the reader refuses an incomplete attestation, and a worker
- * that has to guess the shape will guess wrong. They are a constant here, not caller text.
+ * THE SECOND LIVE DISCOVERY PROVED THAT NAMING THE FIELDS IS NOT STATING THE SHAPE. This clause used
+ * to give the findings record an object literal and the effects record only a list of six names. A
+ * worker wrote those six truthfully, nested under `attestation`, and the run was refused
+ * `EFFECTS_NOT_ATTESTED` before it ever reached the reviewer — while the previous run, which happened
+ * to put them at top level, was certified. Nothing distinguished the two but a reading of a sentence.
+ * The shape is now rendered from `PROTECTED_EFFECT_FIELDS`, the same constant the reader validates
+ * against, so it cannot drift and cannot be read two ways. Still a constant, still not caller text.
  */
+const EFFECTS_SHAPE = `{${PROTECTED_EFFECT_FIELDS.map((f) => `"${f}": true|false`).join(', ')}}`;
+
 const RECORDS_CLAUSE =
   'Before you finish, write the two records the brief names under `records`: the findings record, ' +
   'as {"reviews": [names of the reviews you performed], "findings": [{"id", "severity" of ' +
   'CRITICAL|HIGH|MEDIUM|LOW, "category", "summary", "resolved"}]}; and the effects attestation, ' +
-  'which must state ALL SIX of productionTouched, deploymentOccurred, databaseMutationOccurred, ' +
-  'externalSendOccurred, paymentOccurred and rawSecretStored as booleans saying what this run ' +
-  'actually did. An incomplete attestation is refused, and a run that attests nothing cannot be ' +
-  'certified. ';
+  `EXACTLY as ${EFFECTS_SHAPE} — all six keys at the TOP LEVEL of that record, nested under ` +
+  'nothing, each a boolean saying what this run actually did. An incomplete attestation is ' +
+  'refused, a nested one is refused, and a run that attests nothing cannot be certified. ';
 
 export function pointerInstruction(briefPath: string): string {
   return (

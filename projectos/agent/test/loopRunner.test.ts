@@ -892,6 +892,276 @@ describe('runLoop with an unattended gatekeeper', () => {
     }),
   });
 
+
+  /* ----------------------------------------------------------------------------------------------
+   * REACHABILITY — every stop the table routes to the gatekeeper must actually GET there.
+   *
+   * THE SECOND LIVE DISCOVERY NEVER MET THE REVIEWER. `STOP_ROUTES` declares five codes
+   * `audience: 'gatekeeper'`, each with a rationale for why a reviewer can answer it. Three of them —
+   * WORKER_REFUSED, REVIEW_OUTSTANDING, EFFECTS_NOT_ATTESTED — were set with a bare `break`, before
+   * the consultation was reachable at all. The table promised five routes and the loop delivered two,
+   * and nothing failed: the run simply ended, looking like a reviewer had declined it.
+   *
+   * These assert the consultation HAPPENED, by the request the loop actually sent, and that it
+   * carried the right stop code. The owner-only stops must stay out of it.
+   * ------------------------------------------------------------------------------------------- */
+
+  /** The stop code inside the request body the loop sent, or null if it never sent one. */
+  const stopCodeSent = (sent: readonly string[]): string | null => {
+    if (sent.length === 0) return null;
+    // The evidence is embedded as an escaped JSON string inside the request body, so the field
+    // arrives as \"code\": \"X\" rather than "code": "X". Matching only the unescaped form found
+    // nothing and would have read as "never consulted" for routes that work.
+    const m = /\\?"code\\?"\s*:\s*\\?"([A-Z_]+)\\?"/.exec(sent.join('\n'));
+    return m === null ? null : m[1] ?? null;
+  };
+
+  const nestedAttestation = () => ({
+    [`${ROOT}/.projectops/execution/${SESSION}.findings.json`]: JSON.stringify({
+      reviews: ['code-review', 'security-review'],
+      findings: [],
+    }),
+    // EXACTLY WHAT THE SECOND LIVE WORKER WROTE: all six, truthful, nested one level down.
+    [`${ROOT}/.projectops/execution/${SESSION}.effects.json`]: JSON.stringify({
+      schemaVersion: '1.0.0',
+      attestation: attestation(),
+    }),
+  });
+
+  const unreadableFindings = () => ({
+    [`${ROOT}/.projectops/execution/${SESSION}.findings.json`]: '{ this is not json',
+    [`${ROOT}/.projectops/execution/${SESSION}.effects.json`]: JSON.stringify(attestation()),
+  });
+
+  it('ROUTE A — WORKER_REFUSED reaches the gatekeeper instead of ending the run', () => {
+    const sys = world({ files: cleanFindings(SESSION) });
+    const sent: string[] = [];
+    const r = runLoop(sys, ROOT, {
+      adapters: fakeAdapter({ exitCode: 3 }).registry,
+      expectedDecider: 'ChatGPT',
+      gatekeeper: gatekeeper({ status: 200, body: decisionBody('DO_NOT_PROCEED', null) }, sent),
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.stop?.code).toBe('WORKER_REFUSED');
+    expect(stopCodeSent(sent)).toBe('WORKER_REFUSED');
+  });
+
+  it('ROUTE B — REVIEW_OUTSTANDING reaches the gatekeeper', () => {
+    const sys = world({ files: unreadableFindings() });
+    const sent: string[] = [];
+    const r = runLoop(sys, ROOT, {
+      adapters: fakeAdapter().registry,
+      expectedDecider: 'ChatGPT',
+      gatekeeper: gatekeeper({ status: 200, body: decisionBody('DO_NOT_PROCEED', null) }, sent),
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.stop?.code).toBe('REVIEW_OUTSTANDING');
+    expect(stopCodeSent(sent)).toBe('REVIEW_OUTSTANDING');
+  });
+
+  it('ROUTE C — EFFECTS_NOT_ATTESTED reaches the gatekeeper (the stop that ended discovery 2)', () => {
+    const sys = world({ files: nestedAttestation() });
+    const sent: string[] = [];
+    const r = runLoop(sys, ROOT, {
+      adapters: fakeAdapter().registry,
+      expectedDecider: 'ChatGPT',
+      gatekeeper: gatekeeper({ status: 200, body: decisionBody('DO_NOT_PROCEED', null) }, sent),
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.stop?.code).toBe('EFFECTS_NOT_ATTESTED');
+    expect(stopCodeSent(sent)).toBe('EFFECTS_NOT_ATTESTED');
+  });
+
+  it('ROUTE D — UNRESOLVED_CRITICAL_OR_HIGH still reaches it', () => {
+    const sys = world({ files: { ...cleanFindings(SESSION), ...highFinding() } });
+    const sent: string[] = [];
+    const r = runLoop(sys, ROOT, {
+      adapters: fakeAdapter().registry,
+      expectedDecider: 'ChatGPT',
+      gatekeeper: gatekeeper({ status: 200, body: decisionBody('DO_NOT_PROCEED', null) }, sent),
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(stopCodeSent(sent)).toBe('UNRESOLVED_CRITICAL_OR_HIGH');
+  });
+
+  it('ROUTE F — PROTECTED_EFFECT stays the owner-only stop it is: no reviewer is consulted', () => {
+    const sys = world({
+      files: {
+        ...cleanFindings(SESSION),
+        [`${ROOT}/.projectops/execution/${SESSION}.effects.json`]: JSON.stringify(
+          attestation({ productionTouched: true }),
+        ),
+      },
+    });
+    const sent: string[] = [];
+    const r = runLoop(sys, ROOT, {
+      adapters: fakeAdapter().registry,
+      expectedDecider: 'ChatGPT',
+      gatekeeper: gatekeeper({ status: 200, body: decisionBody('APPROVED_TO_PROCEED', null) }, sent),
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.stop?.code).toBe('PROTECTED_EFFECT');
+    // The reviewer holds no authority here, so it is never asked — not asked and then overruled.
+    expect(sent).toEqual([]);
+  });
+
+  it('ROUTE — exactly ONE consultation per stop, never a second for the same failure', () => {
+    const sys = world({ files: nestedAttestation() });
+    const sent: string[] = [];
+    runLoop(sys, ROOT, {
+      adapters: fakeAdapter().registry,
+      expectedDecider: 'ChatGPT',
+      gatekeeper: gatekeeper({ status: 200, body: decisionBody('DO_NOT_PROCEED', null) }, sent),
+    });
+    expect(sent).toHaveLength(1);
+  });
+
+  it('ROUTE — an unattested run cannot be APPROVED past; the verdict is refused, not applied', () => {
+    const sys = world({ files: nestedAttestation() });
+    const sent: string[] = [];
+    const r = runLoop(sys, ROOT, {
+      adapters: fakeAdapter().registry,
+      expectedDecider: 'ChatGPT',
+      // The one verdict that would be fail-open here: approving an attestation that does not exist.
+      // It carries an instruction so it passes checkGatekeeperDecision and the refusal under test is
+      // the APPLICABILITY refusal, not an earlier well-formedness one.
+      gatekeeper: gatekeeper({ status: 200, body: decisionBody('APPROVED_TO_PROCEED', 'ship it') }, sent),
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.stop?.code).toBe('EFFECTS_NOT_ATTESTED');
+    expect(r.lines.join('\n')).toContain('which cannot answer this stop');
+  });
+
+  it('EVIDENCE — missing evidence is sent as missing, never as an empty or clean result', () => {
+    const sys = world({ files: nestedAttestation() });
+    const sent: string[] = [];
+    runLoop(sys, ROOT, {
+      adapters: fakeAdapter().registry,
+      expectedDecider: 'ChatGPT',
+      gatekeeper: gatekeeper({ status: 200, body: decisionBody('DO_NOT_PROCEED', null) }, sent),
+    });
+    const body = sent.join('\n');
+    // The reviewer is told the attestation is absent AND why — not shown `effects: null`, and not
+    // shown six falses it would read as "this run touched nothing".
+    expect(body).toContain('available');
+    expect(body).toContain('does not state productionTouched');
+  });
+
+  it('EVIDENCE — a refused worker reports no CHECKS, because it genuinely ran none', () => {
+    const sys = world({ files: cleanFindings(SESSION) });
+    const sent: string[] = [];
+    runLoop(sys, ROOT, {
+      adapters: fakeAdapter({ exitCode: 3 }).registry,
+      expectedDecider: 'ChatGPT',
+      gatekeeper: gatekeeper({ status: 200, body: decisionBody('DO_NOT_PROCEED', null) }, sent),
+    });
+    expect(sent.join('\n')).toContain('the worker refused, so no checks were run');
+  });
+
+  it('EVIDENCE — a refused worker that DID attest is not reported as having attested nothing', () => {
+    // MY OWN TEST PROVED THE BUG. It ran with cleanFindings, which writes BOTH records, and then
+    // asserted the loop told the reviewer neither existed — an assertion that the manufactured
+    // claim was being made, sitting under a comment promising evidence is never manufactured.
+    const sys = world({
+      files: {
+        ...cleanFindings(SESSION),
+        [`${ROOT}/.projectops/execution/${SESSION}.effects.json`]: JSON.stringify(
+          attestation({ productionTouched: true }),
+        ),
+      },
+    });
+    const sent: string[] = [];
+    runLoop(sys, ROOT, {
+      adapters: fakeAdapter({ exitCode: 3 }).registry,
+      expectedDecider: 'ChatGPT',
+      gatekeeper: gatekeeper({ status: 200, body: decisionBody('DO_NOT_PROCEED', null) }, sent),
+    });
+    const body = sent.join('\n');
+    expect(body).not.toContain('attested nothing');
+    expect(body).not.toContain('recorded no review');
+    // The fact that can turn an amendment into AWAITING_OWNER must reach the reviewer.
+    expect(body).toContain('productionTouched');
+    expect(body).toContain('code-review');
+  });
+
+  it('EVIDENCE — a corrupt findings record no longer withholds the attestation from the reviewer', () => {
+    // The two records are independent. One being unreadable was letting a run go onward for
+    // correction while an attestation on disk said production had been touched and nobody looked.
+    const sys = world({
+      files: {
+        [`${ROOT}/.projectops/execution/${SESSION}.findings.json`]: '{ this is not json',
+        [`${ROOT}/.projectops/execution/${SESSION}.effects.json`]: JSON.stringify(
+          attestation({ productionTouched: true }),
+        ),
+      },
+    });
+    const sent: string[] = [];
+    const r = runLoop(sys, ROOT, {
+      adapters: fakeAdapter().registry,
+      expectedDecider: 'ChatGPT',
+      gatekeeper: gatekeeper({ status: 200, body: decisionBody('DO_NOT_PROCEED', null) }, sent),
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.stop?.code).toBe('REVIEW_OUTSTANDING');
+    const body = sent.join('\n');
+    expect(body).toContain('productionTouched');
+    expect(body).not.toContain('the effects record was not reached');
+  });
+
+  /* ----------------------------------------------------------------------------------------------
+   * THE UNREACHABLE REVIEWER, at each newly repaired stop. FIXTURE ONLY — no receipt is withheld, no
+   * OpenAI call is made, no real outage record is written and no grant exists.
+   * ------------------------------------------------------------------------------------------- */
+  it.each([
+    ['WORKER_REFUSED', 3, () => cleanFindings(SESSION)],
+    ['REVIEW_OUTSTANDING', 0, () => unreadableFindings()],
+    ['EFFECTS_NOT_ATTESTED', 0, () => nestedAttestation()],
+  ])('UNAVAILABLE — %s now reaches the owner three choices instead of ending silently', (code, exit, mk) => {
+    const sys = world({ files: mk() });
+    const sent: string[] = [];
+    const deps = gatekeeper({ status: 200, body: decisionBody('DO_NOT_PROCEED', null) }, sent);
+    const r = runLoop(sys, ROOT, {
+      adapters: fakeAdapter({ exitCode: exit }).registry,
+      expectedDecider: 'ChatGPT',
+      // The reviewer is configured and cannot be reached. That is the whole scenario.
+      gatekeeper: { ...deps, availability: { reachable: false, detail: 'no network route to the gatekeeper' } },
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.stop?.code).toBe(code);
+    const out = r.lines.join('\n');
+    expect(out).toContain('WAIT FOR OPENAI');
+    expect(out).toContain('ACCEPT RISK & CONTINUE WITH CLAUDE SELF-REVIEW');
+    expect(out).toContain('STOP WORK');
+    // Unreachable means unreachable: nothing was sent.
+    expect(sent).toEqual([]);
+  });
+
+  it('UNAVAILABLE — with a grant named but none committed, the degraded route REFUSES and no work runs', () => {
+    const sys = world({ files: nestedAttestation() });
+    const deps = gatekeeper({ status: 200, body: decisionBody('DO_NOT_PROCEED', null) });
+    const r = runLoop(sys, ROOT, {
+      adapters: fakeAdapter().registry,
+      expectedDecider: 'ChatGPT',
+      gatekeeper: { ...deps, availability: { reachable: false, detail: 'no network route to the gatekeeper' } },
+      degradedMode: { grantId: 'FIXTURE-NO-SUCH-GRANT', operation: 'implement' },
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.stop?.code).toBe('EFFECTS_NOT_ATTESTED');
+    // Reached the degraded route at all — the step the live run never got to.
+    expect(r.degraded).not.toBeNull();
+    expect(r.degraded?.kind).not.toBe('WORK_DONE');
+    expect(r.lines.join('\n')).toContain('degraded mode REFUSED');
+  });
+
   it('consults the reviewer at the stop the loop used to end on', () => {
     const sys = world({ files: highFinding() });
     const { registry } = fakeAdapter();

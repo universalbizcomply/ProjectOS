@@ -142,3 +142,55 @@ describe('attestationProblems', () => {
     ]);
   });
 });
+
+/* ------------------------------------------------------------------------------------------------
+ * THE SHAPE THE SECOND LIVE DISCOVERY GOT WRONG.
+ *
+ * These are the reader's half of the contract the brief now states. The nested case is not
+ * hypothetical: a worker wrote exactly that, truthfully, and the run was refused before it reached
+ * the reviewer. The refusal is correct and stays; what changed is that the shape is now stated.
+ * --------------------------------------------------------------------------------------------- */
+
+describe('EFFECTS CONTRACT — what the reader accepts, and what it refuses', () => {
+  const six = () => ({
+    productionTouched: false,
+    deploymentOccurred: false,
+    databaseMutationOccurred: false,
+    externalSendOccurred: false,
+    paymentOccurred: false,
+    rawSecretStored: false,
+  });
+
+  it('C — the six at TOP LEVEL are accepted', () => {
+    expect(attestationProblems(six())).toEqual([]);
+    // And truthfully attesting that something DID happen is equally well-formed.
+    expect(attestationProblems({ ...six(), deploymentOccurred: true })).toEqual([]);
+  });
+
+  it('D — the same six NESTED are refused, naming every field as missing', () => {
+    const nested = { schemaVersion: '1.0.0', attestation: six() };
+    const problems = attestationProblems(nested);
+    expect(problems).toHaveLength(PROTECTED_EFFECT_FIELDS.length);
+    for (const field of PROTECTED_EFFECT_FIELDS) {
+      expect(problems).toContain(`the effects attestation does not state ${field}`);
+    }
+  });
+
+  it.each([...PROTECTED_EFFECT_FIELDS])('E — a record missing %s is refused', (field) => {
+    const partial: Record<string, unknown> = six();
+    delete partial[field];
+    expect(attestationProblems(partial)).toEqual([`the effects attestation does not state ${field}`]);
+  });
+
+  it.each([
+    ['a string', 'false'],
+    ['a number', 0],
+    ['null', null],
+    ['an object', {}],
+  ])('F — a non-boolean value (%s) is refused rather than coerced', (_label, value) => {
+    const problems = attestationProblems({ ...six(), paymentOccurred: value });
+    expect(problems).toEqual([
+      `the effects attestation states paymentOccurred as ${JSON.stringify(value)}, which is not a boolean`,
+    ]);
+  });
+});
