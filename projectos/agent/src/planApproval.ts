@@ -558,9 +558,18 @@ export function materialisePlan(input: MaterialiseInputs): MaterialiseResult {
     if (risk === null) problems.push(`phase ${id} does not state a risk level`);
     if (autonomy === null) problems.push(`phase ${id} does not state an autonomy level`);
     if (typeof proof !== 'boolean') problems.push(`phase ${id} does not state whether browser proof is required`);
+    // SCOPE IS PROJECTED. It was omitted, so every activated plan dropped the approved scope and the
+    // only machine-readable record of what a phase may touch disappeared at the moment of approval.
+    // Worse, the activated plan then SHADOWED its own source document in discovery - it declares the
+    // phase with high confidence and no scope - so the scope could never be recovered by regenerating.
+    // Carrying it here is what makes the approval digest bind the scope the owner actually approved.
+    // Carried, never enforced here. Requiring a sourced scope would refuse every plan whose draft
+    // predates this projection, which is a migration decision and not this correction's business.
+    const scope = strOf(c['scope']);
     return {
       phaseId: id,
       description: description ?? '',
+      scope: scope ?? '',
       dependsOn: arrOfStrings(c['dependencies']),
       acceptanceCriteria: acceptance,
       riskLevel: risk ?? '',

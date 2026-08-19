@@ -60,6 +60,7 @@
     {
       "phaseId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
       "description": "Let ProjectOS coordinate OpenAI governance and Claude implementation by itself, so the owner supplies an objective once and never again carries a prompt, report or gate decision between them.",
+      "scope": "One OpenAI gatekeeper transport adapter, a machine-readable gatekeeper decision contract, per-project governance-thread binding, a cost ledger with budget policy, a fail-safe unavailability path, an owner-risk degraded mode with reconciliation, and the validators and tests that hold those honest. Implementation may also modify projectos/agent/src/loop/runner.ts only to connect validated correction authority to the existing worker invocation, and projectos/agent/src/closureGate.ts only to recognise the governed canonical current-state location in programme-state drift checks; neither path is writable by the autonomous correction worker.",
       "dependsOn": [],
       "acceptanceCriteria": [
         "A supported unattended OpenAI transport is implemented behind an abstraction, and unattended operation never depends on a browser window, a desktop app window, a focused tab or a conversation name",

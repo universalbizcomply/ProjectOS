@@ -1,0 +1,7 @@
+{
+  "schemaVersion": "1.0.0",
+  "purpose": "The Criterion 10 proof target: the ONE file the autonomous correction worker may write.",
+  "why": "Acceptance criterion 10 requires a correction cycle driven by a REAL mandatory check failing. Something must therefore be safely breakable. This fixture is that thing: test-only, deterministic, with no runtime authority, no credential behaviour and no budget behaviour. Breaking it fails agent-tests, a mandatory configured check; restoring one value fixes it, and the correct value is stated here so the correction is unambiguous.",
+  "expectedAnswer": 42,
+  "note": "expectedAnswer must be 42. The proof mutates it, a real check fails, the gatekeeper asks for a correction, and the governed worker restores it."
+}

@@ -707,6 +707,12 @@ describe('plan activate derives destinations and keeps the programme in force', 
     return planCommand({ sys: w.sys, root: w.root }, { id: draftId, decision: decisionId }, ['activate']);
   }
 
+  // THE RECORD IDENTITY ACTIVATION DERIVES: the objective AND the plan material approved for it.
+  // Stated once here so every expectation below asserts the convention rather than restating it.
+  function recordId(w: World) {
+    return `${w.draftId}-${w.planDigest.slice(7, 19)}`;
+  }
+
   test('[8] a new plan is a NEW record; the previously active plan is untouched', () => {
     const w = world({ committed: ACTIVATE_COMMITTED });
     writeDelegation(w, { programmeScope: 'acme-v1' }); // activate derives the ACTIVE plan's programme
@@ -719,14 +725,14 @@ describe('plan activate derives destinations and keeps the programme in force', 
     expect(r.code, r.lines.join(' | ')).toBe(0);
 
     // Derived, never supplied.
-    const planPath = pjoin(w.root, `.projectops/plan-${w.draftId}.json`);
-    const statePath = pjoin(w.root, `.projectops/current-state-${w.draftId}.json`);
+    const planPath = pjoin(w.root, `.projectops/plan-${recordId(w)}.json`);
+    const statePath = pjoin(w.root, `.projectops/current-state-${recordId(w)}.json`);
     expect(existsSync(planPath)).toBe(true);
     expect(existsSync(statePath)).toBe(true);
 
     const activated = JSON.parse(readFileSync(planPath, 'utf8')) as Record<string, unknown>;
     expect(activated['planStatus']).toBe('PLAN READY');
-    expect(activated['planId']).toBe(`plan-${w.draftId}`);
+    expect(activated['planId']).toBe(`plan-${recordId(w)}`);
     // The programme is the one already in force, taken from the active plan.
     expect(activated['programmeId']).toBe('acme-v1');
 
@@ -737,8 +743,8 @@ describe('plan activate derives destinations and keeps the programme in force', 
     // planMemory now names the new records.
     const cfg = JSON.parse(readFileSync(pjoin(w.root, '.projectops/project-config.json'), 'utf8')) as Record<string, unknown>;
     const memory = cfg['planMemory'] as Record<string, unknown>;
-    expect(memory['planPath']).toBe(`.projectops/plan-${w.draftId}.json`);
-    expect(memory['currentStatePath']).toBe(`.projectops/current-state-${w.draftId}.json`);
+    expect(memory['planPath']).toBe(`.projectops/plan-${recordId(w)}.json`);
+    expect(memory['currentStatePath']).toBe(`.projectops/current-state-${recordId(w)}.json`);
     // And the outgoing plan is retained as a planning source rather than deleted.
     expect(JSON.stringify(cfg['planSources'])).toContain('state/active.plan.json');
   });
@@ -750,7 +756,7 @@ describe('plan activate derives destinations and keeps the programme in force', 
     const firstDraft = w.draftId;
 
     expect(activateVia(w, firstDraft, firstDecision).code).toBe(0);
-    const planA = pjoin(w.root, `.projectops/plan-${firstDraft}.json`);
+    const planA = pjoin(w.root, `.projectops/plan-${firstDraft}-${w.planDigest.slice(7, 19)}.json`);
     const planABytes = readFileSync(planA, 'utf8');
 
     // A second objective, drafted AFTER the first activation — the repository's plan material has
@@ -767,14 +773,16 @@ describe('plan activate derives destinations and keeps the programme in force', 
     const r2 = activateVia(w, secondDraft, secondDecision);
     expect(r2.code, r2.lines.join(' | ')).toBe(0);
 
-    const planB = pjoin(w.root, `.projectops/plan-${secondDraft}.json`);
+    const planB = pjoin(w.root, `.projectops/plan-${secondDraft}-${second.draftRecord.planDigest.slice(7, 19)}.json`);
     expect(existsSync(planB)).toBe(true);
     expect(planB).not.toBe(planA);
     // Plan A is immutable: still there, still byte-identical.
     expect(readFileSync(planA, 'utf8')).toBe(planABytes);
     // The pointer moved to B.
     const cfg = JSON.parse(readFileSync(pjoin(w.root, '.projectops/project-config.json'), 'utf8')) as Record<string, unknown>;
-    expect((cfg['planMemory'] as Record<string, unknown>)['planPath']).toBe(`.projectops/plan-${secondDraft}.json`);
+    expect((cfg['planMemory'] as Record<string, unknown>)['planPath']).toBe(
+      `.projectops/plan-${secondDraft}-${second.draftRecord.planDigest.slice(7, 19)}.json`,
+    );
     // Same programme throughout.
     const b = JSON.parse(readFileSync(planB, 'utf8')) as Record<string, unknown>;
     expect(b['programmeId']).toBe('acme-v1');
@@ -791,7 +799,7 @@ describe('plan activate derives destinations and keeps the programme in force', 
     const id = writeDecision(w);
     expect(activateVia(w, w.draftId, id).code).toBe(0);
 
-    const planPath = pjoin(w.root, `.projectops/plan-${w.draftId}.json`);
+    const planPath = pjoin(w.root, `.projectops/plan-${recordId(w)}.json`);
     const bytes = readFileSync(planPath, 'utf8');
 
     const again = activateVia(w, w.draftId, id);
@@ -799,6 +807,87 @@ describe('plan activate derives destinations and keeps the programme in force', 
     expect(again.lines.join(' ')).toMatch(/REFUSED/);
     // The record is exactly as it was: no truncate, no replace.
     expect(readFileSync(planPath, 'utf8')).toBe(bytes);
+  });
+
+  test('[10b] an AMENDMENT to the same objective activates as its own record', () => {
+    // THE DEFECT THIS EXISTS TO PROVE FIXED, observed live on ProjectOS itself.
+    //
+    // A draft id is `sha256(projectId + objective)`. An amendment does not change the objective —
+    // it changes what the plan for that objective says — so the draft id is identical and the
+    // record path derived from it alone was the record already in force. Activation was therefore
+    // refused with WOULD_OVERWRITE_ACTIVE_PLAN, correctly, and there was no way past it: an
+    // owner-approved amendment to an activated plan could never be activated at all.
+    //
+    // Identity is now the objective AND the approved plan material, so the same objective with a
+    // different approved digest resolves to a different record. Nothing about the overwrite guard,
+    // the committed-decision rule or the spent-decision rule is relaxed to achieve it.
+    const w = world({ committed: ACTIVATE_COMMITTED });
+    writeDelegation(w, { programmeScope: 'acme-v1' });
+    const firstDecision = writeDecision(w);
+    expect(activateVia(w, w.draftId, firstDecision).code).toBe(0);
+
+    const planA = pjoin(w.root, `.projectops/plan-${recordId(w)}.json`);
+    const planABytes = readFileSync(planA, 'utf8');
+
+    // THE AMENDMENT: one acceptance criterion changed in the plan of record. Same objective, same
+    // project, same draft id — different plan material, so a different digest.
+    writeFileSync(
+      pjoin(w.root, 'docs-plan.md'),
+      PLAN_DOC.replace('- a customer can place an order', '- a customer can place an order, AMENDED'),
+    );
+    const amended = submitObjective(w.sys, w.root, 'Make the ordering journey reliable and simple to operate.');
+    if (!amended.ok) throw new Error(`could not redraft the amendment: ${amended.code}`);
+    expect(amended.objective.objectiveId).toBe(w.draftId); // same objective => same draft id
+    expect(amended.draftRecord.planDigest).not.toBe(w.planDigest); // different plan material
+
+    const amendedDecision = writeDecision(w, {
+      decisionId: 'ACME-PLAN-APPROVAL-DECISION2B',
+      planDigest: amended.draftRecord.planDigest,
+    });
+    const r = activateVia(w, w.draftId, amendedDecision);
+    expect(r.code, r.lines.join(' | ')).toBe(0);
+
+    // A DIFFERENT RECORD, derived — not named by anyone.
+    const planB = pjoin(w.root, `.projectops/plan-${w.draftId}-${amended.draftRecord.planDigest.slice(7, 19)}.json`);
+    expect(existsSync(planB)).toBe(true);
+    expect(planB).not.toBe(planA);
+
+    // A IS IMMUTABLE. Still there, still byte-identical: an amendment supersedes, it does not edit.
+    expect(readFileSync(planA, 'utf8')).toBe(planABytes);
+
+    // And the pointer moved to B, so B is what the project is now governed by.
+    const cfg = JSON.parse(readFileSync(pjoin(w.root, '.projectops/project-config.json'), 'utf8')) as Record<string, unknown>;
+    const memory = cfg['planMemory'] as Record<string, unknown>;
+    expect(memory['planPath']).toBe(`.projectops/plan-${w.draftId}-${amended.draftRecord.planDigest.slice(7, 19)}.json`);
+    // A is retained as a planning source rather than deleted — superseded, not erased.
+    expect(JSON.stringify(cfg['planSources'])).toContain(`plan-${recordId(w)}.json`);
+    // The amended criterion is what B actually carries.
+    const b = JSON.parse(readFileSync(planB, 'utf8')) as Record<string, unknown>;
+    expect(JSON.stringify(b['phases'])).toContain('AMENDED');
+    expect(b['programmeId']).toBe('acme-v1');
+    // Both decisions are separately spent; neither can approve anything again.
+    for (const d of [firstDecision, amendedDecision]) {
+      const rec = JSON.parse(readFileSync(pjoin(w.root, `.projectops/plan-decisions/${d}.json`), 'utf8')) as Record<string, unknown>;
+      expect(typeof rec['consumedAt']).toBe('string');
+    }
+  });
+
+  test('[10c] a draft carrying no usable digest refuses rather than falling back to the old name', () => {
+    // The fallback would be the collision itself: a draft-only name aims an amendment straight at
+    // the active record. Fail closed instead.
+    const w = world({ committed: ACTIVATE_COMMITTED });
+    writeDelegation(w, { programmeScope: 'acme-v1' });
+    const id = writeDecision(w);
+    const draftPath = pjoin(w.root, `.projectops/drafts/${w.draftId}.json`);
+    const draft = JSON.parse(readFileSync(draftPath, 'utf8')) as Record<string, unknown>;
+    delete draft['planDigest'];
+    writeFileSync(draftPath, JSON.stringify(draft, null, 2));
+
+    const r = activateVia(w, w.draftId, id);
+    expect(r.code).not.toBe(0);
+    expect(r.lines.join(' ')).toMatch(/REFUSED/);
+    const written = readdirSync(pjoin(w.root, '.projectops')).filter((f) => f.startsWith('plan-') && f.endsWith('.json'));
+    expect(written).toEqual([]);
   });
 
   test('[11] a programme-scoped closure delegation stays VALID because the programme is derived', () => {
@@ -822,7 +911,7 @@ describe('plan activate derives destinations and keeps the programme in force', 
     expect(r.code, r.lines.join(' | ')).toBe(0);
 
     const activated = JSON.parse(
-      readFileSync(pjoin(w.root, `.projectops/plan-${w.draftId}.json`), 'utf8'),
+      readFileSync(pjoin(w.root, `.projectops/plan-${recordId(w)}.json`), 'utf8'),
     ) as Record<string, unknown>;
     expect(activated['programmeId']).toBe(activeProgramme);
 
@@ -861,7 +950,7 @@ describe('plan activate derives destinations and keeps the programme in force', 
 
     expect(invented.ok).toBe(false);
     if (!invented.ok) expect(invented.problems.join('; ')).toMatch(/scoped to programme/i);
-    expect(existsSync(pjoin(w.root, `.projectops/plan-${w.draftId}.json`))).toBe(false);
+    expect(existsSync(pjoin(w.root, `.projectops/plan-${recordId(w)}.json`))).toBe(false);
   });
 
   test('[6] an active plan with no programmeId refuses rather than defaulting one', () => {
@@ -884,7 +973,7 @@ describe('plan activate derives destinations and keeps the programme in force', 
     expect(r.lines.join(' ')).toMatch(/PLAN_SCHEMA_INVALID/);
     expect(r.lines.join(' ')).toMatch(/programmeId/);
     // Either way, the behaviour the gate requires holds: no programme is defaulted and nothing runs.
-    expect(existsSync(pjoin(w.root, `.projectops/plan-${w.draftId}.json`))).toBe(false);
+    expect(existsSync(pjoin(w.root, `.projectops/plan-${recordId(w)}.json`))).toBe(false);
   });
 
   test('[12] a path-shaped draft id is refused BEFORE it becomes a filename', () => {
@@ -914,7 +1003,7 @@ describe('plan activate derives destinations and keeps the programme in force', 
       expect(r.code, bad).not.toBe(0);
       expect(r.lines.join(' '), bad).toMatch(/REFUSED/);
     }
-    expect(existsSync(pjoin(w.root, `.projectops/plan-${w.draftId}.json`))).toBe(false);
+    expect(existsSync(pjoin(w.root, `.projectops/plan-${recordId(w)}.json`))).toBe(false);
   });
 
   test('[13] activation still refuses without a committed decision', () => {
@@ -924,7 +1013,7 @@ describe('plan activate derives destinations and keeps the programme in force', 
     const r = activateVia(w, w.draftId, id);
     expect(r.code).not.toBe(0);
     expect(r.lines.join(' ')).toMatch(/REFUSED/);
-    expect(existsSync(pjoin(w.root, `.projectops/plan-${w.draftId}.json`))).toBe(false);
+    expect(existsSync(pjoin(w.root, `.projectops/plan-${recordId(w)}.json`))).toBe(false);
   });
 });
 

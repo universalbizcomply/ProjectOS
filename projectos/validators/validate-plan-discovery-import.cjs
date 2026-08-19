@@ -408,6 +408,182 @@ function run() {
       if (real.authority === "UNVERIFIED") errors.push("(j) a source matching the TRUE project identity must not stay downgraded from a guessed one");
       if (fixture.authority !== "UNVERIFIED") errors.push("(j) the source that genuinely mismatches the true identity must be downgraded, got " + fixture.authority);
     }
+
+    // (k) A DERIVED PLAN RECORD MUST NOT SHADOW THE DOCUMENT IT WAS MADE FROM.
+    //
+    // Observed live on this repository. `plan activate` materialises `.projectops/plan-<draftId>.json`
+    // and points the canonical config's `planMemory.planPath` at it. That derived record then joined
+    // the planning corpus as a peer of its own upstream, and because phase extraction took whichever
+    // source the walk reached first, `.projectops/plan-35316a7a7ad3acd6.json` outranked both
+    // `.projectops/plan.json` and `docs/…-plan.md` on nothing but path order. An owner-approved
+    // amendment to acceptance criterion 10 was therefore invisible: every regenerated draft
+    // reproduced the OLD criterion out of the derived record, and reported ZERO conflicts doing it.
+    // Once a plan had been activated, no amendment could reach a draft at all.
+    {
+      const cfg = (planPath, planSources) => fp(".projectops/config.json", JSON.stringify({
+        projectId: "amend", planMemory: { planPath: planPath, currentStatePath: "state.json" }, planSources: planSources
+      }), ".json");
+      // A materialised record is recognised by its own shape: a planId plus an approval block.
+      const derived = (criteria, extraPhases) => JSON.stringify({
+        planId: "amend-plan-1", approval: { approvalStatus: "approved", approvedBy: "owner" },
+        projectId: "amend", definitionOfComplete: "the OLD definition of complete",
+        phases: [{ phaseId: "AMD-P1A", description: "d", acceptanceCriteria: criteria }].concat(extraPhases || [])
+      });
+      const upstream = (criteria, extraPhases) => JSON.stringify({
+        projectId: "amend", definitionOfComplete: "the AMENDED definition of complete",
+        phases: [{ phaseId: "AMD-P1A", description: "d", acceptanceCriteria: criteria }].concat(extraPhases || [])
+      });
+      const OLD = ["criterion one", "the OLD criterion two"];
+      const NEW = ["criterion one", "the AMENDED criterion two"];
+      const state = fp("state.json", JSON.stringify({ projectId: "amend", completedPhases: [] }), ".json");
+      const importOf = (arr) => eng.importFromSources(arr, { projectId: "amend" });
+      const phaseOf = (r, id) => r.draft.phaseCandidates.find((p) => p.phaseId === (id || "AMD-P1A"));
+      const criteriaConflicts = (r) => r.conflicts.filter((c) => String(c.field).indexOf("acceptanceCriteria") === 0);
+
+      // PROOF A — THE REAL CASE. The derived record holds the OLD text; the declared upstream holds
+      // the amendment. The draft must take the AMENDMENT, and the baseline must not be discarded.
+      {
+        const arr = [
+          cfg("baseline.json", ["upstream.json"]),
+          fp("baseline.json", derived(OLD), ".json"),
+          fp("upstream.json", upstream(NEW), ".json"),
+          state
+        ];
+        const r = importOf(arr);
+        const p = phaseOf(r);
+        if (!p) { errors.push("(k) PROOF A: no AMD-P1A candidate was produced at all"); }
+        else {
+          if (p.sourceReferences[0] !== "upstream.json") errors.push("(k) PROOF A: phase content must come from the declared upstream, got " + p.sourceReferences[0]);
+          if (JSON.stringify(p.acceptanceCriteria) !== JSON.stringify(NEW)) errors.push("(k) PROOF A: the amended acceptance criteria did not reach the draft, got " + JSON.stringify(p.acceptanceCriteria));
+        }
+        const originOf = (rel) => (arr.find((s) => s.relPath === rel) || {}).planningOrigin;
+        if (originOf("baseline.json") !== "DERIVED_PLAN_RECORD") errors.push("(k) PROOF A: a materialised plan record must be classed DERIVED_PLAN_RECORD, got " + originOf("baseline.json"));
+        if (originOf("upstream.json") !== "DECLARED_UPSTREAM") errors.push("(k) PROOF A: a planSources entry must be classed DECLARED_UPSTREAM, got " + originOf("upstream.json"));
+        // ONE REVISION, NOT TWO. Phases from the amendment and scalar fields from the baseline would
+        // make the draft a chimera, and `materialisePlan` cites the source of definitionOfComplete
+        // as the activated plan's authoritative source document.
+        if (r.draft.definitionOfComplete !== "the AMENDED definition of complete") errors.push("(k) PROOF A: the draft must not mix an amended phase with a baseline definition of complete, got " + r.draft.definitionOfComplete);
+        const docProv = r.draft.provenance.find((x) => x.field === "definitionOfComplete");
+        if (!docProv || docProv.sourcePath !== "upstream.json") errors.push("(k) PROOF A: definitionOfComplete provenance must cite the upstream, got " + (docProv && docProv.sourcePath));
+        // PATH ORDER IS NOT AUTHORITY. Same corpus, baseline renamed so it now sorts AFTER the
+        // upstream — and renamed the other way round too. The answer must not move either time.
+        const arr2 = [
+          cfg("z-baseline.json", ["a-upstream.json"]),
+          fp("z-baseline.json", derived(OLD), ".json"),
+          fp("a-upstream.json", upstream(NEW), ".json"),
+          state
+        ];
+        const p2 = phaseOf(importOf(arr2));
+        if (!p2 || p2.sourceReferences[0] !== "a-upstream.json") errors.push("(k) PROOF A: selection must be provenance-based, not path-based");
+      }
+
+      // PROOF B — REAL PEER DISAGREEMENT. Two candidate documents, neither of them a baseline, state
+      // genuinely different acceptance criteria for the same phase. That silence was the second half
+      // of the defect: conflicts came back 0 while the sources flatly contradicted each other.
+      {
+        const arr = [
+          cfg("baseline.json", ["upstream.json", "other-upstream.json"]),
+          fp("baseline.json", derived(OLD), ".json"),
+          fp("upstream.json", upstream(NEW), ".json"),
+          fp("other-upstream.json", upstream(["criterion one", "a THIRD, different criterion two"]), ".json"),
+          state
+        ];
+        const r = importOf(arr);
+        const cc = criteriaConflicts(r);
+        if (cc.length === 0) errors.push("(k) PROOF B: two peer sources disagreeing on acceptance criteria must surface a conflict, got 0");
+        const pair = cc.map((c) => [c.sourceA, c.sourceB].sort().join("|"));
+        if (pair.indexOf("other-upstream.json|upstream.json") === -1) errors.push("(k) PROOF B: the conflict must name the two disagreeing peers, got " + JSON.stringify(pair));
+        for (const c of cc) if (c.ownerDecisionRequired !== true) errors.push("(k) PROOF B: a surfaced criteria conflict must require an owner decision");
+        if (r.draft.ownerDecisionsRequired.indexOf(cc[0] && cc[0].conflictId) === -1) errors.push("(k) PROOF B: the disagreement must reach the owner-decision list, not just the conflict array");
+      }
+
+      // PROOF C — NORMAL AMENDMENT. A baseline differing from its proposed amendment is what an
+      // amendment IS. It must never be reported as an accidental peer-source conflict.
+      {
+        const arr = [
+          cfg("baseline.json", ["upstream.json"]),
+          fp("baseline.json", derived(OLD), ".json"),
+          fp("upstream.json", upstream(NEW), ".json"),
+          state
+        ];
+        const cc = criteriaConflicts(importOf(arr));
+        if (cc.length !== 0) errors.push("(k) PROOF C: baseline-vs-amendment must not be reported as a conflict, got " + JSON.stringify(cc.map((c) => c.sourceA + " vs " + c.sourceB)));
+      }
+
+      // THE CLASS MUST SURVIVE ACTIVATION. `approvePlan` folds the OUTGOING plan-memory pair into
+      // planSources, so a rule that keyed only on `planMemory` would reclassify yesterday's baseline
+      // as today's upstream and hand the shadowing straight back — the retired record outranking
+      // both the amendment and the live plan. Recognising the record by shape is what stops that.
+      {
+        const arr = [
+          cfg("new-baseline.json", ["baseline.json", "upstream.json"]),
+          fp("baseline.json", derived(OLD), ".json"),
+          fp("new-baseline.json", derived(OLD), ".json"),
+          fp("upstream.json", upstream(NEW), ".json"),
+          state
+        ];
+        const p = phaseOf(importOf(arr));
+        if (!p || p.sourceReferences[0] !== "upstream.json") errors.push("(k) a RETIRED baseline carried into planSources must not shadow the upstream, got " + (p && p.sourceReferences[0]));
+        if ((arr.find((s) => s.relPath === "baseline.json") || {}).planningOrigin !== "DERIVED_PLAN_RECORD") errors.push("(k) a retired baseline must keep its derived class after being carried into planSources");
+      }
+
+      // AN UNDECLARED FILE MUST NOT OUTRANK THE APPROVED BASELINE. This engine grants AUTHORITATIVE
+      // to any JSON asserting PLAN READY, so demoting the baseline below undeclared content would
+      // let a self-asserting file supply the plan. Only ONE demotion was ever needed.
+      {
+        const arr = [
+          cfg("baseline.json", []),
+          fp("baseline.json", derived(OLD), ".json"),
+          fp("zz-rogue.json", JSON.stringify({ projectId: "amend", planStatus: "PLAN READY", definitionOfComplete: "x", phases: [{ phaseId: "AMD-P1A", description: "d", acceptanceCriteria: ["ROGUE criterion nobody approved"] }] }), ".json"),
+          state
+        ];
+        const p = phaseOf(importOf(arr));
+        if (!p || p.sourceReferences[0] !== "baseline.json") errors.push("(k) an undeclared self-asserting document must not outrank the approved baseline, got " + (p && p.sourceReferences[0]));
+      }
+
+      // EMITTED ORDER IS NOT TOUCHED. Deciding WHICH source supplies a phase must not change WHERE
+      // that phase appears: an upstream amendment adding one phase that depends on three baseline
+      // phases must not hoist the new phase to the front, or every dependency points at a later
+      // phase and the readiness evaluator refuses the whole plan.
+      {
+        const arr = [
+          cfg("baseline.json", ["upstream.json"]),
+          fp("baseline.json", derived(OLD, [{ phaseId: "AMD-P2A", description: "d", dependsOn: ["AMD-P1A"], acceptanceCriteria: ["b"] }, { phaseId: "AMD-P3A", description: "d", dependsOn: ["AMD-P2A"], acceptanceCriteria: ["c"] }]), ".json"),
+          fp("upstream.json", upstream(NEW, [{ phaseId: "AMD-P4A", description: "d", dependsOn: ["AMD-P3A"], acceptanceCriteria: ["d"] }]), ".json"),
+          state
+        ];
+        const r = importOf(arr);
+        const ids = r.draft.phaseCandidates.map((p) => p.phaseId);
+        if (ids.join(",") !== "AMD-P1A,AMD-P2A,AMD-P3A,AMD-P4A") errors.push("(k) emitted phase order must not change, got " + ids.join(","));
+        const depErrors = govEng.checkPhaseDeps(r.draft.phaseCandidates.map((c) => ({ phaseId: c.phaseId, dependsOn: c.dependencies })));
+        if (depErrors.length) errors.push("(k) the emitted order must still satisfy the readiness dependency rule: " + depErrors.join("; "));
+        // …and the amendment still won the phase both documents declare.
+        if (JSON.stringify(phaseOf(r).acceptanceCriteria) !== JSON.stringify(NEW)) errors.push("(k) the amendment must still win AMD-P1A when order is preserved");
+      }
+
+      // A phase only the baseline declares is still proposed, from the baseline. Deprioritised is not
+      // discarded — otherwise this fix would delete approved work out of the plan.
+      {
+        const arr = [
+          cfg("baseline.json", ["upstream.json"]),
+          fp("baseline.json", derived(OLD, [{ phaseId: "AMD-P9A", description: "d2", acceptanceCriteria: ["only here"] }]), ".json"),
+          fp("upstream.json", upstream(NEW), ".json"),
+          state
+        ];
+        const only = phaseOf(importOf(arr), "AMD-P9A");
+        if (!only) errors.push("(k) a phase declared ONLY by the baseline must still be proposed");
+        else if (only.sourceReferences[0] !== "baseline.json") errors.push("(k) that phase must be attributed to the baseline, got " + only.sourceReferences[0]);
+      }
+
+      // NO CONFIG, NO CHANGE. With nothing declared there is no provenance to group by, so a direct
+      // caller's list must come out in exactly the order it went in.
+      {
+        const a = fp("first.json", upstream(OLD), ".json");
+        const b = fp("second.json", upstream(NEW), ".json");
+        const cands = eng.buildPhaseCandidates([a, b]);
+        if (cands.length !== 1 || cands[0].sourceReferences[0] !== "first.json") errors.push("(k) with no declaration, source order must be preserved exactly");
+      }
+    }
   }
   // Mandatory authority-forgery regression tests A-F (gatekeeper commit gate).
   {

@@ -394,9 +394,38 @@ const HISTORICAL_TYPES = new Set([
  * so a plantable file cannot nominate the planning corpus either.
  */
 function declaredPlanningPaths(sources, ctx) {
+  return declaredPlanningOrigins(sources, ctx).declared;
+}
+
+/**
+ * The same declaration, split by WHAT each path is rather than by where it sits in the walk.
+ *
+ * A plan has two kinds of source and they were being read as one. UPSTREAM documents are what a plan
+ * is drafted FROM — the plan of record the owner writes an amendment into. DERIVED PLAN RECORDS are
+ * what ProjectOS itself materialises FROM a draft when `plan activate` runs. The derived record was
+ * joining the corpus as a peer of its own upstream, and because phase extraction took whichever
+ * source the walk reached first, `.projectops/plan-<draftId>.json` outranked both `.projectops/
+ * plan.json` and `docs/…-plan.md` on nothing but path order. The owner amended acceptance criterion
+ * 10 upstream and every regenerated draft reproduced the OLD criterion out of the derived record —
+ * while reporting zero conflicts. Once a plan had been activated no amendment could reach a draft.
+ *
+ * A DERIVED PLAN RECORD IS RECOGNISED BY ITS OWN SHAPE, not by its filename and not only by the key
+ * that names it: a materialised plan states a `planId` and carries an `approval` block, which no
+ * upstream document does. That matters because the class has to survive activation. `approvePlan`
+ * folds the OUTGOING plan-memory pair into `planSources`, so a key-only rule would reclassify
+ * yesterday's baseline as today's upstream and hand the shadowing straight back — the retired record
+ * would then outrank the live one. Shape does not move when the config does. The `planMemory` pair
+ * is included as well, which is what covers a current-state record (no `approval` block of its own).
+ *
+ * This is a provenance class, NOT an authority ladder: nothing here grants or removes authority, and
+ * a derived record is still read, still proposes any phase no upstream declares, and is still the
+ * approved baseline. It simply cannot outrank the document it was made from.
+ */
+function declaredPlanningOrigins(sources, ctx) {
   ctx = ctx || {};
   const callerCanonical = new Set((ctx.canonicalConfigPaths || []).map((p) => toPosix(p).toLowerCase()));
   const declared = new Set();
+  const derivedRecords = new Set();
   for (const s of sources) {
     if (s.malicious || (s.secretHits && s.secretHits.length)) continue;
     if (s.ext !== ".json") continue;
@@ -407,10 +436,14 @@ function declaredPlanningPaths(sources, ctx) {
     if (!obj || typeof obj !== "object") continue;
     const before = declared.size;
     const add = (x) => { if (typeof x === "string" && isSafeRepoRelativePath(x)) declared.add(toPosix(x.replace(/^\.\//, "")).toLowerCase()); };
-    // The canonical ProjectOS plan-memory contract.
+    // The canonical ProjectOS plan-memory contract. These are the DERIVED active records.
     if (obj.planMemory && typeof obj.planMemory === "object") {
-      add(obj.planMemory.planPath);
-      add(obj.planMemory.currentStatePath);
+      const addDerived = (x) => {
+        add(x);
+        if (typeof x === "string" && isSafeRepoRelativePath(x)) derivedRecords.add(toPosix(x.replace(/^\.\//, "")).toLowerCase());
+      };
+      addDerived(obj.planMemory.planPath);
+      addDerived(obj.planMemory.currentStatePath);
     }
     // An explicit, optional declaration for projects whose planning corpus is wider than that.
     if (Array.isArray(obj.planSources)) obj.planSources.forEach(add);
@@ -426,7 +459,40 @@ function declaredPlanningPaths(sources, ctx) {
     // of the very plan document sitting beside it. Caught by the intake tests, not by inspection.
     if (before !== declared.size) declared.add(n);
   }
-  return declared;
+  // SHAPE, over every source — so a derived record keeps its class wherever the config later moves
+  // it, and so one that was never declared at all is not mistaken for an upstream document either.
+  for (const s of sources) {
+    if (s.included === false || s.ext !== ".json") continue;
+    if (s.malicious || (s.secretHits && s.secretHits.length)) continue;
+    let obj = null; try { obj = JSON.parse(stripBom(s.content || "")); } catch (_) { continue; }
+    if (!obj || typeof obj !== "object" || Array.isArray(obj)) continue;
+    const isMaterialisedPlan = typeof obj.planId === "string" && obj.planId.trim() !== "" &&
+      obj.approval !== null && typeof obj.approval === "object" && !Array.isArray(obj.approval);
+    if (isMaterialisedPlan) derivedRecords.add(s.normRelPath);
+  }
+  return { declared, derivedRecords };
+}
+
+/**
+ * One ordering, by provenance class: a document a plan is drafted FROM comes before a record derived
+ * FROM a draft. Deliberately TWO ranks, not three.
+ *
+ * A third rank for undeclared content would have ranked the owner's approved baseline BELOW arbitrary
+ * repository files — and this engine already grants AUTHORITATIVE to any JSON asserting
+ * `planStatus: "PLAN READY"`, so that would have let an undeclared, self-asserting document supply
+ * phase content in preference to the activated plan. The defect needs exactly one demotion. Anything
+ * that is not a declared upstream keeps the relative position it already had, because the sort is
+ * stable, so nothing outside the defect moves.
+ */
+function orderByPlanningOrigin(list) {
+  return list
+    .map((s, i) => ({ s, i }))
+    .sort((a, b) => {
+      const ra = a.s.planningOrigin === "DECLARED_UPSTREAM" ? 0 : 1;
+      const rb = b.s.planningOrigin === "DECLARED_UPSTREAM" ? 0 : 1;
+      return ra !== rb ? ra - rb : a.i - b.i;
+    })
+    .map((x) => x.s);
 }
 
 /**
@@ -477,10 +543,20 @@ function deliveredPhaseCount(src, completed) {
  * returns the sources. Called after authorities are assigned, so it can use them as evidence.
  */
 function assignPlanningRoles(sources, ctx) {
-  const declared = declaredPlanningPaths(sources, ctx);
+  const origins = declaredPlanningOrigins(sources, ctx);
+  const declared = origins.declared;
   const hasDeclaration = declared.size > 0;
   const completed = declaredCompletedPhases(sources, declared);
   for (const s of sources) {
+    // PROVENANCE, ALONGSIDE ROLE. `planningRole` says whether a source describes current delivery;
+    // this says which side of an amendment it sits on. Kept separate so no existing role decision
+    // moves. Derived is tested first: a record ProjectOS materialised is a baseline even when the
+    // config also lists it as a planning source, so a declaration cannot switch the protection off.
+    s.planningOrigin = origins.derivedRecords.has(s.normRelPath)
+      ? "DERIVED_PLAN_RECORD"
+      : declared.has(s.normRelPath)
+        ? "DECLARED_UPSTREAM"
+        : "UNDECLARED";
     let role, why;
     if (s.included === false) {
       role = "QUARANTINED";
@@ -620,6 +696,54 @@ function detectPlanConflicts(sources, repoEvidence) {
       }
     }
   }
+  // ACCEPTANCE-CRITERIA DISAGREEMENT BETWEEN PEER SOURCES.
+  //
+  // Two current-planning documents could state DIFFERENT acceptance criteria for the SAME phase and
+  // this function returned zero conflicts, because every rule above compares regex-scraped scalar
+  // claims and none of them looks at a phase's criteria. Silence there is worse than the shadowing
+  // it hid: the draft reads clean while the sources disagree about what the phase must satisfy.
+  //
+  // PEERS ONLY. A derived plan record is EXPECTED to differ from an upstream document — that
+  // difference IS the amendment, and reporting it would make every legitimate amendment look like a
+  // defect, on every draft, for as long as the amendment stood. Baselines are therefore excluded and
+  // only candidate documents are compared with each other. A source with no origin (a direct
+  // caller's hand-built list) is treated as a candidate, so this can only surface more, never hide.
+  //
+  // Severity is left at the default. `mkConflict` marks only the fixed material-field list as
+  // material, and only material conflicts force PLAN CONFLICT — so this SURFACES the disagreement
+  // with ownerDecisionRequired set, without seizing a status that would stop the owner drafting the
+  // very amendment being reviewed.
+  {
+    const peers = sources.filter((s) => s.planningOrigin !== "DERIVED_PLAN_RECORD");
+    const byPhase = new Map(); // phaseId -> [{ s, criteria }]
+    for (const s of peers) {
+      if (s.included === false) continue;
+      const sp = extractPlanDocument(s);
+      if (sp === null) continue;
+      for (const p of sp.phases) {
+        const id = typeof p.phaseId === "string" ? p.phaseId.trim() : "";
+        if (id === "") continue;
+        const criteria = Array.isArray(p.acceptanceCriteria)
+          ? p.acceptanceCriteria.filter((x) => typeof x === "string").map((x) => x.trim())
+          : [];
+        // A source that states the phase but no criteria has not disagreed about them — it is silent,
+        // and silence is a gap for the owner-decision path, not a contradiction to raise here.
+        if (criteria.length === 0) continue;
+        if (!byPhase.has(id)) byPhase.set(id, []);
+        byPhase.get(id).push({ s, criteria });
+      }
+    }
+    for (const [phaseId, entries] of byPhase) {
+      for (let i = 0; i < entries.length; i++) {
+        for (let j = i + 1; j < entries.length; j++) {
+          const a = entries[i], b = entries[j];
+          if (isReconciled(a.s, b.s)) continue;
+          if (JSON.stringify(a.criteria) === JSON.stringify(b.criteria)) continue;
+          conflicts.push(mkConflict("acceptanceCriteria:" + phaseId, a.s, b.s, summariseCriteria(a.criteria), summariseCriteria(b.criteria)));
+        }
+      }
+    }
+  }
   // Repository-evidence reconciliation: document claim vs verified repo fact.
   if (repoEvidence) {
     for (const x of withClaims) {
@@ -635,6 +759,12 @@ function detectPlanConflicts(sources, repoEvidence) {
     }
   }
   function norm(v) { return String(v).trim().toLowerCase(); }
+  // A fingerprint, not the criteria themselves. Seventeen paragraphs of plan text on each side of a
+  // conflict record is unreadable, and the record must stay quotable in a report and a diff.
+  function summariseCriteria(list) {
+    return list.length + " acceptance criteria, sha256:" +
+      crypto.createHash("sha256").update(JSON.stringify(list)).digest("hex").slice(0, 12);
+  }
   function mkConflict(field, a, b, va, vb, kind) {
     const pair = [a.relPath, b.relPath].sort();
     const id = "CONFLICT:" + crypto.createHash("sha256").update(field + "\n" + pair.join("\n")).digest("hex").slice(0, 12);
@@ -673,8 +803,15 @@ function buildPlanDraft(sources, repoEvidence, conflicts, duplicates) {
   const usable = sources.filter((s) => s.included && s.authority !== "EXCLUDED");
   const primary = selectAuthoritative(usable);
   const prov = [];
-  // Structured planning sources, in the same precedence order the prose scan uses.
-  const structured = usable.map((s) => ({ s, sp: extractPlanDocument(s) })).filter((x) => x.sp !== null);
+  // Structured planning sources, upstream documents before derived records.
+  //
+  // THE SAME SHADOWING, IN THE FIELDS THAT ARE NOT PHASES. Fixing phase supply alone produced a
+  // draft assembled from two revisions: phases read from the amended upstream while
+  // definitionOfComplete, businessVision, successStandard, scope and environments still came from
+  // the derived record — and `materialisePlan` cites the source of definitionOfComplete as the
+  // activated plan's authoritative source document, so the plan would have named a document none of
+  // its phases came from. One ordering, applied once, keeps the whole draft on one revision.
+  const structured = orderByPlanningOrigin(usable).map((s) => ({ s, sp: extractPlanDocument(s) })).filter((x) => x.sp !== null);
   const field = (name, re, extract, structuredKey) => {
     // STRUCTURED EVIDENCE FIRST — a declared field is a statement, not a phrase that happened to
     // match a regex, so it is both more reliable and higher-confidence provenance.
@@ -905,6 +1042,29 @@ function extractPlanDocument(src) {
 
 function buildPhaseCandidates(sources) {
   const candidates = [];
+  // WHICH SOURCE SUPPLIES A PHASE IS DECIDED BY PROVENANCE; WHERE THAT PHASE APPEARS IS NOT.
+  //
+  // The first source declaring a phase id used to win outright, decided by the incidental
+  // alphabetical order of the walk — so a derived plan record outranked the document it was made
+  // from purely because `.projectops/plan-<draftId>.json` sorts first, and an amendment could never
+  // reach a draft. Ranking the SOURCE LIST fixes that but breaks something else: hoisting a whole
+  // document also hoists its phases, so an upstream amendment adding one phase that depends on three
+  // baseline phases emitted the new phase FIRST, every dependency pointed at a later phase, and the
+  // readiness evaluator refused the entire plan. That is the exact failure the ORDER comment below
+  // records, re-entered through a different door.
+  //
+  // So the two questions are answered separately. CONTENT comes from the best-provenance source that
+  // declares the id. POSITION is where that id first appears in the caller's own order — unchanged
+  // from before this fix. A phase only the baseline declares is still proposed, from the baseline.
+  const bestForPhase = new Map(); // phaseId -> { s, p, format } whose record supplies that phase
+  for (const s of orderByPlanningOrigin(sources)) {
+    const sp = extractPlanDocument(s);
+    if (sp === null) continue;
+    for (const p of sp.phases) {
+      const id = typeof p.phaseId === "string" ? p.phaseId.trim() : "";
+      if (id !== "" && !bestForPhase.has(id)) bestForPhase.set(id, { s: s, p: p, format: sp.format });
+    }
+  }
   // STRUCTURED FIRST. A declared JSON plan states its phases as data, with their real dependencies,
   // acceptance criteria, validators and owner gates — infinitely better evidence than scraping an
   // id-shaped token out of prose, and it carries the fields an owner actually needs to review.
@@ -912,10 +1072,15 @@ function buildPhaseCandidates(sources) {
   for (const s of sources) {
     const sp = extractPlanDocument(s);
     if (sp === null || sp.phases.length === 0) continue;
-    for (const p of sp.phases) {
-      const id = typeof p.phaseId === "string" ? p.phaseId.trim() : "";
+    for (const pHere of sp.phases) {
+      const id = typeof pHere.phaseId === "string" ? pHere.phaseId.trim() : "";
       if (id === "" || structuredIds.has(id)) continue;
       structuredIds.add(id);
+      // POSITION is this loop's; CONTENT is the best-provenance record's. Where a single source
+      // declares the id — every case before an activated record joined the corpus — they are the
+      // same object and this is exactly the old behaviour.
+      const win = bestForPhase.get(id) || { s: s, p: pHere, format: sp.format };
+      const p = win.p;
       const strArr = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === "string") : []);
       candidates.push({
         phaseId: id,
@@ -933,9 +1098,9 @@ function buildPhaseCandidates(sources) {
         riskLevel: typeof p.riskLevel === "string" && p.riskLevel.trim() !== "" ? p.riskLevel.trim().toLowerCase() : null,
         autonomyLevel: typeof p.autonomyLevel === "string" && p.autonomyLevel.trim() !== "" ? p.autonomyLevel.trim().toLowerCase() : null,
         requiredBrowserProof: typeof p.requiredBrowserProof === "boolean" ? p.requiredBrowserProof : null,
-        sourceReferences: [s.relPath],
+        sourceReferences: [win.s.relPath],
         confidence: "high",
-        extractionMethod: sp.format === "markdown" ? "structured-markdown" : "structured-json",
+        extractionMethod: win.format === "markdown" ? "structured-markdown" : "structured-json",
         unresolvedQuestions: strArr(p.acceptanceCriteria).length ? [] : ["acceptance criteria not sourced"]
       });
     }

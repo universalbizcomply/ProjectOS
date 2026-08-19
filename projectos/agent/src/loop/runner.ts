@@ -37,6 +37,7 @@ import { BUILT_IN_ADAPTERS } from './adapters/claudeCodeCli.js';
 import { collectEvidence, configuredChecks, requiredChecks, runChecks, type CheckResult } from './verification.js';
 import { decideContinuation, loopStopLines, MAX_CORRECTION_ATTEMPTS, type LoopStop } from './outcome.js';
 import { takeGatekeeperTurn, type GatekeeperTurnDeps } from './gatekeeperTurn.js';
+import { authoriseCorrection, pathsNamedIn, within as withinPath } from './correctionBoundary.js';
 import type { LedgerEntry } from '@projectos/core';
 import * as store from './session.js';
 import {
@@ -92,6 +93,14 @@ export interface RunOptions {
    * forgotten, which is why the command wires it and the tests assert it is called.
    */
   readonly onGatekeeperTurn?: (entry: LedgerEntry, providerResponseId: string | null) => void;
+  /**
+   * The paths this phase's APPROVED SCOPE permits a correction to write.
+   *
+   * DERIVED BY THE CALLER FROM THE APPROVED PLAN, never from a reviewer and never from here. An
+   * empty list means no correction may write anything, which is the correct default: a phase that
+   * has not authorised a writable boundary has not authorised autonomous correction.
+   */
+  readonly correctionMaximumPaths?: readonly string[];
   /** Owner gates the approved plan names for this phase; the reviewer may never grant one. */
   readonly ownerOnlyActions?: readonly string[];
   /** Who the approved plan says reviews. Never derived from a caller flag. */
@@ -112,6 +121,58 @@ export type RunResult =
 function refused(lines: readonly string[]): RunResult {
   return { ok: false, lines };
 }
+
+/**
+ * Add correction grants to a worker's argv without disturbing anything else it was given.
+ *
+ * APPENDED TO THE EXISTING `--allowedTools` VALUE rather than replacing it, so the records the worker
+ * already owns stay writable and the grant list remains one flag. Only Edit and Write ever arrive
+ * here - `authoriseCorrection` emits nothing else - so no shell reaches the worker and git stays
+ * unreachable.
+ */
+function withCorrectionGrants(args: readonly string[], grants: readonly string[]): readonly string[] {
+  const out = [...args];
+  const i = out.findIndex((a) => a === '--allowedTools' || a === '--allowed-tools');
+  if (i >= 0 && out[i + 1] !== undefined) {
+    out[i + 1] = `${out[i + 1]},${grants.join(',')}`;
+    return out;
+  }
+  return [...out, '--allowedTools', grants.join(',')];
+}
+
+/**
+ * The paths the APPROVED PHASE SCOPE names, which a correction worker may therefore never write.
+ *
+ * WHY THE SCOPE'S OWN PATHS ARE THE DENY LIST. A phase scope names the files the governed IMPLEMENTER
+ * is authorised to change. The autonomous correction worker is not the implementer: it is a bounded
+ * repair of something a check found wrong, and this phase's approved scope says so in as many words -
+ * "neither path is writable by the autonomous correction worker". Reading that sentence out of prose
+ * is not something a machine can do safely, but the paths beside it can be read exactly, and refusing
+ * every one of them enforces the sentence structurally rather than trusting it to be honoured.
+ *
+ * IT IS INERT WITHOUT A SCOPE, and that is deliberate rather than overlooked. A plan whose phases
+ * carry no `scope` yields an empty list and the veto below never fires - which is the only
+ * backward-compatible answer for every plan approved before scope was projected into the structured
+ * record, and it is why the projection was added at all. A phase that wants this protection must
+ * carry a scope. Raised as CODE-SCOPE-ABSENT-BYPASS by the live reviewer.
+ *
+ * IT FAILS CLOSED. A scope that named a path the worker genuinely should repair would be refused here
+ * rather than allowed. That is the safe direction: the cost is a refusal the owner can see and widen
+ * deliberately, and the alternative cost is a correction worker editing the machinery that bounds it.
+ */
+function scopeImplementationPaths(context: GovernedContext, phaseId: string): readonly string[] {
+  const phases = context.plan['phases'];
+  if (!Array.isArray(phases)) return [];
+  const phase = phases.find(
+    (p): p is Record<string, unknown> =>
+      typeof p === 'object' && p !== null && (p as Record<string, unknown>)['phaseId'] === phaseId,
+  );
+  const scope = phase === undefined ? undefined : phase['scope'];
+  return typeof scope === 'string' ? pathsNamedIn(scope) : [];
+}
+
+/** How much of a failing check's output the reviewer is shown. Enough to locate a failure, bounded. */
+const CHECK_OUTPUT_TAIL = 4000;
 
 function describeWorkerOutcome(o: WorkerOutcome): { refusal: string | null; line: string } {
   if (o.kind === 'refused') return { refusal: o.detail, line: `worker refused: ${o.detail}` };
@@ -208,6 +269,24 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
   const suites = configuredChecks(context.config as unknown as Record<string, unknown>);
   if (suites.problems.length > 0) {
     return refused(['REFUSED (BAD_CHECK_CONFIG): the project declares a check the loop cannot read', ...suites.problems.map((p) => `  - ${p}`)]);
+  }
+
+  // WHAT A CORRECTION MAY EVER WRITE, checked BEFORE a worker exists rather than when one asks.
+  //
+  // The maximum is the caller's, derived from the approved plan; this is where the approved plan gets
+  // to veto it. A maximum that reaches into a path the phase scope names as implementation is refused
+  // outright and the run does not start - not narrowed quietly, because a boundary that shrank on its
+  // own would look like it had been honoured.
+  const correctionMaximum = options.correctionMaximumPaths ?? [];
+  const scopePaths = scopeImplementationPaths(context, phaseId);
+  const overreaching = correctionMaximum.filter((m) => scopePaths.some((impl) => withinPath(m, impl)));
+  if (overreaching.length > 0) {
+    return refused([
+      'REFUSED (CORRECTION_BOUNDARY_OVERREACHES_SCOPE): a correction boundary may not include a path the',
+      'approved phase scope names as implementation.',
+      ...overreaching.map((m) => `  - ${m}`),
+      '  the autonomous correction worker never writes the machinery that bounds it',
+    ]);
   }
 
   const resolution = resolveWorker(context, options.adapters ?? BUILT_IN_ADAPTERS, options.workerId);
@@ -310,6 +389,13 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
 
   let attempts = 0;
   let stop: LoopStop | null = null;
+  /** Grants for the NEXT attempt only. Cleared after use so authority never outlives its amendment. */
+  let correctionGrants: readonly string[] = [];
+  /** The instruction and decision the last gatekeeper turn produced, for the correction that follows. */
+  let lastInstruction: string | null = null;
+  let lastDecisionId: string | null = null;
+  /** Decisions that have already driven a correction. One decision, one correction. */
+  const correctionsApplied: string[] = [];
   // Decisions already acted on IN THIS RUN. A restart re-derives the same request id, so a decision
   // that was applied once is refused as a replay rather than applied again.
   const consumedDecisionIds: string[] = [];
@@ -357,6 +443,8 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
       return 'proceed';
     }
     lines.push(`  gatekeeper requires an amendment: ${turn.action.instruction}`);
+    lastInstruction = turn.action.instruction;
+    lastDecisionId = turn.request === null ? null : `GKDEC-${turn.request.requestId}`;
     return 'retry';
   };
 
@@ -366,9 +454,28 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     // accident. Without a handle the only honest option is a fresh start, and the line below says
     // so rather than passing it off as a reconnect.
     const rejoining = session.providerRef !== null && session.providerRef !== '';
+    // A CORRECTION ATTEMPT RUNS THE SAME WORKER WITH ONE ADDITION: the Edit/Write grants for the
+    // paths ProjectOS authorised. Nothing else about the worker changes, and the grants are dropped
+    // immediately afterwards, so authority never outlives the amendment that produced it.
+    // WHY `toolGrantProblems` IS NOT RE-RUN HERE. That check bounds what the CONFIG may declare, and
+    // it deliberately permits only the four record patterns the worker owns - so re-running it over
+    // these grants would refuse the correction the runtime just authorised. These grants are not
+    // config: they came from `authoriseCorrection`, which already bounded them against the approved
+    // maximum, and they are only ever `Edit(path)`/`Write(path)`. Raised as CODE-GRANTS-NOT-REVALIDATED
+    // by the live reviewer, which judged the design correct and the silence about it not.
+    const attemptWorker =
+      correctionGrants.length === 0
+        ? resolution.worker
+        : { ...resolution.worker, args: withCorrectionGrants(resolution.worker.args, correctionGrants) };
+    // WHETHER THIS ATTEMPT COULD HAVE FIXED ANYTHING. The base worker's grants cover only the two
+    // records it owns; correction authority exists solely when `authoriseCorrection` produced it.
+    // The retry decision below needs to know which of the two just ran.
+    const attemptHadCorrectionAuthority = correctionGrants.length > 0;
+    correctionGrants = [];
+
     const outcome = rejoining
-      ? resolution.adapter.rejoin(sys, resolution.worker, session, brief)
-      : resolution.adapter.start(sys, resolution.worker, brief, briefFile);
+      ? resolution.adapter.rejoin(sys, attemptWorker, session, brief)
+      : resolution.adapter.start(sys, attemptWorker, brief, briefFile);
     const described = describeWorkerOutcome(outcome);
     lines.push(`attempt ${attempts + 1}: ${rejoining ? 'rejoined' : 'started'} ${resolution.worker.workerId}; ${described.line}`);
 
@@ -420,36 +527,150 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
       workerRefusal: described.refusal,
     });
 
-    if (decision.kind === 'stop') {
-      // THE RELAY REMOVAL, at the one place the loop used to end. A reviewer that requires an
-      // amendment sends the phase back through the SAME bounded correction budget as an ordinary
-      // failing check — it does not get its own, and it cannot reset the one that exists.
-      const evidenceText = JSON.stringify(
+    /**
+     * What the reviewer is shown, in two clearly separated parts.
+     *
+     * PART A IS THE MECHANISM; PART B IS THE FAILURE. The first live Criterion 10 chain handed over
+     * one undifferentiated blob: a failing fixture together with every open finding about the
+     * correction machinery itself. That asks the reviewer to decide whether this architecture should
+     * be used while simultaneously asking it to use it, and it answered AWAITING_OWNER - correctly,
+     * on the evidence it was given. Separating them hides nothing: the worker's own review,
+     * including every unresolved finding, is still carried in full under `workerReview`.
+     */
+    const evidenceFor = (reason: LoopStop): string =>
+      JSON.stringify(
         {
-          phaseId,
-          stop: decision.reason,
-          checks: checks.map((c) => ({ id: c.id, kind: c.kind, passed: c.passed })),
-          findings: findings.value.findings,
-          reviewsRecorded: findings.value.reviews,
+          correctionMechanism: {
+            what: 'a bounded correction worker, already implemented, tested and in use',
+            workerWritableMaximum: correctionMaximum,
+            workerMayNeverWrite: scopePaths,
+            grantsIssued: 'Edit(path) and Write(path) only; no shell, so no git, no commit, no push',
+            correctionsApplied: correctionsApplied.length,
+            correctionBudgetRemaining: MAX_CORRECTION_ATTEMPTS - correctionsApplied.length,
+            unresolvedCritical: findings.value.findings.filter((f) => !f.resolved && f.severity === 'CRITICAL').length,
+            unresolvedHigh: findings.value.findings.filter((f) => !f.resolved && f.severity === 'HIGH').length,
+          },
+          currentFailure: {
+            phaseId,
+            stop: reason,
+            failingChecks: checks
+              .filter((c) => !c.passed)
+              .map((c) => ({ id: c.id, kind: c.kind, exitCode: c.exitCode, output: c.output.slice(-CHECK_OUTPUT_TAIL) })),
+            passingChecks: checks.filter((c) => c.passed).map((c) => c.id),
+          },
+          workerReview: { reviewsRecorded: findings.value.reviews, findings: findings.value.findings },
           effects: effects.value,
           attemptsSpent: attempts,
         },
         null,
         1,
       );
-      const outcome = consultGatekeeper(decision.reason, evidenceText);
-      if (outcome === 'proceed') break;
-      if (outcome === 'retry' && attempts < MAX_CORRECTION_ATTEMPTS) {
-        attempts += 1;
-        lines.push(`  correcting under gatekeeper direction (attempt ${attempts} of ${MAX_CORRECTION_ATTEMPTS})`);
-        continue;
+
+    /**
+     * Take the reviewer's answer and, if it asked for a correction, authorise one.
+     *
+     * `continue` means a correction was authorised and another attempt should run; `break` means the
+     * run ends here; `proceed` means the reviewer cleared the stop.
+     */
+    const applyReviewerAnswer = (reason: LoopStop): 'continue' | 'break' | 'proceed' => {
+      const answer = consultGatekeeper(reason, evidenceFor(reason));
+      if (answer === 'proceed') return 'proceed';
+      if (answer !== 'retry' || correctionsApplied.length >= MAX_CORRECTION_ATTEMPTS) {
+        stop = reason;
+        return 'break';
       }
-      stop = decision.reason;
+      // AN AMENDMENT WITHOUT ITS DECISION IS NOT AN AMENDMENT. `''` would deduplicate against a
+      // previous `''` in `correctionsApplied` and look like a spent decision, or - worse - pass as
+      // a fresh one. `authoriseCorrection` refuses an empty id too; this refuses it here so the
+      // loop never even asks.
+      if (lastInstruction === null || lastDecisionId === null) {
+        lines.push('  the gatekeeper asked for a correction but no decision was recorded for it; nothing was authorised');
+        stop = reason;
+        return 'break';
+      }
+      // THE REVIEWER ASKED FOR A CORRECTION. What it may touch is decided here, against the phase's
+      // approved maximum - never against what the amendment asked for. The amendment can only
+      // narrow: `authoriseCorrection` refuses any path the approved scope does not already permit.
+      const authorised = authoriseCorrection(
+        {
+          requestedPaths: pathsNamedIn(lastInstruction),
+          projectId: context.projectId,
+          phaseId,
+          subjectCommit: verification.observed.head ?? '',
+          decisionId: lastDecisionId,
+        },
+        {
+          maximumPaths: correctionMaximum,
+          projectId: context.projectId,
+          phaseId,
+          subjectCommit: verification.observed.head ?? '',
+          consumedDecisionIds: correctionsApplied,
+          attemptsRemaining: MAX_CORRECTION_ATTEMPTS - correctionsApplied.length,
+        },
+      );
+      if (!authorised.ok) {
+        // A correction the approved scope does not permit is not narrowed silently - the run stops
+        // and says which path was refused, because a quietly dropped path looks like a fix.
+        lines.push('  the correction the gatekeeper asked for is outside what this phase authorises:');
+        lines.push(...authorised.reasons.map((r) => `    - ${r}`));
+        lastInstruction = null;
+        lastDecisionId = null;
+        stop = reason;
+        return 'break';
+      }
+      correctionsApplied.push(lastDecisionId);
+      // CONSUMED MEANS GONE. Leaving these set let the NEXT stop reuse the previous amendment: a
+      // turn that returned no decision leaves `lastDecisionId` unchanged, and the loop would then
+      // authorise a second correction against an instruction the reviewer never gave for it.
+      // Raised as CORR-STALE-DECISION-ID by the live reviewer against this file.
+      lastInstruction = null;
+      lastDecisionId = null;
+      lines.push(
+        `  correcting under gatekeeper direction (correction ${correctionsApplied.length} of ${MAX_CORRECTION_ATTEMPTS}); ` +
+          `authorised to write: ${authorised.correction.paths.join(', ')}`,
+      );
+      correctionGrants = authorised.correction.grants;
+      return 'continue';
+    };
+
+    if (decision.kind === 'stop') {
+      // THE RELAY REMOVAL, at the one place the loop used to end. A reviewer that requires an
+      // amendment sends the phase back through the SAME bounded correction budget as an ordinary
+      // failing check - it does not get its own, and it cannot reset the one that exists.
+      const answered = applyReviewerAnswer(decision.reason);
+      if (answered === 'continue') continue;
       break;
     }
     if (decision.kind === 'proceed') {
       lines.push(decision.detail);
       break;
+    }
+    // CONSULT FIRST WHEN THE WORKER COULD NOT HAVE FIXED IT.
+    //
+    // An ordinary retry re-runs the worker with exactly the authority it already had. That is the
+    // right thing when the worker CAN act on the failure - a review finding it can resolve, a record
+    // it owns. It is useless when a mandatory CHECK is failing on a file the worker holds no grant
+    // over: the first live Criterion 10 chain spent all three attempts, and roughly ninety minutes
+    // of validators, re-running a worker that could not change the failing target, and only then
+    // asked the reviewer. Three identical powerless attempts are not a correction budget being
+    // spent; they are a correction budget being wasted before it is available.
+    //
+    // NOTHING IS WIDENED HERE. No extra attempt, no extra authority, no reset budget, no new stop
+    // vocabulary. The stop is the one `CORRECTION_EXHAUSTED` already means - "another identical
+    // attempt cannot change this, so it needs a different instruction" - which is exactly true the
+    // moment the worker has no authority over the failing target. The reviewer's answer still runs
+    // through the same routing table, the same bindings and the same bounded authorisation.
+    const failing = checks.filter((c) => !c.passed);
+    if (failing.length > 0 && !attemptHadCorrectionAuthority && options.gatekeeper !== undefined) {
+      const answered = applyReviewerAnswer({
+        code: 'CORRECTION_EXHAUSTED',
+        detail:
+          `${failing.length} required check(s) failing: ${failing.map((c) => c.id).join(', ')} — the worker holds no ` +
+          'write authority over the failing target, so a further identical attempt cannot change it. ' +
+          `${decision.detail}`,
+      });
+      if (answered === 'continue') continue;
+      if (answered === 'break') break;
     }
     attempts = decision.attempt;
     lines.push(`  correcting (attempt ${attempts} of ${MAX_CORRECTION_ATTEMPTS}): ${decision.detail}`);

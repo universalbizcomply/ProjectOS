@@ -40,6 +40,29 @@ function request(over: Partial<CorrectionRequest> = {}): CorrectionRequest {
   };
 }
 
+/**
+ * AN ABSENT BINDING IS NOT A SATISFIED ONE.
+ *
+ * Both sides of the subject comparison derive from `verification.observed.head ?? ''` in the runner,
+ * so a run whose HEAD could not be read produced '' on both sides and the binding passed by being
+ * absent. The decision id had the same shape of hole: '' deduplicates against a previous '' and a
+ * second correction could ride an unnamed decision. Both raised by the LIVE reviewer against this
+ * module's caller during the Criterion 10 run of 2026-08-18.
+ */
+describe('bindings that are absent rather than matching', () => {
+  it('REFUSES a correction with no subject commit, even though both sides are equal', () => {
+    const v = authoriseCorrection(request({ subjectCommit: '' }), context({ subjectCommit: '' }));
+    expect(v.ok).toBe(false);
+    if (!v.ok) expect(v.reasons.join(' ')).toContain('bound to nothing');
+  });
+
+  it('REFUSES a correction that names no decision', () => {
+    const v = authoriseCorrection(request({ decisionId: '   ' }), context());
+    expect(v.ok).toBe(false);
+    if (!v.ok) expect(v.reasons.join(' ')).toContain('nothing authorised it');
+  });
+});
+
 describe('an authorised correction', () => {
   it('grants Edit and Write on exactly the requested path', () => {
     const v = authoriseCorrection(request(), context());

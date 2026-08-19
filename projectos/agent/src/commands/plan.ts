@@ -235,14 +235,52 @@ function activate(ctx: CommandContext, flags: Record<string, string | boolean>):
     ]);
   }
 
-  // A NEW PLAN IS A NEW RECORD. Named from the draft so two activations in the same programme
-  // cannot collide, and so the previous plan keeps its own file rather than being written over.
+  // A NEW PLAN IS A NEW RECORD — AND AN AMENDMENT IS A NEW PLAN.
+  //
+  // The record used to be named from the draft alone. A draft id is `sha256(projectId + objective)`,
+  // so the SAME objective always produces the SAME id — which is correct for an objective, and wrong
+  // for a record. An AMENDMENT is by definition a second activation of the same objective, so the
+  // derived path was always the record already in force, and the overwrite guard refused it. That
+  // guard was right; the name was not. The consequence was absolute: once a plan had been activated,
+  // no amendment to it could ever be activated, and the owner's only way out was to invent a
+  // filename by hand — which is a governance decision disguised as a naming convention.
+  //
+  // So identity is the objective AND the plan material approved for it. Same objective, different
+  // approved digest, different record. The digest is the one the draft records, sliced with the same
+  // 12-hex convention the refusal messages already use; `approvePlan` independently recomputes the
+  // plan material and refuses with DRAFT_SUPERSEDED if the stored digest is not what this repository
+  // now proposes, so a stale digest can only ever cost a refusal, never a wrong write.
+  //
+  // Replaying the SAME digest is not a new record and must not become one: it derives the same name,
+  // that file already exists, and the existing overwrite protection refuses it — fail-closed, with
+  // the spent-decision check behind it. Nothing here relaxes either.
+  const draftRecord = listDrafts(ctx.sys, ctx.root).find((d) => d.objectiveId === draftId);
+  if (draftRecord === undefined) {
+    return fail(2, [
+      'REFUSED (NO_DRAFT): this draft was not activated.',
+      `  - no draft '${draftId}' — generate one with \`plan draft\``,
+      '',
+      'Nothing was written. No plan, no state, no activation.',
+    ]);
+  }
+  // FAIL CLOSED ON A MISSING DIGEST. Falling back to the draft-only name would quietly restore the
+  // collision this exists to end, and would aim an amendment at the active record again.
+  if (typeof draftRecord.planDigest !== 'string' || !/^sha256:[0-9a-f]{64}$/.test(draftRecord.planDigest)) {
+    return fail(2, [
+      'REFUSED (DRAFT_SUPERSEDED): this draft was not activated.',
+      `  - draft '${draftId}' records no usable plan digest, so no record identity can be derived from it`,
+      '  - regenerate the draft with `plan draft` and obtain a decision on the new one',
+      '',
+      'Nothing was written. No plan, no state, no activation.',
+    ]);
+  }
+  const recordId = `${draftId}-${draftRecord.planDigest.slice(7, 19)}`;
   const result = approvePlan(ctx.sys, ctx.root, {
     draftId,
     decisionId,
-    planRelPath: `.projectops/plan-${draftId}.json`,
-    stateRelPath: `.projectops/current-state-${draftId}.json`,
-    planId: `plan-${draftId}`,
+    planRelPath: `.projectops/plan-${recordId}.json`,
+    stateRelPath: `.projectops/current-state-${recordId}.json`,
+    planId: `plan-${recordId}`,
     programmeId: activeProgramme,
   });
 

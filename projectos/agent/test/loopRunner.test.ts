@@ -941,6 +941,58 @@ describe('runLoop with an unattended gatekeeper', () => {
     expect(text).toContain('STOP WORK');
   });
 
+  /**
+   * CONSULT FIRST WHEN THE WORKER COULD NOT HAVE FIXED IT.
+   *
+   * Observed for real on 2026-08-18: a mandatory check failed on a file the worker held no grant
+   * over, and the loop spent all three ordinary attempts re-running that same powerless worker -
+   * roughly ninety minutes of validators - before the reviewer was asked once. The budget was gone
+   * by the time an amendment could have used it.
+   */
+  const FIXTURE = 'projectos/agent/test/fixtures/correction-proof-fixture.json';
+
+  it('asks the reviewer on the FIRST failing check when the worker cannot write the target', () => {
+    const sys = world({ validatorExit: 1, files: cleanFindings(SESSION) });
+    const { calls, registry } = fakeAdapter();
+    const sent: string[] = [];
+    const r = runLoop(sys, ROOT, {
+      adapters: registry,
+      expectedDecider: 'ChatGPT',
+      correctionMaximumPaths: [FIXTURE],
+      gatekeeper: gatekeeper({ status: 200, body: decisionBody('AMENDMENT_REQUIRED', `Restore ${FIXTURE}.`) }, sent),
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const text = r.lines.join(String.fromCharCode(10));
+    // It was asked, and a correction was authorised for exactly the permitted path.
+    expect(sent.length).toBeGreaterThan(0);
+    expect(text).toContain(`authorised to write: ${FIXTURE}`);
+    // BEFORE any unguided retry. The guided line comes first, or the budget was wasted again.
+    const guided = r.lines.findIndex((l) => l.includes('correcting under gatekeeper direction'));
+    const unguided = r.lines.findIndex((l) => l.includes('correcting (attempt'));
+    expect(guided).toBeGreaterThanOrEqual(0);
+    if (unguided >= 0) expect(guided).toBeLessThan(unguided);
+    // The worker was started once and rejoined for the correction - not three times first.
+    expect(calls.slice(0, 2)).toEqual(['start', 'rejoin']);
+  });
+
+  it('does NOT consult when the reviewer would only be asked to widen the boundary', () => {
+    const sys = world({ validatorExit: 1, files: cleanFindings(SESSION) });
+    const { registry } = fakeAdapter();
+    const sent: string[] = [];
+    const r = runLoop(sys, ROOT, {
+      adapters: registry,
+      expectedDecider: 'ChatGPT',
+      // No maximum: this phase has authorised no writable boundary at all.
+      gatekeeper: gatekeeper({ status: 200, body: decisionBody('AMENDMENT_REQUIRED', `Restore ${FIXTURE}.`) }, sent),
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const text = r.lines.join(String.fromCharCode(10));
+    expect(text).toContain('outside what this phase authorises');
+    expect(text).not.toContain('authorised to write:');
+  });
+
   it('never asks the reviewer about the owner gate', () => {
     const sys = world({ files: cleanFindings(SESSION) });
     const { registry } = fakeAdapter();

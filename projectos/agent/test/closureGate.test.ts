@@ -350,6 +350,39 @@ describe('programmeStateTailPaths — the active programme, from the config alon
   });
 
   /**
+   * WHERE `plan activate` ACTUALLY WRITES. An activation puts the new programme's state record beside
+   * the plan it activates, inside `.projectops/`, and repoints planMemory at it. Recognising only
+   * `projectos/state/` meant a governed activation silently emptied this list, and an empty list makes
+   * the programme's own lifecycle sync read as substantive. Every other bound still applies here:
+   * nesting, the active plan and the config are refused inside `.projectops/` exactly as they are
+   * inside `projectos/state/`.
+   */
+  it('accepts the state record a governed activation writes into .projectops/', () => {
+    const activated = '.projectops/current-state-35316a7a7ad3acd6.json';
+    expect(
+      programmeStateTailPaths(ctx({ planPath: '.projectops/plan-35316a7a7ad3acd6.json', currentStatePath: activated })),
+    ).toEqual([activated]);
+  });
+
+  it('applies every existing bound inside .projectops/ too', () => {
+    const plan = '.projectops/plan-35316a7a7ad3acd6.json';
+    for (const bad of [
+      // the active plan, named as its own state record
+      plan,
+      // the config, which must never launder its own changes
+      '.projectops/project-config.json',
+      // nested: a governance record that is not the programme's state record
+      '.projectops/closure/decisions/PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A.json',
+      '.projectops/plan-decisions/PROJECTOS-AUTONOMOUS-SELF-HOSTING-PLAN-APPROVAL-DECISION1D.json',
+      // the directory itself, and a sibling directory that merely shares a prefix
+      '.projectops/',
+      '.projectopsx/current-state.json',
+    ]) {
+      expect(programmeStateTailPaths(ctx({ planPath: plan, currentStatePath: bad })), bad).toEqual([]);
+    }
+  });
+
+  /**
    * DERIVED, NEVER NAMED. This used to assert the literal recovery state record, which made it a
    * claim about which programme happens to be active rather than about the function: the day a new
    * owner-approved programme became authoritative it failed, though nothing was wrong. What the

@@ -1,0 +1,75 @@
+{
+  "schemaVersion": "1.0.0",
+  "sessionId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A-3d9ec914ef5e-526449f4",
+  "generatedAt": "2026-08-18T14:18:00.000Z",
+  "reviews": [
+    "code-review",
+    "security-review",
+    "correction-review"
+  ],
+  "findings": [
+    {
+      "id": "CHECK-AGENT-TESTS-FIXTURE",
+      "severity": "MEDIUM",
+      "category": "failing-check",
+      "summary": "agent-tests fails: correctionProofFixture.test.ts expects expectedAnswer 42 but fixture has 41. Fix: change expectedAnswer to 42 in projectos/agent/test/fixtures/correction-proof-fixture.json. BLOCKED: Edit permission denied 3 consecutive runs.",
+      "resolved": false
+    },
+    {
+      "id": "CORR-STALE-DECISION-ID",
+      "severity": "MEDIUM",
+      "category": "correctness",
+      "summary": "lastInstruction and lastDecisionId never reset after consumption in runner.ts:596. Two consecutive null gatekeeper turns produce lastDecisionId '' — consumedDecisionIds deduplicates on '' and second correction passes with stale instruction. Fix: add lastInstruction = null; lastDecisionId = null; after correctionGrants assignment. BLOCKED: Edit permission denied.",
+      "resolved": false
+    },
+    {
+      "id": "CORR-EXTENSION-WHITELIST-INVISIBLE",
+      "severity": "MEDIUM",
+      "category": "maintainability",
+      "summary": "pathsNamedIn() in correctionBoundary.ts only matches .ts/.tsx/.js/.cjs/.mjs/.json/.md. Whitelist invisible to callers. Fix: document in JSDoc. BLOCKED: Edit permission denied.",
+      "resolved": false
+    },
+    {
+      "id": "SEC-EMPTY-SUBJECT-COMMIT",
+      "severity": "LOW",
+      "category": "security",
+      "summary": "authoriseCorrection accepts empty subjectCommit ('' === '' passes). Fix: guard refusing empty subjectCommit before inequality check. BLOCKED: Edit permission denied.",
+      "resolved": false
+    },
+    {
+      "id": "SEC-CHECK-OUTPUT-PROVENANCE",
+      "severity": "LOW",
+      "category": "security",
+      "summary": "failingCheckOutput embedded as plain string in reviewer evidence. Untrusted content. Defence-in-depth adequate but structural isolation recommended. BLOCKED: Edit permission denied.",
+      "resolved": false
+    },
+    {
+      "id": "SEC-PERCENT-ENCODED-PATHS",
+      "severity": "LOW",
+      "category": "security",
+      "summary": "Path validation checks '..' but not percent-encoded chars, null bytes, or non-printable chars. Safe downstream but should fail here. Fix: add /[%\\x00-\\x1f]/ rejection. BLOCKED: Edit permission denied.",
+      "resolved": false
+    },
+    {
+      "id": "CODE-GRANTS-NOT-REVALIDATED",
+      "severity": "LOW",
+      "category": "documentation",
+      "summary": "toolGrantProblems not re-run after withCorrectionGrants appends Edit/Write grants. Intentional but undocumented. Fix: add comment at attemptWorker construction. BLOCKED: Edit permission denied.",
+      "resolved": false
+    },
+    {
+      "id": "CODE-SCOPE-ABSENT-BYPASS",
+      "severity": "LOW",
+      "category": "documentation",
+      "summary": "Scope-absent phases silently bypass CORRECTION_BOUNDARY_OVERREACHES_SCOPE guard. Intentional backward-compat but undocumented in runner.ts. Fix: add comment. BLOCKED: Edit permission denied.",
+      "resolved": false
+    },
+    {
+      "id": "CODE-CORRECTION-MAXIMUM-CALL-SITE",
+      "severity": "LOW",
+      "category": "verification",
+      "summary": "VERIFIED: criterion10-live-proof.mjs:58 sets CORRECTION_MAXIMUM = [FIXTURE_REL] = exactly 'projectos/agent/test/fixtures/correction-proof-fixture.json'. Nothing broader.",
+      "resolved": true
+    }
+  ]
+}

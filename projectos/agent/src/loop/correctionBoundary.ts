@@ -74,7 +74,7 @@ function norm(p: string): string {
  * `projectos/agent-secrets` look like it is inside `projectos/agent`, which is exactly the kind of
  * near-miss a boundary check exists to catch.
  */
-function within(candidate: string, boundary: string): boolean {
+export function within(candidate: string, boundary: string): boolean {
   const c = norm(candidate);
   const b = norm(boundary);
   return c === b || c.startsWith(`${b}/`);
@@ -94,6 +94,17 @@ export function authoriseCorrection(request: CorrectionRequest, context: Correct
   }
   if (request.phaseId !== context.phaseId) {
     reasons.push(`the correction is for phase '${request.phaseId}', not '${context.phaseId}'`);
+  }
+  // AN UNBOUND CORRECTION IS NOT A BOUND ONE. Both sides derive from `verification.observed.head ??
+  // ''`, so a run whose HEAD could not be read produced '' on both sides and compared EQUAL - the
+  // subject binding passed by being absent. Raised as SEC-EMPTY-SUBJECT-COMMIT by the live reviewer
+  // against this file's own caller. Same for the decision id: '' deduplicates against '' in
+  // `consumedDecisionIds`, so an unnamed decision could drive a second correction.
+  if (request.subjectCommit.trim() === '' || context.subjectCommit.trim() === '') {
+    reasons.push('the correction names no subject commit, so it is bound to nothing and cannot be authorised');
+  }
+  if (request.decisionId.trim() === '') {
+    reasons.push('the correction names no decision, so nothing authorised it');
   }
   if (request.subjectCommit !== context.subjectCommit) {
     reasons.push(
@@ -153,6 +164,12 @@ export function authoriseCorrection(request: CorrectionRequest, context: Correct
  * DELIBERATELY LITERAL. It extracts repository-relative path-shaped tokens and nothing else; it does
  * not interpret the sentence around them. Whatever it finds is then checked against the maximum, so
  * a wrong extraction can only ever produce a refusal, never an authorisation.
+ *
+ * IT ONLY RECOGNISES THESE EXTENSIONS: .ts .tsx .js .cjs .mjs .json .md. A correction aimed at any
+ * other kind of file - a .yml, a .sql, a .css - is not extracted, so it is not requested, so it is
+ * refused for naming nothing. That is the safe direction and it is also a real limitation, stated
+ * here because it was invisible to callers: raised as CORR-EXTENSION-WHITELIST-INVISIBLE by the live
+ * reviewer. Widening it is a governed decision, not a convenience.
  */
 export function pathsNamedIn(instruction: string): readonly string[] {
   const found = instruction.match(/[A-Za-z0-9_.\-/]+\.(ts|tsx|js|cjs|mjs|json|md)\b/g) ?? [];

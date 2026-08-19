@@ -143,17 +143,29 @@ function numOrNull(v: unknown): number | null {
  * WHAT THE CONFIG MAY NOT NOMINATE. The config decides WHICH state record, but not what counts as
  * one. A config that could name the active plan, itself, or a source file would be a config that
  * could launder its own substantive changes into a closure tail — so the plan and the config are
- * refused by exact comparison, and the path must live in the state directory where programme records
- * are kept. That is a bound on location, not an inference from the filename: two programmes with
- * quite different filenames both qualify, and no source, validator or schema path can.
+ * refused by exact comparison, and the path must live in one of the directories where governed
+ * programme records are kept. That is a bound on location, not an inference from the filename: two
+ * programmes with quite different filenames both qualify, and no source, validator or schema path
+ * can.
+ *
+ * WHY THERE ARE TWO DIRECTORIES. `projectos/state/` is where this repository's earlier programmes
+ * kept their records, and it was the only location recognised here. `plan activate` writes the new
+ * programme's state record beside the plan it activates, inside `.projectops/`, and repoints
+ * planMemory at it — so a governed activation moved the canonical record out of the only location
+ * this function accepted, and it began returning nothing at all. An empty list is not a refusal: it
+ * makes the programme's ordinary lifecycle sync read as a SUBSTANTIVE change and G4-12 refuses a
+ * phase that has done nothing wrong, which is the exact defect this function exists to prevent.
+ * Recognising the governed directory the runtime actually writes to restores that, and widens
+ * nothing else: every bound below is unchanged and applies to both directories.
  */
 export function programmeStateTailPaths(context: GovernedContext): readonly string[] {
   const memory = context.config.planMemory;
   const declared = memory === undefined ? undefined : memory.currentStatePath;
   if (typeof declared !== 'string' || declared.trim() === '') return [];
   const p = declared.replace(/\\/g, '/').trim();
-  if (!p.startsWith(STATE_DIR) || p.length === STATE_DIR.length) return [];
-  if (p.slice(STATE_DIR.length).includes('/')) return [];
+  const dir = STATE_DIRS.find((d) => p.startsWith(d) && p.length > d.length);
+  if (dir === undefined) return [];
+  if (p.slice(dir.length).includes('/')) return [];
   const planRel = (memory?.planPath ?? DEFAULT_PLAN_RELPATH).replace(/\\/g, '/').trim();
   if (p === planRel || p === CONFIG_RELPATH) return [];
   return [p];
@@ -161,8 +173,8 @@ export function programmeStateTailPaths(context: GovernedContext): readonly stri
 
 const CONFIG_RELPATH = '.projectops/project-config.json';
 
-/** Where a programme's state record lives. A nominated path outside it is not a state record. */
-const STATE_DIR = 'projectos/state/';
+/** Where a programme's state record may live. A nominated path outside these is not a state record. */
+const STATE_DIRS = ['projectos/state/', '.projectops/'] as const;
 
 function changesSince(
   sys: System,

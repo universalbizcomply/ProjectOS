@@ -52,6 +52,45 @@
       },
       "costMicroUsd": 7590,
       "at": "2026-08-18T03:42:33.897Z"
+    },
+    {
+      "requestId": "GKREQ-e73eabbb036d4faec79b99f4",
+      "projectId": "projectos",
+      "phaseId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+      "model": "gpt-5.6-terra",
+      "usage": {
+        "inputTokens": 6834,
+        "cachedInputTokens": 0,
+        "outputTokens": 515
+      },
+      "costMicroUsd": 13693,
+      "at": "2026-08-18T13:36:20.724Z"
+    },
+    {
+      "requestId": "GKREQ-57ea4c1680e42d15e4c6c52d",
+      "projectId": "projectos",
+      "phaseId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "inputTokens": 15441,
+        "cachedInputTokens": 0,
+        "outputTokens": 589
+      },
+      "costMicroUsd": 1780,
+      "at": "2026-08-18T13:36:34.428Z"
+    },
+    {
+      "requestId": "GKREQ-3333daa6bee30db24053eaf8",
+      "projectId": "projectos",
+      "phaseId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+      "model": "gpt-5.6-terra",
+      "usage": {
+        "inputTokens": 20468,
+        "cachedInputTokens": 0,
+        "outputTokens": 570
+      },
+      "costMicroUsd": 31285,
+      "at": "2026-08-18T14:23:54.542Z"
     }
   ]
 }
