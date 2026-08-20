@@ -111,13 +111,33 @@ export type GatekeeperUnavailableOwnerChoice = (typeof GATEKEEPER_UNAVAILABLE_OW
  * accepted for another: an owner who accepts continuing without a reviewer because the credential is
  * not approved has not thereby accepted continuing because the provider refused on spend. The
  * wording of any cause may change freely; the identity does not move with it.
+ *
+ * THE ROUTE CAUSES WERE ONCE ONE VALUE, AND THAT WAS TOO COARSE. `TRANSPORT_UNAVAILABLE` covered a
+ * missing descriptor, an invalid one, one the OWNER had not commercially approved, and one the
+ * environment could not reach. Those are different facts about different parties — the third is a
+ * governance refusal by the owner, the fourth is the network — and collapsing them meant a grant
+ * accepted for one could answer another with project, phase, subject and stop all unchanged. They
+ * are split because `selectGatekeeperTransport` already distinguishes them structurally, before any
+ * prose is rendered; nothing here is recovered by parsing a message.
+ *
+ * NOT SPLIT, AND THE REASON IS STRUCTURAL: "configured but not enabled" is decided in
+ * `loadGatekeeperConfig`, which folds it into an untyped reason list and refuses the whole config.
+ * A disabled gatekeeper therefore never reaches this selector — the CLI refuses the run outright —
+ * so there is no state here to distinguish, and inventing a value for it would be a distinction the
+ * structured state cannot establish. See the report accompanying this change.
  */
 export const GATEKEEPER_UNAVAILABILITY_CAUSES = [
-  /** No usable route: none configured, not enabled, not owner-approved, or not reachable. */
-  'TRANSPORT_UNAVAILABLE',
-  /** A route exists, but the credential it names could not be resolved. */
+  /** No transport descriptor at all. Nothing further about a route can even be evaluated. */
+  'TRANSPORT_NOT_CONFIGURED',
+  /** A descriptor exists but does not satisfy the transport contract, so it cannot be trusted. */
+  'TRANSPORT_UNUSABLE',
+  /** A usable route exists that the OWNER has not commercially approved. A governance refusal. */
+  'TRANSPORT_NOT_APPROVED',
+  /** An approved route that the environment could not reach. */
+  'TRANSPORT_UNREACHABLE',
+  /** A route exists and is approved, but the credential it names could not be resolved. */
   'CREDENTIAL_UNAVAILABLE',
-  /** The provider itself refused on a spend limit. */
+  /** The provider itself refused on a spend limit. A budget decision, not a failure. */
   'PROVIDER_SPEND_LIMITED',
   /** The provider was tried and produced no usable decision. */
   'PROVIDER_UNAVAILABLE',
@@ -282,20 +302,35 @@ export function selectGatekeeperTransport(
   opts: { readonly rehearsalOnly?: boolean } = {},
 ): TransportSelection {
   const reasons: string[] = [];
+  // THE CAUSE IS DECIDED BY WHICH CHECK FAILED, IN A FIXED ORDER, so a route that is wrong in more
+  // than one way still yields ONE deterministic identity. The order runs outermost-first: a missing
+  // descriptor makes every later question meaningless, an untrustworthy descriptor makes approval
+  // and reachability meaningless, and the owner's commercial gate is answered before the network is
+  // consulted because a route the owner has not approved must not be reported as a connectivity
+  // problem.
+  let cause: GatekeeperUnavailabilityCause | null = null;
+  const note = (c: GatekeeperUnavailabilityCause): void => {
+    if (cause === null) cause = c;
+  };
 
   if (descriptor === null) {
+    note('TRANSPORT_NOT_CONFIGURED');
     reasons.push('no gatekeeper transport is configured for this project');
   } else {
-    reasons.push(...checkTransportDescriptor(descriptor, opts));
+    const descriptorProblems = checkTransportDescriptor(descriptor, opts);
+    if (descriptorProblems.length > 0) note('TRANSPORT_UNUSABLE');
+    reasons.push(...descriptorProblems);
 
     // The commercial gate is the owner's and is not implied by the route existing.
     if (opts.rehearsalOnly !== true && descriptor.commercialApproval !== true) {
+      note('TRANSPORT_NOT_APPROVED');
       reasons.push(
         `transport '${descriptor.transportId}' has no owner commercial approval, so it may not be called; ` +
           'API activation, credential creation and spend are a separate owner gate',
       );
     }
     if (availability.reachable !== true) {
+      note('TRANSPORT_UNREACHABLE');
       // THE DETAIL COMES FROM WHATEVER FAILED — a provider error body, a proxy page, a DNS message —
       // and this refusal is written into a governance record. Unbounded text from a remote party is
       // not something a record should carry verbatim, so it is truncated and stripped to printable
@@ -316,7 +351,9 @@ export function selectGatekeeperTransport(
     // NO SECOND ATTEMPT IS MADE HERE, BY DESIGN. The owner decides what happens next.
     return {
       outcome: 'UNAVAILABLE',
-      cause: 'TRANSPORT_UNAVAILABLE',
+      // `reasons` is non-empty, so exactly one `note` has fired; the fallback names the descriptor
+      // as unusable rather than inventing a friendlier cause for a state nothing accounted for.
+      cause: cause ?? 'TRANSPORT_UNUSABLE',
       reasons,
       ownerChoices: GATEKEEPER_UNAVAILABLE_OWNER_CHOICES,
     };

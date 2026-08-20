@@ -9,6 +9,7 @@ import { describe, it, expect } from 'vitest';
 import {
   checkTransportDescriptor,
   selectGatekeeperTransport,
+  isGatekeeperUnavailabilityCause,
   isOwnerUnavailableChoice,
   GATEKEEPER_UNAVAILABLE_OWNER_CHOICES,
   FORBIDDEN_GATEKEEPER_CAPABILITIES,
@@ -237,5 +238,69 @@ describe('when no gatekeeper can be reached', () => {
     );
     if (selection.outcome !== 'UNAVAILABLE') throw new Error('unreachable');
     expect(selection.reasons.length).toBeGreaterThanOrEqual(4);
+  });
+});
+
+/* ------------------------------------------------------------------------------------------------
+ * WHICH FACT FAILED — the cause this module reports, tested where this module lives.
+ *
+ * The cause is not a label for a log line: it is bound into the degraded-mode outage identity, and
+ * that identity decides which situations one owner risk-acceptance covers. It used to be a single
+ * `TRANSPORT_UNAVAILABLE` covering a missing descriptor, an invalid one, one the OWNER had not
+ * commercially approved, and one the environment could not reach — so a grant accepted for the
+ * owner's own governance refusal would answer a network failure.
+ *
+ * These were previously asserted only from the agent package, against its compiled copy of this
+ * module. Raised by adversarial review: the branching this file introduces should be proven in this
+ * file, against this source.
+ * --------------------------------------------------------------------------------------------- */
+
+describe('the cause a refusal reports', () => {
+  const causeOf = (
+    descriptor: Parameters<typeof selectGatekeeperTransport>[0],
+    availability: { readonly reachable: boolean },
+  ) => {
+    const selection = selectGatekeeperTransport(descriptor, availability);
+    if (selection.outcome !== 'UNAVAILABLE') throw new Error('fixture selected a transport');
+    return selection.cause;
+  };
+
+  it('names a missing descriptor', () => {
+    expect(causeOf(null, REACHABLE)).toBe('TRANSPORT_NOT_CONFIGURED');
+  });
+
+  it('names a descriptor that fails the transport contract', () => {
+    expect(causeOf(transport({ capabilities: [] }), REACHABLE)).toBe('TRANSPORT_UNUSABLE');
+  });
+
+  it('names the owner commercial gate, which is a governance refusal and not a fault', () => {
+    expect(causeOf(transport({ commercialApproval: false }), REACHABLE)).toBe('TRANSPORT_NOT_APPROVED');
+  });
+
+  it('names an approved route the environment could not reach', () => {
+    expect(causeOf(transport(), { reachable: false })).toBe('TRANSPORT_UNREACHABLE');
+  });
+
+  it('reports ONE cause for a route that is wrong in several ways, outermost first', () => {
+    // The owner's gate is answered before the network: a route the owner never approved must not be
+    // reported as a connectivity problem, and the answer must not depend on check order.
+    expect(causeOf(transport({ commercialApproval: false }), { reachable: false })).toBe(
+      'TRANSPORT_NOT_APPROVED',
+    );
+    // An untrustworthy descriptor outranks both, because nothing about it can be relied on.
+    expect(causeOf(transport({ capabilities: [], commercialApproval: false }), { reachable: false })).toBe(
+      'TRANSPORT_UNUSABLE',
+    );
+  });
+
+  it('every cause it can report is in the declared vocabulary', () => {
+    for (const c of [
+      causeOf(null, REACHABLE),
+      causeOf(transport({ capabilities: [] }), REACHABLE),
+      causeOf(transport({ commercialApproval: false }), REACHABLE),
+      causeOf(transport(), { reachable: false }),
+    ]) {
+      expect(isGatekeeperUnavailabilityCause(c)).toBe(true);
+    }
   });
 });

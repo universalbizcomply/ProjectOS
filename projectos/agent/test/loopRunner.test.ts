@@ -15,6 +15,7 @@ import { runLoop as runLoopRaw } from '../src/loop/runner.js';
 import { invocationIdFor } from '../src/loop/invocation.js';
 import { MAX_CORRECTION_ATTEMPTS } from '../src/loop/outcome.js';
 import { inMemoryResolverForTests } from '../src/loop/credentialResolver.js';
+import { deriveUnavailabilityId } from '../src/loop/degradedMode.js';
 import { APPROVED_PILOT_POLICY } from '@projectos/core';
 import type { AdapterRegistry, WorkerAdapter } from '../src/loop/workers.js';
 import type { System, ExecResult } from '../src/system.js';
@@ -1142,6 +1143,117 @@ describe('runLoop with an unattended gatekeeper', () => {
     expect(out).toContain('STOP WORK');
     // Unreachable means unreachable: nothing was sent.
     expect(sent).toEqual([]);
+  });
+
+
+  /* ----------------------------------------------------------------------------------------------
+   * THE CAUSE REACHES THE IDENTITY — proven through the runner, not at the two ends.
+   *
+   * RAISED BY ADVERSARIAL REVIEW, AND IT WAS RIGHT. The cause split was proven in two halves that
+   * never met: one set of tests showed `selectGatekeeperTransport` assigns four distinct causes,
+   * another showed distinct causes yield distinct outage identities — and NOTHING asserted the wiring
+   * between them. Replacing `unavailabilityCause: cause` with a constant, or passing a constant into
+   * `degradedContinuation`, left the entire suite green while all four route situations collapsed
+   * back to one identity. That is exactly the over-broad grant reuse the split exists to prevent.
+   *
+   * These drive the whole path — selector -> turn -> runner -> deriveUnavailabilityId — and read the
+   * outage the run actually printed.
+   * ------------------------------------------------------------------------------------------- */
+
+  /** The outage identity the run announced, or null if it never got that far. */
+  const outagePrinted = (lines: readonly string[]): string | null => {
+    const m = /degraded mode: outage (GKOUT-[0-9a-f]{24})/.exec(lines.join('\n'));
+    return m === null ? null : m[1] ?? null;
+  };
+
+  /**
+   * The committed-owner read, which the shared fake world does not answer.
+   *
+   * `committedGovernanceOwner` asks three questions about the plan — committed at all, unmodified
+   * since HEAD, and then reads the object. The shared world answers `diff --name-only` with a
+   * catch-all dirty file, so the plan looks modified and the degraded route refuses at the owner
+   * gate before any outage is derived. That refusal is correct behaviour; it just stops these tests
+   * short of the thing they exist to prove. Answered here, for this block only, so the run reaches
+   * the identity.
+   */
+  const withCommittedOwner = (base: System): System => {
+    const inner = base as unknown as { exec(c: string, a: readonly string[]): ExecResult };
+    return {
+      ...(base as unknown as object),
+      exec: (cmd: string, args: readonly string[]): ExecResult => {
+        const key = args.join(' ');
+        if (cmd === 'git' && key.includes('state/plan.json')) {
+          if (key.includes('log -1')) return { code: 0, stdout: `${HEAD}
+`, stderr: '' };
+          if (key.includes('diff --name-only')) return { code: 0, stdout: '', stderr: '' };
+          if (key.includes('show')) return { code: 0, stdout: JSON.stringify(realPlan()), stderr: '' };
+        }
+        return inner.exec(cmd, args);
+      },
+    } as unknown as System;
+  };
+
+  const runUnavailable = (availability: { reachable: boolean }, over: Record<string, unknown> = {}) => {
+    const sys = withCommittedOwner(world({ files: nestedAttestation() }));
+    const deps = gatekeeper({ status: 200, body: decisionBody('DO_NOT_PROCEED', null) });
+    const r = runLoop(sys, ROOT, {
+      adapters: fakeAdapter().registry,
+      expectedDecider: 'ChatGPT',
+      gatekeeper: { ...deps, availability, ...over },
+      degradedMode: { grantId: 'FIXTURE-NO-SUCH-GRANT', operation: 'implement' },
+    });
+    if (!r.ok) throw new Error('fixture did not run');
+    return { outage: outagePrinted(r.lines), stop: r.stop?.code ?? null };
+  };
+
+  it('WIRING — an unreachable transport yields the UNREACHABLE outage, end to end', () => {
+    const { outage, stop } = runUnavailable({ reachable: false });
+    expect(stop).toBe('EFFECTS_NOT_ATTESTED');
+    expect(outage).toBe(
+      deriveUnavailabilityId({
+        projectId: 'projectos',
+        phaseId: PHASE,
+        subjectCommit: HEAD,
+        stopCode: 'EFFECTS_NOT_ATTESTED',
+        cause: 'TRANSPORT_UNREACHABLE',
+      }),
+    );
+  });
+
+  it('WIRING — a route the owner has not approved yields a DIFFERENT outage', () => {
+    // The governance refusal and the network failure are different risks. If the cause were dropped
+    // anywhere between the selector and the identity, these two runs would print the same id.
+    const unreachable = runUnavailable({ reachable: false });
+    const deps = gatekeeper({ status: 200, body: decisionBody('DO_NOT_PROCEED', null) });
+    const unapproved = runUnavailable(
+      { reachable: true },
+      { transport: { ...deps.transport, commercialApproval: false } },
+    );
+
+    expect(unapproved.outage).toBe(
+      deriveUnavailabilityId({
+        projectId: 'projectos',
+        phaseId: PHASE,
+        subjectCommit: HEAD,
+        stopCode: 'EFFECTS_NOT_ATTESTED',
+        cause: 'TRANSPORT_NOT_APPROVED',
+      }),
+    );
+    expect(unapproved.outage).not.toBe(unreachable.outage);
+  });
+
+  it('WIRING — no transport configured yields a third, distinct outage', () => {
+    const none = runUnavailable({ reachable: true }, { transport: null });
+    expect(none.outage).toBe(
+      deriveUnavailabilityId({
+        projectId: 'projectos',
+        phaseId: PHASE,
+        subjectCommit: HEAD,
+        stopCode: 'EFFECTS_NOT_ATTESTED',
+        cause: 'TRANSPORT_NOT_CONFIGURED',
+      }),
+    );
+    expect(none.outage).not.toBe(runUnavailable({ reachable: false }).outage);
   });
 
   it('UNAVAILABLE — with a grant named but none committed, the degraded route REFUSES and no work runs', () => {

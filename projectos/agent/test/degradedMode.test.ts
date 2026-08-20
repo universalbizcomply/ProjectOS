@@ -45,6 +45,7 @@ import {
   RECONCILIATION_ASK,
   GATEKEEPER_UNAVAILABILITY_CAUSES,
   isGatekeeperUnavailabilityCause,
+  selectGatekeeperTransport,
 } from '@projectos/core';
 
 const PHASE = 'PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A';
@@ -150,7 +151,7 @@ const outageFor = (head: string) =>
     phaseId: PHASE,
     subjectCommit: head,
     stopCode: 'REVIEW_OUTSTANDING',
-    cause: 'TRANSPORT_UNAVAILABLE',
+    cause: 'TRANSPORT_NOT_CONFIGURED',
   });
 
 const authInput = (head: string, outage: string) => ({
@@ -1149,8 +1150,8 @@ describe('IDENTITY STABILITY — material cause in, prose out', () => {
   it('G — rewording a cause cannot move the identity, because wording is not an input', () => {
     // The turn still renders prose for a person to read; it just no longer decides anything. Two
     // turns whose reasons differ entirely, on the same material cause, are the same outage.
-    const a = deriveUnavailabilityId({ ...BASE, cause: 'TRANSPORT_UNAVAILABLE' });
-    const b = deriveUnavailabilityId({ ...BASE, cause: 'TRANSPORT_UNAVAILABLE' });
+    const a = deriveUnavailabilityId({ ...BASE, cause: 'TRANSPORT_NOT_CONFIGURED' });
+    const b = deriveUnavailabilityId({ ...BASE, cause: 'TRANSPORT_NOT_CONFIGURED' });
     expect(a).toBe(b);
   });
 
@@ -1159,7 +1160,119 @@ describe('IDENTITY STABILITY — material cause in, prose out', () => {
     for (const junk of ['', 'credential_unavailable', 'anything at all', 'STOPPED (X): y']) {
       expect(isGatekeeperUnavailabilityCause(junk)).toBe(false);
     }
-    expect(GATEKEEPER_UNAVAILABILITY_CAUSES).toHaveLength(4);
+    expect(GATEKEEPER_UNAVAILABILITY_CAUSES).toHaveLength(7);
+  });
+});
+
+
+/* ------------------------------------------------------------------------------------------------
+ * CAUSE GRANULARITY — one route cause was four different facts wearing one name.
+ *
+ * `TRANSPORT_UNAVAILABLE` covered a missing descriptor, an invalid one, one the OWNER had not
+ * commercially approved, and one the environment could not reach. Those involve different parties:
+ * the third is a governance refusal by the owner, the fourth is the network. Collapsed, a grant
+ * accepted for one would answer another with project, phase, subject and stop all unchanged — the
+ * over-broad reuse this splits apart.
+ * --------------------------------------------------------------------------------------------- */
+
+describe('CAUSE GRANULARITY — the selector reports which fact failed', () => {
+  const APPROVED = {
+    transportId: 'openai-primary',
+    kind: 'openai-responses' as const,
+    model: 'gpt-5.6-terra',
+    capabilities: ['submit-request', 'receive-decision'],
+    credentialRef: 'PROJECTOS_GATEKEEPER_OPENAI_KEY',
+    commercialApproval: true,
+  };
+  const reachable = { reachable: true };
+
+  const causeOf = (descriptor: unknown, availability: { reachable: boolean }) => {
+    const sel = selectGatekeeperTransport(
+      descriptor as Parameters<typeof selectGatekeeperTransport>[0],
+      availability,
+    );
+    if (sel.outcome !== 'UNAVAILABLE') throw new Error('fixture selected a transport');
+    return sel.cause;
+  };
+
+  it('a missing descriptor is NOT_CONFIGURED', () => {
+    expect(causeOf(null, reachable)).toBe('TRANSPORT_NOT_CONFIGURED');
+  });
+
+  it('a descriptor that fails the transport contract is UNUSABLE', () => {
+    // No capabilities: it cannot be shown to be read-only, so it cannot carry a review.
+    expect(causeOf({ ...APPROVED, capabilities: [] }, reachable)).toBe('TRANSPORT_UNUSABLE');
+  });
+
+  it('a valid route the owner has not commercially approved is NOT_APPROVED', () => {
+    expect(causeOf({ ...APPROVED, commercialApproval: false }, reachable)).toBe('TRANSPORT_NOT_APPROVED');
+  });
+
+  it('an approved route the environment cannot reach is UNREACHABLE', () => {
+    expect(causeOf(APPROVED, { reachable: false })).toBe('TRANSPORT_UNREACHABLE');
+  });
+
+  it('a route wrong in several ways still yields ONE deterministic cause, outermost first', () => {
+    // Unapproved AND unreachable. The owner's gate is answered first: a route the owner never
+    // approved must not be reported as a connectivity problem, and the answer must not depend on
+    // which check happened to run first.
+    const both = causeOf({ ...APPROVED, commercialApproval: false }, { reachable: false });
+    expect(both).toBe('TRANSPORT_NOT_APPROVED');
+    expect(causeOf({ ...APPROVED, commercialApproval: false }, { reachable: false })).toBe(both);
+    // An unusable descriptor outranks both, because nothing about it can be trusted.
+    expect(causeOf({ ...APPROVED, capabilities: [], commercialApproval: false }, { reachable: false })).toBe(
+      'TRANSPORT_UNUSABLE',
+    );
+  });
+});
+
+describe('CAUSE GRANULARITY — no two material causes share an outage identity', () => {
+  const at = (cause: (typeof GATEKEEPER_UNAVAILABILITY_CAUSES)[number]) =>
+    deriveUnavailabilityId({
+      projectId: PROJECT,
+      phaseId: PHASE,
+      subjectCommit: 'a'.repeat(40),
+      stopCode: 'CORRECTION_EXHAUSTED',
+      cause,
+    });
+
+  it('every cause is a distinct outage — the full pairwise matrix', () => {
+    const seen = new Map<string, string>();
+    for (const cause of GATEKEEPER_UNAVAILABILITY_CAUSES) {
+      const id = at(cause);
+      const clash = seen.get(id);
+      expect(clash, `${cause} collides with ${String(clash)}`).toBeUndefined();
+      seen.set(id, cause);
+    }
+    expect(seen.size).toBe(GATEKEEPER_UNAVAILABILITY_CAUSES.length);
+  });
+
+  it.each([
+    ['TRANSPORT_NOT_CONFIGURED', 'TRANSPORT_UNUSABLE'],
+    ['TRANSPORT_NOT_CONFIGURED', 'TRANSPORT_NOT_APPROVED'],
+    ['TRANSPORT_NOT_CONFIGURED', 'TRANSPORT_UNREACHABLE'],
+    ['TRANSPORT_UNUSABLE', 'TRANSPORT_NOT_APPROVED'],
+    ['TRANSPORT_UNUSABLE', 'TRANSPORT_UNREACHABLE'],
+    ['TRANSPORT_NOT_APPROVED', 'TRANSPORT_UNREACHABLE'],
+  ] as const)('%s and %s cannot share an outage', (a, b) => {
+    expect(at(a)).not.toBe(at(b));
+  });
+
+  it.each([
+    'TRANSPORT_NOT_CONFIGURED',
+    'TRANSPORT_UNUSABLE',
+    'TRANSPORT_NOT_APPROVED',
+    'TRANSPORT_UNREACHABLE',
+  ] as const)('%s differs from every non-route cause', (route) => {
+    for (const other of ['CREDENTIAL_UNAVAILABLE', 'PROVIDER_SPEND_LIMITED', 'PROVIDER_UNAVAILABLE'] as const) {
+      expect(at(route)).not.toBe(at(other));
+    }
+  });
+
+  it('the owner gate and the network are not the same outage — the point of the split', () => {
+    // A grant accepted because the owner has not approved commercial use must never answer an
+    // outage that was merely a network failure, and vice versa.
+    expect(at('TRANSPORT_NOT_APPROVED')).not.toBe(at('TRANSPORT_UNREACHABLE'));
   });
 });
 
