@@ -29,6 +29,12 @@ import { nodeHttpPort } from '../loop/transports/nodeHttpPort.js';
 import { nodeProjectosRuntime } from '../nodeRuntimeRoot.js';
 import { ownerGateReceiptRelPath, ownerApprovedSecretsHandling } from '../loop/ownerGateReceipts.js';
 
+/** The governed project's declared id, from its own configuration. Empty when there is none. */
+function governedProjectId(ctx: CommandContext): string {
+  const governed = loadGovernedContext(ctx.sys, ctx.root);
+  return governed.ok ? governed.context.projectId : '';
+}
+
 /** The active phase's committed secrets-handling gate, from the one shared predicate. */
 function ownerSecretsGateApproved(ctx: CommandContext): boolean {
   const phaseId = activePhaseId(ctx);
@@ -122,7 +128,13 @@ export function run(ctx: CommandContext, flags: Flags): CommandResult {
     gatekeeper = {
       transport: gk.config.transport,
       availability: { reachable: true },
-      resolver: windowsVaultResolver({ sys: ctx.sys, runtime: nodeProjectosRuntime(), ownerConfirmation }),
+      resolver: windowsVaultResolver({
+        sys: ctx.sys,
+        runtime: nodeProjectosRuntime(),
+        governedRoot: ctx.root,
+        projectId: governedProjectId(ctx),
+        ownerConfirmation,
+      }),
       http: nodeHttpPort(),
       modelPolicy: gk.config.modelPolicy,
       rateCards: gk.config.rateCards,

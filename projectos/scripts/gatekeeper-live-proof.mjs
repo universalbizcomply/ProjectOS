@@ -116,7 +116,7 @@ let previousResponseId = null;
 // The adapter comes from the TRUSTED INSTALLATION, never from the governed root. Passing ROOT
 // here is what the resolver was changed to stop accepting; `nodeProjectosRuntime()` is the
 // installation asking where it itself lives.
-const resolver = windowsVaultResolver({ sys, runtime: nodeProjectosRuntime(), ownerConfirmation: true });
+const resolver = windowsVaultResolver({ sys, runtime: nodeProjectosRuntime(), governedRoot: ROOT, projectId: 'projectos', ownerConfirmation: true });
 const http = nodeHttpPort();
 
 let ledger = [];

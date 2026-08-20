@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "1.0.0",
+  "policy": "installation-project-allowlist",
+  "note": "Which governed projects THIS ProjectOS installation is willing to spend its own OpenAI gatekeeper credential on. This is an installation technical policy, not an owner gate: it is one of two required factors, and the other — the project's own committed secrets-handling receipt — remains entirely separate. Neither factor alone releases the credential. An entry here does NOT approve credential use for any phase; it only says the installation is willing to consider a project's own owner approval at all.",
+  "authority": "delegated-technical-gatekeeper",
+  "authorisedBy": "ChatGPT",
+  "provenance": "Transcribed by the implementer (Claude) from the delegated gatekeeper ruling of 2026-08-20, section 3, which authorised exactly one initial entry: project 'projectos' at the canonical origin of C:\\dev\\ProjectOS. No owner decision is claimed or recorded here, and this file deliberately carries no decidedBy field naming a person — the entry was authorised by the delegated technical gatekeeper, and saying otherwise would dress a technical policy as an owner receipt.",
+  "trustBasis": "MANUAL_GOVERNANCE_APPROVAL, tamperProof false. The runtime reads this file from the installation's git object store, never from the working tree, so it has no effect until COMMITTED — and an entry nobody authorised is a visible diff in the installation's own history. Wildcards are refused by the reader, so this list cannot be widened to 'all projects' by editing it.",
+  "projects": [
+    {
+      "projectId": "projectos",
+      "repository": "github.com/universalbizcomply/ProjectOS",
+      "note": "ProjectOS governing itself. Derived from `git remote get-url origin` in C:\\dev\\ProjectOS and canonicalised with the same parseRemoteUrl rule discovery and the observation check use."
+    }
+  ]
+}

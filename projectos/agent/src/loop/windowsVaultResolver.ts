@@ -33,6 +33,7 @@
 import { join } from 'node:path';
 import type { System } from '../system.js';
 import type { ProjectosRuntime } from '../nodeRuntimeRoot.js';
+import { installationAllowsProject } from '../installation/projectAllowlist.js';
 import {
   credentialRefProblems,
   type CredentialResolution,
@@ -76,6 +77,9 @@ export interface WindowsVaultResolverOptions {
    * carry a file at that path would have had it executed as the credential process.
    */
   readonly runtime: ProjectosRuntime;
+  /** The governed project this credential would be spent on, and where it lives. */
+  readonly governedRoot: string;
+  readonly projectId: string;
   /**
    * Whether the owner's committed `secrets-handling` gate receipt approves credential use.
    *
@@ -157,8 +161,15 @@ export function windowsVaultResolver(options: WindowsVaultResolverOptions): Cred
       const vaultRef = VAULT_REFERENCE[ref];
       if (vaultRef === undefined) return { ok: false, reasons: [REFUSALS.unmapped(ref)] };
 
-      // THE OWNER GATE COMES BEFORE THE STORE IS TOUCHED. Asking for the value and then deciding
-      // whether we were allowed to would already have read it.
+      // TWO FACTORS, BOTH BEFORE THE STORE IS TOUCHED.
+      //
+      // The installation's committed allowlist says whether this installation will spend its
+      // credential on this project at all; the project's own committed receipt says whether its owner
+      // approved credential use for the phase. A project can write itself the second and never the
+      // first. Asking for the value and then deciding whether we were allowed to would already have
+      // read it, so both are answered here.
+      const allowed = installationAllowsProject(options.sys, options.runtime, options.governedRoot, options.projectId);
+      if (!allowed.allowed) return { ok: false, reasons: allowed.reasons };
       if (options.ownerConfirmation !== true) return { ok: false, reasons: [REFUSALS.noOwner] };
 
       const install = options.runtime.installRoot;

@@ -90,7 +90,7 @@ function gatekeeperDeps() {
       transport: gk.config.transport,
       availability: { reachable: true },
       // Installation-scoped adapter; see gatekeeper-live-proof.mjs.
-      resolver: windowsVaultResolver({ sys, runtime: nodeProjectosRuntime(), ownerConfirmation }),
+      resolver: windowsVaultResolver({ sys, runtime: nodeProjectosRuntime(), governedRoot: ROOT, projectId: 'projectos', ownerConfirmation }),
       http: nodeHttpPort(),
       modelPolicy: gk.config.modelPolicy,
       rateCards: gk.config.rateCards,

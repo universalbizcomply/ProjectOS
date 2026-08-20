@@ -46,6 +46,8 @@ function fakeSys(
     onDiskBytes?: string;
     /** Exit code for the PowerShell child; 127 is "no trusted shell is bound". */
     shellCode?: number;
+    /** Does the installation's committed allowlist name this project? */
+    allowlisted?: boolean;
   } = {},
 ): {
   sys: System;
@@ -59,6 +61,25 @@ function fakeSys(
     exec: (cmd: string, args: readonly string[]) => {
       calls.push({ cmd, args });
       if (cmd === 'git') {
+        const spec = args.join(' ');
+        // The installation's committed allowlist, and the checkout's canonical identity. Both are
+        // asked BEFORE the credential store is touched, so the fake has to answer them.
+        if (spec.includes('remote')) {
+          return { code: 0, stdout: 'https://github.com/universalbizcomply/ProjectOS.git', stderr: '' };
+        }
+        if (spec.includes('installation-project-allowlist')) {
+          if (over.allowlisted === false) return { code: 0, stdout: '', stderr: '' };
+          if (spec.includes(' diff ')) return { code: 0, stdout: '', stderr: '' };
+          if (spec.includes(' log ')) return { code: 0, stdout: 'aaaaaaa', stderr: '' };
+          return {
+            code: 0,
+            stdout: JSON.stringify({
+              schemaVersion: '1.0.0',
+              projects: [{ projectId: 'projectos', repository: 'github.com/universalbizcomply/ProjectOS' }],
+            }),
+            stderr: '',
+          };
+        }
         const sub = args[2];
         if (sub === 'log') {
           return { code: 0, stdout: over.committed === false ? '' : 'aaaaaaa\n', stderr: '' };
@@ -131,6 +152,8 @@ describe('the vault resolver', () => {
     sys: fakeSys().sys,
     // The TRUSTED INSTALLATION, which is deliberately not the governed project root.
     runtime: { installRoot: '/install/ProjectOS', adapterRelPath: CREDENTIAL_ADAPTER_REL },
+    governedRoot: '/install/ProjectOS',
+    projectId: 'projectos',
     ownerConfirmation: true,
     ...over,
   });
@@ -175,7 +198,9 @@ describe('the vault resolver', () => {
     const { sys, calls } = fakeSys();
     const r = windowsVaultResolver(opts({ sys, ownerConfirmation: false })).resolve(REF);
     expect(r.ok).toBe(false);
-    expect(calls).toEqual([]);
+    // The credential STORE is untouched. Git runs first — the installation is asked whether it
+    // will spend on this project at all — but no shell is spawned and no value is read.
+    expect(calls.some((c) => c.cmd === 'powershell')).toBe(false);
     if (r.ok) throw new Error('unreachable');
     expect(r.reasons.some((x) => x.includes('secrets-handling gate receipt'))).toBe(true);
   });
@@ -225,7 +250,25 @@ describe('the vault resolver', () => {
       exec: (c: string, a: readonly string[], options?: { scrubCredentials?: boolean }) => {
         // Git answers as a clean, committed adapter so the integrity check passes and the
         // PowerShell child is actually reached — it is that child's options under test.
-        if (c === 'git') return { code: 0, stdout: a[2] === 'diff' ? '' : ADAPTER_BYTES, stderr: '' };
+        if (c === 'git') {
+          const spec = a.join(' ');
+          if (spec.includes('remote')) {
+            return { code: 0, stdout: 'https://github.com/universalbizcomply/ProjectOS.git', stderr: '' };
+          }
+          if (spec.includes('installation-project-allowlist')) {
+            if (spec.includes(' diff ')) return { code: 0, stdout: '', stderr: '' };
+            if (spec.includes(' log ')) return { code: 0, stdout: 'aaaaaaa', stderr: '' };
+            return {
+              code: 0,
+              stdout: JSON.stringify({
+                schemaVersion: '1.0.0',
+                projects: [{ projectId: 'projectos', repository: 'github.com/universalbizcomply/ProjectOS' }],
+              }),
+              stderr: '',
+            };
+          }
+          return { code: 0, stdout: a[2] === 'diff' ? '' : ADAPTER_BYTES, stderr: '' };
+        }
         calls.push({ options });
         return { code: 0, stdout: `${SECRET}\n`, stderr: '' };
       },
@@ -247,6 +290,8 @@ describe('the credential adapter belongs to the installation, and must be the co
   const opts = (over: Record<string, unknown> = {}) => ({
     sys: fakeSys().sys,
     runtime: { installRoot: '/install/ProjectOS', adapterRelPath: CREDENTIAL_ADAPTER_REL },
+    governedRoot: '/install/ProjectOS',
+    projectId: 'projectos',
     ownerConfirmation: true,
     ...over,
   });
@@ -378,5 +423,58 @@ describe('the PowerShell that handles the secret is bound, not searched for', ()
     const resolved = resolveBoundPowerShell({ SystemRoot: process.env['SystemRoot'] ?? 'C:/Windows' });
     expect(resolved).not.toBeNull();
     expect(resolved?.toLowerCase()).toContain('system32');
+  });
+});
+
+describe('two factors, both required, neither sufficient', () => {
+  const opts = (over: Record<string, unknown> = {}) => ({
+    sys: fakeSys().sys,
+    runtime: { installRoot: '/install/ProjectOS', adapterRelPath: CREDENTIAL_ADAPTER_REL },
+    governedRoot: '/governed/project',
+    projectId: 'projectos',
+    ownerConfirmation: true,
+    ...over,
+  });
+
+  it('installation allows AND owner approved: the store is reached', () => {
+    const { sys, calls } = fakeSys();
+    const r = windowsVaultResolver(opts({ sys })).resolve(REF);
+    expect(r.ok).toBe(true);
+    expect(calls.some((c) => c.cmd === 'powershell')).toBe(true);
+  });
+
+  it('installation allows, owner did NOT approve: refused, store untouched', () => {
+    const { sys, calls } = fakeSys();
+    const r = windowsVaultResolver(opts({ sys, ownerConfirmation: false })).resolve(REF);
+    expect(r.ok).toBe(false);
+    if (r.ok) throw new Error('unreachable');
+    expect(r.reasons.join(' ')).toContain('owner has not approved credential use');
+    expect(calls.some((c) => c.cmd === 'powershell')).toBe(false);
+  });
+
+  it('owner approved, installation does NOT allow: refused, store untouched', () => {
+    // This is the external project that wrote itself an APPROVE receipt. Its own approval is real and
+    // it changes nothing, because the installation never named it.
+    const { sys, calls } = fakeSys({ allowlisted: false });
+    const r = windowsVaultResolver(opts({ sys })).resolve(REF);
+    expect(r.ok).toBe(false);
+    if (r.ok) throw new Error('unreachable');
+    expect(r.reasons.join(' ')).toContain('credential allowlist');
+    expect(calls.some((c) => c.cmd === 'powershell')).toBe(false);
+  });
+
+  it('the installation is asked BEFORE the owner gate, and before any adapter check', () => {
+    const { sys, calls } = fakeSys({ allowlisted: false });
+    windowsVaultResolver(opts({ sys, ownerConfirmation: false })).resolve(REF);
+    // Nothing about the adapter was even asked: the first refusal is the installation's.
+    expect(calls.some((c) => c.args.join(' ').includes('windows-credential-store.ps1'))).toBe(false);
+  });
+
+  it('names no credential value in any refusal', () => {
+    for (const over of [{ allowlisted: false }, {}]) {
+      const r = windowsVaultResolver(opts({ sys: fakeSys(over).sys, ownerConfirmation: false })).resolve(REF);
+      if (r.ok) continue;
+      expect(r.reasons.join(' ')).not.toContain(SECRET);
+    }
   });
 });
