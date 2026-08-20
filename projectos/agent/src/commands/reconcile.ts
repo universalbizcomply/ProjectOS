@@ -196,6 +196,10 @@ export function reconcile(ctx: CommandContext, flags: Flags): CommandResult {
 
   lines.push(`  NOT RECONCILED (${outcome.kind}); the debt stands:`);
   lines.push(...outcome.reasons.map((r) => `    ${r}`));
+  // The reviewer's own words. Reported, never acted on — a refusal the owner cannot read is a refusal
+  // the owner cannot answer.
+  if (outcome.reviewerReason !== null) lines.push(`  reviewer said: ${outcome.reviewerReason}`);
+  if (outcome.reviewerInstruction !== null) lines.push(`  reviewer asks: ${outcome.reviewerInstruction}`);
   if (outcome.requestId !== null && outcome.ledgerEntry === null) {
     lines.push(
       outcome.definitelyNotSent

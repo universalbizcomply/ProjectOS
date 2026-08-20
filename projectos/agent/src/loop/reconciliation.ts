@@ -101,6 +101,15 @@ export interface ReconciliationOutcome {
   readonly requestId: string | null;
   readonly decisionId: string | null;
   readonly verdict: string | null;
+  /**
+   * What the reviewer said, and what it asked for next.
+   *
+   * SURFACED BECAUSE THE FIRST REAL CALL RETURNED AMENDMENT_REQUIRED AND THE OWNER COULD NOT SEE WHY.
+   * The verdict alone says the debt stands; it does not say what would discharge it. Both are the
+   * reviewer's own words and are reported as such, never acted on by this route.
+   */
+  readonly reviewerReason: string | null;
+  readonly reviewerInstruction: string | null;
   readonly ledgerEntry: LedgerEntry | null;
   readonly providerResponseId: string | null;
   /**
@@ -128,6 +137,8 @@ function outcome(
     requestId: null,
     decisionId: null,
     verdict: null,
+    reviewerReason: null,
+    reviewerInstruction: null,
     ledgerEntry: null,
     providerResponseId: null,
     definitelyNotSent: true,
@@ -609,6 +620,9 @@ export function reconcileDegradedWork(
     requestId,
     decisionId: String(sent.record.decisionId),
     verdict: String(sent.record.decision),
+    reviewerReason: typeof sent.record.reason === 'string' ? sent.record.reason : null,
+    reviewerInstruction:
+      typeof sent.record.nextClaudeInstruction === 'string' ? sent.record.nextClaudeInstruction : null,
     ledgerEntry,
     providerResponseId: sent.providerResponseId,
     definitelyNotSent: false,

@@ -936,3 +936,35 @@ describe('the guards the first mutation run found unpinned', () => {
     expect(readDegradedStore(w.sys, w.root, GRANT)?.reconciliations).toEqual([]);
   });
 });
+
+describe("the reviewer's own words reach the owner", () => {
+  it('reports the reason and the instruction when the verdict leaves the debt standing', () => {
+    // THE FIRST REAL CALL RETURNED AMENDMENT_REQUIRED AND SAID WHY, and the owner saw only the verdict.
+    // A refusal the owner cannot read is a refusal the owner cannot answer.
+    const w = world();
+    const reply = okReply(
+      verdict('AMENDMENT_REQUIRED', {
+        reason: 'the work item summary does not say which validator was failing',
+        nextClaudeInstruction: 'Record the failing check in the work item, then ask again.',
+      }),
+    );
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { http: fakeHttp(reply).http }));
+
+    expect(r.kind).toBe('NOT_ACCEPTED');
+    expect(r.reviewerReason).toBe('the work item summary does not say which validator was failing');
+    expect(r.reviewerInstruction).toBe('Record the failing check in the work item, then ask again.');
+  });
+
+  it('carries no reviewer words when there was no reviewer', () => {
+    const w = world();
+    const r = reconcileDegradedWork(
+      w.sys,
+      w.root,
+      input(),
+      deps(w.root, { http: fakeHttp({ kind: 'transport-error', detail: 'ECONNRESET' }).http }),
+    );
+    expect(r.kind).toBe('UNAVAILABLE');
+    expect(r.reviewerReason).toBeNull();
+    expect(r.reviewerInstruction).toBeNull();
+  });
+});
