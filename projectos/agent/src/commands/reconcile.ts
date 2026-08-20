@@ -30,7 +30,8 @@ import {
   readLedger,
   consumedDecisionIds,
 } from '../loop/gatekeeperConfig.js';
-import { windowsVaultResolver } from '../loop/windowsVaultResolver.js';
+import { unprovisionedResolver } from '../loop/credentialResolver.js';
+import { nodeBrokeredTransport } from '../loop/transports/brokeredHttpPort.js';
 import { nodeHttpPort } from '../loop/transports/nodeHttpPort.js';
 import { nodeInstallationStateDir, nodeProjectosRuntime } from '../nodeRuntimeRoot.js';
 import { canonicalRepositoryIdentity } from '../installation/projectAllowlist.js';
@@ -161,13 +162,15 @@ export function reconcile(ctx: CommandContext, flags: Flags): CommandResult {
       credentialRef: gk.config.transport.credentialRef ?? '',
       transportId: gk.config.transport.transportId,
     },
-    resolver: windowsVaultResolver({
-        sys: ctx.sys,
-        runtime: nodeProjectosRuntime(),
-        governedRoot: ctx.root,
-        projectId: governed.context.projectId,
-        ownerConfirmation,
-      }),
+    // THE CREDENTIAL IS NOT RESOLVED IN THIS PROCESS.
+    //
+    // The trusted installation-side broker validates the allowlist and the committed receipt,
+    // resolves the value inside itself, makes the call and returns a status and a body. The
+    // resolver handed over refuses by construction, so there is no in-process value even to leak.
+    resolver: unprovisionedResolver(
+      'the gatekeeper credential is resolved by the trusted installation broker, never in the agent',
+    ),
+    broker: { transport: nodeBrokeredTransport(ctx.sys, nodeProjectosRuntime()), governedRoot: ctx.root },
     http: nodeHttpPort(),
     rate,
     budget: gk.config.budget,

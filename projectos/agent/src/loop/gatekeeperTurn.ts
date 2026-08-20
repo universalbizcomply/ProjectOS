@@ -57,6 +57,7 @@ import {
 } from '@projectos/core';
 import type { CredentialResolver } from './credentialResolver.js';
 import { applyVerdictToStop, routeStop, type NextLoopAction } from './gatekeeperRouting.js';
+import type { BrokeredTransport } from './transports/brokeredHttpPort.js';
 import { submitToOpenAi, type HttpPort, type TransportOutcome } from './transports/openaiResponses.js';
 import type { LoopStop, LoopStopCode } from './outcome.js';
 
@@ -96,6 +97,11 @@ export interface GatekeeperTurnDeps {
   readonly transport: GatekeeperTransportDescriptor | null;
   readonly availability: TransportAvailability;
   readonly resolver: CredentialResolver;
+  /** The trusted installation-side transport, when composed. See `submitToOpenAi`. */
+  readonly broker?: {
+    readonly transport: BrokeredTransport;
+    readonly governedRoot: string;
+  };
   readonly http: HttpPort;
   readonly modelPolicy: ModelPolicy;
   readonly rateCards: Readonly<Record<string, RateCard>>;
@@ -315,6 +321,18 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
             decidedBy: deps.transportDecider,
             credentialRef: transport.credentialRef ?? '',
             previousResponseId: deps.previousResponseId ?? null,
+            // When the installation composes a trusted transport, the credential is resolved inside
+            // it and never in this process.
+            ...(deps.broker === undefined
+              ? {}
+              : {
+                  broker: {
+                    transport: deps.broker.transport,
+                    governedRoot: deps.broker.governedRoot,
+                    projectId: input.projectId,
+                    phaseId: input.phaseId,
+                  },
+                }),
           },
           deps.resolver,
           deps.http,

@@ -34,6 +34,7 @@ import {
   type GatekeeperUnavailabilityCause,
 } from '@projectos/core';
 import type { CredentialResolver } from '../credentialResolver.js';
+import type { BrokeredTransport } from './brokeredHttpPort.js';
 
 export const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses';
 
@@ -132,6 +133,23 @@ export interface OpenAiTransportConfig {
   /** The provider thread this project's governance lives in, when one has been established. */
   readonly previousResponseId?: string | null;
   readonly timeoutMs?: number;
+  /**
+   * The trusted installation-side transport, when one is composed.
+   *
+   * WHEN THIS IS PRESENT THE CREDENTIAL NEVER ENTERS THIS PROCESS. The broker validates the
+   * installation allowlist and the project's committed receipt itself, resolves the value inside its
+   * own process, makes the call and returns a status and a body. The resolver below is not consulted
+   * at all — the live path passes one that refuses, so there is no in-process value even to leak.
+   *
+   * Absent, the direct port is used with a resolved credential, which is what every test does and
+   * what any non-brokered composition still does.
+   */
+  readonly broker?: {
+    readonly transport: BrokeredTransport;
+    readonly governedRoot: string;
+    readonly projectId: string;
+    readonly phaseId: string;
+  };
 }
 
 /** The request body, built from the governed request. Pure — inspectable without sending anything. */
@@ -224,6 +242,20 @@ export function submitToOpenAi(
   resolver: CredentialResolver,
   http: HttpPort,
 ): TransportOutcome {
+  // THE TRUSTED ROUTE FIRST. Nothing below this branch runs when a broker is composed: no resolver
+  // call, no header built here, no value in this process.
+  if (config.broker !== undefined) {
+    const brokered = config.broker.transport.post({
+      governedRoot: config.broker.governedRoot,
+      projectId: config.broker.projectId,
+      phaseId: config.broker.phaseId,
+      credentialRef: config.credentialRef,
+      body: buildResponsesBody(request, evidenceText, config),
+      ...(config.timeoutMs === undefined ? {} : { timeoutMs: config.timeoutMs }),
+    });
+    return interpretHttpResponse(request, config, brokered);
+  }
+
   const credential = resolver.resolve(config.credentialRef);
   if (!credential.ok) {
     return {
@@ -249,6 +281,21 @@ export function submitToOpenAi(
     }),
   );
 
+  return interpretHttpResponse(request, config, response);
+}
+
+/**
+ * Turn whatever came back into a candidate decision, or a refusal.
+ *
+ * SHARED BY BOTH ROUTES ON PURPOSE. The brokered and direct transports differ only in who holds the
+ * credential; what an answer means must not differ with it, or the trusted path would quietly get its
+ * own interpretation of "usable".
+ */
+function interpretHttpResponse(
+  request: GatekeeperRequest,
+  config: OpenAiTransportConfig,
+  response: HttpResponse,
+): TransportOutcome {
   if (response.kind === 'transport-error') {
     return {
       kind: 'unavailable',

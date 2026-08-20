@@ -24,22 +24,16 @@ import {
   appendLedger,
   writePreviousResponseId,
 } from '../loop/gatekeeperConfig.js';
-import { windowsVaultResolver } from '../loop/windowsVaultResolver.js';
+import { unprovisionedResolver } from '../loop/credentialResolver.js';
+import { nodeBrokeredTransport } from '../loop/transports/brokeredHttpPort.js';
 import { nodeHttpPort } from '../loop/transports/nodeHttpPort.js';
 import { nodeInstallationStateDir, nodeProjectosRuntime } from '../nodeRuntimeRoot.js';
 import { canonicalRepositoryIdentity } from '../installation/projectAllowlist.js';
-import { ownerGateReceiptRelPath, ownerApprovedSecretsHandling } from '../loop/ownerGateReceipts.js';
 
 /** The governed project's declared id, from its own configuration. Empty when there is none. */
 function governedProjectId(ctx: CommandContext): string {
   const governed = loadGovernedContext(ctx.sys, ctx.root);
   return governed.ok ? governed.context.projectId : '';
-}
-
-/** The active phase's committed secrets-handling gate, from the one shared predicate. */
-function ownerSecretsGateApproved(ctx: CommandContext): boolean {
-  const phaseId = activePhaseId(ctx);
-  return phaseId !== null && ownerApprovedSecretsHandling(ctx.sys, ctx.root, phaseId);
 }
 
 /**
@@ -123,19 +117,22 @@ export function run(ctx: CommandContext, flags: Flags): CommandResult {
   if (gk.ok) {
     // Credential release needs the owner's committed secrets-handling receipt. It is read from the
     // git object store, never from the working tree, and never asserted by the loop about itself.
-    const ownerConfirmation = ownerSecretsGateApproved(ctx);
     const ledger = readLedger(ctx.sys, ctx.root);
     expectedDecider = gk.config.expectedDecider;
     gatekeeper = {
       transport: gk.config.transport,
       availability: { reachable: true },
-      resolver: windowsVaultResolver({
-        sys: ctx.sys,
-        runtime: nodeProjectosRuntime(),
-        governedRoot: ctx.root,
-        projectId: governedProjectId(ctx),
-        ownerConfirmation,
-      }),
+      // THE CREDENTIAL IS NOT RESOLVED IN THIS PROCESS.
+      //
+      // The trusted installation-side broker validates the allowlist and the committed receipt,
+      // resolves the value inside itself, makes the call and returns a status and a body. The resolver
+      // handed over refuses by construction, so there is no in-process value even to leak — which is
+      // the point: generated agent code running against an untrusted project should not be holding
+      // the installation owner's key.
+      resolver: unprovisionedResolver(
+        'the gatekeeper credential is resolved by the trusted installation broker, never in the agent',
+      ),
+      broker: { transport: nodeBrokeredTransport(ctx.sys, nodeProjectosRuntime()), governedRoot: ctx.root },
       http: nodeHttpPort(),
       modelPolicy: gk.config.modelPolicy,
       rateCards: gk.config.rateCards,

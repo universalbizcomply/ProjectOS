@@ -60,6 +60,7 @@ import { deriveRequestId, evidenceDigest } from './gatekeeperTurn.js';
 import { submitToOpenAi } from './transports/openaiResponses.js';
 import type { CredentialResolver } from './credentialResolver.js';
 import type { HttpPort } from './transports/openaiResponses.js';
+import type { BrokeredTransport } from './transports/brokeredHttpPort.js';
 import {
   readDegradedStoreDetailed,
   degradedStorePath,
@@ -180,6 +181,16 @@ export interface ReconciliationDeps {
   };
   readonly resolver: CredentialResolver;
   readonly http: HttpPort;
+  /**
+   * The trusted installation-side transport, when composed.
+   *
+   * With it, the credential is never resolved in this process — the broker decides, resolves and
+   * calls, and the resolver above is the refusing one.
+   */
+  readonly broker?: {
+    readonly transport: BrokeredTransport;
+    readonly governedRoot: string;
+  };
   readonly rate: RateCard;
   readonly budget: BudgetPolicy;
   readonly ledger: readonly LedgerEntry[];
@@ -595,6 +606,16 @@ export function reconcileDegradedWork(
       decidedBy: deps.decidedBy,
       credentialRef: deps.transport.credentialRef,
       previousResponseId: null,
+      ...(deps.broker === undefined
+        ? {}
+        : {
+            broker: {
+              transport: deps.broker.transport,
+              governedRoot: deps.broker.governedRoot,
+              projectId: input.projectId,
+              phaseId: input.phaseId,
+            },
+          }),
       ...(deps.transport.timeoutMs === undefined ? {} : { timeoutMs: deps.transport.timeoutMs }),
     },
     deps.resolver,
