@@ -205,10 +205,17 @@ describe('PROOF B — a committed grant is read from committed truth', () => {
     expect(loaded.readFromCommittedTree).toBe(true);
     expect(checkDegradedModeGrant(loaded.grant, expectations())).toEqual([]);
 
-    // The bytes came from `git show HEAD:<rel>`, under `-C root`.
+    // The bytes came from `git show HEAD:./<rel>`, under `-C root`.
+    //
+    // `./` IS THE POINT, and this test used to pin the form WITHOUT it. `<rev>:<path>` resolves against
+    // the top of the working tree while the `--` pathspec that proved committedness resolves against
+    // `-C root`, so for a checkout nested inside a larger repository the two addressed different files
+    // and the grant honoured was the outer repository's. Reproduced on this repository's own nested
+    // fixture during an adversarial review.
     const show = calls.find((c) => c.includes('show'));
     expect(show).toBeDefined();
-    expect(show?.join(' ')).toContain(`HEAD:.projectops/authority/${PHASE}.degraded-grant.${GRANT_ID}.json`);
+    expect(show?.join(' ')).toContain(`HEAD:./.projectops/authority/${PHASE}.degraded-grant.${GRANT_ID}.json`);
+    expect(show?.join(' ')).not.toContain(`HEAD:.projectops/authority/${PHASE}`);
     expect(show?.slice(0, 3)).toEqual(['git', '-C', ROOT]);
   });
 

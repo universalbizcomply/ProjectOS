@@ -118,7 +118,9 @@ export function readCommittedGrant(
 ): Record<string, unknown> | null {
   const rel = degradedGrantRelPath(phaseId, grantId);
   if (rel === null) return null;
-  const shown = sys.exec('git', ['-C', root, 'show', `HEAD:${rel}`]);
+  // `./` binds the read to the governed root; see the note in degradedMode.ts. Without it a nested
+  // checkout proves its own grant committed and then reads the OUTER repository's grant.
+  const shown = sys.exec('git', ['-C', root, 'show', `HEAD:./${rel}`]);
   if (shown.code !== 0 || shown.stdout.trim().length === 0) return null;
   return parseObject(shown.stdout);
 }

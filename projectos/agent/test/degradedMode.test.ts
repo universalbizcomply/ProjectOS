@@ -2028,3 +2028,46 @@ describe('SUBJECT PROOF G — a merge can never be an authority wrapper', () => 
     expect(source).toContain("'--name-only', '--no-renames'");
   });
 });
+
+describe('a committed use record is evidence, not a scratchpad', () => {
+  it('refuses to append a second spend to a record the owner has committed', () => {
+    const { root, sys, head } = repo();
+    const outage = outageFor(head);
+    writeGrant(root, grantBody(head, outage, { maxWorkItems: 2 }));
+    commitAll(root, 'fixture grant');
+    const auth = authoriseDegradedContinuation(sys, root, authInput(head, outage));
+    const first = consumeDegradedGrant(sys, root, {
+      grant: auth.grant!,
+      unavailabilityId: outage,
+      projectId: PROJECT,
+      phaseId: PHASE,
+      summary: 'first item',
+      at: '2026-08-19T12:00:00.000Z',
+    });
+    expect(first.persisted).toBe(true);
+
+    // The owner commits the record as reconciliation evidence — the flow the design invites.
+    commitAll(root, 'evidence: degraded use record');
+    const committedBytes = readFileSync(join(root, ...(degradedStoreRelPath(GRANT_ID) as string).split('/')), 'utf8');
+
+    const second = consumeDegradedGrant(sys, root, {
+      grant: auth.grant!,
+      unavailabilityId: outage,
+      projectId: PROJECT,
+      phaseId: PHASE,
+      summary: 'second item',
+      at: '2026-08-19T13:00:00.000Z',
+    });
+
+    // Without this guard the write went ahead, failed its own read-back, and left the committed record
+    // permanently unreadable — which erased the FIRST item's outstanding debt along with it.
+    expect(second.persisted).toBe(false);
+    expect(second.workId).toBeNull();
+    expect(second.problem).toContain('committed');
+    expect(readFileSync(join(root, ...(degradedStoreRelPath(GRANT_ID) as string).split('/')), 'utf8')).toBe(
+      committedBytes,
+    );
+    expect(readDegradedStore(sys, root, GRANT_ID)?.workItems).toHaveLength(1);
+    expect(degradedReconciliationState(sys, root).outstandingWorkIds).toHaveLength(1);
+  });
+});

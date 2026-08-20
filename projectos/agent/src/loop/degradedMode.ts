@@ -187,7 +187,13 @@ export function readDegradedStoreDetailed(sys: System, root: string, grantId: st
         why: `the committed degraded-use record for ${grantId} has been modified or removed in the working tree`,
       };
     }
-    const shown = sys.exec('git', ['-C', root, 'show', `HEAD:${rel}`]);
+      // `./` MATTERS. A pathspec after `--` resolves against `-C root`, but `<rev>:<path>` resolves
+      // against the TOP of the working tree, so in a checkout nested inside a larger repository the
+      // committedness proof above and the bytes read below would be DIFFERENT FILES. Verified on this
+      // repository's own nested fixture, where the outer project's record was returned in place of the
+      // inner one's. Documented at length by `committedGovernanceOwner` in this file; propagated here
+      // after an adversarial review found the same shape unfixed at four sites.
+    const shown = sys.exec('git', ['-C', root, 'show', `HEAD:./${rel}`]);
     const fromGit = shown.code === 0 ? parseStore(shown.stdout) : null;
     return fromGit === null
       ? { kind: 'corrupt', why: `the committed degraded-use record for ${grantId} is unreadable` }
@@ -199,6 +205,29 @@ export function readDegradedStoreDetailed(sys: System, root: string, grantId: st
   return parsed === null
     ? { kind: 'corrupt', why: `the degraded-use record for ${grantId} exists but cannot be read` }
     : { kind: 'ok', record: parsed };
+}
+
+/**
+ * Whether the use record can be written at all. `null` means yes; a string says why not.
+ *
+ * A COMMITTED USE RECORD IS THE OWNER'S EVIDENCE, NOT A RUNTIME SCRATCHPAD. Once it is committed, any
+ * working-tree edit makes the tree and the committed bytes disagree, and `readDegradedStoreDetailed`
+ * reads that — correctly — as tampering, for this grant and for every later read of it. So a writer
+ * that appended anyway would not merely fail: it would leave the record permanently unreadable, and an
+ * unreadable record drops out of `readAllDegradedStores`, taking the outstanding debt with it.
+ *
+ * Checked BEFORE writing, by both writers. Amending a committed record needs a commit, which is the
+ * owner's act and not one this process may simulate.
+ */
+export function degradedStoreIsRecordable(sys: System, root: string, grantId: string): string | null {
+  const rel = degradedStoreRelPath(grantId);
+  if (rel === null || degradedStorePath(root, grantId) === null) return `unsafe grant id '${grantId}'`;
+  const logged = sys.exec('git', ['-C', root, 'log', '-1', '--format=%H', '--', rel]);
+  const committed = logged.code === 0 && logged.stdout.trim().length > 0;
+  return committed
+    ? `the use record ${rel} is committed; changing it in the working tree would put the tree at odds ` +
+        "with the owner's committed evidence, and committing an amended record is the owner's act"
+    : null;
 }
 
 /** This grant's use, as recorded. `null` when it has never been consumed OR cannot be read. */
@@ -484,6 +513,12 @@ export function consumeDegradedGrant(
   const grantId = String(input.grant.grantId ?? '');
   const path = degradedStorePath(root, grantId);
   if (path === null) return { persisted: false, workId: null, problem: `unsafe grant id '${grantId}'` };
+
+  // A COMMITTED RECORD CANNOT BE APPENDED TO. Without this the second spend of a multi-item grant
+  // wrote over the owner's committed evidence, failed its own read-back, and left the record corrupt —
+  // which silently erased the FIRST item's outstanding debt as well. Found by adversarial review.
+  const recordable = degradedStoreIsRecordable(sys, root, grantId);
+  if (recordable !== null) return { persisted: false, workId: null, problem: recordable };
 
   const existing = readDegradedStore(sys, root, grantId);
   const ordinal = (existing?.workItems.length ?? 0) + 1;
@@ -823,7 +858,27 @@ export type AuthorityWrapper =
 
 const HEX40_SHA = /^[0-9a-f]{40}$/;
 
-export function authorityWrapper(sys: System, root: string, phaseId: string, grantId: string): AuthorityWrapper {
+export interface AuthorityWrapperOptions {
+  /**
+   * Must HEAD still BE the authority commit?
+   *
+   * TRUE FOR DOING THE WORK, FALSE FOR REVIEWING IT AFTERWARDS. The run must happen at the baseline the
+   * owner approved, so if history has moved the work is no longer the work that was approved. A
+   * reconciliation asks about work that ALREADY happened, necessarily later, and by then HEAD has moved
+   * on — often because the owner committed the very record being reconciled. Requiring HEAD there made
+   * the documented remedy unreachable and the debt permanently undischargeable. The binding that
+   * matters in both cases is the same and is unaffected: the grant commit and its parent.
+   */
+  readonly requireHeadAtGrant?: boolean;
+}
+
+export function authorityWrapper(
+  sys: System,
+  root: string,
+  phaseId: string,
+  grantId: string,
+  options: AuthorityWrapperOptions = {},
+): AuthorityWrapper {
   const rel = degradedGrantRelPath(phaseId, grantId);
   if (rel === null) return { kind: 'none', reason: `unsafe grant id '${grantId}'` };
 
@@ -858,7 +913,7 @@ export function authorityWrapper(sys: System, root: string, phaseId: string, gra
 
   const head = sys.exec('git', ['-C', root, 'rev-parse', 'HEAD']);
   const headSha = head.code === 0 ? head.stdout.trim() : '';
-  if (headSha !== grantCommit) {
+  if (options.requireHeadAtGrant !== false && headSha !== grantCommit) {
     problems.push(
       `the grant was committed as ${grantCommit.slice(0, 7)} but HEAD is ${headSha.slice(0, 7) || 'unreadable'}; ` +
         'history has moved past the authority commit, so the work is no longer the work that was approved',

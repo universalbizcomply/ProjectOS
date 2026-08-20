@@ -1289,6 +1289,40 @@ describe('runLoop with an unattended gatekeeper', () => {
     expect(r.lines.join('\n')).toContain('gatekeeper requires an amendment: Narrow the query.');
   });
 
+  it('refuses a decision the DURABLE ledger already consumed, not merely one this process saw', () => {
+    // THE GUARD WAS PER-PROCESS. `run` computed the consumed set from the ledger and passed it in, and
+    // the runner then shadowed that dependency with a fresh empty array — so a second `projectos run`
+    // re-derived the same request, called again, and applied whatever came back. Verdict shopping with
+    // no tampering. The fix is one line; this is what pins it.
+    const sys = world({ files: highFinding() });
+    const { registry } = fakeAdapter();
+
+    const first: string[] = [];
+    const seen = runLoop(sys, ROOT, {
+      adapters: registry,
+      expectedDecider: 'ChatGPT',
+      gatekeeper: gatekeeper({ status: 200, body: decisionBody('AMENDMENT_REQUIRED', 'Narrow the query.') }, first),
+    });
+    expect(seen.ok).toBe(true);
+    const requestId = JSON.parse(first[0] ?? '{}').input?.[0]?.content?.[0]?.text?.match(/GKREQ-[0-9a-f]+/)?.[0];
+    expect(requestId).toBeDefined();
+
+    const again: string[] = [];
+    const replayed = runLoop(sys, ROOT, {
+      adapters: registry,
+      expectedDecider: 'ChatGPT',
+      gatekeeper: {
+        ...gatekeeper({ status: 200, body: decisionBody('AMENDMENT_REQUIRED', 'Narrow the query.') }, again),
+        consumedDecisionIds: [`GKDEC-${requestId}`],
+      },
+    });
+    expect(replayed.ok).toBe(true);
+    if (!replayed.ok) return;
+    const text = replayed.lines.join(String.fromCharCode(10));
+    expect(text).toContain('cannot be replayed');
+    expect(text).not.toContain('gatekeeper requires an amendment: Narrow the query.');
+  });
+
   it('sends the amendment back through the SAME bounded correction budget', () => {
     const sys = world({ files: highFinding() });
     const { calls, registry } = fakeAdapter();

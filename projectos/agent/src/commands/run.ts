@@ -26,29 +26,12 @@ import {
 } from '../loop/gatekeeperConfig.js';
 import { windowsVaultResolver } from '../loop/windowsVaultResolver.js';
 import { nodeHttpPort } from '../loop/transports/nodeHttpPort.js';
-import { ownerGateReceiptRelPath, receiptIsCommitted, readCommittedReceipt } from '../loop/ownerGateReceipts.js';
+import { ownerGateReceiptRelPath, ownerApprovedSecretsHandling } from '../loop/ownerGateReceipts.js';
 
-/**
- * Has the owner approved credential use for the active phase?
- *
- * READ FROM THE COMMITTED TREE. A receipt sitting in the working tree is a file the loop itself could
- * have written; the commit is the owner action a model cannot perform, and it is the whole of the
- * separation this record relies on.
- */
+/** The active phase's committed secrets-handling gate, from the one shared predicate. */
 function ownerSecretsGateApproved(ctx: CommandContext): boolean {
   const phaseId = activePhaseId(ctx);
-  if (phaseId === null) return false;
-  if (!receiptIsCommitted(ctx.sys, ctx.root, phaseId, 'secrets-handling')) return false;
-  const receipt = readCommittedReceipt(ctx.sys, ctx.root, phaseId, 'secrets-handling');
-  // THE RECORD'S OWN PHASE IS CHECKED, not only the path it was found at. The filename already binds
-  // the phase, so this is defence in depth rather than a hole being closed - but a record whose
-  // contents disagree with where it lives is not a record to act on. GK-SEC-003.
-  return (
-    receipt !== null &&
-    receipt['ownerChoice'] === 'APPROVE' &&
-    receipt['gateName'] === 'secrets-handling' &&
-    receipt['phaseId'] === phaseId
-  );
+  return phaseId !== null && ownerApprovedSecretsHandling(ctx.sys, ctx.root, phaseId);
 }
 
 /**

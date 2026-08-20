@@ -725,3 +725,34 @@ describe('close (owner-gated)', () => {
     expect(run(ctx, ['close']).code).toBe(1);
   });
 });
+
+describe('reconcile: one named work item, or nothing', () => {
+  const ctx = (): CommandContext => makeCtx().ctx;
+
+  it('refuses without both --grant and --work, so a period can never be blessed at once', () => {
+    for (const argv of [['reconcile'], ['reconcile', '--grant', 'G1A'], ['reconcile', '--work', 'GKWORK-1']]) {
+      const r = run(ctx(), argv);
+      expect(r.code).toBe(1);
+      const text = r.lines.join(String.fromCharCode(10));
+      expect(text).toContain('--grant');
+      expect(text).toContain('--work');
+    }
+  });
+
+  it('refuses outside a governed project rather than reaching for a credential', () => {
+    const r = run(ctx(), ['reconcile', '--grant', 'G1A', '--work', 'GKWORK-1']);
+    expect(r.code).toBe(2);
+    expect(r.lines.join(String.fromCharCode(10))).toContain('REFUSED');
+  });
+
+  it('writes nothing when it refuses', () => {
+    const { ctx: c, sys } = makeCtx();
+    const before = sys.files.size;
+    run(c, ['reconcile', '--grant', 'G1A', '--work', 'GKWORK-1']);
+    expect(sys.files.size).toBe(before);
+  });
+
+  it('is listed in help, or an operator cannot find the only route that clears a debt', () => {
+    expect(run(ctx(), ['help']).lines.join(String.fromCharCode(10))).toContain('reconcile');
+  });
+});

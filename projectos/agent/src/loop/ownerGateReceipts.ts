@@ -90,7 +90,9 @@ export function readCommittedReceipt(
 ): Record<string, unknown> | null {
   const rel = ownerGateReceiptRelPath(phaseId, gateName);
   if (rel === null) return null;
-  const shown = sys.exec('git', ['-C', root, 'show', `HEAD:${rel}`]);
+  // `./` binds the read to the governed root; see the note in degradedMode.ts. This is the read that
+  // releases the gatekeeper credential, and a nested checkout was reading the outer project's receipt.
+  const shown = sys.exec('git', ['-C', root, 'show', `HEAD:./${rel}`]);
   if (shown.code !== 0 || shown.stdout.trim().length === 0) return null;
   try {
     const parsed = JSON.parse(shown.stdout) as unknown;
@@ -100,6 +102,32 @@ export function readCommittedReceipt(
   } catch {
     return null;
   }
+}
+
+/**
+ * Has the owner approved credential use for this phase?
+ *
+ * READ FROM THE COMMITTED TREE. A receipt sitting in the working tree is a file the runtime itself
+ * could have written; the commit is the owner action a model cannot perform, and it is the whole of
+ * the separation this record relies on.
+ *
+ * THE RECORD'S OWN PHASE IS CHECKED, not only the path it was found at. The filename already binds
+ * the phase, so this is defence in depth rather than a hole being closed — but a record whose
+ * contents disagree with where it lives is not a record to act on. GK-SEC-003.
+ *
+ * ONE COPY, ON PURPOSE. `run` and `reconcile` both release the gatekeeper credential, and two
+ * hand-copied predicates would let one route drift into being more permissive than the other without
+ * anything failing.
+ */
+export function ownerApprovedSecretsHandling(sys: System, root: string, phaseId: string): boolean {
+  if (!receiptIsCommitted(sys, root, phaseId, 'secrets-handling')) return false;
+  const receipt = readCommittedReceipt(sys, root, phaseId, 'secrets-handling');
+  return (
+    receipt !== null &&
+    receipt['ownerChoice'] === 'APPROVE' &&
+    receipt['gateName'] === 'secrets-handling' &&
+    receipt['phaseId'] === phaseId
+  );
 }
 
 /**

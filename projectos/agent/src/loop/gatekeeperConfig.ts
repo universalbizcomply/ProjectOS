@@ -47,7 +47,10 @@ export const GATEKEEPER_THREAD_REL = '.projectops/gatekeeper-thread.json';
  */
 export function committedDelegatedDecider(sys: System, root: string, programmeId: string): string | null {
   const rel = '.projectops/authority/closure-delegation.json';
-  const shown = sys.exec('git', ['-C', root, 'show', `HEAD:${rel}`]);
+  // `./` binds the read to the governed root; see the note in degradedMode.ts. This one had no
+  // root-relative pre-check at all, so a nested checkout adopted the outer project's delegation —
+  // and the delegation names who is permitted to decide.
+  const shown = sys.exec('git', ['-C', root, 'show', `HEAD:./${rel}`]);
   if (shown.code !== 0 || shown.stdout.trim() === '') return null;
   try {
     const d = JSON.parse(shown.stdout) as Record<string, unknown>;

@@ -451,9 +451,16 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
   let lastDecisionId: string | null = null;
   /** Decisions that have already driven a correction. One decision, one correction. */
   const correctionsApplied: string[] = [];
-  // Decisions already acted on IN THIS RUN. A restart re-derives the same request id, so a decision
-  // that was applied once is refused as a replay rather than applied again.
-  const consumedDecisionIds: string[] = [];
+  // Decisions already acted on. A restart re-derives the same request id, so a decision that was
+  // applied once is refused as a replay rather than applied again.
+  //
+  // SEEDED FROM THE LEDGER, which is the whole point. This started as an empty per-process array while
+  // the caller carefully computed the durable set from the ledger and passed it in — and line 614 then
+  // overwrote that dependency with the empty one, so the guard only ever knew about the current
+  // process. A second `projectos run` re-derived the same request, called again, and applied whatever
+  // verdict came back: verdict shopping with no tampering and no special access. Found by adversarial
+  // review of the reconciliation route, which does not share the defect.
+  const consumedDecisionIds: string[] = [...(options.gatekeeper?.consumedDecisionIds ?? [])];
   let gatekeeperLedger = options.gatekeeper?.ledger ?? [];
   /** What the degraded path did, so the caller can tell refusal from a spent grant. */
   let degradedOutcome: DegradedOutcome | undefined;
@@ -579,6 +586,11 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
           outstandingWorkIds: outcome.outstandingWorkIds,
           reasons: [`${outcome.outstandingWorkIds.length} degraded-mode work item(s) await reconciliation`],
         }).map((r) => `  ${r}`));
+        // The block is useless if nobody knows how to clear it. Until this line existed the debt was
+        // detectable and the route to discharging it was not discoverable from the run that incurred it.
+        for (const id of outcome.outstandingWorkIds) {
+          lines.push(`  to discharge it: projectos reconcile --grant ${cfg.grantId} --work ${id}`);
+        }
       }
     }
     return outcome;
