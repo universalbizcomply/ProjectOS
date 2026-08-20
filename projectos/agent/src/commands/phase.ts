@@ -33,7 +33,9 @@ import {
   type PhaseStatus,
   type Role,
 } from '@projectos/core';
-import { reconciliationDebtBlock } from '../loop/degradedMode.js';
+import { reconciliationDebtBlock, type DurableBinding } from '../loop/degradedMode.js';
+import { nodeInstallationStateDir, nodeProjectosRuntime } from '../nodeRuntimeRoot.js';
+import { canonicalRepositoryIdentity } from '../installation/projectAllowlist.js';
 import { loadPhase, savePhase, listPhaseIds } from '../phaseStore.js';
 import { syncCurrentState, type SyncResult } from '../currentStateStore.js';
 import {
@@ -204,6 +206,23 @@ export function resolveObjective(
   return { ok: true, objective: fromPlan };
 }
 
+/**
+ * The installation's durable degraded record, for a gate that must consult it.
+ *
+ * `null` when this machine offers no per-user state location or the checkout has no readable
+ * `origin` — and a gate that cannot read the authoritative record refuses rather than proceeding,
+ * because "I cannot tell" is not "there is no debt".
+ */
+function durableScope(
+  ctx: CommandContext,
+  projectId: string,
+): { readonly projectId: string; readonly durable: DurableBinding } | null {
+  const stateDir = nodeInstallationStateDir();
+  const repository = canonicalRepositoryIdentity(ctx.sys, ctx.root);
+  if (stateDir === null || repository === null) return null;
+  return { projectId, durable: { stateDir, installRoot: nodeProjectosRuntime().installRoot, repository } };
+}
+
 function phaseNew(ctx: CommandContext, flags: Flags): CommandResult {
   const { sys, root } = ctx;
   const id = str(flags, 'id');
@@ -369,7 +388,15 @@ function phaseAdvance(ctx: CommandContext, flags: Flags): CommandResult {
     // it records is the promise that the review still happens. Closing a phase over an outstanding
     // debt would retire the promise unkept — so closure is refused here, before any authority is
     // resolved, and the refusal names what is owed and how to discharge it.
-    const debt = reconciliationDebtBlock(sys, root);
+    const scope = durableScope(ctx, gc.context.projectId);
+    if (scope === null) {
+      return fail(2, [
+        'REFUSED (DEGRADED_RECORD_UNREADABLE): the installation record of degraded spending cannot be',
+        '  located, so whether unreviewed work is outstanding cannot be established.',
+        '  A gate does not proceed on an answer this runtime could not obtain.',
+      ]);
+    }
+    const debt = reconciliationDebtBlock(sys, root, scope);
     if (debt.length > 0) {
       return fail(2, [
         ...debt,

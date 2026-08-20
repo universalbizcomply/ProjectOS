@@ -8,9 +8,10 @@
  *
  * Created in PROJECTOS-RECOVERY-AUTONOMOUS-LOOP1A.
  */
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { describe, it, expect } from 'vitest';
+import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { describe, it, expect, afterEach } from 'vitest';
 import { runLoop as runLoopRaw } from '../src/loop/runner.js';
 import { invocationIdFor } from '../src/loop/invocation.js';
 import { MAX_CORRECTION_ATTEMPTS } from '../src/loop/outcome.js';
@@ -890,6 +891,17 @@ describe('runLoop with an unattended gatekeeper', () => {
     };
   }
 
+  /** The installation's durable record for a loop test, outside the fixture project. */
+  const runnerStateDirs: string[] = [];
+  const runnerDurable = () => {
+    const stateDir = mkdtempSync(join(tmpdir(), 'projectos-runner-state-'));
+    runnerStateDirs.push(stateDir);
+    return { stateDir, installRoot: '/install/ProjectOS', repository: 'github.com/universalbizcomply/ProjectOS' };
+  };
+  afterEach(() => {
+    for (const d of runnerStateDirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
+
   const highFinding = () => ({
     [`${ROOT}/.projectops/execution/${SESSION}.findings.json`]: JSON.stringify({
       reviews: ['code-review', 'security-review'],
@@ -1205,7 +1217,7 @@ describe('runLoop with an unattended gatekeeper', () => {
       adapters: fakeAdapter().registry,
       expectedDecider: 'ChatGPT',
       gatekeeper: { ...deps, availability, ...over },
-      degradedMode: { grantId: 'FIXTURE-NO-SUCH-GRANT', operation: 'implement' },
+      degradedMode: { durable: runnerDurable(), grantId: 'FIXTURE-NO-SUCH-GRANT', operation: 'implement' },
     });
     if (!r.ok) throw new Error('fixture did not run');
     return { outage: outagePrinted(r.lines), stop: r.stop?.code ?? null };
@@ -1268,7 +1280,7 @@ describe('runLoop with an unattended gatekeeper', () => {
       adapters: fakeAdapter().registry,
       expectedDecider: 'ChatGPT',
       gatekeeper: { ...deps, availability: { reachable: false, detail: 'no network route to the gatekeeper' } },
-      degradedMode: { grantId: 'FIXTURE-NO-SUCH-GRANT', operation: 'implement' },
+      degradedMode: { durable: runnerDurable(), grantId: 'FIXTURE-NO-SUCH-GRANT', operation: 'implement' },
     });
     expect(r.ok).toBe(true);
     if (!r.ok) return;

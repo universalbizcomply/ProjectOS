@@ -12,7 +12,7 @@
  * debt blocks the next major gate; and production cannot assert committed provenance for itself.
  */
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync, readdirSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync, readdirSync, renameSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, isAbsolute, join } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -86,7 +86,14 @@ function repo(): { root: string; sys: System; head: string } {
     },
     exists: (p: string) => existsSync(p),
     listDir: (p: string) => (existsSync(p) ? readdirSync(p) : []),
-    renameFile: () => true,
+    renameFile: (from: string, to: string) => {
+      try {
+        renameSync(from, to);
+        return true;
+      } catch {
+        return false;
+      }
+    },
     exec: (command: string, args: readonly string[]) => {
       try {
         return { code: 0, stdout: execFileSync(command, [...args], { encoding: 'utf8' }), stderr: '' };
@@ -137,7 +144,14 @@ function repoReader(root: string): System {
     writeText: (p: string, c: string) => { mkdirSync(join(p, '..'), { recursive: true }); writeFileSync(p, c); },
     exists: (p: string) => existsSync(p),
     listDir: (p: string) => (existsSync(p) ? readdirSync(p) : []),
-    renameFile: () => true,
+    renameFile: (from: string, to: string) => {
+      try {
+        renameSync(from, to);
+        return true;
+      } catch {
+        return false;
+      }
+    },
     exec: (command: string, args: readonly string[]) => {
       try {
         return { code: 0, stdout: execFileSync(command, [...args], { encoding: 'utf8' }), stderr: '' };
@@ -158,7 +172,102 @@ const outageFor = (head: string) =>
     cause: 'TRANSPORT_NOT_CONFIGURED',
   });
 
-const authInput = (head: string, outage: string) => ({
+/**
+ * The installation's durable record, per test, in its own temporary directory.
+ *
+ * OUTSIDE THE FIXTURE PROJECT ON PURPOSE — that is the property under test. A test that put it inside
+ * `root` would prove nothing about surviving the project's deletion.
+ */
+const stateDirs: string[] = [];
+let currentDurable: { stateDir: string; installRoot: string; repository: string } | null = null;
+function durableBinding(): { stateDir: string; installRoot: string; repository: string } {
+  if (currentDurable === null) {
+    const stateDir = mkdtempSync(join(tmpdir(), 'projectos-install-state-'));
+    stateDirs.push(stateDir);
+    currentDurable = {
+      stateDir,
+      installRoot: '/install/ProjectOS',
+      repository: 'github.com/universalbizcomply/ProjectOS',
+    };
+  }
+  return currentDurable;
+}
+afterEach(() => {
+  currentDurable = null;
+  for (const d of stateDirs.splice(0)) rmSync(d, { recursive: true, force: true });
+});
+
+/** A System built fresh, standing for a restarted process that carries nothing in memory. */
+function nodeLikeSystemForRestart(): System {
+  return {
+    now: () => '2026-08-19T12:00:00.000Z',
+    readText: (p: string) => (existsSync(p) ? readFileSync(p, 'utf8') : null),
+    writeText: (p: string, c: string) => {
+      mkdirSync(join(p, '..'), { recursive: true });
+      writeFileSync(p, c);
+    },
+    exists: (p: string) => existsSync(p),
+    listDir: (p: string) => (existsSync(p) ? readdirSync(p) : []),
+    renameFile: (from: string, to: string) => {
+      try {
+        renameSync(from, to);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    exec: (command: string, args: readonly string[]) => {
+      try {
+        return { code: 0, stdout: execFileSync(command, [...args], { encoding: 'utf8' }), stderr: '' };
+      } catch (e: unknown) {
+        const err = e as { status?: number; stdout?: string; stderr?: string };
+        return { code: err.status ?? 1, stdout: err.stdout ?? '', stderr: err.stderr ?? '' };
+      }
+    },
+  } as unknown as System;
+}
+
+/**
+ * Write the INSTALLATION's view directly, so a test can put the authoritative record and the project
+ * mirror deliberately out of step — which is the only way to prove which one decides.
+ */
+function seedDurable(opts: { consumed?: readonly string[]; reconciled?: readonly string[] } = {}): void {
+  const d = durableBinding();
+  writeFileSync(
+    join(d.stateDir, 'degraded-consumption.json'),
+    JSON.stringify({
+      schemaVersion: '1.0.0',
+      consumptions: (opts.consumed ?? []).map((workId) => ({
+        schemaVersion: '1.0.0',
+        installRoot: d.installRoot,
+        projectId: PROJECT,
+        repository: d.repository,
+        phaseId: PHASE,
+        grantId: GRANT_ID,
+        subjectCommit: 'a'.repeat(40),
+        unavailabilityId: 'GKOUT-seeded0000000000000000',
+        workId,
+        summary: 'seeded',
+        consumedAt: '2026-08-19T12:00:00.000Z',
+      })),
+      reconciliations: (opts.reconciled ?? []).map((workId) => ({
+        workId,
+        grantId: GRANT_ID,
+        projectId: PROJECT,
+        repository: d.repository,
+        decisionId: 'GKDEC-seeded',
+        ask: RECONCILIATION_ASK,
+        at: '2026-08-19T13:00:00.000Z',
+      })),
+    }),
+  );
+}
+
+const authInput = (
+  head: string,
+  outage: string,
+  durable = durableBinding(),
+) => ({
   projectId: PROJECT,
   phaseId: PHASE,
   subjectCommit: head,
@@ -166,6 +275,7 @@ const authInput = (head: string, outage: string) => ({
   grantId: GRANT_ID,
   recordedOwner: OWNER,
   ownerOnlyActions: OWNER_ONLY,
+  durable,
 });
 
 describe('the outage identity', () => {
@@ -284,6 +394,8 @@ describe('PROOF D — the grant is spent BEFORE the work', () => {
     // Ordering, asserted rather than assumed: at the moment consumption returns, the debt is on
     // disk. A caller that runs work after this cannot leave the grant looking unused.
     const consumption = consumeDegradedGrant(sys, root, {
+      subjectCommit: head,
+      durable: durableBinding(),
       grant: auth.grant!,
       unavailabilityId: outage,
       projectId: PROJECT,
@@ -309,6 +421,8 @@ describe('PROOF D — the grant is spent BEFORE the work', () => {
 
     const failing = { ...sys, writeText: () => { throw new Error('disk full'); } } as unknown as System;
     const consumption = consumeDegradedGrant(failing, root, {
+      subjectCommit: head,
+      durable: durableBinding(),
       grant: auth.grant!,
       unavailabilityId: outage,
       projectId: PROJECT,
@@ -333,6 +447,8 @@ describe('PROOF D — the grant is spent BEFORE the work', () => {
 
     const silent = { ...sys, writeText: () => undefined } as unknown as System;
     const consumption = consumeDegradedGrant(silent, root, {
+      subjectCommit: head,
+      durable: durableBinding(),
       grant: auth.grant!,
       unavailabilityId: outage,
       projectId: PROJECT,
@@ -341,7 +457,9 @@ describe('PROOF D — the grant is spent BEFORE the work', () => {
       at: '2026-08-19T12:00:00.000Z',
     });
     expect(consumption.persisted).toBe(false);
-    expect(consumption.problem).toContain('not recorded as spent');
+    // The INSTALLATION record is written first now, so it is what refuses: a write that does nothing
+    // leaves no temporary file, and the atomic replace has nothing to move into place.
+    expect(consumption.problem).toContain('could not be replaced atomically');
   });
 });
 
@@ -353,6 +471,8 @@ describe('PROOF E — restart and replay', () => {
     commitAll(root, 'fixture grant');
     const auth = authoriseDegradedContinuation(sys, root, authInput(head, outage));
     consumeDegradedGrant(sys, root, {
+      subjectCommit: head,
+      durable: durableBinding(),
       grant: auth.grant!, unavailabilityId: outage, projectId: PROJECT, phaseId: PHASE,
       summary: 'fixture work item', at: '2026-08-19T12:00:00.000Z',
     });
@@ -378,6 +498,8 @@ describe('PROOF E — restart and replay', () => {
     const first = authoriseDegradedContinuation(sys, root, authInput(head, outage));
     expect(first.remaining).toBe(2);
     consumeDegradedGrant(sys, root, {
+      subjectCommit: head,
+      durable: durableBinding(),
       grant: first.grant!, unavailabilityId: outage, projectId: PROJECT, phaseId: PHASE,
       summary: 'first of two', at: '2026-08-19T12:00:00.000Z',
     });
@@ -388,6 +510,8 @@ describe('PROOF E — restart and replay', () => {
     expect(second.remaining).toBe(1);
     expect(consumedGrantIds(sys, root)).toEqual([]); // used, not spent
     consumeDegradedGrant(sys, root, {
+      subjectCommit: head,
+      durable: durableBinding(),
       grant: second.grant!, unavailabilityId: outage, projectId: PROJECT, phaseId: PHASE,
       summary: 'second of two', at: '2026-08-19T12:01:00.000Z',
     });
@@ -410,6 +534,8 @@ describe('PROOF E — restart and replay', () => {
     expect(first.authorised).toBe(true);
     expect(first.remaining).toBe(1);
     consumeDegradedGrant(sys, root, {
+      subjectCommit: head,
+      durable: durableBinding(),
       grant: first.grant!, unavailabilityId: outage, projectId: PROJECT, phaseId: PHASE,
       summary: 'the one permitted item', at: '2026-08-19T12:00:00.000Z',
     });
@@ -442,6 +568,8 @@ describe('PROOF E2 — an unreadable use record refuses; it never reads as "neve
     commitAll(root, 'fixture grant');
     const auth = authoriseDegradedContinuation(sys, root, authInput(head, outage));
     consumeDegradedGrant(sys, root, {
+      subjectCommit: head,
+      durable: durableBinding(),
       grant: auth.grant!, unavailabilityId: outage, projectId: PROJECT, phaseId: PHASE,
       summary: 'the one permitted item', at: '2026-08-19T12:00:00.000Z',
     });
@@ -478,6 +606,8 @@ describe('PROOF E2 — an unreadable use record refuses; it never reads as "neve
     commitAll(root, 'fixture grant');
     const auth = authoriseDegradedContinuation(sys, root, authInput(head, outage));
     consumeDegradedGrant(sys, root, {
+      subjectCommit: head,
+      durable: durableBinding(),
       grant: auth.grant!, unavailabilityId: outage, projectId: PROJECT, phaseId: PHASE,
       summary: 'the one permitted item', at: '2026-08-19T12:00:00.000Z',
     });
@@ -580,6 +710,8 @@ describe('PROOF G — the debt blocks the next major gate', () => {
 
     expect(degradedReconciliationState(sys, root).required).toBe(false); // nothing owed yet
     const consumption = consumeDegradedGrant(sys, root, {
+      subjectCommit: head,
+      durable: durableBinding(),
       grant: auth.grant!, unavailabilityId: outage, projectId: PROJECT, phaseId: PHASE,
       summary: 'fixture work item', at: '2026-08-19T12:00:00.000Z',
     });
@@ -599,6 +731,8 @@ describe('PROOF G — the debt blocks the next major gate', () => {
     commitAll(root, 'fixture grant');
     const auth = authoriseDegradedContinuation(sys, root, authInput(head, outage));
     const consumption = consumeDegradedGrant(sys, root, {
+      subjectCommit: head,
+      durable: durableBinding(),
       grant: auth.grant!, unavailabilityId: outage, projectId: PROJECT, phaseId: PHASE,
       summary: 'fixture work item', at: '2026-08-19T12:00:00.000Z',
     });
@@ -635,11 +769,15 @@ describe('PROOF G — the debt blocks the next major gate', () => {
     commitAll(root, 'fixture grant');
     const auth = authoriseDegradedContinuation(sys, root, authInput(head, outage));
     consumeDegradedGrant(sys, root, {
+      subjectCommit: head,
+      durable: durableBinding(),
       grant: auth.grant!, unavailabilityId: outage, projectId: PROJECT, phaseId: PHASE,
       summary: 'fixture work item', at: '2026-08-19T12:00:00.000Z',
     });
     // Another grant, another store file — the debt is per work item, not per grant.
     consumeDegradedGrant(sys, root, {
+      subjectCommit: head,
+      durable: durableBinding(),
       grant: { ...grantBody(head, outage), grantId: 'DEGRADED-GRANT-FIXTURE2B' } as never,
       unavailabilityId: outage, projectId: PROJECT, phaseId: PHASE,
       summary: 'second grant item', at: '2026-08-19T12:05:00.000Z',
@@ -1532,7 +1670,14 @@ describe('PATH PROOF — the real caller shape, and the outage route it unblocks
     };
     const sys = {
       ...(base as unknown as object),
-      renameFile: () => true,
+      renameFile: (from: string, to: string) => {
+      try {
+        renameSync(from, to);
+        return true;
+      } catch {
+        return false;
+      }
+    },
       exec: (command: string, args: readonly string[]) => {
         calls.push([command, ...args]);
         return inner.exec(command, args);
@@ -1937,6 +2082,8 @@ describe('SUBJECT PROOF F — no regression in the committed-truth guarantees', 
     expect(degradedOperationProblems(auth.grant!, 'commit', []).length).toBeGreaterThan(0);
     // bound still enforced
     consumeDegradedGrant(sys, root, {
+      subjectCommit: h0,
+      durable: durableBinding(),
       grant: auth.grant!, unavailabilityId: outage, projectId: PROJECT, phaseId: PHASE,
       summary: 'the one item', at: '2026-08-19T15:00:00.000Z',
     });
@@ -2042,6 +2189,8 @@ describe('a committed use record is evidence, not a scratchpad', () => {
     commitAll(root, 'fixture grant');
     const auth = authoriseDegradedContinuation(sys, root, authInput(head, outage));
     const first = consumeDegradedGrant(sys, root, {
+      subjectCommit: head,
+      durable: durableBinding(),
       grant: auth.grant!,
       unavailabilityId: outage,
       projectId: PROJECT,
@@ -2056,6 +2205,8 @@ describe('a committed use record is evidence, not a scratchpad', () => {
     const committedBytes = readFileSync(join(root, ...(degradedStoreRelPath(GRANT_ID) as string).split('/')), 'utf8');
 
     const second = consumeDegradedGrant(sys, root, {
+      subjectCommit: head,
+      durable: durableBinding(),
       grant: auth.grant!,
       unavailabilityId: outage,
       projectId: PROJECT,
@@ -2080,7 +2231,7 @@ describe('a committed use record is evidence, not a scratchpad', () => {
 describe('the debt block a governed gate must obey', () => {
   it('is empty when nothing was ever run degraded', () => {
     const { root, sys } = repo();
-    expect(reconciliationDebtBlock(sys, root)).toEqual([]);
+    expect(reconciliationDebtBlock(sys, root, { projectId: PROJECT, durable: durableBinding() })).toEqual([]);
   });
 
   it('refuses and names the work, the reason and the next action', () => {
@@ -2090,6 +2241,8 @@ describe('the debt block a governed gate must obey', () => {
     commitAll(root, 'fixture grant');
     const auth = authoriseDegradedContinuation(sys, root, authInput(head, outage));
     const consumed = consumeDegradedGrant(sys, root, {
+      subjectCommit: head,
+      durable: durableBinding(),
       grant: auth.grant!,
       unavailabilityId: outage,
       projectId: PROJECT,
@@ -2098,7 +2251,7 @@ describe('the debt block a governed gate must obey', () => {
       at: '2026-08-19T12:00:00.000Z',
     });
 
-    const block = reconciliationDebtBlock(sys, root).join(String.fromCharCode(10));
+    const block = reconciliationDebtBlock(sys, root, { projectId: PROJECT, durable: durableBinding() }).join(String.fromCharCode(10));
     expect(block).toContain('DEGRADED_DEBT_OUTSTANDING');
     expect(block).toContain(consumed.workId as string);
     expect(block).toContain('projectos reconcile --grant');
@@ -2110,7 +2263,9 @@ describe('the debt block a governed gate must obey', () => {
     writeGrant(root, grantBody(head, outage));
     commitAll(root, 'fixture grant');
     const auth = authoriseDegradedContinuation(sys, root, authInput(head, outage));
-    consumeDegradedGrant(sys, root, {
+    const consumed = consumeDegradedGrant(sys, root, {
+      subjectCommit: head,
+      durable: durableBinding(),
       grant: auth.grant!,
       unavailabilityId: outage,
       projectId: PROJECT,
@@ -2131,7 +2286,10 @@ describe('the debt block a governed gate must obey', () => {
 
     expect(unreadableDegradedStores(sys, root)).toEqual([]);
     expect(degradedReconciliationState(sys, root).required).toBe(false);
-    const block = reconciliationDebtBlock(sys, root).join(String.fromCharCode(10));
+    // The installation says this work is done AND discharged, so the block reaches the project
+    // evidence — where the edited record is the thing it refuses on.
+    seedDurable({ consumed: [consumed.workId as string], reconciled: [consumed.workId as string] });
+    const block = reconciliationDebtBlock(sys, root, { projectId: PROJECT, durable: durableBinding() }).join(String.fromCharCode(10));
     expect(block).toContain('DEGRADED_DEBT_UNREADABLE');
     expect(block).toContain('never read as "no debt"');
   });
@@ -2143,6 +2301,8 @@ describe('the debt block a governed gate must obey', () => {
     commitAll(root, 'fixture grant');
     const auth = authoriseDegradedContinuation(sys, root, authInput(head, outage));
     const consumed = consumeDegradedGrant(sys, root, {
+      subjectCommit: head,
+      durable: durableBinding(),
       grant: auth.grant!,
       unavailabilityId: outage,
       projectId: PROJECT,
@@ -2170,7 +2330,14 @@ describe('the debt block a governed gate must obey', () => {
 
     // A DISCHARGE MUST NAME A CALL THAT HAPPENED. Without a ledger entry the same record is an
     // assertion, and the gate says so — see the case below.
-    expect(reconciliationDebtBlock(sys, root).join(String.fromCharCode(10))).toContain(
+    // The installation still holds the debt, so that is what the block reports first.
+    expect(reconciliationDebtBlock(sys, root, { projectId: PROJECT, durable: durableBinding() }).join(String.fromCharCode(10))).toContain(
+      'DEGRADED_DEBT_OUTSTANDING',
+    );
+    // Once the installation records the discharge too, the project evidence is checked — and an
+    // uncorroborated decision id there is still refused.
+    seedDurable({ consumed: [consumed.workId as string], reconciled: [consumed.workId as string] });
+    expect(reconciliationDebtBlock(sys, root, { projectId: PROJECT, durable: durableBinding() }).join(String.fromCharCode(10))).toContain(
       'DEGRADED_DEBT_UNCORROBORATED',
     );
 
@@ -2192,7 +2359,7 @@ describe('the debt block a governed gate must obey', () => {
       }),
     );
 
-    expect(reconciliationDebtBlock(sys, root)).toEqual([]);
+    expect(reconciliationDebtBlock(sys, root, { projectId: PROJECT, durable: durableBinding() })).toEqual([]);
   });
 
   it('refuses a discharge no gatekeeper call corroborates, even in its own record', () => {
@@ -2202,6 +2369,8 @@ describe('the debt block a governed gate must obey', () => {
     commitAll(root, 'fixture grant');
     const auth = authoriseDegradedContinuation(sys, root, authInput(head, outage));
     const consumed = consumeDegradedGrant(sys, root, {
+      subjectCommit: head,
+      durable: durableBinding(),
       grant: auth.grant!,
       unavailabilityId: outage,
       projectId: PROJECT,
@@ -2226,7 +2395,10 @@ describe('the debt block a governed gate must obey', () => {
       }),
     );
 
-    const block = reconciliationDebtBlock(sys, root).join(String.fromCharCode(10));
+    // The installation agrees the work is discharged; the project evidence names a decision that never
+    // happened, and that is what the block refuses on.
+    seedDurable({ consumed: [consumed.workId as string], reconciled: [consumed.workId as string] });
+    const block = reconciliationDebtBlock(sys, root, { projectId: PROJECT, durable: durableBinding() }).join(String.fromCharCode(10));
     expect(block).toContain('DEGRADED_DEBT_UNCORROBORATED');
     expect(block).toContain('never happened'.replace(' ', '-'));
   });
@@ -2238,6 +2410,8 @@ describe('the debt block a governed gate must obey', () => {
     commitAll(root, 'fixture grant');
     const auth = authoriseDegradedContinuation(sys, root, authInput(head, outage));
     const consumed = consumeDegradedGrant(sys, root, {
+      subjectCommit: head,
+      durable: durableBinding(),
       grant: auth.grant!,
       unavailabilityId: outage,
       projectId: PROJECT,
@@ -2287,8 +2461,177 @@ describe('the debt block a governed gate must obey', () => {
       }),
     );
 
-    const block = reconciliationDebtBlock(sys, root).join(String.fromCharCode(10));
+    const block = reconciliationDebtBlock(sys, root, { projectId: PROJECT, durable: durableBinding() }).join(String.fromCharCode(10));
     expect(block).toContain('DEGRADED_DEBT_OUTSTANDING');
     expect(block).toContain(consumed.workId as string);
+  });
+});
+
+describe('the record that outlives the project', () => {
+  /** Drive a real consumption, then hand back everything a durability proof needs. */
+  const spend = (max = 1) => {
+    const { root, sys, head } = repo();
+    const outage = outageFor(head);
+    writeGrant(root, grantBody(head, outage, { maxWorkItems: max }));
+    commitAll(root, 'fixture grant');
+    const auth = authoriseDegradedContinuation(sys, root, authInput(head, outage));
+    const consumed = consumeDegradedGrant(sys, root, {
+      subjectCommit: head,
+      durable: durableBinding(),
+      grant: auth.grant!,
+      unavailabilityId: outage,
+      projectId: PROJECT,
+      phaseId: PHASE,
+      summary: 'the bounded item',
+      at: '2026-08-19T12:00:00.000Z',
+    });
+    expect(consumed.persisted).toBe(true);
+    return { root, sys, head, outage, workId: consumed.workId as string };
+  };
+
+  const deleteProjectMirror = (root: string) => {
+    const abs = join(root, ...(degradedStoreRelPath(GRANT_ID) as string).split('/'));
+    rmSync(abs, { force: true });
+    expect(existsSync(abs)).toBe(false);
+  };
+
+  it('refuses a durable write that lands but loses what it was told to record', () => {
+    // FOUND BY MUTATION TESTING: deleting the read-back failed nothing, because every fixture wrote
+    // faithfully. A write that succeeds and drops the entry is the exact shape the read-back exists
+    // for — without it, a grant would be believed spent while the record said otherwise.
+    const { root, sys, head } = repo();
+    const outage = outageFor(head);
+    writeGrant(root, grantBody(head, outage));
+    commitAll(root, 'fixture grant');
+    const auth = authoriseDegradedContinuation(sys, root, authInput(head, outage));
+
+    const lossy: System = {
+      ...sys,
+      writeText: (p: string, c: string) => {
+        if (p.includes('degraded-consumption')) {
+          const parsed = JSON.parse(c) as Record<string, unknown>;
+          sys.writeText(p, JSON.stringify({ ...parsed, consumptions: [] }));
+          return;
+        }
+        sys.writeText(p, c);
+      },
+    };
+
+    const consumed = consumeDegradedGrant(lossy, root, {
+      subjectCommit: head,
+      durable: durableBinding(),
+      grant: auth.grant!,
+      unavailabilityId: outage,
+      projectId: PROJECT,
+      phaseId: PHASE,
+      summary: 'the bounded item',
+      at: '2026-08-19T12:00:00.000Z',
+    });
+
+    expect(consumed.persisted).toBe(false);
+    expect(consumed.workId).toBeNull();
+    expect(consumed.problem).toContain('could not be read back');
+    // And nothing started: the project mirror was never written either.
+    expect(existsSync(join(root, ...(degradedStoreRelPath(GRANT_ID) as string).split('/')))).toBe(false);
+  });
+
+  it('a spent grant stays spent when the project evidence is deleted', () => {
+    const { root, sys, head, outage } = spend();
+    deleteProjectMirror(root);
+
+    // The project now looks as though degraded mode never ran. The installation knows better.
+    expect(consumedGrantIds(sys, root)).toEqual([]);
+    const again = authoriseDegradedContinuation(sys, root, authInput(head, outage));
+    expect(again.authorised).toBe(false);
+    expect(again.reasons.join(' ')).toContain('already spent');
+  });
+
+  it('the debt stays outstanding when the project evidence is deleted', () => {
+    const { root, sys, workId } = spend();
+    deleteProjectMirror(root);
+
+    const block = reconciliationDebtBlock(sys, root, { projectId: PROJECT, durable: durableBinding() });
+    expect(block.join(String.fromCharCode(10))).toContain('DEGRADED_DEBT_OUTSTANDING');
+    expect(block.join(String.fromCharCode(10))).toContain(workId);
+  });
+
+  it('survives a restart: a fresh System reads the same installation record', () => {
+    const { root, head, outage } = spend();
+    deleteProjectMirror(root);
+
+    // A new process, nothing carried in memory.
+    const restarted = nodeLikeSystemForRestart();
+    const again = authoriseDegradedContinuation(restarted, root, authInput(head, outage));
+    expect(again.authorised).toBe(false);
+    expect(
+      reconciliationDebtBlock(restarted, root, { projectId: PROJECT, durable: durableBinding() }).join(
+        String.fromCharCode(10),
+      ),
+    ).toContain('DEGRADED_DEBT_OUTSTANDING');
+  });
+
+  it('a project mirror that CLAIMS reconciliation does not clear the installation debt', () => {
+    const { root, sys, workId } = spend();
+    const abs = join(root, ...(degradedStoreRelPath(GRANT_ID) as string).split('/'));
+    const store = JSON.parse(readFileSync(abs, 'utf8')) as Record<string, unknown>;
+    writeFileSync(
+      abs,
+      JSON.stringify({
+        ...store,
+        reconciliations: [
+          { workId, decisionId: 'GKDEC-invented', ask: RECONCILIATION_ASK, decisionAccepted: true },
+        ],
+      }),
+    );
+
+    // The mirror says discharged. The installation has no such discharge, and the installation decides.
+    expect(degradedReconciliationState(sys, root).required).toBe(false);
+    expect(
+      reconciliationDebtBlock(sys, root, { projectId: PROJECT, durable: durableBinding() }).join(String.fromCharCode(10)),
+    ).toContain('DEGRADED_DEBT_OUTSTANDING');
+  });
+
+  it('an accepted reconciliation in the installation record clears the debt', () => {
+    const { root, sys, workId } = spend();
+    seedDurable({ consumed: [workId], reconciled: [workId] });
+    // And the project evidence is gone entirely — the discharge does not depend on it.
+    deleteProjectMirror(root);
+
+    expect(reconciliationDebtBlock(sys, root, { projectId: PROJECT, durable: durableBinding() })).toEqual([]);
+  });
+
+  it('a corrupt installation record fails closed, for both the gate and the grant', () => {
+    const { root, sys, head, outage } = spend();
+    writeFileSync(join(durableBinding().stateDir, 'degraded-consumption.json'), '{ truncated');
+
+    const block = reconciliationDebtBlock(sys, root, { projectId: PROJECT, durable: durableBinding() });
+    expect(block.join(String.fromCharCode(10))).toContain('DEGRADED_DEBT_UNREADABLE');
+
+    const again = authoriseDegradedContinuation(sys, root, authInput(head, outage));
+    expect(again.authorised).toBe(false);
+    expect(again.reasons.join(' ')).toContain('degraded ledger');
+  });
+
+  it('does not read another project\'s spends as its own', () => {
+    const { root, sys, workId } = spend();
+    // Same work id, another project and another repository: not this project's debt.
+    const d = durableBinding();
+    const ledger = JSON.parse(readFileSync(join(d.stateDir, 'degraded-consumption.json'), 'utf8')) as Record<string, unknown>;
+    const mine = (ledger['consumptions'] as Array<Record<string, unknown>>)[0] as Record<string, unknown>;
+    writeFileSync(
+      join(d.stateDir, 'degraded-consumption.json'),
+      JSON.stringify({
+        ...ledger,
+        consumptions: [{ ...mine, projectId: 'someone-else', repository: 'github.com/someone/else' }],
+      }),
+    );
+
+    // The project mirror still records the work, and still owes for it — that is its own evidence.
+    // What is being proven here is narrower: the INSTALLATION record no longer attributes that spend
+    // to this project, so with the mirror gone there is nothing of ours outstanding.
+    deleteProjectMirror(root);
+    expect(
+      reconciliationDebtBlock(sys, root, { projectId: PROJECT, durable: durableBinding() }).join(String.fromCharCode(10)),
+    ).not.toContain(workId);
   });
 });

@@ -44,6 +44,7 @@ import {
   type ReviewFinding,
 } from './outcome.js';
 import { takeGatekeeperTurn, type GatekeeperTurnDeps } from './gatekeeperTurn.js';
+import type { DurableBinding } from './degradedMode.js';
 import {
   authorityWrapper,
   committedGovernanceOwner,
@@ -145,6 +146,14 @@ export interface RunOptions {
      * the work itself — authority a caller can state is not authority.
      */
     readonly operation: DegradedOperation;
+    /**
+     * Where the installation records what degraded mode spends.
+     *
+     * SUPPLIED BY THE COMPOSITION ROOT, never derived here. A state directory this module chose for
+     * itself could end up inside the governed project, which is the defect the durable record exists
+     * to close.
+     */
+    readonly durable: DurableBinding;
   };
   /**
    * The paths this phase's APPROVED SCOPE permits a correction to write.
@@ -546,6 +555,7 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
         subjectCommit: workSubject,
         unavailabilityId,
         grantId: cfg.grantId,
+        durable: cfg.durable,
         // THE RECORDED OWNER, FROM THE APPROVED PLAN'S OWN GOVERNANCE BLOCK. Never a flag, never a
         // config value a caller chose: the plan is digest-bound and owner-approved, so this is the
         // one statement of who the owner is that a caller cannot author.

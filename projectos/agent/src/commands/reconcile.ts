@@ -32,7 +32,8 @@ import {
 } from '../loop/gatekeeperConfig.js';
 import { windowsVaultResolver } from '../loop/windowsVaultResolver.js';
 import { nodeHttpPort } from '../loop/transports/nodeHttpPort.js';
-import { nodeProjectosRuntime } from '../nodeRuntimeRoot.js';
+import { nodeInstallationStateDir, nodeProjectosRuntime } from '../nodeRuntimeRoot.js';
+import { canonicalRepositoryIdentity } from '../installation/projectAllowlist.js';
 import { ownerGateReceiptRelPath, ownerApprovedSecretsHandling } from '../loop/ownerGateReceipts.js';
 import { reconcileDegradedWork, type ReconciliationDeps } from '../loop/reconciliation.js';
 import { ALWAYS_OWNER_ONLY, committedGovernanceOwner } from '../loop/degradedMode.js';
@@ -113,6 +114,18 @@ export function reconcile(ctx: CommandContext, flags: Flags): CommandResult {
     ]);
   }
 
+  const stateDir = nodeInstallationStateDir();
+  const repository = canonicalRepositoryIdentity(ctx.sys, ctx.root);
+  if (stateDir === null || repository === null) {
+    return fail(2, [
+      'REFUSED (NO_DURABLE_DEGRADED_RECORD): a discharge must update the installation record that',
+      '  outlives this project, and it cannot be located.',
+      stateDir === null ? '  - no per-user application-data directory could be resolved' : `  - state directory: ${stateDir}`,
+      repository === null ? '  - this checkout has no readable `origin` remote' : `  - repository: ${repository}`,
+    ]);
+  }
+  const durable = { stateDir, installRoot: nodeProjectosRuntime().installRoot, repository };
+
   const gk = loadGatekeeperConfig(ctx.sys, ctx.root);
   if (!gk.ok) {
     return fail(2, [
@@ -181,6 +194,7 @@ export function reconcile(ctx: CommandContext, flags: Flags): CommandResult {
       expectedDecider: gk.config.expectedDecider,
       ownerOnlyActions: ALWAYS_OWNER_ONLY,
       recordedOwner,
+      durable,
       at: ctx.sys.now(),
       ...(dryRun ? { prepareOnly: true } : {}),
     },

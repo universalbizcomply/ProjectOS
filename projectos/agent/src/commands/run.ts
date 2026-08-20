@@ -26,7 +26,8 @@ import {
 } from '../loop/gatekeeperConfig.js';
 import { windowsVaultResolver } from '../loop/windowsVaultResolver.js';
 import { nodeHttpPort } from '../loop/transports/nodeHttpPort.js';
-import { nodeProjectosRuntime } from '../nodeRuntimeRoot.js';
+import { nodeInstallationStateDir, nodeProjectosRuntime } from '../nodeRuntimeRoot.js';
+import { canonicalRepositoryIdentity } from '../installation/projectAllowlist.js';
 import { ownerGateReceiptRelPath, ownerApprovedSecretsHandling } from '../loop/ownerGateReceipts.js';
 
 /** The governed project's declared id, from its own configuration. Empty when there is none. */
@@ -171,14 +172,36 @@ export function run(ctx: CommandContext, flags: Flags): CommandResult {
     ]);
   }
 
+  // WHERE THE INSTALLATION RECORDS WHAT DEGRADED MODE SPENDS.
+  //
+  // Composed here, at the entrypoint, because this is the only layer that may consult the ambient
+  // environment. Without all three facts there is no durable record to write, and degraded mode is
+  // refused rather than run against a project-local file that a `rm` would erase.
+  const stateDir = nodeInstallationStateDir();
+  const repository = canonicalRepositoryIdentity(ctx.sys, ctx.root);
+  const durable =
+    stateDir === null || repository === null
+      ? null
+      : { stateDir, installRoot: nodeProjectosRuntime().installRoot, repository };
+  if (degradedGrant !== '' && durable === null) {
+    return fail(2, [
+      'REFUSED (NO_DURABLE_DEGRADED_RECORD): degraded mode records what it spends outside the governed',
+      '  project, and this machine gives no such location or this checkout has no readable `origin`.',
+      stateDir === null ? '  - no per-user application-data directory could be resolved' : `  - state directory: ${stateDir}`,
+      repository === null ? '  - this checkout has no readable `origin` remote' : `  - repository: ${repository}`,
+      '',
+      'Nothing was prepared and nothing was started.',
+    ]);
+  }
+
   const result = runLoop(ctx.sys, ctx.root, {
     ...(worker === '' ? {} : { workerId: worker }),
     dryRun,
     resume,
     ...(session === '' ? {} : { resumeSessionId: session }),
-    ...(degradedGrant === '' || !isDegradedOperation(degradedOperation)
+    ...(degradedGrant === '' || !isDegradedOperation(degradedOperation) || durable === null
       ? {}
-      : { degradedMode: { grantId: degradedGrant, operation: degradedOperation } }),
+      : { degradedMode: { grantId: degradedGrant, operation: degradedOperation, durable } }),
     ...(gatekeeper === undefined
       ? {}
       : {

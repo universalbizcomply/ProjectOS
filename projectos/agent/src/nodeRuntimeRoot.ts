@@ -20,7 +20,7 @@
  *
  * Created in PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A under the delegated continuation of 2026-08-20.
  */
-import { dirname, resolve } from 'node:path';
+import { dirname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /** Repo-relative path of the credential adapter WITHIN the ProjectOS installation. */
@@ -32,6 +32,29 @@ export interface ProjectosRuntime {
   readonly installRoot: string;
   /** The adapter's path relative to `installRoot`, so committed-bytes checks can name it to git. */
   readonly adapterRelPath: string;
+}
+
+/**
+ * Where this installation keeps state the governed project must not be able to erase.
+ *
+ * OUTSIDE EVERY REPOSITORY, ON PURPOSE. Degraded-mode consumption used to live only inside the
+ * governed project, where `rm` made a spent grant look unused. This is the operator's own
+ * application-data directory: a bounded worker writes inside its project, and this is not inside any
+ * project. `null` when the platform gives no such location — callers refuse rather than guess, since
+ * a state directory chosen by falling back to the current directory would be the defect again.
+ */
+export function nodeInstallationStateDir(env: NodeJS.ProcessEnv = process.env): string | null {
+  // AN EXPLICIT LOCATION WINS, and it is the packaged host's way of saying where its state lives —
+  // that host is launched with almost no environment and must not depend on the shape of a user
+  // profile. It is absolute or it is refused; a relative value would resolve against whatever
+  // directory the process happened to start in, which is the ambient-cwd mistake again.
+  const bound = env['PROJECTOS_INSTALLATION_STATE_DIR'];
+  if (typeof bound === 'string' && bound.trim() !== '' && isAbsolute(bound)) {
+    return bound.split(String.fromCharCode(92)).join('/');
+  }
+  const base = env['LOCALAPPDATA'] ?? env['XDG_STATE_HOME'] ?? env['HOME'];
+  if (typeof base !== 'string' || base.trim() === '' || !isAbsolute(base)) return null;
+  return resolve(base, 'ProjectOS', 'installation-state').split(String.fromCharCode(92)).join('/');
 }
 
 /**

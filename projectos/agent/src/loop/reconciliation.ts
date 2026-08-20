@@ -69,6 +69,8 @@ import {
   type DegradedStoreRecord,
 } from './degradedMode.js';
 import { loadDegradedModeGrant } from './degradedModeGrants.js';
+import { recordReconciliation } from '../installation/degradedLedger.js';
+import type { DurableBinding } from './degradedMode.js';
 
 /**
  * The verdict that discharges a debt, and the only one.
@@ -160,6 +162,13 @@ export interface ReconciliationInput {
   readonly recordedOwner: string;
   /** Run every check and stop before the call. Nothing is sent, spent, or written. */
   readonly prepareOnly?: boolean;
+  /**
+   * The installation's durable record — the one a discharge must actually update.
+   *
+   * The project-local record is evidence. Clearing a debt there and nowhere else would leave the
+   * debt standing everywhere that matters, and the gate would go on refusing.
+   */
+  readonly durable: DurableBinding;
 }
 
 export interface ReconciliationDeps {
@@ -657,9 +666,39 @@ export function reconcileDegradedWork(
     ask: RECONCILIATION_ASK,
     decisionAccepted: true,
   };
+  // THE AUTHORITATIVE DISCHARGE FIRST, then the project evidence.
+  //
+  // This is the same ordering consumption uses and for the same reason: the record that outlives the
+  // project is the one that decides, so it is written first and the mirror follows. A failure here
+  // leaves the debt standing, which is the direction to fail in.
+  const durableWritten = recordReconciliation(sys, input.durable.stateDir, {
+    workId: input.workId,
+    grantId: input.grantId,
+    projectId: input.projectId,
+    repository: input.durable.repository,
+    decisionId: String(sent.record.decisionId),
+    ask: RECONCILIATION_ASK,
+    at: input.at,
+  });
+  if (!durableWritten.persisted) {
+    return outcome(
+      'PERSIST_FAILED',
+      [durableWritten.problem ?? 'the reconciliation could not be recorded in the installation ledger'],
+      shared,
+    );
+  }
+
   const written = persistReconciliation(sys, root, input.grantId, record);
   if (!written.persisted) {
-    return outcome('PERSIST_FAILED', [written.problem ?? 'the reconciliation could not be recorded'], shared);
+    return outcome(
+      'PERSIST_FAILED',
+      [
+        written.problem ?? 'the reconciliation could not be recorded',
+        'the installation ledger records the discharge; the project evidence mirror does not, and ' +
+          'should be repaired',
+      ],
+      shared,
+    );
   }
 
   const after = readDegradedStoreDetailed(sys, root, input.grantId);

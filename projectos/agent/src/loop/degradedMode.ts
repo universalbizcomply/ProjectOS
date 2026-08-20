@@ -33,6 +33,11 @@ import { isAbsolute, join, relative } from 'node:path';
 import type { System } from '../system.js';
 import { readLedger } from './gatekeeperConfig.js';
 import {
+  authoritativeState,
+  recordConsumption,
+  type DurableConsumption,
+} from '../installation/degradedLedger.js';
+import {
   checkDegradedModeGrant,
   degradedWorkRemaining,
   reconciliationState,
@@ -324,6 +329,11 @@ export function degradedReconciliationState(sys: System, root: string): Reconcil
  *
  * EMPTY MEANS CLEAR. Anything else is a refusal, and the caller must not proceed.
  *
+ * TWO SOURCES, AND THE AUTHORITATIVE ONE IS THE INSTALLATION'S. The installation ledger lives
+ * outside every repository and decides whether work is outstanding; the project-local record is kept
+ * as corroborating evidence and can still raise a refusal of its own, but it can no longer CLEAR one
+ * by being deleted.
+ *
  * WHAT IT ADDS OVER `degradedReconciliationState`. That function is built on
  * `readAllDegradedStores`, which DROPS a store it cannot read — so truncating or editing a use record
  * makes its outstanding work disappear from the debt state rather than raising it. That is acceptable
@@ -338,19 +348,48 @@ export function degradedReconciliationState(sys: System, root: string): Reconcil
  * and cannot prevent someone running `git commit` or `git push` themselves — ProjectOS exposes no
  * governed commit or push operation to gate.
  *
- * AND THE EVIDENCE IS UNCOMMITTED. The use record is a runtime file that degraded mode writes without
- * commit authority, so deleting, renaming or moving it out of `.projectops/execution` removes the
- * debt from view. That is the same ceiling the module header states, not a control this function
- * adds: what it can do is refuse when a record is present and unreadable, refuse a discharge no
- * gatekeeper call corroborates, and keep a discharge next to the work it discharges. Reading a
- * missing file as "no debt" is a limit of an uncommitted record, and it is written here rather than
- * left for a reader to discover.
+ * DELETING THE PROJECT EVIDENCE NO LONGER CLEARS ANYTHING. The use record under
+ * `.projectops/execution` is a runtime file the worker can remove; the installation ledger is not,
+ * and it is what this consults first. The remaining ceiling is stated plainly: a process running as
+ * the operator with access outside the project can still reach the installation's own state, which is
+ * the declared trusted computing base rather than something this function can defend.
  *
  * Added under the delegated continuation of 2026-08-20, which required the standing sentence "the
  * next major gate cannot proceed as normal while degraded-mode work is unreconciled" to become an
  * enforced invariant rather than a printed one.
  */
-export function reconciliationDebtBlock(sys: System, root: string): readonly string[] {
+export function reconciliationDebtBlock(
+  sys: System,
+  root: string,
+  scope: { readonly projectId: string; readonly durable: DurableBinding },
+): readonly string[] {
+  // THE AUTHORITATIVE RECORD FIRST. The project mirror is evidence; this is the fact. Deleting the
+  // mirror removes the evidence and changes nothing here, which is the whole point of C7 durability.
+  const durable = authoritativeState(sys, scope.durable.stateDir, {
+    installRoot: scope.durable.installRoot,
+    projectId: scope.projectId,
+    repository: scope.durable.repository,
+  });
+  if (!durable.readable) {
+    return [
+      'REFUSED (DEGRADED_DEBT_UNREADABLE): the installation record of degraded spending could not be read,',
+      '  so whether unreviewed work is outstanding cannot be established.',
+      `  - ${durable.problem ?? 'the installation degraded ledger is unreadable'}`,
+      '  An unreadable record is refused, never read as "no debt".',
+    ];
+  }
+  if (durable.outstandingWorkIds.length > 0) {
+    return [
+      'REFUSED (DEGRADED_DEBT_OUTSTANDING): degraded-mode work has not been reviewed, so this governed ' +
+        'gate does not proceed as normal.',
+      ...durable.outstandingWorkIds.map((id) => `  - outstanding work item: ${id}`),
+      '  Recorded by the installation, outside this project: deleting the project evidence does not ' +
+        'clear it.',
+      '  Required next action: projectos reconcile --grant <GRANT-ID> --work <WORK-ID> --execute',
+      '  The debt is discharged only by an accepted gatekeeper decision. It is never cleared by hand.',
+    ];
+  }
+
   const dir = join(root, '.projectops', 'execution');
   const unreadable: string[] = [];
   if (sys.exists(dir)) {
@@ -447,6 +486,20 @@ export function enforcedOwnerOnlyActions(declared: readonly string[]): readonly 
   return [...new Set([...ALWAYS_OWNER_ONLY, ...declared])];
 }
 
+/**
+ * Where the AUTHORITATIVE record of degraded spending lives, and whose it is.
+ *
+ * REQUIRED, NEVER DEFAULTED. Every caller supplies it or nothing runs: a state directory guessed
+ * from the ambient environment — or worse, from the governed project — would be the defect this
+ * exists to close. The repository is the canonical `host/owner/name`, so two checkouts that claim the
+ * same project id do not read each other's spends as their own.
+ */
+export interface DurableBinding {
+  readonly stateDir: string;
+  readonly installRoot: string;
+  readonly repository: string;
+}
+
 export interface DegradedAuthorisationInput {
   readonly projectId: string;
   readonly phaseId: string;
@@ -455,6 +508,8 @@ export interface DegradedAuthorisationInput {
   readonly grantId: string;
   readonly recordedOwner: string;
   readonly ownerOnlyActions: readonly string[];
+  /** The installation's durable record. Authority to spend is decided against this, not the project. */
+  readonly durable: DurableBinding;
 }
 
 /**
@@ -483,6 +538,30 @@ export function authoriseDegradedContinuation(
   }
   const effectiveSubject = derived.subjectCommit;
 
+  // THE AUTHORITATIVE RECORD DECIDES WHETHER THIS GRANT IS ALREADY SPENT.
+  //
+  // The project-local record used to be the only answer, and deleting it made a spent grant look
+  // unused — the same one-item grant could fund item after item. The installation's ledger lives
+  // outside every repository, so a worker bounded to its project cannot reach it, and an unreadable
+  // one refuses rather than reading as "nothing spent".
+  const durableState = authoritativeState(sys, input.durable.stateDir, {
+    installRoot: input.durable.installRoot,
+    projectId: input.projectId,
+    repository: input.durable.repository,
+  });
+  if (!durableState.readable) {
+    return {
+      authorised: false,
+      reasons: [
+        durableState.problem ?? 'the installation degraded ledger could not be read',
+        'degraded-mode use cannot be established, so no further unreviewed work may be authorised',
+      ],
+      grant: null,
+      unavailabilityId: input.unavailabilityId,
+      remaining: 0,
+    };
+  }
+
   const loaded = loadDegradedModeGrant(sys, root, input.phaseId, input.grantId);
   const problems = checkDegradedModeGrant(loaded.grant, {
     projectId: input.projectId,
@@ -491,15 +570,20 @@ export function authoriseDegradedContinuation(
     unavailabilityId: input.unavailabilityId,
     recordedOwner: input.recordedOwner,
     ownerOnlyActions: enforcedOwnerOnlyActions(input.ownerOnlyActions),
+    // EXHAUSTION IS NOT USE. `consumedGrantIds` lists grants whose bound is fully spent, not grants
+    // that have been touched — a two-item grant is still live after its first item. The installation
+    // ledger records individual spends and knows nothing of any grant's ceiling, so it is compared
+    // against the ceiling separately below rather than folded in here, where it would have capped
+    // every multi-item grant at one.
     alreadyConsumedGrantIds: consumedGrantIds(sys, root),
     // Established by the loader, from the read. Never asserted here.
     readFromCommittedTree: loaded.readFromCommittedTree,
   });
 
   const reasons = [...problems];
-  // AN ABSENCE OF FACT IS NOT A FAVOURABLE FACT. If any use record cannot be read, this run cannot
-  // establish how much of any grant is already spent, so it authorises nothing. Failing closed here
-  // is what stops a truncated, corrupted or tampered store reading as "never used".
+  // AN ABSENCE OF FACT IS NOT A FAVOURABLE FACT. The project mirror is checked too: a record it
+  // holds and the ledger does not is still a spend that happened, and one that cannot be read leaves
+  // this run unable to say how much of a grant is gone.
   const unreadable = unreadableDegradedStores(sys, root);
   if (unreadable.length > 0) {
     return {
@@ -544,14 +628,25 @@ export function authoriseDegradedContinuation(
   }
 
   const grant = loaded.grant as DegradedModeGrant;
-  const remaining = degradedWorkRemaining(
-    { grantId: String(grant.grantId), maxWorkItems: Number(grant.maxWorkItems) },
+  const ceiling = Number(grant.maxWorkItems);
+  // WHICHEVER RECORD SAYS MORE WAS SPENT, WINS.
+  //
+  // The project mirror can be deleted; the installation ledger cannot be reached from inside the
+  // project. Taking the larger count means deleting the mirror cannot refund a grant, and a mirror
+  // that somehow knows about work the installation does not is still counted.
+  const durableUsed = durableState.workItemsByGrant[String(grant.grantId)] ?? 0;
+  const mirrorUsed = Math.max(0, ceiling - degradedWorkRemaining(
+    { grantId: String(grant.grantId), maxWorkItems: ceiling },
     allDegradedWork(sys, root),
-  );
+  ));
+  const remaining = Math.max(0, ceiling - Math.max(durableUsed, mirrorUsed));
   if (remaining <= 0) {
     return {
       authorised: false,
-      reasons: [`grant ${String(grant.grantId)} has no work items left; its bound is already spent`],
+      reasons: [
+        `grant ${String(grant.grantId)} has no work items left; its bound is already spent`,
+        `  the installation records ${durableUsed} spend(s) under it, and this project ${mirrorUsed}`,
+      ],
       grant: null,
       unavailabilityId: input.unavailabilityId,
       remaining: 0,
@@ -614,11 +709,39 @@ export function consumeDegradedGrant(
     readonly phaseId: string;
     readonly summary: string;
     readonly at: string;
+    readonly subjectCommit: string;
+    readonly durable: DurableBinding;
   },
 ): ConsumptionResult {
   const grantId = String(input.grant.grantId ?? '');
   const path = degradedStorePath(root, grantId);
   if (path === null) return { persisted: false, workId: null, problem: `unsafe grant id '${grantId}'` };
+
+  // THE AUTHORITATIVE SPEND IS RECORDED FIRST, OUTSIDE THE PROJECT.
+  //
+  // The project mirror is written after, and is evidence rather than authority. If this fails,
+  // nothing has been spent and no work may start — which is the direction to fail in.
+  const durableEntry: DurableConsumption = {
+    schemaVersion: '1.0.0',
+    installRoot: input.durable.installRoot,
+    projectId: input.projectId,
+    repository: input.durable.repository,
+    phaseId: input.phaseId,
+    grantId,
+    subjectCommit: input.subjectCommit,
+    unavailabilityId: input.unavailabilityId,
+    workId: deriveWorkId(grantId, input.unavailabilityId, (readDegradedStore(sys, root, grantId)?.workItems.length ?? 0) + 1),
+    summary: input.summary,
+    consumedAt: input.at,
+  };
+  const durableWrite = recordConsumption(sys, input.durable.stateDir, durableEntry);
+  if (!durableWrite.persisted) {
+    return {
+      persisted: false,
+      workId: null,
+      problem: durableWrite.problem ?? 'the spend could not be recorded durably, so no unreviewed work may start',
+    };
+  }
 
   // A COMMITTED RECORD CANNOT BE APPENDED TO. Without this the second spend of a multi-item grant
   // wrote over the owner's committed evidence, failed its own read-back, and left the record corrupt —
@@ -893,6 +1016,8 @@ export function runDegradedWork(
   if (scopeProblems.length > 0) return { kind: 'REFUSED', reasons: scopeProblems };
 
   const consumption = consumeDegradedGrant(sys, root, {
+    subjectCommit: input.subjectCommit,
+    durable: input.durable,
     grant: authorisation.grant,
     unavailabilityId: input.unavailabilityId,
     projectId: input.projectId,

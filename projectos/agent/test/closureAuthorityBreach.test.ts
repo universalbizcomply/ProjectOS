@@ -106,6 +106,10 @@ function eligibleCheckout(files: Record<string, string> = {}): System & { writes
     renameFile: () => true,
     exec: (_cmd: string, args: readonly string[]) => {
       if (args.includes('rev-parse')) return { code: 0, stdout: SUBJECT, stderr: '' };
+      // The installation asks which repository this checkout IS before consulting its durable record.
+      if (args.includes('remote')) {
+        return { code: 0, stdout: 'https://github.com/universalbizcomply/ProjectOS.git', stderr: '' };
+      }
       if (args.includes('status')) return { code: 0, stdout: '', stderr: '' };
       if (args.includes('rev-list')) return { code: 0, stdout: '0\t0', stderr: '' };
       if (args.includes('log')) return { code: 0, stdout: 'b'.repeat(40), stderr: '' };

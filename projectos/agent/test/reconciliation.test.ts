@@ -65,8 +65,27 @@ const RATE: RateCard = {
   outputMicroUsdPerMillion: 10_000_000,
 };
 
+const stateDirs: string[] = [];
+let currentDurable: { stateDir: string; installRoot: string; repository: string } | null = null;
+/**
+ * The installation's durable record, per test, OUTSIDE the fixture project.
+ *
+ * A discharge updates this first and the project mirror second, so a test that put it inside `root`
+ * would be proving nothing about the record that outlives the project.
+ */
+function durableBinding(): { stateDir: string; installRoot: string; repository: string } {
+  if (currentDurable === null) {
+    const stateDir = mkdtempSync(join(tmpdir(), 'projectos-install-state-'));
+    stateDirs.push(stateDir);
+    currentDurable = { stateDir, installRoot: '/install/ProjectOS', repository: 'github.com/local/fixture' };
+  }
+  return currentDurable;
+}
+
 const roots: string[] = [];
 afterEach(() => {
+  currentDurable = null;
+  for (const d of stateDirs.splice(0)) rmSync(d, { recursive: true, force: true });
   for (const r of roots.splice(0)) rmSync(r, { recursive: true, force: true });
 });
 
@@ -182,6 +201,40 @@ function world(
     );
   }
 
+  // THE INSTALLATION'S RECORD OF THE SAME SPEND, outside the project. Real consumption writes both:
+  // the durable entry first, the project mirror second. A discharge is refused unless the
+  // installation has a record of the work it would discharge, so the fixture must have one too.
+  const durable = durableBinding();
+  const items =
+    store !== null && typeof store !== 'string' && Array.isArray((store as Record<string, unknown>)['workItems'])
+      ? ((store as Record<string, unknown>)['workItems'] as Array<Record<string, unknown>>)
+      : [];
+  writeFileSync(
+    join(durable.stateDir, 'degraded-consumption.json'),
+    `${JSON.stringify(
+      {
+        schemaVersion: '1.0.0',
+        consumptions: items.map((w) => ({
+          schemaVersion: '1.0.0',
+          installRoot: durable.installRoot,
+          projectId: PROJECT,
+          repository: durable.repository,
+          phaseId: PHASE,
+          grantId: GRANT,
+          subjectCommit: subject,
+          unavailabilityId: OUTAGE,
+          workId: String(w['workId']),
+          summary: String(w['summary'] ?? ''),
+          consumedAt: '2026-08-20T15:18:56.178Z',
+        })),
+        reconciliations: [],
+      },
+      null,
+      2,
+    )}
+`,
+  );
+
   return { root, sys: nodeLikeSystem(root), subject, grantCommit, git };
 }
 
@@ -265,6 +318,7 @@ function input(over: Record<string, unknown> = {}) {
     expectedDecider: 'ChatGPT',
     ownerOnlyActions: OWNER_ONLY,
     recordedOwner: OWNER,
+    durable: durableBinding(),
     at: '2026-08-20T16:00:00.000Z',
     ...over,
   } as Parameters<typeof reconcileDegradedWork>[2];
@@ -576,6 +630,26 @@ describe('the one path that does discharge a debt', () => {
     // A reconciliation reviews history; it never extends the grant or adds work to it.
     expect(stored?.maxWorkItems).toBe(1);
     expect(stored?.workItems).toHaveLength(1);
+  });
+});
+
+describe('a discharge must name a spend this installation made', () => {
+  it('refuses when the installation has no record of the work, however complete the project looks', () => {
+    // FOUND BY MUTATION TESTING. Every fixture seeded both records, so removing the check that ties a
+    // discharge to a real spend failed nothing. This is the case that matters: a project-local record
+    // describing work the installation never funded.
+    const w = world();
+    writeFileSync(
+      join(durableBinding().stateDir, 'degraded-consumption.json'),
+      JSON.stringify({ schemaVersion: '1.0.0', consumptions: [], reconciliations: [] }),
+    );
+
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root));
+
+    expect(r.kind).toBe('PERSIST_FAILED');
+    expect(r.reasons.join(' ')).toContain('no record of work item');
+    // The project mirror is untouched: nothing was discharged anywhere.
+    expect(readDegradedStore(w.sys, w.root, GRANT)?.reconciliations).toEqual([]);
   });
 });
 
@@ -955,7 +1029,10 @@ describe('the guards the first mutation run found unpinned', () => {
     const r = reconcileDegradedWork(lossy, w.root, input(), deps(w.root));
 
     expect(r.kind).toBe('PERSIST_FAILED');
-    expect(r.reasons.join(' ')).toContain('absent from the record after writing');
+    // The INSTALLATION ledger is written first now, so its read-back is what catches this. Either
+    // record noticing is the property; which one speaks first is the ordering, and the ordering is
+    // deliberate — the authoritative record goes first.
+    expect(r.reasons.join(' ')).toContain('could not be read back after writing');
     expect(readDegradedStore(w.sys, w.root, GRANT)?.reconciliations).toEqual([]);
   });
 });

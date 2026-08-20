@@ -72,7 +72,14 @@ function fakeSystem(files: Record<string, string>): System & { writes: string[] 
         .map((f) => f.slice(p.length + 1))
         .filter((f) => !f.includes('/')),
     renameFile: () => true,
-    exec: () => ({ code: 0, stdout: '', stderr: '' }),
+    exec: (_cmd: string, args: readonly string[]) => {
+      // The closure gate asks which repository this checkout IS before it consults the installation's
+      // durable record of degraded spending. Everything else the fixture answers as before.
+      if (args.includes('remote')) {
+        return { code: 0, stdout: 'https://github.com/universalbizcomply/ProjectOS.git', stderr: '' };
+      }
+      return { code: 0, stdout: '', stderr: '' };
+    },
   };
 }
 

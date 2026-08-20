@@ -61,7 +61,18 @@ class FakeSystem implements System {
   }
   exec(cmd: string, args: readonly string[]): ExecResult {
     const key = [cmd, ...args].join(' ');
-    return this.execResponses[key] ?? { code: 1, stdout: '', stderr: 'not mocked' };
+    const direct = this.execResponses[key];
+    if (direct !== undefined) return direct;
+    // `-C <root>` is how the loop and the installation checks address git; the fixtures were written
+    // before that and key on the bare form. Only THIS project's root is folded onto the bare mocks —
+    // a call about another root (the install target, say) must not be answered with this one's
+    // origin, which is the very conflation the two-root work exists to remove.
+    if (cmd === 'git' && args[0] === '-C' && args[1] === '/repo') {
+      const stripped = ['git', ...args.slice(2)].join(' ');
+      const viaRoot = this.execResponses[stripped];
+      if (viaRoot !== undefined) return viaRoot;
+    }
+    return { code: 1, stdout: '', stderr: 'not mocked' };
   }
 }
 
