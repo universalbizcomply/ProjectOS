@@ -41,6 +41,7 @@ import {
   consumedDecisionIds,
 } from 'file:///c:/dev/ProjectOS/projectos/agent/dist/loop/gatekeeperConfig.js';
 import { windowsVaultResolver } from 'file:///c:/dev/ProjectOS/projectos/agent/dist/loop/windowsVaultResolver.js';
+import { nodeProjectosRuntime } from 'file:///c:/dev/ProjectOS/projectos/agent/dist/nodeRuntimeRoot.js';
 import { nodeHttpPort } from 'file:///c:/dev/ProjectOS/projectos/agent/dist/loop/transports/nodeHttpPort.js';
 import { takeGatekeeperTurn } from 'file:///c:/dev/ProjectOS/projectos/agent/dist/loop/gatekeeperTurn.js';
 import { nodeSystem, setProcessRoot } from 'file:///c:/dev/ProjectOS/projectos/agent/dist/system.js';
@@ -88,7 +89,8 @@ function gatekeeperDeps() {
     deps: {
       transport: gk.config.transport,
       availability: { reachable: true },
-      resolver: windowsVaultResolver({ sys, root: ROOT, ownerConfirmation }),
+      // Installation-scoped adapter; see gatekeeper-live-proof.mjs.
+      resolver: windowsVaultResolver({ sys, runtime: nodeProjectosRuntime(), ownerConfirmation }),
       http: nodeHttpPort(),
       modelPolicy: gk.config.modelPolicy,
       rateCards: gk.config.rateCards,

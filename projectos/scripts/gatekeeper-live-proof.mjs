@@ -24,6 +24,7 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { windowsVaultResolver } from '../agent/dist/loop/windowsVaultResolver.js';
+import { nodeProjectosRuntime } from '../agent/dist/nodeRuntimeRoot.js';
 import { nodeHttpPort } from '../agent/dist/loop/transports/nodeHttpPort.js';
 import { takeGatekeeperTurn, evidenceDigest } from '../agent/dist/loop/gatekeeperTurn.js';
 import {
@@ -112,7 +113,10 @@ const threadBinding = {
  */
 let previousResponseId = null;
 
-const resolver = windowsVaultResolver({ sys, root: ROOT, ownerConfirmation: true });
+// The adapter comes from the TRUSTED INSTALLATION, never from the governed root. Passing ROOT
+// here is what the resolver was changed to stop accepting; `nodeProjectosRuntime()` is the
+// installation asking where it itself lives.
+const resolver = windowsVaultResolver({ sys, runtime: nodeProjectosRuntime(), ownerConfirmation: true });
 const http = nodeHttpPort();
 
 let ledger = [];
