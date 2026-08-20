@@ -806,8 +806,12 @@ export const FILENAME_ID = /^[A-Za-z0-9_-]{8,128}$/;
  * be believed. `git show` also returns the blob as stored, so a checkout's line-ending conversion
  * cannot change what was reviewed. Null means "not committed, or unreadable", which fails closed.
  */
-function readCommittedJson(sys: System, relPath: string): Record<string, unknown> | null {
-  const r = sys.exec('git', ['show', `HEAD:${relPath}`]);
+function readCommittedJson(sys: System, root: string, relPath: string): Record<string, unknown> | null {
+  // `-C root` AND `./`. This ran with NEITHER: the repository answering was whichever one the ambient
+  // working directory happened to sit in, and the path resolved against the top of that repository
+  // rather than against the governed root. Both are the failure modes this codebase has already paid
+  // to learn once, on the read that establishes plan-approval authority.
+  const r = sys.exec('git', ['-C', root, 'show', `HEAD:./${relPath}`]);
   if (r.code !== 0) return null;
   return parseObject(r.stdout);
 }
@@ -949,7 +953,7 @@ export function approvePlan(sys: System, root: string, opts: ApproveOptions): Ap
     // genesis record would then re-supply an owner the project has since moved on from. So the
     // ELIGIBILITY question is asked of the COMMITTED configuration, which only the owner's commit
     // gate can change. The succession path above still reads the working tree, as it always has.
-    const committedConfig = readCommittedJson(sys, PROJECT_CONFIG_REL);
+    const committedConfig = readCommittedJson(sys, root, PROJECT_CONFIG_REL);
     const committedDeclared = (committedConfig?.['planMemory'] as Record<string, unknown> | undefined)?.['planPath'];
     if (committedDeclared !== undefined && committedDeclared !== null) {
       return {
@@ -963,7 +967,7 @@ export function approvePlan(sys: System, root: string, opts: ApproveOptions): Ap
       };
     }
 
-    const genesis = readCommittedJson(sys, PLAN_GENESIS_REL);
+    const genesis = readCommittedJson(sys, root, PLAN_GENESIS_REL);
     const uncommitted = genesis === null ? uncommittedButPresent(sys, root, PLAN_GENESIS_REL, 'genesis record') : null;
     if (uncommitted !== null) return { ok: false, code: 'GENESIS_INVALID', problems: uncommitted };
     if (genesis === null) return { ok: false, code: 'NO_ACTIVE_PLAN', problems: checkPlanGenesis(null, { projectId: proposal.projectId }) };
@@ -1014,7 +1018,7 @@ export function approvePlan(sys: System, root: string, opts: ApproveOptions): Ap
 
   // Both authority records are read from the committed blob, so what is checked is what was reviewed.
   const delegationRel = `.projectops/authority/plan-approval-delegation.json`;
-  const delegation = readCommittedJson(sys, delegationRel);
+  const delegation = readCommittedJson(sys, root, delegationRel);
 
   // WHO MAY APPROVE, and why this is two questions rather than one.
   //
@@ -1062,7 +1066,7 @@ export function approvePlan(sys: System, root: string, opts: ApproveOptions): Ap
   }
 
   const decisionRel = `.projectops/plan-decisions/${opts.decisionId}.json`;
-  const decision = readCommittedJson(sys, decisionRel);
+  const decision = readCommittedJson(sys, root, decisionRel);
   const baseHead = decision?.['baseHead'];
   const uncommittedDecision = decision === null ? uncommittedButPresent(sys, root, decisionRel, 'decision') : null;
   if (uncommittedDecision !== null) return { ok: false, code: 'DECISION_INVALID', problems: uncommittedDecision };
@@ -1093,7 +1097,7 @@ export function approvePlan(sys: System, root: string, opts: ApproveOptions): Ap
 
   // Optional, and checked when present. Absent leaves closure exactly where the active plan puts it.
   const closureRel = `.projectops/authority/closure-delegation.json`;
-  const closureDelegation = readCommittedJson(sys, closureRel);
+  const closureDelegation = readCommittedJson(sys, root, closureRel);
   const closureProblems =
     (closureDelegation === null ? uncommittedButPresent(sys, root, closureRel, 'closure delegation') : null) ??
     checkClosureDelegationRecord(closureDelegation, {

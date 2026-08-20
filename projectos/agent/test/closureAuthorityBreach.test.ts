@@ -103,6 +103,7 @@ function eligibleCheckout(files: Record<string, string> = {}): System & { writes
         .filter((f) => !f.includes('/')),
     // Healthy git: HEAD is the subject, the tree is clean, the remote is reconciled, and the decision
     // file — when one exists — reads as committed. So nothing below can refuse for a git reason.
+    renameFile: () => true,
     exec: (_cmd: string, args: readonly string[]) => {
       if (args.includes('rev-parse')) return { code: 0, stdout: SUBJECT, stderr: '' };
       if (args.includes('status')) return { code: 0, stdout: '', stderr: '' };
@@ -115,7 +116,13 @@ function eligibleCheckout(files: Record<string, string> = {}): System & { writes
       // by serving the object from the same store, which is what a committed file would produce.
       if (args.includes('show')) {
         const spec = args[args.length - 1] ?? '';
-        const rel = spec.startsWith('HEAD:') ? spec.slice('HEAD:'.length) : '';
+        // `HEAD:./<rel>` is the bound form: the pathspec that proves committedness resolves against
+        // `-C root`, so the read must too, or a nested checkout proves one file and reads another.
+        const rel = spec.startsWith('HEAD:./')
+          ? spec.slice('HEAD:./'.length)
+          : spec.startsWith('HEAD:')
+            ? spec.slice('HEAD:'.length)
+            : '';
         const body = store[`${ROOT}/${rel}`];
         return body === undefined ? { code: 128, stdout: '', stderr: 'path does not exist' } : { code: 0, stdout: body, stderr: '' };
       }

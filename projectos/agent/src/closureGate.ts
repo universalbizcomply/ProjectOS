@@ -78,7 +78,11 @@ export function decisionIsCommitted(sys: System, root: string, phaseId: string):
  * Any failure yields null, which the checker treats as no decision.
  */
 export function readCommittedDecision(sys: System, root: string, phaseId: string): Record<string, unknown> | null {
-  const shown = sys.exec('git', ['-C', root, 'show', `HEAD:${closureDecisionRelPath(phaseId)}`]);
+  // `-C root` AND `./` — the pathspec that proves committedness resolves against the governed root,
+  // while `<rev>:<path>` resolves against the top of the working tree. In a checkout nested inside a
+  // larger repository the two addressed different files, so the proof was about one record and the
+  // bytes came from another. Reproduced on this repository's own nested fixture.
+  const shown = sys.exec('git', ['-C', root, 'show', `HEAD:./${closureDecisionRelPath(phaseId)}`]);
   if (shown.code !== 0 || shown.stdout.trim().length === 0) return null;
   try {
     const parsed = JSON.parse(shown.stdout) as unknown;

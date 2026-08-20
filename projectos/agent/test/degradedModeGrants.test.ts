@@ -91,6 +91,7 @@ function fake(opts: {
 }): { sys: System; calls: string[][] } {
   const calls: string[][] = [];
   const sys = {
+    renameFile: () => true,
     exec: (command: string, args: readonly string[]) => {
       calls.push([command, ...args]);
       const verb = args.includes('check-ignore')

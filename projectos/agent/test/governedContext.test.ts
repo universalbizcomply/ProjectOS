@@ -58,6 +58,7 @@ function fakeSystem(files: Record<string, string>): System & { writes: string[] 
     },
     exists: (p: string) => p in files,
     listDir: () => [],
+    renameFile: () => true,
     exec: () => ({ code: 0, stdout: '', stderr: '' }),
   };
 }

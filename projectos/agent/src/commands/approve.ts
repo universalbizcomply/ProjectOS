@@ -14,6 +14,7 @@
 import type { CommandContext, CommandResult } from '../context.js';
 import { ok, fail } from '../context.js';
 import { type Flags, str, bool } from '../flags.js';
+import { reconciliationDebtBlock } from '../loop/degradedMode.js';
 import { requestApproval, decide as coreDecide, type Role } from '@projectos/core';
 import { loadApproval, saveApproval, listApprovalIds } from '../approvalStore.js';
 import { loadGovernedContext, refusalLines } from '../governedContext.js';
@@ -106,6 +107,19 @@ function approveDecide(ctx: CommandContext, flags: Flags): CommandResult {
 
   const req = loadApproval(sys, root, id);
   if (req === null) return fail(1, [`No approval ${id} — run \`projectos approve request --id ${id}\``]);
+
+  // UNREVIEWED WORK BLOCKS THE AUTHORISATION, not only the closure.
+  //
+  // `approve decide` is where a gated or prohibited action — commit, push, force push — becomes an
+  // APPROVED governed record. Gating phase closure and leaving this open meant the authorisation for
+  // a major gate could be minted while degraded-mode work sat unreviewed, which is the same gate by
+  // another name. Ungated approvals are untouched: they authorise nothing the debt is about.
+  if (req.gated || req.prohibited) {
+    const debt = reconciliationDebtBlock(sys, root);
+    if (debt.length > 0) {
+      return fail(2, [...debt, `  approval ${id}: ${String(req.action)}`]);
+    }
+  }
 
   const note = str(flags, 'note');
   const opts: { override?: boolean; note?: string } = {};

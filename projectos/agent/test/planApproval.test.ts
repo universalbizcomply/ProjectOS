@@ -226,6 +226,7 @@ function world(opts: { committed?: readonly string[]; planDoc?: string; noPlanMe
     },
     exists: (p: string) => existsSync(p),
     listDir: (p: string) => (existsSync(p) ? readdirSync(p) : []),
+    renameFile: () => true,
     exec: (_cmd: string, args: readonly string[]) => {
       const key = args.join(' ');
       if (key === 'rev-parse HEAD') return { code: 0, stdout: HEAD, stderr: '' };
@@ -233,10 +234,12 @@ function world(opts: { committed?: readonly string[]; planDoc?: string; noPlanMe
       // `show HEAD:<path>` serves the COMMITTED blob. A path the test did not declare committed is
       // absent from HEAD however present it is on disk — which is the whole point of the check.
       // `committedOverride` lets a test commit one thing and leave a different one in the tree.
-      if (args[0] === 'show') {
-        const ref = String(args[1] ?? '');
+      const showAt = args.indexOf('show');
+      if (showAt !== -1) {
+        const ref = String(args[showAt + 1] ?? '');
         if (!ref.startsWith('HEAD:')) return { code: 1, stdout: '', stderr: '' };
-        const rel = ref.slice(5);
+        // `HEAD:./<rel>` is the bound form; see closureAuthorityBreach for why it matters.
+        const rel = ref.startsWith('HEAD:./') ? ref.slice('HEAD:./'.length) : ref.slice(5);
         if (!committed.has(rel.toLowerCase())) return { code: 1, stdout: '', stderr: `fatal: path '${rel}' does not exist in 'HEAD'` };
         const override = committedOverride.get(rel.toLowerCase());
         if (override !== undefined) return { code: 0, stdout: override, stderr: '' };

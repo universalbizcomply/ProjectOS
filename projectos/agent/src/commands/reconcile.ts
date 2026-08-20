@@ -32,6 +32,7 @@ import {
 } from '../loop/gatekeeperConfig.js';
 import { windowsVaultResolver } from '../loop/windowsVaultResolver.js';
 import { nodeHttpPort } from '../loop/transports/nodeHttpPort.js';
+import { nodeProjectosRuntime } from '../nodeRuntimeRoot.js';
 import { ownerGateReceiptRelPath, ownerApprovedSecretsHandling } from '../loop/ownerGateReceipts.js';
 import { reconcileDegradedWork, type ReconciliationDeps } from '../loop/reconciliation.js';
 import { ALWAYS_OWNER_ONLY, committedGovernanceOwner } from '../loop/degradedMode.js';
@@ -147,7 +148,7 @@ export function reconcile(ctx: CommandContext, flags: Flags): CommandResult {
       credentialRef: gk.config.transport.credentialRef ?? '',
       transportId: gk.config.transport.transportId,
     },
-    resolver: windowsVaultResolver({ sys: ctx.sys, root: ctx.root, ownerConfirmation }),
+    resolver: windowsVaultResolver({ sys: ctx.sys, runtime: nodeProjectosRuntime(), ownerConfirmation }),
     http: nodeHttpPort(),
     rate,
     budget: gk.config.budget,

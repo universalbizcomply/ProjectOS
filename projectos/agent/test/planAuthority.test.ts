@@ -71,6 +71,7 @@ function fakeSystem(files: Record<string, string>): System & { writes: string[] 
         .filter((f) => f.startsWith(p + '/'))
         .map((f) => f.slice(p.length + 1))
         .filter((f) => !f.includes('/')),
+    renameFile: () => true,
     exec: () => ({ code: 0, stdout: '', stderr: '' }),
   };
 }
@@ -472,6 +473,7 @@ describe('approved-phase membership and dependencies gate creation', () => {
     const decisionRel = `.projectops/closure/decisions/${P0}.json`;
     const committed: System = {
       ...sys,
+      renameFile: () => true,
       exec: (cmd: string, args: readonly string[]) => {
         if (args.includes('log')) return { code: 0, stdout: 'e'.repeat(40), stderr: '' };
         // The decision is read from the committed object, so the fixture must serve one.

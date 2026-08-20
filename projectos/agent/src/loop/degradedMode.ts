@@ -31,6 +31,7 @@
 import { createHash } from 'node:crypto';
 import { isAbsolute, join, relative } from 'node:path';
 import type { System } from '../system.js';
+import { readLedger } from './gatekeeperConfig.js';
 import {
   checkDegradedModeGrant,
   degradedWorkRemaining,
@@ -303,10 +304,115 @@ export function allDegradedWork(sys: System, root: string): readonly DegradedWor
  */
 export function degradedReconciliationState(sys: System, root: string): ReconciliationState {
   const stores = readAllDegradedStores(sys, root);
-  return reconciliationState(
-    stores.flatMap((r) => r.workItems),
-    stores.flatMap((r) => r.reconciliations),
-  );
+  // PER RECORD, NOT ACROSS THEM. Flattening every store's work items and every store's
+  // reconciliations into one pair let a reconciliation in ONE file clear a work item in ANOTHER — so a
+  // brand-new `degraded-use.ANYTHING.json` carrying no work of its own and one hand-written
+  // reconciliation cleared a debt recorded in a committed, pristine, tamper-evident record. Matching
+  // within the record keeps the discharge next to the thing it discharges.
+  const states = stores.map((r) => reconciliationState(r.workItems, r.reconciliations));
+  const outstandingWorkIds = states.flatMap((s) => s.outstandingWorkIds);
+  const reasons = states.flatMap((s) => s.reasons);
+  return {
+    required: states.some((s) => s.required),
+    outstandingWorkIds,
+    reasons,
+  };
+}
+
+/**
+ * The refusal a governed major gate must make while degraded-mode work is unreconciled.
+ *
+ * EMPTY MEANS CLEAR. Anything else is a refusal, and the caller must not proceed.
+ *
+ * WHAT IT ADDS OVER `degradedReconciliationState`. That function is built on
+ * `readAllDegradedStores`, which DROPS a store it cannot read — so truncating or editing a use record
+ * makes its outstanding work disappear from the debt state rather than raising it. That is acceptable
+ * for a status line and unacceptable for a gate, so every use record in the execution directory is
+ * read through the detailed reader here and an unreadable one is a refusal in its own right. "I
+ * cannot tell" and "there is none" are different answers, and only one of them may open a gate.
+ *
+ * WHAT IT DOES NOT CLAIM, STATED PRECISELY.
+ *
+ * It refuses two things: a phase transition to a closure status, and an owner decision on a gated or
+ * prohibited approval request. It is not a general block on every governed operation, and it does not
+ * and cannot prevent someone running `git commit` or `git push` themselves — ProjectOS exposes no
+ * governed commit or push operation to gate.
+ *
+ * AND THE EVIDENCE IS UNCOMMITTED. The use record is a runtime file that degraded mode writes without
+ * commit authority, so deleting, renaming or moving it out of `.projectops/execution` removes the
+ * debt from view. That is the same ceiling the module header states, not a control this function
+ * adds: what it can do is refuse when a record is present and unreadable, refuse a discharge no
+ * gatekeeper call corroborates, and keep a discharge next to the work it discharges. Reading a
+ * missing file as "no debt" is a limit of an uncommitted record, and it is written here rather than
+ * left for a reader to discover.
+ *
+ * Added under the delegated continuation of 2026-08-20, which required the standing sentence "the
+ * next major gate cannot proceed as normal while degraded-mode work is unreconciled" to become an
+ * enforced invariant rather than a printed one.
+ */
+export function reconciliationDebtBlock(sys: System, root: string): readonly string[] {
+  const dir = join(root, '.projectops', 'execution');
+  const unreadable: string[] = [];
+  if (sys.exists(dir)) {
+    for (const name of sys.listDir(dir)) {
+      if (!name.startsWith('degraded-use.') || !name.endsWith('.json')) continue;
+      const grantId = name.slice('degraded-use.'.length, -'.json'.length);
+      const read = readDegradedStoreDetailed(sys, root, grantId);
+      if (read.kind === 'corrupt') unreadable.push(read.why);
+    }
+  }
+  if (unreadable.length > 0) {
+    return [
+      'REFUSED (DEGRADED_DEBT_UNREADABLE): a degraded-mode use record cannot be read, so whether ' +
+        'unreviewed work is outstanding cannot be established.',
+      ...unreadable.map((w) => `  - ${w}`),
+      '  An unreadable record is refused, never read as "no debt".',
+      '  Required next action: restore the record from its committed form, or have the owner rule on it.',
+    ];
+  }
+
+  // A DISCHARGE MUST NAME A CALL THAT HAPPENED. `reconciliationState` accepts any non-empty
+  // `decisionId` string, so a hand-written record cleared a debt with no call, no decision and no
+  // cost. The gatekeeper ledger is the durable record of what was actually asked, and every decision
+  // this runtime can produce is `GKDEC-<requestId>` — so a reconciliation whose decision does not
+  // correspond to a ledger entry is an assertion, not a review, and is refused here.
+  //
+  // IT ALSO MAKES LOSING THE LEDGER FAIL CLOSED: without it, no reconciliation can be corroborated,
+  // so the debt returns rather than the gate opening.
+  const paidDecisionIds = new Set(readLedger(sys, root).map((e) => `GKDEC-${e.requestId}`));
+  const uncorroborated: string[] = [];
+  for (const store of readAllDegradedStores(sys, root)) {
+    for (const r of store.reconciliations) {
+      if (r.decisionAccepted !== true) continue;
+      const id = typeof r.decisionId === 'string' ? r.decisionId : '';
+      if (!paidDecisionIds.has(id)) {
+        uncorroborated.push(
+          `the reconciliation of ${String(r.workId)} names decision ${id === '' ? '(none)' : id}, ` +
+            'which no gatekeeper call in this project\'s ledger produced',
+        );
+      }
+    }
+  }
+  if (uncorroborated.length > 0) {
+    return [
+      'REFUSED (DEGRADED_DEBT_UNCORROBORATED): a recorded reconciliation does not correspond to any ' +
+        'gatekeeper call this project actually made.',
+      ...uncorroborated.map((w) => `  - ${w}`),
+      '  A discharge is a decision that was asked for and paid for, never a field somebody wrote.',
+      '  Required next action: run the reconciliation for real, or restore the gatekeeper ledger.',
+    ];
+  }
+
+  const state = degradedReconciliationState(sys, root);
+  if (!state.required) return [];
+  return [
+    'REFUSED (DEGRADED_DEBT_OUTSTANDING): degraded-mode work has not been reviewed, so this governed ' +
+      'gate does not proceed as normal.',
+    ...state.reasons.map((r) => `  - ${r}`),
+    ...state.outstandingWorkIds.map((id) => `  - outstanding work item: ${id}`),
+    '  Required next action: projectos reconcile --grant <GRANT-ID> --work <WORK-ID> --execute',
+    '  The debt is discharged only by an accepted gatekeeper decision. It is never cleared by hand.',
+  ];
 }
 
 export interface DegradedAuthorisation {

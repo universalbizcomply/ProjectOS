@@ -32,6 +32,7 @@
  */
 import { join } from 'node:path';
 import type { System } from '../system.js';
+import type { ProjectosRuntime } from '../nodeRuntimeRoot.js';
 import {
   credentialRefProblems,
   type CredentialResolution,
@@ -66,12 +67,21 @@ export const VAULT_REFERENCE: Readonly<Record<string, string>> = Object.freeze({
 
 export interface WindowsVaultResolverOptions {
   readonly sys: System;
-  readonly root: string;
+  /**
+   * The TRUSTED ProjectOS installation — never the governed project.
+   *
+   * The adapter that produces the secret belongs to the installation whose code is running, not to
+   * whichever repository is being governed. Resolving it from the governed root did two wrong things
+   * at once: an external project could not reach the adapter at all, and a project that happened to
+   * carry a file at that path would have had it executed as the credential process.
+   */
+  readonly runtime: ProjectosRuntime;
   /**
    * Whether the owner's committed `secrets-handling` gate receipt approves credential use.
    *
    * ESTABLISHED BY THE CALLER FROM A COMMITTED RECEIPT, never asserted by the agent about itself.
-   * `false` here is a refusal, not a prompt.
+   * `false` here is a refusal, not a prompt. The receipt stays in the GOVERNED project — it is that
+   * project's owner decision — while the adapter stays in the installation. Two roots, two records.
    */
   readonly ownerConfirmation: boolean;
 }
@@ -86,10 +96,50 @@ const REFUSALS = {
     'receipt is required before the gatekeeper credential may be read',
   unavailable:
     'the Windows Credential Manager could not be reached, and no weaker store is substituted',
+  untrustedAdapter:
+    'the ProjectOS credential adapter does not match the committed bytes of the installation it ' +
+    'belongs to, so it is not run; a replaced or unverifiable adapter is refused, never trusted',
+  noShell:
+    'no trusted PowerShell executable is bound, so the credential adapter cannot be run',
   missing:
     'no value is stored under this reference; provision it with the credentials command before the ' +
     'gatekeeper is used',
 } as const;
+
+/**
+ * Is the adapter on disk the adapter the installation committed?
+ *
+ * THREE QUESTIONS, ALL OF WHICH MUST ANSWER YES. Git has seen this path at all; git reports no
+ * difference between the working tree and HEAD; and the bytes read from the object store are the
+ * bytes on disk. The third is not redundant: `git diff` compares the path git tracks, while the
+ * adapter is executed by following whatever is at that path — a tracked file replaced by a junction
+ * or symlink is a difference git does not report and PowerShell does follow.
+ *
+ * LINE ENDINGS ARE NORMALISED BEFORE COMPARING, and that limit is stated rather than hidden: with
+ * `core.autocrlf` on, a checkout legitimately differs from the object byte-for-byte. Content is
+ * compared; encoding of newlines is not.
+ *
+ * EVERY FAILURE IS A REFUSAL. No git, no repository, no commit, a dirty adapter or an unreadable
+ * object all end here — an adapter whose provenance cannot be established is not run.
+ */
+function adapterMatchesCommittedBytes(sys: System, install: string, rel: string, script: string): boolean {
+  const logged = sys.exec('git', ['-C', install, 'log', '-1', '--format=%H', '--', rel]);
+  if (logged.code !== 0 || logged.stdout.trim().length === 0) return false;
+
+  const dirty = sys.exec('git', ['-C', install, 'diff', '--name-only', 'HEAD', '--', rel]);
+  if (dirty.code !== 0 || dirty.stdout.trim().length > 0) return false;
+
+  // `HEAD:./<rel>` — the pathspec above resolves against `-C install`, and `<rev>:<path>` would
+  // otherwise resolve against the top of the working tree.
+  const shown = sys.exec('git', ['-C', install, 'show', `HEAD:./${rel}`]);
+  if (shown.code !== 0) return false;
+
+  const onDisk = sys.readText(script);
+  if (onDisk === null) return false;
+
+  const normalise = (text: string): string => text.split(String.fromCharCode(13)).join('');
+  return normalise(onDisk) === normalise(shown.stdout);
+}
 
 /**
  * A resolver backed by the existing Windows Credential Manager adapter.
@@ -111,9 +161,14 @@ export function windowsVaultResolver(options: WindowsVaultResolverOptions): Cred
       // whether we were allowed to would already have read it.
       if (options.ownerConfirmation !== true) return { ok: false, reasons: [REFUSALS.noOwner] };
 
-      const script = join(options.root, 'projectos', 'credentials', 'windows-credential-store.ps1');
+      const install = options.runtime.installRoot;
+      const rel = options.runtime.adapterRelPath;
+      const script = join(install, ...rel.split('/'));
       if (!options.sys.exists(script)) {
         return { ok: false, reasons: [REFUSALS.unavailable] };
+      }
+      if (!adapterMatchesCommittedBytes(options.sys, install, rel, script)) {
+        return { ok: false, reasons: [REFUSALS.untrustedAdapter] };
       }
 
       const result = options.sys.exec(
@@ -121,8 +176,13 @@ export function windowsVaultResolver(options: WindowsVaultResolverOptions): Cred
         ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script, '-Action', 'get', '-Target', vaultRef],
         // The credential scrubber strips credential-shaped NAMES from the child's environment. It is
         // asked for here too: this child has no business inheriting any other process's key.
-        { scrubCredentials: true, cwd: options.root },
+        //
+        // CWD IS THE INSTALLATION, NOT THE GOVERNED PROJECT. The shell is bound absolutely upstream,
+        // so this no longer decides which binary runs — but a governed checkout has no business being
+        // the working directory of the process that handles a secret either.
+        { scrubCredentials: true, cwd: install },
       );
+      if (result.code === 127) return { ok: false, reasons: [REFUSALS.noShell] };
 
       if (result.code !== 0) {
         // `stderr` may name the reference but must never be echoed wholesale — a failing store has

@@ -79,6 +79,7 @@ function recordingSystem() {
     writeText: () => undefined,
     exists: () => false,
     listDir: () => [],
+    renameFile: () => true,
     exec: (cmd, args): ExecResult => {
       calls.push({ cmd, args });
       return { code: 0, stdout: 'done', stderr: '' };

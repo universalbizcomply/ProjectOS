@@ -26,6 +26,7 @@ function fakeGit(responses: Record<string, { code: number; stdout: string }>): {
 } {
   const calls: string[][] = [];
   const sys = {
+    renameFile: () => true,
     exec: (command: string, args: readonly string[]) => {
       calls.push([command, ...args]);
       const verb = args.includes('log') ? 'log' : args.includes('diff') ? 'diff' : 'show';

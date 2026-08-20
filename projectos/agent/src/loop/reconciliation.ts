@@ -8,11 +8,11 @@
  * discharged. A run that continued unreviewed on the owner's risk stayed permanently unreviewable.
  * This file is that missing half, and only that.
  *
- * WHAT THE BLOCK ACTUALLY DOES TODAY. `gateBlockedByReconciliation` has exactly one production caller,
- * `runner.ts`, and it PRINTS the block. No commit, push or closure path consults
- * `degradedReconciliationState`, so "the next major gate cannot proceed" is currently a statement to
- * the owner rather than an enforced control. Closing that gap is not this file's business — those
- * gates are the owner's acts — but it must not be described as if it were already closed.
+ * WHAT THE BLOCK ACTUALLY DOES. `reconciliationDebtBlock` refuses two governed operations while a
+ * degraded work item is unreviewed: a phase transition to a closure status, and an owner decision on a
+ * gated or prohibited approval request. It does not gate every governed operation, and ProjectOS has
+ * no governed commit or push operation to gate — raw `git commit` and `git push` are outside it and
+ * are not prevented. The runner still PRINTS the block as well, which is where it used to stop.
  *
  * IT IS NOT A SECOND GOVERNANCE SYSTEM. The request identity, the transport, the decision schema, the
  * binding checks, the replay guard, the spend limit and the cost ledger are the ones the loop already
@@ -298,8 +298,8 @@ function persistReconciliation(
       problem: `the reconciliation could not be written: ${error instanceof Error ? error.message : 'write failed'}`,
     };
   }
-  const moved = sys.exec('cmd', ['/c', 'move', '/y', temporary, path], { cwd: root });
-  if (moved.code !== 0) {
+  const moved = sys.renameFile(temporary, path);
+  if (!moved) {
     return {
       persisted: false,
       problem: 'the reconciliation could not be recorded atomically; the previous record is unchanged',

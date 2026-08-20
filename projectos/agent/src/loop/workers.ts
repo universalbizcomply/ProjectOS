@@ -264,7 +264,11 @@ function readWorkers(context: GovernedContext): {
  * Any git failure is a refusal: a comparison that could not be made has not succeeded.
  */
 export function committedExecutionProblems(sys: System, root: string, context: GovernedContext): readonly string[] {
-  const show = sys.exec('git', ['-C', root, 'show', `HEAD:${CONFIG_RELPATH}`]);
+  // `-C root` AND `./` — the pathspec that proves committedness resolves against the governed root,
+  // while `<rev>:<path>` resolves against the top of the working tree. In a checkout nested inside a
+  // larger repository the two addressed different files, so the proof was about one record and the
+  // bytes came from another. Reproduced on this repository's own nested fixture.
+  const show = sys.exec('git', ['-C', root, 'show', `HEAD:./${CONFIG_RELPATH}`]);
   if (show.code !== 0) {
     return [`the committed ${CONFIG_RELPATH} could not be read, so the loop cannot tell which executables the owner actually approved`];
   }

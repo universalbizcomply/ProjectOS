@@ -34,6 +34,7 @@ function sysWith(body: string | null): System {
     writeText: () => undefined,
     exists: (p) => p in files,
     listDir: () => [],
+    renameFile: () => true,
     exec: () => ({ code: 0, stdout: '', stderr: '' }),
   };
 }

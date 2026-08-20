@@ -90,6 +90,7 @@ function world(phases: Record<string, { status: string; history?: { to: string; 
     writeText: (p: string, c: string) => { mkdirSync(pjoin(p, '..'), { recursive: true }); writeFileSync(p, c); },
     exists: (p: string) => existsSync(p),
     listDir: (p: string) => (existsSync(p) ? readdirSync(p) : []),
+    renameFile: () => true,
     exec: (_c: string, args: readonly string[]) => {
       const key = args.join(' ');
       if (key === 'status --porcelain') return { code: 0, stdout: '', stderr: '' };

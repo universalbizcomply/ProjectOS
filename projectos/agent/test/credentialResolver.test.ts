@@ -4,7 +4,10 @@
  * The tests that matter are the refusals and the silences: what is NOT in a reason string, and what
  * is NOT asked of the store before the owner has approved it.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
+import { mkdtempSync, writeFileSync, rmSync, existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { delimiter, join, relative } from 'node:path';
 import {
   credentialRefProblems,
   unprovisionedResolver,
@@ -12,22 +15,64 @@ import {
 } from '../src/loop/credentialResolver.js';
 import { windowsVaultResolver, VAULT_REFERENCE } from '../src/loop/windowsVaultResolver.js';
 import type { System } from '../src/system.js';
+import { resolveBoundPowerShell } from '../src/system.js';
+import { CREDENTIAL_ADAPTER_REL } from '../src/nodeRuntimeRoot.js';
 
 const REF = 'OPENAI_GATEKEEPER_KEY';
 const SECRET = 'sk-proj-notarealkey000000000000000000';
 const ROOT = 'C:/dev/ProjectOS';
 
-/** A System that records every command and returns what the test dictates. */
-function fakeSys(over: { exists?: boolean; code?: number; stdout?: string } = {}): {
+/**
+ * A System that records every command and returns what the test dictates.
+ *
+ * IT NOW MODELS TWO DIFFERENT CHILDREN, because the resolver runs two: git, to establish that the
+ * credential adapter is the one the INSTALLATION committed, and PowerShell, to read the value. A fake
+ * that answered both with the same string proved nothing about either.
+ */
+const ADAPTER_BYTES = '# windows-credential-store.ps1 (fixture)';
+
+function fakeSys(
+  over: {
+    exists?: boolean;
+    code?: number;
+    stdout?: string;
+    /** Has git ever seen the adapter? */
+    committed?: boolean;
+    /** Does the working tree differ from HEAD? */
+    dirty?: boolean;
+    /** What `git show HEAD:./<rel>` returns. */
+    committedBytes?: string;
+    /** What the adapter actually is on disk. */
+    onDiskBytes?: string;
+    /** Exit code for the PowerShell child; 127 is "no trusted shell is bound". */
+    shellCode?: number;
+  } = {},
+): {
   sys: System;
   calls: Array<{ cmd: string; args: readonly string[] }>;
 } {
   const calls: Array<{ cmd: string; args: readonly string[] }> = [];
   const sys = {
     exists: () => over.exists ?? true,
+    readText: () => over.onDiskBytes ?? ADAPTER_BYTES,
+    renameFile: () => true,
     exec: (cmd: string, args: readonly string[]) => {
       calls.push({ cmd, args });
-      return { code: over.code ?? 0, stdout: over.stdout ?? `${SECRET}\n`, stderr: '' };
+      if (cmd === 'git') {
+        const sub = args[2];
+        if (sub === 'log') {
+          return { code: 0, stdout: over.committed === false ? '' : 'aaaaaaa\n', stderr: '' };
+        }
+        if (sub === 'diff') {
+          return { code: 0, stdout: over.dirty === true ? 'projectos/credentials/x.ps1\n' : '', stderr: '' };
+        }
+        return { code: 0, stdout: over.committedBytes ?? ADAPTER_BYTES, stderr: '' };
+      }
+      return {
+        code: over.shellCode ?? over.code ?? 0,
+        stdout: over.stdout ?? `${SECRET}\n`,
+        stderr: '',
+      };
     },
   } as unknown as System;
   return { sys, calls };
@@ -84,7 +129,8 @@ describe('the unprovisioned resolver', () => {
 describe('the vault resolver', () => {
   const opts = (over: Record<string, unknown> = {}) => ({
     sys: fakeSys().sys,
-    root: ROOT,
+    // The TRUSTED INSTALLATION, which is deliberately not the governed project root.
+    runtime: { installRoot: '/install/ProjectOS', adapterRelPath: CREDENTIAL_ADAPTER_REL },
     ownerConfirmation: true,
     ...over,
   });
@@ -110,11 +156,17 @@ describe('the vault resolver', () => {
     expect(r.ok).toBe(true);
     if (!r.ok) throw new Error('unreachable');
     expect(r.use((s) => s.length)).toBe(SECRET.length);
-    expect(calls[0]?.cmd).toBe('powershell');
-    expect(calls[0]?.args.join(' ')).toContain('windows-credential-store.ps1');
-    expect(calls[0]?.args).toContain('get');
+    // GIT RUNS FIRST, and that ordering is the point: the adapter's provenance is established before
+    // it is executed, not after.
+    expect(calls[0]?.cmd).toBe('git');
+    const shell = calls.find((c) => c.cmd === 'powershell');
+    expect(shell).toBeDefined();
+    expect(shell?.args.join(' ')).toContain('windows-credential-store.ps1');
+    // The adapter that runs is the INSTALLATION'S, never one inside the governed project.
+    expect(shell?.args.join(' ').split(String.fromCharCode(92)).join('/')).toContain('/install/ProjectOS');
+    expect(shell?.args).toContain('get');
     // The value is never a command-line argument.
-    expect(calls[0]?.args.join(' ')).not.toContain(SECRET);
+    expect(shell?.args.join(' ')).not.toContain(SECRET);
   });
 
   // THE OWNER GATE COMES BEFORE THE STORE IS TOUCHED. Reading first and deciding afterwards would
@@ -168,7 +220,12 @@ describe('the vault resolver', () => {
     const calls: Array<{ options: { scrubCredentials?: boolean } | undefined }> = [];
     const sys = {
       exists: () => true,
-      exec: (_c: string, _a: readonly string[], options?: { scrubCredentials?: boolean }) => {
+      readText: () => ADAPTER_BYTES,
+      renameFile: () => true,
+      exec: (c: string, a: readonly string[], options?: { scrubCredentials?: boolean }) => {
+        // Git answers as a clean, committed adapter so the integrity check passes and the
+        // PowerShell child is actually reached — it is that child's options under test.
+        if (c === 'git') return { code: 0, stdout: a[2] === 'diff' ? '' : ADAPTER_BYTES, stderr: '' };
         calls.push({ options });
         return { code: 0, stdout: `${SECRET}\n`, stderr: '' };
       },
@@ -183,5 +240,143 @@ describe('the test resolver', () => {
     const r = inMemoryResolverForTests(REF, SECRET);
     expect(r.resolve(REF).ok).toBe(true);
     expect(r.resolve('OTHER_CREDENTIAL_NAME').ok).toBe(false);
+  });
+});
+
+describe('the credential adapter belongs to the installation, and must be the committed one', () => {
+  const opts = (over: Record<string, unknown> = {}) => ({
+    sys: fakeSys().sys,
+    runtime: { installRoot: '/install/ProjectOS', adapterRelPath: CREDENTIAL_ADAPTER_REL },
+    ownerConfirmation: true,
+    ...over,
+  });
+
+  it('asks git about the INSTALLATION, never about the governed project', () => {
+    const { sys, calls } = fakeSys();
+    windowsVaultResolver(opts({ sys })).resolve(REF);
+    const git = calls.filter((c) => c.cmd === 'git');
+    expect(git.length).toBeGreaterThan(0);
+    for (const call of git) {
+      expect(call.args.slice(0, 2)).toEqual(['-C', '/install/ProjectOS']);
+    }
+    // `HEAD:./<rel>` — without `./` a nested installation would read the outer repository's adapter.
+    expect(git.some((c) => c.args.join(' ').includes(`HEAD:./${CREDENTIAL_ADAPTER_REL}`))).toBe(true);
+  });
+
+  it('refuses an adapter git has never seen', () => {
+    const r = windowsVaultResolver(opts({ sys: fakeSys({ committed: false }).sys })).resolve(REF);
+    expect(r.ok).toBe(false);
+    if (r.ok) throw new Error('unreachable');
+    expect(r.reasons.join(' ')).toContain('does not match the committed bytes');
+  });
+
+  it('refuses an adapter that has been changed in the working tree', () => {
+    const { sys, calls } = fakeSys({ dirty: true });
+    const r = windowsVaultResolver(opts({ sys })).resolve(REF);
+    expect(r.ok).toBe(false);
+    // AND THE SHELL WAS NEVER SPAWNED. Refusing after running it would be a report, not a control.
+    expect(calls.some((c) => c.cmd === 'powershell')).toBe(false);
+  });
+
+  it('refuses when the bytes on disk are not the bytes git committed', () => {
+    // The case `git diff` cannot see: the tracked path replaced by a link to something else.
+    const { sys, calls } = fakeSys({ onDiskBytes: '# a different script entirely' });
+    const r = windowsVaultResolver(opts({ sys })).resolve(REF);
+    expect(r.ok).toBe(false);
+    expect(calls.some((c) => c.cmd === 'powershell')).toBe(false);
+  });
+
+  it('accepts a checkout whose only difference is line endings', () => {
+    const crlf = `${ADAPTER_BYTES.split(String.fromCharCode(10)).join(String.fromCharCode(13, 10))}`;
+    const r = windowsVaultResolver(opts({ sys: fakeSys({ onDiskBytes: crlf }).sys })).resolve(REF);
+    expect(r.ok).toBe(true);
+  });
+
+  it('refuses when no trusted shell is bound, and says which control refused', () => {
+    const r = windowsVaultResolver(opts({ sys: fakeSys({ shellCode: 127 }).sys })).resolve(REF);
+    expect(r.ok).toBe(false);
+    if (r.ok) throw new Error('unreachable');
+    expect(r.reasons.join(' ')).toContain('no trusted PowerShell executable is bound');
+  });
+
+  it('never names the credential value in any refusal', () => {
+    for (const over of [{ committed: false }, { dirty: true }, { onDiskBytes: 'x' }, { shellCode: 127 }]) {
+      const r = windowsVaultResolver(opts({ sys: fakeSys(over).sys })).resolve(REF);
+      if (r.ok) continue;
+      expect(r.reasons.join(' ')).not.toContain(SECRET);
+    }
+  });
+});
+
+describe('the PowerShell that handles the secret is bound, not searched for', () => {
+  const WIN = process.platform === 'win32';
+  const plantedDirs: string[] = [];
+  afterEach(() => {
+    for (const d of plantedDirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
+
+  it('honours an absolute bound executable', () => {
+    const bound = WIN ? 'C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe' : '/bin/sh';
+    const resolved = resolveBoundPowerShell({ PROJECTOS_POWERSHELL_EXE: bound, SystemRoot: 'C:/Windows' });
+    // Only accepted when it really exists and is named powershell.exe; otherwise the canonical path.
+    expect(resolved === null || resolved.toLowerCase().endsWith('powershell.exe')).toBe(true);
+  });
+
+  /**
+   * A REAL directory holding a REAL file called `powershell.exe`.
+   *
+   * The first version of these tests pointed at paths that did not exist, so `isFile` refused and the
+   * test passed no matter what the resolver did — deleting the absolute-path check and reinstating the
+   * PATH search both survived. A planted binary has to actually be there for the refusal to mean
+   * anything. The file is inert text; nothing executes it.
+   */
+  const plantedShell = (): { dir: string; exe: string } => {
+    const dir = mkdtempSync(join(tmpdir(), 'projectos-fake-shell-'));
+    plantedDirs.push(dir);
+    const exe = join(dir, 'powershell.exe');
+    writeFileSync(exe, 'not a real shell');
+    return { dir, exe: exe.split(String.fromCharCode(92)).join('/') };
+  };
+
+  it('refuses a RELATIVE path even when a file of that name really exists there', () => {
+    const { exe } = plantedShell();
+    const relativeToCwd = relative(process.cwd(), exe).split(String.fromCharCode(92)).join('/');
+    expect(existsSync(exe)).toBe(true);
+    const resolved = resolveBoundPowerShell({
+      PROJECTOS_POWERSHELL_EXE: relativeToCwd,
+      SystemRoot: 'C:/nonexistent',
+    });
+    expect(resolved).toBeNull();
+  });
+
+  it('refuses a real file that is not named powershell.exe', () => {
+    const { dir } = plantedShell();
+    const other = join(dir, 'cmd.exe');
+    writeFileSync(other, 'not a real shell');
+    const resolved = resolveBoundPowerShell({
+      PROJECTOS_POWERSHELL_EXE: other,
+      SystemRoot: 'C:/nonexistent',
+    });
+    expect(resolved).toBeNull();
+  });
+
+  it('never resolves from PATH, so a REAL shadowing binary cannot become the credential process', () => {
+    const { dir, exe } = plantedShell();
+    expect(existsSync(exe)).toBe(true);
+    const resolved = resolveBoundPowerShell({ PATH: dir, SystemRoot: 'C:/nonexistent' });
+    expect(resolved).toBeNull();
+  });
+
+  it('never resolves from the current directory either', () => {
+    const { dir } = plantedShell();
+    const resolved = resolveBoundPowerShell({ PATH: `.${delimiter}${dir}`, SystemRoot: 'C:/nonexistent' });
+    expect(resolved).toBeNull();
+  });
+
+  it('resolves the canonical Windows shell when nothing is bound', () => {
+    if (!WIN) return;
+    const resolved = resolveBoundPowerShell({ SystemRoot: process.env['SystemRoot'] ?? 'C:/Windows' });
+    expect(resolved).not.toBeNull();
+    expect(resolved?.toLowerCase()).toContain('system32');
   });
 });

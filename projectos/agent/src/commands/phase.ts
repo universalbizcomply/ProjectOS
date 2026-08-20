@@ -33,6 +33,7 @@ import {
   type PhaseStatus,
   type Role,
 } from '@projectos/core';
+import { reconciliationDebtBlock } from '../loop/degradedMode.js';
 import { loadPhase, savePhase, listPhaseIds } from '../phaseStore.js';
 import { syncCurrentState, type SyncResult } from '../currentStateStore.js';
 import {
@@ -363,6 +364,19 @@ function phaseAdvance(ctx: CommandContext, flags: Flags): CommandResult {
   /** Set when this closure relied on an owner-accepted residual HIGH, so the durable note can say so. */
   let residualNote = '';
   if (requiresOwner(to)) {
+    // UNREVIEWED WORK BLOCKS THE MAJOR GATE, and until now that sentence was only ever printed.
+    // Degraded mode lets work proceed without the gatekeeper on the owner's committed risk; the debt
+    // it records is the promise that the review still happens. Closing a phase over an outstanding
+    // debt would retire the promise unkept — so closure is refused here, before any authority is
+    // resolved, and the refusal names what is owed and how to discharge it.
+    const debt = reconciliationDebtBlock(sys, root);
+    if (debt.length > 0) {
+      return fail(2, [
+        ...debt,
+        `  project ${gc.context.projectId}, phase ${id}, requested status ${to}`,
+      ]);
+    }
+
     const plan = gc.context.plan;
     const delegation = delegationOf(plan);
     // DELEGATED CLOSURE: the caller asks for closure under the plan's delegation but does NOT name

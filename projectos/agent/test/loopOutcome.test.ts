@@ -93,6 +93,7 @@ function fakeSystem(opts: SysOpts = {}) {
     writeText: () => undefined,
     exists: (p) => present.has(p),
     listDir: () => [],
+    renameFile: () => true,
     exec: (cmd, args) => {
       calls.push({ cmd, args });
       return opts.exec === undefined ? { code: 0, stdout: '', stderr: '' } : opts.exec(cmd, args);

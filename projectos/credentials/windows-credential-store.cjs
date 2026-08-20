@@ -27,7 +27,36 @@ const childProcess = require("child_process");
 const { parseReference, ROOT } = require("./reference.cjs");
 
 const SCRIPT = path.join(__dirname, "windows-credential-store.ps1");
-const DEFAULT_POWERSHELL = "powershell.exe";
+/**
+ * PowerShell, resolved to ONE ABSOLUTE EXECUTABLE — never a bare name, and never from PATH.
+ *
+ * THIS IS THE PROCESS THAT HANDLES THE VALUE. `set` passes the credential to the child in its
+ * environment, so whichever binary this resolves to receives the plaintext. A bare "powershell.exe"
+ * resolves against the CURRENT DIRECTORY before PATH on Windows, and `npm run credentials` runs from
+ * the repository root with `node_modules/.bin` prepended to PATH — both writable, both governed
+ * content. `PROJECTOS_POWERSHELL_EXE` is honoured first so a packaged host can bind it; otherwise the
+ * canonical location under %SystemRoot%. Nothing else resolves, and an unresolved shell refuses.
+ */
+const POWERSHELL_BASENAME = /^powershell\.exe$/i;
+
+function resolveBoundPowerShell(env) {
+  const bound = env.PROJECTOS_POWERSHELL_EXE;
+  const isUnc = (p) => p.startsWith("\\\\") || p.startsWith("//");
+  if (
+    typeof bound === "string" &&
+    bound &&
+    path.isAbsolute(bound) &&
+    !isUnc(bound) &&
+    POWERSHELL_BASENAME.test(path.basename(bound))
+  ) {
+    return bound;
+  }
+  const systemRoot = env.SystemRoot || env.SYSTEMROOT;
+  if (typeof systemRoot !== "string" || !systemRoot || !path.isAbsolute(systemRoot) || isUnc(systemRoot)) {
+    return null;
+  }
+  return path.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+}
 const EXIT_OK = 0;
 const EXIT_NOT_FOUND = 3;
 const MAX_BUFFER = 1024 * 1024;
@@ -55,13 +84,21 @@ function assertReference(reference) {
 
 function createWindowsCredentialStore(opts) {
   const options = opts || {};
-  const powershell = typeof options.powershellPath === "string" && options.powershellPath ? options.powershellPath : DEFAULT_POWERSHELL;
+  const powershell =
+    typeof options.powershellPath === "string" && options.powershellPath
+      ? options.powershellPath
+      : resolveBoundPowerShell(process.env);
   const scriptPath = typeof options.scriptPath === "string" && options.scriptPath ? options.scriptPath : SCRIPT;
   // Injectable purely so the validator can exercise argument/environment construction without touching
   // the machine's real credential store. Production callers never pass this.
   const spawnSync = typeof options.spawnSync === "function" ? options.spawnSync : childProcess.spawnSync;
 
   function invoke(args, secretValue) {
+    if (!powershell) {
+      throw new Error(
+        "windows-credential-store: no trusted PowerShell executable is bound, so the credential store helper is not run"
+      );
+    }
     const env = baseChildEnv();
     if (typeof secretValue === "string") env.PROJECTOS_CREDENTIAL_VALUE = secretValue;
     const result = spawnSync(

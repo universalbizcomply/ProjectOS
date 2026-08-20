@@ -54,6 +54,7 @@ function sys(files: Record<string, string>): System {
         .filter((f) => f.startsWith(p + '/'))
         .map((f) => f.slice(p.length + 1))
         .filter((f) => !f.includes('/')),
+    renameFile: () => true,
     exec: (_cmd: string, args: readonly string[]) => {
       if (args.includes('rev-parse')) return { code: 0, stdout: SUBJECT, stderr: '' };
       if (args.includes('status')) return { code: 0, stdout: '', stderr: '' };

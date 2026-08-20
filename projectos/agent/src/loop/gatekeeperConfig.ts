@@ -228,8 +228,8 @@ export function appendLedger(sys: System, root: string, entry: LedgerEntry): voi
   // and a copy is the non-atomic write this is replacing.
   const temporary = `${path}.tmp`;
   sys.writeText(temporary, next);
-  const moved = sys.exec('cmd', ['/c', 'move', '/y', temporary, path], { cwd: root });
-  if (moved.code !== 0) {
+  const moved = sys.renameFile(temporary, path);
+  if (!moved) {
     // The rename failed, so the temporary file is the only complete copy and the original is intact.
     // Falling back to a direct overwrite here would reintroduce exactly the window being closed.
     throw new Error(

@@ -4,10 +4,22 @@ import type { CommandContext } from '../src/context.js';
 import { configPath, reportsDir } from '../src/context.js';
 import { parseArgs, run } from '../src/cli.js';
 
-/** In-memory System for deterministic command tests. */
+/**
+ * In-memory System for deterministic command tests.
+ *
+ * SEPARATORS ARE NORMALISED, because production is not required to speak this harness's dialect.
+ * Command code builds paths with `context.join` (forward slashes) while the loop builds them with
+ * `node:path` (backslashes on Windows) — both correct against a real filesystem, and previously only
+ * the first could be exercised here. A governed check that used `node:path` therefore read as "no
+ * such file" in every in-memory test, which is exactly how an enforcement gate could look wired and
+ * be unreachable.
+ */
 class FakeSystem implements System {
   files = new Map<string, string>();
   execResponses: Record<string, ExecResult> = {};
+  private key(p: string): string {
+    return p.split(String.fromCharCode(92)).join('/');
+  }
   cwd(): string {
     return '/repo';
   }
@@ -15,27 +27,37 @@ class FakeSystem implements System {
     return '2026-07-08T12:00:00.000Z';
   }
   readText(p: string): string | null {
-    return this.files.has(p) ? (this.files.get(p) as string) : null;
+    const k = this.key(p);
+    return this.files.has(k) ? (this.files.get(k) as string) : null;
   }
   writeText(p: string, content: string): void {
-    this.files.set(p, content);
+    this.files.set(this.key(p), content);
   }
   exists(p: string): boolean {
-    if (this.files.has(p)) return true;
-    const prefix = p.endsWith('/') ? p : p + '/';
-    for (const k of this.files.keys()) if (k.startsWith(prefix)) return true;
+    const k = this.key(p);
+    if (this.files.has(k)) return true;
+    const prefix = k.endsWith('/') ? k : k + '/';
+    for (const key of this.files.keys()) if (key.startsWith(prefix)) return true;
     return false;
   }
   listDir(p: string): readonly string[] {
-    const prefix = p.endsWith('/') ? p : p + '/';
+    const k = this.key(p);
+    const prefix = k.endsWith('/') ? k : k + '/';
     const out = new Set<string>();
-    for (const k of this.files.keys()) {
-      if (k.startsWith(prefix)) {
-        const name = k.slice(prefix.length).split('/')[0];
+    for (const key of this.files.keys()) {
+      if (key.startsWith(prefix)) {
+        const name = key.slice(prefix.length).split('/')[0];
         if (name) out.add(name);
       }
     }
     return [...out];
+  }
+  renameFile(from: string, to: string): boolean {
+    const k = this.key(from);
+    if (!this.files.has(k)) return false;
+    this.files.set(this.key(to), this.files.get(k) as string);
+    this.files.delete(k);
+    return true;
   }
   exec(cmd: string, args: readonly string[]): ExecResult {
     const key = [cmd, ...args].join(' ');
@@ -754,5 +776,163 @@ describe('reconcile: one named work item, or nothing', () => {
 
   it('is listed in help, or an operator cannot find the only route that clears a debt', () => {
     expect(run(ctx(), ['help']).lines.join(String.fromCharCode(10))).toContain('reconcile');
+  });
+});
+
+describe('unreviewed degraded work blocks the governed closure gate', () => {
+  const DEBT = {
+    schemaVersion: '1.0.0',
+    grantId: 'DEGRADED-GATE-FIXTURE1A',
+    unavailabilityId: 'GKOUT-aaaaaaaaaaaaaaaaaaaaaaaa',
+    projectId: 'projectos',
+    phaseId: 'PROJECTOS-V3-BASELINE-RECONCILE1A',
+    consumedAt: '2026-08-20T15:00:00.000Z',
+    maxWorkItems: 1,
+    workItems: [
+      {
+        workId: 'GKWORK-gatefixture0001',
+        grantId: 'DEGRADED-GATE-FIXTURE1A',
+        phaseId: 'PROJECTOS-V3-BASELINE-RECONCILE1A',
+        summary: 'implement',
+        at: '2026-08-20T15:00:00.000Z',
+      },
+    ],
+    reconciliations: [],
+  };
+
+  const upToClosure = (ctx: CommandContext) => {
+    run(ctx, ['phase', 'new', '--id', 'PROJECTOS-V3-BASELINE-RECONCILE1A']);
+    for (const to of ['prompted', 'implementing', 'validating', 'evidence', 'awaiting_review', 'awaiting_closure']) {
+      run(ctx, ['phase', 'advance', '--id', 'PROJECTOS-V3-BASELINE-RECONCILE1A', '--to', to]);
+    }
+  };
+
+  it('refuses owner closure while a degraded work item is unreconciled, and says what is owed', () => {
+    const { ctx, sys } = makeGovernedCtx();
+    upToClosure(ctx);
+    sys.files.set('/repo/.projectops/execution/degraded-use.DEGRADED-GATE-FIXTURE1A.json', JSON.stringify(DEBT));
+
+    const r = run(ctx, ['phase', 'advance', '--id', 'PROJECTOS-V3-BASELINE-RECONCILE1A', '--to', 'closed', '--as', 'owner', '--note', 'accepted']);
+
+    expect(r.code).toBe(2);
+    const text = r.lines.join(String.fromCharCode(10));
+    expect(text).toContain('DEGRADED_DEBT_OUTSTANDING');
+    expect(text).toContain('GKWORK-gatefixture0001');
+    expect(text).toContain('projectos reconcile --grant');
+    expect(text).toContain('PROJECTOS-V3-BASELINE-RECONCILE1A');
+  });
+
+  it('refuses when a use record cannot be read, rather than reading it as no debt', () => {
+    const { ctx, sys } = makeGovernedCtx();
+    upToClosure(ctx);
+    sys.files.set('/repo/.projectops/execution/degraded-use.DEGRADED-GATE-FIXTURE1A.json', '{ truncated');
+
+    const r = run(ctx, ['phase', 'advance', '--id', 'PROJECTOS-V3-BASELINE-RECONCILE1A', '--to', 'closed', '--as', 'owner', '--note', 'accepted']);
+
+    expect(r.code).toBe(2);
+    expect(r.lines.join(String.fromCharCode(10))).toContain('DEGRADED_DEBT_UNREADABLE');
+  });
+
+  it('permits closure once the debt carries a reconciliation the ledger corroborates', () => {
+    const { ctx, sys } = makeGovernedCtx();
+    upToClosure(ctx);
+    // The discharge must name a call this project actually made and paid for. Without the ledger
+    // entry the same record is an assertion, which the gate refuses — see the case below.
+    sys.files.set(
+      '/repo/.projectops/gatekeeper-ledger.json',
+      JSON.stringify({
+        schemaVersion: '1.0.0',
+        entries: [
+          {
+            requestId: 'GKREQ-fixture',
+            projectId: 'projectos',
+            phaseId: 'PROJECTOS-V3-BASELINE-RECONCILE1A',
+            model: 'gpt-5.6-terra',
+            usage: { inputTokens: 1, cachedInputTokens: 0, outputTokens: 1 },
+            costMicroUsd: 10,
+            at: '2026-08-20T16:00:00.000Z',
+          },
+        ],
+      }),
+    );
+    sys.files.set(
+      '/repo/.projectops/execution/degraded-use.DEGRADED-GATE-FIXTURE1A.json',
+      JSON.stringify({
+        ...DEBT,
+        reconciliations: [
+          {
+            workId: 'GKWORK-gatefixture0001',
+            decisionId: 'GKDEC-GKREQ-fixture',
+            ask: 'degraded-mode-reconciliation',
+            decisionAccepted: true,
+          },
+        ],
+      }),
+    );
+
+    const r = run(ctx, ['phase', 'advance', '--id', 'PROJECTOS-V3-BASELINE-RECONCILE1A', '--to', 'closed', '--as', 'owner', '--note', 'accepted']);
+
+    // The debt no longer blocks. Whatever else closure requires is not this gate's business.
+    expect(r.lines.join(String.fromCharCode(10))).not.toContain('DEGRADED_DEBT');
+  });
+
+  it('does not block ordinary lifecycle movement, only the closure gate', () => {
+    const { ctx, sys } = makeGovernedCtx();
+    run(ctx, ['phase', 'new', '--id', 'PROJECTOS-V3-BASELINE-RECONCILE1A']);
+    sys.files.set('/repo/.projectops/execution/degraded-use.DEGRADED-GATE-FIXTURE1A.json', JSON.stringify(DEBT));
+
+    const r = run(ctx, ['phase', 'advance', '--id', 'PROJECTOS-V3-BASELINE-RECONCILE1A', '--to', 'prompted']);
+
+    expect(r.code).toBe(0);
+  });
+});
+
+describe('unreviewed degraded work blocks the authorisation, not only the closure', () => {
+  const DEBT = JSON.stringify({
+    schemaVersion: '1.0.0',
+    grantId: 'DEGRADED-APPROVE-FIXTURE1A',
+    unavailabilityId: 'GKOUT-bbbbbbbbbbbbbbbbbbbbbbbb',
+    projectId: 'projectos',
+    phaseId: 'PROJECTOS-V3-BASELINE-RECONCILE1A',
+    consumedAt: '2026-08-20T15:00:00.000Z',
+    maxWorkItems: 1,
+    workItems: [
+      {
+        workId: 'GKWORK-approvefixture1',
+        grantId: 'DEGRADED-APPROVE-FIXTURE1A',
+        phaseId: 'PROJECTOS-V3-BASELINE-RECONCILE1A',
+        summary: 'implement',
+        at: '2026-08-20T15:00:00.000Z',
+      },
+    ],
+    reconciliations: [],
+  });
+
+  it('refuses an owner decision on a gated action while a debt is outstanding', () => {
+    const { ctx, sys } = makeGovernedCtx();
+    run(ctx, ['approve', 'request', '--id', 'A9', '--action', 'production deploy']);
+    sys.files.set('/repo/.projectops/execution/degraded-use.DEGRADED-APPROVE-FIXTURE1A.json', DEBT);
+
+    const r = run(ctx, ['approve', 'decide', '--id', 'A9', '--decision', 'approved', '--as', 'owner', '--note', 'ok']);
+
+    expect(r.code).toBe(2);
+    const text = r.lines.join(String.fromCharCode(10));
+    expect(text).toContain('DEGRADED_DEBT_OUTSTANDING');
+    expect(text).toContain('GKWORK-approvefixture1');
+    // The approval is not recorded as approved.
+    expect(run(ctx, ['approve', 'show', '--id', 'A9']).lines.join(String.fromCharCode(10))).not.toContain(
+      'state:      approved',
+    );
+  });
+
+  it('leaves ungated approvals alone — they authorise nothing the debt is about', () => {
+    const { ctx, sys } = makeGovernedCtx();
+    const req = run(ctx, ['approve', 'request', '--id', 'A10', '--action', 'rename a local variable']);
+    expect(req.code).toBe(0);
+    sys.files.set('/repo/.projectops/execution/degraded-use.DEGRADED-APPROVE-FIXTURE1A.json', DEBT);
+
+    const r = run(ctx, ['approve', 'decide', '--id', 'A10', '--decision', 'approved', '--as', 'implementer']);
+
+    expect(r.lines.join(String.fromCharCode(10))).not.toContain('DEGRADED_DEBT');
   });
 });

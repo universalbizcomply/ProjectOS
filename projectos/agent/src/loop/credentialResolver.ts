@@ -82,8 +82,12 @@ export function credentialRefProblems(ref: unknown): readonly string[] {
     return problems;
   }
   if (!REF_SHAPE.test(value)) {
+    // THE VALUE IS NOT REPEATED HERE EITHER. The check above catches eight known secret prefixes; a
+    // key carrying none of them fell through to this branch, which printed it in full — on the one
+    // path whose entire purpose is that configuration must not hold a secret. Length says enough to
+    // fix a typo and nothing an attacker could use.
     problems.push(
-      `credential reference ${JSON.stringify(value)} is not a valid reference name ` +
+      `credential reference (${value.length} characters) is not a valid reference name ` +
         '(UPPER_SNAKE_CASE, 8 to 64 characters, starting with a letter)',
     );
   }

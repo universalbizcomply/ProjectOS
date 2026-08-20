@@ -44,7 +44,7 @@ interface WorldOpts {
   readonly branch?: string;
   readonly remote?: string;
   readonly validatorExit?: number;
-  /** What `git show HEAD:.projectops/project-config.json` returns. Defaults to the working tree. */
+  /** What `git show HEAD:./.projectops/project-config.json` returns. Defaults to the working tree. */
   readonly committedConfig?: unknown;
 }
 
@@ -83,6 +83,7 @@ function world(opts: WorldOpts = {}) {
     },
     exists: (p) => p in files,
     listDir: () => [],
+    renameFile: () => true,
     exec: (cmd, args): ExecResult => {
       if (cmd !== 'git') return { code: opts.validatorExit ?? 0, stdout: 'validator ran', stderr: '' };
       const key = args.join(' ');
@@ -94,7 +95,9 @@ function world(opts: WorldOpts = {}) {
       if (key.includes('diff --stat')) return { code: 0, stdout: ' 1 file changed\n', stderr: '' };
       // The loop spawns only what the owner COMMITTED, so it compares the working-tree `execution`
       // block with this. By default the two agree; a test can make them disagree.
-      if (key.includes('show HEAD:.projectops/project-config.json')) {
+      // `HEAD:./…` — the read is bound to the governed root, so a nested checkout cannot answer
+      // with the outer repository's committed config.
+      if (key.includes('show HEAD:./.projectops/project-config.json')) {
         return {
           code: 0,
           stdout: JSON.stringify(opts.committedConfig === undefined ? config : opts.committedConfig),
@@ -298,6 +301,7 @@ describe('runLoop', () => {
     const sys = world({ files: cleanFindings(SESSION) });
     const noGitShow: System = {
       ...sys,
+      renameFile: () => true,
       exec: (cmd, args, options) =>
         args.join(' ').includes('show HEAD:') ? { code: 128, stdout: '', stderr: 'fatal' } : sys.exec(cmd, args, options),
     };
@@ -1180,6 +1184,7 @@ describe('runLoop with an unattended gatekeeper', () => {
     const inner = base as unknown as { exec(c: string, a: readonly string[]): ExecResult };
     return {
       ...(base as unknown as object),
+      renameFile: () => true,
       exec: (cmd: string, args: readonly string[]): ExecResult => {
         const key = args.join(' ');
         if (cmd === 'git' && key.includes('state/plan.json')) {

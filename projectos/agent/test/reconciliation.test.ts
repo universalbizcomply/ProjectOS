@@ -12,7 +12,7 @@
  * same review cannot be spent twice.
  */
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync, readdirSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync, readdirSync, renameSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -89,6 +89,14 @@ function nodeLikeSystem(root: string): System {
     },
     exists: (p: string) => existsSync(p),
     listDir: (p: string) => (existsSync(p) ? readdirSync(p) : []),
+    renameFile: (from: string, to: string) => {
+      try {
+        renameSync(from, to);
+        return true;
+      } catch {
+        return false;
+      }
+    },
     exec: (command: string, args: readonly string[]) => {
       try {
         return { code: 0, stdout: execFileSync(command, [...args], { encoding: 'utf8' }), stderr: '' };
@@ -915,6 +923,21 @@ describe('the guards the first mutation run found unpinned', () => {
     const after = readDegradedStore(w.sys, w.root, GRANT);
     expect(after).not.toBeNull();
     expect(after?.reconciliations).toEqual([]);
+  });
+
+  it('leaves the debt standing when the record cannot be moved into place', () => {
+    // The temporary file is written and the rename fails — a full volume, a lock, an antivirus hold.
+    // Before the move was checked, the outcome was RECONCILED while the real record was untouched.
+    const w = world();
+    const stuck: System = { ...w.sys, renameFile: () => false };
+    const { deps: d, charged } = spendingDeps(w.root, {});
+
+    const r = reconcileDegradedWork(stuck, w.root, input(), d);
+
+    expect(r.kind).toBe('PERSIST_FAILED');
+    expect(r.reasons.join(' ')).toContain('atomically');
+    expect(charged).toHaveLength(1);
+    expect(readDegradedStore(w.sys, w.root, GRANT)?.reconciliations).toEqual([]);
   });
 
   it('catches a write that lands but loses what it was supposed to record', () => {

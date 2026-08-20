@@ -37,6 +37,8 @@ import {
   allDegradedWork,
   readDegradedStore,
   degradedStoreRelPath,
+  reconciliationDebtBlock,
+  unreadableDegradedStores,
 } from '../src/loop/degradedMode.js';
 import { degradedGrantRelPath } from '../src/loop/degradedModeGrants.js';
 import {
@@ -84,6 +86,7 @@ function repo(): { root: string; sys: System; head: string } {
     },
     exists: (p: string) => existsSync(p),
     listDir: (p: string) => (existsSync(p) ? readdirSync(p) : []),
+    renameFile: () => true,
     exec: (command: string, args: readonly string[]) => {
       try {
         return { code: 0, stdout: execFileSync(command, [...args], { encoding: 'utf8' }), stderr: '' };
@@ -134,6 +137,7 @@ function repoReader(root: string): System {
     writeText: (p: string, c: string) => { mkdirSync(join(p, '..'), { recursive: true }); writeFileSync(p, c); },
     exists: (p: string) => existsSync(p),
     listDir: (p: string) => (existsSync(p) ? readdirSync(p) : []),
+    renameFile: () => true,
     exec: (command: string, args: readonly string[]) => {
       try {
         return { code: 0, stdout: execFileSync(command, [...args], { encoding: 'utf8' }), stderr: '' };
@@ -1528,6 +1532,7 @@ describe('PATH PROOF — the real caller shape, and the outage route it unblocks
     };
     const sys = {
       ...(base as unknown as object),
+      renameFile: () => true,
       exec: (command: string, args: readonly string[]) => {
         calls.push([command, ...args]);
         return inner.exec(command, args);
@@ -2069,5 +2074,221 @@ describe('a committed use record is evidence, not a scratchpad', () => {
     );
     expect(readDegradedStore(sys, root, GRANT_ID)?.workItems).toHaveLength(1);
     expect(degradedReconciliationState(sys, root).outstandingWorkIds).toHaveLength(1);
+  });
+});
+
+describe('the debt block a governed gate must obey', () => {
+  it('is empty when nothing was ever run degraded', () => {
+    const { root, sys } = repo();
+    expect(reconciliationDebtBlock(sys, root)).toEqual([]);
+  });
+
+  it('refuses and names the work, the reason and the next action', () => {
+    const { root, sys, head } = repo();
+    const outage = outageFor(head);
+    writeGrant(root, grantBody(head, outage));
+    commitAll(root, 'fixture grant');
+    const auth = authoriseDegradedContinuation(sys, root, authInput(head, outage));
+    const consumed = consumeDegradedGrant(sys, root, {
+      grant: auth.grant!,
+      unavailabilityId: outage,
+      projectId: PROJECT,
+      phaseId: PHASE,
+      summary: 'fixture work item',
+      at: '2026-08-19T12:00:00.000Z',
+    });
+
+    const block = reconciliationDebtBlock(sys, root).join(String.fromCharCode(10));
+    expect(block).toContain('DEGRADED_DEBT_OUTSTANDING');
+    expect(block).toContain(consumed.workId as string);
+    expect(block).toContain('projectos reconcile --grant');
+  });
+
+  it('refuses a COMMITTED record that has since been edited — the case a disk-only check cannot see', () => {
+    const { root, sys, head } = repo();
+    const outage = outageFor(head);
+    writeGrant(root, grantBody(head, outage));
+    commitAll(root, 'fixture grant');
+    const auth = authoriseDegradedContinuation(sys, root, authInput(head, outage));
+    consumeDegradedGrant(sys, root, {
+      grant: auth.grant!,
+      unavailabilityId: outage,
+      projectId: PROJECT,
+      phaseId: PHASE,
+      summary: 'fixture work item',
+      at: '2026-08-19T12:00:00.000Z',
+    });
+    commitAll(root, 'evidence: use record');
+
+    // Perfectly parseable on disk, and no longer what was committed. `unreadableDegradedStores` sees
+    // nothing wrong here, and `degradedReconciliationState` DROPS the record — which is how editing a
+    // file erased the debt it recorded.
+    const rel = degradedStoreRelPath(GRANT_ID) as string;
+    writeFileSync(
+      join(root, ...rel.split('/')),
+      JSON.stringify({ grantId: GRANT_ID, consumedAt: 'edited', workItems: [], reconciliations: [] }),
+    );
+
+    expect(unreadableDegradedStores(sys, root)).toEqual([]);
+    expect(degradedReconciliationState(sys, root).required).toBe(false);
+    const block = reconciliationDebtBlock(sys, root).join(String.fromCharCode(10));
+    expect(block).toContain('DEGRADED_DEBT_UNREADABLE');
+    expect(block).toContain('never read as "no debt"');
+  });
+
+  it('clears once the work carries an accepted reconciliation', () => {
+    const { root, sys, head } = repo();
+    const outage = outageFor(head);
+    writeGrant(root, grantBody(head, outage));
+    commitAll(root, 'fixture grant');
+    const auth = authoriseDegradedContinuation(sys, root, authInput(head, outage));
+    const consumed = consumeDegradedGrant(sys, root, {
+      grant: auth.grant!,
+      unavailabilityId: outage,
+      projectId: PROJECT,
+      phaseId: PHASE,
+      summary: 'fixture work item',
+      at: '2026-08-19T12:00:00.000Z',
+    });
+    const rel = degradedStoreRelPath(GRANT_ID) as string;
+    const path = join(root, ...rel.split('/'));
+    const store = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
+    writeFileSync(
+      path,
+      JSON.stringify({
+        ...store,
+        reconciliations: [
+          {
+            workId: consumed.workId,
+            decisionId: 'GKDEC-GKREQ-fixture',
+            ask: RECONCILIATION_ASK,
+            decisionAccepted: true,
+          },
+        ],
+      }),
+    );
+
+    // A DISCHARGE MUST NAME A CALL THAT HAPPENED. Without a ledger entry the same record is an
+    // assertion, and the gate says so — see the case below.
+    expect(reconciliationDebtBlock(sys, root).join(String.fromCharCode(10))).toContain(
+      'DEGRADED_DEBT_UNCORROBORATED',
+    );
+
+    writeFileSync(
+      join(root, '.projectops', 'gatekeeper-ledger.json'),
+      JSON.stringify({
+        schemaVersion: '1.0.0',
+        entries: [
+          {
+            requestId: 'GKREQ-fixture',
+            projectId: PROJECT,
+            phaseId: PHASE,
+            model: 'gpt-5.6-terra',
+            usage: { inputTokens: 1, cachedInputTokens: 0, outputTokens: 1 },
+            costMicroUsd: 10,
+            at: '2026-08-19T12:30:00.000Z',
+          },
+        ],
+      }),
+    );
+
+    expect(reconciliationDebtBlock(sys, root)).toEqual([]);
+  });
+
+  it('refuses a discharge no gatekeeper call corroborates, even in its own record', () => {
+    const { root, sys, head } = repo();
+    const outage = outageFor(head);
+    writeGrant(root, grantBody(head, outage));
+    commitAll(root, 'fixture grant');
+    const auth = authoriseDegradedContinuation(sys, root, authInput(head, outage));
+    const consumed = consumeDegradedGrant(sys, root, {
+      grant: auth.grant!,
+      unavailabilityId: outage,
+      projectId: PROJECT,
+      phaseId: PHASE,
+      summary: 'fixture work item',
+      at: '2026-08-19T12:00:00.000Z',
+    });
+    const path = join(root, ...(degradedStoreRelPath(GRANT_ID) as string).split('/'));
+    const store = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
+    writeFileSync(
+      path,
+      JSON.stringify({
+        ...store,
+        reconciliations: [
+          {
+            workId: consumed.workId,
+            decisionId: 'GKDEC-GKREQ-never-happened',
+            ask: RECONCILIATION_ASK,
+            decisionAccepted: true,
+          },
+        ],
+      }),
+    );
+
+    const block = reconciliationDebtBlock(sys, root).join(String.fromCharCode(10));
+    expect(block).toContain('DEGRADED_DEBT_UNCORROBORATED');
+    expect(block).toContain('never happened'.replace(' ', '-'));
+  });
+
+  it('does not let a reconciliation in one record clear work in another', () => {
+    const { root, sys, head } = repo();
+    const outage = outageFor(head);
+    writeGrant(root, grantBody(head, outage));
+    commitAll(root, 'fixture grant');
+    const auth = authoriseDegradedContinuation(sys, root, authInput(head, outage));
+    const consumed = consumeDegradedGrant(sys, root, {
+      grant: auth.grant!,
+      unavailabilityId: outage,
+      projectId: PROJECT,
+      phaseId: PHASE,
+      summary: 'fixture work item',
+      at: '2026-08-19T12:00:00.000Z',
+    });
+
+    // A second record, carrying no work of its own, claiming to discharge the first record's item —
+    // and a ledger entry so the corroboration check cannot be what refuses it.
+    writeFileSync(
+      join(root, '.projectops', 'gatekeeper-ledger.json'),
+      JSON.stringify({
+        schemaVersion: '1.0.0',
+        entries: [
+          {
+            requestId: 'fixture',
+            projectId: PROJECT,
+            phaseId: PHASE,
+            model: 'gpt-5.6-terra',
+            usage: { inputTokens: 1, cachedInputTokens: 0, outputTokens: 1 },
+            costMicroUsd: 10,
+            at: '2026-08-19T12:30:00.000Z',
+          },
+        ],
+      }),
+    );
+    writeFileSync(
+      join(root, '.projectops', 'execution', 'degraded-use.OTHER-GRANT1A.json'),
+      JSON.stringify({
+        schemaVersion: '1.0.0',
+        grantId: 'OTHER-GRANT1A',
+        unavailabilityId: outage,
+        projectId: PROJECT,
+        phaseId: PHASE,
+        consumedAt: '2026-08-19T13:00:00.000Z',
+        maxWorkItems: 1,
+        workItems: [],
+        reconciliations: [
+          {
+            workId: consumed.workId,
+            decisionId: 'GKDEC-fixture',
+            ask: RECONCILIATION_ASK,
+            decisionAccepted: true,
+          },
+        ],
+      }),
+    );
+
+    const block = reconciliationDebtBlock(sys, root).join(String.fromCharCode(10));
+    expect(block).toContain('DEGRADED_DEBT_OUTSTANDING');
+    expect(block).toContain(consumed.workId as string);
   });
 });
