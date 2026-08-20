@@ -54,6 +54,8 @@ export interface DurableConsumption {
 
 /** One accepted reconciliation, recorded against the spend it discharges. */
 export interface DurableReconciliation {
+  /** The installation that made the spend. Written AND compared: a stored binding nobody reads is decoration. */
+  readonly installRoot: string;
   readonly workId: string;
   readonly grantId: string;
   readonly projectId: string;
@@ -197,7 +199,12 @@ export function recordReconciliation(sys: System, stateDir: string, entry: Durab
   if (spend === undefined) {
     return { persisted: false, problem: `this installation has no record of work item ${entry.workId}` };
   }
-  if (spend.projectId !== entry.projectId || spend.repository !== entry.repository || spend.grantId !== entry.grantId) {
+  if (
+    String(spend.installRoot ?? '').toLowerCase() !== String(entry.installRoot ?? '').toLowerCase() ||
+    spend.projectId !== entry.projectId ||
+    spend.repository !== entry.repository ||
+    spend.grantId !== entry.grantId
+  ) {
     return { persisted: false, problem: `the reconciliation of ${entry.workId} does not match the spend it names` };
   }
   if (current.reconciliations.some((r) => r.workId === entry.workId)) {
@@ -241,12 +248,54 @@ export function authoritativeState(sys: System, stateDir: string, scope: LedgerS
   const ledger: DurableDegradedLedger =
     read.kind === 'ok' ? read.ledger : { schemaVersion: DEGRADED_LEDGER_SCHEMA_VERSION, consumptions: [], reconciliations: [] };
 
-  const mine = ledger.consumptions.filter(
+  // BOUND TO THE PROJECT, AND ANY DISAGREEMENT IS A REFUSAL — NEVER A SKIP.
+  //
+  // Two bindings, and both had to be got right the hard way. The repository comes from the governed
+  // checkout's `origin`, which lives in `.git/config` — inside the project and rewritable with
+  // `git remote set-url` — so filtering on it let a project rename itself out of its own debt. The
+  // first repair filtered on `installRoot` as well, which was worse: a second COPY of the ProjectOS
+  // tree computes a different install root, reads the same shared ledger, matches nothing, and
+  // reports a clean slate. `cp -r` became a way to refund every grant.
+  //
+  // So selection is by project identity, and a row that names this project under a different
+  // repository OR a different installation REFUSES. An entry that does not apply is never silently
+  // dropped: that is how both bypasses worked.
+  const named = ledger.consumptions.filter(
     (c) => c.projectId === scope.projectId && c.repository.toLowerCase() === scope.repository.toLowerCase(),
   );
+  const claimingThisProject = ledger.consumptions.filter((c) => c.projectId === scope.projectId);
+  const disagreeing = claimingThisProject.filter(
+    (c) =>
+      c.repository.toLowerCase() !== scope.repository.toLowerCase() ||
+      String(c.installRoot ?? '').toLowerCase() !== scope.installRoot.toLowerCase(),
+  );
+  if (disagreeing.length > 0) {
+    const first = disagreeing[0];
+    return {
+      readable: false,
+      problem:
+        `this machine records degraded work for project '${scope.projectId}' at ` +
+        `${first?.repository ?? 'another repository'} under installation ` +
+        `${String(first?.installRoot ?? 'unknown')}, but this run reports ${scope.repository} under ` +
+        `${scope.installRoot}; which of a project's debts count is not something the project or a ` +
+        'second copy of the installation may decide',
+      consumedGrantIds: [],
+      outstandingWorkIds: [],
+      workItemsByGrant: {},
+    };
+  }
+  const mine = named;
+  // A ROW WITHOUT ITS BINDINGS DISCHARGES NOTHING, and reading one must not throw. A ledger written
+  // by an earlier build carries no `installRoot`; treating that as a match would let an older format
+  // clear a debt, and dereferencing it blindly turned a refusal into a crash out of the gate.
   const discharged = new Set(
     ledger.reconciliations
-      .filter((r) => r.projectId === scope.projectId && r.repository.toLowerCase() === scope.repository.toLowerCase())
+      .filter(
+        (r) =>
+          String(r.installRoot ?? '').toLowerCase() === scope.installRoot.toLowerCase() &&
+          r.projectId === scope.projectId &&
+          String(r.repository ?? '').toLowerCase() === scope.repository.toLowerCase(),
+      )
       .map((r) => r.workId),
   );
   const byGrant: Record<string, number> = {};

@@ -251,6 +251,7 @@ function seedDurable(opts: { consumed?: readonly string[]; reconciled?: readonly
         consumedAt: '2026-08-19T12:00:00.000Z',
       })),
       reconciliations: (opts.reconciled ?? []).map((workId) => ({
+        installRoot: d.installRoot,
         workId,
         grantId: GRANT_ID,
         projectId: PROJECT,
@@ -2633,5 +2634,76 @@ describe('the record that outlives the project', () => {
     expect(
       reconciliationDebtBlock(sys, root, { projectId: PROJECT, durable: durableBinding() }).join(String.fromCharCode(10)),
     ).not.toContain(workId);
+  });
+});
+
+describe('whose debts these are is not the project\'s to decide', () => {
+  const spendOne = () => {
+    const { root, sys, head } = repo();
+    const outage = outageFor(head);
+    writeGrant(root, grantBody(head, outage));
+    commitAll(root, 'fixture grant');
+    const auth = authoriseDegradedContinuation(sys, root, authInput(head, outage));
+    const consumed = consumeDegradedGrant(sys, root, {
+      subjectCommit: head,
+      durable: durableBinding(),
+      grant: auth.grant!,
+      unavailabilityId: outage,
+      projectId: PROJECT,
+      phaseId: PHASE,
+      summary: 'the bounded item',
+      at: '2026-08-19T12:00:00.000Z',
+    });
+    expect(consumed.persisted).toBe(true);
+    return { root, sys, head, outage, workId: consumed.workId as string };
+  };
+
+  it('refuses when the checkout now reports a different repository', () => {
+    // `git remote set-url` is local, uncommitted and inside the project. Filtering on the identity a
+    // project claims let it rename itself out of its own debt; disagreement refuses instead.
+    const { root, sys } = spendOne();
+    const renamed = { ...durableBinding(), repository: 'github.com/someone/else' };
+
+    const block = reconciliationDebtBlock(sys, root, { projectId: PROJECT, durable: renamed });
+    expect(block.join(String.fromCharCode(10))).toContain('DEGRADED_DEBT_UNREADABLE');
+    expect(block.join(String.fromCharCode(10))).toContain('not something the project');
+  });
+
+  it('refuses when a SECOND COPY of the installation reads the same ledger', () => {
+    // A copy of the ProjectOS tree computes a different install root and shares one per-user ledger.
+    // Filtering on install root made `cp -r` a way to refund every grant; this must refuse, not skip.
+    const { root, sys, head, outage } = spendOne();
+    const otherCopy = { ...durableBinding(), installRoot: 'C:/somewhere/else/ProjectOS' };
+
+    expect(
+      reconciliationDebtBlock(sys, root, { projectId: PROJECT, durable: otherCopy }).join(String.fromCharCode(10)),
+    ).toContain('DEGRADED_DEBT_UNREADABLE');
+
+    const again = authoriseDegradedContinuation(sys, root, {
+      ...authInput(head, outage),
+      durable: otherCopy,
+    });
+    expect(again.authorised).toBe(false);
+  });
+
+  it('a discharge that names no installation corroborates nothing, and does not throw', () => {
+    const { root, sys, workId } = spendOne();
+    const d = durableBinding();
+    const ledger = JSON.parse(
+      readFileSync(join(d.stateDir, 'degraded-consumption.json'), 'utf8'),
+    ) as Record<string, unknown>;
+    writeFileSync(
+      join(d.stateDir, 'degraded-consumption.json'),
+      JSON.stringify({
+        ...ledger,
+        // The shape an earlier build wrote: no installRoot.
+        reconciliations: [
+          { workId, grantId: GRANT_ID, projectId: PROJECT, repository: d.repository, decisionId: 'GKDEC-old', ask: RECONCILIATION_ASK, at: '2026-08-19T13:00:00.000Z' },
+        ],
+      }),
+    );
+
+    const block = reconciliationDebtBlock(sys, root, { projectId: PROJECT, durable: d });
+    expect(block.join(String.fromCharCode(10))).toContain('DEGRADED_DEBT_OUTSTANDING');
   });
 });

@@ -118,8 +118,20 @@ function isFile(p: string): boolean {
 }
 
 export function resolveBoundGit(env: NodeJS.ProcessEnv = process.env): string | null {
+  const governedRoot = processRoot;
   const bound = env['PROJECTOS_GIT_EXE'];
-  if (typeof bound === 'string' && bound.length > 0 && isAbsolute(bound) && GIT_BASENAME.test(basename(bound)) && isFile(bound)) {
+  // THE SAME EXCLUSION THE PATH SCAN APPLIES. Naming the binary directly used to skip it, so
+  // `PROJECTOS_GIT_EXE=<governed>\tools\git.exe` was accepted — and git answers whether the
+  // installation's own records are committed.
+  if (
+    typeof bound === 'string' &&
+    bound.length > 0 &&
+    isAbsolute(bound) &&
+    !isUnc(bound) &&
+    GIT_BASENAME.test(basename(bound)) &&
+    isFile(bound) &&
+    !(governedRoot !== null && isInside(governedRoot, bound))
+  ) {
     return bound;
   }
   // NOT FROM INSIDE THE GOVERNED CHECKOUT. `worker/bound-git.cjs` has always skipped PATH entries
@@ -176,7 +188,8 @@ export function resolveBoundPowerShell(env: NodeJS.ProcessEnv = process.env): st
     isAbsolute(bound) &&
     !isUnc(bound) &&
     POWERSHELL_BASENAME.test(basename(bound)) &&
-    isFile(bound)
+    isFile(bound) &&
+    !(processRoot !== null && isInside(processRoot, bound))
   ) {
     return bound;
   }

@@ -44,14 +44,12 @@ export interface ProjectosRuntime {
  * a state directory chosen by falling back to the current directory would be the defect again.
  */
 export function nodeInstallationStateDir(env: NodeJS.ProcessEnv = process.env): string | null {
-  // AN EXPLICIT LOCATION WINS, and it is the packaged host's way of saying where its state lives —
-  // that host is launched with almost no environment and must not depend on the shape of a user
-  // profile. It is absolute or it is refused; a relative value would resolve against whatever
-  // directory the process happened to start in, which is the ambient-cwd mistake again.
-  const bound = env['PROJECTOS_INSTALLATION_STATE_DIR'];
-  if (typeof bound === 'string' && bound.trim() !== '' && isAbsolute(bound)) {
-    return bound.split(String.fromCharCode(92)).join('/');
-  }
+  // NO ENVIRONMENT OVERRIDE. There was one, justified as the packaged host's way of naming its own
+  // state location — and nothing in the tree ever set it, while anything that could set an environment
+  // variable could point the sole authority at an empty directory. An empty ledger reads as "nothing
+  // was ever spent", which refunds every grant and clears every debt in one move. A control that one
+  // variable disables is not a control, and the host will get a location it derives rather than one it
+  // is told.
   const base = env['LOCALAPPDATA'] ?? env['XDG_STATE_HOME'] ?? env['HOME'];
   if (typeof base !== 'string' || base.trim() === '' || !isAbsolute(base)) return null;
   return resolve(base, 'ProjectOS', 'installation-state').split(String.fromCharCode(92)).join('/');

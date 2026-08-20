@@ -23,7 +23,15 @@
  * differ: the thing verified is the thing run. That is what closes the verify-then-spawn race; it is
  * not solved by re-reading a path more carefully.
  *
- * WHAT IT WILL NOT DO. It takes no URL, no headers and no command from its caller. The endpoint is a
+ * WHERE "THIS INSTALLATION" COMES FROM. Executed as `node -e <source>`, this file has no `__dirname`
+ * to anchor itself with, and an install root taken from the REQUEST would make every check circular:
+ * a caller could name any repository it controls, commit a malicious adapter and a matching allowlist
+ * into it, and every question here would answer yes against genuine git. So the agent-side verifier
+ * PINS the root into the source it runs, as `TRUSTED_INSTALL_ROOT`, derived from the running code's
+ * own location. A governed project cannot move the installation's files, and a caller that omits the
+ * pin gets a refusal rather than a default.
+ *
+ * WHAT IT WILL NOT DO. It takes no URL, no headers, no install root and no command from its caller. The endpoint is a
  * constant here, the only header it adds is the one it builds from the credential it resolved, and
  * the credential reference must be one this file names. A caller can supply a model, a body, a
  * timeout, and the identity of the project it claims to be — and every one of those claims is
@@ -59,10 +67,60 @@ function fail(reason) {
   process.exit(0);
 }
 
-function git(root, args) {
+const GIT_BASENAME = process.platform === "win32" ? /^git\.exe$/i : /^git$/;
+
+function isFile(p) {
+  try {
+    return fs.statSync(p).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The git that answers every authority question here — absolute, or nothing.
+ *
+ * THE BARE NAME WAS A COMPLETE BYPASS. This process inherits the agent's working directory, which is
+ * the GOVERNED CHECKOUT, and on Windows an unqualified command resolves against the current directory
+ * before PATH — trying the name as given, then `.com`, then `.exe`. So a `git.com` dropped in the root
+ * of the repository the loop is already working in would have answered "is this project allowlisted",
+ * "did its owner approve" and "is the adapter the committed one". Found by adversarial review; the
+ * capability needed was one file write, uncommitted, unreviewed.
+ *
+ * PATH IS NOT SEARCHED. The untrusted side may reasonably look for an operator's git; the trusted side
+ * takes the one it was given or refuses.
+ */
+function boundGit() {
   const bound = process.env.PROJECTOS_GIT_EXE;
-  const exe = typeof bound === "string" && bound && path.isAbsolute(bound) ? bound : "git";
-  const r = spawnSync(exe, ["-C", root, ...args], { encoding: "utf8", windowsHide: true });
+  if (
+    typeof bound === "string" &&
+    bound &&
+    path.isAbsolute(bound) &&
+    !isUnc(bound) &&
+    GIT_BASENAME.test(path.basename(bound)) &&
+    isFile(bound)
+  ) {
+    return bound;
+  }
+  return null;
+}
+
+/**
+ * Run git against a root, with nothing inherited that could change what it answers.
+ *
+ * `GIT_CONFIG_*`, `GIT_DIR`, `GIT_OBJECT_DIRECTORY` and their relatives redirect what `HEAD:./<rel>`
+ * resolves to even when the binary is genuine, so the child gets a minimal environment rather than
+ * this process's. `cwd` is the root being asked about, never whatever directory this process started
+ * in.
+ */
+function git(root, args) {
+  const exe = boundGit();
+  if (exe === null) return { code: 127, stdout: "", stderr: "no trusted git executable is bound" };
+  const env = {};
+  for (const name of ["SystemRoot", "windir", "TEMP", "TMP", "USERPROFILE", "HOMEDRIVE", "HOMEPATH"]) {
+    if (typeof process.env[name] === "string") env[name] = process.env[name];
+  }
+  const r = spawnSync(exe, ["-C", root, ...args], { encoding: "utf8", windowsHide: true, cwd: root, env });
   return { code: r.status === null ? 1 : r.status, stdout: r.stdout || "", stderr: r.stderr || "" };
 }
 
@@ -155,21 +213,26 @@ function boundPowerShell() {
   if (typeof systemRoot !== "string" || !systemRoot || !path.isAbsolute(systemRoot) || isUnc(systemRoot)) {
     return null;
   }
-  return path.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+  const canonical = path.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+  return isFile(canonical) ? canonical : null;
 }
 
-/** The adapter must be the one the installation committed, compared as content. */
-function adapterIsTrusted(installRoot, script) {
-  const committed = readCommitted(installRoot, ADAPTER_REL);
-  if (committed === null) return false;
-  let onDisk;
-  try {
-    onDisk = fs.readFileSync(script, "utf8");
-  } catch {
-    return false;
-  }
-  const strip = (t) => t.split(String.fromCharCode(13)).join("");
-  return strip(onDisk) === strip(committed);
+/**
+ * The adapter is not read from disk at all: the committed text IS what runs.
+ *
+ * VERIFY-THEN-EXECUTE-A-PATH WAS THE SAME RACE, ONE LAYER DOWN. This used to compare the working-tree
+ * `.ps1` against the committed object and then hand PowerShell the PATH — so the bytes verified and
+ * the bytes executed were two different opens of a file an attacker can swap between them, or
+ * redirect with a directory junction and no race at all. The script's own job is to print the
+ * credential, so winning that race yields the key.
+ *
+ * The committed text now goes to PowerShell on STDIN, wrapped in a script block so the file's
+ * `param()` binding still applies. Nothing on disk is consulted, which also disposes of the
+ * line-ending normalisation and the encoding mismatch between how Node read the file and how
+ * PowerShell would have parsed it.
+ */
+function committedAdapter(installRoot) {
+  return readCommitted(installRoot, ADAPTER_REL);
 }
 
 /**
@@ -184,10 +247,9 @@ function withCredential(installRoot, ref, use) {
   const vaultRef = VAULT_REFERENCE[ref];
   if (vaultRef === undefined) return { error: "credential '" + ref + "' is not one this broker holds" };
 
-  const script = path.join(installRoot, ...ADAPTER_REL.split("/"));
-  if (!fs.existsSync(script)) return { error: "the credential adapter is not present in this installation" };
-  if (!adapterIsTrusted(installRoot, script)) {
-    return { error: "the credential adapter does not match the committed bytes of this installation" };
+  const adapter = committedAdapter(installRoot);
+  if (adapter === null) {
+    return { error: "the credential adapter is not committed in this installation, so it is not run" };
   }
   const shell = boundPowerShell();
   if (shell === null) return { error: "no trusted PowerShell executable is bound" };
@@ -199,11 +261,15 @@ function withCredential(installRoot, ref, use) {
     env[k] = v;
   }
 
-  const r = spawnSync(
-    shell,
-    ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script, "-Action", "get", "-Target", vaultRef],
-    { encoding: "utf8", env, cwd: installRoot, windowsHide: true }
-  );
+  // `-Command -` reads the script from stdin. There is no file, so there is nothing to swap, and
+  // `-ExecutionPolicy Bypass` is no longer needed — an execution policy governs files.
+  const r = spawnSync(shell, ["-NoProfile", "-NonInteractive", "-Command", "-"], {
+    input: ["& {", adapter, "} -Action get -Target " + JSON.stringify(vaultRef), ""].join(String.fromCharCode(10)),
+    encoding: "utf8",
+    env,
+    cwd: installRoot,
+    windowsHide: true,
+  });
   if (r.status !== 0) return { error: "the Windows Credential Manager could not be reached" };
   const value = (r.stdout || "").replace(/\r?\n$/, "");
   if (!value) return { error: "no value is stored under this credential reference" };
@@ -228,11 +294,18 @@ process.stdin.on("end", async () => {
     return;
   }
 
-  const installRoot = String(req.installRoot || "");
+  // PINNED BY THE VERIFIER, NEVER SENT. `TRUSTED_INSTALL_ROOT` is prepended to these bytes after they
+  // are proven to be the installation's committed source; without it there is no installation to be
+  // trusted and nothing here may run.
+  const installRoot = typeof TRUSTED_INSTALL_ROOT === "string" ? TRUSTED_INSTALL_ROOT : "";
+  if (!installRoot || !path.isAbsolute(installRoot)) {
+    fail("the transport broker was not pinned to a trusted installation");
+    return;
+  }
   const governedRoot = String(req.governedRoot || "");
   const projectId = String(req.projectId || "");
   const phaseId = String(req.phaseId || "");
-  if (!installRoot || !governedRoot || !projectId || !phaseId) {
+  if (!governedRoot || !projectId || !phaseId) {
     fail("the transport broker was not told which project and phase this call is for");
     return;
   }
@@ -250,6 +323,18 @@ process.stdin.on("end", async () => {
     return;
   }
 
+  // THE BODY MUST BE ABOUT WHAT WAS AUTHORISED.
+  //
+  // Checking the caller's claimed project and phase authorises the SPEND; without this the request
+  // itself could describe a different phase entirely, and the reviewer would answer a question nobody
+  // approved paying for. The system instruction prints these three lines verbatim, so requiring them
+  // binds the question to the authority without this file having to understand the prompt.
+  const body = String(req.body || "");
+  if (!body.includes("project: " + projectId) || !body.includes("phase:   " + phaseId)) {
+    fail("the request body is not about the project and phase this call was authorised for");
+    return;
+  }
+
   const outcome = withCredential(installRoot, String(req.credentialRef || ""), (secret) => ({
     headers: { Authorization: "Bearer " + secret, "Content-Type": "application/json" },
   }));
@@ -259,13 +344,15 @@ process.stdin.on("end", async () => {
   }
 
   const controller = new AbortController();
-  const timeoutMs = typeof req.timeoutMs === "number" && req.timeoutMs > 0 ? req.timeoutMs : 120000;
+  const MAX_TIMEOUT_MS = 300000;
+  const asked = typeof req.timeoutMs === "number" && req.timeoutMs > 0 ? req.timeoutMs : 120000;
+  const timeoutMs = Math.min(asked, MAX_TIMEOUT_MS);
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(OPENAI_RESPONSES_URL, {
       method: "POST",
       headers: outcome.headers,
-      body: String(req.body || ""),
+      body,
       signal: controller.signal,
     });
     const body = await res.text();

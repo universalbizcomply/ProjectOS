@@ -693,6 +693,7 @@ export function reconcileDegradedWork(
   // project is the one that decides, so it is written first and the mirror follows. A failure here
   // leaves the debt standing, which is the direction to fail in.
   const durableWritten = recordReconciliation(sys, input.durable.stateDir, {
+    installRoot: input.durable.installRoot,
     workId: input.workId,
     grantId: input.grantId,
     projectId: input.projectId,

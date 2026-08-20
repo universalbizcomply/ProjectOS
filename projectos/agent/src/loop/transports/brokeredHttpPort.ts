@@ -66,6 +66,38 @@ export function verifiedBrokerSource(sys: System, runtime: ProjectosRuntime): st
   return strip(onDisk) === strip(shown.stdout) ? shown.stdout : null;
 }
 
+/**
+ * What the broker's own children need, and nothing else.
+ *
+ * `NODE_OPTIONS`, `NODE_PATH`, `GIT_*` and the PowerShell module search path are all absent by
+ * omission: an allowlist is the only form of this that stays correct as new variables appear.
+ */
+const PASSED_ENV: readonly string[] = [
+  'SystemRoot',
+  'SYSTEMROOT',
+  'windir',
+  'TEMP',
+  'TMP',
+  'USERPROFILE',
+  'HOMEDRIVE',
+  'HOMEPATH',
+  'PROJECTOS_GIT_EXE',
+  'PROJECTOS_POWERSHELL_EXE',
+];
+
+/**
+ * Pin the trusted installation into the source before running it.
+ *
+ * THE BROKER CANNOT ANCHOR ITSELF. Executed as `node -e`, it has no `__dirname`, and an install root
+ * taken from the request would make its checks circular — a caller could name a repository it
+ * controls, commit a malicious adapter and a matching allowlist into it, and every check would pass
+ * against genuine git. The root is derived here from the running code's own location, which a
+ * governed project cannot move.
+ */
+function pinned(source: string, installRoot: string): string {
+  return `const TRUSTED_INSTALL_ROOT = ${JSON.stringify(installRoot)};\n${source}`;
+}
+
 export function nodeBrokeredTransport(sys: System, runtime: ProjectosRuntime): BrokeredTransport {
   return {
     post(call): HttpResponse {
@@ -82,7 +114,6 @@ export function nodeBrokeredTransport(sys: System, runtime: ProjectosRuntime): B
       // The request travels on stdin, never as an argument: command lines are visible to any process
       // listing on the machine.
       const payload = JSON.stringify({
-        installRoot: runtime.installRoot,
         governedRoot: call.governedRoot,
         projectId: call.projectId,
         phaseId: call.phaseId,
@@ -91,11 +122,26 @@ export function nodeBrokeredTransport(sys: System, runtime: ProjectosRuntime): B
         timeoutMs: call.timeoutMs ?? 120_000,
       });
 
-      const result = spawnSync(process.execPath, ['-e', source], {
+      // AN EXPLICIT ENVIRONMENT AND WORKING DIRECTORY.
+      //
+      // Inheriting them meant the verified bytes ran second: `NODE_OPTIONS=--require ./x.js` preloads
+      // a module into the broker before a single verified byte executes, and a relative path there
+      // resolves against the inherited cwd — the governed checkout. "What was verified is what runs"
+      // is true of the string and was not true of the process. Only what git and PowerShell genuinely
+      // need is passed through, and the working directory is the installation.
+      const env: NodeJS.ProcessEnv = {};
+      for (const name of PASSED_ENV) {
+        const value = process.env[name];
+        if (typeof value === 'string') env[name] = value;
+      }
+
+      const result = spawnSync(process.execPath, ['-e', pinned(source, runtime.installRoot)], {
         input: payload,
         encoding: 'utf8',
         maxBuffer: 32 * 1024 * 1024,
         windowsHide: true,
+        cwd: runtime.installRoot,
+        env,
       });
       if (result.error !== undefined || result.status !== 0) {
         return {
