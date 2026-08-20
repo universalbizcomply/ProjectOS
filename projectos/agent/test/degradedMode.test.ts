@@ -39,7 +39,13 @@ import {
   degradedStoreRelPath,
 } from '../src/loop/degradedMode.js';
 import { degradedGrantRelPath } from '../src/loop/degradedModeGrants.js';
-import { DEGRADED_MODE_SCHEMA_VERSION, DEGRADED_MODE_CHOICE, RECONCILIATION_ASK } from '@projectos/core';
+import {
+  DEGRADED_MODE_SCHEMA_VERSION,
+  DEGRADED_MODE_CHOICE,
+  RECONCILIATION_ASK,
+  GATEKEEPER_UNAVAILABILITY_CAUSES,
+  isGatekeeperUnavailabilityCause,
+} from '@projectos/core';
 
 const PHASE = 'PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A';
 const PROJECT = 'projectos';
@@ -144,7 +150,7 @@ const outageFor = (head: string) =>
     phaseId: PHASE,
     subjectCommit: head,
     stopCode: 'REVIEW_OUTSTANDING',
-    reasons: ['no gatekeeper transport is configured'],
+    cause: 'TRANSPORT_UNAVAILABLE',
   });
 
 const authInput = (head: string, outage: string) => ({
@@ -165,17 +171,16 @@ describe('the outage identity', () => {
   });
 
   it('differs for a different subject, stop or cause — risk accepted for one is not risk for another', () => {
-    const base = { projectId: PROJECT, phaseId: PHASE, subjectCommit: 'a'.repeat(40), stopCode: 'X', reasons: ['r'] };
+    const base = {
+      projectId: PROJECT,
+      phaseId: PHASE,
+      subjectCommit: 'a'.repeat(40),
+      stopCode: 'X',
+      cause: 'CREDENTIAL_UNAVAILABLE' as const,
+    };
     expect(deriveUnavailabilityId({ ...base, subjectCommit: 'b'.repeat(40) })).not.toBe(deriveUnavailabilityId(base));
     expect(deriveUnavailabilityId({ ...base, stopCode: 'Y' })).not.toBe(deriveUnavailabilityId(base));
-    expect(deriveUnavailabilityId({ ...base, reasons: ['other'] })).not.toBe(deriveUnavailabilityId(base));
-  });
-
-  it('does not depend on the order the reasons were collected in', () => {
-    const base = { projectId: PROJECT, phaseId: PHASE, subjectCommit: 'a'.repeat(40), stopCode: 'X' };
-    expect(deriveUnavailabilityId({ ...base, reasons: ['one', 'two'] })).toBe(
-      deriveUnavailabilityId({ ...base, reasons: ['two', 'one'] }),
-    );
+    expect(deriveUnavailabilityId({ ...base, cause: 'PROVIDER_UNAVAILABLE' })).not.toBe(deriveUnavailabilityId(base));
   });
 });
 
@@ -1054,13 +1059,233 @@ describe('ENTRY PROOF F — protected actions are refused before execution', () 
   });
 });
 
-describe('ENTRY PROOF G — no real work in this step', () => {
-  it('this repository holds no degraded grant and no use record', () => {
-    // Asserted against the REAL checkout, not a fixture: nothing in this step created authority.
-    const authority = readdirSync(new URL('../../../.projectops/authority/', import.meta.url));
+
+/* ------------------------------------------------------------------------------------------------
+ * IDENTITY STABILITY — the defect that killed the live degraded proof.
+ *
+ * The outage identity used to be hashed over the human-readable stop reasons, whose first element is
+ * `STOPPED (<code>): <detail>`. That detail carries ordinary check and finding state, so the identity
+ * moved whenever the repository did — and committing the owner's OWN authority wrapper was enough to
+ * move it. The owner approved a grant for GKOUT-4ebaec5e437da56f87bfad61; the next run derived
+ * GKOUT-64da7641b13fd1ab286518e6 and the grant refused itself. Correctly, and uselessly.
+ *
+ * These pin the property that failure needed: an outage identity is a function of WHAT MATERIALLY
+ * HAPPENED, never of how it was described.
+ * --------------------------------------------------------------------------------------------- */
+
+describe('IDENTITY STABILITY — material cause in, prose out', () => {
+  const BASE = {
+    projectId: PROJECT,
+    phaseId: PHASE,
+    subjectCommit: 'a'.repeat(40),
+    stopCode: 'CORRECTION_EXHAUSTED',
+    cause: 'CREDENTIAL_UNAVAILABLE' as const,
+  };
+
+  it('A — the identity survives everything volatile that used to move it', () => {
+    // Every input below CHANGED between the discovery run and the proof run that failed. None of
+    // them can reach the identity now, because none of them is an argument to it any more: the
+    // signature admits a closed cause and nothing else. That is the structural form of the fix —
+    // there is no longer a parameter through which prose could arrive.
+    const id = deriveUnavailabilityId(BASE);
+    expect(id).toBe(deriveUnavailabilityId({ ...BASE }));
+    expect(id).toMatch(/^GKOUT-[0-9a-f]{24}$/);
+
+    // The real pairing from the failure: 5 findings and a green suite, versus a failing check and
+    // 10 findings. Same project, phase, subject, stop and cause — therefore the same outage.
+    const asDiscovered = deriveUnavailabilityId({ ...BASE });
+    const asProved = deriveUnavailabilityId({ ...BASE });
+    expect(asProved).toBe(asDiscovered);
+  });
+
+  it('A2 — the signature admits no prose: reasons/detail are not accepted at all', () => {
+    // A caller that still tries to pass the old shape gets the SAME id, because the extra property
+    // is not read. The volatile input cannot influence the identity even by accident.
+    const withJunk = deriveUnavailabilityId({
+      ...BASE,
+      ...({ reasons: ['STOPPED (CORRECTION_EXHAUSTED): 5 unresolved findings'], detail: 'anything' } as Record<string, unknown>),
+    } as Parameters<typeof deriveUnavailabilityId>[0]);
+    expect(withJunk).toBe(deriveUnavailabilityId(BASE));
+  });
+
+  it('B — a different project is a different outage', () => {
+    expect(deriveUnavailabilityId({ ...BASE, projectId: 'other-project' })).not.toBe(
+      deriveUnavailabilityId(BASE),
+    );
+  });
+
+  it('C — a different phase is a different outage', () => {
+    expect(deriveUnavailabilityId({ ...BASE, phaseId: 'OTHER-PHASE1A' })).not.toBe(
+      deriveUnavailabilityId(BASE),
+    );
+  });
+
+  it('D — a different work subject is a different outage', () => {
+    expect(deriveUnavailabilityId({ ...BASE, subjectCommit: 'b'.repeat(40) })).not.toBe(
+      deriveUnavailabilityId(BASE),
+    );
+  });
+
+  it('E — a different stop is a different outage', () => {
+    // Risk accepted for a defect that resisted correction is not risk accepted for a protected
+    // effect, and the identity keeps them apart.
+    expect(deriveUnavailabilityId({ ...BASE, stopCode: 'PROTECTED_EFFECT' })).not.toBe(
+      deriveUnavailabilityId(BASE),
+    );
+  });
+
+  it('F — every MATERIAL cause is a distinct outage', () => {
+    const ids = GATEKEEPER_UNAVAILABILITY_CAUSES.map((cause) =>
+      deriveUnavailabilityId({ ...BASE, cause }),
+    );
+    expect(new Set(ids).size).toBe(GATEKEEPER_UNAVAILABILITY_CAUSES.length);
+    // Named explicitly, because this is the distinction the old design was reaching for: accepting
+    // the risk of no credential is not accepting the risk of the provider refusing on spend.
+    expect(deriveUnavailabilityId({ ...BASE, cause: 'CREDENTIAL_UNAVAILABLE' })).not.toBe(
+      deriveUnavailabilityId({ ...BASE, cause: 'PROVIDER_SPEND_LIMITED' }),
+    );
+  });
+
+  it('G — rewording a cause cannot move the identity, because wording is not an input', () => {
+    // The turn still renders prose for a person to read; it just no longer decides anything. Two
+    // turns whose reasons differ entirely, on the same material cause, are the same outage.
+    const a = deriveUnavailabilityId({ ...BASE, cause: 'TRANSPORT_UNAVAILABLE' });
+    const b = deriveUnavailabilityId({ ...BASE, cause: 'TRANSPORT_UNAVAILABLE' });
+    expect(a).toBe(b);
+  });
+
+  it('H — the cause vocabulary is closed, so no free text can become an identity', () => {
+    expect(isGatekeeperUnavailabilityCause('CREDENTIAL_UNAVAILABLE')).toBe(true);
+    for (const junk of ['', 'credential_unavailable', 'anything at all', 'STOPPED (X): y']) {
+      expect(isGatekeeperUnavailabilityCause(junk)).toBe(false);
+    }
+    expect(GATEKEEPER_UNAVAILABILITY_CAUSES).toHaveLength(4);
+  });
+});
+
+describe('IDENTITY STABILITY — the authority wrapper does not move the outage', () => {
+  // THE EXACT REGRESSION THE LIVE PROOF EXPOSED, in a real temp repository. Discover an outage at
+  // Hwork, commit a grant-only wrapper naming it, and derive again: the grant commit must not
+  // change the answer, or an owner can never approve a grant that the next run accepts.
+  it('derives the same outage before and after the grant-only commit', () => {
+    const { root, sys, head: work } = repo();
+
+    const cause = 'CREDENTIAL_UNAVAILABLE' as const;
+    const discovered = deriveUnavailabilityId({
+      projectId: PROJECT,
+      phaseId: PHASE,
+      subjectCommit: work,
+      stopCode: 'CORRECTION_EXHAUSTED',
+      cause,
+    });
+
+    // The owner commits a grant naming that outage, and NOTHING else — the wrapper shape.
+    writeGrant(root, grantBody(work, discovered));
+    commitAll(root, 'record one-use degraded owner grant');
+    const grantCommit = execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+    expect(grantCommit).not.toBe(work);
+
+    // The wrapper resolves back to the work it wraps...
+    const wrapper = authorityWrapper(sys, root, PHASE, GRANT_ID);
+    expect(wrapper.kind).toBe('wrapper');
+    const subject = degradedWorkSubject(sys, root, wrapper);
+    expect(subject.subjectCommit).toBe(work);
+
+    // ...and the outage derived against that subject is the SAME one the owner approved.
+    const rederived = deriveUnavailabilityId({
+      projectId: PROJECT,
+      phaseId: PHASE,
+      subjectCommit: subject.subjectCommit as string,
+      stopCode: 'CORRECTION_EXHAUSTED',
+      cause,
+    });
+    expect(rederived).toBe(discovered);
+
+    // And the committed grant is therefore accepted rather than refusing itself.
+    const decision = authoriseDegradedContinuation(sys, root, {
+      ...authInput(work, discovered),
+      unavailabilityId: rederived,
+    });
+    expect(decision.reasons).toEqual([]);
+    expect(decision.authorised).toBe(true);
+  });
+
+  it('hashing the grant commit instead of the work subject would break it — and does not happen', () => {
+    const { root, sys, head: work } = repo();
+    const cause = 'CREDENTIAL_UNAVAILABLE' as const;
+    const at = (subjectCommit: string) =>
+      deriveUnavailabilityId({ projectId: PROJECT, phaseId: PHASE, subjectCommit, stopCode: 'CORRECTION_EXHAUSTED', cause });
+
+    const discovered = at(work);
+    writeGrant(root, grantBody(work, discovered));
+    commitAll(root, 'record one-use degraded owner grant');
+    const grantCommit = execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+
+    // The wrapper commit is a DIFFERENT subject, and binding to it would produce a different
+    // outage — which is precisely the self-invalidation the wrapper model exists to avoid.
+    expect(at(grantCommit)).not.toBe(discovered);
+    const subject = degradedWorkSubject(sys, root, authorityWrapper(sys, root, PHASE, GRANT_ID));
+    expect(subject.subjectCommit).toBe(work);
+    expect(subject.subjectCommit).not.toBe(grantCommit);
+  });
+});
+
+describe('IDENTITY STABILITY — a stale grant still cannot authorise', () => {
+  it('a grant naming a superseded outage is refused, however well-formed', () => {
+    // The historical DEGRADED-LIVE-PROOF1A is exactly this shape: legitimate, owner-signed, and
+    // answering an outage that no longer occurs. Stabilising the identity must not make such a
+    // grant usable — it names a different outage and stays refused.
+    const { root, sys, head } = repo();
+    const cause = 'CREDENTIAL_UNAVAILABLE' as const;
+    const current = deriveUnavailabilityId({ projectId: PROJECT, phaseId: PHASE, subjectCommit: head, stopCode: 'CORRECTION_EXHAUSTED', cause });
+    const superseded = deriveUnavailabilityId({ projectId: PROJECT, phaseId: PHASE, subjectCommit: head, stopCode: 'CORRECTION_EXHAUSTED', cause: 'PROVIDER_UNAVAILABLE' });
+    expect(superseded).not.toBe(current);
+
+    writeGrant(root, grantBody(head, superseded));
+    commitAll(root, 'grant answering a superseded outage');
+
+    const decision = authoriseDegradedContinuation(sys, root, { ...authInput(head, current) });
+    expect(decision.authorised).toBe(false);
+    expect(decision.reasons.join(' ')).toContain('not');
+  });
+});
+
+describe('ENTRY PROOF G — running the suite creates no authority', () => {
+  // WHAT THIS USED TO ASSERT, AND WHY THAT WAS WRONG. It read the REAL ProjectOS checkout and
+  // required `.projectops/authority/` to contain no degraded grant and no use record. That was
+  // honest while no grant had ever existed — but it is an assertion about the state of a working
+  // repository, not about this code, and it becomes FALSE exactly when the system is used as
+  // designed. It did: the owner committed a real one-use grant, this test failed, `agent-tests`
+  // went red, the stop detail changed, and the outage identity moved out from under the grant the
+  // owner had just approved. A test that breaks on correct operation is worse than no test, and
+  // this one took a live proof down with it.
+  //
+  // The useful half is kept and made hermetic: running the suite must not create authority
+  // ANYWHERE, which is a property of the tests and is true regardless of what the repository holds.
+  it('leaves no grant or use record in any temp repository it built', () => {
+    const { root } = repo();
+    const authority = readdirSync(join(root, '.projectops', 'authority'));
     expect(authority.filter((f) => f.includes('degraded-grant'))).toEqual([]);
-    const execution = readdirSync(new URL('../../../.projectops/execution/', import.meta.url));
+    const execution = readdirSync(join(root, '.projectops', 'execution'));
     expect(execution.filter((f) => f.startsWith('degraded-use.'))).toEqual([]);
+  });
+
+  it('writes nothing into the real checkout: every fixture path is under the temp root', () => {
+    // The structural version of the same guarantee. `degradedGrantRelPath` and
+    // `degradedStoreRelPath` are the only two places authority and its use are addressed, and both
+    // are repo-RELATIVE — so a fixture can only ever write beneath the root it was handed.
+    const grantRel = degradedGrantRelPath(PHASE, GRANT_ID);
+    const storeRel = degradedStoreRelPath(GRANT_ID);
+    expect(grantRel).not.toBeNull();
+    expect(storeRel).not.toBeNull();
+    for (const rel of [grantRel, storeRel]) {
+      expect(isAbsolute(String(rel))).toBe(false);
+      expect(String(rel).startsWith('.projectops/')).toBe(true);
+      expect(String(rel).includes('..')).toBe(false);
+    }
+    const { root } = repo();
+    expect(join(root, ...String(grantRel).split('/')).startsWith(root)).toBe(true);
+    expect(join(root, ...String(storeRel).split('/')).startsWith(root)).toBe(true);
   });
 });
 
@@ -1397,7 +1622,7 @@ describe('PATH PROOF — the real caller shape, and the outage route it unblocks
       phaseId: PHASE,
       subjectCommit: head,
       stopCode: 'CORRECTION_EXHAUSTED',
-      reasons: ['the gatekeeper could not be reached'],
+      cause: 'CREDENTIAL_UNAVAILABLE',
     });
     expect(outage).toMatch(/^GKOUT-[0-9a-f]{24}$/);
 

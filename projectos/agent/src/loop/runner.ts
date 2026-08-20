@@ -54,7 +54,11 @@ import {
   type DegradedOutcome,
 } from './degradedMode.js';
 import { authoriseCorrection, pathsNamedIn, within as withinPath } from './correctionBoundary.js';
-import { gateBlockedByReconciliation, type LedgerEntry } from '@projectos/core';
+import {
+  gateBlockedByReconciliation,
+  type GatekeeperUnavailabilityCause,
+  type LedgerEntry,
+} from '@projectos/core';
 import * as store from './session.js';
 import {
   digestOf,
@@ -479,7 +483,7 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
    * fabricate the authority that proves the grant was spent. All this does is supply the inputs and
    * report the structured outcome.
    */
-  const degradedContinuation = (candidate: LoopStop, reasons: readonly string[]): DegradedOutcome => {
+  const degradedContinuation = (candidate: LoopStop, cause: GatekeeperUnavailabilityCause): DegradedOutcome => {
     const cfg = options.degradedMode;
     if (cfg === undefined) return { kind: 'NOT_CONFIGURED' };
 
@@ -522,7 +526,7 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
       phaseId,
       subjectCommit: workSubject,
       stopCode: candidate.code,
-      reasons,
+      cause,
     });
     lines.push(`  degraded mode: outage ${unavailabilityId}`);
 
@@ -621,7 +625,12 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
       // recording ACCEPT RISK is the owner having chosen it, and no grant means this returns null
       // and the run stops at the choice exactly as before. `ownerChoices` is only non-null when the
       // reviewer was genuinely unreachable, so a stop the reviewer DECLINED can never take this path.
-      if (turn.ownerChoices !== null) degradedOutcome = degradedContinuation(candidate, turn.action.reasons);
+      // THE STRUCTURED CAUSE, NOT THE PROSE BESIDE IT. `ownerChoices` is non-null only on the
+      // unavailable path, which is exactly where the turn records a cause — so this is never null
+      // here, and the fallback is a refusal rather than a guess.
+      if (turn.ownerChoices !== null && turn.unavailabilityCause !== null) {
+        degradedOutcome = degradedContinuation(candidate, turn.unavailabilityCause);
+      }
       return null;
     }
     if (turn.action.kind === 'proceed') {

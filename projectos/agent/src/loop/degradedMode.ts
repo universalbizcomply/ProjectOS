@@ -39,6 +39,7 @@ import {
   type DegradedWorkItem,
   type ReconciliationRecord,
   type ReconciliationState,
+  type GatekeeperUnavailabilityCause,
 } from '@projectos/core';
 import { loadDegradedModeGrant, isSafeGrantId, degradedGrantRelPath } from './degradedModeGrants.js';
 
@@ -52,23 +53,37 @@ export const DEGRADED_STORE_SCHEMA_VERSION = '1.0.0';
  * longer answer it, and a resumed run would refuse work the owner had already accepted the risk for.
  * Hashing what the outage IS about makes its identity survive the process that observed it.
  *
- * The stop and the reasons are included deliberately: a reviewer that is unreachable for a different
+ * The stop and the cause are included deliberately: a reviewer that is unreachable for a different
  * stop, or for a different cause, is a different outage, and risk accepted for one is not risk
  * accepted for the other.
+ *
+ * IT USED TO HASH THE REASONS, AND THE LIVE PROOF DIED ON IT. Those reasons begin with
+ * `STOPPED (<code>): <detail>`, and the detail carries ordinary check and finding state. So the
+ * identity moved whenever the repository did — and committing the owner's own authority wrapper was
+ * enough: one test that asserted "this checkout holds no grant" began failing the moment a real
+ * grant existed, `agent-tests` flipped to FAIL, the detail changed, and the outage the owner had
+ * just approved a grant for no longer occurred. The grant refused itself, correctly and uselessly,
+ * because no sequence of reissued grants converges on a target that moves when you aim at it.
+ *
+ * The fix is not to hash less of the truth; it is to hash the part that IS the truth. A material
+ * cause is what an owner accepts risk against. Prose describing it is diagnostic, may be reworded,
+ * and now cannot move the identity — while a genuinely different cause still yields a different
+ * outage, which is the distinction the old design was reaching for and missed.
  */
 export function deriveUnavailabilityId(input: {
   readonly projectId: string;
   readonly phaseId: string;
   readonly subjectCommit: string;
   readonly stopCode: string;
-  readonly reasons: readonly string[];
+  /** The MATERIAL cause. Never prose: see the note above on why this changed. */
+  readonly cause: GatekeeperUnavailabilityCause;
 }): string {
   const canonical = JSON.stringify([
     input.projectId,
     input.phaseId,
     input.subjectCommit,
     input.stopCode,
-    [...input.reasons].sort(),
+    input.cause,
   ]);
   return `GKOUT-${createHash('sha256').update(canonical, 'utf8').digest('hex').slice(0, 24)}`;
 }

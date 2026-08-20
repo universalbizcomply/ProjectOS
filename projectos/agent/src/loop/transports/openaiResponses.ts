@@ -31,6 +31,7 @@ import {
   gatekeeperRequestDigest,
   type GatekeeperRequest,
   type GatekeeperDecisionRecord,
+  type GatekeeperUnavailabilityCause,
 } from '@projectos/core';
 import type { CredentialResolver } from '../credentialResolver.js';
 
@@ -186,6 +187,8 @@ export type TransportOutcome =
     }
   | {
       readonly kind: 'unavailable';
+      /** The MATERIAL cause. An outage identity binds this; it never binds `reasons`. */
+      readonly cause: GatekeeperUnavailabilityCause;
       readonly reasons: readonly string[];
       /** True when the provider itself said the spend limit stopped this, not the network. */
       readonly spendLimited: boolean;
@@ -223,7 +226,12 @@ export function submitToOpenAi(
 ): TransportOutcome {
   const credential = resolver.resolve(config.credentialRef);
   if (!credential.ok) {
-    return { kind: 'unavailable', reasons: credential.reasons, spendLimited: false };
+    return {
+      kind: 'unavailable',
+      cause: 'CREDENTIAL_UNAVAILABLE',
+      reasons: credential.reasons,
+      spendLimited: false,
+    };
   }
 
   const body = buildResponsesBody(request, evidenceText, config);
@@ -244,6 +252,7 @@ export function submitToOpenAi(
   if (response.kind === 'transport-error') {
     return {
       kind: 'unavailable',
+      cause: 'PROVIDER_UNAVAILABLE',
       reasons: [`the gatekeeper transport failed: ${safeExcerpt(response.detail)}`],
       spendLimited: false,
     };
@@ -253,6 +262,9 @@ export function submitToOpenAi(
     const spendLimited = SPEND_LIMIT_CODES.some((code) => response.body.includes(code));
     return {
       kind: 'unavailable',
+      // A budget refusal is not a transient failure, and risk accepted for one is not risk accepted
+      // for the other — so they are different outages, not one outage worded two ways.
+      cause: spendLimited ? 'PROVIDER_SPEND_LIMITED' : 'PROVIDER_UNAVAILABLE',
       spendLimited,
       reasons: [
         `the gatekeeper returned HTTP ${response.status}` +
@@ -274,6 +286,7 @@ export function submitToOpenAi(
   } catch {
     return {
       kind: 'unavailable',
+      cause: 'PROVIDER_UNAVAILABLE',
       reasons: ['the gatekeeper reply was not JSON', safeExcerpt(response.body)],
       spendLimited: false,
     };
@@ -283,6 +296,7 @@ export function submitToOpenAi(
   if (decisionJson === null) {
     return {
       kind: 'unavailable',
+      cause: 'PROVIDER_UNAVAILABLE',
       reasons: [
         'the gatekeeper reply contained no structured decision; a reply that does not satisfy the ' +
           'declared schema is refused rather than interpreted',

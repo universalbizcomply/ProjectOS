@@ -53,6 +53,7 @@ import {
   type ModelPolicy,
   type RateCard,
   type TransportAvailability,
+  type GatekeeperUnavailabilityCause,
 } from '@projectos/core';
 import type { CredentialResolver } from './credentialResolver.js';
 import { applyVerdictToStop, routeStop, type NextLoopAction } from './gatekeeperRouting.js';
@@ -132,6 +133,12 @@ export interface GatekeeperTurnResult {
   readonly ledgerEntry: LedgerEntry | null;
   /** Present when the turn ended in the owner's three-way choice. */
   readonly ownerChoices: readonly string[] | null;
+  /**
+   * Why the gatekeeper could not answer, as a closed value — null whenever it did answer, or
+   * whenever the stop was never the reviewer's to take. This is what a degraded grant's outage
+   * identity binds; the human-readable reasons beside it never are.
+   */
+  readonly unavailabilityCause: GatekeeperUnavailabilityCause | null;
   /** The provider's id for this turn, to be carried into the next one. Null when nothing was sent. */
   readonly providerResponseId: string | null;
 }
@@ -189,6 +196,7 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
       request: null,
       ledgerEntry: null,
       ownerChoices: null,
+      unavailabilityCause: null,
       providerResponseId: null,
     };
   }
@@ -232,6 +240,7 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
         request,
         ledgerEntry: null,
         ownerChoices: null,
+        unavailabilityCause: null,
         providerResponseId: null,
       };
     }
@@ -244,7 +253,7 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
     deps.rehearsalOnly === true ? { rehearsalOnly: true } : {},
   );
   if (selection.outcome === 'UNAVAILABLE') {
-    return unavailable(input, lines, request, selection.reasons);
+    return unavailable(input, lines, request, selection.cause, selection.reasons);
   }
   const transport = selection.transport;
 
@@ -261,6 +270,7 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
       request,
       ledgerEntry: null,
       ownerChoices: null,
+      unavailabilityCause: null,
       providerResponseId: null,
     };
   }
@@ -288,6 +298,7 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
       request,
       ledgerEntry: null,
       ownerChoices: null,
+      unavailabilityCause: null,
       providerResponseId: null,
     };
   }
@@ -310,7 +321,7 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
         );
 
   if (outcome.kind === 'unavailable') {
-    return unavailable(input, lines, request, outcome.reasons);
+    return unavailable(input, lines, request, outcome.cause, outcome.reasons);
   }
 
   const entry = recordCall({
@@ -347,6 +358,7 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
     request,
     ledgerEntry: entry,
     ownerChoices: null,
+    unavailabilityCause: null,
     providerResponseId: outcome.providerResponseId,
   };
 }
@@ -362,6 +374,7 @@ function unavailable(
   input: GatekeeperTurnInput,
   lines: readonly string[],
   request: GatekeeperRequest | null,
+  cause: GatekeeperUnavailabilityCause,
   reasons: readonly string[],
 ): GatekeeperTurnResult {
   return {
@@ -375,6 +388,10 @@ function unavailable(
     request,
     ledgerEntry: null,
     ownerChoices: GATEKEEPER_UNAVAILABLE_OWNER_CHOICES,
+    // THE MATERIAL CAUSE, SEPARATE FROM THE PROSE ABOVE. The reasons are for a person to read and
+    // change freely; this is what an outage identity may bind, and it is the ONLY part of this
+    // result that may.
+    unavailabilityCause: cause,
     providerResponseId: null,
   };
 }

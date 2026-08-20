@@ -97,6 +97,38 @@ export const GATEKEEPER_UNAVAILABLE_OWNER_CHOICES = [
 ] as const;
 export type GatekeeperUnavailableOwnerChoice = (typeof GATEKEEPER_UNAVAILABLE_OWNER_CHOICES)[number];
 
+/**
+ * WHY THE GATEKEEPER COULD NOT ANSWER, as a closed vocabulary rather than prose.
+ *
+ * THE LIVE PROOF FAILED ON THIS. The outage identity a degraded grant answers used to be hashed over
+ * the human-readable stop reasons, and those carry ordinary check and finding state. Committing the
+ * owner's own authority wrapper made one test fail, which changed the stop detail, which changed the
+ * identity — so the grant the owner had just approved named an outage that no longer occurred and
+ * refused itself. Correctly, and uselessly: no sequence of reissued grants converges on a moving
+ * target.
+ *
+ * These are MATERIAL causes, and they stay distinct because risk accepted for one is not risk
+ * accepted for another: an owner who accepts continuing without a reviewer because the credential is
+ * not approved has not thereby accepted continuing because the provider refused on spend. The
+ * wording of any cause may change freely; the identity does not move with it.
+ */
+export const GATEKEEPER_UNAVAILABILITY_CAUSES = [
+  /** No usable route: none configured, not enabled, not owner-approved, or not reachable. */
+  'TRANSPORT_UNAVAILABLE',
+  /** A route exists, but the credential it names could not be resolved. */
+  'CREDENTIAL_UNAVAILABLE',
+  /** The provider itself refused on a spend limit. */
+  'PROVIDER_SPEND_LIMITED',
+  /** The provider was tried and produced no usable decision. */
+  'PROVIDER_UNAVAILABLE',
+] as const;
+
+export type GatekeeperUnavailabilityCause = (typeof GATEKEEPER_UNAVAILABILITY_CAUSES)[number];
+
+export function isGatekeeperUnavailabilityCause(v: unknown): v is GatekeeperUnavailabilityCause {
+  return typeof v === 'string' && (GATEKEEPER_UNAVAILABILITY_CAUSES as readonly string[]).includes(v);
+}
+
 export interface TransportSelected {
   readonly outcome: 'SELECTED';
   readonly transport: GatekeeperTransportDescriptor;
@@ -104,7 +136,9 @@ export interface TransportSelected {
 
 export interface TransportUnavailable {
   readonly outcome: 'UNAVAILABLE';
-  /** Every reason the configured route could not be used. */
+  /** The MATERIAL cause, which an outage identity may bind. Stable across rewording. */
+  readonly cause: GatekeeperUnavailabilityCause;
+  /** Every reason the configured route could not be used. Diagnostic only — never identity. */
   readonly reasons: readonly string[];
   /** The owner's explicit choice set. Never empty, never defaulted for them. */
   readonly ownerChoices: readonly GatekeeperUnavailableOwnerChoice[];
@@ -280,7 +314,12 @@ export function selectGatekeeperTransport(
 
   if (reasons.length > 0) {
     // NO SECOND ATTEMPT IS MADE HERE, BY DESIGN. The owner decides what happens next.
-    return { outcome: 'UNAVAILABLE', reasons, ownerChoices: GATEKEEPER_UNAVAILABLE_OWNER_CHOICES };
+    return {
+      outcome: 'UNAVAILABLE',
+      cause: 'TRANSPORT_UNAVAILABLE',
+      reasons,
+      ownerChoices: GATEKEEPER_UNAVAILABLE_OWNER_CHOICES,
+    };
   }
   return { outcome: 'SELECTED', transport: descriptor as GatekeeperTransportDescriptor };
 }
