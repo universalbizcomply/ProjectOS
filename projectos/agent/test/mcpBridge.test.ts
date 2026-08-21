@@ -294,12 +294,15 @@ describe('what it answers, and what it never says', () => {
 });
 
 describe('it will not listen unless the owner has made it possible', () => {
-  it('refuses to run with no token, because ProjectOS does not mint one', () => {
+  it('refuses to run with no token, and never mints one as a side effect of starting', () => {
+    // A token exists only because the owner asked for one — `projectos mcp token --create` — or
+    // supplied their own. Starting the bridge is not an occasion for creating authority.
     const w = world();
     const config = bridgeListenerConfig(w.sys, w.stateDir, {});
     expect(config.ready).toBe(false);
     expect(config.token).toBeNull();
-    expect(config.problems.join(' ')).toContain('does not create one for you');
+    expect(config.problems.join(' ')).toContain('never mints one as a side effect of starting');
+    expect(config.problems.join(' ')).toContain('projectos mcp token --create');
   });
 
   it('refuses a token too short to be a credential', () => {

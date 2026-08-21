@@ -20,6 +20,7 @@ import { nodeInstallationStateDir, nodeProjectosRuntime } from '../dist/nodeRunt
 import { canonicalRepositoryIdentity } from '../dist/installation/projectAllowlist.js';
 import { handleBridgeRpc } from '../dist/mcp/bridge.js';
 import { bridgeListenerConfig, serveBridge, BRIDGE_BIND_HOST, BRIDGE_PATH } from '../dist/mcp/listener.js';
+import { newOAuthState } from '../dist/mcp/oauth.js';
 import { parseProjectConfig } from '@projectos/core';
 import { configPath } from '../dist/context.js';
 
@@ -71,9 +72,28 @@ const deps = {
   durable: { stateDir, installRoot: nodeProjectosRuntime().installRoot, repository },
 };
 
-const server = await serveBridge(config, (request) => handleBridgeRpc(request, deps));
+// THE OAUTH SURFACE, CO-LOCATED ON THIS ORIGIN ON PURPOSE.
+//
+// OpenAI's own `tunnel-client dev mcp-stub` publishes issuer, authorize and token on the same
+// loopback origin as the MCP endpoint, and the tunnel documentation says OAuth discovery travels the
+// tunnel path so the MCP server can stay private. Same origin is what makes that true: a separate
+// authorization server would be a second thing needing to be reachable, and the docs are explicit
+// that the tunnel does not carry one.
+const oauthState = newOAuthState();
+const oauth = {
+  state: oauthState,
+  issuerFor: (port) => {
+    const origin = `http://${BRIDGE_BIND_HOST}:${port}`;
+    return { issuer: origin, resource: `${origin}${BRIDGE_PATH}` };
+  },
+};
+
+const server = await serveBridge(config, (request) => handleBridgeRpc(request, deps), oauth);
 console.log(`ProjectOS owner bridge listening on ${BRIDGE_BIND_HOST}:${server.port}${BRIDGE_PATH}`);
 console.log(`  project: ${projectId}`);
+// THE ONE PLACE THE PIN IS EVER SHOWN. Printed to this terminal, like the port; never returned over
+// HTTP, never written to a file, never in a record. Approving a connector requires reading it here.
+console.log(`  approval PIN: ${oauthState.pin}   (needed once, to authorise a connector)`);
 console.log('  point the tunnel client at that port. Ctrl+C to stop.');
 
 for (const signal of ['SIGINT', 'SIGTERM']) {

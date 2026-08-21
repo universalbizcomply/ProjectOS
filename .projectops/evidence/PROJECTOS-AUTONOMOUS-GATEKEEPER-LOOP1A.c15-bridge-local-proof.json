@@ -1,0 +1,111 @@
+{
+  "schemaVersion": "1.0.0",
+  "recordId": "PROJECTOS-GATEKEEPER-LOOP1A-C15-BRIDGE-LOCAL-PROOF1A",
+  "projectId": "projectos",
+  "phaseId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+  "kind": "c15-bridge-local-live-proof",
+  "at": "2026-08-21T23:29:00.383Z",
+  "bridge": {
+    "server": "projectos-owner-bridge",
+    "protocol": "2025-06-18",
+    "bind": "127.0.0.1",
+    "path": "/mcp"
+  },
+  "operationsExposed": [
+    "project-state",
+    "active-phase",
+    "pending-gate",
+    "evidence",
+    "worker-status",
+    "cost-status",
+    "stop-work"
+  ],
+  "steps": [
+    {
+      "step": "initialize returns the fixed protocol revision and no instructions to act on",
+      "ok": true,
+      "detail": "status 200"
+    },
+    {
+      "step": "tools/list offers exactly the implemented operations",
+      "ok": true,
+      "detail": "project-state, active-phase, pending-gate, evidence, worker-status, cost-status, stop-work"
+    },
+    {
+      "step": "no tool accepts free text",
+      "ok": true
+    },
+    {
+      "step": "reads ProjectOS current state",
+      "ok": true,
+      "detail": "branch: projectos-post-v3-selfhost-pilot1a"
+    },
+    {
+      "step": "reads phase state",
+      "ok": true,
+      "detail": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A: draft"
+    },
+    {
+      "step": "reads one evidence item",
+      "ok": true,
+      "detail": "reports: 127"
+    },
+    {
+      "step": "reads worker status with no gatekeeper transport involved",
+      "ok": true
+    },
+    {
+      "step": "reads cost status",
+      "ok": true
+    },
+    {
+      "step": "wrong project REFUSED",
+      "ok": true,
+      "detail": "- the bridge is not bound to project 'some-other-project'; it can act only for projectos"
+    },
+    {
+      "step": "unauthorised protected action REFUSED before any effect",
+      "ok": true
+    },
+    {
+      "step": "free text in an argument REFUSED",
+      "ok": true
+    },
+    {
+      "step": "owner impersonation REFUSED",
+      "ok": true
+    },
+    {
+      "step": "unauthenticated caller REFUSED",
+      "ok": true
+    },
+    {
+      "step": "wrong token REFUSED",
+      "ok": true
+    },
+    {
+      "step": "no other surface on the listener",
+      "ok": true
+    },
+    {
+      "step": "no filesystem path in any response",
+      "ok": true
+    },
+    {
+      "step": "no bridge token in any response",
+      "ok": true
+    },
+    {
+      "step": "no port in any MCP response",
+      "ok": true
+    }
+  ],
+  "failures": 0,
+  "tunnel": {
+    "established": false,
+    "note": "NOT PROVEN HERE. Criterion 15 also requires the call to arrive from ChatGPT over the private OpenAI tunnel. Creating that tunnel and connecting the plugin are owner actions; no local test stands in for them, and this record does not claim them."
+  },
+  "secretsExposed": "NONE — the bridge token was read from installation state, used as a header, and never printed or recorded",
+  "publicListener": "NONE — the socket binds 127.0.0.1 only",
+  "addressDisclosure": "DECLARED. The OAuth metadata documents and the WWW-Authenticate challenge publish this bridge loopback host and port to an unauthenticated caller, because OAuth discovery cannot work without saying where the authorization endpoints are. MCP responses themselves carry nothing positional."
+}
