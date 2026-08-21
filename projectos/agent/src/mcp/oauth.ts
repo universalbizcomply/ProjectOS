@@ -56,6 +56,21 @@ const CODE_TTL_MS = 60_000;
 const TOKEN_TTL_MS = 60 * 60_000;
 
 /**
+ * How much entropy the approval PIN carries.
+ *
+ * SIX BYTES, NOT FOUR. It began at four — thirty-two bits — which was defensible: the route is
+ * loopback-only, and a wrong PIN spends the pending request, so every guess costs a fresh
+ * authorization round trip. But it was the weakest primitive in this file by a factor of thousands
+ * while everything around it uses sixteen or thirty-two bytes, and the difference costs one
+ * character. Twelve hex digits is still something a person types once off a terminal.
+ *
+ * WHAT IT IS AND IS NOT PROTECTING. Not a local attacker with the operator's own privileges — that
+ * one reads the bridge token off disk and never comes here. It stands between an authorization
+ * request and a code for anything that can reach loopback but cannot read the operator's files.
+ */
+const PIN_BYTES = 6;
+
+/**
  * How many of each may be held at once.
  *
  * THE AUTHORIZE ROUTE IS UNAUTHENTICATED, BY NECESSITY — a client cannot present a token it has not
@@ -120,7 +135,7 @@ export interface OAuthState {
 }
 
 export function newOAuthState(): OAuthState {
-  return { codes: new Map(), tokens: new Map(), pending: new Map(), pin: randomBytes(4).toString('hex') };
+  return { codes: new Map(), tokens: new Map(), pending: new Map(), pin: randomBytes(PIN_BYTES).toString('hex') };
 }
 
 export interface AuthorizeParams {
