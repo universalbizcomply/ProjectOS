@@ -26,6 +26,8 @@ function fakeGit(responses: Record<string, { code: number; stdout: string }>): {
 } {
   const calls: string[][] = [];
   const sys = {
+    createExclusive: () => true,
+    removeFile: () => true,
     renameFile: () => true,
     exec: (command: string, args: readonly string[]) => {
       calls.push([command, ...args]);

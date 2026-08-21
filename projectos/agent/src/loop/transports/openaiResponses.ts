@@ -249,6 +249,10 @@ export function submitToOpenAi(
       governedRoot: config.broker.governedRoot,
       projectId: config.broker.projectId,
       phaseId: config.broker.phaseId,
+      // FROM THE REQUEST ITSELF, not from the broker configuration: these are what the question IS.
+      subjectCommit: request.subjectCommit,
+      ask: request.ask,
+      requestId: request.requestId,
       credentialRef: config.credentialRef,
       body: buildResponsesBody(request, evidenceText, config),
       ...(config.timeoutMs === undefined ? {} : { timeoutMs: config.timeoutMs }),

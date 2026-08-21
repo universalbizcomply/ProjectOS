@@ -103,6 +103,8 @@ function eligibleCheckout(files: Record<string, string> = {}): System & { writes
         .filter((f) => !f.includes('/')),
     // Healthy git: HEAD is the subject, the tree is clean, the remote is reconciled, and the decision
     // file — when one exists — reads as committed. So nothing below can refuse for a git reason.
+    createExclusive: () => true,
+    removeFile: () => true,
     renameFile: () => true,
     exec: (_cmd: string, args: readonly string[]) => {
       if (args.includes('rev-parse')) return { code: 0, stdout: SUBJECT, stderr: '' };

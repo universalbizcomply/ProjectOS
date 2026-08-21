@@ -41,6 +41,7 @@ import {
   unreadableDegradedStores,
 } from '../src/loop/degradedMode.js';
 import { degradedGrantRelPath } from '../src/loop/degradedModeGrants.js';
+import { settleAsk } from '../src/installation/degradedLedger.js';
 import {
   DEGRADED_MODE_SCHEMA_VERSION,
   DEGRADED_MODE_CHOICE,
@@ -86,6 +87,24 @@ function repo(): { root: string; sys: System; head: string } {
     },
     exists: (p: string) => existsSync(p),
     listDir: (p: string) => (existsSync(p) ? readdirSync(p) : []),
+    createExclusive: (p: string, c: string) => {
+      try {
+        if (existsSync(p)) return false;
+        mkdirSync(join(p, '..'), { recursive: true });
+        writeFileSync(p, c, { flag: 'wx' });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    removeFile: (p: string) => {
+      try {
+        rmSync(p, { force: true });
+        return true;
+      } catch {
+        return false;
+      }
+    },
     renameFile: (from: string, to: string) => {
       try {
         renameSync(from, to);
@@ -144,6 +163,24 @@ function repoReader(root: string): System {
     writeText: (p: string, c: string) => { mkdirSync(join(p, '..'), { recursive: true }); writeFileSync(p, c); },
     exists: (p: string) => existsSync(p),
     listDir: (p: string) => (existsSync(p) ? readdirSync(p) : []),
+    createExclusive: (p: string, c: string) => {
+      try {
+        if (existsSync(p)) return false;
+        mkdirSync(join(p, '..'), { recursive: true });
+        writeFileSync(p, c, { flag: 'wx' });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    removeFile: (p: string) => {
+      try {
+        rmSync(p, { force: true });
+        return true;
+      } catch {
+        return false;
+      }
+    },
     renameFile: (from: string, to: string) => {
       try {
         renameSync(from, to);
@@ -208,6 +245,24 @@ function nodeLikeSystemForRestart(): System {
     },
     exists: (p: string) => existsSync(p),
     listDir: (p: string) => (existsSync(p) ? readdirSync(p) : []),
+    createExclusive: (p: string, c: string) => {
+      try {
+        if (existsSync(p)) return false;
+        mkdirSync(join(p, '..'), { recursive: true });
+        writeFileSync(p, c, { flag: 'wx' });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    removeFile: (p: string) => {
+      try {
+        rmSync(p, { force: true });
+        return true;
+      } catch {
+        return false;
+      }
+    },
     renameFile: (from: string, to: string) => {
       try {
         renameSync(from, to);
@@ -1671,6 +1726,24 @@ describe('PATH PROOF — the real caller shape, and the outage route it unblocks
     };
     const sys = {
       ...(base as unknown as object),
+      createExclusive: (p: string, c: string) => {
+        try {
+          if (existsSync(p)) return false;
+          mkdirSync(join(p, '..'), { recursive: true });
+          writeFileSync(p, c, { flag: 'wx' });
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      removeFile: (p: string) => {
+        try {
+          rmSync(p, { force: true });
+          return true;
+        } catch {
+          return false;
+        }
+      },
       renameFile: (from: string, to: string) => {
       try {
         renameSync(from, to);
@@ -2705,5 +2778,400 @@ describe('whose debts these are is not the project\'s to decide', () => {
 
     const block = reconciliationDebtBlock(sys, root, { projectId: PROJECT, durable: d });
     expect(block.join(String.fromCharCode(10))).toContain('DEGRADED_DEBT_OUTSTANDING');
+  });
+});
+
+/**
+ * §5 and §6 — TWO WAYS THE SINGLE-FILE LEDGER USED TO LOSE A SPEND.
+ *
+ * A lost spend is not a lost file: it is a grant that looks unused, a debt that never existed, and a
+ * gate that opens. One loss came from two writers interleaving over one file; the other from naming
+ * work by counting the project mirror, which is the file the ledger exists to outlive.
+ */
+describe('one writer at a time, and one name per spend', () => {
+  const spendOnce = (max = 2) => {
+    const { root, sys, head } = repo();
+    const outage = outageFor(head);
+    writeGrant(root, grantBody(head, outage, { maxWorkItems: max }));
+    commitAll(root, 'fixture grant');
+    const auth = authoriseDegradedContinuation(sys, root, authInput(head, outage));
+    const consume = (summary: string, system: System = sys) =>
+      consumeDegradedGrant(system, root, {
+        subjectCommit: head,
+        durable: durableBinding(),
+        grant: auth.grant!,
+        unavailabilityId: outage,
+        projectId: PROJECT,
+        phaseId: PHASE,
+        summary,
+        at: '2026-08-19T12:00:00.000Z',
+      });
+    return { root, sys, head, outage, consume };
+  };
+  const lockPath = () => join(durableBinding().stateDir, 'degraded-consumption.lock');
+  const ledgerRows = () => {
+    const raw = readFileSync(join(durableBinding().stateDir, 'degraded-consumption.json'), 'utf8');
+    return (JSON.parse(raw) as { consumptions: Array<Record<string, unknown>> }).consumptions;
+  };
+
+  it('refuses to record while another process holds the ledger', () => {
+    const { consume } = spendOnce();
+    writeFileSync(lockPath(), '{"heldSince":"2026-08-19T11:59:00.000Z"}');
+
+    const blocked = consume('the bounded item');
+
+    expect(blocked.persisted).toBe(false);
+    expect(blocked.problem ?? '').toContain('another ProjectOS process');
+    // AND IT SAYS WHICH FILE. A lock left by a killed run must be clearable by the operator.
+    expect(blocked.problem ?? '').toContain('degraded-consumption.lock');
+    expect(existsSync(join(durableBinding().stateDir, 'degraded-consumption.json'))).toBe(false);
+  });
+
+  it('releases the lock after a successful write, so the next spend is not blocked', () => {
+    const { consume } = spendOnce();
+
+    expect(consume('first').persisted).toBe(true);
+    expect(existsSync(lockPath())).toBe(false);
+    expect(consume('second').persisted).toBe(true);
+    expect(ledgerRows()).toHaveLength(2);
+  });
+
+  it('releases the lock even when the write fails, so one bad run does not wedge the installation', () => {
+    const { sys, consume } = spendOnce();
+    const stuck: System = { ...sys, renameFile: () => false };
+
+    expect(consume('doomed', stuck).persisted).toBe(false);
+    expect(existsSync(lockPath())).toBe(false);
+    expect(consume('recovered').persisted).toBe(true);
+  });
+
+  it('names the second spend from the installation record, not from the deletable mirror', () => {
+    // THE DEFECT: the ordinal was `mirror.workItems.length + 1`. Delete the mirror after the first
+    // spend and the count restarts, so the second spend re-derives the FIRST id — which the ledger
+    // already holds, so the write is refused as a duplicate and a grant with budget left becomes
+    // unusable. The installation's own count does not restart.
+    const { root, consume } = spendOnce(2);
+    const first = consume('first');
+    expect(first.persisted).toBe(true);
+
+    rmSync(join(root, ...(degradedStoreRelPath(GRANT_ID) as string).split('/')), { force: true });
+    const second = consume('second');
+
+    expect(second.persisted).toBe(true);
+    expect(second.workId).not.toBe(first.workId);
+    expect(ledgerRows().map((c) => c['workId'])).toEqual([first.workId, second.workId]);
+  });
+
+  it('records the mirror under the same name the installation allocated', () => {
+    const { root, sys, consume } = spendOnce(2);
+    const first = consume('first');
+    const second = consume('second');
+
+    const mirror = readDegradedStore(sys, root, GRANT_ID);
+    expect(mirror?.workItems.map((w) => w.workId)).toEqual([first.workId, second.workId]);
+  });
+
+  it('refuses to allocate against a ledger it cannot read as this project', () => {
+    // FAIL CLOSED AT THE NAMING STEP TOO, AND FOR THE CASE A PARSE ERROR DOES NOT COVER.
+    //
+    // A truncated file is refused later by the write itself, so it proves nothing about this check.
+    // The case that only this check catches is a ledger that parses perfectly and DISAGREES: it
+    // records spends for this project id under a different repository. "How much of this grant is
+    // already used" then has no answer, and a spend named from no answer is a spend named from a
+    // reset count.
+    const { consume } = spendOnce();
+    const durable = durableBinding();
+    writeFileSync(
+      join(durable.stateDir, 'degraded-consumption.json'),
+      JSON.stringify({
+        schemaVersion: '1.0.0',
+        consumptions: [
+          {
+            schemaVersion: '1.0.0',
+            installRoot: durable.installRoot,
+            projectId: PROJECT,
+            repository: 'github.com/someone-else/ProjectOS',
+            phaseId: PHASE,
+            grantId: GRANT_ID,
+            subjectCommit: '0'.repeat(40),
+            unavailabilityId: 'GKOUT-0000000000000000000000ff',
+            workId: 'GKWORK-000000000000dead',
+            summary: 'recorded elsewhere',
+            consumedAt: '2026-08-19T11:00:00.000Z',
+          },
+        ],
+        reconciliations: [],
+      }),
+    );
+
+    const r = consume('the bounded item');
+
+    expect(r.persisted).toBe(false);
+    expect(r.workId).toBeNull();
+    expect(r.problem ?? '').toContain('someone-else');
+  });
+});
+
+/**
+ * The gate, the discharge and the allocation, each held to what the installation actually knows.
+ */
+describe('the record that decides, in both directions', () => {
+  const ledgerPath = (): string => join(durableBinding().stateDir, 'degraded-consumption.json');
+  const readLedgerFile = (): {
+    consumptions: Array<Record<string, unknown>>;
+    reconciliations: Array<Record<string, unknown>>;
+    asks?: Array<Record<string, unknown>>;
+  } =>
+    JSON.parse(readFileSync(ledgerPath(), 'utf8')) as {
+      consumptions: Array<Record<string, unknown>>;
+      reconciliations: Array<Record<string, unknown>>;
+      asks?: Array<Record<string, unknown>>;
+    };
+  const writeLedgerFile = (next: unknown): void => writeFileSync(ledgerPath(), JSON.stringify(next, null, 2));
+
+  const spendOne = (max = 1) => {
+    const { root, sys, head } = repo();
+    const outage = outageFor(head);
+    writeGrant(root, grantBody(head, outage, { maxWorkItems: max }));
+    commitAll(root, 'fixture grant');
+    const auth = authoriseDegradedContinuation(sys, root, authInput(head, outage));
+    const consumed = consumeDegradedGrant(sys, root, {
+      subjectCommit: head,
+      durable: durableBinding(),
+      grant: auth.grant!,
+      unavailabilityId: outage,
+      projectId: PROJECT,
+      phaseId: PHASE,
+      summary: 'the bounded item',
+      at: '2026-08-19T12:00:00.000Z',
+    });
+    expect(consumed.persisted).toBe(true);
+    return { root, sys, head, outage, workId: consumed.workId as string };
+  };
+
+  /** Discharge durably the way a real reconciliation does: the ask first, then the acceptance. */
+  const dischargeDurably = (workId: string, decisionId = 'GKDEC-fixture0000000000000000') => {
+    const durable = durableBinding();
+    const raw = readLedgerFile();
+    raw.asks = [
+      ...(raw.asks ?? []),
+      {
+        installRoot: durable.installRoot,
+        projectId: PROJECT,
+        repository: durable.repository,
+        grantId: GRANT_ID,
+        workId,
+        requestId: decisionId.replace('GKDEC-', ''),
+        decisionId,
+        verdict: 'APPROVED_TO_PROCEED',
+        at: '2026-08-19T12:30:00.000Z',
+      },
+    ];
+    // The ask is written by the settlement itself, so the fixture only supplies the decision.
+    raw.asks = (raw.asks ?? []).filter((a) => a['workId'] !== workId);
+    writeLedgerFile(raw);
+    return settleAsk(
+      nodeLikeSystemForRestart(),
+      durable.stateDir,
+      {
+        installRoot: durable.installRoot,
+        projectId: PROJECT,
+        repository: durable.repository,
+        grantId: GRANT_ID,
+        workId,
+        requestId: decisionId.replace('GKDEC-', ''),
+        decisionId,
+        verdict: 'APPROVED_TO_PROCEED',
+        at: '2026-08-19T12:30:00.000Z',
+      },
+      {
+        installRoot: durable.installRoot,
+        workId,
+        grantId: GRANT_ID,
+        projectId: PROJECT,
+        repository: durable.repository,
+        decisionId,
+        ask: 'reconcile-degraded-work',
+        at: '2026-08-19T12:31:00.000Z',
+      },
+    );
+  };
+
+  it('does not refuse a gate for work the installation has already discharged', () => {
+    // THE MIRROR MAY LAG THE RECORD THAT DECIDES. A discharge made while the mirror was absent lives
+    // only in the installation ledger; when that mirror comes back — restored, or recreated by a later
+    // spend — its item still reads as outstanding. The gate refused forever, and the remedy it printed
+    // would pay for a real gatekeeper call and then fail, because the ledger already held the
+    // discharge. Every retry cost money and none could succeed.
+    const { root, sys, workId } = spendOne();
+    expect(reconciliationDebtBlock(sys, root, { projectId: PROJECT, durable: durableBinding() })).not.toEqual([]);
+
+    expect(dischargeDurably(workId).persisted).toBe(true);
+
+    // The mirror still lists the work item and still carries no reconciliation of its own.
+    const mirror = readDegradedStore(sys, root, GRANT_ID);
+    expect(mirror?.workItems.map((w) => w.workId)).toEqual([workId]);
+    expect(mirror?.reconciliations).toEqual([]);
+
+    expect(reconciliationDebtBlock(sys, root, { projectId: PROJECT, durable: durableBinding() })).toEqual([]);
+  });
+
+  it('refuses a durable discharge that names a decision no question produced', () => {
+    // The project-side gate corroborates a MIRROR discharge against the project's cost ledger, and
+    // cannot reach a discharge recorded only in the installation. Corroborating durably instead is
+    // both stronger and survives the deletion the durable ledger exists for.
+    const { workId } = spendOne();
+    const durable = durableBinding();
+
+    const written = settleAsk(
+      nodeLikeSystemForRestart(),
+      durable.stateDir,
+      {
+        installRoot: durable.installRoot,
+        projectId: PROJECT,
+        repository: durable.repository,
+        grantId: GRANT_ID,
+        workId,
+        requestId: 'fixture0000000000000000',
+        decisionId: 'GKDEC-fixture0000000000000000',
+        verdict: 'APPROVED_TO_PROCEED',
+        at: '2026-08-19T12:30:00.000Z',
+      },
+      {
+        installRoot: durable.installRoot,
+        workId,
+        grantId: GRANT_ID,
+        projectId: PROJECT,
+        repository: durable.repository,
+        // A decision the question never returned.
+        decisionId: 'GKDEC-invented000000000000000',
+        ask: 'reconcile-degraded-work',
+        at: '2026-08-19T12:31:00.000Z',
+      },
+    );
+
+    expect(written.persisted).toBe(false);
+    expect(written.problem ?? '').toContain('does not name the decision the question returned');
+    expect(readLedgerFile().reconciliations).toEqual([]);
+    // AND THE QUESTION IS NOT RECORDED EITHER: the pair is written together or not at all.
+    expect(readLedgerFile().asks ?? []).toEqual([]);
+  });
+
+  it('reads how much of a grant is spent INSIDE the lock, not before taking it', () => {
+    // TWO RUNS USED TO ALLOCATE THE SAME ID. The count that names the entry was read before the lock,
+    // so both derived ordinal 1, and the loser was told its work item "is already recorded as spent" —
+    // a true sentence about an event that never happened. The competing write is injected at the
+    // moment the lock is taken, which is only visible to a read that happens after it.
+    //
+    // THE RIVAL IS NAMED WITH THE ORDINAL A PRE-LOCK READ WOULD DERIVE. An arbitrary name would not
+    // discriminate: both a locked and an unlocked read would produce a distinct, writable id and the
+    // test would pass either way. Named this way, hoisting the read out of the lock makes this run
+    // collide with the rival and be refused.
+    const { root, sys, head, outage } = spendOne(3);
+    const durable = durableBinding();
+    const auth = authoriseDegradedContinuation(sys, root, authInput(head, outage));
+
+    let injected = false;
+    const racing: System = {
+      ...sys,
+      createExclusive: (p: string, c: string) => {
+        const took = sys.createExclusive(p, c);
+        if (took && !injected && p.includes('degraded-consumption.lock')) {
+          injected = true;
+          const raw = readLedgerFile();
+          const first = raw.consumptions[0] as Record<string, unknown>;
+          raw.consumptions.push({ ...first, workId: deriveWorkId(GRANT_ID, outage, 2) });
+          writeLedgerFile(raw);
+        }
+        return took;
+      },
+    };
+
+    const second = consumeDegradedGrant(racing, root, {
+      subjectCommit: head,
+      durable,
+      grant: auth.grant!,
+      unavailabilityId: outage,
+      projectId: PROJECT,
+      phaseId: PHASE,
+      summary: 'the second item',
+      at: '2026-08-19T12:05:00.000Z',
+    });
+
+    expect(injected).toBe(true);
+    expect(second.persisted).toBe(true);
+    // Three rows: the original, the injected rival, and this one — all distinct, and this one is the
+    // THIRD ordinal, which only a read taken after the injection could have produced.
+    const ids = readLedgerFile().consumptions.map((c) => String(c['workId']));
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(second.workId).toBe(deriveWorkId(GRANT_ID, outage, 3));
+  });
+
+  it('refuses to spend past the owner\'s ceiling, decided by the same locked read', () => {
+    // THE CEILING WAS CHECKED BEFORE THE LOCK, BY THE CALLER. Two concurrent runs both saw room for
+    // the last item of a one-item grant and both spent it: the owner authorised one piece of
+    // unreviewed work and two ran, recorded as legitimate. Worse, `reconcileDegradedWork` refuses to
+    // review a grant whose rows exceed its bound, so BOTH items became permanently undischargeable
+    // and every major gate stayed shut with no remedy. Two independent review lenses found this.
+    const { root, sys, head, outage } = spendOne(2);
+    const auth = authoriseDegradedContinuation(sys, root, authInput(head, outage));
+
+    // A rival run takes the grant's last item at the moment this one acquires the lock.
+    let injected = false;
+    const racing: System = {
+      ...sys,
+      createExclusive: (p: string, c: string) => {
+        const took = sys.createExclusive(p, c);
+        if (took && !injected && p.includes('degraded-consumption.lock')) {
+          injected = true;
+          const raw = readLedgerFile();
+          const first = raw.consumptions[0] as Record<string, unknown>;
+          raw.consumptions.push({ ...first, workId: deriveWorkId(GRANT_ID, outage, 2) });
+          writeLedgerFile(raw);
+        }
+        return took;
+      },
+    };
+
+    const overspend = consumeDegradedGrant(racing, root, {
+      subjectCommit: head,
+      durable: durableBinding(),
+      grant: auth.grant!,
+      unavailabilityId: outage,
+      projectId: PROJECT,
+      phaseId: PHASE,
+      summary: 'one too many',
+      at: '2026-08-19T12:07:00.000Z',
+    });
+
+    expect(injected).toBe(true);
+    expect(overspend.persisted).toBe(false);
+    expect(overspend.workId).toBeNull();
+    expect(overspend.problem ?? '').toContain('is bounded at 2 work item(s)');
+    // Exactly the two the owner authorised, and no third row.
+    expect(readLedgerFile().consumptions).toHaveLength(2);
+  });
+
+  it('says the state directory is unwritable rather than blaming a lock that does not exist', () => {
+    // The contention message tells an operator to delete a stale lock file. On a machine whose real
+    // problem is a permission or a full disk there is no such file, and never will be.
+    const { root, sys, head, outage } = spendOne(2);
+    const auth = authoriseDegradedContinuation(sys, root, authInput(head, outage));
+    const unwritable: System = { ...sys, createExclusive: () => false, exists: (p: string) => (p.endsWith('.lock') ? false : sys.exists(p)) };
+
+    const r = consumeDegradedGrant(unwritable, root, {
+      subjectCommit: head,
+      durable: durableBinding(),
+      grant: auth.grant!,
+      unavailabilityId: outage,
+      projectId: PROJECT,
+      phaseId: PHASE,
+      summary: 'blocked',
+      at: '2026-08-19T12:06:00.000Z',
+    });
+
+    expect(r.persisted).toBe(false);
+    expect(r.problem ?? '').toContain('could not be written');
+    expect(r.problem ?? '').not.toContain('left behind by one that died');
   });
 });

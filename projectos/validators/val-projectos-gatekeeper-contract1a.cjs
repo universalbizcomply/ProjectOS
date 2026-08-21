@@ -84,6 +84,12 @@ const ALLOWED_IMPORTS = [
   "./gatekeeperRouting.js",
   "./transports/openaiResponses.js",
   "../credentialResolver.js",
+  // The trusted credential boundary. It is a gatekeeper TRANSPORT like the one above it — the
+  // difference is that the raw credential is resolved on the trusted side and never returned here —
+  // so it belongs in this list for the same reason `openaiResponses.js` does. Added when the boundary
+  // landed; the list had simply not been told about it, and the suite refused every run until it was.
+  "./transports/brokeredHttpPort.js",
+  "./brokeredHttpPort.js",
 ];
 
 /** Capabilities that would make a "decide only" module able to act. */

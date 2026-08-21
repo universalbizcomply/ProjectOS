@@ -30,6 +30,12 @@
  *
  * NO SECRET IS PRINTED. The credential is resolved by the same scoped resolver the loop uses and is
  * never held by this script.
+
+ * THE CREDENTIAL IS NOT RESOLVED HERE ANY MORE. This script used to build the `Authorization` header
+ * in its own process from a raw key. That path is deleted: the trusted installation broker resolves
+ * the value on its own side and returns an answer, never the value. The resolver handed over refuses
+ * by construction, so there is no in-process value even to leak, and the composition below is exactly
+ * the one `projectos run` and `projectos reconcile` use.
  */
 import { runLoop } from 'file:///c:/dev/ProjectOS/projectos/agent/dist/loop/runner.js';
 import {
@@ -40,7 +46,8 @@ import {
   writePreviousResponseId,
   consumedDecisionIds,
 } from 'file:///c:/dev/ProjectOS/projectos/agent/dist/loop/gatekeeperConfig.js';
-import { windowsVaultResolver } from 'file:///c:/dev/ProjectOS/projectos/agent/dist/loop/windowsVaultResolver.js';
+import { unprovisionedResolver } from 'file:///c:/dev/ProjectOS/projectos/agent/dist/loop/credentialResolver.js';
+import { nodeBrokeredTransport } from 'file:///c:/dev/ProjectOS/projectos/agent/dist/loop/transports/brokeredHttpPort.js';
 import { nodeProjectosRuntime } from 'file:///c:/dev/ProjectOS/projectos/agent/dist/nodeRuntimeRoot.js';
 import { nodeHttpPort } from 'file:///c:/dev/ProjectOS/projectos/agent/dist/loop/transports/nodeHttpPort.js';
 import { takeGatekeeperTurn } from 'file:///c:/dev/ProjectOS/projectos/agent/dist/loop/gatekeeperTurn.js';
@@ -90,7 +97,10 @@ function gatekeeperDeps() {
       transport: gk.config.transport,
       availability: { reachable: true },
       // Installation-scoped adapter; see gatekeeper-live-proof.mjs.
-      resolver: windowsVaultResolver({ sys, runtime: nodeProjectosRuntime(), governedRoot: ROOT, projectId: 'projectos', ownerConfirmation }),
+      resolver: unprovisionedResolver(
+        'the gatekeeper credential is resolved by the trusted installation broker, never here',
+      ),
+      broker: { transport: nodeBrokeredTransport(sys, nodeProjectosRuntime()), governedRoot: ROOT },
       http: nodeHttpPort(),
       modelPolicy: gk.config.modelPolicy,
       rateCards: gk.config.rateCards,

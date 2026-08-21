@@ -93,6 +93,8 @@ function fakeSystem(opts: SysOpts = {}) {
     writeText: () => undefined,
     exists: (p) => present.has(p),
     listDir: () => [],
+    createExclusive: () => true,
+    removeFile: () => true,
     renameFile: () => true,
     exec: (cmd, args) => {
       calls.push({ cmd, args });

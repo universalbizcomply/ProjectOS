@@ -20,6 +20,14 @@
  * gatekeeper. Dressing a technical policy as an owner gate is exactly the laundering this codebase
  * refuses everywhere else.
  *
+ * IDENTITY IS THE PATH AND THE ORIGIN, NOT THE ORIGIN ALONE. `git remote get-url origin` lives in
+ * `.git/config` — inside the project, uncommitted, and rewritable — so a supplied checkout could claim
+ * to be the allowlisted repository simply by saying so. Each entry therefore names the absolute
+ * governed root it authorises as well, the checkout must be an ordinary full checkout rooted exactly
+ * there, and a `.git` FILE (a linked worktree or a submodule-style pointer) is refused: it lets a
+ * directory borrow another repository's history, and this programme does not support credential-bearing
+ * projects in that shape.
+ *
  * COMMITTED, OR IT IS NOTHING. Read from the installation's git object store — a working-tree
  * allowlist has no authority, which is what stops a process that can write the tree from adding
  * itself. Absent, unreadable, dirty or unparseable all refuse.
@@ -64,6 +72,47 @@ export function canonicalRepositoryIdentity(sys: System, root: string): string |
 interface Entry {
   readonly projectId: unknown;
   readonly repository: unknown;
+  /** The absolute path this entry authorises. A checkout elsewhere is a different project. */
+  readonly governedRoot: unknown;
+}
+
+/** Compare paths the way Windows resolves them: separators normalised, case-insensitive, no trailing slash. */
+function samePath(a: string, b: string): boolean {
+  const norm = (p: string): string =>
+    p.split(String.fromCharCode(92)).join('/').replace(/\/+$/, '').toLowerCase();
+  return norm(a) === norm(b);
+}
+
+/**
+ * Is this an ordinary full checkout, rooted exactly here?
+ *
+ * `git` discovery walks UPWARD, so a plain directory inside a clone inherits that clone's identity,
+ * and a `.git` FILE points at another repository's data entirely. Both would let a directory answer
+ * as a repository it is not. `null` when it is one; a reason otherwise.
+ */
+function checkoutShapeProblem(sys: System, root: string): string | null {
+  const toplevel = sys.exec('git', ['-C', root, 'rev-parse', '--show-toplevel']);
+  if (toplevel.code !== 0 || toplevel.stdout.trim() === '') {
+    return 'this directory is not a git checkout, so it cannot be the authorised repository';
+  }
+  if (!samePath(toplevel.stdout.trim(), root)) {
+    return (
+      `this directory is inside the repository at ${toplevel.stdout.trim()} rather than being its root; ` +
+      'a subdirectory inherits its parent repository and is not the project the installation authorised'
+    );
+  }
+  const gitDir = sys.exec('git', ['-C', root, 'rev-parse', '--absolute-git-dir']);
+  if (gitDir.code !== 0 || gitDir.stdout.trim() === '') {
+    return 'this checkout has no readable git directory';
+  }
+  const expected = `${root.split(String.fromCharCode(92)).join('/').replace(/\/+$/, '')}/.git`;
+  if (!samePath(gitDir.stdout.trim(), expected)) {
+    return (
+      'this checkout keeps its git data elsewhere (a linked worktree or a `.git` file); ' +
+      'credential-bearing projects in that shape are not supported and are refused'
+    );
+  }
+  return null;
 }
 
 /**
@@ -130,17 +179,31 @@ export function installationAllowsProject(
   for (const entry of entries) {
     const id = typeof entry.projectId === 'string' ? entry.projectId : '';
     const repo = typeof entry.repository === 'string' ? entry.repository : '';
+    const authorisedRoot = typeof entry.governedRoot === 'string' ? entry.governedRoot : '';
     // NO WILDCARDS, EVER. An allowlist that can say "all" is not an allowlist, and a policy file is
     // exactly where that shortcut would be taken under time pressure.
-    if (id === '*' || repo === '*' || id.includes('*') || repo.includes('*')) {
+    if (id === '*' || repo === '*' || id.includes('*') || repo.includes('*') || authorisedRoot.includes('*')) {
       problems.push('the installation credential allowlist contains a wildcard entry, which it may never do');
       continue;
     }
-    if (id === projectId && repo.toLowerCase() === repository.toLowerCase()) {
-      return problems.length > 0
-        ? refuse(problems, repository)
-        : { allowed: true, reasons: [], repository };
+    if (authorisedRoot === '') {
+      problems.push(`the allowlist entry for '${id}' names no governed root, so it authorises no checkout`);
+      continue;
     }
+    if (id !== projectId || repo.toLowerCase() !== repository.toLowerCase()) continue;
+    if (!samePath(authorisedRoot, governedRoot)) {
+      problems.push(
+        `project '${projectId}' is authorised at ${authorisedRoot}, and this checkout is at ` +
+          `${governedRoot}; a copy elsewhere is a different project however it describes itself`,
+      );
+      continue;
+    }
+    const shape = checkoutShapeProblem(sys, governedRoot);
+    if (shape !== null) {
+      problems.push(shape);
+      continue;
+    }
+    return problems.length > 0 ? refuse(problems, repository) : { allowed: true, reasons: [], repository };
   }
   if (problems.length > 0) return refuse(problems, repository);
 

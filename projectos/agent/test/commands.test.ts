@@ -52,6 +52,16 @@ class FakeSystem implements System {
     }
     return [...out];
   }
+  createExclusive(p: string, content: string): boolean {
+    const k = this.key(p);
+    if (this.files.has(k)) return false;
+    this.files.set(k, content);
+    return true;
+  }
+  removeFile(p: string): boolean {
+    this.files.delete(this.key(p));
+    return true;
+  }
   renameFile(from: string, to: string): boolean {
     const k = this.key(from);
     if (!this.files.has(k)) return false;

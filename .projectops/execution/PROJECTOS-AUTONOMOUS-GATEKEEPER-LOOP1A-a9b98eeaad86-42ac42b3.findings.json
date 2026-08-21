@@ -1,0 +1,120 @@
+{
+  "schemaVersion": "1.0.0",
+  "sessionId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A-a9b98eeaad86-42ac42b3",
+  "projectId": "projectos",
+  "phaseId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+  "subjectCommit": "a9b98eeaad865f1edef972c1b80541dc4de13f2f",
+  "generatedAt": "2026-08-19T17:46:00.000Z",
+  "reviews": [
+    "code-review",
+    "security-review",
+    "correction-review"
+  ],
+  "findings": [
+    {
+      "id": "CR-001",
+      "severity": "MEDIUM",
+      "category": "code-quality",
+      "summary": "unreadableDegradedStores uses plain disk read instead of committed-aware reader; cross-grant sentinel gap for committed-and-deleted records. FIX: degradedMode.ts:196-208, extract grantId from filename, call readDegradedStoreDetailed, treat corrupt as unreadable. BLOCKED: edit permission not granted.",
+      "resolved": false
+    },
+    {
+      "id": "CR-002",
+      "severity": "MEDIUM",
+      "category": "code-quality",
+      "summary": "readCommittedJson in planApproval.ts:809 omits -C root; ambient-cwd-dependent. FIX: add root param, change to sys.exec('git', ['-C', root, 'show', ...]). Update 5 call sites. BLOCKED: edit permission not granted.",
+      "resolved": false
+    },
+    {
+      "id": "CR-003",
+      "severity": "MEDIUM",
+      "category": "code-quality",
+      "summary": "Duplicate contradictory JSDoc for degradedContinuation in runner.ts:452-474. FIX: remove lines 452-461. BLOCKED: edit permission not granted.",
+      "resolved": false
+    },
+    {
+      "id": "CR-004",
+      "severity": "LOW",
+      "category": "code-quality",
+      "summary": "correctionBoundary.ts:185 exports unused CorrectionLedgerEntry. FIX: remove line 185 and LedgerEntry import at line 29. BLOCKED: edit permission not granted.",
+      "resolved": false
+    },
+    {
+      "id": "CR-005",
+      "severity": "LOW",
+      "category": "code-quality",
+      "summary": "ConsumedAuthority brand cast uses 'as unknown as'. Intended escape hatch for unique-symbol branding; sound for design intent.",
+      "resolved": true
+    },
+    {
+      "id": "CR-006",
+      "severity": "LOW",
+      "category": "code-quality",
+      "summary": "planApproval.ts 1,220 lines exceeds 800-line convention. Deferred to dedicated refactoring pass.",
+      "resolved": true
+    },
+    {
+      "id": "CR-007",
+      "severity": "LOW",
+      "category": "code-quality",
+      "summary": "degradedMode.ts declaration order nonlinear. TypeScript handles hoisting; readability only.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-001",
+      "severity": "MEDIUM",
+      "category": "security",
+      "summary": "gatekeeperConfig.ts:228 uses cmd /c move for atomic ledger write. FIX: import renameSync from node:fs, replace sys.exec('cmd',...) with try { renameSync(temporary, path) } catch. BLOCKED: edit permission not granted.",
+      "resolved": false
+    },
+    {
+      "id": "SEC-002",
+      "severity": "MEDIUM",
+      "category": "security",
+      "summary": "pathsNamedIn extension whitelist invisible to grant issuers. FIX: add pathTokensIgnoredByWhitelist companion function. BLOCKED: edit permission not granted.",
+      "resolved": false
+    },
+    {
+      "id": "SEC-003",
+      "severity": "MEDIUM",
+      "category": "security",
+      "summary": "readLedger treats corrupt/absent ledger identically as empty []. FIX: return { kind: absent|corrupt|ok, entries } discriminated union. Callers refuse on corrupt. BLOCKED: edit permission not granted.",
+      "resolved": false
+    },
+    {
+      "id": "SEC-004",
+      "severity": "MEDIUM",
+      "category": "security",
+      "summary": "gatekeeper-thread.json written non-atomically. FIX: write-temp-then-renameSync like ledger. BLOCKED: edit permission not granted.",
+      "resolved": false
+    },
+    {
+      "id": "SEC-005",
+      "severity": "MEDIUM",
+      "category": "security",
+      "summary": "correctionMaximumPaths not wired in run.ts. Plan schema lacks structured field. Requires owner design decision.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-006",
+      "severity": "LOW",
+      "category": "security",
+      "summary": "repositoryRoot hardcoded absolute path in gatekeeper.json. Correct safety measure with poor diagnostic. Operational, not vulnerability.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-007",
+      "severity": "LOW",
+      "category": "security",
+      "summary": "OpenAI store:true required for thread continuity. Owner awareness item, not code change.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-008",
+      "severity": "LOW",
+      "category": "security",
+      "summary": "scrubCredentials already tested by systemEnvScrub.test.ts. nodeSystem.exec:187 calls scrubbedEnv when scrubCredentials=true.",
+      "resolved": true
+    }
+  ]
+}

@@ -39,6 +39,24 @@ function nodeLikeSystem(): System {
     },
     exists: (p: string) => existsSync(p),
     listDir: (p: string) => (existsSync(p) ? readdirSync(p) : []),
+    createExclusive: (p: string, c: string) => {
+      try {
+        if (existsSync(p)) return false;
+        mkdirSync(join(p, '..'), { recursive: true });
+        writeFileSync(p, c, { flag: 'wx' });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    removeFile: (p: string) => {
+      try {
+        rmSync(p, { force: true });
+        return true;
+      } catch {
+        return false;
+      }
+    },
     renameFile: () => true,
     exec: (command: string, args: readonly string[]) => {
       try {
@@ -69,11 +87,20 @@ function repo(originUrl: string | null): string {
 /** An installation whose allowlist is written, and optionally committed. */
 function installation(entries: unknown, opts: { commit?: boolean } = {}): string {
   const root = repo('https://github.com/universalbizcomply/ProjectOS.git');
+  // Entries that name no path get this fixture's own root, so a test that is not about the path
+  // binding does not have to restate it.
+  const withRoot = Array.isArray(entries)
+    ? entries.map((e) =>
+        e !== null && typeof e === 'object' && !('governedRoot' in (e as object))
+          ? { ...(e as Record<string, unknown>), governedRoot: root }
+          : e,
+      )
+    : entries;
   const abs = join(root, ...INSTALLATION_ALLOWLIST_REL.split('/'));
   mkdirSync(join(abs, '..'), { recursive: true });
   writeFileSync(
     abs,
-    `${JSON.stringify({ schemaVersion: '1.0.0', policy: 'installation-project-allowlist', projects: entries }, null, 2)}\n`,
+    `${JSON.stringify({ schemaVersion: '1.0.0', policy: 'installation-project-allowlist', projects: withRoot }, null, 2)}\n`,
   );
   if (opts.commit !== false) {
     execFileSync('git', ['-C', root, 'add', '--', INSTALLATION_ALLOWLIST_REL], { encoding: 'utf8' });
@@ -152,6 +179,7 @@ describe('an installation spends its credential only on projects it named', () =
     const d = installationAllowsProject(nodeLikeSystem(), runtimeAt(install), external, 'someone-elses-project');
     expect(d.allowed).toBe(false);
     expect(d.reasons.join(' ')).toContain('does not authorise');
+    expect(d.repository).toBe('github.com/someone/else');
   });
 
   it('refuses the right project id at the wrong repository', () => {
@@ -212,5 +240,67 @@ describe('an installation spends its credential only on projects it named', () =
     const d = installationAllowsProject(nodeLikeSystem(), runtimeAt(install), install, PROJECT);
     expect(d.allowed).toBe(false);
     expect(d.reasons.join(' ')).toContain('schemaVersion');
+  });
+});
+
+describe('identity is the authorised path, not the origin a project claims', () => {
+  it('refuses the same origin in a DIFFERENT checkout', () => {
+    // A copy of the repository, or an attacker-supplied directory whose `.git/config` says the right
+    // thing. Origin alone is a claim; the path is the installation's own statement.
+    const install = installation([{ projectId: PROJECT, repository: REPO }]);
+    const impostor = repo('https://github.com/universalbizcomply/ProjectOS.git');
+
+    const d = installationAllowsProject(nodeLikeSystem(), runtimeAt(install), impostor, PROJECT);
+    expect(d.allowed).toBe(false);
+    expect(d.reasons.join(' ')).toContain('a copy elsewhere is a different project');
+  });
+
+  it('refuses a subdirectory that inherits its parent repository', () => {
+    const install = installation([{ projectId: PROJECT, repository: REPO }]);
+    // The entry authorises a path INSIDE the installation; git discovery would walk up to the
+    // installation and answer with its identity.
+    const nested = join(install, 'nested-project');
+    mkdirSync(nested, { recursive: true });
+    const abs = join(install, ...INSTALLATION_ALLOWLIST_REL.split('/'));
+    const policy = JSON.parse(readFileSync(abs, 'utf8')) as Record<string, unknown>;
+    (policy['projects'] as Array<Record<string, unknown>>)[0]!['governedRoot'] = nested;
+    writeFileSync(abs, JSON.stringify(policy, null, 2));
+    execFileSync('git', ['-C', install, 'add', '-A'], { encoding: 'utf8' });
+    execFileSync('git', ['-C', install, 'commit', '-q', '-m', 'authorise the nested path'], { encoding: 'utf8' });
+
+    const d = installationAllowsProject(nodeLikeSystem(), runtimeAt(install), nested, PROJECT);
+    expect(d.allowed).toBe(false);
+    expect(d.reasons.join(' ')).toContain('rather than being its root');
+  });
+
+  it('refuses a checkout whose git data lives elsewhere (a `.git` file)', () => {
+    const install = installation([{ projectId: PROJECT, repository: REPO }]);
+    const linked = mkdtempSync(join(tmpdir(), 'projectos-linked-'));
+    roots.push(linked);
+    // A `.git` FILE pointing at another repository's data: the directory borrows an identity.
+    writeFileSync(join(linked, '.git'), `gitdir: ${join(install, '.git')}\n`);
+    const abs = join(install, ...INSTALLATION_ALLOWLIST_REL.split('/'));
+    const policy = JSON.parse(readFileSync(abs, 'utf8')) as Record<string, unknown>;
+    (policy['projects'] as Array<Record<string, unknown>>)[0]!['governedRoot'] = linked;
+    writeFileSync(abs, JSON.stringify(policy, null, 2));
+    execFileSync('git', ['-C', install, 'add', '-A'], { encoding: 'utf8' });
+    execFileSync('git', ['-C', install, 'commit', '-q', '-m', 'authorise the linked path'], { encoding: 'utf8' });
+
+    const d = installationAllowsProject(nodeLikeSystem(), runtimeAt(install), linked, PROJECT);
+    expect(d.allowed).toBe(false);
+  });
+
+  it('refuses an entry that names no path at all', () => {
+    const install = installation([{ projectId: PROJECT, repository: REPO, governedRoot: '' }]);
+    const d = installationAllowsProject(nodeLikeSystem(), runtimeAt(install), install, PROJECT);
+    expect(d.allowed).toBe(false);
+    expect(d.reasons.join(' ')).toContain('names no governed root');
+  });
+
+  it('refuses a wildcard in the path', () => {
+    const install = installation([{ projectId: PROJECT, repository: REPO, governedRoot: 'C:/dev/*' }]);
+    const d = installationAllowsProject(nodeLikeSystem(), runtimeAt(install), install, PROJECT);
+    expect(d.allowed).toBe(false);
+    expect(d.reasons.join(' ')).toContain('wildcard');
   });
 });

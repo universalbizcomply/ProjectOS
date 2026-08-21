@@ -18,6 +18,13 @@ import { join } from 'node:path';
 import type { System } from '../../system.js';
 import type { ProjectosRuntime } from '../../nodeRuntimeRoot.js';
 import type { HttpResponse } from './openaiResponses.js';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import { resolveBoundGit } from '../../system.js';
+import { nodeInstallationStateDir } from '../../nodeRuntimeRoot.js';
+
+const sha256 = (text: string): string => createHash('sha256').update(text, 'utf8').digest('hex');
 
 /** Where the trusted broker lives, relative to the installation root. */
 export const TRANSPORT_BROKER_REL = 'projectos/security/gatekeeper-transport-broker.cjs';
@@ -26,6 +33,16 @@ export interface BrokeredCall {
   readonly governedRoot: string;
   readonly projectId: string;
   readonly phaseId: string;
+  /**
+   * The rest of what this call is bound to, declared SEPARATELY from the body.
+   *
+   * The trusted side compares these against the fields it reads out of the body at their own
+   * positions. Declaring them apart from the payload is what makes that a comparison rather than a
+   * search: the caller has to say what it claims the call is for, and then be held to it.
+   */
+  readonly subjectCommit: string;
+  readonly ask: string;
+  readonly requestId: string;
   readonly credentialRef: string;
   readonly body: string;
   readonly timeoutMs?: number;
@@ -94,8 +111,29 @@ const PASSED_ENV: readonly string[] = [
  * against genuine git. The root is derived here from the running code's own location, which a
  * governed project cannot move.
  */
-function pinned(source: string, installRoot: string): string {
-  return `const TRUSTED_INSTALL_ROOT = ${JSON.stringify(installRoot)};\n${source}`;
+/**
+ * The facts the trusted side must not take from anybody, written into the source it runs.
+ *
+ * THE SOURCE WAS ALREADY UNSWAPPABLE; THE REQUEST WAS NOT. It travels as a file so that the program
+ * can travel as bytes, and nothing bound the bytes read to the bytes written — so a second process
+ * running as the same user could rewrite the file between the two, keep every label the binding
+ * checks, and replace the question. The resulting decision would then be stamped with the LOCAL
+ * request's project, phase and subject, which is exactly the design that stops a model lying about
+ * what it answered — and which makes a swapped question indistinguishable from a real one. The digest
+ * closes that: the request that runs is the request that was written.
+ *
+ * AND THE LEDGER'S LOCATION IS NOT A VARIABLE. The broker read `LOCALAPPDATA` out of its own
+ * environment to find what it had already spent, and "I cannot find what was spent" answered
+ * "nothing" — so one assignment pointed the ceiling and the replay guard at an empty directory. It is
+ * pinned here for the same reason the install root is.
+ */
+function pinned(source: string, installRoot: string, requestSha256: string, stateDir: string): string {
+  return [
+    `const TRUSTED_INSTALL_ROOT = ${JSON.stringify(installRoot)};`,
+    `const TRUSTED_REQUEST_SHA256 = ${JSON.stringify(requestSha256)};`,
+    `const TRUSTED_STATE_DIR = ${JSON.stringify(stateDir)};`,
+    source,
+  ].join('\n');
 }
 
 export function nodeBrokeredTransport(sys: System, runtime: ProjectosRuntime): BrokeredTransport {
@@ -117,6 +155,9 @@ export function nodeBrokeredTransport(sys: System, runtime: ProjectosRuntime): B
         governedRoot: call.governedRoot,
         projectId: call.projectId,
         phaseId: call.phaseId,
+        subjectCommit: call.subjectCommit,
+        ask: call.ask,
+        requestId: call.requestId,
         credentialRef: call.credentialRef,
         body: call.body,
         timeoutMs: call.timeoutMs ?? 120_000,
@@ -134,15 +175,45 @@ export function nodeBrokeredTransport(sys: System, runtime: ProjectosRuntime): B
         const value = process.env[name];
         if (typeof value === 'string') env[name] = value;
       }
+      // THE TRUSTED SIDE NEEDS A GIT, AND NOTHING WAS GIVING IT ONE.
+      //
+      // The broker accepts only an absolute, validated `PROJECTOS_GIT_EXE` — it deliberately does not
+      // search PATH — and no composition ever set it. So `boundGit()` returned null, every committed
+      // read came back empty, and the broker refused every call with "this installation commits no
+      // usable credential allowlist" whatever the policy actually said. The whole trusted path was
+      // unreachable. The agent already resolves a git it has checked (absolute, non-UNC, correctly
+      // named, a real file, and outside the governed checkout); that is the one the child gets.
+      if (env['PROJECTOS_GIT_EXE'] === undefined) {
+        const bound = resolveBoundGit();
+        if (bound !== null) env['PROJECTOS_GIT_EXE'] = bound;
+      }
 
-      const result = spawnSync(process.execPath, ['-e', pinned(source, runtime.installRoot)], {
-        input: payload,
-        encoding: 'utf8',
-        maxBuffer: 32 * 1024 * 1024,
-        windowsHide: true,
-        cwd: runtime.installRoot,
-        env,
-      });
+      // THE SOURCE GOES AS BYTES, THE REQUEST GOES AS A FILE.
+      //
+      // `node -e <source>` put the whole verified program on a command line, and a Windows command
+      // line ends at 32,767 characters. The broker crossed that, so the child was killed before
+      // running: no stdout, no stderr, status null, and a generic "process failed" for every call. The
+      // source now arrives on stdin, still as the exact verified bytes and still never as a path;
+      // what is written to disk is the caller's own request, which was untrusted to begin with.
+      // WHERE THE INSTALLATION COUNTS WHAT IT SPENDS. Resolved here, on the side that knows, and
+      // pinned into the source — never forwarded as a variable the child then trusts.
+      const stateDir = nodeInstallationStateDir();
+      const scratch = mkdtempSync(join(tmpdir(), 'projectos-broker-'));
+      const requestFile = join(scratch, 'request.json');
+      let result;
+      try {
+        writeFileSync(requestFile, payload, 'utf8');
+        result = spawnSync(process.execPath, ['-'], {
+          input: pinned(source, runtime.installRoot, sha256(payload), stateDir ?? ''),
+          encoding: 'utf8',
+          maxBuffer: 32 * 1024 * 1024,
+          windowsHide: true,
+          cwd: runtime.installRoot,
+          env: { ...env, PROJECTOS_BROKER_REQUEST: requestFile },
+        });
+      } finally {
+        rmSync(scratch, { recursive: true, force: true });
+      }
       if (result.error !== undefined || result.status !== 0) {
         return {
           kind: 'transport-error',

@@ -1,0 +1,113 @@
+{
+  "schemaVersion": "1.0.0",
+  "briefId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A@67d5ab67f6927540554e57cdb71dd3e515fc123d",
+  "generatedAt": "2026-08-19T21:34:00.000Z",
+  "reviews": ["code-review", "security-review"],
+  "findings": [
+    {
+      "id": "CR-001",
+      "severity": "HIGH",
+      "category": "code-quality",
+      "summary": "unreadableDegradedStores reads from working tree via sys.readText instead of readDegradedStoreDetailed, bypassing the committed-tree precedence rule documented in the module header; fails closed but inconsistent with the design contract",
+      "resolved": false
+    },
+    {
+      "id": "CR-002",
+      "severity": "HIGH",
+      "category": "code-quality",
+      "summary": "Duplicate stale JSDoc block on degradedContinuation in runner.ts (lines 458-463) contradicts the current design and could mislead a future reader of security-critical ordering logic",
+      "resolved": false
+    },
+    {
+      "id": "CR-003",
+      "severity": "MEDIUM",
+      "category": "code-quality",
+      "summary": "readCommittedGrant uses HEAD:<rel> instead of HEAD:./<rel>, missing the fix already applied in committedGovernanceOwner for the same repo-relative resolution issue",
+      "resolved": false
+    },
+    {
+      "id": "CR-004",
+      "severity": "MEDIUM",
+      "category": "code-quality",
+      "summary": "parseStore casts workItems array elements without validating element shape; a torn write with a partial element would produce undefined workId, reducing visible work count",
+      "resolved": false
+    },
+    {
+      "id": "CR-005",
+      "severity": "MEDIUM",
+      "category": "code-quality",
+      "summary": "nonNegative in gatekeeperCostLedger.ts uses n > 0 guard but name implies >= 0; cosmetic formatMicroUsd output is misleading for zero-cost entries",
+      "resolved": false
+    },
+    {
+      "id": "CR-006",
+      "severity": "LOW",
+      "category": "code-quality",
+      "summary": "runner.ts at 873 lines exceeds 800-line file size guideline",
+      "resolved": false
+    },
+    {
+      "id": "CR-007",
+      "severity": "LOW",
+      "category": "code-quality",
+      "summary": "degradedMode.ts at 903 lines exceeds 800-line file size guideline",
+      "resolved": false
+    },
+    {
+      "id": "SEC-001",
+      "severity": "HIGH",
+      "category": "credential-gate-bypass",
+      "summary": "gatekeeper-live-proof.mjs hardcodes ownerConfirmation: true without consulting a committed secrets-handling gate receipt, bypassing the credential gate that criterion10-live-proof.mjs correctly enforces",
+      "resolved": false
+    },
+    {
+      "id": "SEC-002",
+      "severity": "MEDIUM",
+      "category": "prompt-injection",
+      "summary": "safeEcho bidi-strip regex uses character-range literal rather than explicit Unicode escapes, fragile to editor normalisation; functionally correct as committed",
+      "resolved": true
+    },
+    {
+      "id": "SEC-003",
+      "severity": "MEDIUM",
+      "category": "degraded-mode-safety",
+      "summary": "readDegradedStore returns null for both absent and corrupt stores, collapsing a distinction the design marks CRITICAL; production path is protected by unreadableDegradedStores check",
+      "resolved": true
+    },
+    {
+      "id": "SEC-004",
+      "severity": "MEDIUM",
+      "category": "cross-project-isolation",
+      "summary": "isolationProblems is a pure function; thread isolation depends entirely on callers providing the complete binding set — no runtime enforcement that the set is complete",
+      "resolved": false
+    },
+    {
+      "id": "SEC-005",
+      "severity": "MEDIUM",
+      "category": "subject-drift",
+      "summary": "repoRelativeGitPath does not refuse fnmatch metacharacters in plan paths; documented as accepted risk since only reachable if attacker can commit",
+      "resolved": true
+    },
+    {
+      "id": "SEC-006",
+      "severity": "LOW",
+      "category": "self-approval",
+      "summary": "isImplementerName does not block Anthropic model-tier names (sonnet, opus, haiku); expectedDecider mismatch catch is the primary guard so gap is narrow",
+      "resolved": false
+    },
+    {
+      "id": "SEC-007",
+      "severity": "LOW",
+      "category": "cost-runaway",
+      "summary": "summariseLedger does not validate scope.month format; empty string would inflate monthly total, but failure direction is over-reporting (safe)",
+      "resolved": false
+    },
+    {
+      "id": "SEC-008",
+      "severity": "LOW",
+      "category": "credential-leakage",
+      "summary": "SECRET_SHAPE heuristic does not cover all vendor key formats; structural credentialRef control is the enforced boundary",
+      "resolved": true
+    }
+  ]
+}

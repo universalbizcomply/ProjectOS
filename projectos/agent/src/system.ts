@@ -6,7 +6,7 @@
  * command logic depends on this interface (never on node builtins directly), the commands
  * stay pure and deterministic.
  */
-import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync, renameSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, delimiter, dirname, isAbsolute, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
@@ -61,6 +61,17 @@ export interface System {
    * ONLY candidate. Never throws; the caller decides what a failed move means.
    */
   renameFile(from: string, to: string): boolean;
+  /**
+   * Create a file ONLY if it does not exist. `true` if this call created it.
+   *
+   * This is the whole locking primitive. `exists()` then `writeText()` is not one — two processes both
+   * see "absent" and both proceed — whereas create-if-absent is decided by the filesystem in a single
+   * operation, so exactly one caller can win. Used to serialise read-modify-write over the installation
+   * ledger, where a lost update means a spent grant looks unused. Never throws.
+   */
+  createExclusive(path: string, content: string): boolean;
+  /** Delete a file. `true` if it is gone afterwards, including when it was never there. Never throws. */
+  removeFile(path: string): boolean;
   /** Run a command, capturing output. Never throws; non-zero code is returned. */
   exec(cmd: string, args: readonly string[], options?: ExecOptions): ExecResult;
 }
@@ -235,6 +246,23 @@ export function resetProcessRootForTest(): void {
 }
 
 /** The real Node-backed System used at runtime. */
+/**
+ * The only environment a `git` child gets.
+ *
+ * An allowlist, not a denylist: git reads a long and growing list of `GIT_*` variables, and a
+ * denylist is a promise to have thought of all of them. What remains is what a local git needs to
+ * find Windows itself and a temporary directory — no `PATH` (the executable is absolute), and nothing
+ * that names a repository, a config file or an object store.
+ */
+function minimalGitEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const kept: NodeJS.ProcessEnv = {};
+  for (const name of ['SystemRoot', 'windir', 'TEMP', 'TMP', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH']) {
+    const value = env[name];
+    if (typeof value === 'string') kept[name] = value;
+  }
+  return kept;
+}
+
 export const nodeSystem: System = {
   cwd() {
     if (processRoot === null) {
@@ -277,6 +305,26 @@ export const nodeSystem: System = {
       return false;
     }
   },
+  createExclusive(path, content) {
+    try {
+      mkdirSync(dirname(path), { recursive: true });
+      // 'wx' — create, and FAIL if it already exists. The exclusivity is the filesystem's, not ours.
+      writeFileSync(path, content, { encoding: 'utf8', flag: 'wx' });
+      return true;
+    } catch {
+      return false;
+    }
+  },
+  removeFile(path) {
+    try {
+      rmSync(path, { force: true });
+      // CHECKED, NOT ASSUMED. `rmSync` not throwing is not the same as the file being gone — a handle
+      // held open elsewhere can leave it behind — and this is how a lock is released.
+      return !existsSync(path);
+    } catch {
+      return false;
+    }
+  },
   exec(cmd, args, options) {
     // NORMALISED BEFORE MATCHING. The binding used to key on the exact strings 'git' and
     // 'powershell', so `sys.exec('git.exe', …)` — the more natural spelling on Windows, and the one
@@ -306,11 +354,26 @@ export const nodeSystem: System = {
       }
       executable = bound;
     }
+    // GIT IS THE ORACLE, SO ITS ENVIRONMENT IS NOT THE AMBIENT ONE.
+    //
+    // Every `git` call this runtime makes asks a question about a repository — is this path committed,
+    // is it unmodified, what are its bytes, what is its origin — and `GIT_DIR`,
+    // `GIT_OBJECT_DIRECTORY`, `GIT_ALTERNATE_OBJECT_DIRECTORIES` and `GIT_CONFIG_*` all redirect which
+    // repository answers, with a genuine binary and no race. The trusted broker built a minimal
+    // environment for exactly this reason; the agent-side verifier that decides WHICH BYTES BECOME
+    // that broker did not, so the whole trusted side could be chosen by an environment variable.
+    // Found by the second adversarial review, 2026-08-21.
+    const env =
+      bare === 'git'
+        ? minimalGitEnv(process.env)
+        : options?.scrubCredentials === true
+          ? scrubbedEnv(process.env)
+          : undefined;
     const r = spawnSync(executable, [...args], {
       encoding: 'utf8',
       shell: false,
       ...(options?.cwd === undefined ? {} : { cwd: options.cwd }),
-      ...(options?.scrubCredentials === true ? { env: scrubbedEnv(process.env) } : {}),
+      ...(env === undefined ? {} : { env }),
     });
     return {
       code: r.status ?? 1,

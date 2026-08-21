@@ -45,6 +45,7 @@
 const { spawnSync } = require("child_process");
 const path = require("path");
 const fs = require("fs");
+const crypto = require("crypto");
 
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 const ALLOWLIST_REL = "projectos/security/installation-project-allowlist.json";
@@ -90,7 +91,36 @@ function isFile(p) {
  * PATH IS NOT SEARCHED. The untrusted side may reasonably look for an operator's git; the trusted side
  * takes the one it was given or refuses.
  */
-function boundGit() {
+/** Is `child` at or inside `parent`? Compared the way `samePath` compares, prefix-wise. */
+function isInside(parent, child) {
+  const norm = (p) => p.split(String.fromCharCode(92)).join("/").replace(/\/+$/, "").toLowerCase();
+  const a = norm(parent);
+  const b = norm(child);
+  return b === a || b.startsWith(a + "/");
+}
+
+/**
+ * The git this side will use, and where it may not come from.
+ *
+ * GIT IS THE ORACLE FOR EVERY OTHER CLAIM HERE — whether the allowlist is committed, whether the
+ * owner's receipt is committed, what the origin says, what shape the checkout is, and which bytes the
+ * credential adapter really is. A caller who chooses the binary chooses all of those answers. The
+ * agent side already refuses a bound path inside the governed checkout and says why; this side, which
+ * is the one that actually decides, did not — so `PROJECTOS_GIT_EXE=<governed>\tools\git.exe`, an
+ * ordinary working-tree file, forged every authority question at once and then had its forged
+ * "committed" adapter text executed by real PowerShell. Found by the second adversarial review.
+ */
+/**
+ * The governed checkout this request is about, pinned once when the request is parsed.
+ *
+ * A MODULE-LEVEL PIN, NOT A PARAMETER PASSED DOWN. `git()` is asked about two different roots — the
+ * installation's and the project's — so an exclusion derived from whichever root a given call happens
+ * to name would leave the other one open. There is exactly one governed root per invocation of this
+ * process, and this is it.
+ */
+let GOVERNED_ROOT = null;
+
+function boundGit(governedRoot) {
   const bound = process.env.PROJECTOS_GIT_EXE;
   if (
     typeof bound === "string" &&
@@ -98,7 +128,9 @@ function boundGit() {
     path.isAbsolute(bound) &&
     !isUnc(bound) &&
     GIT_BASENAME.test(path.basename(bound)) &&
-    isFile(bound)
+    isFile(bound) &&
+    !isInside(TRUSTED_INSTALL_ROOT, bound) &&
+    !(typeof governedRoot === "string" && governedRoot && isInside(governedRoot, bound))
   ) {
     return bound;
   }
@@ -114,7 +146,7 @@ function boundGit() {
  * in.
  */
 function git(root, args) {
-  const exe = boundGit();
+  const exe = boundGit(GOVERNED_ROOT ?? root);
   if (exe === null) return { code: 127, stdout: "", stderr: "no trusted git executable is bound" };
   const env = {};
   for (const name of ["SystemRoot", "windir", "TEMP", "TMP", "USERPROFILE", "HOMEDRIVE", "HOMEPATH"]) {
@@ -151,6 +183,341 @@ function canonicalRepository(root) {
   return m[1].toLowerCase() + "/" + m[2] + "/" + m[3];
 }
 
+/**
+ * The path the filesystem actually means, or `null` if it will not say.
+ *
+ * A JUNCTION OR SYMLINK IS NOT A SPELLING DIFFERENCE. `samePath` normalises separators and case, which
+ * settles `C:\dev\ProjectOS` against `c:/dev/projectos/` and nothing harder. A directory junction at
+ * the authorised path resolves somewhere else entirely while spelling identically, so a comparison of
+ * strings agrees and a comparison of identities does not. The credential-bearing root is compared by
+ * identity. `.native` because on Windows it returns the true cased path from the filesystem rather
+ * than a reconstruction.
+ */
+function realPath(p) {
+  try {
+    return fs.realpathSync.native(p);
+  } catch {
+    return null;
+  }
+}
+
+/** Both paths resolved, then compared. `false` if either will not resolve — absent is not equal. */
+function sameRealPath(a, b) {
+  const ra = realPath(a);
+  const rb = realPath(b);
+  if (ra === null || rb === null) return false;
+  return samePath(ra, rb);
+}
+
+function samePath(a, b) {
+  const norm = (p) => p.split(String.fromCharCode(92)).join("/").replace(/\/+$/, "").toLowerCase();
+  return norm(a) === norm(b);
+}
+
+/**
+ * An ordinary full checkout, rooted exactly here — or a reason why not.
+ *
+ * Git discovery walks upward, so a directory inside a clone inherits that clone's identity; and a
+ * `.git` FILE points at another repository's data, which would let a directory answer as a repository
+ * it is not. Credential-bearing projects in either shape are refused.
+ */
+function checkoutShapeProblem(root) {
+  const toplevel = git(root, ["rev-parse", "--show-toplevel"]);
+  if (toplevel.code !== 0 || !toplevel.stdout.trim()) {
+    return "the governed directory is not a git checkout";
+  }
+  if (!sameRealPath(toplevel.stdout.trim(), root)) {
+    return "the governed directory is inside the repository at " + toplevel.stdout.trim() + ", not its root";
+  }
+  // AND `.git` MUST BE REAL. A junction there keeps every reported path spelled exactly right while
+  // the history behind them belongs to another repository — both sides of a realpath comparison
+  // resolve to the same target, so only asking what the entry ITSELF is catches it.
+  const dotGit = path.join(root, ".git");
+  try {
+    if (fs.lstatSync(dotGit).isSymbolicLink()) {
+      return "the governed checkout's .git is a link, so its history is not its own";
+    }
+  } catch {
+    return "the governed checkout has no .git entry";
+  }
+
+  const gitDir = git(root, ["rev-parse", "--absolute-git-dir"]);
+  if (gitDir.code !== 0 || !gitDir.stdout.trim()) return "the governed checkout has no readable git directory";
+  const expected = root.split(String.fromCharCode(92)).join("/").replace(/\/+$/, "") + "/.git";
+  // AND THE GIT DIRECTORY BY IDENTITY TOO. A junction at `.git` keeps both reported paths spelled
+  // exactly right while the history behind them belongs to another repository entirely.
+  if (!sameRealPath(gitDir.stdout.trim(), expected)) {
+    return "the governed checkout keeps its git data elsewhere; that shape is not supported for credential use";
+  }
+  return null;
+}
+
+/**
+ * The four lines that bind a question to the authority that pays for it.
+ *
+ * READ AS FIELDS, AT THEIR OWN POSITIONS. This used to be `body.includes("project: " + projectId)`
+ * over the whole payload — and the payload is the caller's own bytes. Writing `project: projectos`
+ * anywhere at all, inside user content, inside a JSON string, inside a quoted piece of evidence,
+ * satisfied the test while the request asked something else entirely. That is not a binding; it is a
+ * search. A line that IS the field, exactly once, with a value that is exactly the authorised one, is.
+ */
+const BINDING_KEYS = ["project", "phase", "subject", "ask"];
+const BINDING_LINE = /^ {2}(project|phase|subject|ask):[ \t]*(\S+)[ \t]*$/;
+
+function bindingLines(instructions) {
+  const found = Object.create(null);
+  const duplicated = [];
+  for (const line of instructions.split("\n")) {
+    const m = BINDING_LINE.exec(line);
+    if (m === null) continue;
+    // A SECOND STATEMENT OF THE SAME FIELD IS AMBIGUITY, and ambiguity about what was authorised is
+    // refused rather than resolved — whichever one a reader picked would be a guess.
+    if (found[m[1]] !== undefined) {
+      if (duplicated.indexOf(m[1]) === -1) duplicated.push(m[1]);
+      continue;
+    }
+    found[m[1]] = m[2];
+  }
+  return { found: found, duplicated: duplicated };
+}
+
+/**
+ * Why this request may not be paid for, or `null`.
+ *
+ * Everything is compared with exact equality against what the CALLER SEPARATELY DECLARED and the
+ * installation independently authorised. Nothing here is inferred from prose.
+ */
+function requestBindingProblem(body, expected) {
+  for (const key of BINDING_KEYS.concat(["requestId"])) {
+    if (!expected[key]) return "the transport broker was not told the " + key + " this call is bound to";
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return "the request body is not a structured request and cannot be bound to an authority";
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return "the request body is not a structured request and cannot be bound to an authority";
+  }
+  if (typeof parsed.instructions !== "string") {
+    return "the request carries no instruction block, so it states no project, phase, subject or ask";
+  }
+  const read = bindingLines(parsed.instructions);
+  if (read.duplicated.length > 0) {
+    return "the request states '" + read.duplicated[0] + "' more than once, so what it is bound to is ambiguous";
+  }
+  for (const key of BINDING_KEYS) {
+    if (read.found[key] === undefined) {
+      return "the request states no " + key + ", so it cannot be shown to be the authorised one";
+    }
+    if (read.found[key] !== expected[key]) {
+      return "the request is for " + key + " '" + read.found[key] + "', not the authorised '" + expected[key] + "'";
+    }
+  }
+  // THE REQUEST'S OWN IDENTITY, ALSO AT ITS OWN POSITION: the first line of the user text, which is
+  // where the runtime writes it and the only place it counts.
+  const input = parsed.input;
+  const first = Array.isArray(input) ? input[0] : null;
+  const content = first && typeof first === "object" && Array.isArray(first.content) ? first.content[0] : null;
+  const text = content && typeof content === "object" ? content.text : null;
+  if (typeof text !== "string") {
+    return "the request carries no reviewable content, so its identity cannot be checked";
+  }
+  if (text.split("\n")[0] !== "requestId: " + expected.requestId) {
+    return "the request does not open with the request id this call was authorised for";
+  }
+  return null;
+}
+
+/**
+ * Every question ProjectOS itself knows how to ask.
+ *
+ * A CLOSED VOCABULARY, ON THE TRUSTED SIDE. The owner's receipt says a project may spend the
+ * installation's credential; it does not say a caller may compose any question it likes and have it
+ * paid for. These are the asks the runtime generates — the loop's stop codes and the reconciliation —
+ * and anything else is a question ProjectOS did not ask.
+ */
+const KNOWN_ASKS = [
+  "security-review",
+  "correction-exhausted",
+  "evidence-review",
+  "worker-refusal",
+  "effects-unattested",
+  "ambiguity",
+  "degraded-mode-reconciliation",
+];
+
+/**
+ * How many calls one committed receipt may fund for one phase.
+ *
+ * THE DEFECT THIS BOUNDS. A secrets-handling receipt is committed once and is permanent, so it used
+ * to authorise unlimited future spend: every gate this side applied was about WHETHER a project could
+ * spend, never HOW MUCH. A phase that finished months ago still carried a receipt, and a receipt was
+ * all a caller needed. The number is deliberately generous — a real phase has used single digits, and
+ * the point is a ceiling that exists, not one that gets in the way of autonomy.
+ */
+const MAX_CALLS_PER_PHASE = 200;
+
+/**
+ * Where this installation counts what it has spent.
+ *
+ * PINNED, NOT READ FROM THE ENVIRONMENT. It used to be `LOCALAPPDATA || XDG_STATE_HOME || HOME`, all
+ * three of which were forwarded from the caller — so one assignment pointed the count at an empty
+ * directory, and an empty count reads as "nothing spent": no ceiling, no replay refusal, on every
+ * call. That is the fail-open this whole file exists to avoid.
+ *
+ * The residual is stated plainly rather than papered over: the value is resolved by the installation's
+ * own runtime and pinned into these bytes, exactly as `TRUSTED_INSTALL_ROOT` is, so it is as trustworthy
+ * as the process that spawned this one — and no more. What it is no longer is a variable this process
+ * reads for itself after being handed it.
+ */
+function installationStateDir() {
+  const pinnedDir = typeof TRUSTED_STATE_DIR === "string" ? TRUSTED_STATE_DIR : "";
+  if (!pinnedDir || !path.isAbsolute(pinnedDir)) return null;
+  return pinnedDir;
+}
+
+function spendPath(stateDir) {
+  return path.join(stateDir, "gatekeeper-spend.json");
+}
+
+/**
+ * Reserve this call against the installation's own durable count, or say why it may not be made.
+ *
+ * RESERVED BEFORE THE CREDENTIAL, NOT RECORDED AFTER IT. A call that happened and was not counted is
+ * a call that can be made again, so the row is written first and the credential is only reached if
+ * that write landed. The same reasoning the degraded ledger uses, for the same reason.
+ *
+ * The lock is one create-if-absent file: two brokers may run at once, and a lost update here is a
+ * lost spend. A busy ledger refuses; there is no waiting inside a governance decision.
+ */
+function reserveSpend(projectId, phaseId, requestId) {
+  const stateDir = installationStateDir();
+  if (stateDir === null) return "this installation cannot locate its own state, so it cannot govern what it spends";
+  const file = spendPath(stateDir);
+  const lock = file + ".lock";
+  try {
+    fs.mkdirSync(stateDir, { recursive: true });
+  } catch {
+    return "the installation state directory could not be created, so this call cannot be counted";
+  }
+  try {
+    fs.writeFileSync(lock, "{}", { flag: "wx" });
+  } catch {
+    return "another ProjectOS process is recording a gatekeeper call; nothing was spent";
+  }
+  try {
+    let ledger = { schemaVersion: "1.0.0", calls: [] };
+    const raw = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : null;
+    if (raw !== null) {
+      let parsed = null;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        return "the installation record of gatekeeper spending cannot be read, so nothing further is spent";
+      }
+      if (parsed === null || typeof parsed !== "object" || !Array.isArray(parsed.calls)) {
+        return "the installation record of gatekeeper spending is malformed, so nothing further is spent";
+      }
+      ledger = parsed;
+    }
+    // ASKED AND ANSWERED IS FINAL; ASKED AND UNANSWERED MAY BE ASKED ONCE MORE.
+    //
+    // `requestId` is deterministic by design — the same question re-derives the same id after a
+    // restart — so a single-state row refused the honest retry: the provider timed out, no decision
+    // existed, and the question could never be put again without hand-editing this file. Meanwhile it
+    // stopped no adversary at all, because changing one byte of evidence changes the id. Two states
+    // keep the replay refusal where it belongs and let a lost answer be re-sought exactly once. Both
+    // attempts are counted, so nothing becomes un-metered.
+    const existing = ledger.calls.find((c) => c && c.requestId === requestId);
+    if (existing !== undefined) {
+      if (existing.outcome === "answered") {
+        return "request " + requestId + " has already been answered; the recorded answer stands";
+      }
+      if ((existing.reuses || 0) >= 1) {
+        return (
+          "request " + requestId + " was already re-attempted after an unanswered call; a third " +
+          "attempt is an owner decision, not a retry"
+        );
+      }
+      existing.reuses = (existing.reuses || 0) + 1;
+      const tmpAgain = file + ".tmp";
+      fs.writeFileSync(tmpAgain, JSON.stringify(ledger, null, 2) + "\n");
+      fs.renameSync(tmpAgain, file);
+      return null;
+    }
+    const forPhase = ledger.calls.filter(
+      (c) => c && c.projectId === projectId && c.phaseId === phaseId,
+    ).length;
+    if (forPhase >= MAX_CALLS_PER_PHASE) {
+      return (
+        "phase " + phaseId + " has already spent " + forPhase + " gatekeeper calls, which is this " +
+        "installation's ceiling; a committed receipt authorises a project, not unlimited spending"
+      );
+    }
+    ledger.calls.push({
+      projectId: projectId,
+      phaseId: phaseId,
+      requestId: requestId,
+      outcome: "reserved",
+      reuses: 0,
+      at: new Date().toISOString(),
+    });
+    const tmp = file + ".tmp";
+    fs.writeFileSync(tmp, JSON.stringify(ledger, null, 2) + "\n");
+    fs.renameSync(tmp, file);
+    const back = JSON.parse(fs.readFileSync(file, "utf8"));
+    if (!back.calls.some((c) => c && c.requestId === requestId)) {
+      return "the gatekeeper call could not be recorded, so it is not made";
+    }
+    return null;
+  } catch (e) {
+    return "the installation record of gatekeeper spending could not be updated";
+  } finally {
+    try {
+      fs.rmSync(lock, { force: true });
+    } catch {
+      /* the next call refuses and names the file */
+    }
+  }
+}
+
+/** Record that this question came back with something, so it may not be put again. */
+function markAnswered(projectId, phaseId, requestId) {
+  const stateDir = installationStateDir();
+  if (stateDir === null) return;
+  const file = spendPath(stateDir);
+  const lock = file + ".lock";
+  try {
+    fs.writeFileSync(lock, "{}", { flag: "wx" });
+  } catch {
+    return;
+  }
+  try {
+    const raw = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : null;
+    if (raw === null) return;
+    const ledger = JSON.parse(raw);
+    if (!ledger || !Array.isArray(ledger.calls)) return;
+    const row = ledger.calls.find(
+      (c) => c && c.requestId === requestId && c.projectId === projectId && c.phaseId === phaseId,
+    );
+    if (row === undefined) return;
+    row.outcome = "answered";
+    const tmp = file + ".tmp";
+    fs.writeFileSync(tmp, JSON.stringify(ledger, null, 2) + "\n");
+    fs.renameSync(tmp, file);
+  } catch {
+    /* the row stays reserved, which allows exactly one honest retry */
+  } finally {
+    try {
+      fs.rmSync(lock, { force: true });
+    } catch {
+      /* the next call refuses and names the file */
+    }
+  }
+}
+
 /** The installation's committed policy: is this project one it will spend on at all? */
 function installationAllows(installRoot, governedRoot, projectId) {
   const raw = readCommitted(installRoot, ALLOWLIST_REL);
@@ -171,10 +538,22 @@ function installationAllows(installRoot, governedRoot, projectId) {
   for (const entry of policy.projects) {
     const id = typeof entry.projectId === "string" ? entry.projectId : "";
     const repo = typeof entry.repository === "string" ? entry.repository : "";
-    if (id.includes("*") || repo.includes("*")) {
+    const authorisedRoot = typeof entry.governedRoot === "string" ? entry.governedRoot : "";
+    if (id.includes("*") || repo.includes("*") || authorisedRoot.includes("*")) {
       return "the installation credential allowlist contains a wildcard entry, which it may never do";
     }
-    if (id === projectId && repo.toLowerCase() === repository.toLowerCase()) return null;
+    if (id !== projectId || repo.toLowerCase() !== repository.toLowerCase()) continue;
+    // IDENTITY, NOT SPELLING — IN BOTH DIRECTIONS. A different spelling of the authorised directory is
+    // the same directory and is accepted; a path that spells like it but resolves elsewhere is not.
+    if (!authorisedRoot || !sameRealPath(authorisedRoot, governedRoot)) {
+      return (
+        "project '" + projectId + "' is authorised at " + (authorisedRoot || "no path") +
+        ", and this checkout is at " + governedRoot
+      );
+    }
+    const shape = checkoutShapeProblem(governedRoot);
+    if (shape !== null) return shape;
+    return null;
   }
   return "this installation does not authorise project '" + projectId + "' at " + repository;
 }
@@ -205,7 +584,13 @@ function boundPowerShell() {
     bound &&
     path.isAbsolute(bound) &&
     !isUnc(bound) &&
-    POWERSHELL_BASENAME.test(path.basename(bound))
+    POWERSHELL_BASENAME.test(path.basename(bound)) &&
+    isFile(bound) &&
+    // THE SAME EXCLUSIONS `boundGit` HAS. This is the process that handles the secret, and it was the
+    // laxer of the two: a `powershell.exe` committed into the governed checkout would have been run by
+    // the trusted side and handed the credential adapter.
+    !isInside(TRUSTED_INSTALL_ROOT, bound) &&
+    !(typeof GOVERNED_ROOT === "string" && GOVERNED_ROOT && isInside(GOVERNED_ROOT, bound))
   ) {
     return bound;
   }
@@ -280,15 +665,32 @@ function withCredential(installRoot, ref, use) {
   return use(value);
 }
 
-let raw = "";
-process.stdin.setEncoding("utf8");
-process.stdin.on("data", (c) => {
-  raw += c;
-});
-process.stdin.on("end", async () => {
+/**
+ * The request arrives as a file, named by the caller in the environment.
+ *
+ * The SOURCE of this program came in as bytes on stdin and is what was verified; the request is the
+ * caller's own untrusted input, so where it travels changes nothing about who is trusted. It is read
+ * once and the caller removes it.
+ */
+async function main() {
   let req;
   try {
-    req = JSON.parse(raw);
+    const where = String(process.env.PROJECTOS_BROKER_REQUEST || "");
+    if (!where || !path.isAbsolute(where)) {
+      fail("the transport broker was not told where its request is");
+      return;
+    }
+    const bytes = fs.readFileSync(where);
+    // THE REQUEST THAT RUNS IS THE REQUEST THAT WAS WRITTEN. It travels as a file so the program can
+    // travel as bytes; without this, a second process running as the same user could rewrite it
+    // between the write and this read, keep every label the binding checks, and swap the question.
+    const seen = crypto.createHash("sha256").update(bytes).digest("hex");
+    const wanted = typeof TRUSTED_REQUEST_SHA256 === "string" ? TRUSTED_REQUEST_SHA256 : "";
+    if (!wanted || seen !== wanted) {
+      fail("the request is not the one this call was prepared for");
+      return;
+    }
+    req = JSON.parse(bytes.toString("utf8"));
   } catch {
     fail("the transport broker received an unreadable request");
     return;
@@ -303,10 +705,31 @@ process.stdin.on("end", async () => {
     return;
   }
   const governedRoot = String(req.governedRoot || "");
+  // PINNED BEFORE ANY GIT RUNS. Every authority question below is answered by git, so the exclusion
+  // that keeps the binary out of the governed checkout has to be in place before the first one.
+  GOVERNED_ROOT = governedRoot;
   const projectId = String(req.projectId || "");
   const phaseId = String(req.phaseId || "");
   if (!governedRoot || !projectId || !phaseId) {
     fail("the transport broker was not told which project and phase this call is for");
+    return;
+  }
+
+  // THE BODY MUST BE ABOUT WHAT WAS AUTHORISED, AND "ABOUT" IS A FIELD, NOT A SUBSTRING.
+  //
+  // CHECKED BEFORE THE TWO FACTORS, because it needs no git and no policy: a request that cannot
+  // be shown to be the one it claims to be is refused before this process does any work on its
+  // behalf, let alone reaches a credential.
+  const body = String(req.body || "");
+  const misbound = requestBindingProblem(body, {
+    project: projectId,
+    phase: phaseId,
+    subject: String(req.subjectCommit || ""),
+    ask: String(req.ask || ""),
+    requestId: String(req.requestId || ""),
+  });
+  if (misbound !== null) {
+    fail(misbound);
     return;
   }
 
@@ -323,15 +746,30 @@ process.stdin.on("end", async () => {
     return;
   }
 
-  // THE BODY MUST BE ABOUT WHAT WAS AUTHORISED.
-  //
-  // Checking the caller's claimed project and phase authorises the SPEND; without this the request
-  // itself could describe a different phase entirely, and the reviewer would answer a question nobody
-  // approved paying for. The system instruction prints these three lines verbatim, so requiring them
-  // binds the question to the authority without this file having to understand the prompt.
-  const body = String(req.body || "");
-  if (!body.includes("project: " + projectId) || !body.includes("phase:   " + phaseId)) {
-    fail("the request body is not about the project and phase this call was authorised for");
+  // A QUESTION PROJECTOS ITSELF KNOWS HOW TO ASK.
+  const askedFor = String(req.ask || "");
+  if (KNOWN_ASKS.indexOf(askedFor) === -1) {
+    fail("'" + askedFor + "' is not a question ProjectOS asks, so it is not one this installation pays for");
+    return;
+  }
+
+  // AND ABOUT BYTES THAT REALLY EXIST. A subject the governed repository does not contain is not a
+  // review of anything; it is a question composed to look like one.
+  const subject = String(req.subjectCommit || "");
+  if (!/^[0-9a-f]{40}$/.test(subject)) {
+    fail("the subject this call names is not a commit id");
+    return;
+  }
+  const known = git(governedRoot, ["cat-file", "-e", subject + "^{commit}"]);
+  if (known.code !== 0) {
+    fail("the governed repository contains no commit " + subject + ", so there is nothing to review");
+    return;
+  }
+
+  // AND WITHIN WHAT THIS INSTALLATION IS WILLING TO SPEND, counted where the project cannot reach it.
+  const overspend = reserveSpend(projectId, phaseId, String(req.requestId || ""));
+  if (overspend !== null) {
+    fail(overspend);
     return;
   }
 
@@ -355,8 +793,16 @@ process.stdin.on("end", async () => {
       body,
       signal: controller.signal,
     });
-    const body = await res.text();
-    process.stdout.write(JSON.stringify({ status: res.status, body }));
+    // NAMED APART FROM THE REQUEST BODY. `const body = await res.text()` sat in the same block as the
+    // `body` handed to fetch, so that reference resolved to the response binding while it was still in
+    // its temporal dead zone: every call threw a ReferenceError, the catch below swallowed it, and the
+    // caller saw "the gatekeeper transport failed". The trusted path had never carried a live call.
+    // Found by the second adversarial review, 2026-08-21.
+    const responseText = await res.text();
+    // THE QUESTION IS NOW ANSWERED, so it may never be put again. Recorded before the answer is handed
+    // back: a reply that reached the caller and was not marked would be a question re-askable forever.
+    markAnswered(projectId, phaseId, String(req.requestId || ""));
+    process.stdout.write(JSON.stringify({ status: res.status, body: responseText }));
   } catch (e) {
     // A FIXED SHAPE, NEVER THE EXCEPTION'S OWN TEXT. Node quotes an invalid header VALUE in its
     // message, so repeating that message is a way for the credential to leave this process.
@@ -366,4 +812,6 @@ process.stdin.on("end", async () => {
   } finally {
     clearTimeout(timer);
   }
-});
+}
+
+void main();

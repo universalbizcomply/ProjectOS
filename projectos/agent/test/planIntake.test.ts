@@ -69,6 +69,8 @@ function realSystem(root: string, git: Record<string, string> = {}): System {
     },
     exists: (p: string) => existsSync(p),
     listDir: (p: string) => (existsSync(p) ? readdirSync(p) : []),
+    createExclusive: () => true,
+    removeFile: () => true,
     renameFile: () => true,
     exec: (_cmd: string, args: readonly string[]) => {
       const key = args.join(' ');
@@ -169,6 +171,8 @@ describe('F3 intake — an objective is input, never authority', () => {
     const root = tempProject({ 'docs/plan.md': PLAN_DOC });
     const brokenGit: System = {
       ...realSystem(root),
+      createExclusive: () => true,
+      removeFile: () => true,
       renameFile: () => true,
       exec: () => ({ code: 128, stdout: '', stderr: 'not a git repository' }),
     };

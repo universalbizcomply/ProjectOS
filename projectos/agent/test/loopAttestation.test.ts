@@ -34,6 +34,8 @@ function sysWith(body: string | null): System {
     writeText: () => undefined,
     exists: (p) => p in files,
     listDir: () => [],
+    createExclusive: () => true,
+    removeFile: () => true,
     renameFile: () => true,
     exec: () => ({ code: 0, stdout: '', stderr: '' }),
   };

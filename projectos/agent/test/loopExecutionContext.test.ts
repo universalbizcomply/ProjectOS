@@ -85,6 +85,8 @@ function recordingSystem(files: readonly string[] = []) {
     writeText: () => undefined,
     exists: (p) => present.has(p),
     listDir: () => [],
+    createExclusive: () => true,
+    removeFile: () => true,
     renameFile: () => true,
     exec: (cmd, args, options): ExecResult => {
       calls.push({ cmd, args, ...(options === undefined ? {} : { options }) });

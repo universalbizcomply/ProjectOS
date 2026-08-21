@@ -33,6 +33,7 @@ import { isAbsolute, join, relative } from 'node:path';
 import type { System } from '../system.js';
 import { readLedger } from './gatekeeperConfig.js';
 import {
+  allocateConsumption,
   authoritativeState,
   recordConsumption,
   type DurableConsumption,
@@ -443,12 +444,28 @@ export function reconciliationDebtBlock(
   }
 
   const state = degradedReconciliationState(sys, root);
+  // THE MIRROR MAY LAG THE RECORD THAT DECIDES.
+  //
+  // A discharge made while the mirror was absent is recorded only in the installation ledger, by
+  // design. If that mirror later comes back — restored from a backup, or recreated by a later spend
+  // under the same grant — its work item still reads as outstanding, and the gate would refuse
+  // forever on a debt the installation knows is settled. Worse, the remedy it prints would pay for a
+  // real gatekeeper call and then fail, because the durable ledger already holds the discharge. So
+  // what the installation has discharged is subtracted before the mirror gets to raise a refusal.
+  const settled = new Set(durable.dischargedWorkIds);
+  const stillOwing = state.outstandingWorkIds.filter((id) => !settled.has(id));
+  // AND NOT A REFUSAL THAT NAMES NO WORK ITEM. `reconciliationState` can require a refusal with an
+  // EMPTY outstanding list — its one such case is duplicate work ids where the duplicate has been
+  // cleared, which is a tamper signal and not a clean slate. Gating the whole refusal on `stillOwing`
+  // would have silently dropped it, so the subtraction only clears a refusal it can actually account
+  // for: one that named work items, all of which the installation has since discharged.
   if (!state.required) return [];
+  if (state.outstandingWorkIds.length > 0 && stillOwing.length === 0) return [];
   return [
     'REFUSED (DEGRADED_DEBT_OUTSTANDING): degraded-mode work has not been reviewed, so this governed ' +
       'gate does not proceed as normal.',
     ...state.reasons.map((r) => `  - ${r}`),
-    ...state.outstandingWorkIds.map((id) => `  - outstanding work item: ${id}`),
+    ...stillOwing.map((id) => `  - outstanding work item: ${id}`),
     '  Required next action: projectos reconcile --grant <GRANT-ID> --work <WORK-ID> --execute',
     '  The debt is discharged only by an accepted gatekeeper decision. It is never cleared by hand.',
   ];
@@ -721,27 +738,48 @@ export function consumeDegradedGrant(
   //
   // The project mirror is written after, and is evidence rather than authority. If this fails,
   // nothing has been spent and no work may start — which is the direction to fail in.
-  const durableEntry: DurableConsumption = {
-    schemaVersion: '1.0.0',
-    installRoot: input.durable.installRoot,
-    projectId: input.projectId,
-    repository: input.durable.repository,
-    phaseId: input.phaseId,
-    grantId,
-    subjectCommit: input.subjectCommit,
-    unavailabilityId: input.unavailabilityId,
-    workId: deriveWorkId(grantId, input.unavailabilityId, (readDegradedStore(sys, root, grantId)?.workItems.length ?? 0) + 1),
-    summary: input.summary,
-    consumedAt: input.at,
-  };
-  const durableWrite = recordConsumption(sys, input.durable.stateDir, durableEntry);
-  if (!durableWrite.persisted) {
+  // THE ORDINAL COMES FROM THE AUTHORITATIVE RECORD, AND IS DECIDED INSIDE ITS LOCK.
+  //
+  // Counting the project's own file meant the identity of a durable entry depended on a file the
+  // design says may be deleted: delete it after the first spend and the ordinal resets, so the next
+  // work id collides with one already recorded and the grant becomes unusable while still claiming
+  // budget. Counting the installation's rows fixed that, but reading them BEFORE taking the lock left
+  // a second, quieter version of the same fault: two concurrent runs read the same count, derived the
+  // same id, and the loser was told its work item "is already recorded as spent" — a true sentence
+  // about an event that never happened. The count and the write now happen under one lock.
+  const allocation = allocateConsumption(
+    sys,
+    input.durable.stateDir,
+    {
+      installRoot: input.durable.installRoot,
+      projectId: input.projectId,
+      repository: input.durable.repository,
+      grantId,
+      // THE OWNER'S BOUND, CARRIED IN SO IT CAN BE ENFORCED UNDER THE LOCK RATHER THAN BEFORE IT.
+      ceiling: Number(input.grant.maxWorkItems),
+    },
+    (alreadyFunded) => ({
+      schemaVersion: '1.0.0',
+      installRoot: input.durable.installRoot,
+      projectId: input.projectId,
+      repository: input.durable.repository,
+      phaseId: input.phaseId,
+      grantId,
+      subjectCommit: input.subjectCommit,
+      unavailabilityId: input.unavailabilityId,
+      workId: deriveWorkId(grantId, input.unavailabilityId, alreadyFunded + 1),
+      summary: input.summary,
+      consumedAt: input.at,
+    }),
+  );
+  if (!allocation.persisted || allocation.entry === null) {
     return {
       persisted: false,
       workId: null,
-      problem: durableWrite.problem ?? 'the spend could not be recorded durably, so no unreviewed work may start',
+      problem: allocation.problem ?? 'the spend could not be recorded durably, so no unreviewed work may start',
     };
   }
+  const durableEntry = allocation.entry;
 
   // A COMMITTED RECORD CANNOT BE APPENDED TO. Without this the second spend of a multi-item grant
   // wrote over the owner's committed evidence, failed its own read-back, and left the record corrupt —
@@ -750,8 +788,8 @@ export function consumeDegradedGrant(
   if (recordable !== null) return { persisted: false, workId: null, problem: recordable };
 
   const existing = readDegradedStore(sys, root, grantId);
-  const ordinal = (existing?.workItems.length ?? 0) + 1;
-  const workId = deriveWorkId(grantId, input.unavailabilityId, ordinal);
+  // THE SAME ID THE INSTALLATION ALLOCATED. The mirror mirrors; it does not name.
+  const workId = durableEntry.workId;
   const item: DegradedWorkItem = {
     workId,
     grantId,

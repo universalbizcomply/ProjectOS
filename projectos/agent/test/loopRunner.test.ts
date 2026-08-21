@@ -84,6 +84,8 @@ function world(opts: WorldOpts = {}) {
     },
     exists: (p) => p in files,
     listDir: () => [],
+    createExclusive: () => true,
+    removeFile: () => true,
     renameFile: () => true,
     exec: (cmd, args): ExecResult => {
       if (cmd !== 'git') return { code: opts.validatorExit ?? 0, stdout: 'validator ran', stderr: '' };
@@ -302,6 +304,8 @@ describe('runLoop', () => {
     const sys = world({ files: cleanFindings(SESSION) });
     const noGitShow: System = {
       ...sys,
+      createExclusive: () => true,
+      removeFile: () => true,
       renameFile: () => true,
       exec: (cmd, args, options) =>
         args.join(' ').includes('show HEAD:') ? { code: 128, stdout: '', stderr: 'fatal' } : sys.exec(cmd, args, options),
@@ -1196,6 +1200,8 @@ describe('runLoop with an unattended gatekeeper', () => {
     const inner = base as unknown as { exec(c: string, a: readonly string[]): ExecResult };
     return {
       ...(base as unknown as object),
+      createExclusive: () => true,
+      removeFile: () => true,
       renameFile: () => true,
       exec: (cmd: string, args: readonly string[]): ExecResult => {
         const key = args.join(' ');

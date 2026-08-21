@@ -70,7 +70,7 @@ import {
   type DegradedStoreRecord,
 } from './degradedMode.js';
 import { loadDegradedModeGrant } from './degradedModeGrants.js';
-import { recordReconciliation } from '../installation/degradedLedger.js';
+import { settleAsk, readDurableLedger, authoritativeState } from '../installation/degradedLedger.js';
 import type { DurableBinding } from './degradedMode.js';
 
 /**
@@ -221,7 +221,13 @@ export interface ReconciliationDeps {
  * a record whose keys were reordered would hash differently and become a different question about the
  * same work — the same reasoning `gatekeeperRequestDigest` gives for not hashing a raw object.
  */
-function evidenceFor(store: DegradedStoreRecord, workId: string, committedRecord: boolean): string {
+function evidenceFor(
+  store: DegradedStoreRecord,
+  workId: string,
+  provenance: string,
+  /** The owner's committed ceiling. NOT the record's claim about it: a rebuilt record has none. */
+  maxWorkItems: number,
+): string {
   const item = store.workItems.find((w) => w.workId === workId) ?? null;
   return JSON.stringify(
     {
@@ -233,7 +239,7 @@ function evidenceFor(store: DegradedStoreRecord, workId: string, committedRecord
         unavailabilityId: store.unavailabilityId,
         projectId: store.projectId,
         phaseId: store.phaseId,
-        maxWorkItems: store.maxWorkItems,
+        maxWorkItems,
         consumedAt: store.consumedAt,
       },
       workItem:
@@ -252,10 +258,7 @@ function evidenceFor(store: DegradedStoreRecord, workId: string, committedRecord
         decisionId: r.decisionId,
         accepted: r.decisionAccepted,
       })),
-      recordProvenance: committedRecord
-        ? 'committed'
-        : 'working tree, not yet committed — written by the runtime, but writable by the implementer, ' +
-          'so treat the summary as a claim rather than as proof',
+      recordProvenance: provenance,
       note:
         'The work is done and cannot be undone by this decision. Accepting discharges the review ' +
         'debt it incurred; refusing leaves the debt outstanding. ' +
@@ -364,6 +367,129 @@ function persistReconciliation(
   return { persisted: true, problem: null };
 }
 
+/** What the reviewer is told about where the record came from. Fixed strings: they are hashed. */
+const MIRROR_PROVENANCE =
+  'working tree, not yet committed — written by the runtime, but writable by the implementer, ' +
+  'so treat the summary as a claim rather than as proof';
+const LEDGER_PROVENANCE =
+  "the installation's own durable ledger, outside this repository and outside the implementer's reach; " +
+  'the project-local mirror of this work is absent';
+
+/**
+ * Rebuild one grant's degraded work from the installation ledger.
+ *
+ * The ledger holds every field the review needs — phase, outage, work id, summary, time — because each
+ * spend was bound to all of them when it was made. What it does not hold is the mirror's own claimed
+ * ceiling, and it does not need to: the owner's committed grant states that, and the grant is the
+ * authority the mirror was checked against anyway.
+ *
+ * ONE OUTAGE, ONE PHASE. Entries for a single grant that disagree about either are not a set this
+ * function may summarise into one question, so it refuses rather than picking one.
+ */
+function storeFromInstallationLedger(
+  sys: System,
+  input: ReconciliationInput,
+): { readonly record: DegradedStoreRecord | null; readonly problem: string | null; readonly refuse: boolean } {
+  const led = readDurableLedger(sys, input.durable.stateDir);
+  if (led.kind === 'corrupt') {
+    return {
+      record: null,
+      refuse: true,
+      problem:
+        `${led.why}; with no project mirror and an unreadable installation ledger there is no record ` +
+        'of this work to review',
+    };
+  }
+  const none = {
+    record: null,
+    refuse: false,
+    problem:
+      `no degraded-use record exists for grant '${input.grantId}' in this project, and this ` +
+      'installation has recorded no spend under it either, so it has no debt to discharge',
+  };
+  if (led.kind === 'absent') return none;
+
+  // A ROW THAT NAMES THIS PROJECT AND DISAGREES IS A REFUSAL, NOT A MISS.
+  //
+  // Filtering it out and then reporting "no debt to discharge" is the shape both earlier bypasses
+  // had: `git remote set-url` to rename the project out of its own debt, or `cp -r` the installation
+  // so its rows no longer match. `authoritativeState` refuses on exactly this and says so; this path
+  // must not answer the same question differently, least of all with an authoritative-sounding "no".
+  //
+  // The reads are guarded because `parse` validates no field: a row written by an earlier build
+  // carries no `installRoot`, and dereferencing it turned a refusal into a crash out of the gate.
+  const claiming = led.ledger.consumptions.filter(
+    (c) => c.projectId === input.projectId && c.grantId === input.grantId,
+  );
+  const disagreeing = claiming.filter(
+    (c) =>
+      String(c.installRoot ?? '').toLowerCase() !== input.durable.installRoot.toLowerCase() ||
+      String(c.repository ?? '').toLowerCase() !== input.durable.repository.toLowerCase(),
+  );
+  if (disagreeing.length > 0) {
+    const first = disagreeing[0];
+    return {
+      record: null,
+      refuse: true,
+      problem:
+        `this machine records grant '${input.grantId}' for project '${input.projectId}' at ` +
+        `${String(first?.repository ?? 'another repository')} under installation ` +
+        `${String(first?.installRoot ?? 'unknown')}, but this run reports ` +
+        `${input.durable.repository} under ${input.durable.installRoot}; whether that work is this ` +
+        'run\'s to discharge is not something the project or a second copy of the installation decides',
+    };
+  }
+  const mine = claiming;
+  if (mine.length === 0) return none;
+
+  const outages = new Set(mine.map((c) => c.unavailabilityId));
+  const phases = new Set(mine.map((c) => c.phaseId));
+  if (outages.size !== 1 || phases.size !== 1) {
+    return {
+      record: null,
+      refuse: true,
+      problem:
+        `the installation ledger records grant '${input.grantId}' against more than one outage or ` +
+        'phase, which is not a coherent set of work to put to a reviewer',
+    };
+  }
+  const discharged = led.ledger.reconciliations.filter(
+    (r) =>
+      String(r.installRoot ?? '').toLowerCase() === input.durable.installRoot.toLowerCase() &&
+      r.projectId === input.projectId &&
+      String(r.repository ?? '').toLowerCase() === input.durable.repository.toLowerCase() &&
+      r.grantId === input.grantId,
+  );
+  const first = mine[0] as (typeof mine)[number];
+  return {
+    record: {
+      schemaVersion: DEGRADED_STORE_SCHEMA_VERSION,
+      grantId: input.grantId,
+      unavailabilityId: first.unavailabilityId,
+      projectId: input.projectId,
+      phaseId: first.phaseId,
+      consumedAt: first.consumedAt,
+      // NO CLAIMED CEILING. The committed grant states it; see the caller.
+      maxWorkItems: -1,
+      workItems: mine.map((c) => ({
+        workId: c.workId,
+        grantId: c.grantId,
+        phaseId: c.phaseId,
+        summary: c.summary,
+        at: c.consumedAt,
+      })),
+      reconciliations: discharged.map((r) => ({
+        workId: r.workId,
+        decisionId: r.decisionId,
+        ask: r.ask,
+        decisionAccepted: true,
+      })),
+    },
+    problem: null,
+    refuse: false,
+  };
+}
+
 /**
  * Ask the reviewer to discharge one degraded work item, and record the answer if it says yes.
  *
@@ -385,12 +511,40 @@ export function reconcileDegradedWork(
         'that is not evidence there is none',
     ]);
   }
-  if (read.kind === 'absent') {
-    return outcome('NO_SUCH_GRANT', [
-      `no degraded-use record exists for grant '${input.grantId}', so it has no debt to discharge`,
-    ]);
+  // THE MIRROR IS OPTIONAL; THE INSTALLATION LEDGER IS NOT.
+  //
+  // The project-local record is a mirror by design — deletable, and deleted by the very act the durable
+  // ledger exists to survive. Refusing to reconcile without it made the debt UNDISCHARGEABLE after a
+  // `rm`: the ledger still blocked every gate, and the only mechanism that could clear it insisted on
+  // the file that was gone. So when the mirror is absent the work is rebuilt from the ledger, which is
+  // the authority in either case. An UNREADABLE mirror still refuses, above: absent is a fact, corrupt
+  // is a question.
+  //
+  // AND NOT ONLY WHEN IT IS ABSENT. The rebuild used to be all-or-nothing, which left a worse state
+  // reachable than the one it fixed: delete the mirror, spend again, and the mirror comes back holding
+  // ONLY the second item. The first is then durable-only, the gate blocks on it forever, and this
+  // command — seeing a mirror that exists — reports "grant records no work item", which is a flat
+  // contradiction of the refusal the operator is staring at. So the mirror is used when it actually
+  // records the work being asked about, and the ledger is used when it does not.
+  const mirrorRecord = read.kind === 'ok' ? read.record : null;
+  const mirrorHasWork =
+    mirrorRecord !== null && mirrorRecord.workItems.some((w) => w.workId === input.workId);
+  const rebuilt = mirrorHasWork ? null : storeFromInstallationLedger(sys, input);
+  // A LEDGER THAT REFUSES OVERRULES BOTH RECORDS; a ledger that simply has nothing does not. When the
+  // ledger holds no such spend and a mirror exists, the mirror still gets to answer — and it answers
+  // `NOT_OUTSTANDING` naming the work item, which is more use to a reader than "no such grant".
+  if (rebuilt !== null && rebuilt.refuse) {
+    return outcome('NO_SUCH_GRANT', [rebuilt.problem ?? 'the installation ledger cannot be read for this grant'], {
+      workId: input.workId,
+    });
   }
-  const store = read.record;
+  if (rebuilt !== null && rebuilt.record === null && mirrorRecord === null) {
+    return outcome('NO_SUCH_GRANT', [rebuilt.problem ?? 'the installation ledger records no such spend'], {
+      workId: input.workId,
+    });
+  }
+  const fromLedger = rebuilt !== null && rebuilt.record !== null;
+  const store = fromLedger ? (rebuilt?.record as DegradedStoreRecord) : (mirrorRecord as DegradedStoreRecord);
 
   // THE RECORD MUST BE THE ONE ASKED ABOUT. A record for another project, phase or grant describes
   // other work, and clearing it here would discharge a debt nobody reviewed.
@@ -458,7 +612,9 @@ export function reconcileDegradedWork(
       `the use record lists ${store.workItems.length} work item(s) under a grant the owner bounded at ` +
         `${grantMax}; the excess was never authorised and cannot be reviewed as though it had been`,
     );
-  } else if (store.maxWorkItems !== grantMax) {
+  } else if (!fromLedger && store.maxWorkItems !== grantMax) {
+    // Only when there IS a mirror. Rebuilt-from-ledger work carries no claimed ceiling of its own, so
+    // there is nothing to disagree with the grant — the count check above still bounds it.
     grantProblems.push(
       `the use record claims a ceiling of ${store.maxWorkItems} where the owner's grant says ${grantMax}`,
     );
@@ -479,11 +635,34 @@ export function reconcileDegradedWork(
     );
   }
 
+  // WHAT THIS INSTALLATION HAS ALREADY ASKED. Read before anything is spent, and an unreadable
+  // ledger refuses rather than reading as "never asked".
+  const durableView = authoritativeState(sys, input.durable.stateDir, {
+    installRoot: input.durable.installRoot,
+    projectId: input.projectId,
+    repository: input.durable.repository,
+  });
+  if (!durableView.readable) {
+    return outcome(
+      'NO_SUCH_GRANT',
+      [
+        durableView.problem ?? 'the installation degraded ledger could not be read',
+        'whether this question has already been put cannot be established, and an unreadable record ' +
+          'is never read as "never asked"',
+      ],
+      { workId: input.workId, outstandingAfter: before.outstandingWorkIds },
+    );
+  }
+  const asked = durableView.askedWorkIds;
+
   // NOTHING IS PAID FOR THAT CANNOT BE RECORDED. Once the owner has committed the use record, the
   // committed bytes are authoritative and any working-tree edit of them reads as tampering — so
   // appending would both fail and leave the checkout unable to read its own degraded history. Checked
   // before the call, because discovering it afterwards means a real decision was bought and discarded.
-  const recordable = degradedStoreIsRecordable(sys, root, input.grantId);
+  // ONLY WHEN A MIRROR WRITE IS ACTUALLY COMING. A ledger-backed discharge appends to nothing in the
+  // project, so a committed mirror is no obstacle to it — refusing there would strand a debt behind a
+  // file this path never touches.
+  const recordable = fromLedger ? null : degradedStoreIsRecordable(sys, root, input.grantId);
   if (recordable !== null) {
     return outcome('NOT_RECORDABLE', [recordable], {
       workId: input.workId,
@@ -512,7 +691,15 @@ export function reconcileDegradedWork(
     );
   }
 
-  const evidenceText = evidenceFor(store, input.workId, false);
+  // THE EXISTING WORDING IS LOAD-BEARING. The request id is derived from a digest of this text, and
+  // `ALREADY_ASKED` refuses a repeat by that id — so changing the words a mirror-backed question uses
+  // would make an already-answered question look new and reopen it to a second, better-liked answer.
+  const evidenceText = evidenceFor(
+    store,
+    input.workId,
+    fromLedger ? LEDGER_PROVENANCE : MIRROR_PROVENANCE,
+    grantMax,
+  );
   const digest = evidenceDigest(evidenceText);
   const subjectCommit = wrapper.subjectCommit;
 
@@ -534,10 +721,27 @@ export function reconcileDegradedWork(
     ownerOnlyActions: input.ownerOnlyActions,
   };
 
-  // ASKED ONCE. The evidence here is history and does not change, so the request identity does not
-  // change either — which means a second ask is the SAME question, and the answer to it has already
-  // been recorded. Asking again would be shopping for a better verdict, and the guard downstream would
-  // refuse the answer anyway, AFTER paying for it. Refused here instead, for free, and said plainly.
+  // ASKED ONCE, AND THE WORK ITEM IS WHAT WAS ASKED ABOUT.
+  //
+  // This guard used to key ONLY on the request id below, which is derived from a digest of the
+  // evidence text — so any change to that text made the same question look new. Two lenses of the
+  // 2026-08-21 review found the same working exploit: the ledger-backed and mirror-backed wordings
+  // differ, the record they are built from is chosen by whether a DELETABLE project file exists, so
+  // `rm` the mirror after an unwelcome verdict and the identical question could be put again. The
+  // durable record now names the work item, and the wording cannot argue with it.
+  if (asked.includes(input.workId)) {
+    return outcome(
+      'ALREADY_ASKED',
+      [
+        `this installation has already put work item '${input.workId}' to the gatekeeper and recorded ` +
+          'the answer',
+        'the work is history and cannot change, so asking again would be the same question in the hope ' +
+          'of a different answer — including after deleting the project record of it',
+        "if that answer left the debt outstanding, resolving it is the owner's decision, not a retry",
+      ],
+      { workId: input.workId, requestId, outstandingAfter: before.outstandingWorkIds },
+    );
+  }
   if (deps.consumedDecisionIds.includes(`GKDEC-${requestId}`)) {
     return outcome(
       'ALREADY_ASKED',
@@ -645,6 +849,25 @@ export function reconcileDegradedWork(
   });
   deps.recordSpend(ledgerEntry);
 
+  // THE QUESTION THAT WAS PUT, ready to be written down with whatever it settled.
+  //
+  // A call that happened and was not recorded is a call that can be made again, so this is written
+  // whatever the verdict turns out to be — but it is written in the SAME lock acquisition as the
+  // discharge it may authorise. Two acquisitions meant the ask could land and the discharge then be
+  // refused for lock contention, leaving an accepted, paid-for decision discarded and its work item
+  // permanently unaskable. Found by the second adversarial review, 2026-08-21.
+  const ask = {
+    installRoot: input.durable.installRoot,
+    projectId: input.projectId,
+    repository: input.durable.repository,
+    grantId: input.grantId,
+    workId: input.workId,
+    requestId,
+    decisionId: String(sent.record.decisionId ?? ''),
+    verdict: String(sent.record.decision ?? ''),
+    at: input.at,
+  };
+
   const shared = {
     workId: input.workId,
     requestId,
@@ -668,14 +891,30 @@ export function reconcileDegradedWork(
     alreadyConsumedDecisionIds: deps.consumedDecisionIds,
     ownerOnlyActions: input.ownerOnlyActions,
   });
-  if (problems.length > 0) return outcome('DECISION_REFUSED', problems, shared);
+  if (problems.length > 0) {
+    const settled = settleAsk(sys, input.durable.stateDir, ask, null);
+    return outcome(
+      'DECISION_REFUSED',
+      [
+        ...problems,
+        ...(settled.persisted
+          ? []
+          : [`the question could not be recorded either: ${settled.problem ?? 'unknown'}`]),
+      ],
+      shared,
+    );
+  }
 
   if (sent.record.decision !== RECONCILIATION_ACCEPTED_VERDICT) {
+    const settled = settleAsk(sys, input.durable.stateDir, ask, null);
     return outcome(
       'NOT_ACCEPTED',
       [
         `the gatekeeper returned ${String(sent.record.decision)}; only ` +
           `${RECONCILIATION_ACCEPTED_VERDICT} discharges a reconciliation, so the debt stands`,
+        ...(settled.persisted
+          ? []
+          : [`the question could not be recorded either: ${settled.problem ?? 'unknown'}`]),
       ],
       shared,
     );
@@ -687,12 +926,13 @@ export function reconcileDegradedWork(
     ask: RECONCILIATION_ASK,
     decisionAccepted: true,
   };
-  // THE AUTHORITATIVE DISCHARGE FIRST, then the project evidence.
+  // THE AUTHORITATIVE DISCHARGE, WRITTEN WITH THE QUESTION IT ANSWERS.
   //
-  // This is the same ordering consumption uses and for the same reason: the record that outlives the
-  // project is the one that decides, so it is written first and the mirror follows. A failure here
-  // leaves the debt standing, which is the direction to fail in.
-  const durableWritten = recordReconciliation(sys, input.durable.stateDir, {
+  // The record that outlives the project is the one that decides, so it lands before the mirror; and
+  // it lands in the same lock acquisition as the ask, so there is no state in which the question is
+  // recorded as asked while the discharge it authorised is not. A failure here leaves the debt
+  // standing AND the question unasked, which is the pair of facts a retry needs to be safe.
+  const durableWritten = settleAsk(sys, input.durable.stateDir, ask, {
     installRoot: input.durable.installRoot,
     workId: input.workId,
     grantId: input.grantId,
@@ -707,6 +947,25 @@ export function reconcileDegradedWork(
       'PERSIST_FAILED',
       [durableWritten.problem ?? 'the reconciliation could not be recorded in the installation ledger'],
       shared,
+    );
+  }
+
+  if (fromLedger) {
+    // NOTHING TO APPEND TO. Recreating the mirror here would manufacture a project-local record of work
+    // this checkout has no other trace of, and the discharge is already durable. The debt is cleared;
+    // the absence is reported rather than papered over.
+    const state = reconciliationState(store.workItems, [...store.reconciliations, record]);
+    return outcome(
+      'RECONCILED',
+      [
+        mirrorRecord === null
+          ? `the project's evidence mirror for grant '${input.grantId}' is absent, so this discharge ` +
+            'is recorded only in the installation ledger, which is the record that decides'
+          : `the project's evidence mirror for grant '${input.grantId}' does not record work item ` +
+            `'${input.workId}', so this discharge is recorded only in the installation ledger, which ` +
+            'is the record that decides',
+      ],
+      { ...shared, outstandingAfter: state.outstandingWorkIds },
     );
   }
 

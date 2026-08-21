@@ -91,6 +91,8 @@ function fakeSystem(opts: FakeOpts = {}) {
     },
     exists: (p) => p in files,
     listDir: (p) => (p === `${ROOT}/.projectops/phases` ? Object.keys(records).map((id) => `${id}.json`) : []),
+    createExclusive: () => true,
+    removeFile: () => true,
     renameFile: () => true,
     exec: opts.exec ?? (() => ({ code: 0, stdout: '', stderr: '' })),
   };

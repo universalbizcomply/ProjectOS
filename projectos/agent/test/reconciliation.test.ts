@@ -108,6 +108,24 @@ function nodeLikeSystem(root: string): System {
     },
     exists: (p: string) => existsSync(p),
     listDir: (p: string) => (existsSync(p) ? readdirSync(p) : []),
+    createExclusive: (p: string, c: string) => {
+      try {
+        if (existsSync(p)) return false;
+        mkdirSync(join(p, '..'), { recursive: true });
+        writeFileSync(p, c, { flag: 'wx' });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    removeFile: (p: string) => {
+      try {
+        rmSync(p, { force: true });
+        return true;
+      } catch {
+        return false;
+      }
+    },
     renameFile: (from: string, to: string) => {
       try {
         renameSync(from, to);
@@ -580,7 +598,7 @@ describe('an unusable answer never clears anything', () => {
     // replay, so an operator could burn budget indefinitely on a question already answered.
     expect(fake.sent).toEqual([]);
     expect(charged).toEqual([]);
-    expect(r.reasons.join(' ')).toContain('already been put to the gatekeeper');
+    expect(r.reasons.join(' ')).toContain('already put work item');
   });
 });
 
@@ -1066,5 +1084,328 @@ describe("the reviewer's own words reach the owner", () => {
     expect(r.kind).toBe('UNAVAILABLE');
     expect(r.reviewerReason).toBeNull();
     expect(r.reviewerInstruction).toBeNull();
+  });
+});
+
+/**
+ * §7 — THE MIRROR IS DELETABLE BY DESIGN, SO THE DISCHARGE CANNOT DEPEND ON IT.
+ *
+ * The installation ledger exists precisely because `rm .projectops/execution/degraded-use.*.json`
+ * used to erase a spend. It survived that — and then the only mechanism that could clear the debt it
+ * kept still insisted on the deleted file, so the debt became permanent and every gate stayed shut.
+ */
+describe('the mirror can be gone and the debt still discharged', () => {
+  const mirrorPath = (root: string): string => join(root, ...(degradedStoreRelPath(GRANT) as string).split('/'));
+  const dropMirror = (root: string): void => rmSync(mirrorPath(root), { force: true });
+  const ledger = (): {
+    consumptions: Array<Record<string, unknown>>;
+    reconciliations: Array<Record<string, unknown>>;
+  } =>
+    JSON.parse(readFileSync(join(durableBinding().stateDir, 'degraded-consumption.json'), 'utf8')) as {
+      consumptions: Array<Record<string, unknown>>;
+      reconciliations: Array<Record<string, unknown>>;
+    };
+  const writeLedger = (next: unknown): void =>
+    writeFileSync(join(durableBinding().stateDir, 'degraded-consumption.json'), JSON.stringify(next));
+
+  it('rebuilds the work from the installation ledger and discharges it', () => {
+    const w = world();
+    dropMirror(w.root);
+    expect(existsSync(mirrorPath(w.root))).toBe(false);
+
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root));
+
+    expect(r.kind).toBe('RECONCILED');
+    expect(r.verdict).toBe(RECONCILIATION_ACCEPTED_VERDICT);
+    expect(r.outstandingAfter).toEqual([]);
+    expect(r.reasons.join(' ')).toContain('absent');
+    expect(ledger().reconciliations).toHaveLength(1);
+    expect(ledger().reconciliations[0]?.['workId']).toBe(WORK);
+  });
+
+  it('does not recreate a project record for work this checkout has no other trace of', () => {
+    const w = world();
+    dropMirror(w.root);
+    expect(reconcileDegradedWork(w.sys, w.root, input(), deps(w.root)).kind).toBe('RECONCILED');
+    expect(existsSync(mirrorPath(w.root))).toBe(false);
+  });
+
+  it('cannot be spent twice through the ledger either', () => {
+    const w = world();
+    dropMirror(w.root);
+    expect(reconcileDegradedWork(w.sys, w.root, input(), deps(w.root)).kind).toBe('RECONCILED');
+
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+    const second = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { http: fake.http }));
+
+    expect(second.kind).toBe('NOT_OUTSTANDING');
+    expect(fake.sent).toEqual([]);
+    expect(ledger().reconciliations).toHaveLength(1);
+  });
+
+  it('refuses when neither the mirror nor the installation records the grant', () => {
+    const w = world();
+    dropMirror(w.root);
+    writeLedger({ schemaVersion: '1.0.0', consumptions: [], reconciliations: [] });
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { http: fake.http }));
+
+    expect(r.kind).toBe('NO_SUCH_GRANT');
+    expect(fake.sent).toEqual([]);
+  });
+
+  it('still refuses an UNREADABLE mirror rather than falling back to the ledger', () => {
+    // ABSENT IS A FACT; CORRUPT IS A QUESTION. A file that will not parse may say anything, and
+    // reading past it to a record that agrees with the caller is how a tampered mirror gets ignored.
+    const w = world({ store: '{ not json' });
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { http: fake.http }));
+
+    expect(r.kind).toBe('NO_SUCH_GRANT');
+    expect(fake.sent).toEqual([]);
+  });
+
+  it('refuses when the installation ledger cannot be read at all', () => {
+    const w = world();
+    dropMirror(w.root);
+    writeFileSync(join(durableBinding().stateDir, 'degraded-consumption.json'), '{ truncated');
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { http: fake.http }));
+
+    expect(r.kind).toBe('NO_SUCH_GRANT');
+    expect(fake.sent).toEqual([]);
+  });
+
+  it('refuses the second ask after the mirror is deleted, however the question is worded', () => {
+    // THE DEFECT THIS PINS SHUT. The request id is derived from a digest of the evidence TEXT, and the
+    // ledger-backed wording differs from the mirror-backed one — so before this fix, deleting the
+    // mirror after an unwelcome verdict produced a DIFFERENT request id, the `ALREADY_ASKED` guard
+    // could not fire, and the identical question was put again. Verdict shopping, by `rm`.
+    const w = world();
+    const a = fakeHttp(okReply(verdict('AWAITING_OWNER')));
+    const first = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { http: a.http }));
+    expect(first.kind).toBe('NOT_ACCEPTED');
+    expect(a.sent[0]?.body ?? '').toContain('writable by the implementer');
+
+    dropMirror(w.root);
+    const b = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+    const { deps: d, charged } = spendingDeps(w.root, { http: b.http });
+    const second = reconcileDegradedWork(w.sys, w.root, input(), d);
+
+    expect(second.kind).toBe('ALREADY_ASKED');
+    expect(b.sent).toEqual([]);
+    expect(charged).toEqual([]);
+    expect(second.reasons.join(' ')).toContain('deleting the project record');
+    // And the debt still stands: a refused ask discharges nothing.
+    expect(ledger().reconciliations).toEqual([]);
+  });
+
+  it('tells the reviewer honestly which record the question was built from', () => {
+    const w = world();
+    dropMirror(w.root);
+    const fake = fakeHttp(okReply(verdict('AWAITING_OWNER')));
+    reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { http: fake.http }));
+
+    const body = fake.sent[0]?.body ?? '';
+    expect(body).toContain('durable ledger');
+    expect(body).toContain(WORK);
+    expect(body).toContain(OUTAGE);
+    // AND THE OWNER'S REAL CEILING, not the rebuild's "no claimed ceiling" sentinel. A reviewer asked
+    // whether unreviewed work may be accepted was being shown a bound of -1.
+    //
+    // ASSERTED POSITIVELY. `not.toContain('-1')` looked stronger and was worse: the request id is a
+    // hex digest that changes every run, so roughly one run in sixteen contained "-1" for reasons
+    // that had nothing to do with the ceiling. A test that fails at random teaches people to re-run.
+    // The evidence is JSON-escaped inside the request body, so the quote is escaped too.
+    expect(body).toContain('maxWorkItems\\": 1');
+  });
+
+  it('keeps the mirror-backed question byte-stable, so an answered question stays answered', () => {
+    // THE WORDING IS HASHED. `ALREADY_ASKED` refuses a repeat by request id, so rephrasing the
+    // mirror-backed evidence would make every already-answered question look new.
+    const w = world();
+    const fake = fakeHttp(okReply(verdict('AWAITING_OWNER')));
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { http: fake.http }));
+
+    expect(fake.sent[0]?.body ?? '').toContain(
+      'working tree, not yet committed — written by the runtime, but writable by the implementer, ' +
+        'so treat the summary as a claim rather than as proof',
+    );
+    expect(r.requestId).not.toBeNull();
+  });
+
+  it('will not summarise a grant the ledger records against two different outages', () => {
+    const w = world();
+    dropMirror(w.root);
+    const raw = ledger();
+    const first = raw.consumptions[0] as Record<string, unknown>;
+    raw.consumptions.push({ ...first, workId: `${WORK}2`, unavailabilityId: 'GKOUT-0000000000000000000000ff' });
+    writeLedger(raw);
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { http: fake.http }));
+
+    expect(r.kind).toBe('NO_SUCH_GRANT');
+    expect(r.reasons.join(' ')).toContain('more than one outage');
+    expect(fake.sent).toEqual([]);
+  });
+
+  it('does not read another installation spends as work it may discharge', () => {
+    const w = world();
+    dropMirror(w.root);
+    const raw = ledger();
+    raw.consumptions = raw.consumptions.map((c) => ({ ...c, installRoot: '/some/other/ProjectOS' }));
+    writeLedger(raw);
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { http: fake.http }));
+
+    expect(r.kind).toBe('NO_SUCH_GRANT');
+    expect(fake.sent).toEqual([]);
+  });
+});
+
+/**
+ * The rest of the 2026-08-21 adversarial review, each finding pinned by the case that would fail.
+ */
+describe('what the installation ledger may and may not be made to say', () => {
+  const mirrorPath = (root: string): string => join(root, ...(degradedStoreRelPath(GRANT) as string).split('/'));
+  const ledgerPath = (): string => join(durableBinding().stateDir, 'degraded-consumption.json');
+  const ledger = (): {
+    consumptions: Array<Record<string, unknown>>;
+    reconciliations: Array<Record<string, unknown>>;
+    asks?: Array<Record<string, unknown>>;
+  } =>
+    JSON.parse(readFileSync(ledgerPath(), 'utf8')) as {
+      consumptions: Array<Record<string, unknown>>;
+      reconciliations: Array<Record<string, unknown>>;
+      asks?: Array<Record<string, unknown>>;
+    };
+  const writeLedger = (next: unknown): void => writeFileSync(ledgerPath(), JSON.stringify(next));
+
+  it('discharges work the ledger holds but the mirror has forgotten', () => {
+    // THE STATE THIS FIXES WAS UNREACHABLE-BY-ANY-COMMAND. Delete the mirror after one spend, spend
+    // again, and the mirror comes back holding only the SECOND item. The first was then durable-only:
+    // the gate refused on it forever while this command, seeing a mirror that exists, replied "grant
+    // records no work item" — the two messages flatly contradicting each other.
+    const w = world();
+    const other = `${WORK}-second`;
+    writeFileSync(
+      mirrorPath(w.root),
+      JSON.stringify({
+        schemaVersion: '1.0.0',
+        grantId: GRANT,
+        unavailabilityId: OUTAGE,
+        projectId: PROJECT,
+        phaseId: PHASE,
+        consumedAt: '2026-08-20T15:18:56.178Z',
+        maxWorkItems: 1,
+        workItems: [{ workId: other, grantId: GRANT, phaseId: PHASE, summary: 'later', at: '2026-08-20T15:18:56.178Z' }],
+        reconciliations: [],
+      }),
+    );
+
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root));
+
+    expect(r.kind).toBe('RECONCILED');
+    expect(r.reasons.join(' ')).toContain('does not record work item');
+    expect(ledger().reconciliations).toHaveLength(1);
+  });
+
+  it('still names the work item when neither record has ever heard of it', () => {
+    // The ledger having nothing is an ABSENCE, not a refusal, so the mirror is still allowed to give
+    // the more useful answer rather than being shouted down with "no such grant".
+    const w = world();
+    const r = reconcileDegradedWork(w.sys, w.root, input({ workId: 'GKWORK-000000000000ffff' }), deps(w.root));
+    expect(r.kind).toBe('NOT_OUTSTANDING');
+    expect(r.reasons.join(' ')).toContain('records no work item');
+  });
+
+  it('refuses when the ledger records this grant under another installation', () => {
+    // NOT "no debt to discharge". Dropping the row and reporting an absence is the shape both earlier
+    // bypasses had; the gate refuses on exactly this state, and these two must not disagree.
+    const w = world();
+    rmSync(mirrorPath(w.root), { force: true });
+    const raw = ledger();
+    raw.consumptions = raw.consumptions.map((c) => ({ ...c, installRoot: '/some/other/ProjectOS' }));
+    writeLedger(raw);
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { http: fake.http }));
+
+    expect(r.kind).toBe('NO_SUCH_GRANT');
+    // NAMED BY THE REBUILD ITSELF, not by the ledger read that happens later. Both refuse this state,
+    // and asserting on the shared phrase let the rebuild's own check be deleted without failing.
+    expect(r.reasons.join(' ')).toContain(`records grant '${GRANT}'`);
+    expect(r.reasons.join(' ')).toContain('second copy of the installation');
+    expect(fake.sent).toEqual([]);
+  });
+
+  it('refuses a legacy ledger row rather than crashing on its missing bindings', () => {
+    // `parse` validates no field, so a row written by an earlier build carries no installRoot. Reading
+    // it blindly turned a refusal into an unhandled TypeError — no outcome at all, and a debt whose
+    // only remedy died with a stack trace.
+    const w = world();
+    rmSync(mirrorPath(w.root), { force: true });
+    const raw = ledger();
+    raw.consumptions = raw.consumptions.map((c) => {
+      const copy = { ...c };
+      delete copy['installRoot'];
+      delete copy['repository'];
+      return copy;
+    });
+    writeLedger(raw);
+
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root));
+
+    expect(r.kind).toBe('NO_SUCH_GRANT');
+    expect(typeof r.reasons.join(' ')).toBe('string');
+  });
+
+  it('records the question durably the moment the call returns', () => {
+    const w = world();
+    const first = reconcileDegradedWork(
+      w.sys,
+      w.root,
+      input(),
+      deps(w.root, { http: fakeHttp(okReply(verdict('AWAITING_OWNER'))).http }),
+    );
+
+    expect(first.kind).toBe('NOT_ACCEPTED');
+    const asks = ledger().asks ?? [];
+    expect(asks).toHaveLength(1);
+    expect(asks[0]?.['workId']).toBe(WORK);
+    expect(asks[0]?.['verdict']).toBe('AWAITING_OWNER');
+    expect(asks[0]?.['decisionId']).toBe(first.decisionId);
+  });
+
+  it('discharges nothing when the question and its answer cannot be written together', () => {
+    // ONE LOCK, ONE OUTCOME. The ask and the discharge are written in a single acquisition, so a
+    // failure leaves NEITHER — which is what makes a retry safe. Previously they were two writes, and
+    // a failure between them recorded the question as asked while discarding the accepted answer,
+    // making the debt permanently undischargeable.
+    const w = world();
+    const blind: System = {
+      ...w.sys,
+      // Drop only the write that carries a non-empty asks array, so the fixture's own rows still land.
+      writeText: (p: string, c: string) => {
+        if (p.includes('degraded-consumption') && c.includes('"requestId"')) return;
+        w.sys.writeText(p, c);
+      },
+    };
+    const { deps: d, charged } = spendingDeps(w.root);
+
+    const r = reconcileDegradedWork(blind, w.root, input(), d);
+
+    expect(r.kind).toBe('PERSIST_FAILED');
+    expect(charged).toHaveLength(1);
+    const after = ledger();
+    expect(after.reconciliations).toEqual([]);
+    // AND THE QUESTION IS NOT RECORDED EITHER, so the operator can try again rather than being told
+    // the work has already been asked about and may never be asked about again.
+    expect(after.asks ?? []).toEqual([]);
   });
 });

@@ -1,0 +1,79 @@
+{
+  "schemaVersion": "1.0.0",
+  "policy": "projectos-trust-boundary",
+  "note": "What this installation trusts, and what it does not. This record DECLARES the boundary the existing mechanisms already enforce; it introduces no new mechanism, no new gate and no new authority. It exists so that a reader — human or reviewer — can see in one place which inputs are treated as facts and which are treated as claims, and so that a change moving something across the line has to say so out loud in a diff.",
+  "authority": "delegated-technical-gatekeeper",
+  "authorisedBy": "ChatGPT",
+  "provenance": "Written by the implementer (Claude) under the gatekeeper ruling of 2026-08-21, section 4, which asked for one small machine-readable record and explicitly forbade designing a new security architecture around it. No owner decision is claimed or recorded here.",
+  "enforcedBy": "val-projectos-trust-boundary1a — the validator refuses a record that disagrees with the code, so this file cannot drift into a comfortable fiction.",
+  "trusted": [
+    {
+      "id": "owner-windows-account",
+      "subject": "The owner's own Windows account on this machine",
+      "why": "It is the account that installs, runs and commits. Everything below is trusted only because this account chose to trust it; there is no authority above it in this design."
+    },
+    {
+      "id": "projectos-installation",
+      "subject": "The trusted ProjectOS installation — the runtime resolved from its own module path, not from the governed project",
+      "why": "The installation is the side of the boundary that holds the credential and decides. It is located from `import.meta.url`, so a governed project cannot substitute itself for it by arranging its own directory."
+    },
+    {
+      "id": "committed-projectos-code",
+      "subject": "Accepted ProjectOS code and policy, read from the git object store",
+      "why": "Under `tamperProof: false` the implementer may write any working-tree file but may not commit, so the commit is the boundary. Policy is read with `git show HEAD:...` after confirming the path is committed and unmodified — never from the working tree."
+    },
+    {
+      "id": "installation-authority-state",
+      "subject": "Installation-owned authority and durable state under %LOCALAPPDATA%/ProjectOS/installation-state",
+      "why": "It lives outside every repository, so deleting a project — or the whole checkout — cannot erase what was spent or what is owed. It is deliberately not committed anywhere, and ProjectOS provides no override of its own: the location is derived from the operator's ordinary application-data directory (LOCALAPPDATA, or XDG_STATE_HOME/HOME off Windows). Those are the operator's own environment, and anything able to rewrite them is already inside the trusted account — which is the boundary this record draws, not a hole in it."
+    }
+  ],
+  "untrusted": [
+    {
+      "id": "external-governed-repositories",
+      "subject": "Governed projects other than this installation's own repository",
+      "why": "A governed repository is the thing being governed. Its contents, its `.git/config`, and the identity it claims are all writable by whoever supplied it, so none of them may release a credential on their own."
+    },
+    {
+      "id": "claude-output",
+      "subject": "Anything the implementer (Claude) produces — code, records, evidence, summaries",
+      "why": "The implementer is inside the boundary being checked, not outside it. Its output becomes trusted only by being committed by the owner, or by being independently derived from something already trusted."
+    },
+    {
+      "id": "project-worktree-changes",
+      "subject": "Uncommitted working-tree state in any governed project",
+      "why": "It is writable without authority. A grant, a receipt or a decision that exists only in the working tree is a draft of an authority, not an authority."
+    },
+    {
+      "id": "model-text",
+      "subject": "Free text returned by any model, including the gatekeeper's own prose",
+      "why": "A verdict is honoured only through its structured fields, after `checkGatekeeperDecision` binds it to the project, phase, subject commit and request digest. Reasoning text is shown to the owner and never parsed for permission."
+    },
+    {
+      "id": "project-evidence-mirrors",
+      "subject": "Project-local mirrors of degraded-mode use and reconciliation",
+      "why": "They are convenience copies inside the project, deletable and writable by the worker. A mirror that claims a discharge clears nothing; the installation ledger decides, and the mirror may be absent entirely."
+    }
+  ],
+  "selfHosted": {
+    "projectId": "projectos",
+    "governedRoot": "C:/dev/ProjectOS",
+    "note": "ProjectOS governs itself, so one checkout wears both hats — but the hats do not merge. When this repository is the SUBJECT it is a governed project and untrusted like any other; the trusted installation is the runtime executing from its own installed location. The self-hosted case is where those two are easiest to confuse, which is why the identity check requires the authorised path as well as the origin."
+  },
+  "external": {
+    "note": "Any other governed project. Credential release requires BOTH an entry in the installation's committed allowlist AND that project's own committed secrets-handling receipt; neither alone suffices, and no external project may add itself to the allowlist because the reader takes the allowlist from the installation's committed tree.",
+    "allowlist": "projectos/security/installation-project-allowlist.json"
+  },
+  "outOfScope": [
+    {
+      "id": "owner-protected-actions",
+      "subject": "Production deployment, production data mutation, real sends, live payments, destructive actions, new signing or credential authority, force push",
+      "why": "These are owner gates, not trust-boundary questions. Nothing on the trusted side of this record grants any of them, and a reviewer verdict cannot either."
+    },
+    {
+      "id": "credential-values",
+      "subject": "The secret material itself",
+      "why": "No component on either side of this boundary is entitled to a raw credential value in a prompt, a report, a log, an evidence file or source control. The credential crosses only from the installation's store into an outbound request header."
+    }
+  ]
+}

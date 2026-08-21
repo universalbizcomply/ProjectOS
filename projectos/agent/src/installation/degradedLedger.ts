@@ -65,10 +65,39 @@ export interface DurableReconciliation {
   readonly at: string;
 }
 
+/**
+ * One question put to the gatekeeper about one work item, recorded whatever the answer was.
+ *
+ * ASKED ONCE MEANS ASKED ONCE, AND THE WORK ITEM IS WHAT WAS ASKED ABOUT. The guard that enforced it
+ * keyed on a request id derived from a digest of the evidence TEXT, so any change to that text made
+ * the same question look new. That was survivable while exactly one wording existed. It stopped being
+ * survivable the moment a second wording appeared for the same work, selected by whether a DELETABLE
+ * project file was present: `rm` the mirror, ask again, get a different verdict. That is verdict
+ * shopping, and it was available to precisely the party the trust model says can delete that file.
+ *
+ * So the durable record names the WORK ITEM. The wording may change, the record the question was
+ * rebuilt from may change, the digest may change — the question is still the same question, and it
+ * has already been answered. Found by two independent lenses of the 2026-08-21 adversarial review.
+ */
+export interface DurableAsk {
+  readonly installRoot: string;
+  readonly projectId: string;
+  readonly repository: string;
+  readonly grantId: string;
+  readonly workId: string;
+  readonly requestId: string;
+  readonly decisionId: string;
+  /** What came back. Recorded even when it left the debt standing — especially then. */
+  readonly verdict: string;
+  readonly at: string;
+}
+
 export interface DurableDegradedLedger {
   readonly schemaVersion: string;
   readonly consumptions: readonly DurableConsumption[];
   readonly reconciliations: readonly DurableReconciliation[];
+  /** Absent in ledgers written before this record existed, which reads as "nothing asked yet". */
+  readonly asks: readonly DurableAsk[];
 }
 
 export type LedgerRead =
@@ -100,10 +129,21 @@ function parse(raw: string): DurableDegradedLedger | null {
     const consumptions = parsed['consumptions'];
     const reconciliations = parsed['reconciliations'];
     if (!Array.isArray(consumptions) || !Array.isArray(reconciliations)) return null;
+    // ABSENT IS FINE; MALFORMED IS NOT. A ledger written before asks existed simply has none. A file
+    // whose `asks` is present but not an array is damaged, and defaulting it to empty would silently
+    // disable the one guard that refuses a second ask.
+    const asks = parsed['asks'];
+    if (asks !== undefined && !Array.isArray(asks)) return null;
+    // EVERY ELEMENT MUST BE AN OBJECT. `String(row.installRoot ?? '')` guards a MISSING field; it does
+    // not guard a row that is `null`, which throws out of the gate instead of refusing there.
+    for (const row of [...consumptions, ...reconciliations, ...((asks ?? []) as unknown[])]) {
+      if (row === null || typeof row !== 'object' || Array.isArray(row)) return null;
+    }
     return {
       schemaVersion: String(parsed['schemaVersion'] ?? ''),
       consumptions: consumptions as readonly DurableConsumption[],
       reconciliations: reconciliations as readonly DurableReconciliation[],
+      asks: (asks ?? []) as readonly DurableAsk[],
     };
   } catch {
     return null;
@@ -136,6 +176,7 @@ export function readDurableLedger(sys: System, stateDir: string): LedgerRead {
   return { kind: 'ok', ledger: parsed };
 }
 
+/** Replace the ledger. Callers hold the lock; this is the write itself, nothing more. */
 function write(sys: System, stateDir: string, next: DurableDegradedLedger): LedgerWrite {
   const path = ledgerPath(stateDir);
   const temporary = `${path}.tmp`;
@@ -153,75 +194,264 @@ function write(sys: System, stateDir: string, next: DurableDegradedLedger): Ledg
   return { persisted: true, problem: null };
 }
 
+export const DEGRADED_LEDGER_LOCK_FILENAME = 'degraded-consumption.lock';
+
+/**
+ * Do one read-modify-write with nobody else inside.
+ *
+ * TWO WRITERS USED TO LOSE ONE ANOTHER SILENTLY. Both read the whole file, both add a row, both write
+ * it back — so whoever renamed second erased the other's row, and each verified only its OWN row
+ * afterwards and reported success. The erased spend then looked unused: its grant refundable, its
+ * review debt gone. The ledger is a single file precisely so that it needs no database, and a single
+ * file needs exactly one thing to be safe under concurrency, which is that only one process is inside
+ * the read-modify-write at a time.
+ *
+ * THE LOCK IS A FILE THAT CANNOT BE CREATED TWICE. `createExclusive` is decided by the filesystem, so
+ * the second caller loses rather than both proceeding — which is what an `exists()` check would do.
+ *
+ * NO WAITING, NO RETRY LOOP. A refusal is correct here: degraded spends are rare and operator-driven,
+ * and "try again" is a better answer than a runtime that sleeps inside a governance decision. A lock
+ * left behind by a killed process blocks until removed, and the message says exactly which file that
+ * is — a refusal an operator can clear beats a stale-timeout rule that can clear itself at the wrong
+ * moment.
+ */
+function underLedgerLock(sys: System, stateDir: string, body: () => LedgerWrite): LedgerWrite {
+  const lock = join(stateDir, DEGRADED_LEDGER_LOCK_FILENAME);
+  if (!sys.createExclusive(lock, `{"heldSince":"${sys.now()}"}\n`)) {
+    // WHICH FAILURE IT WAS DECIDES WHAT THE OPERATOR SHOULD DO. `createExclusive` answers only
+    // true or false, so "the lock is held" and "this directory cannot be written at all" arrive
+    // identically — and the contention message would send someone to delete a file that does not
+    // exist, on a machine whose actual problem is a permission, a full disk or a missing profile.
+    if (!sys.exists(lock)) {
+      return {
+        persisted: false,
+        problem:
+          `the installation state directory could not be written (${stateDir}), so nothing was ` +
+          'recorded and no unreviewed work may start; check that it exists and is writable',
+      };
+    }
+    return {
+      persisted: false,
+      problem:
+        'another ProjectOS process is writing the installation degraded ledger; nothing was recorded. ' +
+        `If no other run is in progress, ${lock} was left behind by one that died and must be removed.`,
+    };
+  }
+  let result: LedgerWrite = { persisted: false, problem: 'the ledger write did not run' };
+  try {
+    result = body();
+  } finally {
+    // `removeFile` verifies the file is gone; the boolean was being discarded, so a lock the OS
+    // refused to delete — an antivirus or indexer holding a handle is the everyday Windows case —
+    // was silently treated as released, and every later write on the machine refused with no clue
+    // why. It cannot be undone here, so it is REPORTED here.
+    if (!sys.removeFile(lock)) {
+      const leaked =
+        `the installation degraded ledger lock ${lock} could not be released; every later write will ` +
+        'refuse until it is removed';
+      // eslint-disable-next-line no-unsafe-finally
+      return { persisted: result.persisted, problem: result.problem === null ? leaked : `${result.problem}; ${leaked}` };
+    }
+  }
+  return result;
+}
+
 /**
  * Record a spend, and prove it is really there before the work it funds is allowed to start.
  *
  * The ordering is the whole point: this must be durable BEFORE the bounded work runs, or a crash
  * between the two leaves a grant that funded work and still looks unused.
  */
-export function recordConsumption(sys: System, stateDir: string, entry: DurableConsumption): LedgerWrite {
-  const read = readDurableLedger(sys, stateDir);
-  if (read.kind === 'corrupt') return { persisted: false, problem: read.why };
-  const current: DurableDegradedLedger =
-    read.kind === 'ok'
-      ? read.ledger
-      : { schemaVersion: DEGRADED_LEDGER_SCHEMA_VERSION, consumptions: [], reconciliations: [] };
+/**
+ * Record a spend whose IDENTITY is decided inside the lock.
+ *
+ * THE READ THAT NAMED THE ENTRY USED TO SIT OUTSIDE IT. The caller counted the grant's existing items,
+ * derived a work id from that count, and only then took the lock — so two concurrent runs read the
+ * same count, derived the SAME id, and the loser was told "work item X is already recorded as spent".
+ * That is a true sentence about the wrong event: nothing of the loser's was spent, and the message
+ * describes a replay that never happened. Deciding the ordinal under the lock makes the two runs
+ * allocate different items, which is what actually occurred.
+ *
+ * `makeEntry` is told how many items this grant has already funded and returns the entry to write.
+ */
+export function allocateConsumption(
+  sys: System,
+  stateDir: string,
+  scope: LedgerScope & { readonly grantId: string; readonly ceiling: number },
+  makeEntry: (alreadyFunded: number) => DurableConsumption,
+): LedgerWrite & { readonly entry: DurableConsumption | null } {
+  let allocated: DurableConsumption | null = null;
+  const written = underLedgerLock(sys, stateDir, () => {
+    const state = authoritativeState(sys, stateDir, scope);
+    if (!state.readable) {
+      return {
+        persisted: false,
+        problem: state.problem ?? 'the installation degraded ledger could not be read',
+      };
+    }
+    const alreadyFunded = state.workItemsByGrant[scope.grantId] ?? 0;
 
-  if (current.consumptions.some((c) => c.workId === entry.workId)) {
-    return { persisted: false, problem: `work item ${entry.workId} is already recorded as spent` };
-  }
+    // THE CEILING IS DECIDED BY THE SAME READ THAT NAMES THE ENTRY.
+    //
+    // It used to be decided by the caller, before the lock: two concurrent runs both read "0 spent, 1
+    // allowed" and both spent the last item of a one-item grant. The owner authorised one piece of
+    // unreviewed work; two ran; and the authoritative record then held two rows under a grant bounded
+    // at one — which `reconcileDegradedWork` refuses to review at all, so BOTH became permanently
+    // undischargeable and every major gate stayed shut with no remedy. Two independent lenses of the
+    // 2026-08-21 review found this, and both noted it was made reachable by moving the ordinal inside
+    // the lock: the old colliding id had been bounding the second writer by accident.
+    if (!Number.isInteger(scope.ceiling) || scope.ceiling < 0) {
+      return { persisted: false, problem: 'the grant states no usable work-item ceiling' };
+    }
+    if (alreadyFunded >= scope.ceiling) {
+      return {
+        persisted: false,
+        problem:
+          `grant '${scope.grantId}' is bounded at ${scope.ceiling} work item(s) and this installation ` +
+          `has already funded ${alreadyFunded}; nothing further is spent`,
+      };
+    }
 
-  const written = write(sys, stateDir, {
-    ...current,
-    schemaVersion: DEGRADED_LEDGER_SCHEMA_VERSION,
-    consumptions: [...current.consumptions, entry],
+    const entry = makeEntry(alreadyFunded);
+    allocated = entry;
+    return appendConsumption(sys, stateDir, entry);
   });
-  if (!written.persisted) return written;
-
-  // READ BACK. `writeText` reports nothing, so a silent no-op would be indistinguishable from success
-  // — and this is the record that stops a spent grant looking unused.
-  const after = readDurableLedger(sys, stateDir);
-  if (after.kind !== 'ok' || !after.ledger.consumptions.some((c) => c.workId === entry.workId)) {
-    return { persisted: false, problem: 'the spend could not be read back after writing, so no unreviewed work may start' };
-  }
-  return { persisted: true, problem: null };
+  return { ...written, entry: written.persisted ? allocated : null };
 }
 
-/** Record an accepted reconciliation against a spend this installation really made. */
-export function recordReconciliation(sys: System, stateDir: string, entry: DurableReconciliation): LedgerWrite {
-  const read = readDurableLedger(sys, stateDir);
-  if (read.kind === 'corrupt') return { persisted: false, problem: read.why };
-  if (read.kind === 'absent') {
-    return { persisted: false, problem: 'this installation has no record of the work this reconciliation would discharge' };
+export function recordConsumption(sys: System, stateDir: string, entry: DurableConsumption): LedgerWrite {
+  return underLedgerLock(sys, stateDir, () => appendConsumption(sys, stateDir, entry));
+}
+
+/** The body of a consumption write. The caller holds the lock. */
+function appendConsumption(sys: System, stateDir: string, entry: DurableConsumption): LedgerWrite {
+  {
+    const read = readDurableLedger(sys, stateDir);
+    if (read.kind === 'corrupt') return { persisted: false, problem: read.why };
+    const current: DurableDegradedLedger =
+      read.kind === 'ok'
+        ? read.ledger
+        : { schemaVersion: DEGRADED_LEDGER_SCHEMA_VERSION, consumptions: [], reconciliations: [], asks: [] };
+
+    if (current.consumptions.some((c) => c.workId === entry.workId)) {
+      return { persisted: false, problem: `work item ${entry.workId} is already recorded as spent` };
+    }
+
+    const written = write(sys, stateDir, {
+      ...current,
+      schemaVersion: DEGRADED_LEDGER_SCHEMA_VERSION,
+      consumptions: [...current.consumptions, entry],
+    });
+    if (!written.persisted) return written;
+
+    // READ BACK. `writeText` reports nothing, so a silent no-op would be indistinguishable from
+    // success — and this is the record that stops a spent grant looking unused.
+    const after = readDurableLedger(sys, stateDir);
+    if (after.kind !== 'ok' || !after.ledger.consumptions.some((c) => c.workId === entry.workId)) {
+      return {
+        persisted: false,
+        problem: 'the spend could not be read back after writing, so no unreviewed work may start',
+      };
+    }
+    return { persisted: true, problem: null };
   }
-  const current = read.ledger;
-  const spend = current.consumptions.find((c) => c.workId === entry.workId);
-  if (spend === undefined) {
-    return { persisted: false, problem: `this installation has no record of work item ${entry.workId}` };
-  }
-  if (
-    String(spend.installRoot ?? '').toLowerCase() !== String(entry.installRoot ?? '').toLowerCase() ||
-    spend.projectId !== entry.projectId ||
-    spend.repository !== entry.repository ||
-    spend.grantId !== entry.grantId
-  ) {
-    return { persisted: false, problem: `the reconciliation of ${entry.workId} does not match the spend it names` };
-  }
+}
+
+/**
+ * Record that a question was PUT and, in the same breath, what it settled.
+ *
+ * ONE LOCK, OR A DEBT THAT CANNOT BE DISCHARGED. These were two separate acquisitions: the ask was
+ * written, the lock released, and the discharge attempted afterwards. Between them any other ProjectOS
+ * process could take the lock — and `underLedgerLock` refuses rather than waiting, by design. The
+ * discharge then failed, the accepted decision was thrown away, and the retry hit `ALREADY_ASKED`,
+ * which is permanent. The work was paid for, approved, and left owing forever with no override. Found
+ * by the second adversarial review, 2026-08-21.
+ *
+ * NO SECOND ASK FOR THE SAME WORK. `recordAsk` had no duplicate check at all — every other writer in
+ * this file has one — so the "asked once" guarantee rested entirely on a read taken before a network
+ * round trip. Two concurrent reconciliations both passed that read, both paid, and the accepted
+ * verdict won. That is verdict shopping reached through concurrency instead of `rm`.
+ *
+ * AND THE WORK MUST BE WORK THIS INSTALLATION FUNDED, so an ask cannot be recorded — permanently
+ * blocking a work item — for something it never spent on.
+ */
+export function settleAsk(
+  sys: System,
+  stateDir: string,
+  entry: DurableAsk,
+  discharge: DurableReconciliation | null,
+): LedgerWrite {
+  return underLedgerLock(sys, stateDir, () => {
+    const read = readDurableLedger(sys, stateDir);
+    if (read.kind === 'corrupt') return { persisted: false, problem: read.why };
+    if (read.kind === 'absent') {
+      return { persisted: false, problem: 'this installation has no record of the work this question is about' };
+    }
+    const current = read.ledger;
+
+    const spend = current.consumptions.find((c) => rowMatches(c, entry) && c.workId === entry.workId);
+    if (spend === undefined) {
+      return { persisted: false, problem: `this installation has no record of work item ${entry.workId}` };
+    }
+    if (current.asks.some((a) => rowMatches(a, entry) && a.workId === entry.workId)) {
+      return { persisted: false, problem: `work item ${entry.workId} has already been put to the gatekeeper` };
+    }
+    if (discharge !== null) {
+      const problem = dischargeProblem(current, discharge, entry);
+      if (problem !== null) return { persisted: false, problem };
+    }
+
+    const next: DurableDegradedLedger = {
+      ...current,
+      asks: [...current.asks, entry],
+      reconciliations: discharge === null ? current.reconciliations : [...current.reconciliations, discharge],
+    };
+    const written = write(sys, stateDir, next);
+    if (!written.persisted) return written;
+
+    const after = readDurableLedger(sys, stateDir);
+    if (
+      after.kind !== 'ok' ||
+      !after.ledger.asks.some((a) => a.workId === entry.workId && a.requestId === entry.requestId)
+    ) {
+      return { persisted: false, problem: 'the record of the question could not be read back after writing' };
+    }
+    if (discharge !== null && !after.ledger.reconciliations.some((r) => r.workId === discharge.workId)) {
+      return { persisted: false, problem: 'the reconciliation could not be read back after writing' };
+    }
+    if (after.ledger.consumptions.length !== current.consumptions.length) {
+      return { persisted: false, problem: 'the record of what was spent changed while settling a question' };
+    }
+    return { persisted: true, problem: null };
+  });
+}
+
+/** Same installation, same project, same repository, same grant. Every lookup here is bound this way. */
+function rowMatches(
+  row: { readonly installRoot?: unknown; readonly projectId?: unknown; readonly repository?: unknown; readonly grantId?: unknown },
+  scope: { readonly installRoot: string; readonly projectId: string; readonly repository: string; readonly grantId: string },
+): boolean {
+  return (
+    String(row?.installRoot ?? '').toLowerCase() === scope.installRoot.toLowerCase() &&
+    row?.projectId === scope.projectId &&
+    String(row?.repository ?? '').toLowerCase() === scope.repository.toLowerCase() &&
+    row?.grantId === scope.grantId
+  );
+}
+
+/** Why this discharge may not be written, or `null`. */
+function dischargeProblem(
+  current: DurableDegradedLedger,
+  entry: DurableReconciliation,
+  ask: DurableAsk,
+): string | null {
   if (current.reconciliations.some((r) => r.workId === entry.workId)) {
-    return { persisted: false, problem: `work item ${entry.workId} is already reconciled in the installation ledger` };
+    return `work item ${entry.workId} is already reconciled in the installation ledger`;
   }
-
-  const written = write(sys, stateDir, { ...current, reconciliations: [...current.reconciliations, entry] });
-  if (!written.persisted) return written;
-
-  const after = readDurableLedger(sys, stateDir);
-  if (after.kind !== 'ok' || !after.ledger.reconciliations.some((r) => r.workId === entry.workId)) {
-    return { persisted: false, problem: 'the reconciliation could not be read back after writing' };
+  if (entry.decisionId === '' || entry.decisionId !== ask.decisionId) {
+    return `the reconciliation of ${entry.workId} does not name the decision the question returned`;
   }
-  if (after.ledger.consumptions.length !== current.consumptions.length) {
-    return { persisted: false, problem: 'the record of what was spent changed while recording a reconciliation' };
-  }
-  return { persisted: true, problem: null };
+  return null;
 }
 
 export interface AuthoritativeState {
@@ -233,6 +463,10 @@ export interface AuthoritativeState {
   readonly outstandingWorkIds: readonly string[];
   /** How many items each grant has funded, so exhaustion is decidable without the project mirror. */
   readonly workItemsByGrant: Readonly<Record<string, number>>;
+  /** Work items this installation has already put to the gatekeeper, whatever the answer was. */
+  readonly askedWorkIds: readonly string[];
+  /** Work this installation funded and an accepted decision HAS discharged. */
+  readonly dischargedWorkIds: readonly string[];
 }
 
 /**
@@ -243,10 +477,18 @@ export interface AuthoritativeState {
 export function authoritativeState(sys: System, stateDir: string, scope: LedgerScope): AuthoritativeState {
   const read = readDurableLedger(sys, stateDir);
   if (read.kind === 'corrupt') {
-    return { readable: false, problem: read.why, consumedGrantIds: [], outstandingWorkIds: [], workItemsByGrant: {} };
+    return {
+      readable: false,
+      problem: read.why,
+      consumedGrantIds: [],
+      outstandingWorkIds: [],
+      workItemsByGrant: {},
+      askedWorkIds: [],
+      dischargedWorkIds: [],
+    };
   }
   const ledger: DurableDegradedLedger =
-    read.kind === 'ok' ? read.ledger : { schemaVersion: DEGRADED_LEDGER_SCHEMA_VERSION, consumptions: [], reconciliations: [] };
+    read.kind === 'ok' ? read.ledger : { schemaVersion: DEGRADED_LEDGER_SCHEMA_VERSION, consumptions: [], reconciliations: [], asks: [] };
 
   // BOUND TO THE PROJECT, AND ANY DISAGREEMENT IS A REFUSAL — NEVER A SKIP.
   //
@@ -261,12 +503,14 @@ export function authoritativeState(sys: System, stateDir: string, scope: LedgerS
   // repository OR a different installation REFUSES. An entry that does not apply is never silently
   // dropped: that is how both bypasses worked.
   const named = ledger.consumptions.filter(
-    (c) => c.projectId === scope.projectId && c.repository.toLowerCase() === scope.repository.toLowerCase(),
+    (c) =>
+      c.projectId === scope.projectId &&
+      String(c.repository ?? '').toLowerCase() === scope.repository.toLowerCase(),
   );
   const claimingThisProject = ledger.consumptions.filter((c) => c.projectId === scope.projectId);
   const disagreeing = claimingThisProject.filter(
     (c) =>
-      c.repository.toLowerCase() !== scope.repository.toLowerCase() ||
+      String(c.repository ?? '').toLowerCase() !== scope.repository.toLowerCase() ||
       String(c.installRoot ?? '').toLowerCase() !== scope.installRoot.toLowerCase(),
   );
   if (disagreeing.length > 0) {
@@ -282,6 +526,8 @@ export function authoritativeState(sys: System, stateDir: string, scope: LedgerS
       consumedGrantIds: [],
       outstandingWorkIds: [],
       workItemsByGrant: {},
+      askedWorkIds: [],
+      dischargedWorkIds: [],
     };
   }
   const mine = named;
@@ -307,5 +553,16 @@ export function authoritativeState(sys: System, stateDir: string, scope: LedgerS
     consumedGrantIds: [...new Set(mine.map((c) => c.grantId))],
     outstandingWorkIds: mine.filter((c) => !discharged.has(c.workId)).map((c) => c.workId),
     workItemsByGrant: byGrant,
+    // ASKED, BY THIS INSTALLATION, FOR THIS PROJECT. Bound exactly as the spends are: an ask recorded
+    // by another installation or under another repository is not evidence about this one.
+    askedWorkIds: ledger.asks
+      .filter(
+        (a) =>
+          String(a.installRoot ?? '').toLowerCase() === scope.installRoot.toLowerCase() &&
+          a.projectId === scope.projectId &&
+          String(a.repository ?? '').toLowerCase() === scope.repository.toLowerCase(),
+      )
+      .map((a) => String(a.workId ?? '')),
+    dischargedWorkIds: mine.filter((c) => discharged.has(c.workId)).map((c) => c.workId),
   };
 }

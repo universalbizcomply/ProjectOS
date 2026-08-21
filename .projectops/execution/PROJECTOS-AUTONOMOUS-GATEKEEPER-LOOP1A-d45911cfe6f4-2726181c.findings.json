@@ -1,0 +1,117 @@
+{
+  "reviews": ["code-review", "security-review", "correction-review"],
+  "findings": [
+    {
+      "id": "CR-001",
+      "severity": "MEDIUM",
+      "category": "logic-correctness",
+      "summary": "gatekeeperCostLedger.ts:67 nonNegative() uses n > 0 instead of n >= 0, rejecting zero which is a valid nonnegative value; no practical impact since 0 tokens produce 0 cost regardless. Fix: change n > 0 to n >= 0. Source write blocked by permission (3 attempts across 3 runs).",
+      "resolved": false
+    },
+    {
+      "id": "CR-002",
+      "severity": "MEDIUM",
+      "category": "maintainability",
+      "summary": "gatekeeperBridge.ts:180 Unicode reordering character stripping uses raw Unicode codepoints instead of \\uXXXX escape sequences; correct behavior but fragile under re-encoding. Fix: replace regex with /[\\u200E\\u200F\\u061C\\u202A-\\u202E\\u2066-\\u2069]/g. Source write blocked by permission (3 attempts across 3 runs).",
+      "resolved": false
+    },
+    {
+      "id": "CR-003",
+      "severity": "MEDIUM",
+      "category": "robustness",
+      "summary": "degradedMode.ts:835 git parent-count parsing via split/filter chain could miscount on unexpected whitespace; fix: split into named parentParts variable, guard parentParts.length > 0 before subtracting 1, else -1. Source write blocked by permission (3 attempts across 3 runs).",
+      "resolved": false
+    },
+    {
+      "id": "CR-004",
+      "severity": "MEDIUM",
+      "category": "robustness",
+      "summary": "gatekeeperTransport.ts:213-233 recursive descriptor walk has depth limit but no cycle detection; fix: add visited Set<object>, check and add before recursing. Source write blocked by permission (3 attempts across 3 runs).",
+      "resolved": false
+    },
+    {
+      "id": "CR-005",
+      "severity": "LOW",
+      "category": "file-size",
+      "summary": "degradedMode.ts at 903 lines exceeds 800-line guideline; authority-wrapper functions (lines 804-903) could extract to degradedModeAuthority.ts. Source write blocked by permission.",
+      "resolved": false
+    },
+    {
+      "id": "SR-001",
+      "severity": "LOW",
+      "category": "prompt-injection",
+      "summary": "Prompt injection across model boundary: BLOCKED by closed vocabulary, identifier-only bridge args, strict JSON schema with additionalProperties:false, and sanitized refusal text",
+      "resolved": true
+    },
+    {
+      "id": "SR-002",
+      "severity": "LOW",
+      "category": "evidence-poisoning",
+      "summary": "Evidence poisoning via nextClaudeInstruction: BLOCKED by control-char stripping, truncation, bidi-reorder removal, and strict schema enforcement",
+      "resolved": true
+    },
+    {
+      "id": "SR-003",
+      "severity": "LOW",
+      "category": "cross-project-leakage",
+      "summary": "Cross-project leakage: BLOCKED by set-level isolation check in gatekeeperThread.ts detecting shared threads or roots across projects",
+      "resolved": true
+    },
+    {
+      "id": "SR-004",
+      "severity": "LOW",
+      "category": "replay-protection",
+      "summary": "Stale decision replay: BLOCKED by consumedAt tracking and alreadyConsumedDecisionIds set; duplicate calls after restart prevented by deterministic requestId derivation and ledger deduplication",
+      "resolved": true
+    },
+    {
+      "id": "SR-005",
+      "severity": "LOW",
+      "category": "subject-binding",
+      "summary": "Subject drift: BLOCKED by decision bound to exact subject commit in digest",
+      "resolved": true
+    },
+    {
+      "id": "SR-006",
+      "severity": "LOW",
+      "category": "credential-leakage",
+      "summary": "Credential leakage: BLOCKED by closure-scoped access pattern in credentialResolver; secret never logged, returned, or stored; secret-shape detection prevents config leaks",
+      "resolved": true
+    },
+    {
+      "id": "SR-007",
+      "severity": "LOW",
+      "category": "cost-control",
+      "summary": "Cost runaway and model escalation: BLOCKED by integer micro-USD ledger, deterministic ask-to-tier mapping, per-phase/project/monthly budget with hard stop, no auto-recharge",
+      "resolved": true
+    },
+    {
+      "id": "SR-008",
+      "severity": "LOW",
+      "category": "self-approval",
+      "summary": "Self-approval: BLOCKED by gatekeeper being remote (never the implementer); explicit check at gatekeeperDecision.ts:262",
+      "resolved": true
+    },
+    {
+      "id": "SR-009",
+      "severity": "LOW",
+      "category": "degraded-mode-safety",
+      "summary": "Degraded-mode escalation and override replay: BLOCKED by owner-only action refusal, consumed tracking, scope limits, max work items, reconciliation gate blocking major gates until unreviewed work cleared",
+      "resolved": true
+    },
+    {
+      "id": "SR-010",
+      "severity": "LOW",
+      "category": "bridge-authority",
+      "summary": "Bridge authority bypass: BLOCKED by exact-name vocabulary for operations, provenance field denylist (case-insensitive), no deploy/database/shell/payment/credential/sign operations in bridge surface",
+      "resolved": true
+    },
+    {
+      "id": "SR-011",
+      "severity": "MEDIUM",
+      "category": "timeout-safety",
+      "summary": "openaiResponses.ts:232 credential.use() callback relies on HTTP port timeout (config.timeoutMs, default 120s) to bound secret lifetime in closure. credential.use() is synchronous (<T>(fn) => T), so secret released when http.post returns. HTTP port contract must honour timeoutMs. Verified mitigated by existing design.",
+      "resolved": true
+    }
+  ]
+}

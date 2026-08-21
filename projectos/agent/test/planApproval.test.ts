@@ -226,6 +226,8 @@ function world(opts: { committed?: readonly string[]; planDoc?: string; noPlanMe
     },
     exists: (p: string) => existsSync(p),
     listDir: (p: string) => (existsSync(p) ? readdirSync(p) : []),
+    createExclusive: () => true,
+    removeFile: () => true,
     renameFile: () => true,
     exec: (_cmd: string, args: readonly string[]) => {
       const key = args.join(' ');

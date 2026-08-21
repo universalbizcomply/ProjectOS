@@ -71,6 +71,8 @@ function fakeSystem(files: Record<string, string>): System & { writes: string[] 
         .filter((f) => f.startsWith(p + '/'))
         .map((f) => f.slice(p.length + 1))
         .filter((f) => !f.includes('/')),
+    createExclusive: () => true,
+    removeFile: () => true,
     renameFile: () => true,
     exec: (_cmd: string, args: readonly string[]) => {
       // The closure gate asks which repository this checkout IS before it consults the installation's
@@ -480,6 +482,8 @@ describe('approved-phase membership and dependencies gate creation', () => {
     const decisionRel = `.projectops/closure/decisions/${P0}.json`;
     const committed: System = {
       ...sys,
+      createExclusive: () => true,
+      removeFile: () => true,
       renameFile: () => true,
       exec: (cmd: string, args: readonly string[]) => {
         if (args.includes('log')) return { code: 0, stdout: 'e'.repeat(40), stderr: '' };

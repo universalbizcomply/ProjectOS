@@ -18,12 +18,19 @@
  *
  * Run:  node projectos/scripts/gatekeeper-live-proof.mjs
  * It writes evidence to .projectops/evidence/ and prints a summary. It never prints a credential.
+
+ * THE CREDENTIAL IS NOT RESOLVED HERE ANY MORE. This script used to build the `Authorization` header
+ * in its own process from a raw key. That path is deleted: the trusted installation broker resolves
+ * the value on its own side and returns an answer, never the value. The resolver handed over refuses
+ * by construction, so there is no in-process value even to leak, and the composition below is exactly
+ * the one `projectos run` and `projectos reconcile` use.
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { windowsVaultResolver } from '../agent/dist/loop/windowsVaultResolver.js';
+import { unprovisionedResolver } from '../agent/dist/loop/credentialResolver.js';
+import { nodeBrokeredTransport } from '../agent/dist/loop/transports/brokeredHttpPort.js';
 import { nodeProjectosRuntime } from '../agent/dist/nodeRuntimeRoot.js';
 import { nodeHttpPort } from '../agent/dist/loop/transports/nodeHttpPort.js';
 import { takeGatekeeperTurn, evidenceDigest } from '../agent/dist/loop/gatekeeperTurn.js';
@@ -116,7 +123,10 @@ let previousResponseId = null;
 // The adapter comes from the TRUSTED INSTALLATION, never from the governed root. Passing ROOT
 // here is what the resolver was changed to stop accepting; `nodeProjectosRuntime()` is the
 // installation asking where it itself lives.
-const resolver = windowsVaultResolver({ sys, runtime: nodeProjectosRuntime(), governedRoot: ROOT, projectId: 'projectos', ownerConfirmation: true });
+const resolver = unprovisionedResolver(
+  'the gatekeeper credential is resolved by the trusted installation broker, never here',
+);
+const broker = { transport: nodeBrokeredTransport(sys, nodeProjectosRuntime()), governedRoot: ROOT };
 const http = nodeHttpPort();
 
 let ledger = [];
@@ -149,6 +159,7 @@ function turn(stop, evidenceText, over = {}) {
       transport: TRANSPORT,
       availability: { reachable: true },
       resolver,
+      broker,
       http,
       modelPolicy: APPROVED_PILOT_POLICY,
       rateCards: RATE_CARDS,

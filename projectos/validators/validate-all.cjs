@@ -100,7 +100,8 @@ const MODULES = [
   "val-projectos-v3-zero-relay-failure-matrix1a",
   "validate-v3.1-crosswalk",
   "validate-v3.2-ai-provider-independence",
-  "val-projectos-gatekeeper-contract1a"
+  "val-projectos-gatekeeper-contract1a",
+  "val-projectos-trust-boundary1a"
 ];
 const scratch = require("./lib/scratch.cjs");
 const validationRecord = require("./lib/validation-record.cjs");
