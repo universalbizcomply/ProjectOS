@@ -23,6 +23,7 @@ import { bridgeListenerConfig, serveBridge, BRIDGE_BIND_HOST, BRIDGE_PATH } from
 import { newOAuthState } from '../dist/mcp/oauth.js';
 import { parseProjectConfig } from '@projectos/core';
 import { configPath } from '../dist/context.js';
+import { randomBytes } from 'node:crypto';
 
 installNodeGovernanceEngines();
 setProcessRoot(process.cwd());
@@ -72,28 +73,111 @@ const deps = {
   durable: { stateDir, installRoot: nodeProjectosRuntime().installRoot, repository },
 };
 
-// THE OAUTH SURFACE, CO-LOCATED ON THIS ORIGIN ON PURPOSE.
+// THE OAUTH SURFACE, WHICH MAY OR MAY NOT LIVE ON THIS ORIGIN.
 //
-// OpenAI's own `tunnel-client dev mcp-stub` publishes issuer, authorize and token on the same
-// loopback origin as the MCP endpoint, and the tunnel documentation says OAuth discovery travels the
-// tunnel path so the MCP server can stay private. Same origin is what makes that true: a separate
-// authorization server would be a second thing needing to be reachable, and the docs are explicit
-// that the tunnel does not carry one.
+// Co-locating it was the first attempt, and it was reasonable: OpenAI's own `tunnel-client dev
+// mcp-stub` publishes issuer, authorize and token on the same loopback origin as the MCP endpoint.
+// It did not survive contact with ChatGPT, which reported that the server did not implement OAuth —
+// its connector setup discovers OAuth automatically and could not reach a loopback issuer.
+//
+// So there are two shapes now, and the environment decides which:
+//
+//   LOCAL (no PROJECTOS_OAUTH_ISSUER). Everything on this loopback origin, as before, with a signing
+//   key invented at startup. Nothing outside this process can use a token, and nothing needs to.
+//
+//   SPLIT (PROJECTOS_OAUTH_ISSUER set). The authorization server stands on a public HTTPS origin and
+//   this bridge stays private. All this process then publishes is the pointer: its protected-resource
+//   metadata names that issuer, which is exactly the discovery chain `tunnel-client help oauth`
+//   describes — read the resource metadata from the MCP server, then follow authorization_servers[0].
+//   The two halves never call each other. The only thing they share is the signing key, which each
+//   reads from its own environment: one mints, the other verifies.
+/**
+ * Where RFC 9728 says a resource's metadata lives.
+ *
+ * NOT the resource URL with a suffix bolted on. The well-known segment goes at the ROOT of the
+ * resource's origin and the resource's own path follows it, so `https://host/mcp` is described at
+ * `https://host/.well-known/oauth-protected-resource/mcp`. Appending instead produces a URL that
+ * looks plausible, resolves nowhere, and fails as a client silently declining to authenticate.
+ */
+function resourceMetadataUrlFor(resource) {
+  const url = new URL(resource);
+  const path = url.pathname === '/' ? '' : url.pathname;
+  return `${url.origin}/.well-known/oauth-protected-resource${path}`;
+}
+
+const publicIssuer = process.env.PROJECTOS_OAUTH_ISSUER ?? '';
+const publicResource = process.env.PROJECTOS_OAUTH_RESOURCE ?? '';
+const configuredKey = process.env.PROJECTOS_OAUTH_SIGNING_KEY ?? '';
+
+if (publicIssuer !== '' && (!publicIssuer.startsWith('https://') || publicIssuer.endsWith('/'))) {
+  // FAIL HERE, LOUDLY, RATHER THAN PER-REQUEST AND MUTELY. A malformed issuer is not rejected at
+  // startup by anything else: it survives into the metadata, and the only symptom is a generic 403
+  // on the authorization page with nothing to say why. The sibling authorization server already
+  // refuses to start on the same grounds, and the two must agree or they do not describe one system.
+  console.error(
+    'ProjectOS bridge: PROJECTOS_OAUTH_ISSUER must be an https:// origin with no trailing slash. ' +
+      'It is published verbatim as this bridge\'s authorization server, and OAuth 2.1 clients refuse ' +
+      'anything else.',
+  );
+  process.exit(1);
+}
+if (publicIssuer !== '' && configuredKey.length < 32) {
+  console.error(
+    'ProjectOS bridge: PROJECTOS_OAUTH_ISSUER is set, so PROJECTOS_OAUTH_SIGNING_KEY must be set too ' +
+      '(at least 32 characters, the SAME value the authorization server holds). Without it this ' +
+      'bridge could not verify a token that server issued.',
+  );
+  process.exit(1);
+}
+if (publicIssuer !== '' && publicResource === '') {
+  console.error(
+    'ProjectOS bridge: PROJECTOS_OAUTH_RESOURCE must be set alongside PROJECTOS_OAUTH_ISSUER. It is ' +
+      'the audience both halves agree on, and it is what stops a token minted for something else ' +
+      'being spent here.',
+  );
+  process.exit(1);
+}
+
+// A LOCAL RUN STILL NEEDS A KEY. It is random, per-process and never leaves: tokens minted in this
+// process are verified in this process, and a restart invalidates every one of them, which is the
+// correct behaviour for a credential nobody outside is holding.
+const signingKey = configuredKey !== '' ? configuredKey : randomBytes(32).toString('base64url');
+
 const oauthState = newOAuthState();
 const oauth = {
   state: oauthState,
   issuerFor: (port) => {
     const origin = `http://${BRIDGE_BIND_HOST}:${port}`;
-    return { issuer: origin, resource: `${origin}${BRIDGE_PATH}` };
+    if (publicIssuer === '') {
+      return { issuer: origin, resource: `${origin}${BRIDGE_PATH}`, signingKey };
+    }
+    return {
+      issuer: publicIssuer,
+      resource: publicResource,
+      signingKey,
+      // WHERE A CLIENT SHOULD LOOK WHEN IT IS TOLD TO LOOK SOMEWHERE. RFC 9728 lets this bridge point
+      // at its own metadata from a `WWW-Authenticate` challenge, and that document is served here —
+      // on the private origin the tunnel can reach — while the issuer it names is public.
+      resourceMetadataUrl: resourceMetadataUrlFor(publicResource),
+    };
   },
 };
 
 const server = await serveBridge(config, (request) => handleBridgeRpc(request, deps), oauth);
 console.log(`ProjectOS owner bridge listening on ${BRIDGE_BIND_HOST}:${server.port}${BRIDGE_PATH}`);
 console.log(`  project: ${projectId}`);
-// THE ONE PLACE THE PIN IS EVER SHOWN. Printed to this terminal, like the port; never returned over
-// HTTP, never written to a file, never in a record. Approving a connector requires reading it here.
-console.log(`  approval PIN: ${oauthState.pin}   (needed once, to authorise a connector)`);
+// THE ONE PLACE THIS PROCESS'S PIN IS EVER SHOWN. Printed to this terminal, like the port; never
+// returned over HTTP, never written to a file, never in a record.
+//
+// IN THE SPLIT SHAPE IT IS NOT THE PIN THAT MATTERS. The browser is sent to the public authorization
+// server, so the PIN to type is the one that server printed. Saying so here avoids the worst kind of
+// confusion: two plausible PINs and no indication which one the page is asking for.
+if (publicIssuer === '') {
+  console.log(`  approval PIN: ${oauthState.pin}   (needed once, to authorise a connector)`);
+} else {
+  console.log(`  authorization server: ${publicIssuer}   (approve there; its terminal prints the PIN)`);
+  console.log(`  resource (token audience): ${publicResource}`);
+}
 console.log('  point the tunnel client at that port. Ctrl+C to stop.');
 
 for (const signal of ['SIGINT', 'SIGTERM']) {

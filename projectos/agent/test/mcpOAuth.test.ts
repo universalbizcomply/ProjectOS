@@ -19,8 +19,8 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, readdirSync, renameSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createHash, randomBytes } from 'node:crypto';
-import { request as httpRequest } from 'node:http';
+import { createHash, createHmac, randomBytes } from 'node:crypto';
+import { request as httpRequest, createServer, type Server } from 'node:http';
 import { execFileSync } from 'node:child_process';
 import type { System } from '../src/system.js';
 import { handleBridgeRpc, type BridgeDeps } from '../src/mcp/bridge.js';
@@ -28,15 +28,19 @@ import { bridgeListenerConfig, serveBridge, BRIDGE_BIND_HOST, BRIDGE_PATH, type 
 import {
   newOAuthState,
   verifyAccessToken,
+  signAccessToken,
   BRIDGE_SCOPE,
   protectedResourceMetadata,
   authorizationServerMetadata,
   type OAuthConfig,
 } from '../src/mcp/oauth.js';
+import { serveAuthorizationServer } from '../src/mcp/authServer.js';
 
 const PROJECT = 'projectos';
 const TOKEN = 'an-installation-token-not-an-oauth-one-01';
 const REDIRECT = 'https://chatgpt.com/connector_platform_oauth_redirect';
+/** The key the public authorization server and the private bridge both hold. */
+const SIGNING_KEY = 'a-signing-key-shared-by-both-halves-0001';
 
 const dirs: string[] = [];
 const servers: BridgeServer[] = [];
@@ -158,7 +162,11 @@ async function start(): Promise<{
   const state = newOAuthState();
   const server = await serveBridge(config, (r) => handleBridgeRpc(r, world.deps), {
     state,
-    issuerFor: (port) => ({ issuer: `http://${BRIDGE_BIND_HOST}:${port}`, resource: `http://${BRIDGE_BIND_HOST}:${port}${BRIDGE_PATH}` }),
+    issuerFor: (port) => ({
+      issuer: `http://${BRIDGE_BIND_HOST}:${port}`,
+      resource: `http://${BRIDGE_BIND_HOST}:${port}${BRIDGE_PATH}`,
+      signingKey: SIGNING_KEY,
+    }),
   });
   servers.push(server);
   const origin = `http://${BRIDGE_BIND_HOST}:${server.port}`;
@@ -166,7 +174,7 @@ async function start(): Promise<{
   return {
     url: `${origin}${BRIDGE_PATH}`,
     origin,
-    oauthConfig: { issuer: origin, resource: `${origin}${BRIDGE_PATH}` },
+    oauthConfig: { issuer: origin, resource: `${origin}${BRIDGE_PATH}`, signingKey: SIGNING_KEY },
     pin: state.pin,
     port: server.port,
     world,
@@ -222,6 +230,7 @@ function rawRequest(
   path: string,
   host: string,
   body?: string,
+  extraHeaders: Record<string, string> = {},
 ): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
     const req = httpRequest(
@@ -232,6 +241,7 @@ function rawRequest(
         path,
         headers: {
           host,
+          ...extraHeaders,
           ...(body === undefined ? {} : { 'content-type': 'application/x-www-form-urlencoded', 'content-length': Buffer.byteLength(body) }),
         },
       },
@@ -521,32 +531,93 @@ describe('what the new surface refuses', () => {
   });
 });
 
-describe('token validity, decided where it can be decided exactly', () => {
-  const config: OAuthConfig = { issuer: 'http://127.0.0.1:9/', resource: 'http://127.0.0.1:9/mcp' };
+describe('a token carries its own proof, because the two halves are two processes', () => {
+  const config: OAuthConfig = {
+    issuer: 'https://oauth.example',
+    resource: 'https://tunnel.example/mcp',
+    signingKey: SIGNING_KEY,
+  };
+
+  it('accepts a token this system signed, for this resource, still in date', () => {
+    const token = signAccessToken(SIGNING_KEY, {
+      audience: config.resource,
+      scope: BRIDGE_SCOPE,
+      expiresAt: Date.now() + 10_000,
+    });
+    expect(verifyAccessToken(token, config)).toBeNull();
+  });
+
+  it('refuses a token signed with a different key', () => {
+    // THE POINT OF SIGNING. The bridge accepts a token it never saw minted, so what makes it
+    // trustworthy is the key — and a token from anywhere else is simply not one of ours.
+    const foreign = signAccessToken('a-different-installations-key-000000001', {
+      audience: config.resource,
+      scope: BRIDGE_SCOPE,
+      expiresAt: Date.now() + 10_000,
+    });
+    expect(verifyAccessToken(foreign, config)).toContain('signature');
+  });
+
+  it('refuses a token whose claims were edited after signing', () => {
+    // The claims travel in the clear, so of course they can be rewritten. The signature is what makes
+    // them true, and it is checked BEFORE they are believed.
+    const token = signAccessToken(SIGNING_KEY, {
+      audience: config.resource,
+      scope: BRIDGE_SCOPE,
+      expiresAt: Date.now() - 1,
+    });
+    const [payload, signature] = token.split('.');
+    const forged = Buffer.from(
+      JSON.stringify({ audience: config.resource, scope: BRIDGE_SCOPE, expiresAt: Date.now() + 999_999 }),
+      'utf8',
+    ).toString('base64url');
+    expect(payload).not.toBe(forged);
+    expect(verifyAccessToken(`${forged}.${signature}`, config)).toContain('signature');
+  });
 
   it('refuses a token minted for another resource', () => {
-    const state = newOAuthState();
-    state.tokens.set('t', { audience: 'http://127.0.0.1:9/other', scope: BRIDGE_SCOPE, expiresAt: Date.now() + 10_000 });
-    expect(verifyAccessToken(state, 't', config)).toContain('another resource');
+    const token = signAccessToken(SIGNING_KEY, {
+      audience: 'https://tunnel.example/some-other-mcp',
+      scope: BRIDGE_SCOPE,
+      expiresAt: Date.now() + 10_000,
+    });
+    expect(verifyAccessToken(token, config)).toContain('another resource');
   });
 
   it('refuses a token without the scope', () => {
-    const state = newOAuthState();
-    state.tokens.set('t', { audience: config.resource, scope: 'something-else', expiresAt: Date.now() + 10_000 });
-    expect(verifyAccessToken(state, 't', config)).toContain('scope');
+    const token = signAccessToken(SIGNING_KEY, {
+      audience: config.resource,
+      scope: 'something-else',
+      expiresAt: Date.now() + 10_000,
+    });
+    expect(verifyAccessToken(token, config)).toContain('scope');
   });
 
-  it('refuses an expired token and forgets it', () => {
-    const state = newOAuthState();
-    state.tokens.set('t', { audience: config.resource, scope: BRIDGE_SCOPE, expiresAt: Date.now() - 1 });
-    expect(verifyAccessToken(state, 't', config)).toContain('expired');
-    expect(state.tokens.has('t')).toBe(false);
+  it('refuses an expired token', () => {
+    const token = signAccessToken(SIGNING_KEY, {
+      audience: config.resource,
+      scope: BRIDGE_SCOPE,
+      expiresAt: Date.now() - 1,
+    });
+    expect(verifyAccessToken(token, config)).toContain('expired');
   });
 
-  it('accepts a good one', () => {
-    const state = newOAuthState();
-    state.tokens.set('t', { audience: config.resource, scope: BRIDGE_SCOPE, expiresAt: Date.now() + 10_000 });
-    expect(verifyAccessToken(state, 't', config)).toBeNull();
+  it('refuses a validly signed payload that is not an object, without throwing', () => {
+    // JSON.parse ACCEPTS `null`. A token whose signature verifies but whose claims are null would
+    // then be dereferenced, and this runs inside a request handler: the failure is not a refused
+    // token, it is the bridge process going away for every caller.
+    for (const shape of ['null', '42', '"a string"', '[1,2,3]']) {
+      const payload = Buffer.from(shape, 'utf8').toString('base64url');
+      const signature = createHmac('sha256', SIGNING_KEY).update(payload).digest('base64url');
+      expect(() => verifyAccessToken(`${payload}.${signature}`, config)).not.toThrow();
+      expect(verifyAccessToken(`${payload}.${signature}`, config)).not.toBeNull();
+    }
+  });
+
+  it('refuses malformed shapes without throwing', () => {
+    for (const bad of ['', '.', 'nodot', 'a.', '.b', 'not-base64!.sig']) {
+      expect(verifyAccessToken(bad, config)).not.toBeNull();
+    }
   });
 });
 
@@ -616,7 +687,7 @@ describe('approval is the operator\'s act, not the caller\'s', () => {
     const w = await start();
     const res = await rawRequest(w.port, 'POST', '/authorize/approve', 'attacker.example.invalid', 'handle=x&pin=y');
     expect(res.status).toBe(403);
-    expect(res.body).toContain('only be opened on the machine running');
+    expect(res.body).toContain('not served under that name');
   });
 
   it('still answers the machine-to-machine routes through the tunnel, whatever Host they carry', async () => {
@@ -626,5 +697,146 @@ describe('approval is the operator\'s act, not the caller\'s', () => {
     const res = await rawRequest(w.port, 'GET', '/.well-known/oauth-authorization-server', 'some-tunnel-host.example');
     expect(res.status).toBe(200);
     expect(res.body).toContain('authorization_endpoint');
+  });
+});
+
+/**
+ * The public half, standing where ChatGPT can reach it.
+ *
+ * The deployment this is written for puts the authorization server on a public HTTPS origin and
+ * leaves the MCP endpoint private, because ChatGPT discovers OAuth automatically and could not reach
+ * a loopback issuer. That moves a check that used to be simple: the browser no longer arrives on
+ * loopback, so "is this addressed to us?" has to be answered from the issuer rather than assumed.
+ */
+describe('the authorization server when its issuer is public', () => {
+  const PUBLIC_ISSUER = 'https://oauth.projectos.example';
+  const config: OAuthConfig = {
+    issuer: PUBLIC_ISSUER,
+    resource: 'https://tunnel.example/mcp',
+    signingKey: SIGNING_KEY,
+  };
+  let server: Server | null = null;
+  let port = 0;
+  let pin = '';
+
+  async function startPublic(): Promise<void> {
+    const state = newOAuthState();
+    pin = state.pin;
+    server = createServer((request, response) => {
+      serveAuthorizationServer(request, response, { state, config });
+    });
+    await new Promise<void>((resolve) => server!.listen(0, '127.0.0.1', resolve));
+    port = (server!.address() as { port: number }).port;
+  }
+
+  /** A well-formed authorization request, so the flood is made of requests that would otherwise work. */
+  function authorizeQuery(verifier: string): string {
+    const challenge = createHash('sha256').update(verifier).digest('base64url');
+    return new URLSearchParams({
+      response_type: 'code',
+      client_id: 'chatgpt-connector',
+      redirect_uri: REDIRECT,
+      state: 'state-value',
+      code_challenge: challenge,
+      code_challenge_method: 'S256',
+      resource: config.resource,
+    }).toString();
+  }
+
+  afterEach(async () => {
+    if (server !== null) {
+      await new Promise<void>((resolve) => server!.close(() => resolve()));
+      server = null;
+    }
+  });
+
+  it('accepts the authorization page when addressed by its published name', async () => {
+    // THE REGRESSION THIS EXISTS TO CATCH. ChatGPT redirects the owner's browser to the public
+    // authorization endpoint, so the request arrives carrying the public hostname. An earlier version
+    // demanded loopback here and would have refused the only flow that matters.
+    await startPublic();
+    const res = await rawRequest(port, 'GET', '/authorize?response_type=code', 'oauth.projectos.example');
+    expect(res.status).not.toBe(403);
+    expect(res.body).not.toContain('not served under that name');
+  });
+
+  it('refuses the authorization page addressed by any other name, loopback included', async () => {
+    // Once the issuer is public, loopback is just another name that is not ours.
+    await startPublic();
+    for (const host of ['127.0.0.1', 'localhost', 'attacker.example.invalid']) {
+      const res = await rawRequest(port, 'GET', '/authorize?response_type=code', host);
+      expect(res.status).toBe(403);
+    }
+  });
+
+  it('refuses an approval posted from another site', async () => {
+    // Belt and braces over the PIN: a browser that volunteers its Origin is telling us the post came
+    // from somewhere else, and there is no reason to read further.
+    await startPublic();
+    const res = await rawRequest(
+      port,
+      'POST',
+      '/authorize/approve',
+      'oauth.projectos.example',
+      'handle=x&pin=y',
+      { origin: 'https://evil.example' },
+    );
+    expect(res.status).toBe(403);
+    expect(res.body).toContain('did not come from this site');
+  });
+
+  it("a flood of authorization requests cannot discard the owner's half-finished approval", async () => {
+    // WHY THIS IS THE DANGEROUS ONE. Pending approvals are evicted oldest-first when the map fills,
+    // and the owner's entry is the oldest by the time they have finished reading the PIN. An
+    // unauthenticated flood would therefore not look like an attack — it would look like approval
+    // silently not working.
+    await startPublic();
+    const verifier = randomBytes(32).toString('base64url');
+    const mine = await rawRequest(port, 'GET', `/authorize?${authorizeQuery(verifier)}`, 'oauth.projectos.example');
+    const handle = (mine.body.match(/name="handle" value="([^"]+)"/) ?? [])[1] ?? '';
+    expect(handle).not.toBe('');
+
+    let refused = 0;
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const flood = await rawRequest(
+        port,
+        'GET',
+        `/authorize?${authorizeQuery(randomBytes(32).toString('base64url'))}`,
+        'oauth.projectos.example',
+      );
+      if (flood.status === 429) refused += 1;
+    }
+    expect(refused).toBeGreaterThan(0);
+
+    // The owner's approval still completes, which is the whole point.
+    const approved = await rawRequest(
+      port,
+      'POST',
+      '/authorize/approve',
+      'oauth.projectos.example',
+      new URLSearchParams({ handle, pin }).toString(),
+      { origin: PUBLIC_ISSUER },
+    );
+    expect(approved.status).toBe(302);
+  });
+
+  it('serves no MCP route and nothing else at all', async () => {
+    // The whole point of the split: this process cannot be asked about ProjectOS.
+    await startPublic();
+    for (const path of ['/mcp', '/', '/healthz', '/../mcp']) {
+      const res = await rawRequest(port, 'POST', path, 'oauth.projectos.example', '{}');
+      expect(res.status).toBe(404);
+    }
+  });
+
+  it('publishes only its own origin, never the private resource host, in its metadata', async () => {
+    await startPublic();
+    const res = await rawRequest(port, 'GET', '/.well-known/oauth-authorization-server', 'oauth.projectos.example');
+    expect(res.status).toBe(200);
+    const metadata = JSON.parse(res.body) as Record<string, string>;
+    expect(metadata.issuer).toBe(PUBLIC_ISSUER);
+    for (const value of Object.values(metadata)) {
+      if (typeof value === 'string' && value.startsWith('http')) expect(value.startsWith(PUBLIC_ISSUER)).toBe(true);
+    }
   });
 });

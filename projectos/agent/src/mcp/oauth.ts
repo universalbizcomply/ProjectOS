@@ -34,7 +34,7 @@
  * Written for PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A, criterion 15, under the owner ruling of
  * 2026-08-21 authorising the minimum OAuth compatibility required by the Secure MCP Tunnel.
  */
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
 /** The one scope this surface has. Read-only governed state; nothing that acts. */
 export const BRIDGE_SCOPE = 'projectos.read';
@@ -81,7 +81,17 @@ const PIN_BYTES = 6;
  */
 const MAX_PENDING = 64;
 const MAX_CODES = 64;
-const MAX_TOKENS = 64;
+/**
+ * How many approvals one source may have waiting at once.
+ *
+ * Pending approvals are evicted oldest-first once the map is full, so without this a flood of
+ * anonymous `/authorize` requests would quietly discard the one approval the owner is part-way
+ * through — an outage that produces no error anybody would see, on a surface that exists for a single
+ * person. Capping per source does not make flooding impossible, since a caller with many addresses
+ * can still fill the map; it makes it cost many addresses instead of one script, and it means the
+ * flooder is refused rather than the owner.
+ */
+const MAX_PENDING_PER_CLIENT = 8;
 
 /** Drop what has expired, then the oldest, until the map is within its bound. */
 function prune<T extends { readonly expiresAt: number }>(map: Map<string, T>, limit: number): void {
@@ -101,6 +111,25 @@ export interface OAuthConfig {
   readonly issuer: string;
   /** The MCP endpoint this authorization protects. */
   readonly resource: string;
+  /**
+   * The key that ties the two halves together.
+   *
+   * ACCESS TOKENS ARE SIGNED, NOT REMEMBERED. They used to be random strings in a `Map`, which works
+   * only while the authorization server and the resource server are the same process. They are not:
+   * ChatGPT's discovery reaches the authorization server over the public internet while the MCP
+   * endpoint stays private behind the tunnel, so the side that mints a token and the side that
+   * accepts one are different machines. A signed token needs no shared storage, no lookup and no
+   * network call between them — only this key, which both sides read from their own configuration
+   * and neither ever transmits.
+   */
+  readonly signingKey: string;
+  /**
+   * Where a client should look for this resource's metadata, when that is not the resource's own
+   * origin. RFC 9728 lets a resource server point at its metadata from a `WWW-Authenticate` header,
+   * and the document may live elsewhere — which is the whole reason a private MCP endpoint can take
+   * part in a discovery flow it cannot itself answer.
+   */
+  readonly resourceMetadataUrl?: string;
 }
 
 interface PendingCode {
@@ -112,18 +141,14 @@ interface PendingCode {
   readonly expiresAt: number;
 }
 
-interface IssuedToken {
-  readonly audience: string;
-  readonly scope: string;
-  readonly expiresAt: number;
-}
-
 /** One process's worth of state. Deliberately not written anywhere. */
 export interface OAuthState {
   readonly codes: Map<string, PendingCode>;
-  readonly tokens: Map<string, IssuedToken>;
   /** Authorization requests waiting for the operator to type the PIN. */
-  readonly pending: Map<string, { readonly params: AuthorizeParams; readonly expiresAt: number }>;
+  readonly pending: Map<
+    string,
+    { readonly params: AuthorizeParams; readonly client: string; readonly expiresAt: number }
+  >;
   /**
    * The approval PIN for this process.
    *
@@ -135,7 +160,7 @@ export interface OAuthState {
 }
 
 export function newOAuthState(): OAuthState {
-  return { codes: new Map(), tokens: new Map(), pending: new Map(), pin: randomBytes(PIN_BYTES).toString('hex') };
+  return { codes: new Map(), pending: new Map(), pin: randomBytes(PIN_BYTES).toString('hex') };
 }
 
 export interface AuthorizeParams {
@@ -261,10 +286,14 @@ export function readAuthorizeParams(query: URLSearchParams, config: OAuthConfig)
 }
 
 /** Park a validated request until the operator approves it. Returns the handle the form posts back. */
-export function holdForApproval(state: OAuthState, params: AuthorizeParams): string {
+export function holdForApproval(state: OAuthState, params: AuthorizeParams, client: string): string | null {
   prune(state.pending, MAX_PENDING);
+  let held = 0;
+  for (const pending of state.pending.values()) if (pending.client === client) held += 1;
+  if (held >= MAX_PENDING_PER_CLIENT) return null;
+
   const handle = randomBytes(16).toString('hex');
-  state.pending.set(handle, { params, expiresAt: Date.now() + CODE_TTL_MS });
+  state.pending.set(handle, { params, client, expiresAt: Date.now() + CODE_TTL_MS });
   return handle;
 }
 
@@ -331,9 +360,7 @@ export function exchangeCode(state: OAuthState, form: URLSearchParams, config: O
     return fail('invalid_target', 'resource does not match the authorization');
   }
 
-  prune(state.tokens, MAX_TOKENS);
-  const accessToken = randomBytes(32).toString('base64url');
-  state.tokens.set(accessToken, {
+  const accessToken = signAccessToken(config.signingKey, {
     audience: held.resource,
     scope: held.scope,
     expiresAt: Date.now() + TOKEN_TTL_MS,
@@ -351,16 +378,60 @@ export function exchangeCode(state: OAuthState, form: URLSearchParams, config: O
  *
  * `null` when it is. A reason otherwise — never returned to the caller, only used to decide.
  */
-export function verifyAccessToken(state: OAuthState, token: string, config: OAuthConfig): string | null {
-  const found = state.tokens.get(token);
-  if (found === undefined) return 'unknown token';
-  if (found.expiresAt < Date.now()) {
-    state.tokens.delete(token);
-    return 'expired token';
+interface TokenClaims {
+  readonly audience: string;
+  readonly scope: string;
+  readonly expiresAt: number;
+}
+
+/**
+ * Mint a token that carries its own proof.
+ *
+ * The claims travel in the clear and the signature is what makes them true — there is nothing secret
+ * in a token beyond the fact that only a holder of the key could have produced it. Anyone may read
+ * what it is for; only the two halves of this system may issue one.
+ */
+export function signAccessToken(key: string, claims: TokenClaims): string {
+  const payload = Buffer.from(JSON.stringify(claims), 'utf8').toString('base64url');
+  const signature = createHmac('sha256', key).update(payload).digest('base64url');
+  return `${payload}.${signature}`;
+}
+
+/**
+ * Is this bearer token one THIS system issued, for this resource, still valid?
+ *
+ * `null` when it is; a reason otherwise, used only to decide and never returned to the caller.
+ *
+ * THE SIGNATURE IS CHECKED BEFORE THE CLAIMS ARE BELIEVED. Reading the payload first and validating
+ * afterwards would mean acting on numbers an attacker chose — an expiry of their liking, an audience
+ * of their liking — for however long it took to reach the comparison.
+ */
+export function verifyAccessToken(token: string, config: OAuthConfig): string | null {
+  const dot = token.indexOf('.');
+  if (dot <= 0 || dot === token.length - 1) return 'malformed token';
+  const payload = token.slice(0, dot);
+  const signature = token.slice(dot + 1);
+  const expected = createHmac('sha256', config.signingKey).update(payload).digest('base64url');
+  if (!constantEquals(signature, expected)) return 'signature does not verify';
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+  } catch {
+    return 'unreadable token claims';
   }
+  // JSON.parse SUCCEEDS ON `null`, AND ON NUMBERS, STRINGS AND ARRAYS. Only an object has the
+  // properties this reads, and reading a property of `null` throws — inside a request handler, which
+  // would take the whole bridge down rather than refuse one token. The type assertion below is only
+  // honest once this has been checked.
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return 'unreadable token claims';
+  const claims = parsed as TokenClaims;
+  if (typeof claims.expiresAt !== 'number' || claims.expiresAt < Date.now()) return 'expired token';
   // AUDIENCE, NOT JUST VALIDITY. A token minted for another resource is not a token for this one.
-  if (found.audience !== config.resource) return 'token was issued for another resource';
-  if (!found.scope.split(/\s+/).includes(BRIDGE_SCOPE)) return 'token does not carry the required scope';
+  if (claims.audience !== config.resource) return 'token was issued for another resource';
+  if (typeof claims.scope !== 'string' || !claims.scope.split(/\s+/).includes(BRIDGE_SCOPE)) {
+    return 'token does not carry the required scope';
+  }
   return null;
 }
 

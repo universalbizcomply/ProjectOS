@@ -1,0 +1,123 @@
+{
+  "schemaVersion": "1.0.0",
+  "recordId": "PROJECTOS-GATEKEEPER-LOOP1A-C15-SPLIT-OAUTH-LOCAL-PROOF1A",
+  "projectId": "projectos",
+  "phaseId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+  "kind": "c15-split-oauth-local-proof",
+  "at": "2026-08-22T01:07:28.167Z",
+  "shape": {
+    "authorizationServer": {
+      "public": false,
+      "boundTo": "127.0.0.1:8791",
+      "addressedAs": "https://oauth.projectos.example",
+      "mcpRoutes": "NONE"
+    },
+    "mcpBridge": {
+      "boundTo": "127.0.0.1:8790",
+      "path": "/mcp",
+      "publishesIssuer": "https://oauth.projectos.example"
+    },
+    "sharedState": "NONE — the two processes never call each other; they share only a signing key"
+  },
+  "steps": [
+    {
+      "step": "the two halves start as separate processes",
+      "ok": true,
+      "detail": "authorization server :8791, bridge :8790"
+    },
+    {
+      "step": "the approval PIN exists and appears only on that terminal",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": "the private bridge does not print a competing PIN in this shape",
+      "ok": true,
+      "detail": "it names the authorization server instead"
+    },
+    {
+      "step": "the PRIVATE bridge publishes the PUBLIC issuer as its authorization server",
+      "ok": true,
+      "detail": "authorization_servers[0] = https://oauth.projectos.example"
+    },
+    {
+      "step": "the PUBLIC half publishes endpoints only on its own https origin",
+      "ok": true,
+      "detail": "https://oauth.projectos.example/authorize"
+    },
+    {
+      "step": "no loopback address appears anywhere in the public metadata",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": "the authorization page answers when addressed by its public name",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": "approval with the terminal PIN redirects to the allowed redirect with a code",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": "the state the client sent comes back unchanged",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": "the code exchanges for an access token",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": "THE SPLIT WORKS: a token minted by the public half is accepted by the private half",
+      "ok": true,
+      "detail": "the two processes never called each other"
+    },
+    {
+      "step": "an unauthenticated MCP call is refused and pointed at the resource metadata",
+      "ok": true,
+      "detail": "Bearer resource_metadata=\"https://bridge.projectos.example/.well-known/oauth-protected-resource/mcp\""
+    },
+    {
+      "step": "the same code cannot be exchanged twice",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": "the PUBLIC half has no MCP route even for a valid token",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": "the public half refuses to be addressed as loopback",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": "the private bridge serves no authorization flow of its own in this shape",
+      "ok": true,
+      "detail": "{\"/authorize\":404,\"/token\":404,\"/register\":404,\"/.well-known/oauth-authorization-server\":404}"
+    },
+    {
+      "step": "the installation bridge token appears in nothing the public half ever said",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": "the signing key appears in nothing either half ever said",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": "the approval PIN never travelled over HTTP",
+      "ok": true,
+      "detail": ""
+    }
+  ],
+  "failures": 0,
+  "exposure": "NONE — both sockets bound 127.0.0.1; the public host name was supplied only as a Host header",
+  "secretsExposed": "NONE — the run signing key was generated in memory for this run and never written; the installation bridge token was read only to assert its absence; the PIN was read from a child stdout",
+  "notProven": "That ChatGPT can reach a public origin, complete discovery and connect. That requires a public deployment, which is NOT authorised and has NOT been performed."
+}

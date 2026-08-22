@@ -50,6 +50,11 @@
       "why": "A verdict is honoured only through its structured fields, after `checkGatekeeperDecision` binds it to the project, phase, subject commit and request digest. Reasoning text is shown to the owner and never parsed for permission."
     },
     {
+      "id": "anonymous-oauth-caller",
+      "subject": "Every request to the public OAuth authorization server, including its own metadata, registration, authorization and token routes",
+      "why": "That server exists to be reached by strangers: a client cannot present a token it has not been issued yet, so no route on it can be authenticated and all of it is anonymous reachable surface. It is on the untrusted side entirely — it holds no credential, has no MCP route, cannot name a project, and cannot read a file or run a command. The only thing that turns one of its callers into an authorised one is the approval PIN, which is printed to the operator's own terminal, never travels over HTTP, and is spent whether the guess is right or wrong."
+    },
+    {
       "id": "project-evidence-mirrors",
       "subject": "Project-local mirrors of degraded-mode use and reconciliation",
       "why": "They are convenience copies inside the project, deletable and writable by the worker. A mirror that claims a discharge clears nothing; the installation ledger decides, and the mirror may be absent entirely."
