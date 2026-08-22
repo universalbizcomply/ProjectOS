@@ -1,0 +1,103 @@
+{
+  "schemaVersion": "1.0.0",
+  "recordId": "PROJECTOS-GATEKEEPER-LOOP1A-C15-FINAL-TOKEN-CHANNEL-PROOF1A",
+  "projectId": "projectos",
+  "phaseId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+  "kind": "c15-final-token-channel-proof",
+  "at": "2026-08-22T13:25:00.000Z",
+  "atLocal": "2026-08-22 14:25:00 Europe/London",
+  "outcome": "ChatGPT called ProjectOS through the private tunnel and returned real governed state. The channel is proven end to end.",
+  "authenticationRuling": "Single-owner private service-authenticated channel. ChatGPT's connector is configured No Auth at the MCP client layer. Access is nevertheless bounded by the authenticated personal ChatGPT workspace, an explicitly associated OpenAI Secure MCP Tunnel, its minimum-scope runtime credential, and the installation-owned ProjectOS bridge bearer credential. Owner consent occurred when Murad explicitly created/enabled the private connector. This acceptance is valid only while the connector remains private to Murad's single-user workspace and ProjectOS continues to enforce its own protected-action gates.",
+  "notUnauthenticated": "The system must NOT be described simply as unauthenticated. Every call carries the installation-owned bridge bearer credential, injected by the tunnel client, and reaches a loopback-only endpoint through an owner-owned tunnel.",
+  "connector": {
+    "id": "plugin_asdk_app_6a899ffa5b348191b9f5e8953b711fa1",
+    "name": "ProjectOS",
+    "version": "1.0.0",
+    "workspace": "481e8f6c-130f-4dc8-a07d-4a06a9bf74f5 (single-user, personal, Plus)",
+    "privacyBasis": "OBSERVED, NOT READ FROM A FLAG. The connector appears only under this personal workspace's Installed list, its detail page offers no publish or share control, and it is absent from the public plugin listing. The connector-detail API endpoints returned 404 to this session, so no explicit visibility field was read. The claim is therefore 'no sharing or publication was observed', not 'a flag says private'."
+  },
+  "tunnel": {
+    "id": "tunnel_6a8997326f108191a6f9bc9a0fce49c2",
+    "workspaceAssociationCorrect": true,
+    "mcpTarget": "http://127.0.0.1:8787/mcp"
+  },
+  "toolsList": {
+    "result": "PASS",
+    "count": 7,
+    "names": [
+      "project-state",
+      "active-phase",
+      "pending-gate",
+      "evidence",
+      "worker-status",
+      "cost-status",
+      "stop-work"
+    ],
+    "everyToolTakesOnly": "projectId",
+    "additionalProperties": false,
+    "uncontrolledProtectedActionExposed": false,
+    "absentByConstruction": [
+      "production deployment",
+      "production database mutation",
+      "email/SMS",
+      "payments/refunds",
+      "arbitrary shell",
+      "arbitrary filesystem access",
+      "credential access",
+      "force push",
+      "any bypass of owner-protected authority"
+    ],
+    "stopWorkNote": "stop-work halts governed work; it is a brake, not a protected action, and it cannot deploy, mutate or send."
+  },
+  "readOnlyInvocation": {
+    "result": "PASS",
+    "promptUsed": "Using ProjectOS, report the current ProjectOS programme, active phase, current gate/status, and accepted criteria count. READ ONLY. Do not modify files, state, authority, plans, commits, branches, credentials or external systems.",
+    "chatgptWorkedFor": "52s",
+    "sourceAttributed": "ProjectOS",
+    "returned": {
+      "programme": "ProjectOS Post-V3 Self-Host / Autonomous Recovery programme",
+      "recoveryProgramme": "6 of 6 phases closed",
+      "activePhase": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+      "lifecycleStatus": "Draft",
+      "currentGate": "No owner decision awaiting",
+      "workerStatus": "Unblocked. No degraded-mode debt blocks governed work",
+      "closedPhaseCount": "9 closed phases",
+      "acceptanceCriteriaCount": "Not exposed by the available read-only ProjectOS view, so I will not infer a number",
+      "evidence": "127 reports; 98 listed as awaiting review",
+      "repository": "universalbizcomply/ProjectOS",
+      "branch": "projectos-post-v3-selfhost-pilot1a",
+      "installation": "Installed",
+      "productionFreeze": "ON"
+    },
+    "modelStatedNoMutation": "No files, plans, authority, commits, branches, credentials, state, or external systems were modified.",
+    "dataCorrectness": "The branch, active phase and repository match this machine's actual state, so the answer is real governed data rather than a plausible reconstruction."
+  },
+  "transportConfirmation": {
+    "tunnelClientSawCall": true,
+    "forwardedAt": "14:22:28-14:22:39 BST, several cmd_request_ids with rpc_request_id 0 and 1",
+    "bridgeAccepted": true
+  },
+  "oneNewRefusalExplained": {
+    "count": 1,
+    "at": "2026-08-22T13:22:18.855Z",
+    "operation": "project-state",
+    "reason": "the bridge is not bound to project 'ProjectOS'; it can act only for projectos",
+    "assessment": "NOT a refusal of the valid call. ChatGPT first sent a capitalised project id, the bridge refused it, and the model corrected to the exact identifier and succeeded. This is the project-binding guard working in the live path, and it strengthens rather than weakens the evidence."
+  },
+  "stateIntegrity": {
+    "stateChanged": false,
+    "productionTouched": false,
+    "externalSendsOrPayments": false,
+    "publicMcp": 404,
+    "privateBridgeUnauthenticated": 401,
+    "openaiReadyz": "ready",
+    "sourceChanged": false,
+    "trackedChanges": 0,
+    "head": "0950ce26b88151b79bde216a4d28b54237813d29",
+    "commit": false,
+    "push": false
+  },
+  "carryForward": "OAuth is not a C15 blocker under this bounded configuration. Revisit only if the connector becomes multi-user, shared or public, or if per-user identity/scopes become necessary. The public OAuth/Cloudflare front door and the old tunnel are RETAINED untouched pending the acceptance decision.",
+  "secretsExposed": "NONE",
+  "c15Status": "NOT ACCEPTED / NOT CLOSED — pending gatekeeper review of this report"
+}

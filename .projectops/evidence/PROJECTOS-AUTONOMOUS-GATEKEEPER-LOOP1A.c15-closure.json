@@ -1,0 +1,105 @@
+{
+  "schemaVersion": "1.0.0",
+  "recordId": "PROJECTOS-GATEKEEPER-LOOP1A-C15-CLOSURE1A",
+  "projectId": "projectos",
+  "phaseId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+  "kind": "criterion-closure",
+  "criterion": "C15",
+  "status": "ACCEPTED / CLOSED",
+  "at": "2026-08-22T13:29:00.000Z",
+  "atLocal": "2026-08-22 14:29:00 Europe/London",
+  "decidedBy": "ChatGPT delegated technical gatekeeper",
+  "recordedBy": "Claude (implementer). This record states a ruling it did not make and could not make.",
+  "programmeAcceptance": {
+    "accepted": 12,
+    "total": 17,
+    "percentage": "70.6%",
+    "parentPhase": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+    "parentPhaseStatus": "OPEN",
+    "nextTarget": "C17"
+  },
+  "whyThisIsASeparateRecord": "The 17-criterion acceptance matrix is a snapshot regenerated at head fd55bac on 2026-08-19 and states Criterion 15 as still remaining. It is left exactly as it was rather than edited in place, because rewriting a dated snapshot would destroy the record of what was true when it was written. This document supersedes its C15 row; it does not replace the matrix.",
+  "acceptanceBasis": "PRIVATE SINGLE-OWNER SERVICE-AUTHENTICATED CHANNEL",
+  "authenticationWording": {
+    "canonical": "Owner-controlled private tunnel + service-token authentication.",
+    "mustNotBeDescribedAs": "unauthenticated",
+    "why": "The ChatGPT connector is set to No Auth at the MCP-client layer only. Every call still crosses an authenticated personal ChatGPT workspace, an explicitly associated Secure MCP Tunnel, that tunnel's minimum-scope runtime credential, a loopback-only MCP endpoint, and the installation-owned ProjectOS bridge bearer credential, before meeting ProjectOS's own authority enforcement.",
+    "ownerConsent": "Established when Murad explicitly created and enabled the private connector."
+  },
+  "liveProof": {
+    "result": "PASS",
+    "connector": {
+      "id": "plugin_asdk_app_6a899ffa5b348191b9f5e8953b711fa1",
+      "workspace": "481e8f6c-130f-4dc8-a07d-4a06a9bf74f5",
+      "privacyBasis": "No publish or share affordance was observed on the connector, and it is absent from the public listing. No explicit visibility flag was read: the connector-detail API returned 404. Recorded as observation, not as a field value."
+    },
+    "tunnel": {
+      "id": "tunnel_6a8997326f108191a6f9bc9a0fce49c2",
+      "workspaceAssociationCorrect": true,
+      "mcpTarget": "http://127.0.0.1:8787/mcp",
+      "healthz": "live",
+      "readyz": "ready"
+    },
+    "publicMcp": 404,
+    "toolsList": {
+      "result": "PASS",
+      "count": 7,
+      "names": [
+        "project-state",
+        "active-phase",
+        "pending-gate",
+        "evidence",
+        "worker-status",
+        "cost-status",
+        "stop-work"
+      ],
+      "allProjectIdOnly": true,
+      "additionalProperties": false,
+      "absent": [
+        "arbitrary shell",
+        "arbitrary filesystem",
+        "credential access",
+        "deployment",
+        "database mutation",
+        "email/SMS",
+        "payment/refund",
+        "force push",
+        "owner-authority bypass"
+      ]
+    },
+    "readOnlyInvocation": {
+      "result": "PASS",
+      "returnedProgramme": "ProjectOS Post-V3 Self-Host / Autonomous Recovery",
+      "returnedActivePhase": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+      "returnedGate": "no owner decision awaiting",
+      "returnedRepository": "universalbizcomply/ProjectOS",
+      "returnedBranch": "projectos-post-v3-selfhost-pilot1a",
+      "returnedProductionFreeze": "ON",
+      "acceptanceCriteriaCount": "The connector correctly declined to invent a number, because it was not exposed by the available read-only view.",
+      "mutationOccurred": false
+    },
+    "detailedEvidence": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A.c15-final-channel-proof.json"
+  },
+  "oauth": {
+    "requiredForC15": false,
+    "reason": "Not required under this bounded single-owner configuration.",
+    "optionSCancelled": true,
+    "doNotImplementNow": true
+  },
+  "conditionalLimitation": "This acceptance holds only while the connector remains private, unpublished, single-owner, in a single-user workspace, and bounded by the existing ProjectOS authority surface. If it is later published, shared, made multi-user, moved across workspaces, or materially expanded in authority, OAuth or an equivalent per-user authorization boundary must be reconsidered.",
+  "negativeEvidenceRetained": [
+    "c15-oauth-discovery-failure.json — automatic discovery failed against the tunnel-derived resource identifier",
+    "c15-manual-oauth-failure.json — manual Advanced OAuth values were not consulted by ChatGPT's validation",
+    "c15-connector-blocked.json — workspace/plan mismatches that blocked earlier attempts",
+    "These are kept deliberately. The route that did not work is part of why the accepted route is understood."
+  ],
+  "infrastructureRetained": {
+    "oldOpenAiTunnel": "tunnel_6a88d18f2794819185e13479385c88b2 — RETAINED, untouched",
+    "publicOAuthHostname": "https://oauth-projectos.safw4n.com — RETAINED",
+    "cloudflareTunnel": "ProjectOS-C15-OAuth — RETAINED",
+    "note": "Retirement is a separate owner-authorised decision. Nothing has been deleted or revoked."
+  },
+  "productionTouched": false,
+  "externalSendsOrPayments": false,
+  "secretsExposed": "NONE"
+}
