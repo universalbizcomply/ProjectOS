@@ -108,6 +108,19 @@ export interface GatekeeperTurnDeps {
   readonly budget: BudgetPolicy;
   /** Everything spent so far. Read, never written, by this module. */
   readonly ledger: readonly LedgerEntry[];
+  /**
+   * Serialised budget admission. Decides and records the estimate under one lock, so concurrent
+   * processes cannot both spend the same remaining allowance. Absent in tests and rehearsals, where
+   * there is no durable ledger and nothing to race against.
+   */
+  readonly admitSpend?: (request: {
+    readonly requestId: string;
+    readonly projectId: string;
+    readonly phaseId: string;
+    readonly model: string;
+    readonly estimateMicroUsd: number;
+    readonly at: string;
+  }) => { readonly allowed: boolean; readonly reasons: readonly string[] };
   readonly threadBinding: GovernanceThreadBinding | null;
   /**
    * The provider's id for the previous turn in this project's governance conversation.
@@ -290,7 +303,25 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
     phaseId: input.phaseId,
     month: input.at.slice(0, 7),
   });
-  const spend = authoriseRequestSpend(estimate, totals, deps.budget);
+  // ADMISSION, NOT MERELY A CHECK.
+  //
+  // `deps.ledger` is the snapshot this process took when it started, and a snapshot is exactly what
+  // made C17-F1 possible: two runs each read it, each found room under the hard stop, and each paid.
+  // When an admission port is supplied it re-reads the ledger under an exclusive lock, decides, and
+  // records the estimate before releasing it — so the second run sees the first call already counted.
+  // Without a port (unit tests, rehearsals) the original snapshot check still applies, which is
+  // correct there: one process, no ledger on disk, nothing to serialise against.
+  const spend =
+    deps.admitSpend === undefined
+      ? authoriseRequestSpend(estimate, totals, deps.budget)
+      : deps.admitSpend({
+          requestId: request.requestId,
+          projectId: input.projectId,
+          phaseId: input.phaseId,
+          model,
+          estimateMicroUsd: estimate,
+          at: input.at,
+        });
   const budgetStatus = evaluateBudget(totals, deps.budget);
   lines.push(`budget ${budgetStatus.status}: month ${totals.monthMicroUsd} micro-USD, this call ~${estimate}`);
   if (!spend.allowed) {

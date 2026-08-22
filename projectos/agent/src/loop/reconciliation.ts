@@ -206,6 +206,15 @@ export interface ReconciliationDeps {
    * ledger line — and with it the replay guard for that decision, which is derived from the ledger.
    */
   readonly recordSpend: (entry: LedgerEntry) => void;
+  /** Serialised budget admission; see the note in gatekeeperTurn.ts. */
+  readonly admitSpend?: (request: {
+    readonly requestId: string;
+    readonly projectId: string;
+    readonly phaseId: string;
+    readonly model: string;
+    readonly estimateMicroUsd: number;
+    readonly at: string;
+  }) => { readonly allowed: boolean; readonly reasons: readonly string[] };
 }
 
 /**
@@ -781,7 +790,19 @@ export function reconcileDegradedWork(
     phaseId: input.phaseId,
     month: input.at.slice(0, 7),
   });
-  const spend = authoriseRequestSpend(estimate, totals, deps.budget);
+  // Same admission rule as the ordinary turn: reconciliation makes a billable call too, and a run
+  // alongside a reconcile is exactly one of the concurrent pairs C17-F1 described.
+  const spend =
+    deps.admitSpend === undefined
+      ? authoriseRequestSpend(estimate, totals, deps.budget)
+      : deps.admitSpend({
+          requestId,
+          projectId: input.projectId,
+          phaseId: input.phaseId,
+          model: deps.rate.model,
+          estimateMicroUsd: estimate,
+          at: input.at,
+        });
   if (!spend.allowed) {
     return outcome(
       'SPEND_REFUSED',

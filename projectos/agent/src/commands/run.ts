@@ -21,7 +21,8 @@ import {
   readLedger,
   readPreviousResponseId,
   consumedDecisionIds,
-  appendLedger,
+  admitGatekeeperSpend,
+  settleGatekeeperSpend,
   writePreviousResponseId,
 } from '../loop/gatekeeperConfig.js';
 import { unprovisionedResolver } from '../loop/credentialResolver.js';
@@ -142,6 +143,20 @@ export function run(ctx: CommandContext, flags: Flags): CommandResult {
       previousResponseId: readPreviousResponseId(ctx.sys, ctx.root),
       transportDecider: gk.config.transportDecider,
       consumedDecisionIds: consumedDecisionIds(ledger),
+      // THE ONLY PLACE THAT MAY TOUCH THE FILESYSTEM SUPPLIES THE ADMISSION.
+      //
+      // `ledger` above is a snapshot, and a snapshot cannot bound concurrent spend. This port re-reads
+      // the ledger under an exclusive lock, decides against the hard stop, and records the estimate
+      // before the call is allowed to happen — so a second process is refused rather than paying in
+      // parallel. C17-F1.
+      admitSpend: (request: {
+        readonly requestId: string;
+        readonly projectId: string;
+        readonly phaseId: string;
+        readonly model: string;
+        readonly estimateMicroUsd: number;
+        readonly at: string;
+      }) => admitGatekeeperSpend(ctx.sys, ctx.root, request, gk.config.budget),
     };
   }
 
@@ -205,7 +220,10 @@ export function run(ctx: CommandContext, flags: Flags): CommandResult {
           gatekeeper,
           expectedDecider,
           onGatekeeperTurn: (entry, responseId) => {
-            appendLedger(ctx.sys, ctx.root, entry);
+            // SETTLE, DO NOT APPEND. Admission already wrote this request id at its estimate; appending
+            // the truth beside it would leave the estimate standing, because the ledger keeps the first
+            // entry it sees for a request id.
+            settleGatekeeperSpend(ctx.sys, ctx.root, entry.requestId, entry);
             writePreviousResponseId(ctx.sys, ctx.root, responseId);
           },
         }),

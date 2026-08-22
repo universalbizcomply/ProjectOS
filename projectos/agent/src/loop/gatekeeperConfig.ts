@@ -23,6 +23,8 @@ import { join } from 'node:path';
 import {
   checkTransportDescriptor,
   checkPilotBudget,
+  authoriseRequestSpend,
+  summariseLedger,
   BUDGET_RAISE_SCOPE,
   type BudgetPolicy,
   type GatekeeperTransportDescriptor,
@@ -35,6 +37,7 @@ import type { System } from '../system.js';
 
 export const GATEKEEPER_CONFIG_REL = '.projectops/gatekeeper.json';
 export const GATEKEEPER_LEDGER_REL = '.projectops/gatekeeper-ledger.json';
+export const GATEKEEPER_LEDGER_LOCK_REL = '.projectops/gatekeeper-ledger.lock';
 export const GATEKEEPER_THREAD_REL = '.projectops/gatekeeper-thread.json';
 
 /**
@@ -198,6 +201,155 @@ export function loadGatekeeperConfig(sys: System, root: string): ConfigLoad {
 }
 
 /** Everything spent so far, as recorded on disk. An unreadable ledger reads as empty. */
+/**
+ * THE BUDGET DECISION AND THE RECORD OF IT ARE ONE ACT, OR THEY ARE NOTHING.
+ *
+ * `appendLedger` below is crash-safe: a complete temporary file is renamed over the target, so no
+ * reader ever sees half a ledger. That closed a real defect (GK-SEC-001) and it is still right. What
+ * it never gave was mutual exclusion, and a crash-safe read-modify-write is still a read-modify-write:
+ * two processes that read the same ledger both compute the same "remaining budget", both conclude
+ * they are under the hard stop, and both make a billed call. The later rename then overwrites the
+ * earlier one and the first paid call disappears from the record entirely — so the month's total is
+ * not merely wrong, it is wrong in the direction that admits yet more spending.
+ *
+ * The hard stop is documented as a refusal, not a warning: "Reaching it refuses further calls; it does
+ * not merely warn." Under concurrency that was untrue, which is what C17-F1 found.
+ *
+ * SO ADMISSION IS SERIALISED, NOT JUST THE WRITE. Inside one lock acquisition this reads the ledger
+ * FRESH — never a snapshot taken when the process started — totals it, asks `authoriseRequestSpend`,
+ * and, if the answer is yes, writes a provisional entry carrying the ESTIMATE before releasing the
+ * lock. A second process entering afterwards therefore sees the first call's cost already counted and
+ * is refused by the same hard stop. Locking only the final append would leave both processes passing
+ * the check and both paying.
+ *
+ * THE PROVISIONAL ENTRY IS THE RESERVATION. It carries the same `requestId` the real entry will carry,
+ * so there is no separate reservation table to reconcile, and `settleGatekeeperSpend` REPLACES it once
+ * the true cost is known. Replacement matters: `dedupeEntries` keeps the FIRST entry it sees for a
+ * request id, so appending the real entry alongside the provisional one would leave the estimate
+ * standing and silently discard the truth.
+ *
+ * A CRASH LEAVES THE ESTIMATE BEHIND, AND THAT IS THE SAFE DIRECTION. A process killed between
+ * admission and settlement leaves a provisional entry counted at its estimate: the month reads
+ * slightly high, and the next call is refused slightly early. The opposite failure — losing a call
+ * that was actually paid for — is the one that lets spending run away.
+ *
+ * Added for C17-F1, reusing the lock discipline the installation degraded ledger already proved.
+ */
+function underCostLedgerLock<T>(sys: System, root: string, body: () => T, refused: (why: string) => T): T {
+  const lock = join(root, ...GATEKEEPER_LEDGER_LOCK_REL.split('/'));
+  if (!sys.createExclusive(lock, `{"heldSince":"${sys.now()}"}\n`)) {
+    // "Held" and "this directory cannot be written at all" arrive identically from `createExclusive`,
+    // and they need different answers from an operator, so they are distinguished here.
+    if (!sys.exists(lock)) {
+      return refused(
+        `the gatekeeper ledger directory could not be written (${GATEKEEPER_LEDGER_REL}), so no spend ` +
+          'could be admitted and no call was made',
+      );
+    }
+    return refused(
+      'another ProjectOS process is deciding gatekeeper spend; nothing was admitted and no call was ' +
+        `made. If no other run is in progress, ${GATEKEEPER_LEDGER_LOCK_REL} was left behind by one ` +
+        'that died and must be removed.',
+    );
+  }
+  try {
+    return body();
+  } finally {
+    // A lock the OS refuses to delete is the everyday Windows case (an indexer holding a handle), and
+    // silently treating it as released would make every later admission refuse with no explanation.
+    if (!sys.removeFile(lock)) {
+      sys.writeText(
+        join(root, ...`${GATEKEEPER_LEDGER_LOCK_REL}.leaked`.split('/')),
+        `the gatekeeper ledger lock could not be released at ${sys.now()}\n`,
+      );
+    }
+  }
+}
+
+export interface SpendAdmission {
+  readonly allowed: boolean;
+  readonly reasons: readonly string[];
+}
+
+/**
+ * Decide whether this call may be made, and record its estimate, without letting go of the lock in
+ * between. Returns `allowed: false` when the hard stop refuses it, when another process holds the
+ * lock, or when the ledger cannot be written — all three mean no call.
+ */
+export function admitGatekeeperSpend(
+  sys: System,
+  root: string,
+  request: {
+    readonly requestId: string;
+    readonly projectId: string;
+    readonly phaseId: string;
+    readonly model: string;
+    readonly estimateMicroUsd: number;
+    readonly at: string;
+  },
+  budget: BudgetPolicy,
+): SpendAdmission {
+  return underCostLedgerLock<SpendAdmission>(
+    sys,
+    root,
+    () => {
+      const fresh = readLedger(sys, root);
+      // ALREADY PAID FOR IS NOT PAID FOR TWICE. A restarted run re-derives the same request id; if it
+      // is already in the ledger the call was made, and admitting it again would both double-charge
+      // and double-count.
+      if (fresh.some((e) => e.requestId === request.requestId)) {
+        return { allowed: false, reasons: [`request ${request.requestId} is already in the ledger; it is not asked again`] };
+      }
+      const totals = summariseLedger(fresh, {
+        projectId: request.projectId,
+        phaseId: request.phaseId,
+        month: request.at.slice(0, 7),
+      });
+      const spend = authoriseRequestSpend(request.estimateMicroUsd, totals, budget);
+      if (!spend.allowed) return { allowed: false, reasons: spend.reasons };
+
+      writeLedger(sys, root, [
+        ...fresh,
+        {
+          requestId: request.requestId,
+          projectId: request.projectId,
+          phaseId: request.phaseId,
+          model: request.model,
+          usage: { inputTokens: 0, outputTokens: 0 },
+          costMicroUsd: request.estimateMicroUsd,
+          at: request.at,
+        },
+      ]);
+      return { allowed: true, reasons: spend.reasons };
+    },
+    (why) => ({ allowed: false, reasons: [why] }),
+  );
+}
+
+/**
+ * Replace the provisional entry with what the call actually cost, or remove it if no call was made.
+ *
+ * Replacement, never append: `dedupeEntries` keeps the first entry per request id, so an appended
+ * truth would sit behind the estimate and never be counted.
+ */
+export function settleGatekeeperSpend(
+  sys: System,
+  root: string,
+  requestId: string,
+  entry: LedgerEntry | null,
+): void {
+  underCostLedgerLock<void>(
+    sys,
+    root,
+    () => {
+      const fresh = readLedger(sys, root);
+      const without = fresh.filter((e) => e.requestId !== requestId);
+      writeLedger(sys, root, entry === null ? without : [...without, entry]);
+    },
+    () => undefined,
+  );
+}
+
 export function readLedger(sys: System, root: string): readonly LedgerEntry[] {
   const raw = readJson(sys, join(root, ...GATEKEEPER_LEDGER_REL.split('/')));
   const entries = raw?.['entries'];
@@ -212,9 +364,16 @@ export function readLedger(sys: System, root: string): readonly LedgerEntry[] {
  * that a repeat happened, which is exactly what a restart proof needs to show.
  */
 export function appendLedger(sys: System, root: string, entry: LedgerEntry): void {
-  const existing = readLedger(sys, root);
+  writeLedger(sys, root, [...readLedger(sys, root), entry]);
+}
+
+/**
+ * Write the whole ledger atomically. Extracted from `appendLedger` so the locked admission and
+ * settlement paths reuse exactly the same crash-safe write rather than a second copy of it.
+ */
+function writeLedger(sys: System, root: string, entries: readonly LedgerEntry[]): void {
   const path = join(root, ...GATEKEEPER_LEDGER_REL.split('/'));
-  const next = `${JSON.stringify({ schemaVersion: '1.0.0', entries: [...existing, entry] }, null, 2)}\n`;
+  const next = `${JSON.stringify({ schemaVersion: '1.0.0', entries }, null, 2)}\n`;
 
   // CRASH-SAFE, AND THE LOOP ITSELF FOUND THIS. The first version read the whole ledger and wrote it
   // back over the same path. A crash, a full disk or a killed process between the two left the file

@@ -25,7 +25,8 @@ import { ok, fail } from '../context.js';
 import type { Flags } from '../flags.js';
 import { loadGovernedContext } from '../governedContext.js';
 import {
-  appendLedger,
+  admitGatekeeperSpend,
+  settleGatekeeperSpend,
   loadGatekeeperConfig,
   readLedger,
   consumedDecisionIds,
@@ -179,9 +180,13 @@ export function reconcile(ctx: CommandContext, flags: Flags): CommandResult {
     repositoryRoot: ctx.root,
     decidedBy: gk.config.transportDecider,
     consumedDecisionIds: consumedDecisionIds(ledger),
+    // Same serialised admission as `run`: a reconcile alongside a run is one of the concurrent pairs
+    // C17-F1 described, and both make billable calls.
+    admitSpend: (request) => admitGatekeeperSpend(ctx.sys, ctx.root, request, gk.config.budget),
     // Recorded the instant the call returns, so a later failure cannot lose the fact that it happened.
+    // Settlement replaces the estimate admission wrote; appending would leave the estimate standing.
     recordSpend: (entry) => {
-      appendLedger(ctx.sys, ctx.root, entry);
+      settleGatekeeperSpend(ctx.sys, ctx.root, entry.requestId, entry);
       lines.push(`  call recorded: ${entry.requestId} (${entry.costMicroUsd} micro-USD)`);
     },
   };
