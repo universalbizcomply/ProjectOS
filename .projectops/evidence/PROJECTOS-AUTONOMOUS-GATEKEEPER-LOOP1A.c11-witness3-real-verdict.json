@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "1.0.0",
+  "evidence": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A.c11-witness3-real-verdict",
+  "criterion": "C11",
+  "title": "C11 Witness3 Real Gatekeeper Verdict — First Genuine Reconciliation Call",
+  "date": "2026-08-23T22:05:00Z",
+  "rootCauseFixed": {
+    "commit": "3670b53",
+    "summary": "Broker credential retrieval used `-Command -` (stdin), which Windows PowerShell 5.1's console host executes multi-line input line-by-line rather than as one script. Any multi-line brace block silently produced empty stdout, exit 0, indistinguishable from an absent credential. Fixed by switching to `-EncodedCommand` (UTF-16LE + base64), which parses as one complete script. Diagnosed and verified using a synthetic non-secret test credential only — the real credential value was never inspected, printed, or logged.",
+    "testsPassing": "33/33 broker transport tests, no regressions"
+  },
+  "realCall": {
+    "requestId": "GKREQ-efacc940e81a177e283e20cc",
+    "workId": "GKWORK-9f964bf843f9a840",
+    "grantId": "PROJECTOS-DEGRADED-WITNESS3-GRANT1A",
+    "project": "projectos-degraded-witness3a",
+    "phase": "PROJECTOS-DEGRADED-WITNESS3A",
+    "providerCallsMade": 1,
+    "costMicroUsd": 6163,
+    "costUsd": 0.006163
+  },
+  "actualVerdict": {
+    "decision": "AMENDMENT_REQUIRED",
+    "reviewerReason": "The degraded-mode grant and single consumed work item are evidenced, but the only account of implementation is an explicitly writable working-tree summary. There is no immutable subject-commit diff, file-level change evidence, test/validation results, or reconciliation record tying the completed work to subject b6635fcb4aec96af47a7a5bd16321520941a722c. The review debt therefore cannot be discharged safely.",
+    "reviewerAsks": "Provide reconciliation evidence for the already-executed work: the exact diff attributable to subject b6635fcb4aec96af47a7a5bd16321520941a722c, affected-file and behavior summary, validation/test commands with results, and confirmation that GKWORK-9f964bf843f9a840 was the sole work item under the grant. Then resubmit the degraded-mode reconciliation request."
+  },
+  "applied": "Exactly as returned. Debt stands. No retry attempted, per authorization scope (no retry for a preferred verdict)."
+}
