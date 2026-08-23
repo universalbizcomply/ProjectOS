@@ -12,12 +12,6 @@
       "repository": "github.com/universalbizcomply/ProjectOS",
       "note": "ProjectOS governing itself. Derived from `git remote get-url origin` in C:\\dev\\ProjectOS and canonicalised with the same parseRemoteUrl rule discovery and the observation check use. The governedRoot is part of the identity: origin lives in .git/config, which a project can rewrite, so a copy of this repository at any other path is a different project however it describes itself.",
       "governedRoot": "C:/dev/ProjectOS"
-    },
-    {
-      "projectId": "projectos-degraded-witness3a",
-      "repository": "witness.invalid/projectos-witness/degraded-witness3a",
-      "note": "TEMPORARY, ONE RECONCILIATION CALL ONLY. Owner Murad authorised exactly one gatekeeper reconciliation call for outstanding degraded work GKWORK-9f964bf843f9a840 under grant PROJECTOS-DEGRADED-WITNESS3-GRANT1A. Fresh witness, zero retry history. To be removed immediately after the call.",
-      "governedRoot": "C:/dev/projectos-degraded-witness3"
     }
   ]
 }
