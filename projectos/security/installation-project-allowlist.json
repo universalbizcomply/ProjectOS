@@ -12,6 +12,12 @@
       "repository": "github.com/universalbizcomply/ProjectOS",
       "note": "ProjectOS governing itself. Derived from `git remote get-url origin` in C:\\dev\\ProjectOS and canonicalised with the same parseRemoteUrl rule discovery and the observation check use. The governedRoot is part of the identity: origin lives in .git/config, which a project can rewrite, so a copy of this repository at any other path is a different project however it describes itself.",
       "governedRoot": "C:/dev/ProjectOS"
+    },
+    {
+      "projectId": "projectos-degraded-witness2a",
+      "repository": "witness.invalid/projectos-witness/degraded-witness2a",
+      "note": "TEMPORARY, GATEKEEPER ESCALATION CALL ONLY. Gatekeeper (ChatGPT decider) authorised ONE exact reconciliation escalation bypassing retry-count gate for request GKREQ-fabdf74e13b02e5d460510df, work GKWORK-1c6690305e3c24ea. To be removed immediately after call. Witness is disposable; entry grants final authorization.",
+      "governedRoot": "C:/dev/projectos-degraded-witness2a"
     }
   ]
 }
