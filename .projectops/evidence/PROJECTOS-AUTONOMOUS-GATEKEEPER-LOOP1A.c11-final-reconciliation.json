@@ -1,0 +1,78 @@
+{
+  "schemaVersion": "1.0.0",
+  "evidence": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A.c11-final-reconciliation",
+  "criterion": "C11",
+  "title": "C11 Witness2 Final Gatekeeper Reconciliation Verdict",
+  "date": "2026-08-23T20:30:00Z",
+  "context": "Criterion 11, limb 3: return-to-gatekeeper reconciliation of outstanding degraded-mode debt — final attempt",
+  "attempts": [
+    {
+      "attemptNumber": 1,
+      "authorization": {
+        "grantId": "PROJECTOS-DEGRADED-WITNESS2-GRANT1B",
+        "workId": "GKWORK-1c6690305e3c24ea",
+        "requestId": "GKREQ-fabdf74e13b02e5d460510df",
+        "approved": true,
+        "scope": "One reconciliation call with existing approved credential"
+      },
+      "action": "Executed reconciliation command with credential provisioned",
+      "result": "UNAVAILABLE — Retry limit enforcement",
+      "detail": "Gatekeeper refused: 'already re-attempted after unanswered call; third attempt is owner decision, not a retry'",
+      "ledgerState": "Provisional entry unresolved, no usage recorded",
+      "debtState": "OUTSTANDING",
+      "timestamp": "2026-08-23T19:23:16.499Z"
+    },
+    {
+      "attemptNumber": 2,
+      "authorization": {
+        "grantId": "PROJECTOS-DEGRADED-WITNESS2-GRANT1B",
+        "workId": "GKWORK-1c6690305e3c24ea",
+        "requestId": "GKREQ-fabdf74e13b02e5d460510df",
+        "approved": true,
+        "scope": "One ADDITIONAL reconciliation call (owner escalation)",
+        "ownerDecision": "APPROVE ONE ADDITIONAL C11 RECONCILIATION ATTEMPT"
+      },
+      "action": "Re-applied witness allowlist entry; re-executed reconciliation command",
+      "result": "UNAVAILABLE — Retry limit enforcement (same gate)",
+      "detail": "Gatekeeper refused again: 'request already re-attempted; third attempt is owner decision, not a retry'",
+      "ledgerState": "Same provisional entry, timestamp updated, still unresolved",
+      "debtState": "OUTSTANDING",
+      "timestamp": "2026-08-23T20:22:00Z"
+    }
+  ],
+  "gatekeeper_retry_enforcement": {
+    "behavior": "Gatekeeper refuses 3rd+ attempt on same request ID unless owner escalates at gatekeeper level",
+    "why_enforced": "Prevent spam of unanswered requests; require explicit owner decision for persistence",
+    "attempts_recorded": "At least 2 (request GKREQ-fabdf74e13b02e5d460510df has prior history outside grant scope)",
+    "verdict_on_retry_gate": "WORKING CORRECTLY — Refusing further attempts without escalation path"
+  },
+  "c11_limb3_final_verdict": {
+    "status": "NOT RECONCILED",
+    "cause": "GATEKEEPER_UNAVAILABLE (retry enforcement)",
+    "debt_state": "OUTSTANDING — No APPROVED_TO_PROCEED verdict received",
+    "what_was_proven": [
+      "Witness delegation valid (gatekeeper-review-decisions scope)",
+      "Allowlist enforcement working (entry required, absence blocks)",
+      "Credential resolution working (when both delegation + allowlist permit)",
+      "Gatekeeper transport reachable (when authorized)",
+      "Gatekeeper retry-enforcement gate working (refusing 3rd+ without escalation)",
+      "Reconciliation framework operational (call formulated, ledger reserved, gatekeeper contacted)"
+    ],
+    "what_remains": [
+      "Gatekeeper APPROVAL verdict application (blocked by retry gate)",
+      "Debt discharge (blocked by lack of approval)",
+      "Owner decision on whether to authorize 4th+ attempt or accept limb-3 evidence as-is"
+    ]
+  },
+  "allowlist_restoration": {
+    "commit": "1f61155",
+    "message": "chore(installation): restore baseline allowlist after second authorized reconciliation",
+    "restoredTo": "baseline",
+    "status": "COMPLETE"
+  },
+  "conclusion": {
+    "c11_limb3_evidence": "COMPLETE. Witness proven capable of reaching gatekeeper when authorized; isolation boundaries confirmed working; retry-enforcement gate confirmed working.",
+    "outstanding_debt": "GKWORK-1c6690305e3c24ea remains unreconciled (NOT APPROVED_TO_PROCEED)",
+    "next_decision": "Owner decision: Authorize 4th+ attempt through gatekeeper escalation path, or accept current C11 evidence and move to acceptance review"
+  }
+}
