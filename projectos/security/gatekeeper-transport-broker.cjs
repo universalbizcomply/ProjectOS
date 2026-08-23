@@ -646,10 +646,21 @@ function withCredential(installRoot, ref, use) {
     env[k] = v;
   }
 
-  // `-Command -` reads the script from stdin. There is no file, so there is nothing to swap, and
-  // `-ExecutionPolicy Bypass` is no longer needed — an execution policy governs files.
-  const r = spawnSync(shell, ["-NoProfile", "-NonInteractive", "-Command", "-"], {
-    input: ["& {", adapter, "} -Action get -Target " + JSON.stringify(vaultRef), ""].join(String.fromCharCode(10)),
+  // `-EncodedCommand` carries the script, not a file, so there is still nothing on disk to swap and
+  // `-ExecutionPolicy Bypass` is still unnecessary — an execution policy governs files, not this.
+  //
+  // WHY NOT `-Command -` (stdin). That was the original choice and it silently broke on Windows
+  // PowerShell 5.1's console host: fed via stdin, `-Command -` parses and executes MULTI-LINE input
+  // line-by-line rather than as one script, so any brace block spanning more than one line — an
+  // `if`, a `function`, or this adapter's `& { <multi-line adapter> } -Action get -Target ...` —
+  // silently produced no output and exit code 0. The credential adapter is inherently multi-line, so
+  // EVERY call through this path failed exactly the same way, indistinguishable from an absent value.
+  // `-EncodedCommand` (UTF-16LE, base64) is parsed as a single complete script regardless of line
+  // breaks, which is the standard fix for this known 5.1 behaviour, and it keeps the same guarantee
+  // stdin gave: the bytes verified above are the exact bytes executed, with no file and no race.
+  const script = ["& {", adapter, "} -Action get -Target " + JSON.stringify(vaultRef), ""].join(String.fromCharCode(10));
+  const encoded = Buffer.from(script, "utf16le").toString("base64");
+  const r = spawnSync(shell, ["-NoProfile", "-NonInteractive", "-EncodedCommand", encoded], {
     encoding: "utf8",
     env,
     cwd: installRoot,
