@@ -227,9 +227,20 @@ export type TransportOutcome =
       readonly spendLimited: boolean;
     };
 
+/**
+ * Characters that are printable but reorder what a reader sees.
+ *
+ * SEC-001. Filtering on `ch >= ' '` alone keeps every Unicode bidirectional override and format
+ * character: U+202A-U+202E and U+2066-U+2069 are all above the space. Provider-controlled text
+ * carrying them can render in an order that has nothing to do with its bytes, so an error excerpt
+ * quoted into a governance record can be made to READ as the opposite of what it says. Stripped,
+ * not escaped — the same pattern already applied in gatekeeperRouting.ts and gatekeeperBridge.ts.
+ */
+const REORDERING = /[‪-‮⁦-⁩‎‏؜]/g;
+
 /** Trim anything quoted from the provider before it reaches a record or a report. */
-function safeExcerpt(text: string, limit = 300): string {
-  return Array.from(text)
+export function safeExcerpt(text: string, limit = 300): string {
+  return Array.from(text.replace(REORDERING, ''))
     .filter((ch) => ch >= ' ' || ch === '\n')
     .join('')
     .slice(0, limit);

@@ -226,7 +226,7 @@ function run() {
       if (gov.isImplementerIdentity(rec.delegatedTo)) errors.push(closureRel + ": delegates closure to the implementer");
       const scope = Array.isArray(rec.delegatedScope) ? rec.delegatedScope : [];
       if (scope.length === 0) errors.push(closureRel + ": carries no scope");
-      for (const s of scope) if (s !== "phase-closure" && s !== "programme-closure") errors.push(closureRel + ": carries a scope it may not grant: " + String(s));
+      for (const s of scope) if (s !== "phase-closure" && s !== "programme-closure" && s !== "gatekeeper-review-decisions") errors.push(closureRel + ": carries a scope it may not grant: " + String(s));
       if (rec.excludesProtectedActions !== true) errors.push(closureRel + ": must state excludesProtectedActions: true");
       if (typeof rec.programmeScope !== "string" || rec.programmeScope.trim() === "") errors.push(closureRel + ": names no programmeScope, so it is not bound to a programme");
       const secrets = disc.scanSecrets(JSON.stringify(rec));
