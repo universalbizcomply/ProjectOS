@@ -101,6 +101,9 @@ export interface GatekeeperTurnDeps {
   readonly broker?: {
     readonly transport: BrokeredTransport;
     readonly governedRoot: string;
+    /** The installation's committed policy on spending for this project. Asked before the broker
+     *  is invoked, so a refusal is knowably a call that was never made. */
+    readonly installationAllows?: () => { readonly allowed: boolean; readonly reasons: readonly string[] };
   };
   readonly http: HttpPort;
   readonly modelPolicy: ModelPolicy;
@@ -113,6 +116,19 @@ export interface GatekeeperTurnDeps {
    * processes cannot both spend the same remaining allowance. Absent in tests and rehearsals, where
    * there is no durable ledger and nothing to race against.
    */
+  /**
+   * Close out the reservation `admitSpend` made, when the call produced no answer.
+   *
+   * A PORT, like `admitSpend`, because this file decides nothing about durability: the entrypoint
+   * owns the ledger. Optional so a test or a rehearsal that never reserved need not supply one.
+   */
+  /** Release a reservation for a call this attempt is refusing before any dispatch is possible. */
+  readonly releaseUndispatched?: (requestId: string) => void;
+  readonly resolveSpend?: (
+    request: { readonly requestId: string; readonly projectId: string; readonly phaseId: string },
+    cause: string,
+  ) => void;
+
   readonly admitSpend?: (request: {
     readonly requestId: string;
     readonly projectId: string;
@@ -295,6 +311,27 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
   }
   lines.push(`tier ${selectTier(ask)} -> model ${model}`);
 
+  // A CALL THAT CANNOT HAPPEN IS NOT PAID FOR, AND ITS RESERVATION IS RELEASED (C11-W2-F8).
+  //
+  // The installation's committed allowlist decides whether it will spend on this project at all, and
+  // a refusal there is final and pre-dispatch. Asking it BEFORE admission means no estimate is ever
+  // reserved for a call that provably cannot be made — and it is also the only moment at which a
+  // reservation left by an earlier run can be released, because admission would otherwise refuse the
+  // request first and the transport, where classification used to happen, would never be reached.
+  // That is what stranded the C11 witness: a retained charge for a call nobody made, behind a gate
+  // that could not be satisfied.
+  const policy = deps.broker?.installationAllows?.();
+  if (policy !== undefined && !policy.allowed) {
+    // The narrow release: this attempt is refusing before anything can be dispatched, so the
+    // reservation for the identical question is a charge for a call nobody made.
+    deps.releaseUndispatched?.(request.requestId);
+    return unavailable(input, lines, request, 'TRANSPORT_NOT_APPROVED', [
+      'this installation does not authorise the governed project to spend its credential, so no ' +
+        'request was made',
+      ...policy.reasons,
+    ]);
+  }
+
   // The estimate uses the evidence actually being sent, so it is a real bound rather than a nominal one.
   const estimatedInput = Math.ceil(input.evidenceText.length / 4);
   const estimate = estimateCostMicroUsd({ inputTokens: estimatedInput, outputTokens: 800 }, rate);
@@ -360,6 +397,9 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
                   broker: {
                     transport: deps.broker.transport,
                     governedRoot: deps.broker.governedRoot,
+                    ...(deps.broker.installationAllows === undefined
+                      ? {}
+                      : { installationAllows: deps.broker.installationAllows }),
                     projectId: input.projectId,
                     phaseId: input.phaseId,
                   },
@@ -370,6 +410,15 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
         );
 
   if (outcome.kind === 'unavailable') {
+    // THE RESERVATION MUST NOT OUTLIVE THE CALL IT WAS FOR (C11-W2-F6). Admission wrote a provisional
+    // entry before this attempt; no answer came back, so it is closed out here — released when the
+    // cause proves nothing was dispatched, retained and marked otherwise. Without this the next run
+    // was refused as "already in the ledger" BEFORE the gatekeeper was attempted, which withdrew the
+    // owner's degraded-mode choice entirely.
+    deps.resolveSpend?.(
+      { requestId: request.requestId, projectId: input.projectId, phaseId: input.phaseId },
+      outcome.cause,
+    );
     return unavailable(input, lines, request, outcome.cause, outcome.reasons);
   }
 

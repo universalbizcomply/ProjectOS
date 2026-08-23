@@ -33,6 +33,7 @@
  *
  * Created in the post-V3 operational recovery programme (Stage 2).
  */
+import { CLOSURE_SCOPES, DELEGABLE_SCOPES, type DelegableScope } from '@projectos/core';
 import { governanceEngines } from './governanceEngines.js';
 import type { System } from './system.js';
 import { join, projectopsDir } from './context.js';
@@ -61,8 +62,13 @@ export const PROJECT_CONFIG_REL = '.projectops/project-config.json';
 /** The one scope a plan-approval delegation may carry. Closure is delegated separately, below. */
 export const PLAN_APPROVAL_SCOPE = 'plan-approval';
 
-/** The only scopes a closure delegation may carry. Neither is authority to ACT. */
-export const CLOSURE_SCOPES: readonly string[] = ['phase-closure', 'programme-closure'];
+/**
+ * The scopes a delegation record may carry. Re-exported from the core vocabulary rather than
+ * restated here: this file used to keep its own copy of the closure scopes, and two lists that must
+ * agree but are edited separately is how a scope ends up legal at one boundary and refused at
+ * another. None of these is authority to ACT.
+ */
+export { CLOSURE_SCOPES, DELEGABLE_SCOPES, GATEKEEPER_REVIEW_SCOPE } from '@projectos/core';
 
 const HEX40 = /^[0-9a-f]{40}$/;
 const ID_SHAPE = /^[A-Za-z0-9_.:-]{8,128}$/;
@@ -332,46 +338,72 @@ function genesisGovernance(record: PlanGenesisRecord): Record<string, unknown> {
 }
 
 /**
- * Why this record is not a usable CLOSURE delegation, or `[]` when it is.
+ * Why this record is not a usable delegation, or `[]` when it is.
  *
  * Separate from the plan-approval delegation on purpose. Approving a plan and closing a phase are
  * different authorities, and a record that could grant both would be a way to widen one by editing
  * the other. Same trust basis as everything else here: it must be committed, and it grants no
  * protected effect.
+ *
+ * ONE VALIDATOR, EVERY BOUNDARY. This record is read at more than one place — plan approval, and the
+ * gatekeeper resolving who may decide a review — and every one of them calls THIS function. It used
+ * to be otherwise: the gatekeeper's resolver accepted the record on a programme match and a non-empty
+ * `delegatedTo` alone, so bytes this function rejected outright still named the decider, and whether
+ * a record was ever judged at all depended on the order things happened in. `requiredScope` is what
+ * lets a consumer say which capability it is about to exercise, without any consumer needing its own
+ * idea of what a valid record looks like.
  */
 export function checkClosureDelegationRecord(
   record: PlanApprovalDelegationRecord | null,
-  expect: DelegationExpectations & { readonly programmeId: string },
+  expect: DelegationExpectations & {
+    readonly programmeId: string;
+    /** The capability the caller is about to exercise. The record must carry it. */
+    readonly requiredScope?: DelegableScope;
+  },
 ): readonly string[] {
-  if (record === null) return [];    // absent is legitimate — closure then stays where it already is
+  if (record === null) {
+    // Absent is legitimate for plan approval — closure then stays where it already is. It is NOT
+    // legitimate for a caller that needs a specific capability: nothing grants it.
+    return expect.requiredScope === undefined
+      ? []
+      : [`no delegation record exists, so nothing grants '${expect.requiredScope}' for programme '${expect.programmeId}'`];
+  }
   const { engine } = loadGovernanceEngine();
   const e: string[] = [];
   if (record.schemaVersion !== PLAN_APPROVAL_DELEGATION_SCHEMA_VERSION) {
-    e.push(`closure delegation schemaVersion is ${JSON.stringify(record.schemaVersion)}, expected "${PLAN_APPROVAL_DELEGATION_SCHEMA_VERSION}"`);
+    e.push(`delegation schemaVersion is ${JSON.stringify(record.schemaVersion)}, expected "${PLAN_APPROVAL_DELEGATION_SCHEMA_VERSION}"`);
   }
   if (strOf(record.delegationId) === null || !ID_SHAPE.test(String(record.delegationId))) {
-    e.push('closure delegation has no usable delegationId');
+    e.push('delegation has no usable delegationId');
   }
   if (record.projectId !== expect.projectId) {
-    e.push(`closure delegation is for project ${JSON.stringify(record.projectId)}, not '${expect.projectId}'`);
+    e.push(`delegation is for project ${JSON.stringify(record.projectId)}, not '${expect.projectId}'`);
   }
   if (record.programmeScope !== expect.programmeId) {
-    e.push(`closure delegation is scoped to programme ${JSON.stringify(record.programmeScope)}, not '${expect.programmeId}'`);
+    e.push(`delegation is scoped to programme ${JSON.stringify(record.programmeScope)}, not '${expect.programmeId}'`);
   }
   if (record.delegatedBy !== expect.recordedOwner) {
-    e.push(`closure delegation claims to come from ${JSON.stringify(record.delegatedBy)}, who is not this project's recorded owner '${expect.recordedOwner}'`);
+    e.push(`delegation claims to come from ${JSON.stringify(record.delegatedBy)}, who is not this project's recorded owner '${expect.recordedOwner}'`);
   }
   const to = strOf(record.delegatedTo);
-  if (to === null) e.push('closure delegation names no delegatedTo');
-  else if (engine.isImplementerIdentity(to)) e.push(`closure delegation names the implementer (${to}) — the implementer can never close`);
+  if (to === null) e.push('delegation names no delegatedTo');
+  else if (engine.isImplementerIdentity(to)) e.push(`delegation names the implementer (${to}) — the implementer can never hold delegated authority over its own work`);
   const scope = Array.isArray(record.delegatedScope) ? record.delegatedScope : null;
-  if (scope === null || scope.length === 0) e.push('closure delegation carries no scope');
-  else for (const s of scope) if (!CLOSURE_SCOPES.includes(String(s))) e.push(`closure delegation carries a scope it may not grant: ${JSON.stringify(s)}`);
-  if (record.excludesProtectedActions !== true) {
-    e.push('closure delegation must state excludesProtectedActions: true — closing something never carries protected-action authority');
+  if (scope === null || scope.length === 0) e.push('delegation carries no scope');
+  else for (const s of scope) if (!(DELEGABLE_SCOPES as readonly string[]).includes(String(s))) e.push(`delegation carries a scope it may not grant: ${JSON.stringify(s)}`);
+  // WHAT THE CALLER IS ABOUT TO DO WITH IT. Checked here so no consumer has to interpret the scope
+  // list itself — the place where the closure scopes and the review scope would drift apart again.
+  if (expect.requiredScope !== undefined && !(scope ?? []).map(String).includes(expect.requiredScope)) {
+    e.push(
+      `delegation carries [${(scope ?? []).map(String).join(', ')}], which does not cover ` +
+        `'${expect.requiredScope}' — the capability being exercised`,
+    );
   }
-  if (strOf(record.delegationDate) === null) e.push('closure delegation records no delegationDate');
-  if (!expect.isCommitted) e.push('the closure delegation is not committed, so it has not passed the owner commit gate');
+  if (record.excludesProtectedActions !== true) {
+    e.push('delegation must state excludesProtectedActions: true — delegating a capability never carries protected-action authority');
+  }
+  if (strOf(record.delegationDate) === null) e.push('delegation records no delegationDate');
+  if (!expect.isCommitted) e.push('the delegation is not committed, so it has not passed the owner commit gate');
   return e;
 }
 
@@ -589,14 +621,36 @@ export function materialisePlan(input: MaterialiseInputs): MaterialiseResult {
   // own notes describe the previous programme. Where the owner has recorded none, the active plan's
   // arrangement is carried forward unchanged, because an approval of a draft is not the moment to
   // invent who may close.
-  const cd = input.closureDelegation ?? null;
+  // A DELEGATION IS ONLY A CLOSURE DELEGATION IF IT DELEGATES CLOSURE.
+  //
+  // One record file carries whatever the owner delegated, and the vocabulary now includes a scope
+  // that has nothing to do with closing anything. Materialising such a record here would write it
+  // into `governance.closureDelegation` and hand `closureAuthority` to its delegate — granting, as a
+  // side effect of approving a plan, exactly the authority the narrow scope exists to avoid granting.
+  // `decideClosureAuthority` would still refuse the close, because it checks the scope list covers
+  // the closure being attempted; this keeps the claim from being made in the first place.
+  const cdRaw = input.closureDelegation ?? null;
+  // `delegatedScope` is typed `unknown` because every field of that record is untrusted until checked.
+  // `approvePlan` always runs `checkClosureDelegationRecord` first, so a non-array cannot reach here
+  // today — but this function is exported, documented as pure, and contracted to RETURN problems
+  // rather than throw. Guarding costs nothing and keeps that contract true for a future caller.
+  const cdScope = cdRaw !== null && Array.isArray(cdRaw.delegatedScope) ? (cdRaw.delegatedScope as readonly unknown[]) : [];
+  const closureScope = cdScope.map(String).filter((s) => (CLOSURE_SCOPES as readonly string[]).includes(s));
+  const cd = cdRaw !== null && closureScope.length > 0 ? cdRaw : null;
   const closureFromRecord = cd === null
     ? null
     : {
         delegatedBy: String(cd.delegatedBy),
         delegatedTo: String(cd.delegatedTo),
         delegationDate: String(cd.delegationDate),
-        delegatedScope: (cd.delegatedScope as readonly string[]).slice(),
+        // ONLY THE CLOSURE SCOPES. The plan schema's `closureDelegation.delegatedScope` is
+        // closure-only by definition — "Closure only. Protected actions are not delegable through
+        // this field." A record may legitimately carry `gatekeeper-review-decisions` alongside a
+        // closure scope, and copying that through would make the plan fail its own schema. It is
+        // pruned rather than admitted: this field describes what closure was delegated, and the
+        // review capability is not closure. Widening the schema to hold it would put a capability in
+        // a governed record that nothing reads it from.
+        delegatedScope: closureScope,
         projectScope: input.proposal.projectId,
         excludesProtectedActions: true,
         notes:
@@ -739,6 +793,7 @@ export type ApprovalRefusal =
   | 'PROPOSAL_FAILED'
   | 'NO_ACTIVE_PLAN'
   | 'GENESIS_INVALID'
+  | 'PROJECT_IDENTITY_MISMATCH'
   | 'DELEGATION_INVALID'
   | 'DECISION_INVALID'
   | 'DRAFT_SUPERSEDED'
@@ -806,7 +861,7 @@ export const FILENAME_ID = /^[A-Za-z0-9_-]{8,128}$/;
  * be believed. `git show` also returns the blob as stored, so a checkout's line-ending conversion
  * cannot change what was reviewed. Null means "not committed, or unreadable", which fails closed.
  */
-function readCommittedJson(sys: System, root: string, relPath: string): Record<string, unknown> | null {
+export function readCommittedJson(sys: System, root: string, relPath: string): Record<string, unknown> | null {
   // `-C root` AND `./`. This ran with NEITHER: the repository answering was whichever one the ambient
   // working directory happened to sit in, and the path resolved against the top of that repository
   // rather than against the governed root. Both are the failure modes this codebase has already paid
@@ -843,6 +898,161 @@ function uncommittedButPresent(sys: System, root: string, rel: string, label: st
       `visible diff under this programme's tamperProof:false model. Commit it and try again.`,
   ];
 }
+
+/** Who the owner is, and the governance a new plan inherits — with the source that supplied it. */
+export type OwnerResolution =
+  | {
+      readonly ok: true;
+      readonly recordedOwner: string;
+      readonly activePlan: Record<string, unknown>;
+      readonly governanceSource: GovernanceSource;
+    }
+  | { readonly ok: false; readonly code: 'NO_ACTIVE_PLAN' | 'GENESIS_INVALID'; readonly problems: readonly string[] };
+
+/**
+ * Establish who this project's recorded owner is.
+ *
+ * Extracted from `approvePlan` so that everything judging a delegation asks the SAME question of the
+ * SAME sources. A delegation is checked against `delegatedBy === recordedOwner`, so a consumer with
+ * its own notion of the owner is a consumer that can be satisfied by a record the approval path would
+ * refuse — which is precisely the defect this extraction exists to make impossible.
+ */
+export function resolveRecordedOwner(
+  sys: System,
+  root: string,
+  config: Record<string, unknown>,
+  projectId: string,
+  /**
+   * Where the ACTIVE PLAN — the thing that says who the owner is — may be read from.
+   *
+   * `'working-tree'` is what plan approval has always done, and changing it is not this correction's
+   * business: an approval is a single owner-attended act whose whole output is then committed.
+   *
+   * `'committed'` exists for repeated, unattended reads. There, a plan file on disk is not evidence
+   * of anything: whoever can write it can name the owner, and the owner a delegation is checked
+   * against is the anchor of the entire check. This is the fix for C11-W2-F1's second half — a
+   * validated record judged against a forgeable expectation is not validated.
+   */
+  planTrust: 'working-tree' | 'committed' = 'working-tree',
+): OwnerResolution {
+  // WHO THE OWNER IS. Two sources, in STRICT precedence — and the distinction between them is the
+  // whole security of this block.
+  //
+  // A DECLARED active plan is authoritative and MUST resolve. If `planMemory.planPath` is declared
+  // but the plan behind it is missing, unreadable or records no owner, that is a DAMAGED GOVERNED
+  // PROJECT — never a new one. It fails closed here and genesis is NOT consulted. A fallback would
+  // mean deleting one file downgrades an established project to bootstrap state, where a fresh owner
+  // identity could be introduced against a plan nobody can read; the attacker would not need to
+  // forge an owner, only to break a path.
+  //
+  // Only the total ABSENCE of a declaration can be a genuine first plan.
+  const planMemory = config['planMemory'] as Record<string, unknown> | undefined;
+  const declaredPlan = planMemory?.['planPath'];
+  const declaresActivePlan = declaredPlan !== undefined && declaredPlan !== null;
+
+  // The governance the NEW plan inherits. For an established project that is the active plan itself.
+  // For a first plan there is no approved governance yet except one fact — who the owner is — so the
+  // genesis record seeds exactly that field and nothing else. Everything the plan still needs comes
+  // from the draft and is judged by the plan evaluator, unchanged.
+  let activePlan: Record<string, unknown>;
+  let recordedOwner: string | null;
+  /** Which of the two sources the approval evidence must name. Succession unless proven otherwise. */
+  let governanceSource: GovernanceSource = 'active-plan';
+  if (declaresActivePlan) {
+    // C11-W2-F5. WHICH PLAN IS THE TRUST ANCHOR IS ITSELF A TRUSTED FACT.
+    //
+    // Reading the plan's BYTES from HEAD closes nothing on its own while the PATH that selects them
+    // still comes from the working copy: history holds other plan records, and a working-tree edit
+    // could point `planMemory.planPath` at whichever committed one names a convenient owner. So when
+    // the committed configuration declares an active plan, the working copy must declare the same
+    // one. Where the committed configuration declares none, this is silent — that case is the genesis
+    // branch below, whose anchor is the committed genesis record instead.
+    if (planTrust === 'committed') {
+      const committedDeclaration = (readCommittedJson(sys, root, PROJECT_CONFIG_REL)?.['planMemory'] as
+        | Record<string, unknown>
+        | undefined)?.['planPath'];
+      if (
+        typeof committedDeclaration === 'string' &&
+        committedDeclaration.replace(/\\/g, '/') !== String(declaredPlan).replace(/\\/g, '/')
+      ) {
+        return {
+          ok: false,
+          code: 'NO_ACTIVE_PLAN',
+          problems: [
+            `the committed ${PROJECT_CONFIG_REL} declares the active plan at ${JSON.stringify(committedDeclaration)}, ` +
+              `but the working copy declares ${JSON.stringify(declaredPlan)}. The plan that says who the owner is ` +
+              'decides who may approve the next one, so which plan that is cannot be re-pointed by an edit ' +
+              'nobody has reviewed. Commit the change, or restore it.',
+          ],
+        };
+      }
+    }
+    const declared =
+      typeof declaredPlan !== 'string'
+        ? null
+        : planTrust === 'committed'
+          ? readCommittedJson(sys, root, declaredPlan)
+          : readJson(sys, join(root, declaredPlan));
+    recordedOwner = strOf((declared?.['governance'] as Record<string, unknown> | undefined)?.['owner']);
+    if (declared === null || recordedOwner === null) {
+      return {
+        ok: false,
+        code: 'NO_ACTIVE_PLAN',
+        problems: [
+          `this project declares an active plan at ${JSON.stringify(declaredPlan)}, but it could not be read ` +
+            (planTrust === 'committed' ? 'FROM THE COMMITTED TREE ' : '') +
+            'or records no owner, so there is nothing against which to check who may approve a new one. ' +
+            'Repair the declared plan: a damaged plan is not a new project, and the first-plan genesis ' +
+            'record deliberately does not apply here.' +
+            (planTrust === 'committed'
+              ? ' An uncommitted plan has not passed the owner commit gate, and cannot say who the owner is.'
+              : ''),
+        ],
+      };
+    }
+    activePlan = declared;
+  } else {
+    // NO WORKING-TREE DECLARATION — but that alone must not open the bootstrap door.
+    //
+    // `project-config.json` is read from the working tree everywhere else in this function, and the
+    // implementer can write it. If the bootstrap decision rested on that copy alone, deleting
+    // `planMemory` from it would make an established project eligible for genesis again, and a stale
+    // genesis record would then re-supply an owner the project has since moved on from. So the
+    // ELIGIBILITY question is asked of the COMMITTED configuration, which only the owner's commit
+    // gate can change. The succession path above still reads the working tree, as it always has.
+    const committedConfig = readCommittedJson(sys, root, PROJECT_CONFIG_REL);
+    const committedDeclared = (committedConfig?.['planMemory'] as Record<string, unknown> | undefined)?.['planPath'];
+    if (committedDeclared !== undefined && committedDeclared !== null) {
+      return {
+        ok: false,
+        code: 'NO_ACTIVE_PLAN',
+        problems: [
+          `the committed ${PROJECT_CONFIG_REL} declares an active plan at ${JSON.stringify(committedDeclared)}, but the ` +
+            'working copy no longer does. A project that has been governed by a plan is not a first-plan project, ' +
+            'so genesis does not apply. Restore planMemory in the working configuration, or repair the plan it names.',
+        ],
+      };
+    }
+
+    const genesis = readCommittedJson(sys, root, PLAN_GENESIS_REL);
+    const uncommitted = genesis === null ? uncommittedButPresent(sys, root, PLAN_GENESIS_REL, 'genesis record') : null;
+    if (uncommitted !== null) return { ok: false, code: 'GENESIS_INVALID', problems: uncommitted };
+    if (genesis === null) return { ok: false, code: 'NO_ACTIVE_PLAN', problems: checkPlanGenesis(null, { projectId: projectId }) };
+    const genesisProblems = checkPlanGenesis(genesis, { projectId: projectId });
+    if (genesisProblems.length > 0) return { ok: false, code: 'GENESIS_INVALID', problems: genesisProblems };
+    // Narrowing only. `checkPlanGenesis` has already refused an absent or blank owner.
+    // THE COMPLETE INITIAL GOVERNANCE SNAPSHOT, passed through as the record states it. Nothing is
+    // fabricated and no field is defaulted: `checkPlanGenesis` has already refused any record that
+    // could not produce a schema-valid plan.
+    const governance = genesisGovernance(genesis);
+    recordedOwner = strOf(governance['owner']);
+    if (recordedOwner === null) return { ok: false, code: 'GENESIS_INVALID', problems: ['genesis governance.owner is missing or empty'] };
+    activePlan = { governance };
+    governanceSource = 'genesis';
+  }
+  return { ok: true, recordedOwner, activePlan, governanceSource };
+}
+
 
 /**
  * Approve one draft and activate the plan it proposes. The only route in this codebase by which a
@@ -905,84 +1115,37 @@ export function approvePlan(sys: System, root: string, opts: ApproveOptions): Ap
     };
   }
 
-  // WHO THE OWNER IS. Two sources, in STRICT precedence — and the distinction between them is the
-  // whole security of this block.
+  // C11-W2-F5. THE CANDIDATE MAY NOT REDEFINE WHO IS AUTHORISED TO APPROVE IT.
   //
-  // A DECLARED active plan is authoritative and MUST resolve. If `planMemory.planPath` is declared
-  // but the plan behind it is missing, unreadable or records no owner, that is a DAMAGED GOVERNED
-  // PROJECT — never a new one. It fails closed here and genesis is NOT consulted. A fallback would
-  // mean deleting one file downgrades an established project to bootstrap state, where a fresh owner
-  // identity could be introduced against a plan nobody can read; the attacker would not need to
-  // forge an owner, only to break a path.
+  // The plan being approved is a CANDIDATE: uncommitted, owner-reviewed, bound by its digest. That is
+  // right and unchanged. But the identity used to decide WHO MAY APPROVE IT was read from the same
+  // mutable working tree the candidate lives in, so an edit could move the expectation to meet the
+  // record — name a different owner, name a different project — and an internally consistent set
+  // would then satisfy every check. The forged file is never part of the commit being reviewed, so it
+  // evades the one guarantee this module rests on: that a forged authority record is a visible diff.
   //
-  // Only the total ABSENCE of a declaration can be a genuine first plan.
-  const planMemory = config['planMemory'] as Record<string, unknown> | undefined;
-  const declaredPlan = planMemory?.['planPath'];
-  const declaresActivePlan = declaredPlan !== undefined && declaredPlan !== null;
-
-  // The governance the NEW plan inherits. For an established project that is the active plan itself.
-  // For a first plan there is no approved governance yet except one fact — who the owner is — so the
-  // genesis record seeds exactly that field and nothing else. Everything the plan still needs comes
-  // from the draft and is judged by the plan evaluator, unchanged.
-  let activePlan: Record<string, unknown>;
-  let recordedOwner: string | null;
-  /** Which of the two sources the approval evidence must name. Succession unless proven otherwise. */
-  let governanceSource: GovernanceSource = 'active-plan';
-  if (declaresActivePlan) {
-    const declared = typeof declaredPlan === 'string' ? readJson(sys, join(root, declaredPlan)) : null;
-    recordedOwner = strOf((declared?.['governance'] as Record<string, unknown> | undefined)?.['owner']);
-    if (declared === null || recordedOwner === null) {
-      return {
-        ok: false,
-        code: 'NO_ACTIVE_PLAN',
-        problems: [
-          `this project declares an active plan at ${JSON.stringify(declaredPlan)}, but it could not be read ` +
-            'or records no owner, so there is nothing against which to check who may approve a new one. ' +
-            'Repair the declared plan: a damaged plan is not a new project, and the first-plan genesis ' +
-            'record deliberately does not apply here.',
-        ],
-      };
-    }
-    activePlan = declared;
-  } else {
-    // NO WORKING-TREE DECLARATION — but that alone must not open the bootstrap door.
-    //
-    // `project-config.json` is read from the working tree everywhere else in this function, and the
-    // implementer can write it. If the bootstrap decision rested on that copy alone, deleting
-    // `planMemory` from it would make an established project eligible for genesis again, and a stale
-    // genesis record would then re-supply an owner the project has since moved on from. So the
-    // ELIGIBILITY question is asked of the COMMITTED configuration, which only the owner's commit
-    // gate can change. The succession path above still reads the working tree, as it always has.
-    const committedConfig = readCommittedJson(sys, root, PROJECT_CONFIG_REL);
-    const committedDeclared = (committedConfig?.['planMemory'] as Record<string, unknown> | undefined)?.['planPath'];
-    if (committedDeclared !== undefined && committedDeclared !== null) {
-      return {
-        ok: false,
-        code: 'NO_ACTIVE_PLAN',
-        problems: [
-          `the committed ${PROJECT_CONFIG_REL} declares an active plan at ${JSON.stringify(committedDeclared)}, but the ` +
-            'working copy no longer does. A project that has been governed by a plan is not a first-plan project, ' +
-            'so genesis does not apply. Restore planMemory in the working configuration, or repair the plan it names.',
-        ],
-      };
-    }
-
-    const genesis = readCommittedJson(sys, root, PLAN_GENESIS_REL);
-    const uncommitted = genesis === null ? uncommittedButPresent(sys, root, PLAN_GENESIS_REL, 'genesis record') : null;
-    if (uncommitted !== null) return { ok: false, code: 'GENESIS_INVALID', problems: uncommitted };
-    if (genesis === null) return { ok: false, code: 'NO_ACTIVE_PLAN', problems: checkPlanGenesis(null, { projectId: proposal.projectId }) };
-    const genesisProblems = checkPlanGenesis(genesis, { projectId: proposal.projectId });
-    if (genesisProblems.length > 0) return { ok: false, code: 'GENESIS_INVALID', problems: genesisProblems };
-    // Narrowing only. `checkPlanGenesis` has already refused an absent or blank owner.
-    // THE COMPLETE INITIAL GOVERNANCE SNAPSHOT, passed through as the record states it. Nothing is
-    // fabricated and no field is defaulted: `checkPlanGenesis` has already refused any record that
-    // could not produce a schema-valid plan.
-    const governance = genesisGovernance(genesis);
-    recordedOwner = strOf(governance['owner']);
-    if (recordedOwner === null) return { ok: false, code: 'GENESIS_INVALID', problems: ['genesis governance.owner is missing or empty'] };
-    activePlan = { governance };
-    governanceSource = 'genesis';
+  // Committed identity, digest-bound candidate.
+  const committedIdentity = readCommittedJson(sys, root, PROJECT_CONFIG_REL);
+  const trustedProjectId = strOf(committedIdentity?.['projectId']);
+  if (trustedProjectId !== null && trustedProjectId !== proposal.projectId) {
+    return {
+      ok: false,
+      code: 'PROJECT_IDENTITY_MISMATCH',
+      problems: [
+        `the committed ${PROJECT_CONFIG_REL} identifies this project as ${JSON.stringify(trustedProjectId)}, but this ` +
+          `approval proposes a plan for ${JSON.stringify(proposal.projectId)}. Project identity is a trust anchor — ` +
+          'every delegation, decision and genesis record is bound to it - so it is taken from the commit ' +
+          'gate, not from a working copy the candidate could have changed.',
+      ],
+    };
   }
+  const owned = resolveRecordedOwner(sys, root, config, proposal.projectId, 'committed');
+  if (!owned.ok) return { ok: false, code: owned.code, problems: owned.problems };
+  const { recordedOwner, activePlan, governanceSource } = owned;
+
+  // The plan in force NOW, named by the working configuration. Used below to refuse writing the new
+  // record over it, and to carry the retired document forward as a planning source.
+  const declaredPlan = (config['planMemory'] as Record<string, unknown> | undefined)?.['planPath'];
 
   // A NEW plan is a NEW record. Approving a draft may not rewrite the plan the project is governed by
   // today: that record is either a live plan whose approval this decision is not, or — as here — the

@@ -190,6 +190,9 @@ export interface ReconciliationDeps {
   readonly broker?: {
     readonly transport: BrokeredTransport;
     readonly governedRoot: string;
+    /** The installation's committed policy on spending for this project. Asked before the broker
+     *  is invoked, so a refusal is knowably a call that was never made. */
+    readonly installationAllows?: () => { readonly allowed: boolean; readonly reasons: readonly string[] };
   };
   readonly rate: RateCard;
   readonly budget: BudgetPolicy;
@@ -206,6 +209,19 @@ export interface ReconciliationDeps {
    * ledger line — and with it the replay guard for that decision, which is derived from the ledger.
    */
   readonly recordSpend: (entry: LedgerEntry) => void;
+  /**
+   * Close out the reservation admission made, when the call produced no answer (C11-W2-F6/F8).
+   *
+   * This route reserves before it asks, exactly as the loop does, so it needs the same close-out or a
+   * failed attempt leaves a charge standing for a call that never happened — and, once the retry gate
+   * consults the installation record, a question that can never be put again.
+   */
+  /** Release a reservation for a call this attempt is refusing before any dispatch is possible. */
+  readonly releaseUndispatched?: (requestId: string) => void;
+  readonly resolveSpend?: (
+    request: { readonly requestId: string; readonly projectId: string; readonly phaseId: string },
+    cause: string,
+  ) => void;
   /** Serialised budget admission; see the note in gatekeeperTurn.ts. */
   readonly admitSpend?: (request: {
     readonly requestId: string;
@@ -779,6 +795,33 @@ export function reconcileDegradedWork(
     });
   }
 
+  // A CALL THAT CANNOT HAPPEN IS NOT PAID FOR, AND ITS RESERVATION IS RELEASED (C11-W2-F8).
+  //
+  // Asked before admission for the same reason the loop asks it there: no estimate is reserved for a
+  // call the installation will not permit, and it is the only moment at which a reservation left by an
+  // earlier attempt can be released — admission would otherwise refuse this request first, and the
+  // transport, where the refusal is classified, would never be reached.
+  const policy = deps.broker?.installationAllows?.();
+  if (policy !== undefined && !policy.allowed) {
+    // The narrow release: refused before anything could be dispatched, so the reservation for the
+    // identical question is a charge for a call nobody made.
+    deps.releaseUndispatched?.(requestId);
+    return outcome(
+      'UNAVAILABLE',
+      [
+        'this installation does not authorise the governed project to spend its credential, so no ' +
+          'request was made',
+        ...policy.reasons,
+      ],
+      {
+        workId: input.workId,
+        requestId,
+        definitelyNotSent: true,
+        outstandingAfter: before.outstandingWorkIds,
+      },
+    );
+  }
+
   // THE SPEND LIMIT APPLIES HERE TOO. A limit tested only after the money is gone is a report, not a
   // stop — and this route was the one entry point that could spend without asking.
   const estimate = estimateCostMicroUsd(
@@ -812,6 +855,13 @@ export function reconcileDegradedWork(
   }
 
   if (input.prepareOnly === true) {
+    // A REHEARSAL MUST NOT LEAVE A CHARGE BEHIND. Admission has just reserved the estimate — it runs
+    // before this branch precisely so a rehearsal is judged under the same ceiling as a real call —
+    // and this attempt is about to end without dispatching anything. Releasing it here is the same
+    // attempt releasing what it created, with no dispatch possible in between. Without this a dry run
+    // left a reservation that the next real attempt then refused as unaskable, which is exactly how
+    // the C11 witness lost its first one-call authorisation.
+    deps.releaseUndispatched?.(requestId);
     return outcome(
       'PREPARED',
       [
@@ -839,6 +889,13 @@ export function reconcileDegradedWork(
               governedRoot: deps.broker.governedRoot,
               projectId: input.projectId,
               phaseId: input.phaseId,
+              // FORWARDED, so this route classifies a pre-dispatch refusal the same way the loop does
+              // (C11-W2-F8). Without it the installation's own refusal to spend on this project came
+              // back as PROVIDER_UNAVAILABLE — a cause that may have been dispatched — and the
+              // reservation was retained for a call that provably never happened.
+              ...(deps.broker.installationAllows === undefined
+                ? {}
+                : { installationAllows: deps.broker.installationAllows }),
             },
           }),
       ...(deps.transport.timeoutMs === undefined ? {} : { timeoutMs: deps.transport.timeoutMs }),
@@ -848,12 +905,15 @@ export function reconcileDegradedWork(
   );
 
   if (sent.kind === 'unavailable') {
+    deps.resolveSpend?.({ requestId, projectId: input.projectId, phaseId: input.phaseId }, sent.cause);
     return outcome('UNAVAILABLE', sent.reasons, {
       workId: input.workId,
       requestId,
-      // Only a credential that never resolved proves the request never left this machine. Everything
-      // else — a socket error, a non-200, a 200 with an unusable body — may have been billed.
-      definitelyNotSent: sent.cause === 'CREDENTIAL_UNAVAILABLE',
+      // Only a cause that proves the request never left this machine may be treated as unbilled.
+      // A credential that never resolved is one; so is the installation refusing to spend on this
+      // project at all, which is decided before anything is sent. Everything else — a socket error, a
+      // non-200, a 200 with an unusable body — may have been billed.
+      definitelyNotSent: sent.cause === 'CREDENTIAL_UNAVAILABLE' || sent.cause === 'TRANSPORT_NOT_APPROVED',
       outstandingAfter: before.outstandingWorkIds,
     });
   }

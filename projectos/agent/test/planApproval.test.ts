@@ -29,6 +29,7 @@ import {
   loadGovernanceEngine,
   loadCurrentStateSchema,
 } from '../src/planApproval.js';
+import { GATEKEEPER_REVIEW_SCOPE } from '@projectos/core';
 import { loadGovernedContext } from '../src/governedContext.js';
 import { plan as planCommand } from '../src/commands/plan.js';
 import type { System } from '../src/system.js';
@@ -151,6 +152,9 @@ interface World {
   readonly sys: System;
   readonly draftId: string;
   readonly planDigest: string;
+  /** Declare a path present at HEAD. An activated plan must be committed before it can anchor the next
+   *  approval, which is the governed sequence: approve, commit, then approve the successor. */
+  readonly commit: (rel: string) => void;
 }
 
 /** Lets a test damage the governance the new plan inherits, to prove readiness is really recomputed. */
@@ -215,7 +219,12 @@ function world(opts: { committed?: readonly string[]; planDoc?: string; noPlanMe
     ),
   );
 
-  const committed = new Set((opts.committed ?? []).map((p) => p.toLowerCase()));
+  // THE ACTIVE PLAN IS COMMITTED, because it is the trust anchor rather than the candidate: it is
+  // what says who the owner is, and C11-W2-F5 made approval read it from the commit gate. A fixture
+  // that left it uncommitted was modelling a state a governed project is not in — an approved plan
+  // reaches `planMemory` by being committed. Tests that want it damaged or absent still get that:
+  // committing a path that is not on disk yields nothing, which is the same refusal.
+  const committed = new Set([...(opts.committed ?? []), 'state/active.plan.json'].map((p) => p.toLowerCase()));
   const sys: System = {
     cwd: () => root,
     now: () => '2026-08-11T10:00:00.000Z',
@@ -257,7 +266,15 @@ function world(opts: { committed?: readonly string[]; planDoc?: string; noPlanMe
 
   const submitted = submitObjective(sys, root, 'Make the ordering journey reliable and simple to operate.');
   if (!submitted.ok) throw new Error(`fixture could not generate a draft: ${submitted.code} ${submitted.detail}`);
-  return { root, sys, draftId: submitted.objective.objectiveId, planDigest: submitted.draftRecord.planDigest };
+  return {
+    root,
+    sys,
+    draftId: submitted.objective.objectiveId,
+    planDigest: submitted.draftRecord.planDigest,
+    commit: (rel: string) => {
+      committed.add(rel.replace(/\\/g, '/').toLowerCase());
+    },
+  };
 }
 
 function closureRecord(over: Record<string, unknown> = {}): Record<string, unknown> {
@@ -763,6 +780,9 @@ describe('plan activate derives destinations and keeps the programme in force', 
     expect(activateVia(w, firstDraft, firstDecision).code).toBe(0);
     const planA = pjoin(w.root, `.projectops/plan-${firstDraft}-${w.planDigest.slice(7, 19)}.json`);
     const planABytes = readFileSync(planA, 'utf8');
+    // The activated plan is now the trust anchor for the NEXT approval, and an anchor has to have
+    // passed the commit gate — so the governed sequence is approve, commit, then approve again.
+    w.commit(`.projectops/plan-${firstDraft}-${w.planDigest.slice(7, 19)}.json`);
 
     // A second objective, drafted AFTER the first activation — the repository's plan material has
     // legitimately moved on, so a draft made earlier would be superseded, and should be.
@@ -833,6 +853,8 @@ describe('plan activate derives destinations and keeps the programme in force', 
 
     const planA = pjoin(w.root, `.projectops/plan-${recordId(w)}.json`);
     const planABytes = readFileSync(planA, 'utf8');
+    // Committed, because it is now the anchor the amendment will be judged against.
+    w.commit(`.projectops/plan-${recordId(w)}.json`);
 
     // THE AMENDMENT: one acceptance criterion changed in the plan of record. Same objective, same
     // project, same draft id — different plan material, so a different digest.
@@ -1549,6 +1571,53 @@ describe('closure delegation — recorded by the owner, or carried forward untou
     expect(engine.evaluatePlanReady(plan).ready).toBe(true);
   });
 
+  /**
+   * C11-W2-F1. The delegation vocabulary now includes `gatekeeper-review-decisions`, which delegates
+   * deciding a review and nothing else. Approving a plan must not quietly turn such a record into the
+   * project's closure arrangement — writing it into `governance.closureDelegation` and handing
+   * `closureAuthority` to its delegate would grant, as a side effect of an approval, exactly the
+   * authority the narrow scope exists to avoid granting. `authoriseClosure` would still refuse the
+   * close on the scope list; this stops the claim being made at all.
+   */
+  test('a review-only delegation is legal, and does not become the closure arrangement', () => {
+    const w = world({ committed: [...COMMITTED, CLOSURE_PATH] });
+    writeDelegation(w);
+    writeClosureDelegation(w, { delegatedScope: [GATEKEEPER_REVIEW_SCOPE] });
+    const id = writeDecision(w);
+
+    const r = run(w, id);
+
+    expect(r.ok ? '' : r.problems.join('; ')).toBe('');
+    const plan = JSON.parse(readFileSync(pjoin(w.root, 'state/recovery.plan.json'), 'utf8')) as Record<string, unknown>;
+    const gov = plan['governance'] as Record<string, unknown>;
+    expect(gov['closureAuthority']).toBe(OWNER);            // unchanged — closure stays where it was
+    expect(gov['closureDelegation']).toBeUndefined();       // and no closure delegation was recorded
+  });
+
+  /**
+   * The converse: a record carrying BOTH still delegates closure, because the owner said so — and the
+   * plan records ONLY the closure half. `closureDelegation.delegatedScope` is closure-only by schema
+   * ("Closure only. Protected actions are not delegable through this field"), so the review scope is
+   * pruned rather than admitted: copying it through would make the plan fail its own schema, and
+   * widening the schema would put a capability in a governed field nothing reads it from.
+   */
+  test('a delegation carrying the review scope AND a closure scope delegates closure, pruned to it', () => {
+    const w = world({ committed: [...COMMITTED, CLOSURE_PATH] });
+    writeDelegation(w);
+    writeClosureDelegation(w, { delegatedScope: [GATEKEEPER_REVIEW_SCOPE, 'phase-closure'] });
+    const id = writeDecision(w);
+
+    const r = run(w, id);
+    expect(r.ok ? '' : r.problems.join('; ')).toBe('');
+    const plan = JSON.parse(readFileSync(pjoin(w.root, 'state/recovery.plan.json'), 'utf8')) as Record<string, unknown>;
+    const gov = plan['governance'] as Record<string, unknown>;
+    expect(gov['closureAuthority']).toBe(AUTHORITY);
+    expect((gov['closureDelegation'] as Record<string, unknown>)['delegatedScope']).toEqual(['phase-closure']);
+    // And the plan still validates against its own schema, which the unpruned form would not.
+    const { engine } = loadGovernanceEngine();
+    expect(engine.evaluatePlanReady(plan).ready).toBe(true);
+  });
+
   const closureAttacks: readonly { name: string; over: Record<string, unknown>; match: RegExp }[] = [
     { name: 'granted by someone who is not the owner', over: { delegatedBy: 'Mallory' }, match: /recorded owner/i },
     { name: 'granted to the implementer', over: { delegatedTo: 'Claude Code' }, match: /implementer/i },
@@ -1904,5 +1973,147 @@ describe('exact plan approval — the pure checks refuse on their own', () => {
   test('the plan digest covers plan material, and the engine is the one that computes it', () => {
     const engine = loadDiscoveryEngine();
     expect(engine.sha256('x')).toMatch(/^sha256:[0-9a-f]{64}$/);
+  });
+});
+
+/**
+ * C11-W2-F5 — the candidate may not redefine who is authorised to approve it.
+ *
+ * `approvePlan` resolved the owner and the project identity from the same mutable working tree the
+ * candidate plan lives in. An actor with file-write access could therefore move the EXPECTATION to
+ * meet the record: name a different owner in the declared active plan, or a different project in the
+ * configuration, and an internally consistent identity/decision/delegation set then satisfied every
+ * check. Because the forged anchor file was never part of the commit being reviewed, it evaded the
+ * one guarantee this module rests on — that a forged authority record is a visible diff.
+ *
+ * The rule now: COMMITTED identity, DIGEST-BOUND candidate. The candidate plan itself stays
+ * uncommitted, which test C holds in place.
+ */
+describe('C11-W2-F5 — trust anchors come from the commit gate', () => {
+  test('A a working-tree owner forgery is refused; the committed owner decides', () => {
+    const w = world({ committed: [...COMMITTED, PROJECT_CONFIG_REL] });
+    writeDelegation(w);
+    // HEAD says the owner is OWNER. The working copy is rewritten to name someone else, and the
+    // decision is made internally consistent with THAT name.
+    const forged = activePlan();
+    (forged['governance'] as Record<string, unknown>)['owner'] = 'Mallory';
+    writeFileSync(pjoin(w.root, 'state', 'active.plan.json'), JSON.stringify(forged, null, 2));
+    committedOverride.set('state/active.plan.json', JSON.stringify(activePlan(), null, 2));
+    const id = writeDecision(w, { decidedBy: 'Mallory' });
+
+    const r = run(w, id);
+
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.problems.join(' ')).toMatch(/recorded plan-approval authority|recorded owner/i);
+    expect(existsSync(pjoin(w.root, 'state/recovery.plan.json'))).toBe(false);
+  });
+
+  test('A2 re-pointing the declared active plan in the working copy alone is refused', () => {
+    const w = world({ committed: [...COMMITTED, PROJECT_CONFIG_REL] });
+    writeDelegation(w);
+    // A second plan exists in history naming a different owner; the working copy is edited to SELECT
+    // it. Its bytes are committed — it is the CHOICE of anchor that nobody reviewed, so HEAD keeps
+    // the original declaration while the working copy points elsewhere.
+    const other = activePlan();
+    (other['governance'] as Record<string, unknown>)['owner'] = 'Mallory';
+    writeFileSync(pjoin(w.root, 'state', 'other.plan.json'), JSON.stringify(other, null, 2));
+    w.commit('state/other.plan.json');
+    const cfg = JSON.parse(readFileSync(pjoin(w.root, PROJECT_CONFIG_REL), 'utf8')) as Record<string, unknown>;
+    committedOverride.set(PROJECT_CONFIG_REL.toLowerCase(), JSON.stringify(cfg, null, 2));
+    cfg['planMemory'] = { planPath: 'state/other.plan.json', currentStatePath: 'state/active.current-state.json' };
+    writeFileSync(pjoin(w.root, PROJECT_CONFIG_REL), JSON.stringify(cfg, null, 2));
+    const id = writeDecision(w, { decidedBy: 'Mallory' });
+
+    const r = run(w, id);
+
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.code).toBe('NO_ACTIVE_PLAN');
+    expect(r.problems.join(' ')).toMatch(/declares the active plan at/i);
+  });
+
+  test('B a working-tree projectId forgery is refused', () => {
+    const w = world({ committed: [...COMMITTED, PROJECT_CONFIG_REL] });
+    writeDelegation(w);
+    // HEAD identifies this project as 'acme'. The working copy claims to be a different one.
+    const cfg = JSON.parse(readFileSync(pjoin(w.root, PROJECT_CONFIG_REL), 'utf8')) as Record<string, unknown>;
+    committedOverride.set(PROJECT_CONFIG_REL.toLowerCase(), JSON.stringify(cfg, null, 2));
+    cfg['projectId'] = 'not-acme';
+    writeFileSync(pjoin(w.root, PROJECT_CONFIG_REL), JSON.stringify(cfg, null, 2));
+
+    // The attack is INTERNALLY CONSISTENT: the draft is regenerated for the forged project and the
+    // decision is bound to that draft and its digest, so the staleness guard has nothing to catch.
+    // Only the trust anchor separates this from a legitimate approval.
+    const forged = submitObjective(w.sys, w.root, 'Make the ordering journey reliable and simple to operate.');
+    if (!forged.ok) throw new Error(`fixture could not redraft: ${forged.code}`);
+    const id = writeDecision(w, {
+      projectId: 'not-acme',
+      draftId: forged.objective.objectiveId,
+      planDigest: forged.draftRecord.planDigest,
+    });
+
+    const r = approvePlan(w.sys, w.root, {
+      draftId: forged.objective.objectiveId,
+      decisionId: id,
+      planRelPath: 'state/recovery.plan.json',
+      stateRelPath: 'state/recovery.current-state.json',
+      planId: 'acme-recovery-plan',
+      programmeId: 'acme-recovery',
+    });
+
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.code).toBe('PROJECT_IDENTITY_MISMATCH');
+    expect(r.problems.join(' ')).toMatch(/identifies this project as "acme"/i);
+    expect(existsSync(pjoin(w.root, 'state/recovery.plan.json'))).toBe(false);
+  });
+
+  test('C the candidate plan itself stays uncommitted, and still approves', () => {
+    const w = world({ committed: [...COMMITTED, PROJECT_CONFIG_REL] });
+    writeDelegation(w);
+    const id = writeDecision(w);
+    // The plan DOCUMENT and the generated draft are working-tree only — never committed. Nothing
+    // below commits them, and the approval must still succeed on the digest binding alone.
+    expect(w.sys.exec('git', ['-C', w.root, 'show', 'HEAD:./docs-plan.md']).code).not.toBe(0);
+
+    const r = run(w, id);
+
+    expect(r.ok ? '' : r.problems.join('; ')).toBe('');
+    expect(existsSync(pjoin(w.root, 'state/recovery.plan.json'))).toBe(true);
+  });
+
+  test('D first-plan genesis still works, through its own committed record', () => {
+    const w = freshProject();
+    const id = writeDecision(w);
+
+    const r = run(w, id);
+
+    expect(r.ok ? '' : r.problems.join('; ')).toBe('');
+  });
+
+  test('E identity drift after approval does not redefine the authority already recorded', () => {
+    const w = world({ committed: [...COMMITTED, PROJECT_CONFIG_REL] });
+    writeDelegation(w);
+    const id = writeDecision(w);
+    expect(run(w, id).ok).toBe(true);
+    const approvedBy = ((JSON.parse(readFileSync(pjoin(w.root, 'state/recovery.plan.json'), 'utf8')) as Record<string, unknown>)[
+      'approval'
+    ] as Record<string, unknown>)['approvedBy'];
+
+    // Now forge both anchors in the working copy, after the fact.
+    const forged = activePlan();
+    (forged['governance'] as Record<string, unknown>)['owner'] = 'Mallory';
+    writeFileSync(pjoin(w.root, 'state', 'active.plan.json'), JSON.stringify(forged, null, 2));
+    const cfg = JSON.parse(readFileSync(pjoin(w.root, PROJECT_CONFIG_REL), 'utf8')) as Record<string, unknown>;
+    cfg['projectId'] = 'not-acme';
+    writeFileSync(pjoin(w.root, PROJECT_CONFIG_REL), JSON.stringify(cfg, null, 2));
+
+    // The record already written is unchanged, and a further approval on the forged identity fails.
+    const after = JSON.parse(readFileSync(pjoin(w.root, 'state/recovery.plan.json'), 'utf8')) as Record<string, unknown>;
+    expect((after['approval'] as Record<string, unknown>)['approvedBy']).toBe(approvedBy);
+    expect(approvedBy).toBe(AUTHORITY);
+    const second = writeDecision(w, { decisionId: 'ACME-PLAN-APPROVAL-DECISION3C' });
+    expect(run(w, second).ok).toBe(false);
   });
 });

@@ -26,10 +26,31 @@ import type { Role, Result } from './types.js';
 import { ok, err } from './types.js';
 import type { G4Verdict } from './closureEligibility.js';
 
-/** The delegable scopes. Protected actions are deliberately absent and must never be added. */
+/** The CLOSURE scopes. Protected actions are deliberately absent and must never be added. */
 export type ClosureScope = 'phase-closure' | 'programme-closure';
 
 export const CLOSURE_SCOPES: readonly ClosureScope[] = ['phase-closure', 'programme-closure'];
+
+/**
+ * Deciding a gatekeeper REVIEW, which is not closing anything.
+ *
+ * WHY IT IS SEPARATE FROM CLOSURE. The gatekeeper's decider used to be read from the closure
+ * delegation, which had only closure scopes to offer. A project that needed a review decider had to
+ * be given phase closure to get one — authority nobody intended to grant, obtained because the
+ * vocabulary had no word for what was actually wanted. This is that word.
+ *
+ * WHAT IT DELIBERATELY CANNOT DO. It is not a `ClosureScope` and the type says so, so it can never
+ * be passed as `ClosureAuthorityInput.scope`; `decideClosureAuthority` compares the requested closure
+ * scope against the delegation's own list, so a delegation carrying only this one covers neither
+ * phase nor programme closure. It approves no plan, accepts no risk, and authorises no protected
+ * effect — those never travelled through a delegation at all.
+ */
+export const GATEKEEPER_REVIEW_SCOPE = 'gatekeeper-review-decisions';
+
+/** Every scope an owner may put in a delegation record. One vocabulary, one place. */
+export type DelegableScope = ClosureScope | typeof GATEKEEPER_REVIEW_SCOPE;
+
+export const DELEGABLE_SCOPES: readonly DelegableScope[] = [...CLOSURE_SCOPES, GATEKEEPER_REVIEW_SCOPE];
 
 /** The `governance.closureDelegation` record, as recorded in an approved plan. */
 export interface ClosureDelegation {

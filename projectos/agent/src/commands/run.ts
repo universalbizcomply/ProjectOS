@@ -22,14 +22,17 @@ import {
   readPreviousResponseId,
   consumedDecisionIds,
   admitGatekeeperSpend,
+  resolveGatekeeperSpend,
+  releaseUndispatchedReservation,
   settleGatekeeperSpend,
   writePreviousResponseId,
 } from '../loop/gatekeeperConfig.js';
 import { unprovisionedResolver } from '../loop/credentialResolver.js';
 import { nodeBrokeredTransport } from '../loop/transports/brokeredHttpPort.js';
 import { nodeHttpPort } from '../loop/transports/nodeHttpPort.js';
+import { readBrokerAnsweredState } from '../installation/brokerAnsweredState.js';
 import { nodeInstallationStateDir, nodeProjectosRuntime } from '../nodeRuntimeRoot.js';
-import { canonicalRepositoryIdentity } from '../installation/projectAllowlist.js';
+import { canonicalRepositoryIdentity, installationAllowsProject } from '../installation/projectAllowlist.js';
 
 /** The governed project's declared id, from its own configuration. Empty when there is none. */
 function governedProjectId(ctx: CommandContext): string {
@@ -133,7 +136,14 @@ export function run(ctx: CommandContext, flags: Flags): CommandResult {
       resolver: unprovisionedResolver(
         'the gatekeeper credential is resolved by the trusted installation broker, never in the agent',
       ),
-      broker: { transport: nodeBrokeredTransport(ctx.sys, nodeProjectosRuntime()), governedRoot: ctx.root },
+      broker: {
+        transport: nodeBrokeredTransport(ctx.sys, nodeProjectosRuntime()),
+        governedRoot: ctx.root,
+        // The SAME committed policy the broker enforces, asked on this side so that a refusal is
+        // classified as a call that was never made rather than as one that might have been.
+        installationAllows: () =>
+          installationAllowsProject(ctx.sys, nodeProjectosRuntime(), ctx.root, governedProjectId(ctx)),
+      },
       http: nodeHttpPort(),
       modelPolicy: gk.config.modelPolicy,
       rateCards: gk.config.rateCards,
@@ -156,7 +166,20 @@ export function run(ctx: CommandContext, flags: Flags): CommandResult {
         readonly model: string;
         readonly estimateMicroUsd: number;
         readonly at: string;
-      }) => admitGatekeeperSpend(ctx.sys, ctx.root, request, gk.config.budget),
+      }) =>
+        admitGatekeeperSpend(ctx.sys, ctx.root, request, gk.config.budget, () =>
+          readBrokerAnsweredState(ctx.sys, nodeInstallationStateDir(), request),
+        ),
+      // The other half of admission: when the call produced no answer, the reservation it wrote is
+      // released or retained here rather than left standing (C11-W2-F6).
+      releaseUndispatched: (requestId: string) => releaseUndispatchedReservation(ctx.sys, ctx.root, requestId),
+      resolveSpend: (
+        request: { readonly requestId: string; readonly projectId: string; readonly phaseId: string },
+        cause: string,
+      ) =>
+        resolveGatekeeperSpend(ctx.sys, ctx.root, request.requestId, cause, () =>
+          readBrokerAnsweredState(ctx.sys, nodeInstallationStateDir(), request),
+        ),
     };
   }
 

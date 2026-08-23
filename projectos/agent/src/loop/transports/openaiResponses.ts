@@ -149,6 +149,21 @@ export interface OpenAiTransportConfig {
     readonly governedRoot: string;
     readonly projectId: string;
     readonly phaseId: string;
+    /**
+     * The installation's committed policy on whether it will spend on this project at all.
+     *
+     * ASKED HERE SO THE ANSWER IS KNOWABLY PRE-DISPATCH. The broker enforces this itself and refuses
+     * before it reserves or sends anything — but it reports that refusal down the same channel as a
+     * failure mid-flight, and everything arriving that way is read as PROVIDER_UNAVAILABLE: a cause
+     * that may have been dispatched, whose reservation is therefore conservatively retained. So a
+     * project the installation does not authorise accumulated a charge for a call that provably never
+     * happened, and could never be asked again. Asking the same committed policy on this side, before
+     * the broker is invoked at all, makes "nothing was sent" a fact rather than an inference.
+     *
+     * It does not replace the broker's own check, which still refuses independently. It only ensures
+     * the refusal is classified for what it is.
+     */
+    readonly installationAllows?: () => { readonly allowed: boolean; readonly reasons: readonly string[] };
   };
 }
 
@@ -245,6 +260,21 @@ export function submitToOpenAi(
   // THE TRUSTED ROUTE FIRST. Nothing below this branch runs when a broker is composed: no resolver
   // call, no header built here, no value in this process.
   if (config.broker !== undefined) {
+    // NOT AUTHORISED MEANS NOT SENT. Returning before the broker is invoked is what makes the
+    // no-dispatch classification true by construction rather than by reading a message.
+    const policy = config.broker.installationAllows?.();
+    if (policy !== undefined && !policy.allowed) {
+      return {
+        kind: 'unavailable',
+        cause: 'TRANSPORT_NOT_APPROVED',
+        reasons: [
+          'this installation does not authorise the governed project to spend its credential, so no ' +
+            'request was made',
+          ...policy.reasons,
+        ],
+        spendLimited: false,
+      };
+    }
     const brokered = config.broker.transport.post({
       governedRoot: config.broker.governedRoot,
       projectId: config.broker.projectId,

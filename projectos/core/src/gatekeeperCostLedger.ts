@@ -49,6 +49,17 @@ export interface LedgerEntry {
   readonly costMicroUsd: number;
   /** ISO-8601. Its leading `YYYY-MM` is what the monthly total groups on. */
   readonly at: string;
+  /**
+   * Set when a reservation was admitted but the call never produced an answer.
+   *
+   * An entry without this is a call that HAPPENED: asking again would double-charge, so admission
+   * refuses it. An entry WITH it is a question that was started and never answered — the estimate
+   * stays counted against the month, because a call that may have been dispatched must not have its
+   * cost silently erased, but the question may be put again and the new reservation REPLACES this
+   * one rather than adding to it. Absent the flag, one failed transport made a question permanently
+   * unaskable (C11-W2-F6).
+   */
+  readonly unresolved?: boolean;
 }
 
 export interface BudgetPolicy {

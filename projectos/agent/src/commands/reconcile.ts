@@ -26,6 +26,8 @@ import type { Flags } from '../flags.js';
 import { loadGovernedContext } from '../governedContext.js';
 import {
   admitGatekeeperSpend,
+  resolveGatekeeperSpend,
+  releaseUndispatchedReservation,
   settleGatekeeperSpend,
   loadGatekeeperConfig,
   readLedger,
@@ -34,8 +36,9 @@ import {
 import { unprovisionedResolver } from '../loop/credentialResolver.js';
 import { nodeBrokeredTransport } from '../loop/transports/brokeredHttpPort.js';
 import { nodeHttpPort } from '../loop/transports/nodeHttpPort.js';
+import { readBrokerAnsweredState } from '../installation/brokerAnsweredState.js';
 import { nodeInstallationStateDir, nodeProjectosRuntime } from '../nodeRuntimeRoot.js';
-import { canonicalRepositoryIdentity } from '../installation/projectAllowlist.js';
+import { canonicalRepositoryIdentity, installationAllowsProject } from '../installation/projectAllowlist.js';
 import { ownerGateReceiptRelPath, ownerApprovedSecretsHandling } from '../loop/ownerGateReceipts.js';
 import { reconcileDegradedWork, type ReconciliationDeps } from '../loop/reconciliation.js';
 import { ALWAYS_OWNER_ONLY, committedGovernanceOwner } from '../loop/degradedMode.js';
@@ -171,7 +174,14 @@ export function reconcile(ctx: CommandContext, flags: Flags): CommandResult {
     resolver: unprovisionedResolver(
       'the gatekeeper credential is resolved by the trusted installation broker, never in the agent',
     ),
-    broker: { transport: nodeBrokeredTransport(ctx.sys, nodeProjectosRuntime()), governedRoot: ctx.root },
+    broker: {
+      transport: nodeBrokeredTransport(ctx.sys, nodeProjectosRuntime()),
+      governedRoot: ctx.root,
+      // The SAME committed policy the broker enforces, asked on this side so that a refusal is
+      // classified as a call that was never made rather than as one that might have been.
+      installationAllows: () =>
+        installationAllowsProject(ctx.sys, nodeProjectosRuntime(), ctx.root, governed.context.projectId),
+    },
     http: nodeHttpPort(),
     rate,
     budget: gk.config.budget,
@@ -182,9 +192,20 @@ export function reconcile(ctx: CommandContext, flags: Flags): CommandResult {
     consumedDecisionIds: consumedDecisionIds(ledger),
     // Same serialised admission as `run`: a reconcile alongside a run is one of the concurrent pairs
     // C17-F1 described, and both make billable calls.
-    admitSpend: (request) => admitGatekeeperSpend(ctx.sys, ctx.root, request, gk.config.budget),
+    admitSpend: (request) =>
+      admitGatekeeperSpend(ctx.sys, ctx.root, request, gk.config.budget, () =>
+        readBrokerAnsweredState(ctx.sys, nodeInstallationStateDir(), request),
+      ),
     // Recorded the instant the call returns, so a later failure cannot lose the fact that it happened.
     // Settlement replaces the estimate admission wrote; appending would leave the estimate standing.
+    releaseUndispatched: (requestId: string) => releaseUndispatchedReservation(ctx.sys, ctx.root, requestId),
+    resolveSpend: (
+      request: { readonly requestId: string; readonly projectId: string; readonly phaseId: string },
+      cause: string,
+    ) =>
+      resolveGatekeeperSpend(ctx.sys, ctx.root, request.requestId, cause, () =>
+        readBrokerAnsweredState(ctx.sys, nodeInstallationStateDir(), request),
+      ),
     recordSpend: (entry) => {
       settleGatekeeperSpend(ctx.sys, ctx.root, entry.requestId, entry);
       lines.push(`  call recorded: ${entry.requestId} (${entry.costMicroUsd} micro-USD)`);
