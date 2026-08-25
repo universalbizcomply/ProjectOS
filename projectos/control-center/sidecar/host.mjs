@@ -695,9 +695,37 @@ function governedWorkActive() {
  */
 const activeRuns = new Map();
 
+/**
+ * The governed runtime's CLI entry point, or `null` when this installation cannot reach one.
+ *
+ * THE DEFECT THIS FIXES. It resolved `<this file>/../../agent/bin/projectos.js` unconditionally.
+ * That is correct in a development checkout, where this file sits in `control-center/sidecar/`. In a
+ * PACKAGED installation the daemon is a single bundle at `runtime-payload/daemon/`, so the same
+ * relative walk points at `<install root>/agent/bin/projectos.js` — which does not exist, and cannot:
+ * the payload is a CLOSED set of exactly four attested files (pinned runtime, daemon bundle, trust
+ * manifest, canonical bytes) and the closure validator refuses any fifth. So governed execution was
+ * unreachable from the installed application, which is the one place it most needs to work.
+ *
+ * WHY THE GOVERNED SYSTEM ROOT IS THE RIGHT SOURCE, and is not a loosening. It is not read from
+ * argv-as-the-caller-pleases: the packaged launch authority derives it from the VERIFIED packaged
+ * identity and the protected installation record under ProgramData, which an ordinary user cannot
+ * write. So the root is anchored by the same protected record that decides which projects exist at
+ * all. Running the governed runtime from the system tree this installation is bound to is precisely
+ * what a self-hosting installation is for.
+ *
+ * It returns `null` rather than guessing when neither route resolves, so a caller REFUSES with a
+ * reason instead of spawning a path that is not there.
+ */
 function agentCliPath() {
+  const root = systemRoot();
+  if (root !== null) {
+    const bound = joinPath(root, 'projectos', 'agent', 'bin', 'projectos.js');
+    if (existsSync(bound)) return bound;
+  }
+  // DEVELOPMENT: this file really is in the checkout, beside the agent package.
   const here = dirname(fileURLToPath(import.meta.url));
-  return resolvePath(here, '..', '..', 'agent', 'bin', 'projectos.js');
+  const local = resolvePath(here, '..', '..', 'agent', 'bin', 'projectos.js');
+  return existsSync(local) ? local : null;
 }
 
 /** Emit one run-lifecycle message on the same JSON-line stdout channel as everything else. */
@@ -715,10 +743,23 @@ function startGovernedRun(root, phaseId, sessionId) {
   if (activeRuns.has(root)) {
     return { code: 2, lines: ['REFUSED (RUN_ALREADY_ACTIVE): a governed run is already in progress for this project.'] };
   }
+  // REFUSE WITH A REASON rather than spawn a path that is not there. `agentCliPath` returns null
+  // when neither the bound system tree nor a development checkout carries the governed runtime, and
+  // spawning `undefined` would fail as an unreadable stream error some distance from the cause.
+  const cli = agentCliPath();
+  if (cli === null) {
+    return {
+      code: 2,
+      lines: [
+        'REFUSED (RUN_RUNTIME_UNAVAILABLE): this installation cannot reach the ProjectOS runtime,',
+        '  so governed execution cannot be started from here.',
+      ],
+    };
+  }
   const args =
     sessionId === undefined
-      ? [agentCliPath(), 'run', '--execute']
-      : [agentCliPath(), 'run', '--execute', '--resume', '--session', sessionId];
+      ? [cli, 'run', '--execute']
+      : [cli, 'run', '--execute', '--resume', '--session', sessionId];
   let child;
   try {
     child = spawn(process.execPath, args, { cwd: root, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
