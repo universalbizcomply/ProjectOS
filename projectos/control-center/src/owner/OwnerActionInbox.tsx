@@ -56,6 +56,32 @@ export function OwnerActionInbox({ state }: { state: GovernedProjection }) {
                 Requested by {item.requestedBy || 'unknown'}
                 {item.requestedAt !== '' ? ` · ${item.requestedAt}` : ''}
               </p>
+
+              {/*
+                WHAT EACH ANSWER MEANS, derived from the record and nothing else.
+
+                §9 asks for scope, rationale and a reviewer recommendation. The canonical approval
+                record carries none of those fields — it has an id, an action, a risk class, and the
+                gated/prohibited flags. Inventing the missing ones would put confident prose next to
+                a real decision, which is exactly the failure this product exists to prevent. So this
+                states only what the record supports: what approving permits, what rejecting
+                prevents, and why the request is gated at all.
+              */}
+              <dl className="ocp-inbox-consequences">
+                <dt>If you approve</dt>
+                <dd>ProjectOS is permitted to perform this action, once, and records that you said so.</dd>
+                <dt>If you reject</dt>
+                <dd>It is not performed, and your decision is recorded against this request.</dd>
+                {item.gated && (
+                  <>
+                    <dt>Why you</dt>
+                    <dd>
+                      This action is owner-gated — ProjectOS cannot decide it for itself, whatever
+                      else it has been delegated.
+                    </dd>
+                  </>
+                )}
+              </dl>
               {item.prohibited ? (
                 <p className="ocp-empty">
                   This action is prohibited and cannot be approved from here. It requires you to act

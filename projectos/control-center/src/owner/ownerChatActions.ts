@@ -42,6 +42,24 @@ const ACTIVATE_PHRASES: readonly string[] = [
   'activate the approved plan',
 ];
 
+/**
+ * Stopping. "Pause" is included on purpose and is NOT a lie by another name: stopping a governed run
+ * keeps its session, and Resume picks that session up again, so pause and stop are the same
+ * operation from the owner's side. There is no separate pause verb to offer and inventing one that
+ * silently mapped to stop would be worse.
+ */
+const STOP_PHRASES: readonly string[] = [
+  'stop the run', 'stop work', 'stop execution', 'stop the phase', 'stop it', 'stop now',
+  'pause the run', 'pause work', 'pause execution', 'pause it', 'pause the phase', 'hold on',
+  'halt execution', 'halt the run',
+];
+
+/** Resuming a session that stopped. Only ever offered against a real resumable session. */
+const RESUME_PHRASES: readonly string[] = [
+  'resume the run', 'resume work', 'resume execution', 'resume the phase', 'carry on',
+  'continue the run', 'continue work', 'pick up where', 'start again',
+];
+
 function normalize(question: string): string {
   return ` ${question.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()} `;
 }
@@ -59,10 +77,38 @@ export function matchActionIntent(question: string, live: GovernedProjection, ru
   if (typeof question !== 'string' || question.trim() === '') return null;
   const padded = normalize(question);
 
+  const phase = live.activePhase ?? live.nextStartablePhase;
+
+  // STOPPING comes first, and is offered ONLY while something is actually running. A "stop" button
+  // over an idle project is a control that must refuse, which teaches the owner to distrust the ones
+  // that work.
+  if (runActive && phase !== null && matchesAny(padded, STOP_PHRASES)) {
+    return {
+      verb: 'run.stop',
+      args: { phaseId: phase.phaseId },
+      label: `Stop work on ${phase.phaseId}`,
+    };
+  }
+
   if (!runActive) {
-    const phase = live.activePhase ?? live.nextStartablePhase;
     if (phase !== null && phase.startable && matchesAny(padded, START_PHRASES)) {
       return { verb: 'run.start', args: { phaseId: phase.phaseId }, label: `Start governed execution for ${phase.phaseId}` };
+    }
+    // RESUMING needs a real session to resume, and an unambiguous one. `sessions` arrives
+    // newest-first from the projection; a resumable session is one whose worker exited while its
+    // phase did not finish. With none, this suggests nothing rather than guessing a session id.
+    if (phase !== null && matchesAny(padded, RESUME_PHRASES)) {
+      const resumable = live.sessions.filter(
+        (s) => s.phaseId === phase.phaseId && s.state === 'exited',
+      );
+      const newest = resumable[0];
+      if (newest !== undefined) {
+        return {
+          verb: 'run.resume',
+          args: { phaseId: phase.phaseId, sessionId: newest.sessionId },
+          label: `Resume ${newest.sessionId}`,
+        };
+      }
     }
   }
 

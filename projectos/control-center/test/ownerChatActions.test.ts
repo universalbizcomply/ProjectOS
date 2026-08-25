@@ -7,7 +7,7 @@
  */
 import { describe, test, expect } from 'vitest';
 import { matchActionIntent } from '../src/owner/ownerChatActions';
-import type { GovernedPhaseView, GovernedPlanDraftView, GovernedProjection } from '../src/governed/types';
+import type { GovernedPhaseView, GovernedPlanDraftView, GovernedProjection, GovernedSessionView } from '../src/governed/types';
 
 function phase(over: Partial<GovernedPhaseView> = {}): GovernedPhaseView {
   return {
@@ -104,5 +104,74 @@ describe('activating a plan from chat', () => {
 describe('robustness', () => {
   test('an empty question suggests nothing', () => {
     expect(matchActionIntent('   ', live({ activePhase: phase() }), false)).toBeNull();
+  });
+});
+
+describe('stopping and resuming from chat', () => {
+  function session(over: Partial<GovernedSessionView> = {}): GovernedSessionView {
+    return {
+      sessionId: 'S1',
+      phaseId: 'PHASE1A',
+      workerId: 'w',
+      kind: 'claude',
+      startedAt: '2026-08-25T08:00:00Z',
+      state: 'exited',
+      exitCode: 1,
+      ...over,
+    };
+  }
+
+  test('a stop request while a run is ACTIVE offers stop', () => {
+    const action = matchActionIntent('please stop work', live({ activePhase: phase() }), true);
+    expect(action).toEqual({ verb: 'run.stop', args: { phaseId: 'PHASE1A' }, label: 'Stop work on PHASE1A' });
+  });
+
+  test('"pause" maps to stop, because stopping keeps the session and resume picks it up', () => {
+    const action = matchActionIntent('pause work for now', live({ activePhase: phase() }), true);
+    expect(action?.verb).toBe('run.stop');
+  });
+
+  test('a stop request with NOTHING running suggests nothing — no control that must refuse', () => {
+    expect(matchActionIntent('stop work', live({ activePhase: phase() }), false)).toBeNull();
+  });
+
+  test('a resume request offers the newest resumable session for this phase', () => {
+    const action = matchActionIntent(
+      'resume work',
+      live({ activePhase: phase(), sessions: [session({ sessionId: 'S-NEW' }), session({ sessionId: 'S-OLD' })] }),
+      false,
+    );
+    expect(action).toEqual({
+      verb: 'run.resume',
+      args: { phaseId: 'PHASE1A', sessionId: 'S-NEW' },
+      label: 'Resume S-NEW',
+    });
+  });
+
+  test('a resume request with no resumable session suggests nothing rather than guessing an id', () => {
+    expect(matchActionIntent('resume work', live({ activePhase: phase(), sessions: [] }), false)).toBeNull();
+  });
+
+  test('a session for a DIFFERENT phase is not offered as a resume', () => {
+    const action = matchActionIntent(
+      'resume work',
+      live({ activePhase: phase(), sessions: [session({ phaseId: 'OTHER' })] }),
+      false,
+    );
+    expect(action).toBeNull();
+  });
+
+  test('a still-running session is not resumable', () => {
+    const action = matchActionIntent(
+      'resume work',
+      live({ activePhase: phase(), sessions: [session({ state: 'started', exitCode: null })] }),
+      false,
+    );
+    expect(action).toBeNull();
+  });
+
+  test('resume is not offered while a run is already active', () => {
+    const action = matchActionIntent('resume work', live({ activePhase: phase(), sessions: [session()] }), true);
+    expect(action).toBeNull();
   });
 });

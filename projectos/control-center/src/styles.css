@@ -800,3 +800,12 @@ pre.ocp-actionmsg { white-space: pre-wrap; }
   .cc-facts { grid-template-columns: 1fr; }
   .cc .head { flex-direction: column; align-items: flex-start; gap: 8px; }
 }
+
+/* Owner Action Inbox — what each answer means. Derived from the record; see the component. */
+.ocp-inbox-consequences { margin: 8px 0 10px; display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; font-size: 12px; }
+.ocp-inbox-consequences dt { color: var(--text-faint); white-space: nowrap; }
+.ocp-inbox-consequences dd { margin: 0; color: var(--text-dim); line-height: 1.5; overflow-wrap: anywhere; }
+@media (max-width: 420px) {
+  .ocp-inbox-consequences { grid-template-columns: 1fr; gap: 1px; }
+  .ocp-inbox-consequences dt { margin-top: 6px; }
+}
