@@ -238,7 +238,7 @@ export function OwnerControlPlane() {
       {/* Objective intake. Only against a LIVE runtime: without one there is nothing to submit to,
           and an input box that silently does nothing is worse than no input box. */}
       {live !== null && (
-        <ObjectiveIntake projectName={live.projectName} repository={live.repository.repo} />
+        <ObjectiveIntake projectName={live.projectName} repository={live.repository.repo} drafts={live.planDrafts} />
       )}
 
       {/* Risks + blockers */}

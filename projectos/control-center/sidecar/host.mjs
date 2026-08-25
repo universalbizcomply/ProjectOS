@@ -284,6 +284,39 @@ function readApprovalRecords(root) {
   return out;
 }
 
+/** Every drafted plan proposal — `.projectops/drafts/<id>.json`. */
+function readDraftRecords(root) {
+  const dir = joinPath(root, '.projectops', 'drafts');
+  if (!existsSync(dir)) return [];
+  const out = [];
+  for (const f of readdirSync(dir)) {
+    if (!f.endsWith('.json')) continue;
+    const rec = readJsonFile(joinPath(dir, f));
+    if (rec !== null) out.push(rec);
+  }
+  return out;
+}
+
+/**
+ * Every plan-approval decision on disk — `.projectops/plan-decisions/<id>.json`.
+ *
+ * DISPLAY ONLY: whether a decision is genuinely usable (committed, unconsumed, matching this exact
+ * project/repository/branch/plan digest) is re-verified for real by `approvePlan` at activation
+ * time, from git-committed content, not from this working-tree read. This listing exists so the
+ * owner can see a decision exists at all before typing its id into `plan.activate`.
+ */
+function readPlanDecisionRecords(root) {
+  const dir = joinPath(root, '.projectops', 'plan-decisions');
+  if (!existsSync(dir)) return [];
+  const out = [];
+  for (const f of readdirSync(dir)) {
+    if (!f.endsWith('.json')) continue;
+    const rec = readJsonFile(joinPath(dir, f));
+    if (rec !== null) out.push(rec);
+  }
+  return out;
+}
+
 /** Build the governed state for `root`, or an honest unavailable reason. Never throws. */
 function buildGovernedState(root, observedAt) {
   if (typeof root !== 'string' || root.length === 0 || !isAbsolute(root)) {
@@ -356,6 +389,8 @@ function buildGovernedState(root, observedAt) {
       gatekeeperConfig: readGatekeeperConfig(root),
       gatekeeperLedger: readGatekeeperLedger(root),
       approvalRecords: readApprovalRecords(root),
+      draftRecords: readDraftRecords(root),
+      planDecisionRecords: readPlanDecisionRecords(root),
       readiness: engine.evaluatePlanReady(plan),
       planPath: declaredPlan === undefined ? DEFAULT_PLAN_RELPATH : declaredPlan,
       branch: null,

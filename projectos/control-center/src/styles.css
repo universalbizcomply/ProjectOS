@@ -615,6 +615,11 @@ pre.ocp-actionmsg { white-space: pre-wrap; }
 .ocp-regform-check { display: flex; flex-direction: row; align-items: center; gap: 6px; font-size: 13px; }
 .ocp-regform-digest { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--text-dim); margin: 10px 0; }
 
+.ocp-draftlist { list-style: none; margin: 0 0 14px; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.ocp-draftitem { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 14px; background: var(--bg-elev); }
+.ocp-draftitem-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.ocp-draftitem-id { font-weight: 600; font-size: 13px; font-family: var(--mono); }
+
 .ocp-inbox-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
 .ocp-inbox-item { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px 14px; background: var(--bg-elev); }
 .ocp-inbox-item.crit { border-color: #4a1f1f; }

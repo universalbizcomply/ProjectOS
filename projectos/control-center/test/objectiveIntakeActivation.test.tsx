@@ -29,7 +29,7 @@ afterEach(() => {
 });
 
 function mount() {
-  return render(<ObjectiveIntake projectName="ProjectOS" repository="universalbizcomply/ProjectOS" />);
+  return render(<ObjectiveIntake projectName="ProjectOS" repository="universalbizcomply/ProjectOS" drafts={[]} />);
 }
 
 function typeInto(el: HTMLElement, value: string) {

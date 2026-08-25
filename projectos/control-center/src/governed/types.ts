@@ -124,6 +124,22 @@ export interface GovernedApprovalView {
   readonly requestedAt: string;
 }
 
+/**
+ * A draft plan proposal, matched against any decision found for it — read straight from
+ * `.projectops/drafts/<id>.json` and `.projectops/plan-decisions/<id>.json`. `decisionState` is a
+ * DISPLAY signal only: whether the matching decision, if any, is committed and still usable is
+ * re-checked for real by the governed `plan.activate` verb itself, which is the only thing that
+ * can actually act on it. This view exists so the owner does not have to already know a draft id
+ * and a decision id to type into a box before they can even see a plan exists.
+ */
+export interface GovernedPlanDraftView {
+  readonly draftId: string;
+  readonly planStatus: string;
+  readonly generatedAt: string;
+  readonly decisionState: 'none' | 'approved' | 'refused' | 'consumed';
+  readonly decisionId: string | null;
+}
+
 export interface GovernedSafetyView {
   readonly productionFreeze: boolean;
   readonly forbiddenActions: readonly string[];
@@ -154,6 +170,8 @@ export interface GovernedProjection {
   readonly gatekeeperStatus: GovernedGatekeeperView;
   /** Every PENDING approval request — the one central inbox, not scattered across surfaces. */
   readonly pendingApprovals: readonly GovernedApprovalView[];
+  /** Every drafted plan proposal, newest first, matched against any decision recorded for it. */
+  readonly planDrafts: readonly GovernedPlanDraftView[];
   readonly safety: GovernedSafetyView;
   readonly blockers: readonly string[];
   readonly risks: readonly string[];

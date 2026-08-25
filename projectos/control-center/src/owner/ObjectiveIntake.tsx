@@ -30,6 +30,7 @@ import { useState } from 'react';
 import { requestGovernedCommand } from '../governed/governedClient';
 import { tauriBridge } from '../daemon/tauriBridge';
 import { MAX_OBJECTIVE_LENGTH } from '../governed/governedCommands';
+import type { GovernedPlanDraftView } from '../governed/types';
 
 /** Mirrors the runtime's own minimum, so the UI never composes something it will then refuse. */
 const MIN_OBJECTIVE_LENGTH = 20;
@@ -40,7 +41,23 @@ interface Outcome {
   readonly failed: boolean;
 }
 
-export function ObjectiveIntake({ projectName, repository }: { projectName: string; repository: string }) {
+/** Plain-language label + badge tone for a draft's decision state. */
+const DECISION_LABEL: Record<GovernedPlanDraftView['decisionState'], { readonly text: string; readonly tone: string }> = {
+  none: { text: 'No decision yet', tone: 'mut' },
+  approved: { text: 'Approved — ready to activate', tone: 'ok' },
+  refused: { text: 'Decision does not approve this draft', tone: 'warn' },
+  consumed: { text: 'Already activated', tone: 'mut' },
+};
+
+export function ObjectiveIntake({
+  projectName,
+  repository,
+  drafts,
+}: {
+  projectName: string;
+  repository: string;
+  drafts: readonly GovernedPlanDraftView[];
+}) {
   const [objective, setObjective] = useState('');
   const [outcome, setOutcome] = useState<Outcome>({ busy: false, lines: [], failed: false });
   const [draftId, setDraftId] = useState('');
@@ -64,11 +81,11 @@ export function ObjectiveIntake({ projectName, repository }: { projectName: stri
 
   const activationBlocked = draftId.trim() === '' || decisionId.trim() === '' || activation.busy;
 
-  async function activate(): Promise<void> {
+  async function activate(useDraftId: string, useDecisionId: string): Promise<void> {
     setActivation({ busy: true, lines: ['Asking ProjectOS to activate the approved plan…'], failed: false });
     const result = await requestGovernedCommand(tauriBridge, 'plan.activate', {
-      draftId: draftId.trim(),
-      decisionId: decisionId.trim(),
+      draftId: useDraftId.trim(),
+      decisionId: useDecisionId.trim(),
     });
     // Verbatim again. A refusal here is the governed answer, not an error to be smoothed over, and
     // there is deliberately no optimistic local state that could claim success the runtime withheld.
@@ -134,49 +151,90 @@ export function ObjectiveIntake({ projectName, repository }: { projectName: stri
         recorded decision — it is not something this screen can do.
       </p>
 
-      <h2>Activate an approved plan</h2>
+      <h2>Plan drafts</h2>
       <p className="ocp-empty">
-        Once a plan-approval decision has been recorded and committed, ProjectOS can turn that
-        proposal into the active plan. This does not approve anything: it asks ProjectOS to act on a
-        decision that already exists. If there is no valid committed decision, ProjectOS will say so.
+        Once a plan-approval decision has been recorded and committed, ProjectOS can turn a
+        proposal into the active plan. This does not approve anything: it asks ProjectOS to act on
+        a decision that already exists. If there is no valid committed decision, ProjectOS will say
+        so.
       </p>
 
-      <label className="vh" htmlFor="ocp-draft-id">
-        Draft
-      </label>
-      <input
-        id="ocp-draft-id"
-        className="ocp-objective"
-        type="text"
-        value={draftId}
-        disabled={activation.busy}
-        placeholder="Which proposal (draft id)"
-        onChange={(e) => setDraftId(e.target.value)}
-      />
+      {drafts.length === 0 ? (
+        <p className="ocp-empty">No plan has been proposed for this project yet.</p>
+      ) : (
+        <ul className="ocp-draftlist">
+          {drafts.map((d) => {
+            const label = DECISION_LABEL[d.decisionState];
+            return (
+              <li key={d.draftId} className="ocp-draftitem">
+                <div className="ocp-draftitem-head">
+                  <span className="ocp-draftitem-id">{d.draftId}</span>
+                  <span className={`ocp-badge ${label.tone}`}>{label.text}</span>
+                </div>
+                <p className="ocp-sub">
+                  {d.planStatus || 'status unrecorded'}
+                  {d.generatedAt !== '' ? ` · proposed ${d.generatedAt}` : ''}
+                </p>
+                {d.decisionState === 'approved' && d.decisionId !== null && (
+                  <div className="ocp-actionrow">
+                    <button
+                      type="button"
+                      className="ocp-btn primary"
+                      disabled={activation.busy}
+                      onClick={() => void activate(d.draftId, d.decisionId as string)}
+                    >
+                      {activation.busy ? 'Working…' : 'Activate this plan'}
+                    </button>
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
 
-      <label className="vh" htmlFor="ocp-decision-id">
-        Decision
-      </label>
-      <input
-        id="ocp-decision-id"
-        className="ocp-objective"
-        type="text"
-        value={decisionId}
-        disabled={activation.busy}
-        placeholder="Which recorded decision (decision id)"
-        onChange={(e) => setDecisionId(e.target.value)}
-      />
+      <details className="ocp-panel preview">
+        <summary>
+          Activate by id instead
+          <span className="ocp-example-tag">Advanced</span>
+        </summary>
+        <label className="vh" htmlFor="ocp-draft-id">
+          Draft
+        </label>
+        <input
+          id="ocp-draft-id"
+          className="ocp-objective"
+          type="text"
+          value={draftId}
+          disabled={activation.busy}
+          placeholder="Which proposal (draft id)"
+          onChange={(e) => setDraftId(e.target.value)}
+        />
 
-      <div className="ocp-actionrow">
-        <button
-          type="button"
-          className="ocp-btn"
-          disabled={activationBlocked}
-          onClick={() => void activate()}
-        >
-          {activation.busy ? 'Working…' : 'Activate approved plan'}
-        </button>
-      </div>
+        <label className="vh" htmlFor="ocp-decision-id">
+          Decision
+        </label>
+        <input
+          id="ocp-decision-id"
+          className="ocp-objective"
+          type="text"
+          value={decisionId}
+          disabled={activation.busy}
+          placeholder="Which recorded decision (decision id)"
+          onChange={(e) => setDecisionId(e.target.value)}
+        />
+
+        <div className="ocp-actionrow">
+          <button
+            type="button"
+            className="ocp-btn"
+            disabled={activationBlocked}
+            onClick={() => void activate(draftId, decisionId)}
+          >
+            {activation.busy ? 'Working…' : 'Activate approved plan'}
+          </button>
+        </div>
+      </details>
 
       {activation.lines.length > 0 && (
         <pre

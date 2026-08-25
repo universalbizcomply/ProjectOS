@@ -24,6 +24,7 @@ import type {
   GovernedDelegationView,
   GovernedGatekeeperView,
   GovernedPhaseStatus,
+  GovernedPlanDraftView,
   GovernedPhaseView,
   GovernedProjection,
   GovernedTransition,
@@ -59,6 +60,10 @@ export interface GovernedInputs {
   readonly gatekeeperLedger?: readonly LedgerEntry[];
   /** Parsed `.projectops/approvals/*.json` records, whatever their state. Filtered to pending below. */
   readonly approvalRecords?: readonly Record<string, unknown>[];
+  /** Parsed `.projectops/drafts/*.json` records — every drafted plan proposal. */
+  readonly draftRecords?: readonly Record<string, unknown>[];
+  /** Parsed `.projectops/plan-decisions/*.json` records, matched to drafts by `draftId` below. */
+  readonly planDecisionRecords?: readonly Record<string, unknown>[];
   /** Recomputed by the engine — the stored `planStatus` string is never trusted. */
   readonly readiness: ReadinessVerdict;
   readonly planPath: string;
@@ -308,6 +313,38 @@ function pendingApprovalsOf(records: readonly Record<string, unknown>[]): readon
     .sort((a, b) => (a.requestedAt < b.requestedAt ? -1 : a.requestedAt > b.requestedAt ? 1 : 0));
 }
 
+/**
+ * Every drafted plan, matched against any decision recorded for it by the decision's own `draftId`
+ * field — never by filename or position, since neither is a claim the decision itself makes.
+ */
+function planDraftsOf(
+  drafts: readonly Record<string, unknown>[],
+  decisions: readonly Record<string, unknown>[],
+): readonly GovernedPlanDraftView[] {
+  return drafts
+    .map((d) => {
+      const draftId = str(d, 'objectiveId');
+      const decision = decisions.find((dec) => str(dec, 'draftId') === draftId);
+      const decisionState: GovernedPlanDraftView['decisionState'] =
+        decision === undefined
+          ? 'none'
+          : decision['consumedAt'] !== undefined && decision['consumedAt'] !== null
+            ? 'consumed'
+            : decision['decision'] === 'approve'
+              ? 'approved'
+              : 'refused';
+      return {
+        draftId,
+        planStatus: str(d, 'planStatus'),
+        generatedAt: str(d, 'generatedAt'),
+        decisionState,
+        decisionId: decision === undefined ? null : str(decision, 'decisionId'),
+      };
+    })
+    .filter((v) => v.draftId !== '')
+    .sort((a, b) => (a.generatedAt < b.generatedAt ? 1 : a.generatedAt > b.generatedAt ? -1 : 0));
+}
+
 export function projectGovernedState(inputs: GovernedInputs): GovernedProjection {
   const { config, plan, currentState, phaseRecords, readiness } = inputs;
 
@@ -422,6 +459,7 @@ export function projectGovernedState(inputs: GovernedInputs): GovernedProjection
       inputs.observedAt,
     ),
     pendingApprovals: pendingApprovalsOf(inputs.approvalRecords ?? []),
+    planDrafts: planDraftsOf(inputs.draftRecords ?? [], inputs.planDecisionRecords ?? []),
     safety: {
       productionFreeze: config['productionFreeze'] === true,
       forbiddenActions: strArray(config, 'forbiddenActions'),
