@@ -552,6 +552,160 @@ fn a15_there_is_no_self_elevation_or_process_launch_on_this_path() {
 }
 
 // =============================================================================================
+// THE UAC-CONFIRMED ROUTE ACTUALLY REACHES THE PUBLICATION.
+//
+// THE DEFECT THESE EXIST TO PREVENT, and it shipped: `run_uac_confirmed` reused `parse`, which
+// required `--expect-digest` for every `publish`. The UAC route deliberately supplies none, so it
+// refused with MissingArgument("--expect-digest") before computing anything — STRUCTURALLY
+// UNREACHABLE, and it compiled. Nothing caught it because no test ever executed this function; it
+// was verified by reading it. These drive it for real.
+// =============================================================================================
+
+/// The route reaches the publisher and forwards a plan computed HERE, with no digest supplied.
+#[test]
+fn u1_the_uac_route_publishes_without_an_expected_digest() {
+    let root = scratch("uac-publishes");
+    repository(&root, "projectos");
+    let publisher = SpyPublisher::default();
+
+    let outcome = run_uac_confirmed(&args("publish", &root, &[]), &publisher)
+        .expect("the UAC route must reach the publication");
+
+    assert_eq!(outcome, RegistryPublishOutcome::Created);
+    assert_eq!(
+        publisher.called(),
+        1,
+        "the publisher must have been called exactly once"
+    );
+    let plan = publisher.calls.borrow()[0].clone();
+    assert_eq!(plan.proposed.project_id, "projectos");
+    assert_eq!(
+        plan.planned_digest.len(),
+        64,
+        "the route must compute its own digest rather than carry one in"
+    );
+}
+
+/// A digest supplied from OUTSIDE names a plan some other process computed. Refused, not ignored.
+#[test]
+fn u2_the_uac_route_refuses_a_supplied_digest() {
+    let root = scratch("uac-refuses-digest");
+    repository(&root, "projectos");
+    let publisher = SpyPublisher::default();
+
+    let refusal = run_uac_confirmed(
+        &args("publish", &root, &["--expect-digest", &"a".repeat(64)]),
+        &publisher,
+    )
+    .expect_err("a caller-supplied digest must be refused on this route");
+
+    assert_eq!(refusal, AdminRefusal::InvalidArgument("--expect-digest"));
+    assert_eq!(
+        publisher.called(),
+        0,
+        "nothing may be published after a refusal"
+    );
+}
+
+/// `plan` is a preview. Reaching the effect while asking for a preview must be impossible.
+#[test]
+fn u3_the_uac_route_refuses_plan_mode() {
+    let root = scratch("uac-refuses-plan");
+    repository(&root, "projectos");
+    let publisher = SpyPublisher::default();
+
+    let refusal = run_uac_confirmed(&args("plan", &root, &[]), &publisher)
+        .expect_err("plan mode must not reach the publication");
+
+    assert_eq!(refusal, AdminRefusal::UnknownMode);
+    assert_eq!(publisher.called(), 0);
+}
+
+/// The shared grammar still applies: this route validates exactly as the terminal command does.
+#[test]
+fn u4_the_uac_route_still_enforces_the_shared_argument_grammar() {
+    let root = scratch("uac-grammar");
+    repository(&root, "projectos");
+    let publisher = SpyPublisher::default();
+
+    // Built literally rather than via `args(..., extra)`: that helper already supplies
+    // `--environments development` and `--frozen true`, and `value()` takes the FIRST match, so an
+    // appended second value would be silently ignored and the test would pass against a valid
+    // invocation. (It did, on the first run of this test — the assertion caught it.)
+    let root_s = root.to_string_lossy().to_string();
+    let base = |env: &str, frozen: &str| {
+        vec![
+            "publish".to_string(),
+            "--id".into(),
+            "projectos".into(),
+            "--root".into(),
+            root_s.clone(),
+            "--environments".into(),
+            env.to_string(),
+            "--frozen".into(),
+            frozen.to_string(),
+        ]
+    };
+
+    let cases: Vec<(Vec<String>, &str)> = vec![
+        (
+            base("banana", "true"),
+            "an environment outside the closed vocabulary",
+        ),
+        (base("development", "perhaps"), "a non-boolean freeze state"),
+        (
+            {
+                let mut v = base("development", "true");
+                v.push("--wat".into());
+                v.push("x".into());
+                v
+            },
+            "an unrecognised flag",
+        ),
+    ];
+
+    for (argv, why) in cases {
+        let refusal = run_uac_confirmed(&argv, &publisher).expect_err(why);
+        assert!(
+            matches!(refusal, AdminRefusal::InvalidArgument(_)),
+            "{why} must be refused as an invalid argument, saw {refusal:?}"
+        );
+    }
+    assert_eq!(publisher.called(), 0, "no invalid invocation may publish");
+}
+
+/// A publication refusal is surfaced, never converted into success.
+#[test]
+fn u5_a_publication_refusal_is_reported_not_swallowed() {
+    let root = scratch("uac-publish-refused");
+    repository(&root, "projectos");
+    let publisher = SpyPublisher::refusing(RegistryPublishRefusal::NotElevated);
+
+    let refusal = run_uac_confirmed(&args("publish", &root, &[]), &publisher)
+        .expect_err("a refusing publisher must produce a refusal");
+
+    assert_eq!(
+        refusal,
+        AdminRefusal::PublishRefused(RegistryPublishRefusal::NotElevated)
+    );
+}
+
+/// The TERMINAL route is unchanged: it still demands the digest its two-step workflow prints.
+#[test]
+fn u6_the_terminal_route_still_requires_its_digest() {
+    let root = scratch("terminal-still-requires-digest");
+    repository(&root, "projectos");
+    let publisher = SpyPublisher::default();
+    let mut console = FakeConsole::new(true, Some(PHRASE));
+
+    let refusal = run(&args("publish", &root, &[]), &mut console, &publisher, LABEL)
+        .expect_err("the terminal command must still require --expect-digest");
+
+    assert_eq!(refusal, AdminRefusal::MissingArgument("--expect-digest"));
+    assert_eq!(publisher.called(), 0);
+}
+
+// =============================================================================================
 // [14] NOTHING IN THE APPLICATION CALLS THIS. REGISTRATION IS OUT OF BAND.
 // =============================================================================================
 

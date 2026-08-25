@@ -117,12 +117,31 @@ fn value<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
         .filter(|v| !v.starts_with("--"))
 }
 
+/// Whether the CALLING ROUTE carries an expected digest, and therefore what `parse` demands.
+///
+/// This exists because the digest rule is a property of the WORKFLOW, not of the argument grammar,
+/// and the two routes have different workflows. Baking one route's rule into the shared parser is
+/// exactly the defect this type fixes: `run_uac_confirmed` reused `parse` for its validation — the
+/// right instinct, one definition of a valid project id, root and environment list — and silently
+/// inherited the terminal command's "publish must echo a digest" requirement, which its one-shot
+/// route can never satisfy. It compiled, and was unreachable at run time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DigestPolicy {
+    /// The two-step terminal workflow. `plan` prints a digest describing the world it saw; `publish`
+    /// must echo it back so a plan made against an older world cannot authorise a newer one.
+    RequiredForPublish,
+    /// The one-shot elevated route. Planning and publication happen in a single invocation, so there
+    /// is no drift window for a digest to protect — and a digest supplied from outside would name a
+    /// plan computed by some OTHER process, which is precisely what must not be trusted here.
+    Forbidden,
+}
+
 /// Parse argv into an invocation, or refuse.
 ///
 /// EVERY accepted flag is listed here, and a destination is not among them. An unknown flag is
 /// refused rather than ignored: a command that silently drops what it does not understand is a
 /// command whose behaviour depends on spelling.
-fn parse(args: &[String]) -> Result<Invocation, AdminRefusal> {
+fn parse(args: &[String], digest_policy: DigestPolicy) -> Result<Invocation, AdminRefusal> {
     let publish = match args.first().map(String::as_str) {
         Some("plan") => false,
         Some("publish") => true,
@@ -168,8 +187,17 @@ fn parse(args: &[String]) -> Result<Invocation, AdminRefusal> {
     }
 
     let expected_digest = value(args, "--expect-digest").map(str::to_string);
-    if publish && expected_digest.is_none() {
-        return Err(AdminRefusal::MissingArgument("--expect-digest"));
+    match digest_policy {
+        DigestPolicy::RequiredForPublish => {
+            if publish && expected_digest.is_none() {
+                return Err(AdminRefusal::MissingArgument("--expect-digest"));
+            }
+        }
+        DigestPolicy::Forbidden => {
+            if expected_digest.is_some() {
+                return Err(AdminRefusal::InvalidArgument("--expect-digest"));
+            }
+        }
     }
     if let Some(d) = &expected_digest {
         if d.len() != 64
@@ -328,7 +356,7 @@ pub fn run(
     publisher: &dyn Publisher,
     destination_label: &str,
 ) -> Result<RegistryPublishOutcome, AdminRefusal> {
-    let invocation = parse(args)?;
+    let invocation = parse(args, DigestPolicy::RequiredForPublish)?;
 
     // THE PLAN IS COMPUTED HERE, from the registry and the repository as they are RIGHT NOW — not
     // from anything the administrator supplied. `plan_registration` re-reads the existing registry,
@@ -456,16 +484,12 @@ pub fn run_uac_confirmed(
     publisher: &dyn Publisher,
 ) -> Result<RegistryPublishOutcome, AdminRefusal> {
     // Reuses the SAME argument parser the terminal command uses, so the two routes cannot diverge on
-    // what a valid project id, root, environment list or freeze state is. `publish` mode is required
-    // so an operator cannot reach the effect while believing they asked for a preview.
-    let invocation = parse(args)?;
+    // what a valid project id, root, environment list or freeze state is — but states its OWN digest
+    // policy, because that rule belongs to the workflow rather than to the grammar. `publish` mode is
+    // required so an operator cannot reach the effect while believing they asked for a preview.
+    let invocation = parse(args, DigestPolicy::Forbidden)?;
     if !invocation.publish {
         return Err(AdminRefusal::UnknownMode);
-    }
-    // A digest cannot be supplied on this route: it would name a plan made in a DIFFERENT process,
-    // and accepting it would reintroduce exactly the drift window this route does not have.
-    if invocation.expected_digest.is_some() {
-        return Err(AdminRefusal::InvalidArgument("--expect-digest"));
     }
 
     let planned = plan_registration(

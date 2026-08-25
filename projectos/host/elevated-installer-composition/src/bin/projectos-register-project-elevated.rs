@@ -65,9 +65,19 @@ fn main() -> ExitCode {
         // understand must not be announced to the owner as a successful registration.
         Ok(_) => ExitCode::from(EXIT_REFUSED),
         Err(AdminRefusal::AlreadyRegistered) => ExitCode::from(EXIT_ALREADY),
-        // Every refusal is the same answer to the caller: nothing was written. The specific reason
-        // is deliberately not encoded into more exit codes — the caller re-reads the registry to
-        // establish the real state rather than inferring it from a number.
-        Err(_) => ExitCode::from(EXIT_REFUSED),
+        // Every refusal is the same answer to the CALLER: nothing was written. The specific reason
+        // is deliberately not encoded into more exit codes — the Control Centre re-reads the
+        // registry to establish the real state rather than inferring it from a number.
+        //
+        // It IS written to stderr, though. Collapsing every refusal to a bare "3" made a real
+        // failure undiagnosable: the read-only `plan` accepted this exact registration while the
+        // publication refused it, and nothing anywhere said why. stderr is the right channel — an
+        // elevated launch through ShellExecuteExW has no inherited pipe, so the Control Centre
+        // cannot read this and no refusal detail can leak into the UI, while a human running the
+        // helper directly gets the answer immediately.
+        Err(refusal) => {
+            eprintln!("projectos-register-project-elevated: refused: {refusal:?}");
+            ExitCode::from(EXIT_REFUSED)
+        }
     }
 }
