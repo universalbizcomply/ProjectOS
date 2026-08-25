@@ -287,7 +287,12 @@ impl VerifiedPackagedDaemonLaunchAuthority {
             return Err(ProcessError::PackagedRuntimeNotProvisioned);
         }
 
-        let mut env = collect_system_vars(&["SystemRoot"]);
+        // LOCALAPPDATA joins SystemRoot. The governed loop derives its installation state -- the
+        // gatekeeper cost ledger it must write before spending -- from it; without it every reviewer
+        // call refuses with "this installation cannot locate its own state". See SYSTEM_ALLOWLIST for
+        // why passing the base is not the same as naming the state directory, which still refuses an
+        // override.
+        let mut env = collect_system_vars(&["SystemRoot", "LOCALAPPDATA"]);
         env.push((
             DAEMON_INSTANCE_ID_VAR.to_string(),
             self.daemon_instance_id.clone(),
@@ -364,7 +369,12 @@ impl DevelopmentDaemonLaunchAuthority {
     /// Build the fixed internal specification. The caller supplies nothing: executable, arguments,
     /// working directory and environment are all bound here.
     pub(crate) fn to_process_spec(&self) -> Result<ProcessSpec, ProcessError> {
-        let mut env = collect_system_vars(&["SystemRoot"]);
+        // LOCALAPPDATA joins SystemRoot. The governed loop derives its installation state -- the
+        // gatekeeper cost ledger it must write before spending -- from it; without it every reviewer
+        // call refuses with "this installation cannot locate its own state". See SYSTEM_ALLOWLIST for
+        // why passing the base is not the same as naming the state directory, which still refuses an
+        // override.
+        let mut env = collect_system_vars(&["SystemRoot", "LOCALAPPDATA"]);
         env.push((
             DAEMON_INSTANCE_ID_VAR.to_string(),
             self.daemon_instance_id.clone(),

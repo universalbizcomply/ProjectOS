@@ -124,7 +124,7 @@ export const claudeCodeCliAdapter: WorkerAdapter = {
       sys.exec(worker.command, [...worker.args, ...OUTPUT_ARGS, '-p', pointerInstruction(briefPath)], {
         // The worker inherits no credential-shaped variable: the project forbids `use-anthropic-api`,
         // and an inherited key would make that forbidding decorative.
-        scrubCredentials: true,
+        scrubCredentials: true, ensureSystemPath: true,
         // AND it is placed in the governed repository, not wherever ProjectOS happened to be started.
         // Telling a worker which repository is governed while spawning it somewhere else is not
         // transferring context, it is describing it.
@@ -156,7 +156,7 @@ export const claudeCodeCliAdapter: WorkerAdapter = {
           '-p',
           correctionInstruction(brief.records.briefPath),
         ],
-        { scrubCredentials: true, cwd: brief.repository.root },
+        { scrubCredentials: true, ensureSystemPath: true, cwd: brief.repository.root },
       ),
     );
   },

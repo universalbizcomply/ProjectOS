@@ -69,6 +69,30 @@ pub(crate) const DAEMON_GIT_EXE_VAR: &str = "PROJECTOS_GIT_EXE";
 /// installation — and if the file is not there, nothing is injected rather than a guess.
 pub(crate) const DAEMON_GIT_BASH_VAR: &str = "CLAUDE_CODE_GIT_BASH_PATH";
 
+/// A FIXED operating-system PATH, derived from `SystemRoot` — never the user's ambient `PATH`.
+///
+/// WHY A PATH EXISTS AT ALL NOW. The governed worker is the Claude Code CLI, and it does not run
+/// without one. Measured, not assumed: under the previous environment it reported "unable to find
+/// CLAUDE_CODE_GIT_BASH_PATH" for a `bash.exe` that demonstrably existed and executed; adding only
+/// `PATH=%SystemRoot%\System32` made the identical invocation succeed. The message named the wrong
+/// cause, which is why this is recorded here rather than left to be rediscovered.
+///
+/// WHY THIS IS NOT THE THING THE MODULE HEADER FORBIDS. The rule is that nothing ProjectOS runs may
+/// be PATH-RESOLVED, and that is untouched: the daemon, the pinned Node runtime, `git.exe` and the
+/// worker executable are all still passed as absolute paths, and the worker adapter still refuses a
+/// bare command name. What changes is that tools the worker itself invokes can find the operating
+/// system underneath them.
+///
+/// WHY IT IS BUILT AND NOT INHERITED. Inheriting the developer's `PATH` would hand every child a
+/// search order the owner's machine happens to have — the exact ambient-authority problem this
+/// module exists to remove, and a poisoned entry would apply to everything the worker spawns. This
+/// value is composed from `SystemRoot`, which is already allowlisted and already trusted to be the
+/// real Windows directory, and contains nothing else. A caller cannot contribute to it.
+pub(crate) fn fixed_system_path(system_root: &str) -> String {
+    let root = system_root.trim_end_matches(['\\', '/']);
+    format!(r"{root}\System32;{root};{root}\System32\Wbem")
+}
+
 /// Derive `bash.exe` from a resolved `git.exe`, or `None` when it is not where Git for Windows puts
 /// it. Git for Windows ships `cmd\git.exe` and `bin\git.exe`; `bash.exe` lives in `bin\` in both
 /// layouts, so the sibling `bin` beside the executable's own directory is the one place to look.

@@ -36,6 +36,14 @@ export interface ExecOptions {
    * against the ambient directory rather than the governed root.
    */
   readonly cwd?: string;
+  /**
+   * Give the child a FIXED operating-system `PATH` when it has none.
+   *
+   * Off by default and set only by the worker adapter. ProjectOS resolves nothing through it: every
+   * executable this runtime launches is still absolute. It exists because the governed worker will
+   * not start without a `PATH` at all — see `fixedSystemPath`.
+   */
+  readonly ensureSystemPath?: boolean;
 }
 
 export interface System {
@@ -254,6 +262,35 @@ export function resetProcessRootForTest(): void {
  * find Windows itself and a temporary directory — no `PATH` (the executable is absolute), and nothing
  * that names a repository, a config file or an object store.
  */
+/**
+ * A FIXED operating-system search path, composed from `SystemRoot` — never the ambient `PATH`.
+ *
+ * WHY IT IS NEEDED. The governed worker is the Claude Code CLI and it does not start without a
+ * `PATH`. Measured on the installed application, not assumed: it reported "unable to find
+ * CLAUDE_CODE_GIT_BASH_PATH" for a `bash.exe` that demonstrably existed and executed, and the same
+ * invocation succeeded the moment `PATH=%SystemRoot%\System32` was present. The message named the
+ * wrong cause, so it is recorded here rather than left to be rediscovered.
+ *
+ * WHY IT IS BUILT HERE AND NOT IN THE HOST. The packaged daemon is launched with an environment
+ * that forbids `PATH` in three separate places — the allowlist omits it, `validate()` rejects it by
+ * name, and the module says why. That rule is about what PROJECTOS resolves, and it stays intact:
+ * the daemon, the pinned Node runtime, `git.exe` and the worker executable are all still passed as
+ * absolute paths, and the worker adapter still refuses a bare command name. Granting the search path
+ * HERE gives it to one child — the worker the owner configured — instead of to the daemon and
+ * everything it will ever spawn.
+ *
+ * WHY IT IS DERIVED AND NOT INHERITED. Passing the developer's own `PATH` would hand the worker
+ * whatever search order the machine happens to have, which is the ambient authority this file
+ * already refuses elsewhere. This contains the Windows directories and nothing else, and no caller
+ * can contribute to it.
+ */
+function fixedSystemPath(env: NodeJS.ProcessEnv): string | null {
+  const root = env['SystemRoot'] ?? env['windir'];
+  if (typeof root !== 'string' || root.trim() === '') return null;
+  const base = root.replace(/[\\/]+$/, '');
+  return [`${base}\\System32`, base, `${base}\\System32\\Wbem`].join(';');
+}
+
 function minimalGitEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const kept: NodeJS.ProcessEnv = {};
   for (const name of ['SystemRoot', 'windir', 'TEMP', 'TMP', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH']) {
@@ -363,12 +400,34 @@ export const nodeSystem: System = {
     // environment for exactly this reason; the agent-side verifier that decides WHICH BYTES BECOME
     // that broker did not, so the whole trusted side could be chosen by an environment variable.
     // Found by the second adversarial review, 2026-08-21.
-    const env =
+    let env =
       bare === 'git'
         ? minimalGitEnv(process.env)
         : options?.scrubCredentials === true
           ? scrubbedEnv(process.env)
           : undefined;
+    // The worker's own search path, derived rather than inherited, and only when asked for. `git`
+    // is deliberately excluded: its environment is the oracle's and stays minimal.
+    if (options?.ensureSystemPath === true && bare !== 'git') {
+      const system = fixedSystemPath(process.env);
+      if (system !== null) {
+        // THE TOOL'S OWN DIRECTORY, FIRST. The owner's checks are `node.exe` running `npm-cli.js`,
+        // and an npm script that re-invokes `npm` needs npm.cmd, which lives beside the node.exe it
+        // was given. Derived from the committed absolute command -- the config refuses a bare name --
+        // so it is exactly as trusted as the executable itself.
+        const own = isAbsolute(executable) ? dirname(executable) : null;
+        const path = own === null ? system : `${own}${delimiter}${system}`;
+        // PATHEXT, FIXED. `scrubbedEnv` removes it deliberately (it decides which extensions a shell
+        // will load), and without it Windows cannot resolve a bare `npm` to `npm.cmd` at all -- which
+        // is what actually failed, not the search path. A constant is restored rather than the
+        // ambient value, so nothing the machine happens to carry can widen it.
+        env = {
+          ...(env ?? scrubbedEnv(process.env)),
+          PATH: path,
+          PATHEXT: '.COM;.EXE;.BAT;.CMD',
+        };
+      }
+    }
     const r = spawnSync(executable, [...args], {
       encoding: 'utf8',
       shell: false,

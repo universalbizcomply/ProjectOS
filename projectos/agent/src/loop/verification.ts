@@ -213,7 +213,16 @@ export function runCheck(sys: System, root: string, spec: CheckSpec): CheckResul
   // Run IN the governed repository. `--prefix projectos/core` and every other relative argument
   // would otherwise resolve against whatever directory ProjectOS was started in, so a check could
   // report a pass for a different checkout entirely.
-  const r = sys.exec(spec.command, [...spec.args], { scrubCredentials: true, cwd: root });
+  // The owner's committed checks are `node.exe` running `npm-cli.js`, and npm spawns the tooling it
+  // is asked for. Under the packaged daemon's PATH-free environment they all failed -- not because
+  // anything was broken, but because npm could not find the operating system: run directly, the same
+  // checks pass. Same fixed, derived path the worker gets; ProjectOS still resolves every executable
+  // it launches absolutely.
+  const r = sys.exec(spec.command, [...spec.args], {
+    scrubCredentials: true,
+    cwd: root,
+    ensureSystemPath: true,
+  });
   return {
     id: spec.id,
     kind: spec.kind,
