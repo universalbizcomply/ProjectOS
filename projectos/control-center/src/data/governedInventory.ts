@@ -16,12 +16,22 @@
  *     project id. It is written only through an owner-confirmed registration, so ProjectOS cannot
  *     add to it on its own behalf — which is exactly why it can be trusted.
  *
- * Today the registry is EMPTY, so the honest inventory is one project: the one ProjectOS is installed
- * in. Saying "1" where the old surface said "13" is the point, not a regression.
+ * THE REGISTRY IS NO LONGER EMPTY, and that premise was baked in here. This module used to derive
+ * the inventory from the governed PROJECTION alone, which describes exactly one project — the
+ * selected one. That was right while the registry held nothing, and it was written down as such.
+ * The moment a second project was registered it became a contradiction the owner could see on two
+ * screens at once: the project selector, reading the real registry inventory, offered two projects,
+ * while the page literally titled "Projects" reported "1 governed by ProjectOS".
  *
- * Created in the post-V3 operational recovery programme (Control Centre phase).
+ * So the inventory is now the REGISTRY's list, and the projection supplies the live detail for the
+ * one project the runtime is actually reporting on. Rows for the others are honest about that: they
+ * are registered and their identity is known, and no plan status, phase count or freeze state is
+ * invented for a project the runtime has not read.
+ *
+ * Created in the post-V3 operational recovery programme (Control Centre phase); registry-aware in
+ * PROJECTOS-PRODUCT-COMPLETION1A.
  */
-import type { GovernedState } from '../governed/types';
+import type { GovernedProjectsInventory, GovernedState } from '../governed/types';
 
 /** A project ProjectOS governs, as the canonical records describe it. */
 export interface GovernedProjectRow {
@@ -35,6 +45,14 @@ export interface GovernedProjectRow {
   readonly activePhase: string | null;
   readonly acceptedPhases: number;
   readonly totalPhases: number;
+  /**
+   * Whether the RUNTIME reported this project, or it is merely known to be registered.
+   *
+   * A registry row carries an id, a root and a repository identity and nothing else — no plan, no
+   * phases, no freeze state. Those fields are zeroed on such a row, and this flag is what stops a
+   * surface presenting a zero as a measurement.
+   */
+  readonly live: boolean;
 }
 
 export type InventoryState =
@@ -50,27 +68,59 @@ export type InventoryState =
  * and "ProjectOS cannot currently tell you" are different statements, and showing the first when the
  * second is true is the class of untruth this phase exists to remove.
  */
-export function inventoryFrom(governed: GovernedState | null): InventoryState {
+export function inventoryFrom(
+  governed: GovernedState | null,
+  registry?: GovernedProjectsInventory | null,
+): InventoryState {
   if (governed === null) {
     return { kind: 'unavailable', reason: 'NO_RUNTIME', detail: 'The ProjectOS runtime has not reported yet.' };
   }
   if (!governed.connected) {
     return { kind: 'unavailable', reason: governed.reason, detail: governed.detail };
   }
+
+  /** The live row, from the projection — the only row entitled to plan and phase facts. */
+  const liveRow: GovernedProjectRow = {
+    id: governed.projectId,
+    name: governed.projectName,
+    repo: governed.repository.repo,
+    source: 'governed-projection',
+    productionFreeze: governed.safety.productionFreeze,
+    planStatus: governed.plan.ready ? 'PLAN READY' : governed.plan.declaredStatus,
+    activePhase: governed.activePhase === null ? null : governed.activePhase.phaseId,
+    acceptedPhases: governed.programme.acceptedPhaseCount,
+    totalPhases: governed.programme.totalPhaseCount,
+    live: true,
+  };
+
+  // No registry reported yet: the projection is all that is known, and one row is the honest answer.
+  if (registry === null || registry === undefined || registry.projects.length === 0) {
+    return { kind: 'governed', rows: [liveRow] };
+  }
+
+  // Registry order, with the live project's real detail substituted in place. A registered project
+  // the runtime has not reported gets its IDENTITY and nothing more — every measured field stays
+  // zero and `live` is false, so a surface cannot render an unmeasured zero as a measurement.
+  const rows = registry.projects.map((p): GovernedProjectRow =>
+    p.projectId === governed.projectId
+      ? liveRow
+      : {
+          id: p.projectId,
+          name: p.projectName,
+          repo: p.repository,
+          source: 'owner-registry',
+          productionFreeze: false,
+          planStatus: 'Not reported',
+          activePhase: null,
+          acceptedPhases: 0,
+          totalPhases: 0,
+          live: false,
+        },
+  );
+  // The live project must appear even if the registry listing somehow omits it — the runtime
+  // reporting on a project is stronger evidence than a listing that does not mention it.
   return {
     kind: 'governed',
-    rows: [
-      {
-        id: governed.projectId,
-        name: governed.projectName,
-        repo: governed.repository.repo,
-        source: 'governed-projection',
-        productionFreeze: governed.safety.productionFreeze,
-        planStatus: governed.plan.ready ? 'PLAN READY' : governed.plan.declaredStatus,
-        activePhase: governed.activePhase === null ? null : governed.activePhase.phaseId,
-        acceptedPhases: governed.programme.acceptedPhaseCount,
-        totalPhases: governed.programme.totalPhaseCount,
-      },
-    ],
+    rows: rows.some((r) => r.id === liveRow.id) ? rows : [liveRow, ...rows],
   };
 }

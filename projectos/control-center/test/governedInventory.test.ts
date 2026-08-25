@@ -114,3 +114,65 @@ describe('the governed inventory is derived, never substituted', () => {
     if (idle.kind === 'governed') expect(idle.rows[0]!.activePhase).toBeNull();
   });
 });
+
+describe('the Projects list is the REGISTRY, not just the selected project', () => {
+  function registryOf(ids: readonly string[]) {
+    return {
+      projects: ids.map((id) => ({
+        projectId: id,
+        projectName: id === 'projectos' ? 'ProjectOS' : 'Dead Aisles',
+        repositoryRoot: `C:/dev/${id}`,
+        repository: `acme/${id}`,
+      })),
+      registryStatus: 'ok' as const,
+      refusedCount: 0,
+      selectedProjectId: 'projectos',
+    };
+  }
+
+  it('every registered project appears, not only the one the runtime reports', () => {
+    // THE DEFECT THIS PINS: with two projects registered, this page reported "1 governed by
+    // ProjectOS" while the project selector — reading the same registry — offered two. One surface
+    // contradicting another about the same fact.
+    const inv = inventoryFrom(projection(), registryOf(['dead-aisle', 'projectos']));
+    expect(inv.kind).toBe('governed');
+    if (inv.kind !== 'governed') return;
+    expect(inv.rows.map((r) => r.id)).toEqual(['dead-aisle', 'projectos']);
+  });
+
+  it('the reported project carries live facts; the others carry none', () => {
+    const inv = inventoryFrom(projection(), registryOf(['dead-aisle', 'projectos']));
+    if (inv.kind !== 'governed') return;
+    const live = inv.rows.find((r) => r.id === 'projectos');
+    const other = inv.rows.find((r) => r.id === 'dead-aisle');
+
+    expect(live?.live).toBe(true);
+    expect(live?.source).toBe('governed-projection');
+
+    // A registry row has an identity and nothing measured. Its zeroes must never be presented as
+    // measurements, which is what `live: false` exists to let the surface decide.
+    expect(other?.live).toBe(false);
+    expect(other?.source).toBe('owner-registry');
+    expect(other?.totalPhases).toBe(0);
+    expect(other?.activePhase).toBeNull();
+  });
+
+  it('with no registry reported, the projection alone is still the honest answer', () => {
+    const inv = inventoryFrom(projection(), null);
+    if (inv.kind !== 'governed') return;
+    expect(inv.rows).toHaveLength(1);
+    expect(inv.rows[0]?.live).toBe(true);
+  });
+
+  it('a registry that omits the reported project still lists it — the runtime is stronger evidence', () => {
+    const inv = inventoryFrom(projection(), registryOf(['dead-aisle']));
+    if (inv.kind !== 'governed') return;
+    expect(inv.rows.map((r) => r.id)).toContain('projectos');
+    expect(inv.rows.find((r) => r.id === 'projectos')?.live).toBe(true);
+  });
+
+  it('a disconnected runtime is still unavailable, registry or not', () => {
+    const inv = inventoryFrom({ connected: false, reason: 'RUNTIME_STOPPED', detail: 'stopped' }, registryOf(['projectos']));
+    expect(inv.kind).toBe('unavailable');
+  });
+});

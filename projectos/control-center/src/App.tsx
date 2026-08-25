@@ -9,7 +9,7 @@ import {
   CORE_VERSION,
 } from '@projectos/core';
 import { inventoryFrom } from './data/governedInventory';
-import { useGovernedState } from './daemon/DaemonProvider';
+import { useGovernedState, useGovernedProjects } from './daemon/DaemonProvider';
 import { isSupabaseConfigured } from './data/supabase';
 import { getSession, onAuthChange, signOut, mustChangePassword } from './data/auth';
 import { Login } from './Login';
@@ -258,7 +258,11 @@ function Overview({ onGoToRegistration }: { onGoToRegistration: () => void }) {
   // as "governed by ProjectOS". Three project universes in one application, and no way for the owner
   // to tell which was real. See data/governedInventory.ts.
   const governed = useGovernedState();
-  const inventory = inventoryFrom(governed);
+  // The REGISTRY is the list of projects; the projection supplies live detail for the one the
+  // runtime reports. Reading only the projection made this page say "1" while the project selector
+  // offered two — one surface contradicting another about the same fact.
+  const registry = useGovernedProjects();
+  const inventory = inventoryFrom(governed, registry);
 
   if (inventory.kind === 'unavailable') {
     return (
@@ -310,12 +314,25 @@ function Overview({ onGoToRegistration }: { onGoToRegistration: () => void }) {
             <h3>{p.name}</h3>
             <div className="repo">{p.repo}</div>
             <div className="row">
-              <span className="tag ok">{p.planStatus}</span>
-              {p.productionFreeze ? <span className="tag warn">freeze on</span> : <span className="tag mut">freeze off</span>}
-              <span className="tag mut">{p.acceptedPhases}/{p.totalPhases} phases</span>
+              {/* A registry-only row has no measured facts. Rendering its zeroes as figures would
+                  present "not read" as "nothing there", which is the class of untruth this
+                  surface exists to remove. */}
+              {p.live ? (
+                <>
+                  <span className="tag ok">{p.planStatus}</span>
+                  {p.productionFreeze ? <span className="tag warn">freeze on</span> : <span className="tag mut">freeze off</span>}
+                  <span className="tag mut">{p.acceptedPhases}/{p.totalPhases} phases</span>
+                </>
+              ) : (
+                <span className="tag mut">not reported</span>
+              )}
             </div>
             <p className="muted">
-              {p.activePhase === null ? 'No phase is running.' : `Running: ${p.activePhase}`}
+              {!p.live
+                ? 'Registered. Select it to see its plan and state.'
+                : p.activePhase === null
+                  ? 'No phase is running.'
+                  : `Running: ${p.activePhase}`}
             </p>
           </div>
         ))}
