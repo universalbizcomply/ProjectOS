@@ -17,15 +17,23 @@
 import { useMemo, useRef, useState } from 'react';
 import { OWNER_MODELS, PROJECTOS_V3 } from './ownerSnapshot';
 import { answerOwnerQuestion, BASE_SUGGESTIONS, type ChatAnswer } from './ownerChatModel';
-import { useGovernedProjects, useGovernedState } from '../daemon/DaemonProvider';
+import { matchActionIntent, type ChatAction } from './ownerChatActions';
+import { useGovernedProjects, useGovernedRun, useGovernedState } from '../daemon/DaemonProvider';
 import { SelectedProjectIdentity } from './SelectedProjectIdentity';
 import { ownerModelFromGoverned } from './governedOwnerModel';
+import { requestGovernedCommand } from '../governed/governedClient';
+import { tauriBridge } from '../daemon/tauriBridge';
 import type { OwnerControlModel } from './ownerModel';
+
+type TurnActionStatus = 'offered' | 'busy' | 'done';
 
 interface ChatTurn {
   readonly id: number;
   readonly role: 'owner' | 'projectos';
   readonly text: string;
+  /** A suggested governed command this turn's reply carries, if any — never dispatched by itself. */
+  readonly action?: ChatAction;
+  readonly actionStatus?: TurnActionStatus;
 }
 
 function greeting(model: OwnerControlModel): ChatTurn {
@@ -44,6 +52,7 @@ export function OwnerChat() {
   const projectId = inventory?.selectedProjectId ?? PROJECTOS_V3.projectId;
   const governed = useGovernedState();
   const live = governed !== null && governed.connected ? governed : null;
+  const run = useGovernedRun();
   const model: OwnerControlModel = useMemo(
     () =>
       live !== null
@@ -75,10 +84,28 @@ export function OwnerChat() {
     const q = question.trim();
     if (!q) return;
     const answer: ChatAnswer = answerOwnerQuestion(model, q);
+    // Recognised only against LIVE governed state — the recorded fallback names no real phase or
+    // decision to act on, so there is nothing safe to suggest doing anything with.
+    const action = live !== null ? (matchActionIntent(q, live, run.active) ?? undefined) : undefined;
     const ownerTurn: ChatTurn = { id: nextId.current++, role: 'owner', text: q };
-    const reply: ChatTurn = { id: nextId.current++, role: 'projectos', text: answer.answer };
+    const reply: ChatTurn = {
+      id: nextId.current++,
+      role: 'projectos',
+      text: answer.answer,
+      action,
+      actionStatus: action !== undefined ? 'offered' : undefined,
+    };
     setTurns((prev) => [...prev, ownerTurn, reply]);
     setDraft('');
+  }
+
+  async function runAction(turnId: number, action: ChatAction) {
+    setTurns((prev) => prev.map((t) => (t.id === turnId ? { ...t, actionStatus: 'busy' } : t)));
+    const result = await requestGovernedCommand(tauriBridge, action.verb, action.args);
+    setTurns((prev) => [
+      ...prev.map((t) => (t.id === turnId ? { ...t, actionStatus: 'done' as const } : t)),
+      { id: nextId.current++, role: 'projectos', text: result.lines.join('\n') },
+    ]);
   }
 
   return (
@@ -100,6 +127,18 @@ export function OwnerChat() {
           <div key={t.id} className={`ochat-turn ${t.role}`}>
             <span className="ochat-who">{t.role === 'owner' ? 'You' : 'ProjectOS'}</span>
             <div className="ochat-bubble">{t.text}</div>
+            {t.action !== undefined && t.actionStatus !== 'done' && (
+              <div className="ochat-action">
+                <button
+                  type="button"
+                  className="ocp-btn primary"
+                  disabled={t.actionStatus === 'busy'}
+                  onClick={() => void runAction(t.id, t.action as ChatAction)}
+                >
+                  {t.actionStatus === 'busy' ? 'Working…' : `▶ ${t.action.label}`}
+                </button>
+              </div>
+            )}
           </div>
         ))}
       </div>

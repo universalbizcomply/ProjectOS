@@ -449,6 +449,7 @@ body {
 .ochat-bubble { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 13px;
   font-size: 14px; line-height: 1.55; white-space: pre-wrap; background: var(--bg-elev); color: var(--text); }
 .ochat-turn.owner .ochat-bubble { background: var(--accent-dim); border-color: #2b3a63; color: #cdd9ff; }
+.ochat-action { margin-top: 2px; }
 .ochat-suggest { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
 .ochat-chip { cursor: pointer; }
 .ochat-chip:hover { background: var(--bg-panel); color: var(--text); }
