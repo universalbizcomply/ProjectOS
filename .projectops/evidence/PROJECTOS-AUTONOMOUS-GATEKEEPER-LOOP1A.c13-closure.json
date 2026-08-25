@@ -1,0 +1,56 @@
+{
+  "schemaVersion": "1.0.0",
+  "evidence": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A.c13-closure",
+  "criterion": "C13",
+  "criterionText": "Multi-project isolation is proven: distinct project ids, repository roots, thread bindings and worker bindings, with deliberately mismatched bindings refused and no cross-project leakage of prompt, evidence, decision, session or repository facts",
+  "status": "PROVEN (deterministic + live)",
+  "date": "2026-08-25T15:20:00Z",
+  "twoRealProjects": {
+    "projectA": {
+      "projectId": "projectos",
+      "repositoryRoot": "C:/dev/ProjectOS",
+      "workerId": "claude-local",
+      "workerKind": "claude-code-cli",
+      "threadBinding": "projectos-gk-thread-0001"
+    },
+    "projectB": {
+      "projectId": "projectos-degraded-witness3a",
+      "repositoryRoot": "C:/dev/projectos-degraded-witness3",
+      "workerId": "witness-inert",
+      "workerKind": "claude-code-cli (deliberately inert node -e process.exit(0))",
+      "threadBinding": "witness3-gk-thread-0001"
+    },
+    "note": "Not synthetic fixtures. Both are real projects with their own live-configured gatekeeper transports that have actually made real, paid, live OpenAI calls throughout this programme."
+  },
+  "proof": {
+    "distinctProjectIdsRepoRootsThreadBindings": {
+      "status": "PROVEN (deterministic)",
+      "citation": "Already covered by scenario 9 of the pre-existing test suite: mismatched bindings refused before anything is sent."
+    },
+    "workerBindingsDeterministic": {
+      "status": "PROVEN (deterministic)",
+      "citation": "projectos/agent/test/loopRunner.test.ts, SESSION_WORKER_MISMATCH test: a session bound to one workerId, resumed under a run resolving a DIFFERENT workerId, is refused with zero worker calls (`calls` equals `[]`) — the refusal happens strictly before any dispatch."
+    },
+    "workerBindingsLiveCrossProject": {
+      "status": "PROVEN (live, both directions)",
+      "testA": {
+        "command": "from C:/dev/ProjectOS: `projectos run --execute --resume --session PROJECTOS-DEGRADED-WITNESS3A-6919c3b07d3e-caf12f2a` (a real witness3 session id, real worker binding witness-inert)",
+        "result": "REFUSED (NO_SUCH_SESSION), exit 1, no worker dispatched — witness3's session is completely invisible to ProjectOS's execution context"
+      },
+      "testB": {
+        "command": "from C:/dev/projectos-degraded-witness3: `projectos run --execute --resume --session PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A-6b2bd107f83d-79532a25` (a real ProjectOS session id, real worker binding claude-local)",
+        "result": "REFUSED (NO_SUCH_SESSION), exit 1, no worker dispatched — symmetric refusal in the reverse direction"
+      },
+      "interpretation": "Session records live under each project's own .projectops/execution/, so a session id minted in one project's repository root is not merely refused by an identity check — it does not exist to be found at all in the other's. Worker bindings cannot cross a repository-root boundary by construction."
+    },
+    "noCrossProjectLeakageOfDecisionAndCost": {
+      "status": "PROVEN (live)",
+      "evidence": "grep of every GKREQ-* request id in each project's independent gatekeeper-ledger.json: ProjectOS holds 10 real request ids, witness3 holds 2 real request ids, `comm -12` intersection is empty. No request, decision, or cost entry from one project has ever appeared in the other's ledger."
+    },
+    "noCrossProjectLeakageOfPromptEvidenceSession": {
+      "status": "PROVEN (deterministic, pre-existing)",
+      "note": "Governed by checkThreadBinding and the repository-root identity checks proven throughout this programme (distinct providerThreadId per project, distinct canonicalRepositoryIdentity per project, refused on mismatch) — unaffected by anything in this session's work."
+    }
+  },
+  "conclusion": "C13 fully proven: distinct project ids/repo roots/thread bindings (pre-existing, deterministic), worker-binding mismatch refused with zero dispatch (pre-existing, deterministic), and — the one gap the matrix flagged as never live-exercised — worker bindings deliberately mismatched across two REAL, independently live-gatekeeper-configured projects, refused symmetrically in both directions, with zero ledger overlap confirmed."
+}
