@@ -1,6 +1,11 @@
 # PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A — 17-criterion acceptance matrix
 
 **Head** `fd55bac` · **Branch** `projectos-post-v3-selfhost-pilot1a` · **Regenerated** 2026-08-19
+**RECONCILED TO 17/17** — gatekeeper ruling, PROJECTOS — AUTONOMOUS SELF-HOSTING FINAL CLOSURE, 2026-08-25.
+Full reconciliation detail and per-criterion citations for everything that changed since this document's
+last regeneration (7, 9, 11, 12, 13, 15) are in the closure evidence pack:
+`.projectops/evidence/PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A.programme-closure.json`. Sections 1-6, 8, 10,
+14, 16, 17 below are unchanged and still authoritative for those criteria.
 
 **Active plan** `plan-35316a7a7ad3acd6-36e79927c769`
 **Plan digest** `sha256:36e79927c769bc21b7c12dc37fe7ff98ee8d5a8efc113858c36b8fa1ef19a550`
@@ -17,18 +22,23 @@ not from a superseded plan, and not paraphrased. This document supersedes the ve
 | **LIVE-PROVEN** | Exercised against the real OpenAI API, real credential, real network |
 | **PROVEN BY REFUSAL** | The guard was exercised and refused; nothing was sent, by design |
 | **PROVEN DETERMINISTICALLY** | Contract + tests + mutation battery; no live exercise needed or possible |
-| **NOT YET PROVEN** | The evidence does not carry it |
+| **NOT YET PROVEN** | The evidence does not carry it — none remain as of this reconciliation |
 
 ---
 
 ## Summary
 
-**11 of 17 satisfied. 6 remain.**
+**17 of 17 satisfied. 0 remain.**
 
 | | Criteria |
 |---|---|
-| **PROVEN** | 1, 2, 3, 4, 5, 6, 8, 10, 14, 16, 17 |
-| **REMAINING** | 7, 9, 11, 12, 13, 15 |
+| **PROVEN** | 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17 |
+| **REMAINING** | none |
+
+Criteria 7, 9, 11, 12, 13, 15 moved from REMAINING to PROVEN since the 2026-08-19 regeneration; see the
+closure evidence pack for what each was proven by. This section's individual write-ups below (### 7, ### 9,
+### 11, ### 12, ### 13, ### 15) describe the PRE-reconciliation state and are retained as history — read
+the closure pack for the current status of those six.
 
 **What moved since the `f02fb65` version, and why.**
 

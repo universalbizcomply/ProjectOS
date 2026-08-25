@@ -1,0 +1,71 @@
+{
+  "schemaVersion": "1.0.0",
+  "evidence": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A.programme-closure",
+  "programme": "projectos-autonomous-self-hosting",
+  "phase": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+  "date": "2026-08-25T16:40:00Z",
+  "gatekeeperRuling": "PROJECTOS — AUTONOMOUS SELF-HOSTING FINAL CLOSURE, 2026-08-25: C9 ACCEPTED/CLOSED, C11 ACCEPTED/CLOSED, C12 ACCEPTED/CLOSED, C13 ACCEPTED/CLOSED. REVIEW-SEC-001/C11-W2-F5 closed as stale/not current. Programme acceptance 17/17 = 100%.",
+  "criteria": {
+    "1": { "status": "PROVEN", "mode": "live", "citation": "acceptance-matrix.md #1 — unchanged since 2026-08-19" },
+    "2": { "status": "PROVEN", "mode": "deterministic", "citation": "acceptance-matrix.md #2 — unchanged since 2026-08-19" },
+    "3": { "status": "PROVEN", "mode": "live + refusal", "citation": "acceptance-matrix.md #3 — unchanged since 2026-08-19" },
+    "4": { "status": "PROVEN", "mode": "live", "citation": "acceptance-matrix.md #4 — unchanged since 2026-08-19" },
+    "5": { "status": "PROVEN", "mode": "live + refusal", "citation": "acceptance-matrix.md #5 — unchanged since 2026-08-19" },
+    "6": { "status": "PROVEN", "mode": "refusal", "citation": "acceptance-matrix.md #6 — unchanged since 2026-08-19" },
+    "7": {
+      "status": "PROVEN",
+      "mode": "live",
+      "citation": "The matrix's own remaining action for C7 ('a committed grant, real bounded work under it, then reconciliation') is exactly what C11's own proof work produced: committed degraded-mode grant records (PROJECTOS-DEGRADED-WITNESS2A.degraded-grant..., PROJECTOS-DEGRADED-WITNESS3A.degraded-grant... x2) read via a real committed-tree path, real bounded work performed under each, and real reconciliation attempts against the live gatekeeper. Durability, project/phase/subject/decision binding, scope and non-replayability all exercised live (grant replay refused in the same run each time, evidence committed c11-degraded-continuation.json, c11-degraded-gate.json)."
+    },
+    "8": { "status": "PROVEN", "mode": "live", "citation": "acceptance-matrix.md #8 — unchanged since 2026-08-19" },
+    "9": {
+      "status": "PROVEN",
+      "mode": "live",
+      "citation": "c9-closure.json (commit 6b2bd10). Real objective-in cycle: real worker, real check failure, live gatekeeper (GKREQ-243dfe56445edf7ffb6ad39b), real 29-finding review, one real HIGH (SEC-001) found and fixed (c443efd), zero manual relay."
+    },
+    "10": { "status": "PROVEN", "mode": "live", "citation": "acceptance-matrix.md #10 — unchanged since 2026-08-19" },
+    "11": {
+      "status": "PROVEN",
+      "mode": "live",
+      "citation": "Gatekeeper interpretation, 2026-08-25: the approved text requires each of the three limbs to be PROVEN, not a predetermined APPROVED_TO_PROCEED verdict or universal debt discharge. All three proven live: gatekeeper-unavailable owner decision (witness2/3 GKOUT identities, legitimate governance-boundary unavailability, no sabotage), degraded-mode bounded continuation (grants consumed durably, replay refused, both witnesses), return-to-gatekeeper reconciliation (real dispatch, real verdicts applied exactly, no retry-for-preferred-verdict). Real witness verdicts preserved exactly as historical/carry-forward evidence: GRANT1A/GKWORK-9f964bf843f9a840 = AMENDMENT_REQUIRED (sealed); GRANT2A/GKWORK-d898ad4744d070ac = AWAITING_OWNER (ALREADY_ASKED, durably blocked from re-ask). Neither retried, neither cleared by hand, no history rewritten."
+    },
+    "12": {
+      "status": "PROVEN",
+      "mode": "live",
+      "citation": "c12-closure.json (commit a47be39). Real restart/resume across a genuine multi-day gap: session.json state 'rejoined' not 'started' (no duplicate Claude run, same provider conversation); original request appears once in the ledger (no duplicate decision/cost); worker class makes no commits (no duplicate commit, by construction)."
+    },
+    "13": {
+      "status": "PROVEN",
+      "mode": "live + deterministic",
+      "citation": "c13-closure.json (commit 3be3d17). Worker-binding mismatch refused deterministically with zero dispatch (SESSION_WORKER_MISMATCH test, pre-existing). Live cross-project proof, both directions, two real independently-configured projects: session ids invisible across repository-root boundaries (NO_SUCH_SESSION, zero dispatch); zero ledger request-id overlap (10 vs 2, empty intersection)."
+    },
+    "14": { "status": "PROVEN", "mode": "owner observation", "citation": "acceptance-matrix.md #14 — unchanged since 2026-08-19" },
+    "15": {
+      "status": "PROVEN",
+      "mode": "live",
+      "citation": "Accepted in an earlier session, commit adce259 ('docs(projectos): record how C15 was actually proven, including the routes that failed'), 2026-08-22: private single-owner channel, ChatGPT connector No Auth at the MCP-client layer, loopback-only bridge reached through an owner-owned Secure MCP Tunnel, authenticated by the installation's own bridge credential, live proof returned real results."
+    },
+    "16": { "status": "PROVEN", "mode": "deterministic", "citation": "acceptance-matrix.md #16 — unchanged since 2026-08-19" },
+    "17": { "status": "PROVEN", "mode": "review", "citation": "acceptance-matrix.md #17 — unchanged since 2026-08-19; SEC-001 (found and fixed under C9, c443efd) is additive coverage of the post-correction code this criterion's scope note called for." }
+  },
+  "reviewSec001Disposition": {
+    "findingId": "REVIEW-SEC-001",
+    "aliasedFindingId": "C11-W2-F5",
+    "status": "CLOSED AS STALE / NOT CURRENT",
+    "citation": "review-sec-001-stale-verification.json (commit 83dc703). Current approvePlan anchors owner/project/plan-path to committed state, self-labelled in its own code comment, 6/6 adversarial tests passing. No source modified."
+  },
+  "carryForwardResidue": [
+    "GRANT1A/GKWORK-9f964bf843f9a840 — AMENDMENT_REQUIRED, sealed, exhausted negative evidence, preserved as-is",
+    "GRANT2A/GKWORK-d898ad4744d070ac — AWAITING_OWNER, durably blocked from re-ask (ALREADY_ASKED), preserved as-is",
+    "OpenAI gatekeeper API key exposed in session/tool output during a diagnostic step — rotation explicitly DEFERRED to project completion per owner ruling, not resolved in this closure",
+    "MEDIUM/LOW findings from the C9 and C11-W2 review cycles — not fixed, per every owner ruling in this closure arc ('do not fix MEDIUM/LOW')",
+    "Pre-existing carry-forward items already on record in acceptance-matrix.md (SEC-CHECK-OUTPUT-PROVENANCE, SEC-PERCENT-ENCODED-PATHS, PLAN-DRAFT-COMPLETENESS-GAP, TIGHTEN-GATEKEEPER-API-PERMISSIONS, supersedesPlanVersion hard-coded null, draft.authoritativeSource naming, retired derived plan record) — unchanged, not touched in this closure"
+  ],
+  "verification": {
+    "validators": "131/131 PASS",
+    "secretScan": "clean",
+    "unresolvedCritical": 0,
+    "unresolvedHigh": 0
+  },
+  "recommendation": "ACCEPTED FOR CLOSURE. 17/17 criteria proven. Push withheld pending the gatekeeper's separate push gate, per instruction."
+}
