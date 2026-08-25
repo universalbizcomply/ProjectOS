@@ -207,6 +207,26 @@ async function credentialsCommand(sub, flags) {
   }
   if (sub === "status") {
     const rows = vault.status({ project: flags.project, environment: flags.environment, provider: flags.provider });
+    // MACHINE-READABLE, for the Control Centre. Exactly the same rows the human listing prints —
+    // reference, presence, risk class, non-reversible fingerprint, expiry and whether ProjectOS has
+    // metadata for it. There is no value here and no code path that could put one here: `status` is
+    // built from `vault.status`, which never reads a secret.
+    if (flags.json === true || flags.json === "true") {
+      console.log(JSON.stringify({ credentials: rows.map((row) => ({
+        reference: row.reference,
+        project: row.project,
+        environment: row.environment,
+        provider: row.provider,
+        credential: row.credential,
+        risk: row.risk,
+        present: row.present === true,
+        managed: row.managed === true,
+        expired: row.expired === true,
+        fingerprint: row.fingerprint || null,
+        expiresAt: row.expiresAt || null,
+      })) }));
+      return 0;
+    }
     if (!rows.length) { console.log("no credentials recorded for this filter"); return 0; }
     for (const row of rows) {
       console.log([

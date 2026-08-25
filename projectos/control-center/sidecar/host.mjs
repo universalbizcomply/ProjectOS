@@ -38,7 +38,7 @@ import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { resolve as resolvePath, join as joinPath, isAbsolute, basename, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { BridgeDaemon, nodeSystem, loadConfig } from '@projectos/bridge-daemon';
 import { InProcessTransport } from '../node-build/daemon/inProcessTransport.js';
 import {
@@ -297,6 +297,50 @@ function readDraftRecords(root) {
   return out;
 }
 
+/**
+ * The credential router, resolved exactly like the governed runtime CLI (see `agentCliPath`), or
+ * `null` when this installation cannot reach one.
+ */
+function credentialRouterPath() {
+  const root = systemRoot();
+  if (root !== null) {
+    const bound = joinPath(root, 'projectos', 'scripts', 'projectos-credential-router.cjs');
+    if (existsSync(bound)) return bound;
+  }
+  const here = dirname(fileURLToPath(import.meta.url));
+  const local = resolvePath(here, '..', '..', 'scripts', 'projectos-credential-router.cjs');
+  return existsSync(local) ? local : null;
+}
+
+/**
+ * Credential METADATA for one project, or `null` when it could not be established.
+ *
+ * NO SECRET CROSSES THIS BOUNDARY, and none can: `credentials status --json` is built from
+ * `vault.status`, whose entire value-derived surface is a non-reversible fingerprint. There is no
+ * flag that makes it emit a value and no code path here that asks for one.
+ *
+ * `null` is returned for every failure — router absent, non-zero exit, unparseable output — because
+ * "ProjectOS could not ask" and "this project has no credentials" are different facts, and the
+ * projection renders them differently. Returning an empty list on failure would quietly assert the
+ * second while only the first is known.
+ */
+function readCredentialRows(projectId) {
+  const router = credentialRouterPath();
+  if (router === null || typeof projectId !== 'string' || projectId === '') return null;
+  try {
+    const result = spawnSync(
+      process.execPath,
+      [router, 'credentials', 'status', '--project', projectId, '--json'],
+      { encoding: 'utf8', windowsHide: true, timeout: 20_000 },
+    );
+    if (result.status !== 0 || typeof result.stdout !== 'string') return null;
+    const parsed = JSON.parse(result.stdout);
+    return Array.isArray(parsed?.credentials) ? parsed.credentials : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Every worker session record — `.projectops/execution/<id>.session.json`. */
 function readSessionRecords(root) {
   const dir = joinPath(root, '.projectops', 'execution');
@@ -405,6 +449,7 @@ function buildGovernedState(root, observedAt) {
       draftRecords: readDraftRecords(root),
       planDecisionRecords: readPlanDecisionRecords(root),
       sessionRecords: readSessionRecords(root),
+      credentialRows: readCredentialRows(String(cfg['projectId'] ?? '')),
       readiness: engine.evaluatePlanReady(plan),
       planPath: declaredPlan === undefined ? DEFAULT_PLAN_RELPATH : declaredPlan,
       branch: null,

@@ -24,6 +24,8 @@ import type {
   GovernedDelegationView,
   GovernedGatekeeperView,
   GovernedPhaseStatus,
+  GovernedConnectionView,
+  GovernedConnectionsView,
   GovernedPlanDraftView,
   GovernedSessionView,
   GovernedPhaseView,
@@ -67,6 +69,12 @@ export interface GovernedInputs {
   readonly planDecisionRecords?: readonly Record<string, unknown>[];
   /** Parsed `.projectops/execution/*.session.json` records — every worker session on record. */
   readonly sessionRecords?: readonly Record<string, unknown>[];
+  /**
+   * Credential METADATA rows, exactly as `credentials status --json` emits them, or null when the
+   * credential router could not be reached. Null and "an empty list" are different facts and are
+   * projected differently — see `GovernedConnectionsView`.
+   */
+  readonly credentialRows?: readonly Record<string, unknown>[] | null;
   /** Recomputed by the engine — the stored `planStatus` string is never trusted. */
   readonly readiness: ReadinessVerdict;
   readonly planPath: string;
@@ -364,6 +372,60 @@ function sessionsOf(records: readonly Record<string, unknown>[]): readonly Gover
     .sort((a, b) => (a.startedAt < b.startedAt ? 1 : a.startedAt > b.startedAt ? -1 : 0));
 }
 
+/**
+ * The connection picture, from credential METADATA only.
+ *
+ * `null` rows mean the credential router could not be reached — reported as unavailable rather than
+ * as "no connections", because an installation that could not ask has learned nothing. An empty
+ * ARRAY is a real answer and is reported as one.
+ *
+ * Status is derived, never taken from a field: a row that is absent from the OS store is MISSING
+ * whatever its metadata claims; a present-but-expired one is EXPIRED; a present one ProjectOS has no
+ * metadata for is UNMANAGED, which is worth surfacing because nothing recorded when it was set or
+ * when it expires.
+ */
+function connectionsOf(
+  rows: readonly Record<string, unknown>[] | null | undefined,
+): GovernedConnectionsView {
+  if (rows === null || rows === undefined) {
+    return {
+      available: false,
+      detail: 'ProjectOS could not read this project’s connections on this computer.',
+      connections: [],
+    };
+  }
+  const connections: GovernedConnectionView[] = rows
+    .map((row) => {
+      const present = row['present'] === true;
+      const status: GovernedConnectionView['status'] = !present
+        ? 'MISSING'
+        : row['expired'] === true
+          ? 'EXPIRED'
+          : row['managed'] === true
+            ? 'STORED'
+            : 'UNMANAGED';
+      const fingerprint = str(row, 'fingerprint');
+      const expiresAt = str(row, 'expiresAt');
+      return {
+        provider: str(row, 'provider'),
+        environment: str(row, 'environment'),
+        credential: str(row, 'credential'),
+        reference: str(row, 'reference'),
+        risk: str(row, 'risk'),
+        status,
+        fingerprint: fingerprint === '' ? null : fingerprint,
+        expiresAt: expiresAt === '' ? null : expiresAt,
+      };
+    })
+    .filter((c) => c.reference !== '')
+    .sort((a, b) =>
+      a.provider !== b.provider
+        ? a.provider.localeCompare(b.provider)
+        : a.environment.localeCompare(b.environment),
+    );
+  return { available: true, detail: '', connections };
+}
+
 export function projectGovernedState(inputs: GovernedInputs): GovernedProjection {
   const { config, plan, currentState, phaseRecords, readiness } = inputs;
 
@@ -480,6 +542,7 @@ export function projectGovernedState(inputs: GovernedInputs): GovernedProjection
     pendingApprovals: pendingApprovalsOf(inputs.approvalRecords ?? []),
     planDrafts: planDraftsOf(inputs.draftRecords ?? [], inputs.planDecisionRecords ?? []),
     sessions: sessionsOf(inputs.sessionRecords ?? []),
+    connections: connectionsOf(inputs.credentialRows),
     safety: {
       productionFreeze: config['productionFreeze'] === true,
       forbiddenActions: strArray(config, 'forbiddenActions'),

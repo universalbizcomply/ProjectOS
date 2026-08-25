@@ -16,6 +16,7 @@ import { ownerModelFromGoverned } from './governedOwnerModel';
 import { GovernedActions } from './GovernedActions';
 import { GatekeeperStatus } from './GatekeeperStatus';
 import { OwnerActionInbox } from './OwnerActionInbox';
+import { ConnectionsPanel } from './ConnectionsPanel';
 import { ObjectiveIntake } from './ObjectiveIntake';
 import { ProjectSelector } from './ProjectSelector';
 import { RegisterProjectGuide } from './RegisterProjectGuide';
@@ -231,6 +232,9 @@ export function OwnerControlPlane() {
 
       {/* Gatekeeper status + real cost. Only ever shown against live runtime state. */}
       {live !== null && <GatekeeperStatus state={live} />}
+
+      {/* External connections. Metadata only — never a credential value. */}
+      {live !== null && <ConnectionsPanel state={live} />}
 
       {/* Governed actions — only ever shown against live runtime state. */}
       {live !== null && <GovernedActions state={live} />}

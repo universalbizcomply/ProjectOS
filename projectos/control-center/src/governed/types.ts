@@ -155,6 +155,43 @@ export interface GovernedSessionView {
   readonly exitCode: number | null;
 }
 
+/**
+ * ONE external connection a project may need, as the owner surface sees it.
+ *
+ * NEVER carries a credential value, and structurally cannot: it is built from `credentials status`,
+ * which is metadata-only — reference, presence, risk class and a non-reversible fingerprint are the
+ * entire value-derived surface the credential router will emit. `fingerprint` is a salted-domain
+ * SHA-256 truncation and is safe to display; it is included so an owner can tell two credentials
+ * apart without ever seeing either.
+ */
+export interface GovernedConnectionView {
+  readonly provider: string;
+  readonly environment: string;
+  readonly credential: string;
+  /** `ProjectOS/<project>/<environment>/<provider>/<credential>` — a NAME, never a secret. */
+  readonly reference: string;
+  /** `session` may be projected into a worker environment; `operation` is owner-gated per use. */
+  readonly risk: string;
+  readonly status: 'STORED' | 'MISSING' | 'EXPIRED' | 'UNMANAGED';
+  /** Non-reversible short digest, or null when ProjectOS has no metadata for this credential. */
+  readonly fingerprint: string | null;
+  readonly expiresAt: string | null;
+}
+
+/**
+ * Whether ProjectOS could establish the connection picture at all.
+ *
+ * `unavailable` is deliberately distinct from "no connections": an installation that cannot reach
+ * the credential router knows nothing about this project's credentials, and saying "none
+ * configured" would be a claim it has not earned.
+ */
+export interface GovernedConnectionsView {
+  readonly available: boolean;
+  /** Why the picture could not be built. Empty when `available`. */
+  readonly detail: string;
+  readonly connections: readonly GovernedConnectionView[];
+}
+
 export interface GovernedSafetyView {
   readonly productionFreeze: boolean;
   readonly forbiddenActions: readonly string[];
@@ -189,6 +226,8 @@ export interface GovernedProjection {
   readonly planDrafts: readonly GovernedPlanDraftView[];
   /** Every worker execution session on record for this project, newest first. */
   readonly sessions: readonly GovernedSessionView[];
+  /** External connections this project's credentials describe. Metadata only — never a value. */
+  readonly connections: GovernedConnectionsView;
   readonly safety: GovernedSafetyView;
   readonly blockers: readonly string[];
   readonly risks: readonly string[];
