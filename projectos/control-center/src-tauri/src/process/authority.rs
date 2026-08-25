@@ -31,7 +31,8 @@ use super::dev_runtime::{
 #[cfg(test)]
 use super::environment::SYSTEM_ALLOWLIST;
 use super::environment::{
-    collect_system_vars, DAEMON_BRIDGE_CONFIG_VAR, DAEMON_GIT_EXE_VAR, DAEMON_INSTANCE_ID_VAR,
+    collect_system_vars, git_bash_beside, DAEMON_BRIDGE_CONFIG_VAR, DAEMON_GIT_BASH_VAR,
+    DAEMON_GIT_EXE_VAR, DAEMON_INSTANCE_ID_VAR,
 };
 use super::errors::ProcessError;
 // The application-mode CLASSIFIER now lives in the canonical low-level primitive crate, shared with
@@ -299,6 +300,15 @@ impl VerifiedPackagedDaemonLaunchAuthority {
             DAEMON_GIT_EXE_VAR.to_string(),
             self.git_exe.path().to_string_lossy().to_string(),
         ));
+        // The worker's interpreter, DERIVED from that same Git and injected only when it is really
+        // there. Claude Code on Windows requires git-bash and the daemon has no PATH to find it on,
+        // so without this the governed worker exits 1 before doing any work.
+        if let Some(bash) = git_bash_beside(self.git_exe.path()) {
+            env.push((
+                DAEMON_GIT_BASH_VAR.to_string(),
+                bash.to_string_lossy().to_string(),
+            ));
+        }
         let mut args = vec![
             daemon.to_string_lossy().to_string(),
             "--root".to_string(),
@@ -366,6 +376,15 @@ impl DevelopmentDaemonLaunchAuthority {
             DAEMON_GIT_EXE_VAR.to_string(),
             self.git_exe.to_string_lossy().to_string(),
         ));
+        // The worker's interpreter, DERIVED from that same Git and injected only when it is really
+        // there. Claude Code on Windows requires git-bash and the daemon has no PATH to find it on,
+        // so without this the governed worker exits 1 before doing any work.
+        if let Some(bash) = git_bash_beside(&self.git_exe) {
+            env.push((
+                DAEMON_GIT_BASH_VAR.to_string(),
+                bash.to_string_lossy().to_string(),
+            ));
+        }
         // The DEVELOPMENT bridge configuration, as one absolute path bound here. The daemon no
         // longer reads `bridge.config.json` from its working directory, so this is the only way it
         // can receive one — and only development binds it. Injected unconditionally: whether the
