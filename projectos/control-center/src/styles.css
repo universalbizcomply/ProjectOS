@@ -604,6 +604,17 @@ pre.ocp-actionmsg { white-space: pre-wrap; }
 .ocp-gk-budget-warning .ocp-badge { background: #4a3d14; color: #e8c85a; border-color: #6b5a1f; }
 .ocp-gk-budget-stopped .ocp-badge { background: #4a1f1f; color: var(--crit); border-color: #6a2b2b; }
 
+.ocp-regform { display: flex; flex-direction: column; gap: 12px; margin: 12px 0; }
+.ocp-regform label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--text-dim); }
+.ocp-regform input[type='text'], .ocp-regform input:not([type]), .ocp-regform-digest input {
+  background: var(--bg-elev); color: inherit; border: 1px solid var(--line); border-radius: 6px;
+  padding: 6px 8px; font: inherit;
+}
+.ocp-regform-envs { display: flex; gap: 14px; flex-wrap: wrap; border: none; padding: 0; margin: 0; }
+.ocp-regform-envs legend { font-size: 13px; color: var(--text-dim); padding: 0; margin-bottom: 4px; }
+.ocp-regform-check { display: flex; flex-direction: row; align-items: center; gap: 6px; font-size: 13px; }
+.ocp-regform-digest { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--text-dim); margin: 10px 0; }
+
 .ocp-inbox-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
 .ocp-inbox-item { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px 14px; background: var(--bg-elev); }
 .ocp-inbox-item.crit { border-color: #4a1f1f; }

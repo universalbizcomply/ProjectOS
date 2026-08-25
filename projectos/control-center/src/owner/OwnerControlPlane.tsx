@@ -18,6 +18,7 @@ import { GatekeeperStatus } from './GatekeeperStatus';
 import { OwnerActionInbox } from './OwnerActionInbox';
 import { ObjectiveIntake } from './ObjectiveIntake';
 import { ProjectSelector } from './ProjectSelector';
+import { RegisterProjectGuide } from './RegisterProjectGuide';
 import { ProtectedOperationConfirmation } from './confirmation/ProtectedOperationConfirmation';
 import { SYNTHETIC_CONFIRMATION, SYNTHETIC_NOW_MS } from './confirmation/ownerConfirmationFixture';
 import {
@@ -135,6 +136,7 @@ export function OwnerControlPlane() {
           the projects the installed host validated against the protected registry, and it submits a
           project ID — there is no path input here, and no route by which one could be supplied. */}
       <ProjectSelector />
+      <RegisterProjectGuide />
 
       {noRecordedPosition && (
         <div className="ocp-panel warn" role="status" data-testid="ocp-no-recorded-position">
