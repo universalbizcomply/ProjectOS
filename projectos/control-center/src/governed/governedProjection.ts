@@ -11,12 +11,17 @@
  */
 import {
   isGenuineClosure,
+  summariseLedger,
+  evaluateBudget,
+  policyProblems,
   type ClosureDecisionRecord,
   type ClosureAuthorityExpectations,
+  type LedgerEntry,
 } from '@projectos/core';
 import type {
   GovernedAuthorityView,
   GovernedDelegationView,
+  GovernedGatekeeperView,
   GovernedPhaseStatus,
   GovernedPhaseView,
   GovernedProjection,
@@ -47,6 +52,10 @@ export interface GovernedInputs {
    * which fails closed.
    */
   readonly closureDecisions?: Readonly<Record<string, Record<string, unknown>>>;
+  /** Parsed `.projectops/gatekeeper.json`, or null when the project has none configured. */
+  readonly gatekeeperConfig?: Record<string, unknown> | null;
+  /** Parsed `.projectops/gatekeeper-ledger.json` entries — real spend, never estimated here. */
+  readonly gatekeeperLedger?: readonly LedgerEntry[];
   /** Recomputed by the engine — the stored `planStatus` string is never trusted. */
   readonly readiness: ReadinessVerdict;
   readonly planPath: string;
@@ -225,6 +234,60 @@ function deriveNextSafeAction(
 }
 
 /** Build the owner-facing projection from canonical records. */
+/**
+ * Real gatekeeper spend, summarised with the SAME pure functions `projectos run` itself calls
+ * before every live call. Never a second implementation of the arithmetic that decides a budget.
+ */
+function gatekeeperStatusOf(
+  gatekeeperConfig: Record<string, unknown> | null | undefined,
+  ledger: readonly LedgerEntry[],
+  projectId: string,
+  phaseId: string,
+  observedAt: string,
+): GovernedGatekeeperView {
+  const configured = gatekeeperConfig !== null && gatekeeperConfig !== undefined && gatekeeperConfig['enabled'] === true;
+  const month = observedAt.slice(0, 7);
+  const totals = summariseLedger(ledger, { projectId, phaseId, month });
+
+  const budgetRaw = configured ? (gatekeeperConfig?.['budget'] as Record<string, unknown> | undefined) : undefined;
+  const policy =
+    budgetRaw === undefined
+      ? null
+      : {
+          warnAtMicroUsd: typeof budgetRaw['warnAtMicroUsd'] === 'number' ? budgetRaw['warnAtMicroUsd'] : NaN,
+          hardStopAtMicroUsd: typeof budgetRaw['hardStopAtMicroUsd'] === 'number' ? budgetRaw['hardStopAtMicroUsd'] : NaN,
+        };
+  const budget =
+    policy === null || policyProblems(policy).length > 0
+      ? null
+      : (() => {
+          const verdict = evaluateBudget(totals, policy);
+          return {
+            status: verdict.status,
+            spentThisMonthMicroUsd: verdict.spentMicroUsd,
+            remainingMicroUsd: verdict.remainingMicroUsd,
+            warnAtMicroUsd: policy.warnAtMicroUsd,
+            hardStopAtMicroUsd: policy.hardStopAtMicroUsd,
+          };
+        })();
+
+  // The most recent entry BY TIME, not by array order — the ledger is append-only but a restart
+  // can still append out of strict chronological order relative to a prior run's tail.
+  const last = [...ledger]
+    .filter((e) => typeof e.at === 'string' && e.at.length > 0)
+    .sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0))[0];
+
+  return {
+    configured,
+    budget,
+    spentThisPhaseMicroUsd: totals.phaseMicroUsd,
+    spentThisProjectMicroUsd: totals.projectMicroUsd,
+    callCount: totals.callCount,
+    lastCall:
+      last === undefined ? null : { requestId: last.requestId, model: last.model, at: last.at, costMicroUsd: last.costMicroUsd },
+  };
+}
+
 export function projectGovernedState(inputs: GovernedInputs): GovernedProjection {
   const { config, plan, currentState, phaseRecords, readiness } = inputs;
 
@@ -331,6 +394,13 @@ export function projectGovernedState(inputs: GovernedInputs): GovernedProjection
     activePhase,
     nextStartablePhase,
     authority: authorityOf(plan),
+    gatekeeperStatus: gatekeeperStatusOf(
+      inputs.gatekeeperConfig,
+      inputs.gatekeeperLedger ?? [],
+      str(config, 'projectId'),
+      activePhase?.phaseId ?? '',
+      inputs.observedAt,
+    ),
     safety: {
       productionFreeze: config['productionFreeze'] === true,
       forbiddenActions: strArray(config, 'forbiddenActions'),

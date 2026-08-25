@@ -14,6 +14,7 @@ import { useGovernedProjects, useLifecycle, useGovernedState } from '../daemon/D
 import type { LiveLifecycle } from '../daemon/types';
 import { ownerModelFromGoverned } from './governedOwnerModel';
 import { GovernedActions } from './GovernedActions';
+import { GatekeeperStatus } from './GatekeeperStatus';
 import { ObjectiveIntake } from './ObjectiveIntake';
 import { ProjectSelector } from './ProjectSelector';
 import { ProtectedOperationConfirmation } from './confirmation/ProtectedOperationConfirmation';
@@ -221,6 +222,9 @@ export function OwnerControlPlane() {
         <h2>Next safe action</h2>
         <p className="ocp-next">{view.nextSafeAction}</p>
       </div>
+
+      {/* Gatekeeper status + real cost. Only ever shown against live runtime state. */}
+      {live !== null && <GatekeeperStatus state={live} />}
 
       {/* Governed actions — only ever shown against live runtime state. */}
       {live !== null && <GovernedActions state={live} />}

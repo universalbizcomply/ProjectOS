@@ -593,10 +593,22 @@ pre.ocp-actionmsg { white-space: pre-wrap; }
   border: 1px solid var(--line); border-radius: var(--radius-sm);
 }
 
+.ocp-gk-row {
+  display: flex; justify-content: space-between; gap: 12px; padding: 6px 0;
+  border-bottom: 1px solid var(--line); font-size: 13px;
+}
+.ocp-gk-row:last-of-type { border-bottom: none; }
+.ocp-gk-label { color: var(--text-faint); }
+.ocp-gk-budget { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 13px; }
+.ocp-gk-budget-ok .ocp-badge { background: #143d24; color: #7bdb9e; border-color: #1e5c37; }
+.ocp-gk-budget-warning .ocp-badge { background: #4a3d14; color: #e8c85a; border-color: #6b5a1f; }
+.ocp-gk-budget-stopped .ocp-badge { background: #4a1f1f; color: var(--crit); border-color: #6a2b2b; }
+
 @media (max-width: 420px) {
   .ocp-actions .ocp-actionrow { flex-direction: column; align-items: stretch; }
   .ocp-btn { width: 100%; }
   .ocp-run-output { max-height: 180px; font-size: 11px; }
+  .ocp-gk-row { flex-direction: column; gap: 2px; }
 }
 
 /* --- Project selector (PROJECTOS-PHASE6-SECTION-C) -------------------------------------------

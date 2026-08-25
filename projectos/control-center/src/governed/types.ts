@@ -85,6 +85,30 @@ export interface GovernedAuthorityView {
   readonly ownerOnlyActions: readonly string[];
 }
 
+/**
+ * The gatekeeper's own spend, read from the SAME cost ledger `projectos run` writes to and
+ * enforces against. Never inferred or estimated — every number here is a pure re-summarisation of
+ * ledger entries the runtime already wrote, using the runtime's own `summariseLedger`/
+ * `evaluateBudget` functions, so this can never disagree with what actually decides a call.
+ */
+export interface GovernedGatekeeperView {
+  /** Whether `.projectops/gatekeeper.json` exists and declares `enabled: true`. */
+  readonly configured: boolean;
+  /** `null` when no budget is configured — never rendered as $0. */
+  readonly budget: {
+    readonly status: 'OK' | 'WARNING' | 'STOPPED';
+    readonly spentThisMonthMicroUsd: number;
+    readonly remainingMicroUsd: number;
+    readonly warnAtMicroUsd: number;
+    readonly hardStopAtMicroUsd: number;
+  } | null;
+  readonly spentThisPhaseMicroUsd: number;
+  readonly spentThisProjectMicroUsd: number;
+  readonly callCount: number;
+  /** The most recent ledger entry, however it resolved. `null` means never contacted. */
+  readonly lastCall: { readonly requestId: string; readonly model: string; readonly at: string; readonly costMicroUsd: number } | null;
+}
+
 export interface GovernedSafetyView {
   readonly productionFreeze: boolean;
   readonly forbiddenActions: readonly string[];
@@ -112,6 +136,7 @@ export interface GovernedProjection {
   readonly activePhase: GovernedPhaseView | null;
   readonly nextStartablePhase: GovernedPhaseView | null;
   readonly authority: GovernedAuthorityView;
+  readonly gatekeeperStatus: GovernedGatekeeperView;
   readonly safety: GovernedSafetyView;
   readonly blockers: readonly string[];
   readonly risks: readonly string[];

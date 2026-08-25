@@ -256,6 +256,21 @@ function readClosureDecisions(root) {
   return out;
 }
 
+/**
+ * The gatekeeper's own config and spend ledger — both read-only, both already-canonical files the
+ * loop itself writes and reads. Absent means "not configured" or "nothing spent yet", never an
+ * error: most projects legitimately have no gatekeeper wired up at all.
+ */
+function readGatekeeperConfig(root) {
+  return readJsonFile(joinPath(root, '.projectops', 'gatekeeper.json'));
+}
+
+function readGatekeeperLedger(root) {
+  const raw = readJsonFile(joinPath(root, '.projectops', 'gatekeeper-ledger.json'));
+  const entries = raw && Array.isArray(raw.entries) ? raw.entries : [];
+  return entries;
+}
+
 /** Build the governed state for `root`, or an honest unavailable reason. Never throws. */
 function buildGovernedState(root, observedAt) {
   if (typeof root !== 'string' || root.length === 0 || !isAbsolute(root)) {
@@ -325,6 +340,8 @@ function buildGovernedState(root, observedAt) {
       currentState,
       phaseRecords: readPhaseRecords(root),
       closureDecisions: readClosureDecisions(root),
+      gatekeeperConfig: readGatekeeperConfig(root),
+      gatekeeperLedger: readGatekeeperLedger(root),
       readiness: engine.evaluatePlanReady(plan),
       planPath: declaredPlan === undefined ? DEFAULT_PLAN_RELPATH : declaredPlan,
       branch: null,
