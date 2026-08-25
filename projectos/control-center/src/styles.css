@@ -431,10 +431,27 @@ body {
      base rule. At 320px that meant nine stacked rows filling the whole first viewport before any
      Owner Control content — found by the real browser proof. Lay the nav out as its own wrapping
      row, and give every item the 44px minimum touch target these widths imply. */
-  .sidebar nav[aria-label='Primary'] {
+  /* BOTH navs, not just Primary. The sidebar has two <nav> landmarks — Primary (Projects, Owner
+     Control) and Reference & support (Mission Control, Owner Chat, Safety & Providers, Safety
+     Gates, Workflow, Integrations, Forge) — and only Primary was ever made a wrapping row. Found
+     live at 375px: the second nav, holding most of the items, was still untouched block layout,
+     so "REFERENCE & SUPPORT" alone still filled the whole first viewport in stacked full-width
+     rows before any page content — the exact failure the comment below describes, just in the nav
+     this fix never reached. */
+  .sidebar nav[aria-label='Primary'],
+  .sidebar nav.nav-reference {
     display: flex; flex-wrap: wrap; gap: 6px; flex: 1 1 100%; margin-top: 8px;
   }
+  .nav-reference .navgroup { flex: 1 0 100%; margin: 4px 0 0; }
   .navitem { width: auto; min-height: 44px; padding: 8px 12px; }
+  /* The per-item description (.navhint) is `flex: 1 0 100%` INSIDE each button, so even with the
+     outer nav wrapping, every item still forced its own near-full-width second line for the hint
+     text — nine compact pills became nine two-line cards, the same "fills the whole first
+     viewport" failure the comment above describes, just from a different rule. Found live at
+     375px: the label-only sidebar this breakpoint promises does not exist while the hint renders.
+     The fuller description belongs to the roomy desktop sidebar; a wrapped pill row has no room
+     for it and does not need it — the destination name is enough. */
+  .navhint { display: none; }
   .ocp-grid2 { grid-template-columns: 1fr; }
   .ocp .head { flex-direction: column; }
 }
