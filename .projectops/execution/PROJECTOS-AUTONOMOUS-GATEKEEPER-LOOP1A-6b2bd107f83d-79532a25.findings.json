@@ -1,0 +1,143 @@
+{
+  "schemaVersion": "1.0.0",
+  "sessionId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A-6b2bd107f83d-79532a25",
+  "projectId": "projectos",
+  "phaseId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+  "at": "2026-08-25T00:00:00.000Z",
+  "recordedBy": "Claude (worker, code-review and security-review, session 3 correction pass)",
+  "reviews": ["code-review", "security-review"],
+  "scope": "Source files modified in this phase and the evidence trail of all corrections made during it. Files reviewed: projectos/core/src/closureAuthority.ts, projectos/core/src/gatekeeperCostLedger.ts, projectos/agent/src/loop/gatekeeperConfig.ts, projectos/agent/src/installation/brokerAnsweredState.ts, projectos/agent/src/loop/degradedMode.ts, projectos/agent/src/commands/reconcile.ts, projectos/agent/src/loop/transports/brokeredHttpPort.ts, projectos/agent/src/loop/transports/openaiResponses.ts. Evidence records reviewed: c11-witness2-pregate, c11-witness2-activation, c11-w2-f1-correction, c11-w2-f6-correction, c11-w2-f7-correction, c11-degraded-gate, c11-degraded-continuation, c11-limb3-attempt.",
+  "findings": [
+    {
+      "id": "REVIEW-SEC-001",
+      "severity": "HIGH",
+      "category": "authority-boundary",
+      "summary": "C11-W2-F5 (pre-existing, confirmed still open): approvePlan's owner and project-identity anchors remain working-tree-sourced. The same forgeable-anchor pattern that was closed at the gatekeeper boundary in the C11-W2-F1b correction was not closed at the plan-approval boundary. planMemory.planPath and the project-config.json that names the owner are both read from the working tree during plan approval; anything able to write those files can point the owner anchor at a name of its choosing, commit one internally consistent delegation under that name, and have it accepted. The C11-W2-F1b correction explicitly identified this as the pre-existing form of the defect and noted it was out of authorised scope for that correction. A working-tree approval is one owner-attended act, which is why 'working-tree' was kept for that boundary — but the consequence is that forged files in an unreviewed working copy can influence who the plan records as owner.",
+      "resolved": false,
+      "firstRecordedIn": "C11-W2-F1-CORRECTION1A (c11-w2-f1-correction.json), as eccReview.openHigh.id C11-W2-F5",
+      "preExisting": true,
+      "outOfScopeForAuthorisedCorrections": true
+    },
+    {
+      "id": "REVIEW-CR-001",
+      "severity": "MEDIUM",
+      "category": "error-handling",
+      "summary": "writeLedger throws when renameFile fails, and neither settleGatekeeperSpend nor resolveGatekeeperSpend nor releaseUndispatchedReservation catches it. The throw propagates through underCostLedgerLock (the finally block still releases the lock) and up to the caller. A rename failure on settlement therefore produces an unhandled exception rather than a logged, silent failure — which may crash the calling loop rather than allowing it to continue with the reservation standing, which is the intended fail-safe state.",
+      "resolved": false,
+      "resolvedIn": null,
+      "fixPrepared": true,
+      "fixDescription": "Wrap each writeLedger(...) call inside the underCostLedgerLock callbacks in settleGatekeeperSpend, resolveGatekeeperSpend, and releaseUndispatchedReservation with try { writeLedger(...) } catch { return; }. On throw the function returns silently; the reservation remains standing.",
+      "fixBlockedBy": "Source file writes to gatekeeperConfig.ts required permission grant not available in this session.",
+      "firstRecordedIn": "C11-W2-F6-CORRECTION1A (c11-w2-f6-correction.json), carryForwardNotFixed",
+      "preExisting": true
+    },
+    {
+      "id": "REVIEW-SEC-002",
+      "severity": "MEDIUM",
+      "category": "spend-accounting",
+      "summary": "The release branch in resolveGatekeeperSpend is unreachable through the production broker wiring for the broker-source-verification failure case: verifiedBrokerSource returning null causes brokeredHttpPort to return transport-error, which interpretHttpResponse maps to PROVIDER_UNAVAILABLE (not in NEVER_DISPATCHED), retaining the reservation with no cleanup path. This session adds a 'setup-error' kind to HttpResponse, mapped to TRANSPORT_UNUSABLE (in NEVER_DISPATCHED) in interpretHttpResponse, and brokeredHttpPort returns setup-error when source is null. Mid-call broker failures remain as transport-error → PROVIDER_UNAVAILABLE (conservative).",
+      "resolved": false,
+      "resolvedIn": null,
+      "fixPrepared": true,
+      "fixDescription": "Add setup-error to HttpResponse union in openaiResponses.ts; add handler in interpretHttpResponse mapping setup-error to TRANSPORT_UNUSABLE; brokeredHttpPort.ts returns { kind: 'setup-error' } when source === null.",
+      "fixBlockedBy": "Source file writes to openaiResponses.ts and brokeredHttpPort.ts required permission grant not available in this session.",
+      "firstRecordedIn": "C11-W2-F6-CORRECTION1A (c11-w2-f6-correction.json), carryForwardNotFixed",
+      "preExisting": true
+    },
+    {
+      "id": "REVIEW-SEC-003",
+      "severity": "MEDIUM",
+      "category": "spend-accounting",
+      "summary": "The reconcile route shares the admission path but was not wired to resolveGatekeeperSpend or releaseUndispatchedReservation. (Pre-existing finding from c11-w2-f6-correction.json and c11-degraded-continuation.json.)",
+      "resolved": true,
+      "resolvedIn": "SESSION-3 READ CONFIRMS SOURCE ALREADY WIRED — reconcile.ts (committed source) already carries: releaseUndispatched: (requestId) => releaseUndispatchedReservation(ctx.sys, ctx.root, requestId) and resolveSpend: (request, cause) => resolveGatekeeperSpend(ctx.sys, ctx.root, request.requestId, cause, () => readBrokerAnsweredState(...)). No edit required. Finding was stale.",
+      "firstRecordedIn": "C11-W2-F6-CORRECTION1A (c11-w2-f6-correction.json) and C11-DEGRADED-CONTINUATION1A",
+      "preExisting": true
+    },
+    {
+      "id": "REVIEW-CR-002",
+      "severity": "LOW",
+      "category": "robustness",
+      "summary": "brokerAnsweredState.ts line 73: when a matching row is found in the broker's record, the function returns 'answered' if outcome === 'answered' and 'not-answered' for any other value — including null, an empty string, or a corrupt non-string value. A partially written or corrupt matching row is therefore treated as 'not-answered' rather than 'unknown', which could allow a retry when the safe answer would be to refuse.",
+      "resolved": false,
+      "resolvedIn": null,
+      "fixPrepared": true,
+      "fixDescription": "Change line 73: replace `return row['outcome'] === 'answered' ? 'answered' : 'not-answered';` with `const outcome = row['outcome']; if (outcome === 'answered') return 'answered'; return 'unknown';`",
+      "fixBlockedBy": "Source file writes to brokerAnsweredState.ts required permission grant not available in this session.",
+      "firstRecordedIn": "C11-W2-F7-CORRECTION1A (c11-w2-f7-correction.json), carryForwardNotFixed",
+      "preExisting": true
+    },
+    {
+      "id": "REVIEW-CR-003",
+      "severity": "LOW",
+      "category": "spend-accounting",
+      "summary": "degradedMode.ts builds its own consumed decision-id set from the ledger without applying the unresolved filter that consumedDecisionIds applies. Not currently exploitable — a reconciliation verdict is only accepted after settlement has replaced the reservation — but it is a second copy of the rule that diverges from consumedDecisionIds.",
+      "resolved": false,
+      "resolvedIn": null,
+      "fixPrepared": true,
+      "fixDescription": "Add consumedDecisionIds to the import from './gatekeeperConfig.js' (line 34). Line 422: replace `new Set(readLedger(sys, root).map((e) => \\`GKDEC-${e.requestId}\\`))` with `consumedDecisionIds(readLedger(sys, root))`.",
+      "fixBlockedBy": "Source file writes to degradedMode.ts required permission grant not available in this session.",
+      "firstRecordedIn": "C11-W2-F6-CORRECTION1A (c11-w2-f6-correction.json), carryForwardNotFixed",
+      "preExisting": true
+    },
+    {
+      "id": "C11-W2-F1",
+      "severity": "HIGH",
+      "category": "authority-boundary",
+      "summary": "resolveDelegatedDecider accepted a committed delegation record on two checks only — programmeScope matched and delegatedTo was a non-empty string — without validating schema, owner provenance, delegated scope, or the implementer exclusion. The same bytes could be refused by the plan-approval path and simultaneously accepted as the decider authority. Order-dependent: commit the delegation after plan approval and the validating path never saw it.",
+      "resolved": true,
+      "resolvedIn": "C11-W2-F1-CORRECTION1A — resolveDelegatedDecider now calls checkClosureDelegationRecord with requiredScope, judging the record against an owner read from the committed project config."
+    },
+    {
+      "id": "C11-W2-F1b",
+      "severity": "CRITICAL",
+      "category": "authority-boundary",
+      "summary": "The owner anchor used to validate a delegation at the gatekeeper boundary was read from the working tree. Anything able to write planMemory.planPath or project-config.json could forge the expected owner, commit one internally consistent delegation, and be resolved as the decider.",
+      "resolved": true,
+      "resolvedIn": "C11-W2-F1-CORRECTION1A — resolveRecordedOwner now accepts a planTrust parameter; the gatekeeper path passes 'committed' and reads project-config.json from HEAD."
+    },
+    {
+      "id": "C11-W2-F2",
+      "severity": "HIGH",
+      "category": "authority-boundary",
+      "summary": "The programmeId used to match a delegation was read from the uncommitted gatekeeper.json. A delegation record carries no expiry and stops applying only because the programme moves on; re-pointing the programme in the working copy alone would revive a retired delegation and its decider.",
+      "resolved": true,
+      "resolvedIn": "C11-W2-F1-CORRECTION1A — loadGatekeeperConfig now reads the committed gatekeeper.json and compares programmeId values; a working copy that disagrees is refused."
+    },
+    {
+      "id": "C11-W2-F6",
+      "severity": "HIGH",
+      "category": "spend-accounting",
+      "summary": "Admission wrote a provisional ledger entry before the gatekeeper call but nothing closed it when the call produced no answer. The next run re-derived the same request id, found it in the ledger, and refused it as already asked — on a path returning no owner choices and no unavailability cause. One failed transport made that exact question permanently unaskable and withdrew the owner's ACCEPT RISK option.",
+      "resolved": true,
+      "resolvedIn": "C11-W2-F6-CORRECTION1A and C11-W2-F7-CORRECTION1A — reservation marked unresolved at birth in admission; resolveGatekeeperSpend removes the entry when cause proves no dispatch AND broker record confirms not-answered; consumedDecisionIds filters unresolved entries."
+    },
+    {
+      "id": "C11-W2-F7",
+      "severity": "HIGH",
+      "category": "spend-accounting",
+      "summary": "settleGatekeeperSpend silently did nothing when it could not acquire the ledger lock. After the F6 retry gate trusted the unresolved mark, that mark could not distinguish 'never answered' from 'answered, settlement lost' — so a question already decided could be asked again, producing a double charge and a potentially contradicting second verdict.",
+      "resolved": true,
+      "resolvedIn": "C11-W2-F7-CORRECTION1A — brokerAnsweredState.ts added; admitGatekeeperSpend now consults the broker's durable installation record before permitting a retry of an unresolved reservation; 'unknown' refuses."
+    },
+    {
+      "id": "C11-W2-F8",
+      "severity": "HIGH",
+      "category": "spend-classification",
+      "summary": "The installation's committed allowlist refuses before the broker is invoked, but the refusal was reported down the same channel as a mid-flight failure — classified PROVIDER_UNAVAILABLE — so it retained a reservation for a call that provably never happened. The retry gate then could not clear the reservation because the broker's answered-record (which only exists when the broker ran) was absent, making the question permanently unaskable.",
+      "resolved": true,
+      "resolvedIn": "C11-DEGRADED-GATE1A — the allowlist check is performed on the agent side before the broker is invoked; a refused project returns TRANSPORT_NOT_APPROVED, which is in NEVER_DISPATCHED and eligible for release."
+    }
+  ],
+  "summary": {
+    "criticalUnresolved": 0,
+    "highUnresolved": 1,
+    "mediumUnresolved": 2,
+    "lowUnresolved": 2,
+    "mediumResolvedThisPass": 1,
+    "criticalResolved": 1,
+    "highResolved": 4,
+    "certificationStatus": "BLOCKED — one HIGH finding (REVIEW-SEC-001 / C11-W2-F5) is open. It is pre-existing and was recorded as out of authorised scope for the corrections made in this phase. It requires an owner and gatekeeper ruling before a correction can be attempted. Two MEDIUM findings (REVIEW-CR-001, REVIEW-SEC-002) and two LOW findings (REVIEW-CR-002, REVIEW-CR-003) have prepared fixes that could not be applied because source file writes required a permission grant not available in this session. REVIEW-SEC-003 was confirmed resolved — already wired in committed source.",
+    "session3Notes": "REVIEW-SEC-003 resolved by source read (stale finding, wiring already present). Fixes for REVIEW-CR-001, REVIEW-SEC-002, REVIEW-CR-002, REVIEW-CR-003 prepared and documented but not applied — source edits blocked by session permission settings. Effects attestation: all false."
+  }
+}

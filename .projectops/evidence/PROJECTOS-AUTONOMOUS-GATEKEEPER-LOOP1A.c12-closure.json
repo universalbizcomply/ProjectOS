@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "1.0.0",
+  "evidence": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A.c12-closure",
+  "criterion": "C12",
+  "criterionText": "Restart and resume are proven mid-objective without duplicating a decision, a Claude run, a commit or a cost entry",
+  "status": "PROVEN (live)",
+  "date": "2026-08-25T15:14:00Z",
+  "scenario": "A real prior attempt (session PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A-6b2bd107f83d-79532a25, invocation 79532a2597d93c4b, 2026-08-23T23:19Z) ran to a genuine STOPPED-for-owner outcome, spanning a real multi-day/session gap before being resumed — the most faithful restart scenario available, more faithful than an artificial SIGKILL: the process genuinely ended, the objective was genuinely left mid-flight, and `projectos run --execute --resume --session <id>` was used exactly as an operator would after any interruption.",
+  "proof": {
+    "noDuplicateClaudeRun": {
+      "evidence": "session.json state field: 'started' on the original attempt, 'rejoined' on the resume — never 'started' twice. Same providerRef (36a29cfa-aa68-497e-bf43-5c3747743edb) before and after, unchanged, proving the SAME underlying Claude Code CLI conversation was continued via resolution.adapter.rejoin(), not a fresh adapter.start() spawning a new conversation.",
+      "runOutputLine": "attempt 1: rejoined claude-local; worker exited 0"
+    },
+    "noDuplicateDecision": {
+      "evidence": "The original request GKREQ-3b29e08264e3934557a45f31 (answered 2026-08-23) appears exactly once in .projectops/gatekeeper-ledger.json after the resume — grep count 1. The resume recomputed the proposal against the CURRENT head (83dc703b2bec..., several commits later than the original 6b2bd107f83d...), producing a materially different evidence digest and therefore a legitimately NEW deterministic request id (GKREQ-fc01fb01fe1e9036959fc2dc) for a genuinely different question, not a replay of the old one."
+    },
+    "noDuplicateCostEntry": {
+      "evidence": "Ledger contains one entry per distinct requestId; the original 43444-micro-USD-adjacent charge from the resumed attempt is for the new (different-subject-commit) question only. No entry appears twice for the same requestId."
+    },
+    "noDuplicateCommit": {
+      "evidence": "This worker (claude-local) is tool-scoped to .projectops/execution/*.findings.json and *.effects.json only (project-config.json execution.workers[0].args allowlist) — it makes no commits at all, on either the original attempt or the resume. Nothing to duplicate; the property holds trivially and by construction for this worker class."
+    }
+  },
+  "sideNote": "The resumed run's live gatekeeper review re-surfaced REVIEW-SEC-001 (= C11-W2-F5), the SAME finding investigated and confirmed STALE in the immediately preceding evidence record (review-sec-001-stale-verification.json, commit 83dc703). It resurfaces because the worker reads .projectops/execution/c11-w2-f1-correction.json fresh each attempt, and that historical evidence file's own prose still describes the pre-fix state (accurately, as history) without a forward pointer to the fix. This is not a new finding and not a regression — the current source was directly verified moments earlier with 6/6 adversarial tests passing. No source or evidence-file text modified, per the owner's Outcome-B ruling (do not modify source, continue immediately)."
+}
