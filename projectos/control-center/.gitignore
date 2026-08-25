@@ -12,6 +12,11 @@ dist-daemon/
 # from source by `npm run release:payload`; its identity lives in the trust manifest, not in git.
 dist-payload/
 
+# The staged elevated registration helper, bundled beside the installed executable. Build output,
+# reproducible from source by `npm run release:register-helper`; the binary's identity comes from the
+# signed MSI that carries it, not from git.
+dist-helpers/
+
 # The installer-owned installation record and the WiX fragment that installs it. Build output:
 # the record is emitted by projectos-install-record from the canonical model, and the fragment is
 # expanded from packaging/installation-record.wxs.template, which is the reviewable source.

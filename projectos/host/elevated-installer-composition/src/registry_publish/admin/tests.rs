@@ -555,13 +555,24 @@ fn a15_there_is_no_self_elevation_or_process_launch_on_this_path() {
 // [14] NOTHING IN THE APPLICATION CALLS THIS. REGISTRATION IS OUT OF BAND.
 // =============================================================================================
 
-/// No WebView, renderer, packaged runtime or Tauri host reaches the registration command or the
-/// publication it drives.
+/// No WebView, renderer, packaged runtime or Tauri host LINKS the publication or carries its
+/// confirmation phrase.
 ///
-/// Checked against the manifests and sources themselves rather than asserted in prose: the runtime
-/// side must not depend on this crate at all, and no renderer or daemon source may name the command,
-/// the phrase, or the publish entry point. If a future phase wires an in-app "Add project" button,
-/// this test is what notices.
+/// REBASELINED by PROJECTOS-PRODUCT-COMPLETION1A §11, which asked for an in-app "Add project"
+/// button. The previous form of this test forbade the application from naming registration at all,
+/// and it correctly failed the moment that button was built — it is doing its job, so it is narrowed
+/// to the boundary that still holds rather than deleted.
+///
+/// WHAT CHANGED. The Tauri host may now LAUNCH a bounded elevated helper through a real Windows UAC
+/// prompt. What it may not do is hold the capability itself.
+///
+/// WHAT DID NOT CHANGE, and is asserted below:
+///   - the runtime side still does not DEPEND on this crate, so no WebView-hosting binary links the
+///     publication;
+///   - no renderer, daemon or host source carries the confirmation phrase or names the publish entry
+///     point;
+///   - the RENDERER additionally may not name the terminal command or build a command line — the
+///     WebView asks the host, and the host decides. Only `src-tauri` may name the helper it runs.
 #[test]
 fn a14_no_webview_or_packaged_runtime_caller_exists() {
     let projectos = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -570,7 +581,9 @@ fn a14_no_webview_or_packaged_runtime_caller_exists() {
         .expect("the projectos root")
         .to_path_buf();
 
-    // 1. The runtime side does not depend on this crate.
+    // 1. The runtime side does not depend on this crate. UNCHANGED, and the load-bearing half: a
+    //    launched process is a bounded, separately-authorised thing; a linked one is a capability
+    //    sitting inside the WebView host.
     let tauri_manifest =
         std::fs::read_to_string(projectos.join("control-center/src-tauri/Cargo.toml"))
             .expect("the Tauri manifest is readable");
@@ -579,8 +592,7 @@ fn a14_no_webview_or_packaged_runtime_caller_exists() {
         "the Tauri host must not depend on the elevated installer composition"
     );
 
-    // 2. No renderer, daemon or Tauri source mentions the command, the publication or the phrase at
-    //    all. These are the surfaces an owner drives; registration is not one of the things they do.
+    // 2. Nothing an owner drives carries the phrase or names the publication internals.
     let mut checked = 0usize;
     for relative in [
         "control-center/src",
@@ -591,12 +603,7 @@ fn a14_no_webview_or_packaged_runtime_caller_exists() {
         for file in sources_under(&projectos.join(relative)) {
             let text = std::fs::read_to_string(&file).unwrap_or_default();
             checked += 1;
-            for forbidden in [
-                COMMAND_NAME,
-                "publish_project_registry",
-                "registry_publish",
-                REGISTRY_PUBLISH_PHRASE,
-            ] {
+            for forbidden in ["publish_project_registry", REGISTRY_PUBLISH_PHRASE] {
                 assert!(
                     !text.contains(forbidden),
                     "{} must not reference {forbidden}",
@@ -608,6 +615,26 @@ fn a14_no_webview_or_packaged_runtime_caller_exists() {
     assert!(
         checked > 50,
         "the scan must actually have read sources, saw {checked}"
+    );
+
+    // 3. THE RENDERER IS NOT A CALLER. It may not name the terminal command, and it may not name the
+    //    elevated helper either: a WebView that can name the binary is one step from a WebView that
+    //    chooses which binary. It asks the host by command name; the host owns the file name.
+    let mut renderer_checked = 0usize;
+    for file in sources_under(&projectos.join("control-center/src")) {
+        let text = std::fs::read_to_string(&file).unwrap_or_default();
+        renderer_checked += 1;
+        for forbidden in [COMMAND_NAME, "runas", "ShellExecute"] {
+            assert!(
+                !text.contains(forbidden),
+                "{} is renderer source and must not reference {forbidden}",
+                file.display()
+            );
+        }
+    }
+    assert!(
+        renderer_checked > 20,
+        "the renderer scan must actually have read sources, saw {renderer_checked}"
     );
 
     // 3. The CLI may NAME the command - printing the administrator's next step is the whole point -

@@ -29,7 +29,8 @@
       "msi"
     ],
     "resources": {
-      "../dist-payload": "runtime-payload"
+      "../dist-payload": "runtime-payload",
+      "../dist-helpers/projectos-register-project-elevated.exe": "projectos-register-project-elevated.exe"
     },
     "icon": [
       "icons/32x32.png",

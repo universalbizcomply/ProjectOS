@@ -409,6 +409,88 @@ pub fn run(
     Ok(outcome)
 }
 
+/// Plan and publish ONE registration in a single already-elevated invocation.
+///
+/// ## Why this exists beside [`run`], rather than replacing it
+///
+/// [`run`] is the ADMINISTRATOR TERMINAL command, and its confirmation is a phrase typed at an
+/// interactive console. That is the right mechanism when the operator is already in a terminal, and
+/// it is unchanged: nothing in this function is reachable from `run`, and `run` still refuses a
+/// piped approval exactly as before.
+///
+/// This function serves a different, owner-requested route (PROJECTOS-PRODUCT-COMPLETION1A §11):
+/// registration initiated from the Control Centre, where requiring an Administrator terminal, a
+/// copied digest and a typed phrase was rejected as the normal owner experience.
+///
+/// ## What replaces the typed phrase, stated honestly
+///
+/// The typed phrase is NOT silently dropped — the confirmation MOVES to a different mechanism of
+/// equivalent intent:
+///
+/// * The proposed registration is displayed by the CALLER before anything is launched, and the owner
+///   must click to proceed. No background task or timer reaches here.
+/// * The caller must obtain a REAL Windows UAC elevation prompt to run the binary that calls this.
+///   That prompt is a Windows-owned consent dialog the application cannot suppress, pre-answer or
+///   synthesise, which is the property the typed phrase was protecting.
+/// * `publish_project_registry` still establishes elevation from the PROCESS TOKEN itself, so an
+///   unelevated caller reaching this function is refused by the publication regardless.
+///
+/// The phrase constant is still passed to the publication because the publication checks it; it was
+/// never the authority (see [`REGISTRY_PUBLISH_PHRASE`]'s own documentation), and supplying it here
+/// does not shorten any of the checks below it by one step.
+///
+/// ## What is NOT relaxed
+///
+/// The plan is recomputed HERE from the registry and repository as they are right now, in the
+/// elevated process — never taken from the caller. There is no `--expect-digest` because there is no
+/// drift window to protect: planning and publication happen in one invocation, so the bytes
+/// published are the bytes just planned. Every validation `publish_project_registry` performs —
+/// elevation, revalidation, descriptor policy, byte verification, DACL confirmation — runs
+/// unchanged.
+///
+/// # Errors
+/// [`AdminRefusal`] naming the first refusal.
+#[cfg(all(windows, feature = "registry-publish-effect"))]
+pub fn run_uac_confirmed(
+    args: &[String],
+    publisher: &dyn Publisher,
+) -> Result<RegistryPublishOutcome, AdminRefusal> {
+    // Reuses the SAME argument parser the terminal command uses, so the two routes cannot diverge on
+    // what a valid project id, root, environment list or freeze state is. `publish` mode is required
+    // so an operator cannot reach the effect while believing they asked for a preview.
+    let invocation = parse(args)?;
+    if !invocation.publish {
+        return Err(AdminRefusal::UnknownMode);
+    }
+    // A digest cannot be supplied on this route: it would name a plan made in a DIFFERENT process,
+    // and accepting it would reintroduce exactly the drift window this route does not have.
+    if invocation.expected_digest.is_some() {
+        return Err(AdminRefusal::InvalidArgument("--expect-digest"));
+    }
+
+    let planned = plan_registration(
+        read_existing_registry().as_deref(),
+        &invocation.proposed,
+        &RealRegistryFacts,
+    )
+    .map_err(|refusal| AdminRefusal::PlanRefused(format!("{refusal:?}")))?;
+    let bytes = match planned {
+        RegistrationPlan::AlreadyRegistered => return Err(AdminRefusal::AlreadyRegistered),
+        RegistrationPlan::Register(bytes) => bytes,
+    };
+    let digest = digest_hex(&bytes);
+
+    publisher
+        .publish(
+            REGISTRY_PUBLISH_PHRASE,
+            &PlannedRegistration {
+                proposed: invocation.proposed,
+                planned_digest: digest,
+            },
+        )
+        .map_err(AdminRefusal::PublishRefused)
+}
+
 /// Read the canonical registry, if one exists. Read-only; a failure to read is treated as absent here
 /// because the publication distinguishes the two authoritatively.
 #[cfg(all(windows, feature = "registry-publish-effect"))]

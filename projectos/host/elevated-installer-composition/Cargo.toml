@@ -14,6 +14,16 @@ name = "projectos-register-project"
 path = "src/bin/projectos-register-project.rs"
 required-features = ["registry-publish-effect"]
 
+# THE BOUNDED ELEVATED REGISTRATION HELPER, launched by the Control Centre through a real Windows UAC
+# prompt (PROJECTOS-PRODUCT-COMPLETION1A §11). Same packaging boundary as above: a default build does
+# not produce it. It performs ONE operation, accepts no destination and no command, and spawns
+# nothing — see the binary's own documentation for why it is separate from the terminal command
+# rather than a flag on it.
+[[bin]]
+name = "projectos-register-project-elevated"
+path = "src/bin/projectos-register-project-elevated.rs"
+required-features = ["registry-publish-effect"]
+
 [lints.rust]
 unsafe_code = "forbid"
 

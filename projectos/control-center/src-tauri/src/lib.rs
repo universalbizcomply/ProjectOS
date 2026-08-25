@@ -120,6 +120,11 @@ mod app;
 // CD-B4-PROJECTOSHOST-FUNCTIONAL-PILOT1A: the READ-ONLY installed-host status client route.
 #[cfg(windows)]
 pub mod host_status;
+// PROJECTOS-PRODUCT-COMPLETION1A §11: owner-initiated project registration. Crate-private — it is a
+// Tauri command surface, not an API another crate may reach. It links no registration capability; it
+// launches one fixed bounded helper through a real UAC prompt. See the module's own documentation.
+#[cfg(windows)]
+pub(crate) mod register_project;
 
 /// Run the ProjectOS Control Centre. The application's sole public entry point.
 ///

@@ -1,48 +1,37 @@
 /**
- * Register a new project — a command BUILDER, never a command RUNNER.
+ * Add a project — the owner's registration surface.
  *
- * Registering a project writes to the ACL-protected installation registry, and that path is
- * deliberately terminal-only: `projectos-register-project` (PROJECTOS-PHASE6-SECTION-C) refuses
- * piped/redirected input and requires a confirmation phrase typed at a real console, stating
- * explicitly that "an approval that can be automated is not a confirmation" and that the program
- * has "no self-elevation anywhere". Nothing here works around that — it stays a real Administrator
- * terminal action.
+ * Registration writes to an ACL-protected machine location, so it needs elevation. It used to
+ * require an Administrator terminal, a copied digest and a typed confirmation phrase; the owner
+ * rejected that as the normal experience (PROJECTOS-PRODUCT-COMPLETION1A §11), so this asks the
+ * native host to do it and the host raises a real Windows UAC prompt.
  *
- * What this DOES do: turn "figure out the exact command yourself" into "read it off the screen".
- * The owner types the project id / repository root / environments / frozen state once here; this
- * renders the exact `plan` command (read-only, prints a digest) and, once that digest is pasted
- * back in, the exact `publish` command (the one that actually writes) — both ready to copy into an
- * Administrator terminal. No network call, no file access, no governed command dispatch: this is
- * string formatting over local component state and nothing else.
+ * THIS COMPONENT HAS NO AUTHORITY AND CANNOT REGISTER ANYTHING. It collects four values and asks.
+ * Everything that decides whether a registration may happen lives outside the WebView:
+ *
+ *   - the Tauri host validates the values again, then shows the exact proposal in a NATIVE dialog
+ *     and requires an explicit Yes — a WebView is the least trustworthy place to record consent, so
+ *     the confirmation deliberately does not live here;
+ *   - Windows then raises its own UAC prompt, which this application cannot suppress or pre-answer;
+ *   - the elevated helper re-plans from the registry and repository as they actually are and
+ *     re-verifies everything before writing.
+ *
+ * So this file names no command, builds no command line, and carries no confirmation phrase. It
+ * cannot: an invariant test in the registration crate fails the build if a renderer source mentions
+ * any of them.
+ *
+ * The Administrator-terminal route still exists and is unchanged, for anyone who prefers it.
  */
 import { useState } from 'react';
+import { tauriBridge } from '../daemon/tauriBridge';
 
 const ENVIRONMENTS = ['development', 'staging', 'production'] as const;
 
-/** PowerShell single-quoted literal: wrap in `'...'`, double any embedded `'`. Matches ps_literal in admin.rs. */
-function psLiteral(value: string): string {
-  return `'${value.replace(/'/g, "''")}'`;
-}
-
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <button
-      type="button"
-      className="ocp-btn"
-      onClick={() => {
-        void navigator.clipboard
-          .writeText(text)
-          .then(() => {
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
-          })
-          .catch(() => setCopied(false));
-      }}
-    >
-      {copied ? 'Copied' : 'Copy command'}
-    </button>
-  );
+/** What the host reported. `null` while nothing has been attempted. */
+interface Outcome {
+  readonly busy: boolean;
+  readonly message: string | null;
+  readonly failed: boolean;
 }
 
 export function RegisterProjectGuide() {
@@ -50,91 +39,109 @@ export function RegisterProjectGuide() {
   const [root, setRoot] = useState('');
   const [envs, setEnvs] = useState<readonly string[]>(['development']);
   const [frozen, setFrozen] = useState(true);
-  const [digest, setDigest] = useState('');
+  const [outcome, setOutcome] = useState<Outcome>({ busy: false, message: null, failed: false });
 
   const ready = id.trim() !== '' && root.trim() !== '' && envs.length > 0;
-  const envArg = envs.join(',');
-
-  const planCommand = ready
-    ? `projectos-register-project plan --id ${psLiteral(id.trim())} --root ${psLiteral(root.trim())} --environments ${psLiteral(envArg)} --frozen ${frozen}`
-    : '';
-  const publishCommand =
-    ready && digest.trim() !== ''
-      ? `projectos-register-project publish --id ${psLiteral(id.trim())} --root ${psLiteral(root.trim())} --environments ${psLiteral(envArg)} --frozen ${frozen} --expect-digest ${digest.trim()}`
-      : '';
+  const available = tauriBridge.isTauri();
 
   function toggleEnv(name: string) {
     setEnvs((prev) => (prev.includes(name) ? prev.filter((e) => e !== name) : [...prev, name]));
   }
 
+  async function register(): Promise<void> {
+    setOutcome({ busy: true, message: 'Waiting for you to confirm, then for Windows permission…', failed: false });
+    try {
+      const result = await tauriBridge.invoke('register_project', {
+        projectId: id.trim(),
+        repositoryRoot: root.trim(),
+        environments: [...envs],
+        productionFrozen: frozen,
+      });
+      // The host answers with a short token for the cases it can state positively, and throws a
+      // ready-to-read sentence for everything else. Neither is reworded here.
+      if (result === 'REGISTERED') {
+        setOutcome({ busy: false, message: `${id.trim()} is registered. It will appear in Projects.`, failed: false });
+        setId('');
+        setRoot('');
+      } else if (result === 'ALREADY_REGISTERED') {
+        setOutcome({ busy: false, message: 'That project is already registered exactly like this. Nothing was changed.', failed: false });
+      } else if (result === 'DECLINED') {
+        setOutcome({ busy: false, message: 'Cancelled. Nothing was written.', failed: false });
+      } else {
+        setOutcome({ busy: false, message: 'ProjectOS could not confirm what happened. Check the Projects list.', failed: true });
+      }
+    } catch (error) {
+      setOutcome({
+        busy: false,
+        message: typeof error === 'string' ? error : 'Registration did not complete. Nothing was written.',
+        failed: true,
+      });
+    }
+  }
+
   return (
     <details className="ocp-panel preview">
       <summary>
-        Register a new project
-        <span className="ocp-example-tag">Needs an Administrator terminal</span>
+        Add a project
+        <span className="ocp-example-tag">Needs Windows permission</span>
       </summary>
       <p className="ocp-empty">
-        ProjectOS keeps the list of projects it may govern in a protected location an ordinary
-        session cannot write to, on purpose. This builds the exact two commands an administrator
-        runs once, in an Administrator terminal, to add a project — you do not have to remember the
-        flags. Nothing on this page runs them or touches that registry.
+        ProjectOS keeps the list of projects it may govern in a protected place an ordinary session
+        cannot write to, on purpose. Adding one asks Windows for administrator permission — you will
+        see exactly what is being added, and then a Windows prompt. Nothing is written unless you
+        approve both.
       </p>
 
       <div className="ocp-regform">
         <label>
-          <span>Project id</span>
-          <input value={id} onChange={(e) => setId(e.target.value)} placeholder="e.g. my-app" />
+          <span>Project ID</span>
+          <input value={id} onChange={(e) => setId(e.target.value)} placeholder="e.g. my-app" disabled={outcome.busy} />
         </label>
         <label>
-          <span>Repository root (full path)</span>
-          <input value={root} onChange={(e) => setRoot(e.target.value)} placeholder="C:\dev\my-app" />
+          <span>Project folder (full path)</span>
+          <input value={root} onChange={(e) => setRoot(e.target.value)} placeholder="C:\dev\my-app" disabled={outcome.busy} />
         </label>
         <fieldset className="ocp-regform-envs">
           <legend>Environments</legend>
           {ENVIRONMENTS.map((name) => (
             <label key={name} className="ocp-regform-check">
-              <input type="checkbox" checked={envs.includes(name)} onChange={() => toggleEnv(name)} />
+              <input type="checkbox" checked={envs.includes(name)} onChange={() => toggleEnv(name)} disabled={outcome.busy} />
               <span>{name}</span>
             </label>
           ))}
         </fieldset>
         <label className="ocp-regform-check">
-          <input type="checkbox" checked={frozen} onChange={(e) => setFrozen(e.target.checked)} />
-          <span>Production frozen</span>
+          <input type="checkbox" checked={frozen} onChange={(e) => setFrozen(e.target.checked)} disabled={outcome.busy} />
+          <span>Production frozen (recommended)</span>
         </label>
       </div>
 
-      {!ready && <p className="ocp-sub">Fill in a project id, repository root and at least one environment.</p>}
+      {!available && (
+        <p className="ocp-sub">
+          Adding a project needs the installed ProjectOS desktop application — a browser preview
+          cannot ask Windows for permission.
+        </p>
+      )}
 
-      {ready && (
-        <>
-          <p className="ocp-sub">
-            Step 1 — run this in an Administrator terminal. It is read-only: it prints the proposed
-            registration and a digest, and changes nothing.
-          </p>
-          <pre className="ocp-run-output">{planCommand}</pre>
-          <div className="ocp-actionrow">
-            <CopyButton text={planCommand} />
-          </div>
+      <div className="ocp-actionrow">
+        <button
+          type="button"
+          className="ocp-btn primary"
+          disabled={!ready || outcome.busy || !available}
+          onClick={() => void register()}
+        >
+          {outcome.busy ? 'Waiting…' : 'Register project'}
+        </button>
+      </div>
 
-          <label className="ocp-regform-digest">
-            <span>Digest printed by plan (paste to build the publish command)</span>
-            <input value={digest} onChange={(e) => setDigest(e.target.value)} placeholder="64 hex characters" />
-          </label>
+      {!ready && available && (
+        <p className="ocp-sub">Fill in a project ID, a folder and at least one environment.</p>
+      )}
 
-          {publishCommand !== '' && (
-            <>
-              <p className="ocp-sub">
-                Step 2 — run this to actually register the project. It re-checks everything itself
-                and asks for a typed confirmation before writing.
-              </p>
-              <pre className="ocp-run-output">{publishCommand}</pre>
-              <div className="ocp-actionrow">
-                <CopyButton text={publishCommand} />
-              </div>
-            </>
-          )}
-        </>
+      {outcome.message !== null && (
+        <p className={`ocp-actionmsg${outcome.failed ? ' crit' : ''}`} role="status" aria-live="polite">
+          {outcome.message}
+        </p>
       )}
     </details>
   );

@@ -186,7 +186,7 @@ export function App() {
         {view === 'forge' && <ForgeConsole />}
         {view === 'chat' && <OwnerChat />}
         {view === 'safety' && <SafetyProviders />}
-        {view === 'overview' && <Overview />}
+        {view === 'overview' && <Overview onGoToRegistration={() => setView('control')} />}
         {view === 'live' && <LiveMissionControl />}
         {view === 'workflow' && <Workflow />}
         {view === 'gates' && <Gates />}
@@ -244,7 +244,7 @@ function Head({ title, sub }: { title: string; sub: string }) {
   );
 }
 
-function Overview() {
+function Overview({ onGoToRegistration }: { onGoToRegistration: () => void }) {
   // The inventory is DERIVED from the governed projection — the runtime's own reading of the
   // canonical records — and from nothing else. It used to come from a remote Supabase table, or from
   // a thirteen-row static seed when that was absent, and either way the surface reported the result
@@ -321,6 +321,9 @@ function Overview() {
           its id. Registration is an owner-confirmed action, so ProjectOS cannot add a project on its
           own behalf — which is precisely what makes this list trustworthy.
         </p>
+        <button type="button" className="ocp-btn primary" onClick={onGoToRegistration}>
+          Register a project
+        </button>
       </div>
     </>
   );
