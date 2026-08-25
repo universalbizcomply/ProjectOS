@@ -109,6 +109,21 @@ export interface GovernedGatekeeperView {
   readonly lastCall: { readonly requestId: string; readonly model: string; readonly at: string; readonly costMicroUsd: number } | null;
 }
 
+/**
+ * One PENDING approval request, read straight from `.projectops/approvals/<id>.json` — the same
+ * canonical record `projectos approve request/decide` reads and writes. Only pending requests are
+ * ever included; a decided one is history, not an inbox item.
+ */
+export interface GovernedApprovalView {
+  readonly id: string;
+  readonly action: string;
+  readonly gated: boolean;
+  readonly prohibited: boolean;
+  readonly risk: string;
+  readonly requestedBy: string;
+  readonly requestedAt: string;
+}
+
 export interface GovernedSafetyView {
   readonly productionFreeze: boolean;
   readonly forbiddenActions: readonly string[];
@@ -137,6 +152,8 @@ export interface GovernedProjection {
   readonly nextStartablePhase: GovernedPhaseView | null;
   readonly authority: GovernedAuthorityView;
   readonly gatekeeperStatus: GovernedGatekeeperView;
+  /** Every PENDING approval request — the one central inbox, not scattered across surfaces. */
+  readonly pendingApprovals: readonly GovernedApprovalView[];
   readonly safety: GovernedSafetyView;
   readonly blockers: readonly string[];
   readonly risks: readonly string[];

@@ -19,6 +19,7 @@ import {
   type LedgerEntry,
 } from '@projectos/core';
 import type {
+  GovernedApprovalView,
   GovernedAuthorityView,
   GovernedDelegationView,
   GovernedGatekeeperView,
@@ -56,6 +57,8 @@ export interface GovernedInputs {
   readonly gatekeeperConfig?: Record<string, unknown> | null;
   /** Parsed `.projectops/gatekeeper-ledger.json` entries — real spend, never estimated here. */
   readonly gatekeeperLedger?: readonly LedgerEntry[];
+  /** Parsed `.projectops/approvals/*.json` records, whatever their state. Filtered to pending below. */
+  readonly approvalRecords?: readonly Record<string, unknown>[];
   /** Recomputed by the engine — the stored `planStatus` string is never trusted. */
   readonly readiness: ReadinessVerdict;
   readonly planPath: string;
@@ -288,6 +291,23 @@ function gatekeeperStatusOf(
   };
 }
 
+/** Every PENDING approval, straight from the canonical records. Decided ones are filtered out. */
+function pendingApprovalsOf(records: readonly Record<string, unknown>[]): readonly GovernedApprovalView[] {
+  return records
+    .filter((rec) => rec['state'] === 'pending')
+    .map((rec) => ({
+      id: str(rec, 'id'),
+      action: str(rec, 'action'),
+      gated: rec['gated'] === true,
+      prohibited: rec['prohibited'] === true,
+      risk: str(rec, 'risk'),
+      requestedBy: str(rec, 'requestedBy'),
+      requestedAt: str(rec, 'requestedAt'),
+    }))
+    .filter((a) => a.id !== '')
+    .sort((a, b) => (a.requestedAt < b.requestedAt ? -1 : a.requestedAt > b.requestedAt ? 1 : 0));
+}
+
 export function projectGovernedState(inputs: GovernedInputs): GovernedProjection {
   const { config, plan, currentState, phaseRecords, readiness } = inputs;
 
@@ -401,6 +421,7 @@ export function projectGovernedState(inputs: GovernedInputs): GovernedProjection
       activePhase?.phaseId ?? '',
       inputs.observedAt,
     ),
+    pendingApprovals: pendingApprovalsOf(inputs.approvalRecords ?? []),
     safety: {
       productionFreeze: config['productionFreeze'] === true,
       forbiddenActions: strArray(config, 'forbiddenActions'),

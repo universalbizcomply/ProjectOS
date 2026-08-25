@@ -15,6 +15,7 @@ import type { LiveLifecycle } from '../daemon/types';
 import { ownerModelFromGoverned } from './governedOwnerModel';
 import { GovernedActions } from './GovernedActions';
 import { GatekeeperStatus } from './GatekeeperStatus';
+import { OwnerActionInbox } from './OwnerActionInbox';
 import { ObjectiveIntake } from './ObjectiveIntake';
 import { ProjectSelector } from './ProjectSelector';
 import { ProtectedOperationConfirmation } from './confirmation/ProtectedOperationConfirmation';
@@ -185,6 +186,9 @@ export function OwnerControlPlane() {
           <p className="ocp-empty">No decisions are waiting for you. Nothing is blocked on your approval.</p>
         )}
       </div>
+
+      {/* Owner action inbox — every PENDING approval, real Approve/Reject wired to approval.decide. */}
+      {live !== null && <OwnerActionInbox state={live} />}
 
       {/*
         Protected-action owner confirmation (Option C1) — the universal confirmation surface.

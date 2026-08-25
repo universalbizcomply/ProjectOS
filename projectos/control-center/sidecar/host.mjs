@@ -271,6 +271,19 @@ function readGatekeeperLedger(root) {
   return entries;
 }
 
+/** Every `.projectops/approvals/<id>.json` record, whatever its state — the projection filters. */
+function readApprovalRecords(root) {
+  const dir = joinPath(root, '.projectops', 'approvals');
+  if (!existsSync(dir)) return [];
+  const out = [];
+  for (const f of readdirSync(dir)) {
+    if (!f.endsWith('.json')) continue;
+    const rec = readJsonFile(joinPath(dir, f));
+    if (rec !== null) out.push(rec);
+  }
+  return out;
+}
+
 /** Build the governed state for `root`, or an honest unavailable reason. Never throws. */
 function buildGovernedState(root, observedAt) {
   if (typeof root !== 'string' || root.length === 0 || !isAbsolute(root)) {
@@ -342,6 +355,7 @@ function buildGovernedState(root, observedAt) {
       closureDecisions: readClosureDecisions(root),
       gatekeeperConfig: readGatekeeperConfig(root),
       gatekeeperLedger: readGatekeeperLedger(root),
+      approvalRecords: readApprovalRecords(root),
       readiness: engine.evaluatePlanReady(plan),
       planPath: declaredPlan === undefined ? DEFAULT_PLAN_RELPATH : declaredPlan,
       branch: null,
