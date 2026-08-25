@@ -141,11 +141,51 @@ function requireReference(flags) {
   return parsed.ref;
 }
 
+/**
+ * THE NON-INTERACTIVE VALUE CHANNEL, for a caller that has no TTY to prompt at.
+ *
+ * WHY THIS EXISTS. The hidden TTY prompt is the right mechanism for a human in a terminal, and it is
+ * unchanged. It is unusable from the Control Centre, which has no console at all — so the in-app
+ * "Add credential" route needs a way to hand a value to this CLI that is not a command line.
+ *
+ * WHY AN ENVIRONMENT VARIABLE IS THE RIGHT CHANNEL, and not a weakening. It is the SAME mechanism
+ * `windows-credential-store.cjs` already uses to hand the value to its PowerShell child, chosen there
+ * for the same reason: unlike argv it does not appear in a process listing, and unlike a file it
+ * leaves nothing on disk to forget about. The rule this CLI enforces is that a value must never
+ * reach a command line, a shell history or this repository — an environment variable set on a child
+ * by its parent violates none of those.
+ *
+ * WHAT IS STILL REFUSED. `--value`, `--secret`, `--password`, `--token` and `--key` remain hard
+ * errors (see FORBIDDEN_FLAGS), so this adds no route by which a value can be typed into a command.
+ * A control character is refused here exactly as at the prompt — the Ctrl-V/U+0016 defect that
+ * stored a one-character "credential" is not a terminal-only failure, and a caller that pastes
+ * badly can produce the same bytes.
+ *
+ * The variable is removed from this process's environment as soon as it is read, so it is not
+ * inherited by anything spawned later and does not sit in `process.env` for the rest of the run.
+ */
+function readValueFromEnvironment() {
+  const value = process.env.PROJECTOS_CREDENTIAL_VALUE;
+  delete process.env.PROJECTOS_CREDENTIAL_VALUE;
+  if (typeof value !== "string" || value === "") {
+    throw new Error("--from-env was given but no value arrived on the environment channel — nothing stored");
+  }
+  for (const ch of value) {
+    if (ch < " " || ch === "") {
+      throw new Error("the supplied value contains a control character, which is never part of a credential — nothing stored");
+    }
+  }
+  return value;
+}
+
 async function credentialsCommand(sub, flags) {
   const vault = buildVault();
   if (sub === "set") {
     const ref = requireReference(flags);
-    const value = await readHiddenLine("Value for " + ref.reference + " (input hidden): ");
+    const fromEnv = flags["from-env"] === true || flags["from-env"] === "true";
+    const value = fromEnv
+      ? readValueFromEnvironment()
+      : await readHiddenLine("Value for " + ref.reference + " (input hidden): ");
     if (!value) throw new Error("no value entered — nothing stored");
     const result = vault.provision({
       reference: ref.reference,
@@ -383,7 +423,7 @@ function usage() {
     "projectos projects register --checkout <path> --owner-confirm    (pins this project's identity; required before any session)",
     "projectos projects list",
     "projectos projects unregister --project <id> [--checkout <path>] --owner-confirm",
-    "projectos credentials set    --ref <reference> [--replace] [--note <text>] [--expires <iso>]",
+    "projectos credentials set    --ref <reference> [--replace] [--note <text>] [--expires <iso>] [--from-env]",
     "projectos credentials delete --ref <reference>",
     "projectos credentials status [--project <id>] [--environment <env>] [--provider <name>]",
     "projectos credentials doctor [--project <id>]",
