@@ -53,6 +53,15 @@ export const GOVERNED_VERBS = [
   // against the protected registry, so an unknown ID selects nothing and a well-formed ID that
   // happens to look like a path is still only ever compared, never joined to anything.
   'project.select',
+  // GOVERNED EXECUTION. Starts, resumes or stops the ACTUAL gatekeeper loop (`projectos run`) —
+  // the real worker, the real live gatekeeper call, the real cost. Everything downstream of these
+  // three verbs is exactly the authority chain proven throughout PROJECTOS-AUTONOMOUS-GATEKEEPER-
+  // LOOP1A: the loop's own delegation checks, owner gates, correction boundaries and protected-
+  // action refusals are unchanged by who starts it. This channel can only ask the loop to run; it
+  // cannot widen what the loop is allowed to do once it has.
+  'run.start',
+  'run.resume',
+  'run.stop',
 ] as const;
 
 export type GovernedVerb = (typeof GOVERNED_VERBS)[number];
@@ -93,6 +102,12 @@ export interface GovernedCommandArgs {
    * the projects the installed host already decided it may govern.
    */
   readonly projectId?: string;
+  /**
+   * WHICH earlier execution session to resume. An identifier only — never a path. The sidecar
+   * looks it up among THIS root's own session records; a foreign or unknown id is refused by the
+   * canonical runtime exactly as it is from a terminal (`NO_SUCH_SESSION`).
+   */
+  readonly sessionId?: string;
 }
 
 export type GovernedArgName = keyof GovernedCommandArgs;
@@ -205,6 +220,12 @@ const ALLOWED_ROLES: Readonly<Record<GovernedVerb, readonly string[]>> = {
   // Selection is not an act of authority over a project; it decides which project the surface is
   // looking at. There is no role to claim and none is accepted.
   'project.select': [],
+  // `projectos run` has no `--as` concept at all — it is not a role-claiming act, it is the
+  // canonical loop's own authority chain running exactly as it would from a terminal. Sending a
+  // role here is refused at the arg-accepts check below, before this table is ever consulted.
+  'run.start': [],
+  'run.resume': [],
+  'run.stop': [],
 };
 
 /**
@@ -259,6 +280,14 @@ const ARG_SPEC: Readonly<
   'report.write': { accepts: ['phaseId', 'role'], requires: ['phaseId'] },
   // One identifier, required, and nothing else. No path, no root, no environment, no role.
   'project.select': { accepts: ['projectId'], requires: ['projectId'] },
+  // `phaseId` is accepted only as a UI-side correlator for the sidecar's own in-flight-run guard;
+  // `projectos run` itself takes no phase flag — it derives the phase from the active approved
+  // plan, exactly as it does from a terminal.
+  'run.start': { accepts: ['phaseId'], requires: [] },
+  // The one thing a resume MUST name is which session — the sidecar will not guess, matching the
+  // canonical CLI's own `--resume` refusal (`NO_SESSION_NAMED`) when none is given.
+  'run.resume': { accepts: ['phaseId', 'sessionId'], requires: ['sessionId'] },
+  'run.stop': { accepts: ['phaseId'], requires: [] },
 };
 
 const PROSE_ARGS: readonly GovernedArgName[] = ['note', 'action', 'objective'];
@@ -370,6 +399,14 @@ export function toAgentInvocation(request: GovernedCommandRequest): GovernedInvo
     // reads, and performs no governed action inside any project. There is deliberately no canonical
     // agent command for it, so there is nothing here for a value to be forwarded into.
     case 'project.select':
+      return null;
+    // GOVERNED EXECUTION is not a synchronous in-process call like every other verb here — it
+    // spawns and tracks the real `projectos run` process, which the sidecar intercepts and
+    // handles BEFORE this function is ever reached (see host.mjs, same precedent as
+    // `project.select`). There is no canonical agent command to translate these into.
+    case 'run.start':
+    case 'run.resume':
+    case 'run.stop':
       return null;
     case 'plan.draft':
       return { command: 'plan', positionals: ['draft'], flags: { objective: a.objective as string } };

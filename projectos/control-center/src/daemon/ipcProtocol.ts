@@ -17,6 +17,12 @@ const MESSAGE_KINDS = new Set([
   'governed',
   'governed-projects',
   'closed',
+  // The governed run's own lifecycle — see governedRun types. Distinct from `event`/`notification`
+  // because those describe the DAEMON's file-watcher inferences; these are reported directly by
+  // the sidecar about the process it is itself tracking, so they are never inferred or guessed.
+  'run-started',
+  'run-output',
+  'run-finished',
 ]);
 
 /** Encode a message as one newline-terminated JSON line (sidecar → stdout). */

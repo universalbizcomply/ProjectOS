@@ -16,7 +16,7 @@ import {
 import { LiveStore } from './store.js';
 import { StatusSynchroniser } from './synchroniser.js';
 import type { DaemonTransport, Scheduler } from './ports.js';
-import type { ConnectionState, TransportMessage } from './types.js';
+import { GOVERNED_RUN_LINE_LIMIT, type ConnectionState, type TransportMessage } from './types.js';
 
 export interface DaemonClientOptions {
   readonly heartbeatMs?: number;
@@ -127,6 +127,37 @@ export class DaemonClient {
         // reason: which projects exist is the installed host's answer, not the renderer's.
         this.store.update({ governedProjects: message.inventory });
         this.#reconnect.reset();
+        break;
+      case 'run-started':
+        this.store.update({
+          governedRun: {
+            active: true,
+            phaseId: message.phaseId,
+            resumed: message.resumed,
+            startedAt: new Date().toISOString(),
+            lastExitCode: null,
+            lines: [],
+          },
+        });
+        break;
+      case 'run-output': {
+        const current = this.store.getState().governedRun;
+        // Bounded so a long-running review cannot grow the store without limit; only the most
+        // recent lines matter for a live panel, and the full record is already durable on disk
+        // (this is a live tail, not the evidence).
+        const lines = [...current.lines, { stream: message.stream, line: message.line }].slice(
+          -GOVERNED_RUN_LINE_LIMIT,
+        );
+        this.store.update({ governedRun: { ...current, lines } });
+        break;
+      }
+      case 'run-finished':
+        this.store.update({
+          governedRun: { ...this.store.getState().governedRun, active: false, lastExitCode: message.exitCode },
+        });
+        // The loop's writes (session, evidence, ledger, phase records) are on disk by the time this
+        // fires; the sidecar also emits a fresh `governed` state right after, so nothing further is
+        // needed here beyond clearing the active flag.
         break;
     }
   }

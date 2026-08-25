@@ -177,7 +177,47 @@ export type TransportMessage =
    * host did not supply is simply not here, so it cannot be chosen.
    */
   | { readonly kind: 'governed-projects'; readonly inventory: GovernedProjectsInventory }
+  /**
+   * The governed run's own lifecycle, reported directly by the sidecar about the `projectos run`
+   * process it spawned and tracks — never inferred from file-watching, unlike `event`/`notification`.
+   */
+  | { readonly kind: 'run-started'; readonly root: string; readonly phaseId: string | null; readonly resumed: boolean }
+  | {
+      readonly kind: 'run-output';
+      readonly root: string;
+      readonly phaseId: string | null;
+      readonly stream: 'stdout' | 'stderr';
+      readonly line: string;
+    }
+  | { readonly kind: 'run-finished'; readonly root: string; readonly phaseId: string | null; readonly exitCode: number | null }
   | { readonly kind: 'closed' };
+
+/**
+ * Live view of the governed run this sidecar is tracking (or has most recently tracked) for the
+ * SELECTED project. `active` is the one field the UI needs to decide what a Start/Resume/Stop
+ * control should offer; `lines` is bounded so a long-running review does not grow the store
+ * without limit.
+ */
+export interface GovernedRunState {
+  readonly active: boolean;
+  readonly phaseId: string | null;
+  readonly resumed: boolean;
+  readonly startedAt: string | null;
+  readonly lastExitCode: number | null;
+  readonly lines: readonly { readonly stream: 'stdout' | 'stderr'; readonly line: string }[];
+}
+
+export const EMPTY_GOVERNED_RUN: GovernedRunState = {
+  active: false,
+  phaseId: null,
+  resumed: false,
+  startedAt: null,
+  lastExitCode: null,
+  lines: [],
+};
+
+/** How many output lines the store retains for the live run panel. Older lines are dropped. */
+export const GOVERNED_RUN_LINE_LIMIT = 500;
 
 /** The complete observable UI state the store holds. */
 export interface LiveState {
@@ -201,4 +241,6 @@ export interface LiveState {
    * absence means "not known yet", never "there are none".
    */
   readonly governedProjects: GovernedProjectsInventory | null;
+  /** The governed run this sidecar is tracking for the selected project. See `EMPTY_GOVERNED_RUN`. */
+  readonly governedRun: GovernedRunState;
 }

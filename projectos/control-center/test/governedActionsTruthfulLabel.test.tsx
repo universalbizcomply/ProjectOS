@@ -21,9 +21,29 @@
 import { describe, test, expect, afterEach, vi } from 'vitest';
 import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react';
 import { GovernedActions } from '../src/owner/GovernedActions.js';
+import { DaemonProvider } from '../src/daemon/DaemonProvider.js';
+import { DaemonClient } from '../src/daemon/daemonClient.js';
 import * as governedClient from '../src/governed/governedClient.js';
 import { GOVERNED_VERBS } from '../src/governed/governedCommands.js';
+import { createFakeScheduler, createFakeTransport } from './helpers.js';
 import type { GovernedProjection } from '../src/governed/types';
+
+/**
+ * `GovernedActions` reads the live governed-run state via `useGovernedRun`, so every render needs
+ * a `DaemonProvider`. `run` overrides the default (inactive, no output) when a test needs to
+ * exercise the active/stopped states.
+ */
+function renderActions(state: GovernedProjection, run?: Partial<import('../src/daemon/types.js').GovernedRunState>) {
+  const client = new DaemonClient(createFakeTransport(), createFakeScheduler());
+  if (run !== undefined) {
+    client.store.update({ governedRun: { ...client.store.getState().governedRun, ...run } });
+  }
+  return render(
+    <DaemonProvider client={client}>
+      <GovernedActions state={state} />
+    </DaemonProvider>,
+  );
+}
 
 afterEach(() => {
   cleanup();
@@ -107,7 +127,7 @@ function projection(status: string): GovernedProjection {
 
 describe.each(LIFECYCLE)('the $from stage action tells the truth', ({ from, label, to }) => {
   test(`shows "${label}" and none of the old imperative labels`, () => {
-    render(<GovernedActions state={projection(from)} />);
+    renderActions(projection(from));
     expect(screen.getByRole('button', { name: label })).toBeTruthy();
     for (const old of OLD_MISLEADING_LABELS) {
       expect(screen.queryByRole('button', { name: old }), `"${old}" must not be mounted`).toBeNull();
@@ -115,7 +135,7 @@ describe.each(LIFECYCLE)('the $from stage action tells the truth', ({ from, labe
   });
 
   test('shows the stage-only explanation as the button\'s accessible description', () => {
-    render(<GovernedActions state={projection(from)} />);
+    renderActions(projection(from));
     const note = screen.getByText(STAGE_ONLY_NOTE);
     const button = screen.getByRole('button', { name: label });
     // Not merely present somewhere on the page — bound to the control, so a screen-reader user
@@ -129,7 +149,7 @@ describe.each(LIFECYCLE)('the $from stage action tells the truth', ({ from, labe
     const spy = vi
       .spyOn(governedClient, 'requestGovernedCommand')
       .mockResolvedValue({ ok: true, lines: ['ok'] } as never);
-    render(<GovernedActions state={projection(from)} />);
+    renderActions(projection(from));
     fireEvent.click(screen.getByRole('button', { name: label }));
 
     await waitFor(() => expect(spy).toHaveBeenCalled());
@@ -141,25 +161,68 @@ describe.each(LIFECYCLE)('the $from stage action tells the truth', ({ from, labe
   });
 });
 
-describe('the panel offers no route to execution', () => {
-  test('exactly one primary stage action is offered', () => {
-    render(<GovernedActions state={projection('implementing')} />);
+describe('the stage-record and real-execution routes stay honestly separate', () => {
+  // PROJECTOS-PRODUCT-COMPLETION1A intentionally added a REAL route to execution
+  // (`run.start`/`run.stop`), which this describe block used to assert did not exist. That was
+  // correct for what the panel used to be; a route to execution existing at all is now the point.
+  // What must still hold: the stage-record primary and the real-execution primary can never be
+  // confused for one another, and neither claims to be the other.
+  test('exactly one primary STAGE action is offered, plus the separate real-execution primary', () => {
+    renderActions(projection('implementing'));
     const primaries = Array.from(document.querySelectorAll('button.ocp-btn.primary'));
-    expect(primaries).toHaveLength(1);
-    expect(primaries[0]?.textContent).toBe('Move to validation');
+    expect(primaries).toHaveLength(2);
+    expect(primaries.map((b) => b.textContent)).toEqual(['Move to validation', '▶ Start governed execution']);
   });
 
-  test('no validation, execution or shell verb exists in the governed channel', () => {
-    // The honest fix was to correct the wording, NOT to add a way to run validators from the
-    // browser. If a future change adds one it must be a deliberate governed decision, not a side
-    // effect of making these buttons read better.
+  test('the real-execution control lives in its own labelled section, not among the stage buttons', () => {
+    renderActions(projection('implementing'));
+    const runSection = document.querySelector('.ocp-run');
+    expect(runSection).toBeTruthy();
+    expect(runSection?.querySelector('h3')?.textContent).toBe('Governed execution');
+    expect(runSection?.contains(screen.getByRole('button', { name: '▶ Start governed execution' }))).toBe(true);
+    // The stage button lives OUTSIDE the execution section.
+    expect(runSection?.contains(screen.getByRole('button', { name: 'Move to validation' }))).toBe(false);
+  });
+
+  test('dispatches run.start, never phase.advance, from the execution control', async () => {
+    const spy = vi
+      .spyOn(governedClient, 'requestGovernedCommand')
+      .mockResolvedValue({ ok: true, lines: ['ok'] } as never);
+    renderActions(projection('implementing'));
+    fireEvent.click(screen.getByRole('button', { name: '▶ Start governed execution' }));
+
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    const [, verb] = spy.mock.calls[0] as unknown as [unknown, string, Record<string, unknown>];
+    expect(verb).toBe('run.start');
+  });
+
+  test('while a run is active, Stop replaces Start and no phase-advance verb is involved', async () => {
+    const spy = vi
+      .spyOn(governedClient, 'requestGovernedCommand')
+      .mockResolvedValue({ ok: true, lines: ['ok'] } as never);
+    renderActions(projection('implementing'), { active: true });
+    expect(screen.queryByRole('button', { name: '▶ Start governed execution' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '■ Stop' }));
+
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    const [, verb] = spy.mock.calls[0] as unknown as [unknown, string, Record<string, unknown>];
+    expect(verb).toBe('run.stop');
+  });
+
+  test('no verb name looks like a raw validate/shell/spawn escape hatch', () => {
+    // The one real execution verb this channel offers is `run.start` (and `.resume`/`.stop`) —
+    // a single, deliberate, narrowly-typed governed action, not an open door. This checks that no
+    // OTHER verb — present now or added later — smuggles in something shaped like a raw shell,
+    // arbitrary validator trigger, or spawn primitive under a different name.
+    const EXPECTED_EXECUTION_VERBS = new Set(['run.start', 'run.resume', 'run.stop']);
     for (const verb of GOVERNED_VERBS) {
+      if (EXPECTED_EXECUTION_VERBS.has(verb)) continue;
       expect(verb).not.toMatch(/validate|validation|exec|shell|command|spawn/i);
     }
   });
 
   test('genuine non-stage actions are untouched', () => {
-    render(<GovernedActions state={projection('implementing')} />);
+    renderActions(projection('implementing'));
     // Refresh really does refresh; Stop really does stop. Neither was renamed.
     expect(screen.getByRole('button', { name: 'Refresh' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Stop' })).toBeTruthy();

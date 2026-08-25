@@ -13,6 +13,7 @@ import { tauriBridge } from './tauriBridge.js';
 import { realScheduler } from './realScheduler.js';
 import type {
   ConnectionState,
+  GovernedRunState,
   LiveHealth,
   LiveLifecycle,
   LiveNotification,
@@ -80,3 +81,8 @@ export const useGovernedState = (): GovernedState | null => useSlice((s) => s.go
  */
 export const useGovernedProjects = (): GovernedProjectsInventory | null =>
   useSlice((s) => s.governedProjects);
+/**
+ * The governed run this sidecar is tracking (or most recently tracked) for the selected project —
+ * reported directly by the sidecar about the process it spawned, never inferred from file-watching.
+ */
+export const useGovernedRun = (): GovernedRunState => useSlice((s) => s.governedRun);

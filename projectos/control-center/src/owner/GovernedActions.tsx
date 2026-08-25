@@ -13,6 +13,7 @@
  */
 import { useState } from 'react';
 import { tauriBridge } from '../daemon/tauriBridge';
+import { useGovernedRun } from '../daemon/DaemonProvider';
 import { requestGovernedCommand } from '../governed/governedClient';
 import type { GovernedCommandArgs, GovernedVerb } from '../governed/governedCommands';
 import type { GovernedProjection, GovernedPhaseView } from '../governed/types';
@@ -56,6 +57,7 @@ interface ActionState {
 
 export function GovernedActions({ state }: { state: GovernedProjection }) {
   const [action, setAction] = useState<ActionState>({ busy: false, lines: [], failed: false });
+  const run = useGovernedRun();
 
   const phase: GovernedPhaseView | null = state.activePhase ?? state.nextStartablePhase;
 
@@ -97,15 +99,17 @@ export function GovernedActions({ state }: { state: GovernedProjection }) {
 
       {state.plan.ready && phase !== null && (
         <div className="ocp-actionrow">
-          {/* PRIMARY: exactly one, chosen by the phase's real status. */}
+          {/* PRIMARY: exactly one, chosen by the phase's real status. This creates the phase RECORD
+              only — it does not run any work. "Start governed execution" below the divider is what
+              actually starts the real worker and the live gatekeeper loop. */}
           {phase.startable && (
             <button
               type="button"
               className="ocp-btn primary"
               disabled={action.busy}
-              onClick={() => void send('phase.start', { phaseId: phase.phaseId }, `start ${phase.phaseId}`)}
+              onClick={() => void send('phase.start', { phaseId: phase.phaseId }, `record ${phase.phaseId} as started`)}
             >
-              Start {phase.phaseId}
+              Record {phase.phaseId} started
             </button>
           )}
 
@@ -190,6 +194,53 @@ export function GovernedActions({ state }: { state: GovernedProjection }) {
         <p className="ocp-note" id={STAGE_ONLY_NOTE_ID}>
           {STAGE_ONLY_NOTE}
         </p>
+      )}
+
+      {/* GOVERNED EXECUTION — the one thing every button above this line deliberately does NOT do.
+          This starts the real `projectos run` process: the real worker, the real live gatekeeper
+          review, the real cost. Kept visually and functionally separate from the phase-record
+          buttons above so the two can never be mistaken for each other. */}
+      {state.plan.ready && phase !== null && (
+        <div className="ocp-run">
+          <h3>Governed execution</h3>
+          <div className="ocp-actionrow">
+            {!run.active && (
+              <button
+                type="button"
+                className="ocp-btn primary"
+                disabled={action.busy}
+                onClick={() => void send('run.start', { phaseId: phase.phaseId }, 'start governed execution')}
+              >
+                ▶ Start governed execution
+              </button>
+            )}
+            {run.active && (
+              <button
+                type="button"
+                className="ocp-btn danger"
+                disabled={action.busy}
+                onClick={() => void send('run.stop', { phaseId: phase.phaseId }, 'stop governed execution')}
+              >
+                ■ Stop
+              </button>
+            )}
+          </div>
+          <p className="ocp-note">
+            {run.active
+              ? 'A real worker and, if a check fails or a review is due, the live gatekeeper are running now.'
+              : 'Starts the real worker. If it hits a check failure or a review point, the live gatekeeper is asked automatically — no copy-pasting between chats.'}
+          </p>
+          {run.lines.length > 0 && (
+            <pre className="ocp-run-output" role="log" aria-live="polite" aria-label="Governed execution output">
+              {run.lines.map((entry) => `${entry.stream === 'stderr' ? '! ' : ''}${entry.line}`).join('\n')}
+            </pre>
+          )}
+          {!run.active && run.lastExitCode !== null && (
+            <p className={`ocp-actionmsg${run.lastExitCode === 0 ? '' : ' crit'}`}>
+              Finished (exit code {run.lastExitCode}). The state above has been re-read from disk.
+            </p>
+          )}
+        </div>
       )}
 
       {action.lines.length > 0 && (

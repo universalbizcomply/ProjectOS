@@ -55,6 +55,9 @@ describe('W1 an allowed, well-formed command is accepted', () => {
     'plan.draft': { objective: 'Make the ordering flow simple enough to need no training at all.' },
     'plan.activate': { draftId: 'draft-20260813-a1b2c3', decisionId: 'PROJECTOS-DECISION1A' },
     'project.select': { projectId: 'projectos' },
+    'run.start': { phaseId: 'P1A' },
+    'run.resume': { phaseId: 'P1A', sessionId: 'P1A-abcdef0123456789-a1b2c3d4' },
+    'run.stop': { phaseId: 'P1A' },
   };
 
   test('every verb maps to a canonical typed invocation, or to null for refresh', () => {
@@ -66,7 +69,10 @@ describe('W1 an allowed, well-formed command is accepted', () => {
       // `refresh` and `project.select` reach NO canonical agent command. Both are served entirely at
       // the host/daemon boundary — one re-reads state, the other decides which project is being read
       // — so neither has an argv, a flag or a positional for a value to escape through.
-      if (verb === 'refresh' || verb === 'project.select') {
+      //
+      // `run.*` likewise reach no canonical agent command: they spawn and track a real process,
+      // which the sidecar intercepts before `toAgentInvocation` is ever consulted (see host.mjs).
+      if (verb === 'refresh' || verb === 'project.select' || verb === 'run.start' || verb === 'run.resume' || verb === 'run.stop') {
         expect(inv).toBeNull();
         continue;
       }
@@ -262,6 +268,9 @@ describe('W17 protected actions are unreachable through this path', () => {
       'plan.draft': { objective: 'Make the ordering flow simple enough to need no training at all.' },
       'plan.activate': { draftId: 'draft-20260813-a1b2c3', decisionId: 'PROJECTOS-DECISION1A' },
       'project.select': { projectId: 'projectos' },
+      'run.start': { phaseId: 'P1A' },
+      'run.resume': { phaseId: 'P1A', sessionId: 'P1A-abcdef0123456789-a1b2c3d4' },
+      'run.stop': { phaseId: 'P1A' },
     };
     for (const verb of GOVERNED_VERBS) {
       const inv = toAgentInvocation(valid(req({ verb, args: args[verb] })));

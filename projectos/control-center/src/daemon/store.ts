@@ -4,7 +4,7 @@
  * The UI never owns state; it renders this mirror of the daemon's truth. Updates replace only
  * changed slices (reference-stable otherwise) so React repaints just the components that moved.
  */
-import type { LiveState } from './types.js';
+import { EMPTY_GOVERNED_RUN, type LiveState } from './types.js';
 
 export const INITIAL_STATE: LiveState = {
   connection: 'disconnected',
@@ -18,6 +18,7 @@ export const INITIAL_STATE: LiveState = {
   notifications: [],
   governed: null,
   governedProjects: null,
+  governedRun: EMPTY_GOVERNED_RUN,
 };
 
 export type Listener = () => void;

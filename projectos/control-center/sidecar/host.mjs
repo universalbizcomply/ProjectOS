@@ -5,7 +5,17 @@
  * It runs a real BridgeDaemon (nodeSystem) and reuses the tested InProcessTransport to project
  * daemon state; every TransportMessage is written as one JSON line to stdout, which the Rust host
  * forwards to the webview over the `daemon://message` event channel. It reads commands from stdin.
- * Strictly read-only: it never commits/pushes/deploys/mutates.
+ *
+ * MOST COMMANDS ARE READ-ONLY. `phase`, `approve`, `report` and `plan` never commit, push, deploy
+ * or mutate anything beyond the ordinary governed records those canonical commands already write.
+ *
+ * `run.start` / `run.resume` / `run.stop` ARE THE EXCEPTION, and deliberately so (PROJECTOS-
+ * PRODUCT-COMPLETION1A): they spawn the real `projectos run` process — the same one proven live
+ * throughout PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A — as a CHILD of this sidecar, not detached. It
+ * dies with the sidecar (Windows Job Object kill-on-close, or an explicit stop). This channel
+ * decides WHETHER the loop runs; it decides NOTHING about what the loop may do once it does — every
+ * delegation check, owner gate, correction boundary and protected-action refusal inside `runLoop`
+ * is exactly the one already proven, unchanged by who presses the button.
  *
  * LIFECYCLE (PROJECTOS-WINDOWS-PROCESS-OWNERSHIP1B)
  * -------------------------------------------------
@@ -26,7 +36,9 @@
  */
 import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
 import { createInterface } from 'node:readline';
-import { resolve as resolvePath, join as joinPath, isAbsolute, basename } from 'node:path';
+import { resolve as resolvePath, join as joinPath, isAbsolute, basename, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { spawn } from 'node:child_process';
 import { BridgeDaemon, nodeSystem, loadConfig } from '@projectos/bridge-daemon';
 import { InProcessTransport } from '../node-build/daemon/inProcessTransport.js';
 import {
@@ -402,6 +414,24 @@ function handleGovernedCommand(raw) {
     return;
   }
 
+  // GOVERNED EXECUTION, intercepted here — same precedent as `project.select` above: these verbs
+  // spawn and track a real process rather than calling a synchronous canonical command, so they
+  // never reach `toAgentInvocation`/`COMMANDS` at all.
+  if (
+    check.request.verb === 'run.start' ||
+    check.request.verb === 'run.resume' ||
+    check.request.verb === 'run.stop'
+  ) {
+    const args = check.request.args;
+    const outcome =
+      check.request.verb === 'run.stop'
+        ? stopGovernedRun(root)
+        : startGovernedRun(root, args.phaseId, check.request.verb === 'run.resume' ? args.sessionId : undefined);
+    emit(outcome.code, outcome.lines, check.request.verb);
+    emitGovernedState();
+    return;
+  }
+
   const invocation = toAgentInvocation(check.request);
   if (invocation === null) {
     // `refresh` performs nothing; it is served entirely by the existing read path.
@@ -565,6 +595,100 @@ function governedWorkActive() {
   if (readProjectConfig(root) === null) return true;
   const records = readPhaseRecords(root);
   return records.some((record) => ACTIVE_PHASE_STATUSES.includes(record && record.status));
+}
+
+/* --- GOVERNED EXECUTION: spawning and tracking the real `projectos run` process ---------------
+ *
+ * ONE CHILD PER ROOT, MAP-TRACKED. Keyed by the resolved project root, not by phase id: this
+ * architecture has one active phase per project, and the real hazard `run.start` must refuse is
+ * two overlapping `runLoop` processes writing into the SAME `.projectops` tree at once — the same
+ * concurrent-write hazard the loop's own file-lock discipline (C17-F1) was built to close one
+ * layer down. A root already in this map is refused here, before a second process is ever spawned.
+ *
+ * NOT DETACHED. A `runLoop` invocation is the OWNER'S supervised action, not an unattended
+ * background job: if the Control Center closes, the Job Object kill-on-close takes the sidecar and
+ * this map's tracked children with it. That is the safe default for something that spends real
+ * money and can touch source — an owner-supervised action should stop when its supervisor does,
+ * not keep running unobserved. `run.stop` explicitly kills the tree the same way for the same
+ * reason: on Windows, `child.kill()` alone does not reach the WORKER process `runLoop` itself
+ * spawns as our child's own child, so a stop uses `taskkill /t` to take the whole tree.
+ */
+const activeRuns = new Map();
+
+function agentCliPath() {
+  const here = dirname(fileURLToPath(import.meta.url));
+  return resolvePath(here, '..', '..', 'agent', 'bin', 'projectos.js');
+}
+
+/** Emit one run-lifecycle message on the same JSON-line stdout channel as everything else. */
+function emitRunEvent(kind, root, extra = {}) {
+  process.stdout.write(JSON.stringify({ kind, root, ...extra }) + '\n');
+}
+
+/**
+ * Start (or resume) the governed loop for the currently selected project.
+ *
+ * `sessionId` present means resume; absent means a fresh start. Both paths converge here because
+ * the spawn/track/stream machinery is identical — only the argv differs.
+ */
+function startGovernedRun(root, phaseId, sessionId) {
+  if (activeRuns.has(root)) {
+    return { code: 2, lines: ['REFUSED (RUN_ALREADY_ACTIVE): a governed run is already in progress for this project.'] };
+  }
+  const args =
+    sessionId === undefined
+      ? [agentCliPath(), 'run', '--execute']
+      : [agentCliPath(), 'run', '--execute', '--resume', '--session', sessionId];
+  let child;
+  try {
+    child = spawn(process.execPath, args, { cwd: root, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+  } catch {
+    return { code: 2, lines: ['REFUSED (RUN_SPAWN_FAILED): the governed run process could not be started.'] };
+  }
+  activeRuns.set(root, { child, phaseId: phaseId ?? null });
+
+  const streamLines = (readable, stream) => {
+    let buffer = '';
+    readable.on('data', (chunk) => {
+      buffer += chunk.toString('utf8');
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      for (const line of lines) emitRunEvent('run-output', root, { phaseId: phaseId ?? null, stream, line });
+    });
+  };
+  streamLines(child.stdout, 'stdout');
+  streamLines(child.stderr, 'stderr');
+
+  child.on('close', (exitCode) => {
+    activeRuns.delete(root);
+    emitRunEvent('run-finished', root, { phaseId: phaseId ?? null, exitCode: exitCode ?? null });
+    // The loop's own writes (session, evidence, ledger, phase records) are already on disk by the
+    // time `close` fires; refresh so the surface reflects them without a manual reconnect.
+    emitGovernedState();
+  });
+
+  emitRunEvent('run-started', root, { phaseId: phaseId ?? null, resumed: sessionId !== undefined });
+  return { code: 0, lines: [sessionId === undefined ? 'Governed run started.' : `Governed run resumed (session ${sessionId}).`] };
+}
+
+/** Stop the tracked run for a root, killing the whole process tree, not just the immediate child. */
+function stopGovernedRun(root) {
+  const tracked = activeRuns.get(root);
+  if (tracked === undefined) {
+    return { code: 2, lines: ['REFUSED (NO_ACTIVE_RUN): no governed run is in progress for this project.'] };
+  }
+  const pid = tracked.child.pid;
+  if (typeof pid === 'number') {
+    // `child.kill()` alone leaves the worker (runLoop's own child of our child) orphaned on
+    // Windows; `/t` reaches the whole tree. Fire-and-forget: the `close` handler above is what
+    // actually clears the tracked entry once the tree is confirmed gone.
+    try {
+      spawn('taskkill', ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore', windowsHide: true });
+    } catch {
+      tracked.child.kill();
+    }
+  }
+  return { code: 0, lines: ['Stop requested; the governed run will end shortly.'] };
 }
 
 

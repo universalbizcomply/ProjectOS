@@ -578,9 +578,25 @@ pre.ocp-actionmsg { white-space: pre-wrap; }
    objective therefore rendered in ordinary dim body colour, with no error signal at all. */
 .ocp-actionmsg.crit, .ocp-actionmsg.failed { color: var(--crit); }
 
+.ocp-btn.danger { border-color: #4a1f1f; color: var(--crit); }
+.ocp-btn.danger:hover:not(:disabled) { background: #2a1414; border-color: #6a2b2b; }
+
+/* GOVERNED EXECUTION. A distinct sub-section, not a nested .ocp-panel — it lives inside the
+   Governed Actions panel and a second border/padding would just double-box it. The top border is
+   the only separation it needs to read as its own thing. */
+.ocp-run { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+.ocp-run h3 { margin: 0 0 8px; font-size: 13px; letter-spacing: -0.01em; color: var(--text-dim); }
+.ocp-run-output {
+  margin: 10px 0 0; padding: 10px 12px; max-height: 260px; overflow-y: auto; overflow-x: hidden;
+  white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--mono);
+  font-size: 12px; line-height: 1.5; color: var(--text-dim); background: var(--bg-elev);
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+}
+
 @media (max-width: 420px) {
   .ocp-actions .ocp-actionrow { flex-direction: column; align-items: stretch; }
   .ocp-btn { width: 100%; }
+  .ocp-run-output { max-height: 180px; font-size: 11px; }
 }
 
 /* --- Project selector (PROJECTOS-PHASE6-SECTION-C) -------------------------------------------
