@@ -651,6 +651,16 @@ pre.ocp-actionmsg { white-space: pre-wrap; }
 .ocp-conn-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
 .ocp-conn-provider { font-weight: 600; font-size: 14px; overflow-wrap: anywhere; min-width: 0; }
 .ocp-conn-meta { font-family: var(--mono); font-size: 11px; overflow-wrap: anywhere; }
+.ocp-conn-edit { margin-top: 8px; }
+.ocp-conn-edit > summary { cursor: pointer; font-size: 12px; color: var(--text-faint); }
+.ocp-conn-edit > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ocp-conn-add { margin-top: 8px; display: flex; flex-direction: column; gap: 8px; }
+.ocp-conn-add label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-dim); }
+.ocp-conn-add input {
+  width: 100%; box-sizing: border-box; font-family: var(--mono); font-size: 13px;
+  background: var(--bg); color: inherit; border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px;
+}
+.ocp-conn-add input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 .ocp-inbox-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
 .ocp-inbox-item { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px 14px; background: var(--bg-elev); }

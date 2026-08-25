@@ -17,6 +17,8 @@
  *
  * Created in PROJECTOS-PRODUCT-COMPLETION1A §12–18.
  */
+import { useState } from 'react';
+import { tauriBridge } from '../daemon/tauriBridge';
 import type { GovernedConnectionView, GovernedProjection } from '../governed/types';
 
 /** Plain-language label and tone per status. The owner should not have to learn these words. */
@@ -26,6 +28,85 @@ const STATUS: Readonly<Record<GovernedConnectionView['status'], { label: string;
   EXPIRED: { label: 'Expired', tone: 'crit' },
   UNMANAGED: { label: 'Set up outside ProjectOS', tone: 'mut' },
 };
+
+/**
+ * Add or replace one credential.
+ *
+ * THE VALUE NEVER ENTERS REACT STATE THAT OUTLIVES THE SUBMIT, is never put on the governed command
+ * channel, and is never echoed back. It goes straight to the native `set_credential` command, which
+ * hands it to the existing credential router on a child process environment — see
+ * `src-tauri/src/set_credential.rs` for why that channel and not the governed one.
+ *
+ * The field is cleared the moment the call returns, whatever the outcome, so a stored secret is not
+ * left sitting in a DOM node behind a collapsed panel.
+ */
+function AddCredential({ reference, replace }: { reference: string; replace: boolean }) {
+  const [value, setValue] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ text: string; failed: boolean } | null>(null);
+  const available = tauriBridge.isTauri();
+
+  async function submit(): Promise<void> {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const result = await tauriBridge.invoke('set_credential', { reference, value, replace });
+      setMessage({
+        text: result === 'REPLACED' ? 'Replaced. ProjectOS stored the new value.' : 'Stored.',
+        failed: false,
+      });
+    } catch (error) {
+      setMessage({
+        text: typeof error === 'string' ? error : 'Nothing was stored.',
+        failed: true,
+      });
+    } finally {
+      // Cleared on EVERY path, including failure — a value that did not store is still a secret.
+      setValue('');
+      setBusy(false);
+    }
+  }
+
+  if (!available) {
+    return (
+      <p className="ocp-sub">
+        Adding a credential needs the installed ProjectOS desktop application.
+      </p>
+    );
+  }
+
+  return (
+    <div className="ocp-conn-add">
+      <label>
+        <span>{replace ? 'New value' : 'Value'}</span>
+        <input
+          type="password"
+          value={value}
+          disabled={busy}
+          autoComplete="off"
+          spellCheck={false}
+          placeholder="Paste the key or token"
+          onChange={(e) => setValue(e.target.value)}
+        />
+      </label>
+      <div className="ocp-actionrow">
+        <button
+          type="button"
+          className="ocp-btn primary"
+          disabled={busy || value === ''}
+          onClick={() => void submit()}
+        >
+          {busy ? 'Storing…' : replace ? 'Replace' : 'Store'}
+        </button>
+      </div>
+      {message !== null && (
+        <p className={`ocp-actionmsg${message.failed ? ' crit' : ''}`} role="status" aria-live="polite">
+          {message.text}
+        </p>
+      )}
+    </div>
+  );
+}
 
 export function ConnectionsPanel({ state }: { state: GovernedProjection }) {
   const { available, detail, connections } = state.connections;
@@ -64,6 +145,10 @@ export function ConnectionsPanel({ state }: { state: GovernedProjection }) {
                     {c.expiresAt !== null && <>expires {c.expiresAt}</>}
                   </p>
                 )}
+                <details className="ocp-conn-edit">
+                  <summary>{c.status === 'MISSING' ? 'Set it up' : 'Replace'}</summary>
+                  <AddCredential reference={c.reference} replace={c.status !== 'MISSING'} />
+                </details>
               </li>
             );
           })}

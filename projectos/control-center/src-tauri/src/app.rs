@@ -262,7 +262,8 @@ fn run_inner() {
             daemon_status,
             identity_status,
             crate::host_status::installed_host_status,
-            crate::register_project::register_project
+            crate::register_project::register_project,
+            crate::set_credential::set_credential
         ])
         .build(tauri::generate_context!())
         .expect("error while building ProjectOS Control Center");

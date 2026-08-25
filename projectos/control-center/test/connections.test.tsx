@@ -10,13 +10,17 @@
  *   2. "COULD NOT ASK" IS NOT "NONE CONFIGURED". An installation that cannot reach the credential
  *      router has learned nothing; reporting that as "no connections" is a claim it has not earned.
  */
-import { describe, test, expect, afterEach } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/react';
+import { describe, test, expect, afterEach, vi } from 'vitest';
+import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react';
 import { projectGovernedState, type GovernedInputs } from '../src/governed/governedProjection';
 import { ConnectionsPanel } from '../src/owner/ConnectionsPanel.js';
+import { tauriBridge } from '../src/daemon/tauriBridge.js';
 import type { GovernedProjection } from '../src/governed/types';
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 /** Minimal inputs; only the credential rows vary. */
 function inputs(credentialRows: GovernedInputs['credentialRows']): GovernedInputs {
@@ -129,5 +133,94 @@ describe('no credential value can reach the surface', () => {
     const p = projectGovernedState(inputs([row({ risk: 'operation', credential: 'db-password' })]));
     render(<ConnectionsPanel state={p as GovernedProjection} />);
     expect(screen.getByText(/needs your approval each time/i)).toBeTruthy();
+  });
+});
+
+describe('storing a credential keeps the value off every shared channel', () => {
+  const SECRET = 'sk-live-must-not-persist-or-echo-42';
+
+  function openStoreForm() {
+    const p = projectGovernedState(inputs([row({ present: false, managed: false })]));
+    render(<ConnectionsPanel state={p} />);
+    fireEvent.click(screen.getByText('Set it up'));
+    return screen.getByLabelText('Value') as HTMLInputElement;
+  }
+
+  test('the value goes to the native command, not the governed command channel', async () => {
+    vi.spyOn(tauriBridge, 'isTauri').mockReturnValue(true);
+    const invoke = vi.spyOn(tauriBridge, 'invoke').mockResolvedValue('STORED');
+    const field = openStoreForm();
+
+    fireEvent.change(field, { target: { value: SECRET } });
+    fireEvent.click(screen.getByRole('button', { name: 'Store' }));
+
+    await waitFor(() => expect(invoke).toHaveBeenCalled());
+    const [command, args] = invoke.mock.calls[0]!;
+    // `set_credential` is a native Tauri command. The governed channel's verb list is a closed
+    // vocabulary of non-secret arguments and must never carry this.
+    expect(command).toBe('set_credential');
+    expect(args).toMatchObject({
+      reference: 'ProjectOS/demo/development/supabase/gh-token',
+      value: SECRET,
+      replace: false,
+    });
+  });
+
+  test('the field is cleared after a SUCCESSFUL store, so nothing is left in the DOM', async () => {
+    vi.spyOn(tauriBridge, 'isTauri').mockReturnValue(true);
+    vi.spyOn(tauriBridge, 'invoke').mockResolvedValue('STORED');
+    const field = openStoreForm();
+
+    fireEvent.change(field, { target: { value: SECRET } });
+    fireEvent.click(screen.getByRole('button', { name: 'Store' }));
+
+    await waitFor(() => expect(field.value).toBe(''));
+    expect(document.body.textContent ?? '').not.toContain(SECRET);
+  });
+
+  test('the field is cleared after a FAILED store too — a value that did not store is still a secret', async () => {
+    vi.spyOn(tauriBridge, 'isTauri').mockReturnValue(true);
+    vi.spyOn(tauriBridge, 'invoke').mockRejectedValue('Nothing was stored.');
+    const field = openStoreForm();
+
+    fireEvent.change(field, { target: { value: SECRET } });
+    fireEvent.click(screen.getByRole('button', { name: 'Store' }));
+
+    await waitFor(() => expect(field.value).toBe(''));
+    expect(document.body.textContent ?? '').not.toContain(SECRET);
+    expect(screen.getByText('Nothing was stored.')).toBeTruthy();
+  });
+
+  test('the input is masked', () => {
+    vi.spyOn(tauriBridge, 'isTauri').mockReturnValue(true);
+    const field = openStoreForm();
+    expect(field.type).toBe('password');
+  });
+
+  test('an already-stored credential offers Replace and sends replace: true', async () => {
+    vi.spyOn(tauriBridge, 'isTauri').mockReturnValue(true);
+    const invoke = vi.spyOn(tauriBridge, 'invoke').mockResolvedValue('REPLACED');
+    const p = projectGovernedState(inputs([row()]));
+    render(<ConnectionsPanel state={p} />);
+    // The <summary> and the submit button share the word "Replace"; target them by role so the
+    // test cannot silently click the wrong one.
+    fireEvent.click(screen.getByText('Replace', { selector: 'summary' }));
+
+    fireEvent.change(screen.getByLabelText('New value'), { target: { value: SECRET } });
+    fireEvent.click(screen.getByRole('button', { name: 'Replace' }));
+
+    await waitFor(() => expect(invoke).toHaveBeenCalled());
+    expect(invoke.mock.calls[0]![1]).toMatchObject({ replace: true });
+  });
+
+  test('with no native host there is no route to submit a secret at all', () => {
+    vi.spyOn(tauriBridge, 'isTauri').mockReturnValue(false);
+    const invoke = vi.spyOn(tauriBridge, 'invoke');
+    const p = projectGovernedState(inputs([row()]));
+    render(<ConnectionsPanel state={p} />);
+    fireEvent.click(screen.getByText('Replace', { selector: 'summary' }));
+
+    expect(screen.queryByLabelText('New value')).toBeNull();
+    expect(invoke).not.toHaveBeenCalled();
   });
 });

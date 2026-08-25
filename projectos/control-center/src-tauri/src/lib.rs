@@ -125,6 +125,10 @@ pub mod host_status;
 // launches one fixed bounded helper through a real UAC prompt. See the module's own documentation.
 #[cfg(windows)]
 pub(crate) mod register_project;
+// PROJECTOS-PRODUCT-COMPLETION1A §13: secure credential input. Crate-private, like register_project:
+// a Tauri command surface, not an API. The value never touches the governed command channel.
+#[cfg(windows)]
+pub(crate) mod set_credential;
 
 /// Run the ProjectOS Control Centre. The application's sole public entry point.
 ///
