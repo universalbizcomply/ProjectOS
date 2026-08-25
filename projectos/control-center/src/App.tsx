@@ -17,12 +17,14 @@ import { ChangePassword } from './ChangePassword';
 import { DaemonProvider } from './daemon/DaemonProvider';
 import { LiveMissionControl } from './daemon/LiveMissionControl';
 import { OwnerControlPlane } from './owner/OwnerControlPlane';
+import { CommandCenterHome } from './owner/CommandCenterHome';
+import { ShellThemeToggle, useShellTheme } from './owner/ShellTheme';
 import { OwnerChat } from './owner/OwnerChat';
 import { SafetyProviders } from './owner/SafetyProviders';
 import { ForgeConsole } from './forge/ForgeConsole';
 import type { Session } from '@supabase/supabase-js';
 
-type View = 'control' | 'forge' | 'chat' | 'safety' | 'overview' | 'live' | 'workflow' | 'gates' | 'plugins';
+type View = 'home' | 'control' | 'forge' | 'chat' | 'safety' | 'overview' | 'live' | 'workflow' | 'gates' | 'plugins';
 
 /**
  * ONE OBVIOUS WORKFLOW, and everything else disclosed progressively.
@@ -34,6 +36,7 @@ type View = 'control' | 'forge' | 'chat' | 'safety' | 'overview' | 'live' | 'wor
  * and they are grouped as such rather than deleted. Nothing became unreachable.
  */
 const NAV_PRIMARY: ReadonlyArray<{ id: View; label: string; hint: string }> = [
+  { id: 'home', label: 'Command Centre', hint: 'What is happening, and what needs you' },
   { id: 'overview', label: 'Projects', hint: 'Which project' },
   { id: 'control', label: 'Owner Control', hint: 'Objective, plan, execution, decisions, evidence' },
 ];
@@ -56,7 +59,9 @@ const NAV_REFERENCE: ReadonlyArray<{ id: View; label: string }> = [
 const SESSION_PROBE_TIMEOUT_MS = 10_000;
 
 export function App() {
-  const [view, setView] = useState<View>('control');
+  const [view, setView] = useState<View>('home');
+  // Appearance only. See ShellTheme.tsx: the mode changes no authority, workflow, state or capability.
+  const { theme, setTheme } = useShellTheme();
   const [session, setSession] = useState<Session | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [probeFailed, setProbeFailed] = useState(false);
@@ -161,6 +166,7 @@ export function App() {
             </button>
           ))}
         </nav>
+        <ShellThemeToggle theme={theme} setTheme={setTheme} />
         <div className="sidefoot">
           core v{CORE_VERSION}
           <br />
@@ -182,6 +188,7 @@ export function App() {
         </div>
       </aside>
       <main className="main" id="main" tabIndex={-1}>
+        {view === 'home' && <CommandCenterHome onOpenDetail={() => setView('control')} />}
         {view === 'control' && <OwnerControlPlane />}
         {view === 'forge' && <ForgeConsole />}
         {view === 'chat' && <OwnerChat />}

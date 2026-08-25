@@ -733,3 +733,70 @@ pre.ocp-actionmsg { white-space: pre-wrap; }
    one. Same surface language as the selector; no control affordance, because there is no control. */
 .ops-identity { margin: 0; font-size: 13px; color: var(--text-dim); flex: 1 1 auto; overflow-wrap: anywhere; }
 .ops-identity strong { color: var(--text); font-weight: 600; }
+
+/* --- Command Centre home (PROJECTOS-PRODUCT-COMPLETION1A §8) ---------------------------------- */
+.cc-verdict.active { border-color: #4a3d14; }
+.cc-actions { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.cc-action {
+  border: 1px solid var(--line); border-left-width: 3px; border-radius: var(--radius-sm);
+  padding: 10px 14px; background: var(--bg-elev);
+}
+.cc-action.blocking { border-left-color: var(--crit); }
+.cc-action.attention { border-left-color: var(--warn); }
+.cc-action-title { font-weight: 600; font-size: 14px; overflow-wrap: anywhere; }
+.cc-action-detail { font-size: 13px; color: var(--text-dim); margin-top: 3px; line-height: 1.5; overflow-wrap: anywhere; }
+
+.cc-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+.cc-fact {
+  background: var(--bg-panel); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 14px 16px; min-width: 0;
+}
+.cc-fact-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-faint); }
+.cc-fact-value { font-size: 22px; font-weight: 650; letter-spacing: -0.02em; margin-top: 4px; overflow-wrap: anywhere; }
+.cc-fact-sub { font-size: 12px; color: var(--text-dim); margin-top: 2px; overflow-wrap: anywhere; }
+
+/* --- Appearance toggle (§26). Appearance ONLY — no behaviour, authority or state depends on it. -- */
+.shell-toggle {
+  display: flex; gap: 4px; margin: 10px 8px 0; padding: 3px;
+  background: var(--bg-elev); border: 1px solid var(--line); border-radius: 999px;
+}
+.shell-toggle-option {
+  flex: 1 1 auto; font: inherit; font-size: 11px; padding: 6px 8px; border-radius: 999px;
+  border: 1px solid transparent; background: transparent; color: var(--text-dim); cursor: pointer;
+  min-height: 32px;
+}
+.shell-toggle-option:hover { color: var(--text); }
+.shell-toggle-option:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.shell-toggle-option.active { background: var(--accent-dim); color: var(--text); border-color: #2b3a63; }
+
+/* COMMAND CENTRE shell: deeper ground, more separation between layers, restrained cyan accent.
+   Redefines TOKENS only, so every surface follows without a single component knowing the mode. */
+:root[data-shell='command'] {
+  --bg: #05070d;
+  --bg-panel: #0c111c;
+  --bg-elev: #121a29;
+  --line: #1e2a3f;
+  --accent: #35d0e0;
+  --accent-dim: #0d2a30;
+  --text-dim: #93a3bb;
+}
+:root[data-shell='command'] body {
+  background:
+    radial-gradient(1100px 520px at 85% -12%, #0d2a30 0%, transparent 62%),
+    radial-gradient(800px 420px at 8% 4%, #101c33 0%, transparent 60%),
+    var(--bg);
+}
+:root[data-shell='command'] .ocp-panel,
+:root[data-shell='command'] .cc-fact {
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+:root[data-shell='command'] .navitem.active { box-shadow: 0 0 0 1px rgba(53, 208, 224, 0.25); }
+
+@media (prefers-reduced-motion: reduce) {
+  .shell-toggle-option { transition: none; }
+}
+
+@media (max-width: 420px) {
+  .cc-facts { grid-template-columns: 1fr; }
+  .cc .head { flex-direction: column; align-items: flex-start; gap: 8px; }
+}
