@@ -161,13 +161,15 @@ describe('stopping and resuming from chat', () => {
     expect(action).toBeNull();
   });
 
-  test('a still-running session is not resumable', () => {
+  test('a session written as "started" IS still offered — the runner decides, not this filter', () => {
+    // Against the real records no session is ever written as `exited`; requiring that made the
+    // suggestion unreachable. The runtime refuses an unresumable session in its own words.
     const action = matchActionIntent(
       'resume work',
       live({ activePhase: phase(), sessions: [session({ state: 'started', exitCode: null })] }),
       false,
     );
-    expect(action).toBeNull();
+    expect(action?.verb).toBe('run.resume');
   });
 
   test('resume is not offered while a run is already active', () => {

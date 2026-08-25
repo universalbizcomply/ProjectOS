@@ -95,13 +95,17 @@ describe('resuming a session', () => {
     expect(screen.queryByLabelText('Or resume a session that stopped')).toBeNull();
   });
 
-  test('a running (not exited) session is not offered as resumable', () => {
+  test('a session written as "started" IS offered — the runtime decides resumability, not this filter', () => {
+    // REBASELINED after running against the real records: not one of this project's fourteen
+    // sessions was ever written as `exited`, so a state-based filter matched nothing and the resume
+    // control never appeared. The runner does not consult state either; it validates the named
+    // session itself and refuses in its own words.
     renderActions(
       projection([
         { sessionId: 'S1', phaseId: 'PHASE1A', workerId: 'w', kind: 'claude', startedAt: '2026-08-25T08:00:00Z', state: 'started', exitCode: null },
       ]),
     );
-    expect(screen.queryByLabelText('Or resume a session that stopped')).toBeNull();
+    expect(screen.getByLabelText('Or resume a session that stopped')).toBeTruthy();
   });
 
   test('a session for a DIFFERENT phase is not offered here', () => {

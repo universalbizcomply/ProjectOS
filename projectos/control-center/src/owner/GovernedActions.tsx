@@ -61,10 +61,22 @@ export function GovernedActions({ state }: { state: GovernedProjection }) {
   const run = useGovernedRun();
 
   const phase: GovernedPhaseView | null = state.activePhase ?? state.nextStartablePhase;
-  // Sessions this phase could resume — the worker exited but the phase is not finished. Newest
-  // first (state.sessions is already sorted that way), so the default choice is the most recent.
+  /*
+   * Sessions this phase could resume, newest first (the projection already sorts them).
+   *
+   * FILTERED BY PHASE ONLY, and that is a correction. This used to also require
+   * `state === 'exited'`, which sounded right and was not: the runner does not consult a session's
+   * state when resuming — it needs a named, safe session id whose records exist, and validates the
+   * rest itself. Run against the real records, NOT ONE of this project's fourteen sessions was ever
+   * written as `exited` (they are `started` or `rejoined` with an exit code), so the condition
+   * matched nothing and the resume control never appeared at all.
+   *
+   * A dead feature is worse than a permissive list: the runtime refuses an unresumable session in
+   * its own words, which is this surface's consistent rule — do not re-implement a policy that
+   * already lives in the runtime, because the copy is what drifts.
+   */
   const resumableSessions =
-    phase === null ? [] : state.sessions.filter((s) => s.phaseId === phase.phaseId && s.state === 'exited');
+    phase === null ? [] : state.sessions.filter((s) => s.phaseId === phase.phaseId);
   const effectiveSessionId = resumableSessions.some((s) => s.sessionId === selectedSessionId)
     ? selectedSessionId
     : (resumableSessions[0]?.sessionId ?? '');

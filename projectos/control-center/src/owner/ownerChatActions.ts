@@ -94,13 +94,13 @@ export function matchActionIntent(question: string, live: GovernedProjection, ru
     if (phase !== null && phase.startable && matchesAny(padded, START_PHRASES)) {
       return { verb: 'run.start', args: { phaseId: phase.phaseId }, label: `Start governed execution for ${phase.phaseId}` };
     }
-    // RESUMING needs a real session to resume, and an unambiguous one. `sessions` arrives
-    // newest-first from the projection; a resumable session is one whose worker exited while its
-    // phase did not finish. With none, this suggests nothing rather than guessing a session id.
+    // RESUMING needs a real session to resume. `sessions` arrives newest-first from the projection,
+    // and candidates are filtered by PHASE ONLY — see the same correction in `GovernedActions`: the
+    // runner does not consult a session's `state`, and against the real records no session is ever
+    // written as `exited`, so requiring that matched nothing and made this suggestion unreachable.
+    // With no session at all this suggests nothing rather than guessing an id.
     if (phase !== null && matchesAny(padded, RESUME_PHRASES)) {
-      const resumable = live.sessions.filter(
-        (s) => s.phaseId === phase.phaseId && s.state === 'exited',
-      );
+      const resumable = live.sessions.filter((s) => s.phaseId === phase.phaseId);
       const newest = resumable[0];
       if (newest !== undefined) {
         return {
