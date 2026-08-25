@@ -140,6 +140,21 @@ export interface GovernedPlanDraftView {
   readonly decisionId: string | null;
 }
 
+/**
+ * One worker execution session, read straight from `.projectops/execution/<id>.session.json` — the
+ * exact record `projectos run --resume --session <id>` looks up. Exists so the owner can see which
+ * sessions a phase has and pick one to resume, instead of already knowing a session id to type in.
+ */
+export interface GovernedSessionView {
+  readonly sessionId: string;
+  readonly phaseId: string;
+  readonly workerId: string;
+  readonly kind: string;
+  readonly startedAt: string;
+  readonly state: 'started' | 'rejoined' | 'exited' | string;
+  readonly exitCode: number | null;
+}
+
 export interface GovernedSafetyView {
   readonly productionFreeze: boolean;
   readonly forbiddenActions: readonly string[];
@@ -172,6 +187,8 @@ export interface GovernedProjection {
   readonly pendingApprovals: readonly GovernedApprovalView[];
   /** Every drafted plan proposal, newest first, matched against any decision recorded for it. */
   readonly planDrafts: readonly GovernedPlanDraftView[];
+  /** Every worker execution session on record for this project, newest first. */
+  readonly sessions: readonly GovernedSessionView[];
   readonly safety: GovernedSafetyView;
   readonly blockers: readonly string[];
   readonly risks: readonly string[];

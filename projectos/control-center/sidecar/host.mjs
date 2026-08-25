@@ -297,6 +297,19 @@ function readDraftRecords(root) {
   return out;
 }
 
+/** Every worker session record — `.projectops/execution/<id>.session.json`. */
+function readSessionRecords(root) {
+  const dir = joinPath(root, '.projectops', 'execution');
+  if (!existsSync(dir)) return [];
+  const out = [];
+  for (const f of readdirSync(dir)) {
+    if (!f.endsWith('.session.json')) continue;
+    const rec = readJsonFile(joinPath(dir, f));
+    if (rec !== null) out.push(rec);
+  }
+  return out;
+}
+
 /**
  * Every plan-approval decision on disk — `.projectops/plan-decisions/<id>.json`.
  *
@@ -391,6 +404,7 @@ function buildGovernedState(root, observedAt) {
       approvalRecords: readApprovalRecords(root),
       draftRecords: readDraftRecords(root),
       planDecisionRecords: readPlanDecisionRecords(root),
+      sessionRecords: readSessionRecords(root),
       readiness: engine.evaluatePlanReady(plan),
       planPath: declaredPlan === undefined ? DEFAULT_PLAN_RELPATH : declaredPlan,
       branch: null,

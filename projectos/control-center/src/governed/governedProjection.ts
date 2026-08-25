@@ -25,6 +25,7 @@ import type {
   GovernedGatekeeperView,
   GovernedPhaseStatus,
   GovernedPlanDraftView,
+  GovernedSessionView,
   GovernedPhaseView,
   GovernedProjection,
   GovernedTransition,
@@ -64,6 +65,8 @@ export interface GovernedInputs {
   readonly draftRecords?: readonly Record<string, unknown>[];
   /** Parsed `.projectops/plan-decisions/*.json` records, matched to drafts by `draftId` below. */
   readonly planDecisionRecords?: readonly Record<string, unknown>[];
+  /** Parsed `.projectops/execution/*.session.json` records — every worker session on record. */
+  readonly sessionRecords?: readonly Record<string, unknown>[];
   /** Recomputed by the engine — the stored `planStatus` string is never trusted. */
   readonly readiness: ReadinessVerdict;
   readonly planPath: string;
@@ -345,6 +348,22 @@ function planDraftsOf(
     .sort((a, b) => (a.generatedAt < b.generatedAt ? 1 : a.generatedAt > b.generatedAt ? -1 : 0));
 }
 
+/** Every worker session on record, newest first. */
+function sessionsOf(records: readonly Record<string, unknown>[]): readonly GovernedSessionView[] {
+  return records
+    .map((rec) => ({
+      sessionId: str(rec, 'sessionId'),
+      phaseId: str(rec, 'phaseId'),
+      workerId: str(rec, 'workerId'),
+      kind: str(rec, 'kind'),
+      startedAt: str(rec, 'startedAt'),
+      state: str(rec, 'state'),
+      exitCode: typeof rec['exitCode'] === 'number' ? (rec['exitCode'] as number) : null,
+    }))
+    .filter((s) => s.sessionId !== '')
+    .sort((a, b) => (a.startedAt < b.startedAt ? 1 : a.startedAt > b.startedAt ? -1 : 0));
+}
+
 export function projectGovernedState(inputs: GovernedInputs): GovernedProjection {
   const { config, plan, currentState, phaseRecords, readiness } = inputs;
 
@@ -460,6 +479,7 @@ export function projectGovernedState(inputs: GovernedInputs): GovernedProjection
     ),
     pendingApprovals: pendingApprovalsOf(inputs.approvalRecords ?? []),
     planDrafts: planDraftsOf(inputs.draftRecords ?? [], inputs.planDecisionRecords ?? []),
+    sessions: sessionsOf(inputs.sessionRecords ?? []),
     safety: {
       productionFreeze: config['productionFreeze'] === true,
       forbiddenActions: strArray(config, 'forbiddenActions'),

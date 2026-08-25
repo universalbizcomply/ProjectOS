@@ -57,9 +57,17 @@ interface ActionState {
 
 export function GovernedActions({ state }: { state: GovernedProjection }) {
   const [action, setAction] = useState<ActionState>({ busy: false, lines: [], failed: false });
+  const [selectedSessionId, setSelectedSessionId] = useState('');
   const run = useGovernedRun();
 
   const phase: GovernedPhaseView | null = state.activePhase ?? state.nextStartablePhase;
+  // Sessions this phase could resume — the worker exited but the phase is not finished. Newest
+  // first (state.sessions is already sorted that way), so the default choice is the most recent.
+  const resumableSessions =
+    phase === null ? [] : state.sessions.filter((s) => s.phaseId === phase.phaseId && s.state === 'exited');
+  const effectiveSessionId = resumableSessions.some((s) => s.sessionId === selectedSessionId)
+    ? selectedSessionId
+    : (resumableSessions[0]?.sessionId ?? '');
 
   async function send(verb: GovernedVerb, args: GovernedCommandArgs, description: string) {
     setAction({ busy: true, lines: [`Asking the runtime to ${description}…`], failed: false });
@@ -230,6 +238,43 @@ export function GovernedActions({ state }: { state: GovernedProjection }) {
               ? 'A real worker and, if a check fails or a review is due, the live gatekeeper are running now.'
               : 'Starts the real worker. If it hits a check failure or a review point, the live gatekeeper is asked automatically — no copy-pasting between chats.'}
           </p>
+
+          {!run.active && resumableSessions.length > 0 && (
+            <div className="ocp-resume">
+              <label className="ocp-resume-label" htmlFor="ocp-resume-session">
+                Or resume a session that stopped
+              </label>
+              <div className="ocp-actionrow">
+                <select
+                  id="ocp-resume-session"
+                  value={effectiveSessionId}
+                  disabled={action.busy}
+                  onChange={(e) => setSelectedSessionId(e.target.value)}
+                >
+                  {resumableSessions.map((s) => (
+                    <option key={s.sessionId} value={s.sessionId}>
+                      {s.sessionId} — {s.startedAt || 'time unrecorded'}
+                      {s.exitCode !== null ? ` (exit ${s.exitCode})` : ''}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className="ocp-btn"
+                  disabled={action.busy || effectiveSessionId === ''}
+                  onClick={() =>
+                    void send(
+                      'run.resume',
+                      { phaseId: phase.phaseId, sessionId: effectiveSessionId },
+                      `resume session ${effectiveSessionId}`,
+                    )
+                  }
+                >
+                  ▶ Resume
+                </button>
+              </div>
+            </div>
+          )}
           {run.lines.length > 0 && (
             <pre className="ocp-run-output" role="log" aria-live="polite" aria-label="Governed execution output">
               {run.lines.map((entry) => `${entry.stream === 'stderr' ? '! ' : ''}${entry.line}`).join('\n')}

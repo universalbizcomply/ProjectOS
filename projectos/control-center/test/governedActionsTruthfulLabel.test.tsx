@@ -122,6 +122,7 @@ function projection(status: string): GovernedProjection {
     risks: [],
     nextSafeAction: '',
     observedAt: '2026-08-13T14:00:00.000Z',
+    sessions: [],
   } as GovernedProjection;
 }
 

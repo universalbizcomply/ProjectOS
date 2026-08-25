@@ -586,6 +586,12 @@ pre.ocp-actionmsg { white-space: pre-wrap; }
    the only separation it needs to read as its own thing. */
 .ocp-run { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
 .ocp-run h3 { margin: 0 0 8px; font-size: 13px; letter-spacing: -0.01em; color: var(--text-dim); }
+.ocp-resume { margin-top: 10px; }
+.ocp-resume-label { display: block; font-size: 12px; color: var(--text-faint); margin-bottom: 6px; }
+.ocp-resume select {
+  background: var(--bg-elev); color: inherit; border: 1px solid var(--line); border-radius: 6px;
+  padding: 6px 8px; font: inherit; max-width: 100%;
+}
 .ocp-run-output {
   margin: 10px 0 0; padding: 10px 12px; max-height: 260px; overflow-y: auto; overflow-x: hidden;
   white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--mono);

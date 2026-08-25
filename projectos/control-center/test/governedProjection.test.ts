@@ -411,6 +411,32 @@ describe('authority is projected truthfully', () => {
   });
 });
 
+describe('worker sessions are projected newest first', () => {
+  test('sorts by startedAt descending regardless of input order', () => {
+    const p = projectGovernedState(
+      inputs({
+        sessionRecords: [
+          { sessionId: 'S-OLD', phaseId: 'P1', workerId: 'w', kind: 'claude', startedAt: '2026-08-01T00:00:00Z', state: 'exited', exitCode: 1 },
+          { sessionId: 'S-NEW', phaseId: 'P1', workerId: 'w', kind: 'claude', startedAt: '2026-08-20T00:00:00Z', state: 'exited', exitCode: 0 },
+        ],
+      }),
+    );
+    expect(p.sessions.map((s) => s.sessionId)).toEqual(['S-NEW', 'S-OLD']);
+  });
+
+  test('a record with no sessionId is dropped rather than shown as an empty option', () => {
+    const p = projectGovernedState(inputs({ sessionRecords: [{ phaseId: 'P1', state: 'exited' }] }));
+    expect(p.sessions).toEqual([]);
+  });
+
+  test('exitCode is null when absent or non-numeric, never coerced to 0', () => {
+    const p = projectGovernedState(
+      inputs({ sessionRecords: [{ sessionId: 'S1', phaseId: 'P1', workerId: 'w', kind: 'claude', startedAt: 't', state: 'started' }] }),
+    );
+    expect(p.sessions[0]?.exitCode).toBeNull();
+  });
+});
+
 describe('governed message envelope', () => {
   test('recognises a governed state message and rejects anything else', () => {
     expect(isGovernedStateMessage({ kind: GOVERNED_MESSAGE_KIND, state: { connected: false } })).toBe(true);

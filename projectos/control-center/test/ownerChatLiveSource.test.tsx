@@ -81,6 +81,7 @@ function projection(over: Partial<GovernedProjection> = {}): GovernedProjection 
     },
     pendingApprovals: [],
     planDrafts: [],
+    sessions: [],
     safety: { productionFreeze: true, forbiddenActions: [], approvalGates: [] },
     blockers: [],
     risks: [],
