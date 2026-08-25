@@ -129,4 +129,15 @@ windows = { version = "0.61.3", features = [
   # which this host raises a real Windows UAC prompt. It launches one fixed, bounded helper binary
   # beside this executable and nothing else; see src/register_project.rs.
   "Win32_UI_Shell",
+  # REQUIRED BY `SHELLEXECUTEINFOW` ITSELF, not by anything this crate calls directly: the struct
+  # carries an `hkeyClass: HKEY`, so both it and `ShellExecuteExW` are gated on this feature. The
+  # build previously succeeded WITHOUT declaring it purely because `tao` (transitive via tauri→wry)
+  # enables it on the same already-locked `windows` package and Cargo unifies features. Depending on
+  # another crate's feature selection for our own compilation is a build that breaks the day that
+  # crate changes, so it is declared here.
+  "Win32_System_Registry",
+  # `ShellExecuteExW` delegates to COM shell extensions and requires an initialised apartment. It
+  # happened to work while the command ran on tao's already-initialised main thread; the command is
+  # now async (it must not block the event loop), so the worker thread initialises COM itself.
+  "Win32_System_Com",
 ] }

@@ -4,6 +4,17 @@
 //! publisher, so each refusal is driven deliberately. **No test publishes a real `projects.v1.json`**:
 //! the production publisher is never called here, and the one test that touches the canonical path
 //! only reads it.
+//!
+//! ## THE FIXTURE PROJECT ID MUST NEVER BE A REAL ONE
+//!
+//! Planning READS the canonical registry — that is the point, since a plan must account for what is
+//! already registered — so these tests are not hermetic: their outcome depends on the machine's
+//! actual registry. The fixture id was `projectos`, and the day ProjectOS itself was registered,
+//! fourteen tests failed at once with `PlanRefused("ConflictingProjectId")`. Nothing was wrong with
+//! the code; the fixture had simply started colliding with a real registration.
+//!
+//! `projectos-admin-fixture` is used instead because it is not a project anyone would register. If a
+//! future fixture needs a second id, give it the same property.
 
 use super::*;
 use std::path::{Path, PathBuf};
@@ -105,7 +116,7 @@ fn args(mode: &str, root: &Path, extra: &[&str]) -> Vec<String> {
     let mut v = vec![
         mode.to_string(),
         "--id".into(),
-        "projectos".into(),
+        "projectos-admin-fixture".into(),
         "--root".into(),
         root.to_string_lossy().to_string(),
         "--environments".into(),
@@ -136,7 +147,7 @@ fn planned_digest(output: &str) -> String {
 fn a1_plan_shows_the_complete_registration_and_writes_nothing() {
     let dir = scratch("plan");
     let root = dir.join("repo");
-    repository(&root, "projectos");
+    repository(&root, "projectos-admin-fixture");
     let mut console = FakeConsole::new(false, None);
     let publisher = SpyPublisher::default();
 
@@ -144,7 +155,7 @@ fn a1_plan_shows_the_complete_registration_and_writes_nothing() {
 
     let out = console.output();
     for expected in [
-        "project ID            projectos",
+        "project ID            projectos-admin-fixture",
         "permitted environments development",
         "production frozen     true",
         "registry digest       ",
@@ -172,7 +183,7 @@ fn a1_plan_shows_the_complete_registration_and_writes_nothing() {
 fn a2_a_non_interactive_console_cannot_confirm() {
     let dir = scratch("not-interactive");
     let root = dir.join("repo");
-    repository(&root, "projectos");
+    repository(&root, "projectos-admin-fixture");
     let digest = {
         let mut c = FakeConsole::new(false, None);
         run(
@@ -203,7 +214,7 @@ fn a2_a_non_interactive_console_cannot_confirm() {
 fn a3_a_wrong_or_missing_confirmation_is_refused() {
     let dir = scratch("wrong-phrase");
     let root = dir.join("repo");
-    repository(&root, "projectos");
+    repository(&root, "projectos-admin-fixture");
     let digest = {
         let mut c = FakeConsole::new(false, None);
         run(
@@ -247,7 +258,7 @@ fn a3_a_wrong_or_missing_confirmation_is_refused() {
 fn a4_confirmation_does_not_bypass_independent_validation() {
     let dir = scratch("no-bypass");
     let root = dir.join("repo");
-    repository(&root, "projectos");
+    repository(&root, "projectos-admin-fixture");
     let digest = {
         let mut c = FakeConsole::new(false, None);
         run(
@@ -281,7 +292,7 @@ fn a4_confirmation_does_not_bypass_independent_validation() {
     );
     // And the plan it was handed is the one the administrator was shown.
     assert_eq!(publisher.calls.borrow()[0].planned_digest, digest);
-    assert_eq!(publisher.calls.borrow()[0].proposed.project_id, "projectos");
+    assert_eq!(publisher.calls.borrow()[0].proposed.project_id, "projectos-admin-fixture");
 }
 
 // =============================================================================================
@@ -294,7 +305,7 @@ fn a4_confirmation_does_not_bypass_independent_validation() {
 fn a5_no_destination_can_be_supplied() {
     let dir = scratch("no-destination");
     let root = dir.join("repo");
-    repository(&root, "projectos");
+    repository(&root, "projectos-admin-fixture");
 
     for attempt in [
         ["--out", r"C:\attacker\projects.v1.json"],
@@ -358,7 +369,7 @@ fn a6_no_environment_or_working_directory_can_redirect_anything() {
 fn a7_repository_drift_after_the_plan_is_refused() {
     let dir = scratch("drift");
     let root = dir.join("repo");
-    repository(&root, "projectos");
+    repository(&root, "projectos-admin-fixture");
     let digest = {
         let mut c = FakeConsole::new(false, None);
         run(
@@ -396,7 +407,7 @@ fn a7_repository_drift_after_the_plan_is_refused() {
 fn a8_a_stale_expected_digest_is_refused_before_confirmation() {
     let dir = scratch("stale-digest");
     let root = dir.join("repo");
-    repository(&root, "projectos");
+    repository(&root, "projectos-admin-fixture");
 
     let mut console = FakeConsole::new(true, Some(PHRASE));
     let publisher = SpyPublisher::default();
@@ -425,7 +436,7 @@ fn a8_a_stale_expected_digest_is_refused_before_confirmation() {
 fn a8b_a_malformed_expected_digest_is_refused_at_parse_time() {
     let dir = scratch("bad-digest");
     let root = dir.join("repo");
-    repository(&root, "projectos");
+    repository(&root, "projectos-admin-fixture");
     for bad in ["", "abc", &"z".repeat(64), &"a".repeat(63), &"A".repeat(64)] {
         let mut console = FakeConsole::new(true, Some(PHRASE));
         assert_eq!(
@@ -490,7 +501,7 @@ fn a10_an_invalid_project_is_refused_by_the_commands_own_planning() {
 fn a9_an_invalid_environment_policy_is_refused() {
     let dir = scratch("bad-environments");
     let root = dir.join("repo");
-    repository(&root, "projectos");
+    repository(&root, "projectos-admin-fixture");
     for bad in [
         "",
         "prod",
@@ -565,7 +576,7 @@ fn a15_there_is_no_self_elevation_or_process_launch_on_this_path() {
 #[test]
 fn u1_the_uac_route_publishes_without_an_expected_digest() {
     let root = scratch("uac-publishes");
-    repository(&root, "projectos");
+    repository(&root, "projectos-admin-fixture");
     let publisher = SpyPublisher::default();
 
     let outcome = run_uac_confirmed(&args("publish", &root, &[]), &publisher)
@@ -578,7 +589,7 @@ fn u1_the_uac_route_publishes_without_an_expected_digest() {
         "the publisher must have been called exactly once"
     );
     let plan = publisher.calls.borrow()[0].clone();
-    assert_eq!(plan.proposed.project_id, "projectos");
+    assert_eq!(plan.proposed.project_id, "projectos-admin-fixture");
     assert_eq!(
         plan.planned_digest.len(),
         64,
@@ -590,7 +601,7 @@ fn u1_the_uac_route_publishes_without_an_expected_digest() {
 #[test]
 fn u2_the_uac_route_refuses_a_supplied_digest() {
     let root = scratch("uac-refuses-digest");
-    repository(&root, "projectos");
+    repository(&root, "projectos-admin-fixture");
     let publisher = SpyPublisher::default();
 
     let refusal = run_uac_confirmed(
@@ -611,7 +622,7 @@ fn u2_the_uac_route_refuses_a_supplied_digest() {
 #[test]
 fn u3_the_uac_route_refuses_plan_mode() {
     let root = scratch("uac-refuses-plan");
-    repository(&root, "projectos");
+    repository(&root, "projectos-admin-fixture");
     let publisher = SpyPublisher::default();
 
     let refusal = run_uac_confirmed(&args("plan", &root, &[]), &publisher)
@@ -625,7 +636,7 @@ fn u3_the_uac_route_refuses_plan_mode() {
 #[test]
 fn u4_the_uac_route_still_enforces_the_shared_argument_grammar() {
     let root = scratch("uac-grammar");
-    repository(&root, "projectos");
+    repository(&root, "projectos-admin-fixture");
     let publisher = SpyPublisher::default();
 
     // Built literally rather than via `args(..., extra)`: that helper already supplies
@@ -637,7 +648,7 @@ fn u4_the_uac_route_still_enforces_the_shared_argument_grammar() {
         vec![
             "publish".to_string(),
             "--id".into(),
-            "projectos".into(),
+            "projectos-admin-fixture".into(),
             "--root".into(),
             root_s.clone(),
             "--environments".into(),
@@ -678,7 +689,7 @@ fn u4_the_uac_route_still_enforces_the_shared_argument_grammar() {
 #[test]
 fn u5_a_publication_refusal_is_reported_not_swallowed() {
     let root = scratch("uac-publish-refused");
-    repository(&root, "projectos");
+    repository(&root, "projectos-admin-fixture");
     let publisher = SpyPublisher::refusing(RegistryPublishRefusal::NotElevated);
 
     let refusal = run_uac_confirmed(&args("publish", &root, &[]), &publisher)
@@ -694,7 +705,7 @@ fn u5_a_publication_refusal_is_reported_not_swallowed() {
 #[test]
 fn u6_the_terminal_route_still_requires_its_digest() {
     let root = scratch("terminal-still-requires-digest");
-    repository(&root, "projectos");
+    repository(&root, "projectos-admin-fixture");
     let publisher = SpyPublisher::default();
     let mut console = FakeConsole::new(true, Some(PHRASE));
 
@@ -900,7 +911,7 @@ fn argument_after<'a>(line: &'a str, flag: &str) -> (String, &'a str) {
 fn a16_the_plan_pins_windows_powershell_51_as_administrator() {
     let dir = scratch("shell-named");
     let root = dir.join("repo");
-    repository(&root, "projectos");
+    repository(&root, "projectos-admin-fixture");
     let mut console = FakeConsole::new(false, None);
 
     run(
@@ -954,7 +965,7 @@ fn a16_the_plan_pins_windows_powershell_51_as_administrator() {
 fn a17_generated_arguments_are_single_quoted_and_never_double_quoted() {
     let dir = scratch("single-quoted");
     let root = dir.join("repo");
-    repository(&root, "projectos");
+    repository(&root, "projectos-admin-fixture");
     let mut console = FakeConsole::new(false, None);
 
     run(
@@ -970,13 +981,16 @@ fn a17_generated_arguments_are_single_quoted_and_never_double_quoted() {
 
     // One encoding rule, applied to every caller-supplied value — including the ones whose current
     // validation already restricts them. A rule with exceptions is a rule nobody can check.
-    assert_eq!(argument_after(&line, "--id").0, "projectos");
+    assert_eq!(argument_after(&line, "--id").0, "projectos-admin-fixture");
     assert_eq!(
         argument_after(&line, "--root").0,
         root.to_string_lossy().to_string()
     );
     assert_eq!(argument_after(&line, "--environments").0, "development");
-    assert!(line.contains("--id 'projectos'"), "line: {line}");
+    assert!(
+        line.contains("--id 'projectos-admin-fixture'"),
+        "line: {line}"
+    );
     assert!(
         line.contains("--environments 'development'"),
         "line: {line}"
@@ -1006,7 +1020,7 @@ fn a18_powershell_metacharacters_stay_literal_inside_one_argument() {
     let hostile = "repo $(whoami) `n & ; it's here";
     let dir = scratch("metacharacters");
     let root = dir.join(hostile);
-    repository(&root, "projectos");
+    repository(&root, "projectos-admin-fixture");
     let mut console = FakeConsole::new(false, None);
 
     run(
@@ -1076,7 +1090,7 @@ fn a19_every_powershell_quote_character_is_doubled() {
     // And end to end, through a real directory named with an apostrophe.
     let dir = scratch("apostrophe");
     let root = dir.join("Murad's repo");
-    repository(&root, "projectos");
+    repository(&root, "projectos-admin-fixture");
     let mut console = FakeConsole::new(false, None);
     run(
         &args("plan", &root, &[]),
@@ -1126,7 +1140,7 @@ fn a20_no_untrusted_value_can_forge_a_line_or_a_command() {
     // End to end, the plan prints exactly one runnable line and no forged field.
     let dir = scratch("no-forgery");
     let root = dir.join("repo");
-    repository(&root, "projectos");
+    repository(&root, "projectos-admin-fixture");
     let mut console = FakeConsole::new(false, None);
     run(
         &args("plan", &root, &[]),
@@ -1253,7 +1267,7 @@ fn a22_without_the_delivery_repair_a_trailing_separator_absorbs_the_next_flag() 
 fn a23_a_root_that_differs_from_the_plan_can_never_publish() {
     let dir = scratch("fail-closed");
     let root = dir.join("repo");
-    repository(&root, "projectos");
+    repository(&root, "projectos-admin-fixture");
     let publisher = SpyPublisher::default();
 
     let mut console = FakeConsole::new(false, None);
