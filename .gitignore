@@ -35,3 +35,7 @@ projectos/control-center/bridge.config.json
 .projectops/continuity/ownership.lock.json
 .projectops/continuity/owner-control.json
 .projectops/continuity/*.brief.json
+
+# Which project the desktop Control Centre currently has selected. Local runtime state written by
+# the app on this machine -- not a governance record, and not the same on any two installs.
+/selected-project.json
