@@ -83,7 +83,10 @@ export function OwnerChat() {
   function ask(question: string) {
     const q = question.trim();
     if (!q) return;
-    const answer: ChatAnswer = answerOwnerQuestion(model, q);
+    // THE REVIEWER LEDGER, FROM LIVE STATE ONLY. `live` is null unless the runtime is connected, so
+    // a cost question against a disconnected runtime declines rather than quoting the last number
+    // anyone happened to see.
+    const answer: ChatAnswer = answerOwnerQuestion(model, q, live?.gatekeeperStatus ?? null);
     // Recognised only against LIVE governed state — the recorded fallback names no real phase or
     // decision to act on, so there is nothing safe to suggest doing anything with.
     const action = live !== null ? (matchActionIntent(q, live, run.active) ?? undefined) : undefined;

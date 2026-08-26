@@ -124,3 +124,63 @@ describe('answerOwnerQuestion — determinism & suggestions', () => {
     expect(answerOwnerQuestion(PROJECTOS_V3, '').suggestions.length).toBeGreaterThan(0);
   });
 });
+
+
+/**
+ * THE QUESTION THAT WAS ANSWERED WRONG. Asked on the installed application: "how much has the
+ * reviewer cost me so far". It came back "0 of 1 phases accepted · 0%. Currently on
+ * PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A." -- true, confident, and about something else entirely.
+ * 'how much' was a PROGRESS phrase and no cost intent existed, so a cost question could only ever
+ * land on the nearest scoring neighbour. Answering the wrong question is worse than declining,
+ * because the owner has no way to tell it happened.
+ */
+describe('answerOwnerQuestion — reviewer cost', () => {
+  const gk = {
+    configured: true,
+    budget: {
+      status: 'OK' as const,
+      spentThisMonthMicroUsd: 410_000,
+      remainingMicroUsd: 4_590_000,
+      warnAtMicroUsd: 2_000_000,
+      hardStopAtMicroUsd: 5_000_000,
+    },
+    spentThisPhaseMicroUsd: 410_000,
+    spentThisProjectMicroUsd: 410_000,
+    callCount: 15,
+    lastCall: { requestId: 'GKREQ-1', model: 'gpt-5.6-terra', at: '2026-08-26T00:30:00.000Z', costMicroUsd: 62_079 },
+  };
+
+  it('routes the exact question that was misrouted, and quotes the ledger', () => {
+    const a = answerOwnerQuestion(PROJECTOS_V3, 'how much has the reviewer cost me so far', gk);
+    expect(a.intent).toBe('cost');
+    expect(a.answer).toContain('$0.41');
+    expect(a.answer).toContain('15 calls');
+    // The specific untruth: it must not answer with phase progress.
+    expect(a.answer).not.toContain('phases accepted');
+  });
+
+  it('still reads a genuine progress question as progress', () => {
+    expect(answerOwnerQuestion(PROJECTOS_V3, 'how much progress have we made?', gk).intent).toBe('progress');
+    expect(answerOwnerQuestion(PROJECTOS_V3, 'how far along are we?', gk).intent).toBe('progress');
+  });
+
+  it('reports the budget ceiling and the last call', () => {
+    const a = answerOwnerQuestion(PROJECTOS_V3, 'what is left in the budget?', gk);
+    expect(a.intent).toBe('cost');
+    expect(a.answer).toContain('$4.59');
+    expect(a.answer).toContain('gpt-5.6-terra');
+  });
+
+  it('declines rather than quoting a figure when the runtime is not reporting', () => {
+    const a = answerOwnerQuestion(PROJECTOS_V3, 'how much have we spent?', null);
+    expect(a.intent).toBe('cost');
+    expect(a.answer).not.toMatch(/\$\d/);
+    expect(a.answer.toLowerCase()).toContain('will not quote');
+  });
+
+  it('says nothing was spent when the reviewer was never contacted', () => {
+    const never = { ...gk, callCount: 0, lastCall: null, spentThisPhaseMicroUsd: 0, spentThisProjectMicroUsd: 0 };
+    const a = answerOwnerQuestion(PROJECTOS_V3, 'what has this cost?', never);
+    expect(a.answer.toLowerCase()).toContain('never been contacted');
+  });
+});
