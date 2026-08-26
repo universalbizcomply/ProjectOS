@@ -53,7 +53,7 @@ describe('P2 objective intake — the owner does not need a terminal', function 
     await $('#root').waitForExist({ timeout: 60_000 });
     // Owner Control moved behind Advanced in the approved redesign; the surface and everything
     // asserted about it below are unchanged. See ownerControlRoute.ts.
-    await openOwnerControl(120_000);
+    await openOwnerControl(30_000);
     await browser.waitUntil(async () => (await $('[data-testid="ocp-source"]').getText()).includes('Live'), {
       timeout: 90_000,
       timeoutMsg: 'the runtime never reported live governed state, so intake cannot be proven',

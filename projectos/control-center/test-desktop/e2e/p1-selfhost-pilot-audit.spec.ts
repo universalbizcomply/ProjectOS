@@ -106,7 +106,7 @@ describe('P1 self-hosting pilot — what the owner actually sees', function () {
     await $('#root').waitForExist({ timeout: 30_000 });
     // Owner Control moved behind Advanced in the approved redesign; the surface and everything
     // asserted about it below are unchanged. See ownerControlRoute.ts.
-    await openOwnerControl(120_000);
+    await openOwnerControl(30_000);
   });
 
   it('P1a the dev-tree build reaches genuine LIVE governed state', async () => {

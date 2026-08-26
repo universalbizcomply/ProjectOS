@@ -236,6 +236,18 @@ export function ProjectWorkspace({
               <span>Not reporting yet</span>
             </div>
           </div>
+          {/* The technical panel is the ONLY route to the Advanced surfaces, so it has to survive a
+              runtime that has not reported — that is exactly when somebody wants Mission Control. */}
+          <div className="os-headtools">
+            <button
+              type="button"
+              className="os-ghost os-advtoggle"
+              aria-expanded={advancedOpen}
+              onClick={() => setAdvancedOpen(!advancedOpen)}
+            >
+              {advancedOpen ? 'Hide technical detail' : 'Technical detail'}
+            </button>
+          </div>
         </header>
         <section className="os-hero os-glass os-hud" role="status">
           <span className="os-edge" aria-hidden="true" />
@@ -249,6 +261,27 @@ export function ProjectWorkspace({
             </h2>
           </div>
         </section>
+        {advancedOpen && (
+          <section className="os-tech">
+            <h3>Technical detail</h3>
+            <div className="os-techgrid">
+              <span className="k">Project</span><span className="v">{selected?.projectId ?? 'none selected'}</span>
+              <span className="k">Folder</span><span className="v">{selected?.repositoryRoot ?? 'not known'}</span>
+              <span className="k">Runtime</span><span className="v">not reporting</span>
+              <span className="k">Core</span><span className="v">v{CORE_VERSION}</span>
+              <span className="k">Advanced surfaces</span>
+              <span className="v os-advlinks">
+                <button type="button" className="os-advlink" onClick={() => onOpenAdvanced('live')}>Mission Control</button>
+                <button type="button" className="os-advlink" onClick={() => onOpenAdvanced('workflow')}>Workflow</button>
+                <button type="button" className="os-advlink" onClick={() => onOpenAdvanced('plugins')}>Integrations</button>
+                <button type="button" className="os-advlink" onClick={() => onOpenAdvanced('forge')}>Forge</button>
+                <button type="button" className="os-advlink" onClick={() => onOpenAdvanced('control')}>Owner Control</button>
+                <button type="button" className="os-advlink" onClick={() => onOpenAdvanced('chat')}>Owner Chat</button>
+                <button type="button" className="os-advlink" onClick={() => onOpenAdvanced('safety')}>Safety &amp; Providers</button>
+              </span>
+            </div>
+          </section>
+        )}
       </div>
     );
   }

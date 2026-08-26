@@ -101,7 +101,7 @@ describe('T2-T21 governed matrix against the real ProjectOS runtime', () => {
     // rather than racing it.
     // Owner Control moved behind Advanced in the approved redesign; the surface and everything
     // asserted about it below are unchanged. See ownerControlRoute.ts.
-    await openOwnerControl(120_000);
+    await openOwnerControl(30_000);
     await browser.waitUntil(async () => (await sourceText()).includes('Live'), {
       timeout: 60_000,
       timeoutMsg: 'the runtime never reported live governed state',
