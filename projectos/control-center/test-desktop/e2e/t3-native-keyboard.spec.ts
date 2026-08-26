@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
+import { openOwnerControl } from './ownerControlRoute.js';
 
 /**
  * T16/T17 - keyboard operation, proven with REAL Windows input.
@@ -72,7 +73,9 @@ describe('T16/T17 keyboard operation with real Windows input', () => {
   before(async () => {
     await browser.waitUntil(async () => (await browser.getTitle()).length > 0, { timeout: 30_000 });
     await $('#root').waitForExist({ timeout: 30_000 });
-    await $('[data-testid="ocp-source"]').waitForExist({ timeout: 30_000 });
+    // Owner Control moved behind Advanced in the approved redesign; the surface and everything
+    // asserted about it below are unchanged. See ownerControlRoute.ts.
+    await openOwnerControl(30_000);
   });
 
   it('T16 moves focus through real controls using OS keyboard input', async function () {

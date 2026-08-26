@@ -306,7 +306,10 @@ export function Shell({
         />
         <main className="os-canvas" id="main" tabIndex={-1}>
           <div className={`os-column ${enterClass}`}>
-            {noProjects && view !== 'wizard' && <FirstRun onAddProject={() => go('wizard')} />}
+            {/* First run REPLACES THE CANVAS — the workspace's canvas, not every screen. It used to
+                render on top of Settings and Advanced as well, so an empty machine showed "Let's add
+                your first project" stacked above whatever the owner had actually opened. */}
+            {noProjects && view === 'projects' && <FirstRun onAddProject={() => go('wizard')} />}
 
             {!noProjects && view === 'projects' && (
               <ProjectWorkspace
@@ -353,6 +356,15 @@ export function Shell({
                 setCalm={setCalm}
                 onBack={() => go('projects')}
                 onAdvanced={() => {
+                  // The prototype's own route: open the project's technical detail and say so.
+                  // With NO project there is no workspace to open it on, and the Advanced surfaces
+                  // would be unreachable — so the button opens them directly instead. "Nothing
+                  // becomes unreachable" has to hold on an empty machine too.
+                  if (noProjects) {
+                    setAdvanced('control');
+                    go('advanced');
+                    return;
+                  }
                   setAdvancedOpen(true);
                   go('projects');
                   say('Technical detail opened at the bottom of the project.');

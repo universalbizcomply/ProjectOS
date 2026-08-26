@@ -106,7 +106,10 @@ describe('T1 genuine ProjectOS desktop session', () => {
       timeoutMsg: '#root never rendered any content',
     });
 
-    // The real Control Centre shell, not an error boundary or an empty document.
-    expect(await $('nav[aria-label="Primary"]').isExisting()).toBe(true);
+    // The real Control Centre shell, not an error boundary or an empty document. The marker is the
+    // redesigned shell's persistent rail; it was the old nine-destination `nav[aria-label="Primary"]`
+    // until PROJECTOS-CONTROL-CENTER-LIKE-FOR-LIKE1A replaced that navigation. Same assertion.
+    expect(await $('.os-rail').isExisting()).toBe(true);
+    expect(await $('main#main').isExisting()).toBe(true);
   });
 });

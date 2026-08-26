@@ -9,13 +9,12 @@
       RENDER IN BARLOW; the condensed cut is loaded because the pairing declares it and is never
       applied to a heading — see the h1..h6 rule in src/styles.css.
 
-      THE FACES ARE VENDORED, NOT LINKED, and they are the same files the handoff's Google Fonts URL
-      serves (Barlow 400/500/700 and Barlow Condensed 400/600, latin). The `<link>` is deliberately
-      absent: `<link rel="stylesheet">` is render-blocking, so in the installed desktop application
-      it held `document.fonts` in `loading` on every launch while a request to fonts.googleapis.com
-      that may never succeed timed out — and an application whose premise is that nothing leaves the
-      machine without the owner's yes should not call a third party to draw its own text. The
-      declarations live in src/styles.css.
+      THE FACES ARE VENDORED, NOT LINKED. They are the same files the handoff's Google Fonts URL
+      serves (Barlow 400/500/700 and Barlow Condensed 400/600, latin), declared in src/styles.css
+      and carried under public/fonts. A remote stylesheet is render-blocking, so in the installed
+      desktop application it held document.fonts in "loading" on every launch while a request that
+      may never succeed timed out — and an application whose premise is that nothing leaves the
+      machine without the owner's yes should not call a third party to draw its own text.
     -->
     <title>ProjectOS · Control Center</title>
   </head>

@@ -37,6 +37,7 @@ const WIDTHS = [
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve as resolvePath, join as joinPath } from 'node:path';
+import { openOwnerControl } from './ownerControlRoute.js';
 
 /**
  * The ACTIVE programme's own facts, read from the same records the runtime governs from.
@@ -103,7 +104,9 @@ describe('P1 self-hosting pilot — what the owner actually sees', function () {
   before(async () => {
     await browser.waitUntil(async () => (await browser.getTitle()).length > 0, { timeout: 30_000 });
     await $('#root').waitForExist({ timeout: 30_000 });
-    await $('nav[aria-label="Primary"]').waitForExist({ timeout: 30_000 });
+    // Owner Control moved behind Advanced in the approved redesign; the surface and everything
+    // asserted about it below are unchanged. See ownerControlRoute.ts.
+    await openOwnerControl(120_000);
   });
 
   it('P1a the dev-tree build reaches genuine LIVE governed state', async () => {

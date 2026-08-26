@@ -17,6 +17,7 @@
  */
 import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { openOwnerControl } from './ownerControlRoute.js';
 
 const REPO = resolve(process.cwd(), '..', '..');
 const DRAFTS = resolve(REPO, '.projectops', 'drafts');
@@ -50,7 +51,9 @@ describe('P2 objective intake — the owner does not need a terminal', function 
   before(async () => {
     await browser.waitUntil(async () => (await browser.getTitle()).length > 0, { timeout: 30_000 });
     await $('#root').waitForExist({ timeout: 60_000 });
-    await $('[data-testid="ocp-source"]').waitForExist({ timeout: 120_000 });
+    // Owner Control moved behind Advanced in the approved redesign; the surface and everything
+    // asserted about it below are unchanged. See ownerControlRoute.ts.
+    await openOwnerControl(120_000);
     await browser.waitUntil(async () => (await $('[data-testid="ocp-source"]').getText()).includes('Live'), {
       timeout: 90_000,
       timeoutMsg: 'the runtime never reported live governed state, so intake cannot be proven',

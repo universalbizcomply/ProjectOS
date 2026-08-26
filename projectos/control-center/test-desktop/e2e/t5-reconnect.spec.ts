@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { openOwnerControl } from './ownerControlRoute.js';
 
 /**
  * T13 - reconnect, through the architecture ProjectOS actually has.
@@ -45,7 +46,9 @@ describe('T13 a restarted ProjectOS recovers from durable state', () => {
   before(async () => {
     await browser.waitUntil(async () => (await browser.getTitle()).length > 0, { timeout: 30_000 });
     await $('#root').waitForExist({ timeout: 30_000 });
-    await $('[data-testid="ocp-source"]').waitForExist({ timeout: 30_000 });
+    // Owner Control moved behind Advanced in the approved redesign; the surface and everything
+    // asserted about it below are unchanged. See ownerControlRoute.ts.
+    await openOwnerControl(30_000);
   });
 
   it('comes back live with the canonical plan and phase, history intact', async () => {

@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { openOwnerControl } from './ownerControlRoute.js';
 
 /**
  * T12 - disconnect honesty.
@@ -51,7 +52,9 @@ async function sourceText(): Promise<string> {
 describe('T12 the surface stops claiming a live runtime when the daemon dies', () => {
   it('reports the truth after the test-owned daemon child is terminated', async () => {
     await browser.waitUntil(async () => (await browser.getTitle()).length > 0, { timeout: 30_000 });
-    await $('[data-testid="ocp-source"]').waitForExist({ timeout: 30_000 });
+    // Owner Control moved behind Advanced in the approved redesign; the surface and everything
+    // asserted about it below are unchanged. See ownerControlRoute.ts.
+    await openOwnerControl(30_000);
     await browser.waitUntil(async () => (await sourceText()).includes('Live'), {
       timeout: 60_000,
       timeoutMsg: 'the runtime never reported live governed state, so there is no disconnect to prove',

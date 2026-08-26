@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { openOwnerControl } from './ownerControlRoute.js';
 
 /**
  * T2-T21 - the governed matrix, against the REAL ProjectOS runtime.
@@ -98,7 +99,9 @@ describe('T2-T21 governed matrix against the real ProjectOS runtime', () => {
     await browser.waitUntil(async () => (await root.getHTML(false)).trim().length > 0, { timeout: 30_000 });
     // The governed panel only renders once the runtime has reported, so wait for the real thing
     // rather than racing it.
-    await $('[data-testid="ocp-source"]').waitForExist({ timeout: 30_000 });
+    // Owner Control moved behind Advanced in the approved redesign; the surface and everything
+    // asserted about it below are unchanged. See ownerControlRoute.ts.
+    await openOwnerControl(120_000);
     await browser.waitUntil(async () => (await sourceText()).includes('Live'), {
       timeout: 60_000,
       timeoutMsg: 'the runtime never reported live governed state',

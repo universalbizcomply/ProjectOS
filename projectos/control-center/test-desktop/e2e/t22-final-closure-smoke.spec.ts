@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { openOwnerControl } from './ownerControlRoute.js';
 
 /**
  * T22 — the Phase-18 final smoke proof.
@@ -68,7 +69,9 @@ describe('T22 final V3 closure smoke — the real desktop surface tells the trut
     const root = await $('#root');
     await root.waitForExist({ timeout: 30_000 });
     await browser.waitUntil(async () => (await root.getHTML(false)).trim().length > 0, { timeout: 30_000 });
-    await $('[data-testid="ocp-source"]').waitForExist({ timeout: 30_000 });
+    // Owner Control moved behind Advanced in the approved redesign; the surface and everything
+    // asserted about it below are unchanged. See ownerControlRoute.ts.
+    await openOwnerControl(120_000);
     await browser.waitUntil(async () => (await sourceText()).includes('Live'), {
       timeout: 60_000,
       timeoutMsg: 'the runtime never reported live governed state',
