@@ -147,6 +147,156 @@ function resolveCargo(root, env) {
 }
 
 /**
+ * THE MSVC TOOLCHAIN, DERIVED — because resolving cargo is not enough to build anything.
+ *
+ * FOUND BY RUNNING IT, NOT BY READING IT. With cargo bound, the validators still failed on the
+ * INSTALLED application while passing in a hand-built reproduction. The reproduction was wrong: the
+ * real daemon carries FIVE variables (SystemRoot, LOCALAPPDATA, PROJECTOS_GIT_EXE,
+ * CLAUDE_CODE_GIT_BASH_PATH, PROJECTOS_DAEMON_INSTANCE_ID) and no TEMP, no windir, no PATH. Under
+ * that environment cargo runs and rustc runs, and then linking dies with:
+ *
+ *     `link.exe` not found ... the msvc targets depend on the msvc linker
+ *
+ * Rust's msvc target needs the Visual Studio linker and its INCLUDE/LIB search paths, and those are
+ * published through the environment — exactly the thing the daemon does not have.
+ *
+ * HOW THIS STAYS A DERIVATION. Every step starts from a variable the daemon already carries and
+ * ends at a validated absolute path. Nothing ambient is read and nothing machine-specific is
+ * committed:
+ *
+ *   SystemRoot -> its drive -> <drive>\Program Files (x86)\...\Installer\vswhere.exe
+ *              -> vswhere reports the VS installation root
+ *              -> <root>\VC\Auxiliary\Build\vcvars64.bat
+ *              -> run it under a MINIMAL environment and keep FOUR things:
+ *                 the directories it added to PATH, and INCLUDE, LIB, LIBPATH.
+ *
+ * The batch file inherits only the minimal environment given to it, so what it prints is what the
+ * Microsoft toolchain says it needs — not what this machine happens to have lying around. Every
+ * directory kept is checked: absolute, not UNC, real, and NOT INSIDE THE GOVERNED CHECKOUT.
+ *
+ * ABSENT IS NOT FATAL. A machine with no Visual Studio yields null and cargo runs anyway; the build
+ * then fails with the linker's own message, which is the truth. Nothing here is required for cargo
+ * to be RESOLVED — only for what it builds to link.
+ */
+function isDir(p) {
+  try {
+    return fs.statSync(p).isDirectory();
+  } catch (_) {
+    return false;
+  }
+}
+
+/**
+ * The ordinary Windows locations, DERIVED from the two variables the daemon already carries.
+ *
+ * `vswhere` reads the Visual Studio instance registry under `%ProgramData%`, and `vcvars64.bat`
+ * needs the Program Files roots and a temp directory. None of those reach the daemon. Every value
+ * here is computed — `%LOCALAPPDATA%` is `<profile>\AppData\Local`, so the profile is two levels up
+ * and the user temp is a sibling; `%SystemRoot%` gives the system drive. Nothing is read from the
+ * ambient environment, and nothing machine-specific is written down anywhere.
+ *
+ * Returns null when the two inputs are not both present, in which case no toolchain is derived and
+ * the caller says so rather than guessing.
+ */
+function derivedWindowsEnv(env) {
+  const systemRoot = env.SystemRoot || env.SYSTEMROOT || env.windir;
+  const localApp = env.LOCALAPPDATA;
+  if (typeof systemRoot !== "string" || !path.isAbsolute(systemRoot) || !isDir(systemRoot)) return null;
+  if (typeof localApp !== "string" || !path.isAbsolute(localApp)) return null;
+  const drive = path.parse(path.resolve(systemRoot)).root;
+  const profile = path.dirname(path.dirname(localApp));
+  const temp = path.join(localApp, "Temp");
+  return {
+    SystemRoot: systemRoot,
+    SystemDrive: drive.replace(/[\\/]$/, ""),
+    windir: systemRoot,
+    ProgramData: path.join(drive, "ProgramData"),
+    ProgramFiles: path.join(drive, "Program Files"),
+    "ProgramFiles(x86)": path.join(drive, "Program Files (x86)"),
+    USERPROFILE: profile,
+    LOCALAPPDATA: localApp,
+    TEMP: temp,
+    TMP: temp,
+  };
+}
+
+let MSVC_CACHE;
+
+function resolveMsvc(root, env, basePath) {
+  if (MSVC_CACHE !== undefined) return MSVC_CACHE;
+  MSVC_CACHE = null;
+  let bat = null;
+  try {
+    const base = derivedWindowsEnv(env);
+    if (base === null) return MSVC_CACHE;
+    const drive = path.parse(path.resolve(base.SystemRoot)).root;
+    const askEnv = { ...base, PATH: basePath, PATHEXT: ".COM;.EXE;.BAT;.CMD" };
+
+    const vswhere = path.join(drive, "Program Files (x86)", "Microsoft Visual Studio", "Installer", "vswhere.exe");
+    if (!isFile(vswhere) || isInside(root, vswhere)) return MSVC_CACHE;
+
+    const found = spawnSync(
+      vswhere,
+      ["-latest", "-products", "*", "-requires", "Microsoft.VisualStudio.Component.VC.Tools.x86.x64", "-property", "installationPath"],
+      { encoding: "utf8", shell: false, env: askEnv },
+    );
+    if (found.status !== 0) return MSVC_CACHE;
+    const vsRoot = String(found.stdout || "").trim().split(/\r?\n/)[0];
+    if (!vsRoot || !path.isAbsolute(vsRoot) || isUnc(vsRoot) || isInside(root, vsRoot)) return MSVC_CACHE;
+
+    const vcvars = path.join(vsRoot, "VC", "Auxiliary", "Build", "vcvars64.bat");
+    const cmdExe = path.join(base.SystemRoot, "System32", "cmd.exe");
+    if (!isFile(vcvars) || !isFile(cmdExe)) return MSVC_CACHE;
+
+    // A BATCH FILE, not an inline `cmd /c "..."`. cmd.exe's own quote-stripping rules mangle a
+    // command line carrying a quoted path AND a `&&`, and it fails SILENTLY: exit 1, no output, no
+    // error -- which reads exactly like "this machine has no Visual Studio". Measured, not guessed.
+    bat = path.join(base.TEMP, `projectos-vcenv-${process.pid}-${Math.abs(hashString(vsRoot))}.bat`);
+    fs.writeFileSync(bat, `@echo off\r\ncall "${vcvars}" >nul 2>&1\r\nset\r\n`, "utf8");
+    const dumped = spawnSync(cmdExe, ["/c", bat], { encoding: "utf8", shell: false, env: askEnv });
+    if (dumped.status !== 0) return MSVC_CACHE;
+
+    const vars = new Map();
+    for (const line of String(dumped.stdout || "").split(/\r?\n/)) {
+      const eq = line.indexOf("=");
+      if (eq > 0) vars.set(line.slice(0, eq).toUpperCase(), line.slice(eq + 1));
+    }
+
+    // ONLY what the toolchain ADDED, and only what survives the same gate every other path passes.
+    const already = new Set(String(basePath).split(path.delimiter).map((d) => d.toLowerCase()));
+    const added = String(vars.get("PATH") || "")
+      .split(path.delimiter)
+      .filter((d) => d && !already.has(d.toLowerCase()))
+      .filter((d) => path.isAbsolute(d) && !isUnc(d) && !isInside(root, d) && isDir(d));
+    if (added.length === 0) return MSVC_CACHE;
+
+    MSVC_CACHE = {
+      base,
+      pathDirs: added,
+      INCLUDE: vars.get("INCLUDE") || "",
+      LIB: vars.get("LIB") || "",
+      LIBPATH: vars.get("LIBPATH") || "",
+    };
+  } catch (_) {
+    MSVC_CACHE = null;
+  } finally {
+    if (bat !== null) {
+      try {
+        fs.unlinkSync(bat);
+      } catch (_) {}
+    }
+  }
+  return MSVC_CACHE;
+}
+
+/** A small stable hash, so two concurrent validators do not collide on the same scratch name. */
+function hashString(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i += 1) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return h;
+}
+
+/**
  * A cargo runner bound to one absolute executable.
  *
  * Returns `cargo(args, options) -> spawnSync result`. When nothing resolved it returns a SYNTHETIC
@@ -177,11 +327,21 @@ function boundCargo(root, env) {
     const childEnv = opts.env || process.env;
     const exeDir = path.dirname(exe);
     const existing = typeof childEnv.PATH === "string" && childEnv.PATH.length > 0 ? childEnv.PATH : "";
-    return spawnSync(exe, args, {
-      ...opts,
-      env: { ...childEnv, PATH: existing === "" ? exeDir : exeDir + path.delimiter + existing },
-      shell: false,
-    });
+    const withTool = existing === "" ? exeDir : exeDir + path.delimiter + existing;
+
+    // The linker and the ordinary Windows locations cargo expects, when this machine has them.
+    // Absent, cargo still runs and the build fails with the linker's OWN message rather than one
+    // this module invented. The derived base goes UNDER the caller's own values, never over them.
+    const msvc = resolveMsvc(root, env || process.env, withTool);
+    const finalEnv = msvc === null ? { ...childEnv } : { ...msvc.base, ...childEnv };
+    finalEnv.PATH = withTool;
+    if (msvc !== null) {
+      finalEnv.PATH = msvc.pathDirs.join(path.delimiter) + path.delimiter + withTool;
+      if (msvc.INCLUDE) finalEnv.INCLUDE = msvc.INCLUDE;
+      if (msvc.LIB) finalEnv.LIB = msvc.LIB;
+      if (msvc.LIBPATH) finalEnv.LIBPATH = msvc.LIBPATH;
+    }
+    return spawnSync(exe, args, { ...opts, env: finalEnv, shell: false });
   };
   run.executable = exe;
   return run;
