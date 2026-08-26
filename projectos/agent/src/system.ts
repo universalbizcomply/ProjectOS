@@ -416,7 +416,17 @@ export const nodeSystem: System = {
         // was given. Derived from the committed absolute command -- the config refuses a bare name --
         // so it is exactly as trusted as the executable itself.
         const own = isAbsolute(executable) ? dirname(executable) : null;
-        const path = own === null ? system : `${own}${delimiter}${system}`;
+        // AND THE BOUND GIT'S DIRECTORY. The owner's test suites build fixture repositories with a
+        // bare `execFileSync('git', ...)`, so with no git reachable 284 of them died on ENOENT and the
+        // check reported FAIL -- a result about the environment wearing the costume of a result about
+        // the code. This adds no trust: it is the directory of the very executable `resolveBoundGit`
+        // already returns for every governance fact this runtime establishes, and that binding has
+        // always refused a git inside the governed checkout. Production code never relies on it --
+        // `sys.exec('git', ...)` still resolves absolutely and still gets the minimal oracle
+        // environment, untouched by this branch.
+        const git = resolveBoundGit(process.env);
+        const gitDir = git === null ? null : dirname(git);
+        const path = [own, gitDir, system].filter((p) => p !== null).join(delimiter);
         // PATHEXT, FIXED. `scrubbedEnv` removes it deliberately (it decides which extensions a shell
         // will load), and without it Windows cannot resolve a bare `npm` to `npm.cmd` at all -- which
         // is what actually failed, not the search path. A constant is restored rather than the

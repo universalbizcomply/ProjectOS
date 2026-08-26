@@ -303,8 +303,26 @@ function run() {
   //   * the new command carries no window fact, no elevation and no authority. It is transport only:
   //     it refuses unless the daemon is RUNNING_READ_ONLY, bounds the payload, rejects embedded
   //     newlines, and the governance decision is made by the runtime, never by the host.
+  //
+  // AMENDED A THIRD TIME by PROJECTOS-PRODUCT-COMPLETION1A: the set gains TWO commands,
+  // `register_project` and `set_credential`, so the owner can register a project and store a secret
+  // without a terminal. Both are stated plainly, including what they DO carry:
+  //
+  //   * NEITHER REPORTS A WINDOW FACT, which is the property this pin exists to protect. Neither
+  //     enumerates windows, reads a native handle, or observes a title, size or position -- so the
+  //     assertion above (no `#[tauri::command]` in the owner-window bridge) is again UNTOUCHED.
+  //   * BUT THEY ARE NOT AUTHORITY-FREE, and saying otherwise would be the kind of claim this
+  //     codebase refuses to make. `register_project` launches an elevated helper; the authority is
+  //     the OWNER'S OWN UAC CONSENT, which the host cannot forge or suppress, and the renderer may
+  //     not name the helper, `runas` or `ShellExecute` at all -- a separate invariant test asserts
+  //     that, and is what would notice if a future change tried. `set_credential` carries a secret
+  //     from the owner's masked input to the credential router through a CHILD-PROCESS ENVIRONMENT
+  //     VARIABLE, deliberately off the governed line protocol, precisely so no secret value can ever
+  //     enter a governed record, a log or an evidence pack.
+  //   * IT STAYS AN EXACT-SET PIN. Nothing further can be smuggled in beside them, and a window-fact
+  //     command remains exactly as refused as it was before this amendment.
   if (/#\[tauri::command\]/.test(obs + life + modrs)) E("V5 a Tauri command is registered in the owner-window bridge");
-  if (!/generate_handler!\[\s*daemon_request_snapshot,\s*daemon_governed_command,\s*daemon_status,\s*identity_status,\s*crate::host_status::installed_host_status\s*\]/.test(app.replace(/\s+/g, " ")))
+  if (!/generate_handler!\[\s*daemon_request_snapshot,\s*daemon_governed_command,\s*daemon_status,\s*identity_status,\s*crate::host_status::installed_host_status,\s*crate::register_project::register_project,\s*crate::set_credential::set_credential\s*\]/.test(app.replace(/\s+/g, " ")))
     E("V5 the registered command set changed (window-fact command may have been added)");
 
   // ---- V6 designated label is "main" ----

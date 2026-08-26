@@ -1,4 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { System, ExecResult } from '../src/system.js';
 import type { CommandContext } from '../src/context.js';
 import { configPath, reportsDir } from '../src/context.js';
@@ -955,5 +958,57 @@ describe('unreviewed degraded work blocks the authorisation, not only the closur
     const r = run(ctx, ['approve', 'decide', '--id', 'A10', '--decision', 'approved', '--as', 'implementer']);
 
     expect(r.lines.join(String.fromCharCode(10))).not.toContain('DEGRADED_DEBT');
+  });
+});
+
+
+/**
+ * WHAT THIS PROTECTS. Every governed record is read from COMMITTED bytes, and `readCommittedJson`
+ * asks git for them. It returns null when it cannot ask -- and each of its ten callers reads that
+ * null as a fact about the RECORD rather than about the reader. With git merely unbound, a run
+ * refused with "the committed .projectops/gatekeeper.json declares no programmeId" against a file
+ * that declares one on the very commit being run. The owner is then sent to audit a delegation that
+ * was never read.
+ *
+ * The guard states the oracle's absence once, as itself. Its real value is the SECOND assertion:
+ * that no governance claim is made when nothing was read.
+ */
+describe('run: no repository fact is reported when git cannot be asked', () => {
+  const planted: string[] = [];
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    for (const d of planted.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
+
+  const GIT_NAME = process.platform === 'win32' ? 'git.exe' : 'git';
+
+  it('refuses naming git, and claims nothing about the plan, delegation or gatekeeper', () => {
+    vi.stubEnv('PROJECTOS_GIT_EXE', '');
+    vi.stubEnv('PATH', '');
+    const { ctx } = makeCtx();
+
+    const r = run(ctx, ['run', '--execute']);
+
+    expect(r.code).toBe(2);
+    expect(r.lines[0]).toContain('GIT_UNAVAILABLE');
+    // The whole point: silence about everything that was NOT read.
+    const text = r.lines.join(' ');
+    expect(text).not.toMatch(/programmeId/i);
+    expect(text).not.toMatch(/delegation names/i);
+    expect(text).toMatch(/PROJECTOS_GIT_EXE/);
+  });
+
+  it('does not fire when a git IS bound, so it cannot mask a real refusal', () => {
+    // Inert text named like the executable; the resolver only checks the path, and this test never
+    // spawns it -- the run refuses for its own reasons long before anything would be executed.
+    const dir = mkdtempSync(join(tmpdir(), 'projectos-cmd-git-'));
+    planted.push(dir);
+    writeFileSync(join(dir, GIT_NAME), 'not a real executable');
+    vi.stubEnv('PROJECTOS_GIT_EXE', join(dir, GIT_NAME));
+    const { ctx } = makeCtx();
+
+    const r = run(ctx, ['run', '--execute']);
+
+    expect(r.lines[0]).not.toContain('GIT_UNAVAILABLE');
   });
 });

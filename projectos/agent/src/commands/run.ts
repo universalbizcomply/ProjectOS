@@ -33,6 +33,7 @@ import { nodeHttpPort } from '../loop/transports/nodeHttpPort.js';
 import { readBrokerAnsweredState } from '../installation/brokerAnsweredState.js';
 import { nodeInstallationStateDir, nodeProjectosRuntime } from '../nodeRuntimeRoot.js';
 import { canonicalRepositoryIdentity, installationAllowsProject } from '../installation/projectAllowlist.js';
+import { resolveBoundGit } from '../system.js';
 
 /** The governed project's declared id, from its own configuration. Empty when there is none. */
 function governedProjectId(ctx: CommandContext): string {
@@ -100,6 +101,29 @@ export function run(ctx: CommandContext, flags: Flags): CommandResult {
       'REFUSED (NO_SESSION_NAMED): `--resume` continues one named session and will not guess which.',
       '  - `projectos run --execute --resume --session <sessionId>`',
       '  - the id is on the run you are continuing; its records are in .projectops/execution/',
+      '',
+      'Nothing was prepared and nothing was started.',
+    ]);
+  }
+
+  // THE ORACLE MUST ANSWER BEFORE ANY GOVERNANCE FACT IS REPORTED.
+  //
+  // Almost everything below is decided from COMMITTED bytes, and every one of those reads asks git.
+  // `readCommittedJson` returns null when it cannot ask -- and its ten callers each read that null as
+  // a fact about the record: "declares no programmeId", "no delegation names a decider", "no committed
+  // plan". With git merely missing, ProjectOS would report a cascade of governance findings that are
+  // all false, and send the owner looking for a delegation problem that does not exist. Observed:
+  // a run refused with "the committed .projectops/gatekeeper.json declares no programmeId" against a
+  // file that declares one on the very commit being run.
+  //
+  // So the oracle's absence is stated once, as itself. This does not make the downstream messages
+  // defensive -- it makes them TRUE, because past this point git demonstrably answered.
+  if (resolveBoundGit() === null) {
+    return fail(2, [
+      'REFUSED (GIT_UNAVAILABLE): ProjectOS has no bound Git executable, so no repository fact can be established.',
+      '  - every governed record is read from COMMITTED bytes, and git is what reads them',
+      '  - this is NOT a finding about your plan, delegation or gatekeeper configuration: none of them were read',
+      '  - bind one with PROJECTOS_GIT_EXE, or install Git so it is on PATH',
       '',
       'Nothing was prepared and nothing was started.',
     ]);
