@@ -42,11 +42,30 @@ function isFile(p) {
   }
 }
 
-/** Is `dir` inside `root`? Used to refuse a git found within the governed checkout itself. */
+/**
+ * Is `dir` inside `root`? Used to refuse a git found within the governed checkout itself.
+ *
+ * RESOLVED THROUGH THE FILESYSTEM, NOT LEXICALLY. `path.resolve` only normalises text, so a
+ * directory junction or symlink living outside the checkout but pointing into it compared as
+ * "outside" and this guard waved it through — the one thing it exists to stop. On Windows an
+ * unprivileged user can create a junction, so it is not theoretical. A path that does not exist
+ * cannot be a link to anywhere, so it falls back to the lexical form rather than failing open.
+ *
+ * Found by the gatekeeper's security review of the sibling `validators/lib/bound-cargo.cjs`
+ * (SEC-003), which named this file as carrying the identical gap. Corrected identically.
+ */
+function realPath(p) {
+  try {
+    return fs.realpathSync.native(p);
+  } catch (_) {
+    return path.resolve(p);
+  }
+}
+
 function isInside(root, dir) {
   if (typeof root !== "string" || root.length === 0) return false;
-  const r = path.resolve(root);
-  const d = path.resolve(dir);
+  const r = realPath(root);
+  const d = realPath(dir);
   if (d === r) return true;
   return d.startsWith(r.endsWith(path.sep) ? r : r + path.sep);
 }

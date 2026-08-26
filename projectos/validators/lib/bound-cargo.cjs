@@ -59,11 +59,37 @@ function isUnc(p) {
   return p.startsWith("\\\\") || p.startsWith("//");
 }
 
-/** Is `child` the same as, or beneath, `parent`? Compared as the filesystem resolves them. */
+/**
+ * The real location of a path, or its lexical form when it does not exist.
+ *
+ * A path that is not there cannot be a link to anywhere, so falling back is not failing open.
+ */
+function realPath(p) {
+  try {
+    return fs.realpathSync.native(p);
+  } catch (_) {
+    return path.resolve(p);
+  }
+}
+
+/**
+ * Is `child` the same as, or beneath, `parent`? RESOLVED THROUGH THE FILESYSTEM, NOT LEXICALLY.
+ *
+ * `path.resolve` only normalises text. It cannot see a directory junction or a symlink, so a link
+ * that lives OUTSIDE the governed checkout but points INTO it compares as "outside" and this guard
+ * waves it through — which is precisely how a cargo inside the tree being governed would get to
+ * decide whether that tree passes. On Windows an unprivileged user can create a junction, so this
+ * is not theoretical. Both sides are resolved to their real locations before they are compared.
+ *
+ * The earlier version of this function was lexical AND its docstring said "compared as the
+ * filesystem resolves them" — a claim the code did not earn, which is worse than the gap itself.
+ * Found by the gatekeeper's security review of this module (SEC-003); `worker/bound-git.cjs`
+ * carried the identical gap and is corrected in the same way.
+ */
 function isInside(parent, child) {
   if (typeof parent !== "string" || parent.length === 0) return false;
-  const r = path.resolve(parent);
-  const d = path.resolve(child);
+  const r = realPath(parent);
+  const d = realPath(child);
   if (process.platform === "win32") {
     const rl = r.toLowerCase();
     const dl = d.toLowerCase();

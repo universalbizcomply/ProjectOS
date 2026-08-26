@@ -312,8 +312,7 @@ function run() {
   {
     const exe = path.join(SH, "target", "release", "ProjectOSHost.exe");
     if (!fs.existsSync(exe)) {
-      const r = spawnSync(
-        "cargo",
+      const r = cargo(
         ["build", "--release", "--offline", "--quiet", "--manifest-path", path.join(SH, "Cargo.toml")],
         { encoding: "utf8", cwd: ROOT }
       );
