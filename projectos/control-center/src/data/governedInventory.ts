@@ -60,6 +60,43 @@ export type InventoryState =
   /** No runtime, so no governed truth. The honest answer, never a substituted snapshot. */
   | { readonly kind: 'unavailable'; readonly reason: string; readonly detail: string };
 
+/** What the Projects surface may honestly put a number on. */
+export interface InventoryCounts {
+  readonly total: number;
+  /** Rows the runtime actually reported. Only these carry measured facts. */
+  readonly reported: number;
+  /** Registered, but not read by the runtime. Named, never folded into a "no". */
+  readonly unreported: number;
+  readonly frozen: number;
+  readonly notFrozen: number;
+  readonly active: number;
+}
+
+/**
+ * Count only what was measured.
+ *
+ * THE DEFECT THIS EXISTS TO PREVENT. A registry-only row carries `productionFreeze: false` and
+ * `activePhase: null` because nothing measured them — that is stated a few lines above, and it is
+ * correct. What was wrong was counting those rows anyway: with ten registered projects the Projects
+ * page reported "Production frozen: 1", which an owner can only read as "nine are not frozen".
+ * Every one of them is frozen in the protected registry. The row bodies were already honest; the
+ * figures above them were not, and the figure is what gets believed.
+ *
+ * `frozen + notFrozen === reported`, always. The unreported remainder is returned separately so a
+ * surface must decide what to say about it rather than silently absorbing it into either side.
+ */
+export function inventoryCounts(rows: readonly GovernedProjectRow[]): InventoryCounts {
+  const reported = rows.filter((r) => r.live);
+  return {
+    total: rows.length,
+    reported: reported.length,
+    unreported: rows.length - reported.length,
+    frozen: reported.filter((r) => r.productionFreeze).length,
+    notFrozen: reported.filter((r) => !r.productionFreeze).length,
+    active: reported.filter((r) => r.activePhase !== null).length,
+  };
+}
+
 /**
  * Derive the inventory from the governed state. Pure: the caller supplies already-parsed state, so
  * the same function runs in the app and in tests.

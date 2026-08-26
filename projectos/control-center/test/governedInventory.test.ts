@@ -9,7 +9,7 @@
  * Created in the post-V3 operational recovery programme (Control Centre phase).
  */
 import { describe, it, expect } from 'vitest';
-import { inventoryFrom } from '../src/data/governedInventory';
+import { inventoryFrom, inventoryCounts } from '../src/data/governedInventory';
 import type { GovernedProjection, GovernedState } from '../src/governed/types';
 
 function projection(over: Partial<GovernedProjection> = {}): GovernedProjection {
@@ -174,5 +174,77 @@ describe('the Projects list is the REGISTRY, not just the selected project', () 
   it('a disconnected runtime is still unavailable, registry or not', () => {
     const inv = inventoryFrom({ connected: false, reason: 'RUNTIME_STOPPED', detail: 'stopped' }, registryOf(['projectos']));
     expect(inv.kind).toBe('unavailable');
+  });
+});
+
+/**
+ * THE FIGURE THAT WAS WRONG. With ten registered projects the Projects page reported
+ * "Production frozen: 1". Every one of the ten is productionFrozen in the protected registry. The
+ * count included registry-only rows, which carry `productionFreeze: false` because NOTHING MEASURED
+ * THEM -- so "not read" was rendered as "read, and the answer was no". The row bodies were already
+ * honest; the figures above them were not, and the figure is what an owner believes.
+ *
+ * This was invisible while two projects were registered and one of them was live. It appeared the
+ * moment the registry grew, which is exactly when nobody re-reads a KPI.
+ */
+describe('inventoryCounts — a figure may only count what was measured', () => {
+  function rowsOf(liveCount: number, registryOnly: number) {
+    const rows = [];
+    for (let i = 0; i < liveCount; i += 1) {
+      rows.push({
+        id: `live-${i}`, name: `Live ${i}`, repo: 'acme/x', source: 'governed-projection' as const,
+        productionFreeze: true, planStatus: 'PLAN READY', activePhase: 'PHASE1A',
+        acceptedPhases: 1, totalPhases: 2, live: true,
+      });
+    }
+    for (let i = 0; i < registryOnly; i += 1) {
+      rows.push({
+        id: `reg-${i}`, name: `Registered ${i}`, repo: 'acme/y', source: 'owner-registry' as const,
+        productionFreeze: false, planStatus: 'Not reported', activePhase: null,
+        acceptedPhases: 0, totalPhases: 0, live: false,
+      });
+    }
+    return rows;
+  }
+
+  it('does not count an unread project as "not frozen"', () => {
+    const c = inventoryCounts(rowsOf(1, 9));
+    expect(c.total).toBe(10);
+    expect(c.reported).toBe(1);
+    expect(c.unreported).toBe(9);
+    expect(c.frozen).toBe(1);
+    // The whole point: nine unread projects are NOT nine unfrozen projects.
+    expect(c.notFrozen).toBe(0);
+  });
+
+  it('does not count an unread project as "no phase running"', () => {
+    const c = inventoryCounts(rowsOf(1, 9));
+    expect(c.active).toBe(1);
+    expect(c.active).toBeLessThanOrEqual(c.reported);
+  });
+
+  it('frozen and notFrozen always partition exactly the reported rows', () => {
+    for (const [live, reg] of [[0, 0], [1, 0], [0, 5], [3, 7]]) {
+      const c = inventoryCounts(rowsOf(live, reg));
+      expect(c.frozen + c.notFrozen).toBe(c.reported);
+      expect(c.reported + c.unreported).toBe(c.total);
+    }
+  });
+
+  it('reports a genuinely unfrozen project, which is the case that matters', () => {
+    const rows = rowsOf(2, 1);
+    const mutated = rows.map((r, i) => (i === 0 ? { ...r, productionFreeze: false } : r));
+    const c = inventoryCounts(mutated);
+    expect(c.reported).toBe(2);
+    expect(c.frozen).toBe(1);
+    expect(c.notFrozen).toBe(1);
+  });
+
+  it('counts nothing when nothing was reported, rather than counting zero as an answer', () => {
+    const c = inventoryCounts(rowsOf(0, 4));
+    expect(c.reported).toBe(0);
+    expect(c.frozen).toBe(0);
+    expect(c.notFrozen).toBe(0);
+    expect(c.unreported).toBe(4);
   });
 });

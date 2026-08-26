@@ -8,7 +8,7 @@ import {
   list,
   CORE_VERSION,
 } from '@projectos/core';
-import { inventoryFrom } from './data/governedInventory';
+import { inventoryFrom, inventoryCounts } from './data/governedInventory';
 import { useGovernedState, useGovernedProjects } from './daemon/DaemonProvider';
 import { isSupabaseConfigured } from './data/supabase';
 import { getSession, onAuthChange, signOut, mustChangePassword } from './data/auth';
@@ -288,8 +288,20 @@ function Overview({ onGoToRegistration }: { onGoToRegistration: () => void }) {
   }
 
   const rows = inventory.rows;
-  const frozen = rows.filter((p) => p.productionFreeze).length;
-  const active = rows.filter((p) => p.activePhase !== null).length;
+  // COUNTED OVER WHAT WAS ACTUALLY REPORTED, NOT OVER EVERYTHING.
+  //
+  // A registry-only row carries `productionFreeze: false` and `activePhase: null` because nothing
+  // measured them — `inventoryFrom` says so in as many words. Counting those rows alongside the
+  // measured ones turned "not read" into "read, and the answer was no": with ten registered
+  // projects the page said "Production frozen: 1", which an owner can only read as "nine are not
+  // frozen". Every one of them is frozen in the protected registry. The row bodies were already
+  // honest about this; the figures above them were not, and a figure is what gets believed.
+  //
+  // The fix is deliberately arithmetic rather than structural. The inventory summary carries no
+  // freeze state, so the honest count is over the projects the runtime DID report, with the
+  // remainder named rather than folded in.
+  const { reported, unreported, frozen, notFrozen, active } = inventoryCounts(rows);
+  const ofReported = unreported > 0 ? ` of ${reported} reported` : '';
   return (
     <>
       <div className="head">
@@ -304,9 +316,22 @@ function Overview({ onGoToRegistration }: { onGoToRegistration: () => void }) {
 
       <div className="kpis">
         <div className="kpi accent"><div className="n">{rows.length}</div><div className="l">Governed projects</div></div>
-        <div className="kpi"><div className="n">{active}</div><div className="l">With a phase running</div></div>
-        <div className="kpi"><div className="n">{frozen}</div><div className="l">Production frozen</div></div>
+        <div className="kpi"><div className="n">{active}</div><div className="l">With a phase running{ofReported}</div></div>
+        <div className="kpi">
+          <div className="n">{frozen}</div>
+          <div className="l">
+            Production frozen{ofReported}
+            {notFrozen > 0 ? ` · ${notFrozen} NOT frozen` : ''}
+          </div>
+        </div>
       </div>
+      {unreported > 0 && (
+        <p className="muted">
+          {unreported === 1 ? '1 registered project has' : `${unreported} registered projects have`} not been
+          read by the runtime, so {unreported === 1 ? 'it is' : 'they are'} not counted above. Their protected
+          registry entries still govern them; this page only counts what it has actually read.
+        </p>
+      )}
 
       <div className="grid">
         {rows.map((p) => (
