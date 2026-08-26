@@ -15,13 +15,13 @@
   "deferredPhases": [],
   "acceptedCarryForward": [],
   "currentBranch": "projectos-post-v3-selfhost-pilot1a",
-  "currentHead": "fd55bacb77d0b06554acab527cfd163b32d4aa41",
+  "currentHead": "57d74e78672909c9e09a7c10e95bb7dc547f4990",
   "currentRemoteHead": null,
   "workingTreeStatus": "dirty",
   "currentRisks": [],
   "currentBlockers": [],
   "lastEvidenceReference": "plan-approval decision PROJECTOS-AUTONOMOUS-SELF-HOSTING-PLAN-APPROVAL-DECISION1E",
   "nextRecommendedPhase": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
-  "lastUpdated": "2026-08-19T00:30:39.961Z",
+  "lastUpdated": "2026-08-26T15:39:36.947Z",
   "updatedByRole": "implementer"
 }
