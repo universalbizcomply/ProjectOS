@@ -86,7 +86,9 @@ describe('T22 final V3 closure smoke — the real desktop surface tells the trut
     expect(/^(tauri:\/\/|https?:\/\/tauri\.localhost)/.test(url)).toBe(true); // the embedded bundle
     expect(await browser.getTitle()).toContain('ProjectOS');
     expect(procCount('projectos-control-center')).toBeGreaterThan(0);
-    expect(await $('nav[aria-label="Primary"]').isExisting()).toBe(true);
+    // The shell's marker is the redesigned persistent rail; it was the old nine-destination
+    // `nav[aria-label="Primary"]` until the approved redesign replaced that navigation.
+    expect(await $('.os-rail').isExisting()).toBe(true);
   });
 
   it('T22b reports LIVE canonical runtime state — not a snapshot, and not a false live claim', async () => {

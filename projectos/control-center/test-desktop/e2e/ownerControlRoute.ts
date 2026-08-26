@@ -7,50 +7,58 @@
  * behaviour and everything these specs assert about it are unchanged; only the route to it is.
  * This helper walks that route, so each spec keeps its own expectations verbatim.
  *
+ * FOUR ROUND TRIPS, NO PAUSES. Two costs pull against each other here. React renders the next screen
+ * after the click returns, not during it, so the steps cannot be collapsed into one in-page script —
+ * a single script clicked "Settings" and then looked for a button that had not been rendered yet.
+ * But every WebDriver command in this harness carries a `beforeCommand` hook that waits five seconds
+ * for a Tauri window-state call that never answers, so each extra round trip is five seconds of a
+ * `before` hook's hundred-and-twenty. So: one command per step, no `pause`, no redundant `#root`
+ * waits, and an early return the moment the surface is on screen.
+ *
  * Both shapes of the shell are handled, because both are real: with a project registered, Advanced
- * opens the workspace's technical detail (and Owner Control is one link inside it); with none, there
- * is no workspace, and Advanced opens the surface directly.
+ * opens the workspace's technical detail (and Owner Control is one link inside it); with none, and
+ * when the runtime has not reported, Advanced opens the surface directly.
  */
 import { browser, $ } from '@wdio/globals';
 
-/** Click the first button whose visible text matches, in the live document. */
-async function clickByText(text: string): Promise<boolean> {
-  return browser.execute((t: string) => {
-    const btn = [...document.querySelectorAll('button')].find(
-      (b) => (b.textContent ?? '').trim() === t,
-    ) as HTMLElement | undefined;
-    if (btn === undefined) return false;
-    btn.click();
-    return true;
+/** Click the first button with exactly this text. Returns whether Owner Control is now on screen. */
+async function step(text: string | null): Promise<boolean> {
+  return browser.execute((t: string | null) => {
+    if (t !== null) {
+      const btn = [...document.querySelectorAll('button')].find(
+        (b) => (b.textContent ?? '').trim() === t,
+      ) as HTMLElement | undefined;
+      btn?.click();
+    }
+    return document.querySelector('[data-testid="ocp-source"]') !== null;
   }, text);
 }
 
-async function present(selector: string): Promise<boolean> {
-  return $(selector).isExisting();
+async function hasTechnicalPanel(): Promise<boolean> {
+  return browser.execute(() => document.querySelector('.os-tech') !== null);
 }
 
-/** Navigate to Owner Control and wait for it. Throws with what it saw if the route is gone. */
 export async function openOwnerControl(timeout = 30_000): Promise<void> {
-  await $('#root').waitForExist({ timeout });
-  await browser.waitUntil(async () => (await $('#root').getHTML(false)).trim().length > 0, {
-    timeout,
-    timeoutMsg: '#root never rendered any content',
-  });
+  const taken: string[] = [];
 
-  if (await present('[data-testid="ocp-source"]')) return;
+  if (await step(null)) return;
 
-  await clickByText('Settings');
-  await browser.pause(400);
-  await clickByText('Advanced and technical details');
-  await browser.pause(600);
-
-  if (await present('[data-testid="ocp-source"]')) return;
+  for (const text of ['Settings', 'Advanced and technical details']) {
+    taken.push(text);
+    if (await step(text)) return;
+  }
 
   // The populated shape: the workspace opened with its technical detail expanded.
-  if (!(await present('.os-tech'))) await clickByText('Technical detail');
-  await browser.pause(300);
-  await clickByText('Owner Control');
-  await browser.pause(600);
+  if (!(await hasTechnicalPanel())) {
+    taken.push('Technical detail');
+    if (await step('Technical detail')) return;
+  }
 
-  await $('[data-testid="ocp-source"]').waitForExist({ timeout });
+  taken.push('Owner Control');
+  if (await step('Owner Control')) return;
+
+  await $('[data-testid="ocp-source"]').waitForExist({
+    timeout,
+    timeoutMsg: `Owner Control never appeared. Route steps taken: ${taken.join(' -> ')}`,
+  });
 }

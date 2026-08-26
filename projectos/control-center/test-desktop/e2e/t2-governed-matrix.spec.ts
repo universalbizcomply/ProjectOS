@@ -286,7 +286,9 @@ describe('T2-T21 governed matrix against the real ProjectOS runtime', () => {
     // No React error boundary rendered, and the shell is still intact after every interaction above.
     expect(await $('.error-boundary').isExisting()).toBe(false);
     expect(await $('#root').isExisting()).toBe(true);
-    expect(await $('nav[aria-label="Primary"]').isExisting()).toBe(true);
+    // The shell's marker is the redesigned persistent rail; it was the old nine-destination
+    // `nav[aria-label="Primary"]` until the approved redesign replaced that navigation.
+    expect(await $('.os-rail').isExisting()).toBe(true);
     // The runtime is still reporting live truth - it did not fall over during the lifecycle walk.
     expect(await sourceText()).toContain('Live');
   });
