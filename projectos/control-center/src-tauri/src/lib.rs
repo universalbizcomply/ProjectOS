@@ -129,6 +129,12 @@ pub(crate) mod register_project;
 // a Tauri command surface, not an API. The value never touches the governed command channel.
 #[cfg(windows)]
 pub(crate) mod set_credential;
+// PROJECTOS-SIMPLE-PROJECT-WIZARD1A: Add Project, for an owner who should not have to know what a
+// repository is. Crate-private for the same reason as the two above: a Tauri command surface, not
+// an API. It registers nothing -- registration stays the bounded elevated helper -- and its one
+// mutating command only ever ADDS to a folder the owner chose.
+#[cfg(windows)]
+pub(crate) mod project_setup;
 
 /// Run the ProjectOS Control Centre. The application's sole public entry point.
 ///

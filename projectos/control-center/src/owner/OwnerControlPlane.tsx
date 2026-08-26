@@ -20,6 +20,7 @@ import { ConnectionsPanel } from './ConnectionsPanel';
 import { ObjectiveIntake } from './ObjectiveIntake';
 import { ProjectSelector } from './ProjectSelector';
 import { RegisterProjectGuide } from './RegisterProjectGuide';
+import { AddProjectWizard } from './AddProjectWizard';
 import { ProtectedOperationConfirmation } from './confirmation/ProtectedOperationConfirmation';
 import { SYNTHETIC_CONFIRMATION, SYNTHETIC_NOW_MS } from './confirmation/ownerConfirmationFixture';
 import {
@@ -137,7 +138,14 @@ export function OwnerControlPlane() {
           the projects the installed host validated against the protected registry, and it submits a
           project ID — there is no path input here, and no route by which one could be supplied. */}
       <ProjectSelector />
-      <RegisterProjectGuide />
+      {/* ADD PROJECT, as a guided flow rather than four fields and a path typed by hand. The
+          manual form is kept below it, closed, for anyone who would rather fill one in — it is
+          unchanged and still reaches the same bounded elevated helper. */}
+      <AddProjectWizard />
+      <details className="ocp-manual-add">
+        <summary>Add a project by filling in the details myself</summary>
+        <RegisterProjectGuide />
+      </details>
 
       {noRecordedPosition && (
         <div className="ocp-panel warn" role="status" data-testid="ocp-no-recorded-position">

@@ -12,6 +12,7 @@
  */
 import { useGovernedRun, useGovernedState } from '../daemon/DaemonProvider';
 import { buildHomeModel, type OwnerActionItem } from './homeModel';
+import { buildContinueWorking } from './continueWorkingModel';
 import { requestGovernedCommand } from '../governed/governedClient';
 import { tauriBridge } from '../daemon/tauriBridge';
 import { useState } from 'react';
@@ -52,6 +53,9 @@ export function CommandCenterHome({ onOpenDetail }: { onOpenDetail: () => void }
   }
 
   const home = buildHomeModel(governed);
+  // ONE OBVIOUS NEXT ACTION, decided from state rather than left to the owner to work out. See
+  // continueWorkingModel.ts for the order and why it is that order.
+  const next = buildContinueWorking(governed, home.ownerActions, Date.now());
   const phase = governed.activePhase ?? governed.nextStartablePhase;
 
   async function send(verb: 'run.start' | 'run.stop', description: string): Promise<void> {
@@ -125,6 +129,44 @@ export function CommandCenterHome({ onOpenDetail }: { onOpenDetail: () => void }
           <div className="cc-fact-sub">
             {home.budgetStatus === null ? 'No budget configured' : `Budget ${home.budgetStatus}`}
           </div>
+        </div>
+      </div>
+
+      {/* CONTINUE WORKING. The primary action, and there is only ever one of it. Everything the
+          runtime needs to resume -- phase, session, commit -- it already knows; none of it is
+          asked for here. */}
+      <div className="ocp-panel cw" data-testid="continue-working">
+        <div className="cw-head">
+          <h2>{next.primary.heading}</h2>
+          <span className={`cw-status s-${next.status.replace(/ /g, '-').toLowerCase()}`}>{next.status}</span>
+        </div>
+        <p className="cw-detail">{next.primary.detail}</p>
+        <div className="ocp-actionrow">
+          {next.primary.kind === 'review' && (
+            <button type="button" className="ocp-btn primary" onClick={onOpenDetail}>
+              {next.primary.label}
+            </button>
+          )}
+          {(next.primary.kind === 'resume' || next.primary.kind === 'continue') && (
+            <button
+              type="button"
+              className="ocp-btn primary"
+              disabled={busy || run.active || !home.planReady}
+              onClick={() => void send('run.start', 'continue working')}
+            >
+              {next.primary.label}
+            </button>
+          )}
+          {next.primary.kind === 'start' && (
+            <button type="button" className="ocp-btn primary" onClick={onOpenDetail}>
+              {next.primary.label}
+            </button>
+          )}
+          {next.canStartSomethingNew && next.primary.kind !== 'start' && (
+            <button type="button" className="ocp-btn" onClick={onOpenDetail}>
+              Start something new
+            </button>
+          )}
         </div>
       </div>
 

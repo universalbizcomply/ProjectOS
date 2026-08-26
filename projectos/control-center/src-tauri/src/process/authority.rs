@@ -697,6 +697,28 @@ pub(crate) fn resolve_launch_authority(
     }
 }
 
+/// The one absolute `git` this host will run, for work that is NOT launching the daemon.
+///
+/// WHY IT EXISTS AND WHY IT IS NOT A SECOND RESOLVER. The Add Project wizard has to be able to tell
+/// an owner whether a folder is already a repository, and to initialise one when it is not. That
+/// needs git, and this crate already knows how to find exactly one — twice, for the two modes it
+/// runs in. Writing a third answer to "where is git" is how a codebase ends up with a trusted path
+/// and an untrusted one; this delegates to the SAME two resolvers the daemon launch uses, in the
+/// same order, and adds no new rule of its own.
+///
+/// `None` when neither answers, and every caller must then refuse rather than fall back to a bare
+/// name. There is deliberately no environment override: a wizard that can be told which `git.exe`
+/// to run is a wizard that can be told to initialise a repository with someone else's binary.
+pub(crate) fn resolve_host_git() -> Option<PathBuf> {
+    let fs = RealRuntimeFs;
+    if let Ok(install_root) = application_install_root() {
+        if let Ok(packaged) = resolve_packaged_git(&fs, &install_root) {
+            return Some(packaged.path().to_path_buf());
+        }
+    }
+    resolve_development_git(&fs).ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -326,11 +326,29 @@ function run() {
   //     enter a governed record, a log or an evidence pack.
   //   * IT STAYS AN EXACT-SET PIN. Nothing further can be smuggled in beside them, and a window-fact
   //     command remains exactly as refused as it was before this amendment.
+  //
+  // AMENDED A FOURTH TIME by PROJECTOS-SIMPLE-PROJECT-WIZARD1A: the set gains THREE commands so an
+  // owner can add a project without a terminal -- `pick_folder`, `inspect_folder`, `prepare_folder`.
+  // Stated plainly, including what they DO:
+  //
+  //   * NONE OF THEM REPORTS A WINDOW FACT, which is the property this pin protects. None enumerates
+  //     windows, reads a native handle, or observes a title, size or position. `pick_folder` opens
+  //     the system folder browser and reads back one path; it cannot write and cannot execute.
+  //   * `prepare_folder` IS A MUTATING COMMAND and that is not hidden here. It only ever ADDS --
+  //     creates the chosen folder, runs `git init` where there is no repository, writes a minimal
+  //     configuration where there is none. It deletes nothing, rewrites no history, creates no
+  //     remote and pushes nothing; it refuses any path under the installed application, and it
+  //     refuses to overwrite a configuration that already exists.
+  //   * NONE OF THEM REGISTERS ANYTHING. Registration remains the bounded elevated helper behind a
+  //     real UAC prompt; these three cannot reach the protected registry, and `inspect_folder` only
+  //     READS it to answer "have you already added this folder?".
+  //   * IT STAYS AN EXACT-SET PIN. Nothing further can be smuggled in beside them, and a window-fact
+  //     command remains exactly as refused as it was before this amendment.
   {
     const st = path.join(ROOT, "projectos", "control-center", "src-tauri", "src");
     if (fs.existsSync(st)) {
       const app = read(path.join(st, "app.rs"));
-      if (!/generate_handler!\[\s*daemon_request_snapshot,\s*daemon_governed_command,\s*daemon_status,\s*identity_status,\s*crate::host_status::installed_host_status,\s*crate::register_project::register_project,\s*crate::set_credential::set_credential\s*\]/.test(app.replace(/\s+/g, " ")))
+      if (!/generate_handler!\[\s*daemon_request_snapshot,\s*daemon_governed_command,\s*daemon_status,\s*identity_status,\s*crate::host_status::installed_host_status,\s*crate::register_project::register_project,\s*crate::set_credential::set_credential,\s*crate::project_setup::pick_folder,\s*crate::project_setup::inspect_folder,\s*crate::project_setup::prepare_folder\s*\]/.test(app.replace(/\s+/g, " ")))
         E("V9 the registered Tauri command set changed");
     }
   }

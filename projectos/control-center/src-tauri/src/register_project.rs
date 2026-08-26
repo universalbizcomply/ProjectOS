@@ -233,12 +233,12 @@ fn owner_confirms(
 /// no longer does (blocking the event loop behind a UAC prompt is not acceptable), so the apartment
 /// is established explicitly. `RAII` rather than a bare pair of calls so an early return cannot
 /// leak it.
-struct ComApartment {
+pub(crate) struct ComApartment {
     owned: bool,
 }
 
 impl ComApartment {
-    fn enter() -> Self {
+    pub(crate) fn enter() -> Self {
         // SAFETY: no arguments are borrowed and the result is inspected rather than assumed. An
         // apartment already initialised by this thread (RPC_E_CHANGED_MODE / S_FALSE) is fine — we
         // simply must not uninitialise what we did not initialise.
