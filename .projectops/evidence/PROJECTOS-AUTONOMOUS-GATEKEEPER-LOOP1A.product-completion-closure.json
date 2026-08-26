@@ -1,0 +1,87 @@
+{
+  "schemaVersion": "1.0.0",
+  "evidence": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A.product-completion-closure",
+  "programme": "projectos-autonomous-self-hosting",
+  "project": "ProjectOS",
+  "phase": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+  "date": "2026-08-26T13:44:00Z",
+  "finalStatus": "CLOSED",
+  "closureCommit": "6d6e7223e54e412ebc1ac7058765fe707b1e3ad7",
+  "closureAuthority": "ChatGPT gatekeeper ruling, 2026-08-26: PROJECT COMPLETION ACCEPTED FOR CLOSURE; APPROVED TO PUSH. This record is archival and does not itself close anything.",
+  "productCompletion": "COMPLETE",
+  "installedSignedBuild": {
+    "buildId": "c9ac664fdf55",
+    "signingKeyId": "projectos-signing-20260812",
+    "signatureAlgorithm": "es256",
+    "canonicalBytes": 712,
+    "canonicalSha256": "d90dc71a2740a0ec4b2d70667eb06d946b5185c987ba9f8098a154bbf402e639",
+    "signature": "977b7754b628f5b233d4c8351390cd476709cec902e83bc5380ce5cb722d8b5593cd453c7eac7c4b0f92704e55fae9d4bcfeca94d04bdbfdb0759920a63c99c2",
+    "trustStatus": "ATTACHED AND VERIFIED against the embedded anchor; payload closure CLOSED; packaged-daemon verifier 7/7 PASS",
+    "rebuiltOrResignedAfterAcceptance": false,
+    "note": "The installed payload is one commit behind the closure commit. That commit (6d6e722) touches exactly one file, projectos/validators/lib/bound-cargo.cjs. Validators are read from the governed checkout, not the payload, and it touches nothing the payload is built from -- verified. No re-signing was required and none was performed."
+  },
+  "autonomousLoopProof": {
+    "proven": true,
+    "provenFrom": "the INSTALLED SIGNED desktop application, not the development tree",
+    "processChain": "projectos-control-center.exe -> runtime-payload\\runtime\\node.exe (daemon) -> runtime-payload\\runtime\\node.exe running projectos.js run",
+    "session": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A-6d6e7223e54e-b717ef08",
+    "workerAttempts": 4,
+    "requiredChecksPerAttempt": ["validate-all", "core-tests", "agent-tests", "agent-typecheck"],
+    "checkResult": "PASS on every required check on every one of the four attempts",
+    "autonomousCorrection": "3 of 3 correction attempts performed by the runtime without human involvement",
+    "gatekeeperRequest": "GKREQ-5d57f719d4aae07a86091815 (correction-exhausted)",
+    "model": "gpt-5.6-terra",
+    "budgetCheck": "OK",
+    "costRecordedMicroUsd": 73804,
+    "verdict": "applied; the gatekeeper referred the residual MEDIUM/LOW findings to the owner rather than deciding them",
+    "outcome": "STOPPED (CORRECTION_EXHAUSTED)"
+  },
+  "manualClaudeChatgptRelay": "NONE",
+  "validators": {
+    "registered": 137,
+    "retained": 137,
+    "removed": 0,
+    "validateAll": "PASS under the real installed daemon environment"
+  },
+  "currentUnresolved": {
+    "critical": 0,
+    "high": 0
+  },
+  "productionTouched": false,
+  "externalSendsOrPayments": "NONE. The only external calls were the authorised OpenAI reviewer requests, metered and ledgered. No email, SMS, payment, refund or credential rotation. No secret value entered a log, prompt, report or record.",
+  "acceptedCarryForward": [
+    "GK-CF-009 MEDIUM — nonNegative() in gatekeeperCostLedger.ts rejects zero alongside negatives; harmless today because 0 * tokens = 0 either way",
+    "GK-CF-010 MEDIUM — five byte-identical copies of text(), three of isImplementerName, two of isModelName across gatekeeper modules; a fix to one would silently not apply to the others",
+    "GK-CF-011 LOW — inMemoryResolverForTests exported from production source credentialResolver.ts; no production call site found",
+    "Size/refactor observations on degradedMode.ts (1242), reconciliation.ts (1071), runner.ts (992) and gatekeeperConfig.ts (726) lines",
+    "ACCEPTED AS NON-BLOCKING by gatekeeper ruling 2026-08-26, with an explicit instruction not to fix them before closure. None were touched."
+  ],
+  "defectsFoundAndFixedInThisPhase": [
+    "Required checks failed for environment reasons and reported those as failures about the code. PATHEXT -- not PATH -- was what broke bare `npm`; 284 agent tests died on `spawnSync git ENOENT`.",
+    "A missing git made ProjectOS assert false governance facts: readCommittedJson returns null both when a record is absent and when git cannot be asked, and all ten callers read that null as a fact about the RECORD.",
+    "Owner Chat answered a reviewer-cost question with phase progress, confidently and wrongly; `how much` was a PROGRESS phrase and no cost intent existed.",
+    "Thirty validators spawned cargo by bare name, so no Rust fixture could build under the PATH-less daemon.",
+    "Two of those call sites survived the first sweep because they are written across multiple lines and the search was line-oriented. Found by the gatekeeper's own review, not by me.",
+    "isInside compared paths lexically while its docstring claimed filesystem resolution, so a directory junction pointing into the governed checkout bypassed the guard. Closed in bound-cargo.cjs AND worker/bound-git.cjs, proven with a real junction.",
+    "Cargo resolved but could not LINK: the real daemon carries five environment variables and no TEMP/TMP/windir/SystemDrive, and Rust's msvc target needs the Visual Studio linker. Found only by running the installed application."
+  ],
+  "archivedRecords": {
+    "runs": [
+      "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A-c9ac664fdf55-71c8e3f3",
+      "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A-6d6e7223e54e-b717ef08"
+    ],
+    "perRunFiles": ["brief", "effects", "evidence", "findings", "invocation", "session"],
+    "count": 12,
+    "note": "The first of the two runs is the one whose validate-all failure exposed the missing MSVC linker; it is archived as negative evidence and is not a failure of the accepted result."
+  },
+  "excludedFromThisArchive": [
+    ".projectops/gatekeeper-ledger.json",
+    ".projectops/gatekeeper-thread.json",
+    "Tunnel-Client/",
+    "selected-project.json",
+    "product code",
+    "validator changes",
+    "signing artefacts"
+  ],
+  "recommendation": "ARCHIVAL ONLY. This record documents a closure already issued by the gatekeeper. It changes no product behaviour, re-signs nothing and reopens nothing."
+}

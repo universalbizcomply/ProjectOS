@@ -1,0 +1,82 @@
+{
+  "reviews": ["code-review", "security-review"],
+  "findings": [
+    {
+      "id": "GK-F-001",
+      "severity": "MEDIUM",
+      "category": "evidence-poisoning",
+      "summary": "The findings and effects records written by this worker are files the worker controls. A worker could misrepresent its own findings or attest falsely. This is acknowledged in the trust model: the gatekeeper is told these are worker-produced and must exercise its own judgement. Evidence provenance is honestly disclosed to the reviewer.",
+      "resolved": true
+    },
+    {
+      "id": "GK-F-002",
+      "severity": "MEDIUM",
+      "category": "prompt-injection-evidence-to-gatekeeper",
+      "summary": "Evidence text (check output, findings) sent to the OpenAI reviewer is not sanitised for role-confusion or schema-override attempts. Mitigated by: strict JSON schema enforcement on the response (strict: true, additionalProperties: false), runtime-stamped bindings on all decisions (projectId, phaseId, subjectCommit, requestDigest), and closed verdict vocabulary. A successful injection cannot grant authority the runtime has not already approved. Residual risk is denial-of-service (model returning DO_NOT_PROCEED) or adversarial nextClaudeInstruction, both bounded by the correction boundary.",
+      "resolved": true
+    },
+    {
+      "id": "GK-F-003",
+      "severity": "MEDIUM",
+      "category": "credential-leakage",
+      "summary": "ConnectionsPanel.tsx (new in post-closure delta) handles credential input. The credential value is cleared on every submit path including failure, never enters persistent React state, never reaches the governed command channel, and is routed through a Tauri native command (set_credential) rather than the bridge. Only metadata (reference, fingerprint, status) is displayed. No credential value is renderable, loggable, or includable in an evidence pack.",
+      "resolved": true
+    },
+    {
+      "id": "GK-F-004",
+      "severity": "LOW",
+      "category": "prompt-injection-owner-interface",
+      "summary": "ownerChatActions.ts (new in post-closure delta) uses fixed phrase matching against a closed list of action verbs. It returns a ChatAction suggestion, never dispatches directly. The suggestion is rendered as a button; only a real click sends through requestGovernedCommand, so the runtime's authority checks apply. Free-text input cannot execute anything. No injection surface found.",
+      "resolved": true
+    },
+    {
+      "id": "GK-F-005",
+      "severity": "LOW",
+      "category": "code-quality",
+      "summary": "system.ts grew from 384 to 453 lines in the post-closure delta, adding daemon-environment support (bound git path, PATHEXT handling, packaged runtime detection). The file remains under the 800-line threshold and the security invariants (absolute paths for executables, credential scrubbing on spawn, no bare-name resolution against the governed checkout) are preserved throughout.",
+      "resolved": true
+    },
+    {
+      "id": "GK-F-006",
+      "severity": "MEDIUM",
+      "category": "model-escalation-abuse",
+      "summary": "CARRY-FORWARD from C17-F3: the ALWAYS_OWNER_ONLY floor is applied on the degraded-mode path but not on the ordinary gatekeeper-turn path. No live capability escalation follows since correction workers only receive Edit/Write and never Bash. Record-versus-runtime fidelity gap, not a privilege escalation.",
+      "resolved": true
+    },
+    {
+      "id": "GK-F-007",
+      "severity": "MEDIUM",
+      "category": "subject-drift",
+      "summary": "CARRY-FORWARD from C17-F4: reconciliation re-derives the grant wrapper subject from git log at reconcile time. A second owner commit to the same grant path could shift the bound subject. Requires owner cooperation, not implementer-reachable.",
+      "resolved": true
+    },
+    {
+      "id": "GK-F-008",
+      "severity": "LOW",
+      "category": "credential-leakage",
+      "summary": "CARRY-FORWARD from C17-F5: redactArgv matches flag names rather than value shapes. Not currently reachable as no CLI flag accepts a credential.",
+      "resolved": true
+    },
+    {
+      "id": "GK-F-009",
+      "severity": "MEDIUM",
+      "category": "code-quality",
+      "summary": "nonNegative() in gatekeeperCostLedger.ts uses n > 0, rejecting zero alongside negatives. For token counts this is intentional (0 tokens = data error), but the same function is used for cachedInputMicroUsdPerMillion where zero is a plausible rate meaning 'cached input is free'. Currently harmless (0 * tokens = 0 either way) but the function contract is subtly wrong and could mislead future callers.",
+      "resolved": false
+    },
+    {
+      "id": "GK-F-010",
+      "severity": "MEDIUM",
+      "category": "code-quality",
+      "summary": "Five byte-identical copies of text(v: unknown), three copies of isImplementerName (same regex), and two copies of isModelName exist across gatekeeperDecision.ts, gatekeeperDegradedMode.ts, gatekeeperThread.ts, gatekeeperBridge.ts, and ownerGateReceipt.ts. A security fix to isImplementerName or the bidi sanitiser applied to one file would silently not apply to the others. The bidi-strip regex is already independently implemented in gatekeeperTransport.ts vs gatekeeperBridge.ts with minor cosmetic divergence.",
+      "resolved": false
+    },
+    {
+      "id": "GK-F-011",
+      "severity": "LOW",
+      "category": "credential-leakage",
+      "summary": "inMemoryResolverForTests is exported from the production source file credentialResolver.ts rather than a test-only utility. Clearly named and documented as test-only; no production call site found. The export from a production module is a latent gap if a production import is mistakenly added.",
+      "resolved": false
+    }
+  ]
+}
