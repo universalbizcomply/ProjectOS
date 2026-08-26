@@ -820,7 +820,12 @@ pre.ocp-actionmsg { white-space: pre-wrap; }
 }
 .ops-selected { margin: 0; font-size: 14px; flex: 1 1 auto; min-width: 220px; overflow-wrap: anywhere; }
 .ops-selected strong { font-weight: 600; }
-.ops-select { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+/* `0 1 auto`, not `0 0 auto`: the base size is still the control's own content, so nothing moves
+   at any width where it fits. What changes is that when it does NOT fit — a narrow window, or a
+   registry whose longest project name is wider than the strip — the item may shrink instead of
+   pushing the whole page sideways. A native `select` sizes itself to its widest OPTION, which is
+   owner data, so without this the page's horizontal overflow was a function of project names. */
+.ops-select { display: flex; align-items: center; gap: 8px; flex: 0 1 auto; min-width: 0; }
 .ops-select-label {
   font-size: 11px;
   color: var(--text-faint);
@@ -836,6 +841,8 @@ pre.ocp-actionmsg { white-space: pre-wrap; }
   border-radius: 6px;
   padding: 6px 8px;
   font: inherit;
+  max-width: 100%;
+  min-width: 0;
 }
 .ops-select select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 /* `aria-disabled`, not `disabled` — the control keeps focus, so it needs its own busy appearance. */
@@ -1040,7 +1047,12 @@ pre.ocp-actionmsg { white-space: pre-wrap; }
   cursor: pointer; box-shadow: var(--shadow); transition: background .15s, border-color .15s;
 }
 
-.os-railmid { display: flex; flex-direction: column; gap: 8px; min-height: 0; min-width: 0; flex: 1 1 auto; }
+/* `clip`, not `hidden`: it contains the project list's 4px hover bleed without turning this column
+   into a scroll container (`hidden` would force `overflow-y` to `auto` and put a second vertical
+   scrollbar beside the list's own). The bleed is drawn inside the rail's 18px padding, but a
+   child's margin box still extends its parent's scrollable area, and at 320px those 4px were the
+   whole document's horizontal overflow. */
+.os-railmid { display: flex; flex-direction: column; gap: 8px; min-height: 0; min-width: 0; flex: 1 1 auto; overflow-x: clip; }
 .os-raillabel { padding: 0 10px; font-size: 12.5px; color: var(--faint); }
 .os-railempty { padding: 10px 11px; font-size: 13px; line-height: 1.55; color: var(--faint); }
 
@@ -1257,7 +1269,11 @@ h1.os-h1 { margin: 0; font-size: 36px; font-weight: 600; letter-spacing: -0.035e
    =========================================================================== */
 .os-work { display: flex; flex-direction: column; gap: 42px; }
 
-.os-workhead { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+/* `overflow-x: clip` for the same reason `.os-railmid` has it: the operator artwork beside the
+   heading is drawn at a fixed size, and below about 340px it is wider than the canvas column. The
+   header keeps every specified dimension and the artwork is cropped at the column edge instead of
+   widening the whole document by 4px. `clip` leaves the vertical axis alone. */
+.os-workhead { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; flex-wrap: wrap; overflow-x: clip; }
 .os-statusline { display: flex; align-items: center; gap: 9px; margin-top: 8px; color: var(--dim); font-size: 14.5px; }
 .os-statusline .os-dot { width: 7px; height: 7px; }
 .os-headtools { display: flex; align-items: center; gap: 18px; }
@@ -1374,7 +1390,14 @@ h1.os-h1 { margin: 0; font-size: 36px; font-weight: 600; letter-spacing: -0.035e
 .os-row:hover { background: var(--card-2); }
 :root[data-shell='command'] .os-row:hover { background: rgba(0, 213, 255, 0.07); }
 .os-row-title { flex: 1 1 auto; min-width: 0; font-size: 14.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.os-row-outcome { font-size: 13px; color: var(--dim); white-space: nowrap; }
+/* The outcome is real recorded text, not a fixed label, so its length is owner data. Kept on one
+   line at its specified size and colour, and given the same shrink-and-ellipsis treatment the title
+   already has: at the widths the handoff draws nothing changes, and a long outcome ends in an
+   ellipsis instead of widening the whole document. Measured at 744px on a real record. */
+.os-row-outcome {
+  font-size: 13px; color: var(--dim); white-space: nowrap;
+  flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+}
 .os-row-when { font-size: 13px; color: var(--faint); white-space: nowrap; min-width: 74px; text-align: right; }
 .os-empty { padding: 14px 0; font-size: 14px; color: var(--faint); }
 
@@ -1393,6 +1416,9 @@ h1.os-h1 { margin: 0; font-size: 36px; font-weight: 600; letter-spacing: -0.035e
 .os-advlinks { display: flex; flex-wrap: wrap; gap: 14px; }
 .os-advlink { padding: 0; font-family: var(--font-mono); font-size: 13px; color: var(--dim); background: transparent; border: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
 .os-advlink:hover { color: var(--ink); }
+/* The Advanced surface's own switcher. Same links, same type, sitting beside the way back. */
+.os-advnav { margin-top: 12px; }
+.os-advlink[aria-current='page'] { color: var(--ink); text-decoration-thickness: 2px; }
 
 /* Conversation + composer */
 .os-conv { margin-top: 6px; }
@@ -1654,6 +1680,15 @@ h1.os-h1 { margin: 0; font-size: 36px; font-weight: 600; letter-spacing: -0.035e
 .os-closing { margin: 0; font-size: 13.5px; color: var(--faint); max-width: 60ch; }
 
 /* Advanced surfaces, shown full-canvas with a way back. Not restyled in this pass. */
+/* The retained surfaces are not restyled by this pass, and several of them are wider than a phone:
+   tables with their own minimum column widths, monospace records, a native `select` sized to the
+   longest project name. The previous shell absorbed that silently — `.main` set `overflow-y: auto`,
+   which makes the OTHER axis compute to `auto` as well, so those surfaces scrolled inside the
+   canvas instead of widening the document. The redesigned canvas is `visible`, so the same content
+   pushed the whole page sideways at 320px. This restores the old containment for exactly the
+   surfaces that relied on it, and nothing inside them changes. Height stays content-driven, so no
+   second vertical scrollbar appears. */
+.os-advanced { overflow-x: auto; }
 .os-advanced-back { margin-bottom: 22px; }
 
 
@@ -2032,6 +2067,12 @@ h1.os-h1 { margin: 0; font-size: 36px; font-weight: 600; letter-spacing: -0.035e
   .os-connrow .svc, .os-keyrow .svc { flex: 0 0 auto; }
   .os-row-outcome, .os-row-when { white-space: normal; }
   .os-wiznav { flex-wrap: wrap; row-gap: 12px; }
+  /* The four tabs keep every specified dimension — 36px high, 16px of padding, the 3px inset bar —
+     and the bar scrolls in place rather than widening the page. Below 520px their combined
+     min-content width is wider than the canvas column, and a flex bar that cannot shrink pushes the
+     whole document sideways: 14px at 375, more as the labels grow. Nothing is hidden, resized or
+     re-ordered; the strip just becomes scrollable at widths the handoff does not draw. */
+  .os-tabs { overflow-x: auto; max-width: 100%; }
 }
 
 /* MINIMUM 44px TOUCH TARGETS. README §Responsive requires them at 375 as well as on any coarse

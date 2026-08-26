@@ -73,27 +73,67 @@ const findings: Record<string, unknown> = {};
  * probe times out after 5s in this embedded configuration, so a nav step done the long way costs
  * ~30s. Nine views at five widths would exceed any sane suite budget for no extra coverage.
  */
-async function gotoView(label: string): Promise<void> {
-  const clicked = await browser.execute((wanted: string) => {
-    // EVERY nav landmark, not just the primary one. The workflow is now two primary destinations
-    // with the remaining seven grouped as reference and support, so a helper that searched only
-    // `nav[aria-label="Primary"]` would report a surface as missing when it is merely secondary —
-    // a false alarm about the exact thing this audit exists to check. The label is read from the
-    // label element where one exists, because a primary item also carries a hint.
-    for (const nav of Array.from(document.querySelectorAll('nav'))) {
-      for (const b of Array.from(nav.querySelectorAll('button'))) {
-        const labelEl = b.querySelector('.navlabel');
-        const text = ((labelEl ?? b).textContent ?? '').trim();
-        if (text === wanted) {
-          (b as HTMLButtonElement).click();
-          return true;
-        }
+async function clickExact(text: string): Promise<boolean> {
+  return browser.execute((wanted: string) => {
+    // EVERY navigation landmark first, then the technical panel's links, then anything else with
+    // exactly this label. The redesigned shell reaches the retained surfaces through Advanced, so
+    // the same destination can be a `nav` button on one screen and a panel link on another; a
+    // helper that searched only one of them would report a surface as missing when it is merely
+    // somewhere else, which is the exact thing this audit exists to check.
+    const pools = [
+      ...document.querySelectorAll('nav button'),
+      ...document.querySelectorAll('.os-advlink'),
+      ...document.querySelectorAll('button'),
+    ];
+    for (const b of pools) {
+      const labelEl = b.querySelector('.navlabel');
+      if (((labelEl ?? b).textContent ?? '').trim() === wanted) {
+        (b as HTMLButtonElement).click();
+        return true;
       }
     }
     return false;
-  }, label);
-  if (!clicked) throw new Error(`nav item not found: ${label}`);
+  }, text);
+}
+
+/**
+ * Navigate by dispatching the click INSIDE the page rather than through WebDriver.
+ *
+ * Not a shortcut around the UI: it is the same DOM button and the same React handler. It exists
+ * because the Tauri service runs `ensureActiveWindowFocus` before EVERY WebDriver command and that
+ * probe times out after 5s in this embedded configuration, so a nav step done the long way costs
+ * ~30s. Nine views at five widths would exceed any sane suite budget for no extra coverage.
+ *
+ * ROUTE, NOT EXPECTATIONS. The approved redesign keeps every surface below and changes only how
+ * they are reached: the project list became the rail, and the eight retained surfaces moved behind
+ * Advanced, where each one carries a switcher to the other seven. So the common case is still a
+ * single click; the recovery below runs only when the walk has left the Advanced surface, which
+ * happens exactly once, on 'Projects'.
+ */
+async function gotoView(label: string): Promise<void> {
+  // The rail IS the project list now, and it is on screen at every width. Leaving the Advanced
+  // surface is what makes this destination real, so the way back is the navigation.
+  if (label === 'Projects') {
+    await clickExact('← Back to the project');
+    await browser.pause(350);
+    const onList = await browser.execute(() => document.querySelector('.os-rail') !== null);
+    if (!onList) throw new Error('nav item not found: Projects');
+    return;
+  }
+
+  if (await clickExact(label)) {
+    await browser.pause(350);
+    return;
+  }
+
+  // Not on screen: come back to the workspace and open the technical panel that lists them.
+  await clickExact('Technical detail');
   await browser.pause(350);
+  if (await clickExact(label)) {
+    await browser.pause(350);
+    return;
+  }
+  throw new Error(`nav item not found: ${label}`);
 }
 
 describe('P1 self-hosting pilot — what the owner actually sees', function () {
@@ -199,7 +239,19 @@ describe('P1 self-hosting pilot — what the owner actually sees', function () {
         visibleHeadings,
         migrationVisible,
         detailsOpen: Array.from(document.querySelectorAll('#main details')).map((d) => (d as HTMLDetailsElement).open),
-        summaryLabel: (document.querySelector('#main details summary')?.textContent ?? '').replace(/\s+/g, ' ').trim(),
+        // THE FIXTURE'S OWN summary, found by the fixture's own words rather than by position.
+        // The assertion below is unchanged and so is what it protects — the example must say what
+        // it is before it can be opened. What changed is only which element that assertion reads:
+        // `#main details summary` meant "whichever disclosure comes first", and this screen has
+        // several. `.ocp-panel.preview` and `.ocp-example-tag` are both shared with the register
+        // guide, and the Add Project wizard's "Advanced" panel is now a native <details> as well,
+        // so every structural locator here names something other than the fixture.
+        summaryLabel: (() => {
+          const own = Array.from(document.querySelectorAll('#main details > summary')).find((s) =>
+            (s.textContent ?? '').includes('Show an example approval screen'),
+          );
+          return (own?.textContent ?? '').replace(/\s+/g, ' ').trim();
+        })(),
       };
     });
     findings.syntheticOnHome = seen;

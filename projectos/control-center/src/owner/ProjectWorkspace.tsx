@@ -194,7 +194,9 @@ export function ProjectWorkspace({
   onStartNew: () => void;
   onWorkDone: () => void;
   onOpenMap: () => void;
-  onOpenAdvanced: (view: 'live' | 'workflow' | 'plugins' | 'forge' | 'control' | 'chat' | 'safety') => void;
+  onOpenAdvanced: (
+    view: 'live' | 'workflow' | 'plugins' | 'forge' | 'control' | 'chat' | 'safety' | 'gates',
+  ) => void;
   onToast: (message: string) => void;
 }) {
   const inventory = useGovernedProjects();
@@ -278,6 +280,7 @@ export function ProjectWorkspace({
                 <button type="button" className="os-advlink" onClick={() => onOpenAdvanced('control')}>Owner Control</button>
                 <button type="button" className="os-advlink" onClick={() => onOpenAdvanced('chat')}>Owner Chat</button>
                 <button type="button" className="os-advlink" onClick={() => onOpenAdvanced('safety')}>Safety &amp; Providers</button>
+              <button type="button" className="os-advlink" onClick={() => onOpenAdvanced('gates')}>Safety Gates</button>
               </span>
             </div>
           </section>
@@ -655,6 +658,7 @@ export function ProjectWorkspace({
               <button type="button" className="os-advlink" onClick={() => onOpenAdvanced('control')}>Owner Control</button>
               <button type="button" className="os-advlink" onClick={() => onOpenAdvanced('chat')}>Owner Chat</button>
               <button type="button" className="os-advlink" onClick={() => onOpenAdvanced('safety')}>Safety &amp; Providers</button>
+              <button type="button" className="os-advlink" onClick={() => onOpenAdvanced('gates')}>Safety Gates</button>
             </span>
           </div>
         </section>
