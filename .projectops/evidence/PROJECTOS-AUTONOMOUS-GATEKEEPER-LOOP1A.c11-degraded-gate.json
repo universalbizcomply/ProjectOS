@@ -1,0 +1,118 @@
+{
+  "schemaVersion": "1.0.0",
+  "recordId": "PROJECTOS-GATEKEEPER-LOOP1A-C11-DEGRADED-GATE1A",
+  "projectId": "projectos",
+  "programmeId": "projectos-autonomous-self-hosting",
+  "phaseId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+  "kind": "criterion-progress",
+  "criterion": "C11",
+  "status": "OWNER DEGRADED-RISK GATE REACHED — STOPPED THERE",
+  "at": "2026-08-23T12:00:00.000Z",
+  "atLocal": "2026-08-23 13:00:00 Europe/London",
+  "recordedBy": "Claude (implementer). Nothing here claims owner provenance.",
+  "authority": "Gatekeeper ruling C11 FINAL CONTINUATION FIX — Option B, classify the pre-dispatch refusal; do not weaken the F7 fail-safe.",
+
+  "theClassificationFix": {
+    "id": "C11-W2-F8",
+    "fixed": true,
+    "defect": "The installation's committed allowlist decides whether it will spend its credential on a governed project. The broker enforces that and refuses BEFORE it reserves or sends anything — but reported the refusal down the same channel as a mid-flight failure, so it was read as PROVIDER_UNAVAILABLE: a cause that may have been dispatched, whose reservation F6 therefore retains. An unauthorised project accumulated a charge for a call that provably never happened, and once F7 required the broker's answered-record to permit a retry — a record that does not exist on an installation whose broker never reserved anything — the question could never be asked again either.",
+    "fix": "The same committed policy is asked on the agent side, before the broker is invoked. Not authorised means not sent, so the outcome is TRANSPORT_NOT_APPROVED — already one of the causes F6 releases on. The broker still enforces it independently; this only names the refusal correctly.",
+    "placedBeforeAdmission": "In the turn the check sits before admission, so no estimate is reserved for a call that cannot be made — and it is the only moment at which a reservation left by an earlier run can be released, because admission would otherwise refuse the request first and the transport, where classification happens, would never be reached.",
+    "existingCauseUsed": "TRANSPORT_NOT_APPROVED already existed and already meant a governance refusal on an otherwise usable route. No new cause was invented.",
+    "f7NotWeakened": "An absent broker answered-record is still UNKNOWN and still refuses a retry. Nothing about that was relaxed.",
+    "filesChanged": [
+      "projectos/agent/src/loop/transports/openaiResponses.ts",
+      "projectos/agent/src/loop/gatekeeperTurn.ts",
+      "projectos/agent/src/loop/reconciliation.ts",
+      "projectos/agent/src/commands/run.ts",
+      "projectos/agent/src/commands/reconcile.ts",
+      "projectos/agent/src/loop/gatekeeperConfig.ts"
+    ]
+  },
+
+  "oneMoreHighFoundAndClosed": {
+    "found": "The ECC of the classification returned CRITICAL 0 and HIGH 1: releasing on the current attempt's cause alone could erase a reservation whose ORIGINAL dispatch was uncertain — a call that may really have been billed — if the project was removed from the allowlist between attempts. The cause describes this attempt, not the entry.",
+    "closed": "resolveGatekeeperSpend now consults the same installation record admission does, and releases only when the cause proves no dispatch AND the record says the request was never answered. Answered or unknown retains. The port carries requestId, projectId and phaseId so the probe is bound to the exact request.",
+    "reReview": "CRITICAL 0, HIGH 0 — verified against the code, including that the legitimate release still works and that the default retains."
+  },
+
+  "proofs": {
+    "allowlistRefusalIsPreDispatch": "Proven by counting broker invocations rather than asserting it: on a policy refusal the broker is called 0 times, so no provider could have been reached.",
+    "providerCalls": 0,
+    "reservationReleasedByTheRuntime": "The witness's pre-correction reservation of 8283 micro-USD was released by the runtime on the next run. It was NOT deleted or edited by hand. The witness ledger now holds 0 entries and the month carries no charge for a call that never happened.",
+    "uncertainStaysConservative": "A dispatched call that fails uncertainly is still classified PROVIDER_UNAVAILABLE and its cost retained, and a reservation the record says was answered is never released.",
+    "regressionsGreen": "The F6 close-out proofs, the F7 answered-state proofs and the C17 concurrency and hard-stop proofs all still pass."
+  },
+
+  "verification": {
+    "targetedTests": "gatekeeperSpendRelease 21/21, gatekeeperNoDispatchClassification 3/3",
+    "agentTests": "1103 passed / 1103, 37 files",
+    "coreTests": "585 passed / 585, 22 files",
+    "validators": "131 registered, 131 PASS, 0 FAIL",
+    "typecheck": "clean, src and tests",
+    "build": "clean, core and agent",
+    "secretScan": "0 secret-shaped strings in the diff",
+    "mutations": "3 against the classification, all 3 caught — classification removed, classified as maybe-dispatched, authorised projects also refused",
+    "ecc": { "critical": 0, "high": 0, "scope": "F8 only, then a narrow re-review confirming the one HIGH closed" }
+  },
+
+  "limb1Proven": {
+    "gatekeeperUnavailable": true,
+    "producedBy": "the governance boundary, not sabotage",
+    "howItArose": "The loop ran, the inert worker exited, and the run stopped at WORKER_REFUSED. The installation's committed credential allowlist does not authorise project 'projectos-degraded-witness2a' at witness.invalid/projectos-witness/degraded-witness2a, so no request was made and no provider was contacted.",
+    "sabotage": "NONE. No credential revoked, edited, corrupted, renamed or deleted; no service stopped; no network, DNS, tunnel or Cloudflare change; the real ProjectOS gatekeeper configuration untouched.",
+    "stopCode": "WORKER_REFUSED",
+    "materialCause": "TRANSPORT_NOT_APPROVED",
+    "freshUnavailabilityId": "GKOUT-edefc563fba96122a0ea30f8",
+    "supersededIdentity": "GKOUT-032b85fe8f360ad85b4cff28 — derived while the pre-dispatch refusal was still being misreported as PROVIDER_UNAVAILABLE. The material cause is part of the identity, so correcting the classification correctly produced a different outage. It must never be used.",
+    "howTheIdWasObtained": "By calling the runtime's own deriveUnavailabilityId with the five facts the runtime itself produced: projectId, phaseId, the subject commit the run was started against, the stop code and the material cause. Not invented, not guessed, not copied. It was not PRINTED by the loop, because the runtime prints it only inside the degraded path, which a grant must already exist to reach — and it is self-checking, since a wrong id gets the grant refused rather than stretched.",
+    "subjectCommit": "907b9a2957162088d9b83b7417668a392cde2f81",
+    "ownerChoicesOffered": ["WAIT FOR OPENAI", "ACCEPT RISK & CONTINUE WITH CLAUDE SELF-REVIEW", "STOP WORK"],
+    "apiCalls": 0,
+    "spend": "nil"
+  },
+
+  "noWorkOccurred": {
+    "degradedGrantIssued": false,
+    "degradedGrantConsumed": false,
+    "workIdCreated": false,
+    "degradedWorkExecuted": false,
+    "debtCreated": false,
+    "durableDegradedLedger": "ABSENT — no consumption has been recorded because none has happened",
+    "projectDegradedUseRecords": "NONE",
+    "protectedEffects": "NONE"
+  },
+
+  "preparedNotIssued": {
+    "grantId": "PROJECTOS-DEGRADED-WITNESS2-GRANT1B",
+    "path": ".projectops/authority/PROJECTOS-DEGRADED-WITNESS2A.degraded-grant.PROJECTOS-DEGRADED-WITNESS2-GRANT1B.json",
+    "committed": false,
+    "projectId": "projectos-degraded-witness2a",
+    "phaseId": "PROJECTOS-DEGRADED-WITNESS2A",
+    "subjectCommit": "907b9a2957162088d9b83b7417668a392cde2f81",
+    "unavailabilityId": "GKOUT-edefc563fba96122a0ea30f8",
+    "ownerChoice": "ACCEPT RISK & CONTINUE WITH CLAUDE SELF-REVIEW",
+    "grantedBy": "Murad",
+    "grantedAt": "PENDING OWNER DECISION",
+    "grantedScope": ["implement"],
+    "maxWorkItems": 1,
+    "protectedActions": "NONE",
+    "supersedes": "GRANT1A, which was bound to the superseded outage identity and was never committed."
+  },
+
+  "stateOfPlay": {
+    "classificationFixed": true,
+    "freshGkoutDerived": true,
+    "ownerChoicesPresent": true,
+    "degradedGrantIssued": false,
+    "degradedWork": false,
+    "projectosCommit": false,
+    "projectosPush": false,
+    "productionTouched": false,
+    "credentialsChanged": false,
+    "infrastructureChanged": false,
+    "secretsExposed": false
+  },
+
+  "recommendation": "DO NOT ACCEPT C11. Limb 1 is proven: a genuine gatekeeper-unavailable condition produced by the governance boundary, a runtime-derived outage identity, the owner's three choices offered, and no work performed. Limbs 2 and 3 need the owner's one-use degraded grant, which is prepared and inert and which only the owner may commit."
+}

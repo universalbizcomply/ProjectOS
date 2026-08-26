@@ -1,0 +1,61 @@
+{
+  "reviews": ["code-review", "security-review"],
+  "findings": [
+    {
+      "id": "SEC-001",
+      "severity": "CRITICAL",
+      "category": "incomplete-conversion",
+      "summary": "val-cd-b4-installer-readiness1a.cjs line 315 still spawns bare \"cargo\" by name; in the daemon (no PATH) this produces ENOENT and a false failure about the code, repeating the exact defect bound-cargo.cjs was created to fix",
+      "resolved": false
+    },
+    {
+      "id": "SEC-002",
+      "severity": "CRITICAL",
+      "category": "incomplete-conversion",
+      "summary": "val-cd-b4-projectoshost-service-runtime1a.cjs line 275 still spawns bare \"cargo\" by name; same defect as SEC-001, same consequence under the daemon",
+      "resolved": false
+    },
+    {
+      "id": "SEC-003",
+      "severity": "HIGH",
+      "category": "path-traversal",
+      "summary": "isInside uses path.resolve (lexical) not fs.realpathSync; a directory junction or symlink pointing into the governed checkout from outside it bypasses the guard — an attacker who can create a junction on the machine can substitute a cargo binary inside the checkout. The docstring claims filesystem resolution but the code is lexical-only. bound-git.cjs has the same gap",
+      "resolved": false
+    },
+    {
+      "id": "CR-001",
+      "severity": "MEDIUM",
+      "category": "platform-gap",
+      "summary": "isInside case-insensitive comparison is Windows-only; macOS (case-insensitive-by-default HFS+) falls to the case-sensitive POSIX branch, so the guard could be bypassed there. Academic for this Windows-only daemon but shared with bound-git.cjs",
+      "resolved": false
+    },
+    {
+      "id": "SEC-004",
+      "severity": "MEDIUM",
+      "category": "environment-passthrough",
+      "summary": "boundCargo spreads caller-supplied opts.env into the child without stripping CARGO_HOME or RUSTUP_HOME; a caller passing a poisoned CARGO_HOME can redirect the rustup shim's toolchain resolution even though the executable itself was validated. No current caller does this but the API permits it",
+      "resolved": false
+    },
+    {
+      "id": "SEC-005",
+      "severity": "MEDIUM",
+      "category": "env-allowlist",
+      "summary": "CARGO_HOME is checked first in resolveCargo; if the daemon's env allowlist ever forwards it, an externally-set CARGO_HOME can steer resolution away from the LOCALAPPDATA derivation. Confirm CARGO_HOME is not allowlisted, or demote it below the LOCALAPPDATA branch",
+      "resolved": false
+    },
+    {
+      "id": "CR-002",
+      "severity": "LOW",
+      "category": "consistency",
+      "summary": "isInside parameter names (parent/child) diverge from bound-git.cjs (root/dir); semantics identical but naming inconsistency across the two sibling modules",
+      "resolved": false
+    },
+    {
+      "id": "SEC-006",
+      "severity": "LOW",
+      "category": "missing-target-dir",
+      "summary": "The two unconverted V8 blocks (SEC-001, SEC-002) also omit CARGO_TARGET_DIR, so cargo writes into the crate's own target/ rather than the scratch directory — bypassing scratch.cjs cleanup guarantees. Should be fixed when converting to cargo()",
+      "resolved": false
+    }
+  ]
+}

@@ -1,0 +1,117 @@
+{
+  "reviews": ["code-review", "security-review"],
+  "findings": [
+    {
+      "id": "CR-001",
+      "severity": "HIGH",
+      "category": "code-quality",
+      "summary": "runner.ts: runLoop is a single function spanning ~740 lines with nested closures mutating outer-scope let variables; the same mutation pattern produced the CORR-STALE-DECISION-ID bug",
+      "resolved": false
+    },
+    {
+      "id": "CR-002",
+      "severity": "HIGH",
+      "category": "code-quality",
+      "summary": "runner.ts: consumedDecisionIds is a mutable string[] shared between outer loop and consultGatekeeper closure via .push() mutation, violating the project immutability rule",
+      "resolved": false
+    },
+    {
+      "id": "CR-003",
+      "severity": "HIGH",
+      "category": "code-quality",
+      "summary": "degradedMode.ts is 1242 lines, exceeding the 800-line file ceiling; mixes eight distinct responsibilities",
+      "resolved": false
+    },
+    {
+      "id": "CR-004",
+      "severity": "HIGH",
+      "category": "code-quality",
+      "summary": "reconciliation.ts is 1071 lines, exceeding the 800-line file ceiling",
+      "resolved": false
+    },
+    {
+      "id": "CR-005",
+      "severity": "MEDIUM",
+      "category": "code-quality",
+      "summary": "runner.ts: eight let mutable loop variables with no invariant documentation; degradedAttemptAuthorised flag is fragile across early-exit paths",
+      "resolved": false
+    },
+    {
+      "id": "CR-006",
+      "severity": "MEDIUM",
+      "category": "code-quality",
+      "summary": "gatekeeperTurn.ts: token estimation uses chars/4 heuristic with no documented precision bound; systematic undercount could bypass the budget admission port",
+      "resolved": false
+    },
+    {
+      "id": "CR-007",
+      "severity": "MEDIUM",
+      "category": "code-quality",
+      "summary": "system.ts: processRoot is a module-level mutable singleton with a test escape hatch; state bleeds between tests if resetProcessRootForTest is not called",
+      "resolved": false
+    },
+    {
+      "id": "CR-008",
+      "severity": "LOW",
+      "category": "code-quality",
+      "summary": "runner.ts: duplicate JSDoc block for degradedContinuation closure; dead documentation from incomplete edit",
+      "resolved": false
+    },
+    {
+      "id": "CR-009",
+      "severity": "LOW",
+      "category": "code-quality",
+      "summary": "verification.ts: gitLines silently returns [] on any git error, causing changedFiles to under-report in evidence records",
+      "resolved": false
+    },
+    {
+      "id": "SEC-002",
+      "severity": "MEDIUM",
+      "category": "prompt-injection",
+      "summary": "reason, risks and carryForward fields from the gatekeeper response are written unsanitised to durable evidence records; bidi stripping is applied to nextClaudeInstruction but not to these audit-trail fields",
+      "resolved": false
+    },
+    {
+      "id": "SEC-005",
+      "severity": "MEDIUM",
+      "category": "evidence-poisoning",
+      "summary": "Worker-writable findings and effects files flow into gatekeeper evidence; the implementer partially authors the evidence the reviewer reads (acknowledged architectural tension, not a decision bypass)",
+      "resolved": false
+    },
+    {
+      "id": "SEC-014",
+      "severity": "LOW",
+      "category": "credential-leakage",
+      "summary": "Heuristic redact() for check output may miss credentials in non-standard env var names; mitigated by scrubCredentials flag on child process environment",
+      "resolved": false
+    },
+    {
+      "id": "SEC-018",
+      "severity": "LOW",
+      "category": "cost-runaway",
+      "summary": "Lock file deletion failure leaves the admission lock permanently held; fails closed (denies calls) but requires manual intervention to recover",
+      "resolved": false
+    },
+    {
+      "id": "SEC-029",
+      "severity": "MEDIUM",
+      "category": "reconciliation-bypass",
+      "summary": "Cross-record reconciliation bypass was fixed (per-record matching), but test coverage of the specific cross-record scenario should be confirmed",
+      "resolved": true
+    },
+    {
+      "id": "SEC-031",
+      "severity": "LOW",
+      "category": "prompt-injection",
+      "summary": "nextClaudeInstruction content reaches Claude after sanitisation but with no semantic validation; boundary check is the effective structural control",
+      "resolved": false
+    },
+    {
+      "id": "SEC-032",
+      "severity": "LOW",
+      "category": "misconfiguration",
+      "summary": "gatekeeper.json budget fields (hardStopAtMicroUsd, warnAtMicroUsd) are read from working tree not committed git; an implementer could raise the ceiling without committing",
+      "resolved": false
+    }
+  ]
+}

@@ -1,0 +1,144 @@
+{
+  "schemaVersion": "1.0.0",
+  "recordId": "PROJECTOS-GATEKEEPER-LOOP1A-C11-W2-F1-CORRECTION1A",
+  "projectId": "projectos",
+  "programmeId": "projectos-autonomous-self-hosting",
+  "phaseId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+  "kind": "security-correction",
+  "finding": "C11-W2-F1",
+  "severity": "HIGH",
+  "status": "CORRECTED AND PROVEN — BUT C11 NOT RESUMED: ONE HIGH REMAINS OPEN ELSEWHERE",
+  "at": "2026-08-22T19:15:00.000Z",
+  "atLocal": "2026-08-22 20:15:00 Europe/London",
+  "recordedBy": "Claude (implementer). Nothing here claims owner provenance.",
+  "authority": "Gatekeeper decision PROJECTOS — C11-W2-F1 DELEGATION AUTHORITY CORRECTION1A: source correction authorised for C11-W2-F1 only; fix the authority invariant rather than granting phase-closure to fit a broken vocabulary.",
+
+  "theDefect": {
+    "summary": "The gatekeeper's decider was read from a delegation record that only the plan-approval path ever validated.",
+    "detail": "committedDelegatedDecider accepted the committed record on two facts: programmeScope matched, and delegatedTo was a non-empty string. Schema, owner provenance, delegated scope and the implementer exclusion were checked by checkClosureDelegationRecord — but only while a plan was being approved. The same bytes could therefore be REJECTED by the approval path and simultaneously ACCEPTED as the authority behind every review decision, and whether a record was judged at all depended on the order of events: commit the delegation after plan approval and the validating path never saw it.",
+    "discoveredBy": "The C11 degraded-mode witness, whose owner-approved delegation carried a scope the vocabulary did not have."
+  },
+
+  "theCorrection": {
+    "filesChanged": [
+      "projectos/core/src/closureAuthority.ts",
+      "projectos/agent/src/planApproval.ts",
+      "projectos/agent/src/loop/gatekeeperConfig.ts"
+    ],
+    "testsChanged": [
+      "projectos/agent/test/gatekeeperDelegationAuthority.test.ts (new, 27 tests)",
+      "projectos/agent/test/planApproval.test.ts (2 tests added, 1 expectation corrected to the pruning decision)"
+    ],
+    "narrowCapability": {
+      "scope": "gatekeeper-review-decisions",
+      "addedTo": "the EXISTING delegation vocabulary in core, as DELEGABLE_SCOPES = CLOSURE_SCOPES + this one",
+      "notASecondSystem": "No parallel delegation architecture was created. The record, the file, the validator and the commit gate are all the ones that already existed.",
+      "typeSeparation": "It is deliberately not a ClosureScope, so it cannot be passed as ClosureAuthorityInput.scope at all. The vocabulary duplication between core and planApproval was also removed — planApproval had its own copy of CLOSURE_SCOPES, and two lists that must agree but are edited separately is how a scope becomes legal at one boundary and refused at another."
+    },
+    "consumptionSideValidation": "resolveDelegatedDecider now calls the same checkClosureDelegationRecord the approval path calls, with requiredScope. No second or weaker validator was written; the owner it is judged against comes from resolveRecordedOwner, extracted from approvePlan and shared.",
+    "closureLeakageClosedSeparately": "materialisePlan no longer writes a delegation carrying no closure scope into governance.closureDelegation, and no longer lets it set closureAuthority. Without this, approving a plan would have handed closure authority to a review-only delegate as a side effect. authoriseClosure would still have refused the close; this stops the claim being made.",
+    "pruning": "A record carrying both a review scope and a closure scope is materialised with only the closure half. The plan schema's closureDelegation.delegatedScope enum is closure-only by definition — 'Closure only. Protected actions are not delegable through this field.' Copying the review scope through made the plan fail its own schema; widening the schema would have put a capability in a governed field nothing reads it from.",
+    "failClosedNotCrash": "Judging the record now needs the governance engine, which this function never needed before. A caller reaching it early gets a refusal carrying the real error text rather than an unhandled throw."
+  },
+
+  "additionalFindingsFixedInTheSameCorrection": [
+    {
+      "id": "C11-W2-F1b",
+      "severity": "CRITICAL (as rated by the ECC security review of the first draft of this fix)",
+      "title": "The anchor a delegation was judged against was itself forgeable",
+      "detail": "checkClosureDelegationRecord compares the record to this project's id and recorded owner. Those were read from the WORKING TREE. So anything that can write a file could point planMemory.planPath at a plan naming an owner of its choosing, commit one internally consistent delegation naming that same owner, and be resolved as the decider — every check passing because the expectations had been moved to meet the record. Validating against a forgeable anchor is not validating.",
+      "fix": "resolveRecordedOwner gained an explicit planTrust mode. Plan approval keeps 'working-tree', unchanged — it is one owner-attended act whose output is then committed. The consumption boundary passes 'committed' and reads project-config.json from HEAD as well: it runs unattended and repeatedly, with no gate of its own, so it takes only bytes that passed one.",
+      "provenBy": "Tests H, H2, H3, H4 — forging the owner and the project id in the working copy, and removing each anchor from HEAD."
+    },
+    {
+      "id": "C11-W2-F2",
+      "severity": "HIGH (same review)",
+      "title": "A retired programme's delegation could be revived by an unreviewed edit",
+      "detail": "programmeId came from the uncommitted gatekeeper.json, and a delegation record carries no expiry — it stops applying only because the programme moved on. Re-pointing the programme in the working copy alone would therefore decide which committed delegation applies.",
+      "fix": "loadGatekeeperConfig reads the committed gatekeeper.json; a working copy that disagrees, or a committed file declaring no programme, is refused by name. The delegation is resolved only when they agree.",
+      "provenBy": "Two loadGatekeeperConfig tests."
+    }
+  ],
+
+  "verification": {
+    "agentTests": "1073 passed / 1073, 35 files",
+    "coreTests": "585 passed / 585, 22 files",
+    "newTestsForThisFinding": 27,
+    "typecheck": "clean (src and tests)",
+    "build": "clean (core and agent)",
+    "secretScan": "0 secret-shaped strings in the diff",
+    "validators": "131 registered modules, 131 PASS, 0 FAIL — ALL PASS, run against the frozen sources after every change. val-projectos-gatekeeper-contract1a and val-projectos-trust-boundary1a were additionally run directly.",
+    "mutationsRun": 5,
+    "mutationsCaught": 5,
+    "mutations": [
+      "remove requiredScope from the resolver — 2 tests failed",
+      "resolver stops validating the record at all — 9 tests failed",
+      "any scope string accepted — 2 tests failed",
+      "requiredScope never enforced — 1 test failed",
+      "an absent record grants the capability — 1 test failed"
+    ]
+  },
+
+  "gatekeeperTestList": {
+    "A postApprovalInvalidDelegation": "refused — no decider",
+    "B preApprovalInvalidDelegation": "refused identically",
+    "I trueOrderIndependence": "in ONE project's timeline: nothing committed, then an approval-boundary judgment, then the bad record committed AFTERWARDS — refused for exactly the same reasons a fresh judgment gives",
+    "C narrowReviewDelegation": "resolves the decider; phase closure and programme closure both refused with DELEGATION_SCOPE_MISMATCH",
+    "D crossProgramme": "refused",
+    "E implementerSelfDelegation": "refused"
+  },
+
+  "reProvenAgainstTheWitness": {
+    "witnessCommit": "10273687f3877d76cf41fac16265cfa0fa5b8757",
+    "historicalEvidenceRewritten": false,
+    "ownerApprovedBindingsRewritten": false,
+    "result": "The owner-approved witness delegation — scope gatekeeper-review-decisions, bytes unchanged — resolves to 'ChatGPT' under the fully corrected semantics, including the committed-anchor requirement. The same query for programme projectos-autonomous-self-hosting is refused as scoped elsewhere. No legitimate invariant unrelated to the scope vocabulary refuses it."
+  },
+
+  "eccReview": {
+    "reviewsRun": ["security (twice: initial and post-fix re-review)", "typescript", "test-coverage"],
+    "postFixCounts": { "critical": 0, "high": 1, "medium": 0, "low": 2 },
+    "openHigh": {
+      "id": "C11-W2-F5",
+      "title": "approvePlan's owner and project-identity anchors remain working-tree-sourced",
+      "detail": "resolveRecordedOwner defaults to planTrust 'working-tree' and approvePlan uses that default; proposal.projectId is likewise derived from the working-tree project-config.json via buildProposal. This is the same forgeable-anchor pattern that was just closed at the gatekeeper boundary, on the module's most consequential function — the only route by which a record carrying PLAN READY comes into existence. Because the forged anchor file is never part of the commit being reviewed, it evades the 'a forged one is a visible diff' guarantee the module's threat model rests on.",
+      "preExisting": true,
+      "introducedByThisCorrection": false,
+      "whyNotFixedHere": "The source correction was authorised for C11-W2-F1 only, and the scope freeze forbids fixing unrelated findings and optional hardening. Changing how plan approval establishes the owner is a governance decision with real consequences — it would make a project whose active plan is uncommitted unable to approve a successor — and that is the owner's and the gatekeeper's call, not the implementer's.",
+      "consequence": "The stated precondition for resuming C11 is CRITICAL = 0 and HIGH = 0. It is not met. C11 was NOT resumed."
+    },
+    "openLow": [
+      "The catch in resolveDelegatedDecider is broader than the anticipated engine-not-installed case, so a genuine internal bug would present as an ordinary refusal rather than a loud failure. It fails closed either way and surfaces the real error text.",
+      "requiredScope was typed as plain string; it is now typed to the DelegableScope vocabulary."
+    ],
+    "reviewCaveat": "The security re-review read the code while the last cosmetic cleanups were being applied. It re-verified against a stable snapshot, but the final two changes after it finished — typing requiredScope, and the earlier LOW cleanups — were not in front of it. Neither changes any security semantics."
+  },
+
+  "c17Relationship": "C17 was not reopened and its historical evidence was not rewritten. C11-W2-F1 was discovered after C17 closure and is recorded here as a new post-closure HIGH against the current authority boundary, now corrected. The post-correction review demonstrates CRITICAL = 0 for the corrected boundary; the one remaining HIGH is the separate pre-existing finding above.",
+
+  "stateOfPlay": {
+    "c11w2f1Fixed": true,
+    "narrowScopeRecognised": true,
+    "consumptionSideValidation": true,
+    "invalidPostApprovalRecordRefused": true,
+    "invalidPreApprovalRecordRefused": true,
+    "validReviewOnlyDelegationResolvesChatGPT": true,
+    "reviewOnlyCanPhaseClose": false,
+    "reviewOnlyCanProgrammeClose": false,
+    "crossProgrammeReuseRefused": true,
+    "implementerSelfDelegationRefused": true,
+    "correctedPlanOwnerApproved": true,
+    "planActivated": false,
+    "realGkoutDerived": false,
+    "degradedGrantIssued": false,
+    "degradedWork": false,
+    "debtCreated": false,
+    "projectosCommit": false,
+    "projectosPush": false,
+    "productionTouched": false,
+    "secretsExposed": false,
+    "protectedActions": "NONE"
+  },
+
+  "recommendation": "READY IN SUBSTANCE, BLOCKED BY RULE. C11-W2-F1 is corrected, proven and mutation-tested, and the witness delegation is valid under the corrected semantics with its owner-approved bytes untouched. C11 was not resumed because the post-fix review leaves one HIGH open — C11-W2-F5, pre-existing and out of the authorised scope. The gatekeeper should rule: correct C11-W2-F5 under fresh authority before resuming, or accept it as pre-existing and separately scheduled and let C11 proceed. The implementer should not make that call."
+}

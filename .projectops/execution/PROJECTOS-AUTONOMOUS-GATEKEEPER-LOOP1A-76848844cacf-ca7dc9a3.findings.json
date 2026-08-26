@@ -1,0 +1,47 @@
+{
+  "reviews": ["code-review", "security-review"],
+  "findings": [
+    {
+      "id": "CR-MEDIUM-1",
+      "severity": "MEDIUM",
+      "category": "code-quality",
+      "summary": "correctionBoundary.ts pathsNamedIn extension whitelist (ts|tsx|js|cjs|mjs|json|md) silently refuses corrections targeting unlisted extensions; fails safe (refusal, not acceptance) but blocks legitimate corrections to .yaml/.toml/.rs without a code change",
+      "resolved": false
+    },
+    {
+      "id": "CR-LOW-1",
+      "severity": "LOW",
+      "category": "code-quality",
+      "summary": "runner.ts ~line 488 has a duplicate JSDoc block above degradedContinuation; first block is shadowed by the second and never attached by tooling",
+      "resolved": false
+    },
+    {
+      "id": "SR-MEDIUM-1",
+      "severity": "MEDIUM",
+      "category": "evidence-poisoning",
+      "summary": "reconciliation.ts ~line 278: degraded-use item.summary is implementer-provided working-tree content relayed to the reviewer; compensated by the committed-bytes grant ceiling being the mechanical authority bound, not the summary",
+      "resolved": false
+    },
+    {
+      "id": "SR-MEDIUM-2",
+      "severity": "MEDIUM",
+      "category": "prompt-injection",
+      "summary": "authServer.ts ~line 192: Origin header check on /authorize/approve POST is best-effort (some clients omit Origin); compensated by the 6-digit PIN displayed on the terminal and never transmitted, which is the real authorization factor",
+      "resolved": false
+    },
+    {
+      "id": "SR-LOW-1",
+      "severity": "LOW",
+      "category": "integrity",
+      "summary": "bridge.ts ~line 132: refusal audit log uses read-then-write instead of atomic temp-file-plus-rename; crash between read and write could corrupt the JSONL audit trail; refusals are audit-only and gate no security decision",
+      "resolved": false
+    },
+    {
+      "id": "SR-LOW-2",
+      "severity": "LOW",
+      "category": "classification",
+      "summary": "openaiResponses.ts ~line 354: spend-limit detection via substring on raw provider error body could misclassify an atypical payload; downstream effect is wrong unavailability cause recorded, requiring a different degraded-mode grant class, not bypassing authority",
+      "resolved": false
+    }
+  ]
+}

@@ -1,0 +1,128 @@
+{
+  "schemaVersion": "1.0.0",
+  "recordId": "PROJECTOS-GATEKEEPER-LOOP1A-C11-WITNESS2-GKOUT1A",
+  "projectId": "projectos",
+  "programmeId": "projectos-autonomous-self-hosting",
+  "phaseId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+  "kind": "criterion-progress",
+  "criterion": "C11",
+  "status": "OWNER DEGRADED-RISK GATE REACHED — AND A NEW HIGH BLOCKS THE NEXT STEP",
+  "at": "2026-08-23T00:45:16.000Z",
+  "atLocal": "2026-08-23 01:45:16 Europe/London",
+  "recordedBy": "Claude (implementer). Nothing here claims owner provenance.",
+
+  "f5Correction": {
+    "fixed": true,
+    "ownerTrustAnchor": "HEAD — approvePlan passes planTrust 'committed', so the active plan that names the owner is read from the commit gate",
+    "projectTrustAnchor": "HEAD — a committed project-config naming a different projectId refuses with PROJECT_IDENTITY_MISMATCH",
+    "anchorSelectionAlsoAnchored": "the committed config's planMemory.planPath must match the working copy's, so the CHOICE of anchor cannot be re-pointed by an unreviewed edit either",
+    "candidateStillUncommitted": "yes — the plan document and draft are never committed before approval; the digest binding is what holds them",
+    "genesisUnbroken": "yes — first-plan bootstrap still runs through its own committed genesis record",
+    "tests": "6 new (A, A2, B, C, D, E) in planApproval.test.ts",
+    "mutations": "3 run, 3 caught — owner anchor reverted to the working tree, project identity check disabled, declared-plan path re-pointable",
+    "fixtureCorrection": "The fixture never committed the active plan, which modelled a state a governed project is not in. It now does, and the two multi-activation tests follow the governed approve-commit-approve sequence."
+  },
+
+  "f1Reproven": {
+    "narrowScopeRecognised": true,
+    "consumptionUsesCanonicalValidation": true,
+    "invalidPostApprovalRefused": true,
+    "invalidPreApprovalRefused": true,
+    "reviewOnlyResolvesChatGPT": true,
+    "reviewOnlyPhaseCloses": false,
+    "reviewOnlyProgrammeCloses": false,
+    "crossProgrammeRefused": true,
+    "implementerSelfDelegationRefused": true,
+    "observedLiveInTheActivatedPlan": "governance.closureDelegation is ABSENT in the activated witness plan — the review-only delegation conferred no closure, in the real artefact rather than a fixture"
+  },
+
+  "planActivation": {
+    "activated": true,
+    "draftId": "cf47d9f41b534ce1",
+    "planDigest": "sha256:39f0227c3a452571629a3825b9267fa4f775f8b0373a878663930d0b813e2272",
+    "decisionId": "PROJECTOS-DEGRADED-WITNESS2-PLAN-APPROVAL-DECISION1B",
+    "decidedBy": "Murad",
+    "ownerProvenanceVerified": "the decision's decisionText is the owner's approval sentence verbatim, and its draftId, planDigest, baseHead, projectId and repository all match the draft and the project config exactly",
+    "planStatus": "PLAN READY, recomputed by the evaluator rather than copied",
+    "acceptanceCriteria": 8,
+    "consumed": "the decision is now spent and cannot approve anything again"
+  },
+
+  "witnessCommits": [
+    { "commit": "150ac9aa2cbdfcc8174533935a9a790c430194f6", "what": "the owner's approval of the corrected plan, plus the corrected plan document and draft" },
+    { "commit": "a2589f863a366bb35da0329bd614e469ed5d2394", "what": "one deliberately inert execution worker, without which the loop had nothing it could start" },
+    { "commit": "907b9a2957162088d9b83b7417668a392cde2f81", "what": "the activated plan, so it could serve as the trust anchor the F5 correction requires" }
+  ],
+  "witnessPushed": false,
+  "projectosCommits": 0,
+  "projectosPushes": 0,
+
+  "limb1Proven": {
+    "gatekeeperUnavailable": true,
+    "producedBy": "the governance boundary, not sabotage",
+    "howItArose": "The loop ran, the inert worker exited, and the run stopped at WORKER_REFUSED. The gatekeeper turn then attempted the transport, and the installation refused: 'this installation does not authorise project projectos-degraded-witness2a at witness.invalid/projectos-witness/degraded-witness2a'. That is the installation's own project allowlist declining to serve a project it does not know.",
+    "sabotage": "NONE. No credential revoked, edited, corrupted, renamed or deleted; no service stopped; no network, DNS, tunnel or Cloudflare change; the real ProjectOS gatekeeper configuration untouched.",
+    "stopCode": "WORKER_REFUSED",
+    "materialCause": "PROVIDER_UNAVAILABLE",
+    "causeNotForced": "The expected wording was CREDENTIAL_UNAVAILABLE. The actual canonical classification is PROVIDER_UNAVAILABLE, and it is recorded as it came rather than reshaped to match the expectation.",
+    "ownerChoicesOffered": ["WAIT FOR OPENAI", "ACCEPT RISK & CONTINUE WITH CLAUDE SELF-REVIEW", "STOP WORK"],
+    "unavailabilityId": "GKOUT-032b85fe8f360ad85b4cff28",
+    "howTheIdWasObtained": "By calling the runtime's own deriveUnavailabilityId with the five facts the runtime itself produced: projectId, phaseId, the subject commit the run was started against, the stop code and the material cause. It was NOT invented, guessed, copied from witness1, or computed by hand. It was also not PRINTED by the loop: the runtime only prints it inside the degraded path, which a grant must already exist to reach. That is stated plainly rather than glossed — and it is self-checking, because if the id is wrong the loop refuses the grant instead of stretching it.",
+    "subjectCommit": "907b9a2957162088d9b83b7417668a392cde2f81",
+    "apiCalls": 0,
+    "realMoneySpent": "nil — the transport never reached a provider; recorded usage is 0 input and 0 output tokens"
+  },
+
+  "noWorkOccurred": {
+    "degradedGrantIssued": false,
+    "degradedGrantConsumed": false,
+    "workIdCreated": false,
+    "degradedWorkExecuted": false,
+    "debtCreated": false,
+    "durableDegradedLedger": "ABSENT — no consumption has been recorded because none has happened",
+    "projectDegradedUseRecords": "NONE",
+    "protectedEffects": "NONE",
+    "proofTheGrantIsInert": "The prepared grant is not in HEAD. Running the loop WITH --degraded-grant naming it did not continue into degraded work: an uncommitted grant authorises nothing."
+  },
+
+  "preparedNotIssued": {
+    "grantId": "PROJECTOS-DEGRADED-WITNESS2-GRANT1A",
+    "path": ".projectops/authority/PROJECTOS-DEGRADED-WITNESS2A.degraded-grant.PROJECTOS-DEGRADED-WITNESS2-GRANT1A.json",
+    "committed": false,
+    "projectId": "projectos-degraded-witness2a",
+    "phaseId": "PROJECTOS-DEGRADED-WITNESS2A",
+    "subjectCommit": "907b9a2957162088d9b83b7417668a392cde2f81",
+    "unavailabilityId": "GKOUT-032b85fe8f360ad85b4cff28",
+    "ownerChoice": "ACCEPT RISK & CONTINUE WITH CLAUDE SELF-REVIEW",
+    "grantedBy": "Murad",
+    "grantedAt": "PENDING OWNER DECISION",
+    "grantedScope": ["implement"],
+    "maxWorkItems": 1,
+    "protectedActions": "NONE"
+  },
+
+  "newFinding": {
+    "id": "C11-W2-F6",
+    "severity": "HIGH",
+    "ratedBy": "Claude (implementer), from a live demonstration rather than analysis. It has not been through ECC.",
+    "title": "A gatekeeper call that never happened leaves a reservation that permanently closes the degraded route",
+    "whatHappened": "The first run admitted the spend, wrote a provisional ledger entry of 8283 micro-USD, then the transport failed and no call was made. Nothing settles a reservation on that path — gatekeeperTurn returns ledgerEntry null when the gatekeeper is unavailable, so the runner never settles. On the SECOND run the same question is refused by the admission de-duplication: 'request GKREQ-daf88610f25d57bcc4e0959c is already in the ledger; it is not asked again'.",
+    "whyItIsHigh": "That refusal path returns ownerChoices null AND unavailabilityCause null. Degraded mode opens only when both are non-null, so the owner is no longer offered ACCEPT RISK at all. One failed transport therefore makes that exact question permanently unaskable and closes the very route this criterion exists to prove. It also changes the material cause, so a re-run would derive a DIFFERENT outage identity — the grant prepared above would then be refused as answering another outage.",
+    "iIntroducedIt": "Yes. This is a consequence of the C17-F1 correction I made, which moved the spend decision inside a lock and reserved the estimate before the call. That fixed a real concurrency defect and I stand by it; reserving without a release path on transport failure is the part that is wrong. The C17 commit message anticipated the fail-safe direction — 'a crash between admission and settlement leaves the estimate standing' — and judged it the safe direction. It is not safe here: it does not merely over-count the month, it withdraws the owner's choice.",
+    "notFixed": "Fixing it is a new correction cycle and was explicitly out of scope for this instruction. It is reported rather than fixed, and the gate is reported as reached rather than quietly worked around.",
+    "doNotWorkAround": "The reservation could be deleted from the witness ledger to make the outage recur. That is editing evidence to obtain a preferred runtime state, and it was not done."
+  },
+
+  "verification": {
+    "agentTests": "1079 passed / 1079, 35 files",
+    "coreTests": "585 passed / 585, 22 files",
+    "validators": "131 registered, 131 PASS, 0 FAIL",
+    "typecheck": "clean, src and tests",
+    "build": "clean, core and agent",
+    "secretScan": "0 secret-shaped strings in the diff",
+    "mutations": "8 across F1 and F5, all 8 caught",
+    "ecc": { "critical": 0, "high": 0, "medium": 3, "low": 3, "note": "counts are for the F1+F5 correction boundary. C11-W2-F6 was found afterwards, by running the witness, and is not included in them." }
+  },
+
+  "recommendation": "DO NOT ACCEPT C11. Limb 1 is proven — a genuine gatekeeper-unavailable condition produced by the governance boundary, a runtime-derived outage identity, the owner's three choices offered, and no work performed. Limbs 2 and 3 need the owner's one-use degraded grant, and that grant cannot usefully be issued until C11-W2-F6 is corrected: the outage it binds will not recur while the unsettled reservation stands, and the owner's ACCEPT RISK choice is no longer offered on a re-run."
+}

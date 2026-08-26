@@ -1,0 +1,94 @@
+{
+  "schemaVersion": "1.0.0",
+  "recordId": "PROJECTOS-GATEKEEPER-LOOP1A-C11-W2-F7-CORRECTION1A",
+  "projectId": "projectos",
+  "programmeId": "projectos-autonomous-self-hosting",
+  "phaseId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+  "kind": "security-correction",
+  "finding": "C11-W2-F7",
+  "severity": "HIGH",
+  "status": "FIXED AND GREEN — C11 CONTINUATION BLOCKED BY THE FIX WORKING AS INSTRUCTED",
+  "at": "2026-08-23T11:10:00.000Z",
+  "atLocal": "2026-08-23 12:10:00 Europe/London",
+  "recordedBy": "Claude (implementer). Nothing here claims owner provenance.",
+  "authority": "Gatekeeper ruling C11-W2-F7 FINAL BOUNDED FIX, Option A: use the broker's durable answered-state record as the source of truth.",
+
+  "theDefect": "A reservation is marked unresolved by admission and unmarked by settlement replacing it. settleGatekeeperSpend silently does nothing when it cannot take the ledger lock, so an entry still marked unresolved may be a call the provider ANSWERED. The F6 retry gate trusted that mark, so an already-decided question could be asked again — a second charge the ledger never shows, and a second verdict applied over one the loop had already acted on.",
+
+  "theCorrection": {
+    "sourceOfTruth": "The transport broker's own durable record at <installationStateDir>/gatekeeper-spend.json. The broker reserves a row before it dispatches and sets outcome 'answered' before it hands the reply back. That record lives outside every governed project and is written by the broker, so it survives the loss of any project-side lock and a governed project cannot influence it.",
+    "readOnly": "The new reader performs exactly one file read. It writes nothing, locks nothing, and never touches the broker's lock file — a second writer to a record whose value is that one trusted process owns it would be its own defect.",
+    "gate": "Before a retry of a reservation: 'answered' refuses and says the decision stands while the accounting needs reconciling; 'not-answered' allows the F6 retry; 'unknown' refuses. The parameter defaults to 'unknown', so a caller that cannot consult the record is refused rather than assuming the convenient answer.",
+    "settledIsDecidedByUsage": "An entry carrying recorded usage is a completed call and is refused locally without consulting anything. Usage is what only a real answer produces; the local mark is a hint. This also means an entry written BEFORE this correction — which carries no mark — is correctly recognised as a reservation rather than barred for ever with no way back but a hand-edit.",
+    "filesChanged": [
+      "projectos/agent/src/installation/brokerAnsweredState.ts (new)",
+      "projectos/agent/src/loop/gatekeeperConfig.ts",
+      "projectos/agent/src/commands/run.ts",
+      "projectos/agent/src/commands/reconcile.ts"
+    ]
+  },
+
+  "proofs": {
+    "A": "answered plus a lost settlement lock — the second provider call is refused. The test reproduces the exact composition: the reviewer answered, settlement could not take the lock, the entry still reads unresolved.",
+    "B": "a call the broker never reserved is still retryable; a reserved-but-unanswered row likewise.",
+    "C": "no state directory, absent record, unreadable, malformed JSON, null, array, and calls-not-an-array all refuse; so does omitting the probe entirely.",
+    "C3": "an answered row for another project, phase or request id does not answer this one.",
+    "D": "a pre-correction entry is recognised as a reservation and is replaced by a properly marked one, so it self-heals rather than needing an edit. D2: unless the broker says it was answered.",
+    "F6andC17StillGreen": "The F6 close-out proofs and the C17 concurrency and hard-stop proofs all still pass in the same file."
+  },
+
+  "verification": {
+    "targetedTests": "18 passed / 18 in gatekeeperSpendRelease.test.ts",
+    "agentTests": "1097 passed / 1097, 36 files",
+    "coreTests": "585 passed / 585, 22 files",
+    "validators": "131 registered, 131 PASS, 0 FAIL",
+    "typecheck": "clean, src and tests",
+    "build": "clean, core and agent",
+    "secretScan": "0 secret-shaped strings in the diff",
+    "mutations": "5 against the F7 gate, all 5 caught — gate removed, unknown treated as safe, default made convenient, absent record read as not-answered, project binding dropped from the row match",
+    "ecc": { "critical": 0, "high": 0, "medium": 0, "low": 2, "scope": "F7 only, as instructed" }
+  },
+
+  "c11ContinuationBlocked": {
+    "whatHappened": "The witness was re-run. The loop reached the gatekeeper, and the retry was refused: 'whether request GKREQ-daf88610f25d57bcc4e0959c was already answered could not be determined from the installation's record, so it is not asked again.'",
+    "why": "The broker's record does not exist. The installation state directory is present and readable at C:/Users/murad/AppData/Local/ProjectOS/installation-state, and gatekeeper-spend.json is absent from it. The broker refuses this witness project at its committed credential allowlist BEFORE it reserves anything, so it has never created that file for this project — and it appears never to have created it on this installation at all.",
+    "thisIsTheRuleWorkingAsWritten": "The authorised behaviour is explicit: if the broker answered-state cannot be determined, fail safe and do not re-call the provider. An absent record does not PROVE the question went unanswered, so the gate refuses. The correction is behaving exactly as instructed; it is the witness that cannot proceed through it.",
+    "consequence": "No fresh GKOUT could be derived. The outage identity binds the stop code and the material cause, and the run now stops on the admission refusal rather than on a classified unavailability, so there is no runtime-derived identity to bind a grant to. Owner choices were NOT offered on this run.",
+    "whatIDidNotDo": [
+      "I did not delete or edit the witness ledger to make the question askable again.",
+      "I did not create or seed the broker's spend record.",
+      "I did not relax the unknown case to 'not-answered' to get past my own gate.",
+      "I did not change the witness's work so the stop, and therefore the request id, would differ — that is engineering the question to dodge the gate."
+    ],
+    "theTwoRoutESThatWouldUNBLOCKIT": [
+      "Treat a readable state directory with NO record file as proof that nothing was ever dispatched. The broker creates the file when it first reserves, so its absence in a readable directory is positive evidence — but it is a relaxation of the fail-safe rule the gatekeeper wrote, and it is not mine to take.",
+      "Correct the classification the ECC already flagged as MEDIUM: a broker refusal that provably never dispatched is currently reported as PROVIDER_UNAVAILABLE, which is why the original reservation was retained rather than released. Releasing it would have left nothing to retry. This is the more truthful fix, and it is a MEDIUM I was instructed not to fix."
+    ]
+  },
+
+  "carryForwardNotFixed": [
+    "LOW — a corrupted-but-present matching row resolves to not-answered rather than unknown; unreachable without write access to a file the governed project cannot reach.",
+    "LOW — the probe call is not wrapped in try/catch; the current callback chain cannot throw.",
+    "MEDIUM (from the F6 round) — the release branch is unreachable through the production broker wiring, because every broker-side failure maps to PROVIDER_UNAVAILABLE.",
+    "MEDIUM (from the F6 round) — writeLedger can throw from the close-out path, which the call site does not catch.",
+    "LOW (from the F6 round) — degradedMode.ts builds its own decision-id set without the unresolved filter."
+  ],
+
+  "stateOfPlay": {
+    "f6Fixed": true,
+    "f7Fixed": true,
+    "freshGkoutDerived": false,
+    "ownerChoicesOffered": false,
+    "degradedGrantIssued": false,
+    "degradedWork": false,
+    "debtCreated": false,
+    "projectosCommit": false,
+    "projectosPush": false,
+    "productionTouched": false,
+    "credentialsChanged": false,
+    "infrastructureChanged": false,
+    "secretsExposed": false
+  },
+
+  "recommendation": "DO NOT ACCEPT C11. F7 is fixed, proven and clean at CRITICAL 0 / HIGH 0. The witness cannot continue because the fail-safe the gatekeeper specified refuses a retry whose answered-state cannot be determined, and on this installation the broker's record does not exist. The gatekeeper should choose between the two routes above rather than the implementer choosing for it — the last two rounds are why."
+}

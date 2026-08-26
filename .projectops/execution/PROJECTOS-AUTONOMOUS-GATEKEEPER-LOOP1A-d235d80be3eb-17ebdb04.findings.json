@@ -1,0 +1,162 @@
+{
+  "reviews": [
+    "code-review",
+    "security-review"
+  ],
+  "findings": [
+    {
+      "id": "CR-001",
+      "severity": "MEDIUM",
+      "category": "file-size",
+      "summary": "degradedMode.ts is 1242 lines, exceeding the 800-line guideline. The excess is almost entirely inline documentation that constitutes the safety argument and audit trail for each decision. Extracting the authority-wrapper logic (~120 lines) and the repo-relative-path logic (~70 lines) into a separate module would bring it within bounds without fragmenting the safety narrative.",
+      "resolved": false
+    },
+    {
+      "id": "CR-002",
+      "severity": "MEDIUM",
+      "category": "file-size",
+      "summary": "reconciliation.ts is 1071 lines, exceeding the 800-line guideline. The reconciliation ask preparation, the transport call, and the persistence step each have clear boundaries that could be extracted. The inline documentation is load-bearing for the same reason as CR-001.",
+      "resolved": false
+    },
+    {
+      "id": "CR-003",
+      "severity": "MEDIUM",
+      "category": "file-size",
+      "summary": "runner.ts is 992 lines, exceeding the 800-line guideline. The governed-context loader and the stop-to-turn orchestration are separable concerns. Same documentation justification as CR-001.",
+      "resolved": false
+    },
+    {
+      "id": "CR-004",
+      "severity": "MEDIUM",
+      "category": "function-size",
+      "summary": "authoriseDegradedContinuation (~130 lines) and consumeDegradedGrant (~120 lines) in degradedMode.ts each exceed the 50-line function guideline. Both are sequential refusal chains where extracting helpers would separate a check from the context that explains why it is checked. Inline documentation accounts for roughly half the line count.",
+      "resolved": false
+    },
+    {
+      "id": "CR-005",
+      "severity": "MEDIUM",
+      "category": "function-size",
+      "summary": "admitGatekeeperSpend in gatekeeperConfig.ts (~115 lines) exceeds the 50-line guideline. The function runs under an exclusive lock and its body is the indivisible unit of work — splitting it risks the lock boundary ceasing to match the atomicity boundary.",
+      "resolved": false
+    },
+    {
+      "id": "CR-006",
+      "severity": "LOW",
+      "category": "code-quality",
+      "summary": "gatekeeperConfig.ts is 726 lines — within bounds but approaching the 800-line limit. The delegation-resolution logic (resolveDelegatedDecider, ~80 lines) and the ledger lock infrastructure (~100 lines) could be extracted if the file grows further.",
+      "resolved": false
+    },
+    {
+      "id": "CR-007",
+      "severity": "LOW",
+      "category": "code-quality",
+      "summary": "The type assertion `as unknown as ConsumedAuthority` in degradedMode.ts line 1078 bypasses the branded-type's structural guarantee at the single construction site. The brand prevents external callers from building the token, but the internal cast is the one place where a wrong field would not be caught by the type system. A factory function returning the branded type would close that gap.",
+      "resolved": false
+    },
+    {
+      "id": "SR-001",
+      "severity": "LOW",
+      "category": "prompt-injection-across-model-boundary",
+      "summary": "Mitigated. The gatekeeper response is constrained to a strict JSON schema (additionalProperties: false); any non-conforming reply is refused. The nextClaudeInstruction field is truncated to 2000 characters and stripped of bidi override characters (GK-SEC-002). The instruction never becomes a shell command — it is relayed as text to a worker whose tool grants are independently bounded by correctionBoundary.ts.",
+      "resolved": true
+    },
+    {
+      "id": "SR-002",
+      "severity": "LOW",
+      "category": "prompt-injection-across-owner-interface",
+      "summary": "Mitigated. The MCP bridge (bridge.ts) accepts only tool calls on a closed vocabulary matching BRIDGE_READ_OPERATIONS plus stop-work. The tool input schema has additionalProperties: false with only a projectId string — no free-text property exists by construction. There is no instructions field in the initialize response.",
+      "resolved": true
+    },
+    {
+      "id": "SR-003",
+      "severity": "LOW",
+      "category": "evidence-poisoning",
+      "summary": "Mitigated. Evidence is digested with SHA-256 and the digest is bound into the request id and the request digest. checkGatekeeperDecision validates the requestDigest field of the response against the request that was actually sent. Tampering with the evidence after the request was built would make the digest mismatch and the decision would be refused.",
+      "resolved": true
+    },
+    {
+      "id": "SR-004",
+      "severity": "LOW",
+      "category": "cross-project-leakage",
+      "summary": "Mitigated. checkThreadBinding validates projectId, repositoryRoot and transportId before any call is made (step 3 of the turn sequence). The governance thread binding is per-project. Bridge operations go through checkBridgeRequest which validates boundProjectIds.",
+      "resolved": true
+    },
+    {
+      "id": "SR-005",
+      "severity": "LOW",
+      "category": "stale-decision-replay",
+      "summary": "Mitigated. consumedDecisionIds tracks decisions already acted on (derived from settled ledger entries). checkGatekeeperDecision refuses a decision whose id is in that list. Request ids are deterministically derived from the question content, so a restart re-derives the same id and finds it already spent.",
+      "resolved": true
+    },
+    {
+      "id": "SR-006",
+      "severity": "LOW",
+      "category": "subject-drift",
+      "summary": "Mitigated. checkGatekeeperDecision validates subjectCommit binding. The correction boundary validates that the correction's subjectCommit matches the context's subjectCommit. Empty subject commits are explicitly refused (SEC-EMPTY-SUBJECT-COMMIT fix). The authority wrapper derives the subject from git rather than from any caller claim.",
+      "resolved": true
+    },
+    {
+      "id": "SR-007",
+      "severity": "LOW",
+      "category": "credential-leakage",
+      "summary": "Mitigated. In the brokered path, the credential never enters the governed process — the broker resolves it inside its own process. checkTransportDescriptor refuses a descriptor containing key-shaped material. The credential resolver in the direct path uses a scoped callback that never stores the value in a variable outliving the call. safeExcerpt strips provider responses before they enter records.",
+      "resolved": true
+    },
+    {
+      "id": "SR-008",
+      "severity": "LOW",
+      "category": "cost-runaway",
+      "summary": "Mitigated. Budget admission is serialized under an exclusive file lock (C17-F1 fix). The lock covers fresh read + authorise + reserve as one atomic step. A provisional entry is written before the call and settled after. Crash leaves the estimate counted (safe direction). The pilot budget ceiling is checked at config load time, not only at call time.",
+      "resolved": true
+    },
+    {
+      "id": "SR-009",
+      "severity": "LOW",
+      "category": "duplicate-calls-after-restart",
+      "summary": "Mitigated. Request ids are derived from the question content (projectId + phaseId + subjectCommit + ask + evidenceDigest), not allocated. A restarted run re-derives the same id, finds it in the ledger, and does not pay twice. Settled entries (with recorded usage) are never re-asked. Unresolved reservations are re-askable only when the installation's own record confirms the question went unanswered.",
+      "resolved": true
+    },
+    {
+      "id": "SR-010",
+      "severity": "LOW",
+      "category": "self-approval",
+      "summary": "Mitigated. The routing table (STOP_ROUTES) assigns OWNER_GATE, PROTECTED_EFFECT and SCOPE_DECISION exclusively to the owner audience with empty applicableVerdicts. routeStop is exhaustive by type — a new stop code without routing is a compile error. ALWAYS_OWNER_ONLY hardcodes five actions that no grant may authorize regardless of what the plan declares.",
+      "resolved": true
+    },
+    {
+      "id": "SR-011",
+      "severity": "LOW",
+      "category": "override-replay",
+      "summary": "Mitigated. consumedGrantIds tracks grants whose bound is fully spent. The installation's durable ledger records individual spends outside every repository, so a worker bounded to its project cannot reach or reset it. readDegradedStoreDetailed distinguishes absent from corrupt, refusing corrupt rather than reading it as unused.",
+      "resolved": true
+    },
+    {
+      "id": "SR-012",
+      "severity": "LOW",
+      "category": "degraded-mode-escalation",
+      "summary": "Mitigated. enforcedOwnerOnlyActions combines the declared owner-only set with the ALWAYS_OWNER_ONLY floor (commit, push, phase-closure, secrets-handling, payment-or-live-charge). degradedOperationProblems refuses any operation in that combined set. The correction boundary emits only Edit/Write grants — no Bash, so no git.",
+      "resolved": true
+    },
+    {
+      "id": "SR-013",
+      "severity": "LOW",
+      "category": "reconciliation-bypass",
+      "summary": "Mitigated. reconciliationDebtBlock gates governed operations using the installation's authoritative record first, then the project's own records. An unreadable record is refused rather than read as 'no debt'. Reconciliation records must name a decisionId that corresponds to a gatekeeper call in the project's ledger. Per-record matching prevents a reconciliation in one file from clearing work in another.",
+      "resolved": true
+    },
+    {
+      "id": "SR-014",
+      "severity": "LOW",
+      "category": "gatekeeper-to-claude-bypass",
+      "summary": "Mitigated. The bridge has no execute, commit, push, deploy or arbitrary-command tool. The only write operation is stop-work which records a stop request and returns an instruction string — it does not hold or control the running loop. Every bridge tool goes through checkBridgeRequest. Refusals are appended to the installation's state outside every repository.",
+      "resolved": true
+    },
+    {
+      "id": "SR-015",
+      "severity": "LOW",
+      "category": "model-escalation-abuse",
+      "summary": "Mitigated. modelForAsk maps each ask to a tier, and each tier to a model via the model policy. The rate card for each model is checked at config load time. A call to a model with no rate card is refused before the call is made. The pilot budget ceiling (checkPilotBudget) is enforced at config load, not only at spend time.",
+      "resolved": true
+    }
+  ]
+}

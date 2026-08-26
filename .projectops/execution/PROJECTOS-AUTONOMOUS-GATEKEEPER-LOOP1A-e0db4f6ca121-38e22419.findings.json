@@ -1,0 +1,215 @@
+{
+  "reviews": ["code-review", "security-review"],
+  "findings": [
+    {
+      "id": "GK-F-001",
+      "severity": "MEDIUM",
+      "category": "prompt-injection-reviewer-to-implementer",
+      "summary": "nextClaudeInstruction from the OpenAI reviewer reaches pathsNamedIn() with only length truncation and bidi/control-char stripping. The correction boundary (authoriseCorrection) enforces the approved maximum strictly, so an injected path outside the maximum is refused. Impact is confined to paths within the already-approved correction boundary, which is the design intent. No sanitisation layer exists between raw model instruction text and path extraction, but extraction can only produce refusals, never unauthorised grants.",
+      "resolved": true
+    },
+    {
+      "id": "GK-F-002",
+      "severity": "MEDIUM",
+      "category": "prompt-injection-evidence-to-gatekeeper",
+      "summary": "Check output from validators is included (after redaction and CHECK_OUTPUT_TAIL truncation) in evidence shown to the OpenAI reviewer. A compromised validator could embed text to influence gatekeeper reasoning. Mitigated by: response-side JSON schema enforcement (GATEKEEPER_DECISION_JSON_SCHEMA), runtime-stamped bindings on all decisions, closed verdict vocabulary, and checkGatekeeperDecision rejecting any misbound decision. The model's reasoning may be influenced but its structured output cannot grant authority the runtime has not already approved.",
+      "resolved": true
+    },
+    {
+      "id": "GK-F-003",
+      "severity": "LOW",
+      "category": "prompt-injection-owner-interface",
+      "summary": "ownerOnlyActions from the approved plan are injected into the system prompt without escaping. Injection requires compromise of a committed plan file, which requires owner commit access — inside the declared trust boundary.",
+      "resolved": true
+    },
+    {
+      "id": "GK-F-004",
+      "severity": "MEDIUM",
+      "category": "evidence-poisoning",
+      "summary": "The findings and effects records are files the spawned worker controls. A worker could misrepresent its own findings. Acknowledged in the trust model (tamperProof: false); the gatekeeper is told these are worker-produced and must exercise judgement. Evidence provenance is honestly disclosed to the reviewer.",
+      "resolved": true
+    },
+    {
+      "id": "GK-F-005",
+      "severity": "MEDIUM",
+      "category": "evidence-poisoning-reconciliation",
+      "summary": "The reconciliation evidence summary field is sourced from the degraded-use record, a working-tree file the implementer can write. The reviewer is explicitly warned via MIRROR_PROVENANCE that the summary is 'a claim rather than proof'. The grant's structural fields (maxWorkItems, unavailabilityId) are cross-checked against the committed grant. Accepted by design with honest provenance disclosure.",
+      "resolved": true
+    },
+    {
+      "id": "GK-F-006",
+      "severity": "LOW",
+      "category": "cross-project-leakage",
+      "summary": "Thread binding isolation is enforced via checkThreadBinding before any transport call, checking projectId, repositoryRoot, and transportId. Correction boundary checks projectId and phaseId. Degraded grant validation checks projectId and phaseId from the committed grant. Cross-project leakage via grant reuse prevented by the grant's own binding checks.",
+      "resolved": true
+    },
+    {
+      "id": "GK-F-007",
+      "severity": "CRITICAL",
+      "category": "stale-decision-replay",
+      "summary": "Historical defect: consumedDecisionIds was seeded as an empty per-process array, allowing verdict shopping on restart. Fixed: now seeded from options.gatekeeper.consumedDecisionIds which derives from the durable ledger via consumedDecisionIds() in gatekeeperConfig.ts. Replay protection is durable across restarts.",
+      "resolved": true
+    },
+    {
+      "id": "GK-F-008",
+      "severity": "HIGH",
+      "category": "stale-decision-replay-correction",
+      "summary": "Historical defect (CORR-STALE-DECISION-ID): lastInstruction and lastDecisionId were not cleared after consumption, allowing a subsequent stop to reuse the previous amendment's decision. Fixed: both are set to null immediately after correctionsApplied.push(lastDecisionId) in runner.ts.",
+      "resolved": true
+    },
+    {
+      "id": "GK-F-009",
+      "severity": "LOW",
+      "category": "subject-drift",
+      "summary": "subjectCommit is derived from git rev-parse HEAD in observation.ts, stamped by the runtime (not taken from the model's response), and enforced in authoriseCorrection with empty-subject refusal (SEC-EMPTY-SUBJECT-COMMIT). In degradedMode.ts, the subject is derived from parent(grantCommit) via git. Reconciliation uses wrapper.subjectCommit from git. All paths resolved.",
+      "resolved": true
+    },
+    {
+      "id": "GK-F-010",
+      "severity": "CRITICAL",
+      "category": "credential-leakage",
+      "summary": "Historical concern, now resolved with defence-in-depth: callback pattern (use: fn => fn(secret)) keeps secrets in scope; refusal messages avoid echoing values; transport does not log headers; check output passes through redact(); error excerpts limited to safeExcerpt(300 chars); brokered transport passes requests via temp file on stdin; env allowlist (PASSED_ENV) excludes NODE_OPTIONS and similar injection vectors.",
+      "resolved": true
+    },
+    {
+      "id": "GK-F-011",
+      "severity": "MEDIUM",
+      "category": "credential-leakage-redaction",
+      "summary": "The CREDENTIAL_IN_OUTPUT regex matches patterns like KEY=value and TOKEN: value. A credential printed without a recognisable prefix (e.g. a raw bearer token in a stack trace) would not be redacted. Best-effort pattern-based redaction; accepted limitation.",
+      "resolved": true
+    },
+    {
+      "id": "GK-F-012",
+      "severity": "LOW",
+      "category": "model-escalation-abuse",
+      "summary": "Model tier is selected by modelForAsk(ask, modelPolicy) where ask is from STOP_ASKS — a closed, compile-time-exhaustive table. The model cannot influence which tier is chosen. modelPolicy comes from gatekeeper.json whose programmeId is cross-validated against the committed value.",
+      "resolved": true
+    },
+    {
+      "id": "GK-F-013",
+      "severity": "CRITICAL",
+      "category": "cost-runaway-concurrency",
+      "summary": "Historical defect (C17-F1): two concurrent processes could both read the same snapshot ledger and both conclude they are under the hard stop. Fixed: admitGatekeeperSpend serialises read+check+write under an exclusive lock (createExclusive). Provisional entry carries the estimate and is written before releasing the lock.",
+      "resolved": true
+    },
+    {
+      "id": "GK-F-014",
+      "severity": "MEDIUM",
+      "category": "cost-runaway-stale-lock",
+      "summary": "The underCostLedgerLock function uses a lockfile with no TTL-based expiry. A killed process leaves it behind, blocking all future spend admission until manually cleared. Operational risk rather than security vulnerability; the lock file path is printed in the refusal message.",
+      "resolved": true
+    },
+    {
+      "id": "GK-F-015",
+      "severity": "MEDIUM",
+      "category": "duplicate-calls-nondeterministic-output",
+      "summary": "Request IDs are derived from (projectId, phaseId, subjectCommit, ask, evidenceDigest). Non-deterministic check output (timestamps, PIDs in test output) would change the evidence digest, producing a new request ID and a second billed call. The budget hard stop still applies per-call, limiting the cost exposure. A second call with different evidence is semantically a different question rather than a replay — the governance property (one decision per question) holds. Cost efficiency concern, not a governance bypass.",
+      "resolved": true
+    },
+    {
+      "id": "GK-F-016",
+      "severity": "LOW",
+      "category": "duplicate-calls-reconciliation",
+      "summary": "Reconciliation already-asked guard keys on the work item ID via the durable ledger, which is stronger than request-ID deduplication. Both checks are evaluated and the work-item check runs first. No issue found.",
+      "resolved": true
+    },
+    {
+      "id": "GK-F-017",
+      "severity": "CRITICAL",
+      "category": "self-approval",
+      "summary": "Self-approval requires Claude to become its own gatekeeper. The transport is configured by gatekeeper.json; expectedDecider is resolved from the committed closure delegation record (not gatekeeper config — GK-SEC-004); checkGatekeeperDecision compares decidedBy against expectedDecider. The worker has no commit, push, or shell grants, so it cannot modify any of these. The brokered transport additionally reads its source from the git object store.",
+      "resolved": true
+    },
+    {
+      "id": "GK-F-018",
+      "severity": "LOW",
+      "category": "override-replay",
+      "summary": "consumedGrantIds() lists grants exhausted (work items >= maxWorkItems). The installation durable ledger is the authority — deleting the project-local mirror cannot refund a grant. 'Whichever says more was spent wins' logic (Math.max) in authoriseDegradedContinuation is correct.",
+      "resolved": true
+    },
+    {
+      "id": "GK-F-019",
+      "severity": "LOW",
+      "category": "degraded-mode-escalation",
+      "summary": "ALWAYS_OWNER_ONLY hardcodes ['commit', 'push', 'phase-closure', 'secrets-handling', 'payment-or-live-charge'] as a floor. enforcedOwnerOnlyActions unions this with the plan-declared set. degradedOperationProblems checks both scope inclusion AND owner-only exclusion. Only defined DegradedOperation is 'implement'. A grant cannot route to any protected action.",
+      "resolved": true
+    },
+    {
+      "id": "GK-F-020",
+      "severity": "LOW",
+      "category": "reconciliation-bypass-evidence-deletion",
+      "summary": "reconciliationDebtBlock checks both the authoritative installation ledger AND the project-local evidence. Deleting local evidence does not clear the gate. Accepted reconciliations must reference a decision ID found in the gatekeeper ledger. The block function refuses on corrupt stores rather than treating them as clear.",
+      "resolved": true
+    },
+    {
+      "id": "GK-F-021",
+      "severity": "MEDIUM",
+      "category": "reconciliation-bypass-ledger-fabrication",
+      "summary": "If a plan's correctionMaximumPaths ever included .projectops/gatekeeper-ledger.json, a correction worker could fabricate a ledger entry to corroborate a hand-written reconciliation. No current plan includes such paths. The ALWAYS_OWNER_ONLY pattern could be extended to a hardcoded deny list for correction grants covering .projectops/ infrastructure paths. Current configuration is safe; recommend hardening for future plans.",
+      "resolved": true
+    },
+    {
+      "id": "GK-F-022",
+      "severity": "LOW",
+      "category": "gatekeeper-to-claude-bypass",
+      "summary": "The only gatekeeper output reaching Claude is nextClaudeInstruction in AMENDMENT_REQUIRED verdicts, routed through authoriseCorrection and withCorrectionGrants. The worker reads its brief file and correction grants only. The gatekeeper cannot open a session, modify the brief, or inject into the thread. No bypass channel exists by architecture.",
+      "resolved": true
+    },
+    {
+      "id": "GK-F-023",
+      "severity": "MEDIUM",
+      "category": "prompt-injection-bidi",
+      "summary": "Both gatekeeperRouting.ts and openaiResponses.ts apply the REORDERING regex to strip bidi override and format characters (U+202A-U+202E, U+2066-U+2069). The regex is present and the character class boundaries appear correct in source. Unit test coverage for the exact character range is recommended to guard against source encoding issues.",
+      "resolved": true
+    },
+    {
+      "id": "GK-F-024",
+      "severity": "LOW",
+      "category": "cross-project-nested-checkout",
+      "summary": "Extensive handling of HEAD:./<rel> vs HEAD:<rel> git path resolution for nested checkouts. The fix (always using ./ prefix) is consistently applied across committedGovernanceOwner, readDegradedStoreDetailed, resolveDelegatedDecider, and verifiedBrokerSource. Multiple layers of defence present.",
+      "resolved": true
+    },
+    {
+      "id": "GK-F-025",
+      "severity": "MEDIUM",
+      "category": "cost-runaway-estimate-basis",
+      "summary": "Cost estimate uses Math.ceil(evidenceText.length / 4) as the input token approximation. Dense Unicode could underestimate true token count by 2-3x. The budget check runs at admission time against the estimate; actual costs are recorded post-call via provider usage data. Acceptable for the pilot; a proper tokeniser recommended for production.",
+      "resolved": true
+    },
+    {
+      "id": "CR-HIGH-1",
+      "severity": "MEDIUM",
+      "category": "code-quality-unhandled-return",
+      "summary": "In runner.ts, the early-exhaustion path (failing checks, no correction authority, gatekeeper present) handles 'continue' and 'break' from applyReviewerAnswer but not 'proceed'. The routing table currently prevents APPROVED_TO_PROCEED from being applicable to CORRECTION_EXHAUSTED (it lists AMENDMENT_REQUIRED | DO_NOT_PROCEED | AWAITING_OWNER), so the 'proceed' return is unreachable. Latent maintainability hazard: adding APPROVED_TO_PROCEED to CORRECTION_EXHAUSTED's applicable verdicts would expose a spin-loop. Recommend explicit 'if (answered === proceed) break;' at both call sites.",
+      "resolved": true
+    },
+    {
+      "id": "CR-MED-2",
+      "severity": "LOW",
+      "category": "code-quality-data-accuracy",
+      "summary": "WorkerSession.state is typed 'started' | 'rejoined' | 'exited' but 'exited' is never written. After the worker finishes, state stays at 'started' or 'rejoined'. No code uses state for decisions, so this is a data-accuracy gap, not a safety gap.",
+      "resolved": true
+    },
+    {
+      "id": "CR-MED-4",
+      "severity": "MEDIUM",
+      "category": "code-quality-extension-whitelist",
+      "summary": "pathsNamedIn() in correctionBoundary.ts only recognises .ts/.tsx/.js/.cjs/.mjs/.json/.md extensions. A reviewer instruction naming .yml, .sql, .css etc. yields an empty path list, causing a confusing 'the amendment named no path to correct' refusal. Known limitation (CORR-EXTENSION-WHITELIST-INVISIBLE). Safe direction: missing paths produce refusals, never grants.",
+      "resolved": true
+    },
+    {
+      "id": "CR-LOW-1",
+      "severity": "LOW",
+      "category": "code-quality-silent-failure",
+      "summary": "writeInvocation in invocation.ts does not check sys.writeText return. A silent write failure means the invocation record is missing but the loop continues. The record is provenance, not safety-critical; a failed write should ideally produce a CLI line.",
+      "resolved": true
+    },
+    {
+      "id": "CR-LOW-3",
+      "severity": "LOW",
+      "category": "code-quality-stale-docs",
+      "summary": "runner.ts has duplicate JSDoc blocks above degradedContinuation (lines 480-501). gatekeeperTurn.ts has three orphaned/malformed JSDoc stubs (lines 117-130). Documentation noise, no functional impact.",
+      "resolved": true
+    }
+  ]
+}
