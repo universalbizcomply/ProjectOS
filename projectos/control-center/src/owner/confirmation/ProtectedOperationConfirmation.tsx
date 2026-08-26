@@ -187,6 +187,15 @@ export function ProtectedOperationConfirmation({
                 : 'Reversible.'}
           </dd>
         </div>
+        {/* WHAT REFUSING DOES, stated as plainly as what approving does.
+            The panel already said what happens if this is approved, and left the other half to be
+            inferred. An owner deciding whether to refuse a production migration should not have to
+            guess whether refusing breaks something or simply stops it -- and refusing is the safe
+            direction, so leaving it unstated quietly biases the screen towards Approve. */}
+        <div>
+          <dt>If you refuse</dt>
+          <dd>Nothing runs. ProjectOS stops here and waits; you can approve it later.</dd>
+        </div>
         {/* 8. Reason + requester */}
         <div>
           <dt>Reason</dt>

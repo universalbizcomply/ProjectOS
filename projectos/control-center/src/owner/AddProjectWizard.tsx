@@ -81,6 +81,8 @@ export function AddProjectWizard({ onAdded }: { onAdded?: (projectId: string) =>
   const available = tauriBridge.isTauri();
   const projectId = projectIdFrom(name);
   const target = kind === 'new' ? newProjectPath(parent, name) : folder;
+  // The one case where an absent folder is the expected state rather than a mistake.
+  const willCreate = kind === 'new' && inspection !== null && inspection.readiness === 'NOT_A_FOLDER';
 
   async function browse(forParent: boolean): Promise<void> {
     setProblem(null);
@@ -272,10 +274,21 @@ export function AddProjectWizard({ onAdded }: { onAdded?: (projectId: string) =>
 
       {step === 'check' && inspection !== null && (
         <>
-          <h3>ProjectOS checked this folder</h3>
-          <p className="wiz-summary">{inspection.summary}</p>
+          {/* A NEW PROJECT'S FOLDER DOES NOT EXIST YET, AND THAT IS NOT A PROBLEM.
+              `inspect_folder` correctly answers "that folder is not on this computer" — true, and
+              exactly the wrong thing to say to someone who just asked ProjectOS to create it. Read
+              literally it also offered no way forward, because Prepare was only shown for a folder
+              that already existed. So the new-project case is named for what it is: nothing is here
+              yet, which is the one situation in which nothing can possibly be overwritten. */}
+          <h3>{willCreate ? 'ProjectOS will set this up' : 'ProjectOS checked this folder'}</h3>
+          <p className="wiz-summary">
+            {willCreate ? 'This folder does not exist yet, so ProjectOS will create it.' : inspection.summary}
+          </p>
           <ul className="wiz-findings">
-            {inspection.findings.map((f) => (
+            {(willCreate
+              ? ['The folder will be created', 'Project tracking will be started', 'ProjectOS setup will be added']
+              : inspection.findings
+            ).map((f) => (
               <li key={f}>{f}</li>
             ))}
           </ul>
@@ -286,7 +299,9 @@ export function AddProjectWizard({ onAdded }: { onAdded?: (projectId: string) =>
               ))}
             </ul>
           )}
-          <p className="muted">{inspection.nextStep}</p>
+          <p className="muted">
+            {willCreate ? 'Nothing is here yet, so nothing can be changed or removed.' : inspection.nextStep}
+          </p>
 
           {advanced && (
             <div className="wiz-advanced">
@@ -302,7 +317,7 @@ export function AddProjectWizard({ onAdded }: { onAdded?: (projectId: string) =>
 
           <div className="wiz-actions">
             <button type="button" className="ghost" onClick={() => setStep('folder')}>Back</button>
-            {inspection.readiness === 'NEEDS_PREPARATION' && (
+            {(inspection.readiness === 'NEEDS_PREPARATION' || willCreate) && (
               <button type="button" className="primary" disabled={busy !== null} onClick={() => void prepare()}>
                 Prepare project
               </button>

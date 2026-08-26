@@ -366,12 +366,12 @@ function Overview({ onGoToRegistration }: { onGoToRegistration: () => void }) {
       <div className="card">
         <h3>Adding a project</h3>
         <p>
-          A project joins this list by being REGISTERED, which pins the checkout roots that may claim
-          its id. Registration is an owner-confirmed action, so ProjectOS cannot add a project on its
-          own behalf — which is precisely what makes this list trustworthy.
+          ProjectOS only governs projects you have added yourself, and adding one asks for your
+          confirmation and Windows permission. That is precisely what makes this list trustworthy:
+          ProjectOS cannot put a project on it on its own behalf.
         </p>
         <button type="button" className="ocp-btn primary" onClick={onGoToRegistration}>
-          Register a project
+          Add a project
         </button>
       </div>
     </>

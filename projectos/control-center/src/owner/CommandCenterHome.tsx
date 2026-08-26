@@ -180,17 +180,12 @@ export function CommandCenterHome({ onOpenDetail }: { onOpenDetail: () => void }
       <div className="ocp-panel">
         <h2>Run</h2>
         <div className="ocp-actionrow">
-          {phase !== null && !run.active && (
-            <button
-              type="button"
-              className="ocp-btn primary"
-              disabled={busy || !home.planReady}
-              title={home.planReady ? undefined : 'The plan must be ready before work can start.'}
-              onClick={() => void send('run.start', 'start work')}
-            >
-              ▶ Start work
-            </button>
-          )}
+          {/* THE START BUTTON MOVED UP, IT DID NOT DISAPPEAR.
+              Continue Working above already offers exactly this action, decided from state, with a
+              sentence explaining what continuing means. Keeping a second `run.start` here gave the
+              home two primary buttons doing one thing, and left the owner to work out whether they
+              differed. They did not. What stays here is what Continue Working cannot own: stopping
+              a run that is going, and the output. */}
           {phase !== null && run.active && (
             <button
               type="button"
@@ -201,9 +196,8 @@ export function CommandCenterHome({ onOpenDetail }: { onOpenDetail: () => void }
               ■ Stop
             </button>
           )}
-          <button type="button" className="ocp-btn" onClick={onOpenDetail}>
-            Open Owner Control
-          </button>
+          {/* "Start something new" above goes to the same place. Two buttons, one destination,
+              two names for it is how a screen starts feeling arbitrary. */}
         </div>
         <p className="ocp-note">
           {run.active
