@@ -1,0 +1,669 @@
+{
+  "schemaVersion": "1.1.0",
+  "subjectHead": "b7bc173afc722f77075702f064a1086a663a512f",
+  "generatedAt": "2026-08-26T16:05:46.548Z",
+  "workingTreeCleanAtRunStart": true,
+  "aggregatePassed": true,
+  "aggregate": {
+    "name": "validate-all",
+    "passed": true
+  },
+  "registeredModuleCount": 131,
+  "results": [
+    {
+      "name": "validate-no-secrets",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-project-config",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-phase-manifest",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-evidence-pack",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-forbidden-actions",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-examples",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-review-agents",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-ecc-routing",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-report-request",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-report-index",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-report-output",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-phase-reporter",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-staging-deploy-request",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-staging-deploy-guard",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-staging-deploy-output",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-proof-request",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-proof-plan",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-proof-output",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-proof-factory",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-drift-request",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-drift-snapshot",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-drift-output",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-drift-detector",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-ci-governance-policy",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-ci-workflow-template",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-ci-output",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-ci-governance",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-dashboard-config",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-dashboard-data",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-dashboard-output",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-dashboard-safety",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-dashboard",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-project-plan",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-current-project-state",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-active-execution-session",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-plan-ready-gate",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-plan-status",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-plan-version",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-plan-staleness",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-plan-no-secrets",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-plan-discovery-import",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-projectos-recovery-plan-authority1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-secret-broker",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-secret-operation-broker",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-session-launcher",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-desktop-bridge",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-e2e-runner",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-approval-queue",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-provider-context-guards",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-desktop-e2e",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-reliability-hardening",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-forge-blueprint",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-forge-scaffold",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-forge-provisioner",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-forge-generation",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-forge-verify",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-forge-snapshot",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-forge-deploy",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-forge-integrations",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-forge-e2e",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-shared-runtime-no-tauri",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-runtime-no-raw-string-events",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-windows-runtime-primitives-boundary",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-host-identity-boundary",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-host-authority-contract-boundary",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-host-authority-windows-boundary",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-windows-service-identity-proof-3kideb",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-windows-service-control-capability-b1",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-windows-local-ipc-capability-b1",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-windows-service-proof-runner-capability-b1",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-windows-service-control-capability-b2",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-host-authority-pipe-security-contract1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-windows-local-ipc-capability-b3",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-cd-b4-binding-consumer-surface1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-windows-service-proof-runner-capability-b4",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-cd-b4-effect-witness-contract1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-cd-b4-elevation-observation-engine1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-cd-b4-operation-phase-binding1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-cd-b4-protected-plan-store1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-cd-b4-protected-plan-reducer-permit1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-cd-b4-plan-durable-store1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-cd-b4-repository-baseline-adapter1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-cd-b4-repository-authority-integration1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-cd-b4-owner-presence-integration1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-cd-b4-elevation-integration1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-cd-b4-effect-grant-integration1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-cd-b4-runtime-instance-authority1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-cd-b4-ipc-session-authority1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-cd-b4-runtime-ipc-permit-integration1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-cd-b4-production-trusted-clock1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-cd-b4-production-runtime-provider1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-cd-b4-production-ipc-provider1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-cd-b4-production-owner-presence-provider1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-cd-b4-windows-user-verification-adapter1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-cd-b4-control-centre-window-observation-bridge1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-cd-b4-provider-authority-seam1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-cd-b4-sealed-expected-window-facts1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-cd-b4-owner-presence-capability-bridge1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-cd-b4-host-authority-acquisition1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-cd-b4-canonical-installation-identity1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-cd-b4-host-authority-observer1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-cd-b4-installer-canonical-identity-writer1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-cd-b4-installer-id-source-closeout1b",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-cd-b4-elevated-installer-composition1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-cd-b4-installer-readiness1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-cd-b4-projectoshost-service-runtime1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-cd-b4-installed-host-status-contract1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-cd-b4-record-file-acl-correction1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-cd-b4-release-currentness1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-projectoshost-build-provenance1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-projectoshost-ipc-operation-contract1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-projectoshost-ipc-peer-authentication1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-projectoshost-ipc-kernel-peer-capture1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-projectoshost-ipc-peer-contract-reconciliation1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-projectoshost-configured-owner-enrolment-record1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-projectos-packaged-runtime-contract1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-projectos-release-workspace-freshness1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-projectos-validator-scratch-lifecycle1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-projectos-credential-vault1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-projectos-session-router1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-projectos-credential-router-adversarial1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-projectos-v3-owner-presence-confirmation-ux1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-projectos-v3-active-phase-consistency1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-projectos-v3-webdriver-e2e-isolation1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-projectos-v3-validation-evidence1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-zero-relay-continuity",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-projectos-v3-zero-relay-failure-matrix1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-v3.1-crosswalk",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "validate-v3.2-ai-provider-independence",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-projectos-gatekeeper-contract1a",
+      "passed": true,
+      "errorCount": 0
+    },
+    {
+      "name": "val-projectos-trust-boundary1a",
+      "passed": true,
+      "errorCount": 0
+    }
+  ]
+}
