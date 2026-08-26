@@ -17,6 +17,12 @@ const { spawnSync } = require("child_process");
 const scratch = require("./lib/scratch.cjs");
 let __SCRATCH_DIR = null;
 const ROOT = path.resolve(__dirname, "..", "..");
+// Cargo is resolved to ONE ABSOLUTE EXECUTABLE, never a bare command name. The governed daemon
+// is launched with no PATH at all, so spawning cargo by name could not build this fixture there:
+// it died on ENOENT with an empty error, and this validator then reported a failure about the
+// CODE that was really a failure about the ENVIRONMENT. See lib/bound-cargo.cjs for the
+// resolution order and for why nothing here reintroduces an ambient search path.
+const cargo = require("./lib/bound-cargo.cjs").boundCargo(ROOT);
 const HOST = path.join(ROOT, "projectos", "host");
 const IPC = path.join(HOST, "windows-local-ipc");
 const SH = path.join(HOST, "service-host");
@@ -64,7 +70,7 @@ function compileConsumer(name, body, dep) {
     ].join("\n")
   );
   fs.writeFileSync(path.join(dir, "src", "main.rs"), body);
-  const r = spawnSync("cargo", ["build", "--offline", "--quiet"], {
+  const r = cargo(["build", "--offline", "--quiet"], {
     cwd: dir,
     encoding: "utf8",
     env: { ...process.env, CARGO_TARGET_DIR: path.join(workdir(), "target") },
