@@ -2,14 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   planWorkflow,
   DEFAULT_WORKERS,
-  DEFAULT_SAFETY_GATES,
-  GATE_KEYS,
   defaultCatalog,
   list,
   CORE_VERSION,
 } from '@projectos/core';
-import { inventoryFrom, inventoryCounts } from './data/governedInventory';
-import { useGovernedState, useGovernedProjects } from './daemon/DaemonProvider';
+import { useGovernedProjects, useGovernedRun, useGovernedState } from './daemon/DaemonProvider';
 import { isSupabaseConfigured } from './data/supabase';
 import { getSession, onAuthChange, signOut, mustChangePassword } from './data/auth';
 import { Login } from './Login';
@@ -17,39 +14,44 @@ import { ChangePassword } from './ChangePassword';
 import { DaemonProvider } from './daemon/DaemonProvider';
 import { LiveMissionControl } from './daemon/LiveMissionControl';
 import { OwnerControlPlane } from './owner/OwnerControlPlane';
-import { CommandCenterHome } from './owner/CommandCenterHome';
-import { ShellThemeToggle, useShellTheme } from './owner/ShellTheme';
 import { OwnerChat } from './owner/OwnerChat';
 import { SafetyProviders } from './owner/SafetyProviders';
+import { CommandCenterHome } from './owner/CommandCenterHome';
+import { useShellTheme } from './owner/ShellTheme';
 import { ForgeConsole } from './forge/ForgeConsole';
+import { ProjectRail } from './owner/ProjectRail';
+import { ProjectWorkspace, type WorkspaceTab } from './owner/ProjectWorkspace';
+import { OwnerComposer } from './owner/OwnerComposer';
+import { AddProjectWizard } from './owner/AddProjectWizard';
+import { StartSomethingNew } from './owner/StartSomethingNew';
+import { WorkDone } from './owner/WorkDone';
+import { SettingsScreen } from './owner/SettingsScreen';
+import { FirstRun } from './owner/FirstRun';
+import { Constellation } from './owner/Constellation';
+import { useCalmMotion, useParallax } from './owner/motion';
+import { useOwnerConversation } from './owner/ownerConversation';
+import { buildContinueWorking } from './owner/continueWorkingModel';
+import { buildHomeModel } from './owner/homeModel';
+import { stateFromStatus, type ProjectState } from './owner/workspaceModel';
+import { requestGovernedCommand } from './governed/governedClient';
+import { tauriBridge } from './daemon/tauriBridge';
 import type { Session } from '@supabase/supabase-js';
 
-type View = 'home' | 'control' | 'forge' | 'chat' | 'safety' | 'overview' | 'live' | 'workflow' | 'gates' | 'plugins';
-
 /**
- * ONE OBVIOUS WORKFLOW, and everything else disclosed progressively.
+ * THE SHELL — README §Screens 1, and the view union IMPLEMENTATION_ORDER §2 specifies.
  *
- * Nine equally-weighted destinations gave an owner nine plausible starting points and no indication
- * which one was the way in. The workflow the owner actually runs — pick a project, state an
- * objective, get a plan, approve it, watch execution, answer decisions, read evidence, finish — lives
- * on two of them. The other seven are real and are kept: they are reference and support, not steps,
- * and they are grouped as such rather than deleted. Nothing became unreachable.
+ * Ten equally weighted destinations became six: a persistent 308px rail carrying the brand, New
+ * project, the project list, the appearance switch and Settings, over one canvas. Nothing became
+ * unreachable — chat is the workspace composer, the gates are Settings' locked approval list,
+ * workflow is the Plan tab, and Mission Control, Workflow, Integrations, Forge and the previous
+ * Owner Control, Owner Chat and Safety & Providers surfaces are all reached from Advanced, inside
+ * the workspace's collapsed technical panel.
+ *
+ * `dashboard` EXISTS ONLY IN COMMAND MODE. In Standard it falls through to the workspace; rendering
+ * it there leaves an empty canvas, and that bug has happened here once already.
  */
-const NAV_PRIMARY: ReadonlyArray<{ id: View; label: string; hint: string }> = [
-  { id: 'home', label: 'Command Centre', hint: 'What is happening, and what needs you' },
-  { id: 'overview', label: 'Projects', hint: 'Which project' },
-  { id: 'control', label: 'Owner Control', hint: 'Objective, plan, execution, decisions, evidence' },
-];
-
-const NAV_REFERENCE: ReadonlyArray<{ id: View; label: string }> = [
-  { id: 'live', label: 'Mission Control' },
-  { id: 'chat', label: 'Owner Chat' },
-  { id: 'safety', label: 'Safety & Providers' },
-  { id: 'gates', label: 'Safety Gates' },
-  { id: 'workflow', label: 'Workflow' },
-  { id: 'plugins', label: 'Integrations' },
-  { id: 'forge', label: 'Forge' },
-];
+type View = 'dashboard' | 'projects' | 'wizard' | 'new' | 'settings' | 'recent' | 'advanced';
+type AdvancedView = 'live' | 'workflow' | 'plugins' | 'forge' | 'control' | 'chat' | 'safety';
 
 /**
  * Upper bound on the initial session probe. `getSession()` can reject (offline, DNS
@@ -58,10 +60,11 @@ const NAV_REFERENCE: ReadonlyArray<{ id: View; label: string }> = [
  */
 const SESSION_PROBE_TIMEOUT_MS = 10_000;
 
+/** How long the mode-change light sweep runs. README §Interactions. */
+const SWEEP_MS = 720;
+const TOAST_MS = 3000;
+
 export function App() {
-  const [view, setView] = useState<View>('home');
-  // Appearance only. See ShellTheme.tsx: the mode changes no authority, workflow, state or capability.
-  const { theme, setTheme } = useShellTheme();
   const [session, setSession] = useState<Session | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [probeFailed, setProbeFailed] = useState(false);
@@ -129,78 +132,272 @@ export function App() {
 
   return (
     <DaemonProvider>
-    <div className="app">
-      <a className="skip" href="#main">Skip to content</a>
-      <aside className="sidebar">
-        <div className="brand">
-          <b>ProjectOS</b>
-          <span>Control</span>
-        </div>
-        <nav aria-label="Primary">
-          {NAV_PRIMARY.map((n) => (
-            <button
-              type="button"
-              key={n.id}
-              className={`navitem${view === n.id ? ' active' : ''}`}
-              aria-current={view === n.id ? 'page' : undefined}
-              onClick={() => setView(n.id)}
-            >
-              <span className="dot" />
-              <span className="navlabel">{n.label}</span>
-              <span className="navhint">{n.hint}</span>
-            </button>
-          ))}
-        </nav>
-        <nav aria-label="Reference and support" className="nav-reference">
-          <h2 className="navgroup">Reference &amp; support</h2>
-          {NAV_REFERENCE.map((n) => (
-            <button
-              type="button"
-              key={n.id}
-              className={`navitem quiet${view === n.id ? ' active' : ''}`}
-              aria-current={view === n.id ? 'page' : undefined}
-              onClick={() => setView(n.id)}
-            >
-              <span className="dot" />
-              <span className="navlabel">{n.label}</span>
-            </button>
-          ))}
-        </nav>
-        <ShellThemeToggle theme={theme} setTheme={setTheme} />
-        <div className="sidefoot">
-          core v{CORE_VERSION}
-          <br />
-          Mission Control — read-only.
-          <br />
-          Execution stays owner-gated.
-          {session && (
-            <>
-              <br />
-              <button type="button" className="linkbtn signout" onClick={() => setShowChangePw(true)}>
-                Change password
-              </button>
-              {'  ·  '}
-              <button type="button" className="linkbtn signout" onClick={() => void signOut()}>
-                Sign out
-              </button>
-            </>
-          )}
-        </div>
-      </aside>
-      <main className="main" id="main" tabIndex={-1}>
-        {view === 'home' && <CommandCenterHome onOpenDetail={() => setView('control')} />}
-        {view === 'control' && <OwnerControlPlane />}
-        {view === 'forge' && <ForgeConsole />}
-        {view === 'chat' && <OwnerChat />}
-        {view === 'safety' && <SafetyProviders />}
-        {view === 'overview' && <Overview onGoToRegistration={() => setView('control')} />}
-        {view === 'live' && <LiveMissionControl />}
-        {view === 'workflow' && <Workflow />}
-        {view === 'gates' && <Gates />}
-        {view === 'plugins' && <Plugins />}
-      </main>
-    </div>
+      <Shell
+        canChangePassword={session !== null}
+        onChangePassword={() => setShowChangePw(true)}
+      />
     </DaemonProvider>
+  );
+}
+
+/**
+ * Exported so the design-fidelity proof harness can mount the real shell against a scripted
+ * projection. Production still enters through `App`, which owns the auth gate above.
+ */
+export function Shell({
+  canChangePassword,
+  onChangePassword,
+}: {
+  canChangePassword: boolean;
+  onChangePassword: () => void;
+}) {
+  // Appearance only. See ShellTheme.tsx: the mode changes no authority, workflow, state or capability.
+  const { theme, setTheme } = useShellTheme();
+  const { calm, setCalm } = useCalmMotion();
+  const [view, setView] = useState<View>('projects');
+  const [advanced, setAdvanced] = useState<AdvancedView>('live');
+  const [tab, setTab] = useState<WorkspaceTab>('overview');
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [mapOpen, setMapOpen] = useState(false);
+  const [sweeping, setSweeping] = useState(false);
+  const [enterTick, setEnterTick] = useState(0);
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sweepTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const inventory = useGovernedProjects();
+  const governed = useGovernedState();
+  const run = useGovernedRun();
+  const live = governed !== null && governed.connected ? governed : null;
+  const conversation = useOwnerConversation();
+
+  const isCommand = theme === 'command';
+  useParallax(isCommand && !calm);
+
+  useEffect(() => () => {
+    if (toastTimer.current !== null) clearTimeout(toastTimer.current);
+    if (sweepTimer.current !== null) clearTimeout(sweepTimer.current);
+  }, []);
+
+  function say(message: string) {
+    setToast(message);
+    if (toastTimer.current !== null) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), TOAST_MS);
+  }
+
+  function go(next: View) {
+    setView(next);
+    setEnterTick((n) => n + 1);
+    // A new screen starts at its own top. Without this, opening Settings from halfway down a long
+    // workspace lands the owner in the middle of the appearance plate with the heading off-screen.
+    window.scrollTo({ top: 0 });
+  }
+
+  function changeTheme(next: typeof theme) {
+    if (next === theme) return;
+    setTheme(next);
+    setEnterTick((n) => n + 1);
+    if (!calm) {
+      setSweeping(true);
+      if (sweepTimer.current !== null) clearTimeout(sweepTimer.current);
+      sweepTimer.current = setTimeout(() => setSweeping(false), SWEEP_MS);
+    }
+  }
+
+  // The one state word the rail and the constellation print for the selected project, decided by the
+  // same model the workspace hero uses. Computed once, printed once.
+  const railState = useMemo(() => {
+    if (live === null) return null;
+    const home = buildHomeModel(live);
+    const next = buildContinueWorking(live, home.ownerActions, Date.now());
+    const complete =
+      live.programme.totalPhaseCount > 0 &&
+      live.programme.acceptedPhaseCount === live.programme.totalPhaseCount;
+    const state: ProjectState = stateFromStatus(next.status, run.active, complete);
+    // The SAME count the workspace panels render — approvals plus any other blocking item the
+    // model found. A badge that counts only approvals disagrees with the status word beside it.
+    const waiting = home.ownerActions.filter((a) => a.severity === 'blocking').length;
+    return { state, label: next.status, waiting };
+  }, [live, run.active]);
+
+  const selected = inventory?.projects.find((p) => p.projectId === inventory.selectedProjectId) ?? null;
+  const projectName = live?.projectName ?? selected?.projectName ?? 'ProjectOS';
+  const projectId = live?.projectId ?? selected?.projectId ?? '';
+
+  const noProjects = inventory !== null && inventory.projects.length === 0;
+  // `dashboard` is Command-only; in Standard it falls through to the workspace.
+  const isDash = isCommand && view === 'dashboard' && !noProjects;
+  const enterClass = enterTick === 0 ? '' : enterTick % 2 === 0 ? 'os-enter-a' : 'os-enter-b';
+
+  async function pickProject(id: string) {
+    setMapOpen(false);
+    const outcome = await requestGovernedCommand(tauriBridge, 'project.select', { projectId: id });
+    if (!outcome.ok) say(outcome.lines[0] ?? 'ProjectOS refused that switch.');
+    else go('projects');
+  }
+
+  const atmosphere = (
+    <>
+      <div className="os-atmos" aria-hidden="true">
+        <i className="g1" /><i className="g2" />
+        <span className="grid" /><span className="floor" /><span className="scan" />
+      </div>
+      {/* The viewport HUD frame belongs to the workspace shell. The dashboard has its own header in
+          that corner, and the frame's readout sits straight on top of SYSTEM TIME. */}
+      {!isDash && (
+        <div className="os-frame" aria-hidden="true">
+          <i /><i /><i /><i />
+          <b>projectos // command centre</b>
+        </div>
+      )}
+    </>
+  );
+
+  const overlays = (
+    <>
+      {mapOpen && railState !== null && (
+        <Constellation
+          selectedState={railState.state}
+          selectedLabel={railState.label}
+          onClose={() => setMapOpen(false)}
+          onPick={(id) => void pickProject(id)}
+        />
+      )}
+      {sweeping && <div className="os-sweep" aria-hidden="true" />}
+      {toast !== null && <div className="os-toast" role="status">{toast}</div>}
+    </>
+  );
+
+  if (isDash) {
+    return (
+      <>
+        {atmosphere}
+        <a className="skip" href="#main">Skip to content</a>
+        <main id="main" tabIndex={-1} className={enterClass}>
+          <CommandCenterHome
+            conversation={conversation}
+            onNavigate={(to) => {
+              if (to === 'dashboard') return;
+              if (to === 'standard') { changeTheme('standard'); go('projects'); return; }
+              if (to === 'plan') { setTab('plan'); go('projects'); return; }
+              if (to === 'connections') { setTab('secrets'); go('projects'); return; }
+              go('projects');
+            }}
+          />
+        </main>
+        {overlays}
+      </>
+    );
+  }
+
+  return (
+    <>
+      {atmosphere}
+      <a className="skip" href="#main">Skip to content</a>
+      <div className="os-shell">
+        <ProjectRail
+          theme={theme}
+          setTheme={changeTheme}
+          selectedState={railState}
+          onNewProject={() => go('wizard')}
+          onOpenSettings={() => go('settings')}
+          onOpenDashboard={() => go('dashboard')}
+          onOpenProject={() => go('projects')}
+        />
+        <main className="os-canvas" id="main" tabIndex={-1}>
+          <div className={`os-column ${enterClass}`}>
+            {noProjects && view !== 'wizard' && <FirstRun onAddProject={() => go('wizard')} />}
+
+            {!noProjects && view === 'projects' && (
+              <ProjectWorkspace
+                tab={tab}
+                setTab={setTab}
+                advancedOpen={advancedOpen}
+                setAdvancedOpen={setAdvancedOpen}
+                conversation={conversation}
+                isCommand={isCommand}
+                onStartNew={() => go('new')}
+                onWorkDone={() => go('recent')}
+                onOpenMap={() => setMapOpen(true)}
+                onOpenAdvanced={(next) => { setAdvanced(next as AdvancedView); go('advanced'); }}
+                onToast={say}
+              />
+            )}
+
+            {view === 'wizard' && (
+              <AddProjectWizard
+                onCancel={() => go('projects')}
+                onAdded={(id) => { void pickProject(id); }}
+              />
+            )}
+
+            {!noProjects && view === 'new' && (
+              <StartSomethingNew
+                projectName={projectName}
+                projectId={projectId}
+                onBack={() => go('projects')}
+                onSeePlan={() => { setTab('plan'); go('projects'); }}
+              />
+            )}
+
+            {!noProjects && view === 'recent' && (
+              <WorkDone projectName={projectName} onBack={() => go('projects')} />
+            )}
+
+            {view === 'settings' && (
+              <SettingsScreen
+                projectName={projectName}
+                theme={theme}
+                setTheme={changeTheme}
+                calm={calm}
+                setCalm={setCalm}
+                onBack={() => go('projects')}
+                onAdvanced={() => {
+                  setAdvancedOpen(true);
+                  go('projects');
+                  say('Technical detail opened at the bottom of the project.');
+                }}
+                onSignOut={() => void signOut()}
+                onChangePassword={canChangePassword ? onChangePassword : null}
+              />
+            )}
+
+            {view === 'advanced' && (
+              <AdvancedSurface which={advanced} onBack={() => go('projects')} />
+            )}
+          </div>
+
+          {/* The composer is pinned to the bottom of the workspace, and only there. */}
+          {!noProjects && view === 'projects' && <OwnerComposer conversation={conversation} />}
+        </main>
+      </div>
+      {overlays}
+    </>
+  );
+}
+
+/**
+ * The surfaces this pass deliberately does not redesign, shown full-canvas with a way back.
+ *
+ * README is explicit that these stay reachable and are not restyled in this pass. They are rendered
+ * exactly as they were, on the shared token layer, so both palettes still read.
+ */
+function AdvancedSurface({ which, onBack }: { which: AdvancedView; onBack: () => void }) {
+  return (
+    <div className="os-stack">
+      <div className="os-advanced-back">
+        <button type="button" className="os-ghost" onClick={onBack} style={{ fontSize: '13.5px' }}>
+          ← Back to the project
+        </button>
+      </div>
+      {which === 'live' && <LiveMissionControl />}
+      {which === 'control' && <OwnerControlPlane />}
+      {which === 'chat' && <OwnerChat />}
+      {which === 'safety' && <SafetyProviders />}
+      {which === 'forge' && <ForgeConsole />}
+      {which === 'workflow' && <Workflow />}
+      {which === 'plugins' && <Plugins />}
+    </div>
   );
 }
 
@@ -251,133 +448,6 @@ function Head({ title, sub }: { title: string; sub: string }) {
   );
 }
 
-function Overview({ onGoToRegistration }: { onGoToRegistration: () => void }) {
-  // The inventory is DERIVED from the governed projection — the runtime's own reading of the
-  // canonical records — and from nothing else. It used to come from a remote Supabase table, or from
-  // a thirteen-row static seed when that was absent, and either way the surface reported the result
-  // as "governed by ProjectOS". Three project universes in one application, and no way for the owner
-  // to tell which was real. See data/governedInventory.ts.
-  const governed = useGovernedState();
-  // The REGISTRY is the list of projects; the projection supplies live detail for the one the
-  // runtime reports. Reading only the projection made this page say "1" while the project selector
-  // offered two — one surface contradicting another about the same fact.
-  const registry = useGovernedProjects();
-  const inventory = inventoryFrom(governed, registry);
-
-  if (inventory.kind === 'unavailable') {
-    return (
-      <>
-        <div className="head">
-          <div>
-            <h1>Projects</h1>
-            <p>ProjectOS cannot report its governed projects right now.</p>
-          </div>
-        </div>
-        <div className="card" role="status">
-          <h3>No governed truth available</h3>
-          <div className="repo">{inventory.reason}</div>
-          <p>{inventory.detail}</p>
-          <p className="muted">
-            Nothing is shown in place of it. &ldquo;ProjectOS governs no projects&rdquo; and
-            &ldquo;ProjectOS cannot currently tell you&rdquo; are different statements, and showing the
-            first when the second is true would be a guess wearing the clothes of a fact.
-          </p>
-        </div>
-      </>
-    );
-  }
-
-  const rows = inventory.rows;
-  // COUNTED OVER WHAT WAS ACTUALLY REPORTED, NOT OVER EVERYTHING.
-  //
-  // A registry-only row carries `productionFreeze: false` and `activePhase: null` because nothing
-  // measured them — `inventoryFrom` says so in as many words. Counting those rows alongside the
-  // measured ones turned "not read" into "read, and the answer was no": with ten registered
-  // projects the page said "Production frozen: 1", which an owner can only read as "nine are not
-  // frozen". Every one of them is frozen in the protected registry. The row bodies were already
-  // honest about this; the figures above them were not, and a figure is what gets believed.
-  //
-  // The fix is deliberately arithmetic rather than structural. The inventory summary carries no
-  // freeze state, so the honest count is over the projects the runtime DID report, with the
-  // remainder named rather than folded in.
-  const { reported, unreported, frozen, notFrozen, active } = inventoryCounts(rows);
-  const ofReported = unreported > 0 ? ` of ${reported} reported` : '';
-  return (
-    <>
-      <div className="head">
-        <div>
-          <h1>Projects</h1>
-          <p>
-            {rows.length} governed by ProjectOS · every figure below is read from the project&rsquo;s own
-            canonical records
-          </p>
-        </div>
-      </div>
-
-      <div className="kpis">
-        <div className="kpi accent"><div className="n">{rows.length}</div><div className="l">Governed projects</div></div>
-        <div className="kpi"><div className="n">{active}</div><div className="l">With a phase running{ofReported}</div></div>
-        <div className="kpi">
-          <div className="n">{frozen}</div>
-          <div className="l">
-            Production frozen{ofReported}
-            {notFrozen > 0 ? ` · ${notFrozen} NOT frozen` : ''}
-          </div>
-        </div>
-      </div>
-      {unreported > 0 && (
-        <p className="muted">
-          {unreported === 1 ? '1 registered project has' : `${unreported} registered projects have`} not been
-          read by the runtime, so {unreported === 1 ? 'it is' : 'they are'} not counted above. Their protected
-          registry entries still govern them; this page only counts what it has actually read.
-        </p>
-      )}
-
-      <div className="grid">
-        {rows.map((p) => (
-          <div className="card" key={p.id}>
-            <h3>{p.name}</h3>
-            <div className="repo">{p.repo}</div>
-            <div className="row">
-              {/* A registry-only row has no measured facts. Rendering its zeroes as figures would
-                  present "not read" as "nothing there", which is the class of untruth this
-                  surface exists to remove. */}
-              {p.live ? (
-                <>
-                  <span className="tag ok">{p.planStatus}</span>
-                  {p.productionFreeze ? <span className="tag warn">freeze on</span> : <span className="tag mut">freeze off</span>}
-                  <span className="tag mut">{p.acceptedPhases}/{p.totalPhases} phases</span>
-                </>
-              ) : (
-                <span className="tag mut">not reported</span>
-              )}
-            </div>
-            <p className="muted">
-              {!p.live
-                ? 'Registered. Select it to see its plan and state.'
-                : p.activePhase === null
-                  ? 'No phase is running.'
-                  : `Running: ${p.activePhase}`}
-            </p>
-          </div>
-        ))}
-      </div>
-
-      <div className="card">
-        <h3>Adding a project</h3>
-        <p>
-          ProjectOS only governs projects you have added yourself, and adding one asks for your
-          confirmation and Windows permission. That is precisely what makes this list trustworthy:
-          ProjectOS cannot put a project on it on its own behalf.
-        </p>
-        <button type="button" className="ocp-btn primary" onClick={onGoToRegistration}>
-          Add a project
-        </button>
-      </div>
-    </>
-  );
-}
-
 function Workflow() {
   const plan = useMemo(() => planWorkflow(DEFAULT_WORKERS), []);
   return (
@@ -400,32 +470,6 @@ function Workflow() {
           Closure is owner-gated: only the owner worker can move a phase to closed. ProjectOS
           produces the plan; it does not run external providers.
         </p>
-      </div>
-    </>
-  );
-}
-
-function Gates() {
-  return (
-    <>
-      <Head title="Safety Gates" sub="Actions that require explicit owner approval" />
-      <div className="section">
-        <div className="gates">
-          {GATE_KEYS.map((k) => {
-            const g = DEFAULT_SAFETY_GATES[k];
-            return (
-              <div className="gate" key={k}>
-                <div>
-                  <div className="d">{g.description}</div>
-                  <div className="k">{k}</div>
-                </div>
-                <span className={`tag ${g.status === 'prohibited' ? 'crit' : 'warn'}`}>
-                  {g.status}
-                </span>
-              </div>
-            );
-          })}
-        </div>
       </div>
     </>
   );

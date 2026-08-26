@@ -65,8 +65,9 @@ export function useShellTheme(): { theme: ShellTheme; setTheme: (next: ShellThem
 }
 
 /**
- * The switch itself. A real radio group, so it is operable by keyboard and announced as a choice
- * between two named options rather than as a pair of unrelated buttons.
+ * The switch itself, restyled as the rail's raised-pill segmented control. A real radio group, so
+ * it is operable by keyboard and announced as a choice between two named options rather than as a
+ * pair of unrelated buttons — the mechanism is unchanged, only its clothes.
  */
 export function ShellThemeToggle({
   theme,
@@ -76,12 +77,11 @@ export function ShellThemeToggle({
   setTheme: (next: ShellTheme) => void;
 }) {
   return (
-    <div className="shell-toggle" role="radiogroup" aria-label="Appearance">
+    <div className="os-seg" role="radiogroup" aria-label="Appearance">
       <button
         type="button"
         role="radio"
         aria-checked={theme === 'standard'}
-        className={`shell-toggle-option${theme === 'standard' ? ' active' : ''}`}
         onClick={() => setTheme('standard')}
       >
         Standard
@@ -90,10 +90,9 @@ export function ShellThemeToggle({
         type="button"
         role="radio"
         aria-checked={theme === 'command'}
-        className={`shell-toggle-option${theme === 'command' ? ' active' : ''}`}
         onClick={() => setTheme('command')}
       >
-        Command Centre
+        Command
       </button>
     </div>
   );
