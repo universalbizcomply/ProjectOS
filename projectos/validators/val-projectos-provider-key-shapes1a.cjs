@@ -42,6 +42,11 @@ const DETECTORS = Object.freeze([
   "projectos/validators/plan-discovery-engine.cjs",
   "projectos/control-center/src/daemon/redact.ts",
   "projectos/bridge/daemon/src/utils/redact.ts",
+  // THE SIXTH, ADDED IN THE POST-LIVE-CALL CORRECTION. A paid provider reply is now written into the
+  // governed repository as attempt evidence, so the text of an untrusted model response passes
+  // through a redactor for the first time. A member of this family that this list does not name is a
+  // member nothing checks, which is the whole reason the list is spelled out rather than discovered.
+  "projectos/agent/src/authoringEvidence.ts",
 ]);
 
 /**
@@ -128,8 +133,8 @@ function anyMatch(list, value) {
 function run() {
   const errors = [];
 
-  if (DETECTORS.length !== 5) {
-    errors.push("the detector list is no longer the five this phase reconciled");
+  if (DETECTORS.length !== 6) {
+    errors.push("the detector list is no longer the six this phase reconciled");
   }
 
   /** rel -> (value) => boolean */
@@ -175,8 +180,12 @@ function run() {
     else probes.set(nsRel, (v) => anyMatch(nsPatterns, v));
   }
 
-  // ---- the two `.ts` redactors: patterns extracted and compiled -------------------------------
-  for (const rel of ["projectos/control-center/src/daemon/redact.ts", "projectos/bridge/daemon/src/utils/redact.ts"]) {
+  // ---- the three `.ts` redactors: patterns extracted and compiled -----------------------------
+  for (const rel of [
+    "projectos/control-center/src/daemon/redact.ts",
+    "projectos/bridge/daemon/src/utils/redact.ts",
+    "projectos/agent/src/authoringEvidence.ts",
+  ]) {
     const text = readSource(errors, rel);
     if (text === null) continue;
     const patterns = compilePatterns(errors, rel, text);

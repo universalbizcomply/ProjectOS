@@ -40,6 +40,7 @@ import {
   type AuthoringRefusal,
   authoringObjectiveDigest,
   deriveAuthoringRequestId,
+  selectContextSources,
 } from './planAuthoring.js';
 
 /** The longest objective accepted. An objective is a paragraph of intent, not a document. */
@@ -191,7 +192,11 @@ export interface DiscoveryEngine {
     opts?: unknown,
   ): {
     root: string;
-    sources: readonly { relPath: string; content?: string }[];
+    // `type` is discovery's own classification of what the file IS (MASTER_PLAN, PHASE_REPORT,
+    // PROJECT_CONFIG, … or UNKNOWN). Declared here because the authoring path selects on it: a
+    // context list that calls a `launch.json` an existing planning document is a false statement to
+    // the author. Optional, so an engine that does not classify still satisfies this interface.
+    sources: readonly { relPath: string; content?: string; type?: string }[];
     skipped: readonly unknown[];
     truncated: boolean;
   };
@@ -596,7 +601,26 @@ export function buildAuthoredProposal(input: {
   const { engine, facts, objective, author, objectiveSourcePath, objectiveChecksum, discovered } = input;
   const { projectId, repository, branch, baseHead } = facts;
 
-  const contextSourcePaths = discovered.sources.map((s) => s.relPath);
+  // CONTEXT, BOUNDED, AND HONEST ABOUT BEING BOUNDED.
+  //
+  // Sending every discovered path is what made the first live authoring call cost 34,761 input
+  // tokens: 1,194 paths, 95.5% of the outbound request, for an objective asking for one read-only
+  // phase. Untyped sources are dropped first because the instruction above calls this list "existing
+  // planning documents" and, for a `dashboard-cache.json` or a `launch.json`, that sentence was
+  // simply untrue. What remains is taken in discovery's own order, so the same repository composes
+  // the same request twice — an authoring call must stay deterministic to stay replay-protected.
+  //
+  // SPREAD ACROSS THE CORPUS, NOT ITS FIRST PAGE. Taking the first forty in discovery order is the
+  // obvious bound and it is the wrong one here: discovery walks the tree alphabetically, and this
+  // repository has 266 typed sources under `.projectops` alone, so a first-page sample would have
+  // been entirely closure records and would never once have shown the author a document under
+  // `docs/` or `knowledge/`. A list meant to say "these programmes exist, leave them alone" has to
+  // reach the parts of the tree where those programmes are described. The step is derived from the
+  // corpus size, so the same repository composes the same request twice — an authoring call must
+  // stay deterministic to stay replay-protected.
+  const { paths: contextSourcePaths, omitted: contextSourcesOmitted } = selectContextSources(
+    discovered.sources,
+  );
   // WHAT THIS CALL IS BOUND TO, DERIVED HERE AND NEVER SUPPLIED BY A CALLER.
   //
   // A brokered author is held to these on the trusted side: the digest is to an authoring call what
@@ -609,6 +633,7 @@ export function buildAuthoredProposal(input: {
     projectId,
     repository,
     contextSourcePaths,
+    contextSourcesOmitted,
     objectiveDigest: digest,
     requestId: deriveAuthoringRequestId(projectId, digest),
   });

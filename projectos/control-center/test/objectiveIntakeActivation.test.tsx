@@ -25,6 +25,9 @@ vi.mock('../src/governed/governedClient', () => ({
     sent.push({ verb, args });
     return Promise.resolve(reply);
   },
+  // A MOCK MUST OFFER WHAT THE MODULE OFFERS. The authored submission now asks for a provider-scale
+  // timeout, and a mock missing that export makes the component fail to load rather than fail a test.
+  AUTHORING_RESULT_TIMEOUT_MS: 360_000,
 }));
 vi.mock('../src/daemon/tauriBridge', () => ({ tauriBridge: {} }));
 
@@ -37,7 +40,16 @@ afterEach(() => {
 });
 
 function mount() {
-  return render(<ObjectiveIntake projectName="ProjectOS" repository="universalbizcomply/ProjectOS" drafts={[]} />);
+  // `connected` says whether the runtime is answering right now. It is separate from whether this
+  // panel is mounted, because conflating the two is what deleted an owner's paid result.
+  return render(
+    <ObjectiveIntake
+      projectName="ProjectOS"
+      repository="universalbizcomply/ProjectOS"
+      drafts={[]}
+      connected
+    />,
+  );
 }
 
 function typeInto(el: HTMLElement, value: string) {

@@ -24,6 +24,7 @@ import {
   PLAN_AUTHORING_ASK,
 } from '@projectos/core';
 import { submitObjective, listDrafts, checkDraftBinding, type DraftRecord, type SubmitOptions } from '../planIntake.js';
+import { buildAuthoringAttemptEvidence, writeAuthoringAttemptEvidence } from '../authoringEvidence.js';
 import { brokeredAuthorPort, type AuthorPort } from '../planAuthoring.js';
 import { checkPlanAuthoringPermission } from '../planAuthoringPermission.js';
 import { approvePlan, FILENAME_ID } from '../planApproval.js';
@@ -236,13 +237,25 @@ function composeAuthor(ctx: CommandContext): { readonly author?: AuthorPort; rea
               phaseId: AUTHORING_LEDGER_PHASE,
             }),
         ),
-      settleSpend: (requestId, usage) =>
-        settleGatekeeperSpend(
-          ctx.sys,
-          ctx.root,
+      settleSpend: (requestId, usage) => {
+        // THE ENTRY IS BUILT ONCE AND REPORTED BACK. The attempt record has to state what the call
+        // actually cost, and the only place that number exists is the ledger entry being written.
+        const entry = recordCall({
           requestId,
-          recordCall({ requestId, projectId, phaseId: AUTHORING_LEDGER_PHASE, usage, rate, at: ctx.sys.now() }),
-        ),
+          projectId,
+          phaseId: AUTHORING_LEDGER_PHASE,
+          usage,
+          rate,
+          at: ctx.sys.now(),
+        });
+        settleGatekeeperSpend(ctx.sys, ctx.root, requestId, entry);
+        return entry.costMicroUsd;
+      },
+      now: () => ctx.sys.now(),
+      // A PAID REPLY THAT FAILS A CHECK IS KEPT. Written into the governed project itself, beside
+      // the other evidence, because that is where the owner already looks for what a phase produced.
+      recordAttempt: (input) =>
+        writeAuthoringAttemptEvidence(ctx.sys, ctx.root, buildAuthoringAttemptEvidence(input)),
       releaseUndispatched: (requestId) => releaseUndispatchedReservation(ctx.sys, ctx.root, requestId),
     },
   );

@@ -43,6 +43,14 @@ import {
 } from './loop/transports/openaiResponses.js';
 import type { BrokeredTransport } from './loop/transports/brokeredHttpPort.js';
 import { credentialRefProblems, type CredentialResolver } from './loop/credentialResolver.js';
+import { containsSecret } from './authoringEvidence.js';
+import type {
+  EvidenceInput,
+  EvidenceWrite,
+  ParseOutcome,
+  StructuredOutcome,
+  ValidationOutcome,
+} from './authoringEvidence.js';
 
 /** Hard ceiling on how much plan a single objective may propose. A bounded objective is bounded work. */
 export const MAX_AUTHORED_PHASES = 12;
@@ -133,6 +141,19 @@ export interface AuthorRequest {
    */
   readonly contextSourcePaths: readonly string[];
   /**
+   * How many context sources exist that `contextSourcePaths` does NOT list.
+   *
+   * WHY THE LIST IS BOUNDED AT ALL. It was not, and the first live authoring call proved what that
+   * costs: discovery found 1,194 sources in this repository and every one of their paths was sent,
+   * which was 99,772 of the 104,482 outbound bytes — 95.5% of the request — and the provider billed
+   * 34,761 input tokens for a one-phase objective. The list also grew with the repository, without
+   * limit, so the price of authoring rose with every report ever written.
+   *
+   * IT IS STATED, NOT HIDDEN. A truncated list presented as complete would invite exactly the
+   * collision the list exists to prevent, so the count of what was left out is sent with it.
+   */
+  readonly contextSourcesOmitted?: number;
+  /**
    * What this call is bound to, when it is made through the trusted broker.
    *
    * OPTIONAL BECAUSE THE DIRECT PORT DOES NOT NEED THEM, AND REQUIRED WHERE THEY DO. The broker
@@ -169,6 +190,62 @@ export interface AuthorPort {
 
 const STR = { type: 'string' } as const;
 const STR_ARRAY = { type: 'array', items: { type: 'string' } } as const;
+
+/**
+ * The most context source paths one authoring request may carry.
+ *
+ * A BOUND, NOT A JUDGEMENT ABOUT WHICH FILES MATTER. Discovery decides what a context source is;
+ * this decides only how many of them one request pays to name. Forty is enough for an author to see
+ * that a planning corpus exists and to name it as out of scope, which is the whole purpose of the
+ * list, and it holds the request at a few thousand tokens on a repository of any size.
+ */
+export const MAX_CONTEXT_SOURCE_PATHS = 40;
+
+/**
+ * A bounded sample of context sources, spread across the corpus rather than taken from its front.
+ *
+ * WHY NOT JUST THE FIRST FORTY. Discovery walks the tree alphabetically, and ProjectOS has 266 typed
+ * sources under `.projectops` alone; a first-page sample would have been nothing but closure records
+ * and would never once have shown the author a document under `docs/` or `knowledge/`. A list whose
+ * whole purpose is "these programmes exist, leave them alone" has to reach the parts of the tree
+ * where those programmes are actually described.
+ *
+ * DETERMINISTIC, because an authoring request must be. The same corpus composes the same request
+ * every time: the step is a function of the corpus size and nothing else. A sampled request that
+ * varied between calls would derive a different objective digest and defeat its own replay guard.
+ */
+export function boundedContextSample<T>(candidates: readonly T[]): readonly T[] {
+  const step = Math.max(1, Math.ceil(candidates.length / MAX_CONTEXT_SOURCE_PATHS));
+  return candidates.filter((_, i) => i % step === 0).slice(0, MAX_CONTEXT_SOURCE_PATHS);
+}
+
+/** One discovered source, as much of it as the context selection actually looks at. */
+export interface ContextCandidate {
+  readonly relPath: string;
+  readonly type?: string;
+}
+
+/**
+ * Which context paths one authoring request carries, and how many it leaves out.
+ *
+ * EXPORTED SO IT CAN BE TESTED, on review. This is the arithmetic that fixes a 34,761-token request;
+ * left inline in `buildAuthoredProposal` it was reachable only through a full governed-project
+ * fixture and a composed author, so an off-by-one in the count or a broken `type` comparison would
+ * have gone unnoticed. It is a pure function of what discovery found.
+ *
+ * UNTYPED SOURCES ARE DROPPED FIRST because the instruction that carries this list calls it
+ * "existing planning documents", and for a `launch.json` or a `dashboard-cache.json` that sentence
+ * is simply untrue. The count of omissions is taken against EVERYTHING discovery found, not just the
+ * typed remainder, so the author is told the true size of what it cannot see.
+ */
+export function selectContextSources(sources: readonly ContextCandidate[]): {
+  readonly paths: readonly string[];
+  readonly omitted: number;
+} {
+  const candidates = sources.filter((s) => s.type !== 'UNKNOWN');
+  const paths = boundedContextSample(candidates).map((s) => s.relPath);
+  return { paths, omitted: sources.length - paths.length };
+}
 
 export const AUTHORED_PLAN_JSON_SCHEMA = {
   type: 'object',
@@ -268,6 +345,14 @@ export function authoringInstruction(request: AuthorRequest): string {
     ...(request.contextSourcePaths.length === 0
       ? ['  (none)']
       : request.contextSourcePaths.map((p) => `  - ${p}`)),
+    // SAID PLAINLY WHEN THE LIST IS PARTIAL. The author is told the corpus is larger than the sample
+    // so it treats an absent path as unknown rather than as absent.
+    ...(request.contextSourcesOmitted === undefined || request.contextSourcesOmitted <= 0
+      ? []
+      : [
+          `  (and ${request.contextSourcesOmitted} further context sources not listed — the list above is a`,
+          '   bounded sample, so a document you cannot see here may still exist.)',
+        ]),
     '',
     'Honour the objective\'s own prohibitions. If it says read-only, propose no phase that modifies',
     'source. Put anything you were unable to decide in unresolvedUnknowns or ownerDecisionsRequired',
@@ -623,11 +708,22 @@ export interface BrokeredAuthorDeps {
   readonly settleSpend?: (
     requestId: string,
     usage: { readonly inputTokens: number; readonly cachedInputTokens: number; readonly outputTokens: number },
-  ) => void;
+  ) => number | null | void;
   /** Release a reservation for a call this attempt is refusing before any dispatch is possible. */
   readonly releaseUndispatched?: (requestId: string) => void;
   /** Micro-USD for an estimated call, from the configured rate card. */
   readonly estimateMicroUsd?: (inputChars: number) => number;
+  /** The clock, so an attempt record can say when the call went out and when it settled. */
+  readonly now?: () => string;
+  /**
+   * Persist one ATTEMPT record for a call that actually reached the provider.
+   *
+   * THE WHOLE REASON IT EXISTS. Without it a paid reply that fails a check after settlement is
+   * discarded with the money already gone - which is precisely what happened on the first live
+   * authoring call. The port does not decide where the record goes or how it is redacted; it decides
+   * only that no paid exit happens without offering one.
+   */
+  readonly recordAttempt?: (input: EvidenceInput) => EvidenceWrite;
 }
 
 export interface BrokeredAuthorConfig {
@@ -682,6 +778,15 @@ export function authoringObjectiveDigest(objective: string): string {
  *   4. only then the call, and any failure of it is a refusal — never a fallback to corpus import,
  *      never a second transport, never a partially-validated proposal.
  */
+const ZERO_USAGE = { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 } as const;
+
+/** The provider's own id for a response, when it stated one. Never invented, never derived. */
+function providerResponseId(parsed: Record<string, unknown> | null): string | null {
+  if (parsed === null) return null;
+  const id = parsed['id'];
+  return typeof id === 'string' && id.length > 0 && id.length <= 128 ? id : null;
+}
+
 export function brokeredAuthorPort(config: BrokeredAuthorConfig, deps: BrokeredAuthorDeps): AuthorPort {
   return {
     author(request: AuthorRequest): AuthorOutcome {
@@ -728,6 +833,7 @@ export function brokeredAuthorPort(config: BrokeredAuthorConfig, deps: BrokeredA
       }
 
       // 4. THE CALL.
+      const dispatchedAt = deps.now?.() ?? '';
       const response = deps.transport.post({
         kind: 'plan-authoring',
         governedRoot: config.governedRoot,
@@ -747,39 +853,157 @@ export function brokeredAuthorPort(config: BrokeredAuthorConfig, deps: BrokeredA
       if (response.kind !== 'response') {
         return { ok: false, code: 'AUTHOR_UNAVAILABLE', detail: safeExcerpt(response.detail) };
       }
+      // FROM HERE DOWN THE PROVIDER WAS REACHED, AND EVERY EXIT IS A PAID ONE.
+      //
+      // An HTTP status is proof the request left this machine and arrived somewhere, so each refusal
+      // below leaves an attempt record before it returns. The transport error ABOVE deliberately does
+      // not: the broker reports a pre-dispatch refusal and a mid-flight failure identically, so this
+      // side cannot claim a dispatch happened, and a record asserting one would be a guess written
+      // into a governed repository. That case keeps its retained reservation and says so.
+      let settledAt: string | null = null;
+      let settledCost: number | null = null;
+
+      /**
+       * Refuse, having first kept the evidence.
+       *
+       * EVIDENCE NEVER RESCUES A REFUSAL - the outcome returned is the outcome the checks produced,
+       * unchanged. And a failure to KEEP the evidence is never silent: after real money has been
+       * spent, "there is no record and nobody said so" is the one outcome that must not be possible.
+       */
+      const paidRefusal = (
+        code: AuthoringRefusal,
+        detail: string,
+        facts: {
+          readonly parsed: Record<string, unknown> | null;
+          readonly parseOutcome: ParseOutcome;
+          readonly structuredOutcome: StructuredOutcome;
+          readonly validationOutcome: ValidationOutcome;
+          readonly validationProblems: readonly string[];
+          readonly structuredCandidate: unknown;
+        },
+      ): AuthoringRefused => {
+        const written = deps.recordAttempt?.({
+          requestId: request.requestId as string,
+          projectId: config.projectId,
+          objectiveDigest: request.objectiveDigest as string,
+          model: config.model,
+          dispatchedAt,
+          settledAt,
+          providerResponseId: providerResponseId(facts.parsed),
+          httpStatus: response.status,
+          usage: facts.parsed === null ? ZERO_USAGE : readUsage(facts.parsed),
+          settledCostMicroUsd: settledCost,
+          parseOutcome: facts.parseOutcome,
+          structuredOutcome: facts.structuredOutcome,
+          validationOutcome: facts.validationOutcome,
+          validationProblems: facts.validationProblems,
+          finalOutcome: 'refused',
+          refusalCode: code,
+          refusalDetail: detail,
+          responseBody: response.body,
+          structuredCandidate: facts.structuredCandidate,
+        });
+        const kept =
+          written === undefined || written.ok
+            ? ''
+            : ' This call was paid for and its record was NOT kept: ' + written.problem + '.';
+        return { ok: false, code, detail: detail + kept };
+      };
+
       if (response.status < 200 || response.status >= 300) {
-        return {
-          ok: false,
-          code: 'AUTHOR_UNAVAILABLE',
-          detail: `the authoring endpoint returned HTTP ${response.status}: ${safeExcerpt(response.body)}`,
-        };
+        return paidRefusal(
+          'AUTHOR_UNAVAILABLE',
+          `the authoring endpoint returned HTTP ${response.status}: ${safeExcerpt(response.body)}`,
+          {
+            parsed: null,
+            parseOutcome: 'not-json',
+            structuredOutcome: 'not-reached',
+            validationOutcome: 'not-reached',
+            validationProblems: [],
+            structuredCandidate: null,
+          },
+        );
       }
       let parsed: Record<string, unknown>;
       try {
         parsed = JSON.parse(response.body) as Record<string, unknown>;
       } catch {
-        return { ok: false, code: 'AUTHOR_MALFORMED', detail: 'the authoring reply was not JSON' };
+        return paidRefusal('AUTHOR_MALFORMED', 'the authoring reply was not JSON', {
+          parsed: null,
+          parseOutcome: 'not-json',
+          structuredOutcome: 'not-reached',
+          validationOutcome: 'not-reached',
+          validationProblems: [],
+          structuredCandidate: null,
+        });
       }
 
       // SETTLED ON WHAT IT COST, and only once there is a reply to have cost anything. What the
       // provider reports is what is recorded; an absent or malformed usage block reads as zero rather
       // than as a guess, exactly as the gatekeeper ledger reads it.
-      deps.settleSpend?.(request.requestId, readUsage(parsed));
+      const settled = deps.settleSpend?.(request.requestId, readUsage(parsed));
+      settledAt = deps.now?.() ?? null;
+      settledCost = typeof settled === 'number' ? settled : null;
 
       const structured = extractStructuredOutput(parsed);
       if (structured === null) {
         // `extractStructuredOutput` returns null for a refusal content part as well as for absent
         // structure. Both mean the same thing here: no material was authored.
-        return { ok: false, code: 'AUTHOR_REFUSED', detail: 'the author returned no structured plan material' };
+        return paidRefusal('AUTHOR_REFUSED', 'the author returned no structured plan material', {
+          parsed,
+          parseOutcome: 'parsed',
+          structuredOutcome: 'absent-or-refusal',
+          validationOutcome: 'not-reached',
+          validationProblems: [],
+          structuredCandidate: null,
+        });
       }
       const contractProblems = validateAuthoredMaterial(structured);
       if (contractProblems.length > 0) {
-        return {
-          ok: false,
-          code: 'AUTHORED_MATERIAL_INVALID',
-          detail: `the authored material does not satisfy the plan material contract: ${contractProblems.join('; ')}`,
-        };
+        return paidRefusal(
+          'AUTHORED_MATERIAL_INVALID',
+          `the authored material does not satisfy the plan material contract: ${contractProblems.join('; ')}`,
+          {
+            parsed,
+            parseOutcome: 'parsed',
+            structuredOutcome: 'extracted',
+            validationOutcome: 'invalid',
+            validationProblems: contractProblems,
+            // THE CANDIDATE IS KEPT ON THIS PATH SPECIFICALLY. It is the one case where the provider
+            // produced real material and a check rejected it, so it is the one case where a human can
+            // read what was bought and judge whether the contract or the reply was wrong.
+            structuredCandidate: structured,
+          },
+        );
       }
+      // THE LAST PAID EXIT THAT LEFT NO TRACE, closed on review.
+      //
+      // A model can emit a credential it was never given — out of its own training, or reflected
+      // back from the context it was shown. `buildAuthoredProposal` already refuses such material
+      // outright and stores nothing, which is correct; but it refuses OUTSIDE this port, where no
+      // evidence can be written, so a paid, parsed, contract-valid reply was discarded with no
+      // record at all. That is precisely the pattern this whole correction exists to end, surviving
+      // in one branch. Asking here means the refusal is a paid refusal like any other, and the
+      // evidence writer's own rule then applies: if the record would still carry credential-shaped
+      // text after redaction it is REFUSED rather than written, and the owner is told so.
+      const candidate = JSON.stringify(structured);
+      if (containsSecret(candidate)) {
+        return paidRefusal(
+          'AUTHORED_MATERIAL_SECRET_SHAPED',
+          'the authored plan material looks like it contains a secret; it was NOT stored',
+          {
+            parsed,
+            parseOutcome: 'parsed',
+            structuredOutcome: 'extracted',
+            validationOutcome: 'valid',
+            validationProblems: [],
+            structuredCandidate: null,
+          },
+        );
+      }
+      // NO RECORD ON SUCCESS. The material is about to be written into the objective and draft
+      // records, which are durable, reviewable and already the authority for what was proposed; a
+      // second copy of the provider body beside them would be duplication, not evidence.
       return { ok: true, material: normaliseAuthoredMaterial(structured) };
     },
   };

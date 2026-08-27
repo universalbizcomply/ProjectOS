@@ -43,7 +43,7 @@
  * PROJECTOS-LIVE-PLAN-AUTHORING-AND-OWNER-DECISION1A.
  */
 import { useEffect, useRef, useState } from 'react';
-import { requestGovernedCommand } from '../governed/governedClient';
+import { requestGovernedCommand, AUTHORING_RESULT_TIMEOUT_MS } from '../governed/governedClient';
 import { tauriBridge } from '../daemon/tauriBridge';
 import { MAX_OBJECTIVE_LENGTH } from '../governed/governedCommands';
 import type { GovernedPlanDraftView } from '../governed/types';
@@ -95,10 +95,20 @@ export function ObjectiveIntake({
   projectName,
   repository,
   drafts,
+  connected,
 }: {
   projectName: string;
   repository: string;
   drafts: readonly GovernedPlanDraftView[];
+  /**
+   * Whether the runtime is answering RIGHT NOW.
+   *
+   * Separate from whether this panel is shown, because those are different questions and conflating
+   * them is what lost an owner's paid result: the panel used to exist only while the runtime was
+   * live, so a missed heartbeat deleted the answer along with the form. The panel now persists and
+   * says plainly when nothing is listening, which is both honest and non-destructive.
+   */
+  connected: boolean;
 }) {
   const [objective, setObjective] = useState('');
   const [outcome, setOutcome] = useState<Outcome>({ busy: false, lines: [], failed: false });
@@ -142,10 +152,15 @@ export function ObjectiveIntake({
     // There is NO FALLBACK. If authoring cannot be composed — no gatekeeper configuration, no
     // committed authoring permission, no budget — the runtime refuses and says why, verbatim. It
     // does not quietly import instead.
-    const result = await requestGovernedCommand(tauriBridge, 'plan.draft', {
-      objective: trimmed,
-      authored: 'true',
-    });
+    const result = await requestGovernedCommand(
+      tauriBridge,
+      'plan.draft',
+      { objective: trimmed, authored: 'true' },
+      // A PROVIDER'S TIMESCALE, NOT A UI'S. The ordinary 30-second ceiling expired long before the
+      // runtime could answer, and a client that has stopped listening discards the result of a call
+      // that has already been paid for.
+      { timeoutMs: AUTHORING_RESULT_TIMEOUT_MS },
+    );
     // The runtime's own words, whether it proposed or refused. Never reworded, never summarised.
     setOutcome({ busy: false, lines: result.lines, failed: !result.ok });
   }
@@ -247,11 +262,18 @@ export function ObjectiveIntake({
               : `${trimmed.length} characters. Nothing is started by sending this.`}
       </div>
 
+      {!connected && (
+        <p className="ocp-objective-help" data-testid="intake-disconnected">
+          ProjectOS is not answering at the moment. Anything already submitted is still shown below;
+          a new one cannot be sent until it reconnects.
+        </p>
+      )}
+
       <div className="ocp-actionrow">
         <button
           type="button"
           className="ocp-btn primary"
-          disabled={blocked || outcome.busy}
+          disabled={blocked || outcome.busy || !connected}
           onClick={() => void submit()}
         >
           {outcome.busy ? 'Working…' : 'Propose a plan'}
