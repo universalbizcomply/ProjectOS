@@ -53,6 +53,7 @@ describe('W1 an allowed, well-formed command is accepted', () => {
     'approval.decide': { approvalId: 'A1', decision: 'approved' },
     'report.write': { phaseId: 'P1A' },
     'plan.draft': { objective: 'Make the ordering flow simple enough to need no training at all.' },
+    'plan.decide': { draftId: 'draft-20260813-a1b2c3', decision: 'approve' },
     'plan.activate': { draftId: 'draft-20260813-a1b2c3', decisionId: 'PROJECTOS-DECISION1A' },
     'project.select': { projectId: 'projectos' },
     'run.start': { phaseId: 'P1A' },
@@ -266,7 +267,8 @@ describe('W17 protected actions are unreachable through this path', () => {
       'approval.decide': { approvalId: 'A1', decision: 'approved' },
       'report.write': { phaseId: 'P1A' },
       'plan.draft': { objective: 'Make the ordering flow simple enough to need no training at all.' },
-      'plan.activate': { draftId: 'draft-20260813-a1b2c3', decisionId: 'PROJECTOS-DECISION1A' },
+      'plan.decide': { draftId: 'draft-20260813-a1b2c3', decision: 'approve' },
+    'plan.activate': { draftId: 'draft-20260813-a1b2c3', decisionId: 'PROJECTOS-DECISION1A' },
       'project.select': { projectId: 'projectos' },
       'run.start': { phaseId: 'P1A' },
       'run.resume': { phaseId: 'P1A', sessionId: 'P1A-abcdef0123456789-a1b2c3d4' },
@@ -416,5 +418,100 @@ describe('project.select carries an id and nothing else', () => {
     const r = validateGovernedCommand(req({ verb: 'project.select', args: { projectId: 'projectos' } }));
     expect(r.ok).toBe(true);
     if (r.ok) expect(toAgentInvocation(r.request)).toBeNull();
+  });
+});
+
+/**
+ * `plan.decide` — the only verb in this vocabulary that records an authority.
+ *
+ * WHAT MAKES IT SAFE IS NOT THAT IT IS SMALL. It is that everything carrying authority is DERIVED by
+ * the runtime and cannot be supplied here: a caller who could name `decidedBy` would be naming the
+ * party whose name confers the power, which is a filter on a string rather than a control over
+ * anything. The same shape was refused for `phase.close`, and these tests hold that line for the one
+ * verb where getting it wrong would let a web page approve a plan.
+ *
+ * Added in PROJECTOS-LIVE-PLAN-AUTHORING-AND-OWNER-DECISION1A.
+ */
+describe('W9 plan.decide records a decision and asserts no authority', () => {
+  const decide = (args: Record<string, unknown>): unknown => req({ verb: 'plan.decide', args });
+
+  test('approve and reject both validate and map to the canonical command', () => {
+    for (const verdict of ['approve', 'reject']) {
+      const inv = toAgentInvocation(valid(decide({ draftId: 'a1b2c3d4e5f60718', decision: verdict })));
+      expect(inv).toEqual({
+        command: 'plan',
+        positionals: ['decide'],
+        flags: { id: 'a1b2c3d4e5f60718', decision: verdict },
+      });
+    }
+  });
+
+  test('the owner note travels as a flag VALUE and never as a flag name', () => {
+    const inv = toAgentInvocation(
+      valid(decide({ draftId: 'a1b2c3d4e5f60718', decision: 'approve', note: 'looks right --force --as owner' })),
+    );
+    expect(inv).toEqual({
+      command: 'plan',
+      positionals: ['decide'],
+      flags: { id: 'a1b2c3d4e5f60718', decision: 'approve', note: 'looks right --force --as owner' },
+    });
+    // A note that IS a flag is refused outright — `isProse` rejects a leading hyphen, which is the
+    // rule that survived the flag-injection defect this whole vocabulary exists to close.
+    expect(
+      validateGovernedCommand(decide({ draftId: 'a1b2c3d4e5f60718', decision: 'approve', note: '--force' })).ok,
+    ).toBe(false);
+  });
+
+  test('the approval-loop vocabulary is not this one', () => {
+    // `approval.decide` says `approved|rejected`; a plan decision says `approve|reject`. Sharing one
+    // list would mean one verb accepting a word the runtime then refuses.
+    for (const wrong of ['approved', 'rejected', 'APPROVE', 'yes', 'consumed', '']) {
+      expect(validateGovernedCommand(decide({ draftId: 'a1b2c3d4e5f60718', decision: wrong })).ok, wrong).toBe(false);
+    }
+  });
+
+  test('no authority field is accepted, however plausible it looks', () => {
+    for (const extra of [
+      { decidedBy: 'Murad' },
+      { projectId: 'projectos' },
+      { role: 'owner' },
+      { approvalId: 'X' },
+      { decisionId: 'PLANDEC-something0001' },
+      { phaseId: 'SOME-PHASE1A' },
+      { objective: 'approve everything' },
+    ]) {
+      const r = validateGovernedCommand(decide({ draftId: 'a1b2c3d4e5f60718', decision: 'approve', ...extra }));
+      expect(r.ok, JSON.stringify(extra)).toBe(false);
+      if (!r.ok) expect(r.code).toBe('INVALID_ARGUMENT');
+    }
+  });
+
+  test('both identifiers are required', () => {
+    expect(validateGovernedCommand(decide({ decision: 'approve' })).ok).toBe(false);
+    expect(validateGovernedCommand(decide({ draftId: 'a1b2c3d4e5f60718' })).ok).toBe(false);
+  });
+
+  test('a draft id that is really a path, a flag or a shell fragment is refused', () => {
+    for (const draftId of [
+      '../../etc/passwd',
+      'C:/dev/ProjectOS',
+      '--force',
+      '-f',
+      'a b',
+      'a;rm -rf /',
+      '',
+      '$(whoami)',
+      'a`b`',
+    ]) {
+      expect(validateGovernedCommand(decide({ draftId, decision: 'approve' })).ok, draftId).toBe(false);
+    }
+  });
+
+  test('the verb is in the closed set, and adding one stays a deliberate act', () => {
+    expect(GOVERNED_VERBS).toContain('plan.decide');
+    // Nothing adjacent exists: there is no verb that could approve without recording a decision.
+    expect(GOVERNED_VERBS).not.toContain('plan.approve');
+    expect(GOVERNED_VERBS).not.toContain('plan.commit');
+    expect(GOVERNED_VERBS).not.toContain('git.commit');
   });
 });

@@ -811,11 +811,129 @@ export function materialisePlan(input: MaterialiseInputs): MaterialiseResult {
  * re-digested, and the digest compared with the one the decision was taken against. Every mismatch
  * fails closed. No model is called here.
  */
+
+/**
+ * Is the move from `fromHead` to `toHead` nothing but ONE commit recording ONE authority record?
+ *
+ * WHY THIS HAS TO EXIST AT ALL. A decision counts only when COMMITTED — that is the whole
+ * `tamperProof: false` argument, and nothing here weakens it. But committing the decision MOVES HEAD,
+ * and an objective-led draft is bound to the HEAD it was authored at. So the owner pressing Approve
+ * would, by the act of recording their approval, make the very proposal they approved stale. The
+ * chicken-and-egg is real, it is created by two rules that are each correct, and this is the smallest
+ * thing that resolves it.
+ *
+ * WHAT IT ACCEPTS, AND NOTHING ELSE:
+ *   - exactly ONE commit between the two, and it IS `toHead`;
+ *   - exactly ONE parent, and that parent IS `fromHead` (so: not a merge, not a rebase, not a squash);
+ *   - the entire diff between them is the allowed decision path or paths, and every one of them was
+ *     ADDED rather than modified or deleted.
+ *
+ * Everything else is still stale. A commit that also touched a source file, a plan record, an
+ * objective, another governance record, or the same decision path by MODIFYING it, fails here — and
+ * the draft is then reported stale exactly as before. This is a keyhole, not a door: it does not
+ * relax `checkDraftBinding`, which is shared with `plan show` and unchanged, and it does not let an
+ * arbitrary commit slip between review and activation.
+ *
+ * ADDED, NOT MODIFIED, IS LOAD-BEARING. Allowing `M` would let a committed decision be rewritten in a
+ * commit this function then blesses — which is the one edit that could re-point an approval at
+ * different material while looking like the authority-only transition.
+ */
+export function authorityOnlyAdvance(
+  sys: System,
+  root: string,
+  fromHead: string,
+  toHead: string,
+  allowedPaths: readonly string[],
+): { readonly ok: true } | { readonly ok: false; readonly reasons: readonly string[] } {
+  if (fromHead === toHead) return { ok: true };
+  if (!HEX40.test(fromHead) || !HEX40.test(toHead)) {
+    return { ok: false, reasons: ['the commits being compared are not both commit ids'] };
+  }
+  if (allowedPaths.length === 0) {
+    return { ok: false, reasons: ['no authority record was named, so no advance can be authority-only'] };
+  }
+
+  // `--ancestry-path` so a commit that merely happens to be in the range without descending from
+  // `fromHead` cannot make the range look like one step.
+  const listed = sys.exec('git', ['-C', root, 'rev-list', '--ancestry-path', `${fromHead}..${toHead}`]);
+  if (listed.code !== 0) {
+    return { ok: false, reasons: [`the repository could not compare ${fromHead.slice(0, 12)} with ${toHead.slice(0, 12)}`] };
+  }
+  const commits = listed.stdout.split('\n').map((l) => l.trim()).filter((l) => l !== '');
+  if (commits.length !== 1) {
+    return {
+      ok: false,
+      reasons: [
+        `${commits.length} commit(s) separate the reviewed proposal from the repository as it is now; ` +
+          'only a single authority-only commit is accepted between review and activation',
+      ],
+    };
+  }
+  if (commits[0] !== toHead) {
+    return { ok: false, reasons: ['the single commit found is not the one the repository is at'] };
+  }
+
+  // ONE PARENT, AND IT IS THE ONE REVIEWED. `rev-list --parents -n 1` prints `<commit> <parent>…`,
+  // so two fields means exactly one parent — a merge has three or more and a root commit has one.
+  const parented = sys.exec('git', ['-C', root, 'rev-list', '--parents', '-n', '1', toHead]);
+  const fields = parented.code === 0 ? parented.stdout.trim().split(/\s+/).filter((f) => f !== '') : [];
+  if (fields.length !== 2) {
+    return { ok: false, reasons: ['the commit recording the decision is a merge or has no single parent'] };
+  }
+  if (fields[1] !== fromHead) {
+    return {
+      ok: false,
+      reasons: [`the commit recording the decision does not sit directly on ${fromHead.slice(0, 12)}`],
+    };
+  }
+
+  const diffed = sys.exec('git', ['-C', root, 'diff', '--name-status', fromHead, toHead]);
+  if (diffed.code !== 0) {
+    return { ok: false, reasons: ['the repository could not describe what that commit changed'] };
+  }
+  const changes = diffed.stdout
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l !== '')
+    .map((l) => l.split('\t'));
+  if (changes.length === 0) {
+    return { ok: false, reasons: ['the commit recording the decision changed nothing'] };
+  }
+  const allowed = allowedPaths.map((a) => a.replace(/\\/g, '/'));
+  for (const [status, changed] of changes) {
+    const path = (changed ?? '').replace(/\\/g, '/');
+    if (status !== 'A') {
+      return {
+        ok: false,
+        reasons: [`'${path}' was ${status === 'M' ? 'modified' : `changed (${status})`} rather than added`],
+      };
+    }
+    if (!allowed.includes(path)) {
+      return {
+        ok: false,
+        reasons: [
+          `the commit between the reviewed proposal and now also changed '${path}', which is not the ` +
+            'decision record; only an authority-only commit may sit there',
+        ],
+      };
+    }
+  }
+  return { ok: true };
+}
+
 export function revalidateAuthoredDraft(
   sys: System,
   root: string,
   engine: ReturnType<typeof loadDiscoveryEngine>,
   draft: DraftRecord,
+  /**
+   * Decision records whose own commit may sit between the reviewed HEAD and this one.
+   *
+   * Empty (the default) means the draft must be bound to HEAD exactly, which is what every caller
+   * except plan activation wants. See `authorityOnlyAdvance` for why activation is different and for
+   * how narrow the exception is.
+   */
+  allowAuthorityAdvanceFor: readonly string[] = [],
 ): { readonly ok: true; readonly proposal: Proposal } | ApprovalRefused {
   const facts = readProjectFacts(sys, root);
   if (isRefused(facts)) {
@@ -875,7 +993,22 @@ export function revalidateAuthoredDraft(
   }
 
   // (5) BINDING. The corpus-led route gets staleness for free by re-deriving; this route has to ask.
-  const binding = checkDraftBinding(draft, { projectId, repository, head: baseHead });
+  // THE ONE ALLOWANCE, AND IT IS APPLIED TO THE HEAD ONLY.
+  //
+  // `checkDraftBinding` answers three questions at once — project, repository, HEAD — and only the
+  // last of them is affected by the owner recording their decision. So the draft's own base head is
+  // offered as the expectation when, and only when, the repository has moved from it by exactly one
+  // authority-only commit. Project and repository are still compared against the real thing, and a
+  // draft that is stale for any other reason is still stale.
+  const advance =
+    allowAuthorityAdvanceFor.length === 0
+      ? { ok: false as const, reasons: [] }
+      : authorityOnlyAdvance(sys, root, draft.baseHead, baseHead, allowAuthorityAdvanceFor);
+  const binding = checkDraftBinding(draft, {
+    projectId,
+    repository,
+    head: advance.ok ? draft.baseHead : baseHead,
+  });
   if (binding.length > 0) return { ok: false, code: 'DRAFT_STALE', problems: binding };
 
   // (5b) THE CITATION IS RE-VERIFIED AGAINST THE FILE IT NAMES.
@@ -1227,6 +1360,95 @@ export function resolveRecordedOwner(
 }
 
 
+
+export type DeciderResolution =
+  | {
+      readonly ok: true;
+      readonly expectedDecider: string;
+      readonly source: 'delegation' | 'owner';
+      /**
+       * The APPLICABLE delegation, or null when authority stayed with the owner.
+       *
+       * Returned rather than re-read because `materialisePlan` records which delegation an approval
+       * was taken under, and a second read could answer differently from the one that decided.
+       */
+      readonly delegation: PlanApprovalDelegationRecord | null;
+    }
+  | { readonly ok: false; readonly problems: readonly string[] };
+
+/**
+ * Who may take a plan-approval decision for this project, right now.
+ *
+ * EXTRACTED SO THE WRITER AND THE CHECKER CANNOT DISAGREE. `approvePlan` judges a decision against
+ * the decider it resolves; `writePlanApprovalDecision` has to STAMP that same decider, or every
+ * decision it writes is refused at activation for naming the wrong authority. Two copies of this
+ * reasoning would be two answers waiting to diverge — and the failure would look like a governance
+ * problem rather than the duplication it actually was. One function, both callers.
+ *
+ * WHY IT IS TWO QUESTIONS RATHER THAN ONE.
+ *
+ * A delegation APPLIES only to the project and programme it names, carrying the plan-approval scope.
+ * Anything else is somebody else's delegation and must not stand in front of this approval. When none
+ * applies, authority has not moved anywhere: it stays with the recorded owner, who may approve
+ * directly. The refusal text has always said exactly that — "Only the owner … can approve a plan for
+ * this project unless the owner has recorded a delegation" — while no code path let the owner do it,
+ * so a project whose delegation named a finished programme could not be approved by anyone at all.
+ * Delegating to the owner is refused elsewhere as delegating nothing, so a synthetic self-delegation
+ * was never the answer either.
+ *
+ * This cannot escalate. The owner is already the highest plan-approval authority, and the decision
+ * still has to be signed by that exact identity and committed through the owner's own commit gate.
+ * The implementer is refused as decider by every caller, on every route.
+ */
+export function resolveExpectedDecider(
+  sys: System,
+  root: string,
+  expect: {
+    readonly projectId: string;
+    readonly recordedOwner: string;
+    readonly programmeId: string;
+    readonly startsNewProgramme?: boolean;
+  },
+): DeciderResolution {
+  const delegationRel = `.projectops/authority/plan-approval-delegation.json`;
+  const delegation = readCommittedJson(sys, root, delegationRel);
+
+  const applies =
+    expect.startsNewProgramme !== true &&
+    delegation !== null &&
+    delegation['projectId'] === expect.projectId &&
+    delegation['programmeScope'] === expect.programmeId &&
+    Array.isArray(delegation['delegatedScope']) &&
+    (delegation['delegatedScope'] as readonly unknown[]).includes(PLAN_APPROVAL_SCOPE);
+
+  if (applies) {
+    // An applicable delegation is judged in full. A malformed one for THIS programme is an error, not
+    // a quiet fall-through to owner approval, because the owner meant it to be used.
+    const problems = checkPlanApprovalDelegation(delegation, {
+      projectId: expect.projectId,
+      recordedOwner: expect.recordedOwner,
+      isCommitted: true,
+      programmeId: expect.programmeId,
+    });
+    if (problems.length > 0) return { ok: false, problems };
+    return {
+      ok: true,
+      expectedDecider: String((delegation as PlanApprovalDelegationRecord).delegatedTo),
+      source: 'delegation',
+      delegation: delegation as PlanApprovalDelegationRecord,
+    };
+  }
+
+  // An uncommitted delegation still refuses rather than silently becoming owner approval, so an
+  // operator who wrote one and forgot the commit gate is told that, instead of being asked for a
+  // signature they did not expect to give.
+  if (delegation === null) {
+    const uncommitted = uncommittedButPresent(sys, root, delegationRel, 'delegation');
+    if (uncommitted !== null) return { ok: false, problems: uncommitted };
+  }
+  return { ok: true, expectedDecider: expect.recordedOwner, source: 'owner', delegation: null };
+}
+
 /**
  * Approve one draft and activate the plan it proposes. The only route in this codebase by which a
  * record with `planStatus: PLAN READY` comes into existence.
@@ -1270,7 +1492,12 @@ export function approvePlan(sys: System, root: string, opts: ApproveOptions): Ap
   let proposal: Proposal;
   if (draft.origin === 'authored') {
     // Objective-led: read the persisted material, validate it, re-digest it, bind it. No model call.
-    const revalidated = revalidateAuthoredDraft(sys, root, engine, draft);
+    // THE DECISION'S OWN COMMIT MAY SIT BETWEEN THE REVIEWED HEAD AND THIS ONE, and nothing else may.
+    // A decision counts only when committed, and committing it moves HEAD — so without this the owner
+    // would make their own proposal stale by approving it. See `authorityOnlyAdvance`.
+    const revalidated = revalidateAuthoredDraft(sys, root, engine, draft, [
+      `.projectops/plan-decisions/${opts.decisionId}.json`,
+    ]);
     if (!revalidated.ok) return revalidated;
     proposal = revalidated.proposal;
   } else {
@@ -1365,53 +1592,14 @@ export function approvePlan(sys: System, root: string, opts: ApproveOptions): Ap
   }
 
   // Both authority records are read from the committed blob, so what is checked is what was reviewed.
-  const delegationRel = `.projectops/authority/plan-approval-delegation.json`;
-  const delegation = readCommittedJson(sys, root, delegationRel);
-
-  // WHO MAY APPROVE, and why this is two questions rather than one.
-  //
-  // A delegation APPLIES only to the project and programme it names, carrying the plan-approval
-  // scope. Anything else is somebody else's delegation and must not stand in front of this approval.
-  // When none applies, authority has not moved anywhere: it stays with the recorded owner, who may
-  // approve directly. The refusal text has always said exactly that — "Only the owner … can approve
-  // a plan for this project unless the owner has recorded a delegation" — while no code path let the
-  // owner do it, so a project whose delegation named a finished programme could not be approved by
-  // anyone at all. Delegating to the owner is refused elsewhere as delegating nothing, so a synthetic
-  // self-delegation was never the answer either.
-  //
-  // This cannot escalate. The owner is already the highest plan-approval authority, and the decision
-  // still has to be signed by that exact identity and committed through the owner's own commit gate.
-  // The implementer is refused as decider further down, on every route.
-  const applies =
-    opts.startsNewProgramme !== true &&
-    delegation !== null &&
-    delegation['projectId'] === proposal.projectId &&
-    delegation['programmeScope'] === opts.programmeId &&
-    Array.isArray(delegation['delegatedScope']) &&
-    (delegation['delegatedScope'] as readonly unknown[]).includes(PLAN_APPROVAL_SCOPE);
-
-  let expectedDecider: string;
-  if (applies) {
-    // An applicable delegation is judged in full. A malformed one for THIS programme is an error, not
-    // a quiet fall-through to owner approval, because the owner meant it to be used.
-    const delegationProblems = checkPlanApprovalDelegation(delegation, {
-      projectId: proposal.projectId,
-      recordedOwner,
-      isCommitted: true,
-      programmeId: opts.programmeId,
-    });
-    if (delegationProblems.length > 0) return { ok: false, code: 'DELEGATION_INVALID', problems: delegationProblems };
-    expectedDecider = String((delegation as PlanApprovalDelegationRecord).delegatedTo);
-  } else {
-    // An uncommitted delegation still refuses rather than silently becoming owner approval, so an
-    // operator who wrote one and forgot the commit gate is told that, instead of being asked for a
-    // signature they did not expect to give.
-    if (delegation === null) {
-      const uncommitted = uncommittedButPresent(sys, root, delegationRel, 'delegation');
-      if (uncommitted !== null) return { ok: false, code: 'DELEGATION_INVALID', problems: uncommitted };
-    }
-    expectedDecider = recordedOwner;
-  }
+  const decided = resolveExpectedDecider(sys, root, {
+    projectId: proposal.projectId,
+    recordedOwner,
+    programmeId: opts.programmeId,
+    startsNewProgramme: opts.startsNewProgramme === true,
+  });
+  if (!decided.ok) return { ok: false, code: 'DELEGATION_INVALID', problems: decided.problems };
+  const expectedDecider = decided.expectedDecider;
 
   const decisionRel = `.projectops/plan-decisions/${opts.decisionId}.json`;
   const decision = readCommittedJson(sys, root, decisionRel);
@@ -1462,7 +1650,7 @@ export function approvePlan(sys: System, root: string, opts: ApproveOptions): Ap
     config,
     activePlan,
     decision: decision as PlanApprovalDecisionRecord,
-    delegation: applies ? (delegation as PlanApprovalDelegationRecord) : null,
+    delegation: decided.delegation,
     closureDelegation,
     governanceSource,
     planId: opts.planId,

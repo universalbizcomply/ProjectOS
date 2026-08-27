@@ -645,6 +645,15 @@ pre.ocp-actionmsg { white-space: pre-wrap; }
 .ocp-draftitem { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 14px; background: var(--bg-elev); }
 .ocp-draftitem-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
 .ocp-draftitem-id { font-weight: 600; font-size: 13px; font-family: var(--mono); overflow-wrap: anywhere; min-width: 0; }
+/* The technical record behind "View details": a plain definition list, deliberately unremarkable.
+   It is evidence, not a dashboard. */
+.ocp-kv { display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr); gap: 4px 14px; margin: 8px 0 0; font-size: 12px; }
+.ocp-kv dt { color: var(--text-dim); }
+.ocp-kv dd { margin: 0; font-family: var(--mono); overflow-wrap: anywhere; min-width: 0; }
+/* The second question. Plain and quiet on purpose: a plan decision is not a protected action, and a
+   ceremony borrowed from one would teach the owner that the two carry the same weight. */
+.ocp-confirm { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 14px; margin-top: 10px; background: var(--bg); }
+.ocp-confirm-title { margin: 0 0 6px; font-weight: 600; font-size: 13px; }
 
 .ocp-conn-list { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .ocp-conn-item { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 14px; background: var(--bg-elev); }

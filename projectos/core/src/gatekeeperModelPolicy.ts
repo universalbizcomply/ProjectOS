@@ -21,6 +21,18 @@
  * Created in PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A under the owner's commercial ruling of 2026-08-17.
  */
 
+/**
+ * The ask string plan authoring is priced under.
+ *
+ * IT IS NOT A GATEKEEPER ASK, AND THE DISTINCTION IS DELIBERATE. `KNOWN_ASKS` in the trusted broker
+ * is the closed vocabulary of REVIEW questions a phase may spend on, and authoring is not one: it is
+ * a separate request kind with its own bindings and its own committed permission. What it shares with
+ * a review is that somebody has to decide which model answers it and at what price, and that is what
+ * this module is for. Naming it here therefore prices authoring without widening what the gatekeeper
+ * path will pay for.
+ */
+export const PLAN_AUTHORING_ASK = 'plan-authoring';
+
 export const GATEKEEPER_TIERS = ['routine', 'strong'] as const;
 export type GatekeeperTier = (typeof GATEKEEPER_TIERS)[number];
 
@@ -33,6 +45,13 @@ export type GatekeeperTier = (typeof GATEKEEPER_TIERS)[number];
  * protected was touched.
  */
 export const STRONG_TIER_ASKS: readonly string[] = [
+  // AUTHORING TAKES THE STRONG MODEL, EXPLICITLY. It would have taken it anyway — an unrecognised ask
+  // falls to the strong tier by the rule stated above — but relying on that would mean the most
+  // expensive call ProjectOS makes was priced by a default nobody chose, and a later change to the
+  // fallback would silently re-tier it. Authoring is also the hardest thing asked of a model here:
+  // turning one sentence of owner intent into a bounded, schema-valid plan that a person will then
+  // approve. A weak proposal is not a cheap proposal; it is a proposal the owner has to reject.
+  'plan-authoring',
   'security-review',
   'architecture-review',
   'closure-review',

@@ -58,6 +58,11 @@
       "id": "project-evidence-mirrors",
       "subject": "Project-local mirrors of degraded-mode use and reconciliation",
       "why": "They are convenience copies inside the project, deletable and writable by the worker. A mirror that claims a discharge clears nothing; the installation ledger decides, and the mirror may be absent entirely."
+    },
+    {
+      "id": "authored-plan-material",
+      "subject": "Plan material a model authored from an owner objective",
+      "why": "It is model output that becomes a PROPOSAL and nothing else. It is validated against the existing plan material contract on the way in and again at approval, scanned for secret shapes, bound into the plan digest, and never persisted with an authoritative status. It confers no authority at any point: authority comes from a committed owner decision and from the plan-ready evaluator, neither of which the author can reach. Provenance is synthesised by ProjectOS rather than accepted from the model, because a model permitted to cite its own source could name any file as the authority for a plan it invented."
     }
   ],
   "selfHosted": {
@@ -80,5 +85,19 @@
       "subject": "The secret material itself",
       "why": "No component on either side of this boundary is entitled to a raw credential value in a prompt, a report, a log, an evidence file or source control. The credential crosses only from the installation's store into an outbound request header."
     }
-  ]
+  ],
+  "planAuthoring": {
+    "note": "The trusted broker carries TWO kinds of call. A `gatekeeper` call is a governance review bound to a project, a phase, a subject commit and one of seven known asks, released by that phase's committed secrets-handling receipt. A `plan-authoring` call produces a bounded NON-AUTHORITATIVE plan proposal, is bound to a project and an objective digest, and is released by the project's own committed plan-authoring permission. Authoring runs BEFORE any phase exists, so it can satisfy no phase-scoped gate; making it a separate KIND is what forces it to state its own bindings and clear its own permission rather than inherit checks that say nothing about it. `KNOWN_ASKS` was deliberately NOT widened.",
+    "requestKinds": [
+      "gatekeeper",
+      "plan-authoring"
+    ],
+    "permission": ".projectops/authority/plan-authoring-permission.json",
+    "permissionNote": "Committed in the GOVERNED project, read from its git object store, and required in addition to the installation allowlist. Absent, uncommitted, malformed, foreign, for another capability or about another credential reference all refuse. It authorises the generation of a non-authoritative plan proposal and nothing else: no approval, no activation, no phase, no protected effect.",
+    "spendKey": "@plan-authoring",
+    "spendKeyNote": "Authoring spend is counted per PROJECT in the ledger column keyed by phase. The `@` cannot appear in a phase id, so authoring can never consume a phase's gatekeeper budget and a phase can never consume authoring's.",
+    "maxCallsPerProject": 20,
+    "maxCallsPerProjectNote": "The installation's ceiling. A committed permission may LOWER it and may never raise it: a record that set its own unbounded limit would be the defect a permanent receipt had before a ceiling existed.",
+    "credentialNote": "Unchanged from the gatekeeper path and unchanged by this addition: the agent holds no provider credential, resolves none, and builds no Authorization header. The value is resolved inside the broker's own process from the committed credential adapter and leaves it only as an outbound request header."
+  }
 }

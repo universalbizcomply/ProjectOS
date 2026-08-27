@@ -34,6 +34,17 @@ const SECRET_PATTERNS = [
   { name: "aws-akid", re: /AKIA[0-9A-Z]{16}/ },
   { name: "github-pat", re: /ghp_[A-Za-z0-9]{36,}/ },
   { name: "private-key", re: /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/ },
+  // PROVIDER MODEL KEYS. This list is the one that actually gates OWNER INPUT: `checkObjective` calls
+  // `scanSecrets` on the objective before a single byte is persisted, so a shape absent here is a
+  // shape that reaches a durable file. Every other entry above is underscore-delimited and OpenAI and
+  // Anthropic are hyphen-delimited, so the provider ProjectOS itself pays was the one it could not see.
+  // Kept identical to `credentials/credential-shapes.cjs` and `validate-no-secrets.cjs`;
+  // `val-projectos-provider-key-shapes1a` refuses the drift.
+  { name: "openai-project-key", re: /sk-proj-[A-Za-z0-9_-]{20,}/ },
+  { name: "openai-service-account-key", re: /sk-svcacct-[A-Za-z0-9_-]{20,}/ },
+  { name: "openai-admin-key", re: /sk-admin-[A-Za-z0-9_-]{20,}/ },
+  { name: "openai-legacy-key", re: /sk-[A-Za-z0-9]{40,}/ },
+  { name: "anthropic-key", re: /sk-ant-[A-Za-z0-9_-]{20,}/ },
   { name: "marker", re: new RegExp(RAW_SECRET_MARKER) }
 ];
 

@@ -1,0 +1,25 @@
+{
+  "$comment": "EXAMPLE ONLY — NOT A PERMISSION. This file lives under projectos/examples/ and authorises nothing: the runtime reads a plan-authoring permission from `.projectops/authority/plan-authoring-permission.json` inside a GOVERNED project, from that project's git object store, and only when committed. A copy anywhere else is inert. It is here so an owner can see the exact shape before granting one, rather than discovering the required fields through refusals. Created in PROJECTOS-LIVE-PLAN-AUTHORING-AND-OWNER-DECISION1A.",
+  "$whatItAuthorises": "The generation of a NON-AUTHORITATIVE plan proposal from an owner objective, using the installation's own provider credential, through the trusted broker. Nothing else.",
+  "$whatItDoesNotAuthorise": "It approves no plan, activates nothing, starts no phase, deploys nothing, mutates no database, sends no message, makes no payment, and grants no protected authority. Every route from proposed plan material to execution authority still runs through a committed owner decision, `approvePlan`, and the plan-ready evaluator — none of which this record touches.",
+  "$secondFactor": "This is ONE of two required factors. The other is the INSTALLATION's committed allowlist (projectos/security/installation-project-allowlist.json), which a governed project cannot write. Neither factor alone releases the credential.",
+  "$failsClosed": "Absent, uncommitted, unreadable, malformed, for another project, for another capability, or about another credential reference — every one of those refuses. There is no default that permits.",
+  "schemaVersion": "1.0.0",
+  "permissionId": "EXAMPLE-PLAN-AUTHORING-PERMISSION",
+  "capability": "plan-authoring",
+  "projectId": "example-project",
+  "credentialRef": "OPENAI_GATEKEEPER_KEY",
+  "$credentialRefNote": "A NAME, never a value. ProjectOS configuration names a credential and never holds one; a record carrying a key here is refused, and the refusal deliberately does not repeat what it found.",
+  "grantedBy": "Owner",
+  "grantedAt": "2026-01-01T00:00:00+00:00",
+  "excludesProtectedActions": true,
+  "$excludesProtectedActionsNote": "Must be exactly true. A permission silent about protected actions is not one the broker will act on — silence is how a narrow grant gets read later as a broad one.",
+  "maxCallsPerProject": 20,
+  "$maxCallsPerProjectNote": "May LOWER the installation's ceiling of 20 and may never raise it. A record that could set its own unbounded limit would be the defect a permanent receipt had before a ceiling existed.",
+  "excludes": [
+    "Every protected effect remains with the owner: production deployment, production or destructive database mutation, real email, SMS or messaging send, payment or live charge, raw credential access or rotation, secrets disclosure, Windows service installation or identity change, ACL, ProgramData or registry trust mutation, destructive machine operation, and force push.",
+    "Plan approval, plan activation, phase creation and phase closure are all unaffected by this record.",
+    "This permission is not authority to act on anything a proposed plan describes."
+  ],
+  "trustBasis": "MANUAL_GOVERNANCE_APPROVAL, tamperProof false. There is no signature here and none is claimed. What makes it trustworthy is that it must be COMMITTED before it has any effect, so a permission nobody granted is a visible diff at the owner's own commit gate."
+}

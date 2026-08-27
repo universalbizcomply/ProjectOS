@@ -1,6 +1,9 @@
-import { execFileSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+// @ts-expect-error -- a plain .mjs helper shared with `test-desktop/smoke.mjs`; it has no types and
+// needs none. Duplicating it in TypeScript is exactly how the two harnesses drifted apart in the
+// first place, which is the defect this import exists to close.
+import { snapshotHarnessPids, reapHarnessProcesses } from './test-desktop/harnessProcesses.mjs';
 
 /**
  * WebdriverIO configuration for the genuine Tauri desktop proof (T1-T21).
@@ -38,6 +41,14 @@ if (driverProvider !== 'external' && driverProvider !== 'embedded') {
   );
 }
 
+/**
+ * The ProjectOS processes that were already running when this run began.
+ *
+ * Module-level because `onPrepare` and `afterSession` are separate hooks with no shared state of
+ * their own, and the snapshot has to outlive the hook that takes it.
+ */
+let harnessPidsBeforeRun: Record<string, Set<number>> = {};
+
 export const config = {
   /**
    * Give the daemon the project root to govern.
@@ -51,6 +62,10 @@ export const config = {
    * be left on the machine. The file is gitignored because it holds absolute machine paths.
    */
   onPrepare(): void {
+    // BEFORE ANYTHING IS LAUNCHED. A snapshot taken later would contain this harness's own processes
+    // and then refuse to reap them, which is the opposite failure and just as bad as reaping the
+    // owner's.
+    harnessPidsBeforeRun = snapshotHarnessPids();
     const root = resolve(process.cwd(), '..', '..');
     writeFileSync(
       resolve(process.cwd(), 'bridge.config.json'),
@@ -59,23 +74,37 @@ export const config = {
   },
 
   /**
-   * Leave no ProjectOS process behind between specs.
+   * Leave no ProjectOS process behind between specs — AND NOT ONE THE OWNER STARTED.
    *
-   * This runs AFTER the WebDriver session is deleted, which matters: killing the app from inside a
-   * spec kills the embedded server the session is still talking to, and the teardown then fails on
-   * a connection it can no longer reach. It also guarantees the next spec gets a genuinely fresh
-   * instance rather than colliding with the single-instance guard, which is right to refuse a
-   * second one.
+   * WHAT THIS USED TO DO, AND WHY IT WAS WRONG. It ran
+   * `Get-Process -Name projectos-control-center | Stop-Process -Force` after every session: a sweep
+   * BY EXECUTABLE NAME, which cannot tell a process this harness launched from the Control Centre the
+   * owner has open on the same machine. Running the desktop suite therefore killed the owner's own
+   * application, every time. That is fatal to an owner-attended proof — the window the owner is meant
+   * to click in is the window the harness reaps — and it was reported as "the installed Control
+   * Centre is undriveable while E2E runs".
+   *
+   * The pids that existed before the run are snapshotted in `onPrepare`, and only pids absent from
+   * that snapshot are reaped. The retry loop is not belt-and-braces: msedgedriver tears the app down
+   * asynchronously, so the app pid can re-materialise just after a single sweep.
+   *
+   * IT STILL RUNS AFTER THE SESSION IS DELETED, which matters for the original reason: killing the
+   * app from inside a spec kills the embedded server the session is still talking to, and the
+   * teardown then fails on a connection it can no longer reach. It also guarantees the next spec gets
+   * a genuinely fresh instance rather than colliding with the single-instance guard.
+   *
+   * IT NEVER THROWS. A lingering process is reported; an exception here would mask the spec result
+   * that actually matters.
    */
-  afterSession(): void {
+  async afterSession(): Promise<void> {
     try {
-      execFileSync('powershell', [
-        '-NoProfile',
-        '-Command',
-        'Get-Process -Name projectos-control-center -ErrorAction SilentlyContinue | Stop-Process -Force',
-      ]);
+      const { reaped, remaining } = await reapHarnessProcesses(harnessPidsBeforeRun);
+      if (reaped > 0 || remaining > 0) {
+        // eslint-disable-next-line no-console
+        console.log(`afterSession: reaped ${reaped} harness process(es); ${remaining} still running`);
+      }
     } catch {
-      // nothing left to stop
+      // nothing left to stop, or the platform would not say — either way the suite carries on
     }
   },
 

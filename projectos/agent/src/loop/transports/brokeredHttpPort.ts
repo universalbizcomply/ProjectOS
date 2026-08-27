@@ -29,24 +29,50 @@ const sha256 = (text: string): string => createHash('sha256').update(text, 'utf8
 /** Where the trusted broker lives, relative to the installation root. */
 export const TRANSPORT_BROKER_REL = 'projectos/security/gatekeeper-transport-broker.cjs';
 
-export interface BrokeredCall {
+/** What every brokered call carries, whichever question it is asking. */
+interface BrokeredCallBase {
   readonly governedRoot: string;
   readonly projectId: string;
-  readonly phaseId: string;
-  /**
-   * The rest of what this call is bound to, declared SEPARATELY from the body.
-   *
-   * The trusted side compares these against the fields it reads out of the body at their own
-   * positions. Declaring them apart from the payload is what makes that a comparison rather than a
-   * search: the caller has to say what it claims the call is for, and then be held to it.
-   */
-  readonly subjectCommit: string;
-  readonly ask: string;
   readonly requestId: string;
   readonly credentialRef: string;
   readonly body: string;
   readonly timeoutMs?: number;
 }
+
+/**
+ * A governance review: one phase, one commit, one of seven known asks.
+ *
+ * The fields below are the rest of what this call is bound to, declared SEPARATELY from the body.
+ * The trusted side compares these against the fields it reads out of the body at their own positions.
+ * Declaring them apart from the payload is what makes that a comparison rather than a search: the
+ * caller has to say what it claims the call is for, and then be held to it.
+ */
+export interface BrokeredGatekeeperCall extends BrokeredCallBase {
+  readonly kind: 'gatekeeper';
+  readonly phaseId: string;
+  readonly subjectCommit: string;
+  readonly ask: string;
+}
+
+/**
+ * A plan-authoring call: one project, one objective, no phase and no commit.
+ *
+ * WHY IT IS A DIFFERENT TYPE RATHER THAN OPTIONAL FIELDS. Authoring happens BEFORE any phase exists,
+ * so `phaseId`, `subjectCommit` and `ask` are not merely unset — they are unanswerable, and a shape
+ * that lets a caller supply them is a shape that invites a plausible-looking fabrication. The type
+ * makes the absent things unspeakable, and the trusted side independently refuses a body that states
+ * a binding this kind does not carry.
+ *
+ * `objectiveDigest` is what replaces the subject commit: the question is not "review these bytes" but
+ * "answer this objective", and the digest is what makes the answer attributable to one exact
+ * objective rather than to whatever the caller felt like sending.
+ */
+export interface BrokeredAuthoringCall extends BrokeredCallBase {
+  readonly kind: 'plan-authoring';
+  readonly objectiveDigest: string;
+}
+
+export type BrokeredCall = BrokeredGatekeeperCall | BrokeredAuthoringCall;
 
 /**
  * A transport that asks the installation to make the call.
@@ -151,17 +177,37 @@ export function nodeBrokeredTransport(sys: System, runtime: ProjectosRuntime): B
 
       // The request travels on stdin, never as an argument: command lines are visible to any process
       // listing on the machine.
-      const payload = JSON.stringify({
-        governedRoot: call.governedRoot,
-        projectId: call.projectId,
-        phaseId: call.phaseId,
-        subjectCommit: call.subjectCommit,
-        ask: call.ask,
-        requestId: call.requestId,
-        credentialRef: call.credentialRef,
-        body: call.body,
-        timeoutMs: call.timeoutMs ?? 120_000,
-      });
+      //
+      // THE KIND IS ALWAYS SENT AND THE KIND-SPECIFIC FIELDS ARE NEVER MIXED. An authoring request
+      // that carried `phaseId: undefined` would serialise the key away, which is fine — but one that
+      // carried a leftover phase id from an adjacent code path would travel as a binding the trusted
+      // side does not check for this kind. Building the two payloads separately is what stops that
+      // being possible rather than merely unlikely.
+      const payload = JSON.stringify(
+        call.kind === 'plan-authoring'
+          ? {
+              kind: call.kind,
+              governedRoot: call.governedRoot,
+              projectId: call.projectId,
+              objectiveDigest: call.objectiveDigest,
+              requestId: call.requestId,
+              credentialRef: call.credentialRef,
+              body: call.body,
+              timeoutMs: call.timeoutMs ?? 120_000,
+            }
+          : {
+              kind: call.kind,
+              governedRoot: call.governedRoot,
+              projectId: call.projectId,
+              phaseId: call.phaseId,
+              subjectCommit: call.subjectCommit,
+              ask: call.ask,
+              requestId: call.requestId,
+              credentialRef: call.credentialRef,
+              body: call.body,
+              timeoutMs: call.timeoutMs ?? 120_000,
+            },
+      );
 
       // AN EXPLICIT ENVIRONMENT AND WORKING DIRECTORY.
       //

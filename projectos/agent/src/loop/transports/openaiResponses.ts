@@ -287,6 +287,9 @@ export function submitToOpenAi(
       };
     }
     const brokered = config.broker.transport.post({
+      // THE KIND IS STATED, NOT INFERRED. The broker now carries two questions and refuses a request
+      // that does not say which it is; a gatekeeper review says so here.
+      kind: 'gatekeeper',
       governedRoot: config.broker.governedRoot,
       projectId: config.broker.projectId,
       phaseId: config.broker.phaseId,
@@ -440,8 +443,14 @@ function readNumber(o: Record<string, unknown> | undefined, key: string): number
   return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0;
 }
 
-/** Token usage as reported by the provider. Absent or malformed counts read as zero, never as a guess. */
-function readUsage(parsed: Record<string, unknown>): {
+/**
+ * Token usage as reported by the provider. Absent or malformed counts read as zero, never as a guess.
+ *
+ * EXPORTED so the plan-authoring transport settles its ledger by exactly the same reading. A second
+ * implementation of "what did this cost" is a second answer waiting to disagree with the first, and
+ * the cached-token subtraction below is precisely the detail a re-derivation gets wrong.
+ */
+export function readUsage(parsed: Record<string, unknown>): {
   inputTokens: number;
   cachedInputTokens: number;
   outputTokens: number;

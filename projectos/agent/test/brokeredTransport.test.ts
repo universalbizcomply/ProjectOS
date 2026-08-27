@@ -131,6 +131,7 @@ describe('what runs is what was verified', () => {
     const install = installation('// original\n');
     writeFileSync(join(install, ...TRANSPORT_BROKER_REL.split('/')), '// swapped\n');
     const r = nodeBrokeredTransport(nodeLikeSystem(), runtimeAt(install)).post({
+      kind: 'gatekeeper',
       governedRoot: install,
       projectId: 'projectos',
       phaseId: 'X1A',
@@ -169,6 +170,7 @@ describe('what runs is what was verified', () => {
       runtimeAt(install),
     );
     const r = transport.post({
+      kind: 'gatekeeper',
       governedRoot: install,
       projectId: 'projectos',
       phaseId: 'X1A',
@@ -323,6 +325,7 @@ describe('authority is a field, not a substring', () => {
     const sys = nodeLikeSystem();
     const transport = nodeBrokeredTransport(sys, runtimeAt(install));
     const r = transport.post({
+      kind: 'gatekeeper',
       governedRoot: install,
       projectId: 'projectos',
       phaseId: 'X1A',
@@ -481,6 +484,7 @@ describe('a receipt authorises a project, not unlimited spending', () => {
     try {
       const transport = nodeBrokeredTransport(nodeLikeSystem(), runtimeAt(world.root));
       const r = transport.post({
+        kind: 'gatekeeper',
         governedRoot: world.root,
         projectId: 'projectos',
         phaseId: PHASE,
@@ -610,6 +614,7 @@ describe('the governed root is compared by identity, not spelling', () => {
     try {
       const transport = nodeBrokeredTransport(nodeLikeSystem(), runtimeAt(world.root));
       const r = transport.post({
+        kind: 'gatekeeper',
         governedRoot,
         projectId: 'projectos',
         phaseId: PHASE,
@@ -754,6 +759,7 @@ describe('the governed root is compared by identity, not spelling', () => {
     let said: string;
     try {
       const r = nodeBrokeredTransport(nodeLikeSystem(), runtimeAt(install)).post({
+        kind: 'gatekeeper',
         governedRoot: governed,
         projectId: 'projectos',
         phaseId: PHASE,
@@ -846,6 +852,7 @@ describe('what the trusted side refuses to take on trust', () => {
     try {
       const transport = nodeBrokeredTransport(sys ?? nodeLikeSystem(), runtimeAt(world.root));
       const r = transport.post({
+        kind: 'gatekeeper',
         governedRoot: world.root,
         projectId: 'projectos',
         phaseId: PHASE,
@@ -896,6 +903,7 @@ describe('what the trusted side refuses to take on trust', () => {
       // Simulated by handing the broker a request file the agent did not write: the pin is computed
       // from the payload the transport composed, so any later edit fails the comparison.
       const r = transport.post({
+        kind: 'gatekeeper',
         governedRoot: world.root,
         projectId: 'projectos',
         phaseId: PHASE,

@@ -39,6 +39,20 @@ export const GOVERNED_VERBS = [
   // Owner objective intake. Produces a NON-AUTHORITATIVE draft proposal and nothing else — no
   // phase, no approval, no activation. Added so the owner does not need a terminal to start work.
   'plan.draft',
+  // THE OWNER'S ANSWER TO A PROPOSAL, and the only verb in this set that records an authority.
+  //
+  // It carries a draft id, `approve` or `reject`, and optionally the owner's own words. It carries NO
+  // decider, NO project, NO digest, NO base commit and NO path: every one of those is derived by the
+  // runtime from committed records, so there is nothing here for a caller to assert. A caller that
+  // could supply `decidedBy` would be naming the authority whose name confers the power, which is a
+  // filter on a string rather than a control over anything — the same shape `phase.close` refuses.
+  //
+  // WHAT MAKES THE CLICK THE OWNER'S. Not this channel, and not a role it might claim. The runtime
+  // records the decision and COMMITS it, and under this programme's `tamperProof: false` model the
+  // commit is the boundary: a decision nobody meant to take is a visible diff in the owner's own
+  // history. The renderer can ask for that; it cannot forge it, and it cannot approve anything by
+  // itself — `plan.activate` still refuses everything it refused before.
+  'plan.decide',
   // ACTIVATION IS NOT APPROVAL, and the distinction is the whole reason this verb exists.
   //
   // It asks the runtime to activate a plan that a COMMITTED approval decision has ALREADY approved.
@@ -213,6 +227,10 @@ const ALLOWED_ROLES: Readonly<Record<GovernedVerb, readonly string[]>> = {
   'report.write': ['implementer'],
   // No role at all: drafting proposes, it does not act, so there is no authority to claim.
   'plan.draft': [],
+  // No role, and refusing one is the point. The plan-approval authority is whoever an applicable
+  // COMMITTED delegation names, or the recorded owner where none applies — resolved by the runtime
+  // from the project's own history. A role claimed here could only ever be a claim.
+  'plan.decide': [],
   // No role either, and for a stronger reason. The authority for activation lives in a committed
   // decision made by the delegate the ACTIVE approved plan records. There is no role this channel
   // could claim that would add to that, and any role it could claim would only be a claim.
@@ -246,6 +264,17 @@ const ADVANCEABLE_STATUSES: readonly string[] = [
 const DECISIONS: readonly string[] = ['approved', 'rejected'];
 
 /**
+ * The two answers a PLAN decision may carry.
+ *
+ * A SEPARATE LIST FROM `DECISIONS`, AND DELIBERATELY SO. The approval loop's vocabulary is
+ * `approved|rejected` (a past-tense state on a request); a plan decision's is `approve|reject` (the
+ * verdict the record itself carries, which `checkPlanApprovalDecision` compares literally). Sharing
+ * one list would mean one of the two verbs silently accepting a word the runtime then refuses, and
+ * the operator would be told the wrong thing by a validator that thought it had checked.
+ */
+const PLAN_VERDICTS: readonly string[] = ['approve', 'reject'];
+
+/**
  * Arguments each verb ACCEPTS, and which of them it REQUIRES.
  *
  * Scoped per verb, not globally. A global allowlist is how `note` reached `phase.start` in the first
@@ -273,6 +302,9 @@ const ARG_SPEC: Readonly<
   'approval.decide': { accepts: ['approvalId', 'decision', 'role', 'note'], requires: ['approvalId', 'decision'] },
   // Objective only. There is nothing else to supply, and nothing else may be supplied.
   'plan.draft': { accepts: ['objective'], requires: ['objective'] },
+  // Which proposal, and which way. The note is the owner's own words and decides nothing; it is
+  // bounded prose like every other note in this table. Nothing else is accepted — see the verb list.
+  'plan.decide': { accepts: ['draftId', 'decision', 'note'], requires: ['draftId', 'decision'] },
   // Two identifiers, both REQUIRED, and nothing else — no role, no note, no path, no approver, no
   // delegation. Neither is prose, so both are validated as identifiers before they are forwarded,
   // and `approvePlan` re-validates them under a stricter pattern before either touches a path.
@@ -360,13 +392,25 @@ export function validateGovernedCommand(value: unknown): GovernedCommandValidati
   if (verb === 'approval.decide' && !DECISIONS.includes(args['decision'] as string)) {
     return { ok: false, code: 'INVALID_ARGUMENT', detail: `'${args['decision']}' is not a decision` };
   }
+  if (verb === 'plan.decide' && !PLAN_VERDICTS.includes(args['decision'] as string)) {
+    return {
+      ok: false,
+      code: 'INVALID_ARGUMENT',
+      detail: `'${args['decision']}' is not a plan decision; it is ${PLAN_VERDICTS.join(' or ')}`,
+    };
+  }
 
   return { ok: true, request: { kind: GOVERNED_COMMAND_KIND, verb, args, correlationId } };
 }
 
 /** The canonical agent commands this channel can reach. Nothing else is addressable. */
-// 'plan' is read/propose-only: its sole reachable subcommand here is `draft`, which writes a
-// proposal under .projectops/ and can create no phase, approval or execution authority.
+// 'plan' reaches exactly three subcommands here, and each is narrower than it looks:
+//   `draft`    writes a PROPOSAL under .projectops/ and can create no phase, approval or authority;
+//   `decide`   writes and commits ONE governed decision record whose every authority field the
+//              runtime derives — it activates nothing, and a rejection activates nothing by
+//              construction because `checkPlanApprovalDecision` refuses any verdict but `approve`;
+//   `activate` materialises a plan a COMMITTED decision already approved, re-checking digest,
+//              binding, delegation, decider and readiness on the way.
 export type GovernedTargetCommand = 'phase' | 'approve' | 'report' | 'plan';
 
 /**
@@ -410,6 +454,16 @@ export function toAgentInvocation(request: GovernedCommandRequest): GovernedInvo
       return null;
     case 'plan.draft':
       return { command: 'plan', positionals: ['draft'], flags: { objective: a.objective as string } };
+    // `plan decide` writes the governed decision record and commits exactly that one file. The two
+    // identifiers below are data: which proposal, and which way. Everything that carries authority is
+    // derived downstream from committed records, and a wrong or hostile value here can only produce a
+    // refusal — never a decision for a project, a digest or a decider the caller chose.
+    case 'plan.decide':
+      return {
+        command: 'plan',
+        positionals: ['decide'],
+        flags: withNote({ id: a.draftId as string, decision: a.decision as string }),
+      };
     // `plan activate`, NOT `plan approve`. Both end in the same `approvePlan` engine — the only
     // route by which a record with `planStatus: PLAN READY` comes into existence — but `approve` is
     // the low-level command whose destination defaults to a single fixed filename. Since an

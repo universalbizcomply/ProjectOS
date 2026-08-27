@@ -17,6 +17,7 @@ import {
   GATEKEEPER_TIERS,
   BUDGET_RAISE_SCOPE,
   type PilotBudgetConfig,
+  PLAN_AUTHORING_ASK,
 } from '../src/gatekeeperModelPolicy.js';
 
 /** A decision that authorises a budget raise, and one that is about something else entirely. */
@@ -72,9 +73,24 @@ describe('the two tiers', () => {
       'correction-exhausted',
       'degraded-mode-reconciliation',
       'effects-unattested',
+      // PLAN AUTHORING IS PRICED HERE AND NOWHERE ELSE. It is NOT a gatekeeper ask — the trusted
+      // broker's `KNOWN_ASKS` was deliberately not widened, because authoring is a separate request
+      // kind with its own bindings and its own committed permission. What it shares with a review is
+      // that somebody has to decide which model answers it and at what price, and naming it here is
+      // what makes that a decision rather than a fallback.
+      'plan-authoring',
       'security-review',
       'worker-refusal',
     ]);
+  });
+
+  it('prices plan authoring explicitly rather than by the unknown-ask fallback', () => {
+    // It would take the strong model anyway — an unrecognised ask falls to the strong tier by design.
+    // Relying on that would mean the most expensive call ProjectOS makes was priced by a default
+    // nobody chose, and a later change to the fallback would silently re-tier it.
+    expect(STRONG_TIER_ASKS).toContain(PLAN_AUTHORING_ASK);
+    expect(selectTier(PLAN_AUTHORING_ASK)).toBe('strong');
+    expect(modelForAsk(PLAN_AUTHORING_ASK, APPROVED_PILOT_POLICY)).toBe(APPROVED_PILOT_POLICY.strongModel);
   });
 
   it('keeps the cheap tier to ordinary evidence review and ordinary correction, by name', () => {

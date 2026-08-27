@@ -202,7 +202,36 @@ function readJson(sys: System, path: string): Record<string, unknown> | null {
  * it did before one existed — stopping for the owner. That is the correct behaviour for every project
  * that has not opted in, and it is why this returns a distinguishable `absent` rather than a refusal.
  */
-export function loadGatekeeperConfig(sys: System, root: string): ConfigLoad {
+/**
+ * What the caller needs a decider FOR, or that it needs none.
+ *
+ * WHY THIS EXISTS. This file is where a project's provider spending is configured — which endpoint,
+ * which models, at what price, under whose ceiling — and it is also where the REVIEW authority is
+ * resolved, because the gatekeeper loop needs both from the same place. Plan authoring needs the
+ * first four and none of the fifth: it produces a proposal, it takes no decision, and there is no
+ * verdict for a delegate to be entitled to make.
+ *
+ * The consequence of not distinguishing them was observed rather than theorised. A project with a
+ * valid committed authoring permission and correct pricing was refused with "no valid committed
+ * delegation grants 'gatekeeper-review-decisions'" — a true sentence about something the owner was
+ * not doing. That is the failure shape this codebase already has a name for: a missing capability
+ * wearing the costume of a governance refusal. It is fail-closed, so nothing was unsafe; it was
+ * simply the wrong reason, and the wrong reason sends an owner to fix the wrong thing.
+ *
+ * IT IS NOT A WAY TO SKIP A CHECK. `'not-needed'` omits the resolution of an authority the caller
+ * will not use, and `expectedDecider` is then the empty string — so a caller that asked for no
+ * decider and then tried to honour a verdict against one would compare against `''` and refuse
+ * everything, which is the safe direction. Every other check in this function is unchanged and still
+ * runs: transport, model policy, rate cards, the owner's budget ceiling, the committed programme, and
+ * the thread binding.
+ */
+export type DeciderRequirement = 'required' | 'not-needed';
+
+export function loadGatekeeperConfig(
+  sys: System,
+  root: string,
+  decider: DeciderRequirement = 'required',
+): ConfigLoad {
   const path = join(root, ...GATEKEEPER_CONFIG_REL.split('/'));
   const raw = readJson(sys, path);
   if (raw === null) {
@@ -289,10 +318,12 @@ export function loadGatekeeperConfig(sys: System, root: string): ConfigLoad {
           'working copy alone would decide which committed delegation applies.',
     );
   }
-  const delegated = !programmeIsCommitted ? null : resolveDelegatedDecider(sys, root, programmeId);
+  const delegated =
+    decider === 'not-needed' || !programmeIsCommitted ? null : resolveDelegatedDecider(sys, root, programmeId);
   const expectedDecider = delegated !== null && delegated.ok ? delegated.decider : null;
-  if (programmeId === '') reasons.push('gatekeeper config names no programmeId, so no delegation can be resolved');
-  else if (delegated !== null && !delegated.ok) {
+  if (programmeId === '' && decider === 'required') {
+    reasons.push('gatekeeper config names no programmeId, so no delegation can be resolved');
+  } else if (delegated !== null && !delegated.ok) {
     // The specific reasons, not a generic line. "No delegation names a decider" was true of a
     // missing record and of a malformed, foreign-owned or wrongly-scoped one alike, which told an
     // operator holding a real but invalid delegation nothing about what was actually wrong with it.
@@ -319,7 +350,10 @@ export function loadGatekeeperConfig(sys: System, root: string): ConfigLoad {
         hardStopAtMicroUsd: Number(budgetRaw['hardStopAtMicroUsd']),
       },
       threadBinding: threadBinding as GovernanceThreadBinding,
-      expectedDecider: expectedDecider as string,
+      // EMPTY WHEN NONE WAS ASKED FOR. A caller that requested no decider and then compared a verdict
+      // against this would compare against '' and refuse every decision — the safe direction, and the
+      // reason this is a plain string rather than a second result type nobody would read.
+      expectedDecider: (expectedDecider ?? '') as string,
       transportDecider,
     },
   };

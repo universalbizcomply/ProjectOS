@@ -40,6 +40,30 @@
  * IT PRINTS ONE JSON OBJECT AND NOTHING ELSE. Its stdout is parsed by the caller; a stray
  * diagnostic would corrupt the result, and a diagnostic quoting the request is how a key reaches a
  * log file.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────────────────────
+ * TWO KINDS OF CALL — PROJECTOS-LIVE-PLAN-AUTHORING-AND-OWNER-DECISION1A.
+ *
+ * `gatekeeper`      a governance review. Bound to a project, a PHASE, a SUBJECT COMMIT and one of
+ *                   seven known asks. Second factor: that phase's committed `secrets-handling`
+ *                   receipt. Unchanged in every respect by the addition below.
+ *
+ * `plan-authoring`  a bounded, NON-AUTHORITATIVE plan proposal for an owner's objective. Bound to a
+ *                   project and an OBJECTIVE DIGEST. Second factor: the project's committed
+ *                   `.projectops/authority/plan-authoring-permission.json`.
+ *
+ * WHY A KIND AND NOT AN EIGHTH ASK. Every gate on the gatekeeper path is about a phase reviewing a
+ * commit under a phase receipt. Authoring runs BEFORE a phase exists, so it can satisfy none of them
+ * — and adding a word to `KNOWN_ASKS` would have made it satisfy them by pretending: a fabricated
+ * phase id, a HEAD passed off as a subject, a receipt for a phase nobody is in. The discriminant is
+ * what forces authoring to state its own bindings and clear its own permission instead of inheriting
+ * checks that say nothing about it. Neither kind can reach the other's gates, and a request that does
+ * not say which it is is refused outright.
+ *
+ * WHAT AUTHORING STILL DOES NOT GET. The same allowlist, the same durable spend ledger, the same
+ * request-digest pinning, the same committed-bytes credential adapter, the same fixed-shape refusals,
+ * and no route to approve, activate, commit or touch anything protected. It returns a status and a
+ * body, exactly as a review does.
  */
 
 const { spawnSync } = require("child_process");
@@ -50,6 +74,47 @@ const crypto = require("crypto");
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 const ALLOWLIST_REL = "projectos/security/installation-project-allowlist.json";
 const ADAPTER_REL = "projectos/credentials/windows-credential-store.ps1";
+
+/**
+ * The governed project's own committed permission to have a plan AUTHORED for it.
+ *
+ * IT LIVES BESIDE THE OTHER AUTHORITY RECORDS, NOT IN `.projectops/gates/`. A gate receipt is named
+ * `<phaseId>.<gateName>.json`, so a project with a phase called `plan-authoring` would produce
+ * exactly the filename a phase-shaped authoring receipt would want — one record answering two
+ * questions, decided by whichever was written last. Authoring is not a phase gate anyway: it happens
+ * before any phase exists, which is the whole reason it needs its own record.
+ */
+const AUTHORING_PERMISSION_REL = ".projectops/authority/plan-authoring-permission.json";
+
+/**
+ * The two questions this broker will spend on, named apart.
+ *
+ * A DISCRIMINANT, NOT A WIDENED ASK. Plan authoring could have been smuggled through the gatekeeper
+ * path by adding a word to `KNOWN_ASKS` — and it would have been wrong, because every gate on that
+ * path is about a PHASE reviewing a COMMIT under an owner's phase receipt, and authoring has no
+ * phase, no commit and no phase receipt. Making it a separate kind is what forces it to state its own
+ * bindings and satisfy its own permission instead of inheriting checks that do not apply to it.
+ */
+const REQUEST_KINDS = ["gatekeeper", "plan-authoring"];
+
+/**
+ * Where authoring spend is counted, in the slot the ledger keys by phase.
+ *
+ * THE `@` IS LOAD-BEARING. Phase ids are `[A-Za-z0-9_-]` (see `ownerApproved`), so no real phase can
+ * ever produce this string and no phase's gatekeeper budget can be quietly consumed by authoring, or
+ * the reverse. It is a per-PROJECT counter wearing the per-phase column.
+ */
+const AUTHORING_SPEND_KEY = "@plan-authoring";
+
+/**
+ * The ceiling on authoring calls per project, and the ceiling on what a permission may ask for.
+ *
+ * A RECORD THAT SETS ITS OWN LIMIT MUST STILL HAVE ONE. Reading `maxCallsPerProject` straight out of
+ * the permission would let a committed record authorise unbounded spend by writing a large number,
+ * which is the defect a permanent receipt had before `MAX_CALLS_PER_PHASE` existed. The record may
+ * lower this ceiling; it may never raise it.
+ */
+const AUTHORING_CALL_CEILING = 20;
 
 /** The only credential references this broker will resolve, and what they are in the vault. */
 const VAULT_REFERENCE = Object.freeze({
@@ -262,7 +327,15 @@ function checkoutShapeProblem(root) {
  * search. A line that IS the field, exactly once, with a value that is exactly the authorised one, is.
  */
 const BINDING_KEYS = ["project", "phase", "subject", "ask"];
-const BINDING_LINE = /^ {2}(project|phase|subject|ask):[ \t]*(\S+)[ \t]*$/;
+/**
+ * The fields an AUTHORING request binds instead.
+ *
+ * There is no phase, no subject commit and no ask, and inventing any of the three would be a lie the
+ * rest of this file would then have to believe. What an authoring call IS about is the project it is
+ * for and the objective it answers, so those are what it states and what it is held to.
+ */
+const AUTHORING_BINDING_KEYS = ["project", "objective"];
+const BINDING_LINE = /^ {2}(project|phase|subject|ask|objective):[ \t]*(\S+)[ \t]*$/;
 
 function bindingLines(instructions) {
   const found = Object.create(null);
@@ -287,8 +360,15 @@ function bindingLines(instructions) {
  * Everything is compared with exact equality against what the CALLER SEPARATELY DECLARED and the
  * installation independently authorised. Nothing here is inferred from prose.
  */
-function requestBindingProblem(body, expected) {
-  for (const key of BINDING_KEYS.concat(["requestId"])) {
+/**
+ * The binding check both kinds share, parameterised by which fields the kind states.
+ *
+ * ONE IMPLEMENTATION ON PURPOSE. A second copy for authoring would be a second place for the
+ * field-position rule to be relaxed back into a substring search, which is exactly the regression the
+ * comment above exists to prevent. The KEYS differ between kinds; nothing else does.
+ */
+function bindingProblem(body, expected, keys) {
+  for (const key of keys.concat(["requestId"])) {
     if (!expected[key]) return "the transport broker was not told the " + key + " this call is bound to";
   }
   let parsed;
@@ -307,7 +387,16 @@ function requestBindingProblem(body, expected) {
   if (read.duplicated.length > 0) {
     return "the request states '" + read.duplicated[0] + "' more than once, so what it is bound to is ambiguous";
   }
-  for (const key of BINDING_KEYS) {
+  // A FIELD THIS KIND DOES NOT BIND MAY NOT BE PRESENT EITHER. Without this, an authoring request
+  // could carry `  phase:` and `  subject:` lines that nothing here compares, and a reader — human or
+  // reviewer — would take them for bindings that had been checked. An unchecked binding is worse than
+  // an absent one, because it reads as reassurance.
+  for (const key of BINDING_KEYS.concat(AUTHORING_BINDING_KEYS)) {
+    if (keys.indexOf(key) === -1 && read.found[key] !== undefined) {
+      return "the request states a '" + key + "' this kind of call does not bind, so it would go unchecked";
+    }
+  }
+  for (const key of keys) {
     if (read.found[key] === undefined) {
       return "the request states no " + key + ", so it cannot be shown to be the authorised one";
     }
@@ -328,6 +417,16 @@ function requestBindingProblem(body, expected) {
     return "the request does not open with the request id this call was authorised for";
   }
   return null;
+}
+
+/** Why a GATEKEEPER request may not be paid for, or `null`. */
+function requestBindingProblem(body, expected) {
+  return bindingProblem(body, expected, BINDING_KEYS);
+}
+
+/** Why a PLAN-AUTHORING request may not be paid for, or `null`. */
+function authoringBindingProblem(body, expected) {
+  return bindingProblem(body, expected, AUTHORING_BINDING_KEYS);
 }
 
 /**
@@ -392,7 +491,7 @@ function spendPath(stateDir) {
  * The lock is one create-if-absent file: two brokers may run at once, and a lost update here is a
  * lost spend. A busy ledger refuses; there is no waiting inside a governance decision.
  */
-function reserveSpend(projectId, phaseId, requestId) {
+function reserveSpend(projectId, phaseId, requestId, limit) {
   const stateDir = installationStateDir();
   if (stateDir === null) return "this installation cannot locate its own state, so it cannot govern what it spends";
   const file = spendPath(stateDir);
@@ -450,9 +549,15 @@ function reserveSpend(projectId, phaseId, requestId) {
     const forPhase = ledger.calls.filter(
       (c) => c && c.projectId === projectId && c.phaseId === phaseId,
     ).length;
-    if (forPhase >= MAX_CALLS_PER_PHASE) {
+    // THE CEILING IS THE CALLER'S, AND AN ABSENT ONE IS NOT "NO CEILING". A missing or nonsensical
+    // limit falls back to the gatekeeper's, never to unbounded — the failure this whole block exists
+    // to prevent is a permanent authority funding unlimited spend, and "the caller forgot" must not
+    // be the way back to it.
+    const ceiling =
+      typeof limit === "number" && Number.isFinite(limit) && limit > 0 ? limit : MAX_CALLS_PER_PHASE;
+    if (forPhase >= ceiling) {
       return (
-        "phase " + phaseId + " has already spent " + forPhase + " gatekeeper calls, which is this " +
+        "phase " + phaseId + " has already spent " + forPhase + " calls, which is this " +
         "installation's ceiling; a committed receipt authorises a project, not unlimited spending"
       );
     }
@@ -574,6 +679,82 @@ function ownerApproved(governedRoot, phaseId) {
   if (receipt.gateName !== "secrets-handling") return "the committed receipt answers a different gate";
   if (receipt.phaseId !== phaseId) return "the committed receipt is for a different phase";
   return null;
+}
+
+/**
+ * The governed project's own committed permission to have a plan authored for it.
+ *
+ * THE SECOND FACTOR, FOR A CALL THAT HAS NO PHASE. The gatekeeper path's second factor is a phase
+ * receipt: the owner approved credential use for THIS phase, reviewing THIS commit. Authoring happens
+ * before any of that exists, so the same question has to be asked at the only scope that does exist —
+ * the project. This is deliberately NOT a widening of `ownerApproved`: that function still answers
+ * only about phases, and a project with an authoring permission gains nothing on the gatekeeper path.
+ *
+ * WHAT IT MAY SAY AND WHAT IT MAY NOT. It names a project, a capability, and the credential REFERENCE
+ * it is about — never a credential value, which is why `credentialRef` is compared against the shape
+ * this broker already refuses to treat as anything but a name. It must exclude protected actions
+ * explicitly, because a permission that is silent about them is a permission somebody will later read
+ * as covering them. And it may LOWER the installation's call ceiling but never raise it.
+ *
+ * Returns `{ problem }` or `{ limit }`. Every failure is a refusal: absent, unreadable, uncommitted,
+ * malformed, foreign, for another capability, or about another credential.
+ */
+function authoringPermitted(governedRoot, projectId, credentialRef) {
+  const raw = readCommitted(governedRoot, AUTHORING_PERMISSION_REL);
+  if (raw === null) {
+    return {
+      problem:
+        "this project commits no plan-authoring permission (" + AUTHORING_PERMISSION_REL + "), so no " +
+        "plan may be authored for it",
+    };
+  }
+  let permission;
+  try {
+    permission = JSON.parse(raw);
+  } catch {
+    return { problem: "the committed plan-authoring permission is not readable JSON" };
+  }
+  if (permission === null || typeof permission !== "object" || Array.isArray(permission)) {
+    return { problem: "the committed plan-authoring permission is not a record" };
+  }
+  if (permission.schemaVersion !== "1.0.0") {
+    return { problem: "the committed plan-authoring permission is not a version this broker recognises" };
+  }
+  if (permission.capability !== "plan-authoring") {
+    return { problem: "the committed permission authorises a different capability" };
+  }
+  if (permission.projectId !== projectId) {
+    return {
+      problem:
+        "the committed plan-authoring permission is for a different project, so it does not " +
+        "authorise this one",
+    };
+  }
+  if (permission.credentialRef !== credentialRef) {
+    return { problem: "the committed plan-authoring permission is about a different credential reference" };
+  }
+  // A REFERENCE, NEVER A VALUE — CHECKED HERE TOO. The agent side refuses a secret-shaped reference
+  // already, and this is the side that decides. A record that put a key where a name belongs must not
+  // be the thing that releases one, and the refusal must not repeat what it found.
+  if (!REF_SHAPE.test(String(permission.credentialRef || ""))) {
+    return { problem: "the committed plan-authoring permission names something that is not a credential reference" };
+  }
+  if (permission.excludesProtectedActions !== true) {
+    return {
+      problem:
+        "the committed plan-authoring permission does not exclude protected actions, and a permission " +
+        "silent about them is not one this broker will act on",
+    };
+  }
+  if (typeof permission.grantedBy !== "string" || permission.grantedBy.trim() === "") {
+    return { problem: "the committed plan-authoring permission names nobody who granted it" };
+  }
+  const asked = permission.maxCallsPerProject;
+  const limit =
+    typeof asked === "number" && Number.isFinite(asked) && asked > 0
+      ? Math.min(Math.floor(asked), AUTHORING_CALL_CEILING)
+      : AUTHORING_CALL_CEILING;
+  return { limit: limit };
 }
 
 /** PowerShell, absolute or not at all. PATH is never consulted: shadowing it is the attack. */
@@ -721,70 +902,135 @@ async function main() {
   GOVERNED_ROOT = governedRoot;
   const projectId = String(req.projectId || "");
   const phaseId = String(req.phaseId || "");
-  if (!governedRoot || !projectId || !phaseId) {
+
+  // WHICH QUESTION THIS IS, STATED AND NEVER INFERRED.
+  //
+  // An absent kind used to be impossible because there was only one. Defaulting it to `gatekeeper`
+  // now would mean a malformed authoring request quietly took the gatekeeper's route and was refused
+  // for the wrong reason — or, worse, satisfied it. The port and these bytes are read from the same
+  // installation and change together, so there is no older caller to be generous to.
+  const kind = String(req.kind || "");
+  if (REQUEST_KINDS.indexOf(kind) === -1) {
+    fail("the transport broker was not told what kind of call this is");
+    return;
+  }
+  if (!governedRoot || !projectId) {
+    fail("the transport broker was not told which project this call is for");
+    return;
+  }
+  if (kind === "gatekeeper" && !phaseId) {
     fail("the transport broker was not told which project and phase this call is for");
     return;
   }
 
-  // THE BODY MUST BE ABOUT WHAT WAS AUTHORISED, AND "ABOUT" IS A FIELD, NOT A SUBSTRING.
-  //
-  // CHECKED BEFORE THE TWO FACTORS, because it needs no git and no policy: a request that cannot
-  // be shown to be the one it claims to be is refused before this process does any work on its
-  // behalf, let alone reaches a credential.
   const body = String(req.body || "");
-  const misbound = requestBindingProblem(body, {
-    project: projectId,
-    phase: phaseId,
-    subject: String(req.subjectCommit || ""),
-    ask: String(req.ask || ""),
-    requestId: String(req.requestId || ""),
-  });
-  if (misbound !== null) {
-    fail(misbound);
-    return;
-  }
+  const requestId = String(req.requestId || "");
+  const credentialRef = String(req.credentialRef || "");
 
-  // BOTH FACTORS, HERE, ON THE TRUSTED SIDE. The agent may have checked them too; that is defence in
-  // depth, not the control. This is the control.
-  const notAllowed = installationAllows(installRoot, governedRoot, projectId);
-  if (notAllowed !== null) {
-    fail(notAllowed);
-    return;
-  }
-  const notApproved = ownerApproved(governedRoot, phaseId);
-  if (notApproved !== null) {
-    fail(notApproved);
-    return;
-  }
+  // WHAT THIS INSTALLATION WILL SPEND ON AT ALL. The first factor is the same for both kinds and is
+  // asked for both: an unauthorised project gets no further whatever it happens to be asking for.
+  //
+  // ASKED LAZILY, AND THAT IS NOT A MICRO-OPTIMISATION. Both branches below state that the binding is
+  // checked BEFORE the two factors "because it needs no git and no policy" — and this function runs
+  // git against the CALLER-SUPPLIED governed root, including `git remote get-url origin` inside it.
+  // Computing it eagerly would do work on behalf of a request that cannot yet be shown to be the one
+  // it claims to be, and would leave two comments describing an order the code no longer had.
+  const firstFactor = () => installationAllows(installRoot, governedRoot, projectId);
 
-  // A QUESTION PROJECTOS ITSELF KNOWS HOW TO ASK.
-  const askedFor = String(req.ask || "");
-  if (KNOWN_ASKS.indexOf(askedFor) === -1) {
-    fail("'" + askedFor + "' is not a question ProjectOS asks, so it is not one this installation pays for");
-    return;
-  }
+  /** Where this kind counts its calls, and how many it may make. */
+  let spendKey = phaseId;
+  let spendLimit = MAX_CALLS_PER_PHASE;
 
-  // AND ABOUT BYTES THAT REALLY EXIST. A subject the governed repository does not contain is not a
-  // review of anything; it is a question composed to look like one.
-  const subject = String(req.subjectCommit || "");
-  if (!/^[0-9a-f]{40}$/.test(subject)) {
-    fail("the subject this call names is not a commit id");
-    return;
-  }
-  const known = git(governedRoot, ["cat-file", "-e", subject + "^{commit}"]);
-  if (known.code !== 0) {
-    fail("the governed repository contains no commit " + subject + ", so there is nothing to review");
-    return;
+  if (kind === "plan-authoring") {
+    // THE BODY MUST BE ABOUT WHAT WAS AUTHORISED, AND "ABOUT" IS A FIELD, NOT A SUBSTRING. Checked
+    // first for the same reason the gatekeeper path checks it first: a request that cannot be shown
+    // to be the one it claims to be is refused before any work is done on its behalf.
+    const misboundAuthoring = authoringBindingProblem(body, {
+      project: projectId,
+      objective: String(req.objectiveDigest || ""),
+      requestId: requestId,
+    });
+    if (misboundAuthoring !== null) {
+      fail(misboundAuthoring);
+      return;
+    }
+    const notAllowedForAuthoring = firstFactor();
+    if (notAllowedForAuthoring !== null) {
+      fail(notAllowedForAuthoring);
+      return;
+    }
+    // THE SECOND FACTOR, AT THE ONLY SCOPE THAT EXISTS BEFORE A PHASE DOES.
+    const permission = authoringPermitted(governedRoot, projectId, credentialRef);
+    if (permission.problem !== undefined) {
+      fail(permission.problem);
+      return;
+    }
+    spendKey = AUTHORING_SPEND_KEY;
+    spendLimit = permission.limit;
+  } else {
+    // THE BODY MUST BE ABOUT WHAT WAS AUTHORISED, AND "ABOUT" IS A FIELD, NOT A SUBSTRING.
+    //
+    // CHECKED BEFORE THE TWO FACTORS, because it needs no git and no policy: a request that cannot
+    // be shown to be the one it claims to be is refused before this process does any work on its
+    // behalf, let alone reaches a credential.
+    const misbound = requestBindingProblem(body, {
+      project: projectId,
+      phase: phaseId,
+      subject: String(req.subjectCommit || ""),
+      ask: String(req.ask || ""),
+      requestId: requestId,
+    });
+    if (misbound !== null) {
+      fail(misbound);
+      return;
+    }
+
+    // BOTH FACTORS, HERE, ON THE TRUSTED SIDE. The agent may have checked them too; that is defence in
+    // depth, not the control. This is the control.
+    const notAllowed = firstFactor();
+    if (notAllowed !== null) {
+      fail(notAllowed);
+      return;
+    }
+    const notApproved = ownerApproved(governedRoot, phaseId);
+    if (notApproved !== null) {
+      fail(notApproved);
+      return;
+    }
+
+    // A QUESTION PROJECTOS ITSELF KNOWS HOW TO ASK.
+    //
+    // AND STILL ONLY THE SEVEN. Plan authoring did NOT join this list: it is a different kind of call
+    // with its own bindings and its own permission, and widening the gatekeeper vocabulary to carry it
+    // would have let an authoring request inherit gates that say nothing about authoring.
+    const askedFor = String(req.ask || "");
+    if (KNOWN_ASKS.indexOf(askedFor) === -1) {
+      fail("'" + askedFor + "' is not a question ProjectOS asks, so it is not one this installation pays for");
+      return;
+    }
+
+    // AND ABOUT BYTES THAT REALLY EXIST. A subject the governed repository does not contain is not a
+    // review of anything; it is a question composed to look like one.
+    const subject = String(req.subjectCommit || "");
+    if (!/^[0-9a-f]{40}$/.test(subject)) {
+      fail("the subject this call names is not a commit id");
+      return;
+    }
+    const known = git(governedRoot, ["cat-file", "-e", subject + "^{commit}"]);
+    if (known.code !== 0) {
+      fail("the governed repository contains no commit " + subject + ", so there is nothing to review");
+      return;
+    }
   }
 
   // AND WITHIN WHAT THIS INSTALLATION IS WILLING TO SPEND, counted where the project cannot reach it.
-  const overspend = reserveSpend(projectId, phaseId, String(req.requestId || ""));
+  const overspend = reserveSpend(projectId, spendKey, requestId, spendLimit);
   if (overspend !== null) {
     fail(overspend);
     return;
   }
 
-  const outcome = withCredential(installRoot, String(req.credentialRef || ""), (secret) => ({
+  const outcome = withCredential(installRoot, credentialRef, (secret) => ({
     headers: { Authorization: "Bearer " + secret, "Content-Type": "application/json" },
   }));
   if (outcome && outcome.error) {
@@ -812,7 +1058,7 @@ async function main() {
     const responseText = await res.text();
     // THE QUESTION IS NOW ANSWERED, so it may never be put again. Recorded before the answer is handed
     // back: a reply that reached the caller and was not marked would be a question re-askable forever.
-    markAnswered(projectId, phaseId, String(req.requestId || ""));
+    markAnswered(projectId, spendKey, requestId);
     process.stdout.write(JSON.stringify({ status: res.status, body: responseText }));
   } catch (e) {
     // A FIXED SHAPE, NEVER THE EXCEPTION'S OWN TEXT. Node quotes an invalid header VALUE in its

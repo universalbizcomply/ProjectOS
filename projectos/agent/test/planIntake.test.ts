@@ -390,6 +390,43 @@ describe('F3 intake — an objective is input, never authority', () => {
     expect(existsSync(pjoin(root, '.projectops', 'drafts'))).toBe(false);
   });
 
+  test('N2. a PROVIDER model key pasted into the objective is refused and never written to disk', () => {
+    // THE GAP THIS CLOSES. Every secret shape ProjectOS knew was underscore-delimited (`ghp_`,
+    // `sk_live_`, `sbp_`, `AKIA`); OpenAI and Anthropic are hyphen-delimited, so the two providers
+    // ProjectOS itself pays were the two it could not see — on the one path where an OWNER types free
+    // text that is then digested and persisted. Built from a fixed filler: no real key appears here.
+    const filler = 'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789';
+    const body = (n: number): string => filler.repeat(Math.ceil(n / filler.length)).slice(0, n);
+    const keys: readonly [string, string][] = [
+      ['openai project', `sk-proj-${body(64)}`],
+      ['openai service account', `sk-svcacct-${body(64)}`],
+      ['openai admin', `sk-admin-${body(64)}`],
+      ['openai legacy', `sk-${body(48)}`],
+      ['anthropic', `sk-ant-api03-${body(95)}`],
+    ];
+    for (const [label, secret] of keys) {
+      const root = tempProject({ 'docs/plan.md': PLAN_DOC });
+      const r = submitInto(root, `Please wire up the ${label} integration using ${secret} and finish it.`);
+      expect(r.ok).toBe(false);
+      if (r.ok) return;
+      expect(r.code).toBe('OBJECTIVE_SECRET_SHAPED');
+      // The refusal names the family, never the value — the one path whose whole purpose is that a
+      // secret must not reach a durable surface must not put it in the message either.
+      expect(r.detail).not.toContain(secret);
+      expect(r.detail).not.toContain(secret.slice(0, 24));
+      expect(existsSync(pjoin(root, '.projectops', 'objectives'))).toBe(false);
+      expect(existsSync(pjoin(root, '.projectops', 'drafts'))).toBe(false);
+    }
+  });
+
+  test('N3. an objective that merely mentions a provider is not refused', () => {
+    // A detector that says yes to everything protects nothing, and this path REFUSES rather than
+    // redacts — so a false positive silently costs the owner the ability to describe their own work.
+    const root = tempProject({ 'docs/plan.md': PLAN_DOC });
+    const r = submitInto(root, 'Add an sk-learning module and skip-the-old-hyphenated-naming scheme.');
+    expect(r.ok).toBe(true);
+  });
+
   test('O. discovery stays inside the project root and a symlink cannot widen it', () => {
     const outside = mkdtempSync(pjoin(tmpdir(), 'projectos-outside-')).replace(/\\/g, '/');
     created.push(outside);

@@ -13,7 +13,15 @@ const PATTERNS = [
   { name: "supabase-pat", re: /sbp_[a-f0-9]{40,}/ },
   { name: "github-pat", re: /ghp_[A-Za-z0-9]{36,}/ },
   { name: "aws-akid", re: /AKIA[0-9A-Z]{16}/ },
-  { name: "private-key", re: /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/ }
+  { name: "private-key", re: /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/ },
+  // PROVIDER MODEL KEYS. Every shape above is underscore-delimited; OpenAI and Anthropic are
+  // hyphen-delimited, so none of them came close. Kept identical to `credentials/credential-shapes.cjs`
+  // and to the discovery engine's own list — `val-projectos-provider-key-shapes1a` refuses the drift.
+  { name: "openai-project-key", re: /sk-proj-[A-Za-z0-9_-]{20,}/ },
+  { name: "openai-service-account-key", re: /sk-svcacct-[A-Za-z0-9_-]{20,}/ },
+  { name: "openai-admin-key", re: /sk-admin-[A-Za-z0-9_-]{20,}/ },
+  { name: "openai-legacy-key", re: /sk-[A-Za-z0-9]{40,}/ },
+  { name: "anthropic-key", re: /sk-ant-[A-Za-z0-9_-]{20,}/ }
 ];
 function walk(dir, out) {
   if (!fs.existsSync(dir)) return;

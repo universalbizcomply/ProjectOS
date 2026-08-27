@@ -38,6 +38,8 @@ import {
   type AuthorPort,
   type AuthoredMaterial,
   type AuthoringRefusal,
+  authoringObjectiveDigest,
+  deriveAuthoringRequestId,
 } from './planAuthoring.js';
 
 /** The longest objective accepted. An objective is a paragraph of intent, not a document. */
@@ -595,7 +597,21 @@ export function buildAuthoredProposal(input: {
   const { projectId, repository, branch, baseHead } = facts;
 
   const contextSourcePaths = discovered.sources.map((s) => s.relPath);
-  const outcome = author.author({ objective, projectId, repository, contextSourcePaths });
+  // WHAT THIS CALL IS BOUND TO, DERIVED HERE AND NEVER SUPPLIED BY A CALLER.
+  //
+  // A brokered author is held to these on the trusted side: the digest is to an authoring call what
+  // the subject commit is to a review — the one fact that makes the answer attributable to this exact
+  // question. Derived from the objective itself, so the same objective is the same question, which is
+  // also what makes `submitObjective` deterministic. A port that does not need them ignores them.
+  const digest = authoringObjectiveDigest(objective);
+  const outcome = author.author({
+    objective,
+    projectId,
+    repository,
+    contextSourcePaths,
+    objectiveDigest: digest,
+    requestId: deriveAuthoringRequestId(projectId, digest),
+  });
   if (!outcome.ok) return { ok: false, code: outcome.code, detail: outcome.detail };
 
   // Validated AGAIN here rather than relying on the port having done it. The port is an interface:

@@ -15,11 +15,35 @@
  */
 import type { CommandContext, CommandResult } from '../context.js';
 import { ok, fail } from '../context.js';
-import { planWorkflow, DEFAULT_WORKERS } from '@projectos/core';
+import {
+  planWorkflow,
+  DEFAULT_WORKERS,
+  estimateCostMicroUsd,
+  modelForAsk,
+  recordCall,
+  PLAN_AUTHORING_ASK,
+} from '@projectos/core';
 import { submitObjective, listDrafts, checkDraftBinding, type DraftRecord, type SubmitOptions } from '../planIntake.js';
-import type { AuthorPort } from '../planAuthoring.js';
+import { brokeredAuthorPort, type AuthorPort } from '../planAuthoring.js';
+import { checkPlanAuthoringPermission } from '../planAuthoringPermission.js';
 import { approvePlan, FILENAME_ID } from '../planApproval.js';
+import {
+  writePlanApprovalDecision,
+  makeDecisionDurable,
+  PLAN_DECISIONS,
+  type PlanDecision,
+} from '../planDecision.js';
 import { loadGovernedContext } from '../governedContext.js';
+import {
+  loadGatekeeperConfig,
+  admitGatekeeperSpend,
+  settleGatekeeperSpend,
+  releaseUndispatchedReservation,
+} from '../loop/gatekeeperConfig.js';
+import { nodeBrokeredTransport } from '../loop/transports/brokeredHttpPort.js';
+import { installationAllowsProject } from '../installation/projectAllowlist.js';
+import { readBrokerAnsweredState } from '../installation/brokerAnsweredState.js';
+import { nodeInstallationStateDir, nodeProjectosRuntime } from '../nodeRuntimeRoot.js';
 
 function workflowPlan(): CommandResult {
   const planned = planWorkflow(DEFAULT_WORKERS);
@@ -88,26 +112,142 @@ function renderDraftSummary(d: DraftRecord): readonly string[] {
 }
 
 /**
+ * Where authoring spend is counted, in the ledger column keyed by phase.
+ *
+ * THE SAME KEY THE TRUSTED SIDE USES, AND THE `@` IS LOAD-BEARING IN BOTH. Phase ids are
+ * `[A-Za-z0-9_-]`, so no real phase can produce this string: authoring cannot quietly consume a
+ * phase's gatekeeper budget and a phase cannot consume authoring's. Two ledgers count this call —
+ * the project's, in money, and the installation's, in calls — and they agree on the key.
+ */
+const AUTHORING_LEDGER_PHASE = '@plan-authoring';
+
+/**
+ * What one authored plan is assumed to cost, in output tokens, for the pre-dispatch estimate.
+ *
+ * Larger than the gatekeeper's 800 because the artefacts are different sizes: a decision is a verdict
+ * and a paragraph, a plan is a set of phases with scope, environments and success criteria. The
+ * estimate exists to be a real bound before the money is gone; the ledger is settled afterwards on
+ * what the provider actually reports.
+ */
+const AUTHORING_OUTPUT_TOKEN_ESTIMATE = 2000;
+
+/**
  * Compose the objective-led author, or say why there is none.
  *
  * THERE IS DELIBERATELY NO FALLBACK. Returning no author makes `plan draft --authored` refuse; the
  * one thing it must never do is quietly run corpus import instead, because a bounded objective
- * silently answered by the existing corpus is exactly the defect this phase corrects.
+ * silently answered by the existing corpus is exactly the defect the authoring phase corrected.
  *
- * The live installation resolves provider credentials in the TRUSTED BROKER, never in this process
- * (see `commands/run.ts`). Authoring therefore has no live composition yet: the broker's request
- * shape is gatekeeper-specific — `subjectCommit`, `ask`, `phaseId` — and widening it crosses the
- * installation trust boundary, which is its own owner-gated decision rather than a side effect of
- * this correction.
+ * THE CREDENTIAL IS NOT RESOLVED IN THIS PROCESS, AND THERE IS NO RESOLVER HERE TO CHANGE THAT.
+ * `openAiAuthorPort` exists and takes one; the live composition does not use it. The trusted broker
+ * validates the installation allowlist and the project's committed authoring permission itself,
+ * resolves the value inside its own process, makes the call, and returns a status and a body — so
+ * there is no in-process value even to leak, which is the same argument `commands/run.ts` makes for
+ * the gatekeeper and for the same reason: generated agent code running against an untrusted project
+ * should not be holding the installation owner's key.
+ *
+ * EVERY REFUSAL IS NAMED IN TERMS THE OWNER CAN ACT ON. "No author is composed" told an operator
+ * nothing; a missing permission, an unconfigured gatekeeper, an unpriced model and an unauthorised
+ * project are four different problems with four different fixes.
  */
-function composeAuthor(_ctx: CommandContext): { readonly author?: AuthorPort; readonly reason: string } {
-  return {
-    reason:
-      'no author is composed in this build. The installation resolves provider credentials in the ' +
-      'trusted broker rather than in the agent, and the broker does not yet accept a plan-authoring ' +
-      'request. Objective-led authoring is reachable through the API seam (submitObjective with ' +
-      "mode 'authored' and an AuthorPort); wiring it to the broker is a separate owner-gated step.",
-  };
+function composeAuthor(ctx: CommandContext): { readonly author?: AuthorPort; readonly reason: string } {
+  const governed = loadGovernedContext(ctx.sys, ctx.root);
+  if (!governed.ok) {
+    return { reason: 'this checkout is not a governed ProjectOS project, so nothing can be authored for it' };
+  }
+  const projectId = governed.context.projectId;
+
+  // WHICH MODEL, AT WHAT PRICE, UNDER WHOSE CEILING. All three come from the project's committed
+  // gatekeeper configuration — the same one the reviewer is priced by — because authoring and review
+  // spend the same credential out of the same budget and must not be governed by two different files.
+  // NO DECIDER IS RESOLVED, because authoring takes no decision. Asking for one refused projects that
+  // had never configured a gatekeeper REVIEW delegation — true, fail-closed, and about something the
+  // owner was not doing. Everything else in that file still applies: authoring and review spend the
+  // same credential out of the same budget, so they must be priced by the same configuration.
+  const gk = loadGatekeeperConfig(ctx.sys, ctx.root, 'not-needed');
+  if (!gk.ok) {
+    return {
+      reason:
+        'authoring is priced by this project\'s gatekeeper configuration, and it could not be used: ' +
+        gk.reasons.join('; '),
+    };
+  }
+  const config = gk.config;
+  const credentialRef = config.transport.credentialRef ?? '';
+  const model = modelForAsk(PLAN_AUTHORING_ASK, config.modelPolicy);
+  const rate = config.rateCards[model];
+  if (rate === undefined) {
+    return {
+      reason: `no rate card is configured for model '${model}', so the cost of an authoring call cannot be established; a call whose price is unknown is not made`,
+    };
+  }
+
+  const runtime = nodeProjectosRuntime();
+  const stateDir = nodeInstallationStateDir();
+
+  const author = brokeredAuthorPort(
+    { model, credentialRef, projectId, governedRoot: ctx.root },
+    {
+      transport: nodeBrokeredTransport(ctx.sys, runtime),
+      // THE SAME TWO COMMITTED FACTORS THE BROKER ENFORCES, ASKED ON THIS SIDE.
+      //
+      // Not a substitute for the trusted check — that one is the control, and it runs whatever this
+      // says. This exists so that a refusal is knowably a call that was NEVER MADE: the broker reports
+      // a pre-dispatch refusal down the same channel as a mid-flight failure, and a caller that cannot
+      // tell them apart has to bill conservatively for a call nobody made.
+      permitted: () => {
+        const allow = installationAllowsProject(ctx.sys, runtime, ctx.root, projectId);
+        if (!allow.allowed) {
+          return {
+            allowed: false,
+            reasons: [
+              'this ProjectOS installation does not authorise the governed project to spend its credential, so no authoring request was made',
+              ...allow.reasons,
+            ],
+          };
+        }
+        const permission = checkPlanAuthoringPermission(ctx.sys, ctx.root, { projectId, credentialRef });
+        return permission.allowed
+          ? { allowed: true, reasons: [] }
+          : { allowed: false, reasons: permission.reasons };
+      },
+      estimateMicroUsd: (inputChars) =>
+        estimateCostMicroUsd(
+          { inputTokens: Math.ceil(inputChars / 4), outputTokens: AUTHORING_OUTPUT_TOKEN_ESTIMATE },
+          rate,
+        ),
+      admitSpend: (request) =>
+        admitGatekeeperSpend(
+          ctx.sys,
+          ctx.root,
+          {
+            requestId: request.requestId,
+            projectId,
+            phaseId: AUTHORING_LEDGER_PHASE,
+            model,
+            estimateMicroUsd: request.estimateMicroUsd,
+            at: ctx.sys.now(),
+          },
+          config.budget,
+          () =>
+            readBrokerAnsweredState(ctx.sys, stateDir, {
+              requestId: request.requestId,
+              projectId,
+              phaseId: AUTHORING_LEDGER_PHASE,
+            }),
+        ),
+      settleSpend: (requestId, usage) =>
+        settleGatekeeperSpend(
+          ctx.sys,
+          ctx.root,
+          requestId,
+          recordCall({ requestId, projectId, phaseId: AUTHORING_LEDGER_PHASE, usage, rate, at: ctx.sys.now() }),
+        ),
+      releaseUndispatched: (requestId) => releaseUndispatchedReservation(ctx.sys, ctx.root, requestId),
+    },
+  );
+
+  return { author, reason: '' };
 }
 
 function draft(ctx: CommandContext, flags: Record<string, string | boolean>): CommandResult {
@@ -421,6 +561,85 @@ function approve(ctx: CommandContext, flags: Record<string, string | boolean>): 
   ]);
 }
 
+
+/**
+ * `plan decide` — the owner's answer to a proposal, recorded and made durable.
+ *
+ * WHAT THE CALLER MAY SAY: which draft, approve or reject, and optionally why. Nothing else. Every
+ * field that carries authority is derived by `writePlanApprovalDecision` from committed records and
+ * from the repository; there is no flag here for the project, the digest, the base commit, the
+ * decider or the output path, and adding one would be the defect rather than a convenience.
+ *
+ * TWO STEPS, NOT ONE, AND BOTH REPORTED. Writing the record is ProjectOS transcribing an answer.
+ * Committing it is that answer entering the history the whole authority model rests on — under
+ * `tamperProof: false` the commit IS what makes a forged decision a visible diff. They are separated
+ * here so that a commit failure (a hook, a lock, an unwritable index) is reported as what it is: the
+ * decision exists on disk and does not yet count.
+ *
+ * IT DOES NOT ACTIVATE ANYTHING. A recorded approval is an input to `plan activate`, which still
+ * recomputes the plan material, re-checks the digest, the binding, the delegation, the decider and
+ * plan readiness. A rejection activates nothing by construction: `checkPlanApprovalDecision` refuses
+ * any record whose `decision` is not `approve`.
+ */
+function decide(ctx: CommandContext, flags: Record<string, string | boolean>): CommandResult {
+  const s = (k: string): string => (typeof flags[k] === 'string' ? (flags[k] as string) : '');
+  const draftId = s('id');
+  const verdict = s('decision');
+  const note = s('note');
+
+  if (draftId === '') return fail(1, ['`plan decide` requires --id <draftId> (see `plan drafts`)']);
+  if (!(PLAN_DECISIONS as readonly string[]).includes(verdict)) {
+    return fail(1, [`\`plan decide\` requires --decision ${PLAN_DECISIONS.join('|')}`]);
+  }
+
+  const written = writePlanApprovalDecision(ctx.sys, ctx.root, {
+    draftId,
+    decision: verdict as PlanDecision,
+    ...(note === '' ? {} : { note }),
+  });
+  if (!written.ok) {
+    return fail(2, [
+      `REFUSED (${written.code}): no decision was recorded.`,
+      ...written.problems.map((p) => `  - ${p}`),
+      '',
+      'Nothing was written.',
+    ]);
+  }
+
+  const durable = makeDecisionDurable(ctx.sys, ctx.root, written.decisionId);
+  if (!durable.ok) {
+    return fail(2, [
+      `REFUSED (${durable.code}): the decision was written but is NOT yet durable, so it does not count.`,
+      ...durable.problems.map((p) => `  - ${p}`),
+      '',
+      `  record:  ${written.relPath}`,
+      '  a decision counts only once it is committed; nothing was activated.',
+    ]);
+  }
+
+  return ok([
+    verdict === 'approve'
+      ? `${written.decidedBy} approved this plan.`
+      : `${written.decidedBy} rejected this plan.`,
+    '',
+    `  decision:      ${written.decisionId}`,
+    `  proposal:      ${draftId}`,
+    `  plan material: ${written.planDigest.slice(7, 19)}`,
+    `  recorded at:   ${durable.commit.slice(0, 12)} (on ${written.branch})`,
+    `  record:        ${written.relPath}`,
+    '',
+    ...(verdict === 'approve'
+      ? [
+          'This decision approves exactly the plan material above. It activates nothing by itself:',
+          `  projectos plan activate --id ${draftId} --decision ${written.decisionId}`,
+        ]
+      : [
+          'This proposal will not be activated. It stays on record, with this decision beside it.',
+          'To propose something different, submit a new objective.',
+        ]),
+  ]);
+}
+
 export function plan(
   ctx: CommandContext,
   flags: Record<string, string | boolean> = {},
@@ -436,6 +655,8 @@ export function plan(
       return drafts(ctx);
     case 'show':
       return show(ctx, flags);
+    case 'decide':
+      return decide(ctx, flags);
     case 'approve':
       return approve(ctx, flags);
     case 'activate':
@@ -449,6 +670,8 @@ export function plan(
         '  plan draft --objective "..."  submit an objective; generate a draft proposal',
         '  plan drafts                   list generated drafts',
         '  plan show [--id <id>]         show a generated draft',
+        '  plan decide --id <draftId> --decision approve|reject [--note "..."]',
+        '                                record the owner decision on a proposal and commit it',
         '  plan approve --id <draftId> --decision <decisionId>',
         '                                low-level: activate to explicit --plan-path/--state-path',
         '  plan activate --id <draftId> --decision <decisionId>',
