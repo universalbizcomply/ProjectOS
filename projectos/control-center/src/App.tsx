@@ -18,7 +18,6 @@ import { LiveMissionControl } from './daemon/LiveMissionControl';
 import { OwnerControlPlane } from './owner/OwnerControlPlane';
 import { OwnerChat } from './owner/OwnerChat';
 import { SafetyProviders } from './owner/SafetyProviders';
-import { CommandCenterHome } from './owner/CommandCenterHome';
 import { useShellTheme } from './owner/ShellTheme';
 import { ForgeConsole } from './forge/ForgeConsole';
 import { MainNav, type NavDestination, type NavRecent } from './ux/MainNav';
@@ -32,7 +31,6 @@ import { StartSomethingNew } from './owner/StartSomethingNew';
 import { SettingsScreen } from './owner/SettingsScreen';
 import { FirstRun } from './owner/FirstRun';
 import { useCalmMotion, useParallax } from './owner/motion';
-import { useOwnerConversation } from './owner/ownerConversation';
 import { buildContinueWorking } from './owner/continueWorkingModel';
 import { buildHomeModel } from './owner/homeModel';
 import { stateFromStatus, type ProjectState } from './owner/workspaceModel';
@@ -61,7 +59,6 @@ type View =
   | 'health'     // spending, connections, runtime, execution
   | 'settings'
   | 'wizard'     // add a project
-  | 'dashboard'  // Command-mode presentation of the project, not a separate destination
   | 'plan'       // one plan, its steps, its evidence and its governed controls
   | 'advanced';  // the retained surfaces, reachable and unredesigned
 type AdvancedView =
@@ -212,6 +209,8 @@ export function Shell({
    */
   const [ccEntries, setCcEntries] = useState<readonly ControlCenterEntry[]>([]);
   const [objectiveOpen, setObjectiveOpen] = useState(false);
+  /** Which plan the owner opened. Null means the active one. */
+  const [openPlanId, setOpenPlanId] = useState<string | null>(null);
   const [sweeping, setSweeping] = useState(false);
   const [enterTick, setEnterTick] = useState(0);
   const [toast, setToast] = useState<string | null>(null);
@@ -222,7 +221,6 @@ export function Shell({
   const governed = useGovernedState();
   const run = useGovernedRun();
   const live = governed !== null && governed.connected ? governed : null;
-  const conversation = useOwnerConversation();
 
   const isCommand = theme === 'command';
   useParallax(isCommand && !calm);
@@ -321,7 +319,6 @@ export function Shell({
 
   const noProjects = inventory !== null && inventory.projects.length === 0;
   // `dashboard` is Command-only; in Standard it falls through to the workspace.
-  const isDash = isCommand && view === 'dashboard' && !noProjects;
   const enterClass = enterTick === 0 ? '' : enterTick % 2 === 0 ? 'os-enter-a' : 'os-enter-b';
 
   const atmosphere = (
@@ -332,12 +329,10 @@ export function Shell({
       </div>
       {/* The viewport HUD frame belongs to the workspace shell. The dashboard has its own header in
           that corner, and the frame's readout sits straight on top of SYSTEM TIME. */}
-      {!isDash && (
-        <div className="os-frame" aria-hidden="true">
-          <i /><i /><i /><i />
-          <b>projectos // command centre</b>
-        </div>
-      )}
+      <div className="os-frame" aria-hidden="true">
+        <i /><i /><i /><i />
+        <b>projectos // command centre</b>
+      </div>
     </>
   );
 
@@ -347,28 +342,6 @@ export function Shell({
       {toast !== null && <div className="os-toast" role="status">{toast}</div>}
     </>
   );
-
-  if (isDash) {
-    return (
-      <>
-        {atmosphere}
-        <a className="skip" href="#main">Skip to content</a>
-        <main id="main" tabIndex={-1} className={enterClass}>
-          <CommandCenterHome
-            conversation={conversation}
-            onNavigate={(to) => {
-              if (to === 'dashboard') return;
-              if (to === 'standard') { changeTheme('standard'); go('projects'); return; }
-              if (to === 'plan') { setProjectTab('plans'); go('project'); return; }
-              if (to === 'connections') { setProjectTab('advanced'); go('project'); return; }
-              go('project');
-            }}
-          />
-        </main>
-        {overlays}
-      </>
-    );
-  }
 
   return (
     <>
@@ -385,7 +358,6 @@ export function Shell({
           onOpenProject={(id) => void openProject(id)}
           onNewProject={() => go('wizard')}
           waiting={railState?.waiting ?? 0}
-          onOpenDashboard={isCommand && !noProjects ? () => go('dashboard') : undefined}
         />
         <main className="os-canvas" id="main" tabIndex={-1}>
           <div className={`os-column ${enterClass}`}>
@@ -413,7 +385,7 @@ export function Shell({
                 now={Date.now()}
                 onPrimary={() => go('control')}
                 onOpenAdvanced={(next) => { setAdvanced(next as AdvancedView); go('advanced'); }}
-                onOpenPlanDetail={() => go('plan')}
+                onOpenPlanDetail={(planId) => { setOpenPlanId(planId); go('plan'); }}
               />
             )}
 
@@ -457,7 +429,24 @@ export function Shell({
             )}
 
             {view === 'plan' && live !== null && (
-              <PlanDetail state={live} now={Date.now()} onBack={() => { setProjectTab('plans'); go('project'); }} />
+              <PlanDetail
+                state={live}
+                now={Date.now()}
+                planId={openPlanId}
+                onBack={() => { setProjectTab('plans'); go('project'); }}
+              />
+            )}
+
+            {/* The same honest fallback the project screen has: a screen that needs a projection
+                says so rather than rendering nothing when the runtime goes quiet. */}
+            {view === 'plan' && live === null && (
+              <div className="os-plate" role="status">
+                <h2 className="os-h2">ProjectOS is not reporting yet</h2>
+                <p className="os-set-sub">This plan cannot be shown until the runtime answers.</p>
+                <button type="button" className="os-sec" onClick={() => { setProjectTab('plans'); go('project'); }}>
+                  Back to plans
+                </button>
+              </div>
             )}
 
             {view === 'wizard' && (

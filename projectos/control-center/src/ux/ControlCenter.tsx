@@ -22,10 +22,12 @@ import { useEffect, useRef, useState } from 'react';
 import { requestGovernedCommand } from '../governed/governedClient';
 import { tauriBridge } from '../daemon/tauriBridge';
 import type { GovernedProjection } from '../governed/types';
+import type { GovernedVerb, GovernedCommandArgs } from '../governed/governedCommands';
 import { buildPlansModel } from './planStateModel';
 import { resolveIntent } from './controlCenterModel';
 import { ActivityFeed } from './ProjectHome';
 import { VOICE_UNAVAILABLE } from '../owner/speech';
+import { OperatorAside } from '../owner/Hologram';
 
 export interface ControlCenterEntry {
   readonly id: string;
@@ -78,9 +80,14 @@ export function ControlCenter({
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   /** The consequential utterance waiting for a second answer. Null means nothing is pending. */
-  const [pending, setPending] = useState<{ verb: string; args: Readonly<Record<string, string>>; say: string; question: string } | null>(null);
+  const [pending, setPending] = useState<{ verb: GovernedVerb; args: GovernedCommandArgs; say: string; question: string } | null>(null);
   const inFlight = useRef(false);
-  const seq = useRef(0);
+  /*
+   * SEEDED FROM WHAT IS ALREADY THERE. The transcript outlives this component by design, but a
+   * plain counter starts again at zero on every remount — so leaving and returning produced a
+   * second entry keyed `e1` beside the first, a real React key collision.
+   */
+  const seq = useRef(entries.length);
 
   useEffect(() => {
     if (pending === null) return undefined;
@@ -97,12 +104,12 @@ export function ControlCenter({
     setEntries((prev) => [...prev, { id, who, lines, failed }]);
   };
 
-  async function dispatch(verb: string, args: Readonly<Record<string, string>>, say: string): Promise<void> {
+  async function dispatch(verb: GovernedVerb, args: GovernedCommandArgs, say: string): Promise<void> {
     if (inFlight.current) return;
     inFlight.current = true;
     setBusy(true);
     try {
-      const result = await requestGovernedCommand(tauriBridge, verb as never, args as never);
+      const result = await requestGovernedCommand(tauriBridge, verb, args);
       seq.current += 1;
       const n = seq.current;
       setEntries((prev) => [
@@ -118,7 +125,7 @@ export function ControlCenter({
 
   function submit(): void {
     const said = text.trim();
-    if (said === '' || busy) return;
+    if (said === '' || busy || pending !== null) return;
     setText('');
     append('owner', [said]);
 
@@ -133,19 +140,17 @@ export function ControlCenter({
       append('projectos', [intent.say]);
       return onStartObjective();
     }
-    // A governed command. The two that record an authority ask again first.
-    if (intent.verb === 'plan.decide') {
-      return setPending({
-        verb: intent.verb,
-        args: intent.args,
-        say: intent.say,
-        question:
-          intent.args['decision'] === 'approve'
-            ? 'Approve this plan? This permanently records your decision. It does not start the work.'
-            : 'Reject this plan? This permanently records your rejection.',
-      });
-    }
-    void dispatch(intent.verb, intent.args, intent.say);
+    /*
+     * A SENTENCE IS NOT A PRESS. Every governed command the resolver can produce is consequential —
+     * a decision that commits, a run that spends, a stop that force-kills — so each carries the
+     * question it must ask, and nothing is dispatched until it is answered.
+     */
+    return setPending({
+      verb: intent.verb,
+      args: intent.args,
+      say: intent.say,
+      question: intent.confirm ?? 'Go ahead?',
+    });
   }
 
   const model = state === null ? null : buildPlansModel(state);
@@ -154,7 +159,23 @@ export function ControlCenter({
 
   return (
     <section className="os-stack" aria-labelledby="ux-cc-title">
-      <h1 className="os-h1" id="ux-cc-title">Control Center</h1>
+      {/*
+        THE OPERATOR SITS BESIDE THE CONTEXT, NOT OVER IT.
+        
+        The accepted JARVIS identity lived on the Command Centre dashboard, which was removed for
+        being a second command surface. The projection belongs here instead — this is the one place
+        the owner and ProjectOS talk. It is presentation and nothing else: no route, no card, no
+        workflow, no authority, and every layer inside it is `aria-hidden` apart from the head's alt
+        text. `.os-operator` is `display: none` outside Command mode, so Standard is untouched by
+        this without a single line of mode logic.
+        
+        It is rendered only when there IS a projection: the aside prints "LINK STABLE", and printing
+        that over a runtime that is not answering would be the one kind of decoration this product
+        does not allow.
+      */}
+      <div className="ux-cchead">
+        <div className="ux-ccheadmain">
+          <h1 className="os-h1" id="ux-cc-title">Control Center</h1>
 
       {/* CONTEXT, NOT A DASHBOARD. Four facts on one line; the command surface stays primary. */}
       <p className="ux-context">
@@ -170,6 +191,16 @@ export function ControlCenter({
           </>
         )}
       </p>
+        </div>
+
+        {state !== null && (
+          <OperatorAside
+            speaking={false}
+            label={active === null ? 'standing by' : active.state.toLowerCase()}
+            readout={active?.stepLabel ?? state.projectName}
+          />
+        )}
+      </div>
 
       <div className="ux-transcript" role="log" aria-label="Conversation">
         {entries.length === 0 ? (
@@ -222,7 +253,7 @@ export function ControlCenter({
           className="ux-composerinput"
           value={text}
           placeholder="Type a message…"
-          disabled={busy}
+          disabled={busy || pending !== null}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') submit();
@@ -239,7 +270,12 @@ export function ControlCenter({
         <button type="button" className="os-iconbtn" disabled title={VOICE_UNAVAILABLE} aria-label="Talk to ProjectOS — not available yet">
           🎙
         </button>
-        <button type="button" className="os-pri" disabled={busy || text.trim() === ''} onClick={submit}>
+        <button
+          type="button"
+          className="os-pri"
+          disabled={busy || pending !== null || text.trim() === ''}
+          onClick={submit}
+        >
           {busy ? 'Working…' : 'Send'}
         </button>
       </div>

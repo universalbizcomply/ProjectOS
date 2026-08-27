@@ -46,7 +46,7 @@ export type OwnerPlanGroup = 'active' | 'draft' | 'blocked' | 'completed';
  * asks the runtime for nothing. Every action that acts names its verb.
  */
 export interface PlanAction {
-  readonly id: 'open' | 'approve' | 'reject' | 'activate' | 'pause' | 'resume' | 'evidence';
+  readonly id: 'open' | 'approve' | 'reject' | 'activate' | 'stop' | 'start' | 'resume' | 'evidence';
   readonly label: string;
   readonly verb: 'plan.decide' | 'plan.activate' | 'run.start' | 'run.stop' | 'run.resume' | null;
   /**
@@ -180,8 +180,19 @@ function activeActions(state: GovernedProjection, owner: OwnerPlanState): readon
     return [
       OPEN,
       {
-        id: 'pause',
-        label: 'Pause',
+        /*
+         * STOP, NOT PAUSE — and the word matters.
+         *
+         * `run.stop` does not suspend anything. The sidecar force-kills the whole process tree
+         * (`taskkill /pid <pid> /t /f`) and answers "the governed run will end shortly"; there is no
+         * pause or suspend verb anywhere in the channel. Calling it Pause would promise the owner
+         * that work is held and will carry on where it left off, which is not what happens.
+         *
+         * Work is not lost — the loop's records are on disk, and a session that has ended can be
+         * rejoined with `run.resume`. But that is resuming a stopped run, not unpausing a held one.
+         */
+        id: 'stop',
+        label: 'Stop',
         verb: 'run.stop',
         enabled: true,
         disabledReason: null,
@@ -208,7 +219,7 @@ function activeActions(state: GovernedProjection, owner: OwnerPlanState): readon
   return [
     OPEN,
     {
-      id: 'pause',
+      id: 'start',
       label: 'Start',
       verb: 'run.start',
       enabled: !stopped,

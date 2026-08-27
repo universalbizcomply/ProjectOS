@@ -39,12 +39,60 @@ try {
  * it calls them, and does nothing else: no registry is touched, no credential is stored, and this
  * file is never part of a production build.
  */
+/**
+ * How the fake host answers the GOVERNED channel.
+ *
+ * Set by the component once its scripted transport exists, because a governed command is accepted
+ * synchronously and its outcome arrives later as a `governed-result` on the event channel — exactly
+ * as the sidecar does it. Without this the harness could not leave the Projects screen: opening a
+ * project IS a governed `project.select`, so the promise rejected, the shell reported a refusal and
+ * stayed put, and a responsive sweep that believed it was photographing Plan Detail was
+ * photographing the project list over and over.
+ *
+ * IT DECIDES NOTHING. Every answer is a fixed success line. No record is read or written, no
+ * provider is contacted, and nothing here is reachable from a production build.
+ */
 if (params.get('host') === 'fake') {
   const prepared = new Set<string>();
-  const bridge = tauriBridge as { isTauri: () => boolean; invoke: (c: string, a?: unknown) => Promise<unknown> };
+  const bridge = tauriBridge as {
+    isTauri: () => boolean;
+    invoke: (c: string, a?: unknown) => Promise<unknown>;
+    listen: (channel: string, cb: (payload: unknown) => void) => Promise<() => void>;
+  };
   bridge.isTauri = () => true;
+
+  /*
+   * THE RESULT CHANNEL, ANSWERED ON THE BRIDGE ITSELF.
+   *
+   * A governed outcome does not travel on the daemon transport: `requestGovernedCommand` registers
+   * a listener on the BRIDGE's event channel and waits there. Stubbing `invoke` alone left every
+   * governed command unanswered, so opening a project — which IS a governed `project.select` —
+   * quietly failed and the harness never left the Projects screen. A responsive sweep run against
+   * that harness believed it was photographing Plan Detail and was photographing the project list.
+   *
+   * IT DECIDES NOTHING: a fixed success line, no record read or written, no provider contacted, and
+   * nothing here is reachable from a production build.
+   */
+  const listeners = new Set<(payload: unknown) => void>();
+  bridge.listen = async (_channel, cb) => {
+    listeners.add(cb);
+    return () => listeners.delete(cb);
+  };
   bridge.invoke = async (command, args) => {
     const a = (args ?? {}) as Record<string, unknown>;
+
+    if (command === 'daemon_governed_command') {
+      const request = JSON.parse(String(a['request'] ?? '{}')) as { correlationId?: string; verb?: string };
+      const payload = {
+        kind: 'governed-result',
+        correlationId: String(request.correlationId ?? ''),
+        code: 0,
+        lines: [`(proof harness) ${String(request.verb ?? 'command')} accepted.`],
+      };
+      setTimeout(() => { for (const cb of listeners) cb(payload); }, 10);
+      return undefined;
+    }
+
     if (command === 'pick_folder') return 'C:\\dev\\BookingApp';
     if (command === 'inspect_folder') {
       const path = String(a['path'] ?? '');

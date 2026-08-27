@@ -134,7 +134,7 @@ describe('the active plan maps to one owner word, in a defined order', () => {
     expect(m.rows[0]?.state).toBe('Ready to continue');
   });
 
-  test('a live session for the active phase is what makes it Working, and offers Pause', () => {
+  test('a live session for the active phase is what makes it Working, and offers STOP', () => {
     const m = buildPlansModel(
       projection({
         sessions: [{ sessionId: 'S1', phaseId: 'TWO', workerId: 'w', kind: 'run', startedAt: '2026-08-27T19:00:00.000Z', state: 'started', exitCode: null }],
@@ -142,8 +142,11 @@ describe('the active plan maps to one owner word, in a defined order', () => {
     );
     const row = m.rows[0];
     expect(row?.state).toBe('Working');
-    expect(ids(row!)).toEqual(['open', 'pause']);
-    expect(row?.actions.find((a) => a.id === 'pause')?.verb).toBe('run.stop');
+    expect(ids(row!)).toEqual(['open', 'stop']);
+    const stop = row?.actions.find((a) => a.id === 'stop');
+    expect(stop?.verb).toBe('run.stop');
+    // NOT "Pause". `run.stop` force-kills the run's process tree; nothing is held.
+    expect(stop?.label).toBe('Stop');
   });
 
   test('an exited session is not work in flight', () => {
@@ -172,7 +175,7 @@ describe('no action is offered that the engine would refuse', () => {
         },
       }),
     );
-    const start = m.rows[0]?.actions.find((a) => a.id === 'pause');
+    const start = m.rows[0]?.actions.find((a) => a.id === 'start');
     expect(start?.enabled).toBe(false);
     expect(start?.disabledReason).toContain('spending limit');
   });
@@ -204,8 +207,8 @@ describe('every action carries the arguments its verb requires', () => {
     expect(resume?.args).toEqual({ phaseId: 'TWO', sessionId: 'S-NEW' });
   });
 
-  test('Start and Pause carry the phase, and never a session they do not have', () => {
-    const start = buildPlansModel(projection()).rows[0]?.actions.find((a) => a.id === 'pause');
+  test('Start and Stop carry the phase, and never a session they do not have', () => {
+    const start = buildPlansModel(projection()).rows[0]?.actions.find((a) => a.id === 'start');
     expect(start?.verb).toBe('run.start');
     expect(start?.args).toEqual({ phaseId: 'TWO' });
 
@@ -213,7 +216,7 @@ describe('every action carries the arguments its verb requires', () => {
       projection({
         sessions: [{ sessionId: 'S1', phaseId: 'TWO', workerId: 'w', kind: 'run', startedAt: '2026-08-27T19:00:00.000Z', state: 'started', exitCode: null }],
       }),
-    ).rows[0]?.actions.find((a) => a.id === 'pause');
+    ).rows[0]?.actions.find((a) => a.id === 'stop');
     expect(working?.verb).toBe('run.stop');
     expect(working?.args).toEqual({ phaseId: 'TWO' });
   });

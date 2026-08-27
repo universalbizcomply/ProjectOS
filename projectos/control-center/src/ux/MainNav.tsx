@@ -47,7 +47,6 @@ export function MainNav({
   onOpenProject,
   onNewProject,
   waiting,
-  onOpenDashboard,
 }: {
   theme: ShellTheme;
   setTheme: (t: ShellTheme) => void;
@@ -66,8 +65,6 @@ export function MainNav({
   onNewProject: () => void;
   /** How many things are waiting on the owner in the project ProjectOS is pointed at. */
   waiting: number;
-  /** Command mode's own presentation of the project. Absent in Standard, where it does not exist. */
-  onOpenDashboard?: () => void;
 }) {
   return (
     <aside className="os-rail">
@@ -137,11 +134,6 @@ export function MainNav({
           <div className="os-railfoot-label">Appearance</div>
           <ShellThemeToggle theme={theme} setTheme={setTheme} />
         </div>
-        {onOpenDashboard !== undefined && (
-          <button type="button" className="os-raildash" onClick={onOpenDashboard}>
-            Command dashboard
-          </button>
-        )}
         <button
           type="button"
           className="os-settingsbtn"

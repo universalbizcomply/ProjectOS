@@ -129,13 +129,23 @@ export function PlanDetail({
   state,
   now,
   onBack,
+  planId,
 }: {
   state: GovernedProjection;
   now: number;
   onBack: () => void;
+  /**
+   * WHICH plan was opened. Null means the active one.
+   *
+   * Without it this screen always rendered the active plan, whichever row the owner clicked — so a
+   * proposal's own "Open" led to somebody else's plan, or to "there is no active plan" while a plan
+   * was plainly on the screen.
+   */
+  planId?: string | null;
 }) {
   const model = useMemo(() => buildPlansModel(state), [state]);
-  const active = model.rows.find((r) => r.kind === 'active') ?? null;
+  const asked = planId === undefined || planId === null ? null : model.rows.find((r) => r.id === planId) ?? null;
+  const active = asked ?? model.rows.find((r) => r.kind === 'active') ?? null;
 
   const [outcome, setOutcome] = useState<{ busy: boolean; lines: readonly string[]; failed: boolean }>({
     busy: false,
@@ -230,7 +240,16 @@ export function PlanDetail({
 
       <section aria-labelledby="ux-steps-title">
         <h2 className="os-h2 ux-grouphead" id="ux-steps-title">Steps</h2>
-        {state.phases.length === 0 ? (
+        {/*
+          A PROPOSAL HAS NO STEPS OF ITS OWN. Its phases do not exist until it is approved and
+          activated, so showing the ACTIVE plan's steps underneath a proposal would attribute one
+          plan's work to another.
+        */}
+        {active.kind === 'draft' ? (
+          <p className="os-empty">
+            This is a proposal. Its steps are created when you approve it and start it.
+          </p>
+        ) : state.phases.length === 0 ? (
           <p className="os-empty">This plan has no steps recorded.</p>
         ) : (
           <ol className="ux-steplist">

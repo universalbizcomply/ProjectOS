@@ -191,7 +191,7 @@ export function ProjectHome({
   onPrimary: () => void;
   onOpenAdvanced: (which: string) => void;
   /** Opening a plan shows its steps, its evidence and its governed controls. */
-  onOpenPlanDetail: () => void;
+  onOpenPlanDetail: (planId: string) => void;
 }) {
   return (
     <div className="os-stack">
@@ -225,7 +225,7 @@ export function ProjectHome({
         />
       )}
 
-      {tab === 'plans' && <PlansScreen state={state} onOpenPlan={() => onOpenPlanDetail()} />}
+      {tab === 'plans' && <PlansScreen state={state} onOpenPlan={(planId) => onOpenPlanDetail(planId)} />}
 
       {tab === 'activity' && (
         <section aria-label="Activity">

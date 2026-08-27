@@ -99,7 +99,7 @@ describe('plan detail shows the real phases, in order, with real states', () => 
 
   test('a blocked plan is offered no run control at all', () => {
     render(<PlanDetail state={projection({ blockers: ['git is unreachable'] })} now={NOW} onBack={() => {}} />);
-    expect(screen.queryByRole('button', { name: /Start|Resume|Pause/ })).toBe(null);
+    expect(screen.queryByRole('button', { name: /Start|Resume|Stop/ })).toBe(null);
     expect(screen.getByText('git is unreachable')).toBeTruthy();
   });
 });

@@ -2095,7 +2095,11 @@ h1.os-h1 { margin: 0; font-size: 36px; font-weight: 600; letter-spacing: -0.035e
 @media (pointer: coarse), (max-width: 520px) {
   .os-tab, .os-filter, .os-example, .os-seg button,
   .os-pri, .os-sec, .os-ghost, .os-settingsbtn, .os-newproject, .os-raildash, .os-navbtn,
-  .os-advlink, .os-preview, .os-choice { min-height: 44px; }
+  .os-advlink, .os-preview, .os-choice, .ux-navbtn, .ux-projopen, .ux-composerinput { min-height: 44px; }
+  /* The skip link is the FIRST thing a keyboard reaches, so it is the last thing that should be
+     hard to hit. It is offscreen until focused, which is why it went unnoticed — but once focused
+     on a phone it is a real target and was 29px tall. */
+  a.skip { min-height: 44px; display: inline-flex; align-items: center; }
   .os-iconbtn, .os-sendbtn { width: 44px; height: 44px; }
   .os-switch { height: 32px; }
 }
@@ -2220,4 +2224,29 @@ h1.os-h1 { margin: 0; font-size: 36px; font-weight: 600; letter-spacing: -0.035e
 @media (max-width: 640px) {
   .ux-composer { flex-wrap: wrap; }
   .ux-composerinput { flex: 1 1 100%; order: -1; margin-bottom: 8px; }
+}
+
+/* The operator beside the Control Center's context. Presentation only; Command mode only —
+   `.os-operator` is `display: none` everywhere else, so Standard needs no rule at all. */
+.ux-cchead { display: flex; align-items: flex-start; gap: 28px; }
+.ux-ccheadmain { flex: 1 1 auto; min-width: 0; }
+:root[data-shell='command'] .ux-cchead .os-operator { float: none; flex: none; margin: 0; width: 190px; }
+
+/* Compact, never hidden, and never at the cost of the working surface. */
+@media (max-width: 900px) {
+  :root[data-shell='command'] .ux-cchead .os-operator { width: 128px; }
+}
+@media (max-width: 520px) {
+  .ux-cchead { gap: 14px; }
+  :root[data-shell='command'] .ux-cchead .os-operator { width: 92px; }
+  :root[data-shell='command'] .ux-cchead .os-operator-meta { display: none; }
+}
+
+/* The projection's own decoration is drawn at a fixed size — the plinth rings are 160px wide — so
+   below the desktop treatment it is wider than the compact frame and pushed the page sideways by
+   13px. `clip` contains the decoration without touching the artwork's geometry or the vertical
+   axis, and the rings simply scale with the frame they sit in. */
+:root[data-shell='command'] .ux-cchead .os-operator { overflow-x: clip; }
+@media (max-width: 900px) {
+  :root[data-shell='command'] .ux-cchead .os-holo .rings { width: 100%; max-width: 120px; }
 }
