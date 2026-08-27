@@ -37,7 +37,18 @@ import { CLOSURE_SCOPES, DELEGABLE_SCOPES, type DelegableScope } from '@projecto
 import { governanceEngines } from './governanceEngines.js';
 import type { System } from './system.js';
 import { join, projectopsDir } from './context.js';
-import { buildProposal, loadDiscoveryEngine, type DraftRecord, type Proposal } from './planIntake.js';
+import {
+  buildProposal,
+  checkDraftBinding,
+  isRefused,
+  loadDiscoveryEngine,
+  OBJECTIVES_REL,
+  planMaterial,
+  readProjectFacts,
+  type DraftRecord,
+  type Proposal,
+} from './planIntake.js';
+import { validateAuthoredMaterial } from './planAuthoring.js';
 
 export const PLAN_APPROVAL_DELEGATION_SCHEMA_VERSION = '1.0.0';
 export const PLAN_APPROVAL_DECISION_SCHEMA_VERSION = '1.0.0';
@@ -785,6 +796,164 @@ export function materialisePlan(input: MaterialiseInputs): MaterialiseResult {
  * The command-facing operation.
  * --------------------------------------------------------------------------------------------- */
 
+/**
+ * Revalidate a PERSISTED objective-led proposal, without re-authoring it.
+ *
+ * WHY THIS EXISTS AND WHY IT IS NOT `buildProposal`. A corpus-led draft can be re-derived: run
+ * discovery again and the same repository yields the same material, so recomputing is both a
+ * staleness check and a tamper check at once. An authored draft cannot be re-derived — re-asking the
+ * model would produce different words, so the material approved and the material activated would not
+ * be the same plan. The exact material reviewed must be the exact material activated, which means it
+ * has to be READ.
+ *
+ * READ IS NOT TRUSTED. A persisted proposal is a file, and a file is not evidence of its own
+ * validity. So it is read, validated against the same plan material contract it was written under,
+ * re-digested, and the digest compared with the one the decision was taken against. Every mismatch
+ * fails closed. No model is called here.
+ */
+export function revalidateAuthoredDraft(
+  sys: System,
+  root: string,
+  engine: ReturnType<typeof loadDiscoveryEngine>,
+  draft: DraftRecord,
+): { readonly ok: true; readonly proposal: Proposal } | ApprovalRefused {
+  const facts = readProjectFacts(sys, root);
+  if (isRefused(facts)) {
+    return { ok: false, code: 'PROPOSAL_FAILED', problems: [`${facts.code}: ${facts.detail}`] };
+  }
+  const { projectId, repository, branch, baseHead } = facts;
+
+  // (1) THE MATERIAL AS PERSISTED.
+  const material = draft.draft;
+  if (typeof material !== 'object' || material === null || Array.isArray(material)) {
+    return { ok: false, code: 'DRAFT_TAMPERED', problems: ['the persisted draft carries no plan material object'] };
+  }
+
+  // (2) VALIDATE against the existing contract before anything is computed from it.
+  const problems = validateAuthoredMaterial(material);
+  if (problems.length > 0) {
+    return {
+      ok: false,
+      code: 'DRAFT_TAMPERED',
+      problems: [
+        'the persisted authored material no longer satisfies the plan material contract',
+        ...problems,
+      ],
+    };
+  }
+
+  // (3)+(4) RECOMPUTE THE DIGEST OVER WHAT IS ON DISK, and require it to be what was decided.
+  if (typeof draft.planDigest !== 'string' || draft.planDigest === '') {
+    return {
+      ok: false,
+      code: 'DRAFT_SUPERSEDED',
+      problems: ['the draft records no plan digest — regenerate it'],
+    };
+  }
+  const ownerDecisions = Array.isArray(draft.ownerDecisionsRequired) ? draft.ownerDecisionsRequired : [];
+  const planningCorpus = draft.planningCorpus ?? { totalDiscovered: 0, counts: {}, currentPlanningSources: [] };
+  const recomputed = engine.sha256(
+    planMaterial({
+      origin: 'authored',
+      planStatus: draft.planStatus,
+      projectId: draft.projectId,
+      repository: draft.repository,
+      draft: material,
+      ownerDecisionsRequired: ownerDecisions,
+      planningCorpus,
+    }),
+  );
+  if (recomputed !== draft.planDigest) {
+    return {
+      ok: false,
+      code: 'DRAFT_TAMPERED',
+      problems: [
+        `the persisted plan material digests to ${recomputed.slice(7, 19)}, but the draft records ` +
+          `${draft.planDigest.slice(7, 19)}. The material on disk is not the material that was reviewed.`,
+      ],
+    };
+  }
+
+  // (5) BINDING. The corpus-led route gets staleness for free by re-deriving; this route has to ask.
+  const binding = checkDraftBinding(draft, { projectId, repository, head: baseHead });
+  if (binding.length > 0) return { ok: false, code: 'DRAFT_STALE', problems: binding };
+
+  // (5b) THE CITATION IS RE-VERIFIED AGAINST THE FILE IT NAMES.
+  //
+  // AFTER the binding check, deliberately: a draft carried to another checkout cites a document
+  // that does not exist there, and reporting that as tampering would name the wrong problem.
+  //
+  // Digesting the provenance stops it being edited undetected, but it does not make the citation
+  // TRUE: the draft and its objective record are two separate writes, so a crash between them — or
+  // any later edit to the objective — leaves a checksum that no longer describes the document the
+  // plan says it came from. `materialisePlan` copies that checksum into the activated plan's
+  // `sourceDocuments` and `staleness.materialPlanInputs` without re-hashing anything, so this is the
+  // only place the claim can be turned back into evidence.
+  const provenance = Array.isArray(material['provenance']) ? (material['provenance'] as unknown[]) : [];
+  if (provenance.length === 0) {
+    return { ok: false, code: 'DRAFT_TAMPERED', problems: ['the persisted authored material cites no source document'] };
+  }
+  for (const raw of provenance) {
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+      return { ok: false, code: 'DRAFT_TAMPERED', problems: ['a provenance entry is not an object'] };
+    }
+    const entry = raw as Record<string, unknown>;
+    const cited = typeof entry['sourcePath'] === 'string' ? entry['sourcePath'] : '';
+    // An authored plan's only legitimate source is the owner's own objective record. Anything else
+    // is a citation of a document the author was never shown.
+    if (!cited.startsWith(`${OBJECTIVES_REL}/`) || cited.includes('..')) {
+      return {
+        ok: false,
+        code: 'DRAFT_TAMPERED',
+        problems: [`the authored material cites ${JSON.stringify(cited)}, which is not this project's objective record`],
+      };
+    }
+    const text = sys.readText(join(root, ...cited.split('/')));
+    if (text === null) {
+      return { ok: false, code: 'DRAFT_TAMPERED', problems: [`the cited source document '${cited}' is not readable`] };
+    }
+    const actual = engine.sha256(text);
+    if (entry['sourceChecksum'] !== actual) {
+      return {
+        ok: false,
+        code: 'DRAFT_TAMPERED',
+        problems: [
+          `the authored material cites '${cited}' at a checksum that document no longer digests to ` +
+            `(recorded ${String(entry['sourceChecksum']).slice(7, 19)}, actual ${actual.slice(7, 19)})`,
+        ],
+      };
+    }
+  }
+
+
+  // (6) is the caller's: authority, decision and delegation are unchanged and run below.
+  // (7) materialise EXACTLY this proposal — same shape the corpus-led route produces.
+  return {
+    ok: true,
+    proposal: {
+      ok: true,
+      origin: 'authored',
+      projectId,
+      repository,
+      branch,
+      baseHead,
+      planDigest: draft.planDigest,
+      status: draft.planStatus,
+      imported: {
+        duplicates: [],
+        conflicts: [],
+        draft: material,
+        status: draft.planStatus,
+        provenanceErrors: [],
+        planningCorpus,
+      },
+      found: { root, sources: [], skipped: [], truncated: false },
+      ownerDecisionsRequired: ownerDecisions,
+      planningCorpus,
+    },
+  };
+}
+
 export type ApprovalRefusal =
   | 'NO_CONFIG'
   | 'UNSAFE_TARGET_PATH'
@@ -797,6 +966,10 @@ export type ApprovalRefusal =
   | 'DELEGATION_INVALID'
   | 'DECISION_INVALID'
   | 'DRAFT_SUPERSEDED'
+  /** Persisted authored material no longer matches the digest it was reviewed and decided under. */
+  | 'DRAFT_TAMPERED'
+  /** Persisted authored material no longer describes this project, repository or commit. */
+  | 'DRAFT_STALE'
   | 'PLAN_INCOMPLETE'
   | 'PLAN_SCHEMA_INVALID'
   | 'PLAN_NOT_READY';
@@ -1091,28 +1264,40 @@ export function approvePlan(sys: System, root: string, opts: ApproveOptions): Ap
     };
   }
 
-  // RECOMPUTE, don't read. The stored draft is a file; what matters is what this repository proposes
-  // right now. Everything downstream is checked against the recomputed digest.
+  // TWO ORIGINS, TWO REVALIDATION ROUTES — and the route is chosen by a field the digest binds, so a
+  // relabelled draft cannot pick the weaker one. See `planMaterial`.
   const engine = loadDiscoveryEngine();
-  const proposal = buildProposal(sys, root, engine);
-  if (!proposal.ok) return { ok: false, code: 'PROPOSAL_FAILED', problems: [`${proposal.code}: ${proposal.detail}`] };
+  let proposal: Proposal;
+  if (draft.origin === 'authored') {
+    // Objective-led: read the persisted material, validate it, re-digest it, bind it. No model call.
+    const revalidated = revalidateAuthoredDraft(sys, root, engine, draft);
+    if (!revalidated.ok) return revalidated;
+    proposal = revalidated.proposal;
+  } else {
+    // Corpus-led, unchanged. RECOMPUTE, don't read. The stored draft is a file; what matters is what
+    // this repository proposes right now. Everything downstream is checked against the recomputed
+    // digest.
+    const rebuilt = buildProposal(sys, root, engine);
+    if (!rebuilt.ok) return { ok: false, code: 'PROPOSAL_FAILED', problems: [`${rebuilt.code}: ${rebuilt.detail}`] };
 
-  if (typeof draft.planDigest !== 'string') {
-    return {
-      ok: false,
-      code: 'DRAFT_SUPERSEDED',
-      problems: [`draft '${opts.draftId}' records no plan digest — it predates the approval mechanism. Regenerate it.`],
-    };
-  }
-  if (draft.planDigest !== proposal.planDigest) {
-    return {
-      ok: false,
-      code: 'DRAFT_SUPERSEDED',
-      problems: [
-        `the stored draft proposes plan material ${draft.planDigest.slice(7, 19)}, but this repository now ` +
-          `proposes ${proposal.planDigest.slice(7, 19)}. Regenerate the draft and obtain a decision on the new one.`,
-      ],
-    };
+    if (typeof draft.planDigest !== 'string') {
+      return {
+        ok: false,
+        code: 'DRAFT_SUPERSEDED',
+        problems: [`draft '${opts.draftId}' records no plan digest — it predates the approval mechanism. Regenerate it.`],
+      };
+    }
+    if (draft.planDigest !== rebuilt.planDigest) {
+      return {
+        ok: false,
+        code: 'DRAFT_SUPERSEDED',
+        problems: [
+          `the stored draft proposes plan material ${draft.planDigest.slice(7, 19)}, but this repository now ` +
+            `proposes ${rebuilt.planDigest.slice(7, 19)}. Regenerate the draft and obtain a decision on the new one.`,
+        ],
+      };
+    }
+    proposal = rebuilt;
   }
 
   // C11-W2-F5. THE CANDIDATE MAY NOT REDEFINE WHO IS AUTHORISED TO APPROVE IT.

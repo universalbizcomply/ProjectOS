@@ -350,6 +350,8 @@ function planDraftsOf(
         generatedAt: str(d, 'generatedAt'),
         decisionState,
         decisionId: decision === undefined ? null : str(decision, 'decisionId'),
+        // Absent means 'import': that is what every draft written before authoring existed was.
+        origin: str(d, 'origin') === 'authored' ? ('authored' as const) : ('import' as const),
       };
     })
     .filter((v) => v.draftId !== '')

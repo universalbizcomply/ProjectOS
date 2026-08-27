@@ -138,6 +138,15 @@ export interface GovernedPlanDraftView {
   readonly generatedAt: string;
   readonly decisionState: 'none' | 'approved' | 'refused' | 'consumed';
   readonly decisionId: string | null;
+  /**
+   * Which operation produced this proposal: 'authored' from the owner's objective, or 'import' from
+   * repository discovery. Read as 'import' when absent, which is what every record written before
+   * objective-led authoring existed was.
+   *
+   * DISPLAY ONLY, like every other field here. The runtime binds origin into the plan digest and
+   * decides the revalidation route from the persisted record; nothing a renderer shows can change it.
+   */
+  readonly origin?: 'import' | 'authored';
 }
 
 /**

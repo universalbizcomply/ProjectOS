@@ -16,7 +16,8 @@
 import type { CommandContext, CommandResult } from '../context.js';
 import { ok, fail } from '../context.js';
 import { planWorkflow, DEFAULT_WORKERS } from '@projectos/core';
-import { submitObjective, listDrafts, checkDraftBinding, type DraftRecord } from '../planIntake.js';
+import { submitObjective, listDrafts, checkDraftBinding, type DraftRecord, type SubmitOptions } from '../planIntake.js';
+import type { AuthorPort } from '../planAuthoring.js';
 import { approvePlan, FILENAME_ID } from '../planApproval.js';
 import { loadGovernedContext } from '../governedContext.js';
 
@@ -86,16 +87,52 @@ function renderDraftSummary(d: DraftRecord): readonly string[] {
   ];
 }
 
+/**
+ * Compose the objective-led author, or say why there is none.
+ *
+ * THERE IS DELIBERATELY NO FALLBACK. Returning no author makes `plan draft --authored` refuse; the
+ * one thing it must never do is quietly run corpus import instead, because a bounded objective
+ * silently answered by the existing corpus is exactly the defect this phase corrects.
+ *
+ * The live installation resolves provider credentials in the TRUSTED BROKER, never in this process
+ * (see `commands/run.ts`). Authoring therefore has no live composition yet: the broker's request
+ * shape is gatekeeper-specific — `subjectCommit`, `ask`, `phaseId` — and widening it crosses the
+ * installation trust boundary, which is its own owner-gated decision rather than a side effect of
+ * this correction.
+ */
+function composeAuthor(_ctx: CommandContext): { readonly author?: AuthorPort; readonly reason: string } {
+  return {
+    reason:
+      'no author is composed in this build. The installation resolves provider credentials in the ' +
+      'trusted broker rather than in the agent, and the broker does not yet accept a plan-authoring ' +
+      'request. Objective-led authoring is reachable through the API seam (submitObjective with ' +
+      "mode 'authored' and an AuthorPort); wiring it to the broker is a separate owner-gated step.",
+  };
+}
+
 function draft(ctx: CommandContext, flags: Record<string, string | boolean>): CommandResult {
   const raw = flags['objective'];
-  const result = submitObjective(ctx.sys, ctx.root, typeof raw === 'string' ? raw : undefined);
+  // DEFAULT UNCHANGED. `plan draft` stays corpus-led import so no existing behaviour regresses;
+  // objective-led authoring is opted into explicitly until it has a live composition.
+  let options: SubmitOptions | undefined;
+  if (flags['authored'] === true) {
+    const composed = composeAuthor(ctx);
+    if (composed.author === undefined) {
+      return fail(1, [`REFUSED (AUTHOR_NOT_COMPOSED): ${composed.reason}`]);
+    }
+    options = { mode: 'authored', author: composed.author };
+  }
+  const result = submitObjective(ctx.sys, ctx.root, typeof raw === 'string' ? raw : undefined, undefined, options);
   if (!result.ok) {
     return fail(1, [`REFUSED (${result.code}): ${result.detail}`]);
   }
   const { objective, draftRecord, objectivePath, draftPath } = result;
   return ok([
-    'Objective received. ProjectOS generated a draft plan.',
+    draftRecord.origin === 'authored'
+      ? 'Objective received. ProjectOS authored a draft plan from it.'
+      : 'Objective received. ProjectOS generated a draft plan by importing this repository.',
     '',
+    `  origin:              ${draftRecord.origin ?? 'import'}`,
     `  objective id:        ${objective.objectiveId}`,
     ...renderDraftSummary(draftRecord),
     '',
