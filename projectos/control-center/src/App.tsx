@@ -21,7 +21,9 @@ import { SafetyProviders } from './owner/SafetyProviders';
 import { CommandCenterHome } from './owner/CommandCenterHome';
 import { useShellTheme } from './owner/ShellTheme';
 import { ForgeConsole } from './forge/ForgeConsole';
-import { ProjectRail } from './owner/ProjectRail';
+import { MainNav, type NavDestination, type NavRecent } from './ux/MainNav';
+import { ProjectsScreen } from './ux/ProjectsScreen';
+import { buildProjectsModel } from './ux/projectsModel';
 import { ProjectWorkspace, type WorkspaceTab } from './owner/ProjectWorkspace';
 import { OwnerComposer } from './owner/OwnerComposer';
 import { AddProjectWizard } from './owner/AddProjectWizard';
@@ -53,7 +55,17 @@ import type { Session } from '@supabase/supabase-js';
  * `dashboard` EXISTS ONLY IN COMMAND MODE. In Standard it falls through to the workspace; rendering
  * it there leaves an empty canvas, and that bug has happened here once already.
  */
-type View = 'dashboard' | 'projects' | 'wizard' | 'new' | 'settings' | 'recent' | 'advanced';
+type View =
+  | 'projects'   // the list of every governed project — the landing surface
+  | 'project'    // one project: overview, plans, activity, files, advanced
+  | 'control'    // the universal command surface
+  | 'health'     // spending, connections, runtime, execution
+  | 'settings'
+  | 'wizard'     // add a project
+  | 'dashboard'  // Command-mode presentation of the project, not a separate destination
+  | 'new'        // start something new
+  | 'recent'     // work done
+  | 'advanced';  // the retained surfaces, reachable and unredesigned
 type AdvancedView =
   | 'live'
   | 'workflow'
@@ -254,6 +266,49 @@ export function Shell({
   const projectName = live?.projectName ?? selected?.projectName ?? 'ProjectOS';
   const projectId = live?.projectId ?? selected?.projectId ?? '';
 
+  /**
+   * SCREEN 1's data, and the rail's.
+   *
+   * Both read the SAME two sources — the inventory and the one governed projection — through the
+   * same pure model. The rail's recents are a shortcut into the Projects screen's job, never a
+   * second answer to it, so there is nothing here for the two to disagree about.
+   */
+  const projectsModel = useMemo(() => buildProjectsModel(inventory, governed, Date.now()), [inventory, governed]);
+  const recents: readonly NavRecent[] = useMemo(
+    () =>
+      projectsModel.rows.slice(0, 4).map((r) => ({
+        projectId: r.projectId,
+        projectName: r.projectName,
+        state: r.live ? railState?.state ?? 'ready' : 'ready',
+        selected: r.live,
+      })),
+    [projectsModel, railState],
+  );
+
+  /** Which of the four destinations is lit. A project screen still belongs to Projects. */
+  const navActive: NavDestination =
+    view === 'control' ? 'control'
+    : view === 'health' ? 'health'
+    : view === 'settings' ? 'settings'
+    : 'projects';
+
+  /**
+   * Open a project: select it in the runtime, THEN show it.
+   *
+   * The order matters and the failure path more so. A refusal leaves the owner exactly where they
+   * were with the runtime's own words — never on a project screen describing a project ProjectOS
+   * was never pointed at.
+   */
+  async function openProject(id: string): Promise<void> {
+    setMapOpen(false);
+    const outcome = await requestGovernedCommand(tauriBridge, 'project.select', { projectId: id });
+    if (!outcome.ok) {
+      say(outcome.lines[0] ?? 'ProjectOS refused that switch.');
+      return;
+    }
+    go('project');
+  }
+
   const noProjects = inventory !== null && inventory.projects.length === 0;
   // `dashboard` is Command-only; in Standard it falls through to the workspace.
   const isDash = isCommand && view === 'dashboard' && !noProjects;
@@ -325,14 +380,15 @@ export function Shell({
       {atmosphere}
       <a className="skip" href="#main">Skip to content</a>
       <div className="os-shell">
-        <ProjectRail
+        <MainNav
           theme={theme}
           setTheme={changeTheme}
-          selectedState={railState}
+          active={navActive}
+          onNavigate={(to) => go(to as View)}
+          recents={recents}
+          onOpenProject={(id) => void openProject(id)}
           onNewProject={() => go('wizard')}
-          onOpenSettings={() => go('settings')}
-          onOpenDashboard={() => go('dashboard')}
-          onOpenProject={() => go('projects')}
+          waiting={railState?.waiting ?? 0}
         />
         <main className="os-canvas" id="main" tabIndex={-1}>
           <div className={`os-column ${enterClass}`}>
@@ -341,7 +397,17 @@ export function Shell({
                 your first project" stacked above whatever the owner had actually opened. */}
             {noProjects && view === 'projects' && <FirstRun onAddProject={() => go('wizard')} />}
 
+            {/* SCREEN 1. The one project picker, replacing the rail list, the constellation and the
+                legacy selector. Opening a row is a governed `project.select` and nothing else. */}
             {!noProjects && view === 'projects' && (
+              <ProjectsScreen
+                model={projectsModel}
+                onOpen={(id) => void openProject(id)}
+                onAddProject={() => go('wizard')}
+              />
+            )}
+
+            {!noProjects && view === 'project' && (
               <ProjectWorkspace
                 tab={tab}
                 setTab={setTab}

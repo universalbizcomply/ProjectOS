@@ -2102,3 +2102,60 @@ h1.os-h1 { margin: 0; font-size: 36px; font-weight: 600; letter-spacing: -0.035e
 
 /* Screen-reader-only utility, matching the existing `.vh` already in this sheet. */
 .os-vh { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+/* ===========================================================================
+   TARGET UX ARCHITECTURE — PROJECTOS-CONTROL-CENTER-UX-ARCHITECTURE1A.
+
+   Built entirely from the accepted token layer. No new colour, no new type
+   scale, no new radius vocabulary: the JARVIS identity is frozen, and this
+   layer only arranges the screens the accepted architecture adds.
+   =========================================================================== */
+
+.ux-screenhead { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; flex-wrap: wrap; margin-bottom: 26px; }
+
+.ux-projlist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.ux-projrow {
+  display: flex; align-items: flex-start; gap: 16px; padding: 18px 20px; min-width: 0;
+  background: var(--card); border: 1px solid var(--line-soft); border-radius: 12px;
+}
+.ux-projbody { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.ux-projhead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.ux-projname { font-size: 16px; font-weight: 600; letter-spacing: -0.2px; min-width: 0; }
+.ux-projline { font-size: 13.5px; color: var(--dim); overflow-wrap: anywhere; }
+.ux-projstatus { font-size: 13px; font-weight: 600; }
+.ux-projwhy, .ux-projproblem { font-size: 13px; color: var(--dim); overflow-wrap: anywhere; }
+.ux-projproblem { color: var(--warn-ink, var(--dim)); }
+/* Status is never colour alone: the dot always sits beside its word. */
+.ux-needsyou { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--dim); }
+.ux-needsyou i { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.ux-projopen { flex: none; }
+
+.ux-notice { font-size: 13.5px; color: var(--dim); margin: 0 0 12px; overflow-wrap: anywhere; }
+
+/* Below 640 the row stacks and the action goes full width, so nothing is ever
+   pushed off-screen and the primary action stays reachable. */
+@media (max-width: 640px) {
+  .ux-projrow { flex-wrap: wrap; }
+  .ux-projopen { width: 100%; }
+  .ux-screenhead { margin-bottom: 20px; }
+}
+
+/* The four destinations. Same rail, same treatment; only its middle changed job. */
+.ux-nav { display: flex; flex-direction: column; gap: 4px; margin-bottom: 20px; }
+.ux-navbtn {
+  display: flex; flex-direction: column; gap: 2px; align-items: flex-start; text-align: left;
+  padding: 10px 11px; margin: 0 -4px; border: 0; border-radius: 10px; background: transparent;
+  color: inherit; cursor: pointer; font: inherit; line-height: normal; min-width: 0;
+  transition: background .14s;
+}
+.ux-navbtn:hover { background: var(--card-2); }
+.ux-navbtn[data-active='1'] { background: var(--card-2); }
+.ux-navlabel { display: flex; align-items: center; gap: 8px; font-size: 14.5px; font-weight: 600; }
+.ux-navhint { font-size: 12px; color: var(--faint); }
+.ux-navcount {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px;
+  padding: 0 6px; border-radius: 999px; font-size: 11.5px; font-weight: 700;
+  background: var(--acc); color: var(--acc-ink, #fff);
+}
+:root[data-shell='command'] .ux-navbtn { font-family: var(--font-mono); letter-spacing: .04em; }
+:root[data-shell='command'] .ux-navlabel { text-transform: uppercase; font-size: 13px; }
