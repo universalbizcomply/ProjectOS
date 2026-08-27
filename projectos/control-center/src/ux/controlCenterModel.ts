@@ -42,7 +42,7 @@ export type Intent =
   /** Answer from what is already known. Nothing is dispatched. */
   | { kind: 'answer'; lines: readonly string[] }
   /** Move the owner somewhere. Nothing is dispatched. */
-  | { kind: 'navigate'; to: 'plans' | 'activity' | 'projects'; say: string }
+  | { kind: 'navigate'; to: 'plans' | 'activity' | 'projects' | 'health'; say: string }
   /** ProjectOS cannot do it, and says what would have to change. */
   | { kind: 'refusal'; lines: readonly string[] }
   /** Start the objective flow; the panel below the composer takes it from here. */
@@ -168,6 +168,18 @@ export function resolveIntent(raw: string, state: GovernedProjection | null): In
     };
   }
 
+  /*
+   * SPENDING AND CONNECTIONS, AHEAD OF THE ACTION BRANCHES — because they were unreachable behind
+   * them. "What did this run cost" contains the word `run` and was routed into execution; "I want
+   * to know what I've spent" matched the phrase `i want to` and was routed into objective intake.
+   * Both are ordinary ways to ask about money, and neither reached the screen that answers it. A
+   * sentence naming spend, cost, budget, health or connections is a question about the system, so
+   * it is resolved as one first.
+   */
+  if (has(t, 'spend', 'spending', 'spent', 'budget', 'cost', 'costs', 'health', 'connections', 'connection')) {
+    return { kind: 'navigate', to: 'health', say: 'Opening health and usage.' };
+  }
+
   // ── Starting something new. This creates a PROPOSAL and nothing else. ──
   if (has(t, 'start something new', 'new plan', 'start a new', 'i want to')) {
     return { kind: 'objective', say: 'Tell ProjectOS what you want to achieve.' };
@@ -235,31 +247,6 @@ export function resolveIntent(raw: string, state: GovernedProjection | null): In
   }
   if (has(t, 'open the plan', 'open plan', 'show the plan', 'see the plan', 'the active plan')) {
     return { kind: 'navigate', to: 'plans', say: 'Opening the plan.' };
-  }
-  /*
-   * SPENDING IS ANSWERED, NOT NAVIGATED TO — because Health does not exist yet.
-   *
-   * Sending the owner to a destination that has not been built would land them on an empty canvas,
-   * which is a worse answer than the figures themselves. The numbers below are the ledger's own,
-   * re-stated and never estimated; when Health lands this becomes navigation.
-   */
-  if (has(t, 'spend', 'spending', 'spent', 'budget', 'cost', 'costs', 'health', 'connections')) {
-    const g = state.gatekeeperStatus;
-    if (!g.configured || g.budget === null) {
-      return { kind: 'answer', lines: ['No spending limit is configured for this project.'] };
-    }
-    const usd = (micro: number): string => `$${(Math.max(0, micro) / 1_000_000).toFixed(2)}`;
-    return {
-      kind: 'answer',
-      lines: [
-        `Spent this month: ${usd(g.budget.spentThisMonthMicroUsd)} of ${usd(g.budget.hardStopAtMicroUsd)}.`,
-        g.budget.status === 'STOPPED'
-          ? 'The limit has been reached, so nothing that costs money will run.'
-          : g.budget.status === 'WARNING'
-            ? 'This is past the warning point.'
-            : 'This is within the limit.',
-      ],
-    };
   }
   if (has(t, 'switch project', 'another project', 'other project', 'projects')) {
     return { kind: 'navigate', to: 'projects', say: 'Opening your projects.' };

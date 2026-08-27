@@ -169,20 +169,19 @@ describe('questions are answered from what is already known', () => {
     expect(i.kind).toBe('navigate');
   });
 
-  test('spending is ANSWERED with the ledger figures, not sent to a screen that does not exist', () => {
-    const i = resolveIntent('what am I spending?', projection());
-    expect(i.kind).toBe('answer');
-    if (i.kind !== 'answer') return;
-    expect(i.lines[0]).toContain('Spent this month');
-  });
-
-  test('with no budget configured it says so rather than printing zero', () => {
-    const i = resolveIntent('what is my budget?', projection({
-      gatekeeperStatus: { configured: false, budget: null, spentThisPhaseMicroUsd: 0, spentThisProjectMicroUsd: 0, callCount: 0, lastCall: null },
-    }));
-    expect(i.kind).toBe('answer');
-    if (i.kind !== 'answer') return;
-    expect(i.lines.join(' ')).toContain('No spending limit is configured');
+  test('spending now goes to Health, which owns that answer', () => {
+    /*
+     * THIS USED TO ANSWER INLINE, and correctly so: Health did not exist, and routing an owner to an
+     * unbuilt destination would have landed them on an empty canvas. Health is built, so the
+     * question reaches the one screen that owns it — and the figures themselves are proved against
+     * the ledger in healthModel.test.ts rather than restated here.
+     */
+    for (const said of ['what am I spending?', 'what is my budget?', 'are my connections okay?']) {
+      const i = resolveIntent(said, projection());
+      expect(i.kind).toBe('navigate');
+      if (i.kind !== 'navigate') continue;
+      expect(i.to).toBe('health');
+    }
   });
 });
 

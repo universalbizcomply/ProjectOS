@@ -23,7 +23,9 @@ import type { GovernedConnectionView, GovernedProjection } from '../governed/typ
 
 /** Plain-language label and tone per status. The owner should not have to learn these words. */
 const STATUS: Readonly<Record<GovernedConnectionView['status'], { label: string; tone: string }>> = {
-  STORED: { label: 'Connected', tone: 'ok' },
+  // STORED IS NOT CONNECTED. ProjectOS knows a credential is on file and nothing more — it has never
+  // contacted the provider, and there is no liveness probe in the governed engine to ask with.
+  STORED: { label: 'Stored', tone: 'ok' },
   MISSING: { label: 'Not set up', tone: 'warn' },
   EXPIRED: { label: 'Expired', tone: 'crit' },
   UNMANAGED: { label: 'Set up outside ProjectOS', tone: 'mut' },

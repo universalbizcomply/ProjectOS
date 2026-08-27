@@ -49,7 +49,7 @@ export function ControlCenter({
 }: {
   state: GovernedProjection | null;
   now: number;
-  onNavigate: (to: 'plans' | 'activity' | 'projects') => void;
+  onNavigate: (to: 'plans' | 'activity' | 'projects' | 'health') => void;
   /**
    * Opening the objective panel — IN PLACE, not somewhere else.
    *

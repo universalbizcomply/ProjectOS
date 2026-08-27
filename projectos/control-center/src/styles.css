@@ -2250,3 +2250,19 @@ h1.os-h1 { margin: 0; font-size: 36px; font-weight: 600; letter-spacing: -0.035e
 @media (max-width: 900px) {
   :root[data-shell='command'] .ux-cchead .os-holo .rings { width: 100%; max-width: 120px; }
 }
+
+/* Health. Four plain sections; no graphs, no telemetry, no second dashboard. */
+.ux-healthhead { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 10px; }
+.ux-healthstate { display: inline-flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 600; color: var(--dim); }
+.ux-healthnote { margin: 0 0 8px; font-size: 13.5px; color: var(--dim); overflow-wrap: anywhere; }
+.ux-healthfacts { display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr); gap: 6px 20px; margin: 10px 0 0; font-size: 13.5px; }
+.ux-healthfacts > div { display: contents; }
+.ux-healthfacts dt { color: var(--faint); }
+.ux-healthfacts dd { margin: 0; overflow-wrap: anywhere; min-width: 0; }
+.ux-healthdetail { margin-top: 14px; font-size: 13.5px; }
+.ux-healthdetail summary { cursor: pointer; color: var(--faint); }
+
+@media (max-width: 520px) {
+  .ux-healthfacts { grid-template-columns: 1fr; gap: 2px 0; }
+  .ux-healthfacts dt { margin-top: 8px; }
+}

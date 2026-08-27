@@ -272,8 +272,17 @@ export function connectionStandIn(c: GovernedConnectionView): string {
   return c.fingerprint !== null ? `id ${c.fingerprint}` : c.credential;
 }
 
+/**
+ * A STORED CREDENTIAL IS NOT A HEALTHY PROVIDER, and this table used to say it was.
+ *
+ * `STORED` was labelled "Connected" in the working colour. ProjectOS knows only that a credential is
+ * on file: it has never contacted the provider, there is no liveness probe anywhere in the governed
+ * engine, and "Connected" is a claim about something at the other end of a wire nobody has pulled.
+ * The label now says what is actually known, and the state is the neutral one — a green dot beside
+ * it would make the same claim again in colour.
+ */
 const CONNECTION_STATUS: Readonly<Record<GovernedConnectionView['status'], { label: string; state: ProjectState }>> = {
-  STORED: { label: 'Connected', state: 'working' },
+  STORED: { label: 'Stored', state: 'ready' },
   MISSING: { label: 'Not set up', state: 'waiting' },
   EXPIRED: { label: 'Expired', state: 'blocked' },
   UNMANAGED: { label: 'Set up outside ProjectOS', state: 'ready' },

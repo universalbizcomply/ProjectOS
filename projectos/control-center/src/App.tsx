@@ -25,6 +25,7 @@ import { ProjectsScreen } from './ux/ProjectsScreen';
 import { ProjectHome, type ProjectTab } from './ux/ProjectHome';
 import { PlanDetail } from './ux/PlanDetail';
 import { ControlCenter, type ControlCenterEntry } from './ux/ControlCenter';
+import { HealthScreen } from './ux/HealthScreen';
 import { buildProjectsModel } from './ux/projectsModel';
 import { AddProjectWizard } from './owner/AddProjectWizard';
 import { StartSomethingNew } from './owner/StartSomethingNew';
@@ -185,7 +186,7 @@ export function App() {
  * Which of the four accepted destinations are BUILT. Settings is always present at the rail's foot.
  * Control Center and Health join this list when their screens land.
  */
-const AVAILABLE_DESTINATIONS: readonly NavDestination[] = ['projects', 'control'];
+const AVAILABLE_DESTINATIONS: readonly NavDestination[] = ['projects', 'control', 'health'];
 
 export function Shell({
   canChangePassword,
@@ -404,6 +405,8 @@ export function Shell({
               </div>
             )}
 
+            {view === 'health' && <HealthScreen governed={governed} />}
+
             {view === 'control' && (
               <ControlCenter
                 state={live}
@@ -412,6 +415,7 @@ export function Shell({
                 setEntries={(u) => setCcEntries(u)}
                 onNavigate={(to) => {
                   if (to === 'projects') return go('projects');
+                  if (to === 'health') return go('health');
                   setProjectTab(to === 'plans' ? 'plans' : 'activity');
                   go('project');
                 }}
