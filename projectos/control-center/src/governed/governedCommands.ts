@@ -94,6 +94,23 @@ export interface GovernedCommandArgs {
   readonly decision?: string;
   /** Plain-language owner intent. Data, never an instruction. */
   readonly objective?: string;
+  /**
+   * Whether this objective is to be ANSWERED by an author, or merely used to import what the
+   * repository already describes. `'true'` or `'false'`, and nothing else.
+   *
+   * WHY THE VERB HAS TO CARRY IT. `plan draft` runs two different operations — objective-led
+   * authoring (A) and corpus-led import (B) — and it chooses between them on a flag. This channel
+   * could not send that flag, so every objective the owner submitted from the Control Centre took
+   * route B: "Start Something New" reached the surface but never reached the author, and no provider
+   * call could ever be made from the product. The runtime had the capability and the surface had no
+   * way to ask for it.
+   *
+   * IT SELECTS AN OPERATION; IT GRANTS NOTHING. Asking for authoring does not make it possible: the
+   * installation allowlist, the project's committed authoring permission and the spend ceiling are
+   * all still asked, on the trusted side, and a project without them gets a refusal rather than a
+   * quiet fall back to import.
+   */
+  readonly authored?: string;
   /** WHICH proposal the owner is activating. An identifier, not a path and not authority. */
   readonly draftId?: string;
   /**
@@ -274,6 +291,9 @@ const DECISIONS: readonly string[] = ['approved', 'rejected'];
  */
 const PLAN_VERDICTS: readonly string[] = ['approve', 'reject'];
 
+/** The only two things `authored` may say. A boolean-shaped argument is still an argument. */
+const AUTHORED_VALUES: readonly string[] = ['true', 'false'];
+
 /**
  * Arguments each verb ACCEPTS, and which of them it REQUIRES.
  *
@@ -300,8 +320,8 @@ const ARG_SPEC: Readonly<
   'phase.close': { accepts: ['phaseId', 'note'], requires: ['phaseId'] },
   'approval.request': { accepts: ['approvalId', 'action', 'role'], requires: ['approvalId', 'action'] },
   'approval.decide': { accepts: ['approvalId', 'decision', 'role', 'note'], requires: ['approvalId', 'decision'] },
-  // Objective only. There is nothing else to supply, and nothing else may be supplied.
-  'plan.draft': { accepts: ['objective'], requires: ['objective'] },
+  // An objective, and which of the two operations is to answer it. Nothing else.
+  'plan.draft': { accepts: ['objective', 'authored'], requires: ['objective'] },
   // Which proposal, and which way. The note is the owner's own words and decides nothing; it is
   // bounded prose like every other note in this table. Nothing else is accepted — see the verb list.
   'plan.decide': { accepts: ['draftId', 'decision', 'note'], requires: ['draftId', 'decision'] },
@@ -392,6 +412,13 @@ export function validateGovernedCommand(value: unknown): GovernedCommandValidati
   if (verb === 'approval.decide' && !DECISIONS.includes(args['decision'] as string)) {
     return { ok: false, code: 'INVALID_ARGUMENT', detail: `'${args['decision']}' is not a decision` };
   }
+  if (verb === 'plan.draft' && args['authored'] !== undefined && !AUTHORED_VALUES.includes(args['authored'])) {
+    return {
+      ok: false,
+      code: 'INVALID_ARGUMENT',
+      detail: `'${args['authored']}' is not a value for 'authored'; it is ${AUTHORED_VALUES.join(' or ')}`,
+    };
+  }
   if (verb === 'plan.decide' && !PLAN_VERDICTS.includes(args['decision'] as string)) {
     return {
       ok: false,
@@ -452,8 +479,17 @@ export function toAgentInvocation(request: GovernedCommandRequest): GovernedInvo
     case 'run.resume':
     case 'run.stop':
       return null;
+    // WHICH OPERATION ANSWERS THE OBJECTIVE travels with it. Absent means import, which is what
+    // every caller before this meant and what the canonical command still defaults to.
     case 'plan.draft':
-      return { command: 'plan', positionals: ['draft'], flags: { objective: a.objective as string } };
+      return {
+        command: 'plan',
+        positionals: ['draft'],
+        flags:
+          a.authored === 'true'
+            ? { objective: a.objective as string, authored: 'true' }
+            : { objective: a.objective as string },
+      };
     // `plan decide` writes the governed decision record and commits exactly that one file. The two
     // identifiers below are data: which proposal, and which way. Everything that carries authority is
     // derived downstream from committed records, and a wrong or hostile value here can only produce a

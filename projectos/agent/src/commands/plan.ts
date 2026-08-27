@@ -253,9 +253,16 @@ function composeAuthor(ctx: CommandContext): { readonly author?: AuthorPort; rea
 function draft(ctx: CommandContext, flags: Record<string, string | boolean>): CommandResult {
   const raw = flags['objective'];
   // DEFAULT UNCHANGED. `plan draft` stays corpus-led import so no existing behaviour regresses;
-  // objective-led authoring is opted into explicitly until it has a live composition.
+  // objective-led authoring is opted into explicitly.
+  //
+  // TWO CALLERS, TWO SPELLINGS OF THE SAME REQUEST. The CLI's flag parser yields boolean `true` for
+  // a bare `--authored`; the governed channel carries typed STRING arguments and can only say
+  // `'true'`. Reading only the boolean is why the Control Centre could never author: it sent the
+  // request and this line silently declined it, so "Start Something New" ran import and made no
+  // provider call at all. Both spellings are the same intent and both are read.
+  const wantsAuthoring = flags['authored'] === true || flags['authored'] === 'true';
   let options: SubmitOptions | undefined;
-  if (flags['authored'] === true) {
+  if (wantsAuthoring) {
     const composed = composeAuthor(ctx);
     if (composed.author === undefined) {
       return fail(1, [`REFUSED (AUTHOR_NOT_COMPOSED): ${composed.reason}`]);

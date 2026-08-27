@@ -132,7 +132,20 @@ export function ObjectiveIntake({
 
   async function submit(): Promise<void> {
     setOutcome({ busy: true, lines: ['Asking ProjectOS to look at the project and propose a plan…'], failed: false });
-    const result = await requestGovernedCommand(tauriBridge, 'plan.draft', { objective: trimmed });
+    // START SOMETHING NEW IS THE AUTHORED OPERATION, and says so.
+    //
+    // This screen exists to answer ONE objective with a bounded proposal. Corpus-led import is a
+    // different operation — it reconciles what the repository already describes — and it is not what
+    // an owner typing a sentence is asking for. Sending no operation at all meant every objective
+    // submitted here was answered by import, which is the defect this whole path was built to fix.
+    //
+    // There is NO FALLBACK. If authoring cannot be composed — no gatekeeper configuration, no
+    // committed authoring permission, no budget — the runtime refuses and says why, verbatim. It
+    // does not quietly import instead.
+    const result = await requestGovernedCommand(tauriBridge, 'plan.draft', {
+      objective: trimmed,
+      authored: 'true',
+    });
     // The runtime's own words, whether it proposed or refused. Never reworded, never summarised.
     setOutcome({ busy: false, lines: result.lines, failed: !result.ok });
   }

@@ -61,6 +61,24 @@ describe('the owner surface never claims to approve', () => {
     }
   });
 
+  test('Start Something New asks for AUTHORING, never for corpus import', async () => {
+    // THE DEFECT THIS PINS. This screen sent only the objective, so the runtime answered it by
+    // importing whatever the repository already described — the author was never reached and no
+    // provider call could be made from the product. The screen exists to answer ONE objective with a
+    // bounded proposal; that is the authored operation, and it now says so.
+    mount();
+    const box = screen.getByLabelText('Objective');
+    typeInto(box, 'Create the smallest credible one-phase read-only plan and report on it please.');
+    await act(async () => {
+      screen.getByRole('button', { name: /propose a plan/i }).click();
+    });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.verb).toBe('plan.draft');
+    expect(sent[0]!.args['authored']).toBe('true');
+    // And nothing else: no project, no path, no authority of any kind.
+    expect(Object.keys(sent[0]!.args).sort()).toEqual(['authored', 'objective']);
+  });
+
   test('it states plainly that approving is a separate, recorded decision that is the owner’s', () => {
     mount();
     expect(document.body.textContent).toMatch(/approving is a separate, recorded decision/i);

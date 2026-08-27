@@ -432,6 +432,51 @@ describe('project.select carries an id and nothing else', () => {
  *
  * Added in PROJECTOS-LIVE-PLAN-AUTHORING-AND-OWNER-DECISION1A.
  */
+/**
+ * `plan.draft` must be able to ASK FOR AUTHORING.
+ *
+ * THE DEFECT THIS PINS. The verb accepted only `objective`, and the canonical command authors only
+ * when it is told to — so every objective submitted from the Control Centre took the corpus-import
+ * route. "Start Something New" reached the surface and never reached the author: the runtime had the
+ * capability, the surface had no way to ask for it, and no provider call could be made from the
+ * product at all. Found during the dev-tree live proof, before any paid dispatch.
+ */
+describe('W8b plan.draft carries which operation answers the objective', () => {
+  const draft = (args: Record<string, unknown>): unknown => req({ verb: 'plan.draft', args });
+  const OBJ = 'Make the ordering flow simple enough to need no training at all.';
+
+  test('authored:true reaches the canonical command as the authoring flag', () => {
+    const inv = toAgentInvocation(valid(draft({ objective: OBJ, authored: 'true' })));
+    expect(inv).toEqual({ command: 'plan', positionals: ['draft'], flags: { objective: OBJ, authored: 'true' } });
+  });
+
+  test('absent means import, which is what every earlier caller meant', () => {
+    const inv = toAgentInvocation(valid(draft({ objective: OBJ })));
+    expect(inv).toEqual({ command: 'plan', positionals: ['draft'], flags: { objective: OBJ } });
+    expect(inv!.flags).not.toHaveProperty('authored');
+  });
+
+  test('authored:false is import, stated rather than assumed', () => {
+    const inv = toAgentInvocation(valid(draft({ objective: OBJ, authored: 'false' })));
+    expect(inv!.flags).not.toHaveProperty('authored');
+  });
+
+  test('anything but true or false is refused', () => {
+    for (const bad of ['yes', '1', 'TRUE', '', 'authored', '--authored']) {
+      const r = validateGovernedCommand(draft({ objective: OBJ, authored: bad }));
+      expect(r.ok, bad).toBe(false);
+    }
+  });
+
+  test('asking for authoring grants nothing — it selects an operation', () => {
+    // The flag says WHICH operation answers the objective. Whether it CAN run is decided downstream
+    // by the installation allowlist, the project's committed authoring permission and the spend
+    // ceiling, none of which this channel can reach.
+    const inv = toAgentInvocation(valid(draft({ objective: OBJ, authored: 'true' })));
+    expect(Object.keys(inv!.flags).sort()).toEqual(['authored', 'objective']);
+  });
+});
+
 describe('W9 plan.decide records a decision and asserts no authority', () => {
   const decide = (args: Record<string, unknown>): unknown => req({ verb: 'plan.decide', args });
 

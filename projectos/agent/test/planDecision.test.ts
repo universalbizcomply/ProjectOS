@@ -760,3 +760,37 @@ echo ran > "${posix}"
     expect(w.git('log', '--oneline').split(String.fromCharCode(10))).toHaveLength(1);
   });
 });
+
+/* ------------------------------------------------------------------------------------------------
+ * The surface must be able to ASK for authoring.
+ * --------------------------------------------------------------------------------------------- */
+
+describe('plan draft reads both spellings of the same request', () => {
+  const strip = (t: string): string =>
+    t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+  const planSrc = (): string =>
+    strip(readFileSync(pjoin(process.cwd(), 'src', 'commands', 'plan.ts'), 'utf8'));
+
+  test('the boolean flag and the string flag both mean authoring', () => {
+    // THE DEFECT THIS PINS. The CLI's parser yields boolean `true` for a bare `--authored`; the
+    // governed channel carries typed STRING arguments and can only say `'true'`. Reading only the
+    // boolean meant the Control Centre sent the request and the command silently declined it — every
+    // objective an owner submitted from the product was answered by corpus import, and no provider
+    // call could be made from the surface at all.
+    const src = planSrc();
+    expect(src).toContain("flags['authored'] === true");
+    expect(src).toContain("flags['authored'] === 'true'");
+  });
+
+  test('authoring is still OPT-IN — a bare draft is import, and there is no fallback either way', () => {
+    const src = planSrc();
+    // Opting in is required...
+    expect(src).toContain('if (wantsAuthoring)');
+    // ...and when it is asked for and cannot be composed, it REFUSES rather than importing.
+    expect(src).toContain('AUTHOR_NOT_COMPOSED');
+    const refusalIdx = src.indexOf('AUTHOR_NOT_COMPOSED');
+    const submitIdx = src.indexOf('submitObjective(ctx.sys');
+    expect(refusalIdx).toBeGreaterThan(-1);
+    expect(refusalIdx).toBeLessThan(submitIdx);
+  });
+});
