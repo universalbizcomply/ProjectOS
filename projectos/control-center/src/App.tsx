@@ -23,15 +23,12 @@ import { useShellTheme } from './owner/ShellTheme';
 import { ForgeConsole } from './forge/ForgeConsole';
 import { MainNav, type NavDestination, type NavRecent } from './ux/MainNav';
 import { ProjectsScreen } from './ux/ProjectsScreen';
+import { ProjectHome, type ProjectTab } from './ux/ProjectHome';
 import { buildProjectsModel } from './ux/projectsModel';
-import { ProjectWorkspace, type WorkspaceTab } from './owner/ProjectWorkspace';
-import { OwnerComposer } from './owner/OwnerComposer';
 import { AddProjectWizard } from './owner/AddProjectWizard';
 import { StartSomethingNew } from './owner/StartSomethingNew';
-import { WorkDone } from './owner/WorkDone';
 import { SettingsScreen } from './owner/SettingsScreen';
 import { FirstRun } from './owner/FirstRun';
-import { Constellation } from './owner/Constellation';
 import { useCalmMotion, useParallax } from './owner/motion';
 import { useOwnerConversation } from './owner/ownerConversation';
 import { buildContinueWorking } from './owner/continueWorkingModel';
@@ -186,6 +183,12 @@ export function App() {
  * Exported so the design-fidelity proof harness can mount the real shell against a scripted
  * projection. Production still enters through `App`, which owns the auth gate above.
  */
+/**
+ * Which of the four accepted destinations are BUILT. Settings is always present at the rail's foot.
+ * Control Center and Health join this list when their screens land.
+ */
+const AVAILABLE_DESTINATIONS: readonly NavDestination[] = ['projects'];
+
 export function Shell({
   canChangePassword,
   onChangePassword,
@@ -198,9 +201,7 @@ export function Shell({
   const { calm, setCalm } = useCalmMotion();
   const [view, setView] = useState<View>('projects');
   const [advanced, setAdvanced] = useState<AdvancedView>('live');
-  const [tab, setTab] = useState<WorkspaceTab>('overview');
-  const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [mapOpen, setMapOpen] = useState(false);
+  const [projectTab, setProjectTab] = useState<ProjectTab>('overview');
   const [sweeping, setSweeping] = useState(false);
   const [enterTick, setEnterTick] = useState(0);
   const [toast, setToast] = useState<string | null>(null);
@@ -300,7 +301,6 @@ export function Shell({
    * was never pointed at.
    */
   async function openProject(id: string): Promise<void> {
-    setMapOpen(false);
     const outcome = await requestGovernedCommand(tauriBridge, 'project.select', { projectId: id });
     if (!outcome.ok) {
       say(outcome.lines[0] ?? 'ProjectOS refused that switch.');
@@ -313,13 +313,6 @@ export function Shell({
   // `dashboard` is Command-only; in Standard it falls through to the workspace.
   const isDash = isCommand && view === 'dashboard' && !noProjects;
   const enterClass = enterTick === 0 ? '' : enterTick % 2 === 0 ? 'os-enter-a' : 'os-enter-b';
-
-  async function pickProject(id: string) {
-    setMapOpen(false);
-    const outcome = await requestGovernedCommand(tauriBridge, 'project.select', { projectId: id });
-    if (!outcome.ok) say(outcome.lines[0] ?? 'ProjectOS refused that switch.');
-    else go('projects');
-  }
 
   const atmosphere = (
     <>
@@ -340,14 +333,6 @@ export function Shell({
 
   const overlays = (
     <>
-      {mapOpen && railState !== null && (
-        <Constellation
-          selectedState={railState.state}
-          selectedLabel={railState.label}
-          onClose={() => setMapOpen(false)}
-          onPick={(id) => void pickProject(id)}
-        />
-      )}
       {sweeping && <div className="os-sweep" aria-hidden="true" />}
       {toast !== null && <div className="os-toast" role="status">{toast}</div>}
     </>
@@ -364,9 +349,9 @@ export function Shell({
             onNavigate={(to) => {
               if (to === 'dashboard') return;
               if (to === 'standard') { changeTheme('standard'); go('projects'); return; }
-              if (to === 'plan') { setTab('plan'); go('projects'); return; }
-              if (to === 'connections') { setTab('secrets'); go('projects'); return; }
-              go('projects');
+              if (to === 'plan') { setProjectTab('plans'); go('project'); return; }
+              if (to === 'connections') { setProjectTab('advanced'); go('project'); return; }
+              go('project');
             }}
           />
         </main>
@@ -384,11 +369,13 @@ export function Shell({
           theme={theme}
           setTheme={changeTheme}
           active={navActive}
+          available={AVAILABLE_DESTINATIONS}
           onNavigate={(to) => go(to as View)}
           recents={recents}
           onOpenProject={(id) => void openProject(id)}
           onNewProject={() => go('wizard')}
           waiting={railState?.waiting ?? 0}
+          onOpenDashboard={isCommand && !noProjects ? () => go('dashboard') : undefined}
         />
         <main className="os-canvas" id="main" tabIndex={-1}>
           <div className={`os-column ${enterClass}`}>
@@ -407,26 +394,37 @@ export function Shell({
               />
             )}
 
-            {!noProjects && view === 'project' && (
-              <ProjectWorkspace
-                tab={tab}
-                setTab={setTab}
-                advancedOpen={advancedOpen}
-                setAdvancedOpen={setAdvancedOpen}
-                conversation={conversation}
-                isCommand={isCommand}
-                onStartNew={() => go('new')}
-                onWorkDone={() => go('recent')}
-                onOpenMap={() => setMapOpen(true)}
+            {/* SCREEN 2 + 3. One project: overview, plans, activity, files, advanced. */}
+            {!noProjects && view === 'project' && live !== null && (
+              <ProjectHome
+                state={live}
+                tab={projectTab}
+                setTab={setProjectTab}
+                now={Date.now()}
+                onPrimary={() => go('new')}
                 onOpenAdvanced={(next) => { setAdvanced(next as AdvancedView); go('advanced'); }}
-                onToast={say}
               />
+            )}
+
+            {/* The project screen needs a projection. Without one, say so rather than draw a shell
+                around nothing — and keep the way out reachable. */}
+            {!noProjects && view === 'project' && live === null && (
+              <div className="os-plate" role="status">
+                <h2 className="os-h2">ProjectOS is not reporting yet</h2>
+                <p className="os-set-sub">
+                  Nothing has been read for this project. Everything below is unavailable until the
+                  runtime answers.
+                </p>
+                <button type="button" className="os-sec" onClick={() => go('projects')}>
+                  Back to projects
+                </button>
+              </div>
             )}
 
             {view === 'wizard' && (
               <AddProjectWizard
                 onCancel={() => go('projects')}
-                onAdded={(id) => { void pickProject(id); }}
+                onAdded={(id) => { void openProject(id); }}
               />
             )}
 
@@ -435,12 +433,8 @@ export function Shell({
                 projectName={projectName}
                 projectId={projectId}
                 onBack={() => go('projects')}
-                onSeePlan={() => { setTab('plan'); go('projects'); }}
+                onSeePlan={() => { setProjectTab('plans'); go('project'); }}
               />
-            )}
-
-            {!noProjects && view === 'recent' && (
-              <WorkDone projectName={projectName} onBack={() => go('projects')} />
             )}
 
             {view === 'settings' && (
@@ -461,9 +455,9 @@ export function Shell({
                     go('advanced');
                     return;
                   }
-                  setAdvancedOpen(true);
-                  go('projects');
-                  say('Technical detail opened at the bottom of the project.');
+                  setProjectTab('advanced');
+                  go('project');
+                  say('Technical detail is under Advanced on the project.');
                 }}
                 onSignOut={() => void signOut()}
                 onChangePassword={canChangePassword ? onChangePassword : null}
@@ -482,8 +476,6 @@ export function Shell({
             )}
           </div>
 
-          {/* The composer is pinned to the bottom of the workspace, and only there. */}
-          {!noProjects && view === 'projects' && <OwnerComposer conversation={conversation} />}
         </main>
       </div>
       {overlays}

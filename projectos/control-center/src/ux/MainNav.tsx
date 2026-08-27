@@ -41,21 +41,33 @@ export function MainNav({
   theme,
   setTheme,
   active,
+  available,
   onNavigate,
   recents,
   onOpenProject,
   onNewProject,
   waiting,
+  onOpenDashboard,
 }: {
   theme: ShellTheme;
   setTheme: (t: ShellTheme) => void;
   active: NavDestination;
+  /**
+   * The destinations that are IMPLEMENTED. Anything absent is not drawn.
+   *
+   * The accepted architecture names four and they are being built in sequence. A rail listing all
+   * four before they exist would put entries on screen that lead to an empty canvas, and a
+   * navigation item that goes nowhere is a worse answer than one that is not there yet.
+   */
+  available: readonly NavDestination[];
   onNavigate: (to: NavDestination) => void;
   recents: readonly NavRecent[];
   onOpenProject: (projectId: string) => void;
   onNewProject: () => void;
   /** How many things are waiting on the owner in the project ProjectOS is pointed at. */
   waiting: number;
+  /** Command mode's own presentation of the project. Absent in Standard, where it does not exist. */
+  onOpenDashboard?: () => void;
 }) {
   return (
     <aside className="os-rail">
@@ -71,7 +83,7 @@ export function MainNav({
 
       <div className="os-railmid">
         <nav className="ux-nav" aria-label="Primary">
-          {DESTINATIONS.map((d) => (
+          {DESTINATIONS.filter((d) => available.includes(d.id)).map((d) => (
             <button
               key={d.id}
               type="button"
@@ -125,6 +137,11 @@ export function MainNav({
           <div className="os-railfoot-label">Appearance</div>
           <ShellThemeToggle theme={theme} setTheme={setTheme} />
         </div>
+        {onOpenDashboard !== undefined && (
+          <button type="button" className="os-raildash" onClick={onOpenDashboard}>
+            Command dashboard
+          </button>
+        )}
         <button
           type="button"
           className="os-settingsbtn"
