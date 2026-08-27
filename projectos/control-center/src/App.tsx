@@ -24,6 +24,8 @@ import { ForgeConsole } from './forge/ForgeConsole';
 import { MainNav, type NavDestination, type NavRecent } from './ux/MainNav';
 import { ProjectsScreen } from './ux/ProjectsScreen';
 import { ProjectHome, type ProjectTab } from './ux/ProjectHome';
+import { PlanDetail } from './ux/PlanDetail';
+import { ControlCenter, type ControlCenterEntry } from './ux/ControlCenter';
 import { buildProjectsModel } from './ux/projectsModel';
 import { AddProjectWizard } from './owner/AddProjectWizard';
 import { StartSomethingNew } from './owner/StartSomethingNew';
@@ -60,8 +62,7 @@ type View =
   | 'settings'
   | 'wizard'     // add a project
   | 'dashboard'  // Command-mode presentation of the project, not a separate destination
-  | 'new'        // start something new
-  | 'recent'     // work done
+  | 'plan'       // one plan, its steps, its evidence and its governed controls
   | 'advanced';  // the retained surfaces, reachable and unredesigned
 type AdvancedView =
   | 'live'
@@ -187,7 +188,7 @@ export function App() {
  * Which of the four accepted destinations are BUILT. Settings is always present at the rail's foot.
  * Control Center and Health join this list when their screens land.
  */
-const AVAILABLE_DESTINATIONS: readonly NavDestination[] = ['projects'];
+const AVAILABLE_DESTINATIONS: readonly NavDestination[] = ['projects', 'control'];
 
 export function Shell({
   canChangePassword,
@@ -202,6 +203,15 @@ export function Shell({
   const [view, setView] = useState<View>('projects');
   const [advanced, setAdvanced] = useState<AdvancedView>('live');
   const [projectTab, setProjectTab] = useState<ProjectTab>('overview');
+  /**
+   * THE CONTROL CENTER'S TRANSCRIPT, HELD ABOVE THE SCREEN THAT RENDERS IT.
+   *
+   * What the owner asked and what ProjectOS answered must survive a heartbeat lapse, a transient
+   * disconnect and a remount — the same durability the frozen core gave authored results. Held
+   * inside the screen, all of it would vanish the moment the projection went null.
+   */
+  const [ccEntries, setCcEntries] = useState<readonly ControlCenterEntry[]>([]);
+  const [objectiveOpen, setObjectiveOpen] = useState(false);
   const [sweeping, setSweeping] = useState(false);
   const [enterTick, setEnterTick] = useState(0);
   const [toast, setToast] = useState<string | null>(null);
@@ -401,8 +411,9 @@ export function Shell({
                 tab={projectTab}
                 setTab={setProjectTab}
                 now={Date.now()}
-                onPrimary={() => go('new')}
+                onPrimary={() => go('control')}
                 onOpenAdvanced={(next) => { setAdvanced(next as AdvancedView); go('advanced'); }}
+                onOpenPlanDetail={() => go('plan')}
               />
             )}
 
@@ -421,19 +432,38 @@ export function Shell({
               </div>
             )}
 
+            {view === 'control' && (
+              <ControlCenter
+                state={live}
+                now={Date.now()}
+                entries={ccEntries}
+                setEntries={(u) => setCcEntries(u)}
+                onNavigate={(to) => {
+                  if (to === 'projects') return go('projects');
+                  setProjectTab(to === 'plans' ? 'plans' : 'activity');
+                  go('project');
+                }}
+                objectiveOpen={objectiveOpen}
+                objectivePanel={
+                  <StartSomethingNew
+                    projectName={projectName}
+                    projectId={projectId}
+                    onBack={() => setObjectiveOpen(false)}
+                    onSeePlan={() => { setObjectiveOpen(false); setProjectTab('plans'); go('project'); }}
+                  />
+                }
+                onStartObjective={() => setObjectiveOpen(true)}
+              />
+            )}
+
+            {view === 'plan' && live !== null && (
+              <PlanDetail state={live} now={Date.now()} onBack={() => { setProjectTab('plans'); go('project'); }} />
+            )}
+
             {view === 'wizard' && (
               <AddProjectWizard
                 onCancel={() => go('projects')}
                 onAdded={(id) => { void openProject(id); }}
-              />
-            )}
-
-            {!noProjects && view === 'new' && (
-              <StartSomethingNew
-                projectName={projectName}
-                projectId={projectId}
-                onBack={() => go('projects')}
-                onSeePlan={() => { setProjectTab('plans'); go('project'); }}
               />
             )}
 

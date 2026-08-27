@@ -188,6 +188,44 @@ describe('no action is offered that the engine would refuse', () => {
   });
 });
 
+describe('every action carries the arguments its verb requires', () => {
+  test('Resume names the session it would rejoin — the channel REQUIRES one', () => {
+    const m = buildPlansModel(
+      projection({
+        sessions: [
+          { sessionId: 'S-OLD', phaseId: 'TWO', workerId: 'w', kind: 'run', startedAt: '2026-08-27T17:00:00.000Z', state: 'exited', exitCode: 1 },
+          { sessionId: 'S-NEW', phaseId: 'TWO', workerId: 'w', kind: 'run', startedAt: '2026-08-27T19:00:00.000Z', state: 'exited', exitCode: 1 },
+        ],
+      }),
+    );
+    const resume = m.rows[0]?.actions.find((a) => a.id === 'resume');
+    expect(resume?.verb).toBe('run.resume');
+    // The most recent session for the phase in play, and the phase with it.
+    expect(resume?.args).toEqual({ phaseId: 'TWO', sessionId: 'S-NEW' });
+  });
+
+  test('Start and Pause carry the phase, and never a session they do not have', () => {
+    const start = buildPlansModel(projection()).rows[0]?.actions.find((a) => a.id === 'pause');
+    expect(start?.verb).toBe('run.start');
+    expect(start?.args).toEqual({ phaseId: 'TWO' });
+
+    const working = buildPlansModel(
+      projection({
+        sessions: [{ sessionId: 'S1', phaseId: 'TWO', workerId: 'w', kind: 'run', startedAt: '2026-08-27T19:00:00.000Z', state: 'started', exitCode: null }],
+      }),
+    ).rows[0]?.actions.find((a) => a.id === 'pause');
+    expect(working?.verb).toBe('run.stop');
+    expect(working?.args).toEqual({ phaseId: 'TWO' });
+  });
+
+  test('a decision action carries the draft and the verdict', () => {
+    const m = buildPlansModel(projection({ planDrafts: [draft()] }));
+    const row = m.rows.find((r) => r.kind === 'draft');
+    expect(row?.actions.find((a) => a.id === 'approve')?.args).toEqual({ draftId: 'D1', decision: 'approve' });
+    expect(row?.actions.find((a) => a.id === 'reject')?.args).toEqual({ draftId: 'D1', decision: 'reject' });
+  });
+});
+
 describe('proposals carry the decision the frozen core added', () => {
   test('an undecided proposal offers Approve and Reject, both through plan.decide', () => {
     const m = buildPlansModel(projection({ planDrafts: [draft()] }));

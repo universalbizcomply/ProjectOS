@@ -123,7 +123,10 @@ export function PlansScreen({
     setBusyRow(row.id);
     setOutcome({ busy: true, lines: ['Asking ProjectOS…'], failed: false });
     try {
-      const result = await requestGovernedCommand(tauriBridge, action.verb, {});
+      // The ARGUMENTS COME FROM THE MODEL, which resolved them from real records. `run.resume`
+      // requires a session id and the channel refuses without one, so a renderer that sent an empty
+      // argument set here would have produced a button that could never work.
+      const result = await requestGovernedCommand(tauriBridge, action.verb, action.args);
       setOutcome({ busy: false, lines: result.lines, failed: !result.ok });
     } finally {
       setBusyRow(null);

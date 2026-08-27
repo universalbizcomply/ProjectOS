@@ -49,6 +49,15 @@ export interface PlanAction {
   readonly id: 'open' | 'approve' | 'reject' | 'activate' | 'pause' | 'resume' | 'evidence';
   readonly label: string;
   readonly verb: 'plan.decide' | 'plan.activate' | 'run.start' | 'run.stop' | 'run.resume' | null;
+  /**
+   * THE ARGUMENTS THE VERB REQUIRES, resolved here from real records.
+   *
+   * `run.resume` REQUIRES a session id and the channel refuses without one, so an action that
+   * offered Resume without naming a session would be refused before it reached the runtime — a
+   * button that cannot work. The owner never types an identifier; the model supplies it or the
+   * action is not produced.
+   */
+  readonly args: Readonly<Record<string, string>>;
   /** False when the engine would refuse it right now. The reason is always given with it. */
   readonly enabled: boolean;
   readonly disabledReason: string | null;
@@ -83,7 +92,7 @@ export interface PlansModel {
   readonly empty: boolean;
 }
 
-const OPEN: PlanAction = { id: 'open', label: 'Open', verb: null, enabled: true, disabledReason: null };
+const OPEN: PlanAction = { id: 'open', label: 'Open', verb: null, enabled: true, disabledReason: null, args: {} };
 
 /**
  * Whether spending is stopped. A run control is offered only when the runtime would actually accept
@@ -98,6 +107,18 @@ function liveSession(state: GovernedProjection): boolean {
   const phaseId = state.activePhase?.phaseId ?? null;
   if (phaseId === null) return false;
   return state.sessions.some((s) => s.phaseId === phaseId && s.state !== 'exited');
+}
+
+/** The most recent session recorded for the phase in play, which is the one a resume would rejoin. */
+function resumableSessionId(state: GovernedProjection): string | null {
+  const phaseId = state.activePhase?.phaseId ?? null;
+  if (phaseId === null) return null;
+  let best: { id: string; at: string } | null = null;
+  for (const s of state.sessions) {
+    if (s.phaseId !== phaseId) continue;
+    if (best === null || s.startedAt > best.at) best = { id: s.sessionId, at: s.startedAt };
+  }
+  return best === null ? null : best.id;
 }
 
 function stepLabelOf(state: GovernedProjection): string | null {
@@ -144,24 +165,56 @@ function activeState(state: GovernedProjection): { state: OwnerPlanState; group:
 /** Run controls for the active plan, offered only where the engine has a path and would accept. */
 function activeActions(state: GovernedProjection, owner: OwnerPlanState): readonly PlanAction[] {
   if (owner === 'Completed') {
-    return [OPEN, { id: 'evidence', label: 'View evidence', verb: null, enabled: true, disabledReason: null }];
+    return [OPEN, { id: 'evidence', label: 'View evidence', verb: null, enabled: true, disabledReason: null, args: {} }];
   }
   if (owner === 'Blocked') {
     // Deliberately no run control. The reasons are shown instead; a disabled Run beside them would
     // only invite the owner to press something the engine has already refused.
     return [OPEN];
   }
+  const phaseId = state.activePhase?.phaseId ?? null;
   const stopped = budgetStopped(state);
   const reason = stopped ? 'The monthly spending limit has been reached.' : null;
+
   if (owner === 'Working') {
-    return [OPEN, { id: 'pause', label: 'Pause', verb: 'run.stop', enabled: true, disabledReason: null }];
+    return [
+      OPEN,
+      {
+        id: 'pause',
+        label: 'Pause',
+        verb: 'run.stop',
+        enabled: true,
+        disabledReason: null,
+        args: phaseId === null ? {} : { phaseId },
+      },
+    ];
   }
-  const resumable = state.sessions.some((s) => s.phaseId === state.activePhase?.phaseId);
+
+  // Resume needs a session to rejoin. Where there is none, continuing is a fresh start.
+  const sessionId = resumableSessionId(state);
+  if (sessionId !== null) {
+    return [
+      OPEN,
+      {
+        id: 'resume',
+        label: 'Resume',
+        verb: 'run.resume',
+        enabled: !stopped,
+        disabledReason: reason,
+        args: phaseId === null ? { sessionId } : { phaseId, sessionId },
+      },
+    ];
+  }
   return [
     OPEN,
-    resumable
-      ? { id: 'resume', label: 'Resume', verb: 'run.resume', enabled: !stopped, disabledReason: reason }
-      : { id: 'pause', label: 'Start', verb: 'run.start', enabled: !stopped, disabledReason: reason },
+    {
+      id: 'pause',
+      label: 'Start',
+      verb: 'run.start',
+      enabled: !stopped,
+      disabledReason: reason,
+      args: phaseId === null ? {} : { phaseId },
+    },
   ];
 }
 
@@ -194,8 +247,8 @@ function draftRow(d: GovernedPlanDraftView): PlanRow | null {
         needsOwnerDecision: true,
         actions: [
           OPEN,
-          { id: 'approve', label: 'Approve', verb: 'plan.decide', enabled: true, disabledReason: null },
-          { id: 'reject', label: 'Reject', verb: 'plan.decide', enabled: true, disabledReason: null },
+          { id: 'approve', label: 'Approve', verb: 'plan.decide', enabled: true, disabledReason: null, args: { draftId: d.draftId, decision: 'approve' } },
+          { id: 'reject', label: 'Reject', verb: 'plan.decide', enabled: true, disabledReason: null, args: { draftId: d.draftId, decision: 'reject' } },
         ],
       };
     case 'approved':
@@ -216,11 +269,19 @@ function draftRow(d: GovernedPlanDraftView): PlanRow | null {
                   verb: 'plan.activate',
                   enabled: false,
                   disabledReason: 'ProjectOS cannot find the decision that approved this plan.',
+                  args: {},
                 } as PlanAction,
               ]
             : [
                 OPEN,
-                { id: 'activate', label: 'Start this plan', verb: 'plan.activate', enabled: true, disabledReason: null },
+                {
+                  id: 'activate',
+                  label: 'Start this plan',
+                  verb: 'plan.activate',
+                  enabled: true,
+                  disabledReason: null,
+                  args: { draftId: d.draftId, decisionId: d.decisionId },
+                },
               ],
       };
     case 'refused':

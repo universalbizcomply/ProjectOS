@@ -182,6 +182,7 @@ export function ProjectHome({
   now,
   onPrimary,
   onOpenAdvanced,
+  onOpenPlanDetail,
 }: {
   state: GovernedProjection;
   tab: ProjectTab;
@@ -189,6 +190,8 @@ export function ProjectHome({
   now: number;
   onPrimary: () => void;
   onOpenAdvanced: (which: string) => void;
+  /** Opening a plan shows its steps, its evidence and its governed controls. */
+  onOpenPlanDetail: () => void;
 }) {
   return (
     <div className="os-stack">
@@ -222,7 +225,7 @@ export function ProjectHome({
         />
       )}
 
-      {tab === 'plans' && <PlansScreen state={state} onOpenPlan={() => setTab('activity')} />}
+      {tab === 'plans' && <PlansScreen state={state} onOpenPlan={() => onOpenPlanDetail()} />}
 
       {tab === 'activity' && (
         <section aria-label="Activity">
