@@ -2100,6 +2100,9 @@ h1.os-h1 { margin: 0; font-size: 36px; font-weight: 600; letter-spacing: -0.035e
      on a phone it is a real target and was 29px tall. */
   a.skip { min-height: 44px; display: inline-flex; align-items: center; }
   .os-iconbtn, .os-sendbtn { width: 44px; height: 44px; }
+  /* Mission Control's event-stream toolbar. Retained surface, presentation only: the search
+     field and the pause control were 29px, which is a real target on a phone. */
+  .ev-search, .ev-pause { min-height: 44px; }
   .os-switch { width: 76px; height: 44px; padding: 4px; }
   .os-switch i { width: 36px; height: 36px; }
   .os-switch[aria-checked='true'] i { transform: translateX(32px); }
