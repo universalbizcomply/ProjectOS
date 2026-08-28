@@ -28,6 +28,8 @@ import { resolveIntent } from './controlCenterModel';
 import { ActivityFeed } from './ProjectHome';
 import { VOICE_UNAVAILABLE } from '../owner/speech';
 import { OperatorAside } from '../owner/Hologram';
+import { CommandHudLeft, CommandHudRight, SystemTime, useCommandHud } from './CommandHud';
+import type { GovernedProjectsInventory } from '../governed/types';
 
 export interface ControlCenterEntry {
   readonly id: string;
@@ -46,6 +48,7 @@ export function ControlCenter({
   objectivePanel,
   entries,
   setEntries,
+  inventory = null,
 }: {
   state: GovernedProjection | null;
   now: number;
@@ -76,6 +79,15 @@ export function ControlCenter({
    * the same stale prop as the first, silently discarding the owner's own line.
    */
   setEntries: (update: (prev: readonly ControlCenterEntry[]) => readonly ControlCenterEntry[]) => void;
+  /**
+   * The project inventory, for the command-centre HUD's Active Projects rail.
+   *
+   * PASSED IN, not read from context. This screen takes its governed projection as a prop and stays
+   * a pure function of what it is given; reaching into `useGovernedProjects()` here would have made
+   * it unmountable without a provider — which is exactly how the existing tests render it, and they
+   * said so immediately.
+   */
+  inventory?: GovernedProjectsInventory | null;
 }) {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
@@ -156,23 +168,36 @@ export function ControlCenter({
   const model = state === null ? null : buildPlansModel(state);
   const active = model?.rows.find((r) => r.kind === 'active') ?? null;
   const waiting = state?.pendingApprovals.length ?? 0;
+  // The HUD's data, derived from the SAME projection this screen already has plus the one inventory.
+  const hud = useCommandHud(state, inventory);
 
   return (
     <section className="os-stack" aria-labelledby="ux-cc-title">
       {/*
-        THE OPERATOR SITS BESIDE THE CONTEXT, NOT OVER IT.
-        
-        The accepted JARVIS identity lived on the Command Centre dashboard, which was removed for
-        being a second command surface. The projection belongs here instead — this is the one place
-        the owner and ProjectOS talk. It is presentation and nothing else: no route, no card, no
-        workflow, no authority, and every layer inside it is `aria-hidden` apart from the head's alt
-        text. `.os-operator` is `display: none` outside Command mode, so Standard is untouched by
-        this without a single line of mode logic.
-        
-        It is rendered only when there IS a projection: the aside prints "LINK STABLE", and printing
-        that over a runtime that is not answering would be the one kind of decoration this product
-        does not allow.
+        THE COMMAND-CENTRE COMPOSITION — JARVIS presentation, one Control Center.
+
+        Two read-only HUD rails either side of the operator, so this reads as a command centre
+        rather than a dark form. They are PROJECTIONS of data that already has an owner: Health's
+        four groups, the project inventory, the real safety record, `recordedItems`. Not one control
+        sits on them, there is no second console, and the composer below stays the only place an
+        owner can tell ProjectOS to do anything.
+
+        `.ux-hud` and `.os-operator` are both `display: none` outside Command appearance, so
+        Standard is untouched by all of it without a line of mode logic in this file.
       */}
+      <SystemTime />
+      {/*
+        The command-interface title band. Descriptive product language — it names the surface the
+        owner is looking at and claims nothing operational. CSS-gated to Command appearance.
+      */}
+      <div className="ux-ccbanner" aria-hidden="true">
+        <span className="edge" />
+        <span className="txt">projectos ai command interface</span>
+        <span className="edge" />
+      </div>
+      <div className="ux-ccgrid">
+        <CommandHudLeft hud={hud} />
+        <div className="ux-ccmain">
       <div className="ux-cchead">
         <div className="ux-ccheadmain">
           <h1 className="os-h1" id="ux-cc-title">Control Center</h1>
@@ -297,6 +322,9 @@ export function ControlCenter({
           <ActivityFeed state={state} now={now} limit={5} />
         </section>
       )}
+        </div>
+        <CommandHudRight hud={hud} />
+      </div>
     </section>
   );
 }

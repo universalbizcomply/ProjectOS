@@ -41,12 +41,32 @@ describe('exactly one generic activity feed exists', () => {
     expect(declaring).toEqual(['ux/ProjectHome.tsx']);
   });
 
-  test('only that file derives the recorded-item list; every other surface imports the component', () => {
-    // `recordedItems` IS the feed's model. A second caller would be a second feed, however it looked.
+  test('every recorded-item reader goes through the ONE shared source', () => {
+    /*
+     * `recordedItems` IS the feed's model, and the rule is one SOURCE — not one reader.
+     *
+     * This asserted a single caller, which held while `ActivityFeed` was the only surface needing
+     * recorded work. The JARVIS command-centre HUD needs a compact projection of the same history
+     * beside the operator, and the honest way to build it was to read this function rather than
+     * derive a second list from `phases` — which is exactly what a second feed engine looks like.
+     *
+     * RETARGETED, NOT RELAXED. The list stays closed and every member is named, so a THIRD caller
+     * still fails. `commandHudModel` is a projection, not a source: it owns no history of its own
+     * and cannot disagree with the feed, because both read the same function.
+     */
     const derivers = FILES.filter(
       (f) => /\brecordedItems\s*\(/.test(f.text) && !rel(f.path).startsWith('owner/workspaceModel'),
-    ).map((f) => rel(f.path));
-    expect(derivers).toEqual(['ux/ProjectHome.tsx']);
+    ).map((f) => rel(f.path)).sort();
+    expect(derivers).toEqual(['ux/ProjectHome.tsx', 'ux/commandHudModel.ts']);
+  });
+
+  test('the HUD projects that source and does not invent a second history', () => {
+    const hud = FILES.find((f) => rel(f.path) === 'ux/commandHudModel.ts')!;
+    // It reads the shared function...
+    expect(/\brecordedItems\s*\(/.test(hud.text)).toBe(true);
+    // ...and never walks the phase records itself, which is how a second feed would begin.
+    expect(/state\.phases\b/.test(hud.text)).toBe(false);
+    expect(/phase\.history/.test(hud.text)).toBe(false);
   });
 
   test('the feed is consumed by the surfaces that need one, from that single source', () => {

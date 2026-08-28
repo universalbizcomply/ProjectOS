@@ -419,6 +419,7 @@ export function Shell({
             {view === 'control' && (
               <ControlCenter
                 state={live}
+                inventory={inventory}
                 now={Date.now()}
                 entries={ccEntries}
                 setEntries={(u) => setCcEntries(u)}

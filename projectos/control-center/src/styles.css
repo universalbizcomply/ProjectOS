@@ -2355,3 +2355,252 @@ h1.os-h1 { margin: 0; font-size: 36px; font-weight: 600; letter-spacing: -0.035e
 .os-holo[data-dormant='1'] .rings { opacity: .45; }
 /* The meta line carries the only factual claim; a missing link reads as muted, never as an alarm. */
 .os-operator[data-linked='0'] .os-operator-meta { color: rgba(0, 213, 255, 0.4); }
+
+/* ═════════════════════════════════════════════════════════════════════════════
+   JARVIS COMMAND-CENTRE COMPOSITION — PRESENTATION ONLY.
+   Left HUD · central operator + conversation · right HUD. Every rule below is scoped to
+   `:root[data-shell='command']`, and the rails default to `display: none`, so STANDARD IS
+   UNTOUCHED — the same way `.os-operator` has always worked.
+   ═════════════════════════════════════════════════════════════════════════════ */
+.ux-hud, .ux-hudclock { display: none; }
+
+:root[data-shell='command'] .ux-ccgrid {
+  display: grid; grid-template-columns: 270px minmax(0, 1fr) 300px; gap: 22px; align-items: start;
+}
+:root[data-shell='command'] .ux-ccmain { min-width: 0; }
+:root[data-shell='command'] .ux-hud { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+
+/* The clock. Browser local time; presentation, never a claim about the project. */
+:root[data-shell='command'] .ux-hudclock {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 1px;
+  margin: -6px 0 16px; font-family: var(--font-mono); line-height: 1.1;
+}
+.ux-hudclock-label { font-size: 9.5px; letter-spacing: .22em; text-transform: uppercase; color: var(--faint); }
+.ux-hudclock strong { font-size: 26px; font-weight: 600; letter-spacing: .06em; color: var(--acc); text-shadow: 0 0 18px rgba(0, 213, 255, .45); }
+.ux-hudclock-date { font-size: 9.5px; letter-spacing: .18em; color: var(--faint); }
+
+/* Panels: translucent, thin cyan edge, layered — never glowing as hard as the operator. */
+.ux-hudpanel {
+  padding: 13px 14px 14px; border-radius: 10px;
+  background: linear-gradient(180deg, rgba(0, 213, 255, 0.055), rgba(0, 0, 0, 0.12));
+  border: 1px solid rgba(0, 213, 255, 0.20);
+  box-shadow: inset 0 1px 0 rgba(0, 213, 255, 0.10);
+}
+.ux-hudhead {
+  display: flex; align-items: center; gap: 9px; margin-bottom: 11px;
+  font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .2em; text-transform: uppercase; color: var(--acc);
+}
+.ux-hudhead .rule { flex: 1; height: 1px; background: linear-gradient(90deg, rgba(0, 213, 255, 0.4), transparent); }
+
+.ux-hudrow { display: grid; grid-template-columns: 8px minmax(0, auto) minmax(0, 1fr); gap: 8px; align-items: baseline; margin-bottom: 7px; font-size: 11.5px; }
+.ux-hudrow:last-child { margin-bottom: 0; }
+.ux-huddot { width: 7px; height: 7px; border-radius: 50%; align-self: center; flex: none; }
+.ux-hudlabel2 { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); white-space: nowrap; }
+.ux-hudvalue { color: var(--dim); overflow-wrap: anywhere; min-width: 0; }
+
+.ux-hudnote { margin: 0 0 8px; font-size: 11px; line-height: 1.55; color: var(--faint); }
+.ux-hudnotinst { margin: 10px 0 0; padding-top: 9px; border-top: 1px solid rgba(0, 213, 255, 0.14); }
+.ux-hudmission { margin: 0 0 11px; font-size: 11.5px; line-height: 1.6; color: var(--dim); }
+
+/* Active projects. A bar is only ever drawn where a real percentage exists. */
+.ux-hudproj { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 8px; align-items: center; margin-bottom: 9px; font-size: 11.5px; }
+.ux-hudproj:last-child { margin-bottom: 0; }
+.ux-hudprojname { font-family: var(--font-mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ux-hudproj[data-selected='1'] .ux-hudprojname { color: var(--acc); }
+.ux-hudprojnote { grid-column: 1 / -1; font-size: 10px; color: var(--faint); font-style: italic; }
+.ux-hudbar { grid-column: 1 / 2; display: block; height: 5px; border-radius: 3px; background: rgba(0, 213, 255, 0.14); overflow: hidden; }
+.ux-hudbar i { display: block; height: 100%; background: linear-gradient(90deg, var(--acc), rgba(0, 213, 255, .55)); box-shadow: 0 0 10px rgba(0, 213, 255, .5); }
+.ux-hudprojpct { font-family: var(--font-mono); font-size: 10px; color: var(--acc); }
+
+.ux-hudfeed { display: grid; grid-template-columns: auto 8px minmax(0, 1fr); gap: 8px; align-items: baseline; margin-bottom: 8px; font-size: 11px; }
+.ux-hudfeed:last-child { margin-bottom: 0; }
+.ux-hudtime { font-family: var(--font-mono); font-size: 9.5px; color: var(--faint); }
+.ux-hudfeedtext { color: var(--dim); overflow-wrap: anywhere; min-width: 0; }
+
+/* ── THE OPERATOR BECOMES THE ANCHOR ──────────────────────────────────────────
+   In the command-centre composition the projection is the strongest thing on the screen, centred
+   over the conversation it belongs to rather than tucked into a corner. */
+:root[data-shell='command'] .ux-cchead { flex-direction: column; align-items: center; gap: 6px; text-align: center; }
+:root[data-shell='command'] .ux-ccheadmain { order: 2; }
+:root[data-shell='command'] .ux-cchead .os-operator { order: 1; float: none; flex: none; margin: 0 0 6px; width: 340px; }
+:root[data-shell='command'] .ux-cchead .os-holo { height: 400px; }
+:root[data-shell='command'] .ux-cchead .os-holowrap img { filter: drop-shadow(0 0 46px rgba(0, 213, 255, 0.6)); }
+:root[data-shell='command'] .ux-cchead .os-holo .rings { width: 236px; height: 42px; }
+:root[data-shell='command'] .ux-cchead .os-holo .base { height: 26px; bottom: -12px; }
+:root[data-shell='command'] .ux-cchead .os-operator-meta { justify-content: center; gap: 18px; }
+
+/* ── RESPONSIVE. The three-column composition is a desktop idea; below it the rails step down
+   rather than being squeezed, and the operator stays recognisable at every width. ── */
+@media (max-width: 1379px) {
+  :root[data-shell='command'] .ux-ccgrid { grid-template-columns: 240px minmax(0, 1fr) 260px; gap: 16px; }
+  :root[data-shell='command'] .ux-cchead .os-operator { width: 280px; }
+  :root[data-shell='command'] .ux-cchead .os-holo { height: 330px; }
+}
+@media (max-width: 1179px) {
+  /* Side rails move under the conversation, two across, rather than crushing the centre. */
+  :root[data-shell='command'] .ux-ccgrid { grid-template-columns: minmax(0, 1fr); }
+  :root[data-shell='command'] .ux-ccmain { order: 1; }
+  :root[data-shell='command'] .ux-hud-left { order: 2; }
+  :root[data-shell='command'] .ux-hud-right { order: 3; }
+  :root[data-shell='command'] .ux-hud { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+  :root[data-shell='command'] .ux-cchead .os-operator { width: 300px; }
+  :root[data-shell='command'] .ux-cchead .os-holo { height: 350px; }
+}
+@media (max-width: 900px) {
+  :root[data-shell='command'] .ux-cchead .os-operator { width: 240px; }
+  :root[data-shell='command'] .ux-cchead .os-holo { height: 290px; }
+}
+@media (max-width: 700px) {
+  /* One column of panels, and the operator compact but still unmistakably the operator. */
+  :root[data-shell='command'] .ux-hud { grid-template-columns: minmax(0, 1fr); }
+  :root[data-shell='command'] .ux-cchead .os-operator { width: 190px; }
+  :root[data-shell='command'] .ux-cchead .os-holo { height: 230px; }
+  :root[data-shell='command'] .ux-hudclock strong { font-size: 21px; }
+}
+@media (max-width: 420px) {
+  :root[data-shell='command'] .ux-cchead .os-operator { width: 158px; }
+  :root[data-shell='command'] .ux-cchead .os-holo { height: 196px; }
+  :root[data-shell='command'] .ux-hudrow { grid-template-columns: 8px minmax(0, 1fr); }
+  :root[data-shell='command'] .ux-hudvalue { grid-column: 2 / -1; }
+}
+
+/* ── THE COMPOSITION NEEDS THE CANVAS, NOT THE READING COLUMN ────────────────────────────────────
+   `.os-column` caps at 788px, which is right for reading and wrong for a three-column command
+   centre: at 1600 the centre collapsed to 174px, the title wrapped mid-word and the 340px operator
+   spilled into both rails. Only the Control Center in Command appearance is widened, and only where
+   there is room for it — every other screen keeps the accepted reading width. */
+@media (min-width: 1180px) {
+  :root[data-shell='command'] .os-column:has(.ux-ccgrid) { max-width: 1560px; }
+}
+:root[data-shell='command'] .ux-ccgrid { grid-template-columns: 280px minmax(460px, 1fr) 310px; }
+/* The operator can never be wider than the column that holds it. */
+:root[data-shell='command'] .ux-cchead .os-operator { max-width: 100%; }
+
+@media (min-width: 1180px) and (max-width: 1439px) {
+  :root[data-shell='command'] .os-column:has(.ux-ccgrid) { max-width: 1180px; }
+  :root[data-shell='command'] .ux-ccgrid { grid-template-columns: 250px minmax(400px, 1fr) 270px; gap: 16px; }
+}
+
+/* The operator's meta line: the LINK claim is two words and must never break across lines — split
+   as "NO / LINK" it read as a fault rather than a label. The readout beside it may wrap freely. */
+:root[data-shell='command'] .ux-cchead .os-operator-meta { align-items: baseline; gap: 14px; justify-content: center; }
+:root[data-shell='command'] .ux-cchead .os-operator-meta > span:first-child { white-space: nowrap; flex: none; }
+:root[data-shell='command'] .ux-cchead .os-operator-meta > span:last-child { text-align: left; max-width: 60%; }
+
+/* ═════════════════════════════════════════════════════════════════════════════
+   JARVIS — DEEPER COMMAND-CENTRE ATMOSPHERE.
+   Notched panel corners, bracket framing, a slow edge sweep and a radial field behind the operator.
+   All of it is Command-only and decorative; none of it carries information, so `prefers-reduced-
+   motion` can stop every animation here without losing a single fact. Readability comes first: the
+   panels stay dark and the text keeps its contrast — only the EDGES glow.
+   ═════════════════════════════════════════════════════════════════════════════ */
+
+/* The command-interface title band. */
+.ux-ccbanner { display: none; }
+:root[data-shell='command'] .ux-ccbanner {
+  display: flex; align-items: center; gap: 14px; margin: 0 auto 20px; max-width: 680px;
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: .34em; text-transform: uppercase;
+  color: var(--acc); text-shadow: 0 0 14px rgba(0, 213, 255, .5);
+}
+.ux-ccbanner .txt {
+  padding: 7px 20px; border: 1px solid rgba(0, 213, 255, .32); border-radius: 3px;
+  background: linear-gradient(180deg, rgba(0, 213, 255, .10), transparent);
+  clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+}
+.ux-ccbanner .edge { flex: 1; height: 1px; background: linear-gradient(90deg, transparent, rgba(0, 213, 255, .45), transparent); }
+
+/* Notched panel corners + corner ticks — the reference's technical framing. */
+:root[data-shell='command'] .ux-hudpanel {
+  position: relative;
+  clip-path: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
+}
+:root[data-shell='command'] .ux-hudpanel::before,
+:root[data-shell='command'] .ux-hudpanel::after {
+  content: ''; position: absolute; width: 12px; height: 12px; pointer-events: none;
+  border-color: rgba(0, 213, 255, .55); border-style: solid; border-width: 0;
+}
+:root[data-shell='command'] .ux-hudpanel::before { top: 5px; right: 5px; border-top-width: 1px; border-right-width: 1px; }
+:root[data-shell='command'] .ux-hudpanel::after { bottom: 5px; left: 5px; border-bottom-width: 1px; border-left-width: 1px; }
+
+/* A slow light travelling the top edge of each panel. Decorative; stopped by reduced motion. */
+:root[data-shell='command'] .ux-hudhead .rule {
+  background: linear-gradient(90deg, rgba(0, 213, 255, .65), rgba(0, 213, 255, .08) 40%, transparent);
+  background-size: 220% 100%; animation: ux-hudsweep 7s linear infinite;
+}
+@keyframes ux-hudsweep { from { background-position: 200% 0; } to { background-position: -60% 0; } }
+
+/* A radial field behind the operator, so the projection sits in light rather than on a flat panel. */
+:root[data-shell='command'] .ux-cchead .os-operator { position: relative; }
+:root[data-shell='command'] .ux-cchead .os-operator::before {
+  content: ''; position: absolute; left: 50%; top: 46%; width: 150%; aspect-ratio: 1;
+  transform: translate(-50%, -50%); pointer-events: none; z-index: -1;
+  background: radial-gradient(circle, rgba(0, 213, 255, .17), rgba(0, 213, 255, .05) 42%, transparent 68%);
+}
+/* Bracket framing around the projection, matching the reference's rectangular HUD housing. */
+:root[data-shell='command'] .ux-cchead .os-holo::before,
+:root[data-shell='command'] .ux-cchead .os-holo::after {
+  content: ''; position: absolute; width: 26px; height: 26px; pointer-events: none;
+  border-color: rgba(0, 213, 255, .5); border-style: solid; border-width: 0;
+}
+:root[data-shell='command'] .ux-cchead .os-holo::before { top: 0; left: 0; border-top-width: 1px; border-left-width: 1px; }
+:root[data-shell='command'] .ux-cchead .os-holo::after { bottom: 0; right: 0; border-bottom-width: 1px; border-right-width: 1px; }
+
+/* The composer reads as a command line in Command appearance. */
+:root[data-shell='command'] .ux-composer {
+  border-color: rgba(0, 213, 255, .30);
+  background: linear-gradient(180deg, rgba(0, 213, 255, .07), rgba(0, 0, 0, .22));
+  box-shadow: inset 0 0 22px rgba(0, 213, 255, .07);
+  clip-path: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
+}
+:root[data-shell='command'] .ux-composer:focus-within { border-color: var(--acc); box-shadow: inset 0 0 26px rgba(0, 213, 255, .13), 0 0 22px rgba(0, 213, 255, .16); }
+
+/* NOTHING HERE CARRIES INFORMATION, so reduced motion may stop all of it. */
+@media (prefers-reduced-motion: reduce) {
+  :root[data-shell='command'] .ux-hudhead .rule { animation: none; }
+}
+:root[data-calm='1'] .ux-hudhead .rule { animation: none; }
+
+/* ── RESPONSIVE, RE-DECLARED LAST SO IT ACTUALLY WINS ────────────────────────────────────────────
+   The three-column rule was appended AFTER the earlier breakpoints, so a later declaration of equal
+   specificity beat every one of them and the fixed 280/460/310 track list applied at ALL widths —
+   1050px of columns plus gaps inside a canvas that is 308px narrower than the viewport. The result
+   was horizontal overflow everywhere below 1600, up to 803px of it at 320. Order matters as much as
+   the values; these are the same intentions, placed where the cascade can honour them. */
+@media (max-width: 1519px) {
+  :root[data-shell='command'] .ux-ccgrid { grid-template-columns: 250px minmax(380px, 1fr) 270px; gap: 16px; }
+  :root[data-shell='command'] .ux-cchead .os-operator { width: 290px; }
+  :root[data-shell='command'] .ux-cchead .os-holo { height: 340px; }
+}
+@media (max-width: 1319px) {
+  /* Below this the side rails stop being columns and become rows under the conversation, rather
+     than squeezing the centre until the title wraps mid-word. */
+  :root[data-shell='command'] .os-column:has(.ux-ccgrid) { max-width: 980px; }
+  :root[data-shell='command'] .ux-ccgrid { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+  :root[data-shell='command'] .ux-ccmain { order: 1; }
+  :root[data-shell='command'] .ux-hud-left { order: 2; }
+  :root[data-shell='command'] .ux-hud-right { order: 3; }
+  :root[data-shell='command'] .ux-hud { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+  :root[data-shell='command'] .ux-cchead .os-operator { width: 300px; }
+  :root[data-shell='command'] .ux-cchead .os-holo { height: 350px; }
+}
+@media (max-width: 900px) {
+  :root[data-shell='command'] .ux-cchead .os-operator { width: 240px; }
+  :root[data-shell='command'] .ux-cchead .os-holo { height: 290px; }
+}
+@media (max-width: 700px) {
+  :root[data-shell='command'] .ux-hud { grid-template-columns: minmax(0, 1fr); }
+  :root[data-shell='command'] .ux-cchead .os-operator { width: 190px; }
+  :root[data-shell='command'] .ux-cchead .os-holo { height: 230px; }
+  :root[data-shell='command'] .ux-hudclock strong { font-size: 21px; }
+  :root[data-shell='command'] .ux-ccbanner { font-size: 8.5px; letter-spacing: .2em; gap: 8px; }
+}
+@media (max-width: 420px) {
+  :root[data-shell='command'] .ux-cchead .os-operator { width: 158px; }
+  :root[data-shell='command'] .ux-cchead .os-holo { height: 196px; }
+  :root[data-shell='command'] .ux-hudrow { grid-template-columns: 8px minmax(0, 1fr); }
+  :root[data-shell='command'] .ux-hudvalue { grid-column: 2 / -1; }
+  :root[data-shell='command'] .ux-ccbanner .txt { padding: 6px 10px; }
+}
+/* Nothing in this composition may push the page sideways at any width. */
+:root[data-shell='command'] .ux-ccgrid, :root[data-shell='command'] .ux-hud,
+:root[data-shell='command'] .ux-ccmain, :root[data-shell='command'] .ux-hudpanel { min-width: 0; max-width: 100%; }
