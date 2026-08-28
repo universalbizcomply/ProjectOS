@@ -12,6 +12,7 @@
  *
  * Created in PROJECTOS-CONTROL-CENTER-UX-ARCHITECTURE1A.
  */
+import { hasLocalHost } from './HostCapability';
 import { dotColour, initialsOf, statusInk, type ProjectState } from '../owner/workspaceModel';
 import type { ProjectRow, ProjectsModel } from './projectsModel';
 
@@ -103,9 +104,18 @@ export function ProjectsScreen({
         </button>
       </header>
 
+      {/*
+        "READING…" IS ONLY TRUE WHERE THERE IS SOMETHING TO READ FROM.
+        On the desktop the inventory arrives over the native bridge a moment after the shell mounts,
+        so a pending line is right. In a browser there is no bridge and it never arrives — the line
+        then describes work in progress that will never finish, and an owner waits for something
+        that cannot come. See `HostCapability`.
+      */}
       {model.unknown && (
         <p className="os-empty" role="status">
-          Reading the list of projects on this computer…
+          {hasLocalHost()
+            ? 'Reading the list of projects on this computer…'
+            : 'Your projects live on your own computer, and this page cannot reach them. Open the ProjectOS application there to see them.'}
         </p>
       )}
 

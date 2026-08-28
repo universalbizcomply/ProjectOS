@@ -25,6 +25,7 @@ import { ProjectHome, type ProjectTab } from './ux/ProjectHome';
 import { PlanDetail } from './ux/PlanDetail';
 import { ControlCenter, type ControlCenterEntry } from './ux/ControlCenter';
 import { HealthScreen } from './ux/HealthScreen';
+import { NoLocalHostNotice } from './ux/HostCapability';
 import { buildProjectsModel } from './ux/projectsModel';
 import { AddProjectWizard } from './owner/AddProjectWizard';
 import { StartSomethingNew } from './owner/StartSomethingNew';
@@ -362,6 +363,13 @@ export function Shell({
         />
         <main className="os-canvas" id="main" tabIndex={-1}>
           <div className={`os-column ${enterClass}`}>
+            {/*
+              SAID ONCE, ABOVE EVERYTHING. Without a local host nothing below can reach a project,
+              and every screen would otherwise describe that as a runtime that has stopped — true on
+              a desktop, misleading on a hosted page where no host was ever there to stop. Renders
+              nothing at all in the installed application.
+            */}
+            <NoLocalHostNotice />
             {/* First run REPLACES THE CANVAS — the workspace's canvas, not every screen. It used to
                 render on top of Settings and Advanced as well, so an empty machine showed "Let's add
                 your first project" stacked above whatever the owner had actually opened. */}
