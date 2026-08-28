@@ -80,14 +80,17 @@ export function HealthScreen({ governed }: { governed: GovernedState | null }) {
           )}
 
           {/*
-            THE ONE PLACE THE OWNER MANAGES CONNECTIONS. The existing component, reused as it is —
-            Advanced keeps its technical provider evidence, and there is no second implementation.
+            THE PER-PROVIDER TRUTH, IN STATUS MODE. The same component and the same status mapping,
+            with its management surface not rendered: Health observes, and reading it must have no
+            side effect. It used to render whole behind a disclosure, which hid a key field and a
+            store button from the eye but not from the page or the keyboard.
+            
+            Where credential management should finally live is Stage 8's decision.
           */}
-          {group.id === 'connectivity' && live !== null && (
-            <details className="ux-healthdetail">
-              <summary>Manage connections</summary>
-              <ConnectionsTab state={live} />
-            </details>
+          {group.id === 'connectivity' && live !== null && live.connections.connections.length > 0 && (
+            <div className="ux-healthconns">
+              <ConnectionsTab state={live} readOnly />
+            </div>
           )}
         </section>
       ))}

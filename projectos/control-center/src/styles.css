@@ -2266,3 +2266,7 @@ h1.os-h1 { margin: 0; font-size: 36px; font-weight: 600; letter-spacing: -0.035e
   .ux-healthfacts { grid-template-columns: 1fr; gap: 2px 0; }
   .ux-healthfacts dt { margin-top: 8px; }
 }
+
+/* The per-provider status list on Health. Observation only — its management surface is not
+   rendered here at all, so there is nothing to space around. */
+.ux-healthconns { margin-top: 14px; }

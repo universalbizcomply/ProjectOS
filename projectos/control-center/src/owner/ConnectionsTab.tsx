@@ -25,7 +25,25 @@ import { IconClose } from './icons';
 export const REMOVE_UNAVAILABLE =
   'ProjectOS cannot remove a stored key yet. Replace it here, or remove it in Windows Credential Manager.';
 
-export function ConnectionsTab({ state }: { state: GovernedProjection }) {
+export function ConnectionsTab({
+  state,
+  readOnly = false,
+}: {
+  state: GovernedProjection;
+  /**
+   * STATUS ONLY — no way to change anything, for surfaces that observe rather than manage.
+   *
+   * Health is a report, and reading a report must have no side effect. Rendering this component
+   * whole put a key field and a "Add connection" button on it, one disclosure away; a `<details>`
+   * hid them from the eye but not from the page, and not from the keyboard. In this mode the
+   * mutation surface is NOT RENDERED AT ALL rather than disabled, because Health is not Settings —
+   * a disabled configuration form still teaches the owner that this is where keys are managed.
+   *
+   * The status mapping, the labels and the fingerprint stand-in are the same ones in both modes;
+   * nothing about how a connection reads is duplicated for this.
+   */
+  readOnly?: boolean;
+}) {
   const [service, setService] = useState(CONNECTION_CATALOGUE[0]?.id ?? 'github');
   const [value, setValue] = useState('');
   const [busy, setBusy] = useState(false);
@@ -64,17 +82,23 @@ export function ConnectionsTab({ state }: { state: GovernedProjection }) {
 
   return (
     <section>
-      <h2 className="os-h2">Connections and keys</h2>
-      <p className="os-connintro">
-        Windows holds these, not ProjectOS. They never appear in reports, and using a live one always
-        asks you first.
-      </p>
+      {!readOnly && (
+        <>
+          <h2 className="os-h2">Connections and keys</h2>
+          <p className="os-connintro">
+            Windows holds these, not ProjectOS. They never appear in reports, and using a live one
+            always asks you first.
+          </p>
+        </>
+      )}
 
       <div className="os-connrows">
         {!readable && <div className="os-emptyline">{detail}</div>}
         {readable && connections.length === 0 && (
           <div className="os-emptyline">
-            Nothing connected yet. Add a key below only when this project needs one.
+            {readOnly
+              ? 'Nothing connected yet.'
+              : 'Nothing connected yet. Add a key below only when this project needs one.'}
           </div>
         )}
         {connections.map((c) => {
@@ -90,20 +114,23 @@ export function ConnectionsTab({ state }: { state: GovernedProjection }) {
               <span className="masked">{connectionStandIn(c)}</span>
               {/* The status WORD sits beside the dot — state is never colour alone. */}
               <span className="used">{status.label}</span>
-              <button
-                type="button"
-                className="os-ghost"
-                disabled
-                aria-label={REMOVE_UNAVAILABLE}
-                title={REMOVE_UNAVAILABLE}
-              >
-                <IconClose size={15} width={1.6} />
-              </button>
+              {!readOnly && (
+                <button
+                  type="button"
+                  className="os-ghost"
+                  disabled
+                  aria-label={REMOVE_UNAVAILABLE}
+                  title={REMOVE_UNAVAILABLE}
+                >
+                  <IconClose size={15} width={1.6} />
+                </button>
+              )}
             </div>
           );
         })}
       </div>
 
+      {!readOnly && (
       <div className="os-connadd">
         <h3>Add a connection</h3>
         {!available ? (
@@ -146,6 +173,8 @@ export function ConnectionsTab({ state }: { state: GovernedProjection }) {
           </p>
         )}
       </div>
+      )}
+
     </section>
   );
 }
