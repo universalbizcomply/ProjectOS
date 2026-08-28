@@ -1521,7 +1521,6 @@ h1.os-h1 { margin: 0; font-size: 36px; font-weight: 600; letter-spacing: -0.035e
 .os-connrow .svc { flex: 0 0 140px; font-size: 15px; font-weight: 500; }
 .os-connrow .masked { flex: 1 1 auto; min-width: 0; font-family: var(--font-mono); font-size: 13px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .os-connrow .used { font-size: 13px; color: var(--faint); white-space: nowrap; }
-.os-connrow .os-ghost { padding: 6px; color: var(--faint); min-width: 32px; min-height: 32px; justify-content: center; }
 .os-connadd { padding: 22px; background: var(--card); border: 1px solid var(--line-soft); border-radius: 12px; }
 .os-connadd h3 { margin: 0 0 16px; font-size: 15px; font-weight: 600; }
 .os-two { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 12px; align-items: end; }
@@ -2101,7 +2100,9 @@ h1.os-h1 { margin: 0; font-size: 36px; font-weight: 600; letter-spacing: -0.035e
      on a phone it is a real target and was 29px tall. */
   a.skip { min-height: 44px; display: inline-flex; align-items: center; }
   .os-iconbtn, .os-sendbtn { width: 44px; height: 44px; }
-  .os-switch { height: 32px; }
+  .os-switch { width: 76px; height: 44px; padding: 4px; }
+  .os-switch i { width: 36px; height: 36px; }
+  .os-switch[aria-checked='true'] i { transform: translateX(32px); }
 }
 
 /* Screen-reader-only utility, matching the existing `.vh` already in this sheet. */
@@ -2270,3 +2271,52 @@ h1.os-h1 { margin: 0; font-size: 36px; font-weight: 600; letter-spacing: -0.035e
 /* The per-provider status list on Health. Observation only — its management surface is not
    rendered here at all, so there is nothing to space around. */
 .ux-healthconns { margin-top: 14px; }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   STAGE 8 — SETTINGS / ADVANCED / CONNECTIONS
+   One Connections component serves Health, Settings and Advanced. Its row keeps the accepted
+   `.os-connrow` treatment; the projection-specific parts stack UNDER that row, so the row itself
+   becomes a column and its original horizontal line moves to `.ux-connmain`.
+   ───────────────────────────────────────────────────────────────────────────── */
+.ux-connrow { flex-direction: column; align-items: stretch; gap: 0; }
+.ux-connmain { display: flex; align-items: center; gap: 16px; min-width: 0; }
+.ux-connbtn { margin-left: auto; height: 32px; padding: 0 14px; font-size: 13px; border-radius: 8px; white-space: nowrap; }
+
+/* Technical evidence, Advanced only. Never a value — a reference, a class and a digest. */
+.ux-conntech {
+  display: grid; grid-template-columns: minmax(0, 150px) minmax(0, 1fr); gap: 4px 18px;
+  margin: 12px 0 2px; font-size: 12.5px;
+}
+.ux-conntech > div { display: contents; }
+.ux-conntech dt { color: var(--faint); }
+.ux-conntech dd { margin: 0; min-width: 0; overflow-wrap: anywhere; font-family: var(--font-mono); color: var(--dim); }
+
+/* The one credential write. Confirm, then commit. */
+.ux-credwrite {
+  margin: 14px 0 4px; padding: 16px; background: var(--card-2);
+  border: 1px solid var(--line-soft); border-radius: 10px;
+}
+.ux-credfield { display: block; }
+.ux-credfield .os-input { height: 44px; font-size: 14.5px; background: var(--bg); width: 100%; }
+.ux-credrow { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+.ux-credrow .os-pri { height: 40px; padding: 0 18px; font-size: 14px; border-radius: 8px; }
+/* The second question is visually distinct from the field it follows: an owner who has already
+   pressed once must see that something further is being asked before they press again. */
+.ux-credconfirm {
+  margin-top: 14px; padding: 14px 16px; border-radius: 10px;
+  background: var(--warn-soft); border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
+}
+.ux-credask { margin: 0; font-size: 13.5px; line-height: 1.6; color: var(--ink); max-width: 62ch; }
+.ux-connfoot { margin: 16px 0 0; font-size: 12.5px; }
+
+/* Advanced says out loud that it is not part of normal work. */
+.ux-advnote { border-color: var(--line-soft); }
+.ux-advnote .os-machine { margin-top: 16px; }
+
+@media (max-width: 640px) {
+  .ux-connmain { flex-wrap: wrap; }
+  .ux-connbtn { margin-left: 0; }
+  .ux-conntech { grid-template-columns: 1fr; gap: 2px 0; }
+  .ux-conntech dt { margin-top: 8px; }
+  .ux-credrow .os-pri, .ux-credrow .os-ghost { flex: 1 1 auto; justify-content: center; }
+}

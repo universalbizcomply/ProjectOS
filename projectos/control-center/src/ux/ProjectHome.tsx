@@ -251,21 +251,22 @@ export function ProjectHome({
       {tab === 'advanced' && (
         <div className="os-stack">
           <TechnicalDetail state={state} />
+          {/*
+            TWO ADVANCED CONTEXTS, EACH ANSWERING ITS OWN QUESTION.
+            This tab is the technical evidence for THIS PROJECT — its repository, its commit, its
+            plan record, its authority. The platform-wide surfaces are about ProjectOS itself and
+            are the same on every project, so listing all eight of them here put an identical block
+            inside every project with no contextual value. One way through instead.
+          */}
           <div className="os-plate">
-            <h2 className="os-h2">Other surfaces</h2>
+            <h2 className="os-h2">ProjectOS itself</h2>
             <p className="os-set-sub">
-              These are unchanged and are kept for when you need them.
+              Installation, runtime and the expert surfaces are the same whichever project you have
+              open, so they live in one place rather than inside each project.
             </p>
-            <span className="os-advlinks">
-              <button type="button" className="os-advlink" onClick={() => onOpenAdvanced('live')}>Mission Control</button>
-              <button type="button" className="os-advlink" onClick={() => onOpenAdvanced('workflow')}>Workflow</button>
-              <button type="button" className="os-advlink" onClick={() => onOpenAdvanced('plugins')}>Integrations</button>
-              <button type="button" className="os-advlink" onClick={() => onOpenAdvanced('forge')}>Forge</button>
-              <button type="button" className="os-advlink" onClick={() => onOpenAdvanced('control')}>Owner Control</button>
-              <button type="button" className="os-advlink" onClick={() => onOpenAdvanced('chat')}>Owner Chat</button>
-              <button type="button" className="os-advlink" onClick={() => onOpenAdvanced('safety')}>Safety &amp; Providers</button>
-              <button type="button" className="os-advlink" onClick={() => onOpenAdvanced('gates')}>Safety Gates</button>
-            </span>
+            <button type="button" className="os-sec" onClick={() => onOpenAdvanced('live')}>
+              Open ProjectOS Advanced
+            </button>
           </div>
         </div>
       )}

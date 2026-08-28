@@ -5,10 +5,10 @@
  * something, is AI usage within limits — and then stops. There are no graphs, no telemetry, no
  * observability vocabulary and no second copy of anything the project screens already say.
  *
- * IT READS; IT NEVER ACTS. Nothing here dispatches a governed command, and there is no control that
- * could: health is a report, and every remedy for what it reports lives on the surface that owns
- * it. The one exception is replacing a stored credential, which is the existing connections
- * component doing what it already did — reused, not rebuilt beside itself.
+ * IT READS; IT NEVER ACTS. Nothing here dispatches a governed command, no control could, and the
+ * one thing that used to be an exception is gone: replacing a credential is a WRITE, it belongs to
+ * Settings, and Health now renders the shared Connections component in its `status` projection —
+ * the same rows and the same status mapping with no mutation surface built at all.
  *
  * Every word comes from `healthModel`, which derives from records the engine already keeps. See its
  * header for why a stored credential is never rendered as a healthy provider.
@@ -17,7 +17,7 @@
  */
 import type { GovernedState } from '../governed/types';
 import { buildHealthModel, type HealthTone } from './healthModel';
-import { ConnectionsTab } from '../owner/ConnectionsTab';
+import { Connections } from './Connections';
 
 /** Status is never colour alone — every dot sits beside its own word. */
 const TONE_WORD: Record<HealthTone, string> = {
@@ -80,16 +80,15 @@ export function HealthScreen({ governed }: { governed: GovernedState | null }) {
           )}
 
           {/*
-            THE PER-PROVIDER TRUTH, IN STATUS MODE. The same component and the same status mapping,
-            with its management surface not rendered: Health observes, and reading it must have no
-            side effect. It used to render whole behind a disclosure, which hid a key field and a
-            store button from the eye but not from the page or the keyboard.
-            
-            Where credential management should finally live is Stage 8's decision.
+            THE PER-PROVIDER TRUTH, IN STATUS MODE. One Connections implementation serves Health,
+            Settings and Advanced; this projection renders rows and status words and nothing else.
+            It used to render management behind a disclosure, which hid a key field and a store
+            button from the eye but not from the page or the keyboard. Stage 8 ruled where
+            management lives: Settings, and only Settings.
           */}
           {group.id === 'connectivity' && live !== null && live.connections.connections.length > 0 && (
             <div className="ux-healthconns">
-              <ConnectionsTab state={live} readOnly />
+              <Connections state={live} mode="status" />
             </div>
           )}
         </section>

@@ -17,7 +17,13 @@ const FIX = path.join(CC, "src", "owner", "confirmation", "ownerConfirmationFixt
 const TEST = path.join(CC, "test", "ownerPresenceConfirmation.test.tsx");
 const OCP = path.join(CC, "src", "owner", "OwnerControlPlane.tsx");
 const CSS = path.join(CC, "src", "styles.css");
-const OWNER_CHAT = path.join(CC, "src", "owner", "OwnerChat.tsx");
+// The surfaces that could plausibly grow a SECOND protected-operation confirmation. This named
+// `OwnerChat.tsx`, which PROJECTOS-CONTROL-CENTER-UX-ARCHITECTURE1A Stage 8 removed by ruling; the
+// entry then matched nothing and the rule silently covered one fewer surface. It is retargeted to
+// the surfaces that exist now — the Control Center, which replaced the chat as the owner's command
+// surface, and Connections, which gained a confirmation of its own for the native credential write.
+const CONTROL_CENTER = path.join(CC, "src", "ux", "ControlCenter.tsx");
+const CONNECTIONS = path.join(CC, "src", "ux", "Connections.tsx");
 const FORGE = path.join(CC, "src", "forge", "ForgeConsole.tsx");
 
 const read = (p) => fs.readFileSync(p, "utf8");
@@ -102,7 +108,7 @@ function run() {
   // 9. ONE universal framework: the component is defined once and no second confirmation component exists.
   if ((comp.match(/export function ProtectedOperationConfirmation/g) || []).length !== 1)
     e.push("ProtectedOperationConfirmation is not defined exactly once");
-  for (const [p, label] of [[OWNER_CHAT, "OwnerChat"], [FORGE, "ForgeConsole"]]) {
+  for (const [p, label] of [[CONTROL_CENTER, "ControlCenter"], [CONNECTIONS, "Connections"], [FORGE, "ForgeConsole"]]) {
     if (fs.existsSync(p)) {
       const s = read(p);
       if (/ProtectedOperationConfirmation|function .*ConfirmationDialog|Approve this action/.test(s))

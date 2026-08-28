@@ -16,7 +16,6 @@ import { ChangePassword } from './ChangePassword';
 import { DaemonProvider } from './daemon/DaemonProvider';
 import { LiveMissionControl } from './daemon/LiveMissionControl';
 import { OwnerControlPlane } from './owner/OwnerControlPlane';
-import { OwnerChat } from './owner/OwnerChat';
 import { SafetyProviders } from './owner/SafetyProviders';
 import { useShellTheme } from './owner/ShellTheme';
 import { ForgeConsole } from './forge/ForgeConsole';
@@ -44,11 +43,14 @@ import type { Session } from '@supabase/supabase-js';
  *
  * Ten equally weighted destinations became six: a persistent 308px rail carrying the brand, New
  * project, the project list, the appearance switch and Settings, over one canvas. Nothing became
- * unreachable — chat is also the workspace composer and workflow is also the Plan tab, and every
- * previous destination (Mission Control, Workflow, Integrations, Forge, Owner Control, Owner Chat,
- * Safety & Providers and Safety Gates) is reached from Advanced, inside the workspace's collapsed
- * technical panel. Settings states the five approvals an owner meets in plain language; the eight
- * canonical gates, with their keys and their gated/prohibited status, stay on Safety Gates.
+ * unreachable — workflow is also the Plan tab, and every previous destination (Mission Control,
+ * Workflow, Integrations, Forge, Owner Control, Safety & Providers and Safety Gates) is reached
+ * from Advanced. Owner Chat was REMOVED in Stage 8: the Universal Control Center is the owner's
+ * conversation and command surface, and a second chat behind Advanced was a duplicate of it with a
+ * weaker safety posture — see the Advanced surface's own note.
+ *
+ * Settings states the five approvals an owner meets in plain language; the eight canonical gates,
+ * with their keys and their gated/prohibited status, stay on Safety Gates.
  *
  * `dashboard` EXISTS ONLY IN COMMAND MODE. In Standard it falls through to the workspace; rendering
  * it there leaves an empty canvas, and that bug has happened here once already.
@@ -68,7 +70,6 @@ type AdvancedView =
   | 'plugins'
   | 'forge'
   | 'control'
-  | 'chat'
   | 'safety'
   | 'gates';
 
@@ -86,7 +87,6 @@ const ADVANCED_SURFACES: ReadonlyArray<{ id: AdvancedView; label: string }> = [
   { id: 'plugins', label: 'Integrations' },
   { id: 'forge', label: 'Forge' },
   { id: 'control', label: 'Owner Control' },
-  { id: 'chat', label: 'Owner Chat' },
   { id: 'safety', label: 'Safety & Providers' },
   { id: 'gates', label: 'Safety Gates' },
 ];
@@ -469,18 +469,16 @@ export function Shell({
                 setCalm={setCalm}
                 onBack={() => go('projects')}
                 onAdvanced={() => {
-                  // The prototype's own route: open the project's technical detail and say so.
-                  // With NO project there is no workspace to open it on, and the Advanced surfaces
-                  // would be unreachable — so the button opens them directly instead. "Nothing
-                  // becomes unreachable" has to hold on an empty machine too.
-                  if (noProjects) {
-                    setAdvanced('control');
-                    go('advanced');
-                    return;
-                  }
-                  setProjectTab('advanced');
-                  go('project');
-                  say('Technical detail is under Advanced on the project.');
+                  /*
+                   * GLOBAL Advanced, which is what the button says and what Settings is about.
+                   *
+                   * It used to open the PROJECT's Advanced tab instead, so a control on a
+                   * ProjectOS-wide screen navigated into one project's technical detail — and on a
+                   * machine with no project it opened something else again. The two Advanced
+                   * contexts are now distinct and this one goes to the platform-wide surface.
+                   */
+                  setAdvanced('live');
+                  go('advanced');
                 }}
                 onSignOut={() => void signOut()}
                 onChangePassword={canChangePassword ? onChangePassword : null}
@@ -547,9 +545,34 @@ function AdvancedSurface({
           ))}
         </nav>
       </div>
+      {/*
+        THE SIGNAL THE NO-TRAINING STANDARD ASKS FOR. Advanced is inspection and expert tooling;
+        nothing an owner does in the ordinary course of running a project requires any of it, and
+        the screen says so in its own words rather than leaving the owner to work it out.
+      */}
+      <div className="os-plate ux-advnote" role="note">
+        <h2 className="os-h2">You normally do not need this</h2>
+        <p className="os-set-sub">
+          Everything below is technical evidence about ProjectOS itself — how it is installed, what
+          it will and will not do without asking, and the surfaces engineers use to inspect it.
+          Running your projects never requires it.
+        </p>
+        <dl className="os-machine">
+          <dt>ProjectOS</dt>
+          <dd>core v{CORE_VERSION} · governed projection · owner-gated closure</dd>
+          <dt>Desktop host</dt>
+          <dd>
+            {tauriBridge.isTauri()
+              ? 'Installed application — the native host is answering'
+              : 'Browser preview — the native host is not present, so nothing can be stored or run'}
+          </dd>
+          <dt>Credentials</dt>
+          <dd>Held by Windows. Set one up or replace it in Settings, never here.</dd>
+        </dl>
+      </div>
+
       {which === 'live' && <LiveMissionControl />}
       {which === 'control' && <OwnerControlPlane />}
-      {which === 'chat' && <OwnerChat />}
       {which === 'safety' && <SafetyProviders />}
       {which === 'gates' && <Gates />}
       {which === 'forge' && <ForgeConsole />}

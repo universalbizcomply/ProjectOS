@@ -1,13 +1,31 @@
 /**
- * Settings — README §Screens 9. Three plates and nothing else.
+ * SETTINGS — the things the owner intentionally configures, and nothing else.
  *
- * APPEARANCE CHANGES NOTHING BUT LOOKS, and the plate says so in the copy the handoff approved. The
- * five approval rows below it are LOCKED, and the design is explicit that this is deliberate: they
- * are the product's own gates, and a settings screen that could switch them off would be the single
- * most dangerous control in it. There is no control here that writes to them — only text.
+ * WHAT BELONGS HERE. A setting is something the owner can actually change through a real, safe
+ * seam that exists today. There are exactly two: how ProjectOS looks, and which keys Windows holds
+ * for this project. Everything else on this screen is stated as a FACT rather than drawn as a
+ * control, and is here because it answers "what has been configured", not "how is it going".
+ *
+ * WHAT WAS DELIBERATELY NOT ADDED, and why each would have been a lie:
+ *   · AI budget — read from the reviewer ledger; no verb and no native command sets it. Health
+ *     already reports it, so repeating it here would duplicate a screen AND imply it was editable.
+ *   · Notifications — there is no notification system to configure.
+ *   · Project defaults — nothing in the engine reads such a thing.
+ *   · Voice — there is no governed voice seam. "Enable voice" would be a switch over nothing.
+ *
+ * WHAT MOVED OUT (Stage 8 duplication pass):
+ *   · "Keys held by Windows: N" — a count of the very rows now listed above it in Connections, and
+ *     the same number Health prints. Removed; the list itself is the truthful answer.
+ *   · "ProjectOS core v…" — platform identity, not owner configuration. It lives in Advanced.
+ *   · The "Live site" row — it is not a fact about this computer, it is one of the approvals. It
+ *     joins the approvals plate, where its neighbours already are.
+ *
+ * THE APPROVAL ROWS ARE LOCKED, and that is the design, not an omission: they are the product's own
+ * gates, and a settings screen that could switch them off would be the most dangerous control in
+ * it. There is no control here that writes to them — only text.
  */
-import { CORE_VERSION } from '@projectos/core';
 import { useGovernedProjects, useGovernedState } from '../daemon/DaemonProvider';
+import { Connections } from '../ux/Connections';
 import type { ShellTheme } from './ShellTheme';
 import { IconBack, IconLock } from './icons';
 
@@ -45,7 +63,6 @@ export function SettingsScreen({
   const inventory = useGovernedProjects();
   const governed = useGovernedState();
   const live = governed !== null && governed.connected ? governed : null;
-  const keys = live === null ? null : live.connections.connections.length;
 
   return (
     <div className="os-stack">
@@ -109,6 +126,30 @@ export function SettingsScreen({
         </div>
       </section>
 
+      {/*
+        CONNECTIONS — THE ONE PLACE A KEY IS SET UP OR REPLACED.
+        Health shows the same rows and cannot change them; Advanced shows their technical identity.
+        One component, one native write, three projections of it.
+      */}
+      <section className="os-plate-sm os-glass os-hud" aria-labelledby="os-set-conn">
+        <div className="os-hudlabel">
+          <span>connections</span><span className="rule" /><span>held by windows</span>
+        </div>
+        <h2 className="os-h2" id="os-set-conn" style={{ marginBottom: 8 }}>Connections and keys</h2>
+        <p className="os-set-sub">
+          Windows holds these, not ProjectOS. They never appear in reports, and using a live one
+          always asks you first.
+        </p>
+        {live === null ? (
+          <p className="os-set-sub" role="status">
+            ProjectOS is not reporting on a project yet, so there are no keys to show or change.
+            Open a project first.
+          </p>
+        ) : (
+          <Connections state={live} mode="manage" />
+        )}
+      </section>
+
       <section className="os-plate-sm os-glass os-hud">
         <div className="os-hudlabel"><span>approvals</span><span className="rule" /><span>always asks</span></div>
         <h2 className="os-h2" style={{ marginBottom: 8 }}>What always asks you first</h2>
@@ -123,6 +164,19 @@ export function SettingsScreen({
               <span className="v">{a.v}</span>
             </div>
           ))}
+          {/* The live-site gate's ACTUAL state for the open project, beside the rule it belongs to
+              rather than filed under this computer's facts. */}
+          <div className="os-lockrow">
+            <IconLock />
+            <span className="k">The live site, right now</span>
+            <span className="v">
+              {live === null
+                ? 'Not known yet'
+                : live.safety.productionFreeze
+                  ? 'Frozen for this project'
+                  : 'NOT frozen for this project'}
+            </span>
+          </div>
         </div>
       </section>
 
@@ -132,18 +186,6 @@ export function SettingsScreen({
         <dl className="os-machine">
           <dt>Projects on this computer</dt>
           <dd>{inventory === null ? 'Not known yet' : `${inventory.projects.length} registered`}</dd>
-          <dt>Keys held by Windows</dt>
-          <dd>{keys === null ? 'Not known yet' : `${keys} held for this project`}</dd>
-          <dt>Live site</dt>
-          <dd>
-            {live === null
-              ? 'Not known yet'
-              : live.safety.productionFreeze
-                ? 'Frozen for this project'
-                : 'NOT frozen for this project'}
-          </dd>
-          <dt>ProjectOS</dt>
-          <dd>core v{CORE_VERSION} · governed projection · owner-gated closure</dd>
         </dl>
         <div className="os-setactions">
           <button type="button" className="os-sec" onClick={onAdvanced}>Advanced and technical details</button>
