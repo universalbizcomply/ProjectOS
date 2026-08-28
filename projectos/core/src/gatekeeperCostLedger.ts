@@ -73,14 +73,38 @@ export function utf8ByteLength(text: string): number {
 }
 
 /**
+ * Raised when a byte count cannot be estimated from. Carries no data: the only correct response to
+ * it anywhere is to refuse the call.
+ */
+export class InvalidEstimateInputError extends Error {
+  constructor(detail: string) {
+    super(`the size of this request could not be established (${detail}), so no call was made`);
+    this.name = 'InvalidEstimateInputError';
+  }
+}
+
+/**
  * The conservative input-token reservation for a request body.
  *
- * Monotonic: more bytes can never reserve fewer tokens. Non-finite or negative input reserves zero
- * rather than propagating NaN into a budget comparison, where `NaN > limit` is false and would let
- * the call through.
+ * IT RAISES RATHER THAN RETURNING ZERO, and the difference is the whole point. This used to clamp a
+ * non-finite or negative byte count to zero tokens, which reads like caution and is the opposite:
+ * zero tokens is a FREE call, a free call is under every budget, and the dispatch that should have
+ * been refused proceeds. An impossible input is not a cheap request — it is an unknown one, and an
+ * unknown cost must never be spent.
+ *
+ * Zero is kept as a VALID answer, because zero bytes is a real thing to be asked about. What is
+ * refused is input that could not be a byte count at all: not finite, not an integer, negative, or
+ * beyond the range where integer arithmetic still holds.
+ *
+ * Monotonic across every valid input: more bytes can never reserve fewer tokens.
  */
 export function estimateInputTokensFromBytes(bytes: number): number {
-  if (!Number.isFinite(bytes) || bytes <= 0) return 0;
+  if (typeof bytes !== 'number' || Number.isNaN(bytes)) throw new InvalidEstimateInputError('not a number');
+  if (!Number.isFinite(bytes)) throw new InvalidEstimateInputError('not finite');
+  if (!Number.isInteger(bytes)) throw new InvalidEstimateInputError('not a whole number of bytes');
+  if (bytes < 0) throw new InvalidEstimateInputError('negative');
+  if (!Number.isSafeInteger(bytes)) throw new InvalidEstimateInputError('beyond safe integer range');
+  if (bytes === 0) return 0;
   const calibrated = Math.ceil(bytes / CALIBRATED_BYTES_PER_TOKEN);
   return Math.ceil(calibrated * RESERVATION_SAFETY_MARGIN);
 }
@@ -331,7 +355,24 @@ export function authoriseRequestSpend(
   if (verdict.status === BUDGET_STOPPED) {
     return { allowed: false, reasons };
   }
-  const projected = verdict.spentMicroUsd + nonNegative(estimateMicroUsd);
+  /*
+   * AN ESTIMATE THAT CANNOT BE TRUSTED IS REFUSED, NOT CLAMPED.
+   *
+   * This ran `nonNegative(estimateMicroUsd)`, which turns NaN, Infinity and negatives into 0. A
+   * zero estimate is a free call, a free call is under every budget, and so the single check
+   * standing between an unattended loop and the money let it through. `NaN > limit` being false is
+   * the same fault wearing a different hat.
+   *
+   * Every caller reaches the provider through here, so this is the one place the guarantee has to
+   * hold — whatever any individual estimator does or is changed to do later.
+   */
+  if (typeof estimateMicroUsd !== 'number' || !Number.isFinite(estimateMicroUsd) || estimateMicroUsd < 0) {
+    reasons.push(
+      'the cost of this call could not be established, so it was not made; ProjectOS does not spend against an unknown estimate',
+    );
+    return { allowed: false, reasons };
+  }
+  const projected = verdict.spentMicroUsd + estimateMicroUsd;
   if (projected > policy.hardStopAtMicroUsd) {
     reasons.push(
       `this call is estimated at ${formatMicroUsd(estimateMicroUsd)}, which would take the month to ` +

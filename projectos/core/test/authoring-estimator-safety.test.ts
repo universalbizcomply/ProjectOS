@@ -32,6 +32,7 @@ import {
   estimateInputTokensFromBytes,
   estimateInputTokensFromText,
   utf8ByteLength,
+  InvalidEstimateInputError,
   authoriseRequestSpend,
   type RateCard,
   type LedgerTotals,
@@ -158,26 +159,93 @@ describe('request shapes behave conservatively and deterministically', () => {
   });
 });
 
-describe('malformed input reserves zero rather than poisoning the comparison', () => {
+describe('an impossible byte count FAILS CLOSED — it never becomes a cheap call', () => {
+  /*
+   * The first version of this correction clamped invalid input to zero tokens. That reads like
+   * caution and is its opposite: zero tokens is a FREE call, a free call is under every budget, and
+   * the dispatch that should have been refused proceeds. An impossible input is not a cheap request,
+   * it is an unknown one — and an unknown cost must never be spent.
+   */
   test.each([
     ['NaN', Number.NaN],
     ['Infinity', Number.POSITIVE_INFINITY],
     ['-Infinity', Number.NEGATIVE_INFINITY],
     ['negative', -1_000],
-    ['zero', 0],
-  ])('%s reserves 0', (_n, value) => {
-    expect(estimateInputTokensFromBytes(value)).toBe(0);
+    ['minus one', -1],
+    ['fractional', 1_024.5],
+    ['unsafe integer', Number.MAX_SAFE_INTEGER + 2],
+  ])('%s raises rather than returning a number', (_n, value) => {
+    expect(() => estimateInputTokensFromBytes(value)).toThrow(InvalidEstimateInputError);
   });
 
-  test('a NaN estimate would have PASSED the budget gate, which is why it is refused here', () => {
-    // `NaN > limit` is false, so a non-finite estimate sails through a naive comparison.
-    expect(Number.NaN > 1).toBe(false);
-    expect(Number.isFinite(estimateInputTokensFromBytes(Number.NaN))).toBe(true);
+  test.each([
+    ['NaN', Number.NaN],
+    ['negative', -1],
+    ['fractional', 0.5],
+  ])('%s never yields 0 — that was the fail-open', (_n, value) => {
+    let produced: number | null = null;
+    try { produced = estimateInputTokensFromBytes(value); } catch { produced = null; }
+    expect(produced).toBe(null);
   });
 
-  test('an empty body reserves nothing', () => {
+  test('the refusal says what an owner needs to know and carries no numbers to trust', () => {
+    try {
+      estimateInputTokensFromBytes(Number.NaN);
+      throw new Error('should have raised');
+    } catch (error) {
+      expect(error).toBeInstanceOf(InvalidEstimateInputError);
+      expect((error as Error).message).toMatch(/could not be established/i);
+      expect((error as Error).message).toMatch(/no call was made/i);
+    }
+  });
+
+  test('ZERO BYTES REMAINS VALID — it is a real answer, not a malformed one', () => {
+    expect(estimateInputTokensFromBytes(0)).toBe(0);
     expect(estimateInputTokensFromText('')).toBe(0);
     expect(utf8ByteLength('')).toBe(0);
+  });
+
+  test('ordinary byte counts are untouched by the guard', () => {
+    expect(estimateInputTokensFromBytes(1)).toBe(2);
+    expect(estimateInputTokensFromBytes(HISTORICAL.bytes)).toBe(41_794);
+  });
+});
+
+describe('THE GATE ITSELF refuses an estimate it cannot trust', () => {
+  /*
+   * The deeper fault, and the one that mattered most: `authoriseRequestSpend` ran the estimate
+   * through a non-negative clamp, so NaN, Infinity and negatives all became 0 — under every budget,
+   * always allowed. Every caller reaches the provider through this function, so the guarantee has to
+   * hold HERE, whatever any individual estimator does or is later changed to do.
+   */
+  const POLICY: BudgetPolicy = { warnAtMicroUsd: 4_000_000, hardStopAtMicroUsd: 5_000_000 };
+  const totals = (month: number): LedgerTotals => ({
+    phaseMicroUsd: month, projectMicroUsd: month, monthMicroUsd: month,
+    callCount: 1, duplicatesIgnored: 0,
+  });
+
+  test.each([
+    ['NaN', Number.NaN],
+    ['Infinity', Number.POSITIVE_INFINITY],
+    ['-Infinity', Number.NEGATIVE_INFINITY],
+    ['negative', -1_000_000],
+  ])('%s is REFUSED, where it used to be clamped to a free call', (_n, estimate) => {
+    const decision = authoriseRequestSpend(estimate as number, totals(0), POLICY);
+    expect(decision.allowed).toBe(false);
+    expect(decision.reasons.join(' ')).toMatch(/could not be established/i);
+  });
+
+  test('a non-number estimate is refused too', () => {
+    expect(authoriseRequestSpend(undefined as unknown as number, totals(0), POLICY).allowed).toBe(false);
+    expect(authoriseRequestSpend('12' as unknown as number, totals(0), POLICY).allowed).toBe(false);
+  });
+
+  test('a valid zero estimate is still allowed — zero is a real number, not a broken one', () => {
+    expect(authoriseRequestSpend(0, totals(0), POLICY).allowed).toBe(true);
+  });
+
+  test('the clamp that caused this is gone: a huge estimate is no longer softened', () => {
+    expect(authoriseRequestSpend(POLICY.hardStopAtMicroUsd + 1, totals(0), POLICY).allowed).toBe(false);
   });
 });
 

@@ -15,7 +15,7 @@
  *
  * Created in PROJECTOS-LIVE-PLAN-AUTHORING-AND-OWNER-DECISION1A.
  */
-import { utf8ByteLength } from '@projectos/core';
+import { utf8ByteLength, InvalidEstimateInputError } from '@projectos/core';
 import { describe, test, expect } from 'vitest';
 import {
   brokeredAuthorPort,
@@ -210,6 +210,61 @@ describe('the brokered author', () => {
     expect(outcome.ok).toBe(false);
     if (outcome.ok) return;
     expect(outcome.detail).toContain('spend limit refused');
+    expect(rec.posts).toHaveLength(0);
+  });
+
+  test('AN ESTIMATE THAT CANNOT BE PRODUCED REFUSES THE CALL, and the provider is never reached', () => {
+    /*
+     * The safety property proven where the money is actually spent, not just in the helper.
+     *
+     * An estimator that cannot answer used to be able to become a zero — a free call, under every
+     * budget, allowed. Here it raises, and the authoring path must turn that into the same refusal a
+     * budget rejection produces: no post, no network, no settlement.
+     */
+    const rec = recordingTransport({ kind: 'response', status: 200, body: providerReply() });
+    let admitted = false;
+    const outcome = brokeredAuthorPort(
+      CONFIG,
+      deps(
+        {
+          estimateMicroUsd: () => {
+            throw new InvalidEstimateInputError('not a number');
+          },
+          admitSpend: () => {
+            admitted = true;
+            return { allowed: true, reasons: [] };
+          },
+        },
+        rec,
+      ),
+    ).author(REQUEST);
+
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.code).toBe('AUTHOR_UNAVAILABLE');
+    expect(outcome.detail).toMatch(/could not be established/i);
+    // THE PROVIDER WAS NEVER CALLED — no post, so no network and nothing to settle.
+    expect(rec.posts).toHaveLength(0);
+    // And spend was never even admitted: the refusal happens before the ledger is asked.
+    expect(admitted).toBe(false);
+  });
+
+  test('a refused estimate does not crash the authoring path', () => {
+    const rec = recordingTransport({ kind: 'response', status: 200, body: providerReply() });
+    expect(() =>
+      brokeredAuthorPort(
+        CONFIG,
+        deps(
+          {
+            estimateMicroUsd: () => {
+              throw new InvalidEstimateInputError('negative');
+            },
+            admitSpend: () => ({ allowed: true, reasons: [] }),
+          },
+          rec,
+        ),
+      ).author(REQUEST),
+    ).not.toThrow();
     expect(rec.posts).toHaveLength(0);
   });
 

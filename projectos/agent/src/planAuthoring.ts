@@ -821,13 +821,29 @@ export function brokeredAuthorPort(config: BrokeredAuthorConfig, deps: BrokeredA
       // bound rather than a nominal one.
       const body = buildAuthoringBody(request, config.model);
       if (deps.admitSpend !== undefined) {
-        const spend = deps.admitSpend({
-          requestId: request.requestId,
-          // THE BYTES ACTUALLY SENT. `body.length` is UTF-16 code units: every em dash, middot and
-          // accented character in an owner's own words counts as one here and arrives as two or
-          // three, so a request full of prose reserved less than it spent. ASCII hid it completely.
-          estimateMicroUsd: deps.estimateMicroUsd?.(utf8ByteLength(body)) ?? 0,
-        });
+        /*
+         * AN ESTIMATE THAT CANNOT BE PRODUCED REFUSES THE CALL — it does not crash, and it does not
+         * fall back to a cheap number. The estimator raises rather than returning zero precisely so
+         * this cannot become a free call that passes every budget, and the only correct response to
+         * that here is the same refusal a budget rejection produces.
+         *
+         * THE BYTES ACTUALLY SENT. `body.length` is UTF-16 code units: every em dash, middot and
+         * accented character in an owner's own words counts as one here and arrives as two or
+         * three, so a request full of prose reserved less than it spent. ASCII hid it completely.
+         */
+        let estimateMicroUsd: number;
+        try {
+          estimateMicroUsd = deps.estimateMicroUsd?.(utf8ByteLength(body)) ?? 0;
+        } catch (error) {
+          return {
+            ok: false,
+            code: 'AUTHOR_UNAVAILABLE',
+            detail: `the cost of this authoring call could not be established, so it was not made: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          };
+        }
+        const spend = deps.admitSpend({ requestId: request.requestId, estimateMicroUsd });
         if (!spend.allowed) {
           return {
             ok: false,
