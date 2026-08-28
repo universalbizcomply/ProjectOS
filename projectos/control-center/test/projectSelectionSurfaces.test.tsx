@@ -8,7 +8,7 @@
  * label and backed onto three different answers, and two of them could point a page at a project
  * this ProjectOS has never heard of.
  *
- * These tests pin the outcome the owner decided: Owner Control holds the ONE interactive selector,
+ * These tests pin the outcome the owner decided: exactly ONE surface holds an interactive selector,
  * the other two surfaces display the authoritative selection read-only, and nothing on those pages
  * can override, shadow or locally retain a different one.
  *
@@ -114,7 +114,13 @@ describe('[14] both pages show the authoritative selected project', () => {
     const none = screen.getByTestId('selected-project-identity-none');
     expect(none.textContent).toContain('No project chosen yet');
     // And it points at the one place that CAN choose, rather than leaving the owner stuck.
-    expect(none.textContent).toContain('Owner Control');
+    //
+    // RETARGETED, NOT RELAXED. This asserted the words "Owner Control", which
+    // PROJECTOS-CONTROL-CENTER-INTEGRATION1A retired as a second owner workflow. The invariant is
+    // unchanged and just as strong — the empty state must NAME the surface that can actually choose
+    // — but the surface that can is Projects now. Left as it was, the test would have demanded that
+    // the product keep directing owners to a page that no longer exists.
+    expect(none.textContent).toContain('Projects');
   });
 
   test.each([
