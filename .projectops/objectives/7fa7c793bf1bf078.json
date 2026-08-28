@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "objectiveId": "7fa7c793bf1bf078",
+  "objective": "Create a governed implementation plan for a future read-only ProjectOS Project Summary projection that shows the selected project's current status, current plan, next safe action, risks and carry-forward items using existing ProjectOS data sources only. Preserve one source of truth, introduce no duplicate workflow or new authority, and do not deploy, mutate databases, send messages, make payments, change credentials or execute the implementation. Produce the plan for owner review only.",
+  "authoritative": false,
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "HEAD",
+  "baseHead": "86c15d22a2b5142e4d874b301cb701365bf1eb89",
+  "submittedAt": "2026-08-28T23:36:17.381Z",
+  "submittedBy": "owner",
+  "instructionShaped": false
+}
