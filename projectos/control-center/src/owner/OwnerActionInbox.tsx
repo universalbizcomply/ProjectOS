@@ -12,7 +12,7 @@
  * Deliberately NOT here: any optimistic update. A decision re-emits governed state from the sidecar,
  * so the list repaints from re-read durable truth, same discipline as GovernedActions.
  */
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { tauriBridge } from '../daemon/tauriBridge';
 import { requestGovernedCommand } from '../governed/governedClient';
 import type { GovernedApprovalView, GovernedProjection } from '../governed/types';
@@ -25,9 +25,33 @@ interface DecisionState {
 
 export function OwnerActionInbox({ state }: { state: GovernedProjection }) {
   const [decision, setDecision] = useState<DecisionState>({ busyId: null, lines: [], failed: false });
+  /*
+   * CONFIRM, THEN COMMIT — the same second question every other governed action in the accepted UI
+   * asks, and this one had never asked it.
+   *
+   * `approval.decide` is the verb that permits a PROTECTED action: a production change, a real
+   * send, a payment, the use of a live key. It was dispatched from a single click, and the record it
+   * writes is permanent — ProjectOS records that the owner said so, and there is no verb that
+   * un-says it. A mis-click on the wrong row in a list of pending requests therefore authorised
+   * something irreversibly, silently, and in the owner's name.
+   *
+   * Plans already confirmed `plan.decide` and the Control Center confirms every verb it sends. This
+   * closes the one reachable exception rather than leaving the model inconsistent.
+   */
+  const [pending, setPending] = useState<{ item: GovernedApprovalView; outcome: 'approved' | 'rejected' } | null>(null);
+  /** `disabled` only lands after a re-render, so two presses in one tick both reached the runtime. */
+  const inFlight = useRef(false);
+  const confirmButton = useRef<HTMLButtonElement>(null);
   const items = state.pendingApprovals;
 
+  // The question takes the keyboard with it: the button that asked is replaced by the question.
+  useEffect(() => {
+    if (pending !== null) confirmButton.current?.focus();
+  }, [pending]);
+
   async function decide(item: GovernedApprovalView, outcome: 'approved' | 'rejected') {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setDecision({ busyId: item.id, lines: [`Asking the runtime to ${outcome === 'approved' ? 'approve' : 'reject'} ${item.action}…`], failed: false });
     const result = await requestGovernedCommand(tauriBridge, 'approval.decide', {
       approvalId: item.id,
@@ -35,6 +59,8 @@ export function OwnerActionInbox({ state }: { state: GovernedProjection }) {
       role: 'implementer',
     });
     setDecision({ busyId: null, lines: result.lines, failed: !result.ok });
+    setPending(null);
+    inFlight.current = false;
   }
 
   return (
@@ -87,21 +113,64 @@ export function OwnerActionInbox({ state }: { state: GovernedProjection }) {
                   This action is prohibited and cannot be approved from here. It requires you to act
                   outside ProjectOS.
                 </p>
+              ) : pending !== null && pending.item.id === item.id ? (
+                <div
+                  className="ocp-inbox-confirm"
+                  role="alertdialog"
+                  aria-label={`Confirm ${pending.outcome === 'approved' ? 'approval' : 'rejection'}`}
+                  aria-describedby={`ocp-ask-${item.id}`}
+                  onKeyDown={(e) => { if (e.key === 'Escape') setPending(null); }}
+                >
+                  <p className="ocp-inbox-ask" id={`ocp-ask-${item.id}`}>
+                    {pending.outcome === 'approved' ? (
+                      <>
+                        Approve <b>{item.action}</b>? ProjectOS will be permitted to perform it, and
+                        your decision is recorded permanently. It cannot be taken back.
+                      </>
+                    ) : (
+                      <>
+                        Reject <b>{item.action}</b>? It will not be performed, and your decision is
+                        recorded permanently. It cannot be taken back.
+                      </>
+                    )}
+                  </p>
+                  <div className="ocp-actionrow">
+                    <button
+                      ref={confirmButton}
+                      type="button"
+                      className={pending.outcome === 'approved' ? 'ocp-btn primary' : 'ocp-btn danger'}
+                      disabled={decision.busyId === item.id}
+                      onClick={() => void decide(pending.item, pending.outcome)}
+                    >
+                      {decision.busyId === item.id
+                        ? 'Recording…'
+                        : pending.outcome === 'approved' ? 'Yes, approve' : 'Yes, reject'}
+                    </button>
+                    <button
+                      type="button"
+                      className="ocp-btn"
+                      disabled={decision.busyId === item.id}
+                      onClick={() => setPending(null)}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
               ) : (
                 <div className="ocp-actionrow">
                   <button
                     type="button"
                     className="ocp-btn primary"
-                    disabled={decision.busyId === item.id}
-                    onClick={() => void decide(item, 'approved')}
+                    disabled={decision.busyId !== null}
+                    onClick={() => { setDecision({ busyId: null, lines: [], failed: false }); setPending({ item, outcome: 'approved' }); }}
                   >
                     Approve
                   </button>
                   <button
                     type="button"
                     className="ocp-btn danger"
-                    disabled={decision.busyId === item.id}
-                    onClick={() => void decide(item, 'rejected')}
+                    disabled={decision.busyId !== null}
+                    onClick={() => { setDecision({ busyId: null, lines: [], failed: false }); setPending({ item, outcome: 'rejected' }); }}
                   >
                     Reject
                   </button>

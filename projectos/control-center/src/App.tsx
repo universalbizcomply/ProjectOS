@@ -15,7 +15,8 @@ import { Login } from './Login';
 import { ChangePassword } from './ChangePassword';
 import { DaemonProvider } from './daemon/DaemonProvider';
 import { LiveMissionControl } from './daemon/LiveMissionControl';
-import { OwnerControlPlane } from './owner/OwnerControlPlane';
+import { ConnectionsPanel } from './owner/ConnectionsPanel';
+import type { GovernedProjection } from './governed/types';
 import { SafetyProviders } from './owner/SafetyProviders';
 import { useShellTheme } from './owner/ShellTheme';
 import { ForgeConsole } from './forge/ForgeConsole';
@@ -70,7 +71,7 @@ type AdvancedView =
   | 'workflow'
   | 'plugins'
   | 'forge'
-  | 'control'
+  | 'connections'
   | 'safety'
   | 'gates';
 
@@ -87,7 +88,7 @@ const ADVANCED_SURFACES: ReadonlyArray<{ id: AdvancedView; label: string }> = [
   { id: 'workflow', label: 'Workflow' },
   { id: 'plugins', label: 'Integrations' },
   { id: 'forge', label: 'Forge' },
-  { id: 'control', label: 'Owner Control' },
+  { id: 'connections', label: 'Connections (technical)' },
   { id: 'safety', label: 'Safety & Providers' },
   { id: 'gates', label: 'Safety Gates' },
 ];
@@ -496,6 +497,7 @@ export function Shell({
             {view === 'advanced' && (
               <AdvancedSurface
                 which={advanced}
+                live={live}
                 onBack={() => go('projects')}
                 onOpen={(next) => {
                   setAdvanced(next);
@@ -520,10 +522,13 @@ export function Shell({
  */
 function AdvancedSurface({
   which,
+  live,
   onBack,
   onOpen,
 }: {
   which: AdvancedView;
+  /** The one governed projection, for the read-only credential evidence. Null when nothing reports. */
+  live: GovernedProjection | null;
   onBack: () => void;
   onOpen: (next: AdvancedView) => void;
 }) {
@@ -580,7 +585,23 @@ function AdvancedSurface({
       </div>
 
       {which === 'live' && <LiveMissionControl />}
-      {which === 'control' && <OwnerControlPlane />}
+      {/*
+        THE ONE THING OWNER CONTROL HELD THAT NOTHING ELSE DOES.
+        Its per-credential technical identity — the reference, the environment, the risk class, the
+        fingerprint and any recorded expiry — appears on no other surface: Settings manages keys and
+        Health reports their status, but neither prints what identifies one. It is preserved here as
+        READ-ONLY evidence and nothing else; the workflow around it is gone.
+      */}
+      {which === 'connections' && (live !== null
+        ? <ConnectionsPanel state={live} />
+        : (
+          <div className="os-plate" role="status">
+            <h2 className="os-h2">Nothing to show yet</h2>
+            <p className="os-set-sub">
+              ProjectOS is not reporting on a project, so there are no credentials to describe.
+            </p>
+          </div>
+        ))}
       {which === 'safety' && <SafetyProviders />}
       {which === 'gates' && <Gates />}
       {which === 'forge' && <ForgeConsole />}
