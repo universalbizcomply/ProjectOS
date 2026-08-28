@@ -19,9 +19,16 @@ const path = require("path");
 // ---------------------------------------------------------------------------- limits / constants
 const DEFAULT_LIMITS = { maxFileBytes: 512 * 1024, maxFiles: 2000, maxDepth: 12 };
 const SUPPORTED_EXTS = new Set([".md", ".markdown", ".txt", ".json"]);
+// `.temp` sits beside `temp` and `tmp` because it is the same kind of directory and was the one
+// spelling this set missed. A nested git worktree checked out under `C:\dev\ProjectOS\.temp` put a
+// second copy of the repository's planning corpus inside the scanned tree: 300 typed sources, and
+// 14 of the 39 paths the authoring request offers the model came from it — 13 of them the same
+// documents already in the list under their canonical paths, plus one stale state snapshot. Only 4
+// of the 39 paths a clean checkout selects survived, because the corpus doubling moved the sampling
+// step. A transient tree must not be able to describe the project to an author.
 const SKIP_DIRS = new Set([
   ".git", "node_modules", "dist", "build", "target", "coverage", ".vscode-test",
-  "tmp", "temp", ".cache", "out", ".next", ".turbo", "vendor", "__pycache__"
+  "tmp", "temp", ".temp", ".cache", "out", ".next", ".turbo", "vendor", "__pycache__"
 ]);
 // Files that must never be opened (credential-bearing by convention).
 const FORBIDDEN_FILE_RE = /(^|[\\/])\.env(\.|$)|\.(pem|key|pfx|p12|keystore)$|(^|[\\/])(id_rsa|id_ed25519)$/i;
