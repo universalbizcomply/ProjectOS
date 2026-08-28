@@ -27,24 +27,40 @@ export function OperatorLayers({ speaking }: { speaking: boolean }) {
   );
 }
 
-/** The hero's `operator // link` aside. Command mode only — CSS hides it in Standard. */
+/**
+ * The hero's `operator // link` aside. Command mode only — CSS hides it in Standard.
+ *
+ * PRESENCE AND CONNECTIVITY ARE TWO DIFFERENT THINGS, and conflating them is what made the operator
+ * vanish from every hosted page. The hologram is ProjectOS's IDENTITY: in Command appearance it is
+ * there because that is what the appearance IS, not because a runtime happens to be answering. The
+ * LINK is a separate, factual claim about whether this build can reach one.
+ *
+ * So `linked` drives the words and the intensity, and nothing drives presence away. With a runtime
+ * the operator reads as energised and the meta says the link is stable; without one it stays
+ * visible but dormant — dimmer, slower, and saying so in its own words. It never claims a link it
+ * does not have: `LINK STABLE` used to be hardcoded, which would have become a lie the moment the
+ * hologram was allowed to render without a projection.
+ */
 export function OperatorAside({
   speaking,
   label,
   readout,
+  linked,
 }: {
   speaking: boolean;
   label: string;
   readout: string;
+  /** Whether ProjectOS is actually reporting. Changes the words and the intensity, never presence. */
+  linked: boolean;
 }) {
   return (
-    <aside className="os-operator">
+    <aside className="os-operator" data-linked={linked ? '1' : '0'}>
       <div className="os-hudlabel" style={{ marginBottom: 10 }}>
         <span>operator // link</span>
         <span className="rule" />
         <span>{label}</span>
       </div>
-      <div className="os-holo">
+      <div className="os-holo" data-dormant={linked ? '0' : '1'}>
         <div className="os-holo-inner">
           <OperatorLayers speaking={speaking} />
         </div>
@@ -54,7 +70,8 @@ export function OperatorAside({
         <span className="base" aria-hidden="true" />
       </div>
       <div className="os-operator-meta">
-        <span>LINK STABLE</span>
+        {/* The one factual claim this component makes. It is never decoration. */}
+        <span>{linked ? 'LINK STABLE' : 'NO LINK'}</span>
         <span>{readout}</span>
       </div>
     </aside>

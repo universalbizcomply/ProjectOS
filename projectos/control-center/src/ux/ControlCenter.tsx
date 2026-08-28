@@ -193,13 +193,23 @@ export function ControlCenter({
       </p>
         </div>
 
-        {state !== null && (
-          <OperatorAside
-            speaking={false}
-            label={active === null ? 'standing by' : active.state.toLowerCase()}
-            readout={active?.stepLabel ?? state.projectName}
-          />
-        )}
+        {/*
+          THE OPERATOR IS THE APPEARANCE, NOT A CONNECTION INDICATOR.
+          It used to render only when a projection existed, so on any page without a local runtime —
+          every hosted one — the whole JARVIS identity collapsed to a dark palette: the head, the
+          plinth, the scan and the rings all disappeared and Command mode became "dark theme with
+          teal accents". Presence now belongs to the appearance, which is what CSS already gates:
+          `.os-operator` is `display: none` outside Command, so Standard is untouched by this.
+
+          What the runtime decides is the WORDS and the INTENSITY. Without a projection the operator
+          is dormant and says `NO LINK`; it never claims one it does not have.
+        */}
+        <OperatorAside
+          speaking={false}
+          linked={state !== null}
+          label={state === null ? 'dormant' : active === null ? 'standing by' : active.state.toLowerCase()}
+          readout={state === null ? 'local runtime unavailable' : (active?.stepLabel ?? state.projectName)}
+        />
       </div>
 
       <div className="ux-transcript" role="log" aria-label="Conversation">

@@ -2340,3 +2340,18 @@ h1.os-h1 { margin: 0; font-size: 36px; font-weight: 600; letter-spacing: -0.035e
   background: var(--warn-soft); border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
 }
 .ocp-inbox-ask { margin: 0 0 12px; font-size: 13.5px; line-height: 1.6; max-width: 62ch; }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   JARVIS — THE DORMANT OPERATOR.
+   Presence is the appearance; the LINK is a separate factual claim. Without a reporting runtime the
+   operator stays visible but reads as dormant: dimmer, cooler, and slower. Nothing is hidden, and
+   nothing claims a connection that does not exist. `prefers-reduced-motion` and calm mode already
+   stop these animations elsewhere in this sheet; this only changes their pace.
+   ───────────────────────────────────────────────────────────────────────────── */
+.os-holo[data-dormant='1'] .os-holowrap img { filter: drop-shadow(0 0 18px rgba(0, 213, 255, 0.22)) saturate(.72); opacity: .62; }
+.os-holo[data-dormant='1'] .scanlines { opacity: .45; }
+.os-holo[data-dormant='1'] .beam { animation-duration: 16s; opacity: .45; }
+.os-holo[data-dormant='1'] .base { opacity: .4; }
+.os-holo[data-dormant='1'] .rings { opacity: .45; }
+/* The meta line carries the only factual claim; a missing link reads as muted, never as an alarm. */
+.os-operator[data-linked='0'] .os-operator-meta { color: rgba(0, 213, 255, 0.4); }
