@@ -15,6 +15,7 @@
  *
  * Created in PROJECTOS-LIVE-PLAN-AUTHORING-AND-OWNER-DECISION1A.
  */
+import { utf8ByteLength } from '@projectos/core';
 import { describe, test, expect } from 'vitest';
 import {
   brokeredAuthorPort,
@@ -212,15 +213,15 @@ describe('the brokered author', () => {
     expect(rec.posts).toHaveLength(0);
   });
 
-  test('the estimate is taken from the body actually being sent', () => {
+  test('the estimate is taken from the BYTES of the body actually being sent', () => {
     const rec = recordingTransport({ kind: 'response', status: 200, body: providerReply() });
     const seen: number[] = [];
     brokeredAuthorPort(
       CONFIG,
       deps(
         {
-          estimateMicroUsd: (chars) => {
-            seen.push(chars);
+          estimateMicroUsd: (bytes) => {
+            seen.push(bytes);
             return 1;
           },
           admitSpend: () => ({ allowed: true, reasons: [] }),
@@ -228,8 +229,21 @@ describe('the brokered author', () => {
         rec,
       ),
     ).author(REQUEST);
+    /*
+     * RETARGETED, NOT RELAXED — and the difference is the whole defect.
+     *
+     * This asserted `.length`, which is UTF-16 CODE UNITS. The body is sent as UTF-8, so every
+     * non-ASCII character in it — and ProjectOS's own copy is full of em dashes and middots —
+     * arrived as two or three bytes while being reserved as one. The invariant is unchanged and
+     * strictly stronger: the estimate must come from the bytes that are actually transmitted.
+     *
+     * The second assertion is the proof that the distinction is live rather than theoretical: for
+     * this very body the two numbers DIFFER, so a regression to `.length` fails here immediately.
+     */
+    const body = buildAuthoringBody(REQUEST, CONFIG.model);
     expect(seen).toHaveLength(1);
-    expect(seen[0]).toBe(buildAuthoringBody(REQUEST, CONFIG.model).length);
+    expect(seen[0]).toBe(utf8ByteLength(body));
+    expect(seen[0]).toBeGreaterThan(body.length);
   });
 
   test('a transport failure is a refusal, and the reservation is RETAINED', () => {

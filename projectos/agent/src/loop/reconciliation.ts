@@ -44,6 +44,7 @@ import {
   checkGatekeeperDecision,
   checkThreadBinding,
   estimateCostMicroUsd,
+  estimateInputTokensFromText,
   gatekeeperRequestDigest,
   recordCall,
   reconciliationState,
@@ -825,7 +826,8 @@ export function reconcileDegradedWork(
   // THE SPEND LIMIT APPLIES HERE TOO. A limit tested only after the money is gone is a report, not a
   // stop — and this route was the one entry point that could spend without asking.
   const estimate = estimateCostMicroUsd(
-    { inputTokens: Math.ceil(evidenceText.length / 4), outputTokens: 800 },
+    // UTF-8 bytes through the one conservative estimator — not UTF-16 length divided by four.
+    { inputTokens: estimateInputTokensFromText(evidenceText), outputTokens: 800 },
     deps.rate,
   );
   const totals = summariseLedger(deps.ledger, {

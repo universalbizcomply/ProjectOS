@@ -19,6 +19,7 @@ import {
   planWorkflow,
   DEFAULT_WORKERS,
   estimateCostMicroUsd,
+  estimateInputTokensFromBytes,
   modelForAsk,
   recordCall,
   PLAN_AUTHORING_ASK,
@@ -212,9 +213,11 @@ function composeAuthor(ctx: CommandContext): { readonly author?: AuthorPort; rea
           ? { allowed: true, reasons: [] }
           : { allowed: false, reasons: permission.reasons };
       },
-      estimateMicroUsd: (inputChars) =>
+      // The body's own UTF-8 bytes, through the one conservative estimator. It used to divide the
+      // string's UTF-16 LENGTH by four, which under-reserved the only real authoring call by 24.9%.
+      estimateMicroUsd: (inputBytes) =>
         estimateCostMicroUsd(
-          { inputTokens: Math.ceil(inputChars / 4), outputTokens: AUTHORING_OUTPUT_TOKEN_ESTIMATE },
+          { inputTokens: estimateInputTokensFromBytes(inputBytes), outputTokens: AUTHORING_OUTPUT_TOKEN_ESTIMATE },
           rate,
         ),
       admitSpend: (request) =>

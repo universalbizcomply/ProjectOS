@@ -23,6 +23,73 @@
  * Created in PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A.
  */
 
+/**
+ * HOW MANY INPUT TOKENS A REQUEST WILL COST, BEFORE IT IS SENT.
+ *
+ * The spend gate refuses the call that WOULD cross the limit, which means the estimate is the only
+ * thing standing between an unattended loop and the budget. An estimate that is too LOW does not
+ * merely misreport — it lets a call through that should have been refused. So this errs high, on
+ * purpose, and says by how much.
+ *
+ * TWO FAULTS THIS REPLACES, both of which under-reserved:
+ *
+ *   1. FOUR BYTES PER TOKEN. The one real authoring call ProjectOS has made sent 104,482 bytes and
+ *      was billed for 34,761 input tokens — 3.006 bytes per token. At four, the same request
+ *      estimated 26,121 tokens: 8,640 short, a 24.9% under-reservation on the only call there is
+ *      evidence for.
+ *   2. `String.length`, WHICH IS UTF-16 CODE UNITS, NOT BYTES. Every non-ASCII character in a
+ *      request — and ProjectOS's own copy is full of em dashes and middots — is counted as one
+ *      where the provider receives two or three. ASCII hides this completely, which is why it
+ *      survived: the fault only appears in exactly the requests that carry owner prose.
+ *
+ * WHY 3 AND NOT 3.006. The measured ratio is evidence from ONE call, not a tokenizer. Rounding it
+ * DOWN to a whole number of bytes per token is the conservative direction (fewer bytes per token =
+ * more tokens estimated), and a whole number is auditable by hand.
+ *
+ * WHY A FURTHER 20%. Three bytes per token leaves only 0.19% of headroom over the measured call,
+ * which is not a margin. The uplift is sized so the reservation also covers a punctuation-dense
+ * request that tokenizes at roughly 2.5 bytes per token — the pessimistic end of the range for JSON
+ * payloads, which is exactly what an authoring body is. On the measured call that is 41,794 tokens
+ * against 34,761 actually billed: 20.2% of headroom, chosen because it MEANS something rather than
+ * because it looked safe.
+ *
+ * NEITHER NUMBER IS A TOKENIZER. No tokenizer is installed, no provider is asked, and nothing here
+ * touches the network: a pre-dispatch estimate that needs a network call is not a pre-dispatch gate.
+ */
+export const CALIBRATED_BYTES_PER_TOKEN = 3;
+
+/** The deliberate uplift over the calibrated ratio. Applied to TOKENS, before any cost rounding. */
+export const RESERVATION_SAFETY_MARGIN = 1.2;
+
+/**
+ * The UTF-8 byte length of a string — what the provider is actually sent.
+ *
+ * `TextEncoder` rather than `Buffer`: this module is bundled into the browser app as well as the
+ * agent, and `Buffer` does not exist there.
+ */
+export function utf8ByteLength(text: string): number {
+  if (typeof text !== 'string' || text === '') return 0;
+  return new TextEncoder().encode(text).length;
+}
+
+/**
+ * The conservative input-token reservation for a request body.
+ *
+ * Monotonic: more bytes can never reserve fewer tokens. Non-finite or negative input reserves zero
+ * rather than propagating NaN into a budget comparison, where `NaN > limit` is false and would let
+ * the call through.
+ */
+export function estimateInputTokensFromBytes(bytes: number): number {
+  if (!Number.isFinite(bytes) || bytes <= 0) return 0;
+  const calibrated = Math.ceil(bytes / CALIBRATED_BYTES_PER_TOKEN);
+  return Math.ceil(calibrated * RESERVATION_SAFETY_MARGIN);
+}
+
+/** The same reservation, from the text itself — counting UTF-8 bytes, never UTF-16 code units. */
+export function estimateInputTokensFromText(text: string): number {
+  return estimateInputTokensFromBytes(utf8ByteLength(text));
+}
+
 /** Published prices for one model, in integer micro-USD per million tokens. Supplied, never assumed. */
 export interface RateCard {
   readonly model: string;

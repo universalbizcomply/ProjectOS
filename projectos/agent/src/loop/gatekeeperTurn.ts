@@ -38,6 +38,7 @@ import {
   checkGatekeeperDecision,
   checkThreadBinding,
   estimateCostMicroUsd,
+  estimateInputTokensFromText,
   evaluateBudget,
   gatekeeperRequestDigest,
   modelForAsk,
@@ -333,7 +334,8 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
   }
 
   // The estimate uses the evidence actually being sent, so it is a real bound rather than a nominal one.
-  const estimatedInput = Math.ceil(input.evidenceText.length / 4);
+  // UTF-8 bytes through the one conservative estimator — not UTF-16 length divided by four.
+  const estimatedInput = estimateInputTokensFromText(input.evidenceText);
   const estimate = estimateCostMicroUsd({ inputTokens: estimatedInput, outputTokens: 800 }, rate);
   const totals = summariseLedger(deps.ledger, {
     projectId: input.projectId,

@@ -34,6 +34,7 @@
  * Created in PROJECTOS-OBJECTIVE-TO-PLAN-AUTHORING1A.
  */
 import { createHash } from 'node:crypto';
+import { utf8ByteLength } from '@projectos/core';
 import {
   extractStructuredOutput,
   readUsage,
@@ -712,7 +713,8 @@ export interface BrokeredAuthorDeps {
   /** Release a reservation for a call this attempt is refusing before any dispatch is possible. */
   readonly releaseUndispatched?: (requestId: string) => void;
   /** Micro-USD for an estimated call, from the configured rate card. */
-  readonly estimateMicroUsd?: (inputChars: number) => number;
+  /** Given the request body's UTF-8 BYTE length, the micro-USD to reserve before dispatch. */
+  readonly estimateMicroUsd?: (inputBytes: number) => number;
   /** The clock, so an attempt record can say when the call went out and when it settled. */
   readonly now?: () => string;
   /**
@@ -821,7 +823,10 @@ export function brokeredAuthorPort(config: BrokeredAuthorConfig, deps: BrokeredA
       if (deps.admitSpend !== undefined) {
         const spend = deps.admitSpend({
           requestId: request.requestId,
-          estimateMicroUsd: deps.estimateMicroUsd?.(body.length) ?? 0,
+          // THE BYTES ACTUALLY SENT. `body.length` is UTF-16 code units: every em dash, middot and
+          // accented character in an owner's own words counts as one here and arrives as two or
+          // three, so a request full of prose reserved less than it spent. ASCII hid it completely.
+          estimateMicroUsd: deps.estimateMicroUsd?.(utf8ByteLength(body)) ?? 0,
         });
         if (!spend.allowed) {
           return {
