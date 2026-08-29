@@ -44,6 +44,7 @@ import {
   checkGatekeeperDecision,
   checkThreadBinding,
   estimateCostMicroUsd,
+  estimateInputTokensFromText,
   gatekeeperRequestDigest,
   recordCall,
   reconciliationState,
@@ -57,7 +58,7 @@ import {
   type ReconciliationRecord,
 } from '@projectos/core';
 import { deriveRequestId, evidenceDigest } from './gatekeeperTurn.js';
-import { submitToOpenAi } from './transports/openaiResponses.js';
+import { submitToOpenAi, GATEKEEPER_OUTPUT_TOKEN_LIMIT } from './transports/openaiResponses.js';
 import type { CredentialResolver } from './credentialResolver.js';
 import type { HttpPort } from './transports/openaiResponses.js';
 import type { BrokeredTransport } from './transports/brokeredHttpPort.js';
@@ -825,7 +826,9 @@ export function reconcileDegradedWork(
   // THE SPEND LIMIT APPLIES HERE TOO. A limit tested only after the money is gone is a report, not a
   // stop — and this route was the one entry point that could spend without asking.
   const estimate = estimateCostMicroUsd(
-    { inputTokens: Math.ceil(evidenceText.length / 4), outputTokens: 800 },
+    // UTF-8 bytes through the one conservative estimator — not UTF-16 length divided by four.
+    // Same constant the request carries, so the reservation is the enforced maximum.
+    { inputTokens: estimateInputTokensFromText(evidenceText), outputTokens: GATEKEEPER_OUTPUT_TOKEN_LIMIT },
     deps.rate,
   );
   const totals = summariseLedger(deps.ledger, {

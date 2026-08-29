@@ -12,7 +12,7 @@
  *     identifier is NOT the isolated-fixture identifier
  *  2  the Rust desktop shell exists (src-tauri/Cargo.toml + src-tauri/src/main.rs)
  *  3  package.json wires the desktop toolchain (a "tauri" script + @tauri-apps/cli dependency)
- *  4  the owner-surface source modules exist and App.tsx registers the control/chat/safety views
+ *  4  the owner-surface source modules exist and App.tsx registers the control/safety/health views
  *  5  the production bundle carries all three owner-surface labels somewhere across ALL its chunks
  */
 
@@ -55,14 +55,25 @@ function run() {
   }
 
   // 4: owner-surface modules + App wiring.
+  //
+  // OWNER CHAT WAS REMOVED, BY RULING, IN PROJECTOS-CONTROL-CENTER-UX-ARCHITECTURE1A STAGE 8.
+  // The Universal Control Center is the owner's one conversation and command surface; the second
+  // chat behind Advanced duplicated it and dispatched governed verbs — `run.start` among them — on
+  // a single unconfirmed click. This check named it, so it encoded the navigation as it was rather
+  // than the invariant it exists to hold: that the owner surfaces this build ships are real modules,
+  // registered views, and present in the production bundle.
+  //
+  // It is RETARGETED, NOT RELAXED. The same number of modules, view registrations and bundle labels
+  // is proven, over the surfaces that exist after the ruling — with the Control Center, which
+  // replaced the chat, gaining the coverage the chat used to carry.
   const modules = [
-    "src/owner/OwnerControlPlane.tsx", "src/owner/OwnerChat.tsx",
+    "src/owner/OwnerControlPlane.tsx", "src/ux/ControlCenter.tsx",
     "src/owner/SafetyProviders.tsx", "src/owner/governedChain.ts",
   ];
   for (const m of modules) if (!exists(m)) errors.push("check 4: missing owner surface module " + m);
   if (exists("src/App.tsx")) {
     const app = read("src/App.tsx");
-    for (const token of ["'control'", "'chat'", "'safety'"]) {
+    for (const token of ["'control'", "'safety'", "'health'"]) {
       if (!app.includes(token)) errors.push("check 4: App.tsx does not register view " + token);
     }
   } else {
@@ -82,7 +93,7 @@ function run() {
   // desktop shell from source alone would not be proof, so this check needs a real build. Run the
   // repository's production build before validating a fresh checkout.
   const distAssets = path.join(CC, "dist", "assets");
-  const OWNER_SURFACE_LABELS = ["Owner Control", "Owner Chat", "Safety &"];
+  const OWNER_SURFACE_LABELS = ["Owner Control", "Control Center", "Safety &"];
   if (!fs.existsSync(distAssets)) {
     errors.push("check 5: no production bundle at " + DIST_ASSETS_REL + " — build the Control Centre before validating");
   } else {

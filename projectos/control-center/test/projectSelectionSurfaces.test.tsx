@@ -8,9 +8,16 @@
  * label and backed onto three different answers, and two of them could point a page at a project
  * this ProjectOS has never heard of.
  *
- * These tests pin the outcome the owner decided: Owner Control holds the ONE interactive selector,
+ * These tests pin the outcome the owner decided: exactly ONE surface holds an interactive selector,
  * the other two surfaces display the authoritative selection read-only, and nothing on those pages
  * can override, shadow or locally retain a different one.
+ *
+ * STAGE 8 NOTE. Owner Chat was REMOVED — the Universal Control Center is the owner's one
+ * conversation and command surface, and a second chat behind Advanced duplicated it with a weaker
+ * safety posture (see `stage8Duplication.test.ts`). Its rows are deleted from these tables rather
+ * than left pointing at nothing. Every invariant below is unchanged and still proven on the
+ * surfaces that remain: Safety & Providers displays the authoritative selection read-only, Owner
+ * Control holds the ONE interactive selector, and mounting them together yields exactly one control.
  *
  * Created in PROJECTOS-PHASE6-SECTION-C.
  */
@@ -18,7 +25,6 @@ import { describe, test, expect, afterEach } from 'vitest';
 import { render, screen, cleanup, act } from '@testing-library/react';
 import { DaemonProvider } from '../src/daemon/DaemonProvider.js';
 import { DaemonClient } from '../src/daemon/daemonClient.js';
-import { OwnerChat } from '../src/owner/OwnerChat.js';
 import { SafetyProviders } from '../src/owner/SafetyProviders.js';
 import { OwnerControlPlane } from '../src/owner/OwnerControlPlane.js';
 import { createFakeScheduler, createFakeTransport } from './helpers.js';
@@ -63,13 +69,6 @@ function withInventory(node: React.ReactElement) {
 }
 
 describe('[12, 13] the fixture project selectors are gone', () => {
-  test('Owner Chat has no project selector', () => {
-    withInventory(<OwnerChat />);
-    expect(screen.queryByLabelText('Select project')).toBeNull();
-    expect(screen.queryByTestId('project-select')).toBeNull();
-    expect(screen.queryAllByRole('combobox')).toHaveLength(0);
-  });
-
   test('Safety & Providers has no project selector', () => {
     withInventory(<SafetyProviders />);
     expect(screen.queryByLabelText('Select project')).toBeNull();
@@ -80,7 +79,6 @@ describe('[12, 13] the fixture project selectors are gone', () => {
 
 describe('[14] both pages show the authoritative selected project', () => {
   test.each([
-    ['Owner Chat', <OwnerChat key="chat" />],
     ['Safety & Providers', <SafetyProviders key="safety" />],
   ])('%s names the selected project and its repository', (_name, node) => {
     withInventory(node);
@@ -94,7 +92,6 @@ describe('[14] both pages show the authoritative selected project', () => {
    * available to choose". Each has its own sentence and its own next step for the owner.
    */
   test.each([
-    ['Owner Chat', <OwnerChat key="chat" />],
     ['Safety & Providers', <SafetyProviders key="safety" />],
   ])('%s says it is still checking before the runtime reports', (_name, node) => {
     mount(node);
@@ -105,7 +102,6 @@ describe('[14] both pages show the authoritative selected project', () => {
   });
 
   test.each([
-    ['Owner Chat', <OwnerChat key="chat" />],
     ['Safety & Providers', <SafetyProviders key="safety" />],
   ])('%s says so plainly when projects exist but none is chosen', (_name, node) => {
     const { transport } = mount(node);
@@ -118,11 +114,16 @@ describe('[14] both pages show the authoritative selected project', () => {
     const none = screen.getByTestId('selected-project-identity-none');
     expect(none.textContent).toContain('No project chosen yet');
     // And it points at the one place that CAN choose, rather than leaving the owner stuck.
-    expect(none.textContent).toContain('Owner Control');
+    //
+    // RETARGETED, NOT RELAXED. This asserted the words "Owner Control", which
+    // PROJECTOS-CONTROL-CENTER-INTEGRATION1A retired as a second owner workflow. The invariant is
+    // unchanged and just as strong — the empty state must NAME the surface that can actually choose
+    // — but the surface that can is Projects now. Left as it was, the test would have demanded that
+    // the product keep directing owners to a page that no longer exists.
+    expect(none.textContent).toContain('Projects');
   });
 
   test.each([
-    ['Owner Chat', <OwnerChat key="chat" />],
     ['Safety & Providers', <SafetyProviders key="safety" />],
   ])('%s does not send the owner somewhere to choose from an empty list', (_name, node) => {
     const { transport } = mount(node);
@@ -155,7 +156,6 @@ describe('[14] both pages show the authoritative selected project', () => {
 
 describe('[15] neither page can override the selected project', () => {
   test.each([
-    ['Owner Chat', <OwnerChat key="chat" />],
     ['Safety & Providers', <SafetyProviders key="safety" />],
   ])('%s follows the authoritative selection when it changes, and offers no way to change it', (_name, node) => {
     const { transport } = withInventory(node);
@@ -180,7 +180,6 @@ describe('[15] neither page can override the selected project', () => {
    * always the one the inventory reports.
    */
   test.each([
-    ['OwnerChat.tsx', 'src/owner/OwnerChat.tsx'],
     ['SafetyProviders.tsx', 'src/owner/SafetyProviders.tsx'],
   ])('%s retains no project of its own', async (_name, path) => {
     const source = await import('node:fs').then((fs) => fs.readFileSync(path, 'utf8'));
@@ -204,13 +203,12 @@ describe('[16] Owner Control holds the only interactive project selector', () =>
     }
   });
 
-  test('mounting all three surfaces together yields exactly one project control', () => {
+  test('mounting both surfaces together yields exactly one project control', () => {
     const transport = createFakeTransport();
     const client = new DaemonClient(transport, createFakeScheduler());
     render(
       <DaemonProvider client={client}>
         <OwnerControlPlane />
-        <OwnerChat />
         <SafetyProviders />
       </DaemonProvider>,
     );

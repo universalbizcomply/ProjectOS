@@ -21,6 +21,18 @@ const VALUE_PATTERNS: readonly RegExp[] = [
   /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g, // GitHub fine-grained PAT
   /\b[sr]k_(?:live|test)_[A-Za-z0-9]{20,}\b/g, // Stripe secret/restricted key
   /\bre_[A-Za-z0-9]{20,}\b/g, // Resend API key
+  // PROVIDER MODEL KEYS. Every shape above is underscore-delimited and both providers ProjectOS
+  // actually spends with are hyphen-delimited, so none of the above came close to either. The three
+  // prefixed OpenAI families and the Anthropic family are self-delimiting; the legacy bare OpenAI form
+  // has no prefix to lean on and takes a 40-character floor (real keys are 48). The bare form cannot
+  // reach a prefixed one: its body excludes the hyphen, so `sk-ant-` and `sk-proj-` both stop it after
+  // three or four characters. Mirrors `credentials/credential-shapes.cjs`; drift is refused by
+  // `val-projectos-provider-key-shapes1a`.
+  /\bsk-ant-[A-Za-z0-9_-]{20,}\b/g, // Anthropic (api03/admin01/sid01 - the variant tag is body, not pinned)
+  /\bsk-proj-[A-Za-z0-9_-]{20,}\b/g, // OpenAI project key
+  /\bsk-svcacct-[A-Za-z0-9_-]{20,}\b/g, // OpenAI service-account key
+  /\bsk-admin-[A-Za-z0-9_-]{20,}\b/g, // OpenAI admin key
+  /\bsk-[A-Za-z0-9]{40,}\b/g, // OpenAI legacy bare key
   /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}\b/g, // JWT
 ];
 

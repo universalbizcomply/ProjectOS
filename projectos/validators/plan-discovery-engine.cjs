@@ -19,9 +19,16 @@ const path = require("path");
 // ---------------------------------------------------------------------------- limits / constants
 const DEFAULT_LIMITS = { maxFileBytes: 512 * 1024, maxFiles: 2000, maxDepth: 12 };
 const SUPPORTED_EXTS = new Set([".md", ".markdown", ".txt", ".json"]);
+// `.temp` sits beside `temp` and `tmp` because it is the same kind of directory and was the one
+// spelling this set missed. A nested git worktree checked out under `C:\dev\ProjectOS\.temp` put a
+// second copy of the repository's planning corpus inside the scanned tree: 300 typed sources, and
+// 14 of the 39 paths the authoring request offers the model came from it — 13 of them the same
+// documents already in the list under their canonical paths, plus one stale state snapshot. Only 4
+// of the 39 paths a clean checkout selects survived, because the corpus doubling moved the sampling
+// step. A transient tree must not be able to describe the project to an author.
 const SKIP_DIRS = new Set([
   ".git", "node_modules", "dist", "build", "target", "coverage", ".vscode-test",
-  "tmp", "temp", ".cache", "out", ".next", ".turbo", "vendor", "__pycache__"
+  "tmp", "temp", ".temp", ".cache", "out", ".next", ".turbo", "vendor", "__pycache__"
 ]);
 // Files that must never be opened (credential-bearing by convention).
 const FORBIDDEN_FILE_RE = /(^|[\\/])\.env(\.|$)|\.(pem|key|pfx|p12|keystore)$|(^|[\\/])(id_rsa|id_ed25519)$/i;
@@ -34,6 +41,17 @@ const SECRET_PATTERNS = [
   { name: "aws-akid", re: /AKIA[0-9A-Z]{16}/ },
   { name: "github-pat", re: /ghp_[A-Za-z0-9]{36,}/ },
   { name: "private-key", re: /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/ },
+  // PROVIDER MODEL KEYS. This list is the one that actually gates OWNER INPUT: `checkObjective` calls
+  // `scanSecrets` on the objective before a single byte is persisted, so a shape absent here is a
+  // shape that reaches a durable file. Every other entry above is underscore-delimited and OpenAI and
+  // Anthropic are hyphen-delimited, so the provider ProjectOS itself pays was the one it could not see.
+  // Kept identical to `credentials/credential-shapes.cjs` and `validate-no-secrets.cjs`;
+  // `val-projectos-provider-key-shapes1a` refuses the drift.
+  { name: "openai-project-key", re: /sk-proj-[A-Za-z0-9_-]{20,}/ },
+  { name: "openai-service-account-key", re: /sk-svcacct-[A-Za-z0-9_-]{20,}/ },
+  { name: "openai-admin-key", re: /sk-admin-[A-Za-z0-9_-]{20,}/ },
+  { name: "openai-legacy-key", re: /sk-[A-Za-z0-9]{40,}/ },
+  { name: "anthropic-key", re: /sk-ant-[A-Za-z0-9_-]{20,}/ },
   { name: "marker", re: new RegExp(RAW_SECRET_MARKER) }
 ];
 

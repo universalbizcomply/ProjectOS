@@ -35,6 +35,7 @@ const REQUIRED_UNTRUSTED = [
   "project-worktree-changes",
   "model-text",
   "project-evidence-mirrors",
+  "authored-plan-material",
 ];
 
 function readSource(errors, rel) {
@@ -262,6 +263,148 @@ function run() {
   if (broker !== null && !withoutImports(broker).includes("Authorization")) {
     errors.push("the trusted broker no longer sends the credential as a request header");
   }
+
+  // ---- plan authoring: a second KIND of call, not a widened ask ------------------------------
+  //
+  // Everything below exists because the addition of authoring could go wrong in five specific ways,
+  // each of which would look fine in a diff: the ask vocabulary could be widened so authoring
+  // inherits phase gates; the second factor could be dropped so the installation allowlist alone
+  // releases the credential; the binding could be dropped so a request need not say what it is for;
+  // the ceiling could be taken from the record that asks for it; or the agent could start resolving
+  // the credential itself. A record claiming otherwise is refused against the code that decides.
+  const authoring = record.planAuthoring;
+  if (!authoring || typeof authoring !== "object") {
+    errors.push("the trust boundary does not declare the plan-authoring path");
+  } else {
+    const kinds = Array.isArray(authoring.requestKinds) ? authoring.requestKinds : [];
+    for (const kind of ["gatekeeper", "plan-authoring"]) {
+      if (!kinds.includes(kind)) errors.push("the trust boundary does not declare the '" + kind + "' request kind");
+    }
+    if (typeof authoring.permission !== "string" || !authoring.permission.startsWith(".projectops/")) {
+      errors.push("the trust boundary names no committed plan-authoring permission record");
+    }
+    if (typeof authoring.spendKey !== "string" || !authoring.spendKey.startsWith("@")) {
+      errors.push("the trust boundary names no authoring spend key that a phase id could not collide with");
+    }
+    if (typeof authoring.maxCallsPerProject !== "number" || authoring.maxCallsPerProject <= 0) {
+      errors.push("the trust boundary declares no authoring call ceiling");
+    }
+  }
+
+  if (broker !== null && authoring && typeof authoring === "object") {
+    const src = withoutImports(broker);
+    // THE SECOND FACTOR EXISTS AND IS CALLED. Without it the installation allowlist alone releases
+    // the credential, and the governed project's own owner is no longer part of the decision.
+    if (!isCalled(src, "authoringPermitted")) {
+      errors.push("the trusted broker no longer requires the project's own committed authoring permission");
+    }
+    // AND IT IS THE COMMITTED ONE THE RECORD NAMES.
+    if (src.indexOf(JSON.stringify(authoring.permission)) === -1) {
+      errors.push("the trusted broker does not read the authoring permission the trust boundary names");
+    }
+    // THE BINDING EXISTS. A request that need not say what it is for is a request that can be about
+    // anything, which is the substring-search defect this file already refuses on the review path.
+    if (!isCalled(src, "authoringBindingProblem")) {
+      errors.push("an authoring request is no longer bound to the project and objective it claims to be for");
+    }
+    // THE ASK VOCABULARY WAS NOT WIDENED. Authoring inheriting a phase-scoped gate it cannot satisfy
+    // is the exact mistake the separate kind exists to prevent.
+    const asks = /const KNOWN_ASKS = \[([\s\S]*?)\]/.exec(src);
+    if (asks === null) {
+      errors.push("the trusted broker no longer declares the asks it will pay for");
+    } else if (asks[1].indexOf("plan-authoring") !== -1) {
+      errors.push("plan authoring was added to KNOWN_ASKS, so it can take the gatekeeper's route");
+    }
+    // THE CEILING IS THE INSTALLATION'S. `Math.min` against the constant is what stops a committed
+    // record authorising unbounded spend by writing a large number.
+    if (src.indexOf("AUTHORING_CALL_CEILING = " + String(authoring.maxCallsPerProject)) === -1) {
+      errors.push("the trusted broker's authoring ceiling is not the one the trust boundary declares");
+    }
+    // THE CLAMP, NOT THE FUNCTION. Checking for `Math.min` alone was satisfied by the timeout clamp
+    // elsewhere in the same file, so deleting the ceiling clamp changed nothing this validator could
+    // see — the "a mention is not a use" mistake this file already warns about, made one more time.
+    // Found by mutation testing the check itself.
+    if (src.indexOf("Math.min(Math.floor(asked), AUTHORING_CALL_CEILING)") === -1) {
+      errors.push("a committed permission can now raise the installation's authoring ceiling");
+    }
+    // SPEND IS RESERVED BEFORE THE CREDENTIAL, for authoring exactly as for review.
+    if (!isCalled(src, "reserveSpend")) {
+      errors.push("the trusted broker no longer counts what it spends before it spends it");
+    }
+    if (src.indexOf(JSON.stringify(authoring.spendKey)) === -1) {
+      errors.push("the trusted broker does not count authoring against the key the trust boundary names");
+    }
+  }
+
+  // THE AGENT-SIDE COPY OF THE SAME CEILING, pinned to the same number. It exists so a refusal is
+  // knowably pre-dispatch; a copy that drifted upward would let the agent admit calls the broker then
+  // refuses, which is the confusing half of a failure rather than a safe one.
+  const permissionSrc = readSource(errors, "projectos/agent/src/planAuthoringPermission.ts");
+  if (permissionSrc !== null && authoring && typeof authoring === "object") {
+    const src = withoutImports(permissionSrc);
+    if (src.indexOf("PLAN_AUTHORING_CALL_CEILING = " + String(authoring.maxCallsPerProject)) === -1) {
+      errors.push("the agent-side authoring ceiling is not the one the trust boundary declares");
+    }
+    if (src.indexOf("Math.min(Math.floor(asked), PLAN_AUTHORING_CALL_CEILING)") === -1) {
+      errors.push("the agent-side check lets a committed permission raise the authoring ceiling");
+    }
+    if (src.indexOf("HEAD:./") === -1) {
+      errors.push("the agent-side authoring permission is no longer read from the committed tree");
+    }
+  }
+
+  // A CREDENTIAL REFERENCE IS A NAME, AND ALL THREE COPIES MUST AGREE WHAT A NAME LOOKS LIKE.
+  //
+  // `REF_SHAPE` now exists in three files: the trusted broker (which decides), the agent-side
+  // permission check (which exists so a refusal is knowably pre-dispatch), and `credentialResolver`
+  // (which refuses a secret sitting where a name belongs). Every OTHER duplicated authoring invariant
+  // in this change is pinned here; this one was not, and a copy that drifted would either refuse
+  // before dispatch what the broker would accept, or admit what the broker still refuses — the second
+  // being a "this call was never made" promise the rest of the code relies on and would no longer
+  // earn. Flagged by code review of this phase.
+  const REF_SHAPE_LITERAL = "/^[A-Z][A-Z0-9_]{7,63}$/";
+  for (const rel of [
+    "projectos/security/gatekeeper-transport-broker.cjs",
+    "projectos/agent/src/planAuthoringPermission.ts",
+    "projectos/agent/src/loop/credentialResolver.ts",
+  ]) {
+    const text = readSource(errors, rel);
+    if (text === null) continue;
+    if (code(text).indexOf(REF_SHAPE_LITERAL) === -1) {
+      errors.push(rel + " no longer agrees what a credential REFERENCE looks like");
+    }
+  }
+
+  // credential-values, on the authoring path: the agent composes a BROKERED author and no other.
+  // A resolver reaching the live composition would put the installation owner's key back inside the
+  // process running generated code against an untrusted project — the whole reason the broker exists.
+  const planCmd = readSource(errors, "projectos/agent/src/commands/plan.ts");
+  if (planCmd !== null) {
+    const src = withoutImports(planCmd);
+    if (!isCalled(src, "brokeredAuthorPort")) {
+      errors.push("the live author is no longer composed through the trusted broker");
+    }
+    if (src.indexOf("openAiAuthorPort") !== -1) {
+      errors.push("the live author composition reaches the direct OpenAI port, which resolves a credential in the agent");
+    }
+    if (/Authorization|Bearer/i.test(src)) {
+      errors.push("the agent-side authoring composition builds a provider authorization header");
+    }
+    if (!isCalled(src, "admitGatekeeperSpend")) {
+      errors.push("an authoring call is no longer admitted against the owner's spend ceiling before it is made");
+    }
+    if (!isCalled(src, "checkPlanAuthoringPermission")) {
+      errors.push("the agent no longer asks the committed authoring permission before invoking the broker");
+    }
+  }
+
+  // The untrusted side of the authoring transport must not name a credential value either — the same
+  // rule already applied to `brokeredHttpPort.ts`, applied to the module that builds the request.
+  const authoringSrc = readSource(errors, "projectos/agent/src/planAuthoring.ts");
+  if (authoringSrc !== null && /apiKey|credentialValue/i.test(code(authoringSrc))) {
+    errors.push("the authoring transport names a credential value");
+  }
+
   const port = readSource(errors, "projectos/agent/src/loop/transports/brokeredHttpPort.ts");
   if (port !== null && /secret|apiKey|credentialValue/i.test(code(port))) {
     errors.push("the untrusted side of the broker names a credential value again");

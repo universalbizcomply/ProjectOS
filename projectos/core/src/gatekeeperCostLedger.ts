@@ -23,6 +23,97 @@
  * Created in PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A.
  */
 
+/**
+ * HOW MANY INPUT TOKENS A REQUEST WILL COST, BEFORE IT IS SENT.
+ *
+ * The spend gate refuses the call that WOULD cross the limit, which means the estimate is the only
+ * thing standing between an unattended loop and the budget. An estimate that is too LOW does not
+ * merely misreport — it lets a call through that should have been refused. So this errs high, on
+ * purpose, and says by how much.
+ *
+ * TWO FAULTS THIS REPLACES, both of which under-reserved:
+ *
+ *   1. FOUR BYTES PER TOKEN. The one real authoring call ProjectOS has made sent 104,482 bytes and
+ *      was billed for 34,761 input tokens — 3.006 bytes per token. At four, the same request
+ *      estimated 26,121 tokens: 8,640 short, a 24.9% under-reservation on the only call there is
+ *      evidence for.
+ *   2. `String.length`, WHICH IS UTF-16 CODE UNITS, NOT BYTES. Every non-ASCII character in a
+ *      request — and ProjectOS's own copy is full of em dashes and middots — is counted as one
+ *      where the provider receives two or three. ASCII hides this completely, which is why it
+ *      survived: the fault only appears in exactly the requests that carry owner prose.
+ *
+ * WHY 3 AND NOT 3.006. The measured ratio is evidence from ONE call, not a tokenizer. Rounding it
+ * DOWN to a whole number of bytes per token is the conservative direction (fewer bytes per token =
+ * more tokens estimated), and a whole number is auditable by hand.
+ *
+ * WHY A FURTHER 20%. Three bytes per token leaves only 0.19% of headroom over the measured call,
+ * which is not a margin. The uplift is sized so the reservation also covers a punctuation-dense
+ * request that tokenizes at roughly 2.5 bytes per token — the pessimistic end of the range for JSON
+ * payloads, which is exactly what an authoring body is. On the measured call that is 41,794 tokens
+ * against 34,761 actually billed: 20.2% of headroom, chosen because it MEANS something rather than
+ * because it looked safe.
+ *
+ * NEITHER NUMBER IS A TOKENIZER. No tokenizer is installed, no provider is asked, and nothing here
+ * touches the network: a pre-dispatch estimate that needs a network call is not a pre-dispatch gate.
+ */
+export const CALIBRATED_BYTES_PER_TOKEN = 3;
+
+/** The deliberate uplift over the calibrated ratio. Applied to TOKENS, before any cost rounding. */
+export const RESERVATION_SAFETY_MARGIN = 1.2;
+
+/**
+ * The UTF-8 byte length of a string — what the provider is actually sent.
+ *
+ * `TextEncoder` rather than `Buffer`: this module is bundled into the browser app as well as the
+ * agent, and `Buffer` does not exist there.
+ */
+export function utf8ByteLength(text: string): number {
+  if (typeof text !== 'string' || text === '') return 0;
+  return new TextEncoder().encode(text).length;
+}
+
+/**
+ * Raised when a byte count cannot be estimated from. Carries no data: the only correct response to
+ * it anywhere is to refuse the call.
+ */
+export class InvalidEstimateInputError extends Error {
+  constructor(detail: string) {
+    super(`the size of this request could not be established (${detail}), so no call was made`);
+    this.name = 'InvalidEstimateInputError';
+  }
+}
+
+/**
+ * The conservative input-token reservation for a request body.
+ *
+ * IT RAISES RATHER THAN RETURNING ZERO, and the difference is the whole point. This used to clamp a
+ * non-finite or negative byte count to zero tokens, which reads like caution and is the opposite:
+ * zero tokens is a FREE call, a free call is under every budget, and the dispatch that should have
+ * been refused proceeds. An impossible input is not a cheap request — it is an unknown one, and an
+ * unknown cost must never be spent.
+ *
+ * Zero is kept as a VALID answer, because zero bytes is a real thing to be asked about. What is
+ * refused is input that could not be a byte count at all: not finite, not an integer, negative, or
+ * beyond the range where integer arithmetic still holds.
+ *
+ * Monotonic across every valid input: more bytes can never reserve fewer tokens.
+ */
+export function estimateInputTokensFromBytes(bytes: number): number {
+  if (typeof bytes !== 'number' || Number.isNaN(bytes)) throw new InvalidEstimateInputError('not a number');
+  if (!Number.isFinite(bytes)) throw new InvalidEstimateInputError('not finite');
+  if (!Number.isInteger(bytes)) throw new InvalidEstimateInputError('not a whole number of bytes');
+  if (bytes < 0) throw new InvalidEstimateInputError('negative');
+  if (!Number.isSafeInteger(bytes)) throw new InvalidEstimateInputError('beyond safe integer range');
+  if (bytes === 0) return 0;
+  const calibrated = Math.ceil(bytes / CALIBRATED_BYTES_PER_TOKEN);
+  return Math.ceil(calibrated * RESERVATION_SAFETY_MARGIN);
+}
+
+/** The same reservation, from the text itself — counting UTF-8 bytes, never UTF-16 code units. */
+export function estimateInputTokensFromText(text: string): number {
+  return estimateInputTokensFromBytes(utf8ByteLength(text));
+}
+
 /** Published prices for one model, in integer micro-USD per million tokens. Supplied, never assumed. */
 export interface RateCard {
   readonly model: string;
@@ -264,7 +355,24 @@ export function authoriseRequestSpend(
   if (verdict.status === BUDGET_STOPPED) {
     return { allowed: false, reasons };
   }
-  const projected = verdict.spentMicroUsd + nonNegative(estimateMicroUsd);
+  /*
+   * AN ESTIMATE THAT CANNOT BE TRUSTED IS REFUSED, NOT CLAMPED.
+   *
+   * This ran `nonNegative(estimateMicroUsd)`, which turns NaN, Infinity and negatives into 0. A
+   * zero estimate is a free call, a free call is under every budget, and so the single check
+   * standing between an unattended loop and the money let it through. `NaN > limit` being false is
+   * the same fault wearing a different hat.
+   *
+   * Every caller reaches the provider through here, so this is the one place the guarantee has to
+   * hold — whatever any individual estimator does or is changed to do later.
+   */
+  if (typeof estimateMicroUsd !== 'number' || !Number.isFinite(estimateMicroUsd) || estimateMicroUsd < 0) {
+    reasons.push(
+      'the cost of this call could not be established, so it was not made; ProjectOS does not spend against an unknown estimate',
+    );
+    return { allowed: false, reasons };
+  }
+  const projected = verdict.spentMicroUsd + estimateMicroUsd;
   if (projected > policy.hardStopAtMicroUsd) {
     reasons.push(
       `this call is estimated at ${formatMicroUsd(estimateMicroUsd)}, which would take the month to ` +

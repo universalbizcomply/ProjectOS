@@ -32,6 +32,16 @@
 import { governanceEngines } from './governanceEngines.js';
 import type { System } from './system.js';
 import { join, projectopsDir } from './context.js';
+import {
+  validateAuthoredMaterial,
+  authoredMaterialText,
+  type AuthorPort,
+  type AuthoredMaterial,
+  type AuthoringRefusal,
+  authoringObjectiveDigest,
+  deriveAuthoringRequestId,
+  selectContextSources,
+} from './planAuthoring.js';
 
 /** The longest objective accepted. An objective is a paragraph of intent, not a document. */
 export const MAX_OBJECTIVE_CHARS = 4000;
@@ -67,7 +77,10 @@ export type IntakeRefusal =
   | 'OBJECTIVE_SECRET_SHAPED'
   | 'ENGINE_STATUS_NOT_PERSISTABLE'
   | 'OBJECTIVE_ID_UNSAFE'
-  | 'DRAFT_PATH_ESCAPES_PROJECT';
+  | 'DRAFT_PATH_ESCAPES_PROJECT'
+  // Objective-led authoring. Every one of these refuses BEFORE anything is written.
+  | 'AUTHOR_NOT_COMPOSED'
+  | AuthoringRefusal;
 
 export interface IntakeRefused {
   readonly ok: false;
@@ -97,10 +110,26 @@ export interface ObjectiveRecord {
   readonly instructionShaped: boolean;
 }
 
+/**
+ * Which of the two operations produced this proposal.
+ *
+ *   'import'   — corpus-led. The engine discovered and imported the repository's planning documents.
+ *                Unchanged behaviour, and the default for any record written before this field
+ *                existed: absent means 'import', because that is what every earlier draft was.
+ *   'authored' — objective-led. The owner's objective bounded the plan; the corpus supplied context
+ *                only and could not add phases.
+ *
+ * The two are never merged. "Start Something New" must not behave as "Import Everything Found", and
+ * import/reconcile must keep finding everything it finds.
+ */
+export type DraftOrigin = 'import' | 'authored';
+
 export interface DraftRecord {
   readonly schemaVersion: '1.0.0';
   readonly objectiveId: string;
   readonly authoritative: false;
+  /** Absent on records written before objective-led authoring existed; read as 'import'. */
+  readonly origin?: DraftOrigin;
   /**
    * Digest of the PLAN MATERIAL in this draft — the vision, definition of complete, success
    * standard, scope, environments, phases, conflicts, owner decisions and planning sources. It is
@@ -163,7 +192,11 @@ export interface DiscoveryEngine {
     opts?: unknown,
   ): {
     root: string;
-    sources: readonly { relPath: string; content?: string }[];
+    // `type` is discovery's own classification of what the file IS (MASTER_PLAN, PHASE_REPORT,
+    // PROJECT_CONFIG, … or UNKNOWN). Declared here because the authoring path selects on it: a
+    // context list that calls a `launch.json` an existing planning document is a false statement to
+    // the author. Optional, so an engine that does not classify still satisfies this interface.
+    sources: readonly { relPath: string; content?: string; type?: string }[];
     skipped: readonly unknown[];
     truncated: boolean;
   };
@@ -189,6 +222,9 @@ export interface DiscoveryEngine {
 export function loadDiscoveryEngine(): DiscoveryEngine {
   return governanceEngines().discovery as unknown as DiscoveryEngine;
 }
+
+/** Project-relative objectives directory. The only legitimate source path an authored plan may cite. */
+export const OBJECTIVES_REL = '.projectops/objectives';
 
 export function objectivesDir(root: string): string {
   return join(projectopsDir(root), 'objectives');
@@ -239,11 +275,44 @@ function deriveObjectiveId(
  * "your approval is stale" into noise and train everyone to re-approve without reading.
  */
 export function planMaterial(
-  draft: Pick<DraftRecord, 'planStatus' | 'projectId' | 'repository' | 'draft' | 'ownerDecisionsRequired' | 'planningCorpus'>,
+  draft: Pick<DraftRecord, 'planStatus' | 'projectId' | 'repository' | 'draft' | 'ownerDecisionsRequired' | 'planningCorpus'> & {
+    readonly origin?: DraftOrigin;
+  },
 ): string {
   const d = draft.draft;
   const pick = (k: string): unknown => d[k] ?? null;
   return JSON.stringify([
+    // ORIGIN IS BOUND, AND ONLY FOR AUTHORED MATERIAL.
+    //
+    // Approval takes two different routes by origin: a corpus-led draft is re-derived from the
+    // repository, an objective-led one is revalidated from the material that was reviewed. So origin
+    // decides which check runs, which makes it plan material — flipping it on disk must invalidate
+    // the digest, or an import draft relabelled 'authored' would skip the re-derivation that detects
+    // a moved corpus.
+    //
+    // It is appended ONLY in the authored case, deliberately. Adding an entry unconditionally would
+    // change the digest of every corpus-led draft ever produced, and plan-approval decisions already
+    // COMMITTED against those digests — PolyGo's genesis among them — would stop verifying. An
+    // import draft's material is therefore byte-identical to what it was before this change, while
+    // an authored one can never be mistaken for it.
+    ...(draft.origin === 'authored'
+      ? ([
+          ['origin', 'authored'],
+          // PROVENANCE IS DIGESTED FOR AUTHORED MATERIAL, and this was a real hole before it was.
+          //
+          // `materialisePlan` turns these entries into the plan's `sourceDocuments` and picks the
+          // AUTHORITATIVE source document from them, copying `sourceChecksum` through without
+          // re-hashing. Left out of the digest, an edit to the persisted draft's provenance — a file
+          // that is deliberately uncommitted, in a tree the implementer can write — recomputed to the
+          // same digest, matched the committed decision, and wrote a forged citation into an
+          // activated PLAN READY record. Every other plan field was bound; the claim about where the
+          // plan CAME FROM was not.
+          //
+          // Authored-only, for the same back-compatibility reason as `origin` above: an import
+          // draft's material must keep digesting exactly as it did before this change.
+          ['provenance', pick('provenance')],
+        ] as const)
+      : []),
     ['planStatus', draft.planStatus],
     ['projectId', draft.projectId],
     ['repository', draft.repository],
@@ -354,6 +423,7 @@ export function checkObjective(engine: DiscoveryEngine, raw: unknown): IntakeRef
 /** What a run of the engine against this repository produced, before anything is written down. */
 export interface Proposal {
   readonly ok: true;
+  readonly origin: DraftOrigin;
   readonly projectId: string;
   readonly repository: string;
   readonly branch: string;
@@ -374,7 +444,21 @@ export interface Proposal {
  * recomputed the digest by a different route the two could drift, and an approval would be validated
  * against something nobody proposed.
  */
-export function buildProposal(sys: System, root: string, engine: DiscoveryEngine): Proposal | IntakeRefused {
+/** The identity and repository facts every proposal is bound to, or the refusal that stopped it. */
+export interface ProjectFacts {
+  readonly projectId: string;
+  readonly repository: string;
+  readonly branch: string;
+  readonly baseHead: string;
+}
+
+/**
+ * Establish who this project is and where the repository stands, failing closed on every gap.
+ *
+ * Extracted so the corpus-led and objective-led proposals cannot drift apart on identity or
+ * staleness binding — the two facts every later check is taken against.
+ */
+export function readProjectFacts(sys: System, root: string): ProjectFacts | IntakeRefused {
   const cfg = readConfig(sys, root);
   if (!cfg.ok) {
     return {
@@ -410,6 +494,18 @@ export function buildProposal(sys: System, root: string, engine: DiscoveryEngine
         'project-config.json declares no repo; a draft with no recorded repository cannot be bound to one later',
     };
   }
+  return { projectId, repository, branch, baseHead };
+}
+
+/** Exported so every caller narrows the same way, rather than re-inlining the cast. */
+export function isRefused(v: ProjectFacts | IntakeRefused): v is IntakeRefused {
+  return (v as IntakeRefused).ok === false;
+}
+
+export function buildProposal(sys: System, root: string, engine: DiscoveryEngine): Proposal | IntakeRefused {
+  const facts = readProjectFacts(sys, root);
+  if (isRefused(facts)) return facts;
+  const { projectId, repository, branch, baseHead } = facts;
 
   // Discovery is the ENGINE's, bounded by the engine's own limits, rooted at the project only.
   //
@@ -442,6 +538,7 @@ export function buildProposal(sys: System, root: string, engine: DiscoveryEngine
 
   return {
     ok: true,
+    origin: 'import',
     projectId,
     repository,
     branch,
@@ -464,6 +561,189 @@ export function buildProposal(sys: System, root: string, engine: DiscoveryEngine
   };
 }
 
+/** Where an authored plan's substance came from: the owner's own objective record. */
+export const AUTHORED_SOURCE_FIELDS = [
+  'businessVision',
+  'definitionOfComplete',
+  'successStandard',
+  'approvedScopeCandidates',
+  'excludedScopeCandidates',
+  'environmentCandidates',
+  'phaseCandidates',
+] as const;
+
+/**
+ * Assemble the objective-led proposal — operation A.
+ *
+ * The corpus is still DISCOVERED, and still reported in full, because narrowing what may SHAPE the
+ * plan must never become hiding what was FOUND. What changes is that `importFromSources` is not
+ * called: nothing in those documents becomes a phase. The author receives their PATHS as context so
+ * it can name them as out of scope, and never their content.
+ *
+ * PROVENANCE IS SYNTHESISED HERE, NOT ACCEPTED. `materialisePlan` cites the document that supplied
+ * `definitionOfComplete` as a plan's authoritative source, and for an authored plan that document is
+ * the owner's objective record — checksummed over the exact bytes about to be written. A model
+ * permitted to cite its own source could name any file in the repository as the authority for a plan
+ * it invented.
+ */
+export function buildAuthoredProposal(input: {
+  readonly engine: DiscoveryEngine;
+  readonly facts: ProjectFacts;
+  readonly root: string;
+  readonly objective: string;
+  readonly author: AuthorPort;
+  /** Project-relative path of the objective record this plan is authored from. */
+  readonly objectiveSourcePath: string;
+  /** Checksum of the exact objective record bytes. */
+  readonly objectiveChecksum: string;
+  readonly discovered: ReturnType<DiscoveryEngine['discoverPlanSources']>;
+}): Proposal | IntakeRefused {
+  const { engine, facts, objective, author, objectiveSourcePath, objectiveChecksum, discovered } = input;
+  const { projectId, repository, branch, baseHead } = facts;
+
+  // CONTEXT, BOUNDED, AND HONEST ABOUT BEING BOUNDED.
+  //
+  // Sending every discovered path is what made the first live authoring call cost 34,761 input
+  // tokens: 1,194 paths, 95.5% of the outbound request, for an objective asking for one read-only
+  // phase. Untyped sources are dropped first because the instruction above calls this list "existing
+  // planning documents" and, for a `dashboard-cache.json` or a `launch.json`, that sentence was
+  // simply untrue. What remains is taken in discovery's own order, so the same repository composes
+  // the same request twice — an authoring call must stay deterministic to stay replay-protected.
+  //
+  // SPREAD ACROSS THE CORPUS, NOT ITS FIRST PAGE. Taking the first forty in discovery order is the
+  // obvious bound and it is the wrong one here: discovery walks the tree alphabetically, and this
+  // repository has 266 typed sources under `.projectops` alone, so a first-page sample would have
+  // been entirely closure records and would never once have shown the author a document under
+  // `docs/` or `knowledge/`. A list meant to say "these programmes exist, leave them alone" has to
+  // reach the parts of the tree where those programmes are described. The step is derived from the
+  // corpus size, so the same repository composes the same request twice — an authoring call must
+  // stay deterministic to stay replay-protected.
+  const { paths: contextSourcePaths, omitted: contextSourcesOmitted } = selectContextSources(
+    discovered.sources,
+  );
+  // WHAT THIS CALL IS BOUND TO, DERIVED HERE AND NEVER SUPPLIED BY A CALLER.
+  //
+  // A brokered author is held to these on the trusted side: the digest is to an authoring call what
+  // the subject commit is to a review — the one fact that makes the answer attributable to this exact
+  // question. Derived from the objective itself, so the same objective is the same question, which is
+  // also what makes `submitObjective` deterministic. A port that does not need them ignores them.
+  const digest = authoringObjectiveDigest(objective);
+  const outcome = author.author({
+    objective,
+    projectId,
+    repository,
+    contextSourcePaths,
+    contextSourcesOmitted,
+    objectiveDigest: digest,
+    requestId: deriveAuthoringRequestId(projectId, digest),
+  });
+  if (!outcome.ok) return { ok: false, code: outcome.code, detail: outcome.detail };
+
+  // Validated AGAIN here rather than relying on the port having done it. The port is an interface:
+  // a composition that returns unchecked material must not be able to put it on disk.
+  const problems = validateAuthoredMaterial(outcome.material);
+  if (problems.length > 0) {
+    return {
+      ok: false,
+      code: 'AUTHORED_MATERIAL_INVALID',
+      detail: `the authored material does not satisfy the plan material contract: ${problems.join('; ')}`,
+    };
+  }
+
+  // A model can emit a credential it was never given — from its own training, or reflected out of
+  // the context paths. Refused outright, never stored-and-redacted, exactly as an objective is.
+  const secrets = engine.scanSecrets(authoredMaterialText(outcome.material));
+  if (secrets.length > 0) {
+    return {
+      ok: false,
+      code: 'AUTHORED_MATERIAL_SECRET_SHAPED',
+      detail: `the authored plan material looks like it contains a secret (${secrets.join(', ')}); it was NOT stored`,
+    };
+  }
+
+  const material: AuthoredMaterial = outcome.material;
+  const provenance = AUTHORED_SOURCE_FIELDS.map((field) => ({
+    field,
+    sourcePath: objectiveSourcePath,
+    sourceChecksum: objectiveChecksum,
+    // Stated so no reader has to infer how this plan came to exist.
+    derivation: 'objective-led-authoring',
+  }));
+
+  const draft: Record<string, unknown> = {
+    projectIdCandidate: projectId,
+    businessVision: material.businessVision,
+    definitionOfComplete: material.definitionOfComplete,
+    successStandard: material.successStandard,
+    approvedScopeCandidates: material.approvedScopeCandidates,
+    excludedScopeCandidates: material.excludedScopeCandidates,
+    environmentCandidates: material.environmentCandidates,
+    phaseCandidates: material.phaseCandidates,
+    unresolvedUnknowns: material.unresolvedUnknowns,
+    ownerDecisionsRequired: material.ownerDecisionsRequired,
+    provenance,
+    // An authored plan proposes new work; it does not adjudicate between existing documents, so it
+    // has no conflicts to report. Present and empty is meaningful; absent would be missing.
+    conflicts: [],
+  };
+
+  // The corpus is REPORTED, not imported. `currentPlanningSources` stays empty on purpose: no
+  // discovered document shaped this plan, and listing one here would claim otherwise.
+  const planningCorpus = {
+    totalDiscovered: discovered.sources.length,
+    counts: { CONTEXT_ONLY: discovered.sources.length },
+    currentPlanningSources: [] as readonly string[],
+  };
+
+  // A hardcoded, always-persistable status. The corpus-led path re-checks this because the ENGINE
+  // chooses its status and a future engine could return PLAN READY; here the value is a literal in
+  // this file, so a guard against it would be unreachable code pretending to be a control.
+  const status = 'PLAN DRAFTED';
+
+  return {
+    ok: true,
+    origin: 'authored',
+    projectId,
+    repository,
+    branch,
+    baseHead,
+    planDigest: engine.sha256(
+      planMaterial({
+        origin: 'authored',
+        planStatus: status,
+        projectId,
+        repository,
+        draft,
+        ownerDecisionsRequired: material.ownerDecisionsRequired,
+        planningCorpus,
+      }),
+    ),
+    status,
+    imported: {
+      duplicates: [],
+      conflicts: [],
+      draft,
+      status,
+      provenanceErrors: [],
+      planningCorpus,
+    },
+    found: discovered,
+    ownerDecisionsRequired: material.ownerDecisionsRequired,
+    planningCorpus,
+  };
+}
+
+/** How `submitObjective` should produce the proposal. Defaults to the unchanged corpus-led route. */
+export interface SubmitOptions {
+  /**
+   * 'import'   — operation B, corpus-led. The default, so every existing caller is unchanged.
+   * 'authored' — operation A, objective-led. Requires an author port; refuses without one rather
+   *              than silently falling back to corpus-led, which is the defect being corrected.
+   */
+  readonly mode?: DraftOrigin;
+  readonly author?: AuthorPort;
+}
+
 export function submitObjective(
   sys: System,
   root: string,
@@ -475,16 +755,18 @@ export function submitObjective(
    * therefore unproven, which is exactly the state a defence-in-depth check must not be left in.
    */
   engineOverride?: DiscoveryEngine,
+  options?: SubmitOptions,
 ): IntakeResult {
   const engine = engineOverride ?? loadDiscoveryEngine();
+  const mode: DraftOrigin = options?.mode ?? 'import';
 
   const checked = checkObjective(engine, rawObjective);
   if (!checked.ok) return checked;
   const objective = checked.objective;
 
-  const proposal = buildProposal(sys, root, engine);
-  if (!proposal.ok) return proposal;
-  const { projectId, repository, branch, baseHead, imported, found } = proposal;
+  const facts = readProjectFacts(sys, root);
+  if (isRefused(facts)) return facts;
+  const { projectId, repository, branch, baseHead } = facts;
 
   const objectiveId = deriveObjectiveId(engine, projectId, objective);
   if (objectiveId === null) {
@@ -510,6 +792,44 @@ export function submitObjective(
     instructionShaped: engine.isUntrustedInstruction(objective),
   };
 
+  // THE EXACT BYTES, checksummed before they are written and written unchanged afterwards. An
+  // authored plan cites this record as its source document, so the checksum has to be of what
+  // actually lands on disk — not of a re-serialisation that might differ by a space.
+  const objectiveJson = `${JSON.stringify(objectiveRecord, null, 2)}\n`;
+  const objectiveRelPath = `${OBJECTIVES_REL}/${objectiveId}.json`;
+
+  let proposal: Proposal | IntakeRefused;
+  if (mode === 'authored') {
+    if (options?.author === undefined) {
+      return {
+        ok: false,
+        code: 'AUTHOR_NOT_COMPOSED',
+        detail:
+          'objective-led authoring was requested but no author is composed. Refusing rather than ' +
+          'falling back to repository import, which would let the existing corpus define the plan ' +
+          'for a new objective — the defect this mode exists to correct.',
+      };
+    }
+    // Discovery still runs, and its full result is still reported. Only `importFromSources` is
+    // skipped, which is the whole difference between the two operations.
+    const repoEvidence = { repo: repository, branch, head: baseHead, projectId };
+    const discovered = engine.discoverPlanSources(root, { repoEvidence });
+    proposal = buildAuthoredProposal({
+      engine,
+      facts,
+      root,
+      objective,
+      author: options.author,
+      objectiveSourcePath: objectiveRelPath,
+      objectiveChecksum: engine.sha256(objectiveJson),
+      discovered,
+    });
+  } else {
+    proposal = buildProposal(sys, root, engine);
+  }
+  if (!proposal.ok) return proposal;
+  const { imported, found } = proposal;
+
   const instructionShapedSources = found.sources
     .filter((s) => typeof s.content === 'string' && engine.isUntrustedInstruction(s.content))
     .map((s) => s.relPath);
@@ -518,6 +838,7 @@ export function submitObjective(
     schemaVersion: '1.0.0',
     objectiveId,
     authoritative: false,
+    origin: proposal.origin,
     planDigest: proposal.planDigest,
     planStatus: proposal.status,
     projectId,
@@ -557,7 +878,8 @@ export function submitObjective(
     };
   }
 
-  sys.writeText(objectivePath, `${JSON.stringify(objectiveRecord, null, 2)}\n`);
+  // The same bytes the authored provenance checksum was taken over.
+  sys.writeText(objectivePath, objectiveJson);
   sys.writeText(draftPath, `${JSON.stringify(draftRecord, null, 2)}\n`);
 
   return { ok: true, objective: objectiveRecord, draftRecord, objectivePath, draftPath };

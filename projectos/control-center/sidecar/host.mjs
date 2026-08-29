@@ -60,6 +60,7 @@ import {
 } from '../node-build/governed/projectInventory.js';
 import { phase as phaseCommand, approve as approveCommand, report as reportCommand, plan as planCommand, nodeSystem as agentSystem, setGovernanceEngines } from '@projectos/agent';
 import { gitBoundSystem } from './gitBoundSystem.mjs';
+import { startOffLoopCommand } from './offLoopCommand.mjs';
 
 /* --- THE GOVERNANCE ENGINES, COMPOSED HERE ---------------------------------------------------
  * These four are the canonical governance artefacts from `projectos/validators` and
@@ -558,6 +559,25 @@ function handleGovernedCommand(raw) {
   }
 
   const invocation = toAgentInvocation(check.request);
+
+  // PROVIDER-BACKED WORK LEAVES THE EVENT LOOP. This is the one governed command that waits on a
+  // network call, and waiting here is what made the daemon look dead. Everything else stays exactly
+  // where it was: a short synchronous verb gains nothing from a process boundary and would only pay
+  // for one. The decision is made on the ARGUMENT, not the verb, because `plan.draft` without
+  // `authored` is corpus-led import and never leaves this machine.
+  if (invocation !== null && check.request.verb === 'plan.draft' && invocation.flags.authored === 'true') {
+    startOffLoopCommand({
+      root,
+      invocation,
+      verb: check.request.verb,
+      emit,
+      onSettled: () => emitGovernedState(),
+      active: activeOffLoopCommands,
+      workerPath: offLoopWorkerPath() ?? '',
+    });
+    return;
+  }
+
   if (invocation === null) {
     // `refresh` performs nothing; it is served entirely by the existing read path.
     emitGovernedState();
@@ -784,6 +804,16 @@ function emitRunEvent(kind, root, extra = {}) {
  * `sessionId` present means resume; absent means a fresh start. Both paths converge here because
  * the spawn/track/stream machinery is identical — only the argv differs.
  */
+/** Off-loop governed commands in flight, keyed by governed root. One at a time, per project. */
+const activeOffLoopCommands = new Map();
+
+/** The worker script, beside this file in both the packaged payload and the checkout. */
+function offLoopWorkerPath() {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const worker = joinPath(here, 'governedWorker.mjs');
+  return existsSync(worker) ? worker : null;
+}
+
 function startGovernedRun(root, phaseId, sessionId) {
   if (activeRuns.has(root)) {
     return { code: 2, lines: ['REFUSED (RUN_ALREADY_ACTIVE): a governed run is already in progress for this project.'] };

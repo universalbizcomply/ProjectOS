@@ -617,4 +617,50 @@ describe('loadGatekeeperConfig — the programme is committed, and refusals name
     expect(r.ok).toBe(false);
     expect(r.ok ? '' : r.reasons.join(' | ')).toContain('has not passed the owner commit gate');
   });
+
+  /**
+   * A CALLER THAT TAKES NO DECISION NEEDS NO DECIDER — and asking for one refused the wrong thing.
+   *
+   * Plan authoring is priced by this same configuration, because authoring and review spend the same
+   * credential out of the same budget. It resolves no verdict, so there is no delegate to be entitled
+   * to make one. Observed against a real project: a valid committed authoring permission and correct
+   * pricing, refused with "no valid committed delegation grants 'gatekeeper-review-decisions'". True,
+   * fail-closed, and about something the owner was not doing — a missing capability wearing the
+   * costume of a governance refusal.
+   */
+  test("'not-needed' omits the review delegation and NOTHING else", () => {
+    const w = world();
+    withConfig(w);
+    // No delegation committed at all — the exact state that used to refuse.
+    const required = loadGatekeeperConfig(w.sys, w.root, 'required');
+    expect(required.ok).toBe(false);
+
+    const r = loadGatekeeperConfig(w.sys, w.root, 'not-needed');
+    expect(r.ok ? '' : r.reasons.join(' | ')).toBe('');
+    // The pricing a caller actually came for is present and unchanged…
+    expect(r.ok && r.config.rateCards).toBeTruthy();
+    expect(r.ok && r.config.budget.hardStopAtMicroUsd).toBeGreaterThan(0);
+    expect(r.ok && r.config.transport.credentialRef).toBeTruthy();
+    // …and the authority it did NOT ask for is empty rather than invented, so a caller that tried to
+    // honour a verdict against it would compare against '' and refuse everything.
+    expect(r.ok && r.config.expectedDecider).toBe('');
+  });
+
+  test("'not-needed' still refuses a configuration that is broken for any other reason", () => {
+    const w = world();
+    // The owner's budget ceiling is not a review question, so omitting the decider must not omit it.
+    withConfig(w, { budget: { initialCreditMicroUsd: 5000000, warnAtMicroUsd: 2000000, hardStopAtMicroUsd: 99000000, autoRecharge: false } });
+    const r = loadGatekeeperConfig(w.sys, w.root, 'not-needed');
+    expect(r.ok).toBe(false);
+    expect(r.ok ? '' : r.reasons.join(' | ')).toContain('above the approved pilot figure');
+  });
+
+  test("'required' is the default, so nothing loses a check by forgetting the argument", () => {
+    const w = world();
+    withConfig(w);
+    const explicit = loadGatekeeperConfig(w.sys, w.root, 'required');
+    const implicit = loadGatekeeperConfig(w.sys, w.root);
+    expect(implicit.ok).toBe(explicit.ok);
+    expect(implicit.ok ? '' : implicit.reasons.join(' | ')).toBe(explicit.ok ? '' : explicit.reasons.join(' | '));
+  });
 });

@@ -7,7 +7,7 @@
  * driven entirely by a static snapshot — no backend, no provider request.
  * Created in PROJECTOS-V3-OWNER-CONTROL-PLANE-DESIGN1A.
  */
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { OWNER_MODELS, PROJECTOS_V3 } from './ownerSnapshot';
 import { buildOwnerControlView, type OwnerControlModel, type OwnerBadge } from './ownerModel';
 import { useGovernedProjects, useLifecycle, useGovernedState } from '../daemon/DaemonProvider';
@@ -79,6 +79,37 @@ export function OwnerControlPlane() {
   // the header labels as such. The surface never presents a record as if it were live.
   const governed = useGovernedState();
   const live = governed !== null && governed.connected ? governed : null;
+  /**
+   * THE LAST LIVE SNAPSHOT, KEPT SO THE OWNER'S WORK IS NOT DESTROYED BY A HEARTBEAT.
+   *
+   * `live` goes null the moment the daemon misses its twelve-second liveness window, and the intake
+   * panel below used to be mounted on that condition alone. A provider-backed command blocks the
+   * daemon for longer than that, so submitting an objective UNMOUNTED THE PANEL HOLDING ITS RESULT:
+   * the owner saw the form blank itself, was told nothing, and pressed again — a second paid call for
+   * one deliberate act. The blocking is fixed at its root in the sidecar; this makes the surface
+   * incapable of losing the answer even if some future command blocks again.
+   *
+   * IT IS A CACHE FOR IDENTITY, NOT A CLAIM OF LIVENESS. Only the panel's own labels come from here;
+   * whether the runtime is answering is passed separately and stated plainly, and every other live
+   * panel on this page still disappears exactly as before.
+   */
+  const lastLive = useRef<typeof live>(null);
+  if (live !== null) lastLive.current = live;
+  // AND IT IS DROPPED THE MOMENT IT WOULD DESCRIBE A DIFFERENT PROJECT, found on review. The cache
+  // holds a whole projection — project name, repository, drafts — and the owner can switch projects.
+  // Without this, a disconnect landing across a switch would have shown the PREVIOUS project's name
+  // and its Approve/Reject rows under the new project's heading. A stale snapshot is tolerable; a
+  // snapshot of something else is not.
+  // Only on EVIDENCE of a different selection. `projectId` above falls back to a constant when the
+  // inventory has not reported yet, and invalidating against that fallback would delete the panel
+  // during ordinary startup — trading one defect for another.
+  else if (
+    lastLive.current !== null &&
+    typeof inventory?.selectedProjectId === 'string' &&
+    lastLive.current.projectId !== inventory.selectedProjectId
+  )
+    lastLive.current = null;
+  const intakeSnapshot = live ?? lastLive.current;
   // A RECORDED model exists only for the projects the snapshot knows. For any other registered
   // project there is no recorded position at all, and substituting ProjectOS's would describe a
   // different project under this one's name.
@@ -249,8 +280,13 @@ export function OwnerControlPlane() {
 
       {/* Objective intake. Only against a LIVE runtime: without one there is nothing to submit to,
           and an input box that silently does nothing is worse than no input box. */}
-      {live !== null && (
-        <ObjectiveIntake projectName={live.projectName} repository={live.repository.repo} drafts={live.planDrafts} />
+      {intakeSnapshot !== null && (
+        <ObjectiveIntake
+          projectName={intakeSnapshot.projectName}
+          repository={intakeSnapshot.repository.repo}
+          drafts={intakeSnapshot.planDrafts}
+          connected={live !== null}
+        />
       )}
 
       {/* Risks + blockers */}

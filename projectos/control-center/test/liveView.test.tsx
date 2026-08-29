@@ -174,3 +174,47 @@ describe('LiveMissionControl', () => {
     expect(container.innerHTML).toContain('[REDACTED]');
   });
 });
+
+/**
+ * The event-stream filter must carry an accessible NAME, not just a placeholder.
+ *
+ * A placeholder is not a label: it is not exposed as the accessible name by every assistive
+ * technology, and it disappears the moment the owner types — so the one moment they most need to
+ * know what the field is, it tells them nothing. Mission Control is a retained surface and the fix
+ * is the attribute alone; no visible UI was added, because a new label element in that flex head
+ * would rearrange the toolbar to solve a naming problem.
+ *
+ * The matching 44px narrow-width target size is CSS and is proven by the responsive harness — jsdom
+ * has no layout, so asserting a height here would prove nothing.
+ *
+ * Added in PROJECTOS-CONTROL-CENTER-UX-ARCHITECTURE1A final UI completion.
+ */
+describe('LiveMissionControl · accessibility', () => {
+  test('the event filter is reachable by its name, and the placeholder is not doing that job', () => {
+    const sched = createFakeScheduler();
+    const transport = createFakeTransport();
+    const client = new DaemonClient(transport, sched);
+    render(
+      <DaemonProvider client={client}>
+        <LiveMissionControl />
+      </DaemonProvider>,
+    );
+
+    const field = screen.getByRole('textbox', { name: /filter events/i });
+    expect(field).toBeTruthy();
+    // Still a placeholder for sighted owners — it is an addition, not a replacement.
+    expect((field as HTMLInputElement).placeholder).toBe('filter events…');
+  });
+
+  test('the pause control keeps its own visible name', () => {
+    const sched = createFakeScheduler();
+    const transport = createFakeTransport();
+    const client = new DaemonClient(transport, sched);
+    render(
+      <DaemonProvider client={client}>
+        <LiveMissionControl />
+      </DaemonProvider>,
+    );
+    expect(screen.getByRole('button', { name: /^Pause$/ })).toBeTruthy();
+  });
+});

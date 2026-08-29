@@ -1,33 +1,36 @@
 /**
- * Add Project — the whole thing, for someone who has never heard of a repository.
+ * Add Project — README §Screens 4, restyled in place.
  *
- * WHAT THIS REPLACES. Four fields — a project id, an absolute path typed by hand, a set of
- * environment checkboxes and a freeze toggle — and a refusal that read
- * `ProposedEntryInvalid(GitMarkerMissing)` when the folder was not a repository. Everything in that
- * sentence is a thing the owner had to already understand.
- *
- * WHAT IT ASKS INSTEAD. What are you adding, what is it called, where is it. Then it looks, says
- * what it found in one sentence, offers to fix what is missing, collects any service keys, shows a
- * summary, and asks once.
+ * THE HOST CALLS ARE UNTOUCHED, AND THEIR ORDER IS UNTOUCHED: `pick_folder`, `inspect_folder`,
+ * `prepare_folder`, `register_project`, then `set_credential` per value — credentials only ever
+ * after the project exists, because a credential reference names a project and storing one for a
+ * project that was never added leaves a key with nothing to belong to.
  *
  * THIS COMPONENT STILL HAS NO AUTHORITY. Registration remains the bounded elevated helper behind a
- * real Windows prompt, exactly as before — this file names no helper, builds no command line and
- * carries no confirmation phrase, and an invariant test fails the build if a renderer source
- * mentions any of them. What changed is how much the owner has to know to get there.
+ * real Windows prompt. This file names no helper, builds no command line and carries no confirmation
+ * phrase, and an invariant test fails the build if a renderer source mentions any of them.
  *
- * Created in PROJECTOS-SIMPLE-PROJECT-WIZARD1A.
+ * WHAT CHANGED IS PRESENTATION. The six internal steps are kept and are shown as the four
+ * owner-facing chips the design specifies — `type` and `name` share the Project step, and `check` is
+ * folded into Folder as the inspection panel. **Continue stays disabled until the folder is
+ * prepared**, exactly as before.
+ *
+ * ONE DEPARTURE FROM THE PROTOTYPE'S DATA, FOR A REASON THE PROTOTYPE ITSELF STATES. Its added-key
+ * row shows the last four characters of the secret just typed, directly under approved copy reading
+ * "handed straight to Windows and never shown again — not here, not in a report". Those cannot both
+ * be true. The row keeps its masked mono treatment and reveals no characters.
  */
 import { useState } from 'react';
 import { tauriBridge } from '../daemon/tauriBridge';
 import {
   CONNECTION_CATALOGUE,
-  connectionSummary,
   credentialReference,
   newProjectPath,
   projectIdFrom,
   valuesToStore,
   type PendingValue,
 } from './addProjectModel';
+import { IconBack, IconClose, IconFolder, IconInfo, IconTick } from './icons';
 
 type Step = 'type' | 'name' | 'folder' | 'check' | 'connections' | 'review' | 'done';
 type Kind = 'existing' | 'new';
@@ -63,7 +66,23 @@ function toInspection(raw: Record<string, unknown>): Inspection {
   };
 }
 
-export function AddProjectWizard({ onAdded }: { onAdded?: (projectId: string) => void }) {
+/** Which of the four owner-facing chips an internal step belongs to. */
+function chipOf(step: Step): number {
+  if (step === 'type' || step === 'name') return 1;
+  if (step === 'folder' || step === 'check') return 2;
+  if (step === 'connections') return 3;
+  return 4;
+}
+
+const CHIPS = ['Project', 'Folder', 'Connections', 'Review'] as const;
+
+export function AddProjectWizard({
+  onAdded,
+  onCancel,
+}: {
+  onAdded?: (projectId: string) => void;
+  onCancel?: () => void;
+}) {
   const [step, setStep] = useState<Step>('type');
   const [kind, setKind] = useState<Kind>('existing');
   const [name, setName] = useState('');
@@ -71,33 +90,37 @@ export function AddProjectWizard({ onAdded }: { onAdded?: (projectId: string) =>
   const [parent, setParent] = useState('');
   const [inspection, setInspection] = useState<Inspection | null>(null);
   const [values, setValues] = useState<readonly PendingValue[]>([]);
-  const [chosen, setChosen] = useState<readonly string[]>([]);
+  const [added, setAdded] = useState<readonly string[]>([]);
+  const [service, setService] = useState<string>(CONNECTION_CATALOGUE[0]?.id ?? 'openai');
   const [busy, setBusy] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
-  const [advanced, setAdvanced] = useState(false);
   const [prepared, setPrepared] = useState<readonly string[]>([]);
-  const [typing, setTyping] = useState(false);
 
   const available = tauriBridge.isTauri();
   const projectId = projectIdFrom(name);
   const target = kind === 'new' ? newProjectPath(parent, name) : folder;
-  // The one case where an absent folder is the expected state rather than a mistake.
   const willCreate = kind === 'new' && inspection !== null && inspection.readiness === 'NOT_A_FOLDER';
+  const isReady = inspection !== null && inspection.readiness === 'READY';
+  const chip = chipOf(step);
 
-  async function browse(forParent: boolean): Promise<void> {
+  async function browse(): Promise<void> {
     setProblem(null);
+    const forParent = kind === 'new';
     const title = forParent ? 'Choose where to create the project' : 'Choose the project folder';
     const picked = (await tauriBridge.invoke('pick_folder', { title })) as string | null;
     if (picked === null || picked === undefined) return; // cancelled — an ordinary outcome
     if (forParent) setParent(picked);
     else setFolder(picked);
+    setPrepared([]);
+    await look(forParent ? newProjectPath(picked, name) : picked);
   }
 
-  async function look(): Promise<void> {
+  async function look(path: string): Promise<void> {
+    if (path === '') return;
     setBusy('Checking the folder…');
     setProblem(null);
     try {
-      const raw = (await tauriBridge.invoke('inspect_folder', { path: target })) as Record<string, unknown>;
+      const raw = (await tauriBridge.invoke('inspect_folder', { path })) as Record<string, unknown>;
       setInspection(toInspection(raw));
       setStep('check');
     } catch (e) {
@@ -108,7 +131,7 @@ export function AddProjectWizard({ onAdded }: { onAdded?: (projectId: string) =>
   }
 
   async function prepare(): Promise<void> {
-    setBusy('Preparing the project…');
+    setBusy('Setting it up…');
     setProblem(null);
     try {
       const raw = (await tauriBridge.invoke('prepare_folder', {
@@ -152,8 +175,6 @@ export function AddProjectWizard({ onAdded }: { onAdded?: (projectId: string) =>
         environments: ['development'],
         productionFrozen: true,
       });
-      // Values are stored AFTER the project exists: a credential reference names a project, and
-      // storing one for a project that was never added would leave a key with nothing to belong to.
       for (const v of valuesToStore(values)) {
         await tauriBridge.invoke('set_credential', {
           reference: credentialReference(projectId, 'development', v.provider, v.key),
@@ -173,310 +194,369 @@ export function AddProjectWizard({ onAdded }: { onAdded?: (projectId: string) =>
 
   if (!available) {
     return (
-      <div className="wiz">
-        <h3>Add a project</h3>
-        <p className="muted">Adding a project needs the ProjectOS desktop app. This is a browser preview.</p>
+      <div className="os-stack">
+        <div>
+          <h1 className="os-h1">Add a project</h1>
+          <p className="os-lede">
+            Adding a project needs the ProjectOS desktop app. This is a browser preview.
+          </p>
+        </div>
       </div>
     );
   }
 
+  const kindLabel = kind === 'new' ? 'Something new' : 'Something I already have';
+  const nextLabel = chip === 3 ? 'Review' : chip === 4 ? 'Add project' : 'Continue';
+  const nextBlocked =
+    (chip === 1 && projectId === '') || (chip === 2 && (target === '' || !isReady)) || busy !== null;
+
+  /** Each step starts at its own top, like every other screen change in the shell. */
+  function toStep(next: Step) {
+    setStep(next);
+    window.scrollTo({ top: 0 });
+  }
+
+  function goNext() {
+    if (chip === 1) { toStep('folder'); return; }
+    if (chip === 2) { toStep('connections'); return; }
+    if (chip === 3) { toStep('review'); return; }
+    void addProject();
+  }
+
+  function goBack() {
+    if (chip === 1) { onCancel?.(); return; }
+    if (chip === 2) { toStep('name'); return; }
+    if (chip === 3) { toStep(inspection === null ? 'folder' : 'check'); return; }
+    toStep('connections');
+  }
+
+  const catalogue = CONNECTION_CATALOGUE.find((c) => c.id === service) ?? CONNECTION_CATALOGUE[0];
+
   return (
-    <div className="wiz">
-      {step === 'type' && (
-        <>
-          <h3>What are you adding?</h3>
-          <div className="wiz-choices">
-            <button type="button" className="wiz-choice" onClick={() => { setKind('existing'); setStep('name'); }}>
-              <b>A project I already have</b>
-              <span>The work is already in a folder on this computer.</span>
-            </button>
-            <button type="button" className="wiz-choice" onClick={() => { setKind('new'); setStep('name'); }}>
-              <b>Something new</b>
-              <span>ProjectOS will create the folder and set it up.</span>
-            </button>
-          </div>
-        </>
-      )}
+    <div className="os-stack">
+      <div>
+        <button type="button" className="os-ghost" onClick={onCancel} style={{ marginBottom: 18, fontSize: '13.5px' }}>
+          <IconBack />
+          Cancel
+        </button>
+        <h1 className="os-h1">Add a project</h1>
+        <p className="os-lede">
+          {kind === 'new'
+            ? 'Four short steps. ProjectOS creates the folder and sets itself up inside it.'
+            : 'Four short steps. Point it at work you already have and it takes care of the rest.'}
+        </p>
+      </div>
 
-      {step === 'name' && (
-        <>
-          <h3>What is it called?</h3>
-          <input
-            className="wiz-input"
-            value={name}
-            placeholder="ERP System"
-            onChange={(e) => setName(e.target.value)}
-            aria-label="Project name"
-          />
-          <p className="muted">This is the name you will see in your project list.</p>
-          {advanced && projectId !== '' && <p className="muted">Internal id: {projectId}</p>}
-          <div className="wiz-actions">
-            <button type="button" className="ghost" onClick={() => setStep('type')}>Back</button>
-            <button type="button" className="primary" disabled={projectId === ''} onClick={() => setStep('folder')}>
-              Continue
-            </button>
-          </div>
-        </>
-      )}
+      <ol className="os-wizsteps">
+        {CHIPS.map((label, i) => {
+          const n = i + 1;
+          const on = chip === n;
+          const past = chip > n;
+          return (
+            <li className="os-wizstep" key={label} data-on={on ? '1' : '0'} aria-current={on ? 'step' : undefined}>
+              <span
+                className="os-wizstep-n"
+                style={{
+                  background: on ? 'var(--acc)' : past ? 'var(--ok-soft)' : 'var(--idle-soft)',
+                  color: on ? 'var(--acc-ink)' : past ? 'var(--ok)' : 'var(--faint)',
+                }}
+              >
+                {n}
+              </span>
+              <span className="os-wizstep-l" style={{ color: on || past ? 'var(--ink)' : 'var(--faint)' }}>{label}</span>
+            </li>
+          );
+        })}
+      </ol>
 
-      {step === 'folder' && (
-        <>
-          <h3>{kind === 'new' ? 'Where should it go?' : 'Where is it?'}</h3>
-          {kind === 'new' ? (
-            <>
-              <button type="button" className="wiz-browse" onClick={() => void browse(true)}>Choose location…</button>
-              <p className="wiz-path">{parent === '' ? 'No location chosen yet' : parent}</p>
-              {typing ? (
-                <input
-                  className="wiz-input"
-                  value={parent}
-                  placeholder="C:\dev"
-                  onChange={(e) => setParent(e.target.value)}
-                  aria-label="Project location"
-                />
-              ) : (
-                <button type="button" className="linkbtn" onClick={() => setTyping(true)}>
-                  Or type the location instead
-                </button>
-              )}
-              {target !== '' && <p className="muted">ProjectOS will create: {target}</p>}
-            </>
-          ) : (
-            <>
-              <button type="button" className="wiz-browse" onClick={() => void browse(false)}>Browse…</button>
-              <p className="wiz-path">{folder === '' ? 'No folder chosen yet' : folder}</p>
-              {/* TYPING IS AN OPT-IN, NEVER THE DEFAULT. Browsing is how this is meant to be used;
-                  this exists for the owner who already has the path on their clipboard, and for
-                  anyone who cannot operate a file dialog comfortably. */}
-              {typing ? (
-                <input
-                  className="wiz-input"
-                  value={folder}
-                  placeholder="C:\dev\My Project"
-                  onChange={(e) => setFolder(e.target.value)}
-                  aria-label="Project folder"
-                />
-              ) : (
-                <button type="button" className="linkbtn" onClick={() => setTyping(true)}>
-                  Or type the location instead
-                </button>
-              )}
-            </>
-          )}
-          <div className="wiz-actions">
-            <button type="button" className="ghost" onClick={() => setStep('name')}>Back</button>
-            <button type="button" className="primary" disabled={target === '' || busy !== null} onClick={() => void look()}>
-              Continue
-            </button>
-          </div>
-        </>
-      )}
+      <section className="os-plate os-glass os-hud">
+        <div className="os-hudlabel">
+          <span>add project // step {chip} of 4</span>
+          <span className="rule" />
+          <span>{CHIPS[chip - 1]?.toLowerCase()}</span>
+        </div>
 
-      {step === 'check' && inspection !== null && (
-        <>
-          {/* A NEW PROJECT'S FOLDER DOES NOT EXIST YET, AND THAT IS NOT A PROBLEM.
-              `inspect_folder` correctly answers "that folder is not on this computer" — true, and
-              exactly the wrong thing to say to someone who just asked ProjectOS to create it. Read
-              literally it also offered no way forward, because Prepare was only shown for a folder
-              that already existed. So the new-project case is named for what it is: nothing is here
-              yet, which is the one situation in which nothing can possibly be overwritten. */}
-          <h3>{willCreate ? 'ProjectOS will set this up' : 'ProjectOS checked this folder'}</h3>
-          <p className="wiz-summary">
-            {willCreate ? 'This folder does not exist yet, so ProjectOS will create it.' : inspection.summary}
-          </p>
-          <ul className="wiz-findings">
-            {(willCreate
-              ? ['The folder will be created', 'Project tracking will be started', 'ProjectOS setup will be added']
-              : inspection.findings
-            ).map((f) => (
-              <li key={f}>{f}</li>
-            ))}
-          </ul>
-          {prepared.length > 0 && (
-            <ul className="wiz-findings done">
-              {prepared.map((a) => (
-                <li key={a}>{a}</li>
-              ))}
-            </ul>
-          )}
-          <p className="muted">
-            {willCreate ? 'Nothing is here yet, so nothing can be changed or removed.' : inspection.nextStep}
-          </p>
-
-          {advanced && (
-            <div className="wiz-advanced">
-              <div>Project history: {inspection.gitMarker === 'none' ? 'none' : inspection.gitMarker}</div>
-              <div>ProjectOS setup: {inspection.hasProjectops ? 'present' : 'absent'}</div>
-              {inspection.declaredProjectId && <div>Declared id: {inspection.declaredProjectId}</div>}
-              {inspection.branch && <div>Branch: {inspection.branch}</div>}
-              {inspection.remote && <div>Remote: {inspection.remote}</div>}
-              {inspection.dirtyCount !== null && <div>Uncommitted entries: {inspection.dirtyCount}</div>}
-              {inspection.registeredAs && <div>Registered as: {inspection.registeredAs}</div>}
-            </div>
-          )}
-
-          <div className="wiz-actions">
-            <button type="button" className="ghost" onClick={() => setStep('folder')}>Back</button>
-            {(inspection.readiness === 'NEEDS_PREPARATION' || willCreate) && (
-              <button type="button" className="primary" disabled={busy !== null} onClick={() => void prepare()}>
-                Prepare project
-              </button>
-            )}
-            {inspection.readiness === 'READY' && (
-              <button type="button" className="primary" onClick={() => setStep('connections')}>Continue</button>
-            )}
-          </div>
-        </>
-      )}
-
-      {step === 'connections' && (
-        <>
-          <h3>Does this project use any services?</h3>
-          <p className="muted">You can add these later. Nothing here is required.</p>
-          <div className="wiz-conn-picker">
-            {CONNECTION_CATALOGUE.map((c) => (
+        {chip === 1 && (
+          <div>
+            <h2 className="os-wizh2">What are we working on?</h2>
+            <p className="os-wizsub">Give it a name you will recognise later. You can rename it any time.</p>
+            <div className="os-choices" role="radiogroup" aria-label="What are you adding?">
               <button
                 type="button"
-                key={c.id}
-                className={`wiz-chip${chosen.includes(c.id) ? ' on' : ''}`}
-                onClick={() =>
-                  setChosen((prev) => (prev.includes(c.id) ? prev.filter((x) => x !== c.id) : [...prev, c.id]))
-                }
+                role="radio"
+                aria-checked={kind === 'existing'}
+                className="os-choice"
+                data-on={kind === 'existing' ? '1' : '0'}
+                onClick={() => { setKind('existing'); setStep('name'); }}
               >
-                {c.label}
+                <b>Something I already have</b>
+                <span>A folder of work already on this computer</span>
               </button>
-            ))}
+              <button
+                type="button"
+                role="radio"
+                aria-checked={kind === 'new'}
+                className="os-choice"
+                data-on={kind === 'new' ? '1' : '0'}
+                onClick={() => { setKind('new'); setStep('name'); }}
+              >
+                <b>Something new</b>
+                <span>Start from an empty folder</span>
+              </button>
+            </div>
+            <label style={{ display: 'block', maxWidth: 420 }}>
+              <span className="os-fieldlabel">Project name</span>
+              <input
+                className="os-input"
+                value={name}
+                placeholder="Booking app"
+                onChange={(e) => setName(e.target.value)}
+              />
+            </label>
           </div>
+        )}
 
-          {chosen.map((id) => {
-            const c = CONNECTION_CATALOGUE.find((x) => x.id === id);
-            if (!c) return null;
-            return (
-              <div className="wiz-conn" key={id}>
-                <h4>{c.label}</h4>
-                {c.fields.map((f) => (
-                  <label className="wiz-field" key={f.key}>
-                    <span>
-                      {f.label}
-                      {f.kind === 'secret' && <em className="wiz-secret"> · kept secret</em>}
-                    </span>
-                    <input
-                      type={f.kind === 'secret' ? 'password' : 'text'}
-                      value={valueOf(c.id, f.key)}
-                      onChange={(e) => setValue(c.id, f.key, f.label, f.kind, e.target.value)}
-                      autoComplete="off"
-                    />
-                    {f.hint && <small className="muted">{f.hint}</small>}
-                  </label>
-                ))}
-                {c.custom && (
-                  <CustomFields
-                    provider={c.id}
-                    values={values}
-                    onChange={(key, label, v) => setValue(c.id, key, label, 'secret', v)}
-                  />
+        {chip === 2 && (
+          <div>
+            <h2 className="os-wizh2">Where does it live?</h2>
+            <p className="os-wizsub">
+              {kind === 'new'
+                ? 'Choose where the new folder should be created. ProjectOS makes it for you.'
+                : 'Point ProjectOS at the folder your work is already in.'}
+            </p>
+            <div className="os-browserow">
+              <button type="button" className="os-pri" disabled={busy !== null} onClick={() => void browse()}>
+                <IconFolder />
+                {kind === 'new' ? 'Choose where to create it' : 'Choose the folder'}
+              </button>
+              <span className="os-browsenote">Opens the normal Windows folder window.</span>
+            </div>
+
+            {target !== '' && (
+              <div className="os-panelrow">
+                <IconTick size={18} width={1.7} />
+                <div style={{ minWidth: 0 }}>
+                  <div className="k">Chosen folder</div>
+                  <div className="v">{target}</div>
+                </div>
+                <button type="button" className="os-ghost" style={{ marginLeft: 'auto' }} onClick={() => void browse()}>
+                  Change
+                </button>
+              </div>
+            )}
+
+            {inspection !== null && (
+              <div className="os-inspect">
+                <div className="os-inspect-head">
+                  <span className="os-dot" style={{ background: isReady ? 'var(--ok)' : 'var(--warn)' }} aria-hidden="true" />
+                  <span className="os-inspect-title">
+                    {willCreate
+                      ? 'Nothing here yet'
+                      : isReady
+                        ? 'This folder is ready'
+                        : 'Folder found — not set up yet'}
+                  </span>
+                </div>
+                {/* The host's own summary and next step, verbatim. */}
+                <p>{willCreate ? 'This folder does not exist yet, so ProjectOS will create it.' : inspection.summary}</p>
+                <div className="os-checks">
+                  {(willCreate
+                    ? ['The folder will be created', 'Project tracking will be started', 'ProjectOS setup will be added']
+                    : isReady
+                      ? prepared.length > 0
+                        ? prepared
+                        : inspection.findings
+                      : ['Your existing files stay exactly as they are', ...inspection.findings]
+                  ).map((text) => (
+                    <div className="os-check" key={text}>
+                      {isReady ? <IconTick size={14} width={1.8} /> : <IconInfo />}
+                      <span>{text}</span>
+                    </div>
+                  ))}
+                </div>
+                {!isReady && (
+                  <button type="button" className="os-sec" disabled={busy !== null} onClick={() => void prepare()}>
+                    {busy !== null ? 'Setting it up…' : kind === 'new' ? 'Create and set up' : 'Set it up'}
+                  </button>
                 )}
               </div>
-            );
-          })}
-
-          <div className="wiz-actions">
-            <button type="button" className="ghost" onClick={() => setStep('check')}>Back</button>
-            <button type="button" className="ghost" onClick={() => setStep('review')}>Skip for now</button>
-            <button type="button" className="primary" onClick={() => setStep('review')}>Continue</button>
+            )}
+            <p className="os-wiznote">
+              ProjectOS only needs the folder. Git, config files and manifests are its business, not
+              yours.
+            </p>
           </div>
-        </>
-      )}
+        )}
 
-      {step === 'review' && (
-        <>
-          <h3>Ready to add {name.trim()}</h3>
-          <dl className="wiz-review">
-            <dt>Project</dt>
-            <dd>{name.trim()}</dd>
-            <dt>Folder</dt>
-            <dd>{target}</dd>
-            <dt>Type</dt>
-            <dd>{kind === 'new' ? 'New project' : 'Existing project'}</dd>
-            <dt>ProjectOS setup</dt>
-            <dd>{prepared.length > 0 ? 'Prepared' : 'Already present'}</dd>
-            <dt>Services</dt>
-            <dd>
-              {chosen.length === 0
-                ? 'None'
-                : chosen
-                    .map((id) => {
-                      const label = CONNECTION_CATALOGUE.find((c) => c.id === id)?.label ?? id;
-                      return `${label} — ${connectionSummary(id, values)}`;
-                    })
-                    .join(' · ')}
-            </dd>
-            <dt>Production</dt>
-            <dd>Off</dd>
-          </dl>
-          <div className="wiz-actions">
-            <button type="button" className="ghost" onClick={() => setStep('connections')}>Back</button>
-            <button type="button" className="primary" disabled={busy !== null} onClick={() => void addProject()}>
+        {chip === 3 && (
+          <div>
+            <h2 className="os-wizh2">Connections and keys</h2>
+            <p className="os-wizsub">
+              Only add what this project uses. You can add more later, and nothing is used without
+              your say-so.
+            </p>
+            <div className="os-keyrows">
+              {added.map((id) => {
+                const c = CONNECTION_CATALOGUE.find((x) => x.id === id);
+                const mine = values.filter((v) => v.provider === id && v.value.trim() !== '');
+                const hasSecret = mine.some((v) => v.kind === 'secret');
+                return (
+                  <div className="os-keyrow" key={id}>
+                    <span className="svc">{c?.label ?? id}</span>
+                    <span className="masked">
+                      {hasSecret ? '••••••••••••' : mine.map((v) => v.label).join(', ') || 'nothing entered'}
+                    </span>
+                    <button
+                      type="button"
+                      className="os-ghost"
+                      aria-label={`Remove ${c?.label ?? id}`}
+                      onClick={() => {
+                        setAdded((prev) => prev.filter((x) => x !== id));
+                        setValues((prev) => prev.filter((v) => v.provider !== id));
+                      }}
+                    >
+                      <IconClose />
+                    </button>
+                  </div>
+                );
+              })}
+              {added.length === 0 && (
+                <div style={{ padding: '16px 0', fontSize: '14.5px', color: 'var(--faint)' }}>
+                  Nothing added yet — that is fine.
+                </div>
+              )}
+            </div>
+
+            <div className="os-servicebox">
+              <label>
+                <span className="os-fieldlabel">Service</span>
+                <select className="os-select" value={service} onChange={(e) => setService(e.target.value)}>
+                  {CONNECTION_CATALOGUE.map((c) => (
+                    <option key={c.id} value={c.id}>{c.label}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="os-fields">
+              {(catalogue?.fields ?? []).map((f) => (
+                <label className="os-field" key={f.key}>
+                  <span className="os-field-head">
+                    <span className="os-field-label">{f.label}</span>
+                    <span className={`os-tag ${f.kind === 'secret' ? 'secret' : 'config'}`}>
+                      {f.kind === 'secret' ? 'secret' : 'safe to share'}
+                    </span>
+                  </span>
+                  <input
+                    className="os-input"
+                    type={f.kind === 'secret' ? 'password' : 'text'}
+                    value={valueOf(catalogue?.id ?? '', f.key)}
+                    autoComplete="off"
+                    placeholder={f.kind === 'secret' ? 'Paste it here' : 'Paste or type it'}
+                    onChange={(e) => setValue(catalogue?.id ?? '', f.key, f.label, f.kind, e.target.value)}
+                  />
+                  {f.hint !== undefined && <span className="os-hint">{f.hint}</span>}
+                </label>
+              ))}
+              {(catalogue?.fields.length ?? 0) === 0 && (
+                <label className="os-field">
+                  <span className="os-field-head">
+                    <span className="os-field-label">Value</span>
+                    <span className="os-tag secret">secret</span>
+                  </span>
+                  <input
+                    className="os-input"
+                    type="password"
+                    value={valueOf(catalogue?.id ?? '', 'value')}
+                    autoComplete="off"
+                    placeholder="Paste it here"
+                    onChange={(e) => setValue(catalogue?.id ?? '', 'value', 'Value', 'secret', e.target.value)}
+                  />
+                </label>
+              )}
+            </div>
+
+            <button
+              type="button"
+              className="os-sec"
+              style={{ marginTop: 20, height: 46, padding: '0 20px', fontSize: '14.5px' }}
+              onClick={() => {
+                const id = catalogue?.id ?? '';
+                if (id === '') return;
+                if (valuesToStore(values).filter((v) => v.provider === id).length === 0) return;
+                setAdded((prev) => (prev.includes(id) ? prev : [...prev, id]));
+              }}
+            >
+              Add {catalogue?.label ?? 'connection'}
+            </button>
+
+            <p className="os-wiznote">
+              Anything marked <strong style={{ fontWeight: 600, color: 'var(--ink)' }}>secret</strong> is
+              handed straight to Windows and never shown again — not here, not in a report. Values
+              marked safe to share are ordinary settings your app already publishes.
+            </p>
+          </div>
+        )}
+
+        {chip === 4 && step !== 'done' && (
+          <div>
+            <h2 className="os-wizh2">Check and add</h2>
+            <p className="os-wizsub">Windows will ask permission once. Nothing is written before that.</p>
+            <dl className="os-review">
+              <dt>Project</dt><dd>{name.trim() || '—'}</dd>
+              <dt>Kind</dt><dd>{kindLabel}</dd>
+              <dt>Folder</dt><dd>{target || '—'}</dd>
+              <dt>Known to ProjectOS as</dt>
+              <dd>{projectId || '—'}   (you never type this)</dd>
+              <dt>Connections</dt>
+              <dd>
+                {added.length === 0
+                  ? 'None yet — you can add them later'
+                  : added.map((id) => CONNECTION_CATALOGUE.find((c) => c.id === id)?.label ?? id).join(', ')}
+              </dd>
+              <dt>Live site</dt><dd>Frozen until you approve a change</dd>
+            </dl>
+            <button type="button" className="os-pri" style={{ height: 52, padding: '0 26px', fontSize: 16, borderRadius: 11 }} disabled={busy !== null} onClick={() => void addProject()}>
               Add project
             </button>
           </div>
-        </>
-      )}
+        )}
 
-      {step === 'done' && (
-        <>
-          <h3>{name.trim()} is ready</h3>
-          <p className="muted">You can open it and start working.</p>
-          <div className="wiz-actions">
-            <button type="button" className="primary" onClick={() => onAdded?.(projectId)}>Open project</button>
+        {step === 'done' && (
+          <div>
+            <div className="os-wizdone-head">
+              <span className="os-tickcircle"><IconTick /></span>
+              <h2>{name.trim()} is ready</h2>
+            </div>
+            <p className="os-wizsub">Added to your projects. Nothing runs until you ask it to.</p>
+            <button type="button" className="os-pri" style={{ height: 52, padding: '0 26px', fontSize: 16, borderRadius: 11 }} onClick={() => onAdded?.(projectId)}>
+              Open project
+            </button>
           </div>
-        </>
-      )}
+        )}
 
-      {busy !== null && <p className="wiz-busy">{busy}</p>}
-      {problem !== null && <p className="wiz-problem">{problem}</p>}
+        {step !== 'done' && (
+          <div className="os-wiznav">
+            <button type="button" className="os-sec" onClick={goBack}>Back</button>
+            <span className="os-wiznav-step">Step {chip} of 4</span>
+            <button type="button" className="os-pri" disabled={nextBlocked} onClick={goNext}>{nextLabel}</button>
+          </div>
+        )}
 
-      <button type="button" className="linkbtn wiz-adv-toggle" onClick={() => setAdvanced((a) => !a)}>
-        {advanced ? 'Hide technical details' : 'Technical details'}
-      </button>
-    </div>
-  );
-}
+        {busy !== null && <p className="os-wizbusy" role="status">{busy}</p>}
+        {problem !== null && <p className="os-refusal failed" role="alert">{problem}</p>}
+      </section>
 
-/** Rows for a service ProjectOS does not know about. The owner names each value. */
-function CustomFields({
-  provider,
-  values,
-  onChange,
-}: {
-  provider: string;
-  values: readonly PendingValue[];
-  onChange: (key: string, label: string, value: string) => void;
-}) {
-  const mine = values.filter((v) => v.provider === provider);
-  const [rows, setRows] = useState<number>(Math.max(1, mine.length));
-  return (
-    <>
-      {Array.from({ length: rows }, (_, i) => (
-        <div className="wiz-custom-row" key={i}>
-          <input
-            placeholder="What is it called?"
-            defaultValue={mine[i]?.label ?? ''}
-            onChange={(e) => onChange(`custom-${i}`, e.target.value, mine[i]?.value ?? '')}
-            aria-label="Value name"
-          />
-          <input
-            type="password"
-            placeholder="Value"
-            onChange={(e) => onChange(`custom-${i}`, mine[i]?.label ?? `Value ${i + 1}`, e.target.value)}
-            aria-label="Value"
-            autoComplete="off"
-          />
+      <details className="os-details">
+        <summary>Advanced — what gets written</summary>
+        <div className="os-details-grid">
+          <span>registry entry</span><span className="v">machine scope, ACL protected — needs Windows permission</span>
+          <span>.projectops/config.json</span><span className="v">written inside the chosen folder on first open</span>
+          <span>phase manifest</span><span className="v">none until you state an objective</span>
+          <span>production</span><span className="v">frozen</span>
+          <span>keys</span><span className="v">Windows credential store, referenced by alias only</span>
         </div>
-      ))}
-      <button type="button" className="linkbtn" onClick={() => setRows((r) => r + 1)}>
-        Add another value
-      </button>
-    </>
+      </details>
+    </div>
   );
 }

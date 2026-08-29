@@ -80,6 +80,17 @@ export interface GovernedOutcome {
 export const GOVERNED_RESULT_TIMEOUT_MS = 30_000;
 
 /**
+ * How long to wait for a governed command that calls out to a provider.
+ *
+ * THIRTY SECONDS IS NOT A PROVIDER'S TIMESCALE. The trusted broker allows a request 120 seconds by
+ * default, so the ordinary ceiling above guaranteed the client gave up first — and once it does, it
+ * stops listening, so the real answer to a call that cost real money is discarded on arrival. This
+ * sits just above the sidecar's own 330-second backstop, so the runtime's honest result always wins
+ * over a guess made here.
+ */
+export const AUTHORING_RESULT_TIMEOUT_MS = 360_000;
+
+/**
  * Send a governed command and report what the RUNTIME actually decided.
  *
  * `sendGovernedCommand` resolves as soon as the request is DISPATCHED, which is not the same thing

@@ -326,6 +326,7 @@ function EventViewer() {
         <h2 className="panel-h">Event stream</h2>
         <input
           className="ev-search"
+          aria-label="Filter events"
           placeholder="filter events…"
           value={text}
           onChange={(e) => setText(e.target.value)}
