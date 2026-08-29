@@ -677,6 +677,9 @@ const DECISION_FIXTURE = {
 function activePlanFixture(): Record<string, unknown> {
   return {
     schemaVersion: '1.0.0',
+    // Every real active plan carries one: the schema requires `planVersion` and pins it to X.Y.
+    // A stub without it is a plan no approval could have written, and approval now refuses it.
+    planVersion: '1.0',
     governance: {
       owner: 'Murad',
       gatekeeper: 'Gatekeeper',
@@ -729,6 +732,11 @@ describe('an authored proposal materialises into a schema-valid plan', () => {
     }
     const plan = result.plan;
     expect(plan['planStatus']).toBe('PLAN READY');
+
+    // Approving over an active plan is a SUCCESSION. The new plan takes the next version and names
+    // the plan it replaces, or the chain the Control Center reads has a hole in it.
+    expect(plan['planVersion']).toBe('1.1');
+    expect((plan['approval'] as Record<string, unknown>)['supersedesPlanVersion']).toBe('1.0');
 
     const phases = plan['phases'] as Record<string, unknown>[];
     expect(phases.map((p) => String(p['phaseId']))).toEqual(['ACME-GOVPROOF1A']);

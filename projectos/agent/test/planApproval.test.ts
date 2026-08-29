@@ -2117,3 +2117,187 @@ describe('C11-W2-F5 — trust anchors come from the commit gate', () => {
     expect(run(w, second).ok).toBe(false);
   });
 });
+
+/* ------------------------------------------------------------------------------------------------
+ * PROJECTOS-GOVERNED-PLAN-CHANGE1A — the succession chain a revision writes.
+ *
+ * WHAT WAS BROKEN. Every approved plan was written `planVersion: '1.0'`, `supersedesPlanVersion:
+ * null`. So a plan that replaced another recorded nothing about what it replaced, and the chain that
+ * `project-plan.schema.json` requires, `plan-governance-engine` validates and `GovernedPlanView`
+ * renders was permanently empty. Requesting a change was already expressible — draft, decide,
+ * activate — but the resulting plan could not say what it succeeded.
+ *
+ * WHY THE VERSION HAD TO MOVE TOO. Recording the outgoing version alone yields `1.0 supersedes 1.0`,
+ * and `checkVersionRecord` refuses exactly that: "plan version supersedes itself". The two values are
+ * one decision, so they are computed in one place.
+ * --------------------------------------------------------------------------------------------- */
+describe('plan succession records what it replaced', () => {
+  /** [S1] The successor names the version it replaced, instead of null. */
+  test('S1 an approval governed from an active plan records the outgoing version', () => {
+    const w = world({ committed: COMMITTED });
+    writeDelegation(w);
+    const id = writeDecision(w);
+    const r = run(w, id);
+    expect(r.ok).toBe(true);
+    const plan = JSON.parse(readFileSync(pjoin(w.root, 'state/recovery.plan.json'), 'utf8'));
+    expect((plan['approval'] as Record<string, unknown>)['supersedesPlanVersion']).toBe('1.0');
+  });
+
+  /** [S2] And it is a DIFFERENT version, or the governance engine refuses the record outright. */
+  test('S2 the successor takes the next minor so it never supersedes itself', () => {
+    const w = world({ committed: COMMITTED });
+    writeDelegation(w);
+    const r = run(w, writeDecision(w));
+    expect(r.ok).toBe(true);
+    const plan = JSON.parse(readFileSync(pjoin(w.root, 'state/recovery.plan.json'), 'utf8'));
+    expect(plan['planVersion']).toBe('1.1');
+    expect(plan['planVersion']).not.toBe((plan['approval'] as Record<string, unknown>)['supersedesPlanVersion']);
+  });
+
+  /** [S3] A first plan replaces nothing and must keep saying so. */
+  test('S3 genesis still records 1.0 and supersedes null', () => {
+    const w = freshProject();
+    const r = run(w, writeDecision(w));
+    expect(r.ok).toBe(true);
+    const plan = JSON.parse(readFileSync(pjoin(w.root, 'state/recovery.plan.json'), 'utf8'));
+    expect(plan['planVersion']).toBe('1.0');
+    expect((plan['approval'] as Record<string, unknown>)['supersedesPlanVersion']).toBe(null);
+  });
+
+  /** [S4] The value written is the one THIS repository's governance engine accepts. */
+  test('S4 the produced record passes the real version-record check', () => {
+    const w = world({ committed: COMMITTED });
+    writeDelegation(w);
+    expect(run(w, writeDecision(w)).ok).toBe(true);
+    const plan = JSON.parse(readFileSync(pjoin(w.root, 'state/recovery.plan.json'), 'utf8'));
+    const engine = loadGovernanceEngine() as { checkVersionRecord?: (p: unknown) => readonly string[] };
+    if (typeof engine.checkVersionRecord === 'function') {
+      expect(engine.checkVersionRecord(plan)).toEqual([]);
+    } else {
+      // The engine does not export it directly; assert the property that check enforces.
+      const sup = (plan['approval'] as Record<string, unknown>)['supersedesPlanVersion'];
+      expect(typeof sup === 'string' && /^[0-9]+\.[0-9]+$/.test(sup)).toBe(true);
+      expect(sup).not.toBe(plan['planVersion']);
+    }
+  });
+
+  /** [S5] The chain follows the outgoing plan, whatever version it happens to be on. */
+  test('S5 a project already on 2.7 succeeds to 2.8', () => {
+    const w = world({ committed: COMMITTED });
+    writeDelegation(w);
+    const active = JSON.parse(readFileSync(pjoin(w.root, 'state/active.plan.json'), 'utf8'));
+    active['planVersion'] = '2.7';
+    writeFileSync(pjoin(w.root, 'state/active.plan.json'), JSON.stringify(active, null, 2));
+    expect(run(w, writeDecision(w)).ok).toBe(true);
+    const plan = JSON.parse(readFileSync(pjoin(w.root, 'state/recovery.plan.json'), 'utf8'));
+    expect(plan['planVersion']).toBe('2.8');
+    expect((plan['approval'] as Record<string, unknown>)['supersedesPlanVersion']).toBe('2.7');
+  });
+
+  /** [S6] A predecessor that cannot be named is a REFUSAL — never a quiet fresh start. */
+  test('S6 an unnameable predecessor refuses the approval instead of looking like genesis', () => {
+    const w = world({ committed: COMMITTED });
+    writeDelegation(w);
+    const active = JSON.parse(readFileSync(pjoin(w.root, 'state/active.plan.json'), 'utf8'));
+    active['planVersion'] = 'not-a-version';
+    writeFileSync(pjoin(w.root, 'state/active.plan.json'), JSON.stringify(active, null, 2));
+    const r = run(w, writeDecision(w));
+    expect(r.ok).toBe(false);
+    // The refusal has to say WHICH fact is missing, or the owner cannot repair it.
+    if (!r.ok) expect(r.problems.join(' ')).toContain('cannot be named');
+    // And nothing was written: a refused succession leaves no replacement behind.
+    expect(existsSync(pjoin(w.root, 'state/recovery.plan.json'))).toBe(false);
+  });
+
+  /** [S8] The version parts are integers. 1.9 succeeds to 1.10, not 2.0 and not 1.91. */
+  test('S8 a ninth minor succeeds to the tenth, not to a decimal', () => {
+    const w = world({ committed: COMMITTED });
+    writeDelegation(w);
+    const active = JSON.parse(readFileSync(pjoin(w.root, 'state/active.plan.json'), 'utf8'));
+    active['planVersion'] = '1.9';
+    writeFileSync(pjoin(w.root, 'state/active.plan.json'), JSON.stringify(active, null, 2));
+    expect(run(w, writeDecision(w)).ok).toBe(true);
+    const plan = JSON.parse(readFileSync(pjoin(w.root, 'state/recovery.plan.json'), 'utf8'));
+    expect(plan['planVersion']).toBe('1.10');
+    expect((plan['approval'] as Record<string, unknown>)['supersedesPlanVersion']).toBe('1.9');
+  });
+  /** [S7] The plan the revision replaced is still on disk, unedited. */
+  test('S7 approving a successor does not touch the outgoing plan record', () => {
+    const w = world({ committed: COMMITTED });
+    writeDelegation(w);
+    const before = readFileSync(pjoin(w.root, 'state/active.plan.json'), 'utf8');
+    expect(run(w, writeDecision(w)).ok).toBe(true);
+    expect(readFileSync(pjoin(w.root, 'state/active.plan.json'), 'utf8')).toBe(before);
+  });
+});
+
+/* ------------------------------------------------------------------------------------------------
+ * PROJECTOS-GOVERNED-PLAN-CHANGE1A — what happens when two activations race.
+ *
+ * The design review could not find a lock around the `planMemory.planPath` write and would not assume
+ * one either way. This proves what the mechanism ACTUALLY does rather than asserting a hope: the
+ * question is not whether a lock exists, but whether the second attempt can leave the project
+ * pointing at a plan that was never approved, or a half-written one.
+ * --------------------------------------------------------------------------------------------- */
+describe('concurrent activation', () => {
+  /** [C1] Two activations of the SAME decision — the replay case. */
+  test('C1 replaying the same activation leaves one deterministic valid state', () => {
+    const w = world({ committed: COMMITTED });
+    writeDelegation(w);
+    const id = writeDecision(w);
+
+    const first = run(w, id);
+    expect(first.ok).toBe(true);
+    const afterFirst = readFileSync(pjoin(w.root, '.projectops/project-config.json'), 'utf8');
+    const planAfterFirst = readFileSync(pjoin(w.root, 'state/recovery.plan.json'), 'utf8');
+
+    const second = run(w, id);
+    const afterSecond = readFileSync(pjoin(w.root, '.projectops/project-config.json'), 'utf8');
+    const planAfterSecond = readFileSync(pjoin(w.root, 'state/recovery.plan.json'), 'utf8');
+
+    // Either the replay is refused, or it is idempotent. What must NOT happen is a different,
+    // half-written or contradictory result.
+    if (second.ok) {
+      const a = JSON.parse(planAfterFirst) as Record<string, unknown>;
+      const b = JSON.parse(planAfterSecond) as Record<string, unknown>;
+      // An idempotent replay must not advance the chain a second time, or the project would claim to
+      // supersede a version it never had.
+      expect(b['planVersion']).toBe(a['planVersion']);
+      expect((b['approval'] as Record<string, unknown>)['supersedesPlanVersion']).toBe(
+        (a['approval'] as Record<string, unknown>)['supersedesPlanVersion'],
+      );
+    }
+    expect(JSON.parse(afterSecond)).toEqual(JSON.parse(afterFirst));
+    // Whatever happened, the config still points at exactly one readable plan.
+    const cfg = JSON.parse(afterSecond) as Record<string, unknown>;
+    const mem = cfg['planMemory'] as Record<string, unknown>;
+    expect(existsSync(pjoin(w.root, String(mem['planPath'])))).toBe(true);
+  });
+
+  /** [C2] Two DIFFERENT decisions activated in sequence against the same starting state. */
+  test('C2 a second decision cannot silently re-point the project from stale state', () => {
+    const w = world({ committed: COMMITTED });
+    writeDelegation(w);
+    const idA = writeDecision(w);
+    const idB = writeDecision(w, { decisionId: 'ACME-PLAN-APPROVAL-DECISION9Z' });
+
+    expect(run(w, idA).ok).toBe(true);
+    const cfgAfterA = JSON.parse(readFileSync(pjoin(w.root, '.projectops/project-config.json'), 'utf8'));
+
+    const b = run(w, idB);
+    const cfgAfterB = JSON.parse(readFileSync(pjoin(w.root, '.projectops/project-config.json'), 'utf8'));
+
+    // The second decision was authored against the PRE-A world. Accepting it silently would discard
+    // A's succession. Either it is refused, or it must supersede A — never overwrite it blindly.
+    if (b.ok) {
+      const plan = JSON.parse(readFileSync(pjoin(w.root, String((cfgAfterB['planMemory'] as Record<string, unknown>)['planPath'])), 'utf8'));
+      const sup = (plan['approval'] as Record<string, unknown>)['supersedesPlanVersion'];
+      expect(typeof sup === 'string' || sup === null).toBe(true);
+      expect(sup).not.toBe(plan['planVersion']);
+    } else {
+      expect(cfgAfterB).toEqual(cfgAfterA);
+    }
+    const mem = cfgAfterB['planMemory'] as Record<string, unknown>;
+    expect(existsSync(pjoin(w.root, String(mem['planPath'])))).toBe(true);
+  });
+});

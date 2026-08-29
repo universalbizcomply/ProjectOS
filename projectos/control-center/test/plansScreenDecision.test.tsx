@@ -59,7 +59,7 @@ const undecided: GovernedPlanDraftView = {
 } as GovernedPlanDraftView;
 
 function renderPlans(state: GovernedProjection) {
-  return render(<PlansScreen state={state} onOpenPlan={() => {}} />);
+  return render(<PlansScreen state={state} onOpenPlan={() => {}} onRequestChange={() => {}} />);
 }
 
 describe('approving asks first, then commits exactly once', () => {

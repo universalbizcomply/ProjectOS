@@ -217,6 +217,44 @@ function strOf(v: unknown): string | null {
   return typeof v === 'string' && v.trim() !== '' ? v.trim() : null;
 }
 
+/** The `X.Y` shape every plan version must have — the same one the governance engine enforces. */
+const PLAN_VERSION = /^([0-9]+)\.([0-9]+)$/;
+
+/**
+ * What version a newly approved plan carries, and which version it replaces.
+ *
+ * THIS USED TO BE A CONSTANT AND A NULL. Every approved plan was written as `planVersion: '1.0'` with
+ * `supersedesPlanVersion: null`, so a plan that replaced another said nothing about what it replaced
+ * — and the succession chain the schema requires, the governance engine validates and the Control
+ * Centre renders was permanently empty.
+ *
+ * THE TWO HAVE TO MOVE TOGETHER. Recording the outgoing version while leaving the new one at `1.0`
+ * produces `1.0 supersedes 1.0`, which `checkVersionRecord` refuses outright as "plan version
+ * supersedes itself". A successor is only meaningful if it is a different version, so the successor
+ * takes the next minor.
+ *
+ * GENESIS IS UNCHANGED: a first plan replaces nothing, so it stays `1.0` and supersedes `null`.
+ *
+ * AN UNREADABLE OUTGOING VERSION IS A REFUSAL, NOT A FRESH START. Falling back to `1.0`/`null` would
+ * make a succession indistinguishable from a first plan: the replacement would claim this project had
+ * never had a plan, and the predecessor it actually replaced would vanish from the record. So this
+ * returns null and the caller refuses the approval — a plan whose predecessor cannot be named is not
+ * one ProjectOS is willing to write.
+ *
+ * X AND Y ARE INTEGERS, NOT A DECIMAL. `1.9` succeeds to `1.10`, which is why the parts are handled
+ * separately rather than by arithmetic on the string as a number.
+ */
+function planVersionSuccession(
+  governanceSource: GovernanceSource,
+  activePlan: Record<string, unknown>,
+): { readonly planVersion: string; readonly supersedesPlanVersion: string | null } | null {
+  if (governanceSource === 'genesis') return { planVersion: '1.0', supersedesPlanVersion: null };
+  const outgoing = strOf(activePlan['planVersion']);
+  const m = outgoing === null ? null : PLAN_VERSION.exec(outgoing);
+  if (m === null) return null;
+  return { planVersion: `${m[1]}.${Number(m[2]) + 1}`, supersedesPlanVersion: outgoing };
+}
+
 /**
  * Why this record is not a usable plan-approval delegation, or `[]` when it is. Pure — no I/O.
  * Returns every reason rather than the first, so one refusal shows the whole gap.
@@ -547,6 +585,15 @@ export function materialisePlan(input: MaterialiseInputs): MaterialiseResult {
   const problems: string[] = [];
   const d = input.proposal.imported.draft;
   const gov = (input.activePlan['governance'] as Record<string, unknown> | undefined) ?? {};
+  const succession = planVersionSuccession(input.governanceSource ?? 'active-plan', input.activePlan);
+  if (succession === null) {
+    problems.push(
+      `the active plan records a version of ${JSON.stringify(input.activePlan['planVersion'])}, which is not the ` +
+        'X.Y form a plan version takes, so the plan this approval would replace cannot be named. A successor ' +
+        'that cannot say what it supersedes would be indistinguishable from a first plan. Repair the active ' +
+        "plan's version before approving a replacement.",
+    );
+  }
 
   const businessVision = sourced(d['businessVision'], 'businessVision', problems);
   const definitionOfComplete = sourced(d['definitionOfComplete'], 'definitionOfComplete', problems);
@@ -678,7 +725,9 @@ export function materialisePlan(input: MaterialiseInputs): MaterialiseResult {
     projectName: strOf(input.config['projectName']) ?? input.proposal.projectId,
     programmeId: input.programmeId,
     planId: input.planId,
-    planVersion: '1.0',
+    // Genesis stays 1.0; a successor takes the next minor so it can name what it replaced. See
+    // `planVersionSuccession`.
+    planVersion: succession?.planVersion ?? '1.0',
     planStatus: 'PLAN READY',
 
     businessVision,
@@ -742,7 +791,9 @@ export function materialisePlan(input: MaterialiseInputs): MaterialiseResult {
           : `Governance is carried forward unchanged from the project's active owner-approved plan; `) +
         `this approval created no new authority, changed no protected-action rule, and did not modify any ` +
         `existing plan record.`,
-      supersedesPlanVersion: null,
+      // The version this plan replaces, or null for a first plan. Derived with the new version in one
+      // place, because a record that supersedes its own version is refused by the governance engine.
+      supersedesPlanVersion: succession?.supersedesPlanVersion ?? null,
       approvalBinding: 'MANUAL_GOVERNANCE_APPROVAL',
       tamperProof: false,
       // The AUTHORITY is the owner's either way. When the owner named a delegate, the delegation

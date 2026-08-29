@@ -212,6 +212,12 @@ export function Shell({
    */
   const [ccEntries, setCcEntries] = useState<readonly ControlCenterEntry[]>([]);
   const [objectiveOpen, setObjectiveOpen] = useState(false);
+  /**
+   * WHICH QUESTION THE ONE PANEL IS ASKING. \"Start something new\" and \"Request a change\" are the same
+   * governed operation, so they are the same panel and the same `plan.draft` — this only decides the
+   * wording. A second panel would have been a second place for the rules to drift.
+   */
+  const [objectiveMode, setObjectiveMode] = useState<'new' | 'change'>('new');
   /** Which plan the owner opened. Null means the active one. */
   const [openPlanId, setOpenPlanId] = useState<string | null>(null);
   const [sweeping, setSweeping] = useState(false);
@@ -396,6 +402,7 @@ export function Shell({
                 onPrimary={() => go('control')}
                 onOpenAdvanced={(next) => { setAdvanced(next as AdvancedView); go('advanced'); }}
                 onOpenPlanDetail={(planId) => { setOpenPlanId(planId); go('plan'); }}
+                onRequestChange={() => { setObjectiveMode('change'); setObjectiveOpen(true); go('control'); }}
               />
             )}
 
@@ -436,9 +443,10 @@ export function Shell({
                     projectId={projectId}
                     onBack={() => setObjectiveOpen(false)}
                     onSeePlan={() => { setObjectiveOpen(false); setProjectTab('plans'); go('project'); }}
+                    mode={objectiveMode}
                   />
                 }
-                onStartObjective={() => setObjectiveOpen(true)}
+                onStartObjective={() => { setObjectiveMode('new'); setObjectiveOpen(true); }}
               />
             )}
 

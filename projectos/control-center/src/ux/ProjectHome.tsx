@@ -183,6 +183,7 @@ export function ProjectHome({
   onPrimary,
   onOpenAdvanced,
   onOpenPlanDetail,
+  onRequestChange,
 }: {
   state: GovernedProjection;
   tab: ProjectTab;
@@ -192,6 +193,8 @@ export function ProjectHome({
   onOpenAdvanced: (which: string) => void;
   /** Opening a plan shows its steps, its evidence and its governed controls. */
   onOpenPlanDetail: (planId: string) => void;
+  /** Asking for a revision — the same objective panel, worded for a change. */
+  onRequestChange: () => void;
 }) {
   return (
     <div className="os-stack">
@@ -225,7 +228,13 @@ export function ProjectHome({
         />
       )}
 
-      {tab === 'plans' && <PlansScreen state={state} onOpenPlan={(planId) => onOpenPlanDetail(planId)} />}
+      {tab === 'plans' && (
+        <PlansScreen
+          state={state}
+          onOpenPlan={(planId) => onOpenPlanDetail(planId)}
+          onRequestChange={onRequestChange}
+        />
+      )}
 
       {tab === 'activity' && (
         <section aria-label="Activity">

@@ -34,17 +34,51 @@ const AFTER: ReadonlyArray<{ n: string; title: string; note: string }> = [
   { n: '4', title: 'It stops and asks', note: 'Any step that reaches customers, payments or the live site waits for you' },
 ];
 
+/**
+ * The two things an owner can ask for, which are the SAME operation.
+ *
+ * Asking for a change to an existing plan and asking for something new both end in `plan.draft`
+ * proposing a plan the owner then approves. Giving the change case its own screen would have meant a
+ * second form, a second dispatch and a second place for the rules to drift; giving it its own verb
+ * would have meant a second mutation authority for a flow the existing one already expresses. So this
+ * differs only in what it SAYS — the operation underneath is byte-identical.
+ *
+ * WHAT THE CHANGE WORDING HAS TO PROMISE. An owner asking to change a plan is entitled to know their
+ * current plan is not being edited underneath them. Nothing here touches it: the draft is a proposal,
+ * and the existing plan stays authoritative until the owner approves AND activates a replacement.
+ */
+const COPY = {
+  new: {
+    heading: 'Start something new',
+    lede: 'Say what you want in your own words. You will see the plan before anything happens.',
+    field: 'What should happen?',
+    hud: 'plan first',
+    submit: 'Make a plan',
+  },
+  change: {
+    heading: 'Request a change',
+    lede: 'Say what should be different. Your current plan stays active until you approve and start a replacement.',
+    field: 'What should change?',
+    hud: 'current plan unchanged',
+    submit: 'Propose the change',
+  },
+} as const;
+
 export function StartSomethingNew({
   projectName,
   projectId,
   onBack,
   onSeePlan,
+  mode = 'new',
 }: {
   projectName: string;
   projectId: string;
   onBack: () => void;
   onSeePlan: () => void;
+  /** Copy only. Both modes dispatch the same `plan.draft`; neither edits the current plan. */
+  mode?: 'new' | 'change';
 }) {
+  const copy = COPY[mode];
   const [objective, setObjective] = useState('');
   const [lines, setLines] = useState<readonly string[]>([]);
   const [failed, setFailed] = useState(false);
@@ -75,16 +109,14 @@ export function StartSomethingNew({
           <IconBack />
           Back to {projectName}
         </button>
-        <h1 className="os-h1">Start something new</h1>
-        <p className="os-lede">
-          Say what you want in your own words. You will see the plan before anything happens.
-        </p>
+        <h1 className="os-h1">{copy.heading}</h1>
+        <p className="os-lede">{copy.lede}</p>
       </div>
 
       <section className="os-plate os-glass os-hud">
-        <div className="os-hudlabel"><span>objective // {projectId}</span><span className="rule" /><span>plan first</span></div>
+        <div className="os-hudlabel"><span>objective // {projectId}</span><span className="rule" /><span>{copy.hud}</span></div>
         <label style={{ display: 'block' }}>
-          <span className="os-fieldlabel" style={{ marginBottom: 10 }}>What should happen?</span>
+          <span className="os-fieldlabel" style={{ marginBottom: 10 }}>{copy.field}</span>
           <textarea
             className="os-textarea"
             style={{ minHeight: 132 }}
@@ -104,7 +136,7 @@ export function StartSomethingNew({
         </div>
         <div className="os-newactions">
           <button type="button" className="os-pri" disabled={blocked || busy} onClick={() => void submit()}>
-            {busy ? 'Working…' : 'Make a plan'}
+            {busy ? 'Working…' : copy.submit}
           </button>
           <button
             type="button"

@@ -49,9 +49,20 @@ const IDLE: Outcome = { busy: false, lines: [], failed: false };
 export function PlansScreen({
   state,
   onOpenPlan,
+  onRequestChange,
 }: {
   state: GovernedProjection;
   onOpenPlan: (planId: string) => void;
+  /**
+   * Ask for a revision of the plan the owner is looking at.
+   *
+   * IT LIVES HERE BECAUSE THIS IS WHERE THE ANSWER APPEARS. A revision is proposed, decided and
+   * started on this screen, so the request belongs beside them rather than on a home page the owner
+   * would have to navigate back from. It opens the SAME objective panel `Start something new` opens
+   * and dispatches the SAME `plan.draft`; nothing here edits the current plan, which stays
+   * authoritative until a replacement is approved AND started.
+   */
+  onRequestChange: () => void;
 }) {
   const model = buildPlansModel(state);
 
@@ -156,6 +167,23 @@ export function PlansScreen({
 
   return (
     <div className="os-stack">
+      {/*
+        THE ONE PLACE A REVISION IS ASKED FOR, BESIDE WHERE THE ANSWER APPEARS.
+
+        It dispatches nothing itself. It opens the same objective panel `Start something new` opens,
+        which sends the same `plan.draft` — so there is one drafting path, not a separate revision
+        engine. The sentence under it is the promise the owner is owed: asking for a change does not
+        change anything yet.
+      */}
+      <section className="ux-screenhead">
+        <button type="button" className="os-sec" onClick={onRequestChange}>
+          Request a change
+        </button>
+        <p className="os-composernote">
+          Your current plan stays active. A change is proposed first, and you approve and start it
+          yourself.
+        </p>
+      </section>
       {PLAN_GROUPS.map((group) => {
         const rows = model.rows.filter((r) => r.group === group.id);
         if (rows.length === 0) return null;
