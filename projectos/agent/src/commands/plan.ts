@@ -26,7 +26,12 @@ import {
 } from '@projectos/core';
 import { submitObjective, listDrafts, checkDraftBinding, type DraftRecord, type SubmitOptions } from '../planIntake.js';
 import { buildAuthoringAttemptEvidence, writeAuthoringAttemptEvidence } from '../authoringEvidence.js';
-import { brokeredAuthorPort, type AuthorPort } from '../planAuthoring.js';
+import {
+  brokeredAuthorPort,
+  AUTHORING_OUTPUT_TOKEN_LIMIT,
+  outputSettlementAnomaly,
+  type AuthorPort,
+} from '../planAuthoring.js';
 import { checkPlanAuthoringPermission } from '../planAuthoringPermission.js';
 import { approvePlan, FILENAME_ID } from '../planApproval.js';
 import {
@@ -123,15 +128,15 @@ function renderDraftSummary(d: DraftRecord): readonly string[] {
  */
 const AUTHORING_LEDGER_PHASE = '@plan-authoring';
 
-/**
- * What one authored plan is assumed to cost, in output tokens, for the pre-dispatch estimate.
+/*
+ * There is no output-token constant here any more.
  *
- * Larger than the gatekeeper's 800 because the artefacts are different sizes: a decision is a verdict
- * and a paragraph, a plan is a set of phases with scope, environments and success criteria. The
- * estimate exists to be a real bound before the money is gone; the ledger is settled afterwards on
- * what the provider actually reports.
+ * There used to be, and it was the defect: this file reserved against a local 2,000 while the request
+ * built in `planAuthoring.ts` told the provider nothing, so the two numbers were never the same
+ * number and only one of them was ever binding. The reservation now prices exactly what the provider
+ * is instructed to allow — `AUTHORING_OUTPUT_TOKEN_LIMIT`, imported from the module that puts it on
+ * the wire, so a second value cannot be introduced here without deleting the import first.
  */
-const AUTHORING_OUTPUT_TOKEN_ESTIMATE = 2000;
 
 /**
  * Compose the objective-led author, or say why there is none.
@@ -152,10 +157,15 @@ const AUTHORING_OUTPUT_TOKEN_ESTIMATE = 2000;
  * nothing; a missing permission, an unconfigured gatekeeper, an unpriced model and an unauthorised
  * project are four different problems with four different fixes.
  */
-function composeAuthor(ctx: CommandContext): { readonly author?: AuthorPort; readonly reason: string } {
+function composeAuthor(
+  ctx: CommandContext,
+): { readonly author?: AuthorPort; readonly reason: string; readonly anomalies: string[] } {
+  // Filled at settlement, read after the call returns. A settlement anomaly is discovered inside a
+  // callback that can only return a number, and it must not die there.
+  const anomalies: string[] = [];
   const governed = loadGovernedContext(ctx.sys, ctx.root);
   if (!governed.ok) {
-    return { reason: 'this checkout is not a governed ProjectOS project, so nothing can be authored for it' };
+    return { anomalies, reason: 'this checkout is not a governed ProjectOS project, so nothing can be authored for it' };
   }
   const projectId = governed.context.projectId;
 
@@ -169,6 +179,7 @@ function composeAuthor(ctx: CommandContext): { readonly author?: AuthorPort; rea
   const gk = loadGatekeeperConfig(ctx.sys, ctx.root, 'not-needed');
   if (!gk.ok) {
     return {
+      anomalies,
       reason:
         'authoring is priced by this project\'s gatekeeper configuration, and it could not be used: ' +
         gk.reasons.join('; '),
@@ -180,6 +191,7 @@ function composeAuthor(ctx: CommandContext): { readonly author?: AuthorPort; rea
   const rate = config.rateCards[model];
   if (rate === undefined) {
     return {
+      anomalies,
       reason: `no rate card is configured for model '${model}', so the cost of an authoring call cannot be established; a call whose price is unknown is not made`,
     };
   }
@@ -217,7 +229,7 @@ function composeAuthor(ctx: CommandContext): { readonly author?: AuthorPort; rea
       // string's UTF-16 LENGTH by four, which under-reserved the only real authoring call by 24.9%.
       estimateMicroUsd: (inputBytes) =>
         estimateCostMicroUsd(
-          { inputTokens: estimateInputTokensFromBytes(inputBytes), outputTokens: AUTHORING_OUTPUT_TOKEN_ESTIMATE },
+          { inputTokens: estimateInputTokensFromBytes(inputBytes), outputTokens: AUTHORING_OUTPUT_TOKEN_LIMIT },
           rate,
         ),
       admitSpend: (request) =>
@@ -252,6 +264,11 @@ function composeAuthor(ctx: CommandContext): { readonly author?: AuthorPort; rea
           at: ctx.sys.now(),
         });
         settleGatekeeperSpend(ctx.sys, ctx.root, requestId, entry);
+        // WHAT WAS BILLED, CHECKED AGAINST WHAT WAS AUTHORISED. The entry above is already written:
+        // this does not change it, because the ledger must agree with the invoice. It only refuses to
+        // let a provider quietly bill past the limit it was given without anybody being told.
+        const anomaly = outputSettlementAnomaly(usage.outputTokens, AUTHORING_OUTPUT_TOKEN_LIMIT);
+        if (anomaly !== null) anomalies.push(anomaly);
         return entry.costMicroUsd;
       },
       now: () => ctx.sys.now(),
@@ -263,7 +280,7 @@ function composeAuthor(ctx: CommandContext): { readonly author?: AuthorPort; rea
     },
   );
 
-  return { author, reason: '' };
+  return { author, reason: '', anomalies };
 }
 
 function draft(ctx: CommandContext, flags: Record<string, string | boolean>): CommandResult {
@@ -278,12 +295,15 @@ function draft(ctx: CommandContext, flags: Record<string, string | boolean>): Co
   // provider call at all. Both spellings are the same intent and both are read.
   const wantsAuthoring = flags['authored'] === true || flags['authored'] === 'true';
   let options: SubmitOptions | undefined;
+  // Read AFTER the call, because that is the only time a settlement anomaly can exist.
+  let spendAnomalies: readonly string[] = [];
   if (wantsAuthoring) {
     const composed = composeAuthor(ctx);
     if (composed.author === undefined) {
       return fail(1, [`REFUSED (AUTHOR_NOT_COMPOSED): ${composed.reason}`]);
     }
     options = { mode: 'authored', author: composed.author };
+    spendAnomalies = composed.anomalies;
   }
   const result = submitObjective(ctx.sys, ctx.root, typeof raw === 'string' ? raw : undefined, undefined, options);
   if (!result.ok) {
@@ -301,6 +321,9 @@ function draft(ctx: CommandContext, flags: Record<string, string | boolean>): Co
     '',
     `  objective record:    ${objectivePath}`,
     `  draft record:        ${draftPath}`,
+    // Printed with the result rather than buried in a record. A call that billed past the limit it
+    // was given is the owner's business the moment it happens.
+    ...(spendAnomalies.length === 0 ? [] : ['', ...spendAnomalies.map((a) => `  ${a}`)]),
     ...(objective.instructionShaped
       ? ['', '  NOTE: the objective text contains instruction-shaped content. It was stored as data', '        and flagged. It confers no authority.']
       : []),

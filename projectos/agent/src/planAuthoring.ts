@@ -203,6 +203,55 @@ const STR_ARRAY = { type: 'array', items: { type: 'string' } } as const;
 export const MAX_CONTEXT_SOURCE_PATHS = 40;
 
 /**
+ * The most output tokens one authoring call may generate, ENFORCED BY THE PROVIDER.
+ *
+ * THIS USED TO BE AN ESTIMATE AND IT WAS DESCRIBED AS A CEILING. `AUTHORING_OUTPUT_TOKEN_ESTIMATE`
+ * priced the reservation at 2,000 output tokens and was never sent to the provider, so nothing
+ * stopped the model generating more. The final paid proof did exactly that: 2,382 output tokens
+ * against a reserved 2,000, which billed $0.026306 against an owner-approved maximum of $0.023888.
+ * The owner had approved a number that the code had no way of holding to.
+ *
+ * A reservation is only a limit if the same number is what the provider is told. So this one value
+ * does both jobs — it is sent as `max_output_tokens` and it is what the spend gate reserves — and
+ * they cannot drift apart, because there is no second constant to drift from.
+ *
+ * WHY 3,000 AND NOT 2,000. Because 2,000 has been measured to be too small: the one successful
+ * authoring call this repository has ever completed needed 2,382, and a limit that truncates the
+ * answer buys a charge for nothing. Three thousand clears the observed requirement with room, and
+ * still prices a single call at well under a cent of output.
+ *
+ * The input side is not guessed at either, but it is guarded differently: input is measured from the
+ * body's own bytes and reserved conservatively, which is why the same proof came in 1,121 tokens
+ * UNDER its input reservation.
+ */
+export const AUTHORING_OUTPUT_TOKEN_LIMIT = 3000;
+
+/**
+ * Whether a settled call billed for more output than the provider was told it could generate.
+ *
+ * A LIMIT IS A CLAIM ABOUT SOMEONE ELSE'S BEHAVIOUR, so it can be wrong. `max_output_tokens` goes out
+ * with the request, but what comes back on the invoice is whatever the provider says it is, and the
+ * one thing that must not happen is for that disagreement to pass silently as compliant — that is the
+ * shape of the defect this whole correction exists to close, one layer further out.
+ *
+ * It is NOT clamped and NOT retried. Clamping would make the ledger disagree with the invoice, which
+ * is worse than the anomaly; retrying would spend more money to investigate money. It is named, and
+ * a human decides.
+ *
+ * Returns null when the settlement is within the limit, which is the expected case.
+ */
+export function outputSettlementAnomaly(
+  outputTokens: number,
+  limit: number = AUTHORING_OUTPUT_TOKEN_LIMIT,
+): string | null {
+  if (typeof outputTokens !== 'number' || !Number.isFinite(outputTokens)) {
+    return `the provider reported an output token count that is not a number (${JSON.stringify(outputTokens)}), so this call cannot be checked against its ${limit}-token limit`;
+  }
+  if (outputTokens <= limit) return null;
+  return `PROVIDER CONTRACT ANOMALY: this call was sent with a hard limit of ${limit} output tokens and the provider reported ${outputTokens}. The ledger records what was billed, not what was authorised. Do not retry; this needs a human.`;
+}
+
+/**
  * A bounded sample of context sources, spread across the corpus rather than taken from its front.
  *
  * WHY NOT JUST THE FIRST FORTY. Discovery walks the tree alphabetically, and ProjectOS has 266 typed
@@ -401,6 +450,10 @@ export function buildAuthoringBody(request: AuthorRequest, model: string): strin
         schema: AUTHORED_PLAN_JSON_SCHEMA,
       },
     },
+    // THE SPEND LIMIT, ON THE WIRE. The same constant the gate reserves against, so the owner's
+    // approved maximum is a fact the provider is held to rather than a hope about how long an
+    // answer will run. Its absence is what let a call bill past an approved ceiling.
+    max_output_tokens: AUTHORING_OUTPUT_TOKEN_LIMIT,
     store: false,
   });
 }
