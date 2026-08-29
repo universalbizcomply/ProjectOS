@@ -59,7 +59,13 @@ import {
 import type { CredentialResolver } from './credentialResolver.js';
 import { applyVerdictToStop, routeStop, type NextLoopAction } from './gatekeeperRouting.js';
 import type { BrokeredTransport } from './transports/brokeredHttpPort.js';
-import { submitToOpenAi, type HttpPort, type TransportOutcome } from './transports/openaiResponses.js';
+import {
+  submitToOpenAi,
+  GATEKEEPER_OUTPUT_TOKEN_LIMIT,
+  gatekeeperOutputAnomaly,
+  type HttpPort,
+  type TransportOutcome,
+} from './transports/openaiResponses.js';
 import type { LoopStop, LoopStopCode } from './outcome.js';
 
 /**
@@ -336,7 +342,12 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
   // The estimate uses the evidence actually being sent, so it is a real bound rather than a nominal one.
   // UTF-8 bytes through the one conservative estimator — not UTF-16 length divided by four.
   const estimatedInput = estimateInputTokensFromText(input.evidenceText);
-  const estimate = estimateCostMicroUsd({ inputTokens: estimatedInput, outputTokens: 800 }, rate);
+  const estimate = estimateCostMicroUsd(
+    // The number the provider is actually held to, imported rather than repeated: a reservation that
+    // does not match the limit on the wire is not a reservation.
+    { inputTokens: estimatedInput, outputTokens: GATEKEEPER_OUTPUT_TOKEN_LIMIT },
+    rate,
+  );
   const totals = summariseLedger(deps.ledger, {
     projectId: input.projectId,
     phaseId: input.phaseId,
@@ -434,8 +445,15 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
   });
   lines.push(`gatekeeper answered; recorded ${entry.costMicroUsd} micro-USD against ${entry.requestId}`);
 
+  // THE BILL IS ALREADY RECORDED ABOVE, AND IT STAYS AS REPORTED. This only asks whether the
+  // provider stayed inside the limit the request carried. A call that generated more than it was
+  // permitted to is not a normally bounded governance decision, so it joins `problems` and stops
+  // being applied as one — it is not clamped, not hidden, and not retried.
+  const outputAnomaly = gatekeeperOutputAnomaly(outcome.usage.outputTokens);
+  if (outputAnomaly !== null) lines.push(outputAnomaly);
+
   // 6. CHECK THE ANSWER BEFORE APPLYING IT.
-  const problems = checkGatekeeperDecision(outcome.record, {
+  const checked = checkGatekeeperDecision(outcome.record, {
     projectId: input.projectId,
     phaseId: input.phaseId,
     subjectCommit: input.subjectCommit,
@@ -444,6 +462,7 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
     alreadyConsumedDecisionIds: deps.consumedDecisionIds,
     ownerOnlyActions: input.ownerOnlyActions,
   });
+  const problems = outputAnomaly === null ? checked : [outputAnomaly, ...checked];
 
   const action = applyVerdictToStop(input.stop, {
     decision: outcome.record.decision as string,

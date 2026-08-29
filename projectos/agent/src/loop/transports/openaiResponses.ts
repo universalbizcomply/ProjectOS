@@ -38,6 +38,46 @@ import type { BrokeredTransport } from './brokeredHttpPort.js';
 
 export const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses';
 
+/**
+ * The most output tokens a governance decision may generate, ENFORCED BY THE PROVIDER.
+ *
+ * EIGHT HUNDRED IS NOT A NEW POLICY. It is the number `gatekeeperTurn` and `reconciliation` have
+ * always reserved against — it was simply written as a bare literal in each of them and never sent
+ * anywhere, so the provider was free to generate more and bill for it. Settled gatekeeper outputs in
+ * this repository's ledger run to 675 tokens, so the existing figure is right; what was missing was
+ * anyone being held to it.
+ *
+ * THIS IS THE SAME DEFECT PLAN AUTHORING JUST PAID FOR. There, a 2,000-token "ceiling" that was only
+ * ever an estimate let one call bill $0.026306 against an approved $0.023888. These two routes had
+ * the identical shape and had not spent past it yet. Reserving a number the provider has never been
+ * told is a limit that exists only in the ledger's imagination.
+ *
+ * Deliberately NOT 3,000. Plan authoring generates a whole structured plan; a gatekeeper turn
+ * generates a bounded verdict. Copying authoring's limit here would quietly quadruple the worst-case
+ * price of every governance decision to fix a bug that is about enforcement, not size.
+ *
+ * One value, both jobs: it is sent as `max_output_tokens` and it is what both routes reserve.
+ */
+export const GATEKEEPER_OUTPUT_TOKEN_LIMIT = 800;
+
+/**
+ * Whether a settled call billed for more output than the provider was told it could generate.
+ *
+ * NOT CLAMPED, NOT RETRIED. The ledger must agree with the invoice, so a clamped number would be a
+ * second lie on top of the first; and spending more money to investigate money is not an answer. The
+ * disagreement is named and a human decides. Returns null in the expected case.
+ */
+export function gatekeeperOutputAnomaly(
+  outputTokens: number,
+  limit: number = GATEKEEPER_OUTPUT_TOKEN_LIMIT,
+): string | null {
+  if (typeof outputTokens !== 'number' || !Number.isFinite(outputTokens)) {
+    return `the provider reported an output token count that is not a number (${JSON.stringify(outputTokens)}), so this call cannot be checked against its ${limit}-token limit`;
+  }
+  if (outputTokens <= limit) return null;
+  return `PROVIDER CONTRACT ANOMALY: this call was sent with a hard limit of ${limit} output tokens and the provider reported ${outputTokens}. The ledger records what was billed, not what was authorised. This decision is not a normally bounded result; do not retry, this needs a human.`;
+}
+
 /** The HTTP edge, injected. Kept tiny so a fake is trivial and the real one has nowhere to hide. */
 export interface HttpPort {
   post(request: {
@@ -205,6 +245,10 @@ export function buildResponsesBody(
     ...(config.previousResponseId != null && config.previousResponseId !== ''
       ? { previous_response_id: config.previousResponseId }
       : {}),
+    // THE SPEND LIMIT, ON THE WIRE. The same constant both paid routes reserve against, so what the
+    // owner's budget was charged for is what the provider was actually permitted to produce. Its
+    // absence is how an authoring call billed past an approved ceiling.
+    max_output_tokens: GATEKEEPER_OUTPUT_TOKEN_LIMIT,
     store: true,
   };
   return JSON.stringify(body);
