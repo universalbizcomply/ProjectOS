@@ -403,6 +403,7 @@ export function Shell({
                 onOpenAdvanced={(next) => { setAdvanced(next as AdvancedView); go('advanced'); }}
                 onOpenPlanDetail={(planId) => { setOpenPlanId(planId); go('plan'); }}
                 onRequestChange={() => { setObjectiveMode('change'); setObjectiveOpen(true); go('control'); }}
+                bridge={tauriBridge}
               />
             )}
 

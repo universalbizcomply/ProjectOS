@@ -265,8 +265,11 @@ fn run_inner() {
             crate::register_project::register_project,
             crate::set_credential::set_credential,
             crate::project_setup::pick_folder,
+            crate::project_setup::pick_file,
             crate::project_setup::inspect_folder,
-            crate::project_setup::prepare_folder
+            crate::project_setup::prepare_folder,
+            crate::project_files::import_project_file,
+            crate::project_files::list_project_files
         ])
         .build(tauri::generate_context!())
         .expect("error while building ProjectOS Control Center");

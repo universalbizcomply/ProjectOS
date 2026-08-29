@@ -135,6 +135,12 @@ pub(crate) mod set_credential;
 // mutating command only ever ADDS to a folder the owner chose.
 #[cfg(windows)]
 pub(crate) mod project_setup;
+// PROJECTOS-GOVERNED-UPLOAD-SEAM-IMPLEMENT1A: local file intake. Crate-private for the same reason
+// as the three above: a Tauri command surface, not an API. Its commands take a project IDENTITY and
+// resolve the destination themselves from the protected registry, so no caller — renderer or crate —
+// can name a folder to write into.
+#[cfg(windows)]
+pub(crate) mod project_files;
 
 /// Run the ProjectOS Control Centre. The application's sole public entry point.
 ///

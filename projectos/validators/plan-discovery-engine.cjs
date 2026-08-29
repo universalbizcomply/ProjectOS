@@ -104,6 +104,11 @@ function normalizeContent(text) {
 }
 function toPosix(rel) { return rel.split(/[\\/]/).join("/"); }
 
+// The ONE governed file inbox, repo-relative and POSIX-spelled — the same string `project_files.rs`
+// builds its destination from. Imported files are inert: excluded from the walk, so they never enter
+// the planning corpus, never influence precedence and never reach authoring.
+const PROJECTOS_INBOX_REL = ".projectops/inbox";
+
 // Repo-relative path safety: no absolute, no drive-relative/absolute, no UNC, no traversal, no null.
 function isSafeRepoRelativePath(p) {
   if (typeof p !== "string" || p.length === 0) return false;
@@ -1216,6 +1221,16 @@ function discoverPlanSources(rootDir, opts) {
       if (lst.isSymbolicLink()) { skipped.push({ path: relPath, reason: "symlink/junction not followed" }); continue; }
       if (ent.isDirectory()) {
         if (SKIP_DIRS.has(ent.name)) { skipped.push({ path: relPath, reason: "skipped directory" }); continue; }
+        // THE OWNER'S FILE INBOX IS INERT, AND HAS TO BE EXCLUDED BY EXACT PATH.
+        //
+        // Files an owner adds through the Files tab land in `.projectops/inbox/`. They are stored and
+        // listed; they are not planning material, and nothing here may treat them as any. Two reasons
+        // this is a relative-PATH test and not a SKIP_DIRS entry: a basename entry would silently
+        // exclude every unrelated project folder that happens to be called "inbox", and the type
+        // classifier maps ANY path containing `.projectops` to PROJECT_CONFIG — which sits fifth in
+        // PRECEDENCE, above ARCHITECTURE and REQUIREMENTS. Without this line an imported brief would
+        // outrank the project's own architecture documents in its planning corpus.
+        if (relPath === PROJECTOS_INBOX_REL) { skipped.push({ path: relPath, reason: "ProjectOS file inbox (imported files are inert)" }); continue; }
         if (!isWithinRoot(root, abs)) { skipped.push({ path: relPath, reason: "outside repository root" }); continue; }
         walk(abs, depth + 1);
         continue;

@@ -345,8 +345,26 @@ function run() {
   //     READS it to answer "have you already added this folder?".
   //   * IT STAYS AN EXACT-SET PIN. Nothing further can be smuggled in beside them, and a window-fact
   //     command remains exactly as refused as it was before this amendment.
+  //
+  // AMENDED A FIFTH TIME by PROJECTOS-GOVERNED-UPLOAD-SEAM-IMPLEMENT1A: the set gains THREE commands
+  // so an owner can add a file to a project -- `pick_file`, `import_project_file`,
+  // `list_project_files`. Stated plainly, including what they DO:
+  //
+  //   * NONE OF THEM REPORTS A WINDOW FACT, which is the property this pin protects. None enumerates
+  //     windows, reads a native handle, or observes a title, size or position. `pick_file` is the
+  //     SAME system dialog `pick_folder` already opens, in file mode: it reads back one path, cannot
+  //     write and cannot execute.
+  //   * `import_project_file` IS A MUTATING COMMAND and that is not hidden here. It COPIES one file
+  //     into `.projectops/inbox/` inside a REGISTERED project. It takes a project IDENTITY, never a
+  //     root -- the destination is resolved from the protected registry through
+  //     `resolve_registered_projects()`, which takes no parameters -- so no caller can name a place
+  //     to write. It never moves, deletes, overwrites or executes; containment is decided by
+  //     `canonicalize`, so a junctioned inbox is refused rather than followed.
+  //   * `list_project_files` READS that one directory and nothing else.
+  //   * IT STAYS AN EXACT-SET PIN. Nothing further can be smuggled in beside them, and a window-fact
+  //     command remains exactly as refused as it was before this amendment.
   if (/#\[tauri::command\]/.test(obs + life + modrs)) E("V5 a Tauri command is registered in the owner-window bridge");
-  if (!/generate_handler!\[\s*daemon_request_snapshot,\s*daemon_governed_command,\s*daemon_status,\s*identity_status,\s*crate::host_status::installed_host_status,\s*crate::register_project::register_project,\s*crate::set_credential::set_credential,\s*crate::project_setup::pick_folder,\s*crate::project_setup::inspect_folder,\s*crate::project_setup::prepare_folder\s*\]/.test(app.replace(/\s+/g, " ")))
+  if (!/generate_handler!\[\s*daemon_request_snapshot,\s*daemon_governed_command,\s*daemon_status,\s*identity_status,\s*crate::host_status::installed_host_status,\s*crate::register_project::register_project,\s*crate::set_credential::set_credential,\s*crate::project_setup::pick_folder,\s*crate::project_setup::pick_file,\s*crate::project_setup::inspect_folder,\s*crate::project_setup::prepare_folder,\s*crate::project_files::import_project_file,\s*crate::project_files::list_project_files\s*\]/.test(app.replace(/\s+/g, " ")))
     E("V5 the registered command set changed (window-fact command may have been added)");
 
   // ---- V6 designated label is "main" ----

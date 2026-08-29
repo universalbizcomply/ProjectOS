@@ -2604,3 +2604,19 @@ h1.os-h1 { margin: 0; font-size: 36px; font-weight: 600; letter-spacing: -0.035e
 /* Nothing in this composition may push the page sideways at any width. */
 :root[data-shell='command'] .ux-ccgrid, :root[data-shell='command'] .ux-hud,
 :root[data-shell='command'] .ux-ccmain, :root[data-shell='command'] .ux-hudpanel { min-width: 0; max-width: 100%; }
+
+/* FILES. One row of controls to add a file, then the files this project holds.
+   Wraps rather than scrolls sideways: a long file name must never push the page. */
+.ux-filesadd { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+.ux-filesadd .os-input { flex: 0 1 240px; min-width: 0; }
+.ux-filelist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.ux-filerow { display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  padding: 12px 0; border-bottom: 1px solid var(--line-soft); min-width: 0; }
+.ux-filerow:last-child { border-bottom: none; }
+.ux-filename { font-size: 14px; overflow-wrap: anywhere; min-width: 0; }
+.ux-filemeta { font-size: 13px; color: var(--dim); white-space: nowrap; flex: none; }
+
+@media (max-width: 640px) {
+  .ux-filerow { flex-direction: column; gap: 2px; }
+  .ux-filemeta { white-space: normal; }
+}

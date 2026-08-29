@@ -102,7 +102,8 @@ const MODULES = [
   "validate-v3.2-ai-provider-independence",
   "val-projectos-gatekeeper-contract1a",
   "val-projectos-trust-boundary1a",
-  "val-projectos-provider-key-shapes1a"
+  "val-projectos-provider-key-shapes1a",
+  "val-projectos-file-inbox-inert1a"
 ];
 const scratch = require("./lib/scratch.cjs");
 const validationRecord = require("./lib/validation-record.cjs");

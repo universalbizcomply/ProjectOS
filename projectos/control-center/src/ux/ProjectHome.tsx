@@ -13,13 +13,24 @@
  *
  * Created in PROJECTOS-CONTROL-CENTER-UX-ARCHITECTURE1A.
  */
-import { useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { GovernedProjection } from '../governed/types';
 import { buildHomeModel } from '../owner/homeModel';
 import { buildContinueWorking } from '../owner/continueWorkingModel';
 import { OwnerActionInbox } from '../owner/OwnerActionInbox';
 import { recordedItems, relativeTime, statusInk, dotColour, stateFromStatus } from '../owner/workspaceModel';
 import { PlansScreen } from './PlansScreen';
+import type { IpcBridge } from '../daemon/ipcBridge';
+import {
+  FILE_PURPOSES,
+  addProjectFile,
+  formatImported,
+  formatSize,
+  loadProjectFiles,
+  purposeLabel,
+  type FilePurposeToken,
+  type ProjectFile,
+} from './filesModel';
 
 export type ProjectTab = 'overview' | 'plans' | 'activity' | 'files' | 'advanced';
 
@@ -61,6 +72,104 @@ export function ActivityFeed({
         </li>
       ))}
     </ul>
+  );
+}
+
+/**
+ * THE FILES TAB. Add one file; see the files this project holds.
+ *
+ * IT DISPATCHES NO GOVERNED COMMAND. Adding a file is two host calls — a picker and a copy — and the
+ * copy takes this project's IDENTITY, never a folder: the destination is resolved on the trusted
+ * side from the protected registry, so there is nothing here that could name a place to write.
+ *
+ * The empty state stays truthful. It no longer says ProjectOS cannot take files, because it can; it
+ * says what these files are and what they are not, which is the part an owner could otherwise get
+ * wrong — they are kept with the project, and they are not fed to planning.
+ */
+function FilesTab({ projectId, bridge }: { projectId: string; bridge: IpcBridge }) {
+  const [files, setFiles] = useState<readonly ProjectFile[]>([]);
+  const [purpose, setPurpose] = useState<FilePurposeToken>('SPECIFICATION');
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const refresh = useCallback(() => {
+    let live = true;
+    void loadProjectFiles(bridge, projectId).then((next) => {
+      if (live) setFiles(next);
+    });
+    return () => {
+      live = false;
+    };
+  }, [bridge, projectId]);
+
+  useEffect(() => refresh(), [refresh]);
+
+  async function add() {
+    if (busy) return;
+    setBusy(true);
+    setNotice(null);
+    try {
+      const outcome = await addProjectFile(bridge, projectId, purpose);
+      // Cancelling is an ordinary outcome: nothing was added, and nothing is said about it.
+      if (outcome.kind !== 'CANCELLED') setNotice(outcome.message);
+      if (outcome.kind === 'ADDED') refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="os-stack">
+      <div className="os-plate">
+        <h2 className="os-h2">Files</h2>
+        <p className="os-set-sub">
+          Documents you keep with this project. They are stored with the project and are not used to
+          write plans.
+        </p>
+        <div className="ux-filesadd">
+          <label className="os-set-sub" htmlFor="ux-file-purpose">
+            What is this file?
+          </label>
+          <select
+            id="ux-file-purpose"
+            className="os-input"
+            value={purpose}
+            onChange={(e) => setPurpose(e.target.value as FilePurposeToken)}
+          >
+            {FILE_PURPOSES.map((p) => (
+              <option key={p.token} value={p.token}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+          <button type="button" className="os-primary" onClick={() => void add()} disabled={busy}>
+            {busy ? 'Adding…' : 'Add a file'}
+          </button>
+        </div>
+        {notice !== null && <p className="os-set-sub">{notice}</p>}
+      </div>
+
+      <div className="os-plate">
+        {files.length === 0 ? (
+          <p className="os-empty">No files have been added to this project yet.</p>
+        ) : (
+          <ul className="ux-filelist">
+            {files.map((file) => {
+              const label = purposeLabel(file.purpose);
+              const when = formatImported(file.imported_at_epoch_ms);
+              return (
+                <li className="ux-filerow" key={file.file_name}>
+                  <span className="ux-filename">{file.file_name}</span>
+                  <span className="ux-filemeta">
+                    {[label, formatSize(file.size_bytes), when].filter((v) => v !== null).join(' · ')}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -184,6 +293,7 @@ export function ProjectHome({
   onOpenAdvanced,
   onOpenPlanDetail,
   onRequestChange,
+  bridge,
 }: {
   state: GovernedProjection;
   tab: ProjectTab;
@@ -195,6 +305,8 @@ export function ProjectHome({
   onOpenPlanDetail: (planId: string) => void;
   /** Asking for a revision — the same objective panel, worded for a change. */
   onRequestChange: () => void;
+  /** The host route the Files tab uses. Nothing else on this screen needs it. */
+  bridge: IpcBridge;
 }) {
   return (
     <div className="os-stack">
@@ -242,20 +354,7 @@ export function ProjectHome({
         </section>
       )}
 
-      {tab === 'files' && (
-        <div className="os-plate">
-          <h2 className="os-h2">Files</h2>
-          {/*
-            TRUTHFUL, NOT DECORATIVE. There is no governed verb that accepts a file: nothing in
-            `GOVERNED_VERBS` carries one, and the renderer will not pretend otherwise. The place is
-            drawn because the architecture names it; the capability is stated as absent.
-          */}
-          <p className="os-set-sub">
-            ProjectOS cannot take files from you yet. When it can, documents you attach here will be
-            available to the plans in this project.
-          </p>
-        </div>
-      )}
+      {tab === 'files' && <FilesTab projectId={state.projectId} bridge={bridge} />}
 
       {tab === 'advanced' && (
         <div className="os-stack">

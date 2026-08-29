@@ -45,8 +45,8 @@ use windows::core::PCWSTR;
 use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_INPROC_SERVER};
 #[cfg(windows)]
 use windows::Win32::UI::Shell::{
-    FileOpenDialog, IFileOpenDialog, IShellItem, FOS_FORCEFILESYSTEM, FOS_PATHMUSTEXIST,
-    FOS_PICKFOLDERS, SIGDN_FILESYSPATH,
+    FileOpenDialog, IFileOpenDialog, IShellItem, FILEOPENDIALOGOPTIONS, FOS_FILEMUSTEXIST,
+    FOS_FORCEFILESYSTEM, FOS_PATHMUSTEXIST, FOS_PICKFOLDERS, SIGDN_FILESYSPATH,
 };
 
 /// Encode a Rust string as a NUL-terminated UTF-16 buffer for the Win32 wide APIs.
@@ -71,30 +71,60 @@ fn wide(value: &str) -> Vec<u16> {
 pub fn pick_folder(title: String) -> Option<String> {
     #[cfg(windows)]
     {
-        let _com = ComApartment::enter();
-        // SAFETY: every call below is checked, and no pointer outlives the buffer it borrows.
-        unsafe {
-            let dialog: IFileOpenDialog =
-                CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER).ok()?;
-            let options = dialog.GetOptions().ok()?;
-            dialog
-                .SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST)
-                .ok()?;
-            let caption = wide(&title);
-            dialog.SetTitle(PCWSTR(caption.as_ptr())).ok()?;
-            // Err here is overwhelmingly "the owner pressed Cancel".
-            dialog.Show(None).ok()?;
-            let item: IShellItem = dialog.GetResult().ok()?;
-            let name = item.GetDisplayName(SIGDN_FILESYSPATH).ok()?;
-            let chosen = name.to_string().ok()?;
-            windows::Win32::System::Com::CoTaskMemFree(Some(name.0 as *const _));
-            Some(chosen)
-        }
+        show_open_dialog(&title, FOS_PICKFOLDERS)
     }
     #[cfg(not(windows))]
     {
         let _ = title;
         None
+    }
+}
+
+/// THE REAL WINDOWS FILE BROWSER. One existing file, or `null` when the owner cancels.
+///
+/// The same dialog and the same bounds as the folder picker: it opens a picker and reads back a
+/// path, it cannot write, it cannot execute, and the only argument is the sentence in the title bar.
+/// `FOS_ALLOWMULTISELECT` is deliberately not set, so one call can only ever answer one file.
+///
+/// Selecting is not importing. This returns a path; deciding whether that path may be copied
+/// anywhere is `project_files`, which never accepts a destination from the renderer.
+///
+/// Added in PROJECTOS-GOVERNED-UPLOAD-SEAM-IMPLEMENT1A.
+#[tauri::command(async)]
+pub fn pick_file(title: String) -> Option<String> {
+    #[cfg(windows)]
+    {
+        show_open_dialog(&title, FOS_FILEMUSTEXIST)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = title;
+        None
+    }
+}
+
+/// The shared dialog. Both pickers differ by ONE option flag, and sharing the body is what keeps
+/// them agreeing about cancellation, filesystem-only results and path retrieval.
+#[cfg(windows)]
+fn show_open_dialog(title: &str, mode: FILEOPENDIALOGOPTIONS) -> Option<String> {
+    let _com = ComApartment::enter();
+    // SAFETY: every call below is checked, and no pointer outlives the buffer it borrows.
+    unsafe {
+        let dialog: IFileOpenDialog =
+            CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER).ok()?;
+        let options = dialog.GetOptions().ok()?;
+        dialog
+            .SetOptions(options | mode | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST)
+            .ok()?;
+        let caption = wide(title);
+        dialog.SetTitle(PCWSTR(caption.as_ptr())).ok()?;
+        // Err here is overwhelmingly "the owner pressed Cancel".
+        dialog.Show(None).ok()?;
+        let item: IShellItem = dialog.GetResult().ok()?;
+        let name = item.GetDisplayName(SIGDN_FILESYSPATH).ok()?;
+        let chosen = name.to_string().ok()?;
+        windows::Win32::System::Com::CoTaskMemFree(Some(name.0 as *const _));
+        Some(chosen)
     }
 }
 
