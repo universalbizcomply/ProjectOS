@@ -18,6 +18,7 @@ import {
   type GatekeeperTurnInput,
 } from '../src/loop/gatekeeperTurn.js';
 import { unprovisionedResolver, inMemoryResolverForTests } from '../src/loop/credentialResolver.js';
+import { gatekeeperRequestDigest } from '@projectos/core';
 import type { HttpPort, HttpResponse } from '../src/loop/transports/openaiResponses.js';
 import {
   APPROVED_PILOT_POLICY,
@@ -422,5 +423,134 @@ describe('the evidence binds the request', () => {
     const fake = fakeHttp(okReply(AMENDMENT));
     const result = takeGatekeeperTurn(input(), deps({ http: fake.http }));
     expect(fake.sent[0]?.body).toContain(result.request!.requestId);
+  });
+});
+
+/* ------------------------------------------------------------------------------------------------
+ * WHAT WAS DECIDED IS KEPT — PROJECTOS-EXECUTION-DECISION-PROVENANCE-FIX1A.
+ *
+ * The ledger recorded that a call happened and what it cost; it never recorded the VERDICT, the
+ * grounds, or what the verdict permitted. Once a run ended, ProjectOS could not say what it acted on.
+ *
+ * The record kept here is EVIDENCE, never a permit. These prove both halves: that an accepted
+ * decision is handed to the durability port, and that a refused or malformed one is not — because a
+ * record that exists is the thing a future reader is most likely to mistake for permission.
+ * --------------------------------------------------------------------------------------------- */
+describe('an accepted decision is kept as evidence, and a refused one is not', () => {
+  function capture() {
+    const kept: Record<string, unknown>[] = [];
+    return {
+      kept,
+      port: (record: Record<string, unknown>) => {
+        kept.push(record);
+        return 'written' as const;
+      },
+    };
+  }
+
+  it('hands the accepted decision to the durability port, with the four bindings intact', () => {
+    const c = capture();
+    const inp = input();
+    const result = takeGatekeeperTurn(inp, deps({ recordDecisionEvidence: c.port as never }));
+
+    expect(c.kept).toHaveLength(1);
+    // A: persistence succeeded, so the verdict applies.
+    expect(result.action).toEqual({ kind: 'retry', instruction: 'Add the tenant predicate and re-run validate-all.' });
+    const kept = c.kept[0]!;
+    // A2 — the four bindings the decision contract already enforces survive into the evidence.
+    expect(kept['projectId']).toBe(inp.projectId);
+    expect(kept['phaseId']).toBe(inp.phaseId);
+    expect(kept['subjectCommit']).toBe(inp.subjectCommit);
+    expect(kept['requestDigest']).toBe(gatekeeperRequestDigest(result.request!));
+    // A3 — and so does what was decided, and on what grounds.
+    expect(kept['decision']).toBe('AMENDMENT_REQUIRED');
+    expect(kept['reason']).toBe('the finding is real');
+    expect(kept['allowedActions']).toEqual(['implement', 'run-validators']);
+    expect(kept['forbiddenActions']).toEqual([...OWNER_ONLY]);
+    expect(kept['decidedBy']).toBeDefined();
+    expect(kept['decidedAt']).toBeDefined();
+  });
+
+  it('A4/A9: a reply grabbing an owner-only action is refused, and never kept', () => {
+    // THE BINDINGS CANNOT BE FAKED BY A REPLY AT ALL — the runtime stamps project, phase, subject and
+    // digest, and never asks the model for them, so a self-consistent lie about WHAT a decision is
+    // about is unrepresentable. What a reply does control is what it tries to authorise, so that is
+    // what this drives: a verdict reaching for an owner-only action is refused, and a refused
+    // decision leaves no accepted-decision record behind to be mistaken for one.
+    const grabbing = { ...AMENDMENT, allowedActions: ['implement', OWNER_ONLY[0]] };
+    const c = capture();
+    const result = takeGatekeeperTurn(
+      input(),
+      deps({ http: fakeHttp(okReply(grabbing)).http, recordDecisionEvidence: c.port as never }),
+    );
+
+    expect(c.kept).toHaveLength(0);
+    expect(result.action.kind).toBe('owner');
+  });
+
+  it('A4: an unrecognised verdict is never kept', () => {
+    // "An unknown verdict is not a permissive one" — and it is not a recordable one either.
+    const invented = { ...AMENDMENT, decision: 'LOOKS_FINE_TO_ME' };
+    const c = capture();
+    takeGatekeeperTurn(
+      input(),
+      deps({ http: fakeHttp(okReply(invented)).http, recordDecisionEvidence: c.port as never }),
+    );
+    expect(c.kept).toHaveLength(0);
+  });
+
+  it('A4: a replayed decision is never kept a second time', () => {
+    const c = capture();
+    const inp = input();
+    const first = takeGatekeeperTurn(inp, deps({ recordDecisionEvidence: c.port as never }));
+    const spent = `GKDEC-${first.request!.requestId}`;
+
+    takeGatekeeperTurn(inp, deps({ consumedDecisionIds: [spent], recordDecisionEvidence: c.port as never }));
+    expect(c.kept).toHaveLength(1);
+  });
+
+  it('the turn proceeds unchanged when nothing is recording', () => {
+    // The port is optional: durability is the entrypoint's business, and its absence must not change
+    // what the runtime decides.
+    const withPort = takeGatekeeperTurn(input(), deps({ recordDecisionEvidence: capture().port as never }));
+    const without = takeGatekeeperTurn(input(), deps());
+    expect(without.action).toEqual(withPort.action);
+  });
+
+  it('C: a decision that could not be recorded is NOT acted on', () => {
+    // THE CORRECTION THIS AMENDMENT EXISTS FOR. Recording was best-effort, so a verdict applied
+    // whether or not the write landed — an action taken on a decision nothing recorded, which is
+    // the untraceable step the provenance contract exists to prevent.
+    const result = takeGatekeeperTurn(
+      input(),
+      deps({ recordDecisionEvidence: (() => 'refused: evidence could not be written') as never }),
+    );
+
+    expect(result.action.kind).toBe('owner');
+    expect(result.action.kind === 'owner' ? result.action.reasons.join(' ') : '').toContain('NOT acted on');
+    // The bill still stands: the call really happened, and pretending otherwise would lose the cost.
+    expect(result.ledgerEntry).not.toBeNull();
+  });
+
+  it('D: contradictory stored evidence stops the action rather than choosing between answers', () => {
+    // Two different answers under one deterministic id: the runtime cannot know which it would be
+    // acting on, so it refuses. The stored record is untouched and grants nothing either way.
+    const result = takeGatekeeperTurn(
+      input(),
+      deps({ recordDecisionEvidence: (() => 'conflict: different decision evidence already recorded') as never }),
+    );
+
+    expect(result.action.kind).toBe('owner');
+    expect(result.action.kind === 'owner' ? result.action.reasons.join(' ') : '').toContain('conflict');
+  });
+
+  it('B: byte-identical evidence already recorded is not a conflict, and the verdict applies', () => {
+    // A restart re-derives the same question and can receive the same answer. Provenance is intact,
+    // so there is nothing to refuse.
+    const result = takeGatekeeperTurn(
+      input(),
+      deps({ recordDecisionEvidence: (() => 'already-recorded') as never }),
+    );
+    expect(result.action).toEqual({ kind: 'retry', instruction: 'Add the tenant predicate and re-run validate-all.' });
   });
 });

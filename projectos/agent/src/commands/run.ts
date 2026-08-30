@@ -21,12 +21,14 @@ import {
   readLedger,
   readPreviousResponseId,
   consumedDecisionIds,
+  recordGatekeeperDecisionEvidence,
   admitGatekeeperSpend,
   resolveGatekeeperSpend,
   releaseUndispatchedReservation,
   settleGatekeeperSpend,
   writePreviousResponseId,
 } from '../loop/gatekeeperConfig.js';
+import type { GatekeeperDecisionRecord } from '@projectos/core';
 import { unprovisionedResolver } from '../loop/credentialResolver.js';
 import { nodeBrokeredTransport } from '../loop/transports/brokeredHttpPort.js';
 import { nodeHttpPort } from '../loop/transports/nodeHttpPort.js';
@@ -177,6 +179,16 @@ export function run(ctx: CommandContext, flags: Flags): CommandResult {
       previousResponseId: readPreviousResponseId(ctx.sys, ctx.root),
       transportDecider: gk.config.transportDecider,
       consumedDecisionIds: consumedDecisionIds(ledger),
+      // THE DECISION ITSELF IS KEPT, AS EVIDENCE. The ledger records that a call happened and what
+      // it cost; it has never recorded what was decided. Supplied here for the same reason as
+      // `admitSpend`: this is the only place that may touch the filesystem. It grants nothing — see
+      // `recordGatekeeperDecisionEvidence`.
+      recordDecisionEvidence: (record: GatekeeperDecisionRecord) => {
+        const outcome = recordGatekeeperDecisionEvidence(ctx.sys, ctx.root, record);
+        return outcome.kind === 'written' || outcome.kind === 'already-recorded'
+          ? outcome.kind
+          : `${outcome.kind}: ${outcome.detail}`;
+      },
       // THE ONLY PLACE THAT MAY TOUCH THE FILESYSTEM SUPPLIES THE ADMISSION.
       //
       // `ledger` above is a snapshot, and a snapshot cannot bound concurrent spend. This port re-reads

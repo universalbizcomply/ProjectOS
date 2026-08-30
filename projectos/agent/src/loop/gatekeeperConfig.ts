@@ -27,7 +27,9 @@ import {
   summariseLedger,
   BUDGET_RAISE_SCOPE,
   GATEKEEPER_REVIEW_SCOPE,
+  GATEKEEPER_DECISION_SCHEMA_VERSION,
   type BudgetPolicy,
+  type GatekeeperDecisionRecord,
   type GatekeeperTransportDescriptor,
   type GovernanceThreadBinding,
   type LedgerEntry,
@@ -50,6 +52,94 @@ export const GATEKEEPER_CONFIG_REL = '.projectops/gatekeeper.json';
 export const GATEKEEPER_LEDGER_REL = '.projectops/gatekeeper-ledger.json';
 export const GATEKEEPER_LEDGER_LOCK_REL = '.projectops/gatekeeper-ledger.lock';
 export const GATEKEEPER_THREAD_REL = '.projectops/gatekeeper-thread.json';
+
+/**
+ * WHERE AN ACCEPTED GATEKEEPER DECISION IS KEPT — AS EVIDENCE, NEVER AS A PERMIT.
+ *
+ * The ledger records that a call HAPPENED and what it cost; it has never recorded what was DECIDED.
+ * So once a run ended, ProjectOS could no longer say what verdict it acted on, on what grounds, or
+ * what that verdict permitted — the four questions an autonomous loop and an auditor both need.
+ *
+ * READING A FILE FROM HERE AUTHORISES NOTHING. Authority comes from a live answer that passed
+ * `checkGatekeeperDecision` inside the transition that asked the question, and from nowhere else.
+ * The implementer can write to this checkout, so a store that granted permission by existing would
+ * hand Claude exactly the power the decision contract denies it. `val-projectos-gate-decision-evidence1a`
+ * exists to keep that true as the code changes.
+ *
+ * One file per DETERMINISTIC request id, so re-deriving the same question addresses the same record.
+ */
+export const GATEKEEPER_DECISIONS_REL = '.projectops/gatekeeper-decisions';
+
+/** The evidence path for one request id, or `null` when the id could not safely become a filename. */
+export function gatekeeperDecisionEvidenceRelPath(requestId: string): string | null {
+  // Narrow on purpose: this is interpolated into a path, so anything that could traverse, hide or
+  // collide is refused rather than sanitised. Request ids are derived, not supplied, so nothing
+  // legitimate is excluded. The same rule `ownerGateReceiptRelPath` applies for the same reason.
+  if (!/^[A-Za-z0-9_-]{4,128}$/.test(requestId)) return null;
+  return `${GATEKEEPER_DECISIONS_REL}/${requestId}.json`;
+}
+
+/** What happened when evidence was recorded. Never an authority answer — only whether it was kept. */
+export type DecisionEvidenceOutcome =
+  | { readonly kind: 'written' }
+  /** Byte-identical evidence already existed. Re-deriving the same answer is not a conflict. */
+  | { readonly kind: 'already-recorded' }
+  /** DIFFERENT evidence already exists under this id. Never overwritten; reported instead. */
+  | { readonly kind: 'conflict'; readonly detail: string }
+  | { readonly kind: 'refused'; readonly detail: string };
+
+/**
+ * Persist one ACCEPTED decision as evidence.
+ *
+ * Called only after `checkGatekeeperDecision` returned no problems, so this writes a record the
+ * runtime already judged usable — never raw model output. It stores no prompt, no response body, no
+ * credential and no identifier beyond the ones the decision contract already binds.
+ *
+ * CREATE-NEW, NEVER OVERWRITE. A second, DIFFERENT answer under the same deterministic id is a
+ * contradiction worth seeing, not a value to replace: the first record is what the runtime acted on.
+ * Byte-identical content is reported as already-recorded, because re-deriving the same question and
+ * receiving the same answer is ordinary.
+ */
+export function recordGatekeeperDecisionEvidence(
+  sys: System,
+  root: string,
+  record: GatekeeperDecisionRecord,
+): DecisionEvidenceOutcome {
+  const requestId = typeof record.decisionId === 'string' ? record.decisionId : null;
+  if (requestId === null) return { kind: 'refused', detail: 'decision carries no usable decisionId' };
+  const rel = gatekeeperDecisionEvidenceRelPath(requestId);
+  if (rel === null) return { kind: 'refused', detail: 'decisionId is not a safe record name' };
+
+  // The VALIDATED fields, in a fixed order so the same decision always produces the same bytes.
+  const evidence = {
+    schemaVersion: GATEKEEPER_DECISION_SCHEMA_VERSION,
+    recordKind: 'gatekeeper-decision-evidence',
+    decisionId: requestId,
+    projectId: record.projectId,
+    phaseId: record.phaseId,
+    subjectCommit: record.subjectCommit,
+    requestDigest: record.requestDigest,
+    decision: record.decision,
+    reason: record.reason,
+    allowedActions: record.allowedActions,
+    forbiddenActions: record.forbiddenActions,
+    ownerApprovalRequired: record.ownerApprovalRequired,
+    decidedBy: record.decidedBy,
+    decidedAt: record.decidedAt,
+  };
+  const content = `${JSON.stringify(evidence, null, 2)}\n`;
+  const path = join(root, ...rel.split('/'));
+
+  if (sys.createExclusive(path, content)) return { kind: 'written' };
+
+  const existing = sys.readText(path);
+  if (existing === null) return { kind: 'refused', detail: 'evidence could not be written or read back' };
+  if (existing === content) return { kind: 'already-recorded' };
+  return {
+    kind: 'conflict',
+    detail: `different decision evidence already recorded for ${requestId}; the existing record was left untouched`,
+  };
+}
 
 /** The decider a valid delegation names, or every reason there is no decider. */
 export type DelegatedDeciderResolution =

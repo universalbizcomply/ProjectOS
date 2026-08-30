@@ -32,6 +32,7 @@ import {
   loadGatekeeperConfig,
   readLedger,
   consumedDecisionIds,
+  recordGatekeeperDecisionEvidence,
 } from '../loop/gatekeeperConfig.js';
 import { unprovisionedResolver } from '../loop/credentialResolver.js';
 import { nodeBrokeredTransport } from '../loop/transports/brokeredHttpPort.js';
@@ -190,6 +191,16 @@ export function reconcile(ctx: CommandContext, flags: Flags): CommandResult {
     repositoryRoot: ctx.root,
     decidedBy: gk.config.transportDecider,
     consumedDecisionIds: consumedDecisionIds(ledger),
+    // THE DECISION ITSELF IS KEPT, AS EVIDENCE. The ledger records that a call happened and what
+    // it cost; it has never recorded what was decided. Supplied here for the same reason as
+    // `admitSpend`: this is the only place that may touch the filesystem. It grants nothing — see
+    // `recordGatekeeperDecisionEvidence`.
+    recordDecisionEvidence: (record) => {
+      const outcome = recordGatekeeperDecisionEvidence(ctx.sys, ctx.root, record);
+      return outcome.kind === 'written' || outcome.kind === 'already-recorded'
+        ? outcome.kind
+        : `${outcome.kind}: ${outcome.detail}`;
+    },
     // Same serialised admission as `run`: a reconcile alongside a run is one of the concurrent pairs
     // C17-F1 described, and both make billable calls.
     admitSpend: (request) =>

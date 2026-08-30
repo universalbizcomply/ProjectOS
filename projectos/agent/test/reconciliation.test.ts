@@ -1409,3 +1409,108 @@ describe('what the installation ledger may and may not be made to say', () => {
     expect(after.asks ?? []).toEqual([]);
   });
 });
+
+/* ------------------------------------------------------------------------------------------------
+ * A DEBT IS NOT DISCHARGED ON A DECISION NOTHING RECORDED —
+ * PROJECTOS-EXECUTION-DECISION-PROVENANCE-FIX1A.
+ *
+ * Reconciliation is the second path that accepts a checked gatekeeper decision, so it carries the
+ * same rule as the governance turn: durable provenance is a PRECONDITION of acting, not a courtesy
+ * afterwards. A reconciliation applied on a decision ProjectOS cannot later account for is exactly
+ * the untraceable step the provenance contract exists to prevent.
+ * --------------------------------------------------------------------------------------------- */
+describe('reconciliation records the decision before it acts on it', () => {
+  it('A: a recorded decision discharges the debt, and the evidence carries the four bindings', () => {
+    const w = world();
+    const kept: Record<string, unknown>[] = [];
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+    const r = reconcileDegradedWork(
+      w.sys,
+      w.root,
+      input(),
+      deps(w.root, {
+        http: fake.http,
+        recordDecisionEvidence: ((record: Record<string, unknown>) => {
+          kept.push(record);
+          return 'written';
+        }) as never,
+      }),
+    );
+
+    expect(r.kind).toBe('RECONCILED');
+    expect(kept).toHaveLength(1);
+    expect(kept[0]!['subjectCommit']).toBe(w.subject);
+    expect(kept[0]!['requestDigest']).toBeDefined();
+    expect(kept[0]!['decision']).toBe(RECONCILIATION_ACCEPTED_VERDICT);
+  });
+
+  it('B: byte-identical evidence already recorded still discharges the debt', () => {
+    const w = world();
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+    const r = reconcileDegradedWork(
+      w.sys,
+      w.root,
+      input(),
+      deps(w.root, { http: fake.http, recordDecisionEvidence: (() => 'already-recorded') as never }),
+    );
+    expect(r.kind).toBe('RECONCILED');
+  });
+
+  it('C: a decision that could not be recorded leaves the debt standing', () => {
+    const w = world();
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+    const r = reconcileDegradedWork(
+      w.sys,
+      w.root,
+      input(),
+      deps(w.root, {
+        http: fake.http,
+        recordDecisionEvidence: (() => 'refused: evidence could not be written') as never,
+      }),
+    );
+
+    expect(r.kind).toBe('PERSIST_FAILED');
+    expect(r.reasons.join(' ')).toContain('NOT applied');
+    // The reviewer really answered and the call was really billed; that stays true.
+    expect(fake.sent).toHaveLength(1);
+  });
+
+  it('D: contradictory stored evidence leaves the debt standing rather than choosing an answer', () => {
+    const w = world();
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+    const r = reconcileDegradedWork(
+      w.sys,
+      w.root,
+      input(),
+      deps(w.root, {
+        http: fake.http,
+        recordDecisionEvidence: (() => 'conflict: different decision evidence already recorded') as never,
+      }),
+    );
+
+    expect(r.kind).toBe('PERSIST_FAILED');
+    expect(r.reasons.join(' ')).toContain('conflict');
+  });
+
+  it('a refused decision is never recorded as an accepted one', () => {
+    // The checker refuses first, so nothing reaches the evidence port at all.
+    const kept: Record<string, unknown>[] = [];
+    const w = world();
+    const fake = fakeHttp(okReply({ ...verdict(RECONCILIATION_ACCEPTED_VERDICT), decision: 'NOT_A_VERDICT' }));
+    const r = reconcileDegradedWork(
+      w.sys,
+      w.root,
+      input(),
+      deps(w.root, {
+        http: fake.http,
+        recordDecisionEvidence: ((record: Record<string, unknown>) => {
+          kept.push(record);
+          return 'written';
+        }) as never,
+      }),
+    );
+
+    expect(r.kind).not.toBe('RECONCILED');
+    expect(kept).toHaveLength(0);
+  });
+});

@@ -51,6 +51,7 @@ import {
   summariseLedger,
   RECONCILIATION_ASK,
   type BudgetPolicy,
+  type GatekeeperDecisionRecord,
   type GatekeeperRequest,
   type GovernanceThreadBinding,
   type LedgerEntry,
@@ -200,6 +201,14 @@ export interface ReconciliationDeps {
   readonly ledger: readonly LedgerEntry[];
   readonly threadBinding: GovernanceThreadBinding | null;
   readonly repositoryRoot: string;
+  /**
+   * Keep an ACCEPTED decision as durable evidence. The same port `runGatekeeperTurn` takes, for the
+   * same reason: this module owns no durability, and reconciliation is the OTHER path that accepts a
+   * checked gatekeeper decision. It grants nothing and is never read back for authority.
+   */
+  readonly recordDecisionEvidence?: (
+    record: GatekeeperDecisionRecord,
+  ) => 'written' | 'already-recorded' | string;
   readonly decidedBy: string;
   readonly consumedDecisionIds: readonly string[];
   /**
@@ -981,6 +990,34 @@ export function reconcileDegradedWork(
       'DECISION_REFUSED',
       [
         ...problems,
+        ...(settled.persisted
+          ? []
+          : [`the question could not be recorded either: ${settled.problem ?? 'unknown'}`]),
+      ],
+      shared,
+    );
+  }
+
+  // ACCEPTED BY THE CHECKER, SO IT IS KEPT — as evidence only, and BEFORE anything is decided on it.
+  //
+  // Recorded before the verdict is read below, because a refusal that discharges nothing was still a
+  // real decision the gatekeeper made and is exactly the history an audit needs.
+  //
+  // AND IT IS A PRECONDITION, NOT A COURTESY. If the write fails, or if DIFFERENT evidence already
+  // exists under this deterministic request id, this reconciliation does not proceed — a debt
+  // discharged on a decision nothing recorded is precisely the untraceable step this contract exists
+  // to prevent. A contradiction is the sharper case: two different answers for one question means the
+  // runtime cannot know which it is acting on, so it refuses instead of choosing. The stored record
+  // is left untouched, and does not become authority by being there.
+  const kept = deps.recordDecisionEvidence?.(sent.record);
+  if (kept !== undefined && kept !== 'written' && kept !== 'already-recorded') {
+    const settled = settleAsk(sys, input.durable.stateDir, ask, null);
+    return outcome(
+      'PERSIST_FAILED',
+      [
+        'the gatekeeper decided, and ProjectOS could not durably record that decision — so the ' +
+          'reconciliation was NOT applied and the debt stands',
+        `evidence: ${kept}`,
         ...(settled.persisted
           ? []
           : [`the question could not be recorded either: ${settled.problem ?? 'unknown'}`]),

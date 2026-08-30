@@ -47,6 +47,7 @@ import {
   selectTier,
   summariseLedger,
   type BudgetPolicy,
+  type GatekeeperDecisionRecord,
   type GatekeeperRequest,
   type GatekeeperTransportDescriptor,
   type GovernanceThreadBinding,
@@ -135,6 +136,19 @@ export interface GatekeeperTurnDeps {
     request: { readonly requestId: string; readonly projectId: string; readonly phaseId: string },
     cause: string,
   ) => void;
+
+  /**
+   * Keep an ACCEPTED decision as durable evidence. A PORT, for the same reason as the two above:
+   * this file owns no durability.
+   *
+   * Called only after the decision checker accepted the record. It grants nothing and is never read
+   * back for authority — returning a word describing what was kept, so a conflict or a failure is
+   * visible in the run's own lines rather than silent. Optional, so a test or rehearsal with no
+   * governed root need not supply one.
+   */
+  readonly recordDecisionEvidence?: (
+    record: GatekeeperDecisionRecord,
+  ) => 'written' | 'already-recorded' | string;
 
   readonly admitSpend?: (request: {
     readonly requestId: string;
@@ -463,6 +477,59 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
     ownerOnlyActions: input.ownerOnlyActions,
   });
   const problems = outputAnomaly === null ? checked : [outputAnomaly, ...checked];
+
+  // 7. WRITE DOWN WHAT WAS DECIDED — AND DO NOT ACT UNTIL THAT SUCCEEDED.
+  //
+  // The ledger records that a call happened and what it cost. It has never recorded the VERDICT, the
+  // grounds, or what the verdict permitted, so once the process ended ProjectOS could no longer say
+  // what it acted on. That is an audit gap today and a continuity gap for an autonomous loop.
+  //
+  // AFTER THE CHECK, NEVER BEFORE: `problems` is empty only when `checkGatekeeperDecision` accepted
+  // the record AND the provider stayed inside its output bound, so a refused or malformed answer
+  // leaves no accepted-decision record behind to be mistaken for one later.
+  //
+  // AND BEFORE THE ACTION, NEVER AFTER. Recording used to be best-effort: the verdict was applied
+  // whether or not the write landed. That defeated the whole point — an action taken on a decision
+  // nothing recorded is exactly the untraceable step this contract exists to prevent, and under an
+  // autonomous loop it is a step nobody could later account for. So durable provenance is now a
+  // PRECONDITION of acting, and a failed or contradicted write stops the turn and hands it to the
+  // owner.
+  //
+  // A CONTRADICTION IS THE MORE DANGEROUS CASE, not the lesser one: different evidence already
+  // stored under this deterministic id means two different answers exist for one question, and the
+  // runtime cannot know which one it is about to act on. It refuses rather than guesses, and the
+  // stored record is left exactly as it was — the conflicting file is not authority either.
+  //
+  // A PORT, like `admitSpend` and `resolveSpend`, because this file decides nothing about
+  // durability — the entrypoint owns the writing. Writing still changes nothing about AUTHORITY: the
+  // verdict is applied from the CHECKED record in this transition, never from anything read back.
+  // Successful persistence is a precondition, not a permit.
+  //
+  // Absent port = no governed root to write into (a rehearsal or a unit test). Production always
+  // supplies one; `commands/run.ts` and `commands/reconcile.ts` are the only callers that can.
+  if (problems.length === 0 && deps.recordDecisionEvidence !== undefined) {
+    const recorded = deps.recordDecisionEvidence(outcome.record);
+    if (recorded !== 'written' && recorded !== 'already-recorded') {
+      lines.push(`decision evidence could not be recorded: ${recorded}`);
+      return {
+        action: ownerAction([
+          `STOPPED (${input.stop.code}): ${input.stop.detail}`,
+          'the gatekeeper decided, and ProjectOS could not durably record that decision — so the ' +
+            'decision was NOT acted on',
+          `evidence: ${recorded}`,
+          'a decision ProjectOS cannot account for afterwards is not one it may act on; resolve the ' +
+            'recording problem, then ask again',
+        ]),
+        lines,
+        request,
+        ledgerEntry: entry,
+        ownerChoices: null,
+        unavailabilityCause: null,
+        providerResponseId: outcome.providerResponseId,
+      };
+    }
+    if (recorded === 'already-recorded') lines.push('decision evidence: already recorded, unchanged');
+  }
 
   const action = applyVerdictToStop(input.stop, {
     decision: outcome.record.decision as string,
