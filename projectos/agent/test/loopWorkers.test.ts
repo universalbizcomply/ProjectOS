@@ -260,7 +260,7 @@ describe('the Claude Code CLI adapter', () => {
 
   it('puts a path and a fixed pointer on the command line, and no phase content', () => {
     const sys = recordingSystem();
-    const worker = { workerId: 'claude-local', kind: CLAUDE_CODE_CLI, command: CLAUDE, args: [] };
+    const worker = { workerId: 'claude-local', kind: CLAUDE_CODE_CLI, command: CLAUDE, args: [], timeoutMs: 60_000 };
     const out = claudeCodeCliAdapter.start(sys, worker, brief(), briefPath);
     expect(out.kind).toBe('completed');
     expect(sys.calls).toHaveLength(1);
@@ -277,7 +277,7 @@ describe('the Claude Code CLI adapter', () => {
 
   it('is deterministic — the same brief path always produces the same command line', () => {
     const sys = recordingSystem();
-    const worker = { workerId: 'claude-local', kind: CLAUDE_CODE_CLI, command: CLAUDE, args: [] };
+    const worker = { workerId: 'claude-local', kind: CLAUDE_CODE_CLI, command: CLAUDE, args: [], timeoutMs: 60_000 };
     claudeCodeCliAdapter.start(sys, worker, brief(), briefPath);
     claudeCodeCliAdapter.start(sys, worker, brief(), briefPath);
     expect(sys.calls[0].args).toEqual(sys.calls[1].args);
@@ -286,7 +286,7 @@ describe('the Claude Code CLI adapter', () => {
 
   it('prepends the worker’s configured arguments', () => {
     const sys = recordingSystem();
-    const worker = { workerId: 'claude-local', kind: CLAUDE_CODE_CLI, command: CLAUDE, args: ['--permission-mode', 'plan'] };
+    const worker = { workerId: 'claude-local', kind: CLAUDE_CODE_CLI, command: CLAUDE, args: ['--permission-mode', 'plan'], timeoutMs: 60_000 };
     claudeCodeCliAdapter.start(sys, worker, brief(), briefPath);
     expect(sys.calls[0].args.slice(0, 2)).toEqual(['--permission-mode', 'plan']);
   });
@@ -306,7 +306,7 @@ describe('the Claude Code CLI adapter', () => {
       exitCode: null,
       corrections: 0,
     };
-    const out = claudeCodeCliAdapter.rejoin(sys, { workerId: 'claude-local', kind: CLAUDE_CODE_CLI, command: CLAUDE, args: [] }, session, brief());
+    const out = claudeCodeCliAdapter.rejoin(sys, { workerId: 'claude-local', kind: CLAUDE_CODE_CLI, command: CLAUDE, args: [], timeoutMs: 60_000 }, session, brief());
     expect(out.kind).toBe('refused');
     expect(sys.calls).toHaveLength(0);
   });
@@ -326,7 +326,7 @@ describe('the Claude Code CLI adapter', () => {
       exitCode: null,
       corrections: 0,
     };
-    claudeCodeCliAdapter.rejoin(sys, { workerId: 'claude-local', kind: CLAUDE_CODE_CLI, command: CLAUDE, args: [] }, session, brief());
+    claudeCodeCliAdapter.rejoin(sys, { workerId: 'claude-local', kind: CLAUDE_CODE_CLI, command: CLAUDE, args: [], timeoutMs: 60_000 }, session, brief());
     expect(sys.calls[0].args).toContain('--resume');
     expect(sys.calls[0].args).toContain('abc-123');
   });
@@ -351,7 +351,7 @@ describe('the Claude Code CLI adapter', () => {
       exitCode: null,
       corrections: 1,
     };
-    claudeCodeCliAdapter.rejoin(sys, { workerId: 'claude-local', kind: CLAUDE_CODE_CLI, command: CLAUDE, args: [] }, session, brief());
+    claudeCodeCliAdapter.rejoin(sys, { workerId: 'claude-local', kind: CLAUDE_CODE_CLI, command: CLAUDE, args: [], timeoutMs: 60_000 }, session, brief());
     const line = sys.calls[0].args.join(' ');
     expect(line).toContain(correctionInstruction(briefPath));
     expect(line).toContain(briefPath);

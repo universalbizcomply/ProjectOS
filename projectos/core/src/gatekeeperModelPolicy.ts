@@ -59,6 +59,12 @@ export const STRONG_TIER_ASKS: readonly string[] = [
   'degraded-mode-reconciliation',
   'effects-unattested',
   'worker-refusal',
+  // A BOUNDED ATTEMPT THAT WAS ENDED IS NOT A REFUSAL, AND IS PRICED DELIBERATELY RATHER THAN BY
+  // DEFAULT. It would reach the strong tier anyway under the unrecognised-ask rule above — which is
+  // precisely why it is written down: the same reasoning that put `plan-authoring` on this list.
+  // Reusing `worker-refusal` for it would have been cheaper to write and would have recorded, in
+  // every ledger entry and every rate lookup, that a worker said something it never said.
+  'worker-timeout',
   'correction-exhausted',
 ];
 

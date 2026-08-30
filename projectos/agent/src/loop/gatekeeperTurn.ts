@@ -81,6 +81,7 @@ export const STOP_ASKS: { readonly [K in LoopStopCode]: string } = {
   CORRECTION_EXHAUSTED: 'correction-exhausted',
   REVIEW_OUTSTANDING: 'evidence-review',
   WORKER_REFUSED: 'worker-refusal',
+  WORKER_TIMED_OUT: 'worker-timeout',
   EFFECTS_NOT_ATTESTED: 'effects-unattested',
   PROTECTED_EFFECT: 'ambiguity',
   OWNER_GATE: 'ambiguity',

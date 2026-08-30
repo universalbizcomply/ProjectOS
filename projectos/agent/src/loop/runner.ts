@@ -271,11 +271,32 @@ function scopeImplementationPaths(context: GovernedContext, phaseId: string): re
 /** How much of a failing check's output the reviewer is shown. Enough to locate a failure, bounded. */
 const CHECK_OUTPUT_TAIL = 4000;
 
-function describeWorkerOutcome(o: WorkerOutcome): { refusal: string | null; line: string } {
-  if (o.kind === 'refused') return { refusal: o.detail, line: `worker refused: ${o.detail}` };
+/**
+ * What ended the attempt, in the loop's own stop vocabulary, or `null` when nothing did.
+ *
+ * THREE OUTCOMES, THREE ANSWERS, AND THE THIRD IS THE POINT. A worker that refused, a worker that
+ * exited non-zero and a worker that was ended for running past its bound are different events, and
+ * for a long time the third could not happen at all. Now that it can, it must not arrive wearing one
+ * of the other two names: a timeout reported as a refusal tells the reviewer the worker said
+ * something it never said, and a timeout reported as an exit code invents a status the run never had.
+ */
+function describeWorkerOutcome(o: WorkerOutcome): { stop: LoopStop | null; line: string } {
+  if (o.kind === 'refused') return { stop: { code: 'WORKER_REFUSED', detail: o.detail }, line: `worker refused: ${o.detail}` };
+  if (o.kind === 'timedOut') {
+    const seconds = Math.round(o.afterMs / 1000);
+    return {
+      stop: {
+        code: 'WORKER_TIMED_OUT',
+        detail:
+          `the worker did not finish within ${seconds}s and was ended; anything it left behind ` +
+          'describes work that was cut off rather than a result',
+      },
+      line: `worker timed out after ${seconds}s`,
+    };
+  }
   const tail = o.stderr.trim() === '' ? '' : ` — ${o.stderr.trim().split(/\r?\n/).slice(-1)[0]}`;
   return {
-    refusal: o.exitCode === 0 ? null : `the worker exited ${o.exitCode}${tail}`,
+    stop: o.exitCode === 0 ? null : { code: 'WORKER_REFUSED', detail: `the worker exited ${o.exitCode}${tail}` },
     line: `worker exited ${o.exitCode}`,
   };
 }
@@ -896,6 +917,23 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     const attemptHadCorrectionAuthority = correctionGrants.length > 0;
     correctionGrants = [];
 
+    // A WORKER IS ABOUT TO BE DISPATCHED, AND THE RECORD SAYS SO BEFORE IT IS.
+    //
+    // Written HERE rather than after, and the ordering is the whole value. The runtime waits for the
+    // worker synchronously, so between this line and the next return it can write nothing at all —
+    // and that is exactly the window in which a run is force-killed from outside. Without this, a
+    // stopped run left a checkpoint that had never heard of the worker it had dispatched; with it,
+    // the record truthfully says a worker went out and no answer came back, which is what B8 will
+    // need in order to reconcile it. `EXECUTING` still follows only once the attempt has actually
+    // run, so neither state claims something that has not happened.
+    options.onWorkState?.({
+      state: 'WAITING_AI',
+      phaseId,
+      sessionId,
+      attempt: attempts + 1,
+      subjectCommit: verification.observed.head ?? null,
+      lastCompletedStep: `${rejoining ? 'rejoined' : 'dispatched'} ${resolution.worker.workerId}`,
+    });
     const outcome = rejoining
       ? resolution.adapter.rejoin(sys, attemptWorker, session, brief)
       : resolution.adapter.start(sys, attemptWorker, brief, briefFile);
@@ -916,6 +954,10 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
       state: rejoining ? 'rejoined' : 'started',
       providerRef: outcome.kind === 'completed' ? outcome.providerRef ?? session.providerRef : session.providerRef,
       exitCode: outcome.kind === 'completed' ? outcome.exitCode : null,
+      // RECORDED, NOT LEFT TO BE INFERRED FROM A NULL EXIT CODE. `exitCode: null` already covers a
+      // refusal, so on its own it cannot say which of the two this was — and this durable record is
+      // the only account a later reader gets of an attempt that was ended rather than finished.
+      timedOut: outcome.kind === 'timedOut',
       corrections: attempts,
     };
     store.writeSession(sys, root, session);
@@ -923,8 +965,8 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     // A worker that refused produces nothing to verify. Running the phase's validators anyway would
     // burn the full suite to learn what the exit code already said, and a green suite over unchanged
     // code would sit in the evidence beside a failed run looking like reassurance.
-    if (described.refusal !== null) {
-      const refused: LoopStop = { code: 'WORKER_REFUSED', detail: described.refusal };
+    if (described.stop !== null) {
+      const refused: LoopStop = described.stop;
       store.writeEvidence(sys, root, { ...collectEvidence(sys, root, { sessionId, brief, checks: [] }), invocationId: invocation.invocationId });
       // ROUTED, NOT ENDED. `STOP_ROUTES` says this stop is the gatekeeper's — "a refusal is
       // information about the brief; the brief may be amended but the refusal may not be overruled" —
@@ -940,7 +982,11 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
       const refusedFindings = store.readFindings(sys, root, sessionId);
       const refusedEffects = store.readEffects(sys, root, sessionId);
       const answered = applyReviewerAnswer(refused, evidenceFor(refused, {
-        checks: unavailable('the worker refused, so no checks were run'),
+        checks: unavailable(
+          refused.code === 'WORKER_TIMED_OUT'
+            ? 'the worker was ended for running past its bound, so no checks were run'
+            : 'the worker refused, so no checks were run',
+        ),
         findings: refusedFindings.ok
           ? { available: true, value: refusedFindings.value }
           : unavailable(refusedFindings.problem),
@@ -1009,7 +1055,11 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
       effects: effects.value,
       reviewsRecorded: findings.value.reviews,
       attemptsSpent: attempts,
-      workerRefusal: described.refusal,
+      // NULL, AND THE COMPILER AGREES. Every outcome that ends an attempt — a refusal, a non-zero
+      // exit, a bound that was reached — is handled in the branch above, which always leaves this
+      // iteration. TypeScript narrows `described.stop` to `null` here, so writing anything other
+      // than null would be describing a case that cannot occur.
+      workerRefusal: null,
     });
 
 

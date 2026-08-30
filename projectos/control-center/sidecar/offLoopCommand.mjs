@@ -19,6 +19,8 @@
  * Created in PROJECTOS-LIVE-PLAN-AUTHORING-AND-OWNER-DECISION1A (post-live-call correction).
  */
 import { spawn as nodeSpawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { join as joinPath } from 'node:path';
 import { platform } from 'node:process';
 
 /**
@@ -42,6 +44,23 @@ export const OFF_LOOP_COMMAND_TIMEOUT_MS = 330_000;
 const MAX_WORKER_OUTPUT_BYTES = 1_000_000;
 
 /**
+ * The process tool, resolved to ONE ABSOLUTE EXECUTABLE — never spawned by bare name.
+ *
+ * Same rule this runtime already applies to git, to PowerShell and to the governed worker. A bare
+ * name resolves against the spawning process's current directory before anything else, and in a
+ * development launch that directory is inside the ProjectOS checkout: a `taskkill.exe` committed to
+ * a governed repository would otherwise be executed with the daemon's authority the moment a command
+ * ran long. Null when it cannot be resolved, and the caller then falls back to the single-process
+ * kill and reaches no further than the one pid it owns.
+ */
+function taskkillPath() {
+  const root = process.env.SystemRoot ?? process.env.windir;
+  if (typeof root !== 'string' || root.trim() === '') return null;
+  const exe = joinPath(root, 'System32', 'taskkill.exe');
+  return existsSync(exe) ? exe : null;
+}
+
+/**
  * Stop the worker AND anything it started.
  *
  * WHY `child.kill()` IS NOT ENOUGH, found by adversarial review. The worker reaches the provider
@@ -52,10 +71,13 @@ const MAX_WORKER_OUTPUT_BYTES = 1_000_000;
  * the very loss this correction exists to prevent, reintroduced by its own timeout.
  */
 function killTree(child) {
-  if (platform === 'win32' && typeof child.pid === 'number') {
+  const exe = platform === 'win32' ? taskkillPath() : null;
+  if (exe !== null && typeof child.pid === 'number') {
     try {
-      // Fire-and-forget: this runs on the daemon's loop and must not block it.
-      nodeSpawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true }).on('error', () => {});
+      // Fire-and-forget: this runs on the daemon's loop and must not block it. The `error` listener
+      // is not decoration — an unhandled `error` event on a child process ends this process, and
+      // `spawn` reports a failure to start asynchronously, so the `catch` below can never see it.
+      nodeSpawn(exe, ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true }).on('error', () => {});
       return;
     } catch {
       /* fall through to the single-process kill below */

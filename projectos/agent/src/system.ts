@@ -14,6 +14,25 @@ export interface ExecResult {
   readonly code: number;
   readonly stdout: string;
   readonly stderr: string;
+  /**
+   * Why there is no real exit status, when there is none.
+   *
+   * `code` alone cannot say this. A child killed for running past its bound and a child that never
+   * existed both report `status: null`, and both were being reported as `code: 1` — the same answer a
+   * program that ran and failed gives. So "the worker exited 1" was printed for a worker that was
+   * killed, and for a worker whose executable was not there. A run's exit state has to be KNOWN
+   * before anything downstream can be trusted to be about that run, so the two are named here rather
+   * than inferred later from a number that cannot carry the distinction.
+   *
+   * `output-overflow` is the case that had to be separated out after review, and it matters: a child
+   * that RAN, worked, and printed more than the runtime would hold is killed with `ENOBUFS`, which
+   * has a null status like the other two. Folded in with them it was reported as an executable that
+   * could not be started — a statement that is not merely vague but false, about the one thing this
+   * field exists to make true.
+   *
+   * Absent means the child ran and `code` is its own exit status.
+   */
+  readonly failure?: 'timeout' | 'not-started' | 'output-overflow';
 }
 
 export interface ExecOptions {
@@ -44,6 +63,36 @@ export interface ExecOptions {
    * not start without a `PATH` at all — see `fixedSystemPath`.
    */
   readonly ensureSystemPath?: boolean;
+  /**
+   * Kill this child if it has not finished within this many milliseconds.
+   *
+   * OFF BY DEFAULT AND SET ONLY WHERE A BOUND WAS DECIDED. `spawnSync` waits forever by default, so
+   * before this existed a single worker attempt could hold a governed run open indefinitely with no
+   * way to end it from inside the runtime. It is expressed as an option rather than a global because
+   * "how long may this take" is a property of the thing being run, not of the process runner: a
+   * governed worker gets one, `git rev-parse` does not need one, and a project's own test suite is a
+   * separate decision that belongs to whoever configured it.
+   *
+   * WHAT IT DOES AND DOES NOT REACH. `spawnSync` terminates the process it started. Any process that
+   * child went on to start is that child's, not ours — we never learned its identity, and killing by
+   * a pid we did not create is how an unrelated process gets terminated. So the bound is honest
+   * about its scope: the spawned process is ended and proven ended; its own descendants are outside
+   * what this runtime can claim to own.
+   */
+  readonly timeoutMs?: number;
+  /**
+   * How much output this child may produce before it is treated as faulty.
+   *
+   * OFF BY DEFAULT, so every existing caller keeps Node's own limit and its existing behaviour. Set
+   * where a child legitimately produces a long document: the governed worker is asked for structured
+   * output, and a long session's result can be large. Without a raised allowance a perfectly good run
+   * is killed at Node's default of about a megabyte — and the result is not a slow run or a partial
+   * one, it is a completed run reported as a failure.
+   *
+   * It is still a BOUND, not an absence of one: unbounded accumulation of a faulty child's output is
+   * how a runtime runs out of memory.
+   */
+  readonly maxOutputBytes?: number;
 }
 
 export interface System {
@@ -443,11 +492,34 @@ export const nodeSystem: System = {
       shell: false,
       ...(options?.cwd === undefined ? {} : { cwd: options.cwd }),
       ...(env === undefined ? {} : { env }),
+      // SIGKILL, not the default SIGTERM. A bound that a child may decline to honour is not a bound,
+      // and on Windows the platform terminates the process either way.
+      ...(options?.timeoutMs === undefined ? {} : { timeout: options.timeoutMs, killSignal: 'SIGKILL' as const }),
+      ...(options?.maxOutputBytes === undefined ? {} : { maxBuffer: options.maxOutputBytes }),
     });
+    // MEASURED, NOT ASSUMED. Node reports a timeout as `error.code === 'ETIMEDOUT'` with a null
+    // status, and a missing executable as `ENOENT`, also with a null status. Verified against this
+    // Node before being relied on, because the whole point of the field is that it is true.
+    const err = r.error as NodeJS.ErrnoException | undefined;
+    // THREE DIFFERENT EVENTS, AND NODE GIVES ALL THREE A NULL STATUS. Reproduced against this Node
+    // before being relied on: a bound reached is `ETIMEDOUT`; output past the limit is `ENOBUFS`
+    // (or `ERR_CHILD_PROCESS_STDIO_MAXBUFFER`) on a child that ran and worked; anything else — a
+    // missing executable, a permission refusal — never became a process at all.
+    const failure =
+      err === undefined
+        ? undefined
+        : err.code === 'ETIMEDOUT'
+          ? 'timeout'
+          : err.code === 'ENOBUFS' || err.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER'
+            ? 'output-overflow'
+            : 'not-started';
     return {
+      // Unchanged for every existing caller: no real status is still a failure, and a check or a git
+      // call reads that exactly as it always did.
       code: r.status ?? 1,
       stdout: r.stdout ?? '',
       stderr: r.stderr ?? '',
+      ...(failure === undefined ? {} : { failure }),
     };
   },
 };

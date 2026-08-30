@@ -897,24 +897,93 @@ function startGovernedRun(root, phaseId, sessionId) {
   return { code: 0, lines: [sessionId === undefined ? 'Governed run started.' : `Governed run resumed (session ${sessionId}).`] };
 }
 
-/** Stop the tracked run for a root, killing the whole process tree, not just the immediate child. */
+/**
+ * `taskkill`, resolved to ONE ABSOLUTE EXECUTABLE — never spawned by bare name.
+ *
+ * This is the same rule the runtime already applies to `git`, to PowerShell and to the governed
+ * worker, and it was the one spawn in this file that did not follow it. A bare name is resolved by
+ * searching the spawning process's CURRENT DIRECTORY first, and in a development launch this
+ * process's current directory is inside the ProjectOS checkout itself — a governed repository whose
+ * contents are untrusted until reviewed. A `taskkill.exe` committed there would have been executed,
+ * with this process's authority, the moment the owner pressed Stop.
+ *
+ * `SystemRoot` is one of the two variables the launch authority passes to this process deliberately,
+ * so this needs nothing new. Null when it cannot be resolved: the caller then says what it did
+ * instead, rather than pretending.
+ */
+function taskkillPath() {
+  const root = process.env.SystemRoot ?? process.env.windir;
+  if (typeof root !== 'string' || root.trim() === '') return null;
+  // `joinPath` normalises a trailing separator, so no hand-rolled trimming is needed here.
+  const exe = joinPath(root, 'System32', 'taskkill.exe');
+  return existsSync(exe) ? exe : null;
+}
+
+/**
+ * Stop the tracked run for a root, killing the whole process tree, not just the immediate child.
+ *
+ * EXACTLY ONE PID, AND ONLY WHILE IT IS STILL OURS. Nothing here matches on an executable name, and
+ * nothing terminates a process this sidecar did not start: the pid comes from the child in
+ * `activeRuns`, and if that child has already ended, no kill is issued at all — a pid stops being an
+ * identity the moment its process exits, and the operating system reuses it. Killing a number we no
+ * longer own is how an unrelated process gets terminated.
+ *
+ * SYNCHRONOUS, SO THE ANSWER IS TRUE. This was fire-and-forget inside a `try/catch`, which could not
+ * work: `spawn` reports a failure to start asynchronously, so the catch never ran, the documented
+ * fallback was unreachable, and an unhandled `error` event on a child process ENDS THIS PROCESS —
+ * measured, not assumed. Waiting for `taskkill` costs milliseconds and turns "the run will end
+ * shortly" from a hope into something this function actually checked.
+ */
 function stopGovernedRun(root) {
   const tracked = activeRuns.get(root);
   if (tracked === undefined) {
     return { code: 2, lines: ['REFUSED (NO_ACTIVE_RUN): no governed run is in progress for this project.'] };
   }
   const pid = tracked.child.pid;
-  if (typeof pid === 'number') {
-    // `child.kill()` alone leaves the worker (runLoop's own child of our child) orphaned on
-    // Windows; `/t` reaches the whole tree. Fire-and-forget: the `close` handler above is what
-    // actually clears the tracked entry once the tree is confirmed gone.
-    try {
-      spawn('taskkill', ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore', windowsHide: true });
-    } catch {
-      tracked.child.kill();
-    }
+  const alreadyEnded = tracked.child.exitCode !== null || tracked.child.signalCode !== null;
+  if (typeof pid !== 'number' || alreadyEnded) {
+    // FAIL CLOSED. We cannot prove this pid is still the run's, so we terminate nothing and say so.
+    return {
+      code: 0,
+      lines: ['The governed run has already ended; nothing was terminated.'],
+    };
   }
-  return { code: 0, lines: ['Stop requested; the governed run will end shortly.'] };
+
+  const exe = taskkillPath();
+  if (exe === null) {
+    // `child.kill()` reaches the run process but NOT the worker it started — that is the whole
+    // reason the tree kill exists — so this says exactly what it did and what it left behind.
+    const killed = tracked.child.kill();
+    return {
+      code: killed ? 0 : 2,
+      lines: [
+        'Stop requested, but the system process tool could not be resolved,',
+        '  so only the governed run process was signalled; a worker it started may still be running.',
+      ],
+    };
+  }
+  // `/t` takes the tree because on Windows `child.kill()` alone leaves the worker — `runLoop`'s own
+  // child of our child — orphaned. `/f` because a bound the child may decline is not a bound.
+  const r = spawnSync(exe, ['/pid', String(pid), '/t', '/f'], { encoding: 'utf8', windowsHide: true });
+  if (r.status === 0) {
+    // The tracked entry is still cleared by the `close` handler, which is what actually observes the
+    // process ending; this only reports that the termination was accepted.
+    return { code: 0, lines: ['Governed run terminated, together with the worker process tree it started.'] };
+  }
+  // 128 is `taskkill` saying the pid was already gone — which is the outcome asked for, reached
+  // another way. Anything else is a stop that did not happen, and must not be reported as one.
+  if (r.status === 128) {
+    return { code: 0, lines: ['The governed run had already ended; nothing was left to terminate.'] };
+  }
+  tracked.child.kill();
+  return {
+    code: 2,
+    lines: [
+      'REFUSED (STOP_NOT_CONFIRMED): the process tree could not be confirmed terminated',
+      `  (${(r.stderr ?? '').trim() || `exit ${r.status ?? 'unknown'}`}).`,
+      '  The governed run process was signalled directly; a worker it started may still be running.',
+    ],
+  };
 }
 
 

@@ -30,6 +30,20 @@ export interface AuthorisedWorker {
   /** Absolute path to the executable. Never a bare name — see the module note. */
   readonly command: string;
   readonly args: readonly string[];
+  /**
+   * How long ONE attempt with this worker may run before it is ended.
+   *
+   * WHY A BOUND EXISTS AT ALL. The runtime starts a worker and waits for it, synchronously. With no
+   * bound that wait is unlimited: a worker that hangs holds the phase, the run and the process
+   * forever, and nothing inside ProjectOS can end it — the only remedy is killing the run from
+   * outside, which leaves no truthful account of what happened.
+   *
+   * WHY IT IS CONFIGURATION AND NOT ONLY A CONSTANT. A generous default is right for the workers
+   * this project runs today, and wrong the first time somebody's phase legitimately takes longer.
+   * This lives in the `execution` block, which `committedExecutionProblems` already compares against
+   * the committed file — so raising a worker's bound requires a commit, which is where review is.
+   */
+  readonly timeoutMs: number;
 }
 
 export interface WorkerSession {
@@ -50,6 +64,14 @@ export interface WorkerSession {
   readonly state: 'started' | 'rejoined' | 'exited';
   readonly exitCode: number | null;
   /**
+   * Whether the attempt was ended for running past its bound.
+   *
+   * A NULL EXIT CODE CANNOT SAY THIS. It is also what a refusal leaves behind, so without this field
+   * the durable record of a killed run and a declined run are the same record. Optional because
+   * sessions written before the bound existed cannot answer it, and they are not to be back-filled.
+   */
+  readonly timedOut?: boolean;
+  /**
    * Correction attempts spent in the LAST invocation. It is recorded for the reader, not consumed as
    * a running total: the bound is per invocation, so re-running after a human has looked at the
    * failure starts a fresh budget. That is deliberate — the human deciding to try again is the gate,
@@ -59,6 +81,25 @@ export interface WorkerSession {
 }
 
 export type WorkerOutcome =
+  | {
+      /**
+       * The attempt ran past its bound and was ended.
+       *
+       * A SEPARATE KIND, NOT AN EXIT CODE AND NOT A REFUSAL. A killed worker has no exit status to
+       * report, so representing it as one would mean inventing a number. And it is not a refusal: a
+       * refusal is a worker saying something about the task, which the routing table treats as
+       * evidence about the brief. A timeout says nothing about the brief — it says the run did not
+       * finish, and whatever it left behind is a partial account of work that was cut off.
+       *
+       * `stdout`/`stderr` are what the worker had produced when it was ended. They are recorded
+       * because they may explain the hang; they are never read as a completed run's output, and no
+       * handle is taken from them, so a timed-out attempt cannot be rejoined as if it had reported one.
+       */
+      readonly kind: 'timedOut';
+      readonly afterMs: number;
+      readonly stdout: string;
+      readonly stderr: string;
+    }
   | {
       readonly kind: 'completed';
       readonly exitCode: number;
@@ -108,6 +149,23 @@ function isAbsolutePath(p: string): boolean {
 
 /** Anything that looks like a credential being handed to a worker. */
 const CREDENTIAL_SHAPED = /(api[_-]?key|token|secret|password|bearer)/i;
+
+/**
+ * The bound one worker attempt gets when the project states none.
+ *
+ * DELIBERATELY GENEROUS. The purpose of this number is to make "forever" impossible, not to police
+ * how long honest work takes: a bound tight enough to kill a real phase would be a new way for the
+ * loop to fail, and the failure would look like the worker's fault. Ninety minutes is far beyond any
+ * attempt this runtime has recorded and still finite, which is the whole property being bought. A
+ * project whose phases genuinely run longer raises it in its committed config rather than losing the
+ * bound.
+ */
+export const DEFAULT_WORKER_TIMEOUT_MS = 90 * 60 * 1000;
+
+/** The widest bound a project may declare. Past this the value is not a bound, it is a decoration. */
+export const MAX_WORKER_TIMEOUT_MS = 6 * 60 * 60 * 1000;
+/** Below this a worker cannot plausibly start, so such a value is a mistake, not a policy. */
+export const MIN_WORKER_TIMEOUT_MS = 1000;
 
 /**
  * The only file-writing authority a worker may be granted, and the reason it is a closed list.
@@ -238,7 +296,26 @@ function readWorkers(context: GovernedContext): {
       }
     }
     for (const p of toolGrantProblems(args)) problems.push(`worker '${label}': ${p}`);
-    workers.push({ workerId, kind, command, args });
+
+    // A DECLARED BOUND IS CHECKED, AND AN UNDECLARED ONE IS THE DEFAULT — never "unbounded". The
+    // absent case and the nonsense case are different: saying nothing accepts the default, while
+    // saying `0`, `-1`, `"soon"` or a day and a half is a statement about the bound that this cannot
+    // honour, and silently substituting the default for it would hide the mistake.
+    const declared = entry['timeoutMs'];
+    let timeoutMs = DEFAULT_WORKER_TIMEOUT_MS;
+    if (declared !== undefined) {
+      if (typeof declared !== 'number' || !Number.isInteger(declared)) {
+        problems.push(`worker '${label}' declares timeoutMs ${JSON.stringify(declared)}, which is not a whole number of milliseconds`);
+      } else if (declared < MIN_WORKER_TIMEOUT_MS || declared > MAX_WORKER_TIMEOUT_MS) {
+        problems.push(
+          `worker '${label}' declares timeoutMs ${declared}, outside the permitted ` +
+            `${MIN_WORKER_TIMEOUT_MS}..${MAX_WORKER_TIMEOUT_MS}; an attempt must be bounded by something a person would wait for`,
+        );
+      } else {
+        timeoutMs = declared;
+      }
+    }
+    workers.push({ workerId, kind, command, args, timeoutMs });
   }
 
   if (workers.length === 0) problems.push('`execution.workers` declares no worker');

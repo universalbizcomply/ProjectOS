@@ -107,7 +107,8 @@ const MODULES = [
   "val-projectos-live-worker-truth1a",
   "val-projectos-gate-decision-evidence1a",
   "val-projectos-portfolio-read-only1a",
-  "val-projectos-work-record-not-authority1a"
+  "val-projectos-work-record-not-authority1a",
+  "val-projectos-worker-lifecycle-bounded1a"
 ];
 const scratch = require("./lib/scratch.cjs");
 const validationRecord = require("./lib/validation-record.cjs");

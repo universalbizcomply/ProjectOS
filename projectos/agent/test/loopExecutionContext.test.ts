@@ -96,7 +96,7 @@ function recordingSystem(files: readonly string[] = []) {
   return sys;
 }
 
-const WORKER = { workerId: 'claude-local', kind: CLAUDE_CODE_CLI, command: CLAUDE, args: [] };
+const WORKER = { workerId: 'claude-local', kind: CLAUDE_CODE_CLI, command: CLAUDE, args: [], timeoutMs: 60_000 };
 
 /** A session record as a hostile worker might have rewritten it. */
 function tamperedSession(): WorkerSession {

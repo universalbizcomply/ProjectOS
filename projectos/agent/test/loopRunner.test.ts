@@ -144,6 +144,36 @@ function fakeAdapter(over: { exitCode?: number; providerRef?: string | null } = 
 }
 
 /**
+ * A worker that never comes back, as the adapter reports one.
+ *
+ * `stdout` is deliberately a WELL-FORMED handle document. A killed worker's partial output is the
+ * one place a timeout could quietly become a success — parse it as a completed run and the loop
+ * would take a handle from it, record an exit, and carry on with work that never finished. The
+ * outcome kind is what stops that, so the fixture makes the output as tempting as possible.
+ */
+function timingOutAdapter(afterMs = 90_000) {
+  const calls: string[] = [];
+  const outcome = {
+    kind: 'timedOut' as const,
+    afterMs,
+    stdout: JSON.stringify({ session_id: 'ref-from-a-run-that-never-finished', result: 'done' }),
+    stderr: '',
+  };
+  const adapter: WorkerAdapter = {
+    kind: WORKER_KIND,
+    start: () => {
+      calls.push('start');
+      return outcome;
+    },
+    rejoin: () => {
+      calls.push('rejoin');
+      return outcome;
+    },
+  };
+  return { calls, registry: { [WORKER_KIND]: adapter } as AdapterRegistry };
+}
+
+/**
  * A run that reported on itself: both required reviews recorded with nothing blocking, and an
  * effects attestation saying nothing protected happened. Both are needed — the loop refuses to
  * certify a run that never said what it did.
@@ -1446,5 +1476,94 @@ describe('runLoop with an unattended gatekeeper', () => {
     expect(r.stop?.code).toBe('OWNER_GATE');
     // Nothing was sent: an owner gate is not a question for a reviewer.
     expect(sent).toEqual([]);
+  });
+});
+
+/**
+ * A BOUNDED ATTEMPT, AND WHAT THE LOOP MAKES OF ONE THAT WAS ENDED.
+ *
+ * Until PROJECTOS-WORKER-CHANNEL-HARDENING1A the third outcome did not exist: a worker either
+ * finished or refused, and one that did neither held the run open with no way to end it from inside
+ * the runtime. These prove what the loop now does with the third case — and, more importantly, what
+ * it does NOT do with it: it does not call it a refusal, does not invent an exit status for it, and
+ * does not read the partial output it left behind as a result.
+ */
+describe('a worker attempt that ran past its bound', () => {
+  it('stops the run as WORKER_TIMED_OUT — never as a refusal the worker did not make', () => {
+    const sys = world();
+    const { registry } = timingOutAdapter();
+    const r = runLoop(sys, ROOT, { adapters: registry });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.stop?.code).toBe('WORKER_TIMED_OUT');
+    expect(r.stop?.detail).toContain('did not finish within 90s');
+    // The distinction is the point: a refusal is the worker's statement about the task, and this
+    // worker made no statement at all.
+    expect(r.stop?.detail).not.toContain('refused');
+  });
+
+  it('takes no handle from the partial output, so it cannot later be rejoined as a finished run', () => {
+    const sys = world();
+    const { registry } = timingOutAdapter();
+    const r = runLoop(sys, ROOT, { adapters: registry });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const session = JSON.parse(String(sys.read(`${ROOT}/.projectops/execution/${r.sessionId}.session.json`))) as {
+      providerRef: string | null;
+      exitCode: number | null;
+      timedOut: boolean;
+    };
+    // The fixture's stdout carried a perfectly parseable handle. Nothing took it.
+    expect(session.providerRef).toBeNull();
+    // AND NO EXIT STATUS WAS INVENTED. `exitCode: null` alone cannot say which of refusal or
+    // timeout this was, which is exactly why the record answers that separately.
+    expect(session.exitCode).toBeNull();
+    expect(session.timedOut).toBe(true);
+  });
+
+  it('runs no checks, so a green suite over untouched code cannot sit beside a run that was cut off', () => {
+    const sys = world();
+    const { registry } = timingOutAdapter();
+    const r = runLoop(sys, ROOT, { adapters: registry });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const evidence = JSON.parse(String(sys.read(`${ROOT}/.projectops/execution/${r.sessionId}.evidence.json`))) as {
+      checks: unknown[];
+    };
+    expect(evidence.checks).toEqual([]);
+    expect(r.lines.join('\n')).toContain('worker timed out after 90s');
+  });
+
+});
+
+/**
+ * WHAT THE DURABLE CHECKPOINT LEARNS ABOUT A WORKER, AND WHEN.
+ *
+ * The runtime waits for a worker synchronously, so from the moment it dispatches one until that
+ * call returns it can write nothing at all — and that is precisely the window in which a run gets
+ * force-killed from outside. So the dispatch is recorded BEFORE it happens; anything else leaves a
+ * stopped run with a checkpoint that never heard of the worker it sent out.
+ */
+describe('work state around a dispatch', () => {
+  it('says a worker is waited on before it is dispatched, and executing only once it has run', () => {
+    const sys = world({ files: cleanFindings(SESSION) });
+    const { registry } = fakeAdapter();
+    const states: string[] = [];
+    runLoop(sys, ROOT, { adapters: registry, onWorkState: (p) => states.push(p.state) });
+    expect(states[0]).toBe('WAITING_AI');
+    expect(states[1]).toBe('EXECUTING');
+    expect(states.indexOf('WAITING_AI')).toBeLessThan(states.indexOf('EXECUTING'));
+  });
+
+  it('reports the timeout as the stop the checkpoint records, in the loop’s own vocabulary', () => {
+    const sys = world();
+    const { registry } = timingOutAdapter();
+    const reports: { state: string; lastStopCode?: string | null }[] = [];
+    runLoop(sys, ROOT, { adapters: registry, onWorkState: (p) => reports.push(p) });
+    const last = reports[reports.length - 1]!;
+    expect(last.state).toBe('BLOCKED');
+    expect(last.lastStopCode).toBe('WORKER_TIMED_OUT');
+    // AND IT REMAINS A REPORT. Nothing here was read back; the loop was never asked what the
+    // checkpoint said, and no state in it changed what the loop did.
   });
 });

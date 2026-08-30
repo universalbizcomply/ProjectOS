@@ -80,6 +80,17 @@ export const STOP_ROUTES: { readonly [K in LoopStopCode]: StopRoute } = {
       'the missing review is the gatekeeper own review; asking for it is what this stop is for, and ' +
       'a bare approval would discharge reviews that never happened',
   },
+  WORKER_TIMED_OUT: {
+    audience: 'gatekeeper',
+    // NEVER APPROVED_TO_PROCEED. The run did not finish, so there is no completed work to approve —
+    // any records it left describe an attempt that was cut off mid-flight, and a verdict of "proceed"
+    // would certify them as though the worker had reached its own end. What CAN be answered here is
+    // whether to try differently (amend), to stop, or to put it in front of the owner.
+    applicableVerdicts: ['AMENDMENT_REQUIRED', 'DO_NOT_PROCEED', 'AWAITING_OWNER'],
+    rationale:
+      'a bounded attempt that was ended has produced a partial account, not a result; it can be ' +
+      'reshaped or referred upward, but it cannot be approved as finished work',
+  },
   WORKER_REFUSED: {
     audience: 'gatekeeper',
     // NEVER APPROVED_TO_PROCEED. A worker's refusal is evidence about the task, and approving past it

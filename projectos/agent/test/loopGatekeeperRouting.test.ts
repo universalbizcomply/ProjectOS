@@ -21,6 +21,9 @@ const GATEKEEPER_STOPS: LoopStopCode[] = [
   'CORRECTION_EXHAUSTED',
   'REVIEW_OUTSTANDING',
   'WORKER_REFUSED',
+  // A BOUNDED ATTEMPT THAT WAS ENDED IS THE REVIEWER'S QUESTION TOO, and a separate one: it is not
+  // the worker declining, so it may not inherit the refusal route by sharing its code.
+  'WORKER_TIMED_OUT',
   'EFFECTS_NOT_ATTESTED',
 ];
 
@@ -41,6 +44,22 @@ describe('the routing table', () => {
   it.each(OWNER_STOPS)('keeps %s with the owner', (code) => {
     expect(routeStop(stop(code)).audience).toBe('owner');
     expect(routeStop(stop(code)).applicableVerdicts).toEqual([]);
+  });
+
+  it('never lets a bounded attempt that was ended be approved as finished work', () => {
+    // THE ONE VERDICT THAT MUST NOT BE AVAILABLE HERE. A timeout leaves records describing work that
+    // was cut off mid-flight; APPROVED_TO_PROCEED would certify them as a completed run on the
+    // strength of one word, which is the same reason a refusal cannot be approved past either.
+    const route = routeStop(stop('WORKER_TIMED_OUT'));
+    expect(route.audience).toBe('gatekeeper');
+    expect(route.applicableVerdicts).not.toContain('APPROVED_TO_PROCEED');
+    expect([...route.applicableVerdicts].sort()).toEqual(['AMENDMENT_REQUIRED', 'AWAITING_OWNER', 'DO_NOT_PROCEED']);
+  });
+
+  it('keeps a timeout and a refusal as different routes, not one shared entry', () => {
+    // Sharing an entry would be the cheap way to add the code and would record, in every decision,
+    // that the worker refused — which it did not; it was ended.
+    expect(STOP_ROUTES.WORKER_TIMED_OUT.rationale).not.toBe(STOP_ROUTES.WORKER_REFUSED.rationale);
   });
 
   it('states a rationale for every route, so no stop is routed silently', () => {

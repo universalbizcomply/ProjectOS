@@ -27,6 +27,15 @@ export type LoopStopCode =
   | 'SCOPE_DECISION'
   | 'CORRECTION_EXHAUSTED'
   | 'WORKER_REFUSED'
+  /**
+   * The attempt ran past its bound and was ended before it finished.
+   *
+   * SEPARATE FROM `WORKER_REFUSED` BECAUSE IT MEANS SOMETHING ELSE. A refusal is the worker's
+   * statement about the task; a timeout is ProjectOS's statement about the run. Collapsing them
+   * would put words in the worker's mouth it never said, and would hide the one fact that matters
+   * here: whatever is on disk is a partial account of work that never reached its own conclusion.
+   */
+  | 'WORKER_TIMED_OUT'
   | 'REVIEW_OUTSTANDING';
 
 export interface LoopStop {

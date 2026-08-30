@@ -17,7 +17,7 @@
  *
  * Created in PROJECTOS-RECOVERY-AUTONOMOUS-LOOP1A.
  */
-import type { System } from '../../system.js';
+import type { ExecResult, System } from '../../system.js';
 import type { WorkerBrief } from '../brief.js';
 import { PROTECTED_EFFECT_FIELDS } from '../outcome.js';
 import type { AuthorisedWorker, WorkerAdapter, WorkerOutcome, WorkerSession } from '../workers.js';
@@ -98,7 +98,39 @@ export function parseProviderRef(stdout: string): string | null {
   }
 }
 
-function outcomeFrom(r: { code: number; stdout: string; stderr: string }): WorkerOutcome {
+/**
+ * What actually happened to the attempt.
+ *
+ * THE TIMEOUT BRANCH COMES FIRST AND TAKES NOTHING FROM THE OUTPUT. A killed worker still returns
+ * whatever it had written, and that text is not a completed run: reading a handle out of it would let
+ * a later rejoin continue a session the worker never finished reporting, and reading an exit code out
+ * of it would put a number where there is no exit status at all. So the partial output is carried as
+ * evidence of the hang and as nothing else.
+ */
+function outcomeFrom(r: ExecResult, timeoutMs: number): WorkerOutcome {
+  if (r.failure === 'timeout') {
+    return { kind: 'timedOut', afterMs: timeoutMs, stdout: r.stdout, stderr: r.stderr };
+  }
+  if (r.failure === 'output-overflow') {
+    // IT RAN. Saying otherwise would be the exact untruth this whole discrimination exists to
+    // prevent — and the distinction is not academic: "the executable could not be started" sends
+    // whoever reads it to look at a path, when what actually happened is a completed worker whose
+    // account of itself was cut off at the runtime's limit.
+    return {
+      kind: 'refused',
+      detail:
+        'the worker ran but produced more output than the runtime will hold, and was ended before ' +
+        'it finished; what it wrote is not a complete account of the run',
+    };
+  }
+  if (r.failure === 'not-started') {
+    return {
+      kind: 'refused',
+      detail:
+        `the worker executable could not be started${r.stderr.trim() === '' ? '' : `: ${r.stderr.trim()}`}` +
+        ' — nothing ran, so this is not a run that failed',
+    };
+  }
   return {
     kind: 'completed',
     exitCode: r.code,
@@ -108,6 +140,24 @@ function outcomeFrom(r: { code: number; stdout: string; stderr: string }): Worke
   };
 }
 
+/** Why this worker may not be started at all, or null. See the call sites for why it is checked. */
+function boundProblem(worker: AuthorisedWorker): string | null {
+  const ms = worker.timeoutMs;
+  return typeof ms === 'number' && Number.isFinite(ms) && ms > 0
+    ? null
+    : 'this worker declares no attempt bound, and an attempt that cannot be ended is not one this runtime will start';
+}
+
+/**
+ * How much the worker may print before the runtime treats it as faulty.
+ *
+ * Node's own default is about a megabyte, and a long session's structured result can exceed it — at
+ * which point a run that WORKED comes back looking like a failure. Sixteen mebibytes is far beyond
+ * any result this worker has produced and is still a bound, because accumulating a faulty child's
+ * output without one is how a process runs out of memory.
+ */
+const WORKER_MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
+
 /** Structured output is requested so the run reports a handle that a rejoin can name. */
 const OUTPUT_ARGS: readonly string[] = ['--output-format', 'json'];
 
@@ -115,6 +165,12 @@ export const claudeCodeCliAdapter: WorkerAdapter = {
   kind: CLAUDE_CODE_CLI,
 
   start(sys: System, worker: AuthorisedWorker, brief: WorkerBrief, briefPath: string): WorkerOutcome {
+    // UNBOUNDED IS NOT A WORKER THIS ADAPTER WILL START. `readWorkers` always supplies a bound, so
+    // this is unreachable through the configuration path — which is exactly why it is here: a future
+    // caller that hand-built an `AuthorisedWorker` would otherwise reintroduce the unlimited wait
+    // this phase exists to remove, and it would do so silently, because nothing else would notice.
+    const unbounded = boundProblem(worker);
+    if (unbounded !== null) return { kind: 'refused', detail: unbounded };
     if (brief.repository.head === null) {
       // Unreachable through `buildWorkerBrief`, which refuses first. Present so a future caller that
       // hand-built a brief cannot start a worker unbound from a commit.
@@ -129,11 +185,16 @@ export const claudeCodeCliAdapter: WorkerAdapter = {
         // Telling a worker which repository is governed while spawning it somewhere else is not
         // transferring context, it is describing it.
         cwd: brief.repository.root,
+        // BOUNDED, from the committed config. Without this the runtime waits for this call forever.
+        timeoutMs: worker.timeoutMs, maxOutputBytes: WORKER_MAX_OUTPUT_BYTES,
       }),
+      worker.timeoutMs,
     );
   },
 
   rejoin(sys: System, worker: AuthorisedWorker, session: WorkerSession, brief: WorkerBrief): WorkerOutcome {
+    const unbounded = boundProblem(worker);
+    if (unbounded !== null) return { kind: 'refused', detail: unbounded };
     if (session.providerRef === null || session.providerRef === '') {
       return {
         kind: 'refused',
@@ -156,8 +217,12 @@ export const claudeCodeCliAdapter: WorkerAdapter = {
           '-p',
           correctionInstruction(brief.records.briefPath),
         ],
-        { scrubCredentials: true, ensureSystemPath: true, cwd: brief.repository.root },
+        {
+          scrubCredentials: true, ensureSystemPath: true, cwd: brief.repository.root,
+          timeoutMs: worker.timeoutMs, maxOutputBytes: WORKER_MAX_OUTPUT_BYTES,
+        },
       ),
+      worker.timeoutMs,
     );
   },
 };
