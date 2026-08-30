@@ -24,6 +24,7 @@ import type {
   LiveEvent,
 } from './types.js';
 import type { GovernedState, GovernedProjectsInventory } from '../governed/types.js';
+import type { PortfolioMessage } from '../governed/projectInventory.js';
 
 const DaemonContext = createContext<DaemonClient | null>(null);
 
@@ -86,3 +87,5 @@ export const useGovernedProjects = (): GovernedProjectsInventory | null =>
  * reported directly by the sidecar about the process it spawned, never inferred from file-watching.
  */
 export const useGovernedRun = (): GovernedRunState => useSlice((s) => s.governedRun);
+/** Every registered project, reduced to a row. `null` until the first portfolio message. */
+export const usePortfolio = (): PortfolioMessage | null => useSlice((s) => s.portfolio);

@@ -57,6 +57,8 @@ import {
   serialiseSelection,
   SELECTION_FILE_NAME,
   GOVERNED_PROJECTS_MESSAGE_KIND,
+  GOVERNED_PORTFOLIO_MESSAGE_KIND,
+  toProjectSummary,
 } from '../node-build/governed/projectInventory.js';
 import { phase as phaseCommand, approve as approveCommand, report as reportCommand, plan as planCommand, nodeSystem as agentSystem, setGovernanceEngines } from '@projectos/agent';
 import { gitBoundSystem } from './gitBoundSystem.mjs';
@@ -700,8 +702,36 @@ function emitGovernedState({ refresh = true } = {}) {
       inventory: toInventoryMessage(inventory, selectedProjectId),
     }) + '\n',
   );
-  const state = buildGovernedState(governedRoot(), new Date().toISOString());
+  const at = new Date().toISOString();
+  const state = buildGovernedState(governedRoot(), at);
   process.stdout.write(JSON.stringify({ kind: 'governed', state }) + '\n');
+
+  // THE PORTFOLIO: the same projection, for every registered root, reduced to a row.
+  //
+  // NOTHING IS SELECTED TO PRODUCE THIS. `buildGovernedState` already takes a root and already only
+  // reads — this daemon simply never called it for the roots it was not pointed at. Selection stays
+  // what it was: an operational context switch that persists a file and is refused while work is
+  // running, so a list must never populate itself by performing one.
+  //
+  // Liveness comes from `activeRuns`, which is keyed by root, and says only RUNNING or UNKNOWN. A
+  // root this daemon is not tracking is not a root with no worker — it may be one whose run began
+  // under a daemon that has since exited.
+  process.stdout.write(
+    JSON.stringify({
+      kind: GOVERNED_PORTFOLIO_MESSAGE_KIND,
+      portfolio: {
+        observedAt: at,
+        projects: inventory.projects.map((project) =>
+          toProjectSummary(
+            { projectId: project.projectId, projectName: project.projectName },
+            buildGovernedState(project.repositoryRoot, at),
+            activeRuns.has(project.repositoryRoot) ? 'RUNNING' : 'UNKNOWN',
+            at,
+          ),
+        ),
+      },
+    }) + '\n',
+  );
 }
 
 /**

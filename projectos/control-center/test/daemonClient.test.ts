@@ -182,3 +182,91 @@ describe('the live run fact comes from the daemon and nowhere else', () => {
     expect(client.store.getState().governedRun.active).toBe(false);
   });
 });
+
+/* ------------------------------------------------------------------------------------------------
+ * THE RUN BELONGS TO A PROJECT — PROJECTOS-MULTI-PROJECT-PROJECTION-IMPLEMENT1A.
+ *
+ * The daemon has always sent the root on every run event, and this client always threw it away. That
+ * was safe while live state belonged to the selected project alone: only one project can be run, so
+ * one flat run state was unambiguous. Portfolio rows change that — an unrooted run event could paint
+ * one project's worker onto another's row.
+ *
+ * The root was already on the wire. These prove it is now kept.
+ * --------------------------------------------------------------------------------------------- */
+describe('a run is bound to the project it belongs to', () => {
+  test('run-started keeps the root the daemon sent', () => {
+    const { transport, client } = setup();
+    client.start();
+
+    transport.emit({ kind: 'run-started', root: 'C:/dev/polygo', phaseId: 'TWO', resumed: false } as never);
+
+    expect(client.store.getState().governedRun.root).toBe('C:/dev/polygo');
+    expect(client.store.getState().governedRun.active).toBe(true);
+  });
+
+  test("a run for one project never claims another project's root", () => {
+    const { transport, client } = setup();
+    client.start();
+
+    transport.emit({ kind: 'run-started', root: 'C:/dev/deadaisle', phaseId: 'ONE', resumed: false } as never);
+    expect(client.store.getState().governedRun.root).toBe('C:/dev/deadaisle');
+    expect(client.store.getState().governedRun.root).not.toBe('C:/dev/polygo');
+  });
+
+  test('a finished run keeps the root of the run that ended', () => {
+    // A cleared root would leave a finished run belonging to nothing, and the next reader would have
+    // to guess which project it described.
+    const { transport, client } = setup();
+    client.start();
+    transport.emit({ kind: 'run-started', root: 'C:/dev/polygo', phaseId: 'TWO', resumed: false } as never);
+    transport.emit({ kind: 'run-finished', root: 'C:/dev/polygo', phaseId: 'TWO', exitCode: 0 } as never);
+
+    expect(client.store.getState().governedRun.root).toBe('C:/dev/polygo');
+    expect(client.store.getState().governedRun.active).toBe(false);
+  });
+
+  test('no run observed means no root — never a default one', () => {
+    const { client } = setup();
+    client.start();
+    expect(client.store.getState().governedRun.root).toBeNull();
+  });
+});
+
+describe('the portfolio arrives as the daemon built it', () => {
+  test('it is stored verbatim, and absent until the daemon sends one', () => {
+    const { transport, client } = setup();
+    client.start();
+    expect(client.store.getState().portfolio).toBeNull();
+
+    transport.emit({
+      kind: 'governed-portfolio',
+      portfolio: {
+        observedAt: '2026-08-30T12:00:00.000Z',
+        projects: [
+          {
+            projectId: 'polygo',
+            projectName: 'PolyGo',
+            available: true,
+            unavailableDetail: null,
+            planStatus: 'PLAN READY',
+            acceptedPhaseCount: 2,
+            totalPhaseCount: 5,
+            activePhaseId: 'POLYGO-TWO',
+            blockerCount: 0,
+            firstBlocker: null,
+            ownerActionRequired: false,
+            nextSafeAction: 'Continue POLYGO-TWO',
+            liveness: 'UNKNOWN',
+            observedAt: '2026-08-30T12:00:00.000Z',
+          },
+        ],
+      },
+    } as never);
+
+    const stored = client.store.getState().portfolio;
+    expect(stored?.projects).toHaveLength(1);
+    expect(stored?.projects[0]?.projectId).toBe('polygo');
+    // Not derived, not recomputed — the daemon's answer, unchanged.
+    expect(stored?.projects[0]?.nextSafeAction).toBe('Continue POLYGO-TWO');
+  });
+});

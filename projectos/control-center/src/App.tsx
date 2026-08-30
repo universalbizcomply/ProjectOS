@@ -8,7 +8,7 @@ import {
   DEFAULT_SAFETY_GATES,
   GATE_KEYS,
 } from '@projectos/core';
-import { useGovernedProjects, useGovernedRun, useGovernedState } from './daemon/DaemonProvider';
+import { useGovernedProjects, useGovernedRun, useGovernedState, usePortfolio } from './daemon/DaemonProvider';
 import { isSupabaseConfigured } from './data/supabase';
 import { getSession, onAuthChange, signOut, mustChangePassword } from './data/auth';
 import { Login } from './Login';
@@ -291,7 +291,13 @@ export function Shell({
    * same pure model. The rail's recents are a shortcut into the Projects screen's job, never a
    * second answer to it, so there is nothing here for the two to disagree about.
    */
-  const projectsModel = useMemo(() => buildProjectsModel(inventory, governed, Date.now()), [inventory, governed]);
+  // The portfolio joins the SAME model the rail and the Projects screen already share, so a row's
+  // summary reaches both surfaces or neither. One model, two presentations.
+  const portfolio = usePortfolio();
+  const projectsModel = useMemo(
+    () => buildProjectsModel(inventory, governed, Date.now(), portfolio),
+    [inventory, governed, portfolio],
+  );
   const recents: readonly NavRecent[] = useMemo(
     () =>
       projectsModel.rows.slice(0, 4).map((r) => ({

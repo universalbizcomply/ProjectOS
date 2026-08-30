@@ -19,6 +19,7 @@ export const INITIAL_STATE: LiveState = {
   governed: null,
   governedProjects: null,
   governedRun: EMPTY_GOVERNED_RUN,
+  portfolio: null,
 };
 
 export type Listener = () => void;

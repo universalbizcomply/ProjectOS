@@ -16,6 +16,7 @@ const MESSAGE_KINDS = new Set([
   'health',
   'governed',
   'governed-projects',
+  'governed-portfolio',
   'closed',
   // The governed run's own lifecycle — see governedRun types. Distinct from `event`/`notification`
   // because those describe the DAEMON's file-watcher inferences; these are reported directly by

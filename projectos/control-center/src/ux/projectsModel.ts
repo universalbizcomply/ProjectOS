@@ -21,6 +21,7 @@
  *
  * Created in PROJECTOS-CONTROL-CENTER-UX-ARCHITECTURE1A.
  */
+import type { PortfolioMessage, ProjectSummary } from '../governed/projectInventory';
 import type {
   GovernedProjectsInventory,
   GovernedProjection,
@@ -29,7 +30,17 @@ import type {
 import { buildContinueWorking, type ProjectStatus } from '../owner/continueWorkingModel';
 import { buildHomeModel } from '../owner/homeModel';
 
-/** A project ProjectOS knows about but is not currently pointed at. */
+/**
+ * A project ProjectOS knows about but is not currently pointed at.
+ *
+ * IT MAY NOW CARRY A SUMMARY, AND THE SHAPE STAYS SEPARATE ON PURPOSE. `live: true` still means
+ * "this is the selected project, read from its full projection"; a summary is the reduced read the
+ * daemon took of a project it is NOT pointed at. Collapsing the two would let a row claim the
+ * completeness of a projection it never had.
+ *
+ * `summary` is `null` when the portfolio has not arrived, and the row falls back to the honest
+ * `Open to see`. Absence of a summary is not a claim that nothing is happening.
+ */
 export interface DormantProjectRow {
   readonly live: false;
   readonly projectId: string;
@@ -37,6 +48,7 @@ export interface DormantProjectRow {
   /** `owner/name`, or `none` when the project's configuration does not name one. */
   readonly repository: string;
   readonly selected: false;
+  readonly summary: ProjectSummary | null;
 }
 
 /** The selected project, described from its real governed projection. */
@@ -115,6 +127,7 @@ export function buildProjectsModel(
   inventory: GovernedProjectsInventory | null,
   governed: GovernedState | null,
   now: number,
+  portfolio: PortfolioMessage | null = null,
 ): ProjectsModel {
   if (inventory === null) {
     return { rows: [], empty: false, unknown: true, registryProblem: null, refusedCount: 0 };
@@ -130,12 +143,16 @@ export function buildProjectsModel(
       live.projectId === p.projectId;
 
     if (!isLive || live === null) {
+      // MATCHED BY EXACT PROJECT ID, and by nothing else. A summary is only ever attached to the row
+      // it was built for, so one project's phase, blocker or worker can never appear on another's.
+      const summary = portfolio?.projects.find((row) => row.projectId === p.projectId) ?? null;
       return {
         live: false,
         projectId: p.projectId,
         projectName: p.projectName,
         repository: p.repository,
         selected: false,
+        summary,
       };
     }
 

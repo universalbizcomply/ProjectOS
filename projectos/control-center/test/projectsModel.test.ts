@@ -13,6 +13,7 @@
  * Created in PROJECTOS-CONTROL-CENTER-UX-ARCHITECTURE1A.
  */
 import { describe, test, expect } from 'vitest';
+import type { PortfolioMessage, ProjectSummary } from '../src/governed/projectInventory';
 import { buildProjectsModel } from '../src/ux/projectsModel';
 import type {
   GovernedProjection,
@@ -246,5 +247,143 @@ describe('silence is never reported as emptiness', () => {
     const m = buildProjectsModel(inventory({ refusedCount: 2 }), null, NOW);
     expect(m.refusedCount).toBe(2);
     expect(JSON.stringify(m)).not.toContain('C:/');
+  });
+});
+
+/* ------------------------------------------------------------------------------------------------
+ * THE PORTFOLIO — PROJECTOS-MULTI-PROJECT-PROJECTION-IMPLEMENT1A.
+ *
+ * A row may now carry a summary the daemon read for a project it is NOT pointed at. That closes the
+ * gap where every unselected project could say only its name; it also creates the exact hazard the
+ * original model was written to prevent, one level down. A summary is another project's truth, and
+ * the way it goes wrong is by landing on the wrong row.
+ *
+ * So these prove the binding, not the rendering: A's facts stay on A, B's on B, absence stays
+ * absence, and the row shapes stay distinct so a summary can never be mistaken for a full projection.
+ * --------------------------------------------------------------------------------------------- */
+function summary(over: Partial<ProjectSummary> = {}): ProjectSummary {
+  return {
+    projectId: 'deadaisle',
+    projectName: 'Dead Aisle',
+    available: true,
+    unavailableDetail: null,
+    planStatus: 'PLAN READY',
+    acceptedPhaseCount: 1,
+    totalPhaseCount: 4,
+    activePhaseId: 'DEADAISLE-PHASE2A',
+    blockerCount: 0,
+    firstBlocker: null,
+    ownerActionRequired: false,
+    nextSafeAction: 'Start DEADAISLE-PHASE2A',
+    liveness: 'UNKNOWN',
+    observedAt: '2026-08-30T12:00:00.000Z',
+    ...over,
+  };
+}
+
+function portfolio(projects: readonly ProjectSummary[]): PortfolioMessage {
+  return { projects, observedAt: '2026-08-30T12:00:00.000Z' };
+}
+
+describe('a summary belongs to exactly one project', () => {
+  test('an unselected row carries its own summary and the selected row stays a full projection', () => {
+    const m = buildProjectsModel(inventory(), projection(), NOW, portfolio([summary()]));
+
+    const selected = m.rows[0];
+    const dormant = m.rows[1];
+    if (selected === undefined || !selected.live) throw new Error('expected a live row');
+    if (dormant === undefined || dormant.live) throw new Error('expected a dormant row');
+
+    // The shapes stay distinct: a summary is not a projection, and the type says so.
+    expect(selected.planLabel).toBe('Plan 1.2');
+    expect(dormant.summary?.projectId).toBe('deadaisle');
+    expect(dormant.summary?.activePhaseId).toBe('DEADAISLE-PHASE2A');
+  });
+
+  test("B's phase, blocker and next action can never appear on A's row", () => {
+    // THE FAILURE THIS EXISTS TO CATCH: a summary matched by position, or by nothing at all, would
+    // paint Dead Aisle's work onto PolyGo.
+    const m = buildProjectsModel(
+      // Nothing is selected, so BOTH rows are dormant and both could receive a summary.
+      inventory({ selectedProjectId: null }),
+      null,
+      NOW,
+      portfolio([
+        summary({
+          projectId: 'deadaisle',
+          activePhaseId: 'DEADAISLE-PHASE2A',
+          blockerCount: 1,
+          firstBlocker: 'git is unreachable',
+          nextSafeAction: 'Fix the repository',
+        }),
+      ]),
+    );
+
+    const polygo = m.rows.find((r) => r.projectId === 'polygo');
+    const deadaisle = m.rows.find((r) => r.projectId === 'deadaisle');
+    if (polygo === undefined || polygo.live) throw new Error('expected polygo dormant');
+    if (deadaisle === undefined || deadaisle.live) throw new Error('expected deadaisle dormant');
+
+    // PolyGo has no summary in this portfolio, so it gets none — not the one that was there.
+    expect(polygo.summary).toBeNull();
+    expect(deadaisle.summary?.firstBlocker).toBe('git is unreachable');
+    expect(deadaisle.summary?.nextSafeAction).toBe('Fix the repository');
+  });
+
+  test('a portfolio naming a project the registry does not know reaches no row', () => {
+    // The inventory is the registry's answer about which projects exist. A summary for anything else
+    // is not shown under some other project's name; it is not shown at all.
+    const m = buildProjectsModel(
+      inventory({ selectedProjectId: null }),
+      null,
+      NOW,
+      portfolio([summary({ projectId: 'not-registered', projectName: 'Somewhere Else' })]),
+    );
+    for (const row of m.rows) {
+      if (row.live) continue;
+      expect(row.summary).toBeNull();
+    }
+  });
+
+  test('no portfolio means no summary — and the row says nothing rather than something', () => {
+    const m = buildProjectsModel(inventory(), projection(), NOW);
+    const dormant = m.rows[1];
+    if (dormant === undefined || dormant.live) throw new Error('expected a dormant row');
+    expect(dormant.summary).toBeNull();
+  });
+
+  test('an unreadable project is reported as unavailable, not as a healthy one', () => {
+    // The dangerous reading of a failed read is "no blockers, nothing to do".
+    const m = buildProjectsModel(
+      inventory({ selectedProjectId: null }),
+      null,
+      NOW,
+      portfolio([
+        summary({
+          available: false,
+          unavailableDetail: 'No readable approved plan at the configured plan location.',
+          planStatus: null,
+          activePhaseId: null,
+          nextSafeAction: null,
+        }),
+      ]),
+    );
+    const row = m.rows.find((r) => r.projectId === 'deadaisle');
+    if (row === undefined || row.live) throw new Error('expected a dormant row');
+    expect(row.summary?.available).toBe(false);
+    expect(row.summary?.nextSafeAction).toBeNull();
+  });
+
+  test('liveness is only ever RUNNING or UNKNOWN — there is no idle claim', () => {
+    const m = buildProjectsModel(
+      inventory({ selectedProjectId: null }),
+      null,
+      NOW,
+      portfolio([summary({ liveness: 'RUNNING' }), summary({ projectId: 'polygo', liveness: 'UNKNOWN' })]),
+    );
+    const rows = m.rows.filter((r): r is Extract<typeof r, { live: false }> => !r.live);
+    for (const row of rows) {
+      expect(['RUNNING', 'UNKNOWN']).toContain(row.summary?.liveness);
+    }
   });
 });

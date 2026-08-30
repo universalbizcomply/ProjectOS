@@ -105,7 +105,8 @@ const MODULES = [
   "val-projectos-provider-key-shapes1a",
   "val-projectos-file-inbox-inert1a",
   "val-projectos-live-worker-truth1a",
-  "val-projectos-gate-decision-evidence1a"
+  "val-projectos-gate-decision-evidence1a",
+  "val-projectos-portfolio-read-only1a"
 ];
 const scratch = require("./lib/scratch.cjs");
 const validationRecord = require("./lib/validation-record.cjs");

@@ -122,6 +122,14 @@ export class DaemonClient {
         this.store.update({ governed: message.state });
         this.#reconnect.reset();
         break;
+      case 'governed-portfolio':
+        // EVERY registered project, reduced to a row, built by the daemon from its own pure
+        // governed-state builder — one call per registered root, no project selected to produce it.
+        // Stored verbatim: what each project's state is remains the daemon's answer, not this
+        // renderer's.
+        this.store.update({ portfolio: message.portfolio });
+        this.#reconnect.reset();
+        break;
       case 'governed-projects':
         // The installed-project inventory and the current selection. Stored verbatim for the same
         // reason: which projects exist is the installed host's answer, not the renderer's.
@@ -129,8 +137,12 @@ export class DaemonClient {
         this.#reconnect.reset();
         break;
       case 'run-started':
+        // BOUND TO ITS ROOT. The daemon has always sent it; this client used to discard it, which
+        // was safe only while live state belonged to the selected project alone. A portfolio row
+        // must never show one project's worker as another's.
         this.store.update({
           governedRun: {
+            root: message.root ?? null,
             active: true,
             phaseId: message.phaseId,
             resumed: message.resumed,
@@ -153,7 +165,13 @@ export class DaemonClient {
       }
       case 'run-finished':
         this.store.update({
-          governedRun: { ...this.store.getState().governedRun, active: false, lastExitCode: message.exitCode },
+          governedRun: {
+            ...this.store.getState().governedRun,
+            // The root of the run that FINISHED, so a stale root cannot outlive its run.
+            root: message.root ?? this.store.getState().governedRun.root,
+            active: false,
+            lastExitCode: message.exitCode,
+          },
         });
         // The loop's writes (session, evidence, ledger, phase records) are on disk by the time this
         // fires; the sidecar also emits a fresh `governed` state right after, so nothing further is

@@ -8,6 +8,7 @@
 
 import type { GovernedState } from '../governed/types.js';
 import type { GovernedProjectsInventory } from '../governed/types.js';
+import type { PortfolioMessage } from '../governed/projectInventory.js';
 
 export type ConnectionState = 'disconnected' | 'connecting' | 'connected';
 
@@ -177,6 +178,13 @@ export type TransportMessage =
    * host did not supply is simply not here, so it cannot be chosen.
    */
   | { readonly kind: 'governed-projects'; readonly inventory: GovernedProjectsInventory }
+
+  /**
+   * Every registered project, reduced to a row. Emitted alongside the selected project's full
+   * projection, and built the same way: the daemon's own pure governed-state builder, once per
+   * registered root. No project is selected to produce it.
+   */
+  | { readonly kind: 'governed-portfolio'; readonly portfolio: PortfolioMessage }
   /**
    * The governed run's own lifecycle, reported directly by the sidecar about the `projectos run`
    * process it spawned and tracks — never inferred from file-watching, unlike `event`/`notification`.
@@ -199,6 +207,15 @@ export type TransportMessage =
  * without limit.
  */
 export interface GovernedRunState {
+  /**
+   * WHICH PROJECT THIS RUN BELONGS TO. The daemon has always sent the root on every run event; this
+   * client stored one flat run state and threw it away. That was safe only while live state belonged
+   * solely to the selected project — the moment a portfolio row shows worker state, an unrooted event
+   * could paint one project's activity onto another's row.
+   *
+   * `null` means no run has been observed, which is not the same as a run with no project.
+   */
+  readonly root: string | null;
   readonly active: boolean;
   readonly phaseId: string | null;
   readonly resumed: boolean;
@@ -208,6 +225,7 @@ export interface GovernedRunState {
 }
 
 export const EMPTY_GOVERNED_RUN: GovernedRunState = {
+  root: null,
   active: false,
   phaseId: null,
   resumed: false,
@@ -243,4 +261,13 @@ export interface LiveState {
   readonly governedProjects: GovernedProjectsInventory | null;
   /** The governed run this sidecar is tracking for the selected project. See `EMPTY_GOVERNED_RUN`. */
   readonly governedRun: GovernedRunState;
+
+  /**
+   * Every registered project, reduced to a row. `null` until the first portfolio message — absence
+   * means "not known yet", never "there are none".
+   *
+   * Read-only by construction: the daemon builds it by calling its own pure governed-state builder
+   * once per registered root. No project is selected to produce it.
+   */
+  readonly portfolio: PortfolioMessage | null;
 }

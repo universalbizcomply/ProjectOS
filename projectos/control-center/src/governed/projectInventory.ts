@@ -422,3 +422,136 @@ export function restoreSelection(
   if (typeof projectId !== 'string' || projectId.length === 0) return null;
   return resolveProjectRoot(inventory, projectId) === null ? null : projectId;
 }
+
+/* ------------------------------------------------------------------------------------------------
+ * THE PORTFOLIO — what ProjectOS can say about EVERY registered project at once.
+ *
+ * WHY THIS EXISTS. The daemon reported one governed projection at a time, for the selected project
+ * only, so the Projects list could show a name and a repository for every other project and nothing
+ * more. The way to fill that list must never be to select each project in turn: selection is an
+ * operational context switch that persists a file and is refused while work is running, so a list
+ * that selected its own rows would change what the runtime is pointed at simply by being looked at.
+ *
+ * Nothing new is computed here. `buildGovernedState(root, observedAt)` already takes a root and
+ * already only reads; the daemon simply never called it for the other roots it holds. This reduces
+ * that projection to the few facts a portfolio row needs, so the wire carries a small answer per
+ * project rather than a full duplicate governed state.
+ *
+ * Created in PROJECTOS-MULTI-PROJECT-PROJECTION-IMPLEMENT1A.
+ * --------------------------------------------------------------------------------------------- */
+
+export const GOVERNED_PORTFOLIO_MESSAGE_KIND = 'governed-portfolio';
+
+/**
+ * What this daemon knows about a project's worker RIGHT NOW.
+ *
+ * TWO VALUES, AND THE ABSENT ONE IS DELIBERATE. There is no `IDLE`. This daemon tracks the runs it
+ * started; it cannot see a run started by a daemon that has since exited, and a session record left
+ * at `started` proves nothing about a live process (PROJECTOS-PROVIDER-RUNTIME-TRUTH-FIX1A). So the
+ * absence of a tracked run is `UNKNOWN`, never "no worker exists" — not knowing is not the same as
+ * knowing there is nothing.
+ */
+export type ProjectLiveness = 'RUNNING' | 'UNKNOWN';
+
+/** One project's row-worth of truth. Every field may be absent; absence is never filled in. */
+export interface ProjectSummary {
+  readonly projectId: string;
+  readonly projectName: string;
+  /** False when this project's governed state could not be read at all. */
+  readonly available: boolean;
+  /** Why it is unavailable, in the daemon's own words. `null` when available. */
+  readonly unavailableDetail: string | null;
+  readonly planStatus: string | null;
+  readonly acceptedPhaseCount: number | null;
+  readonly totalPhaseCount: number | null;
+  readonly activePhaseId: string | null;
+  /** How many blockers stand against this project, and the first of them. */
+  readonly blockerCount: number;
+  readonly firstBlocker: string | null;
+  /** Whether the owner is being waited on. Derived from the project's own pending approvals. */
+  readonly ownerActionRequired: boolean;
+  readonly nextSafeAction: string | null;
+  readonly liveness: ProjectLiveness;
+  /** When this row was read. A row is a reading, not a subscription. */
+  readonly observedAt: string;
+}
+
+export interface PortfolioMessage {
+  readonly projects: readonly ProjectSummary[];
+  readonly observedAt: string;
+}
+
+/** Read a string field, or `null` — never a coerced or invented value. */
+function str(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() !== '' ? value : null;
+}
+
+function count(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+/**
+ * Reduce ONE project's governed state to a portfolio row.
+ *
+ * Pure and total: any shape in, a row out, and anything it cannot read stays absent. `identity`
+ * comes from the INVENTORY — the registry-bound id and name — never from the state, so a project's
+ * own configuration cannot rename the row it appears on.
+ */
+export function toProjectSummary(
+  identity: { readonly projectId: string; readonly projectName: string },
+  state: unknown,
+  liveness: ProjectLiveness,
+  observedAt: string,
+): ProjectSummary {
+  const base = {
+    projectId: identity.projectId,
+    projectName: identity.projectName,
+    liveness,
+    observedAt,
+  };
+  const s = state !== null && typeof state === 'object' ? (state as Record<string, unknown>) : null;
+
+  // An unreadable or unavailable project is reported as exactly that. It is not a project with no
+  // blockers and no next action — that would read as healthy.
+  if (s === null || s['connected'] !== true) {
+    return {
+      ...base,
+      available: false,
+      unavailableDetail: s === null ? null : str(s['detail']),
+      planStatus: null,
+      acceptedPhaseCount: null,
+      totalPhaseCount: null,
+      activePhaseId: null,
+      blockerCount: 0,
+      firstBlocker: null,
+      ownerActionRequired: false,
+      nextSafeAction: null,
+    };
+  }
+
+  const plan = s['plan'] !== null && typeof s['plan'] === 'object' ? (s['plan'] as Record<string, unknown>) : null;
+  const programme =
+    s['programme'] !== null && typeof s['programme'] === 'object'
+      ? (s['programme'] as Record<string, unknown>)
+      : null;
+  const activePhase =
+    s['activePhase'] !== null && typeof s['activePhase'] === 'object'
+      ? (s['activePhase'] as Record<string, unknown>)
+      : null;
+  const blockers = Array.isArray(s['blockers']) ? (s['blockers'] as unknown[]) : [];
+  const approvals = Array.isArray(s['pendingApprovals']) ? (s['pendingApprovals'] as unknown[]) : [];
+
+  return {
+    ...base,
+    available: true,
+    unavailableDetail: null,
+    planStatus: plan === null ? null : str(plan['declaredStatus']),
+    acceptedPhaseCount: programme === null ? null : count(programme['acceptedPhaseCount']),
+    totalPhaseCount: programme === null ? null : count(programme['totalPhaseCount']),
+    activePhaseId: activePhase === null ? null : str(activePhase['phaseId']),
+    blockerCount: blockers.length,
+    firstBlocker: blockers.length === 0 ? null : str(blockers[0]),
+    ownerActionRequired: approvals.length > 0,
+    nextSafeAction: str(s['nextSafeAction']),
+  };
+}
