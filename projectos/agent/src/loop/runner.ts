@@ -41,8 +41,10 @@ import {
   MAX_CORRECTION_ATTEMPTS,
   type EffectsRecord,
   type LoopStop,
+  type LoopStopCode,
   type ReviewFinding,
 } from './outcome.js';
+import type { WorkState } from './workRecord.js';
 import { takeGatekeeperTurn, type GatekeeperTurnDeps } from './gatekeeperTurn.js';
 import type { DurableBinding } from './degradedMode.js';
 import {
@@ -70,6 +72,25 @@ import {
   type InvocationFacts,
 } from './invocation.js';
 
+/**
+ * One truthful transition in the life of a work item.
+ *
+ * Deliberately not the record itself: the loop knows what it is doing, not where that is stored or
+ * what it was before. Assembling a `WorkRecord` from these is the entrypoint's business.
+ */
+export interface WorkStateReport {
+  readonly state: WorkState;
+  readonly phaseId: string;
+  readonly sessionId?: string | null;
+  readonly attempt?: number | null;
+  readonly subjectCommit?: string | null;
+  readonly lastCompletedStep?: string | null;
+  readonly lastStopCode?: LoopStopCode | null;
+  readonly lastStopDetail?: string | null;
+  readonly gateDecisionId?: string | null;
+  readonly nextCandidateAction?: string | null;
+  readonly ownerRequired?: boolean;
+}
 export interface RunOptions {
   /** Which authorised worker to use. Omitted takes the project's default. */
   readonly workerId?: string;
@@ -114,6 +135,18 @@ export interface RunOptions {
    * forgotten, which is why the command wires it and the tests assert it is called.
    */
   readonly onGatekeeperTurn?: (entry: LedgerEntry, providerResponseId: string | null) => void;
+  /**
+   * Durable work state, reported as the loop reaches it.
+   *
+   * A PORT, exactly like `onGatekeeperTurn` and `admitSpend`: this file owns no durability, and the
+   * entrypoint decides whether anything is written down. Absent by default, so a run nobody
+   * configured behaves precisely as it always did.
+   *
+   * IT REPORTS; IT NEVER ASKS. The loop does not read work state back, and no return value can
+   * change what it does next — a checkpoint that could redirect execution would be authority, and it
+   * is not. What the loop decides is decided by the governed chain, unchanged.
+   */
+  readonly onWorkState?: (progress: WorkStateReport) => void;
   /**
    * Continuing without a reviewer, on the owner's committed risk.
    *
@@ -616,6 +649,10 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     const deps = options.gatekeeper;
     if (deps === undefined) return null;
 
+    // The question is about to be asked. Reported before the call, because a process that dies
+    // mid-call must leave behind that it was waiting on a gate, not that it was still working.
+    options.onWorkState?.({ state: 'AWAITING_GATE', phaseId, sessionId, lastStopCode: candidate.code });
+
     const turn = takeGatekeeperTurn(
       {
         stop: candidate,
@@ -641,6 +678,16 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
 
     if (turn.action.kind === 'owner') {
       lines.push(...turn.action.reasons.map((r) => `  ${r}`));
+      // The run cannot wait, so it ends — but it now ends having written down that it was the
+      // OWNER it ended on, which is what a later resume needs and could never previously know.
+      options.onWorkState?.({
+        state: 'WAITING_OWNER',
+        phaseId,
+        sessionId,
+        ownerRequired: true,
+        lastStopCode: candidate.code,
+        lastStopDetail: candidate.detail,
+      });
       // THE OWNER'S THIRD CHOICE, WHEN THEY HAVE ALREADY COMMITTED IT.
       //
       // The loop cannot ask a question and wait, so it does not pretend to: a committed grant
@@ -657,9 +704,25 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     }
     if (turn.action.kind === 'proceed') {
       lines.push(`  gatekeeper: ${turn.action.detail}`);
+      // APPROVED IS NOT PERMISSION TO ACT. It records that the reviewer cleared this stop; whether
+      // any action follows is B6's decision, taken from the decision itself and never from here.
+      options.onWorkState?.({
+        state: 'GATE_APPROVED',
+        phaseId,
+        sessionId,
+        gateDecisionId: turn.request === null ? null : `GKDEC-${turn.request.requestId}`,
+        lastCompletedStep: `gatekeeper cleared ${candidate.code}`,
+      });
       return 'proceed';
     }
     lines.push(`  gatekeeper requires an amendment: ${turn.action.instruction}`);
+    options.onWorkState?.({
+      state: 'CORRECTION_REQUIRED',
+      phaseId,
+      sessionId,
+      gateDecisionId: turn.request === null ? null : `GKDEC-${turn.request.requestId}`,
+      lastStopCode: candidate.code,
+    });
     lastInstruction = turn.action.instruction;
     lastDecisionId = turn.request === null ? null : `GKDEC-${turn.request.requestId}`;
     return 'retry';
@@ -838,6 +901,15 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
       : resolution.adapter.start(sys, attemptWorker, brief, briefFile);
     const described = describeWorkerOutcome(outcome);
     lines.push(`attempt ${attempts + 1}: ${rejoining ? 'rejoined' : 'started'} ${resolution.worker.workerId}; ${described.line}`);
+    // A worker is really running. Reported only here, after the start actually happened — a state
+    // written before the attempt would claim execution the loop had not yet begun.
+    options.onWorkState?.({
+      state: 'EXECUTING',
+      phaseId,
+      sessionId,
+      attempt: attempts + 1,
+      subjectCommit: verification.observed.head ?? null,
+    });
 
     session = {
       ...session,
@@ -883,6 +955,13 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
 
     const checks: readonly CheckResult[] = runChecks(sys, root, requiredChecks(sys, root, brief, suites.checks));
     for (const c of checks) lines.push(`  ${c.passed ? 'PASS' : 'FAIL'} ${c.kind} ${c.id}`);
+    options.onWorkState?.({
+      state: 'VALIDATING',
+      phaseId,
+      sessionId,
+      attempt: attempts + 1,
+      lastCompletedStep: `checks ran for attempt ${attempts + 1}`,
+    });
 
     const evidence = { ...collectEvidence(sys, root, { sessionId, brief, checks }), invocationId: invocation.invocationId };
     store.writeEvidence(sys, root, evidence);
@@ -988,5 +1067,19 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
 
   if (stop !== null) lines.push(...loopStopLines(stop));
   lines.push(`Evidence: ${store.evidencePath(root, sessionId)}`);
+  // WHERE THE RUN ACTUALLY ENDED. A standing stop is BLOCKED; no stop is this phase's work
+  // COMPLETE. Neither creates the next phase and neither authorises anything — `selectNextPhase`
+  // still decides what is eligible, and B6 still owns whatever may follow an approval.
+  options.onWorkState?.({
+    state: stop === null ? 'COMPLETE' : 'BLOCKED',
+    phaseId,
+    sessionId,
+    attempt: attempts,
+    subjectCommit: verification.observed.head ?? null,
+    lastStopCode: stop === null ? null : stop.code,
+    lastStopDetail: stop === null ? null : stop.detail,
+    ownerRequired: stop !== null,
+  });
+
   return { ok: true, lines, phaseId, sessionId, stop, attempts, degraded: degradedOutcome };
 }

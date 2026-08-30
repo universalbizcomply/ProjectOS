@@ -29,6 +29,13 @@ import {
   writePreviousResponseId,
 } from '../loop/gatekeeperConfig.js';
 import type { GatekeeperDecisionRecord } from '@projectos/core';
+import {
+  beginWork,
+  advanceWork,
+  writeWorkRecord,
+  type WorkRecord,
+} from '../loop/workRecord.js';
+import type { WorkStateReport } from '../loop/runner.js';
 import { unprovisionedResolver } from '../loop/credentialResolver.js';
 import { nodeBrokeredTransport } from '../loop/transports/brokeredHttpPort.js';
 import { nodeHttpPort } from '../loop/transports/nodeHttpPort.js';
@@ -265,7 +272,39 @@ export function run(ctx: CommandContext, flags: Flags): CommandResult {
     ]);
   }
 
+  // DURABLE WORK STATE. The only place that may touch the filesystem supplies the writing, exactly
+  // as it does for the spend ledger and the decision evidence — `runLoop` owns no durability.
+  //
+  // The record is EVIDENCE OF PROGRESS, never permission for any of it: nothing reads it back to
+  // decide what the loop may do, and a `GATE_APPROVED` written here authorises nothing.
+  //
+  // Identity is fixed at the first report and never moved. A progression cannot carry a checkpoint
+  // to another project or phase; a different phase is a different work item, started fresh.
+  //
+  // The project's OWN declared id, from its committed configuration — the same source every other
+  // governed fact comes from. An empty id means there is no governed context to belong to, and
+  // nothing is written: a checkpoint that cannot name its project is one another project could
+  // later mistake for its own.
+  const workProjectId = governedProjectId(ctx);
+  let work: WorkRecord | null = null;
+  const onWorkState = (progress: WorkStateReport): void => {
+    if (workProjectId === '') return;
+    const at = ctx.sys.now();
+    if (work === null || work.phaseId !== progress.phaseId) {
+      work = beginWork({
+        projectId: workProjectId,
+        phaseId: progress.phaseId,
+        subjectCommit: progress.subjectCommit ?? null,
+        at,
+      });
+    }
+    const { state, phaseId: _phaseId, ...rest } = progress;
+    work = advanceWork(work, { state, ...rest }, at);
+    writeWorkRecord(ctx.sys, ctx.root, work);
+  };
+
   const result = runLoop(ctx.sys, ctx.root, {
+    onWorkState,
     ...(worker === '' ? {} : { workerId: worker }),
     dryRun,
     resume,
