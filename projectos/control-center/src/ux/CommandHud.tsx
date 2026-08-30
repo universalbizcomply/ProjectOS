@@ -21,6 +21,7 @@
 import { useEffect, useState } from 'react';
 import type { GovernedProjectsInventory, GovernedState } from '../governed/types';
 import { buildCommandHud, type CommandHud, type HudStat } from './commandHudModel';
+import type { LiveRunFact } from './healthModel';
 import type { HealthTone } from './healthModel';
 
 const TONE: Record<HealthTone, string> = {
@@ -140,8 +141,12 @@ export function CommandHudRight({ hud }: { hud: CommandHud }) {
 }
 
 /** Both rails plus the clock, derived once. */
-export function useCommandHud(governed: GovernedState | null, inventory: GovernedProjectsInventory | null): CommandHud {
-  return buildCommandHud(governed, inventory);
+export function useCommandHud(
+  governed: GovernedState | null,
+  inventory: GovernedProjectsInventory | null,
+  liveRun: LiveRunFact | null = null,
+): CommandHud {
+  return buildCommandHud(governed, inventory, liveRun);
 }
 
 export { SystemTime };

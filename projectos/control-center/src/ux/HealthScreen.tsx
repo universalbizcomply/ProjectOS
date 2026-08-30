@@ -16,7 +16,7 @@
  * Created in PROJECTOS-CONTROL-CENTER-UX-ARCHITECTURE1A.
  */
 import type { GovernedState } from '../governed/types';
-import { buildHealthModel, type HealthTone } from './healthModel';
+import { buildHealthModel, type HealthTone, type LiveRunFact } from './healthModel';
 import { Connections } from './Connections';
 
 /** Status is never colour alone — every dot sits beside its own word. */
@@ -34,8 +34,20 @@ const TONE_COLOUR: Record<HealthTone, string> = {
   unknown: 'var(--faint)',
 };
 
-export function HealthScreen({ governed }: { governed: GovernedState | null }) {
-  const model = buildHealthModel(governed);
+export function HealthScreen({
+  governed,
+  liveRun = null,
+}: {
+  governed: GovernedState | null;
+  /**
+   * LIVENESS COMES FROM THE DAEMON, NOT FROM A RECORD — the run the sidecar actually owns; a
+   * session record can only say a run BEGAN. Supplied by the shell exactly as `governed` is, rather
+   * than read from context here: this screen is rendered on its own in tests, and a component that
+   * reaches for a provider cannot be. Omitted means "no live answer", never "nothing is running".
+   */
+  liveRun?: LiveRunFact | null;
+}) {
+  const model = buildHealthModel(governed, liveRun);
   const live = governed !== null && governed.connected ? governed : null;
 
   return (

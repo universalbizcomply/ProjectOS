@@ -25,6 +25,21 @@
  */
 import type { GovernedProjection, GovernedState } from '../governed/types';
 
+/**
+ * WHAT THE DAEMON CAN PROVE ABOUT A WORKER RIGHT NOW.
+ *
+ * Structurally satisfied by the sidecar's own `GovernedRunState`, which is set from the `run-started`
+ * and `run-finished` events the sidecar emits for the child it actually owns — the process it
+ * started and can still stop. Deliberately narrowed to the one field: liveness is a fact, not a
+ * panel, and this model must not grow a second runtime state of its own.
+ *
+ * `null` means this surface has NO live answer, which is not the same as "nothing is running" — it
+ * is what an owner opening the panel mid-run looks like.
+ */
+export interface LiveRunFact {
+  readonly active: boolean;
+}
+
 /** How the whole system reads at a glance. Never better than the worst thing in it. */
 export type HealthTone = 'ok' | 'attention' | 'problem' | 'unknown';
 
@@ -284,7 +299,7 @@ function connectivityGroup(live: GovernedProjection | null): HealthGroup {
   };
 }
 
-function executionGroup(live: GovernedProjection | null): HealthGroup {
+function executionGroup(live: GovernedProjection | null, liveRun: LiveRunFact | null): HealthGroup {
   if (live === null) {
     return {
       id: 'execution',
@@ -296,13 +311,35 @@ function executionGroup(live: GovernedProjection | null): HealthGroup {
     };
   }
 
-  const running = live.sessions.filter((s) => s.state !== 'exited');
+  // HISTORY. A session record is written when a worker starts and rewritten when it exits, so a
+  // worker killed, crashed or lost to a reboot leaves `started` on disk for ever — and nothing can
+  // correct it, because the record carries no process identity. It is evidence that a run BEGAN,
+  // never evidence that one is running.
+  const unfinished = live.sessions.filter((s) => s.state !== 'exited');
   const failed = live.sessions.filter((s) => s.exitCode !== null && s.exitCode !== 0);
+
+  // LIVENESS. `true`/`false` only when the daemon actually answered; `null` when this surface has
+  // no live answer at all — which is what an owner opening the panel mid-run looks like.
+  const activeNow: boolean | null = liveRun === null ? null : liveRun.active;
+  // "Not running" is only sayable when nothing is live AND nothing was left unfinished. With an
+  // unfinished record and no live run the honest answer is that it is not known, and `null` is how
+  // this model spells that — it renders as its own word rather than as a claim in either direction.
+  const runningValue = activeNow === true ? 'Yes' : activeNow === false && unfinished.length === 0 ? 'No' : null;
   const waiting = live.pendingApprovals.length;
   const blocked = live.blockers.length > 0 || !live.plan.ready;
 
+  // AN UNCONFIRMED RUN IS NOT "FINE". When a record was left unfinished and nothing live confirms
+  // it, the state of the work is genuinely not known, and reporting that as ok is the reassuring
+  // rendering of a fault this whole model exists to prevent.
+  const unconfirmed = activeNow !== true && unfinished.length > 0;
   const tone: HealthTone =
-    blocked || failed.length > 0 ? 'problem' : waiting > 0 ? 'attention' : 'ok';
+    blocked || failed.length > 0
+      ? 'problem'
+      : waiting > 0
+        ? 'attention'
+        : unconfirmed
+          ? 'unknown'
+          : 'ok';
   /*
    * A PROBLEM IS NEVER HIDDEN BEHIND SOMETHING CALMER. `failed` decided the tone but appeared in no
    * headline, so a run that had just failed rendered a red dot beside the words "Nothing running".
@@ -319,9 +356,13 @@ function executionGroup(live: GovernedProjection | null): HealthGroup {
         ? waiting === 1
           ? '1 decision waiting for you'
           : `${waiting} decisions waiting for you`
-        : running.length > 0
+        : activeNow === true
           ? 'Working'
-          : 'Nothing running';
+          : unconfirmed
+            ? unfinished.length === 1
+              ? 'A recorded run was never marked finished'
+              : `${unfinished.length} recorded runs were never marked finished`
+            : 'Nothing running';
 
   return {
     id: 'execution',
@@ -329,7 +370,8 @@ function executionGroup(live: GovernedProjection | null): HealthGroup {
     headline,
     tone,
     facts: [
-      { label: 'Running now', value: String(running.length) },
+      { label: 'Running now', value: runningValue },
+      { label: 'Recorded runs not marked finished', value: String(unfinished.length) },
       { label: 'Runs that failed', value: String(failed.length) },
       { label: 'Decisions waiting for you', value: String(waiting) },
       { label: 'Plan ready to run', value: live.plan.ready ? 'Yes' : 'No' },
@@ -337,15 +379,30 @@ function executionGroup(live: GovernedProjection | null): HealthGroup {
     notes: [
       ...live.blockers,
       ...(live.plan.ready ? [] : live.plan.unmetReasons),
+      ...(unconfirmed
+        ? [
+            unfinished.length === 1
+              ? 'One run was never marked finished, and ProjectOS cannot confirm a worker is running now. A worker that stops unexpectedly leaves a record like this.'
+              : `${unfinished.length} runs were never marked finished, and ProjectOS cannot confirm a worker is running now. A worker that stops unexpectedly leaves a record like this.`,
+          ]
+        : []),
     ],
   };
 }
 
 const WORST: readonly HealthTone[] = ['problem', 'attention', 'unknown', 'ok'];
 
-export function buildHealthModel(governed: GovernedState | null): HealthModel {
+export function buildHealthModel(
+  governed: GovernedState | null,
+  liveRun: LiveRunFact | null = null,
+): HealthModel {
   const live = governed !== null && governed.connected ? governed : null;
-  const groups = [usageGroup(live), connectivityGroup(live), runtimeGroup(governed), executionGroup(live)];
+  const groups = [
+    usageGroup(live),
+    connectivityGroup(live),
+    runtimeGroup(governed),
+    executionGroup(live, liveRun),
+  ];
 
   // The headline is never better than the worst thing under it.
   const tone = WORST.find((t) => groups.some((g) => g.tone === t)) ?? 'ok';

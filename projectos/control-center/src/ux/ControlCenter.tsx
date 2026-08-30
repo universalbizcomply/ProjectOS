@@ -29,6 +29,7 @@ import { ActivityFeed } from './ProjectHome';
 import { VOICE_UNAVAILABLE } from '../owner/speech';
 import { OperatorAside } from '../owner/Hologram';
 import { CommandHudLeft, CommandHudRight, SystemTime, useCommandHud } from './CommandHud';
+import type { LiveRunFact } from './healthModel';
 import type { GovernedProjectsInventory } from '../governed/types';
 
 export interface ControlCenterEntry {
@@ -49,6 +50,7 @@ export function ControlCenter({
   entries,
   setEntries,
   inventory = null,
+  liveRun = null,
 }: {
   state: GovernedProjection | null;
   now: number;
@@ -88,6 +90,12 @@ export function ControlCenter({
    * said so immediately.
    */
   inventory?: GovernedProjectsInventory | null;
+  /**
+   * WHAT THE DAEMON CAN PROVE ABOUT A WORKER RIGHT NOW. Supplied by the shell, never read from
+   * context here, so this screen stays renderable on its own. `null` means no live answer —
+   * which is not the same as nothing running. See `LiveRunFact`.
+   */
+  liveRun?: LiveRunFact | null;
 }) {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
@@ -169,7 +177,7 @@ export function ControlCenter({
   const active = model?.rows.find((r) => r.kind === 'active') ?? null;
   const waiting = state?.pendingApprovals.length ?? 0;
   // The HUD's data, derived from the SAME projection this screen already has plus the one inventory.
-  const hud = useCommandHud(state, inventory);
+  const hud = useCommandHud(state, inventory, liveRun);
 
   return (
     <section className="os-stack" aria-labelledby="ux-cc-title">

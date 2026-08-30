@@ -31,7 +31,7 @@
  * Created in PROJECTOS-JARVIS-VISUAL-RESTORATION1A.
  */
 import type { GovernedProjectsInventory, GovernedState } from '../governed/types';
-import { buildHealthModel, type HealthTone } from './healthModel';
+import { buildHealthModel, type HealthTone, type LiveRunFact } from './healthModel';
 import { recordedItems } from '../owner/workspaceModel';
 
 export interface HudStat {
@@ -84,9 +84,12 @@ const MISSION: readonly string[] = [
 export function buildCommandHud(
   governed: GovernedState | null,
   inventory: GovernedProjectsInventory | null,
+  liveRun: LiveRunFact | null = null,
 ): CommandHud {
   const live = governed !== null && governed.connected ? governed : null;
-  const health = buildHealthModel(governed);
+  // THE SAME FACT THE HEALTH SCREEN USES. Two surfaces showing the same four groups from two
+  // different liveness answers is how they come to disagree about whether work is running.
+  const health = buildHealthModel(governed, liveRun);
 
   // ── SYSTEM STATUS. The same four groups Health shows, in the same words and the same tones. ──
   const status: readonly HudStat[] = health.groups.map((g) => ({

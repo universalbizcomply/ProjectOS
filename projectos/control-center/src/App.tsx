@@ -422,12 +422,13 @@ export function Shell({
               </div>
             )}
 
-            {view === 'health' && <HealthScreen governed={governed} />}
+            {view === 'health' && <HealthScreen governed={governed} liveRun={run} />}
 
             {view === 'control' && (
               <ControlCenter
                 state={live}
                 inventory={inventory}
+                liveRun={run}
                 now={Date.now()}
                 entries={ccEntries}
                 setEntries={(u) => setCcEntries(u)}

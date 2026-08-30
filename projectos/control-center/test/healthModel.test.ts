@@ -323,3 +323,82 @@ describe('review findings — each has a test so it cannot come back', () => {
     expect(group(m, 'usage').facts.find((f) => f.label === 'Spent this month')?.value).toBe('Not recorded');
   });
 });
+
+/* ------------------------------------------------------------------------------------------------
+ * A RECORD IS NOT A RUNNING PROCESS — PROJECTOS-PROVIDER-RUNTIME-TRUTH-FIX1A.
+ *
+ * Execution activity used to be derived from session RECORDS: any session whose state was not
+ * `exited` counted as running. A session record is written when a worker starts and rewritten when
+ * it exits, so a worker killed, crashed or lost to a reboot leaves `started` on disk for ever — and
+ * nothing can correct it, because the record carries no process identity. Health then reported
+ * "Working" and "Running now: 1" for a process that no longer existed.
+ *
+ * Liveness now comes from the daemon's own live run fact, which is real: that process started the
+ * child and can still stop it. History stays history.
+ * --------------------------------------------------------------------------------------------- */
+
+const startedSession = {
+  sessionId: 'S9', phaseId: 'TWO', workerId: 'w', kind: 'run', startedAt: 't', state: 'started', exitCode: null,
+};
+
+describe('current activity comes from the live daemon, never from a record', () => {
+  test('a live worker is reported as working', () => {
+    const m = buildHealthModel(projection({ sessions: [startedSession] } as never), { active: true });
+    const g = group(m, 'execution');
+    expect(g.headline).toBe('Working');
+    expect(g.facts.find((f) => f.label === 'Running now')?.value).toBe('Yes');
+    expect(g.tone).toBe('ok');
+  });
+
+  test('THE DEFECT: a started record with no live run must not say Working', () => {
+    const m = buildHealthModel(projection({ sessions: [startedSession] } as never), { active: false });
+    const g = group(m, 'execution');
+    expect(g.headline).not.toBe('Working');
+    expect(JSON.stringify(g)).not.toContain('Running now: 1');
+    // Not known is not the same as not running, so it is not claimed either way.
+    expect(g.facts.find((f) => f.label === 'Running now')?.value).toBeNull();
+    expect(g.tone).toBe('unknown');
+  });
+
+  test('an absent live answer is unknown, never working', () => {
+    // The panel may open after a run began, so this store never saw it start. Claiming activity
+    // from the record would be exactly the defect; claiming none would be a different invention.
+    const m = buildHealthModel(projection({ sessions: [startedSession] } as never));
+    const g = group(m, 'execution');
+    expect(g.headline).not.toBe('Working');
+    expect(g.tone).toBe('unknown');
+    expect(g.facts.find((f) => f.label === 'Running now')?.value).toBeNull();
+  });
+
+  test('nothing recorded and nothing live is plainly nothing running', () => {
+    const m = buildHealthModel(projection(), { active: false });
+    const g = group(m, 'execution');
+    expect(g.headline).toBe('Nothing running');
+    expect(g.facts.find((f) => f.label === 'Running now')?.value).toBe('No');
+    expect(g.tone).toBe('ok');
+  });
+
+  test('history survives the fix — an unfinished record is still reported as one', () => {
+    const m = buildHealthModel(projection({ sessions: [startedSession] } as never), { active: false });
+    const g = group(m, 'execution');
+    expect(g.facts.find((f) => f.label === 'Recorded runs not marked finished')?.value).toBe('1');
+    expect(g.notes.join(' ')).toContain('never marked finished');
+  });
+
+  test('a failed run still outranks an unconfirmed one', () => {
+    const m = buildHealthModel(projection({
+      sessions: [startedSession, { sessionId: 'S1', phaseId: 'TWO', workerId: 'w', kind: 'run', startedAt: 't', state: 'exited', exitCode: 1 }],
+    } as never), { active: false });
+    expect(group(m, 'execution').headline).toBe('A run failed');
+    expect(group(m, 'execution').tone).toBe('problem');
+  });
+
+  test('a live run cannot be manufactured from anything the projection carries', () => {
+    // Every field an attacker or a bug could reach through the projection, set to look busy.
+    const m = buildHealthModel(projection({
+      sessions: [startedSession, { ...startedSession, sessionId: 'S8', state: 'rejoined' }],
+      activePhase: { phaseId: 'TWO', title: 'T', status: 'in_progress', dependencies: [], accepted: false } as never,
+    } as never));
+    expect(group(m, 'execution').facts.find((f) => f.label === 'Running now')?.value).not.toBe('Yes');
+  });
+});

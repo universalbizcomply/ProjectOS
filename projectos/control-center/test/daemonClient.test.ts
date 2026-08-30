@@ -128,3 +128,57 @@ describe('DaemonClient', () => {
     expect(client.store.getState().events.length).toBe(before);
   });
 });
+
+/* ------------------------------------------------------------------------------------------------
+ * LIVENESS HAS EXACTLY ONE SOURCE — PROJECTOS-PROVIDER-RUNTIME-TRUTH-FIX1A.
+ *
+ * `governedRun.active` is what the Health surface is now allowed to call "Working". These prove the
+ * link between the daemon that owns the child process and the store the surfaces read, and — the
+ * part that matters for authority — that nothing else can set it.
+ * --------------------------------------------------------------------------------------------- */
+describe('the live run fact comes from the daemon and nowhere else', () => {
+  test('nothing is live until the daemon says a run started', () => {
+    const { client } = setup();
+    client.start();
+    expect(client.store.getState().governedRun.active).toBe(false);
+  });
+
+  test('run-started makes it live; run-finished ends it', () => {
+    const { transport, client } = setup();
+    client.start();
+
+    transport.emit({ kind: 'run-started', phaseId: 'TWO', resumed: false } as never);
+    expect(client.store.getState().governedRun.active).toBe(true);
+    expect(client.store.getState().governedRun.phaseId).toBe('TWO');
+
+    transport.emit({ kind: 'run-finished', phaseId: 'TWO', exitCode: 0 } as never);
+    expect(client.store.getState().governedRun.active).toBe(false);
+    expect(client.store.getState().governedRun.lastExitCode).toBe(0);
+  });
+
+  test('a governed snapshot full of started sessions does not make anything live', () => {
+    // THE DEFECT, AT THE OTHER END OF THE WIRE. Session records arrive inside the governed state;
+    // they are history. Only the daemon's own run events may move the live flag.
+    const { transport, client } = setup();
+    client.start();
+    transport.emit({
+      kind: 'governed',
+      state: {
+        connected: true,
+        sessions: [
+          { sessionId: 'S1', phaseId: 'TWO', workerId: 'w', kind: 'run', startedAt: 't', state: 'started', exitCode: null },
+        ],
+      },
+    } as never);
+    expect(client.store.getState().governedRun.active).toBe(false);
+  });
+
+  test('a finished run does not resurrect on the next output line', () => {
+    const { transport, client } = setup();
+    client.start();
+    transport.emit({ kind: 'run-started', phaseId: 'TWO', resumed: false } as never);
+    transport.emit({ kind: 'run-finished', phaseId: 'TWO', exitCode: 1 } as never);
+    transport.emit({ kind: 'run-output', phaseId: 'TWO', stream: 'stdout', line: 'trailing' } as never);
+    expect(client.store.getState().governedRun.active).toBe(false);
+  });
+});
