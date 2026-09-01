@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "PROJECTOS-AUTOMATIC-TECHNICAL-CONTINUATION1A-CLOSURE-DECISION1A",
+  "phaseId": "PROJECTOS-AUTOMATIC-TECHNICAL-CONTINUATION1A",
+  "projectId": "projectos",
+  "scope": "phase-closure",
+  "decidedBy": "ChatGPT",
+  "decidedAt": "2026-09-02T00:05:00+01:00",
+  "evidenceSubjectHead": "d673d489b09c477fbce9f64d6578746c5df85986",
+  "decision": "close",
+  "note": "ChatGPT, the closure authority recorded in PROJECTOS-AUTONOMOUS-SELF-HOSTING-CLOSURE-DELEGATION1A for programme 'projectos-autonomous-self-hosting', decides to close PROJECTOS-AUTOMATIC-TECHNICAL-CONTINUATION1A at subject d673d489b09c477fbce9f64d6578746c5df85986. ACCEPTED FOR CLOSURE. An independent code review and an independent security review of this subject were performed by the gatekeeper, each returning CRITICAL 0 and HIGH 0. The single HIGH raised against the preceding subject e520be7 — a refused technical continuation finishing with the durable work state recorded as COMPLETE — is resolved at this subject and proven by five end-to-end cases through the canonical loop. One MEDIUM is accepted and carried forward, not resolved here: the terminal checkpoint's subjectCommit can retain the originally observed HEAD after a technical continuation has moved it. It is non-authoritative and belongs to B8, which owns repository and checkpoint reconciliation. This decision closes one phase. It grants no further authority, starts no phase, and leaves every protected owner action exactly where it was: production deployment, production or destructive database mutation, real sends, payments, credential and signing operations, and force push remain the owner's and are unreachable from the technical continuation this phase built.",
+  "ownerAcceptedFindings": []
+}
