@@ -156,6 +156,16 @@ export function syncCurrentState(
     completedPhases: completed,
     activePhase,
     pendingPhases: pending,
+    // THE PLAN THIS STATE IS ABOUT, AS THAT PLAN NAMES ITSELF.
+    //
+    // Derivable from the active plan and therefore this module's business, unlike the fields left
+    // untouched above. It is rewritten because activation wrote it once and nothing ever refreshed
+    // it: the first amended plan produced a record saying 1.0 beside a plan saying 1.1, and no
+    // governed command could repair it. Reading it from `context.plan` makes the state record's claim
+    // about which plan is in force a derived fact rather than a remembered one.
+    activePlanVersion:
+      typeof context.plan['planVersion'] === 'string' ? context.plan['planVersion'] : existing['activePlanVersion'],
+    activePlanId: typeof context.plan['planId'] === 'string' ? context.plan['planId'] : existing['activePlanId'],
     blockedPhases: blocked,
     nextRecommendedPhase: activePhase ?? (pending.length > 0 ? pending[0]! : null),
     lastUpdated: sys.now(),

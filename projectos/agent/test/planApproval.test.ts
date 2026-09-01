@@ -2154,6 +2154,25 @@ describe('plan succession records what it replaced', () => {
     expect(plan['planVersion']).not.toBe((plan['approval'] as Record<string, unknown>)['supersedesPlanVersion']);
   });
 
+  /**
+   * [S2b] AND THE STATE RECORD AGREES WITH IT.
+   *
+   * `activePlanVersion` was the literal '1.0', which was true for exactly as long as no plan had ever
+   * been amended. The first real amendment produced a plan record saying 1.1 beside a state record
+   * saying 1.0 — two governance records disagreeing about which plan is in force, and the wrong one
+   * is what every status surface reads first. Found by performing the amendment, not by reading.
+   */
+  test('S2b the current-state record names the successor version, not a hardcoded 1.0', () => {
+    const w = world({ committed: COMMITTED });
+    writeDelegation(w);
+    const r = run(w, writeDecision(w));
+    expect(r.ok).toBe(true);
+    const plan = JSON.parse(readFileSync(pjoin(w.root, 'state/recovery.plan.json'), 'utf8'));
+    const state = JSON.parse(readFileSync(pjoin(w.root, 'state/recovery.current-state.json'), 'utf8'));
+    expect(state['activePlanVersion']).toBe(plan['planVersion']);
+    expect(state['activePlanVersion']).toBe('1.1');
+  });
+
   /** [S3] A first plan replaces nothing and must keep saying so. */
   test('S3 genesis still records 1.0 and supersedes null', () => {
     const w = freshProject();

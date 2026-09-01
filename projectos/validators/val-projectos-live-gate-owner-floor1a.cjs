@@ -262,9 +262,19 @@ function run() {
   if (conditionalProof === null) {
     E(`${CONDITIONAL_TEST_REL} is missing — the conditional floor's behaviour is no longer proven`);
   } else {
+    // WHAT THE PROOF MUST STILL CONTAIN — and note what is deliberately NOT pinned here any more.
+    //
+    // This rule used to require the test to prove "the real plan record still refuses commit and
+    // push". That was true until the owner amended the plan, at which point the validator was
+    // demanding a proof of something the governance had legitimately changed. A rule that pins a
+    // POLICY OUTCOME fails the day the owner exercises the policy; a rule that pins the MECHANISM
+    // keeps working. So what is required now is that the test resolves the active plan canonically —
+    // through planMemory, never a hardcoded path — and asserts the absolute floor holds whatever that
+    // plan says.
     for (const [needle, what] of [
       ["degraded mode never yields", "that degraded mode cannot be relaxed by a delegation"],
-      ["ACTIVE ProjectOS plan, read from disk", "that the real plan record still refuses commit and push"],
+      ["cfg.planMemory?.planPath", "that it resolves the ACTIVE plan canonically rather than assuming a path"],
+      ["ABSOLUTE_OWNER_ONLY", "that the absolute floor holds whatever the active plan declares"],
     ]) {
       if (!conditionalProof.includes(needle)) {
         E(`${CONDITIONAL_TEST_REL} no longer proves ${what}`);

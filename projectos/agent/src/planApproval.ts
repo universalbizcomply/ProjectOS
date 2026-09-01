@@ -1727,7 +1727,14 @@ export function approvePlan(sys: System, root: string, opts: ApproveOptions): Ap
     schemaVersion: '1.0.0',
     projectId: proposal.projectId,
     activePlanId: opts.planId,
-    activePlanVersion: '1.0',
+    // THE VERSION OF THE PLAN THIS STATE IS ABOUT, read from that plan rather than assumed.
+    //
+    // It was the literal '1.0', which was true for exactly as long as no plan had ever been amended.
+    // `materialisePlan` computes the successor version through `planVersionSuccession`, so the first
+    // amendment produced a plan record saying 1.1 beside a state record saying 1.0 — two governance
+    // records disagreeing about which plan is in force, with the wrong one being the record every
+    // status surface reads first. Found by the amendment that first made it possible.
+    activePlanVersion: strOf(materialised.plan['planVersion']) ?? '1.0',
     currentStatus: 'PLAN READY',
     completionMethod: 'phase-closure',
     acceptedPhaseCount: 0,

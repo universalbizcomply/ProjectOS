@@ -329,42 +329,64 @@ describe('the complete conjunction, through the production entry point', () => {
   });
 });
 
-describe('the ACTIVE ProjectOS plan, read from disk rather than asserted', () => {
+describe('the ACTIVE ProjectOS plan, resolved canonically rather than assumed', () => {
   /**
-   * THE FIXTURE ABOVE IS A CLAIM; THIS IS THE PROOF.
+   * THE FIXTURE ABOVE IS A CLAIM; THIS IS THE PROOF — AND IT RESOLVES THE PLAN THE WAY THE RUNTIME
+   * DOES.
    *
-   * Every other test here uses `ACTIVE_PLAN_GATES`, a constant that says what the plan declares. A
-   * constant cannot notice the plan changing. This reads the real record and asserts the same
-   * refusal, so "ProjectOS still cannot autonomously commit or push against its own approved plan"
-   * is a fact about this repository and not a fact about a fixture.
+   * An earlier version of this test read `.projectops/plan.json` directly. That file exists, parses,
+   * and is NOT the active plan: the active one is named by `planMemory.planPath` and is versioned, so
+   * the test went on passing against a stale record after the plan it claimed to describe had been
+   * amended. A proof that reads the wrong file is worse than no proof, because it reports success.
    *
-   * It is deliberately tolerant of the plan being absent or unreadable — a checkout without one is
-   * not this project — but when it IS readable, the refusal must hold.
+   * What is asserted is the RELATIONSHIP, not a fixed expectation: whatever the active plan declares
+   * as an owner gate is still refused even under the strongest delegation this project can produce,
+   * and every absolute action is refused whether the plan mentions it or not. That stays true across
+   * an amendment, which a hardcoded list of gates does not.
    */
-  it('declares commit and push as owner gates, and they are still refused with a proven delegation', () => {
-    // NO TOLERANT EARLY RETURN. An unreadable plan would make this test pass by doing nothing, which
-    // is precisely the shape of a proof that stops proving anything the day the file moves. This test
-    // ships in the repository that holds the plan, so it reads it and fails if it cannot.
-    const planPath = new URL('../../../.projectops/plan.json', import.meta.url);
-    const plan = JSON.parse(readFileSync(planPath, 'utf8')) as { phases?: unknown };
+  it('honours whatever owner gates the active plan declares, and the absolute floor regardless', () => {
+    const cfg = JSON.parse(
+      readFileSync(new URL('../../../.projectops/project-config.json', import.meta.url), 'utf8'),
+    ) as { planMemory?: { planPath?: string } };
+    const planRel = cfg.planMemory?.planPath;
+    const stateRel = cfg.planMemory?.currentStatePath;
+    expect(typeof planRel).toBe('string');
+    expect(typeof stateRel).toBe('string');
+    const plan = JSON.parse(
+      readFileSync(new URL(`../../../${planRel as string}`, import.meta.url), 'utf8'),
+    ) as { phases?: unknown; planId?: unknown };
+    // THE PLAN READ IS THE PLAN IN FORCE, not merely a valid one. Without this the test asserts a
+    // relationship that holds for every plan record in the repository — including the stale
+    // pre-amendment one it used to read by accident — so it could never notice reading the wrong file.
+    const state = JSON.parse(
+      readFileSync(new URL(`../../../${stateRel as string}`, import.meta.url), 'utf8'),
+    ) as { activePlanId?: unknown };
+    expect(plan.planId).toBe(state.activePlanId);
     expect(Array.isArray(plan.phases)).toBe(true);
     const phases = plan.phases as Array<Record<string, unknown>>;
+    expect(phases.length).toBeGreaterThan(0);
 
     for (const phase of phases) {
-      const gates = Array.isArray(phase['requiredOwnerGates']) ? (phase['requiredOwnerGates'] as string[]).map(String) : [];
-      for (const action of gates.filter((g) => g === 'commit' || g === 'push')) {
-        // With the strongest delegation this project can produce, the plan's own gate still wins.
-        expect(refusesUnderCurrentPlan(action, gates, VALID)).toBe(true);
-        expect(enforcedOwnerOnlyActions(gates, proven())).toContain(action);
+      const gates = Array.isArray(phase['requiredOwnerGates'])
+        ? (phase['requiredOwnerGates'] as string[]).map(String)
+        : [];
+      // A DECLARED GATE STILL WINS over the strongest delegation. The plan may be stricter.
+      for (const gate of gates) {
+        expect(enforcedOwnerOnlyActions(gates, proven())).toContain(gate);
+      }
+      // AND THE ABSOLUTE FLOOR HOLDS whether this phase remembered to declare it or not — which is
+      // the half a plan amendment must never be able to weaken.
+      for (const absolute of ABSOLUTE_OWNER_ONLY) {
+        expect(enforcedOwnerOnlyActions(gates, proven())).toContain(absolute);
+        expect(refusesUnderCurrentPlan(absolute, gates, VALID)).toBe(true);
+      }
+      // Commit and push follow the plan: gated where declared, delegable where not.
+      for (const technical of ['commit', 'push']) {
+        expect(refusesUnderCurrentPlan(technical, gates, VALID)).toBe(gates.includes(technical));
+        // With no delegation at all they are refused either way.
+        expect(refusesUnderCurrentPlan(technical, gates)).toBe(true);
       }
     }
-
-    // And the plan really does declare them, so the loop above was not vacuous.
-    const allGates = phases.flatMap((p) =>
-      Array.isArray(p['requiredOwnerGates']) ? (p['requiredOwnerGates'] as string[]).map(String) : [],
-    );
-    expect(allGates).toContain('commit');
-    expect(allGates).toContain('push');
   });
 });
 
