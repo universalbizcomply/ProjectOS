@@ -24,6 +24,7 @@ export * from './gatekeeperBridge.js';
 export * from './gatekeeperModelPolicy.js';
 export * from './ownerGateReceipt.js';
 export * from './ownerOnlyActions.js';
+export * from './technicalContinuation.js';
 export * from './discovery.js';
 export * from './plugins.js';
 export * from './plugin-catalog.js';

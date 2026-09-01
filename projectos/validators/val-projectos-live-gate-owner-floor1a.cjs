@@ -49,6 +49,8 @@ const TURN_REL = "projectos/agent/src/loop/gatekeeperTurn.ts";
 const CHECKER_REL = "projectos/core/src/gatekeeperDecision.ts";
 /** The proof that the union is enforced rather than merely written. */
 const TEST_REL = "projectos/agent/test/liveGateOwnerFloor.test.ts";
+/** The proof of the conditional split: what yields, what never does, and that the plan still wins. */
+const CONDITIONAL_TEST_REL = "projectos/agent/test/conditionalTechnicalFloor.test.ts";
 
 /**
  * The actions the floor must keep carrying.
@@ -123,11 +125,61 @@ function run() {
   if (!/export function enforcedOwnerOnlyActions\s*\(/.test(floor)) {
     E(`${FLOOR_REL} no longer exports enforcedOwnerOnlyActions — the union has no canonical spelling`);
   }
-  if (!/\[\s*\.\.\.new Set\(\[\s*\.\.\.ALWAYS_OWNER_ONLY\s*,\s*\.\.\.declared\s*\]\)\s*\]/.test(floor)) {
+  // THE UNION, IN ITS CONDITIONAL FORM. `ABSOLUTE_OWNER_ONLY` and `declared` are added
+  // UNCONDITIONALLY; only the conditionally-delegable pair depends on the condition. Pinning the
+  // expression rather than the outcome is what makes a future edit that moved `ABSOLUTE_OWNER_ONLY`
+  // behind the condition — the one change that would actually matter — fail here.
+  if (!/\[\s*\.\.\.new Set\(\[\s*\.\.\.ABSOLUTE_OWNER_ONLY\s*,\s*\.\.\.conditional\s*,\s*\.\.\.declared\s*\]\)\s*\]/.test(floor)) {
     E(
       `${FLOOR_REL} no longer computes enforcedOwnerOnlyActions as the deduplicated union of the ` +
-        "floor and the declared gates — neither source may replace the other",
+        "absolute floor, the conditional pair and the declared gates — neither source may replace another",
     );
+  }
+  // THE RELAXATION IS OPT-IN AND LIMITED. An absent condition must restore the whole floor, and a
+  // present one must subtract nothing but `CONDITIONALLY_DELEGABLE_TECHNICAL`.
+  if (!/const conditional = condition === undefined \|\| condition === null \? CONDITIONALLY_DELEGABLE_TECHNICAL : \[\]/.test(floor)) {
+    E(
+      `${FLOOR_REL} no longer makes the relaxation opt-in and limited to CONDITIONALLY_DELEGABLE_TECHNICAL`,
+    );
+  }
+  // THE TWO LISTS, AND THE FACT THAT NOTHING CAN SUBTRACT FROM THE ABSOLUTE ONE.
+  const absolute = /export const ABSOLUTE_OWNER_ONLY\s*=\s*\[([\s\S]*?)\]\s*as const;/.exec(floor);
+  const conditional = /export const CONDITIONALLY_DELEGABLE_TECHNICAL\s*=\s*\[([\s\S]*?)\]\s*as const;/.exec(floor);
+  if (absolute === null || conditional === null) {
+    E(`${FLOOR_REL} no longer declares both ABSOLUTE_OWNER_ONLY and CONDITIONALLY_DELEGABLE_TECHNICAL as const arrays`);
+  } else {
+    const names = (m) => [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]);
+    const abs = names(absolute);
+    const cond = names(conditional);
+    // ONLY THE OWNER'S TWO. A third member here would extend a governance decision by code change.
+    if (cond.sort().join(",") !== "commit,push") {
+      E(
+        `CONDITIONALLY_DELEGABLE_TECHNICAL is [${cond.join(", ")}] — the owner's decision names commit and ` +
+          "push, and extending it is a governance act with its own approval, not a code change",
+      );
+    }
+    for (const protectedAction of ["phase-closure", "secrets-handling", "payment-or-live-charge"]) {
+      if (!abs.includes(protectedAction)) {
+        E(`ABSOLUTE_OWNER_ONLY no longer contains '${protectedAction}' — it would become reachable through a delegation`);
+      }
+      if (cond.includes(protectedAction)) {
+        E(`'${protectedAction}' was moved into the conditionally delegable list — it must never yield to a delegation`);
+      }
+    }
+    // The two lists must still account for the whole default floor, or the union above silently shrinks.
+    for (const member of FLOOR_MEMBERS) {
+      if (!abs.includes(member) && !cond.includes(member)) {
+        E(`'${member}' is in ALWAYS_OWNER_ONLY but in neither the absolute nor the conditional list`);
+      }
+    }
+  }
+  // THE CONDITION IS A BRANDED TOKEN, NOT A BOOLEAN. Without the private symbol a caller could relax
+  // the floor by writing an object literal.
+  if (!/declare const DELEGATED: unique symbol/.test(floor)) {
+    E(`${FLOOR_REL} no longer brands TechnicalDelegationCondition with a module-private symbol`);
+  }
+  if (!/carriesTechnicalScope !== true/.test(floor) || !/Array\.isArray\(delegation\?\.problems\)/.test(floor)) {
+    E(`${FLOOR_REL} no longer refuses to mint a condition from an unproven delegation`);
   }
 
   // 2. THE LIVE TURN DERIVES THE SET RATHER THAN RECEIVING IT.
@@ -145,10 +197,13 @@ function run() {
   if (!/import \{[\s\S]*?\benforcedOwnerOnlyActions\b[\s\S]*?\} from '@projectos\/core'/.test(turn)) {
     E(`${TURN_REL} no longer imports enforcedOwnerOnlyActions from '@projectos/core'`);
   }
-  if (!/const ownerOnlyActions\s*=\s*enforcedOwnerOnlyActions\(\s*input\.ownerOnlyActions\s*\)/.test(turn)) {
+  // THE CONDITION IS READ FROM THE INPUT AND DEFAULTS TO NULL. `?? null` is the load-bearing half: a
+  // caller that supplies nothing gets the full floor, which is what keeps the relaxation opt-in.
+  if (!/const ownerOnlyActions\s*=\s*enforcedOwnerOnlyActions\(\s*input\.ownerOnlyActions\s*,\s*input\.technicalDelegation \?\? null\s*\)/.test(turn)) {
     E(
-      `${TURN_REL} no longer derives its owner-only set as enforcedOwnerOnlyActions(input.ownerOnlyActions) — ` +
-        "the phase's declaration alone is not the protected set",
+      `${TURN_REL} no longer derives its owner-only set as ` +
+        "enforcedOwnerOnlyActions(input.ownerOnlyActions, input.technicalDelegation ?? null) — the phase's " +
+        "declaration alone is not the protected set, and an absent delegation must not relax it",
     );
   }
 
@@ -200,6 +255,23 @@ function run() {
 
   // 6. THE BEHAVIOUR IS PROVEN, NOT ONLY SHAPED. A validator pinning a call site while the tests
   //    that exercise it were deleted would report a protection nobody had run.
+  // THE SPLIT IS PROVEN, INCLUDING THE PART THAT MATTERS MOST — that degraded mode never yields, and
+  // that the ACTIVE plan still refuses commit and push. A shape pinned above whose behaviour nobody
+  // runs is a shape, not a protection.
+  const conditionalProof = read(CONDITIONAL_TEST_REL);
+  if (conditionalProof === null) {
+    E(`${CONDITIONAL_TEST_REL} is missing — the conditional floor's behaviour is no longer proven`);
+  } else {
+    for (const [needle, what] of [
+      ["degraded mode never yields", "that degraded mode cannot be relaxed by a delegation"],
+      ["ACTIVE ProjectOS plan, read from disk", "that the real plan record still refuses commit and push"],
+    ]) {
+      if (!conditionalProof.includes(needle)) {
+        E(`${CONDITIONAL_TEST_REL} no longer proves ${what}`);
+      }
+    }
+  }
+
   const testRaw = read(TEST_REL);
   if (testRaw === null) {
     E(`${TEST_REL} is missing — the floor's behaviour on the live path is no longer proven`);
@@ -223,4 +295,4 @@ if (require.main === module) {
   console.log("val-projectos-live-gate-owner-floor1a: PASS");
 }
 
-module.exports = { run, FLOOR_REL, FLOOR_REEXPORT_REL, TURN_REL, CHECKER_REL, TEST_REL, FLOOR_MEMBERS };
+module.exports = { run, FLOOR_REL, FLOOR_REEXPORT_REL, TURN_REL, CHECKER_REL, TEST_REL, CONDITIONAL_TEST_REL, FLOOR_MEMBERS };

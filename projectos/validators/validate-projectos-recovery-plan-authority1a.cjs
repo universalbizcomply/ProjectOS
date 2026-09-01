@@ -226,7 +226,17 @@ function run() {
       if (gov.isImplementerIdentity(rec.delegatedTo)) errors.push(closureRel + ": delegates closure to the implementer");
       const scope = Array.isArray(rec.delegatedScope) ? rec.delegatedScope : [];
       if (scope.length === 0) errors.push(closureRel + ": carries no scope");
-      for (const s of scope) if (s !== "phase-closure" && s !== "programme-closure" && s !== "gatekeeper-review-decisions") errors.push(closureRel + ": carries a scope it may not grant: " + String(s));
+      // THE DELEGABLE VOCABULARY, MIRRORED HERE ON PURPOSE AND KEPT NARROW. This validator is a
+      // governance engine and must not import the runtime it validates, so it carries its own list —
+      // and that duplication has now cost two amendments in a row, because a scope the owner records
+      // is refused here until this line is told about it. It is a list rather than a wildcard for the
+      // reason the runtime's is: an unrecognised scope in a committed authority record must fail, not
+      // be assumed harmless. `technical-continuation` was added in
+      // PROJECTOS-AUTOMATIC-TECHNICAL-CONTINUATION1A under the owner's "APPROVE B6 TECHNICAL
+      // DELEGATION SCOPE"; it covers ordinary governed commit, normal push and fast-forward-only
+      // integration, and it carries no closure authority and no protected action.
+      const DELEGABLE = ["phase-closure", "programme-closure", "gatekeeper-review-decisions", "technical-continuation"];
+      for (const s of scope) if (!DELEGABLE.includes(String(s))) errors.push(closureRel + ": carries a scope it may not grant: " + String(s));
       if (rec.excludesProtectedActions !== true) errors.push(closureRel + ": must state excludesProtectedActions: true");
       if (typeof rec.programmeScope !== "string" || rec.programmeScope.trim() === "") errors.push(closureRel + ": names no programmeScope, so it is not bound to a programme");
       const secrets = disc.scanSecrets(JSON.stringify(rec));

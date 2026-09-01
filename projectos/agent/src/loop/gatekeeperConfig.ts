@@ -27,8 +27,11 @@ import {
   summariseLedger,
   BUDGET_RAISE_SCOPE,
   GATEKEEPER_REVIEW_SCOPE,
+  TECHNICAL_CONTINUATION_SCOPE,
   GATEKEEPER_DECISION_SCHEMA_VERSION,
   type BudgetPolicy,
+  type DelegableScope,
+  type TechnicalDelegationState,
   type GatekeeperDecisionRecord,
   type GatekeeperTransportDescriptor,
   type GovernanceThreadBinding,
@@ -169,7 +172,22 @@ export type DelegatedDeciderResolution =
  * must carry `gatekeeper-review-decisions` — the capability actually being exercised. A record that
  * would be refused at approval is refused here, in either order.
  */
-export function resolveDelegatedDecider(sys: System, root: string, programmeId: string): DelegatedDeciderResolution {
+export function resolveDelegatedDecider(
+  sys: System,
+  root: string,
+  programmeId: string,
+  /**
+   * The capability the caller is about to exercise.
+   *
+   * DEFAULTED TO REVIEW, so every existing caller keeps exactly the behaviour it had. It is a
+   * parameter because a second capability now exists — `technical-continuation` — and the alternative
+   * was a second resolver that would have had its own idea of how to read the record. There has
+   * already been one such divergence here: before `requiredScope` existed, this function accepted any
+   * committed delegation as authorising review regardless of its actual scope, while the approval path
+   * refused the same bytes. One reader, one checker, one answer.
+   */
+  requiredScope: DelegableScope = GATEKEEPER_REVIEW_SCOPE,
+): DelegatedDeciderResolution {
   const rel = '.projectops/authority/closure-delegation.json';
   // `./` binds the read to the governed root; see the note in degradedMode.ts. This one had no
   // root-relative pre-check at all, so a nested checkout adopted the outer project's delegation —
@@ -231,7 +249,7 @@ export function resolveDelegatedDecider(sys: System, root: string, programmeId: 
       recordedOwner: owned.recordedOwner,
       isCommitted: committed,
       programmeId,
-      requiredScope: GATEKEEPER_REVIEW_SCOPE,
+      requiredScope,
     });
   } catch (error: unknown) {
     return {
@@ -253,6 +271,51 @@ export function resolveDelegatedDecider(sys: System, root: string, programmeId: 
 export function committedDelegatedDecider(sys: System, root: string, programmeId: string): string | null {
   const r = resolveDelegatedDecider(sys, root, programmeId);
   return r.ok ? r.decider : null;
+}
+
+/**
+ * The committed delegation, judged for the capability a TECHNICAL CONTINUATION needs.
+ *
+ * THIS IS THE READER THAT MAKES THE SCOPE MEAN SOMETHING. A scope written into a governance record
+ * that nothing consults is worse than no scope at all: it reads, to anyone auditing the file, as an
+ * authority that is in force. `authoriseTechnicalContinuation` requires a `TechnicalDelegationState`,
+ * and this is the only thing in the runtime that produces one — from the same committed bytes, judged
+ * by the same checker, as every other capability this record carries.
+ *
+ * `carriesTechnicalScope` is reported SEPARATELY from `problems` even though the checker already
+ * refuses a record lacking the required scope. The two say different things — "this record is not
+ * valid" and "this record is valid and grants something else" — and an operator who has delegated
+ * closure but not continuation deserves the second sentence rather than the first.
+ *
+ * Added in PROJECTOS-AUTOMATIC-TECHNICAL-CONTINUATION1A.
+ */
+export function resolveTechnicalDelegation(
+  sys: System,
+  root: string,
+  programmeId: string,
+): TechnicalDelegationState {
+  const judged = resolveDelegatedDecider(sys, root, programmeId, TECHNICAL_CONTINUATION_SCOPE);
+  if (!judged.ok) {
+    // THE SCOPE QUESTION IS ANSWERED FROM THE COMMITTED RECORD, not from the refusal text. Reading it
+    // separately means a record that is invalid for some other reason still reports its scopes
+    // truthfully, rather than being described as scopeless because it failed on a date field.
+    return { problems: judged.problems, carriesTechnicalScope: committedScopes(sys, root).includes(TECHNICAL_CONTINUATION_SCOPE), delegatedTo: '' };
+  }
+  return { problems: [], carriesTechnicalScope: true, delegatedTo: judged.decider };
+}
+
+/** The scopes the COMMITTED delegation carries, or `[]` when it cannot be read. Never the working tree. */
+function committedScopes(sys: System, root: string): readonly string[] {
+  const shown = sys.exec('git', ['-C', root, 'show', 'HEAD:./.projectops/authority/closure-delegation.json']);
+  if (shown.code !== 0 || shown.stdout.trim() === '') return [];
+  try {
+    const parsed: unknown = JSON.parse(shown.stdout);
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return [];
+    const scope = (parsed as Record<string, unknown>)['delegatedScope'];
+    return Array.isArray(scope) ? scope.map(String) : [];
+  } catch {
+    return [];
+  }
 }
 
 export interface GatekeeperConfig {

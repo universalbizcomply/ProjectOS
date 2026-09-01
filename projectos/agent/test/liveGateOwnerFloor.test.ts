@@ -202,8 +202,13 @@ describe('neither source replaces the other', () => {
 
   it('is deterministic and deduplicated when a phase restates a floor action', () => {
     // The active ProjectOS plan declares exactly the floor, so this is the real case, not a contrived one.
+    //
+    // ASSERTED AS A SET, NOT A SEQUENCE. Order was never a property of the enforced list — nothing
+    // reads it positionally, every consumer asks `includes` — and pinning it once meant the
+    // conditional-floor split failed a test for rearranging two constants while protecting exactly
+    // the same actions. Content and deduplication are what matter, so those are what is asserted.
     const restated = enforcedOwnerOnlyActions([...ALWAYS_OWNER_ONLY]);
-    expect(restated).toEqual([...ALWAYS_OWNER_ONLY]);
+    expect([...restated].sort()).toEqual([...ALWAYS_OWNER_ONLY].sort());
     expect(new Set(restated).size).toBe(restated.length);
     // Content does not depend on how many times, or in which order, the caller repeats itself.
     expect([...enforcedOwnerOnlyActions(['push', 'push', 'deploy-approval'])].sort()).toEqual(

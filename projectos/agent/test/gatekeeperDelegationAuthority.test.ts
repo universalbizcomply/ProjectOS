@@ -24,10 +24,17 @@ import { join as pjoin } from 'node:path';
 import {
   resolveDelegatedDecider,
   committedDelegatedDecider,
+  resolveTechnicalDelegation,
   loadGatekeeperConfig,
   GATEKEEPER_CONFIG_REL,
 } from '../src/loop/gatekeeperConfig.js';
-import { authoriseClosure, GATEKEEPER_REVIEW_SCOPE, CLOSURE_SCOPES, DELEGABLE_SCOPES } from '@projectos/core';
+import {
+  authoriseClosure,
+  GATEKEEPER_REVIEW_SCOPE,
+  TECHNICAL_CONTINUATION_SCOPE,
+  CLOSURE_SCOPES,
+  DELEGABLE_SCOPES,
+} from '@projectos/core';
 import { PLAN_APPROVAL_DELEGATION_SCHEMA_VERSION, checkClosureDelegationRecord } from '../src/planApproval.js';
 import type { System } from '../src/system.js';
 
@@ -474,9 +481,52 @@ describe('C11-W2-F1 — the facts a delegation is judged against must have passe
   });
 
   /** [J] The vocabularies must stay disjoint; the type-level claim is only as good as the constants. */
-  test('J the review scope is not a closure scope, and DELEGABLE_SCOPES is exactly the union', () => {
+  // The non-closure scopes stay OUT of `CLOSURE_SCOPES`, which is what stops either of them being
+  // passed as a closure scope at all — the type says so, and this says so about the values. The union
+  // grew when `technical-continuation` was added in PROJECTOS-AUTOMATIC-TECHNICAL-CONTINUATION1A;
+  // asserting it by NAME rather than by count is what made that growth visible here instead of silent.
+  /**
+   * [J2] The technical scope has a READER, and it answers about the committed record.
+   *
+   * A scope written into a governance record that nothing consults is worse than no scope: it reads,
+   * to anyone auditing the file, as an authority in force. These prove the capability is actually
+   * resolved, that a delegation granting only review does not grant it, and that a record which is
+   * invalid for some unrelated reason still reports its scopes truthfully rather than being described
+   * as scopeless.
+   */
+  test('J2 the technical-continuation scope is resolved from the committed delegation', () => {
+    const w = world();
+    w.commitDelegation(reviewDelegation({ delegatedScope: [GATEKEEPER_REVIEW_SCOPE, TECHNICAL_CONTINUATION_SCOPE] }));
+    const granted = resolveTechnicalDelegation(w.sys, w.root, PROGRAMME);
+    expect(granted.problems).toEqual([]);
+    expect(granted.carriesTechnicalScope).toBe(true);
+    expect(granted.delegatedTo).toBe(DELEGATE);
+  });
+
+  test('J2 a delegation that grants only review does not grant a technical continuation', () => {
+    const w = world();
+    w.commitDelegation(reviewDelegation({ delegatedScope: [GATEKEEPER_REVIEW_SCOPE] }));
+    const state = resolveTechnicalDelegation(w.sys, w.root, PROGRAMME);
+    expect(state.problems.join(' ')).toContain(TECHNICAL_CONTINUATION_SCOPE);
+    expect(state.carriesTechnicalScope).toBe(false);
+    expect(state.delegatedTo).toBe('');
+  });
+
+  test('J2 an uncommitted delegation grants nothing, however complete it looks', () => {
+    const w = world();
+    w.writeUncommitted(reviewDelegation({ delegatedScope: [TECHNICAL_CONTINUATION_SCOPE] }));
+    const state = resolveTechnicalDelegation(w.sys, w.root, PROGRAMME);
+    expect(state.problems.length).toBeGreaterThan(0);
+    // The working-tree copy is not consulted for the scope either.
+    expect(state.carriesTechnicalScope).toBe(false);
+  });
+
+  test('J the non-closure scopes are not closure scopes, and DELEGABLE_SCOPES is exactly the union', () => {
     expect(CLOSURE_SCOPES).not.toContain(GATEKEEPER_REVIEW_SCOPE);
-    expect([...DELEGABLE_SCOPES].sort()).toEqual([...CLOSURE_SCOPES, GATEKEEPER_REVIEW_SCOPE].sort());
+    expect(CLOSURE_SCOPES).not.toContain(TECHNICAL_CONTINUATION_SCOPE);
+    expect([...DELEGABLE_SCOPES].sort()).toEqual(
+      [...CLOSURE_SCOPES, GATEKEEPER_REVIEW_SCOPE, TECHNICAL_CONTINUATION_SCOPE].sort(),
+    );
   });
 
   /** [K] The pure validator, asked directly: an absent record grants no named capability. */

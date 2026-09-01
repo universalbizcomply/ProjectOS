@@ -47,6 +47,7 @@ import {
   checkThreadBinding,
   enforcedOwnerOnlyActions,
   estimateCostMicroUsd,
+  type TechnicalDelegationCondition,
   estimateInputTokensFromText,
   evaluateBudget,
   gatekeeperRequestDigest,
@@ -113,6 +114,24 @@ export interface GatekeeperTurnInput {
    * protected set by passing a short list, or an empty one.
    */
   readonly ownerOnlyActions: readonly string[];
+  /**
+   * Proof that this project's committed delegation grants a technical continuation, when it does.
+   *
+   * ABSENT IS THE DEFAULT AND THE SAFE ANSWER. Without it the full constitutional floor applies and
+   * this turn behaves exactly as it did before the owner's conditional decision — which is what keeps
+   * every caller that has not been told about the split restrictive rather than quietly relaxed.
+   *
+   * IT IS A CAPABILITY TOKEN, NOT A BOOLEAN. `TechnicalDelegationCondition` is branded with a symbol
+   * private to core, so it cannot be written by hand; the only production source is
+   * `resolveTechnicalDelegation`, which reads the owner's COMMITTED record through git. It is passed
+   * in rather than resolved here because this module's permitted dependencies deliberately exclude
+   * everything that touches disk or git.
+   *
+   * AND IT AUTHORISES NOTHING BY ITSELF. All it does is stop `commit` and `push` being struck out of
+   * the request before the reviewer has seen them. Whether either may then happen is still the live
+   * decision's to say, and after that the executor's whole conjunction.
+   */
+  readonly technicalDelegation?: TechnicalDelegationCondition | null;
   /** Who the approved plan says reviews. Never a caller's claim. */
   readonly expectedDecider: string;
   readonly at: string;
@@ -289,11 +308,20 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
   // Telling it a shorter list and then refusing what it proposed in good faith would be a refusal the
   // reviewer could not have avoided, and two separately-computed sets could drift into exactly that.
   //
-  // IT ONLY EVER WIDENS. `enforcedOwnerOnlyActions` is a deduplicated union, so a phase gate that is
-  // not in the floor is still enforced and a phase that restates the floor changes nothing.
+  // IT ONLY EVER WIDENS RELATIVE TO THE PHASE'S DECLARATION. `enforcedOwnerOnlyActions` is a
+  // deduplicated union, so a phase gate outside the floor is still enforced and a phase that restates
+  // the floor changes nothing.
   //
-  // Added in PROJECTOS-LIVE-GATE-OWNER-FLOOR-HARDENING1A.
-  const ownerOnlyActions = enforcedOwnerOnlyActions(input.ownerOnlyActions);
+  // THE ONE NARROWING, AND IT IS THE OWNER'S. A proven technical delegation omits `commit` and `push`
+  // — and only those two — so the reviewer may be asked about an ordinary continuation at all. The
+  // condition is a branded token, not a flag, and it is `null` unless a caller genuinely resolved one;
+  // `phaseOwnerGates` is still added afterwards, so a plan that declares `commit` keeps it owner-only
+  // regardless. Nothing absolute is reachable by this route: production, payments, sends, credentials
+  // and closure are in `ABSOLUTE_OWNER_ONLY`, which no argument to that function can subtract from.
+  //
+  // Added in PROJECTOS-LIVE-GATE-OWNER-FLOOR-HARDENING1A; made conditional in
+  // PROJECTOS-AUTOMATIC-TECHNICAL-CONTINUATION1A under "APPROVE B6 CONDITIONAL TECHNICAL FLOOR".
+  const ownerOnlyActions = enforcedOwnerOnlyActions(input.ownerOnlyActions, input.technicalDelegation ?? null);
 
   // 2. IDENTIFY THE REQUEST DETERMINISTICALLY.
   const ask = STOP_ASKS[input.stop.code];

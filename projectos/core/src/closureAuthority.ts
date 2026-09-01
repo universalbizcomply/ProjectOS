@@ -47,10 +47,44 @@ export const CLOSURE_SCOPES: readonly ClosureScope[] = ['phase-closure', 'progra
  */
 export const GATEKEEPER_REVIEW_SCOPE = 'gatekeeper-review-decisions';
 
-/** Every scope an owner may put in a delegation record. One vocabulary, one place. */
-export type DelegableScope = ClosureScope | typeof GATEKEEPER_REVIEW_SCOPE;
+/**
+ * Carrying out an ordinary TECHNICAL continuation, which is neither closing nor reviewing.
+ *
+ * WHY A THIRD WORD, for the same reason there was a second. Reviewing decides whether work is sound;
+ * closing decides that a phase is finished. Neither of them is "commit these reviewed bytes and push
+ * the branch" — and until this existed, a project that wanted that had nothing to ask for. The
+ * previous phase established that the alternative vehicle, a `governance.technicalDelegation` block
+ * in the plan, cannot work: the plan schema forbids unknown governance keys, `materialisePlan` writes
+ * a fixed literal, and every activated record's own approval evidence asserts that governance was
+ * carried forward unchanged. A delegation record is where a capability is granted in this project,
+ * and this is that capability's name.
+ *
+ * WHAT IT DELIBERATELY CANNOT DO. It is not a `ClosureScope` and the type says so, so it can never be
+ * passed as `ClosureAuthorityInput.scope`: a delegation carrying only this one closes nothing, and
+ * closure keeps travelling through `closureDelegation` and the delegated phase advance exactly as
+ * before. It approves no plan, accepts no risk, and authorises no protected effect.
+ *
+ * AND IT IS NOT, BY ITSELF, PERMISSION TO ACT. It says this CLASS of authority may be delegated to
+ * the gatekeeper for this project and programme. Which action is actually performed still comes from
+ * a live checked decision's `allowedActions`, and what ProjectOS is technically capable of performing
+ * is a closed dispatcher. Those are three separate questions and all three must answer yes.
+ *
+ * Added in PROJECTOS-AUTOMATIC-TECHNICAL-CONTINUATION1A under the owner's explicit approval,
+ * "APPROVE B6 TECHNICAL DELEGATION SCOPE".
+ */
+export const TECHNICAL_CONTINUATION_SCOPE = 'technical-continuation';
 
-export const DELEGABLE_SCOPES: readonly DelegableScope[] = [...CLOSURE_SCOPES, GATEKEEPER_REVIEW_SCOPE];
+/** Every scope an owner may put in a delegation record. One vocabulary, one place. */
+export type DelegableScope =
+  | ClosureScope
+  | typeof GATEKEEPER_REVIEW_SCOPE
+  | typeof TECHNICAL_CONTINUATION_SCOPE;
+
+export const DELEGABLE_SCOPES: readonly DelegableScope[] = [
+  ...CLOSURE_SCOPES,
+  GATEKEEPER_REVIEW_SCOPE,
+  TECHNICAL_CONTINUATION_SCOPE,
+];
 
 /** The `governance.closureDelegation` record, as recorded in an approved plan. */
 export interface ClosureDelegation {

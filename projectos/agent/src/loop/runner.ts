@@ -24,6 +24,8 @@
 import type { System } from '../system.js';
 import { loadGovernedContext, refusalLines, type GovernedContext } from '../governedContext.js';
 import { verifyExecutionContext } from './observation.js';
+import { computeCandidateIdentity } from './candidateIdentity.js';
+import { resolveTechnicalDelegation } from './gatekeeperConfig.js';
 import { selectNextPhase, selectionStopLines } from './selection.js';
 import { buildWorkerBrief, briefProvenanceProblems, type WorkerBrief } from './brief.js';
 import {
@@ -46,6 +48,7 @@ import {
 } from './outcome.js';
 import type { WorkState } from './workRecord.js';
 import { takeGatekeeperTurn, type GatekeeperTurnDeps } from './gatekeeperTurn.js';
+import { technicalDelegationCondition } from '@projectos/core';
 import type { DurableBinding } from './degradedMode.js';
 import {
   authorityWrapper,
@@ -268,8 +271,30 @@ function scopeImplementationPaths(context: GovernedContext, phaseId: string): re
   return typeof scope === 'string' ? pathsNamedIn(scope) : [];
 }
 
+/**
+ * The programme the active approved plan declares, or `''` when it declares none.
+ *
+ * A DELEGATION IS PROGRAMME-SCOPED, so resolving one needs this. An empty string is deliberately not
+ * a wildcard: `checkClosureDelegationRecord` compares it against the record's `programmeScope` and
+ * refuses a mismatch, so a plan without a programme resolves no delegation at all rather than matching
+ * every one.
+ */
+function programmeIdOf(context: GovernedContext): string {
+  const id = context.plan['programmeId'];
+  return typeof id === 'string' ? id.trim() : '';
+}
+
 /** How much of a failing check's output the reviewer is shown. Enough to locate a failure, bounded. */
 const CHECK_OUTPUT_TAIL = 4000;
+
+/**
+ * How many candidate paths the reviewer is shown by name.
+ *
+ * The DIGEST covers every one of them, so this bounds the prompt and not the binding. Enough to see
+ * the shape of an ordinary phase's change set; a larger one is summarised by count rather than
+ * enumerated into a paid call.
+ */
+const CANDIDATE_ENTRIES_SHOWN = 200;
 
 /**
  * What ended the attempt, in the loop's own stop vocabulary, or `null` when nothing did.
@@ -683,6 +708,21 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
         repositoryRoot: root,
         evidenceText,
         ownerOnlyActions: options.ownerOnlyActions ?? brief.phase.requiredOwnerGates,
+        // THE OWNER'S CONDITIONAL TECHNICAL DELEGATION, RESOLVED FROM THE COMMITTED RECORD.
+        //
+        // Null whenever this project has not recorded one, or has recorded one that does not carry
+        // `technical-continuation`, or has recorded one that is not valid — so the default is the full
+        // constitutional floor and no reviewer is ever asked about a continuation this project has not
+        // delegated. It is minted from the delegation state and cannot be written by hand.
+        //
+        // SUPPLYING IT DOES NOT MAKE THIS LIVE. `ownerOnlyActions` above still carries the phase's own
+        // `requiredOwnerGates`, and the active plan declares `commit` and `push` among them, so both
+        // remain owner-only for this project until the owner amends that plan. What this line changes
+        // is only that a project which HAS delegated, and whose plan does not separately gate the
+        // action, can have the question put to its reviewer at all.
+        technicalDelegation: technicalDelegationCondition(
+          resolveTechnicalDelegation(sys, root, programmeIdOf(context)),
+        ),
         expectedDecider: options.expectedDecider ?? '',
         at: sys.now(),
       },
@@ -775,6 +815,33 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
    */
   type EvidencePart<T> = { readonly available: true; readonly value: T } | { readonly available: false; readonly why: string };
   const unavailable = (why: string): EvidencePart<never> => ({ available: false, why });
+  /**
+   * The candidate, named for the reviewer, or the reason it could not be named.
+   *
+   * Recomputed per question rather than captured once: two stops in one run are two questions, and the
+   * second is about whatever the checkout holds when it is asked.
+   */
+  const candidateEvidence = (): Record<string, unknown> => {
+    const c = computeCandidateIdentity(sys, root);
+    if (!c.ok) return { available: false, why: c.problems.join('; ') };
+    // THE DIGEST IS THE BINDING; THE ENTRIES ARE FOR THE READER, AND THEY ARE BOUNDED.
+    //
+    // The digest is taken over EVERY entry, so showing fewer of them weakens nothing — a candidate of
+    // a thousand files still has exactly one digest and any change to any of them changes it. What an
+    // unbounded list would change is the size of a PAID prompt: this text is what the estimator prices
+    // and what the provider is billed for, and a large phase could quietly make one governance call
+    // cost several times what the reviewer needed. The same reasoning bounds a failing check's output.
+    const shown = c.identity.entries.slice(0, CANDIDATE_ENTRIES_SHOWN);
+    return {
+      available: true,
+      digest: c.identity.digest,
+      pathCount: c.identity.entries.length,
+      entries: shown,
+      ...(shown.length === c.identity.entries.length
+        ? {}
+        : { note: `${c.identity.entries.length - shown.length} further path(s) are covered by the digest and not listed` }),
+    };
+  };
   const evidenceFor = (
     reason: LoopStop,
     parts: {
@@ -814,6 +881,25 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
         workerReview: f.available ? { reviewsRecorded: f.value.reviews, findings: f.value.findings } : f,
         effects: parts.effects.available ? parts.effects.value : parts.effects,
         attemptsSpent: attempts,
+        // THE EXACT BYTES THIS ANSWER IS ABOUT.
+        //
+        // A decision binds project, phase, `subjectCommit` and `requestDigest` — and `subjectCommit`
+        // is HEAD, the BASE the work sits on. The work itself is uncommitted, so until this line the
+        // reviewer was shown failing checks, findings and effects and nothing whatever about the
+        // candidate: not a diff, not a changed-path list, not a digest. An approval to commit was
+        // therefore an approval of bytes the reviewer had provably never seen, and drift after the
+        // answer was undetectable by construction rather than merely unchecked.
+        //
+        // PUT INSIDE THE EVIDENCE RATHER THAN ADDED AS A FIFTH BINDING. This text's digest is one of
+        // `evidenceDigests`, which `gatekeeperRequestDigest` covers, which the decision must match —
+        // so a decision that passed its check is already a decision about these bytes, through
+        // machinery that was already load-bearing. A new field on the request would have been a
+        // gate-contract redesign to obtain a property the contract could already carry.
+        //
+        // A FAILURE TO NAME IT IS REPORTED AS SUCH, never omitted: a missing key would silently
+        // restore the old, unbound question, and every later comparison would have nothing to
+        // compare against.
+        candidate: candidateEvidence(),
       },
       null,
       1,
