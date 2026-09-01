@@ -152,4 +152,78 @@ Acceptance criteria:
 - Reviews cover prompt injection across the model boundary and across the owner interface, evidence poisoning, cross-project leakage, stale decision replay, subject drift, credential leakage, model escalation abuse, cost runaway, duplicate calls after restart, self-approval, override replay, degraded-mode escalation, reconciliation bypass and any direct gatekeeper-to-Claude bypass, with unresolved CRITICAL and HIGH at zero
 Required validators: validate-all
 Required reviews: code-review, security-review
-Owner gates: commit, push, phase-closure, secrets-handling, payment-or-live-charge
+Owner gates: secrets-handling, payment-or-live-charge
+
+### PROJECTOS-AUTOMATIC-TECHNICAL-CONTINUATION1A — Carry out the technical continuation a decision authorises
+
+Purpose: Let ProjectOS perform the ordinary technical continuation an already-checked live gatekeeper decision authorises, so the owner no longer has to carry commit, push and integration by hand once the reviewer has answered.
+Scope: A closed technical action vocabulary, a deterministic candidate-byte identity bound transitively through the existing gatekeeper request digest, an owner-recorded technical-continuation delegation scope with its reader, a conditional owner-only floor separating absolutely protected actions from ordinary source-control ones, a bounded executor for commit, ordinary push and fast-forward-only integration, and the wiring that reaches it from the canonical run loop. It introduces no second gatekeeper, no second executor, no second closure mechanism and no arbitrary command execution.
+Depends on: PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A
+Risk: high
+Autonomy: gated-execution
+Browser proof: no
+Acceptance criteria:
+- A technical continuation requires all of a live decision that passed checkGatekeeperDecision, a valid committed delegation carrying the technical-continuation scope, that decision naming the action, and the action being one of a closed set ProjectOS can perform; no subset is sufficient and an unknown action is refused rather than attempted
+- The exact bytes a commit would record are named deterministically and bound to the evidence the gatekeeper read, so a decision is about those bytes; a one-byte change, a file added, a file removed, a rename or a changed candidate boundary after the decision each prevent the commit
+- The candidate identity is re-derived immediately before acting, after any network reconciliation, and a difference stops the action
+- Operational parameters come from governed runtime context only; no command, argument, flag, branch, remote or refspec may arrive from model text, worker output, a checkpoint or a stored record
+- Force push, force-with-lease, arbitrary refspecs, tags, releases, ref deletion, rebase, amend, reset and shell execution are not expressible by the executor
+- Absolutely protected actions never yield to a technical delegation, and ordinary commit and push yield only to a proven one; the default with no delegation supplied remains the full owner-only floor
+- Degraded mode never yields commit or push, because continuing without a reviewer is the state the floor exists for
+- A phase that declares commit or push among its own required owner gates keeps them owner-only regardless of any delegation
+- Persisted decision evidence, the work checkpoint and implementer text authorise nothing, and no reader turns any of them into permission
+- An ordinary continuation is proven end to end against a disposable repository and a local bare remote: reviewed candidate, checked decision, bounded commit, ordinary push, local and origin reconciled
+- Candidate drift after approval and a protected action requested under an otherwise complete conjunction are each proven refused
+Required validators: validate-all
+Required reviews: code-review, security-review
+Owner gates: secrets-handling, payment-or-live-charge
+
+### PROJECTOS-OWNER-ESCALATION-WAIT1A — Wait for the owner durably, and resume safely
+
+Purpose: Let ProjectOS stop for an owner decision and resume from it without losing what it knew, so a protected question does not end the work and a returning owner does not restart it.
+Scope: Durable owner-wait state, the escalation record that names what is being asked and why, and the safe resume that continues from it. No new authority, no new executor and no relaxation of any protected action.
+Depends on: PROJECTOS-AUTOMATIC-TECHNICAL-CONTINUATION1A
+Risk: medium
+Autonomy: gated-execution
+Browser proof: no
+Acceptance criteria:
+- A run that stops for the owner records what was asked, at which commit, and what would follow each answer
+- Resuming continues from the recorded position without replaying a decision, a worker run, a commit or a cost entry
+- An owner wait never becomes an approval by elapsing, and no default answer is inferred from silence
+- Protected actions remain owner-only throughout
+Required validators: validate-all
+Required reviews: code-review, security-review
+Owner gates: secrets-handling, payment-or-live-charge
+
+### PROJECTOS-SESSION-RECOVERY1A — Reconcile what actually happened after a crash
+
+Purpose: Let ProjectOS establish the truth about an interrupted run from the repository and its own records, so a crash leaves a question it can answer rather than a state nobody can trust.
+Scope: Startup reconciliation of the work checkpoint against real git and project state, orphaned-run detection, and the decision about the configured-check timeout carried forward from the worker-lifecycle work. It owns restart recovery; earlier phases deliberately do not.
+Depends on: PROJECTOS-AUTOMATIC-TECHNICAL-CONTINUATION1A
+Risk: medium
+Autonomy: gated-execution
+Browser proof: no
+Acceptance criteria:
+- Startup establishes from git and the governed records what the previous run actually completed, rather than believing a checkpoint
+- A historical decision is never replayed as authority after a restart; a fresh gate is required where one is needed
+- An interrupted run is reported truthfully, including the cases where the answer is that it cannot be determined
+- The unbounded configured-check timeout carried forward from the worker-lifecycle phase is decided and recorded
+Required validators: validate-all
+Required reviews: code-review, security-review
+Owner gates: secrets-handling, payment-or-live-charge
+
+### PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A — Prove one bounded self-change without a human relay
+
+Purpose: Prove that ProjectOS can carry one bounded change to itself from objective to pushed result without the owner relaying anything between Claude and the gatekeeper.
+Scope: One real bounded self-change exercised through the existing loop, gate, delegation and continuation machinery, with its evidence. It builds no new mechanism.
+Depends on: PROJECTOS-OWNER-ESCALATION-WAIT1A, PROJECTOS-SESSION-RECOVERY1A
+Risk: high
+Autonomy: gated-execution
+Browser proof: no
+Acceptance criteria:
+- One bounded change to ProjectOS itself is carried from objective to pushed result with the owner performing zero relay between the reviewer and the implementer
+- Every protected action encountered stops for the owner rather than proceeding
+- The run's account of what it did matches what the repository shows
+Required validators: validate-all
+Required reviews: code-review, security-review
+Owner gates: secrets-handling, payment-or-live-charge
