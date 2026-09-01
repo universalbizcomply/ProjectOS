@@ -337,7 +337,32 @@ function run() {
     E("projectos/agent/src/loop/runner.ts no longer binds the continuation to the candidate the reviewer saw");
   }
 
-  // 14. THE BEHAVIOUR IS PROVEN, NOT ONLY SHAPED.
+  // 14. A REFUSED CONTINUATION LEAVES THE RUN BLOCKED, NEVER COMPLETE.
+  //
+  //     Raised HIGH by gatekeeper review of the wiring commit. `runContinuation` returned `void`, so
+  //     a refusal — a drifted candidate, a moved remote, a rejected push — was logged and then
+  //     vanished: no stop was established, the loop exited with `stop === null`, and the durable work
+  //     state was written COMPLETE for a phase whose commit had just been refused. The record and the
+  //     repository disagreed, and the record was the optimistic one.
+  if (!/type ContinuationResult =/.test(loopRunner)) {
+    E(
+      "projectos/agent/src/loop/runner.ts no longer types the continuation's outcome — a void return " +
+        "cannot tell a refusal from a success, and the run reports COMPLETE for both",
+    );
+  }
+  if (!/if \(continued\.kind !== 'APPLIED'\) \{\s*stop = \{ code: 'CONTINUATION_READY', detail: continued\.detail \};/.test(loopRunner)) {
+    E(
+      "projectos/agent/src/loop/runner.ts no longer establishes a standing stop when the technical " +
+        "continuation did not happen — the durable work state would say COMPLETE for a refused commit",
+    );
+  }
+  // The state itself is still derived from whether a stop stands, which is what makes the line above
+  // load-bearing rather than decorative.
+  if (!/state: stop === null \? 'COMPLETE' : 'BLOCKED'/.test(loopRunner)) {
+    E("projectos/agent/src/loop/runner.ts no longer derives the final work state from the standing stop");
+  }
+
+  // 15. THE BEHAVIOUR IS PROVEN, NOT ONLY SHAPED.
   for (const rel of TESTS) {
     if (read(rel) === null) E(`${rel} is missing — the continuation's behaviour is no longer proven`);
   }

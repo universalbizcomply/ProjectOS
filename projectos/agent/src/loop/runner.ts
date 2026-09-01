@@ -290,6 +290,25 @@ function programmeIdOf(context: GovernedContext): string {
   return typeof id === 'string' ? id.trim() : '';
 }
 
+/**
+ * What a technical continuation actually did, so the run can say so truthfully.
+ *
+ * IT RETURNED `void`, AND THAT WAS A HIGH FINDING. A refusal — a candidate that drifted, a remote
+ * that moved, a rejected push — was logged and then vanished: no stop was established, the loop
+ * exited with `stop === null`, and the durable work state was written as COMPLETE. So the executor
+ * could refuse correctly and the record could still say the phase had finished, which is the exact
+ * class of untruth this programme's checkpoint exists to prevent.
+ *
+ * `NO_ACTION` IS NOT SUCCESS EITHER. Reaching an approved success stop and then performing nothing —
+ * because the decision named no action this runtime performs, or because the facts it needed never
+ * arrived — is a run that did not do what it was approved to do. It fails towards BLOCKED, which is
+ * the same direction every other classification in this loop fails.
+ */
+type ContinuationResult =
+  | { readonly kind: 'APPLIED' }
+  | { readonly kind: 'REFUSED'; readonly detail: string }
+  | { readonly kind: 'NO_ACTION'; readonly detail: string };
+
 /** How much of a failing check's output the reviewer is shown. Enough to locate a failure, bounded. */
 const CHECK_OUTPUT_TAIL = 4000;
 
@@ -936,10 +955,11 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
    * from the COMMITTED record, the candidate the reviewer was shown — and hands them to the executor
    * pushed at cc324a7. Every refusal below is the executor's, reported rather than interpreted.
    */
-  const runContinuation = (): void => {
+  const runContinuation = (): ContinuationResult => {
     if (acceptedDecision === null || reviewedCandidate === null) {
-      lines.push('  no technical continuation: no accepted decision, or no candidate was named for it');
-      return;
+      const detail = 'the continuation was approved but no accepted decision, or no named candidate, reached it';
+      lines.push(`  no technical continuation: ${detail}`);
+      return { kind: 'NO_ACTION', detail };
     }
     const programmeId = programmeIdOf(context);
     const delegation = resolveTechnicalDelegation(sys, root, programmeId);
@@ -948,8 +968,9 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     const repository = (context.plan['repository'] as Record<string, unknown> | undefined) ?? {};
     const expectedBranch = typeof repository['planSourceBranch'] === 'string' ? repository['planSourceBranch'] : '';
     if (expectedBranch === '') {
-      lines.push('  no technical continuation: the approved plan names no branch for this work');
-      return;
+      const detail = 'the approved plan names no branch for this work, so no continuation could be attempted';
+      lines.push(`  no technical continuation: ${detail}`);
+      return { kind: 'NO_ACTION', detail };
     }
 
     // THE ACTIONS THE DECISION APPROVED, in the fixed order the executor proved. A decision approving
@@ -957,8 +978,11 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     // refusal. `APPROVED_TO_PROCEED` is not a licence to keep going.
     const approved = TECHNICAL_ACTIONS.filter((a: string) => acceptedDecision!.allowedActions.includes(a));
     if (approved.length === 0) {
-      lines.push('  the decision approved no technical action, so none was taken');
-      return;
+      const detail =
+        `the decision approved no technical action ProjectOS performs ` +
+        `[${acceptedDecision.allowedActions.join(', ') || 'nothing'}], so no continuation happened`;
+      lines.push(`  ${detail}`);
+      return { kind: 'NO_ACTION', detail };
     }
 
     for (const action of approved) {
@@ -992,7 +1016,7 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
         lines.push(...outcome.reasons.map((r) => `    ${r}`));
         // A refusal ends the sequence. The next action was authorised for a world that no longer
         // holds, and attempting it would be acting on a stale judgement.
-        return;
+        return { kind: 'REFUSED', detail: `'${action}' was refused: ${outcome.reasons[0] ?? 'no reason given'}` };
       }
       lines.push(`  ${outcome.result}`);
       options.onWorkState?.({
@@ -1009,11 +1033,13 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
       acceptedDecision = { ...acceptedDecision, subjectCommit: outcome.head };
       const after = computeCandidateIdentity(sys, root);
       if (!after.ok) {
-        lines.push('  the candidate could not be re-named after the action; the sequence stops here');
-        return;
+        const detail = 'the candidate could not be re-named after the action, so the sequence stopped part-way';
+        lines.push(`  ${detail}`);
+        return { kind: 'REFUSED', detail };
       }
       reviewedCandidate = after.identity;
     }
+    return { kind: 'APPLIED' };
   };
 
   const applyReviewerAnswer = (reason: LoopStop, evidenceText: string): 'continue' | 'break' | 'proceed' => {
@@ -1281,7 +1307,15 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
       // phase, HEAD, branch, remote, owner-only floor — and re-derives the candidate again after
       // fetching. This code cannot make any of that pass; it can only ask.
       if (answered === 'proceed' && decision.reason.code === 'CONTINUATION_READY') {
-        runContinuation();
+        const continued = runContinuation();
+        // A CONTINUATION THAT DID NOT HAPPEN LEAVES THE RUN STOPPED, not finished. Without this the
+        // run ended with no stop, and the durable work state said COMPLETE for a phase whose commit
+        // was refused. The stop is the SAME one the reviewer answered — the continuation is still
+        // outstanding, which is precisely what `CONTINUATION_READY` means — carrying the refusal so
+        // the record says why rather than merely that.
+        if (continued.kind !== 'APPLIED') {
+          stop = { code: 'CONTINUATION_READY', detail: continued.detail };
+        }
       }
       break;
     }

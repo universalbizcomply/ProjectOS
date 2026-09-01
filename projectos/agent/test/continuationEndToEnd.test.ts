@@ -293,13 +293,28 @@ function gatekeeperDeps(root: string, allowedActions: readonly string[], sent: s
 }
 
 /** The stop the loop actually reached, from its own reported outcome. */
-function run(sys: System, w: World, adapters: AdapterRegistry, allowedActions: readonly string[], sent: string[] = []) {
+function run(
+  sys: System,
+  w: World,
+  adapters: AdapterRegistry,
+  allowedActions: readonly string[],
+  sent: string[] = [],
+  states: string[] = [],
+) {
   return runLoop(sys, w.root, {
     adapters,
     expectedDecider: DELEGATE,
     gatekeeper: gatekeeperDeps(w.root, allowedActions, sent) as never,
+    onWorkState: (p: { state: string }) => {
+      states.push(p.state);
+    },
     invocation: { pid: 4242, ppid: 1717, argv: ['node', 'projectos.js', 'run', '--execute'], cwd: w.root },
   });
+}
+
+/** The LAST durable work state a run reported — what an operator and B8 would later read. */
+function finalState(states: readonly string[]): string {
+  return states.length === 0 ? '(none)' : String(states[states.length - 1]);
 }
 
 describe('the governed chain, end to end', () => {
@@ -319,8 +334,12 @@ describe('the governed chain, end to end', () => {
     session = String((first as { sessionId?: string }).sessionId ?? '');
     expect(session).not.toBe('');
 
-    const r = run(sys, w, adapters, ['commit', 'push'], sent);
+    const states: string[] = [];
+    const r = run(sys, w, adapters, ['commit', 'push'], sent, states);
     expect(r.ok).toBe(true);
+    // A CONTINUATION THAT HAPPENED IS COMPLETE, and the durable record says so.
+    expect(r.stop).toBeNull();
+    expect(finalState(states)).toBe('COMPLETE');
 
     // THE REVIEWER WAS ASKED, and asked about the success stop rather than a failure.
     expect(sent.length).toBeGreaterThan(0);
@@ -363,18 +382,80 @@ describe('the governed chain, end to end', () => {
         },
       },
     };
+    const states: string[] = [];
     const r = runLoop(sys, w.root, {
       adapters,
       expectedDecider: DELEGATE,
       gatekeeper: drifting as never,
+      onWorkState: (p: { state: string }) => {
+        states.push(p.state);
+      },
       invocation: { pid: 4242, ppid: 1717, argv: ['node', 'projectos.js', 'run', '--execute'], cwd: w.root },
     });
     expect(r.ok).toBe(true);
+    // THE HIGH FINDING. A refused continuation used to leave `stop` null, so the durable state was
+    // written COMPLETE for a phase whose commit had just been refused. The refusal is now a standing
+    // stop, and it carries its reason rather than merely its existence.
+    expect(finalState(states)).toBe('BLOCKED');
+    expect(r.stop?.code).toBe('CONTINUATION_READY');
+    expect(String(r.stop?.detail)).toContain('refused');
 
     // NOTHING WAS COMMITTED, and the run says why.
     expect(git(w.root, 'rev-parse', 'HEAD').trim()).toBe(w.head);
     expect(git(w.root, 'status', '--porcelain').trim()).not.toBe('');
     expect(r.lines.join('\n')).toContain('the candidate changed after the gatekeeper reviewed it');
+  });
+
+  it('NEGATIVE (remote moved): a push that cannot land leaves the run BLOCKED, not COMPLETE', () => {
+    const sys = fixedClock();
+    const w = world();
+    const sent: string[] = [];
+    const states: string[] = [];
+    let session = '';
+    const adapters = adapterWriting(w.root, () => session, () => {
+      writeFileSync(join(w.root, 'delivered.txt'), 'the work');
+    });
+    const first = runLoop(sys, w.root, { dryRun: true, adapters, invocation: { pid: 4242, ppid: 1717, argv: ['node'], cwd: w.root } });
+    session = String((first as { sessionId?: string }).sessionId ?? '');
+
+    // SOMEBODY ELSE MOVES ORIGIN while the reviewer is answering. The executor reconciles with the
+    // remote before acting and refuses, safely — and the point of this test is what the RECORD then
+    // says. Before the correction it said COMPLETE.
+    const other = mkdtempSync(join(tmpdir(), 'projectos-e2e-other-'));
+    made.push(other);
+    const deps = gatekeeperDeps(w.root, ['commit', 'push'], sent);
+    const moving = {
+      ...deps,
+      http: {
+        post(req: { body: string }) {
+          sent.push(req.body);
+          execFileSync(GIT, ['clone', '--quiet', w.origin, other], { stdio: 'pipe' });
+          git(other, 'config', 'user.email', 'other@example.invalid');
+          git(other, 'config', 'user.name', 'Other');
+          writeFileSync(join(other, 'theirs.txt'), 'theirs');
+          git(other, 'add', '--', 'theirs.txt');
+          git(other, 'commit', '--quiet', '-m', 'theirs');
+          git(other, 'push', '--quiet', 'origin', `${BRANCH}:${BRANCH}`);
+          return { kind: 'response', status: 200, body: decisionBody(['commit', 'push']) } as const;
+        },
+      },
+    };
+    const r = runLoop(sys, w.root, {
+      adapters,
+      expectedDecider: DELEGATE,
+      gatekeeper: moving as never,
+      onWorkState: (p: { state: string }) => {
+        states.push(p.state);
+      },
+      invocation: { pid: 4242, ppid: 1717, argv: ['node', 'projectos.js', 'run', '--execute'], cwd: w.root },
+    });
+    expect(r.ok).toBe(true);
+    expect(finalState(states)).toBe('BLOCKED');
+    expect(r.stop?.code).toBe('CONTINUATION_READY');
+    expect(r.lines.join('\n')).toContain('has moved on by');
+    // Nothing was committed, and the work is still sitting there.
+    expect(git(w.root, 'rev-parse', 'HEAD').trim()).toBe(w.head);
+    expect(git(w.root, 'status', '--porcelain').trim()).not.toBe('');
   });
 
   it('NEGATIVE (protected): an approved protected action never reaches the executor', () => {
@@ -392,8 +473,10 @@ describe('the governed chain, end to end', () => {
     // layer EARLIER than the executor: `checkGatekeeperDecision` rejects the whole record, because a
     // decision granting an owner-only action is not a usable decision at all. No verdict is applied,
     // so the continuation is never reached.
-    const r = run(sys, w, adapters, ['production-deploy', 'payment-or-live-charge'], sent);
+    const states: string[] = [];
+    const r = run(sys, w, adapters, ['production-deploy', 'payment-or-live-charge'], sent, states);
     expect(r.ok).toBe(true);
+    expect(finalState(states)).toBe('BLOCKED');
     const trace = r.lines.join('\n');
     expect(trace).toContain('the gatekeeper decision did not pass its own checks, so no verdict was applied');
     expect(trace).toContain("decision grants 'payment-or-live-charge', which is an owner-only action");
@@ -416,9 +499,13 @@ describe('the governed chain, end to end', () => {
     // decision is well formed and the verdict IS applied — and the continuation still refuses it,
     // because it is not one of the three actions ProjectOS can perform. Proving this separately
     // matters: otherwise the protected-action guarantee would rest on the first barrier alone.
-    const r = run(sys, w, adapters, ['production-deploy'], sent);
+    const states: string[] = [];
+    const r = run(sys, w, adapters, ['production-deploy'], sent, states);
     expect(r.ok).toBe(true);
-    expect(r.lines.join('\n')).toContain('approved no technical action');
+    // APPROVED TO PROCEED, AND NOTHING PERFORMED. That is not a finished phase either.
+    expect(finalState(states)).toBe('BLOCKED');
+    expect(r.stop?.code).toBe('CONTINUATION_READY');
+    expect(r.lines.join('\n')).toContain('no technical action ProjectOS performs');
     expect(git(w.root, 'rev-parse', 'HEAD').trim()).toBe(w.head);
     expect(git(w.root, 'status', '--porcelain').trim()).not.toBe('');
   });
