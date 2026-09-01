@@ -41,6 +41,7 @@ import {
 import {
   checkDegradedModeGrant,
   degradedWorkRemaining,
+  enforcedOwnerOnlyActions,
   reconciliationState,
   type DegradedModeGrant,
   type DegradedWorkItem,
@@ -483,25 +484,18 @@ export interface DegradedAuthorisation {
 /**
  * Actions degraded mode may never carry, whatever any list says.
  *
- * A FLOOR, NOT THE LIST. The owner-only set is otherwise plan-derived (`requiredOwnerGates`) or
- * caller-supplied, and both can legitimately be empty — an authoring omission, or a caller passing
- * `[]` explicitly, which `??` does not treat as absent because an empty array is not nullish. Either
- * would have made "a grant may never authorise a protected action" vacuously true for that phase.
- * These five are the ones whose whole purpose is that a human decided, so they are refused here
- * regardless of what the phase remembered to declare. Raised as MEDIUM by adversarial review.
+ * RE-EXPORTED, NOT DECLARED — the definition moved to `@projectos/core`'s `ownerOnlyActions.ts` in
+ * PROJECTOS-LIVE-GATE-OWNER-FLOOR-HARDENING1A. It was written here first, and for as long as it lived
+ * here it protected only the paths that imported this module: degraded mode and `reconcile` applied
+ * it, and the live gatekeeper turn did not, because `gatekeeperTurn.ts` has a deliberately narrow
+ * permitted-dependency list that this module is not on — and correctly so, since this file reaches
+ * disk, git and the installation ledger. Widening that list to reach a five-element constant would
+ * have traded an architectural boundary for a convenience.
+ *
+ * The names stay exactly where every existing caller already expects them, so nothing that imported
+ * them from here has to change, and there is still exactly one definition.
  */
-export const ALWAYS_OWNER_ONLY = [
-  'commit',
-  'push',
-  'phase-closure',
-  'secrets-handling',
-  'payment-or-live-charge',
-] as const;
-
-/** The owner-only set actually enforced: whatever was declared, plus the floor that never moves. */
-export function enforcedOwnerOnlyActions(declared: readonly string[]): readonly string[] {
-  return [...new Set([...ALWAYS_OWNER_ONLY, ...declared])];
-}
+export { ALWAYS_OWNER_ONLY, enforcedOwnerOnlyActions } from '@projectos/core';
 
 /**
  * Where the AUTHORITATIVE record of degraded spending lives, and whose it is.

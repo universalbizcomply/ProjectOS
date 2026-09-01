@@ -81,6 +81,12 @@ describe('the two tiers', () => {
       'plan-authoring',
       'security-review',
       'worker-refusal',
+      // ADDED WITH THE BOUNDED WORKER ATTEMPT (PROJECTOS-WORKER-CHANNEL-HARDENING1A). A run that was
+      // ended is not a run that refused, and pricing it as `worker-refusal` would have recorded, in
+      // every ledger entry, that a worker said something it never said. The source classified it and
+      // this pinned list was not updated with it — which is exactly the drift this assertion exists
+      // to catch, so it is corrected here rather than loosened.
+      'worker-timeout',
     ]);
   });
 

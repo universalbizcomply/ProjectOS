@@ -25,10 +25,18 @@
  *      the runtime established, and `applyVerdictToStop` receives the checked record together with
  *      that judgement, so a verdict cannot be applied without it.
  *
+ * THE PROTECTED SET IS DERIVED HERE, NOT RECEIVED. Between routing and the request, the phase's
+ * declared owner gates are unioned with the constitutional `ALWAYS_OWNER_ONLY` floor, and that one
+ * set is both what the reviewer is told and what its answer is judged against. Before this, the turn
+ * used `brief.phase.requiredOwnerGates` verbatim and the floor was applied only in degraded mode and
+ * `reconcile` — so a phase that forgot to declare `push` made `push` grantable, and no floor stood in
+ * the way. A protection that exists but does not cover the live path is not a protection.
+ *
  * WHAT THIS MODULE NEVER DOES: decide anything itself, retry a transport, hold a secret, or turn an
  * absent answer into a permissive one.
  *
  * Created in PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A.
+ * Owner-only floor added in PROJECTOS-LIVE-GATE-OWNER-FLOOR-HARDENING1A.
  */
 import { createHash } from 'node:crypto';
 import {
@@ -37,6 +45,7 @@ import {
   authoriseRequestSpend,
   checkGatekeeperDecision,
   checkThreadBinding,
+  enforcedOwnerOnlyActions,
   estimateCostMicroUsd,
   estimateInputTokensFromText,
   evaluateBudget,
@@ -96,6 +105,13 @@ export interface GatekeeperTurnInput {
   readonly repositoryRoot: string;
   /** The evidence the reviewer reads. Its digest binds the request. */
   readonly evidenceText: string;
+  /**
+   * The owner-only actions THIS PHASE declares, from the approved plan's `requiredOwnerGates`.
+   *
+   * NOT the set that is enforced. The constitutional floor is added to it inside the turn — see
+   * `enforcedOwnerOnlyActions` at the top of `takeGatekeeperTurn` — so a caller cannot narrow the
+   * protected set by passing a short list, or an empty one.
+   */
   readonly ownerOnlyActions: readonly string[];
   /** Who the approved plan says reviews. Never a caller's claim. */
   readonly expectedDecider: string;
@@ -258,6 +274,27 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
     };
   }
 
+  // THE OWNER-ONLY SET IS THE PHASE'S DECLARATION PLUS THE CONSTITUTIONAL FLOOR.
+  //
+  // DERIVED HERE, NOT SUPPLIED. `ALWAYS_OWNER_ONLY` was written as "a floor, not the list" — actions
+  // whose whole purpose is that a human decided, refused regardless of what a phase remembered to
+  // declare. It was applied in degraded mode and in `reconcile`, and NOT on this path: the live turn
+  // took `brief.phase.requiredOwnerGates` verbatim, so the approved plan was the only thing standing
+  // between a reviewer's decision and a protected action. A phase that omitted `push` from its gates
+  // made `push` grantable by a model, and the floor was untouched the whole time. Applying it inside
+  // the transition rather than at the call site is what makes it structural: there is no argument
+  // through which a caller — present or future — can narrow the protected set.
+  //
+  // ONE DERIVATION, USED TWICE. The reviewer is TOLD this set and the answer is JUDGED against it.
+  // Telling it a shorter list and then refusing what it proposed in good faith would be a refusal the
+  // reviewer could not have avoided, and two separately-computed sets could drift into exactly that.
+  //
+  // IT ONLY EVER WIDENS. `enforcedOwnerOnlyActions` is a deduplicated union, so a phase gate that is
+  // not in the floor is still enforced and a phase that restates the floor changes nothing.
+  //
+  // Added in PROJECTOS-LIVE-GATE-OWNER-FLOOR-HARDENING1A.
+  const ownerOnlyActions = enforcedOwnerOnlyActions(input.ownerOnlyActions);
+
   // 2. IDENTIFY THE REQUEST DETERMINISTICALLY.
   const ask = STOP_ASKS[input.stop.code];
   const digest = evidenceDigest(input.evidenceText);
@@ -275,7 +312,11 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
     subjectCommit: input.subjectCommit,
     ask,
     evidenceDigests: [digest],
-    ownerOnlyActions: input.ownerOnlyActions,
+    // The ENFORCED set, so the reviewer is told what will actually be refused. Note this is one of
+    // the fields `gatekeeperRequestDigest` covers and NOT one `deriveRequestId` covers: the identity
+    // of the question is what is being asked about, and the protected set is policy applied to the
+    // answer. A restart therefore still re-derives the same id and buys no second call.
+    ownerOnlyActions,
   };
   lines.push(`gatekeeper request ${request.requestId} (${ask}) for ${input.stop.code}`);
 
@@ -475,7 +516,10 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
     requestDigest: gatekeeperRequestDigest(request),
     expectedDecider: input.expectedDecider,
     alreadyConsumedDecisionIds: deps.consumedDecisionIds,
-    ownerOnlyActions: input.ownerOnlyActions,
+    // THE SAME SET THE REQUEST CARRIED — the one derivation above, never `input`'s narrower version.
+    // Judging the answer against a smaller list than the reviewer was shown is how a protected action
+    // gets granted by a decision that looked, to both sides, entirely well behaved.
+    ownerOnlyActions,
   });
   const problems = outputAnomaly === null ? checked : [outputAnomaly, ...checked];
 
