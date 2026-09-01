@@ -452,7 +452,15 @@ describe('decideContinuation', () => {
     }
   });
 
-  it('proceeds only when the plan declares no owner gate for the phase', () => {
+  /**
+   * COMPLETED WORK NOW ASKS RATHER THAN ENDING.
+   *
+   * This asserted `proceed` — the loop's way of ending having asked nobody anything. That was the only
+   * outcome available to a successful run, and it is why the technical continuation could never
+   * receive a decision. A finished, sound phase that reserves no part of the continuation to the owner
+   * now raises `CONTINUATION_READY`, which is a question for the reviewer and authorises nothing.
+   */
+  it('raises the successful-work gate when the phase reserves no continuation action to the owner', () => {
     const phases = (realPlan()['phases'] as Record<string, unknown>[]).map((p) =>
       p['phaseId'] === PHASE ? { ...p, requiredOwnerGates: [], requiredReviews: [] } : p,
     );
@@ -465,7 +473,59 @@ describe('decideContinuation', () => {
       reviewsRecorded: [],
       attemptsSpent: 0,
     });
-    expect(d.kind).toBe('proceed');
+    expect(d.kind).toBe('stop');
+    if (d.kind !== 'stop') throw new Error('unreachable');
+    expect(d.reason.code).toBe('CONTINUATION_READY');
+  });
+
+  /**
+   * A DECLARED PROTECTION IS NOT A PENDING ACTION — the correction this phase made.
+   *
+   * `secrets-handling` and `payment-or-live-charge` are standing protections; nothing is waiting on
+   * the owner for them, and an act that actually happened is caught upstream by `PROTECTED_EFFECT`.
+   * The old test was gate COUNT, so this stopped for the owner and said "the phase now needs
+   * secrets-handling, payment-or-live-charge" about work nobody proposed.
+   */
+  it('does not treat standing protections as work the owner must now perform', () => {
+    const phases = (realPlan()['phases'] as Record<string, unknown>[]).map((p) =>
+      p['phaseId'] === PHASE
+        ? { ...p, requiredOwnerGates: ['secrets-handling', 'payment-or-live-charge'], requiredReviews: [] }
+        : p,
+    );
+    const d = decideContinuation({
+      brief: brief(PHASE, { phases }),
+      checks: [PASS],
+      findings: [],
+      effects: attested(),
+      reviewsRecorded: [],
+      attemptsSpent: 0,
+    });
+    expect(d.kind).toBe('stop');
+    if (d.kind !== 'stop') throw new Error('unreachable');
+    expect(d.reason.code).toBe('CONTINUATION_READY');
+  });
+
+  /** A phase that DOES reserve a continuation action still stops for the owner, exactly as before. */
+  it.each(['commit', 'push'])('still stops at OWNER_GATE when the phase reserves %s', (gate) => {
+    const phases = (realPlan()['phases'] as Record<string, unknown>[]).map((p) =>
+      p['phaseId'] === PHASE
+        ? { ...p, requiredOwnerGates: [gate, 'secrets-handling'], requiredReviews: [] }
+        : p,
+    );
+    const d = decideContinuation({
+      brief: brief(PHASE, { phases }),
+      checks: [PASS],
+      findings: [],
+      effects: attested(),
+      reviewsRecorded: [],
+      attemptsSpent: 0,
+    });
+    expect(d.kind).toBe('stop');
+    if (d.kind !== 'stop') throw new Error('unreachable');
+    expect(d.reason.code).toBe('OWNER_GATE');
+    expect(d.reason.detail).toContain(gate);
+    // And it names only what is genuinely pending, not every protection the phase declares.
+    expect(d.reason.detail).not.toContain('secrets-handling');
   });
 });
 

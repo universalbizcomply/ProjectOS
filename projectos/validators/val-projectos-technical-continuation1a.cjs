@@ -39,6 +39,9 @@ const DELEGATION_REL = ".projectops/authority/closure-delegation.json";
 const TESTS = [
   "projectos/agent/test/technicalContinuation.test.ts",
   "projectos/agent/test/candidateIdentity.test.ts",
+  // The governed chain through the canonical loop, against a real repository. Without it the pieces
+  // above are proven and their REACHABILITY is not — which is the state this phase found.
+  "projectos/agent/test/continuationEndToEnd.test.ts",
 ];
 
 function read(rel) {
@@ -269,7 +272,72 @@ function run() {
     );
   }
 
-  // 12. THE BEHAVIOUR IS PROVEN, NOT ONLY SHAPED.
+  // 12. THE SUCCESS STOP EXISTS, IS THE REVIEWER'S, AND IS THE ONLY WAY IN.
+  //
+  //     Every other stop the loop can reach is a failure. Without this one a finished run ends having
+  //     asked nobody anything, and the executor above is unreachable by any real run — which is
+  //     exactly the state this phase found the loop in.
+  const outcome = code(read("projectos/agent/src/loop/outcome.ts") || "");
+  const routing = code(read("projectos/agent/src/loop/gatekeeperRouting.ts") || "");
+  const turn = code(read("projectos/agent/src/loop/gatekeeperTurn.ts") || "");
+  const loopRunner = code(read("projectos/agent/src/loop/runner.ts") || "");
+
+  if (!/\|\s*'CONTINUATION_READY'/.test(outcome)) {
+    E("projectos/agent/src/loop/outcome.ts no longer declares the CONTINUATION_READY stop code");
+  }
+  if (!/code:\s*'CONTINUATION_READY'/.test(outcome)) {
+    E("projectos/agent/src/loop/outcome.ts no longer raises CONTINUATION_READY for completed work");
+  }
+  // A DECLARED PROTECTION IS NOT A PENDING ACTION. Reverting to a gate COUNT would send every phase
+  // that declares a standing protection to the owner forever, and say something false while doing it.
+  if (!/const pendingOwnerActions = gates\.filter\(\(g\) => \(TECHNICAL_ACTIONS as readonly string\[\]\)\.includes\(g\)\)/.test(outcome)) {
+    E(
+      "projectos/agent/src/loop/outcome.ts no longer distinguishes a pending owner ACTION from a " +
+        "declared protection — a gate count would stop completed work for protections nobody proposed to exercise",
+    );
+  }
+  const route = /CONTINUATION_READY:\s*\{([\s\S]*?)\},/.exec(routing);
+  if (route === null) {
+    E("projectos/agent/src/loop/gatekeeperRouting.ts does not route CONTINUATION_READY");
+  } else {
+    if (!/audience:\s*'gatekeeper'/.test(route[1])) {
+      E("CONTINUATION_READY is no longer routed to the gatekeeper — a success stop sent to the owner asks nobody anything");
+    }
+    for (const verdict of ["APPROVED_TO_PROCEED", "AMENDMENT_REQUIRED", "DO_NOT_PROCEED", "AWAITING_OWNER"]) {
+      if (!route[1].includes(verdict)) E(`CONTINUATION_READY no longer accepts ${verdict}`);
+    }
+    // The owner-gated verdicts must stay out of it: technical authority travels in allowedActions.
+    for (const owned of ["APPROVED_TO_COMMIT", "APPROVED_TO_PUSH", "APPROVED_FOR_CLOSURE"]) {
+      if (route[1].includes(owned)) {
+        E(`CONTINUATION_READY accepts ${owned} — an owner-gated verdict must never answer a stop`);
+      }
+    }
+  }
+  // OWNER_GATE WAS NOT REPURPOSED. It still carries genuinely owner-required work to the owner.
+  const ownerGate = /OWNER_GATE:\s*\{([\s\S]*?)\},/.exec(routing);
+  if (ownerGate === null || !/audience:\s*'owner'/.test(ownerGate[1]) || !/applicableVerdicts:\s*\[\]/.test(ownerGate[1])) {
+    E("OWNER_GATE is no longer owner-routed with no answerable verdict — it must not become a review question");
+  }
+  if (!/CONTINUATION_READY:\s*'evidence-review'/.test(turn)) {
+    E("projectos/agent/src/loop/gatekeeperTurn.ts no longer asks the existing evidence-review question for CONTINUATION_READY");
+  }
+
+  // 13. THE RUNNER REACHES THE EXECUTOR ONLY FROM AN APPROVED SUCCESS STOP.
+  if (!/answered === 'proceed' && decision\.reason\.code === 'CONTINUATION_READY'/.test(loopRunner)) {
+    E(
+      "projectos/agent/src/loop/runner.ts no longer gates the technical continuation on an approved " +
+        "CONTINUATION_READY — any other condition would let a different stop reach the executor",
+    );
+  }
+  if (!/acceptedDecision = turn\.checkedDecision/.test(loopRunner)) {
+    E("projectos/agent/src/loop/runner.ts no longer captures the CHECKED decision from the turn");
+  }
+  // The candidate the reviewer was shown, not whatever the tree holds later.
+  if (!/reviewedCandidateDigest: reviewedCandidate\.digest/.test(loopRunner)) {
+    E("projectos/agent/src/loop/runner.ts no longer binds the continuation to the candidate the reviewer saw");
+  }
+
+  // 14. THE BEHAVIOUR IS PROVEN, NOT ONLY SHAPED.
   for (const rel of TESTS) {
     if (read(rel) === null) E(`${rel} is missing — the continuation's behaviour is no longer proven`);
   }

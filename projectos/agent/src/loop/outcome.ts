@@ -13,6 +13,9 @@
  *
  * Created in PROJECTOS-RECOVERY-AUTONOMOUS-LOOP1A.
  */
+// The closed set of things the loop would actually DO next. Imported rather than restated so that
+// "which declared gates are pending" and "which actions ProjectOS can perform" cannot drift apart.
+import { TECHNICAL_ACTIONS } from '@projectos/core';
 import type { CheckResult } from './verification.js';
 import type { WorkerBrief } from './brief.js';
 
@@ -36,7 +39,31 @@ export type LoopStopCode =
    * here: whatever is on disk is a partial account of work that never reached its own conclusion.
    */
   | 'WORKER_TIMED_OUT'
-  | 'REVIEW_OUTSTANDING';
+  | 'REVIEW_OUTSTANDING'
+  /**
+   * The work is FINISHED AND SOUND, and what happens to it next is the reviewer's to say.
+   *
+   * THE ONE SUCCESS STOP, AND THE LOOP HAD NONE. Every other stop in this union is a failure: a
+   * refusal, a timeout, a failing check, a missing review, an unattested effect, a protected effect,
+   * an owner gate. So a run whose checks all passed and whose reviews were all recorded had exactly
+   * one way to end — `proceed`, which asks nobody anything — and the technical continuation built in
+   * this phase could never receive a decision, because the loop had no word for the question
+   * "the work is complete; may the continuation happen?".
+   *
+   * IT IS NOT `OWNER_GATE`, and the distinction is the whole reason this exists. `OWNER_GATE` means
+   * a person must do something. This means the work is ready and a REVIEWER must judge it. Conflating
+   * them would either send every completed phase to the owner forever, or hand the reviewer a stop
+   * that also carries protected effects — and the second is how a protected action acquires a
+   * gatekeeper-answerable route.
+   *
+   * WHAT IT DOES NOT AUTHORISE. Reaching it authorises nothing at all. It is a question, and the
+   * answer still goes through `checkGatekeeperDecision`, the technical delegation, the closed action
+   * vocabulary, the owner-only floor and the candidate binding — every one of which can refuse.
+   *
+   * Added in PROJECTOS-AUTOMATIC-TECHNICAL-CONTINUATION1A under the owner's explicit
+   * "APPROVE B6 SUCCESSFUL-WORK GATEKEEPER STOP".
+   */
+  | 'CONTINUATION_READY';
 
 export interface LoopStop {
   readonly code: LoopStopCode;
@@ -271,20 +298,51 @@ export function decideContinuation(input: DecisionInput): ContinuationDecision {
     };
   }
 
+  // A DECLARED PROTECTION IS NOT A PENDING ACTION, and treating it as one made this stop say
+  // something false.
+  //
+  // The test used to be `gates.length > 0`, so a phase declaring `secrets-handling` and
+  // `payment-or-live-charge` stopped with "the phase now needs secrets-handling,
+  // payment-or-live-charge, which the loop may not perform" — a sentence about work nobody was
+  // proposing to do. Those two are standing protections: they matter when such an act is ATTEMPTED,
+  // and an act that actually happened is already caught upstream by `PROTECTED_EFFECT`, which runs
+  // before any of this.
+  //
+  // What is genuinely PENDING at this point is the technical continuation — commit, push, an
+  // integration. So the gates are intersected with the closed vocabulary of things the loop would
+  // now do, rather than counted. A phase that gates one of THOSE still stops for the owner exactly
+  // as before; a phase that gates only protections does not, because it is not waiting on the owner
+  // for anything.
+  //
+  // DETERMINISTIC, AND IT INFERS NOTHING. Membership of a fixed list, not a judgement about what a
+  // gate might mean.
   const gates = input.brief.phase.requiredOwnerGates;
-  if (gates.length > 0) {
+  const pendingOwnerActions = gates.filter((g) => (TECHNICAL_ACTIONS as readonly string[]).includes(g));
+  if (pendingOwnerActions.length > 0) {
     return {
       kind: 'stop',
       reason: {
         code: 'OWNER_GATE',
         detail:
-          `every required check passed and every required review is recorded; the phase now needs ${gates.join(', ')}, ` +
-          'which the loop may not perform',
+          'every required check passed and every required review is recorded; the phase now needs ' +
+          `${pendingOwnerActions.join(', ')}, which this phase reserves to the owner`,
       },
     };
   }
 
-  return { kind: 'proceed', detail: 'every required check passed and this phase declares no owner gate' };
+  // THE WORK IS DONE AND SOMEBODY HAS TO SAY WHAT HAPPENS TO IT. Previously this returned `proceed`,
+  // which ends the run having asked nobody anything — so a completed phase and an unreviewable one
+  // were indistinguishable, and the technical continuation had no decision to act on.
+  return {
+    kind: 'stop',
+    reason: {
+      code: 'CONTINUATION_READY',
+      detail:
+        'every required check passed, every required review is recorded, and this phase reserves no ' +
+        'part of the technical continuation to the owner; the completed work is ready for the ' +
+        "reviewer's decision on whether the bounded technical continuation may happen",
+    },
+  };
 }
 
 /** Render a loop stop for the CLI, in the same shape every other refusal uses. */

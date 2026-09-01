@@ -66,6 +66,7 @@ import {
   type RateCard,
   type TransportAvailability,
   type GatekeeperUnavailabilityCause,
+  type CheckedTechnicalDecision,
 } from '@projectos/core';
 import type { CredentialResolver } from './credentialResolver.js';
 import { applyVerdictToStop, routeStop, type NextLoopAction } from './gatekeeperRouting.js';
@@ -96,6 +97,11 @@ export const STOP_ASKS: { readonly [K in LoopStopCode]: string } = {
   PROTECTED_EFFECT: 'ambiguity',
   OWNER_GATE: 'ambiguity',
   SCOPE_DECISION: 'ambiguity',
+  // THE EXISTING ASK, NOT A NEW ONE. What the reviewer is shown is the same evidence pack a
+  // `REVIEW_OUTSTANDING` question carries — checks, findings, effects and the candidate — and it is
+  // priced by the same model. A separate ask would have added a pricing entry and a vocabulary term
+  // for a question the corpus already describes.
+  CONTINUATION_READY: 'evidence-review',
 };
 
 export interface GatekeeperTurnInput {
@@ -233,6 +239,20 @@ export interface GatekeeperTurnResult {
   readonly unavailabilityCause: GatekeeperUnavailabilityCause | null;
   /** The provider's id for this turn, to be carried into the next one. Null when nothing was sent. */
   readonly providerResponseId: string | null;
+  /**
+   * The decision AS CHECKED, when one was received and `checkGatekeeperDecision` accepted it.
+   *
+   * NULL WHENEVER THERE IS NOT ONE — no request made, transport unavailable, or the record refused.
+   * It carries the check's own `problems` (empty, by construction of the branch that sets it) so a
+   * consumer cannot use it without also receiving the evidence that it was checked; that is the same
+   * structural device `applyVerdictToStop` uses, for the same reason.
+   *
+   * IT IS NOT AUTHORITY BY ITSELF. It is one limb of the technical-continuation conjunction, which
+   * also requires a valid committed delegation, the action being in `allowedActions`, the action
+   * being in the closed vocabulary, and every binding still holding. Surfaced here because the runner
+   * is where those other limbs live — not because holding it means anything.
+   */
+  readonly checkedDecision: CheckedTechnicalDecision | null;
 }
 
 function ownerAction(reasons: readonly string[]): NextLoopAction {
@@ -290,6 +310,7 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
       ownerChoices: null,
       unavailabilityCause: null,
       providerResponseId: null,
+      checkedDecision: null,
     };
   }
 
@@ -368,6 +389,7 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
         ownerChoices: null,
         unavailabilityCause: null,
         providerResponseId: null,
+        checkedDecision: null,
       };
     }
   }
@@ -398,6 +420,7 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
       ownerChoices: null,
       unavailabilityCause: null,
       providerResponseId: null,
+      checkedDecision: null,
     };
   }
   lines.push(`tier ${selectTier(ask)} -> model ${model}`);
@@ -471,6 +494,7 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
       ownerChoices: null,
       unavailabilityCause: null,
       providerResponseId: null,
+      checkedDecision: null,
     };
   }
 
@@ -599,6 +623,7 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
         ownerChoices: null,
         unavailabilityCause: null,
         providerResponseId: outcome.providerResponseId,
+        checkedDecision: null,
       };
     }
     if (recorded === 'already-recorded') lines.push('decision evidence: already recorded, unchanged');
@@ -619,6 +644,27 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
     ownerChoices: null,
     unavailabilityCause: null,
     providerResponseId: outcome.providerResponseId,
+    // ONLY WHEN THE CHECK ACCEPTED IT. `problems` is empty exactly here, so a caller receiving a
+    // non-null value is receiving a decision this transition judged usable — and receiving the
+    // judgement with it, so it cannot be consumed as though the check had not run.
+    checkedDecision:
+      problems.length > 0
+        ? null
+        : {
+            problems: [],
+            decisionId: String(outcome.record.decisionId ?? ''),
+            projectId: String(outcome.record.projectId ?? ''),
+            phaseId: String(outcome.record.phaseId ?? ''),
+            subjectCommit: String(outcome.record.subjectCommit ?? ''),
+            allowedActions: Array.isArray(outcome.record.allowedActions)
+              ? outcome.record.allowedActions.map(String)
+              : [],
+            // Filled by the caller, which is the only party that knows which candidate it showed the
+            // reviewer. Left empty here rather than guessed: a digest invented in this module would
+            // compare equal to nothing and refuse everything, which looks like a safety property and
+            // is actually a bug that hides one.
+            reviewedCandidateDigest: '',
+          },
   };
 }
 
@@ -652,5 +698,6 @@ function unavailable(
     // result that may.
     unavailabilityCause: cause,
     providerResponseId: null,
+    checkedDecision: null,
   };
 }

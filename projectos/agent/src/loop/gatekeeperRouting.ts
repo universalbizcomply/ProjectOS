@@ -122,6 +122,21 @@ export const STOP_ROUTES: { readonly [K in LoopStopCode]: StopRoute } = {
     applicableVerdicts: [],
     rationale: 'material scope change is excluded from every delegation this project has recorded',
   },
+  CONTINUATION_READY: {
+    audience: 'gatekeeper',
+    // THE ONLY STOP HERE THAT IS NOT A FAILURE, and the only one where APPROVED_TO_PROCEED means
+    // "carry on and do the next thing" rather than "carry on despite this". `AMENDMENT_REQUIRED`
+    // sends finished-looking work back for more; `DO_NOT_PROCEED` stops it; `AWAITING_OWNER` is how
+    // the reviewer declines to decide. Deliberately NOT `APPROVED_TO_COMMIT` — that verdict is
+    // owner-gated, `applyVerdictToStop` has no case for it, and the technical authority this stop
+    // leads to is carried by the decision's `allowedActions`, which the executor's conjunction
+    // checks against a closed vocabulary. One authority model, not two.
+    applicableVerdicts: ['APPROVED_TO_PROCEED', 'AMENDMENT_REQUIRED', 'DO_NOT_PROCEED', 'AWAITING_OWNER'],
+    rationale:
+      'the work is finished and sound, and whether the bounded technical continuation may happen is a ' +
+      'review question — the owner delegated that class of decision, and every protected action ' +
+      'remains unreachable from it',
+  },
 };
 
 /** Where this stop goes. */

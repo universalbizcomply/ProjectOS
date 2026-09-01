@@ -25,6 +25,7 @@ import type { System } from '../system.js';
 import { loadGovernedContext, refusalLines, type GovernedContext } from '../governedContext.js';
 import { verifyExecutionContext } from './observation.js';
 import { computeCandidateIdentity } from './candidateIdentity.js';
+import { runTechnicalContinuation } from './technicalContinuation.js';
 import { resolveTechnicalDelegation } from './gatekeeperConfig.js';
 import { selectNextPhase, selectionStopLines } from './selection.js';
 import { buildWorkerBrief, briefProvenanceProblems, type WorkerBrief } from './brief.js';
@@ -48,7 +49,12 @@ import {
 } from './outcome.js';
 import type { WorkState } from './workRecord.js';
 import { takeGatekeeperTurn, type GatekeeperTurnDeps } from './gatekeeperTurn.js';
-import { technicalDelegationCondition } from '@projectos/core';
+import {
+  technicalDelegationCondition,
+  TECHNICAL_ACTIONS,
+  type CandidateIdentity,
+  type CheckedTechnicalDecision,
+} from '@projectos/core';
 import type { DurableBinding } from './degradedMode.js';
 import {
   authorityWrapper,
@@ -537,6 +543,10 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
   /** The instruction and decision the last gatekeeper turn produced, for the correction that follows. */
   let lastInstruction: string | null = null;
   let lastDecisionId: string | null = null;
+  /** The candidate identity carried in the last evidence pack, or null when none could be named. */
+  let reviewedCandidate: CandidateIdentity | null = null;
+  /** The last decision `checkGatekeeperDecision` accepted, or null. Never authority on its own. */
+  let acceptedDecision: CheckedTechnicalDecision | null = null;
   /** Decisions that have already driven a correction. One decision, one correction. */
   const correctionsApplied: string[] = [];
   // Decisions already acted on. A restart re-derives the same request id, so a decision that was
@@ -653,7 +663,7 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
 
     if (outcome.kind === 'REFUSED') {
       lines.push('  degraded mode REFUSED; nothing was authorised and no work was done:');
-      lines.push(...outcome.reasons.map((r) => `    ${r}`));
+      lines.push(...outcome.reasons.map((r: string) => `    ${r}`));
       return outcome;
     }
     if (outcome.kind === 'CONSUMPTION_FAILED') {
@@ -729,6 +739,11 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
       { ...deps, ledger: gatekeeperLedger, consumedDecisionIds },
     );
     lines.push(...turn.lines);
+    // CAPTURED BEFORE ANY BRANCH RETURNS. This first sat on the amendment path, so the one branch
+    // that actually needs it — the approved continuation, which returns earlier — never saw it and
+    // the technical action was silently skipped with "no accepted decision". Assigned once, here,
+    // where every outcome of the turn passes through.
+    acceptedDecision = turn.checkedDecision;
 
     // The cost is recorded whether or not the answer was usable: the call happened.
     if (turn.ledgerEntry !== null) {
@@ -823,7 +838,14 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
    */
   const candidateEvidence = (): Record<string, unknown> => {
     const c = computeCandidateIdentity(sys, root);
-    if (!c.ok) return { available: false, why: c.problems.join('; ') };
+    if (!c.ok) {
+      reviewedCandidate = null;
+      return { available: false, why: c.problems.join('; ') };
+    }
+    // THE CANDIDATE THE REVIEWER WAS ACTUALLY SHOWN, remembered so that a later continuation compares
+    // against what was reviewed rather than against whatever the tree holds by then. Set here and
+    // nowhere else, because this is the one place a candidate enters the question.
+    reviewedCandidate = c.identity;
     // THE DIGEST IS THE BINDING; THE ENTRIES ARE FOR THE READER, AND THEY ARE BOUNDED.
     //
     // The digest is taken over EVERY entry, so showing fewer of them weakens nothing — a candidate of
@@ -904,6 +926,94 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
       null,
       1,
     );
+  };
+
+  /**
+   * Carry out the technical continuation the reviewer approved, or say why it did not happen.
+   *
+   * NOTHING HERE DECIDES. It assembles facts the runtime already established — the governed project
+   * and phase, the branch the plan names, the remote this runtime addresses, the delegation as read
+   * from the COMMITTED record, the candidate the reviewer was shown — and hands them to the executor
+   * pushed at cc324a7. Every refusal below is the executor's, reported rather than interpreted.
+   */
+  const runContinuation = (): void => {
+    if (acceptedDecision === null || reviewedCandidate === null) {
+      lines.push('  no technical continuation: no accepted decision, or no candidate was named for it');
+      return;
+    }
+    const programmeId = programmeIdOf(context);
+    const delegation = resolveTechnicalDelegation(sys, root, programmeId);
+    // THE BRANCH THE APPROVED PLAN NAMES, not the branch the checkout happens to be on. Comparing the
+    // checkout against itself would make the executor's branch check vacuous.
+    const repository = (context.plan['repository'] as Record<string, unknown> | undefined) ?? {};
+    const expectedBranch = typeof repository['planSourceBranch'] === 'string' ? repository['planSourceBranch'] : '';
+    if (expectedBranch === '') {
+      lines.push('  no technical continuation: the approved plan names no branch for this work');
+      return;
+    }
+
+    // THE ACTIONS THE DECISION APPROVED, in the fixed order the executor proved. A decision approving
+    // only a commit does not push; one approving both does them in this order and stops at the first
+    // refusal. `APPROVED_TO_PROCEED` is not a licence to keep going.
+    const approved = TECHNICAL_ACTIONS.filter((a: string) => acceptedDecision!.allowedActions.includes(a));
+    if (approved.length === 0) {
+      lines.push('  the decision approved no technical action, so none was taken');
+      return;
+    }
+
+    for (const action of approved) {
+      const outcome = runTechnicalContinuation(sys, {
+        action,
+        context: {
+          root,
+          projectId: context.projectId,
+          phaseId,
+          programmeId,
+          expectedBranch,
+          // The remote name this runtime addresses everywhere else, including `observeRepository`.
+          // A runtime convention, never a value a model supplied.
+          expectedRemote: 'origin',
+          // No governed integration target exists; the executor refuses rather than inventing one.
+          integrationTargetBranch: null,
+        },
+        decision: {
+          ...acceptedDecision,
+          // THE CANDIDATE THE REVIEWER SAW. Supplied by the caller because the turn cannot know it —
+          // see the note on `checkedDecision`.
+          reviewedCandidateDigest: reviewedCandidate.digest,
+          reviewedEntries: reviewedCandidate.entries,
+        },
+        delegation,
+        phaseOwnerGates: options.ownerOnlyActions ?? brief.phase.requiredOwnerGates,
+        at: sys.now(),
+      });
+      if (outcome.kind === 'REFUSED') {
+        lines.push(`  technical continuation REFUSED for '${action}':`);
+        lines.push(...outcome.reasons.map((r) => `    ${r}`));
+        // A refusal ends the sequence. The next action was authorised for a world that no longer
+        // holds, and attempting it would be acting on a stale judgement.
+        return;
+      }
+      lines.push(`  ${outcome.result}`);
+      options.onWorkState?.({
+        state: 'EXECUTING',
+        phaseId,
+        sessionId,
+        subjectCommit: outcome.head,
+        lastCompletedStep: `technical-continuation:${action}`,
+        gateDecisionId: acceptedDecision.decisionId,
+      });
+      // THE BASE MOVED, because a commit is what moved it. A later action in this sequence is about
+      // the new HEAD, and the decision was taken against the old one — so the binding is refreshed
+      // from what actually happened rather than left to refuse the work it just authorised.
+      acceptedDecision = { ...acceptedDecision, subjectCommit: outcome.head };
+      const after = computeCandidateIdentity(sys, root);
+      if (!after.ok) {
+        lines.push('  the candidate could not be re-named after the action; the sequence stops here');
+        return;
+      }
+      reviewedCandidate = after.identity;
+    }
   };
 
   const applyReviewerAnswer = (reason: LoopStop, evidenceText: string): 'continue' | 'break' | 'proceed' => {
@@ -1159,6 +1269,20 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
         effects: { available: true, value: effects.value },
       }));
       if (answered === 'continue') continue;
+      // THE ONE PLACE AN APPROVED SUCCESS STOP BECOMES AN ACT.
+      //
+      // Reached only when the reviewer answered `APPROVED_TO_PROCEED` to `CONTINUATION_READY` — a stop
+      // that is raised only after every required check passed, every required review was recorded, no
+      // protected effect was attested and the phase reserved no part of the continuation to the owner.
+      // Every other stop and every other verdict leaves this untouched.
+      //
+      // AND IT AUTHORISES NOTHING BY ARRIVING HERE. `runTechnicalContinuation` re-derives the world,
+      // re-checks the whole conjunction — delegation, allowedActions, closed vocabulary, project,
+      // phase, HEAD, branch, remote, owner-only floor — and re-derives the candidate again after
+      // fetching. This code cannot make any of that pass; it can only ask.
+      if (answered === 'proceed' && decision.reason.code === 'CONTINUATION_READY') {
+        runContinuation();
+      }
       break;
     }
     if (decision.kind === 'proceed') {

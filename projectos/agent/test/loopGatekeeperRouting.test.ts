@@ -25,6 +25,11 @@ const GATEKEEPER_STOPS: LoopStopCode[] = [
   // the worker declining, so it may not inherit the refusal route by sharing its code.
   'WORKER_TIMED_OUT',
   'EFFECTS_NOT_ATTESTED',
+  // THE ONE THAT IS NOT A FAILURE. Every stop above is something going wrong; this is the work being
+  // finished and sound, and the reviewer deciding whether the bounded technical continuation may
+  // happen. It is listed here rather than with the owner stops because that decision was delegated —
+  // and asserting the lists by name is what made adding it a visible change rather than a silent one.
+  'CONTINUATION_READY',
 ];
 
 function stop(code: LoopStopCode): LoopStop {
@@ -39,6 +44,34 @@ describe('the routing table', () => {
 
   it('sends review questions to the gatekeeper', () => {
     expect([...gatekeeperRoutableCodes()].sort()).toEqual([...GATEKEEPER_STOPS].sort());
+  });
+
+  /**
+   * THE SUCCESS STOP IS THE REVIEWER'S, AND IT IS THE ONLY ONE THAT CAN BE APPROVED ONWARD.
+   *
+   * `APPROVED_TO_PROCEED` means something different here than anywhere else in this table: after a
+   * failing check it means "carry on despite this", and here it means "carry on and do the next
+   * thing". That is why it is a separate stop rather than a reuse of one, and why `OWNER_GATE` was
+   * deliberately not repurposed for it.
+   */
+  it('routes the successful-work stop to the gatekeeper, with the four answerable verdicts', () => {
+    const route = routeStop(stop('CONTINUATION_READY'));
+    expect(route.audience).toBe('gatekeeper');
+    expect([...route.applicableVerdicts].sort()).toEqual(
+      ['AMENDMENT_REQUIRED', 'APPROVED_TO_PROCEED', 'AWAITING_OWNER', 'DO_NOT_PROCEED'].sort(),
+    );
+    // NOT the owner-gated verdicts. The technical authority travels in the decision's allowedActions,
+    // which the executor checks against a closed vocabulary — one authority model, not two.
+    for (const owned of GATEKEEPER_VERDICTS.filter((v) => verdictRequiresOwner(v))) {
+      expect(route.applicableVerdicts).not.toContain(owned);
+    }
+  });
+
+  /** OWNER_GATE was not repurposed, and must stay exactly where it was. */
+  it('leaves OWNER_GATE owner-routed with no answerable verdict', () => {
+    const route = routeStop(stop('OWNER_GATE'));
+    expect(route.audience).toBe('owner');
+    expect(route.applicableVerdicts).toEqual([]);
   });
 
   it.each(OWNER_STOPS)('keeps %s with the owner', (code) => {
@@ -221,8 +254,20 @@ describe('the loop never continues by accident', () => {
         }
       }
     }
-    // ONE PAIR, down from two: REVIEW_OUTSTANDING no longer accepts a bare approval.
-    expect(proceeding.sort()).toEqual(['UNRESOLVED_CRITICAL_OR_HIGH/APPROVED_TO_PROCEED']);
+    // TWO PAIRS, AND THEY MEAN DIFFERENT THINGS. Enumerating them by name is the point of this test:
+    // continuation is the exception, and every way to reach it should be readable in one line.
+    //
+    //   UNRESOLVED_CRITICAL_OR_HIGH/APPROVED_TO_PROCEED — "this finding is not real, carry on DESPITE it"
+    //   CONTINUATION_READY/APPROVED_TO_PROCEED          — "the work is sound, carry on AND DO the next thing"
+    //
+    // The second was added with the successful-work stop. It is the only pair that can lead to a
+    // technical action, and it still cannot cause one on its own: the executor's conjunction —
+    // delegation, allowedActions, closed vocabulary, bindings, candidate identity, owner-only floor —
+    // is checked afterwards and refuses independently of anything decided here.
+    expect(proceeding.sort()).toEqual([
+      'CONTINUATION_READY/APPROVED_TO_PROCEED',
+      'UNRESOLVED_CRITICAL_OR_HIGH/APPROVED_TO_PROCEED',
+    ]);
   });
 
   it('never retries a stop that is the owner\'s', () => {
