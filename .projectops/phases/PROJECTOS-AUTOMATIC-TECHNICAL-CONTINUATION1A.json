@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-AUTOMATIC-TECHNICAL-CONTINUATION1A",
   "project": "ProjectOS",
   "objective": "Let ProjectOS perform the ordinary technical continuation an already-checked live gatekeeper decision authorises, so the owner no longer has to carry commit, push and integration by hand once the reviewer has answered.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -39,6 +39,13 @@
       "to": "awaiting_closure",
       "by": "implementer",
       "at": "2026-09-01T22:12:34.802Z"
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "advisor",
+      "at": "2026-09-01T23:07:58.651Z",
+      "note": "closed by ChatGPT under the projectos-scoped phase-closure delegation, decision PROJECTOS-AUTOMATIC-TECHNICAL-CONTINUATION1A-CLOSURE-DECISION1A"
     }
   ]
 }
