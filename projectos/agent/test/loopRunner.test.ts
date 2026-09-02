@@ -455,7 +455,12 @@ describe('runLoop', () => {
           workerId: 'test',
           kind: WORKER_KIND,
           phaseId: PHASE,
-          briefId: 'SOMETHING-ELSE',
+          // TRUTHFUL, BECAUSE THE RESUME NOW COMPARES IT. `briefId` is `phaseId@head`, and a
+          // placeholder here is indistinguishable from a session created at a head the repository
+          // has since left — which PROJECTOS-SESSION-RECOVERY1A refuses before it reaches this
+          // test's subject. The laundered `briefPath` below is what this test is actually about,
+          // and it is unchanged.
+          briefId: `${PHASE}@${HEAD}`,
           briefPath: '/tmp/attacker-chosen.json',
           startedAt: '2026-08-11T18:00:00Z',
           providerRef: 'earlier-run',
@@ -738,7 +743,9 @@ describe('runLoop', () => {
           workerId: 'test',
           kind: WORKER_KIND,
           phaseId: PHASE,
-          briefId: 'old',
+          // See the note above: a placeholder briefId now reads as a moved repository and refuses.
+          // This test is about the invocation binding on resume, which is unchanged.
+          briefId: `${PHASE}@${HEAD}`,
           briefPath: 'old',
           startedAt: '2026-08-11T00:00:00Z',
           providerRef: 'historical-provider',
@@ -773,7 +780,9 @@ describe('runLoop', () => {
           workerId: 'test',
           kind: WORKER_KIND,
           phaseId: PHASE,
-          briefId: 'old',
+          // A placeholder briefId now reads as a moved repository and refuses; this test is about
+          // the invocation binding on resume, which is unchanged.
+          briefId: `${PHASE}@${HEAD}`,
           briefPath: 'old',
           startedAt: '2026-08-11T00:00:00Z',
           providerRef: 'historical-provider',

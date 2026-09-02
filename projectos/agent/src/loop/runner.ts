@@ -463,8 +463,6 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     return refused(['REFUSED (NO_AUTHORISED_WORKER): the loop has no worker it may start', ...resolution.problems.map((p) => `  - ${p}`)]);
   }
 
-  store.writeBrief(sys, root, sessionId, brief);
-
   // A session belongs to the worker that created it. The id is phase+commit, so a run with a
   // DIFFERENT worker — `--worker`, or an edited default — would otherwise inherit the first worker's
   // handle and hand it to a second executable that never created it, while the record kept naming
@@ -491,6 +489,51 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
         'Finish or discard that session before running this phase under another worker.',
     ]);
   }
+  // THE REST OF THE SESSION'S IDENTITY, CHECKED BEFORE ANYTHING IS REJOINED OR WRITTEN.
+  //
+  // The worker check above was the whole guard, and it was not enough. A session records the phase it
+  // was created for and the brief it was created from, and neither was compared — so a session made
+  // for one phase could have its provider handle adopted by another, rebound by the record written
+  // below, and reported as "rejoined". The phase check closes that.
+  //
+  // AND THE BRIEF CHECK CLOSES THE ONE A PHASE CHECK CANNOT. `briefId` is `phaseId@head`, so the same
+  // phase at a MOVED head produces a different brief while the phase still matches. Resuming there
+  // would hand a worker a brief describing bytes that are no longer present and call the result a
+  // continuation of the earlier run. Same phase, moved repository, is a refusal.
+  //
+  // `sessionId` is compared too, though the record was located by that id: a record whose own field
+  // disagrees with where it lives is not a record to act on.
+  if (existing !== null) {
+    const drift: string[] = [];
+    if (existing.sessionId !== sessionId) {
+      drift.push(`the record names session '${existing.sessionId}', but it was found at '${sessionId}'`);
+    }
+    if (existing.phaseId !== phaseId) {
+      drift.push(`it belongs to phase '${existing.phaseId}', and this run selected '${phaseId}'`);
+    }
+    if (existing.kind !== resolution.worker.kind) {
+      drift.push(`it was created by a '${existing.kind}' worker, and this run resolved a '${resolution.worker.kind}'`);
+    }
+    if (existing.briefId !== brief.briefId) {
+      drift.push(
+        `it was created from brief '${existing.briefId}', and this run derives '${brief.briefId}' — ` +
+          'the repository has moved, so the work it describes is not the work in this checkout',
+      );
+    }
+    if (drift.length > 0) {
+      return refused([
+        `REFUSED (SESSION_CONTEXT_MISMATCH): session '${sessionId}' does not describe this run.`,
+        ...drift.map((d) => `  - ${d}`),
+        '  a resume continues the run that was interrupted, or it refuses; it never adopts another run’s',
+        '  provider handle, and it never silently starts a fresh worker instead',
+      ]);
+    }
+  }
+
+  // PERSISTED ONLY NOW. Writing the brief before the checks above meant a refused resume had already
+  // overwritten the historical session's brief by the time it was refused — the record of the run
+  // being recovered was damaged by the act of failing to recover it.
+  store.writeBrief(sys, root, sessionId, brief);
 
   const lines: string[] = [
     `${selection.kind === 'continue' ? 'Continuing' : 'Starting'} ${phaseId} on ${verification.observed.branch} at ${String(brief.repository.head).slice(0, 12)}`,
@@ -590,6 +633,36 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
    * while every helper test passed.
    */
   const priorWork = readWorkRecord(sys, root);
+
+  // WHAT THE LAST RUN LEFT BEHIND, SAID OUT LOUD.
+  //
+  // A restart begins a fresh work item over the top of an interrupted one and said nothing about it,
+  // so an operator had no way to learn that a run had been interrupted at all, or which session it
+  // had been using. These lines close that gap and nothing else.
+  //
+  // REPORTING ONLY. Not one line below decides anything: the run does not branch on the state it
+  // finds, does not read `gateDecisionId`, `nextCandidateAction` or `GATE_APPROVED`, and does not
+  // consult the work record's own resume predicate — whose repository-moved rule would refuse the
+  // very A-to-B movement B7's owner resume exists to serve, and which the validator beside this file
+  // forbids this module from naming at all. A checkpoint may say what happened; it may never say
+  // what may now happen.
+  //
+  // THE MALFORMED CASE IS REPORTED RATHER THAN SWALLOWED. `readWorkRecord` deliberately separates
+  // "absent" from "unreadable", and every other consumer collapses the two; an operator whose record
+  // is corrupt should be told so rather than left to read silence as a clean slate.
+  if (!priorWork.ok) {
+    lines.push(`Prior work: the durable record could not be read — ${priorWork.problem}`);
+  } else if (priorWork.value === null) {
+    lines.push('Prior work: none recorded.');
+  } else {
+    const prior = priorWork.value;
+    const at = prior.subjectCommit === null ? 'no subject commit' : `at ${prior.subjectCommit.slice(0, 12)}`;
+    const stopped = prior.lastStopCode === null ? 'no stop recorded' : `stopped ${prior.lastStopCode}`;
+    lines.push(
+      `Prior work: ${prior.projectId}/${prior.phaseId} ${prior.state}, ${at}, ${stopped}` +
+        `${prior.sessionId === null ? '' : `, session ${prior.sessionId}`}`,
+    );
+  }
   /** Decisions that have already driven a correction. One decision, one correction. */
   const correctionsApplied: string[] = [];
   // Decisions already acted on. A restart re-derives the same request id, so a decision that was

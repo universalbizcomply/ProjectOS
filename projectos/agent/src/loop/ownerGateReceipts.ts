@@ -213,7 +213,26 @@ export function markOwnerReceiptConsumed(
   const lock = `${path}.lock`;
   if (!sys.createExclusive(lock, `spending '${gateName}' at ${at}
 `)) {
-    return no(`receipt for '${gateName}' is already being spent by another process, so it was NOT spent here`);
+    // WHICH FAILURE IT WAS DECIDES WHAT THE OPERATOR SHOULD DO, and `createExclusive` cannot say:
+    // it swallows every error, so "the lock is held" and "this location cannot be written at all"
+    // arrive identically. Blaming a process that does not exist sends someone to delete a file that
+    // is not there, on a machine whose actual problem is a permission or a full disk. The degraded
+    // ledger already distinguishes these two with exactly this test.
+    //
+    // NAMING THE FILE IS THE POINT. The lock convention here is deliberate — no timeout, no PID, no
+    // automatic deletion, because a stale-timeout rule can clear itself at the wrong moment — and its
+    // only remedy is an operator removing the file. A refusal that does not say which file makes that
+    // remedy unreachable.
+    if (!sys.exists(lock)) {
+      return no(
+        `the owner-gate receipt directory could not be written, so '${gateName}' was NOT spent and the ` +
+          `gate still stands; check that ${lock} can be created`,
+      );
+    }
+    return no(
+      `receipt for '${gateName}' is already being spent by another process, so it was NOT spent here. ` +
+        `If no other run is in progress, ${lock} was left behind by one that died and must be removed.`,
+    );
   }
   try {
     return spendUnderLock(sys, root, phaseId, gateName, at, path, no);
