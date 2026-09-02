@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-OWNER-ESCALATION-WAIT1A",
   "project": "projectos",
   "objective": "Make owner waiting truthful, durable and resumable: a phase that reserves an action to Murad stops and records the wait, and a later run recovers that wait from durable state, validates his committed receipt against the subject the wait was raised at, spends it exactly once under an exclusive lock, and resumes — refusing any stale, foreign, replayed or unprovable decision.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-09-02T17:06:51.188Z",
       "note": "B7 lifecycle: work implemented, validated and reviewed at source commit b87c2fa374261d0c3711f95f96e89100fa3b5915"
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "advisor",
+      "at": "2026-09-02T17:24:24.113Z",
+      "note": "ACCEPTED FOR CLOSURE by ChatGPT at subject b87c2fa374261d0c3711f95f96e89100fa3b5915, consuming decision PROJECTOS-OWNER-ESCALATION-WAIT1A-CLOSURE-DECISION1A. G4 reported all 17 predicates satisfied. — closed by ChatGPT under the projectos-scoped phase-closure delegation, decision PROJECTOS-OWNER-ESCALATION-WAIT1A-CLOSURE-DECISION1A"
     }
   ]
 }
