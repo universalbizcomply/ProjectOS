@@ -207,13 +207,39 @@ describe('the record grants nothing', () => {
       )}\n`,
     );
 
-    // It reads back as data and nothing more. The loop takes a WRITE-ONLY port and never consults
-    // this record: no code path exists through which the forged file could reach a decision.
+    // It reads back as data and nothing more.
     const read = readWorkRecord(sys, dir);
     expect(read.ok).toBe(true);
     const runner = readFileSync(join(process.cwd(), 'src', 'loop', 'runner.ts'), 'utf8');
     expect(runner).toContain('onWorkState');
-    expect(runner).not.toMatch(/readWorkRecord|workRecordPath|resumeProblems/);
+
+    // THE RULE, RESTATED AT THE RIGHT LEVEL — and the reason it had to be.
+    //
+    // This used to forbid the runner from reading the record AT ALL, which was the absolute form of
+    // a rule about AUTHORITY. PROJECTOS-OWNER-ESCALATION-WAIT1A then found a defect that form made
+    // unfixable: an owner receipt binds to the subject at which OWNER_GATE was raised, and the
+    // commit that RECORDS the owner's answer moves HEAD — so a fresh run compared the receipt
+    // against the new head and discarded it, and every owner decision was refused by the act of
+    // recording it. Recovering which waiting instance is being resumed needs the record. The
+    // gatekeeper ruled that state/context is permitted and authority is not, so that is what is
+    // asserted here.
+    //
+    // WHAT THE RUNNER MAY TAKE: `subjectCommit`, and only to decide WHICH subject a committed owner
+    // receipt is validated against. Whatever the record names, a receipt must still be committed at
+    // that subject, decided by the plan's owner, bound to this project, phase and gate, unspent, and
+    // provably spendable — so a forged record cannot manufacture a passage, only point at one that
+    // does not exist.
+    //
+    // WHAT IT MAY NEVER TAKE: the fields that would let a written record stand in for a decision.
+    for (const authorityBearing of ['gateDecisionId', 'nextCandidateAction', 'GATE_APPROVED']) {
+      expect(runner).not.toContain(`record.${authorityBearing}`);
+      expect(runner).not.toContain(`priorWork.value?.${authorityBearing}`);
+    }
+    expect(runner).not.toContain('resumeProblems');
+    // The one field it does consult, and the guard that makes it a question about identity rather
+    // than about permission.
+    expect(runner).toContain('record.subjectCommit');
+    expect(runner).toContain("record.lastStopCode !== 'OWNER_GATE'");
   });
 
   it("`nextCandidateAction: 'commit'` is a candidate, and the loop performs no commit at all", () => {

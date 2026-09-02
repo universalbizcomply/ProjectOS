@@ -138,7 +138,7 @@ function run() {
     }
   }
 
-  // 4. THE LOOP REPORTS AND NEVER READS.
+  // 4. THE LOOP REPORTS, AND WHAT IT READS BACK CAN NEVER AUTHORISE.
   const runner = read(RUNNER_REL);
   if (runner === null) {
     E(`${RUNNER_REL} is missing — it is the one execution loop`);
@@ -147,10 +147,41 @@ function run() {
     if (!/onWorkState\?\s*:/.test(runnerCode)) {
       E(`${RUNNER_REL} no longer takes a write-only work-state port`);
     }
-    if (/readWorkRecord|resumeProblems|workRecordPath/.test(runnerCode)) {
+    // PINNED ON AUTHORITY, NOT ON READING — and this had to change, rather than being worked around.
+    //
+    // The absolute form ("never read the record") was the strict reading of a rule about AUTHORITY,
+    // and PROJECTOS-OWNER-ESCALATION-WAIT1A found a defect it made unfixable. An owner receipt binds
+    // to the subject at which OWNER_GATE was raised, and the commit that RECORDS the owner's answer
+    // moves HEAD — so a fresh run compared the receipt against the new head, called it stale, and
+    // threw it away. Every owner decision was refused by the act of recording it. Knowing WHICH
+    // waiting instance is being resumed requires the record; the gatekeeper ruled that state and
+    // context are permitted and authority is not, so that is the line drawn here.
+    //
+    // WHAT IS STILL FORBIDDEN, and now by name rather than by implication: the fields through which
+    // a written record could stand in for a decision. `subjectCommit` only says which subject a
+    // committed owner receipt is checked against — and whatever it names, the receipt must still be
+    // committed there, decided by the plan's owner, bound to this project, phase and gate, unspent
+    // and provably spendable. A forged record points at a passage that does not exist.
+    if (/resumeProblems|workRecordPath/.test(runnerCode)) {
       E(
-        `${RUNNER_REL} reads the work record — the loop reports its state and must never consult a ` +
-          "checkpoint to decide what it may do",
+        `${RUNNER_REL} resolves or re-judges the work record itself — it may recover context from ` +
+          "the record, never treat it as a resumable authority",
+      );
+    }
+    for (const bearing of ['gateDecisionId', 'nextCandidateAction', 'GATE_APPROVED']) {
+      if (runnerCode.includes(`record.${bearing}`) || runnerCode.includes(`.value?.${bearing}`)) {
+        E(
+          `${RUNNER_REL} reads '${bearing}' from the work record — a checkpoint may name which work ` +
+            "this is, and must never name what may be done to it",
+        );
+      }
+    }
+    // And the one field it may take is taken as an identity question, guarded by the stop that
+    // raised the wait. Without this guard the record could nominate any subject at all.
+    if (/readWorkRecord/.test(runnerCode) && !/lastStopCode !== 'OWNER_GATE'/.test(runnerCode)) {
+      E(
+        `${RUNNER_REL} reads the work record without binding the read to the OWNER_GATE stop that ` +
+          "raised the wait — an unguarded record could nominate any subject",
       );
     }
     // The loop still decides nothing about durability: the entrypoint writes.

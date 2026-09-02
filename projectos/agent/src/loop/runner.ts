@@ -25,6 +25,7 @@ import type { System } from '../system.js';
 import { loadGovernedContext, refusalLines, type GovernedContext } from '../governedContext.js';
 import { verifyExecutionContext } from './observation.js';
 import { computeCandidateIdentity } from './candidateIdentity.js';
+import { consumeAnsweredOwnerGates, ownerGateReceiptRelPath } from './ownerGateReceipts.js';
 import { runTechnicalContinuation } from './technicalContinuation.js';
 import { resolveTechnicalDelegation } from './gatekeeperConfig.js';
 import { selectNextPhase, selectionStopLines } from './selection.js';
@@ -47,7 +48,7 @@ import {
   type LoopStopCode,
   type ReviewFinding,
 } from './outcome.js';
-import type { WorkState } from './workRecord.js';
+import { readWorkRecord, type WorkState } from './workRecord.js';
 import { takeGatekeeperTurn, type GatekeeperTurnDeps } from './gatekeeperTurn.js';
 import {
   technicalDelegationCondition,
@@ -566,6 +567,29 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
   let reviewedCandidate: CandidateIdentity | null = null;
   /** The last decision `checkGatekeeperDecision` accepted, or null. Never authority on its own. */
   let acceptedDecision: CheckedTechnicalDecision | null = null;
+  /**
+   * Owner gates this run has PAID FOR: the receipt was judged valid and provably spent.
+   *
+   * A gate enters this map only after `consumeAnsweredOwnerGates` proved the spend, so membership is
+   * this run's own record of an act it performed and verified — not a checkpoint, not authority, and
+   * never read from disk. It exists because spending is durable and therefore one-way: the stamp
+   * makes the receipt stop counting, so a later attempt in the SAME run re-reading the tree would
+   * find the gate unanswered and stop for the owner a second time over a decision he had already
+   * given and already paid for. Remembering the passage this run bought is what stops that, and it
+   * dies with the process, which is exactly the lifetime it should have.
+   */
+  const paidOwnerGates = new Map<string, string>();
+  /**
+   * The durable work record AS THIS INVOCATION FOUND IT, captured before the run writes its own.
+   *
+   * READ ONCE, AND EARLY, BECAUSE THE RUN OVERWRITES IT. The loop reports its progress from the
+   * moment it dispatches a worker, and the caller persists every report — so by the time a decision
+   * is reached, the record on disk describes THIS run at the CURRENT head, and the wait it is trying
+   * to resume has already been overwritten by it. Reading later found the run's own footprints and
+   * concluded there was nothing to resume, which is precisely how the resume failed in the real flow
+   * while every helper test passed.
+   */
+  const priorWork = readWorkRecord(sys, root);
   /** Decisions that have already driven a correction. One decision, one correction. */
   const correctionsApplied: string[] = [];
   // Decisions already acted on. A restart re-derives the same request id, so a decision that was
@@ -948,6 +972,121 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
   };
 
   /**
+   * The commit the OWNER was answering — recovered from durable state, not from where HEAD is now.
+   *
+   * THE BUG THIS EXISTS TO FIX, WHICH MADE THE RESUME UNREACHABLE IN THE REAL FLOW. A receipt binds
+   * to the subject at which OWNER_GATE was raised, and it only counts once COMMITTED — but that very
+   * commit moves HEAD. So the run that stopped saw subject A, the owner answered A, committing the
+   * answer made HEAD B, and the next run compared the receipt against B and threw it away as stale.
+   * Every owner decision was refused by the act of recording it. My own tests missed it by capturing
+   * the head BEFORE writing the receipt and then passing that stale value back in by hand, which is
+   * precisely the production step that does not happen.
+   *
+   * THE RECORD IS CONTEXT, NEVER AUTHORITY. It answers only "which waiting instance is this", and it
+   * cannot manufacture a passage: whatever subject it names, a receipt must still be committed at
+   * that subject, decided by the plan's owner, bound to this project, phase and gate, unspent, and
+   * provably spendable. A forged record pointing anywhere the owner never signed yields nothing.
+   *
+   * AND THE SEPARATION MUST BE EXACTLY THE RECEIPT, WHICH ANCESTRY ALONE DID NOT ESTABLISH. Requiring
+   * only that the remembered subject be an ANCESTOR of the live head was too permissive: after the
+   * receipt commit B, any unrelated later commit C still has A as an ancestor and the receipt is
+   * still committed and unchanged, so an approval of A could be spent on work that had moved on
+   * without the owner. That is stale owner authority, which this phase exists to refuse. So the
+   * relationship is now exact — the live head must BE the commit that carries the decision, and its
+   * FIRST PARENT must be the subject the wait was recorded at. One commit of separation, and that
+   * commit must be the owner's answer.
+   *
+   * Anything else — an advanced head, a record from an abandoned branch, a subject that is not this
+   * head's parent, a different phase or project, an unreadable file — falls back to the live head,
+   * where a receipt bound to A cannot validate. Every failure leaves the gate standing.
+   */
+  const waitingSubject = (pending: readonly string[]): string | null => {
+    const live = verification.observed.head;
+    if (live === null) return null;
+    if (!priorWork.ok || priorWork.value === null) return live;
+    const record = priorWork.value;
+    // THE STOP, NOT THE STATE, IS WHAT NAMES A WAITING INSTANCE. `WAITING_OWNER` is written only
+    // when a reviewer is CONFIGURED and routing sends the stop to the owner; a run with no reviewer
+    // ends the same wait as `BLOCKED`. Both records carry `lastStopCode: 'OWNER_GATE'` and the same
+    // subject, so keying on the stop recovers the wait in either configuration — and keying on the
+    // state would have made the resume depend on whether a reviewer happened to be wired up.
+    if (record.lastStopCode !== 'OWNER_GATE') return live;
+    if (record.projectId !== context.projectId || record.phaseId !== phaseId) return live;
+    const remembered = record.subjectCommit;
+    if (remembered === null || remembered === live) return live;
+
+    // ONE COMMIT OF SEPARATION. The live head's first parent must be the recorded subject, so a head
+    // that has advanced past the owner's answer — by even one unrelated commit — recovers nothing.
+    const parent = sys.exec('git', ['-C', root, 'rev-parse', '--verify', `${live}^1`]);
+    if (parent.code !== 0 || parent.stdout.trim() !== remembered) return live;
+
+    // AND THAT ONE COMMIT MUST BE THE OWNER'S ANSWER. Being a child of the subject is not enough:
+    // the head has to be the commit that most recently touched a pending gate's receipt, which is
+    // what makes it the act of recording the decision rather than any other work done on top of A.
+    const carriesTheAnswer = pending.some((gate) => {
+      const rel = ownerGateReceiptRelPath(phaseId, gate);
+      if (rel === null) return false;
+      const last = sys.exec('git', ['-C', root, 'log', '-1', '--format=%H', '--', rel]);
+      return last.code === 0 && last.stdout.trim() === live;
+    });
+    if (!carriesTheAnswer) return live;
+
+    lines.push(`  resuming the owner wait recorded at ${remembered}; HEAD ${live} is the commit that carries the decision`);
+    return remembered;
+  };
+
+  /**
+   * Buy the owner gates that are actually blocking, and report which were bought.
+   *
+   * CALLED ONLY WHEN OWNER_GATE IS THE DECISION, WHICH WAS THE SECOND DEFECT. This used to be
+   * evaluated as an argument to `decideContinuation`, so it ran before that function had decided
+   * anything — and `decideContinuation` weighs blocking findings, scope, failing checks, effects and
+   * reviews BEFORE it ever considers an owner gate. A run that was about to retry a failing check
+   * therefore spent Murad's single-use decision on a passage it did not take. A receipt is now spent
+   * only once the owner gate is the thing standing in the way.
+   *
+   * ONLY THE PENDING ONES. A standing protection like `secrets-handling` is never a continuation
+   * action, so it is never blocking and its receipt — if one exists — is never touched here.
+   *
+   * CONSUMPTION IS A PRECONDITION OF SATISFACTION, enforced in `consumeAnsweredOwnerGates`: a gate
+   * whose receipt cannot be provably spent is not returned, so it stays standing and the run stops
+   * on the owner exactly as it already had.
+   */
+  const payForPendingOwnerGates = (): boolean => {
+    const pending = brief.phase.requiredOwnerGates
+      .filter((g) => (TECHNICAL_ACTIONS as readonly string[]).includes(g))
+      .filter((g) => !paidOwnerGates.has(g));
+    if (pending.length === 0) return false;
+    // NO SUBJECT, NO ANSWER. A receipt is bound to the exact commit the owner was looking at; with
+    // no subject to bind it to, every gate stays outstanding.
+    const subject = waitingSubject(pending);
+    if (subject === null) return false;
+    const planOwner = committedGovernanceOwner(sys, root, context.planPath);
+    if (planOwner === null) return false;
+    const { satisfied, refusals } = consumeAnsweredOwnerGates(
+      sys,
+      root,
+      {
+        projectId: context.projectId,
+        phaseId,
+        requiredOwnerGates: pending,
+        evidenceSubjectHead: subject,
+        planOwner,
+        // WHAT THIS RUN HAS ALREADY SPENT. One decision buys one gate: a receipt whose id already
+        // bought a passage here cannot buy a second one, in this pass or a later attempt.
+        alreadyConsumedDecisionIds: [...paidOwnerGates.values()],
+      },
+      sys.now(),
+    );
+    for (const { gate, decisionId } of satisfied) {
+      paidOwnerGates.set(gate, decisionId);
+      lines.push(`  owner gate '${gate}' answered by committed receipt ${decisionId}, now spent`);
+    }
+    for (const refusal of refusals) lines.push(`  ${refusal}`);
+    return satisfied.length > 0;
+  };
+
+  /**
    * Carry out the technical continuation the reviewer approved, or say why it did not happen.
    *
    * NOTHING HERE DECIDES. It assembles facts the runtime already established — the governed project
@@ -1270,7 +1409,7 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
       break;
     }
 
-    const decision = decideContinuation({
+    const turnFacts = {
       brief,
       checks,
       findings: findings.value.findings,
@@ -1282,7 +1421,20 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
       // iteration. TypeScript narrows `described.stop` to `null` here, so writing anything other
       // than null would be describing a case that cannot occur.
       workerRefusal: null,
-    });
+    };
+
+    // DECIDE FIRST, PAY SECOND, AND ONLY FOR THE THING ACTUALLY IN THE WAY.
+    //
+    // The first pass spends nothing: it is judged against the gates this run has ALREADY bought, so
+    // a failing check, a blocking finding, a scope question or an unattested effect reaches its own
+    // outcome without touching the owner's decision. Only when the answer is that the owner gate is
+    // what remains is a receipt validated and spent — and then the decision is taken again, because
+    // a gate that has just been paid for is no longer pending. If nothing could be bought, the first
+    // decision stands and the run stops on the owner, which is where it already was.
+    let decision = decideContinuation({ ...turnFacts, ownerGatesSatisfied: [...paidOwnerGates.keys()] });
+    if (decision.kind === 'stop' && decision.reason.code === 'OWNER_GATE' && payForPendingOwnerGates()) {
+      decision = decideContinuation({ ...turnFacts, ownerGatesSatisfied: [...paidOwnerGates.keys()] });
+    }
 
 
     if (decision.kind === 'stop') {

@@ -290,10 +290,30 @@ function run() {
   }
   // A DECLARED PROTECTION IS NOT A PENDING ACTION. Reverting to a gate COUNT would send every phase
   // that declares a standing protection to the owner forever, and say something false while doing it.
-  if (!/const pendingOwnerActions = gates\.filter\(\(g\) => \(TECHNICAL_ACTIONS as readonly string\[\]\)\.includes\(g\)\)/.test(outcome)) {
+  //
+  // PINNED ON THE MECHANISM, NOT ON ONE LINE'S FORMATTING. The original pattern required the whole
+  // expression to be a single unbroken `gates.filter(...)`, so PROJECTOS-OWNER-ESCALATION-WAIT1A
+  // failed it merely by chaining a second filter that subtracts gates the OWNER has already answered
+  // — a narrowing that cannot widen anything, and one whose behaviour is proven separately. What
+  // must hold is that the list still starts from `gates` and is still filtered by membership of
+  // TECHNICAL_ACTIONS; the two assertions below say exactly that and nothing about layout. The
+  // second is new and makes this check STRICTER than the one it replaces: the regression the comment
+  // above names — assigning the gate list or its length straight across — is now refused by name
+  // rather than only implied by the first pattern's rigidity.
+  if (
+    !/const pendingOwnerActions = gates[\s\S]{0,400}?\.filter\(\(g\) => \(TECHNICAL_ACTIONS as readonly string\[\]\)\.includes\(g\)\)/.test(
+      outcome,
+    )
+  ) {
     E(
       "projectos/agent/src/loop/outcome.ts no longer distinguishes a pending owner ACTION from a " +
         "declared protection — a gate count would stop completed work for protections nobody proposed to exercise",
+    );
+  }
+  if (/const pendingOwnerActions = gates\s*;/.test(outcome) || /const pendingOwnerActions = gates\.length/.test(outcome)) {
+    E(
+      "projectos/agent/src/loop/outcome.ts assigns the declared gate list (or its length) straight to " +
+        "pendingOwnerActions — every phase declaring a standing protection would wait on the owner for ever",
     );
   }
   const route = /CONTINUATION_READY:\s*\{([\s\S]*?)\},/.exec(routing);

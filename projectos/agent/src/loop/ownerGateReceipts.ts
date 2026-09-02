@@ -27,6 +27,7 @@
  * Created in PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A under the owner's bridge ruling of 2026-08-17.
  */
 import { join } from 'node:path';
+import { ownerGateState, type OwnerGateReceipt } from '@projectos/core';
 import type { System } from '../system.js';
 
 /**
@@ -147,4 +148,237 @@ export function readCommittedReceipts(
     out.set(gate, receiptIsCommitted(sys, root, phaseId, gate) ? readCommittedReceipt(sys, root, phaseId, gate) : null);
   }
   return out;
+}
+
+/**
+ * The result of trying to spend a receipt. `ok` is the ONLY thing a caller may act on.
+ *
+ * Added in PROJECTOS-OWNER-ESCALATION-WAIT1A.
+ */
+export interface ReceiptConsumption {
+  /** True ONLY when the spend was written AND read back AND the receipt no longer counts. */
+  readonly ok: boolean;
+  readonly detail: string;
+}
+
+/**
+ * Spend a receipt, and PROVE it was spent, so the passage it bought cannot be bought twice.
+ *
+ * WHY THE WORKING TREE IS THE RIGHT PLACE. A receipt counts only while `receiptIsCommitted` holds —
+ * committed AND unchanged since. Stamping `consumedAt` into the working copy therefore ends its
+ * usefulness immediately and durably: `git diff HEAD` is no longer empty, so the next process refuses
+ * it as uncommitted, and if the owner later commits the stamped form `checkOwnerGateReceipt` refuses
+ * it again for carrying a spent marker. Two independent refusals from one write.
+ *
+ * THE FAILURE THIS FUNCTION USED TO ALLOW. It reported a failed spend and returned prose, and its own
+ * doc argued that reporting was the honest thing because the write "only ever narrows". That was
+ * wrong, and the gatekeeper was right to raise it: a caller that resumes on a receipt whose spend
+ * failed has taken an owner-approved passage that nothing durable records as taken, so a restart
+ * takes it again. Single-use authority that reports its own failure and proceeds is not single-use.
+ * `ok` now carries that fact into the type, where a caller cannot read past it.
+ *
+ * AND IT IS PROVEN, NOT ASSUMED. A write that does not throw is not a write that happened: the bytes
+ * are read back and the stamp checked, and `receiptIsCommitted` is asked again — it must now be
+ * false. Only then is the spend `ok`. Anything else, including a silently-dropped write, is a
+ * refusal.
+ *
+ * AND IT IS SERIALISED, BECAUSE PROVING A WRITE IS NOT THE SAME AS BEING THE ONLY WRITER. Read the
+ * file, see no `consumedAt`, write the stamp, read your own stamp back: every step succeeds for BOTH
+ * of two concurrent processes that each read the clean file before either wrote. Both would then
+ * hold a proven spend of the same single-use decision. The whole read-check-write-verify sequence
+ * therefore happens under an exclusive lock taken with `createExclusive`, whose exclusivity is the
+ * filesystem's rather than ours, and the `consumedAt` check is made INSIDE it — a check made before
+ * the lock is a check made against a file another process may already have stamped. This project has
+ * been bitten by exactly this shape before, in the cost ledger, where a ceiling was checked outside
+ * the lock that reserved against it.
+ *
+ * A LOCK THAT IS NEVER RELEASED LEAVES THE GATE STANDING, which is the safe direction: the owner is
+ * asked again and the receipt is untouched. Recovering a lock left behind by a killed process is
+ * crash reconciliation, and belongs to B8.
+ *
+ * Added in PROJECTOS-OWNER-ESCALATION-WAIT1A.
+ */
+export function markOwnerReceiptConsumed(
+  sys: System,
+  root: string,
+  phaseId: string,
+  gateName: string,
+  at: string,
+): ReceiptConsumption {
+  const no = (detail: string): ReceiptConsumption => ({ ok: false, detail });
+  const path = ownerGateReceiptPath(root, phaseId, gateName);
+  if (path === null) return no(`receipt for '${gateName}' could not be addressed, so it was NOT spent`);
+
+  // THE LOCK COMES FIRST, BEFORE ANYTHING IS EVEN READ.
+  const lock = `${path}.lock`;
+  if (!sys.createExclusive(lock, `spending '${gateName}' at ${at}
+`)) {
+    return no(`receipt for '${gateName}' is already being spent by another process, so it was NOT spent here`);
+  }
+  try {
+    return spendUnderLock(sys, root, phaseId, gateName, at, path, no);
+  } finally {
+    sys.removeFile(lock);
+  }
+}
+
+/** The spend itself. Only ever called by `markOwnerReceiptConsumed`, and only holding the lock. */
+function spendUnderLock(
+  sys: System,
+  root: string,
+  phaseId: string,
+  gateName: string,
+  at: string,
+  path: string,
+  no: (detail: string) => ReceiptConsumption,
+): ReceiptConsumption {
+  const raw = sys.readText(path);
+  if (raw === null) return no(`receipt for '${gateName}' could not be read back, so it was NOT spent`);
+  let record: Record<string, unknown>;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) throw new Error('not an object');
+    record = parsed as Record<string, unknown>;
+  } catch {
+    return no(`receipt for '${gateName}' is not a JSON object, so it was NOT spent`);
+  }
+  if (record['consumedAt'] !== undefined && record['consumedAt'] !== null) {
+    return no(`receipt for '${gateName}' was already spent at ${String(record['consumedAt'])}`);
+  }
+  try {
+    sys.writeText(path, `${JSON.stringify({ ...record, consumedAt: at }, null, 2)}
+`);
+  } catch (err) {
+    const why = err instanceof Error ? err.message : String(err);
+    return no(`receipt for '${gateName}' could not be written back, so it was NOT spent: ${why}`);
+  }
+
+  // THE PROOF, IN THE TWO FORMS THAT MATTER.
+  //
+  // First that the bytes on disk now carry the stamp — a `writeText` that returns without throwing
+  // has still not necessarily changed anything a later process will read. Second that the receipt has
+  // actually stopped counting: `receiptIsCommitted` is the exact predicate every other reader uses,
+  // so asking it again is asking the real question rather than a proxy for it.
+  const back = sys.readText(path);
+  if (back === null) return no(`receipt for '${gateName}' could not be re-read after writing, so the spend is UNPROVEN`);
+  try {
+    const after = JSON.parse(back) as Record<string, unknown>;
+    if (after['consumedAt'] !== at) {
+      return no(`receipt for '${gateName}' does not carry the spend after writing, so it was NOT spent`);
+    }
+  } catch {
+    return no(`receipt for '${gateName}' is unreadable after writing, so the spend is UNPROVEN`);
+  }
+  if (receiptIsCommitted(sys, root, phaseId, gateName)) {
+    return no(`receipt for '${gateName}' still counts as committed and unchanged after the spend, so it was NOT spent`);
+  }
+  return { ok: true, detail: `receipt for '${gateName}' spent at ${at}; it cannot answer this gate again` };
+}
+
+/**
+ * Which of a phase's owner gates are ANSWERED by a committed receipt, and by which decision.
+ *
+ * WHY THIS DECISION LIVES HERE AND NOT IN THE RUNNER. `readFromCommittedTree` is a claim about where
+ * bytes came from, and only the code that performed the read is in a position to make it. The runner
+ * cannot: it never touches the object store, so asserting the flag there would be asserting something
+ * it did not establish — the same rule `loadDegradedModeGrant` already enforces for degraded
+ * authority, kept by two frozen proofs that forbid the runner from even naming the flag. Placing the
+ * conjunction here keeps the assertion adjacent to the read that justifies it.
+ *
+ * IT ONLY EVER REPORTS. Nothing here grants passage or writes anything; the caller decides what an
+ * answered gate is worth, and marks it spent separately.
+ *
+ * Added in PROJECTOS-OWNER-ESCALATION-WAIT1A.
+ */
+export function answeredOwnerGatesFromCommittedTree(
+  sys: System,
+  root: string,
+  binding: {
+    readonly projectId: string;
+    readonly phaseId: string;
+    readonly requiredOwnerGates: readonly string[];
+    readonly evidenceSubjectHead: string;
+    readonly planOwner: string;
+    readonly alreadyConsumedDecisionIds: readonly string[];
+  },
+): readonly { readonly gate: string; readonly decisionId: string }[] {
+  const gates = binding.requiredOwnerGates;
+  if (gates.length === 0) return [];
+  const receipts = readCommittedReceipts(sys, root, binding.phaseId, gates);
+  // ACCUMULATED AS WE GO, WHICH IS WHAT THE FIELD IS FOR. `alreadyConsumedDecisionIds` refuses a
+  // receipt that has already answered something, so a gate judged later in this same pass must see
+  // the ids the earlier gates used — otherwise one decision could answer two gates in one breath.
+  // The gate-name and gate-instance bindings make that hard to reach on their own; this closes it by
+  // construction rather than by relying on the other two holding.
+  const spent = [...binding.alreadyConsumedDecisionIds];
+  const answered: { gate: string; decisionId: string }[] = [];
+  for (const gate of gates) {
+    const receipt = (receipts.get(gate) ?? null) as OwnerGateReceipt | null;
+    const { state } = ownerGateState(receipt, {
+      projectId: binding.projectId,
+      phaseId: binding.phaseId,
+      requiredOwnerGates: [gate],
+      evidenceSubjectHead: binding.evidenceSubjectHead,
+      planOwner: binding.planOwner,
+      // ESTABLISHED, NOT ASSUMED: `readCommittedReceipts` above reads `HEAD:./<path>` from the object
+      // store and maps anything uncommitted or since-edited to null.
+      readFromCommittedTree: true,
+      alreadyConsumedDecisionIds: spent,
+    });
+    if (state !== 'APPROVED') continue;
+    const decisionId = String((receipt as Record<string, unknown> | null)?.['decisionId'] ?? '');
+    spent.push(decisionId);
+    answered.push({ gate, decisionId });
+  }
+  return answered;
+}
+
+/**
+ * The gates an owner receipt has BOUGHT — read, judged, and spent, in that order.
+ *
+ * THE ORDER IS THE WHOLE POINT, AND IT WAS THE WRONG WAY ROUND. The first wiring satisfied the gate
+ * and spent the receipt afterwards, reporting a failed spend and resuming anyway. An owner decision
+ * is single-use authority: taking the passage without a durable record that it was taken means a
+ * restart takes it again, which is a replay of Murad's authority however narrow the window. So
+ * consumption is now a PRECONDITION of satisfaction, not a consequence of it. A gate whose receipt
+ * could not be provably spent is returned as refused and stays standing.
+ *
+ * FAILING TO SPEND COSTS THE OWNER NOTHING. The receipt is untouched by a failed spend, so once the
+ * checkout is writable again the same decision still answers. The run stops; the authority survives.
+ *
+ * WHY BOTH HALVES LIVE HERE. `readFromCommittedTree` may only be asserted by the code that performed
+ * the read, and the spend has to be adjacent to the judgement it gates — a caller that could satisfy
+ * a gate without passing through this function is the hole this closes.
+ *
+ * Added in PROJECTOS-OWNER-ESCALATION-WAIT1A.
+ */
+export function consumeAnsweredOwnerGates(
+  sys: System,
+  root: string,
+  binding: {
+    readonly projectId: string;
+    readonly phaseId: string;
+    readonly requiredOwnerGates: readonly string[];
+    readonly evidenceSubjectHead: string;
+    readonly planOwner: string;
+    readonly alreadyConsumedDecisionIds: readonly string[];
+  },
+  at: string,
+): {
+  readonly satisfied: readonly { readonly gate: string; readonly decisionId: string }[];
+  readonly refusals: readonly string[];
+} {
+  const satisfied: { gate: string; decisionId: string }[] = [];
+  const refusals: string[] = [];
+  for (const { gate, decisionId } of answeredOwnerGatesFromCommittedTree(sys, root, binding)) {
+    const spend = markOwnerReceiptConsumed(sys, root, binding.phaseId, gate, at);
+    if (!spend.ok) {
+      // NOT SATISFIED, AND SAID SO. The gate stays standing and the run stops on the owner, which is
+      // where it already was — no worse off than if the receipt had never been written.
+      refusals.push(`owner gate '${gate}' NOT satisfied: ${spend.detail}`);
+      continue;
+    }
+    satisfied.push({ gate, decisionId });
+  }
+  return { satisfied, refusals };
 }

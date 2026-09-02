@@ -189,6 +189,18 @@ export interface DecisionInput {
   readonly scopeQuestion?: string | null;
   /** Set when the worker itself refused to run. */
   readonly workerRefusal?: string | null;
+  /**
+   * Owner gates the OWNER has answered, by a receipt the runtime read from the committed tree and
+   * judged with `checkOwnerGateReceipt`.
+   *
+   * RESOLVED BY THE CALLER, because this function is pure and a receipt lives in git. What arrives
+   * here is the OUTCOME of that judgement, never the receipt: this module cannot be handed a record
+   * and talked into believing it, and a caller that resolves nothing leaves the gates standing.
+   *
+   * ABSENT MEANS NONE ANSWERED, which is the safe reading. A run with no gatekeeper, a checkout with
+   * no receipts, or a caller that has not been told about this all behave exactly as before.
+   */
+  readonly ownerGatesSatisfied?: readonly string[];
 }
 
 /**
@@ -317,7 +329,17 @@ export function decideContinuation(input: DecisionInput): ContinuationDecision {
   // DETERMINISTIC, AND IT INFERS NOTHING. Membership of a fixed list, not a judgement about what a
   // gate might mean.
   const gates = input.brief.phase.requiredOwnerGates;
-  const pendingOwnerActions = gates.filter((g) => (TECHNICAL_ACTIONS as readonly string[]).includes(g));
+  // AND A GATE THE OWNER HAS ALREADY ANSWERED IS NOT PENDING EITHER.
+  //
+  // The receipt mechanism — deterministic gate instance, committed provenance, replay refusal — was
+  // built and had no consumer, so a phase reserving an action to the owner stopped for ever even
+  // after the owner had recorded their decision. What is subtracted here is the answered gate, and
+  // only after the runtime judged the receipt: an unanswered, malformed, stale or spent receipt
+  // leaves its gate exactly where it was.
+  const answered = input.ownerGatesSatisfied ?? [];
+  const pendingOwnerActions = gates
+    .filter((g) => (TECHNICAL_ACTIONS as readonly string[]).includes(g))
+    .filter((g) => !answered.includes(g));
   if (pendingOwnerActions.length > 0) {
     return {
       kind: 'stop',
