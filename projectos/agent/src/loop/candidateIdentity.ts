@@ -41,11 +41,44 @@
  * committed is not a matter of opinion, and "unrelated drift" needs no separate check: a path that
  * appears or disappears changes the sorted list and therefore the digest.
  *
+ * EXCEPT FOR THE RECORDS THE ASKING ITSELF CREATES, AND WITHOUT THAT NOTHING COULD EVER BE COMMITTED.
+ *
+ * The identity is captured while the evidence is built, which is BEFORE the gatekeeper is asked. The
+ * ask then writes, inside the governed root, the records ProjectOS keeps about having asked: the spend
+ * ledger and its lock and temporary file, the thread continuity record, the decision evidence, and the
+ * durable work checkpoint. Every one of those is a tracked file in this repository. So by the time the
+ * executor re-derives the candidate to check it against the decision, the candidate has moved — and it
+ * moved because the question was asked. `authoriseTechnicalContinuation` then refuses with "the
+ * candidate changed after the gatekeeper reviewed it", correctly, about a change nobody made. The
+ * whole chain could never commit anything, and the end-to-end proof missed it because its fixture
+ * supplies no ledger and no evidence ports: those exist only in production.
+ *
+ * SO THE SUBTRACTED SET IS CLOSED, EXPLICIT, AND IMPORTED FROM THE MODULES THAT OWN THOSE PATHS —
+ * never a directory, never `.projectops/**`, and never anything a caller, a model or a checkpoint can
+ * name. Six are exact paths; the seventh — decision evidence, whose filename carries a per-request id
+ * — is bounded by the WRITER's own filename shape, so it too admits only what ProjectOS can create. A future rename of one of those records moves the exclusion with it, because
+ * the constant is the same one the writer uses.
+ *
+ * WHAT THIS DOES NOT DO, which is the part that matters. It hides nothing from git and untracks
+ * nothing: those records stay tracked evidence and are committed by the ordinary route. It removes
+ * them only from the answer to "which bytes would this commit record", which is the one question they
+ * cannot honestly be part of — a reviewer cannot review bytes that do not exist until after it has
+ * answered. Plans, phase records, authority records, configuration, source, the proof artifact and the
+ * worker's own findings and effects are all still inside the candidate, and one changed byte in any of
+ * them still moves the digest.
+ *
  * Created in PROJECTOS-AUTOMATIC-TECHNICAL-CONTINUATION1A.
  */
 import { createHash } from 'node:crypto';
 import type { System } from '../system.js';
 import { porcelainPaths } from './observation.js';
+import {
+  GATEKEEPER_DECISIONS_REL,
+  GATEKEEPER_LEDGER_LOCK_REL,
+  GATEKEEPER_LEDGER_REL,
+  GATEKEEPER_THREAD_REL,
+} from './gatekeeperConfig.js';
+import { WORK_RECORD_REL } from './workRecord.js';
 import {
   CANDIDATE_IDENTITY_SCHEMA_VERSION,
   type CandidateEntry,
@@ -54,6 +87,54 @@ import {
 
 /** The mode git records for an ordinary file it has just started tracking. */
 const DEFAULT_FILE_MODE = '100644';
+
+/**
+ * The records ProjectOS writes BECAUSE it asked, named by the modules that own them.
+ *
+ * Exact paths, not patterns. Each is here for one reason and one only: asking the gatekeeper a
+ * question changes its bytes, so it cannot also be part of the answer to which bytes the question was
+ * about. Nothing here carries source, configuration, a plan, a phase record, authority, or the
+ * worker's own assertions.
+ */
+const ASKING_RECORD_PATHS: readonly string[] = [
+  // The spend ledger, plus the two files its exclusive write leaves beside it.
+  GATEKEEPER_LEDGER_REL,
+  `${GATEKEEPER_LEDGER_REL}.tmp`,
+  GATEKEEPER_LEDGER_LOCK_REL,
+  `${GATEKEEPER_LEDGER_LOCK_REL}.leaked`,
+  // Thread continuity: which provider response this run follows.
+  GATEKEEPER_THREAD_REL,
+  // The durable work checkpoint, rewritten at every reported state — including the one reported
+  // immediately before the call goes out.
+  WORK_RECORD_REL,
+];
+
+/**
+ * The only filename the decision-evidence writer can produce.
+ *
+ * `gatekeeperDecisionEvidenceRelPath` refuses any request id outside this charset before it becomes a
+ * path, so a file this pattern does not match is a file that writer did not create. Matching the
+ * WRITER's own shape rather than merely "a .json in that directory" is what keeps the excluded set
+ * closed: `anything-i-want.json` is not a decision record and stays inside the candidate.
+ */
+const DECISION_EVIDENCE_FILENAME = /^[A-Za-z0-9_-]{4,128}\.json$/;
+
+/**
+ * Is this path one of the records the asking itself creates?
+ *
+ * Six exact paths, plus decision evidence — which cannot be an exact path because the request id is
+ * derived per request. That one is matched at exactly one level below its own directory AND against
+ * the writer's own filename shape, so it is bounded by what ProjectOS can actually write rather than
+ * by where a file happens to sit. A nested path, a different extension, or a name the writer could
+ * never have produced all stay inside the candidate.
+ */
+function isAskingRecord(path: string): boolean {
+  if (ASKING_RECORD_PATHS.includes(path)) return true;
+  const prefix = `${GATEKEEPER_DECISIONS_REL}/`;
+  if (!path.startsWith(prefix)) return false;
+  const rest = path.slice(prefix.length);
+  return !rest.includes('/') && DECISION_EVIDENCE_FILENAME.test(rest);
+}
 
 export type CandidateResult =
   | { readonly ok: true; readonly identity: CandidateIdentity }
@@ -136,7 +217,9 @@ export function computeCandidateIdentity(sys: System, root: string): CandidateRe
     };
   }
 
-  const paths = [...new Set(porcelainPaths(status.out))].sort();
+  // SUBTRACTED HERE, ONCE, WHERE THE BOUNDARY IS FORMED. Doing it later would mean the digest and
+  // the entry list could disagree about what the candidate is.
+  const paths = [...new Set(porcelainPaths(status.out))].filter((p) => !isAskingRecord(p)).sort();
   if (paths.length === 0) {
     // A CANDIDATE OF NOTHING IS STILL AN IDENTITY, and it must be a real one: a clean tree has a
     // stable digest of its own, so "there is nothing to commit" and "the candidate is unknown" stay
