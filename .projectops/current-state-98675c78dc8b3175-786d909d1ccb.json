@@ -5,15 +5,16 @@
   "activePlanVersion": "1.1",
   "currentStatus": "PLAN READY",
   "completionMethod": "phase-closure",
-  "acceptedPhaseCount": 3,
+  "acceptedPhaseCount": 4,
   "totalPhaseCount": 5,
-  "completionPercentage": 60,
+  "completionPercentage": 80,
   "completedPhases": [
     "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
     "PROJECTOS-AUTOMATIC-TECHNICAL-CONTINUATION1A",
-    "PROJECTOS-OWNER-ESCALATION-WAIT1A"
+    "PROJECTOS-OWNER-ESCALATION-WAIT1A",
+    "PROJECTOS-SESSION-RECOVERY1A"
   ],
-  "activePhase": "PROJECTOS-SESSION-RECOVERY1A",
+  "activePhase": null,
   "pendingPhases": [
     "PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A"
   ],
@@ -21,13 +22,13 @@
   "deferredPhases": [],
   "acceptedCarryForward": [],
   "currentBranch": "projectos-post-v3-selfhost-pilot1a",
-  "currentHead": "8187aef313e1ebeffc7891685f5baec80a328753",
+  "currentHead": "c2f12cdd0c1d01ebea68d46d5ce6ab4e07929945",
   "currentRemoteHead": null,
   "workingTreeStatus": "dirty",
   "currentRisks": [],
   "currentBlockers": [],
   "lastEvidenceReference": "plan-approval decision PLANDEC-163d1235080f1f8fdf580aa3",
-  "nextRecommendedPhase": "PROJECTOS-SESSION-RECOVERY1A",
-  "lastUpdated": "2026-09-02T18:42:11.551Z",
+  "nextRecommendedPhase": "PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A",
+  "lastUpdated": "2026-09-02T18:58:51.093Z",
   "updatedByRole": "implementer"
 }
