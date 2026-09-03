@@ -1,0 +1,25 @@
+{
+  "phaseId": "PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A",
+  "evidenceSubjectHead": "5e55b4b20cc6ef684cfd915e2bc513449ec56b60",
+  "validatorsPass": true,
+  "checksPass": true,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "unresolvedCritical": 0,
+  "unresolvedHighIds": [],
+  "headedProofPass": null,
+  "protectedEffects": "NONE",
+  "establishedAt": "2026-09-03 19:55",
+  "notes": [
+    "THIS RECORD DOES NOT CLOSE ANYTHING. It is the evidence a closure decision needs; the decision is the delegated closure authority's and lives beside this file in closure/decisions/.",
+    "WHAT THIS PHASE PROVED. One bounded change to ProjectOS itself was carried from objective to pushed result with the owner performing zero relay between reviewer and implementer: the objective travelled in the approved plan's phase description, the worker (claude-code-cli, project settings only) made exactly the change - pilotState pending to proven in .projectops/proof/PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A.json, one line - the loop ran the configured checks, corrected the worker's one LOW by rejoin without a paid call, ran the checks again, asked the delegated reviewer, and on its APPROVED_TO_PROCEED naming commit and push, ProjectOS itself committed the candidate as 7b1b0733 and pushed it. ff-only-integration was refused by the executor because no integration target is configured, which is the refusal it exists to give.",
+    "CHECKS PASS is the loop's own record, twice, at subject d429fea and after the correction: validate-all PASS, core-tests PASS, agent-tests PASS, agent-typecheck PASS. The evidence file for the landing run is .projectops/execution/PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A-d429fea9f5b8-e55eb6a7.evidence.json, committed inside 7b1b0733.",
+    "VALIDATORS PASS is checkable, not asserted: validate-all --record-evidence ran at this exact subject from a clean tree and wrote .projectops/validation/5e55b4b20cc6ef684cfd915e2bc513449ec56b60.json, which G4-17 locates by subject commit.",
+    "REVIEWS COMPLETE records the GATEKEEPER's review: decision GKDEC-GKREQ-6486c27e70710c933425423b, APPROVED_TO_PROCEED, allowedActions [\"commit\",\"push\",\"ff-only-integration\"], decidedBy ChatGPT at 2026-09-03T19:53:12.000Z, reviewing subject d429fea. The worker's own code-review and security-review are recorded in its findings file: 1 finding(s), all resolved. Separately, every ProjectOS source change made to reach this run was reviewed by ECC code and security reviewers before commit, each returning CRITICAL 0 and HIGH 0.",
+    "THE FOUR DEFECTS THIS PHASE FOUND AND FIXED, EACH BY A LIVE ATTEMPT THAT STOPPED SAFELY. Attempt 1 (ecfd405, $0.080671): configured checks crashed git.exe with 0xC0000005 and no stderr because the derived PATH lacked Git's MSYS runtime; fixed by gitRuntimeDirs. Attempt 2 (2d16aff, $0.080126): a user-level Claude Code plugin hook ran inside the governed worker and failed; fixed by running the worker on project settings only. Attempt 3 (c250bdc, $0.006448): the reviewer approved with invented allowedActions; fixed by naming the dispatcher's vocabulary in the evidence. Attempt 4 (91de379, $0.006715): the reviewer used an owner-gated verdict; fixed by naming the verdict that carries a delegated continuation. Attempt 5 (d429fea, $0.006805) landed. Every attempt's records are preserved unchanged in history.",
+    "PROVIDER SPEND for this phase: 5 calls, $0.180765, all under the owner's committed secrets-handling and payment-or-live-charge receipts and within the $5 hard limit; no credential entered any prompt, record or report.",
+    "PROTECTED EFFECTS: NONE. The worker attested all six protected-effect fields false on every attempt; no production, deployment, database, external send, payment or secret effect occurred. The only actions performed were one bounded commit and one ordinary push by the executor under a live decision, plus the implementer's own commits of fixes and evidence under the owner's explicit session instruction of 2026-09-03.",
+    "headedProofPass is null: the plan sets requiredBrowserProof false, so G4-8 does not require one.",
+    "CARRY-FORWARD, ACCEPTED BY THE GATE: activated plan records have no post-materialisation integrity check (MEDIUM); the governed worker and checks can now reach Git's usr/bin tools (MEDIUM); the owner-gate receipts' evidenceSubjectHead names the head at approval rather than expiring with it (by design)."
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A",
+  "project": "projectos",
+  "objective": "Prove that ProjectOS can carry one bounded change to itself from objective to pushed result without the owner relaying anything between Claude and the gatekeeper. The bounded change is `.projectops/proof/PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A.json`: set `pilotState` from `pending` to `proven`, and change nothing else in that file.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-09-03T20:09:44.152Z",
+      "note": "B9 lifecycle: five live autonomous attempts at ecfd405, 2d16aff, c250bdc, 91de379 and d429fea; the fifth landed. Recorded after the fact from the committed run records."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-09-03T20:09:44.560Z",
+      "note": "Worker claude-local made exactly the bounded change: pilotState pending to proven in .projectops/proof/PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A.json, one line, on every attempt from the third onward."
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-09-03T20:09:44.921Z",
+      "note": "Configured checks validate-all, core-tests, agent-tests and agent-typecheck passed twice inside the loop on attempt 5 (subject d429fea), the second pass after a rejoin corrected the worker's one LOW without a paid call."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-09-03T20:09:45.185Z",
+      "note": "Gatekeeper decision GKDEC-GKREQ-6486c27e70710c933425423b: APPROVED_TO_PROCEED naming commit, push and ff-only-integration. ProjectOS committed the candidate as 7b1b073 and pushed it; ff-only-integration refused for want of a configured integration target. Evidence subject for closure is 5e55b4b, which preserves the run's own records."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-09-03T20:09:45.589Z",
+      "note": "validate-all --record-evidence at 5e55b4b from a clean tree: 141/141, recorded in .projectops/validation/5e55b4b20cc6ef684cfd915e2bc513449ec56b60.json. Closure evidence written beside it."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-09-03T20:09:45.947Z",
+      "note": "Ready for the delegated closure authority. The owner performed zero relay between reviewer and implementer at any point in this phase."
+    }
+  ]
+}
