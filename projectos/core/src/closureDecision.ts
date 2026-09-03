@@ -116,6 +116,19 @@ const HEX40 = /^[0-9a-f]{40}$/;
 const DECISION_ID = /^[A-Za-z0-9_.:-]{8,128}$/;
 
 /**
+ * Is this a usable closure decision id?
+ *
+ * EXPORTED SO THE TRANSPORT ASKS THIS EXACT QUESTION. `closureTransport.ts` judges an id the moment
+ * an answer arrives, and this module judges the same id again when the record is read back from a
+ * commit. Two hand-copied regexes would let a response be accepted whose id the gate then refuses —
+ * a decision written, presented to the owner, committed, and rejected at the last step for a reason
+ * nobody could have seen coming. One predicate, both callers.
+ */
+export function isClosureDecisionId(value: string): boolean {
+  return DECISION_ID.test(value);
+}
+
+/**
  * Why this record is not a usable gatekeeper decision, or `[]` when it is.
  *
  * PURE. It performs no I/O and trusts nothing in the record: every field is compared against what the

@@ -1,0 +1,914 @@
+/**
+ * `projectos closure <request|resume|status>` — the autonomous closure transport, Route A.
+ *
+ * WHAT THIS COMMAND IS FOR. Everything between "the work is pushed and eligible" and "the phase is
+ * closed" used to travel through a person: Claude wrote a report, Murad carried it to ChatGPT,
+ * ChatGPT answered in prose, Murad carried the prose back, and somebody typed the decision record.
+ * That relay is the last thing in ProjectOS a human does purely to move information. This removes it
+ * — and removes ONLY it.
+ *
+ * WHAT IT DELIBERATELY DOES NOT REMOVE. The owner's commit. Under `tamperProof: false` the single
+ * thing that makes a governance record more than a file the runtime could have written is that it
+ * passed the owner's commit gate as a visible diff. So the shape is:
+ *
+ *   request  ask the closure authority, check the answer, WRITE the record, and stop.
+ *   (owner)  Murad commits the exact record. Nothing here can do that, and nothing tries.
+ *   resume   observe from git that he did, that the bytes are the ones he was shown, and then hand
+ *            the closure to the EXISTING G4 / delegation / consumption path, unchanged.
+ *
+ * WHY `resume` CALLS `phase advance` RATHER THAN CLOSING ANYTHING ITSELF. A second closure engine is
+ * the worst outcome available here: two places deciding what closure means, drifting, with the more
+ * permissive one eventually winning. `phase advance --to closed --delegated` already re-derives G4
+ * from the repository, re-reads the COMMITTED decision, judges it with `checkClosureDecision`,
+ * resolves the delegate from the approved plan, refuses any caller-asserted authority, records the
+ * decision id on the history and spends the decision. This command adds one question in front of all
+ * of that — "are the committed bytes the bytes the owner was shown?" — and then gets out of the way.
+ *
+ * NOTHING HERE IS AUTHORITY. The wait record narrows; the decision record is inert until committed;
+ * and `phase-closure` remains in `ABSOLUTE_OWNER_ONLY`, which no part of this route touches.
+ *
+ * Created in PROJECTOS-AUTONOMOUS-CLOSURE-TRANSPORT1A.
+ */
+import type { CommandContext, CommandResult } from '../context.js';
+import { join, ok, fail } from '../context.js';
+import { type Flags, str, bool } from '../flags.js';
+import { loadGovernedContext, refusalLines } from '../governedContext.js';
+import { loadPhase } from '../phaseStore.js';
+import {
+  closureDecisionPath,
+  closureDecisionProblems,
+  closureDecisionRelPath,
+  closureEvidencePath,
+  decisionIsCommitted,
+  evaluateG4,
+  g4RefusalLines,
+} from '../closureGate.js';
+import {
+  CLOSURE_WAIT_SCHEMA_VERSION,
+  closureDecisionSha256,
+  closureWaitProblems,
+  closureWaitRelPath,
+  isSafeClosurePhaseId,
+  observeOwnerCommit,
+  readClosureWait,
+  resolveClosureWait,
+  writeClosureDecisionForOwner,
+  writeClosureWait,
+  type ClosureBundleEntry,
+  type ClosureWaitRecord,
+} from '../closureWait.js';
+import { takeClosureTurn, type ClosureTurnDeps } from '../loop/closureTurn.js';
+import {
+  loadGatekeeperConfig,
+  readLedger,
+  readPreviousResponseId,
+  admitGatekeeperSpend,
+  releaseUndispatchedReservation,
+  resolveGatekeeperSpend,
+  settleGatekeeperSpend,
+  type GatekeeperConfig,
+} from '../loop/gatekeeperConfig.js';
+import { unprovisionedResolver } from '../loop/credentialResolver.js';
+import { nodeBrokeredTransport } from '../loop/transports/brokeredHttpPort.js';
+import { nodeHttpPort } from '../loop/transports/nodeHttpPort.js';
+import { nodeInstallationStateDir, nodeProjectosRuntime } from '../nodeRuntimeRoot.js';
+import { installationAllowsProject } from '../installation/projectAllowlist.js';
+import { readBrokerAnsweredState } from '../installation/brokerAnsweredState.js';
+import { resolveBoundGit } from '../system.js';
+import { phase as phaseCommand } from './phase.js';
+import {
+  closureRequestDigest,
+  consumedDecisionIds as consumedDecisionIdsOf,
+  type ClosureDecisionRecord,
+  type ClosureRequest,
+} from '@projectos/core';
+import type { System } from '../system.js';
+
+export function closure(ctx: CommandContext, flags: Flags, positionals: readonly string[]): CommandResult {
+  const sub = positionals[0] ?? 'status';
+  switch (sub) {
+    case 'request':
+      return closureRequest(ctx, flags);
+    case 'resume':
+      return closureResume(ctx, flags);
+    case 'status':
+      return closureStatus(ctx, flags);
+    default:
+      return fail(1, [`Unknown 'closure' subcommand: ${sub}`, 'Use: closure request|resume|status']);
+  }
+}
+
+function readJson(sys: System, path: string): Record<string, unknown> | null {
+  const text = sys.readText(path);
+  if (text === null) return null;
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The plan's closure delegate, or `''`. Read from the plan, never from a caller or a record. */
+function delegatedTo(plan: Record<string, unknown>): string {
+  const governance = plan['governance'];
+  if (typeof governance !== 'object' || governance === null) return '';
+  const delegation = (governance as Record<string, unknown>)['closureDelegation'];
+  if (typeof delegation !== 'object' || delegation === null || Array.isArray(delegation)) return '';
+  const to = (delegation as Record<string, unknown>)['delegatedTo'];
+  return typeof to === 'string' ? to : '';
+}
+
+function planOwner(plan: Record<string, unknown>): string {
+  const governance = plan['governance'];
+  if (typeof governance !== 'object' || governance === null) return '';
+  const owner = (governance as Record<string, unknown>)['owner'];
+  return typeof owner === 'string' ? owner : '';
+}
+
+/**
+ * The canonical closure evidence, as the text the closure authority reads and the digest binds.
+ *
+ * DERIVED, DETERMINISTIC AND ENTIRELY FROM DURABLE STATE. Nothing here is a claim by whoever wants
+ * the closure: the record is the phase's own committed-workflow evidence file, and the facts and
+ * verdict are recomputed by `evaluateG4` from the repository. No timestamp and no session id appears,
+ * because the request id is derived from this digest and a volatile field would make a restart a
+ * different — and separately billed — question.
+ */
+function closureEvidenceText(
+  facts: Record<string, unknown>,
+  verdict: Record<string, unknown>,
+  evidenceRecord: Record<string, unknown> | null,
+  phaseRecord: Record<string, unknown>,
+): string {
+  return JSON.stringify(
+    {
+      what: 'ProjectOS phase closure evidence',
+      phase: {
+        phaseId: phaseRecord['phaseId'],
+        objective: phaseRecord['objective'],
+        status: phaseRecord['status'],
+        history: phaseRecord['history'],
+      },
+      closureEvidenceRecord: evidenceRecord,
+      g4Facts: facts,
+      g4Verdict: verdict,
+    },
+    null,
+    2,
+  );
+}
+
+/**
+ * The exact ask put to the owner. Rendered from the wait, so the ask and the record cannot drift.
+ *
+ * IT NAMES EVERY FILE IN THE BUNDLE, WITH ITS DIGEST. The closure call is the only paid call that
+ * happens AFTER the evidence subject, so it necessarily leaves its cost entry in the governed tree
+ * beside the decision, and G4-13 refuses the closure while either is uncommitted. An earlier version
+ * of this ask named both files and byte-bound only the first, which meant the owner was told the
+ * commit was exact while half of it was unchecked. Every entry is rendered from `wait.bundle`, so the
+ * ask and the thing that will be verified cannot drift.
+ */
+function ownerAskLines(wait: ClosureWaitRecord): readonly string[] {
+  const others = wait.bundle.filter((b) => b.path !== wait.decisionPath);
+  return [
+    'WAITING_OWNER — Murad must commit the closure bundle.',
+    '',
+    `  project:  ${wait.projectId}`,
+    `  phase:    ${wait.phaseId}`,
+    `  subject:  ${wait.evidenceSubjectHead}`,
+    `  decision: ${wait.decision}, by ${wait.decidedBy} (${wait.decisionId})`,
+    '',
+    'THE ACTION REQUESTED — ONE COMMIT OF THESE EXACT FILES, AND NOTHING ELSE:',
+    '',
+    ...wait.bundle.flatMap((entry) => [
+      `  ${entry.path}${entry.path === wait.decisionPath ? '   (the closure decision)' : ''}`,
+      `    must digest to ${entry.sha256}`,
+    ]),
+    '',
+    others.length === 0
+      ? '  Every file above is checked byte for byte against what you commit.'
+      : '  EVERY file above is checked byte for byte against the committed blob — not only the decision.' +
+        ' The other ' +
+        (others.length === 1 ? 'file is' : 'files are') +
+        ' the accounting this call produced: no decision and no authority, but governed state entering' +
+        ' the repository inside your commit, so it is bound exactly as the decision is.',
+    '',
+    '  Do not edit any of them. Do not relay anything to or from the closure authority — ProjectOS',
+    '  already asked it and already has its answer. Committing is the whole of what is needed from you.',
+    '',
+    '  ProjectOS will then read these blobs back out of the commit itself; you do not need to tell it',
+    '  the commit id, and a later working-tree correction cannot stand in for a wrong committed blob.',
+    '',
+    'WHY THIS IS ASKED OF YOU. ProjectOS wrote these files, so ProjectOS writing them proves nothing:',
+    'anything able to write a file can write those. Your commit is what makes them a reviewable diff',
+    'that passed a gate no part of this runtime can pass for you.',
+    '',
+    'ONE MORE EXISTING GATE, STATED SO IT IS NOT A SURPRISE. G4-12 requires the branch to be reconciled',
+    'with its remote, so the commit must also reach origin before closure can proceed. That predicate',
+    'predates this route; it is not something the closure transport added.',
+    '',
+    `Then run:  projectos closure resume --id ${wait.phaseId}`,
+  ];
+}
+
+/**
+ * How the turn's ports are built. Composed here for production; INJECTED only by tests.
+ *
+ * THE SEAM IS STATED PLAINLY RATHER THAN HIDDEN, and it is the same one `commands/run.ts` and
+ * `loop/runner.ts` already have: the entrypoint composes the credential boundary, the transport and
+ * the ledger, and the transition receives them. Without it the request flow could only be exercised
+ * against a real trusted broker and a real paid call — so the whole path from eligibility to
+ * WAITING_OWNER would ship unexercised, which is exactly the state B6's executor was found in.
+ *
+ * IT IS NOT REACHABLE FROM THE CLI. `closure()` calls `closureRequest` with no maker, so there is no
+ * flag, argument or configuration through which a caller can substitute the credential boundary. A
+ * test can pass a fake; a user cannot.
+ */
+export type MakeClosureDeps = (args: {
+  readonly sys: System;
+  readonly root: string;
+  readonly projectId: string;
+  readonly config: GatekeeperConfig;
+  /** Decision ids this phase's own history records as already spent. Derived, never supplied. */
+  readonly consumedDecisionIds: readonly string[];
+}) => ClosureTurnDeps;
+
+/**
+ * Every governed path this route left uncommitted, with the exact bytes now on disk.
+ *
+ * DERIVED FROM GIT, NOT LISTED BY HAND. A hand-written list would say what this route was expected to
+ * write; `git status --porcelain` says what it actually left, which is what G4-13 will judge and what
+ * the owner will therefore have to commit. Digesting each one here is what makes the whole bundle
+ * byte-bound rather than just its first file.
+ *
+ * A git failure yields null rather than an empty list. "I could not ask" and "nothing is dirty" are
+ * different facts, and treating the first as the second would present a bundle that silently omitted
+ * whatever was actually there — which is the binding this amendment exists to close.
+ */
+function dirtyGovernedPaths(sys: System, root: string): readonly string[] | null {
+  // `-uall` IS LOAD-BEARING, NOT TIDINESS. Plain `--porcelain` collapses an untracked directory to
+  // its directory name — a brand-new decision reports as `?? .projectops/closure/decisions/`, not as
+  // the file. A bundle built from that would name a directory, digest nothing, and the byte-binding
+  // would be over a path git never stores. Listing untracked files individually is what makes the
+  // bundle a set of files.
+  const status = sys.exec('git', ['-C', root, 'status', '--porcelain', '-uall', '--', '.projectops']);
+  if (status.code !== 0) return null;
+  return status.stdout
+    .split(String.fromCharCode(10))
+    .filter((line) => line.trim() !== '')
+    .map((line) => {
+      // THE PATH IS THE REST OF THE LINE, AND IT IS NOT TRIMMED.
+      //
+      // Porcelain v1 is `XY <path>` — two status characters, one space, then the path to end of line.
+      // An earlier version called `.trim()` on it, and the ECC security review of this amendment
+      // demonstrated the consequence against real git: a decoy file whose name is the decision's plus
+      // a trailing U+00A0 is emitted unquoted when `core.quotepath` is false, `.trim()` strips the
+      // NBSP, and the decoy's parsed path becomes STRING-IDENTICAL to the decision's. It then passed
+      // the "unexpected path" filter as if it were the decision, was never digested, never named in
+      // the bundle, and rode into the owner's commit unexamined. Only `\r` is removed, because the
+      // captured stream may carry CRLF and a carriage return is never part of a git path.
+      const path = line.slice(3).split(String.fromCharCode(13)).join('');
+      // TWO PORCELAIN FORMS THIS CANNOT READ AS A PATH, AND BOTH ARE RETURNED VERBATIM.
+      //
+      // A rename is `R  old -> new`, and a path needing escapes is C-quoted (`"a\tb"`). Neither is a
+      // plain path, and a parser that guessed at them could produce a path that reads plausibly and
+      // digests the wrong file. Returning the raw line instead means it cannot match the decision or
+      // the one approved accounting path, so `buildClosureBundle` refuses and quotes git word for
+      // word — which is what an operator needs, and is the safe direction rather than the lucky one.
+      // No legitimate file this route writes takes either form.
+      if (path.startsWith('"') || path.includes(' -> ')) return line.trim();
+      return path;
+    })
+    .filter((path) => path !== '');
+}
+
+/**
+ * Characters that never appear in a governed record path, and whose presence means a name was crafted
+ * to be mistaken for another.
+ *
+ * WHITESPACE OTHER THAN NOTHING, AND EVERY CONTROL CHARACTER. The attack the security review proved is
+ * a filename that differs from the decision's only by an invisible character, so the two look the same
+ * to a person and — before this — compared equal after trimming. Refusing the whole class is what
+ * makes that impossible rather than merely handled: a governed path is ASCII-printable with no spaces,
+ * and anything else is refused by name rather than normalised into something it is not.
+ */
+const UNSAFE_IN_PATH =
+  /[\u0000-\u0020\u007F\u00A0\u1680\u2000-\u200D\u2028\u2029\u202F\u205F\u2060\u3000\uFEFF]/;
+
+/**
+ * The closure bundle: every governed file the owner must commit, decision first, each byte-bound.
+ *
+ * THE SET IS CLOSED, AND THAT IS THE POINT. A closure call leaves exactly two governed files behind —
+ * the decision it produced and the ledger entry it paid for — because eligibility required a clean
+ * tree before the call. Anything ELSE dirty under `.projectops/` at this moment is something this
+ * route did not write, and it would ride into the owner's commit unexamined: the ask would name two
+ * files while the commit carried three. So an unexpected path is a refusal, not a third bundle entry.
+ * That is what makes "these two exact files constitute the closure bundle" true rather than hopeful.
+ */
+export type BundleOutcome =
+  | { readonly kind: 'bundle'; readonly entries: readonly ClosureBundleEntry[] }
+  | { readonly kind: 'refused'; readonly reasons: readonly string[] };
+
+export function buildClosureBundle(
+  sys: System,
+  root: string,
+  decisionPath: string,
+  decisionSha256: string,
+): BundleOutcome {
+  const dirty = dirtyGovernedPaths(sys, root);
+  if (dirty === null) {
+    return {
+      kind: 'refused',
+      reasons: [
+        'git would not report what this call left uncommitted, so the closure bundle cannot be named.',
+        '  An unverifiable bundle is not a bundle; nothing is presented for owner action.',
+      ],
+    };
+  }
+
+  // A NAME CRAFTED TO BE MISTAKEN FOR ANOTHER IS REFUSED BEFORE IT IS COMPARED. Without this, a file
+  // differing from the decision's only by an invisible character reads identically to a person and,
+  // once trimmed, compared equal in code — the collision the ECC security review proved against real
+  // git. Refusing the class is what makes the comparison below mean what it says.
+  const unreadable = dirty.filter((path) => UNSAFE_IN_PATH.test(path));
+  if (unreadable.length > 0) {
+    return {
+      kind: 'refused',
+      reasons: [
+        `${unreadable.length} uncommitted governed path(s) carry whitespace or control characters:`,
+        ...unreadable.map((path) => `    ${JSON.stringify(path)}`),
+        '  A governed record path has none. A name that differs from another only by an invisible',
+        '  character cannot be told apart by the person being asked to commit it, so it is refused',
+        '  rather than normalised into something it is not.',
+      ],
+    };
+  }
+
+  // AND NO PATH APPEARS TWICE. Two entries for one path would mean two presented digests for one file,
+  // and the resume would have to choose. `closureWaitProblems` refuses that too; refusing it here as
+  // well means it is never written.
+  const duplicated = dirty.filter((path, i) => dirty.indexOf(path) !== i);
+  if (duplicated.length > 0) {
+    return {
+      kind: 'refused',
+      reasons: [`git reported '${duplicated[0]}' more than once; one path, one presented digest`],
+    };
+  }
+
+  const unexpected = dirty.filter((path) => path !== decisionPath && !ALSO_IN_BUNDLE.includes(path));
+  if (unexpected.length > 0) {
+    return {
+      kind: 'refused',
+      reasons: [
+        `${unexpected.length} governed path(s) are uncommitted that this closure call did not write:`,
+        ...unexpected.map((path) => `    ${path}`),
+        '  The owner is asked to commit a bundle, and every file in it is byte-bound. A path this route',
+        '  cannot account for would either travel inside that commit unexamined or refuse the closure',
+        '  later at G4-13. Commit or clean it, then ask again.',
+      ],
+    };
+  }
+
+  const entries: ClosureBundleEntry[] = [{ path: decisionPath, sha256: decisionSha256 }];
+  for (const path of dirty) {
+    if (path === decisionPath) continue;
+    const bytes = sys.readText(join(root, ...path.split('/')));
+    if (bytes === null) {
+      return {
+        kind: 'refused',
+        reasons: [
+          `${path} is uncommitted and could not be read, so the bytes the owner is asked to commit`,
+          '  cannot be identified. Nothing is presented for owner action.',
+        ],
+      };
+    }
+    entries.push({ path, sha256: closureDecisionSha256(bytes) });
+  }
+  return { kind: 'bundle', entries };
+}
+
+/**
+ * The governed paths a closure call may leave behind besides the decision.
+ *
+ * ONE ENTRY, AND IT IS THE ONE THE ARCHITECTURE GATE APPROVED. The ledger is written because the call
+ * was paid for; it is the only other file this route touches. A second name here would be a second
+ * thing the owner is asked to commit without a ruling behind it, so the list is a literal.
+ */
+const ALSO_IN_BUNDLE: readonly string[] = ['.projectops/gatekeeper-ledger.json'];
+
+/**
+ * STEP 1 — ask the closure authority, and stop at the owner.
+ *
+ * `--execute` IS REQUIRED because this is the only subcommand that spends money. The same reason
+ * `run` requires it: a command that makes a paid provider call must not be reachable by a typo.
+ */
+export function closureRequest(ctx: CommandContext, flags: Flags, makeDeps?: MakeClosureDeps): CommandResult {
+  const { sys, root } = ctx;
+  const id = str(flags, 'id');
+  if (id === '') return fail(1, ['`closure request` requires --id <PHASE-ID>']);
+  // THE PHASE ID MUST BE A SAFE NAME BEFORE ANY PATH IS BUILT FROM IT.
+  //
+  // `closureDecisionPath` interpolates without validating — that is pre-existing and shared with
+  // `phase advance` — and this route WRITES through it. Checking here means an id that could traverse
+  // or collide is refused before a single path is formed, rather than after the decision has been
+  // written and `writeClosureWait` refuses to remember it. The id is operator-supplied, never the
+  // authority's; the authority's `phaseId` is only ever compared.
+  if (!isSafeClosurePhaseId(id)) {
+    return fail(1, [`REFUSED (UNSAFE_PHASE_ID): '${id}' does not make a safe governed record name.`]);
+  }
+
+  if (!bool(flags, 'execute')) {
+    return fail(2, [
+      'REFUSED (NOT_EXECUTING): `closure request` makes a PAID call to the closure authority.',
+      '  - `projectos closure request --id <PHASE-ID> --execute` to actually ask',
+      '  - `projectos closure status --id <PHASE-ID>` to see where this phase stands, free',
+      '',
+      'Nothing was asked and nothing was spent.',
+    ]);
+  }
+
+  // THE ORACLE MUST ANSWER BEFORE ANY GOVERNANCE FACT IS REPORTED. Every fact below is read from
+  // COMMITTED bytes, and git is what reads them; without it the refusals would all be false.
+  if (resolveBoundGit() === null) {
+    return fail(2, [
+      'REFUSED (GIT_UNAVAILABLE): ProjectOS has no bound Git executable, so no repository fact can be established.',
+      '  - bind one with PROJECTOS_GIT_EXE, or install Git so it is on PATH',
+      '',
+      'Nothing was asked and nothing was spent.',
+    ]);
+  }
+
+  const gc = loadGovernedContext(sys, root);
+  if (!gc.ok) return fail(2, refusalLines(gc));
+  const current = loadPhase(sys, root, id);
+  if (current === null) return fail(1, [`No phase ${id}`]);
+
+  const decider = delegatedTo(gc.context.plan);
+  if (decider === '') {
+    return fail(2, [
+      'REFUSED (NO_CLOSURE_DELEGATION): the active approved plan records no closure delegate.',
+      '  - closure stays the owner\'s, and there is nobody for this route to ask',
+      '',
+      'Nothing was asked and nothing was spent.',
+    ]);
+  }
+
+  // ALREADY DECIDED AND COMMITTED? Then the question has been answered and paying to ask it again
+  // would buy a second answer to a settled question.
+  if (closureDecisionProblems(sys, root, gc.context, id, current.history, 'delegated').length === 0) {
+    return ok([
+      `A committed closure decision for ${id} is already usable.`,
+      `  run: projectos closure resume --id ${id}`,
+      '',
+      'Nothing was asked and nothing was spent.',
+    ]);
+  }
+
+  // ALREADY WAITING? Re-print the ask rather than asking again. This is what makes the route
+  // idempotent: writing the decision dirties the tree, so a second `request` would form a DIFFERENT
+  // evidence digest, derive a different request id, and be billed as a new question.
+  const waitRead = readClosureWait(sys, root, id);
+  if (!waitRead.ok) return fail(2, [`REFUSED (CLOSURE_WAIT_UNREADABLE): ${waitRead.problem}`]);
+  if (waitRead.value !== null && waitRead.value.state === 'WAITING_OWNER') {
+    return ok([
+      `${id} is already waiting on the owner; the closure authority was NOT asked again.`,
+      '',
+      ...ownerAskLines(waitRead.value),
+    ]);
+  }
+
+  // A DECISION ON DISK WITH NO WAIT is a record this route cannot account for. Overwriting it would
+  // destroy an answer somebody may already be acting on.
+  if (sys.readText(closureDecisionPath(root, id)) !== null) {
+    return fail(2, [
+      `REFUSED (UNACCOUNTED_DECISION): a closure decision already exists at ${closureDecisionRelPath(id)} and`,
+      '  this route did not write it. Resolve it by hand — it is not overwritten.',
+      '',
+      'Nothing was asked and nothing was spent.',
+    ]);
+  }
+
+  // ELIGIBILITY FIRST, AND FROM THE REPOSITORY. `evaluateG4` is where "the work is pushed, reconciled,
+  // validated, reviewed and clean" becomes a fact rather than a claim — including G4-12, which is
+  // what "successful post-push phase state" actually means here.
+  // G4-14 IS DERIVED, NOT ASSERTED. `decider` above is non-empty only because the ACTIVE APPROVED
+  // PLAN records a closure delegation, so passing that same fact is passing what the runtime
+  // established — not a caller's claim. `authorityAssertedByCaller` is false because nothing on this
+  // route accepts a role or an identity; G4-15 would refuse it if it did.
+  const g4 = evaluateG4(sys, root, gc.context, id, current.status, { ready: true, reasons: [] }, decider !== '', false);
+  if (!g4.verdict.eligible) {
+    return fail(2, [
+      ...g4RefusalLines(g4.verdict),
+      '',
+      'The closure authority is not asked about work that is not yet closable. Nothing was spent.',
+    ]);
+  }
+
+  const subject = g4.facts.evidenceSubjectHead;
+  if (subject === null) {
+    return fail(2, ['REFUSED (NO_EVIDENCE_SUBJECT): the closure evidence names no subject commit.']);
+  }
+
+  // `'not-needed'` BECAUSE THIS ROUTE'S AUTHORITY COMES FROM ELSEWHERE, and saying so is more
+  // truthful than requiring an unrelated one. `expectedDecider` in the gatekeeper config resolves the
+  // committed `gatekeeper-review-decisions` delegate — who may decide a TECHNICAL review. Closure is
+  // decided by the plan's `closureDelegation`, which is what `decider` above reads and what
+  // `closureDecisionProblems` will compare the committed record against. Demanding the review
+  // delegation here would refuse a project that has closure delegated and reviews not, for a reason
+  // that has nothing to do with closure. Everything else the loader checks — transport, model policy,
+  // rate cards, the owner's budget ceiling, the committed programme and the thread binding — still
+  // runs unchanged.
+  const gk = loadGatekeeperConfig(sys, root, 'not-needed');
+  if (!gk.ok) {
+    return fail(2, [
+      'REFUSED (GATEKEEPER_MISCONFIGURED): a closure authority transport could not be used.',
+      ...('reasons' in gk ? gk.reasons.map((r) => `  - ${r}`) : ['  - no gatekeeper transport is configured']),
+      '',
+      'Nothing was asked and nothing was spent.',
+    ]);
+  }
+
+  const evidenceText = closureEvidenceText(
+    g4.facts as unknown as Record<string, unknown>,
+    g4.verdict as unknown as Record<string, unknown>,
+    readJson(sys, closureEvidencePath(root, id)),
+    current as unknown as Record<string, unknown>,
+  );
+
+  // WHICH AUTHORITY IS FUNDING THIS CALL, SAID OUT LOUD. The trusted broker admits a closure question
+  // under the phase's committed `secrets-handling` receipt, exactly as it does the seven technical
+  // asks — so a receipt committed before this route existed also pays for this. That is bounded (a
+  // paid question closes nothing) but it is a real widening of what an old receipt covers, and the
+  // owner should see it at the moment it is being used rather than infer it later.
+  const fundedBy =
+    `this call is funded by the committed secrets-handling receipt for ${id}; that receipt now also ` +
+    'covers closure questions, which it did not when it was written';
+
+  const deps = (makeDeps ?? productionClosureDeps)({
+    sys,
+    root,
+    projectId: gc.context.projectId,
+    config: gk.config,
+    // FROM THE PHASE'S OWN HISTORY. An authority that answers with an id this phase has already
+    // closed on is refused at the transport, before anything is written and before the owner is
+    // asked to commit it — rather than only at the gate, where the refusal would arrive after a
+    // record had been put in front of a person.
+    consumedDecisionIds: consumedDecisionIdsOf(current.history),
+  });
+  const turn = takeClosureTurn(
+    {
+      projectId: gc.context.projectId,
+      phaseId: id,
+      subjectHead: subject,
+      repositoryRoot: root,
+      evidenceText,
+      expectedDecider: decider,
+      owner: planOwner(gc.context.plan),
+      unresolvedHighIds: g4.facts.unresolvedHighIds,
+      at: sys.now(),
+    },
+    deps,
+  );
+
+  if (turn.outcome !== 'DECIDED_CLOSE' || turn.decision === null || turn.request === null) {
+    return fail(2, [
+      `REFUSED (${turn.outcome}): ${id} was not closed and no closure decision was written.`,
+      ...turn.lines.map((l) => `  ${l}`),
+      ...turn.problems.map((p) => `  ${p}`),
+    ]);
+  }
+
+  // SETTLE FIRST, WHATEVER THE ANSWER WAS. The call happened and cost money; that is true regardless
+  // of whether the answer turned out to be usable, and a refused answer that left only a reservation
+  // behind would under-report the very spend the owner's ceiling exists to bound.
+  //
+  // SETTLE, DO NOT APPEND: admission already wrote this request id at its estimate, and the ledger
+  // keeps the first entry it sees for an id — so appending the truth beside it would leave the
+  // estimate standing as the recorded cost.
+  const trace = [fundedBy, ...turn.lines];
+  if (turn.ledgerEntry !== null) {
+    settleGatekeeperSpend(sys, root, turn.ledgerEntry.requestId, turn.ledgerEntry);
+  }
+
+  const written = writeClosureDecisionForOwner(sys, root, id, turn.decision);
+  if (written.kind === 'conflict') {
+    return fail(2, [`REFUSED (DECISION_CONFLICT): ${written.detail}`, ...trace.map((l) => `  ${l}`)]);
+  }
+
+  // THE BUNDLE, BEFORE THE OWNER IS ASKED FOR ANYTHING. Presenting the ask first and identifying the
+  // files afterwards would be presenting an ask ProjectOS could not yet verify.
+  const bundle = buildClosureBundle(sys, root, written.relPath, written.sha256);
+  if (bundle.kind === 'refused') {
+    return fail(2, [
+      `REFUSED (BUNDLE_NOT_IDENTIFIED): the closure decision for ${id} was written but NOT presented.`,
+      ...bundle.reasons.map((r) => `  ${r}`),
+      `  The decision at ${written.relPath} is NOT to be committed until this is resolved.`,
+    ]);
+  }
+
+  // HEAD AT THE MOMENT OF THE ASK. Verifying the bundle's bytes says the two named files are right;
+  // it says nothing about what ELSE the owner's commit carried. Recording the head the ask was made
+  // against is what lets resume ask that second question — see `observeOwnerCommit`.
+  const headAtRequest = sys.exec('git', ['-C', root, 'rev-parse', 'HEAD']).stdout.trim();
+  if (!/^[0-9a-f]{40}$/.test(headAtRequest)) {
+    return fail(2, [
+      `REFUSED (HEAD_NOT_ESTABLISHED): git would not say where HEAD is, so the commit the owner makes`,
+      '  could not later be bounded to the bundle. Nothing is presented for owner action.',
+    ]);
+  }
+
+  const wait = closureWaitFrom(
+    turn.request,
+    turn.decision,
+    written.sha256,
+    written.relPath,
+    bundle.entries,
+    headAtRequest,
+    sys.now(),
+  );
+  if (!writeClosureWait(sys, root, wait)) {
+    return fail(2, [
+      `REFUSED (UNSAFE_PHASE_ID): phase '${id}' does not make a safe closure-wait record name, so the`,
+      '  bytes presented to the owner could not be remembered and a later commit could not be checked',
+      `  against them. The decision at ${written.relPath} is NOT to be committed until this is resolved.`,
+    ]);
+  }
+
+  return ok([...trace, '', ...ownerAskLines(wait)]);
+}
+
+/** The wait, built from the request and the decision so it cannot describe anything else. */
+function closureWaitFrom(
+  request: ClosureRequest,
+  decision: ClosureDecisionRecord,
+  sha256: string,
+  relPath: string,
+  bundle: readonly ClosureBundleEntry[],
+  headAtRequest: string,
+  at: string,
+): ClosureWaitRecord {
+  return {
+    schemaVersion: CLOSURE_WAIT_SCHEMA_VERSION,
+    projectId: request.projectId,
+    phaseId: request.phaseId,
+    decisionPath: relPath,
+    decisionSha256: sha256,
+    bundle,
+    headAtRequest,
+    decisionId: String(decision.decisionId ?? ''),
+    decidedBy: String(decision.decidedBy ?? ''),
+    decision: String(decision.decision ?? ''),
+    evidenceSubjectHead: request.subjectHead,
+    requestId: request.requestId,
+    requestDigest: closureRequestDigest(request),
+    requestedAt: at,
+    state: 'WAITING_OWNER',
+  };
+}
+
+
+/**
+ * The production ports: the trusted installation broker, and nothing in this process that could hold
+ * a credential.
+ *
+ * THE CREDENTIAL BOUNDARY IS `commands/run.ts`'s, unchanged — same broker, same refusing resolver,
+ * same installation allowlist asked on this side so a refusal is knowably pre-dispatch. A second,
+ * subtly different credential composition for closure would be a second place for the trusted route
+ * to become the untrusted one.
+ *
+ * IT DIFFERS FROM `run` IN EXACTLY ONE RESPECT, and the reason is below: this route supplies no
+ * durable ledger ports, because a closure call is the only paid call that happens AFTER the evidence
+ * subject commit.
+ */
+function productionClosureDeps(args: {
+  readonly sys: System;
+  readonly root: string;
+  readonly projectId: string;
+  readonly config: GatekeeperConfig;
+  readonly consumedDecisionIds: readonly string[];
+}): ClosureTurnDeps {
+  const { sys, root, projectId, config } = args;
+  return {
+    transport: config.transport,
+    availability: { reachable: true },
+    // THE CREDENTIAL IS NOT RESOLVED IN THIS PROCESS. The trusted installation broker validates the
+    // allowlist and the project's committed receipt, resolves the value inside itself, makes the call
+    // and returns a status and a body. The resolver handed over refuses by construction.
+    resolver: unprovisionedResolver(
+      'the closure authority credential is resolved by the trusted installation broker, never in the agent',
+    ),
+    broker: {
+      transport: nodeBrokeredTransport(sys, nodeProjectosRuntime()),
+      governedRoot: root,
+      installationAllows: () => installationAllowsProject(sys, nodeProjectosRuntime(), root, projectId),
+    },
+    http: nodeHttpPort(),
+    modelPolicy: config.modelPolicy,
+    rateCards: config.rateCards,
+    budget: config.budget,
+    // ACCOUNTING IS THE SAME MACHINERY THE TECHNICAL ROUTE USES, AND THAT WAS NOT THE FIRST ANSWER.
+    //
+    // The first attempt supplied no ledger ports at all, reasoning that a ledger write would leave the
+    // tree dirty at exactly the moment G4-13 is re-evaluated. The ECC code review called that a HIGH
+    // and was right: `authoriseRequestSpend` is the ONLY place in this system that holds the owner's
+    // dollar ceiling, it reads this ledger, and an entry that is computed and discarded does not drift
+    // the ceiling once — it drifts it further with every phase ever closed. A snapshot read also
+    // cannot bound two concurrent requests, which is the defect C17-F1 already cost this programme
+    // once.
+    //
+    // THE REAL FIX WAS ELSEWHERE. `.projectops/gatekeeper-ledger.json` is now a closure-tail path, so
+    // the entry can be committed with the decision it paid for without reading as a substantive change
+    // since the evidence subject. That is a change to `CLOSURE_TAIL_PATHS` with its own argument
+    // recorded there; what it buys here is that the money guard behaves exactly as it does everywhere
+    // else, with no special case for the one call that happens after the subject.
+    //
+    // AND IT SERIALISES. `admitGatekeeperSpend` decides and records under an exclusive lock, so two
+    // concurrent `closure request` runs cannot both be admitted for the same deterministic request id
+    // — which also closes the write race the reviews raised against the decision and wait records,
+    // because only one of the two can reach the point of writing anything.
+    ledger: readLedger(sys, root),
+    threadBinding: config.threadBinding,
+    // Read, never written. The call joins this project's governance conversation; writing the pointer
+    // back would dirty `.projectops/gatekeeper-thread.json`, which is NOT a closure-tail path, so the
+    // next closure call simply continues from the same turn as this one. Stated rather than hidden.
+    previousResponseId: readPreviousResponseId(sys, root),
+    admitSpend: (request) =>
+      admitGatekeeperSpend(sys, root, request, config.budget, () =>
+        readBrokerAnsweredState(sys, nodeInstallationStateDir(), request),
+      ),
+    releaseUndispatched: (requestId: string) => releaseUndispatchedReservation(sys, root, requestId),
+    resolveSpend: (request, cause) =>
+      resolveGatekeeperSpend(sys, root, request.requestId, cause, () =>
+        readBrokerAnsweredState(sys, nodeInstallationStateDir(), request),
+      ),
+    // THE IDS THIS PHASE HAS ALREADY SPENT, from its own history. The gate refuses a replay too —
+    // `checkClosureDecision` reads `consumedAt` and the history — but refusing it here means a
+    // replayed answer never becomes a file, and the owner is never shown a record that was going to
+    // be rejected.
+    consumedDecisionIds: args.consumedDecisionIds,
+  };
+}
+
+/**
+ * STEP 2 — observe the owner's commit, then hand the closure to the existing path.
+ *
+ * MAKES NO PROVIDER CALL AND SPENDS NOTHING. Everything it needs is in the repository.
+ */
+function closureResume(ctx: CommandContext, flags: Flags): CommandResult {
+  const { sys, root } = ctx;
+  const id = str(flags, 'id');
+  if (id === '') return fail(1, ['`closure resume` requires --id <PHASE-ID>']);
+
+  // THE PHASE ID MUST BE A SAFE NAME BEFORE ANY PATH IS BUILT FROM IT.
+  //
+  // `closureDecisionPath` interpolates without validating — that is pre-existing and shared with
+  // `phase advance` — and this route WRITES through it. Checking here means an id that could traverse
+  // or collide is refused before a single path is formed, rather than after the decision has been
+  // written and `writeClosureWait` refuses to remember it. The id is operator-supplied, never the
+  // authority's; the authority's `phaseId` is only ever compared.
+  if (!isSafeClosurePhaseId(id)) {
+    return fail(1, [`REFUSED (UNSAFE_PHASE_ID): '${id}' does not make a safe governed record name.`]);
+  }
+
+  if (resolveBoundGit() === null) {
+    return fail(2, [
+      'REFUSED (GIT_UNAVAILABLE): ProjectOS has no bound Git executable, so whether the owner committed',
+      '  the decision cannot be established. An unverifiable commit is not a commit.',
+    ]);
+  }
+
+  const gc = loadGovernedContext(sys, root);
+  if (!gc.ok) return fail(2, refusalLines(gc));
+
+  const waitRead = readClosureWait(sys, root, id);
+  if (!waitRead.ok) return fail(2, [`REFUSED (CLOSURE_WAIT_UNREADABLE): ${waitRead.problem}`]);
+  const wait = waitRead.value;
+  const waitProblems = closureWaitProblems(wait, { projectId: gc.context.projectId, phaseId: id });
+  if (waitProblems.length > 0) {
+    return fail(2, ['REFUSED (NO_CLOSURE_WAIT): this run has no record of a decision presented for owner action.', ...waitProblems.map((p) => `  ${p}`)]);
+  }
+  // Narrowed by `waitProblems` being empty, which is only possible for a non-null wait.
+  const waiting = wait as ClosureWaitRecord;
+
+  // THE OWNER'S COMMIT, OBSERVED FROM THE REPOSITORY AND NOWHERE ELSE.
+  // THE OWNER IS THE PLAN'S, never the wait's and never a caller's — the same source `authoriseClosure`
+  // reads and the same rule every other identity in this programme is judged by.
+  const observed = observeOwnerCommit(sys, root, waiting, planOwner(gc.context.plan));
+  if (!observed.committed || !observed.matchesPresented) {
+    return fail(2, [
+      `REFUSED (AWAITING_OWNER_COMMIT): ${id} is still waiting on the owner.`,
+      // EVERY ENTRY, MATCHED OR NOT. A refusal that named only the first mismatch would send an
+      // operator round the loop once per file.
+      ...observed.bundle.map(
+        (b) =>
+          `  ${b.matches ? 'ok  ' : 'BAD '} ${b.path} ` +
+          (b.committedSha256 === null ? '(not in a commit)' : b.matches ? '' : `committed ${b.committedSha256}`),
+      ),
+      ...(observed.committedBy === null ? [] : [`  the last commit touching the decision was made by ${observed.committedBy}`]),
+      ...observed.problems.map((p) => `  ${p}`),
+      '',
+      ...ownerAskLines(waiting),
+    ]);
+  }
+  // AND STILL UNCHANGED SINCE. A committed decision edited afterwards in the working tree would let
+  // the committed version launder an uncommitted change; `decisionIsCommitted` is the existing
+  // predicate for exactly that and is asked here rather than re-derived.
+  if (!decisionIsCommitted(sys, root, id)) {
+    return fail(2, [
+      `REFUSED (DECISION_DIRTY): the committed ${closureDecisionRelPath(id)} has been modified since it was`,
+      '  committed, so what git holds and what is on disk are different decisions.',
+    ]);
+  }
+
+  const lines = [
+    `the owner committed the closure bundle, and every file in it is byte-identical to what was presented`,
+    ...observed.bundle.map((b) => `  ${b.path}  ${b.committedSha256}`),
+    // REPORTED, ALWAYS. The identity was checked against the plan's owner; saying which identity it
+    // was is what lets a person notice a checkout configured as somebody it is not.
+    `  committed by ${observed.committedBy ?? '<unattributable>'}`,
+    'handing the closure to the existing G4 / closure-delegation path',
+  ];
+
+  // THE EXISTING PATH, CALLED WITH NOTHING BUT THE PHASE AND THE BASIS.
+  //
+  // No `--as` and no `--identity`: under `--delegated` the runtime resolves the delegate from the
+  // approved plan, and supplying either would be a caller asserting part of the authority, which
+  // G4-15 refuses. That refusal is the desired behaviour and is asserted in the tests.
+  const advanced = phaseCommand(
+    ctx,
+    // THE NOTE NAMES THE ROUTE, NOT THE DECISION ID. The id belongs at the END of the recorded note,
+    // where `consumedDecisionIds` reads it, and `phase advance` puts the authority basis there itself.
+    // Writing `decision <id>` into the caller's half would reproduce the exact shape of the decoy that
+    // once defeated replay tracking — the anchored regex makes it harmless today, and a second string
+    // of that shape in the same note is still a trap for whoever relaxes the anchor.
+    { id, to: 'closed', delegated: true, note: 'closed by the closure transport on the owner-committed record' },
+    ['advance'],
+  );
+  if (advanced.code !== 0) return { code: advanced.code, lines: [...lines, ...advanced.lines] };
+
+  resolveClosureWait(sys, root, waiting, sys.now());
+  return ok([...lines, ...advanced.lines]);
+}
+
+/** STEP 0 — where this phase stands. Reads only; asks nobody; spends nothing. */
+function closureStatus(ctx: CommandContext, flags: Flags): CommandResult {
+  const { sys, root } = ctx;
+  const id = str(flags, 'id');
+  if (id === '') return fail(1, ['`closure status` requires --id <PHASE-ID>']);
+  // THE PHASE ID MUST BE A SAFE NAME BEFORE ANY PATH IS BUILT FROM IT.
+  //
+  // `closureDecisionPath` interpolates without validating — that is pre-existing and shared with
+  // `phase advance` — and this route WRITES through it. Checking here means an id that could traverse
+  // or collide is refused before a single path is formed, rather than after the decision has been
+  // written and `writeClosureWait` refuses to remember it. The id is operator-supplied, never the
+  // authority's; the authority's `phaseId` is only ever compared.
+  if (!isSafeClosurePhaseId(id)) {
+    return fail(1, [`REFUSED (UNSAFE_PHASE_ID): '${id}' does not make a safe governed record name.`]);
+  }
+
+  const gc = loadGovernedContext(sys, root);
+  if (!gc.ok) return fail(2, refusalLines(gc));
+  const current = loadPhase(sys, root, id);
+  if (current === null) return fail(1, [`No phase ${id}`]);
+
+  // THE SAME DERIVED FACT. Hardcoding `true` here would have told a project with NO closure
+  // delegation that G4-14 was satisfied — a read-only report that lies about the one predicate the
+  // reader is most likely to be checking.
+  const g4 = evaluateG4(
+    sys,
+    root,
+    gc.context,
+    id,
+    current.status,
+    { ready: true, reasons: [] },
+    delegatedTo(gc.context.plan) !== '',
+    false,
+  );
+  const decisionProblems = closureDecisionProblems(sys, root, gc.context, id, current.history, 'delegated');
+  const waitRead = readClosureWait(sys, root, id);
+
+  const lines = [
+    `closure status for ${id}`,
+    `  phase status:        ${current.status}`,
+    `  closure delegate:    ${delegatedTo(gc.context.plan) || '<none recorded>'}`,
+    `  G4 eligible:         ${g4.verdict.eligible ? 'yes' : `no (${g4.verdict.unmet.length} unmet)`}`,
+    ...g4.verdict.unmet.map((u) => `    ${u.code}: ${u.detail}`),
+    `  committed decision:  ${decisionProblems.length === 0 ? 'usable' : `${decisionProblems.length} problem(s)`}`,
+    ...decisionProblems.map((p) => `    ${p}`),
+  ];
+  if (!waitRead.ok) {
+    lines.push(`  closure wait:        UNREADABLE — ${waitRead.problem}`);
+  } else if (waitRead.value === null) {
+    lines.push(`  closure wait:        none (${closureWaitRelPath(id) ?? 'unnameable path'})`);
+  } else {
+    lines.push(
+      `  closure wait:        ${waitRead.value.state}`,
+      `    decision:          ${waitRead.value.decisionId} by ${waitRead.value.decidedBy}`,
+      `    presented digest:  ${waitRead.value.decisionSha256}`,
+    );
+  }
+  return ok(lines);
+}

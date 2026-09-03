@@ -437,6 +437,30 @@ export const CLOSURE_TAIL_PATHS: readonly string[] = [
   'knowledge/ProjectOS Reports Index.md',
   'projectos/state/projectos-v3.current-state.json',
   'projectos/state/projectos-v3.session.json',
+  /**
+   * The gatekeeper cost ledger.
+   *
+   * IT IS HERE BECAUSE OF ONE SPECIFIC CALL, and the reasoning is worth stating rather than
+   * inferring. Every paid call ProjectOS made until now happened BEFORE the evidence subject commit,
+   * so the ledger entry it wrote was committed with the work and this list never needed to know about
+   * it. A CLOSURE call cannot: the decision has to bind the pushed head, so the call — and therefore
+   * its ledger entry — necessarily comes AFTER the subject. That left an impossible pair. Leave the
+   * entry uncommitted and G4-13 refuses the closure for an unclean tree; commit it and G4-12 refuses
+   * it as a substantive change since the subject. The first attempt at this correction resolved the
+   * pair by not recording the spend at all, and the ECC code review was right to call that a HIGH:
+   * `authoriseRequestSpend` is the only place in the system that holds the owner's dollar ceiling, it
+   * reads this file, and a permanently missing entry is a ceiling that drifts further from the truth
+   * with every phase ever closed.
+   *
+   * WHAT ADMITTING IT CAN AND CANNOT DO. It is an EXACT file, not a directory prefix, so nothing else
+   * becomes non-substantive. The file is an accounting record: it is never executed, never read as
+   * authority, and cannot change the bytes being closed — which is the only question G4-12 asks. What
+   * it can do is let the spend for the closure call be committed in the same commit as the decision
+   * that call bought, which is where an auditor would look for it anyway.
+   *
+   * Added in PROJECTOS-AUTONOMOUS-CLOSURE-TRANSPORT1A.
+   */
+  '.projectops/gatekeeper-ledger.json',
 ];
 
 /**

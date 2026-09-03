@@ -377,22 +377,44 @@ export function submitToOpenAi(
 }
 
 /**
- * Turn whatever came back into a candidate decision, or a refusal.
+ * A reply that satisfied the declared schema, or the reason it could not be used.
  *
- * SHARED BY BOTH ROUTES ON PURPOSE. The brokered and direct transports differ only in who holds the
- * credential; what an answer means must not differ with it, or the trusted path would quietly get its
- * own interpretation of "usable".
+ * THE UNAVAILABLE ARM IS EXACTLY `TransportOutcome`'s, so a caller can return it unchanged.
  */
-function interpretHttpResponse(
-  request: GatekeeperRequest,
-  config: OpenAiTransportConfig,
-  response: HttpResponse,
-): TransportOutcome {
+export type ProviderReply =
+  | {
+      readonly kind: 'structured';
+      /** The object the declared JSON schema produced. Judged by the caller; believed by nobody. */
+      readonly structured: Record<string, unknown>;
+      /** The whole envelope, for the few provider-level facts (`id`, `created_at`) that live there. */
+      readonly envelope: Record<string, unknown>;
+      readonly providerResponseId: string | null;
+      readonly usage: { readonly inputTokens: number; readonly cachedInputTokens: number; readonly outputTokens: number };
+    }
+  | {
+      readonly kind: 'unavailable';
+      readonly cause: GatekeeperUnavailabilityCause;
+      readonly reasons: readonly string[];
+      readonly spendLimited: boolean;
+    };
+
+/**
+ * What came back, as either a schema-satisfying object or a refusal.
+ *
+ * EXTRACTED SO THE CLOSURE ROUTE CANNOT GET ITS OWN INTERPRETATION OF "USABLE". Transport errors,
+ * non-200s, the spend-limit distinction, non-JSON bodies and provider refusals all mean the same
+ * thing whichever question was asked, and a second copy of this reasoning is a second place for one
+ * of those five to be handled more permissively. Everything question-specific — what the object
+ * MEANS — stays with the caller.
+ *
+ * `label` names the question in the refusal text only. It changes no behaviour.
+ */
+export function interpretProviderReply(response: HttpResponse, label = 'gatekeeper'): ProviderReply {
   if (response.kind === 'transport-error') {
     return {
       kind: 'unavailable',
       cause: 'PROVIDER_UNAVAILABLE',
-      reasons: [`the gatekeeper transport failed: ${safeExcerpt(response.detail)}`],
+      reasons: [`the ${label} transport failed: ${safeExcerpt(response.detail)}`],
       spendLimited: false,
     };
   }
@@ -406,7 +428,7 @@ function interpretHttpResponse(
       cause: spendLimited ? 'PROVIDER_SPEND_LIMITED' : 'PROVIDER_UNAVAILABLE',
       spendLimited,
       reasons: [
-        `the gatekeeper returned HTTP ${response.status}` +
+        `the ${label} returned HTTP ${response.status}` +
           (spendLimited ? ' because a configured spend limit was reached' : ''),
         safeExcerpt(response.body),
         ...(spendLimited
@@ -426,24 +448,50 @@ function interpretHttpResponse(
     return {
       kind: 'unavailable',
       cause: 'PROVIDER_UNAVAILABLE',
-      reasons: ['the gatekeeper reply was not JSON', safeExcerpt(response.body)],
+      reasons: [`the ${label} reply was not JSON`, safeExcerpt(response.body)],
       spendLimited: false,
     };
   }
 
-  const decisionJson = extractStructuredOutput(parsed);
-  if (decisionJson === null) {
+  const structured = extractStructuredOutput(parsed);
+  if (structured === null) {
     return {
       kind: 'unavailable',
       cause: 'PROVIDER_UNAVAILABLE',
       reasons: [
-        'the gatekeeper reply contained no structured decision; a reply that does not satisfy the ' +
+        `the ${label} reply contained no structured decision; a reply that does not satisfy the ` +
           'declared schema is refused rather than interpreted',
         safeExcerpt(response.body),
       ],
       spendLimited: false,
     };
   }
+
+  return {
+    kind: 'structured',
+    structured,
+    envelope: parsed,
+    providerResponseId: readString(parsed, 'id'),
+    usage: readUsage(parsed),
+  };
+}
+
+/**
+ * Turn whatever came back into a candidate decision, or a refusal.
+ *
+ * SHARED BY BOTH ROUTES ON PURPOSE. The brokered and direct transports differ only in who holds the
+ * credential; what an answer means must not differ with it, or the trusted path would quietly get its
+ * own interpretation of "usable".
+ */
+function interpretHttpResponse(
+  request: GatekeeperRequest,
+  config: OpenAiTransportConfig,
+  response: HttpResponse,
+): TransportOutcome {
+  const reply = interpretProviderReply(response);
+  if (reply.kind === 'unavailable') return reply;
+  const decisionJson = reply.structured;
+  const parsed = reply.envelope;
 
   // THE BINDINGS ARE STAMPED BY THE RUNTIME, NOT BY THE REPLY. The model is never asked for the
   // project, phase, subject or digest — if it were, a wrong answer would be self-consistent and the

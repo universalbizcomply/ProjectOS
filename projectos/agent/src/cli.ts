@@ -11,6 +11,7 @@ import { validate } from './commands/validate.js';
 import { prompt } from './commands/prompt.js';
 import { report } from './commands/report.js';
 import { close } from './commands/close.js';
+import { closure } from './commands/closure.js';
 import { phase } from './commands/phase.js';
 import { approve } from './commands/approve.js';
 import { plan } from './commands/plan.js';
@@ -75,6 +76,7 @@ export const HELP: readonly string[] = [
   '  mcp status                   Whether the private owner bridge can run, and what it exposes',
   '  plugins                      List the integration catalog (inert)',
   '  close --phase <ID>           Refuses — closure is owner-gated',
+  '  closure <request|resume|status> --id <ID>  Ask the closure authority, wait for the owner’s commit, resume',
   '  version                      Print versions',
   '  help                         Show this help',
 ];
@@ -110,6 +112,8 @@ export function run(ctx: CommandContext, argv: readonly string[]): CommandResult
       return report(ctx, flags);
     case 'close':
       return close(ctx, flags);
+    case 'closure':
+      return closure(ctx, flags, positionals);
     case 'version':
     case '--version':
       return ok([`projectos ${AGENT_VERSION} (core ${CORE_VERSION})`]);

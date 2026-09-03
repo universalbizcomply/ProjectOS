@@ -39,3 +39,14 @@ projectos/control-center/bridge.config.json
 # Which project the desktop Control Centre currently has selected. Local runtime state written by
 # the app on this machine -- not a governance record, and not the same on any two installs.
 /selected-project.json
+
+# The closure WAIT record: which decision bytes were presented to the owner, in THIS checkout.
+# Transient and local, exactly like the continuity brief above. It is a NARROWING record — losing it
+# makes `closure resume` refuse, never proceed — so it is never authority and never evidence.
+#
+# AND IT MUST NOT BE TRACKED, for a mechanical reason. G4-13 requires a clean working tree at the
+# closure decision point. A wait written between the ask and the owner's commit would sit untracked
+# in `git status --porcelain`, so the record that the phase is waiting for closure would itself
+# refuse that closure. The DECISION it points at is tracked, committed by the owner, and is the thing
+# that actually counts.
+.projectops/closure/waits/

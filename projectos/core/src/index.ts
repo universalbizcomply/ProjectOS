@@ -15,6 +15,7 @@ export * from './config.js';
 export * from './closureAuthority.js';
 export * from './closureDecision.js';
 export * from './closureEligibility.js';
+export * from './closureTransport.js';
 export * from './gatekeeperDecision.js';
 export * from './gatekeeperTransport.js';
 export * from './gatekeeperCostLedger.js';

@@ -445,6 +445,35 @@ const KNOWN_ASKS = [
   "effects-unattested",
   "ambiguity",
   "degraded-mode-reconciliation",
+  // THE CLOSURE QUESTION, AND WHY IT BELONGS ON THIS PATH RATHER THAN AS A THIRD KIND.
+  //
+  // Plan authoring became its own `kind` because it has no phase, no subject commit and no phase
+  // receipt — the gatekeeper path's gates say nothing about it, and inheriting them would have been
+  // a lie in both directions. A closure question is the opposite case: it is about exactly one
+  // project, one PHASE and one SUBJECT COMMIT that must exist in the governed repository, and the
+  // owner's committed secrets-handling receipt for that phase is exactly the right second factor.
+  // Every gate this path applies is the gate a closure call should face, so it takes this path and
+  // adds one word to the vocabulary rather than a second set of checks that would have to be kept
+  // in step with these.
+  //
+  // ADDING IT HERE GRANTS NOTHING ELSE. It makes the question payable; what the answer may then do is
+  // decided entirely by `checkClosureResponse` and, after the owner commits, by G4 — neither of which
+  // this file can reach. `closure-review` was already the name the owner's model policy prices this
+  // question under (`STRONG_TIER_ASKS`), so no second name and no second price were invented.
+  //
+  // ONE CONSEQUENCE, NAMED RATHER THAN LEFT TO BE DISCOVERED. `ownerApproved` below takes no `ask`:
+  // a phase's committed `secrets-handling` receipt authorises EVERY question in this list, as it has
+  // for all seven of the others. So a receipt an owner committed before this feature existed — for
+  // ordinary technical review — will also fund a closure question the moment this ships. It is
+  // bounded: paying for the question is not closing anything, and the answer still has to survive
+  // `checkClosureResponse`, the owner's commit of the decision, and G4. But it is a real widening of
+  // what an already-committed receipt covers, it was raised by the ECC security review, and it is an
+  // owner's call whether closure questions should need a receipt of their own. Scoping receipts by
+  // ask would change what every existing receipt means, which is a governance change and not this
+  // correction's to make.
+  //
+  // Added in PROJECTOS-AUTONOMOUS-CLOSURE-TRANSPORT1A.
+  "closure-review",
 ];
 
 /**

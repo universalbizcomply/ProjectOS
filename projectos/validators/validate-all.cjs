@@ -110,7 +110,8 @@ const MODULES = [
   "val-projectos-work-record-not-authority1a",
   "val-projectos-worker-lifecycle-bounded1a",
   "val-projectos-live-gate-owner-floor1a",
-  "val-projectos-technical-continuation1a"
+  "val-projectos-technical-continuation1a",
+  "val-projectos-closure-transport1a"
 ];
 const scratch = require("./lib/scratch.cjs");
 const validationRecord = require("./lib/validation-record.cjs");
