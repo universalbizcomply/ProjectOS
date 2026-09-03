@@ -212,6 +212,8 @@ export function Shell({
    */
   const [ccEntries, setCcEntries] = useState<readonly ControlCenterEntry[]>([]);
   const [objectiveOpen, setObjectiveOpen] = useState(false);
+  /** Ids for transcript entries the objective panel hands up; distinct prefix from the composer's own. */
+  const objectiveSeq = useRef(0);
   /**
    * WHICH QUESTION THE ONE PANEL IS ASKING. \"Start something new\" and \"Request a change\" are the same
    * governed operation, so they are the same panel and the same `plan.draft` — this only decides the
@@ -405,7 +407,15 @@ export function Shell({
                 tab={projectTab}
                 setTab={setProjectTab}
                 now={Date.now()}
-                onPrimary={() => go('control')}
+                onPrimary={(primary) => {
+                  // THE OVERVIEW'S "START" IS THE SAME DOOR AS THE COMPOSER'S. Landing on the Control
+                  // Center with an empty composer made the owner say what they wanted twice — once to
+                  // be recognised as an objective, once more in the form that opened. When the model's
+                  // primary IS "start", open the form directly; every other primary is a continuation
+                  // and the Control Center is still where it is commanded from.
+                  if (primary.kind === 'start') { setObjectiveMode('new'); setObjectiveOpen(true); }
+                  go('control');
+                }}
                 onOpenAdvanced={(next) => { setAdvanced(next as AdvancedView); go('advanced'); }}
                 onOpenPlanDetail={(planId) => { setOpenPlanId(planId); go('plan'); }}
                 onRequestChange={() => { setObjectiveMode('change'); setObjectiveOpen(true); go('control'); }}
@@ -451,6 +461,19 @@ export function Shell({
                     projectId={projectId}
                     onBack={() => setObjectiveOpen(false)}
                     onSeePlan={() => { setObjectiveOpen(false); setProjectTab('plans'); go('project'); }}
+                    onOutcome={({ objective, lines, failed }) => {
+                      // THE PAID ANSWER JOINS THE DURABLE TRANSCRIPT. An authored proposal takes
+                      // minutes; if the owner has closed the panel or moved on by the time it lands,
+                      // the panel's own state shows nobody anything, and a refusal's explanation lives
+                      // nowhere else. Functional update, because two entries are appended at once.
+                      objectiveSeq.current += 1;
+                      const n = objectiveSeq.current;
+                      setCcEntries((prev) => [
+                        ...prev,
+                        { id: `o${n}`, who: 'owner', lines: [objective], failed: false },
+                        { id: `p${n}`, who: 'projectos', lines, failed },
+                      ]);
+                    }}
                     mode={objectiveMode}
                   />
                 }

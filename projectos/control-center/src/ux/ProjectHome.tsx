@@ -16,7 +16,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { GovernedProjection } from '../governed/types';
 import { buildHomeModel } from '../owner/homeModel';
-import { buildContinueWorking } from '../owner/continueWorkingModel';
+import { buildContinueWorking, type PrimaryAction } from '../owner/continueWorkingModel';
 import { OwnerActionInbox } from '../owner/OwnerActionInbox';
 import { recordedItems, relativeTime, statusInk, dotColour, stateFromStatus } from '../owner/workspaceModel';
 import { PlansScreen } from './PlansScreen';
@@ -184,7 +184,12 @@ function Overview({
   now: number;
   onOpenPlans: () => void;
   onSeeAll: () => void;
-  onPrimary: () => void;
+  /**
+   * WHICH primary was pressed, so the shell can open the right thing. "Start something new" opens
+   * the objective form; every other primary lands on the Control Center as before. Passing the
+   * derived action rather than a boolean keeps this a projection of the model, not a second rule.
+   */
+  onPrimary: (primary: PrimaryAction) => void;
 }) {
   const home = useMemo(() => buildHomeModel(state), [state]);
   const next = useMemo(() => buildContinueWorking(state, home.ownerActions, now), [state, home, now]);
@@ -224,7 +229,7 @@ function Overview({
         <h2 className="os-h2">{next.primary.heading}</h2>
         <p className="os-set-sub">{next.primary.detail}</p>
         <div className="ux-planactions">
-          <button type="button" className="os-pri" onClick={onPrimary}>
+          <button type="button" className="os-pri" onClick={() => onPrimary(next.primary)}>
             {next.primary.label}
           </button>
           <button type="button" className="os-sec" onClick={onOpenPlans}>
@@ -299,7 +304,8 @@ export function ProjectHome({
   tab: ProjectTab;
   setTab: (t: ProjectTab) => void;
   now: number;
-  onPrimary: () => void;
+  /** Which primary was pressed — see Overview's prop of the same name. */
+  onPrimary: (primary: PrimaryAction) => void;
   onOpenAdvanced: (which: string) => void;
   /** Opening a plan shows its steps, its evidence and its governed controls. */
   onOpenPlanDetail: (planId: string) => void;

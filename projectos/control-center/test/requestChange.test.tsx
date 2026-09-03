@@ -112,9 +112,13 @@ describe('the panel says what it is for, and sends what it always sent', () => {
       fireEvent.change(screen.getByRole('textbox'), { target: { value: objective } });
       fireEvent.click(screen.getByRole('button', { name: mode === 'change' ? 'Propose the change' : 'Make a plan' }));
       await vi.waitFor(() => expect(spy).toHaveBeenCalled());
-      const [, verb, args] = spy.mock.calls[0]!;
+      const [, verb, args, options] = spy.mock.calls[0]!;
       expect(verb).toBe('plan.draft');
-      expect(args).toEqual({ objective });
+      // AUTHORED, IN BOTH MODES. An owner's sentence is answered by the author, never by corpus
+      // import, which does not read the objective. The paid call is long, so the authoring timeout
+      // rides with it — a client on the 30-second default abandons a result already paid for.
+      expect(args).toEqual({ objective, authored: 'true' });
+      expect(options).toEqual({ timeoutMs: governedClient.AUTHORING_RESULT_TIMEOUT_MS });
       cleanup();
       vi.restoreAllMocks();
     }
