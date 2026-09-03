@@ -11,7 +11,8 @@
  *
  * Created in PROJECTOS-PRODUCT-COMPLETION1A §8.
  */
-import type { GovernedProjection } from '../governed/types';
+import type {
+  GovernedWorkView, GovernedProjection } from '../governed/types';
 
 /** One thing waiting on the owner, in plain language. */
 export interface OwnerActionItem {
@@ -60,6 +61,40 @@ function formatSpend(microUsd: number): string {
  *
  * Pure: same projection in, same model out. No clock, no I/O, no randomness.
  */
+/**
+ * The loop's stop, in the owner's language. Derived from the stop code, which is a closed set the
+ * loop owns; the loop's own detail stays available underneath and is never reworded. Unknown codes
+ * fall through to a truthful generic sentence rather than an invented one.
+ */
+export function plainStop(work: GovernedWorkView): { readonly title: string; readonly detail: string } {
+  const step = work.phaseId;
+  const detail = work.stopDetail ?? 'ProjectOS did not record why.';
+  switch (work.stopCode) {
+    case 'CORRECTION_EXHAUSTED':
+      return {
+        title: `ProjectOS could not finish "${step}" on its own`,
+        detail:
+          'A required check failed and ProjectOS is not allowed to change what fails, so trying again ' +
+          'would give the same result. It needs a decision from you — usually a corrected plan, or ' +
+          `permission it does not have. ProjectOS said: ${detail}`,
+      };
+    case 'OWNER_GATE':
+    case 'OWNER_REQUIRED':
+    case 'AWAITING_OWNER':
+      return {
+        title: `"${step}" is waiting for your decision`,
+        detail: `The next action needs your approval before ProjectOS may take it. ProjectOS said: ${detail}`,
+      };
+    case 'BUDGET_STOP':
+      return { title: 'The reviewer budget was reached', detail };
+    default:
+      return {
+        title: `ProjectOS stopped on "${step}" and needs you`,
+        detail: work.stopCode === null ? detail : `${work.stopCode}: ${detail}`,
+      };
+  }
+}
+
 export function buildHomeModel(state: GovernedProjection): HomeModel {
   const phase = state.activePhase ?? state.nextStartablePhase;
   const actions: OwnerActionItem[] = [];
@@ -74,6 +109,20 @@ export function buildHomeModel(state: GovernedProjection): HomeModel {
       detail: approval.prohibited
         ? 'This action is prohibited and needs you to act outside ProjectOS.'
         : `Requested by ${approval.requestedBy || 'ProjectOS'}. Risk: ${approval.risk || 'unrecorded'}.`,
+      severity: 'blocking',
+    });
+  }
+
+  // 1b. THE LOOP STOPPED AND SAYS IT NEEDS THE OWNER. The checkpoint is the only place this fact
+  //     lives; without reading it the Overview once said "Ready" over a run that had just stopped
+  //     BLOCKED with ownerRequired. Plain sentence first; the loop's own words are the detail.
+  const work = state.work ?? null;
+  if (work !== null && work.ownerRequired && work.state !== 'COMPLETE') {
+    const plain = plainStop(work);
+    actions.push({
+      id: `work:${work.phaseId}`,
+      title: plain.title,
+      detail: plain.detail,
       severity: 'blocking',
     });
   }

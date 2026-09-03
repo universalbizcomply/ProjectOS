@@ -24,6 +24,8 @@ export type ProjectStatus = 'Waiting for you' | 'Blocked' | 'Working' | 'Ready';
 export interface PrimaryAction {
   /** What pressing it does. */
   readonly kind: 'review' | 'resume' | 'continue' | 'start';
+  /** Where a `review` goes. `plans` when the thing to review is a proposal. Absent means the Overview itself. */
+  readonly target?: 'plans';
   /** The button. Never a verb the owner has to interpret. */
   readonly label: string;
   /** The line above it. */
@@ -123,6 +125,28 @@ export function buildContinueWorking(
       canStartSomethingNew: false,
       phaseId,
       sessionId: session?.sessionId ?? null,
+    };
+  }
+
+  // 2b. A PROPOSAL IS WAITING FOR THE OWNER and nothing is in play. Offering "Start something new"
+  //     here sent the owner to write a second objective while the first sat undecided on another tab.
+  const undecided = (state.planDrafts ?? []).filter((d) => d.decisionState === 'none');
+  if (phaseId === null && session === null && undecided.length > 0) {
+    const first = undecided[0]!;
+    return {
+      projectName: state.projectName,
+      status: 'Waiting for you',
+      primary: {
+        kind: 'review',
+        label: 'Review the proposal',
+        heading: undecided.length === 1 ? 'A plan is waiting for your decision' : `${undecided.length} plans are waiting for your decision`,
+        detail: first.summary ?? 'ProjectOS has proposed a plan. Read it, then approve and start it, or reject it.',
+        sessionId: null,
+        target: 'plans',
+      },
+      canStartSomethingNew: true,
+      phaseId: null,
+      sessionId: null,
     };
   }
 

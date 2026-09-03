@@ -452,6 +452,8 @@ function buildGovernedState(root, observedAt) {
       draftRecords: readDraftRecords(root),
       planDecisionRecords: readPlanDecisionRecords(root),
       sessionRecords: readSessionRecords(root),
+      // The loop's durable checkpoint. Read, never written, here — it is the loop's record.
+      workRecord: readJsonFile(joinPath(root, '.projectops', 'work.v1.json')),
       credentialRows: readCredentialRows(String(cfg['projectId'] ?? '')),
       readiness: engine.evaluatePlanReady(plan),
       planPath: declaredPlan === undefined ? DEFAULT_PLAN_RELPATH : declaredPlan,

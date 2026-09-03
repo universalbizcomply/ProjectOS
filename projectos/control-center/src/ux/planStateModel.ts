@@ -46,7 +46,7 @@ export type OwnerPlanGroup = 'active' | 'draft' | 'blocked' | 'completed';
  * asks the runtime for nothing. Every action that acts names its verb.
  */
 export interface PlanAction {
-  readonly id: 'open' | 'approve' | 'reject' | 'activate' | 'stop' | 'start' | 'resume' | 'evidence';
+  readonly id: 'open' | 'approve' | 'approve-start' | 'reject' | 'activate' | 'stop' | 'start' | 'resume' | 'evidence';
   readonly label: string;
   readonly verb: 'plan.decide' | 'plan.activate' | 'run.start' | 'run.stop' | 'run.resume' | null;
   /**
@@ -265,7 +265,13 @@ function draftRow(d: GovernedPlanDraftView): PlanRow | null {
         needsOwnerDecision: true,
         actions: [
           OPEN,
-          { id: 'approve', label: 'Approve', verb: 'plan.decide', enabled: true, disabledReason: null, args: { draftId: d.draftId, decision: 'approve' } },
+          // ONE PRESS FOR THE ORDINARY CASE. The owner used to approve, then find "Start this plan",
+          // then go back to the Overview and press Continue - three screens for one intention. This
+          // action orchestrates the SAME three governed verbs in order (plan.decide, plan.activate,
+          // run.start), each recorded separately by the runtime, each refusable, and stops at the
+          // first refusal. It grants nothing the three presses did not; it removes the navigation.
+          { id: 'approve-start', label: 'Approve & Start', verb: 'plan.decide', enabled: true, disabledReason: null, args: { draftId: d.draftId, decision: 'approve' } },
+          { id: 'approve', label: 'Approve only', verb: 'plan.decide', enabled: true, disabledReason: null, args: { draftId: d.draftId, decision: 'approve' } },
           { id: 'reject', label: 'Reject', verb: 'plan.decide', enabled: true, disabledReason: null, args: { draftId: d.draftId, decision: 'reject' } },
         ],
       };

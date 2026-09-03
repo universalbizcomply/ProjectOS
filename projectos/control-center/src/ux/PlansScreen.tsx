@@ -25,7 +25,19 @@ import {
 } from './planStateModel';
 
 /** The second question, in the same words and the same weight as the frozen core asks it. */
-const CONFIRM: Record<'approve' | 'reject', { title: string; body: readonly string[]; action: string }> = {
+type Verdict = 'approve' | 'reject' | 'approve-start';
+
+const CONFIRM: Record<Verdict, { title: string; body: readonly string[]; action: string }> = {
+  'approve-start': {
+    title: 'Approve this plan and let ProjectOS start?',
+    body: [
+      'ProjectOS will record your approval, make this the active plan, and begin the first step.',
+      'It does the ordinary technical work itself and stops to ask you before anything protected: ' +
+        'nothing reaches customers, payments, credentials or the live site without a separate decision.',
+      'Each of the three steps is recorded on its own, and ProjectOS stops at the first one it refuses.',
+    ],
+    action: 'Confirm Approve & Start',
+  },
   approve: {
     title: 'Approve this plan?',
     body: ['This permanently records your decision for this exact proposal.', 'It does not start the work.'],
@@ -70,7 +82,27 @@ export function PlansScreen({
   /** Which row is mid-command, so only that row's controls are disabled. */
   const [busyRow, setBusyRow] = useState<string | null>(null);
   /** The question asked but not yet answered. Null means nothing is pending. */
-  const [pending, setPending] = useState<{ id: string; verdict: 'approve' | 'reject' } | null>(null);
+  const [pending, setPending] = useState<{ id: string; verdict: Verdict } | null>(null);
+  /**
+   * THE LATEST PROJECTION, readable from inside a multi-step await. `state` is a prop and a closure
+   * captured at press time would never see the decision id the runtime writes a moment later.
+   */
+  const latest = useRef(state);
+  latest.current = state;
+  /**
+   * WHETHER THIS SCREEN IS STILL ON SCREEN. The orchestration below spans real time and real governed
+   * commands; if the owner switches tab or project mid-way the screen unmounts, and a chain that kept
+   * dispatching would start a paid run nobody can see. Every step checks this first and stops. What
+   * has already been recorded stands, and the Overview offers the next step from the runtime's own
+   * records - nothing is lost, and nothing happens off-screen.
+   */
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   /**
    * ONE DISPATCH PER DELIBERATE ACT. A plan decision is committed and a second press would ask the
    * runtime to decide something already decided, so the guard is a ref rather than state: it is
@@ -88,23 +120,91 @@ export function PlansScreen({
     return () => window.removeEventListener('keydown', onKey);
   }, [pending]);
 
+  /**
+   * Wait for the runtime's next projection to show a fact, or give up. The runtime re-emits governed
+   * state after every command; this only READS that, it never asserts it. Bounded so a runtime that
+   * never answers leaves a truthful "did not appear" rather than a spinner.
+   */
+  async function until<T>(read: (s: GovernedProjection) => T | null, ms = 20_000): Promise<T | null> {
+    const deadline = Date.now() + ms;
+    while (Date.now() < deadline) {
+      const found = read(latest.current);
+      if (found !== null) return found;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    return read(latest.current);
+  }
+
   async function decide(): Promise<void> {
     const asked = pending;
     if (asked === null || inFlight.current) return;
     inFlight.current = true;
     setPending(null);
     setBusyRow(asked.id);
+    const verdict = asked.verdict === 'reject' ? 'reject' : 'approve';
     setOutcome({
       busy: true,
-      lines: [asked.verdict === 'approve' ? 'Recording your approval…' : 'Recording your rejection…'],
+      lines: [verdict === 'approve' ? 'Recording your approval…' : 'Recording your rejection…'],
       failed: false,
     });
     try {
-      const result = await requestGovernedCommand(tauriBridge, 'plan.decide', {
+      const decided = await requestGovernedCommand(tauriBridge, 'plan.decide', {
         draftId: asked.id,
-        decision: asked.verdict,
+        decision: verdict,
       });
-      setOutcome({ busy: false, lines: result.lines, failed: !result.ok });
+      // ALREADY DECIDED IS NOT A FAILURE OF THIS PRESS. If the approval committed but the previous
+      // press timed out before activation, the runtime refuses the second decide with DECISION_EXISTS.
+      // That refusal is the record we wanted; carry on to read it back rather than stranding the owner
+      // on a button that can no longer progress. Any other refusal still stops here, verbatim.
+      const alreadyDecided = !decided.ok && decided.lines.some((l) => l.includes('DECISION_EXISTS'));
+      if (asked.verdict !== 'approve-start' || (!decided.ok && !alreadyDecided)) {
+        setOutcome({ busy: false, lines: decided.lines, failed: !decided.ok });
+        return;
+      }
+      // ORCHESTRATION, NOT A NEW VERB. Three governed commands the owner could press one by one, in
+      // the order the owner would press them, each answered by the runtime in its own words, and
+      // the whole thing stopping at the first refusal. Between steps this waits for the runtime's own
+      // projection to show the record the previous step wrote - never for a value this screen made up.
+      const said = [...decided.lines, 'Approval recorded. Making this the active plan…'];
+      setOutcome({ busy: true, lines: said, failed: false });
+      if (!mounted.current) return;
+      const decisionId = await until((s) => {
+        const d = s.planDrafts.find((x) => x.draftId === asked.id);
+        return d !== undefined && d.decisionState === 'approved' && d.decisionId !== null ? d.decisionId : null;
+      });
+      if (decisionId === null) {
+        setOutcome({
+          busy: false,
+          lines: [...said, 'The approval was recorded, but ProjectOS has not yet shown it as approved. Press "Start this plan" when it does.'],
+          failed: true,
+        });
+        return;
+      }
+      if (!mounted.current) return;
+      const activated = await requestGovernedCommand(tauriBridge, 'plan.activate', { draftId: asked.id, decisionId });
+      if (!activated.ok) {
+        setOutcome({ busy: false, lines: [...said, ...activated.lines], failed: true });
+        return;
+      }
+      const said2 = [...said, ...activated.lines, 'Plan is active. Starting the first step…'];
+      setOutcome({ busy: true, lines: said2, failed: false });
+      const ready = await until((s) => (s.plan.ready && s.nextStartablePhase !== null ? s.nextStartablePhase.phaseId : null));
+      if (ready === null) {
+        setOutcome({
+          busy: false,
+          lines: [...said2, 'The plan is active, but ProjectOS has not yet shown a step it can start. Press Continue on the Overview when it does.'],
+          failed: true,
+        });
+        return;
+      }
+      if (!mounted.current) return;
+      // The step the runtime itself says is next - a correlator for the run's events, not authority.
+      const started = await requestGovernedCommand(tauriBridge, 'run.start', { phaseId: ready });
+      setOutcome({
+        busy: false,
+        lines: [...said2, ...started.lines, ...(started.ok ? ['ProjectOS is working. It will stop and ask you if your authority is needed.'] : [])],
+        failed: !started.ok,
+      });
     } finally {
       setBusyRow(null);
       inFlight.current = false;
@@ -147,6 +247,7 @@ export function PlansScreen({
 
   function press(row: PlanRow, action: PlanAction): void {
     if (action.id === 'open' || action.id === 'evidence') return onOpenPlan(row.id);
+    if (action.id === 'approve-start') return setPending({ id: row.id, verdict: 'approve-start' });
     if (action.id === 'approve') return setPending({ id: row.id, verdict: 'approve' });
     if (action.id === 'reject') return setPending({ id: row.id, verdict: 'reject' });
     if (action.id === 'activate') return void activate(row);
@@ -256,7 +357,7 @@ export function PlansScreen({
                           key={a.id}
                           type="button"
                           className={a.id === 'open' ? 'os-sec' : 'os-pri'}
-                          disabled={!a.enabled || busyRow === row.id}
+                          disabled={!a.enabled || (busyRow !== null && a.id !== 'open')}
                           title={a.disabledReason ?? undefined}
                           onClick={() => press(row, a)}
                         >

@@ -235,7 +235,7 @@ describe('proposals carry the decision the frozen core added', () => {
     const row = m.rows.find((r) => r.kind === 'draft');
     expect(row?.state).toBe('Needs your decision');
     expect(row?.needsOwnerDecision).toBe(true);
-    expect(ids(row!)).toEqual(['open', 'approve', 'reject']);
+    expect(ids(row!)).toEqual(['open', 'approve-start', 'approve', 'reject']);
     expect(row?.actions.find((a) => a.id === 'approve')?.verb).toBe('plan.decide');
     expect(row?.actions.find((a) => a.id === 'reject')?.verb).toBe('plan.decide');
   });

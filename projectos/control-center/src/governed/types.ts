@@ -231,8 +231,31 @@ export interface GovernedRepositoryView {
 }
 
 /** A connected projection of real governed state. */
+/**
+ * WHERE THE AUTONOMOUS LOOP STOPPED, AND WHETHER IT IS WAITING FOR THE OWNER.
+ *
+ * Read straight from `.projectops/work.v1.json`, the durable checkpoint the loop writes at every
+ * step. Until this view existed the checkpoint had writers and no reader on the owner surface: a run
+ * that stopped BLOCKED with `ownerRequired: true` showed the owner an Overview that said "Ready" and
+ * offered "Start something new". Display only — the loop still decides from the record, and nothing
+ * here grants or resumes anything. Absent when the project has no checkpoint yet.
+ */
+export interface GovernedWorkView {
+  readonly phaseId: string;
+  /** The loop's own state word — EXECUTING, BLOCKED, WAITING_OWNER, COMPLETE … Shown through `plainStop`. */
+  readonly state: string;
+  readonly stopCode: string | null;
+  /** The loop's own words for why it stopped, bounded. Technical; shown behind the plain sentence. */
+  readonly stopDetail: string | null;
+  readonly ownerRequired: boolean;
+  readonly sessionId: string | null;
+  readonly updatedAt: string;
+}
+
 export interface GovernedProjection {
   readonly connected: true;
+  /** The loop's durable checkpoint, when one exists. See `GovernedWorkView`. */
+  readonly work?: GovernedWorkView | null;
   readonly projectId: string;
   readonly projectName: string;
   readonly repository: GovernedRepositoryView;

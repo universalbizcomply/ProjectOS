@@ -66,7 +66,7 @@ describe('approving asks first, then commits exactly once', () => {
   test('pressing Approve dispatches NOTHING until the second question is answered', () => {
     const spy = vi.spyOn(governedClient, 'requestGovernedCommand').mockResolvedValue({ ok: true, lines: ['recorded'] });
     renderPlans(projection([undecided]));
-    fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Approve only' }));
     expect(screen.getByText('Approve this plan?')).toBeTruthy();
     expect(spy).not.toHaveBeenCalled();
   });
@@ -74,7 +74,7 @@ describe('approving asks first, then commits exactly once', () => {
   test('confirming dispatches plan.decide with the draft id and approve, and nothing else', async () => {
     const spy = vi.spyOn(governedClient, 'requestGovernedCommand').mockResolvedValue({ ok: true, lines: ['recorded'] });
     renderPlans(projection([undecided]));
-    fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Approve only' }));
     fireEvent.click(screen.getByRole('button', { name: 'Confirm Approve' }));
     await waitFor(() => expect(spy).toHaveBeenCalled());
     const [, verb, args] = spy.mock.calls[0]!;
@@ -100,7 +100,7 @@ describe('approving asks first, then commits exactly once', () => {
       .spyOn(governedClient, 'requestGovernedCommand')
       .mockImplementation(() => new Promise((res) => { release = res; }) as ReturnType<typeof governedClient.requestGovernedCommand>);
     renderPlans(projection([undecided]));
-    fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Approve only' }));
     const confirm = screen.getByRole('button', { name: 'Confirm Approve' });
     fireEvent.click(confirm);
     fireEvent.click(confirm);
@@ -115,7 +115,7 @@ describe('the question can always be taken back', () => {
   test('Cancel closes it and dispatches nothing', () => {
     const spy = vi.spyOn(governedClient, 'requestGovernedCommand').mockResolvedValue({ ok: true, lines: [] });
     renderPlans(projection([undecided]));
-    fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Approve only' }));
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(screen.queryByText('Approve this plan?')).toBe(null);
     expect(spy).not.toHaveBeenCalled();
@@ -124,7 +124,7 @@ describe('the question can always be taken back', () => {
   test('Escape closes it and dispatches nothing', () => {
     const spy = vi.spyOn(governedClient, 'requestGovernedCommand').mockResolvedValue({ ok: true, lines: [] });
     renderPlans(projection([undecided]));
-    fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Approve only' }));
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(screen.queryByText('Approve this plan?')).toBe(null);
     expect(spy).not.toHaveBeenCalled();
@@ -134,7 +134,7 @@ describe('the question can always be taken back', () => {
 describe('state decides what may be pressed', () => {
   test('an approved proposal offers no Approve at all', () => {
     renderPlans(projection([{ ...undecided, decisionState: 'approved', decisionId: 'DEC1' } as GovernedPlanDraftView]));
-    expect(screen.queryByRole('button', { name: 'Approve' })).toBe(null);
+    expect(screen.queryByRole('button', { name: 'Approve only' })).toBe(null);
     expect(screen.getByRole('button', { name: 'Start this plan' })).toBeTruthy();
   });
 
@@ -150,14 +150,14 @@ describe('state decides what may be pressed', () => {
   test('a rejected proposal can never be approved from this screen', () => {
     renderPlans(projection([{ ...undecided, decisionState: 'refused' } as GovernedPlanDraftView]));
     expect(screen.getByText('Rejected')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Approve' })).toBe(null);
+    expect(screen.queryByRole('button', { name: 'Approve only' })).toBe(null);
     expect(screen.queryByRole('button', { name: 'Start this plan' })).toBe(null);
   });
 
   test('a refusal from the runtime is shown as an alert, in its own words', async () => {
     vi.spyOn(governedClient, 'requestGovernedCommand').mockResolvedValue({ ok: false, lines: ['REFUSED: no committed decision'] });
     renderPlans(projection([undecided]));
-    fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Approve only' }));
     fireEvent.click(screen.getByRole('button', { name: 'Confirm Approve' }));
     await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
     expect(screen.getByRole('alert').textContent).toContain('REFUSED: no committed decision');

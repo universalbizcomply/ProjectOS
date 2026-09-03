@@ -118,7 +118,8 @@ describe('the detail view lets the owner read the proposal before deciding', () 
     expect(body).toContain('widening the worker write grant');
     // And it still says what approval does and does not do.
     expect(body).toContain('Nothing runs until you also press Start this plan');
-    expect(screen.getByRole('button', { name: 'Approve' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Approve & Start' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Approve only' })).toBeTruthy();
   });
 
   test('a proposal without content keeps the honest empty line', () => {

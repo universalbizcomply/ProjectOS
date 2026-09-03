@@ -19,6 +19,7 @@ import {
   type LedgerEntry,
 } from '@projectos/core';
 import type {
+  GovernedWorkView,
   GovernedApprovalView,
   GovernedAuthorityView,
   GovernedDelegationView,
@@ -69,6 +70,8 @@ export interface GovernedInputs {
   readonly planDecisionRecords?: readonly Record<string, unknown>[];
   /** Parsed `.projectops/execution/*.session.json` records — every worker session on record. */
   readonly sessionRecords?: readonly Record<string, unknown>[];
+  /** Parsed `.projectops/work.v1.json` — the loop's durable checkpoint — or null when absent. */
+  readonly workRecord?: Record<string, unknown> | null;
   /**
    * Credential METADATA rows, exactly as `credentials status --json` emits them, or null when the
    * credential router could not be reached. Null and "an empty list" are different facts and are
@@ -442,6 +445,28 @@ function proposalContent(
   return out;
 }
 
+/** The loop's checkpoint as the owner surface sees it. Null when there is none, or it is unreadable. */
+function workOf(record: Record<string, unknown> | null): GovernedWorkView | null {
+  if (record === null) return null;
+  const phaseId = str(record, 'phaseId');
+  const state = str(record, 'state');
+  if (phaseId === '' || state === '') return null;
+  const stopCode = str(record, 'lastStopCode');
+  const stopDetail = str(record, 'lastStopDetail');
+  const sessionId = str(record, 'sessionId');
+  return {
+    phaseId: clip(phaseId, 120),
+    state: clip(state, 40),
+    stopCode: stopCode === '' ? null : clip(stopCode, 60),
+    // The loop's detail can carry the last line of a worker's stderr; the same secret-shape guard the
+    // proposal text gets applies here, at the second point where tool-authored text becomes visible.
+    stopDetail: stopDetail === '' ? null : clip(guard(stopDetail), 600),
+    ownerRequired: record['ownerRequired'] === true,
+    sessionId: sessionId === '' ? null : clip(sessionId, 160),
+    updatedAt: str(record, 'updatedAt'),
+  };
+}
+
 /** Every worker session on record, newest first. */
 function sessionsOf(records: readonly Record<string, unknown>[]): readonly GovernedSessionView[] {
   return records
@@ -635,6 +660,7 @@ export function projectGovernedState(inputs: GovernedInputs): GovernedProjection
       approvalGates: strArray(config, 'approvalGates'),
     },
     blockers: strArray(currentState ?? undefined, 'currentBlockers'),
+    work: workOf(inputs.workRecord ?? null),
     risks: strArray(currentState ?? undefined, 'currentRisks'),
     nextSafeAction: deriveNextSafeAction(
       readiness.ready,

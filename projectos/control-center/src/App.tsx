@@ -413,6 +413,7 @@ export function Shell({
                   // be recognised as an objective, once more in the form that opened. When the model's
                   // primary IS "start", open the form directly; every other primary is a continuation
                   // and the Control Center is still where it is commanded from.
+                  if (primary.kind === 'review' && primary.target === 'plans') { setProjectTab('plans'); return; }
                   if (primary.kind === 'start') { setObjectiveMode('new'); setObjectiveOpen(true); }
                   go('control');
                 }}
