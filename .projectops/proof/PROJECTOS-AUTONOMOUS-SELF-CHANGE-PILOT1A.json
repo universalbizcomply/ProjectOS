@@ -2,6 +2,6 @@
   "schemaVersion": "1.0.0",
   "projectId": "projectos",
   "phaseId": "PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A",
-  "pilotState": "pending",
+  "pilotState": "proven",
   "note": "The bounded artifact the B9 live pilot changes. It is a canary, not authority: it grants nothing, is read by nothing, and carries no secret, credential, decision, approval or commit/push/closure permission. Its only job is to be one small, tracked, real change that the dispatched worker is already constitutionally permitted to make, so that what travels the autonomous chain is a genuine repository change rather than the run's own bookkeeping. The later pilot's objective moves pilotState from 'pending' to 'proven' and changes nothing else. .projectops/proof/*.json is the surface WORKER_OWNED_RECORD_GRANTS already names for exactly this purpose."
 }
