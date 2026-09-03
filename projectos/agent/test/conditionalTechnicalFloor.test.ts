@@ -347,7 +347,7 @@ describe('the ACTIVE ProjectOS plan, resolved canonically rather than assumed', 
   it('honours whatever owner gates the active plan declares, and the absolute floor regardless', () => {
     const cfg = JSON.parse(
       readFileSync(new URL('../../../.projectops/project-config.json', import.meta.url), 'utf8'),
-    ) as { planMemory?: { planPath?: string } };
+    ) as { planMemory?: { planPath?: string; currentStatePath?: string } };
     const planRel = cfg.planMemory?.planPath;
     const stateRel = cfg.planMemory?.currentStatePath;
     expect(typeof planRel).toBe('string');

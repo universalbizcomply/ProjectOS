@@ -27,8 +27,7 @@ import { normaliseRemote } from '../src/loop/observation.js';
 import { runLoop } from '../src/loop/runner.js';
 import * as store from '../src/loop/session.js';
 import { markOwnerReceiptConsumed } from '../src/loop/ownerGateReceipts.js';
-import type { AdapterRegistry, WorkerAdapter } from '../src/loop/adapters/contract.js';
-import type { WorkerSession } from '../src/loop/workers.js';
+import type { AdapterRegistry, WorkerAdapter, WorkerSession } from '../src/loop/workers.js';
 
 const GIT = resolveBoundGit(process.env) as string;
 const PHASE = 'E2E-SESSION-RECOVERY1A';
@@ -207,7 +206,9 @@ describe('PROOF A — a resume never crosses phases', () => {
     expect(calls).toEqual([]);
     // AND THE HISTORICAL RECORD IS INTACT.
     expect(briefMarker(w.root)).toBe('ORIGINAL');
-    expect(store.readSession(nodeSystem, w.root, SESSION_ID).value?.phaseId).toBe(OTHER_PHASE);
+    const record = store.readSession(nodeSystem, w.root, SESSION_ID);
+    if (!record.ok) throw new Error(record.problem);
+    expect(record.value?.phaseId).toBe(OTHER_PHASE);
   });
 
   // THE PHASE CHECK, ON ITS OWN. `briefId` is `phaseId@head`, so an honest record for another phase
@@ -249,7 +250,9 @@ describe('PROOF B — a resume never crosses a moved repository', () => {
     expect(r.lines.join('\n')).toContain('the repository has moved');
     expect(calls).toEqual([]);
     expect(briefMarker(w.root)).toBe('ORIGINAL');
-    expect(store.readSession(nodeSystem, w.root, SESSION_ID).value?.briefId).toBe(`${PHASE}@${w.head}`);
+    const record = store.readSession(nodeSystem, w.root, SESSION_ID);
+    if (!record.ok) throw new Error(record.problem);
+    expect(record.value?.briefId).toBe(`${PHASE}@${w.head}`);
   });
 });
 

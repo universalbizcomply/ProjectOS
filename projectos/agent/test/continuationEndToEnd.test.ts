@@ -224,6 +224,10 @@ function adapterWriting(root: string, sessionOf: () => string, write: () => void
       );
       return { kind: 'completed', exitCode: 0, stdout: '', stderr: '', providerRef: 'ref-1' };
     },
+    // NEVER REACHED HERE, AND LOUD IF IT EVER IS. Every proof below is a first attempt: the work is
+    // written once and reviewed once. A rejoin would mean the loop took a correction path these
+    // tests do not exercise, so it refuses rather than silently writing the candidate a second time.
+    rejoin: () => ({ kind: 'refused', detail: 'this proof never rejoins a worker' }),
   };
   return { [WORKER_KIND]: adapter } as unknown as AdapterRegistry;
 }
@@ -337,6 +341,7 @@ describe('the governed chain, end to end', () => {
     const states: string[] = [];
     const r = run(sys, w, adapters, ['commit', 'push'], sent, states);
     expect(r.ok).toBe(true);
+    if (!r.ok) throw new Error('unreachable');
     // A CONTINUATION THAT HAPPENED IS COMPLETE, and the durable record says so.
     expect(r.stop).toBeNull();
     expect(finalState(states)).toBe('COMPLETE');
@@ -393,6 +398,7 @@ describe('the governed chain, end to end', () => {
       invocation: { pid: 4242, ppid: 1717, argv: ['node', 'projectos.js', 'run', '--execute'], cwd: w.root },
     });
     expect(r.ok).toBe(true);
+    if (!r.ok) throw new Error('unreachable');
     // THE HIGH FINDING. A refused continuation used to leave `stop` null, so the durable state was
     // written COMPLETE for a phase whose commit had just been refused. The refusal is now a standing
     // stop, and it carries its reason rather than merely its existence.
@@ -450,6 +456,7 @@ describe('the governed chain, end to end', () => {
       invocation: { pid: 4242, ppid: 1717, argv: ['node', 'projectos.js', 'run', '--execute'], cwd: w.root },
     });
     expect(r.ok).toBe(true);
+    if (!r.ok) throw new Error('unreachable');
     expect(finalState(states)).toBe('BLOCKED');
     expect(r.stop?.code).toBe('CONTINUATION_READY');
     expect(r.lines.join('\n')).toContain('has moved on by');
@@ -502,6 +509,7 @@ describe('the governed chain, end to end', () => {
     const states: string[] = [];
     const r = run(sys, w, adapters, ['production-deploy'], sent, states);
     expect(r.ok).toBe(true);
+    if (!r.ok) throw new Error('unreachable');
     // APPROVED TO PROCEED, AND NOTHING PERFORMED. That is not a finished phase either.
     expect(finalState(states)).toBe('BLOCKED');
     expect(r.stop?.code).toBe('CONTINUATION_READY');

@@ -25,7 +25,7 @@ import { execFileSync } from 'node:child_process';
 import { nodeSystem, resolveBoundGit, type System } from '../src/system.js';
 import { normaliseRemote } from '../src/loop/observation.js';
 import { runLoop } from '../src/loop/runner.js';
-import type { AdapterRegistry, WorkerAdapter } from '../src/loop/adapters/contract.js';
+import type { AdapterRegistry, WorkerAdapter } from '../src/loop/workers.js';
 import {
   readCommittedReceipts,
   markOwnerReceiptConsumed,
@@ -824,6 +824,10 @@ function invoke(root: string, sysOver: Partial<System> = {}): { stop: string | n
       writeWorkRecord(sys, root, work);
     },
   });
+  // `stop` lives only on the success shape. A REFUSED run flattened to `stop: null` would make the
+  // three `.not.toBe('OWNER_GATE')` proofs below pass on a run that never reached the gate at all,
+  // so the refusal is raised here rather than answered.
+  if (!result.ok) throw new Error('the loop refused before it could reach a stop: ' + result.lines.join(' | '));
   return { stop: result.stop?.code ?? null, lines: result.lines };
 }
 
