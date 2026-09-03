@@ -351,6 +351,19 @@
       },
       "costMicroUsd": 93756,
       "at": "2026-09-03T20:11:32.902Z"
+    },
+    {
+      "requestId": "PAREQ-5daade28f79841569cd2839a",
+      "projectId": "projectos",
+      "phaseId": "@plan-authoring",
+      "model": "gpt-5.6-terra",
+      "usage": {
+        "inputTokens": 2592,
+        "cachedInputTokens": 0,
+        "outputTokens": 3000
+      },
+      "costMicroUsd": 33240,
+      "at": "2026-09-03T21:17:44.901Z"
     }
   ]
 }
