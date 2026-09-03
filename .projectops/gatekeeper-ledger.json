@@ -312,6 +312,19 @@
       },
       "costMicroUsd": 6448,
       "at": "2026-09-03T17:14:12.729Z"
+    },
+    {
+      "requestId": "GKREQ-4e35c1e6d9409fda3489bd8b",
+      "projectId": "projectos",
+      "phaseId": "PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "inputTokens": 64002,
+        "cachedInputTokens": 0,
+        "outputTokens": 787
+      },
+      "costMicroUsd": 6715,
+      "at": "2026-09-03T18:19:33.632Z"
     }
   ]
 }

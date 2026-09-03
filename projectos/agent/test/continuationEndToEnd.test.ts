@@ -362,6 +362,11 @@ describe('the governed chain, end to end', () => {
     // matching the escaped form is what proves the exact action name, not a word in prose.
     for (const action of TECHNICAL_ACTIONS) expect(shown, `evidence must name '${action}'`).toContain(`\\"${action}\\"`);
     expect(shown).toContain('performableActions');
+    // AND WHICH VERDICT CARRIES IT. Attempt 4 answered APPROVED_TO_PUSH - an owner-gated verdict the
+    // contract refuses without ownerApprovalRequired - because nothing said a delegated continuation
+    // travels as APPROVED_TO_PROCEED.
+    // The evidence is pretty-printed before it is embedded, so the key/value pair carries a space.
+    expect(shown).toContain(`\\"verdictToUse\\": \\"APPROVED_TO_PROCEED\\"`);
 
     // THE REPOSITORY IS THE PROOF, not the loop's account of itself.
     expect(git(w.root, 'status', '--porcelain').trim()).toBe('');

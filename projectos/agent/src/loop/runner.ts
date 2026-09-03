@@ -1050,7 +1050,18 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
         // request digest, so the decision is bound to having been told.
         technicalContinuation: {
           performableActions: TECHNICAL_ACTIONS,
+          // THE VERDICT THAT CARRIES A DELEGATED CONTINUATION. The next live attempt after the
+          // vocabulary was stated answered APPROVED_TO_PUSH with ownerApprovalRequired false - and
+          // the decision contract refused it, correctly: APPROVED_TO_COMMIT, APPROVED_TO_PUSH and
+          // APPROVED_FOR_CLOSURE are owner-gated VERDICTS that must carry ownerApprovalRequired
+          // true whatever the phase delegates. A delegated continuation travels as
+          // APPROVED_TO_PROCEED with the actions named; a paid call was spent learning that the
+          // reviewer had not been told so.
+          verdictToUse: 'APPROVED_TO_PROCEED',
           howToAuthorise:
+            'Answer with the verdict APPROVED_TO_PROCEED and name the actions in allowedActions. ' +
+            'APPROVED_TO_COMMIT and APPROVED_TO_PUSH are owner-gated verdicts that require ownerApprovalRequired ' +
+            'to be true and cannot authorise a delegated continuation, so a decision using them is refused. ' +
             'ProjectOS performs ONLY the actions named above, matched by exact string in allowedActions. ' +
             'To authorise the continuation, list the exact names (for example "commit", "push"); any other ' +
             'phrasing authorises nothing. Listing them is not an owner-gate violation for this phase: the ' +
