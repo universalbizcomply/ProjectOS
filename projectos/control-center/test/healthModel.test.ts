@@ -402,3 +402,45 @@ describe('current activity comes from the live daemon, never from a record', () 
     expect(group(m, 'execution').facts.find((f) => f.label === 'Running now')?.value).not.toBe('Yes');
   });
 });
+
+describe('runs that belong to a closed phase are history, not a problem', () => {
+  const closedPhase = { phaseId: 'DONE', description: 'Closed earlier today', status: 'closed' as const, dependsOn: [], unmetDependencies: [], startable: false, requiredOwnerGates: [], requiredBrowserProof: false, history: [], closedByRecord: true };
+  const openPhase = { phaseId: 'OPEN', description: 'Still going', status: 'implementing' as const, dependsOn: [], unmetDependencies: [], startable: false, requiredOwnerGates: [], requiredBrowserProof: false, history: [], closedByRecord: false };
+  const session = (id: string, phaseId: string, over: Partial<GovernedProjection['sessions'][number]> = {}) =>
+    ({ sessionId: id, phaseId, workerId: 'w', kind: 'run', startedAt: 't', state: 'exited', exitCode: 0, ...over });
+
+  test('four failed attempts inside a phase that has since closed do not colour the page red', () => {
+    const m = buildHealthModel(projection({
+      phases: [closedPhase],
+      sessions: [
+        session('S1', 'DONE', { exitCode: 1 }),
+        session('S2', 'DONE', { exitCode: 1 }),
+        session('S3', 'DONE', { state: 'started', exitCode: null }),
+        session('S4', 'DONE', { exitCode: 2 }),
+        session('S5', 'DONE', { exitCode: 0 }),
+      ],
+    }), { active: false });
+    expect(group(m, 'execution').tone).toBe('ok');
+    expect(group(m, 'execution').headline).toBe('Nothing running');
+    expect(group(m, 'execution').facts.find((f) => f.label === 'Runs that failed')!.value).toBe('0');
+    expect(m.summary).not.toContain('cannot carry on');
+  });
+
+  test('a failure in a phase that is still open is still a problem, and says so', () => {
+    const m = buildHealthModel(projection({
+      phases: [closedPhase, openPhase],
+      sessions: [session('S1', 'DONE', { exitCode: 1 }), session('S2', 'OPEN', { exitCode: 1 })],
+    }), { active: false });
+    expect(group(m, 'execution').tone).toBe('problem');
+    expect(group(m, 'execution').headline).toBe('A run failed');
+  });
+
+  test('a record whose phase is not in the plan keeps counting — nothing says it is over', () => {
+    const m = buildHealthModel(projection({
+      phases: [closedPhase],
+      sessions: [session('S1', '@plan-authoring', { state: 'started', exitCode: null })],
+    }), { active: false });
+    expect(group(m, 'execution').tone).toBe('unknown');
+    expect(group(m, 'execution').facts.find((f) => f.label === 'Recorded runs not marked finished')!.value).toBe('1');
+  });
+});

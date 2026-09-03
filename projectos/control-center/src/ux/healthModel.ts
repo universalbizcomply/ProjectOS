@@ -315,8 +315,18 @@ function executionGroup(live: GovernedProjection | null, liveRun: LiveRunFact | 
   // worker killed, crashed or lost to a reboot leaves `started` on disk for ever — and nothing can
   // correct it, because the record carries no process identity. It is evidence that a run BEGAN,
   // never evidence that one is running.
-  const unfinished = live.sessions.filter((s) => s.state !== 'exited');
-  const failed = live.sessions.filter((s) => s.exitCode !== null && s.exitCode !== 0);
+  // A RUN BELONGS TO ITS PHASE, AND A CLOSED PHASE IS NOT "WORK THAT CANNOT CARRY ON". The day
+  // Programme B closed, four of its attempts had failed and one had succeeded — the phase was closed
+  // by the closure authority on the successful one. This screen still counted the four, coloured
+  // the whole page red and told the owner "Something is wrong and work cannot carry on" while the
+  // plan stood complete and ready. A failure inside a phase that has since closed is history, not a
+  // problem in front of the owner; the same goes for a record that phase left unfinished. Records
+  // whose phase is not in the plan at all (a plan-authoring session, an unknown id) keep counting,
+  // because nothing says they are over.
+  const closedPhases = new Set(live.phases.filter((p) => p.status === 'closed').map((p) => p.phaseId));
+  const stillOpen = (s: { readonly phaseId: string }): boolean => !closedPhases.has(s.phaseId);
+  const unfinished = live.sessions.filter((s) => s.state !== 'exited' && stillOpen(s));
+  const failed = live.sessions.filter((s) => s.exitCode !== null && s.exitCode !== 0 && stillOpen(s));
 
   // LIVENESS. `true`/`false` only when the daemon actually answered; `null` when this surface has
   // no live answer at all — which is what an owner opening the panel mid-run looks like.
