@@ -10,5 +10,6 @@
   "decision": "close",
   "note": "Close at the evidenced subject. G4-1 through G4-17 are satisfied: the phase is awaiting_closure in the active ready plan; validate-all evidence at this subject passes; configured checks and required reviews pass; no CRITICAL or HIGH finding remains; no owner acceptance of a HIGH finding is needed; browser proof is not required; no protected effect occurred; the implementation head is remotely reconciled and the working tree is clean; delegation is valid; the closure subject is an ancestor of the implementation head with no substantive changes since it. The evidence records one bounded proof-file change from pending to proven, committed and pushed under the prior delegated technical-continuation decision; ff-only integration correctly refused because no integration target was configured. The documented residual carry-forwards are not CRITICAL or HIGH and do not defeat the stated closure gates.",
   "ownerAcceptedFindings": [],
-  "requestDigest": "sha256:fd2af77dfb19adfbc36247a065ae35dd439080e71348e4cba53a106f5d653b4b"
+  "requestDigest": "sha256:fd2af77dfb19adfbc36247a065ae35dd439080e71348e4cba53a106f5d653b4b",
+  "consumedAt": "2026-09-03T20:12:18.070Z"
 }

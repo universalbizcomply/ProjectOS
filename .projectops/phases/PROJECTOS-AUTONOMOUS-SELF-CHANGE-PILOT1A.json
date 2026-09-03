@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A",
   "project": "projectos",
   "objective": "Prove that ProjectOS can carry one bounded change to itself from objective to pushed result without the owner relaying anything between Claude and the gatekeeper. The bounded change is `.projectops/proof/PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A.json`: set `pilotState` from `pending` to `proven`, and change nothing else in that file.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-09-03T20:09:45.947Z",
       "note": "Ready for the delegated closure authority. The owner performed zero relay between reviewer and implementer at any point in this phase."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "advisor",
+      "at": "2026-09-03T20:12:18.068Z",
+      "note": "closed by the closure transport on the owner-committed record — closed by ChatGPT under the projectos-scoped phase-closure delegation, decision ChatGPT:PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A:5e55b4b2"
     }
   ]
 }
