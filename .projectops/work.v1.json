@@ -3,15 +3,15 @@
   "projectId": "projectos",
   "phaseId": "PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A",
   "state": "BLOCKED",
-  "sessionId": "PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A-91de3794023b-c88eba59",
-  "attempt": 0,
-  "subjectCommit": "91de3794023bab7ab6061f3c9babc887f1e68abb",
-  "lastCompletedStep": "checks ran for attempt 1",
+  "sessionId": "PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A-d429fea9f5b8-e55eb6a7",
+  "attempt": 1,
+  "subjectCommit": "d429fea9f5b88ce068f3cc418087434f9492f0fe",
+  "lastCompletedStep": "technical-continuation:push",
   "lastStopCode": "CONTINUATION_READY",
-  "lastStopDetail": "every required check passed, every required review is recorded, and this phase reserves no part of the technical continuation to the owner; the completed work is ready for the reviewer's decision on whether the bounded technical continuation may happen",
+  "lastStopDetail": "'ff-only-integration' was refused: no governed integration target branch is configured for this project, so there is no trusted answer to \"integrate into what\"",
   "evidenceSessionId": null,
-  "gateDecisionId": null,
+  "gateDecisionId": "GKDEC-GKREQ-6486c27e70710c933425423b",
   "nextCandidateAction": null,
   "ownerRequired": true,
-  "updatedAt": "2026-09-03T18:19:48.459Z"
+  "updatedAt": "2026-09-03T19:53:26.958Z"
 }
