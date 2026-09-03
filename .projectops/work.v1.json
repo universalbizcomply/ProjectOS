@@ -3,15 +3,15 @@
   "projectId": "projectos",
   "phaseId": "PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A",
   "state": "BLOCKED",
-  "sessionId": "PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A-ecfd4052f642-2908a227",
+  "sessionId": "PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A-2d16aff34b78-5e11674c",
   "attempt": 0,
-  "subjectCommit": "ecfd4052f6425f86d23c27a46ea6328efbdf364d",
-  "lastCompletedStep": "checks ran for attempt 1",
-  "lastStopCode": "CORRECTION_EXHAUSTED",
-  "lastStopDetail": "1 required check(s) failing: agent-tests — the worker holds no write authority over the failing target, so a further identical attempt cannot change it. 1 required check(s) failing: agent-tests; 1 unresolved finding(s) at MEDIUM or LOW: MEDIUM PILOT1A-F1",
+  "subjectCommit": "2d16aff34b78b682103d2659e36069cdab53f465",
+  "lastCompletedStep": "dispatched claude-local",
+  "lastStopCode": "WORKER_REFUSED",
+  "lastStopDetail": "the worker exited 1 — SessionEnd hook [node \"${CLAUDE_PLUGIN_ROOT}/hooks/session-end-cleanup.mjs\"] failed: /usr/bin/bash: line 1: node: command not found",
   "evidenceSessionId": null,
   "gateDecisionId": null,
   "nextCandidateAction": null,
   "ownerRequired": true,
-  "updatedAt": "2026-09-03T12:24:00.390Z"
+  "updatedAt": "2026-09-03T16:30:43.062Z"
 }

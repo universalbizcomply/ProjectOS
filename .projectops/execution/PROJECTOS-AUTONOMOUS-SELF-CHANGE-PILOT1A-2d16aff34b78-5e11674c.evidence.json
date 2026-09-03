@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "1.0.0",
+  "sessionId": "PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A-2d16aff34b78-5e11674c",
+  "phaseId": "PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A",
+  "briefId": "PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A@2d16aff34b78b682103d2659e36069cdab53f465",
+  "collectedAt": "2026-09-03T16:30:30.355Z",
+  "baseHead": "2d16aff34b78b682103d2659e36069cdab53f465",
+  "currentHead": "2d16aff34b78b682103d2659e36069cdab53f465",
+  "changedFiles": [
+    ".projectops/execution/PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A-2d16aff34b78-5e11674c.brief.json",
+    ".projectops/execution/PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A-2d16aff34b78-5e11674c.invocation.json",
+    ".projectops/execution/PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A-2d16aff34b78-5e11674c.session.json",
+    ".projectops/work.v1.json"
+  ],
+  "diffStat": ".projectops/work.v1.json | 18 +++++++++---------\n 1 file changed, 9 insertions(+), 9 deletions(-)",
+  "checks": [],
+  "requiredReviews": [
+    "code-review",
+    "security-review"
+  ],
+  "invocationId": "5e11674c21d7d895"
+}

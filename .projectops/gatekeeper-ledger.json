@@ -286,6 +286,19 @@
       },
       "costMicroUsd": 80671,
       "at": "2026-09-03T12:23:43.575Z"
+    },
+    {
+      "requestId": "GKREQ-0662c244ffbe53237839e452",
+      "projectId": "projectos",
+      "phaseId": "PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A",
+      "model": "gpt-5.6-terra",
+      "usage": {
+        "inputTokens": 60397,
+        "cachedInputTokens": 0,
+        "outputTokens": 463
+      },
+      "costMicroUsd": 80126,
+      "at": "2026-09-03T16:30:30.551Z"
     }
   ]
 }
