@@ -21,6 +21,7 @@ import {
   buildAuthoringBody,
   outputSettlementAnomaly,
   AUTHORING_OUTPUT_TOKEN_LIMIT,
+  AUTHORING_REASONING_EFFORT,
   type AuthorRequest,
 } from '../src/planAuthoring.js';
 import { estimateCostMicroUsd, estimateInputTokensFromBytes, utf8ByteLength } from '@projectos/core';
@@ -52,9 +53,37 @@ describe('the request that reaches the provider carries an enforced output maxim
     expect(wire()).toHaveProperty('max_output_tokens');
   });
 
-  test('its value is the limit, 3000', () => {
-    expect(wire()['max_output_tokens']).toBe(3000);
-    expect(AUTHORING_OUTPUT_TOKEN_LIMIT).toBe(3000);
+  test('its value is the limit, 12000', () => {
+    expect(wire()['max_output_tokens']).toBe(12000);
+    expect(AUTHORING_OUTPUT_TOKEN_LIMIT).toBe(12000);
+  });
+
+  /**
+   * THE SECOND INCIDENT. PAREQ-5daade28f79841569cd2839a, 2026-09-03: the first authoring call made
+   * from the Control Center's Start door. gpt-5.6-terra returned `status: incomplete`,
+   * `incomplete_details.reason: max_output_tokens`, exactly 3,000 output tokens billed, ONE
+   * reasoning item and NO message. On a reasoning model the ceiling is shared with reasoning, and
+   * the default effort spent all of it thinking. The runtime correctly refused (AUTHOR_REFUSED) —
+   * and the owner paid $0.033 for nothing. Two things had to change and both are asserted here.
+   */
+  test('3000 has been measured too small for a reasoning model — the limit had to move again', () => {
+    const REASONING_ONLY_INCIDENT_OUTPUT = 3000;
+    expect(AUTHORING_OUTPUT_TOKEN_LIMIT).toBeGreaterThan(REASONING_ONLY_INCIDENT_OUTPUT);
+    // Room for reasoning AND a plan of several phases, not merely one more than the incident.
+    expect(AUTHORING_OUTPUT_TOKEN_LIMIT).toBeGreaterThanOrEqual(REASONING_ONLY_INCIDENT_OUTPUT * 3);
+  });
+
+  test('the body asks for LOW reasoning effort, so the allowance is spent on the plan', () => {
+    expect(wire()['reasoning']).toEqual({ effort: 'low' });
+    expect(AUTHORING_REASONING_EFFORT).toBe('low');
+  });
+
+  test("the worst case of one call stays well inside the owner's $5 ceiling", () => {
+    // 12,000 output tokens on the strong model: $0.12. The reservation IS this number, so this is
+    // what the spend gate holds back before the call, not an estimate of what it might bill.
+    const worst = estimateCostMicroUsd({ inputTokens: 0, outputTokens: AUTHORING_OUTPUT_TOKEN_LIMIT }, RATE);
+    expect(worst).toBe(120_000);
+    expect(worst).toBeLessThan(5_000_000 / 10);
   });
 
   test('it survives JSON serialization as a number, not a string', () => {
@@ -142,18 +171,18 @@ describe('a provider that bills past its own limit is named, not absorbed', () =
   });
 
   test('a settlement above the limit is reported with both numbers', () => {
-    const msg = outputSettlementAnomaly(3001);
+    const msg = outputSettlementAnomaly(AUTHORING_OUTPUT_TOKEN_LIMIT + 1);
     expect(msg).not.toBe(null);
-    expect(msg).toContain('3000');
-    expect(msg).toContain('3001');
+    expect(msg).toContain(String(AUTHORING_OUTPUT_TOKEN_LIMIT));
+    expect(msg).toContain(String(AUTHORING_OUTPUT_TOKEN_LIMIT + 1));
   });
 
   test('it does not clamp — the ledger must agree with the invoice', () => {
-    expect(outputSettlementAnomaly(9999)).toContain('records what was billed');
+    expect(outputSettlementAnomaly(AUTHORING_OUTPUT_TOKEN_LIMIT * 2)).toContain('records what was billed');
   });
 
   test('it never suggests a retry', () => {
-    expect(outputSettlementAnomaly(9999)).toContain('Do not retry');
+    expect(outputSettlementAnomaly(AUTHORING_OUTPUT_TOKEN_LIMIT * 2)).toContain('Do not retry');
   });
 
   test('an unusable token count is an anomaly too, not a pass', () => {

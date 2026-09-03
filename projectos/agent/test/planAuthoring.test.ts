@@ -1035,3 +1035,35 @@ describe('the source citation is evidence, not a claim', () => {
     expect(result.problems.join(' ')).toContain('no longer digests to');
   });
 });
+
+
+describe('dependencies are phase ids, and the author is told so where it reads the shape', () => {
+  /**
+   * PAREQ-6f4114731f86ebb6cbe0452f, 2026-09-03: the first live plan from the Control Center came back
+   * with four good phases and thirteen contract problems - every `dependencies` entry was a
+   * precondition in prose ("Owner availability for C2-D1 and C2-D2."), none a phaseId. The contract
+   * refused the whole plan, correctly, and the owner paid $0.036 for it. The schema and the
+   * instruction now both say what the field is.
+   */
+  test('the schema describes a dependency as an earlier phaseId in this plan', () => {
+    const phase = (AUTHORED_PLAN_JSON_SCHEMA as unknown as { properties: { phaseCandidates: { items: { properties: Record<string, unknown> } } } })
+      .properties.phaseCandidates.items.properties;
+    const deps = phase['dependencies'] as { type: string; items: { type: string; description: string } };
+    expect(deps.type).toBe('array');
+    expect(deps.items.type).toBe('string');
+    expect(deps.items.description).toContain('phaseId');
+    expect(deps.items.description).toContain('THIS plan');
+  });
+
+  test('the instruction states the rule in words, including the consequence', () => {
+    const text = authoringInstruction({
+      projectId: 'projectos',
+      repository: 'universalbizcomply/ProjectOS',
+      objective: 'Plan two phases.',
+      contextSourcePaths: [],
+    } as never);
+    expect(text).toContain('dependencies list ONLY the phaseIds of earlier phases');
+    expect(text).toContain('Preconditions, owner decisions and');
+    expect(text).toContain('it will be refused');
+  });
+});

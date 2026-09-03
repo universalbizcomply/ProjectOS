@@ -301,6 +301,83 @@ describe('the record is safe to write into a governed repository', () => {
   });
 });
 
+describe('a response the provider cut short says so in the refusal', () => {
+  /**
+   * PAREQ-5daade28f79841569cd2839a, 2026-09-03. The first authoring call from the Control Center's
+   * Start door: `status: incomplete`, `incomplete_details.reason: max_output_tokens`, one reasoning
+   * item, no message, 3,000 output tokens billed. The runtime refused correctly — and the owner was
+   * told only "no structured plan material", which reads as the model declining. It had not declined;
+   * it had run out of room. The refusal now carries the provider's own reason.
+   */
+  const CUT_SHORT = JSON.stringify({
+    id: 'resp_cut_short',
+    status: 'incomplete',
+    incomplete_details: { reason: 'max_output_tokens' },
+    usage: { input_tokens: 2_592, output_tokens: 3_000 },
+    output: [{ id: 'rs_1', type: 'reasoning', content: [], encrypted_content: 'gAAAA' }],
+  });
+
+  test('a max_output_tokens stop is named in plain words, alongside the original reason', () => {
+    const { root, sys } = workspace();
+    const { author } = port(root, sys, CUT_SHORT);
+    const outcome = author.author(request);
+    expect(outcome.ok).toBe(false);
+    const detail = outcome.ok ? '' : outcome.detail;
+    expect(detail).toContain('no structured plan material');
+    expect(detail).toContain('stopped at the output ceiling');
+    // Evidence still records the paid exit exactly as before.
+    expect(recordOn(root)['finalOutcome']).toBe('refused');
+    expect(recordOn(root)['structuredOutcome']).toBe('absent-or-refusal');
+  });
+
+  const cutShortFor = (reason: unknown): string =>
+    JSON.stringify({
+      id: 'resp_cut_short',
+      status: 'incomplete',
+      incomplete_details: { reason },
+      usage: { input_tokens: 100, output_tokens: 100 },
+      output: [],
+    });
+
+  test('another legitimate provider reason is passed through as a token', () => {
+    const { root, sys } = workspace();
+    const { author } = port(root, sys, cutShortFor('content_filter'));
+    const outcome = author.author(request);
+    const detail = outcome.ok ? '' : outcome.detail;
+    expect(detail).toContain('the provider stopped early: content_filter');
+  });
+
+  test('a reason outside the allowlist never reaches the owner — SEC-001 class', () => {
+    const hostile = [
+      '‮max_output_tokens', // bidirectional override
+      'max_output_tokens ', // control character
+      'sk-abc123DEF456', // secret-shaped, digits and upper case
+      'C:/Users/owner/secret', // path-shaped
+      'a'.repeat(41), // too long
+      '', // empty
+      42, // not a string
+    ];
+    for (const reason of hostile) {
+      const { root, sys } = workspace();
+      const { author } = port(root, sys, cutShortFor(reason));
+      const outcome = author.author(request);
+      const detail = outcome.ok ? '' : outcome.detail;
+      expect(detail).toContain('the provider reported the response as incomplete');
+      expect(detail).not.toContain('stopped early');
+      if (typeof reason === 'string' && reason !== '') expect(detail).not.toContain(reason);
+    }
+  });
+
+  test('an ordinary empty reply reads exactly as it always did', () => {
+    const { root, sys } = workspace();
+    const { author } = port(root, sys, reply(null));
+    const outcome = author.author(request);
+    const detail = outcome.ok ? '' : outcome.detail;
+    expect(detail).toContain('no structured plan material');
+    expect(detail).not.toContain('stopped');
+  });
+});
+
 describe('evidence changes what is known, never what was decided', () => {
   test('a record that cannot be written is REPORTED in the refusal itself', () => {
     const { root, sys } = workspace();

@@ -24,6 +24,7 @@ import {
   GATEKEEPER_OUTPUT_TOKEN_LIMIT,
 } from '../src/loop/transports/openaiResponses.js';
 import { estimateCostMicroUsd } from '@projectos/core';
+import { AUTHORING_OUTPUT_TOKEN_LIMIT } from '../src/planAuthoring.js';
 
 const REQUEST = {
   schemaVersion: '1.0.0',
@@ -69,8 +70,11 @@ describe('the governance request carries an enforced output maximum', () => {
     expect(typeof wire()['max_output_tokens']).toBe('number');
   });
 
-  test('it is NOT authoring 3000 — these are different response contracts', () => {
-    expect(wire()['max_output_tokens']).not.toBe(3000);
+  test('it is NOT the authoring limit — these are different response contracts', () => {
+    // A review verdict is a few hundred tokens; a plan is thousands and, on a reasoning model, shares
+    // its allowance with reasoning. Compared against the constant, not a number that has moved twice.
+    expect(wire()['max_output_tokens']).not.toBe(AUTHORING_OUTPUT_TOKEN_LIMIT);
+    expect(GATEKEEPER_OUTPUT_TOKEN_LIMIT).toBeLessThan(AUTHORING_OUTPUT_TOKEN_LIMIT);
   });
 });
 
