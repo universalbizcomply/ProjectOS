@@ -112,7 +112,7 @@
         "command": "C:/Users/murad/.local/bin/claude.exe",
         "args": [
           "--allowedTools",
-          "Write(.projectops/execution/*.findings.json),Edit(.projectops/execution/*.findings.json),Write(.projectops/execution/*.effects.json),Edit(.projectops/execution/*.effects.json),Write(.projectops/proof/*.json),Edit(.projectops/proof/*.json)",
+          "Write(.projectops/execution/*.findings.json),Edit(.projectops/execution/*.findings.json),Write(.projectops/execution/*.effects.json),Edit(.projectops/execution/*.effects.json),Write(.projectops/proof/*.json),Edit(.projectops/proof/*.json),Write(projectos/speed/**),Edit(projectos/speed/**),Write(projectos/validators/validate-speed-*.cjs),Edit(projectos/validators/validate-speed-*.cjs),Write(projectos/agent/test/replay/**),Edit(projectos/agent/test/replay/**),Write(docs/speed/**),Edit(docs/speed/**)",
           "--setting-sources",
           "project"
         ],

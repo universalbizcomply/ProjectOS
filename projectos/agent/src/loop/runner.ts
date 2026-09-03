@@ -458,7 +458,7 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     ]);
   }
 
-  const resolution = resolveWorker(context, options.adapters ?? BUILT_IN_ADAPTERS, options.workerId);
+  const resolution = resolveWorker(context, options.adapters ?? BUILT_IN_ADAPTERS, options.workerId, { sys, root });
   if (!resolution.ok) {
     return refused(['REFUSED (NO_AUTHORISED_WORKER): the loop has no worker it may start', ...resolution.problems.map((p) => `  - ${p}`)]);
   }

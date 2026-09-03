@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "1.0.0",
+  "grantId": "PROJECTOS-WORKER-SOURCE-GRANT-SPEED1A",
+  "capability": "worker-source-write",
+  "projectId": "projectos",
+  "workerId": "claude-local",
+  "grantedBy": "Murad",
+  "grantedAt": "2026-09-04T00:11:00+01:00",
+  "temporary": true,
+  "purpose": "Speed and Reliability Foundation programme only: validation-cache, doctor-preflight, gatekeeper-replay, readiness-evidence.",
+  "revokeWhen": "readiness-evidence is closed, or the owner withdraws it earlier. Revocation is a commit that removes this record or its entries AND reverts the matching --allowedTools entries in .projectops/project-config.json; with the record gone but the config still wider, the loop refuses to start any worker (fail closed) until the config is reverted too.",
+  "grants": [
+    "Write(projectos/speed/**)",
+    "Edit(projectos/speed/**)",
+    "Write(projectos/validators/validate-speed-*.cjs)",
+    "Edit(projectos/validators/validate-speed-*.cjs)",
+    "Write(projectos/agent/test/replay/**)",
+    "Edit(projectos/agent/test/replay/**)",
+    "Write(docs/speed/**)",
+    "Edit(docs/speed/**)"
+  ],
+  "excludes": [
+    "Every path that existed before this programme. In particular: projectos/validators/** except new files named validate-speed-*.cjs (validators run from the working tree with no build step, so the checks that judge the worker are never writable); projectos/agent/** except projectos/agent/test/replay/** (the loop, this grant's enforcement, the gatekeeper budget, the plan-authoring permission and the tests that pin them); projectos/core/**; projectos/control-center/**; projectos/scripts/**; projectos/security/**; projectos/host/**; projectos/credentials/**; projectos/session-router/**; projectos/forge/**.",
+    ".projectops/** other than the two worker-owned record grants that already exist: authority, plan, decision, closure, gate, ledger, evidence and credential records stay outside worker authority.",
+    "Every protected effect remains with the owner: production deployment, production or destructive database mutation, real messaging, payments, credential creation or disclosure, signing, service or ACL changes, force push, merge.",
+    "Commit, push and phase closure remain gated exactly as before; this grant changes what the worker may WRITE in the working tree, not what may be committed or closed."
+  ],
+  "trustBasis": "MANUAL_GOVERNANCE_APPROVAL, tamperProof false. This record has effect only when COMMITTED: the loop reads it from the repository's object store, never from the working tree, so a widening nobody approved is a visible diff at the owner's commit gate. Each entry must ALSO appear in the loop's own closed list WORKER_SOURCE_GRANTS; an entry outside that list is refused however it got here.",
+  "provenance": "Transcribed by the implementer (Claude) from owner Murad's explicit approval of 2026-09-04 00:11: 'Approve the temporary restricted source-write grant for the Speed & Reliability programme. Keep all authority, gatekeeper, credential, closure, owner-gate, host, security, Forge and .projectops areas protected.' The implementer wrote these bytes; the implementer did not grant this authority and cannot.",
+  "reviewNote": "Narrowed on 2026-09-04 after ECC security review of the first draft: subtree grants over projectos/validators, agent, core, control-center, scripts and docs were refused as self-referential (validators run from the working tree; agent, core and control-center hold the enforcement code)."
+}

@@ -21,6 +21,7 @@
  */
 import type { System } from '../system.js';
 import type { GovernedContext } from '../governedContext.js';
+import { readCommittedJson } from '../planApproval.js';
 import type { WorkerBrief } from './brief.js';
 
 /** A worker the project's config authorises. */
@@ -197,6 +198,85 @@ export const WORKER_OWNED_RECORD_GRANTS: readonly string[] = [
   'Edit(.projectops/proof/*.json)',
 ];
 
+/**
+ * SOURCE THE OWNER MAY LET A WORKER WRITE — a second closed list, honoured only under a committed grant.
+ *
+ * WHY IT EXISTS. The Speed and Reliability programme is work ON ProjectOS. Its first phase stopped
+ * BLOCKED within minutes: the worker could write only its own records, so a failing check it was
+ * asked to fix was one it had no authority to touch (CORRECTION_EXHAUSTED, "the worker holds no
+ * write authority over the failing target"). The owner then decided, explicitly, to let the worker
+ * write ProjectOS source for that programme — temporarily, and only where the programme works.
+ *
+ * TWO FACTORS, LIKE PLAN AUTHORING. An entry below is NOT a grant. It becomes one only when the
+ * project's COMMITTED `.projectops/authority/worker-source-grant.json` names the identical string.
+ * The list bounds what an owner can ever grant through that record; the record says what this owner
+ * did grant. Either alone releases nothing, and the record is read from the object store, so a
+ * widening that was never committed is refused however the working tree looks.
+ *
+ * WHAT IS NOT HERE, on purpose - and a security review of the first draft is why the list is this
+ * narrow. `projectos/validators/**` was refused because validators run from the WORKING TREE with no
+ * build step, so a worker could weaken the very check that judges it before any commit; `projectos/
+ * agent/**`, `projectos/core/**` and `projectos/control-center/**` were refused because they hold the
+ * code that enforces this grant, the gatekeeper budget, the permissions and the governed verb set.
+ * Nor is `.projectops/**` here beyond the two worker-owned record grants (authority, plan, decision,
+ * closure, gate, ledger, evidence, credential records), nor `projectos/security`, `host`,
+ * `credentials`, `session-router`, `forge`, the Tauri shell, packaging, or the repository root.
+ * Every entry names a place that did not exist before the programme, or a filename prefix nothing
+ * existing carries. A path not on this list cannot be granted by any record, and commit, push and
+ * closure stay gated exactly as before - this widens what may be WRITTEN in the working tree, not
+ * what may be committed.
+ */
+export const WORKER_SOURCE_GRANTS: readonly string[] = [
+  // The programme's own home. New code lives here; nothing that already exists does.
+  'Write(projectos/speed/**)',
+  'Edit(projectos/speed/**)',
+  // New validators only, by prefix. Existing validators run from the working tree with no build step
+  // between a write and the next check, so not one of them is writable - least of all the ones that
+  // police this boundary.
+  'Write(projectos/validators/validate-speed-*.cjs)',
+  'Edit(projectos/validators/validate-speed-*.cjs)',
+  // Replay tests and their redacted fixtures, in a directory of their own. The rest of the agent
+  // package - the loop, this file, the gatekeeper, the permissions and the tests that pin them - is not.
+  'Write(projectos/agent/test/replay/**)',
+  'Edit(projectos/agent/test/replay/**)',
+  'Write(docs/speed/**)',
+  'Edit(docs/speed/**)',
+];
+
+/** The committed owner record that turns entries of `WORKER_SOURCE_GRANTS` into grants. */
+export const WORKER_SOURCE_GRANT_REL = '.projectops/authority/worker-source-grant.json';
+
+/** How the committed record is reached: the repository, so the object store can be consulted. */
+export interface GrantSource {
+  readonly sys: System;
+  readonly root: string;
+}
+
+/**
+ * The source grants this project's owner has COMMITTED, intersected with the closed list above.
+ *
+ * Empty when there is no record, when it is not committed, when it names another project or worker,
+ * or when its entries are not on the list. Never throws: an unreadable record is no grant, which is
+ * the fail-closed answer. Read from `HEAD`, not the working tree - the same rule every other
+ * authority record in this repository follows.
+ */
+export function committedSourceGrants(source: GrantSource, projectId: string, workerId: string): readonly string[] {
+  let record: Record<string, unknown> | null;
+  try {
+    record = readCommittedJson(source.sys, source.root, WORKER_SOURCE_GRANT_REL);
+  } catch {
+    return [];
+  }
+  if (record === null) return [];
+  if (record['capability'] !== 'worker-source-write') return [];
+  if (record['projectId'] !== projectId) return [];
+  // The worker is NAMED, or nothing is granted. A record that forgot to say which worker would
+  // otherwise grant source to every worker the project declares - the quiet widening this refuses.
+  if (typeof record['workerId'] !== 'string' || record['workerId'] !== workerId) return [];
+  const listed = Array.isArray(record['grants']) ? record['grants'].filter((g): g is string => typeof g === 'string') : [];
+  return listed.filter((g) => WORKER_SOURCE_GRANTS.includes(g));
+}
+
 /** ProjectOS's own records. A worker is never granted authority over these. */
 export const PROJECTOS_OWNED_RECORD_SUFFIXES: readonly string[] = ['.brief.json', '.session.json', '.evidence.json'];
 
@@ -221,8 +301,11 @@ const WRITE_CAPABLE_GRANT = /^(Write|Edit|MultiEdit|NotebookEdit|Bash|Task|Agent
  * Only WRITE-CAPABLE grants are policed. A worker reading widely is how it does its job; a worker
  * writing outside the two records it owns is how a run stops being trustworthy.
  */
-export function toolGrantProblems(args: readonly string[]): readonly string[] {
+export function toolGrantProblems(args: readonly string[], sourceGrants: readonly string[] = []): readonly string[] {
   const problems: string[] = [];
+  // Only entries of the closed list count, whatever the caller passed - a record cannot smuggle a
+  // grant the list does not know.
+  const permittedSource = sourceGrants.filter((g) => WORKER_SOURCE_GRANTS.includes(g));
   for (const [i, arg] of args.entries()) {
     if (arg !== '--allowedTools' && arg !== '--allowed-tools') continue;
     const value = args[i + 1];
@@ -232,18 +315,20 @@ export function toolGrantProblems(args: readonly string[]): readonly string[] {
     }
     for (const grant of value.split(',').map((g) => g.trim()).filter((g) => g.length > 0)) {
       if (!WRITE_CAPABLE_GRANT.test(grant)) continue;
-      if (!WORKER_OWNED_RECORD_GRANTS.includes(grant)) {
-        problems.push(
-          `tool grant '${grant}' gives a worker write authority beyond the records it owns; ` +
-            `permitted: ${WORKER_OWNED_RECORD_GRANTS.join(', ')}`,
-        );
-      }
+      if (WORKER_OWNED_RECORD_GRANTS.includes(grant) || permittedSource.includes(grant)) continue;
+      const wanted = WORKER_SOURCE_GRANTS.includes(grant);
+      problems.push(
+        wanted
+          ? `tool grant '${grant}' writes ProjectOS source, which needs a committed owner grant in ${WORKER_SOURCE_GRANT_REL} naming it; none was found`
+          : `tool grant '${grant}' gives a worker write authority beyond the records it owns; ` +
+              `permitted: ${WORKER_OWNED_RECORD_GRANTS.join(', ')}`,
+      );
     }
   }
   return problems;
 }
 
-function readWorkers(context: GovernedContext): {
+function readWorkers(context: GovernedContext, source?: GrantSource): {
   readonly workers: readonly AuthorisedWorker[];
   readonly defaultWorkerId: string | null;
   readonly problems: readonly string[];
@@ -295,7 +380,10 @@ function readWorkers(context: GovernedContext): {
         problems.push(`worker '${label}' passes a credential-shaped argument; the loop does not hand credentials to a worker`);
       }
     }
-    for (const p of toolGrantProblems(args)) problems.push(`worker '${label}': ${p}`);
+    // The committed owner grant, if any, for THIS worker - read from the object store, never trusted
+    // from the working tree. Without a repository to read it from there is no grant.
+    const sourceGrants = source === undefined || workerId === '' ? [] : committedSourceGrants(source, context.projectId, workerId);
+    for (const p of toolGrantProblems(args, sourceGrants)) problems.push(`worker '${label}': ${p}`);
 
     // A DECLARED BOUND IS CHECKED, AND AN UNDECLARED ONE IS THE DEFAULT — never "unbounded". The
     // absent case and the nonsense case are different: saying nothing accepts the default, while
@@ -367,10 +455,10 @@ export function committedExecutionProblems(sys: System, root: string, context: G
 const CONFIG_RELPATH = '.projectops/project-config.json';
 
 /** The authorised workers, or the reasons the configuration cannot be used. Never throws. */
-export function authorisedWorkers(context: GovernedContext):
+export function authorisedWorkers(context: GovernedContext, source?: GrantSource):
   | { readonly ok: true; readonly workers: readonly AuthorisedWorker[]; readonly defaultWorkerId: string | null }
   | { readonly ok: false; readonly problems: readonly string[] } {
-  const r = readWorkers(context);
+  const r = readWorkers(context, source);
   if (r.problems.length > 0) return { ok: false, problems: r.problems };
   return { ok: true, workers: r.workers, defaultWorkerId: r.defaultWorkerId };
 }
@@ -386,8 +474,9 @@ export function resolveWorker(
   context: GovernedContext,
   registry: AdapterRegistry,
   requested?: string,
+  source?: GrantSource,
 ): WorkerResolution {
-  const loaded = authorisedWorkers(context);
+  const loaded = authorisedWorkers(context, source);
   if (!loaded.ok) return loaded;
 
   let worker: AuthorisedWorker | undefined;

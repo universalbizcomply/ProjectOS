@@ -188,7 +188,9 @@ export function PlansScreen({
       }
       const said2 = [...said, ...activated.lines, 'Plan is active. Starting the first step…'];
       setOutcome({ busy: true, lines: said2, failed: false });
-      const ready = await until((s) => (s.plan.ready && s.nextStartablePhase !== null ? s.nextStartablePhase.phaseId : null));
+      // The step the runtime says comes next - or the one already in play, if a phase of the same name
+      // carries a record from before. Either is a phase the loop may run; neither is invented here.
+      const ready = await until((s) => (s.plan.ready ? (s.nextStartablePhase ?? s.activePhase)?.phaseId ?? null : null));
       if (ready === null) {
         setOutcome({
           busy: false,
