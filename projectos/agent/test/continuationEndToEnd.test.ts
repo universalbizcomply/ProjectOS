@@ -29,6 +29,7 @@ import { nodeSystem, resolveBoundGit } from '../src/system.js';
 import { normaliseRemote } from '../src/loop/observation.js';
 import { APPROVED_PILOT_POLICY, GATEKEEPER_DECISION_SCHEMA_VERSION } from '@projectos/core';
 import type { AdapterRegistry, WorkerAdapter } from '../src/loop/workers.js';
+import { TECHNICAL_ACTIONS } from '@projectos/core';
 import type { System } from '../src/system.js';
 
 const GIT = resolveBoundGit(process.env) as string;
@@ -351,6 +352,16 @@ describe('the governed chain, end to end', () => {
     expect(sent.join('\n')).toContain('CONTINUATION_READY');
     // AND THE CANDIDATE WAS IN WHAT IT WAS SHOWN — the binding this phase exists for.
     expect(sent.join('\n')).toContain('delivered.txt');
+    // AND THE REVIEWER WAS TOLD THE ONLY WORDS THAT AUTHORISE ANYTHING. The first live B9 approval
+    // named "perform-the-bounded-technical-continuation" and put commit and push under forbidden -
+    // an approval of nothing ProjectOS performs - because nothing had told it the dispatcher's
+    // closed vocabulary. Every performable action must be named, by its exact string, in the
+    // evidence the decision is bound to.
+    const shown = sent.join(String.fromCharCode(10));
+    // The evidence JSON travels as a STRING inside the request body, so its quotes arrive escaped;
+    // matching the escaped form is what proves the exact action name, not a word in prose.
+    for (const action of TECHNICAL_ACTIONS) expect(shown, `evidence must name '${action}'`).toContain(`\\"${action}\\"`);
+    expect(shown).toContain('performableActions');
 
     // THE REPOSITORY IS THE PROOF, not the loop's account of itself.
     expect(git(w.root, 'status', '--porcelain').trim()).toBe('');

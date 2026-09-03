@@ -1038,6 +1038,26 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
         // restore the old, unbound question, and every later comparison would have nothing to
         // compare against.
         candidate: candidateEvidence(),
+        // THE ONLY WORDS THAT AUTHORISE ANYTHING, STATED WHERE THE DECISION IS BOUND TO THEM.
+        //
+        // The first live approval of a real continuation named
+        // "perform-the-bounded-technical-continuation" and placed commit and push under forbidden -
+        // an approval of nothing this runtime performs, refused correctly, at the price of a paid
+        // call and a stopped run. Nothing had told the reviewer that ProjectOS acts only on the exact
+        // strings in TECHNICAL_ACTIONS; the surrounding text even says the WORKER has no git, which
+        // reads as a prohibition on the continuation. Put in the evidence rather than the system
+        // instruction for the same reason the candidate is: this text's digest is part of the
+        // request digest, so the decision is bound to having been told.
+        technicalContinuation: {
+          performableActions: TECHNICAL_ACTIONS,
+          howToAuthorise:
+            'ProjectOS performs ONLY the actions named above, matched by exact string in allowedActions. ' +
+            'To authorise the continuation, list the exact names (for example "commit", "push"); any other ' +
+            'phrasing authorises nothing. Listing them is not an owner-gate violation for this phase: the ' +
+            'owner gates for this phase are exactly ownerGatesForThisPhase below, and everything else in ' +
+            'performableActions is a delegable technical action the runtime will still independently check.',
+          ownerGatesForThisPhase: options.ownerOnlyActions ?? brief.phase.requiredOwnerGates,
+        },
       },
       null,
       1,

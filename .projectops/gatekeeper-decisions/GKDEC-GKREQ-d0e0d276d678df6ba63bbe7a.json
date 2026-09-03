@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "1.0.0",
+  "recordKind": "gatekeeper-decision-evidence",
+  "decisionId": "GKDEC-GKREQ-d0e0d276d678df6ba63bbe7a",
+  "projectId": "projectos",
+  "phaseId": "PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A",
+  "subjectCommit": "c250bdcf72f7f433840a4a02b06aa5fefe86bd48",
+  "requestDigest": "sha256:51faf6dc00052a600584801070aeca4a9b6080c13c7d7988a7c94be576bc944b",
+  "decision": "APPROVED_TO_PROCEED",
+  "reason": "All required checks passed, both required reviews are recorded, all findings are resolved, and the evidence shows exactly one authority-neutral JSON proof-state change from pending to proven. Production, deployment, database, external-send, payment, and secret effects are all attested absent. The phase explicitly reserves no part of the bounded technical continuation to the owner.",
+  "allowedActions": [
+    "perform-the-bounded-technical-continuation",
+    "revalidate-candidate-scope-and-digest",
+    "rerun-required-checks",
+    "record-continuation-evidence"
+  ],
+  "forbiddenActions": [
+    "commit",
+    "push",
+    "phase-closure",
+    "secrets-handling",
+    "payment-or-live-charge",
+    "deploy",
+    "database-mutation",
+    "external-message",
+    "broaden-scope-beyond-the-verified-proof-file"
+  ],
+  "ownerApprovalRequired": false,
+  "decidedBy": "ChatGPT",
+  "decidedAt": "2026-09-03T17:14:17.000Z"
+}
