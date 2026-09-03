@@ -390,6 +390,45 @@
       },
       "costMicroUsd": 35309,
       "at": "2026-09-03T21:45:12.437Z"
+    },
+    {
+      "requestId": "PAREQ-e60ba9414287fd88bfb1563b",
+      "projectId": "projectos",
+      "phaseId": "@plan-authoring",
+      "model": "gpt-5.6-terra",
+      "usage": {
+        "inputTokens": 2167,
+        "cachedInputTokens": 0,
+        "outputTokens": 2686
+      },
+      "costMicroUsd": 29569,
+      "at": "2026-09-03T22:21:59.878Z"
+    },
+    {
+      "requestId": "GKREQ-b5be87109a0e74714b550ce1",
+      "projectId": "projectos",
+      "phaseId": "validation-cache",
+      "model": "gpt-5.6-terra",
+      "usage": {
+        "inputTokens": 0,
+        "outputTokens": 0
+      },
+      "costMicroUsd": 14254,
+      "unresolved": true,
+      "at": "2026-09-03T22:32:08.077Z"
+    },
+    {
+      "requestId": "PAREQ-7076b8238a5617a1b56910fd",
+      "projectId": "projectos",
+      "phaseId": "@plan-authoring",
+      "model": "gpt-5.6-terra",
+      "usage": {
+        "inputTokens": 3365,
+        "cachedInputTokens": 0,
+        "outputTokens": 2458
+      },
+      "costMicroUsd": 28786,
+      "at": "2026-09-03T22:46:29.522Z"
     }
   ]
 }

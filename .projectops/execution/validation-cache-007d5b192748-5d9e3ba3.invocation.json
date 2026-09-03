@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "1.0.0",
+  "invocationId": "5d9e3ba3095e13d2",
+  "createdAt": "2026-09-03T22:24:37.020Z",
+  "projectId": "projectos",
+  "phaseId": "validation-cache",
+  "sessionId": "validation-cache-007d5b192748-5d9e3ba3",
+  "repository": {
+    "root": "C:\\dev\\ProjectOS",
+    "branch": "projectos-post-v3-selfhost-pilot1a",
+    "head": "007d5b192748bb297c2d6af046a4ced58c5bffb6"
+  },
+  "executionMode": "live",
+  "process": {
+    "pid": 6392,
+    "ppid": 21204,
+    "argv": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\dev\\ProjectOS\\projectos\\agent\\bin\\projectos.js",
+      "run",
+      "--execute"
+    ],
+    "cwd": "C:\\dev\\ProjectOS"
+  },
+  "workerId": "claude-local",
+  "workerKind": "claude-code-cli",
+  "brief": {
+    "path": "C:\\dev\\ProjectOS/.projectops/execution/validation-cache-007d5b192748-5d9e3ba3.brief.json",
+    "briefId": "validation-cache@007d5b192748bb297c2d6af046a4ced58c5bffb6",
+    "digest": "sha256:26e61ea1cdf46d7203b6bf8512b18b51e133d9f8391d38760da2b1afda96d670"
+  }
+}

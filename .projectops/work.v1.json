@@ -1,17 +1,17 @@
 {
   "schemaVersion": "1.0.0",
   "projectId": "projectos",
-  "phaseId": "PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A",
+  "phaseId": "validation-cache",
   "state": "BLOCKED",
-  "sessionId": "PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A-d429fea9f5b8-e55eb6a7",
-  "attempt": 1,
-  "subjectCommit": "d429fea9f5b88ce068f3cc418087434f9492f0fe",
-  "lastCompletedStep": "technical-continuation:push",
-  "lastStopCode": "CONTINUATION_READY",
-  "lastStopDetail": "'ff-only-integration' was refused: no governed integration target branch is configured for this project, so there is no trusted answer to \"integrate into what\"",
+  "sessionId": "validation-cache-007d5b192748-5d9e3ba3",
+  "attempt": 0,
+  "subjectCommit": "007d5b192748bb297c2d6af046a4ced58c5bffb6",
+  "lastCompletedStep": "checks ran for attempt 1",
+  "lastStopCode": "CORRECTION_EXHAUSTED",
+  "lastStopDetail": "6 required check(s) failing: targeted unit and integration tests for fingerprinting, cache addressing, invalidation, corruption handling, and fail-closed behavior, incremental-versus-full validation equivalence suite on representative fixtures, existing full validation suite, owner-gate preservation regression tests, static analysis, formatting, and repository-required checks, agent-tests — the worker holds no write authority over the failing target, so a further identical attempt cannot change it. 6 required check(s) failing: targeted unit and integration tests for fingerprinting, cache addressing, invalidation, corruption handling, and fail-closed behavior, incremental-versus-full validation equivalence suite on representative fixtures, existing full validation suite, owner-gate preservation regression tests, static analysis, formatting, and repository-required checks, agent-tests",
   "evidenceSessionId": null,
-  "gateDecisionId": "GKDEC-GKREQ-6486c27e70710c933425423b",
+  "gateDecisionId": null,
   "nextCandidateAction": null,
   "ownerRequired": true,
-  "updatedAt": "2026-09-03T19:53:26.958Z"
+  "updatedAt": "2026-09-03T22:32:09.633Z"
 }
