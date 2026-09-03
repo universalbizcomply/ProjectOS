@@ -189,7 +189,7 @@
     },
     {
       "phaseId": "PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A",
-      "description": "Prove that ProjectOS can carry one bounded change to itself from objective to pushed result without the owner relaying anything between Claude and the gatekeeper.",
+      "description": "Prove that ProjectOS can carry one bounded change to itself from objective to pushed result without the owner relaying anything between Claude and the gatekeeper. The bounded change is `.projectops/proof/PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A.json`: set `pilotState` from `pending` to `proven`, and change nothing else in that file.",
       "scope": "One real bounded self-change exercised through the existing loop, gate, delegation and continuation machinery, with its evidence. It builds no new mechanism.",
       "dependsOn": [
         "PROJECTOS-OWNER-ESCALATION-WAIT1A",

@@ -340,6 +340,64 @@ function fixedSystemPath(env: NodeJS.ProcessEnv): string | null {
   return [`${base}\\System32`, base, `${base}\\System32\\Wbem`].join(';');
 }
 
+/** The DLL whose absence IS the crash, so a directory is judged by carrying it. */
+const MSYS_RUNTIME = 'msys-2.0.dll';
+
+/**
+ * The directories the BOUND git needs in order to RUN, not merely to be found.
+ *
+ * WHY THE BINARY'S OWN DIRECTORY IS NOT ENOUGH. Git for Windows ships `git.exe` in `mingw64\\bin`
+ * and its MSYS2 runtime in `usr\\bin` of the same installation. Reachable by itself, `git.exe` starts
+ * and answers every ordinary question correctly - rev-parse, status, log - and then dies with an
+ * ACCESS_VIOLATION and NO stderr at all the moment it has to spawn one of its own helpers. A push to
+ * a local remote always does. The check that ran it sees a non-zero exit and a suite full of
+ * failures, so the environment wears the costume of a result about the code: the very failure the
+ * bound-git entry below was added to stop, one layer deeper. That fix made git FINDABLE; this makes
+ * it RUNNABLE.
+ *
+ * WHY THIS ADDS NO TRUST. Every directory returned is derived from the executable `resolveBoundGit`
+ * already returns - the one this runtime resolves absolutely and executes for every governance fact
+ * it establishes, and which that binding has always refused to take from inside the governed
+ * checkout. Nothing here is inherited from the ambient environment and no caller can contribute to
+ * it.
+ *
+ * WHY THE CLIMB IS MARKER-CHECKED AND NOT MERELY EXISTENCE-CHECKED. The installation root is one or
+ * two levels above the binary depending on which shipped layout is installed, and the second level
+ * can be a directory shared with unrelated software (`C:\\Program Files`). A candidate therefore
+ * qualifies only by carrying the MSYS runtime itself, so the climb cannot wander into a shared
+ * parent and hand a check a search path the owner never installed.
+ */
+export function gitRuntimeDirs(git: string | null): readonly string[] {
+  if (git === null) return [];
+  const binDir = dirname(git);
+  // FAIL CLOSED ON THE BINARY'S OWN DIRECTORY TOO, NOT ONLY ON THE CLIMB. The one production
+  // caller passes `resolveBoundGit`'s answer, which has already refused both of these - but this
+  // function is exported, and a contract that holds only because today's single caller is careful
+  // is not a contract. An unadmissible binary directory yields NOTHING rather than itself, so a
+  // future caller cannot obtain a search path this module would refuse to build.
+  if (!admissibleRuntimeDir(binDir)) return [];
+  const dirs: string[] = [binDir];
+  for (const root of [dirname(binDir), dirname(dirname(binDir))]) {
+    for (const candidate of [join(root, 'usr', 'bin'), join(root, 'bin')]) {
+      // THE SAME TWO REFUSALS `resolveBoundGit` APPLIES TO THE BINARY, APPLIED TO A DIRECTORY.
+      // The UNC property does hold transitively - `dirname` cannot introduce a host - but the
+      // in-checkout one does NOT: the climb goes UP and then back DOWN into `usr/bin` or `bin`, so
+      // a governed checkout sitting inside the git installation's own subtree would be reachable
+      // by descent even though the binary's directory is outside it. This check is load-bearing
+      // for that case, not decoration.
+      if (!admissibleRuntimeDir(candidate)) continue;
+      if (!dirs.includes(candidate) && isFile(join(candidate, MSYS_RUNTIME))) dirs.push(candidate);
+    }
+  }
+  return dirs;
+}
+
+/** Neither a host's share nor anything the governed checkout could plant. */
+function admissibleRuntimeDir(dir: string): boolean {
+  if (isUnc(dir)) return false;
+  return !(processRoot !== null && isInside(processRoot, dir));
+}
+
 function minimalGitEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const kept: NodeJS.ProcessEnv = {};
   for (const name of ['SystemRoot', 'windir', 'TEMP', 'TMP', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH']) {
@@ -465,17 +523,16 @@ export const nodeSystem: System = {
         // was given. Derived from the committed absolute command -- the config refuses a bare name --
         // so it is exactly as trusted as the executable itself.
         const own = isAbsolute(executable) ? dirname(executable) : null;
-        // AND THE BOUND GIT'S DIRECTORY. The owner's test suites build fixture repositories with a
+        // AND THE BOUND GIT'S OWN DIRECTORIES. The owner's test suites build fixture repositories with a
         // bare `execFileSync('git', ...)`, so with no git reachable 284 of them died on ENOENT and the
         // check reported FAIL -- a result about the environment wearing the costume of a result about
-        // the code. This adds no trust: it is the directory of the very executable `resolveBoundGit`
+        // the code. This adds no trust: they are directories of the very installation whose `git.exe` `resolveBoundGit`
         // already returns for every governance fact this runtime establishes, and that binding has
         // always refused a git inside the governed checkout. Production code never relies on it --
         // `sys.exec('git', ...)` still resolves absolutely and still gets the minimal oracle
         // environment, untouched by this branch.
         const git = resolveBoundGit(process.env);
-        const gitDir = git === null ? null : dirname(git);
-        const path = [own, gitDir, system].filter((p) => p !== null).join(delimiter);
+        const path = [own, ...gitRuntimeDirs(git), system].filter((p) => p !== null).join(delimiter);
         // PATHEXT, FIXED. `scrubbedEnv` removes it deliberately (it decides which extensions a shell
         // will load), and without it Windows cannot resolve a bare `npm` to `npm.cmd` at all -- which
         // is what actually failed, not the search path. A constant is restored rather than the

@@ -1,0 +1,34 @@
+{
+  "schemaVersion": "1.0.0",
+  "recordKind": "gatekeeper-decision-evidence",
+  "decisionId": "GKDEC-GKREQ-633fae2913b849bd84f691d0",
+  "projectId": "projectos",
+  "phaseId": "PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A",
+  "subjectCommit": "ecfd4052f6425f86d23c27a46ea6328efbdf364d",
+  "requestDigest": "sha256:144b74e030c67dcc0b7e8877969b914ebfce91b56fa8f070ef0d329dbfe47cd3",
+  "decision": "AWAITING_OWNER",
+  "reason": "The bound Pilot1A phase cannot proceed: agent-tests fails, with end-to-end and technical-continuation tests unable to push their temporary work branches. The evidence does not establish whether this is an unavailable/misconfigured local test remote or an implementation regression. A MEDIUM provenance-drift finding also remains unresolved. The bounded correction worker has no writable paths, so it cannot remediate either issue, and the correction route is marked exhausted.",
+  "allowedActions": [
+    "inspect-and-preserve-test-remote-and-git-failure-evidence",
+    "inspect-non-secret-repository-and-test-fixture-state",
+    "prepare-owner-decision-brief",
+    "design-non-mutating-remediation-proposal",
+    "record-owner-decision-when-provided"
+  ],
+  "forbiddenActions": [
+    "commit",
+    "push",
+    "phase-closure",
+    "secrets-handling",
+    "payment-or-live-charge",
+    "deploy",
+    "database-mutation",
+    "external-message",
+    "autonomous-risk-acceptance",
+    "unscoped-source-edits",
+    "repeated-correction-attempts-without-effective-write-scope"
+  ],
+  "ownerApprovalRequired": true,
+  "decidedBy": "ChatGPT",
+  "decidedAt": "2026-09-03T12:23:46.000Z"
+}

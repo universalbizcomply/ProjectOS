@@ -1,0 +1,12 @@
+{
+  "reviews": ["code-review", "security-review"],
+  "findings": [
+    {
+      "id": "PILOT1A-F1",
+      "severity": "MEDIUM",
+      "category": "provenance-drift",
+      "summary": "collectEvidence does not accept invocationId; both callers in runner.ts must spread it in manually, risking a future caller forgetting the provenance field",
+      "resolved": false
+    }
+  ]
+}
