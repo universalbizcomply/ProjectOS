@@ -445,3 +445,99 @@ describe('governed message envelope', () => {
     expect(isGovernedStateMessage(null)).toBe(false);
   });
 });
+
+describe('a proposal is projected with what it says, bounded, and nothing when it says nothing', () => {
+  const record = (over: Record<string, unknown> = {}) => ({
+    schemaVersion: '1.0.0',
+    objectiveId: 'd1',
+    origin: 'authored',
+    planStatus: 'PLAN DRAFTED',
+    generatedAt: '2026-09-03T21:44:27.678Z',
+    draft: {
+      businessVision: 'Prove one real Forge outcome end to end.',
+      phaseCandidates: [
+        { phaseId: 'C1', purpose: 'Configure the offline run as a check.', riskLevel: 'medium', dependencies: [] },
+        { phaseId: 'C2', purpose: 'Owner decisions.', riskLevel: 'medium', dependencies: ['C1'] },
+        { phaseId: '', purpose: 'a phase with no id is not a step', riskLevel: 'low', dependencies: [] },
+        'not an object',
+      ],
+      ownerDecisionsRequired: ['Before C3: decide the worker write grant.'],
+    },
+    ...over,
+  });
+
+  test('vision, steps and owner decisions come from the draft body', () => {
+    const p = projectGovernedState(inputs({ draftRecords: [record()] }));
+    const d = p.planDrafts.find((x) => x.draftId === 'd1')!;
+    expect(d.summary).toBe('Prove one real Forge outcome end to end.');
+    expect(d.steps).toEqual([
+      { id: 'C1', purpose: 'Configure the offline run as a check.', risk: 'medium' },
+      { id: 'C2', purpose: 'Owner decisions.', risk: 'medium' },
+    ]);
+    expect(d.ownerDecisions).toEqual(['Before C3: decide the worker write grant.']);
+  });
+
+  test('a record without a draft body projects no content fields at all', () => {
+    const p = projectGovernedState(inputs({ draftRecords: [record({ draft: undefined })] }));
+    const d = p.planDrafts.find((x) => x.draftId === 'd1')!;
+    expect(d).not.toHaveProperty('summary');
+    expect(d).not.toHaveProperty('steps');
+    expect(d).not.toHaveProperty('ownerDecisions');
+  });
+
+  test('decisions recorded only at the top level of the record are still shown (the digest-bound copy)', () => {
+    const p = projectGovernedState(
+      inputs({ draftRecords: [record({ ownerDecisionsRequired: ['Top-level decision.'], draft: { businessVision: 'v', phaseCandidates: [] } })] }),
+    );
+    expect(p.planDrafts.find((x) => x.draftId === 'd1')!.ownerDecisions).toEqual(['Top-level decision.']);
+  });
+
+  test('bidirectional overrides and control characters never reach the owner', () => {
+    const p = projectGovernedState(
+      inputs({ draftRecords: [record({ draft: { businessVision: 'Approve\u202E this\u0007 plan\u2066', phaseCandidates: [], ownerDecisionsRequired: [] } })] }),
+    );
+    expect(p.planDrafts.find((x) => x.draftId === 'd1')!.summary).toBe('Approve this plan');
+  });
+
+  test('text shaped like a secret is withheld, not shown', () => {
+    const p = projectGovernedState(
+      inputs({
+        draftRecords: [
+          record({
+            draft: {
+              businessVision: 'Use api_key=abcdefghijklmnop1234 to reach the provider.',
+              phaseCandidates: [{ phaseId: 'C1', purpose: 'token sk-abcdefghijklmnopqrstuvwxyz0123', riskLevel: 'low', dependencies: [] }],
+              ownerDecisionsRequired: ['Decide whether tokens are the right word here.'],
+            },
+          }),
+        ],
+      }),
+    );
+    const d = p.planDrafts.find((x) => x.draftId === 'd1')!;
+    expect(d.summary).toContain('withheld');
+    expect(d.steps![0]!.purpose).toContain('withheld');
+    // An ordinary sentence that merely mentions tokens is not a secret.
+    expect(d.ownerDecisions![0]).toBe('Decide whether tokens are the right word here.');
+  });
+
+  test('only the most recent proposals travel; the protocol line stays bounded', () => {
+    const many = Array.from({ length: 20 }, (_, i) =>
+      record({ objectiveId: `d${i}`, generatedAt: `2026-09-03T21:${String(i).padStart(2, '0')}:00.000Z` }),
+    );
+    const p = projectGovernedState(inputs({ draftRecords: many }));
+    expect(p.planDrafts.length).toBe(8);
+    expect(p.planDrafts[0]!.draftId).toBe('d19');
+  });
+
+  test('what is shown is bounded: a long vision is clipped, a long phase list is capped', () => {
+    const many = Array.from({ length: 30 }, (_, i) => ({ phaseId: `P${i}`, purpose: 'x', riskLevel: 'low', dependencies: [] }));
+    const p = projectGovernedState(
+      inputs({ draftRecords: [record({ draft: { businessVision: 'v'.repeat(1000), phaseCandidates: many, ownerDecisionsRequired: Array.from({ length: 20 }, () => 'd'.repeat(1000)) } })] }),
+    );
+    const d = p.planDrafts.find((x) => x.draftId === 'd1')!;
+    expect(d.summary!.length).toBeLessThanOrEqual(400);
+    expect(d.steps!.length).toBe(12);
+    expect(d.ownerDecisions!.length).toBe(8);
+    expect(d.ownerDecisions![0]!.length).toBeLessThanOrEqual(400);
+  });
+});

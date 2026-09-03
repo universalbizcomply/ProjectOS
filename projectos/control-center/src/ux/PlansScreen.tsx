@@ -215,6 +215,17 @@ export function PlansScreen({
                     </p>
                   )}
 
+                  {/* What this proposal is FOR — without it two proposals read as the same row. */}
+                  {row.summary !== undefined && <p className="ux-planline ux-plansummary">{row.summary}</p>}
+                  {row.steps !== undefined && (
+                    <p className="ux-planline">
+                      {row.steps.length} {row.steps.length === 1 ? 'step' : 'steps'}
+                      {row.ownerDecisions !== undefined && row.ownerDecisions.length > 0
+                        ? ` \u00b7 ${row.ownerDecisions.length} ${row.ownerDecisions.length === 1 ? 'decision' : 'decisions'} it will ask you for`
+                        : ''}
+                    </p>
+                  )}
+
                   {row.reasons.length > 0 && (
                     <ul className="ux-planreasons">
                       {row.reasons.map((r) => (

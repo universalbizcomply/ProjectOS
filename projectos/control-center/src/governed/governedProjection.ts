@@ -352,10 +352,94 @@ function planDraftsOf(
         decisionId: decision === undefined ? null : str(decision, 'decisionId'),
         // Absent means 'import': that is what every draft written before authoring existed was.
         origin: str(d, 'origin') === 'authored' ? ('authored' as const) : ('import' as const),
+        ...proposalContent(d),
       };
     })
     .filter((v) => v.draftId !== '')
-    .sort((a, b) => (a.generatedAt < b.generatedAt ? 1 : a.generatedAt > b.generatedAt ? -1 : 0));
+    .sort((a, b) => (a.generatedAt < b.generatedAt ? 1 : a.generatedAt > b.generatedAt ? -1 : 0))
+    // THE WHOLE GOVERNED STATE TRAVELS AS ONE PROTOCOL LINE, and the host drops an oversize line
+    // whole and silently (MAX_PROTOCOL_LINE_BYTES, 64 KB). With proposal content each draft can add
+    // ~6.5 KB, so an unbounded history of drafts would one day stop EVERY update, not just the
+    // proposals. Newest first, most recent DRAFTS_MAX kept; the runtime still knows them all.
+    .slice(0, DRAFTS_MAX);
+}
+/** How many proposals the surface carries. Older ones remain on disk and remain decidable by id. */
+const DRAFTS_MAX = 8;
+
+/** Bounds for what a proposal shows of itself. A plan that says more is truncated, never refused. */
+const SUMMARY_MAX_CHARS = 400;
+const STEPS_MAX = 12;
+const STEP_PURPOSE_MAX_CHARS = 240;
+const DECISIONS_MAX = 8;
+const DECISION_MAX_CHARS = 400;
+
+/**
+ * SEC-001 CLASS. Provider-authored text reaches the owner's eyes immediately before an Approve. Unicode
+ * bidirectional overrides and format characters (U+202A-U+202E, U+2066-U+2069, U+200E/F, U+061C) can
+ * make such text READ in an order that has nothing to do with its bytes, and control characters can
+ * hide part of it. Stripped, not escaped - the same rule `safeExcerpt` applies to provider excerpts in
+ * the agent. Truncation is by code point so an emoji at the boundary is dropped whole, never split.
+ */
+const REORDERING = /[\u202A-\u202E\u2066-\u2069\u200E\u200F\u061C]/g;
+const clip = (text: string, max: number): string => {
+  const points = Array.from(text.replace(REORDERING, '')).filter((ch) => ch >= ' ');
+  return points.length <= max ? points.join('') : points.slice(0, max - 1).join('') + '\u2026';
+};
+
+/**
+ * A CONSERVATIVE SECRET SHAPE, at the one point where draft text becomes visible.
+ *
+ * An AUTHORED draft is refused by the runtime before it is written if it looks like it carries a
+ * secret. An IMPORT draft is built from discovered repository documents and has no such gate on its
+ * way to disk; until this projection those fields were never shown, so the gap was latent. This is a
+ * last line, not the first: a field that matches is WITHHELD from the view with a note, never shown.
+ * Shapes: provider key prefixes, PEM private keys, bearer tokens, and `key=value` assignments whose
+ * key names a secret. Deliberately narrow so an ordinary sentence about "tokens" is not withheld.
+ */
+const SECRET_SHAPES: readonly RegExp[] = [
+  /\bsk-[A-Za-z0-9_-]{16,}/,
+  /\bAKIA[0-9A-Z]{16}\b/,
+  /\bgh[pousr]_[A-Za-z0-9]{20,}/,
+  /\bxox[baprs]-[A-Za-z0-9-]{10,}/,
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
+  /\bBearer\s+[A-Za-z0-9._~+/=-]{20,}/i,
+  /\b(?:api[_-]?key|secret|password|passwd|token)\s*[:=]\s*['"]?[A-Za-z0-9._~+/=-]{12,}/i,
+];
+const WITHHELD = '[withheld - this text looks like it contains a secret]';
+const guard = (text: string): string => (SECRET_SHAPES.some((re) => re.test(text)) ? WITHHELD : text);
+
+/**
+ * The readable part of a draft record — its vision, its phase candidates and the owner decisions it
+ * names — for the Plans screen and the plan detail view. Every field is optional and absent when
+ * the record does not carry it, so an import draft written before authoring existed renders as it
+ * always did. Bounded on the way out, because a record is a file the runtime wrote and a view
+ * should never become an unbounded paint of one.
+ */
+function proposalContent(
+  d: Record<string, unknown>,
+): Pick<GovernedPlanDraftView, 'summary' | 'steps' | 'ownerDecisions'> {
+  const draft = obj(d, 'draft');
+  if (draft === undefined) return {};
+  const out: { summary?: string; steps?: GovernedPlanDraftView['steps']; ownerDecisions?: readonly string[] } = {};
+  const vision = str(draft, 'businessVision');
+  if (vision !== '') out.summary = clip(guard(vision), SUMMARY_MAX_CHARS);
+  const phases = draft['phaseCandidates'];
+  if (Array.isArray(phases)) {
+    const steps = phases
+      .filter((p): p is Record<string, unknown> => typeof p === 'object' && p !== null && !Array.isArray(p))
+      .map((p) => ({ id: clip(str(p, 'phaseId'), 80), purpose: clip(guard(str(p, 'purpose')), STEP_PURPOSE_MAX_CHARS), risk: clip(str(p, 'riskLevel'), 16) }))
+      .filter((s) => s.id !== '')
+      .slice(0, STEPS_MAX);
+    if (steps.length > 0) out.steps = steps;
+  }
+  // The draft body's own list first; the record-level copy - the one the approval digest binds - when
+  // the body has none. `strArray` returns [] rather than null, so this is a length test, not `??`:
+  // written as `??` the record-level copy could never be reached, and a record carrying decisions only
+  // at the top level would have shown NONE - the blind approval this view exists to end.
+  const own = strArray(draft, 'ownerDecisionsRequired');
+  const decisions = own.length > 0 ? own : strArray(d, 'ownerDecisionsRequired');
+  if (decisions.length > 0) out.ownerDecisions = decisions.slice(0, DECISIONS_MAX).map((t) => clip(guard(t), DECISION_MAX_CHARS));
+  return out;
 }
 
 /** Every worker session on record, newest first. */

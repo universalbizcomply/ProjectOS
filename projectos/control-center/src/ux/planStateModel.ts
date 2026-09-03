@@ -84,6 +84,10 @@ export interface PlanRow {
   readonly actions: readonly PlanAction[];
   /** Only ever set for an approved proposal — `plan.activate` needs both identifiers. */
   readonly decisionId: string | null;
+  /** What a proposal says of itself, when the record carries it. Absent for the active plan. */
+  readonly summary?: string;
+  readonly steps?: readonly { readonly id: string; readonly purpose: string; readonly risk: string }[];
+  readonly ownerDecisions?: readonly string[];
 }
 
 export interface PlansModel {
@@ -247,6 +251,9 @@ function draftRow(d: GovernedPlanDraftView): PlanRow | null {
     reasons: [] as readonly string[],
     lastActivity: d.generatedAt === '' ? null : d.generatedAt,
     decisionId: d.decisionId,
+    ...(d.summary !== undefined ? { summary: d.summary } : {}),
+    ...(d.steps !== undefined ? { steps: d.steps } : {}),
+    ...(d.ownerDecisions !== undefined ? { ownerDecisions: d.ownerDecisions } : {}),
   };
 
   switch (d.decisionState) {

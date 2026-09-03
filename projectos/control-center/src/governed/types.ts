@@ -147,6 +147,20 @@ export interface GovernedPlanDraftView {
    * decides the revalidation route from the persisted record; nothing a renderer shows can change it.
    */
   readonly origin?: 'import' | 'authored';
+  /**
+   * WHAT THE PROPOSAL SAYS, so the owner can read it before deciding on it.
+   *
+   * The Plans screen used to show two proposals as "Proposed plan · Written from your objective" and
+   * nothing else, and the detail view said only "its steps are created when you approve it" — the
+   * owner was asked to approve a plan they could not read, and could not tell two proposals apart.
+   * These three fields are lifted from the draft record the sidecar already reads in full: the
+   * plan's own vision, its phase candidates and the decisions it says the owner must take. DISPLAY
+   * ONLY and BOUNDED (the projection truncates): nothing shown here is authority, and the runtime
+   * still decides on the persisted record, never on this view.
+   */
+  readonly summary?: string;
+  readonly steps?: readonly { readonly id: string; readonly purpose: string; readonly risk: string }[];
+  readonly ownerDecisions?: readonly string[];
 }
 
 /**

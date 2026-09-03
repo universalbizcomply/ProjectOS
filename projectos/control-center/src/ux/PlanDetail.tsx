@@ -246,9 +246,48 @@ export function PlanDetail({
           plan's work to another.
         */}
         {active.kind === 'draft' ? (
-          <p className="os-empty">
-            This is a proposal. Its steps are created when you approve it and start it.
-          </p>
+          <div className="ux-proposal">
+            {active.summary !== undefined && (
+              <>
+                <h3 className="os-h3">What it sets out to do</h3>
+                <p className="os-set-sub">{active.summary}</p>
+              </>
+            )}
+            {active.steps !== undefined && active.steps.length > 0 ? (
+              <>
+                <h3 className="os-h3">Steps it will create when you approve and start it</h3>
+                <ol className="ux-steplist">
+                  {active.steps.map((s, i) => (
+                    <li key={s.id} className="ux-step" data-current="0">
+                      <div className="ux-stephead">
+                        <span className="ux-stepnum">{i + 1}</span>
+                        <span className="ux-stepname">{s.id}</span>
+                        {s.risk !== '' && <span className="ux-stepstate">{s.risk} risk</span>}
+                      </div>
+                      {s.purpose !== '' && <p className="ux-stepnote">{s.purpose}</p>}
+                    </li>
+                  ))}
+                </ol>
+              </>
+            ) : (
+              <p className="os-empty">
+                This is a proposal. Its steps are created when you approve it and start it.
+              </p>
+            )}
+            {active.ownerDecisions !== undefined && active.ownerDecisions.length > 0 && (
+              <>
+                <h3 className="os-h3">Decisions it will ask you for</h3>
+                <ul className="ux-planreasons">
+                  {active.ownerDecisions.map((d, i) => (
+                    <li key={`${i}-${d.slice(0, 40)}`}>{d}</li>
+                  ))}
+                </ul>
+              </>
+            )}
+            <p className="os-composernote">
+              Approving records your decision. Nothing runs until you also press Start this plan.
+            </p>
+          </div>
         ) : state.phases.length === 0 ? (
           <p className="os-empty">This plan has no steps recorded.</p>
         ) : (
