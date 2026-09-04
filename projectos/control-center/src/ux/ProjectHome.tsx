@@ -13,7 +13,7 @@
  *
  * Created in PROJECTOS-CONTROL-CENTER-UX-ARCHITECTURE1A.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { GovernedProjection } from '../governed/types';
 import { buildHomeModel } from '../owner/homeModel';
 import { buildContinueWorking, type PrimaryAction } from '../owner/continueWorkingModel';
@@ -34,9 +34,23 @@ import {
   type ProjectFile,
 } from './filesModel';
 
-export type ProjectTab = 'overview' | 'plans' | 'activity' | 'files' | 'advanced';
+export type ProjectTab = 'execution' | 'overview' | 'plans' | 'activity' | 'files' | 'advanced';
 
+/**
+ * EXECUTION IS FIRST, AND IT IS PER PROJECT.
+ *
+ * The execution workspace was built and mounted only at the rail, as one global destination that
+ * happened to render whichever project was selected. Its DATA was always per-project -- it renders
+ * the selected project's governed projection and nothing else -- but its NAVIGATION was not: from
+ * inside a project there was no way to reach it, and from the rail nothing on the screen said which
+ * of thirteen projects you were looking at.
+ *
+ * "Every project should have pages like this" is the requirement, so it is a tab like the others,
+ * and the one a project opens on. It is the SAME component with the same props: one execution
+ * surface reachable from two places, not two surfaces.
+ */
 const TABS: ReadonlyArray<{ id: ProjectTab; label: string }> = [
+  { id: 'execution', label: 'Execution' },
   { id: 'overview', label: 'Overview' },
   { id: 'plans', label: 'Plans' },
   { id: 'activity', label: 'Activity' },
@@ -344,6 +358,7 @@ export function ProjectHome({
   onOpenPlanDetail,
   onRequestChange,
   bridge,
+  execution,
 }: {
   state: GovernedProjection;
   tab: ProjectTab;
@@ -364,6 +379,14 @@ export function ProjectHome({
   onRequestChange: () => void;
   /** The host route the Files tab uses. Nothing else on this screen needs it. */
   bridge: IpcBridge;
+  /**
+   * The execution workspace, composed by the one place that holds its dependencies.
+   *
+   * Handed in rather than built here so this screen does not acquire the run state, the navigation
+   * callbacks and the objective panel it otherwise has no use for -- and so there is exactly one
+   * construction of that workspace in the application, not two that could drift apart.
+   */
+  execution: ReactNode;
 }) {
   return (
     <div className="os-stack">
@@ -386,6 +409,8 @@ export function ProjectHome({
           </button>
         ))}
       </div>
+
+      {tab === 'execution' && execution}
 
       {tab === 'overview' && (
         <Overview

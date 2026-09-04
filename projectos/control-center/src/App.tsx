@@ -205,7 +205,9 @@ export function Shell({
   const { calm, setCalm } = useCalmMotion();
   const [view, setView] = useState<View>('projects');
   const [advanced, setAdvanced] = useState<AdvancedView>('live');
-  const [projectTab, setProjectTab] = useState<ProjectTab>('overview');
+  // A project opens on its execution screen: the plan, what is running, and anything waiting for
+  // the owner. `Overview` remains a tab, it is simply no longer the first thing asked for.
+  const [projectTab, setProjectTab] = useState<ProjectTab>('execution');
   /**
    * THE CONTROL CENTER'S TRANSCRIPT, HELD ABOVE THE SCREEN THAT RENDERS IT.
    *
@@ -314,6 +316,31 @@ export function Shell({
     [projectsModel, railState],
   );
 
+  /**
+   * THE ONE EXECUTION WORKSPACE, composed once and rendered in two places.
+   *
+   * It is the rail's `Execution` destination AND the `Execution` tab every project now opens on.
+   * Built here because this is where its dependencies already live -- the live run, the navigation
+   * callbacks, the objective panel -- and built ONCE so the two entry points can never drift into
+   * two different screens. Same component, same props, same governed projection.
+   */
+  const executionWorkspace =
+    live === null ? null : (
+      <ExecutionWorkspace
+        state={live}
+        liveRun={sameRepositoryRoot(run.root, live.repository.localPath) ? run : null}
+        now={Date.now()}
+        onOpenEvidence={() => { setProjectTab('activity'); go('project'); }}
+        onNavigate={(to) => {
+          if (to === 'projects') return go('projects');
+          if (to === 'health') return go('health');
+          setProjectTab(to === 'plans' ? 'plans' : 'activity');
+          go('project');
+        }}
+        onStartObjective={() => { setObjectiveMode('new'); setObjectiveOpen(true); go('control'); }}
+      />
+    );
+
   /** Which of the four destinations is lit. A project screen still belongs to Projects. */
   const navActive: NavDestination =
     view === 'control' ? 'control'
@@ -409,6 +436,7 @@ export function Shell({
                 state={live}
                 tab={projectTab}
                 setTab={setProjectTab}
+                execution={executionWorkspace}
                 now={Date.now()}
                 liveRun={
                   // A run event carries its own root. A run belonging to another project is not this
@@ -453,21 +481,7 @@ export function Shell({
               THE EXECUTION WORKSPACE. It needs a projection to describe, and says so plainly when
               there is none rather than rendering an empty frame that looks like a broken screen.
             */}
-            {view === 'execution' && live !== null && (
-              <ExecutionWorkspace
-                state={live}
-                liveRun={sameRepositoryRoot(run.root, live.repository.localPath) ? run : null}
-                now={Date.now()}
-                onOpenEvidence={() => { setProjectTab('activity'); go('project'); }}
-                onNavigate={(to) => {
-                  if (to === 'projects') return go('projects');
-                  if (to === 'health') return go('health');
-                  setProjectTab(to === 'plans' ? 'plans' : 'activity');
-                  go('project');
-                }}
-                onStartObjective={() => { setObjectiveMode('new'); setObjectiveOpen(true); go('control'); }}
-              />
-            )}
+            {view === 'execution' && live !== null && executionWorkspace}
             {view === 'execution' && live === null && (
               <div className="os-stack">
                 <h1 className="os-h1">Execution</h1>
