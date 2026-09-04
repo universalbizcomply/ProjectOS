@@ -1,0 +1,22 @@
+{
+  "phaseId": "validation-cache",
+  "evidenceSubjectHead": "db220a873534e8cdfef209c1d20d3a2c7a873659",
+  "validatorsPass": true,
+  "checksPass": true,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "unresolvedCritical": 0,
+  "unresolvedHighIds": [],
+  "headedProofPass": false,
+  "establishedAt": "2026-09-05T00:27:00.000Z",
+  "notes": [
+    "Authored under explicit owner authorisation on 2026-09-05 ('Authorised to author'), after the assistant stopped rather than write it unasked. Every field below is transcribed from a record some governed step produced; none of it is asserted on the assistant's judgement.",
+    "validatorsPass: .projectops/validation/db220a873534e8cdfef209c1d20d3a2c7a873659.json records 141 of 141 registered modules PASS from a clean working tree at this exact subject, including the one validator this phase requires, validate-no-secrets (passed: true, errorCount: 0).",
+    "checksPass: the run that landed e7c242b recorded PASS for all five configured checks - validate-no-secrets, core-tests, agent-tests, agent-typecheck and speed-benchmark. The benchmark is the one that matters here: it is what resolved F11-EXECUTION-DENIED and F10-PROOF-DATA-GAP by measurement rather than by assertion.",
+    "reviewsComplete: the worker recorded all three reviews this phase requires - security and privacy of cache contents and redaction, validation correctness of dependency coverage/invalidation/fail-toward-run, and the performance benchmark review.",
+    "unresolved counts: the latest findings record for this phase lists six findings, every one resolved. Zero unresolved CRITICAL, zero unresolved HIGH. An earlier run of this phase carried two unresolved findings and was correctly refused closure on them; they were resolved by running the work, not by restating it.",
+    "headedProofPass is false because no headed proof was run. This phase does not require one (requiredBrowserProof is false in the approved plan), and recording a proof that never happened would be the exact failure this record exists to prevent.",
+    "evidenceSubjectHead is db220a8 rather than e7c242b: e7c242b is the commit the loop made and pushed, and db220a8 reconciles the records that commit produced. The validator run above was made from a clean tree at db220a8, so that is the commit the evidence is genuinely established at.",
+    "effects attestation for the landed run records productionTouched, deploymentOccurred, databaseMutationOccurred, externalSendOccurred, paymentOccurred and rawSecretStored all false."
+  ]
+}
