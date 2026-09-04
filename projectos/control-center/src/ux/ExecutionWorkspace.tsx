@@ -283,6 +283,20 @@ export function ExecutionWorkspace({
         </div>
       </header>
 
+      {/*
+        ── THE ONE LINE ─────────────────────────────────────────────────────────────────────────
+        "Looking at the ProjectOS screen, I still don't know if anything is working. It needs to be
+        clear, one flow." Everything below is true and none of it led. This is always present, says
+        what is happening and what happens next, and is the first thing read.
+      */}
+      <section className="xw-head" data-state={view.headline.state} aria-live="polite">
+        <span className="xw-headstate">{view.headline.state}</span>
+        <div className="xw-headwords">
+          <p className="xw-headline">{view.headline.line}</p>
+          <p className="xw-headnext">{view.headline.next}</p>
+        </div>
+      </section>
+
       {/* ── the owner's decision, when there is one ──────────────────────────────────────────── */}
       {gate !== null && (
         <section className="xw-gate" aria-labelledby="xw-gate-title">
@@ -304,6 +318,7 @@ export function ExecutionWorkspace({
             </div>
           </dl>
           <p className="xw-gatenote">{gate.ownerMustDo}</p>
+
           {/*
             THE REAL INBOX, NOT A SECOND ONE. Each pending request names what it permits and asks a
             second question before it is recorded. This screen must never nominate a request on the

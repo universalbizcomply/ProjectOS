@@ -123,6 +123,28 @@ export const ACTIVE_PHASE_STATUSES: readonly GovernedPhaseStatus[] = [
   'awaiting_closure',
 ];
 
+/**
+ * Statuses that make SWITCHING PROJECTS unsafe — which is a narrower question than the one above.
+ *
+ * "Which phase is the current one" and "is work in flight" are different questions, and one list was
+ * answering both. `awaiting_closure` is the current phase — the screen must show it, hold it and
+ * name the decision it is waiting for — but nothing is being worked: the run finished, the loop
+ * refuses to touch it (`STOPPED (OWNER_DECISION_REQUIRED)`), and there is no worker, no process and
+ * no half-written evidence for a changed view to strand.
+ *
+ * THE DEFECT THIS CLOSES. Before the loop began writing phase records, no ProjectOS phase ever
+ * reached `awaiting_closure` through the product, so this distinction had never had to exist. The
+ * moment one did, the owner was locked: the project could not be left, and the step could only be
+ * closed from a screen the application does not mount. Two correct-looking rules met and produced a
+ * dead end.
+ *
+ * It stays deliberately conservative everywhere else. `draft` through `awaiting_review` all still
+ * block a switch, because any of them can have a live worker behind it.
+ */
+export const WORK_IN_FLIGHT_STATUSES: readonly GovernedPhaseStatus[] = ACTIVE_PHASE_STATUSES.filter(
+  (s) => s !== 'awaiting_closure',
+);
+
 function str(rec: Record<string, unknown>, key: string, fallback = ''): string {
   const v = rec[key];
   return typeof v === 'string' ? v : fallback;

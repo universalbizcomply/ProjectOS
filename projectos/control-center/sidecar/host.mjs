@@ -43,7 +43,7 @@ import { BridgeDaemon, nodeSystem, loadConfig } from '@projectos/bridge-daemon';
 import { InProcessTransport } from '../node-build/daemon/inProcessTransport.js';
 import {
   projectGovernedState,
-  ACTIVE_PHASE_STATUSES,
+  WORK_IN_FLIGHT_STATUSES,
 } from '../node-build/governed/governedProjection.js';
 import { validateGovernedCommand, toAgentInvocation } from '../node-build/governed/governedCommands.js';
 import {
@@ -822,7 +822,10 @@ function governedWorkActive() {
   if (root === null) return false;
   if (readProjectConfig(root) === null) return true;
   const records = readPhaseRecords(root);
-  return records.some((record) => ACTIVE_PHASE_STATUSES.includes(record && record.status));
+  // The narrower list: work actually IN FLIGHT, not merely the phase that is current. A phase
+  // awaiting the owner's closure has no worker, no process and nothing half-written behind it, so
+  // leaving it to look at another project strands nothing. See WORK_IN_FLIGHT_STATUSES.
+  return records.some((record) => WORK_IN_FLIGHT_STATUSES.includes(record && record.status));
 }
 
 /* --- GOVERNED EXECUTION: spawning and tracking the real `projectos run` process ---------------

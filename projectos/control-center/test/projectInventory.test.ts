@@ -18,6 +18,7 @@ import {
   serialiseSelection,
   type ProjectConfigReader,
 } from '../src/governed/projectInventory';
+import { ACTIVE_PHASE_STATUSES, WORK_IN_FLIGHT_STATUSES } from '../src/governed/governedProjection';
 
 const ROOT_A = 'C:\\dev\\ProjectOS';
 const ROOT_B = 'C:\\dev\\DeadAisle';
@@ -418,5 +419,27 @@ describe('the wire shape comes from one declaration', () => {
       'registryStatus',
       'selectedProjectId',
     ]);
+  });
+});
+
+describe('a step waiting on the owner does not lock the project', () => {
+  it('WORK_IN_FLIGHT_STATUSES excludes awaiting_closure, and nothing else', () => {
+    // Two different questions were being answered by one list. "Which phase is current" must
+    // include awaiting_closure -- the screen has to show it and hold it. "Is work in flight, so a
+    // switch would strand it" must not: the run finished, the loop refuses to touch it, and there
+    // is no worker or half-written evidence behind it.
+    expect(ACTIVE_PHASE_STATUSES).toContain('awaiting_closure');
+    expect(WORK_IN_FLIGHT_STATUSES).not.toContain('awaiting_closure');
+    // Conservative everywhere else: any of these can have a live worker behind it.
+    for (const s of ['draft', 'prompted', 'implementing', 'validating', 'evidence', 'awaiting_review']) {
+      expect(WORK_IN_FLIGHT_STATUSES).toContain(s);
+    }
+    expect(WORK_IN_FLIGHT_STATUSES.length).toBe(ACTIVE_PHASE_STATUSES.length - 1);
+  });
+
+  it('terminal statuses were never in flight and still are not', () => {
+    for (const s of ['closed', 'closed_as_blocked', 'rolled_back', 'not-started']) {
+      expect(WORK_IN_FLIGHT_STATUSES).not.toContain(s);
+    }
   });
 });

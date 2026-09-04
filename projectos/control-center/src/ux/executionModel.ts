@@ -81,6 +81,21 @@ export interface CompletedEntry {
   readonly who: string;
 }
 
+/**
+ * The one line at the top: what is happening, and what happens next.
+ *
+ * `state` is for the eye — colour and shape. `line` and `next` are the words, and they are always
+ * both present: a screen that says what is happening without saying what follows is exactly the one
+ * that left an owner unsure whether anything was working.
+ */
+export interface HeadlineView {
+  readonly state: 'WAITING' | 'WORKING' | 'READY' | 'DONE' | 'STOPPED';
+  /** What is happening, in plain words. */
+  readonly line: string;
+  /** What happens next, or what the owner must do. Never empty. */
+  readonly next: string;
+}
+
 /** What the owner is being asked for, if anything. */
 export interface OwnerGateView {
   readonly held: true;
@@ -126,6 +141,20 @@ export interface ExecutionView {
   readonly working: boolean;
   /** The one-line answer to "do I need to do anything?". */
   readonly ownerAction: string;
+  /**
+   * ONE SENTENCE THAT ANSWERS "IS ANYTHING WORKING, AND WHAT DO I DO?"
+   *
+   * THE DEFECT THIS EXISTS FOR, in the owner's words: "Looking at the ProjectOS screen, I still
+   * don't know if anything is working. It needs to be clear, one flow." Everything the screen showed
+   * was true and none of it led. Completion, requirements, capabilities and a plan were all
+   * present; the state of the whole thing was a small pill that said `NONE` whenever nothing was
+   * held — which is the one moment an owner most needs telling what happens next.
+   *
+   * It invents nothing. Every branch is read from state that already decided it: the gate, the live
+   * run, the recorded acceptances, a blocked step. Where none of those establishes an answer it says
+   * so rather than guessing.
+   */
+  readonly headline: HeadlineView;
 }
 
 const CLOSED: readonly string[] = ['closed', 'accepted', 'complete', 'completed'];
@@ -310,6 +339,68 @@ function gateWordsFor(
   }
 }
 
+/**
+ * Derive the headline. Pure, and reads only what other rules have already decided.
+ *
+ * ORDER IS THE MEANING. A decision the owner owes outranks everything, because nothing else can
+ * proceed past it. A live run outranks a blocked later step, because what is happening now is the
+ * answer to "is anything working". Completion is only claimed when every step is genuinely accepted.
+ */
+function headlineFor(input: {
+  readonly gate: OwnerGateView | null;
+  readonly running: boolean;
+  readonly currentStep: StepView | null;
+  readonly steps: readonly StepView[];
+  readonly stepsAccepted: number;
+}): HeadlineView {
+  const { gate, running, currentStep, steps, stepsAccepted } = input;
+  const numbered = (s: StepView | null): string =>
+    s === null ? 'a step' : `step ${String(s.number).padStart(2, '0')}`;
+
+  if (gate !== null) {
+    return {
+      state: 'WAITING',
+      line: 'ProjectOS is waiting for you. Nothing else will start until you decide.',
+      next: gate.wants,
+    };
+  }
+  if (running) {
+    return {
+      state: 'WORKING',
+      line: `ProjectOS is working on ${numbered(currentStep)}.`,
+      next: 'Nothing for you to do. It stops and asks if it needs your authority.',
+    };
+  }
+  if (steps.length > 0 && stepsAccepted === steps.length) {
+    return {
+      state: 'DONE',
+      line: 'Every step of this plan is finished and closed.',
+      next: 'Nothing is outstanding. Start a new objective when you want the next piece of work.',
+    };
+  }
+  const blocked = steps.find((s) => s.state === 'BLOCKED');
+  if (blocked !== undefined) {
+    return {
+      state: 'STOPPED',
+      line: `Nothing is running, and ${numbered(blocked)} cannot start.`,
+      next: blocked.blockedReason ?? 'ProjectOS did not record why, so this needs looking at.',
+    };
+  }
+  const startable = steps.find((s) => s.state === 'QUEUED');
+  if (startable !== undefined) {
+    return {
+      state: 'READY',
+      line: 'Nothing is running right now.',
+      next: `${numbered(startable).replace(/^s/, 'S')} is ready to start.`,
+    };
+  }
+  return {
+    state: 'READY',
+    line: 'Nothing is running right now.',
+    next: 'ProjectOS has not recorded a step it can start next.',
+  };
+}
+
 export function buildExecutionView(
   state: GovernedProjection,
   liveRun: { readonly active: boolean; readonly phaseId: string | null; readonly startedAt: string | null; readonly lines: readonly string[] } | null,
@@ -409,7 +500,11 @@ export function buildExecutionView(
               waiting > 0
                 ? `${waiting === 1 ? 'One request is' : `${waiting} requests are`} waiting for your decision below. Each one names what it permits, and asks you to confirm before it is recorded.`
                 : awaitingClosure !== null
-                  ? 'Open this step and close it when you are satisfied. Nothing else starts until you do.'
+                  ? 'Closing a step is done outside this screen, by deliberate design — the product ' +
+                    'does not close its own work. Run `projectos closure request --id ' +
+                    awaitingClosure.phaseId +
+                    '`. Nothing else runs until it is closed, ' +
+                    'and you can safely look at another project meanwhile.'
                   : 'There is no request for this screen to answer. ProjectOS needs a decision recorded outside it before this step can continue — it will carry on by itself once that exists.',
           };
         })();
@@ -500,6 +595,13 @@ export function buildExecutionView(
     completed: completed.slice(0, 40),
     ownerGate,
     working: running,
+    headline: headlineFor({
+      gate: ownerGate,
+      running,
+      currentStep: currentStep,
+      steps,
+      stepsAccepted,
+    }),
     ownerAction:
       ownerGate !== null
         ? 'YOUR DECISION IS NEEDED'

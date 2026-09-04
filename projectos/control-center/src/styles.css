@@ -2710,6 +2710,54 @@ h1.os-h1 { margin: 0; font-size: 36px; font-weight: 600; letter-spacing: -0.035e
 }
 
 /* ── the decision that belongs to the owner ── */
+/* ── THE ONE LINE ──────────────────────────────────────────────────────────────────────────
+   Always present, directly under the command bar, read before anything else. The state word is a
+   badge so it is findable at a glance; the two sentences are the actual answer. Colour follows the
+   state and carries no meaning on its own -- every state is also spelled out in words, because a
+   screen an owner reads under pressure must not depend on telling two greys apart. */
+.xw-head {
+  display: flex; align-items: flex-start; gap: 16px;
+  padding: 16px 20px; border-radius: 12px;
+  border: 1px solid var(--line-soft); background: var(--card);
+}
+.xw-headstate {
+  flex: 0 0 auto; align-self: center;
+  font-size: 10.5px; letter-spacing: 0.13em; font-weight: 700;
+  padding: 6px 12px; border-radius: 999px;
+  border: 1px solid var(--line-soft); color: var(--text-dim);
+}
+.xw-headwords { min-width: 0; }
+.xw-headline { margin: 0; font-size: 16px; font-weight: 650; line-height: 1.4; }
+.xw-headnext { margin: 5px 0 0; font-size: 13.5px; line-height: 1.5; color: var(--text-dim); }
+
+.xw-head[data-state='WAITING'] {
+  border-color: color-mix(in srgb, var(--warn) 55%, transparent);
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+}
+.xw-head[data-state='WAITING'] .xw-headstate {
+  border-color: color-mix(in srgb, var(--warn) 55%, transparent);
+  color: var(--warn);
+}
+.xw-head[data-state='WORKING'] {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.xw-head[data-state='WORKING'] .xw-headstate {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  color: var(--accent);
+}
+.xw-head[data-state='STOPPED'] {
+  border-color: color-mix(in srgb, var(--crit) 45%, transparent);
+  background: color-mix(in srgb, var(--crit) 8%, transparent);
+}
+.xw-head[data-state='STOPPED'] .xw-headstate {
+  border-color: color-mix(in srgb, var(--crit) 45%, transparent);
+  color: var(--crit);
+}
+
+/* The close control the gate panel was missing. */
+.xw-gateact { display: flex; justify-content: flex-end; margin-top: 16px; }
+
 .xw-gate {
   padding: 18px 20px; border-radius: 12px;
   border: 1px solid color-mix(in srgb, var(--warn) 50%, transparent);

@@ -350,7 +350,12 @@ describe('a finished step waiting on the owner is HELD, not QUEUED', () => {
     expect(v.steps[1]?.state).toBe('QUEUED');
     expect(v.ownerGate?.phaseId).toBe('ONE1A');
     expect(v.ownerGate?.wants).toContain('Close this step');
-    expect(v.ownerGate?.ownerMustDo).toContain('Nothing else starts until you do');
+    // Closing is deliberately NOT done in the product (see ownerControlRetired.test.ts), so the
+    // note must say where it IS done rather than implying a control that does not exist.
+    expect(v.ownerGate?.ownerMustDo).toContain('outside this screen');
+    expect(v.ownerGate?.ownerMustDo).toContain('projectos closure request --id ONE1A');
+    // And it must say the owner is not trapped: leaving this project is safe.
+    expect(v.ownerGate?.ownerMustDo).toContain('another project');
   });
 
   test('with nothing awaiting closure the checkpoint still decides, exactly as before', () => {
@@ -364,5 +369,72 @@ describe('a finished step waiting on the owner is HELD, not QUEUED', () => {
     );
     expect(v.steps[0]?.state).toBe('HELD');
     expect(v.ownerGate?.wants).toContain('Commit the finished work');
+  });
+});
+
+describe('one line that says whether anything is working', () => {
+  // "Looking at the ProjectOS screen, I still don't know if anything is working. It needs to be
+  // clear, one flow." Every branch below is read from state that already decided it.
+  const head = (v: ReturnType<typeof buildExecutionView>) => v.headline;
+
+  test('a decision owed to the owner outranks everything', () => {
+    const v = buildExecutionView(
+      projection({
+        phases: [phase({ phaseId: 'ONE1A', status: 'awaiting_closure' })],
+        work: { phaseId: 'ONE1A', state: 'COMPLETE', stopCode: null, stopDetail: null, ownerRequired: false, sessionId: null, updatedAt: 't' },
+      }),
+      null,
+      NOW,
+    );
+    expect(head(v).state).toBe('WAITING');
+    expect(head(v).line).toContain('waiting for you');
+    expect(head(v).next).toContain('Close this step');
+  });
+
+  test('a live run says so, and says there is nothing to do', () => {
+    const v = buildExecutionView(
+      projection({ phases: [phase({ phaseId: 'ONE1A', status: 'implementing' })] }),
+      { active: true, phaseId: 'ONE1A', startedAt: '2026-09-04T09:59:00.000Z', lines: [] },
+      NOW,
+    );
+    expect(head(v).state).toBe('WORKING');
+    expect(head(v).line).toContain('working on step 01');
+    expect(head(v).next).toContain('Nothing for you to do');
+  });
+
+  test('nothing running and a step ready says which step', () => {
+    const v = buildExecutionView(
+      projection({ phases: [phase({ phaseId: 'ONE1A', status: 'not-started' })] }),
+      null,
+      NOW,
+    );
+    expect(head(v).state).toBe('READY');
+    expect(head(v).line).toContain('Nothing is running');
+    expect(head(v).next).toContain('Step 01');
+  });
+
+  test('a blocked step names why, from the record and not from a guess', () => {
+    const v = buildExecutionView(
+      projection({
+        phases: [
+          phase({ phaseId: 'ONE1A', status: 'not-started', unmetDependencies: ['ZERO1A'] }),
+        ],
+      }),
+      null,
+      NOW,
+    );
+    expect(head(v).state).toBe('STOPPED');
+    expect(head(v).next).toContain('ZERO1A');
+  });
+
+  test('both sentences are always present, in every state', () => {
+    for (const v of [
+      buildExecutionView(projection(), null, NOW),
+      buildExecutionView(projection({ phases: [phase({ status: 'implementing' })] }),
+        { active: true, phaseId: null, startedAt: null, lines: [] }, NOW),
+    ]) {
+      expect(v.headline.line.trim()).not.toBe('');
+      expect(v.headline.next.trim()).not.toBe('');
+    }
   });
 });
