@@ -1,0 +1,58 @@
+{
+  "reviews": [
+    "Security and privacy review of cache contents and redaction guarantees",
+    "Validation correctness review of dependency coverage, invalidation, and fail-toward-run behavior",
+    "Performance benchmark review"
+  ],
+  "findings": [
+    {
+      "id": "F1-GITIGNORE-MISSING",
+      "severity": "MEDIUM",
+      "category": "security",
+      "summary": ".projectops/validation-cache/ is not in .gitignore. Cache entries contain no secrets (proven by structure: only validator names, sha256 hex hashes, booleans, integers, and ISO timestamps), but accidental commits would be repository residue. The worker grant does not cover .gitignore — the owner must add the entry.",
+      "resolved": false
+    },
+    {
+      "id": "F2-VALIDATOR-NOT-REGISTERED",
+      "severity": "MEDIUM",
+      "category": "correctness",
+      "summary": "validate-speed-validation-cache.cjs exists but is NOT in validate-all.cjs's MODULES list. The cache correctness proof does not run during standard validation. The worker grant does not cover validate-all.cjs — the owner must add the registration.",
+      "resolved": false
+    },
+    {
+      "id": "F3-BENCHMARK-NOT-EXECUTED",
+      "severity": "HIGH",
+      "category": "benchmark",
+      "summary": "Node execution was not approved in this session. The benchmark tooling (projectos/speed/benchmark.cjs) exists and is structurally sound, but the acceptance criterion 'benchmarked at 2 seconds or less' requires a live measurement. validate-no-secrets and the configured test suites were also not executed. The proof is missing, not the capability.",
+      "resolved": false
+    },
+    {
+      "id": "F4-FAIL-TOWARD-RUN-PROVEN",
+      "severity": "LOW",
+      "category": "correctness",
+      "summary": "Static review confirms fail-toward-run for all specified conditions: unknown coverage (empty inputPaths → coverage 'none' → null), missing/unreadable inputs (→ 'partial' → null), corrupt entries (JSON.parse fails → null), version mismatch (schemaVersion check → null), environment mismatch (envHash diverges → key mismatch → miss), expired entries (>7 days → null). The validator independently verifies all six conditions.",
+      "resolved": true
+    },
+    {
+      "id": "F5-CACHE-DELETION-SAFE",
+      "severity": "LOW",
+      "category": "correctness",
+      "summary": "validate-all.cjs has zero imports from projectos/speed/. cached-runner.cjs is an alternative runner. clear() removes the directory; every cache miss falls through to running the real validator. Deleting the cache can reduce performance but never validation correctness.",
+      "resolved": true
+    },
+    {
+      "id": "F6-NO-SECRETS-IN-CACHE",
+      "severity": "LOW",
+      "category": "security",
+      "summary": "buildEntry() produces exactly 7 keys: schemaVersion, validator, key, passed, errorCount, createdAt, lastUsedAt. The key field is a 64-char hex SHA-256 digest. No file contents, provider data, prompts, or responses enter the cache. The validator scans entry structure for JWT, Stripe, GitHub, AWS, OpenAI, and Anthropic key patterns.",
+      "resolved": true
+    },
+    {
+      "id": "F7-FULL-VALIDATION-NOT-WEAKENED",
+      "severity": "LOW",
+      "category": "correctness",
+      "summary": "validate-all.cjs is unchanged and has no dependency on any speed/ module. The cached runner is an alternative, not a replacement. --no-cache forces a full uncached run. Full uncached validation remains authoritative.",
+      "resolved": true
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "1.0.0",
+  "validator": "validate-drift-snapshot",
+  "key": "3ae456bda1afde5ff9c6fe918d6bcb0dbb083cac12ec5401d3a4c1ae71ba5c80",
+  "passed": true,
+  "errorCount": 0,
+  "createdAt": "2026-09-04T14:06:40.593Z",
+  "lastUsedAt": "2026-09-04T14:08:26.996Z"
+}

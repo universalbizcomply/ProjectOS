@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "1.0.0",
+  "validator": "validate-proof-request",
+  "key": "c4d46fbfd13e15cc03dd90f2d7ea4fcd709e03c7015b64b33e3ca169f5467070",
+  "passed": true,
+  "errorCount": 0,
+  "createdAt": "2026-09-04T14:06:40.401Z",
+  "lastUsedAt": "2026-09-04T14:08:26.877Z"
+}

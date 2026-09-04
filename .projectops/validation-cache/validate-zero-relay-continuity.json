@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "1.0.0",
+  "validator": "validate-zero-relay-continuity",
+  "key": "6e606f053549d3bf2a83eb35bcfb7f0d25eb2e554bfd14f09dc84a3efd607ea6",
+  "passed": true,
+  "errorCount": 0,
+  "createdAt": "2026-09-04T14:07:31.630Z",
+  "lastUsedAt": "2026-09-04T14:08:30.157Z"
+}

@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "1.0.0",
+  "validator": "validate-runtime-no-raw-string-events",
+  "key": "0e0409b69331b96ae13acb3adaeed64772739d34ff63dd0f6b928ac9c4d249aa",
+  "passed": true,
+  "errorCount": 0,
+  "createdAt": "2026-09-04T14:06:49.193Z",
+  "lastUsedAt": "2026-09-04T14:08:28.388Z"
+}

@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "1.0.0",
+  "projectId": "projectos",
+  "activePlanId": "plan-67aabc6989dbc9e9-c38a9fee4466",
+  "activePlanVersion": "1.3",
+  "currentStatus": "PLAN READY",
+  "completionMethod": "phase-closure",
+  "acceptedPhaseCount": 0,
+  "totalPhaseCount": 4,
+  "completionPercentage": 0,
+  "completedPhases": [],
+  "activePhase": null,
+  "pendingPhases": [
+    "validation-cache",
+    "doctor-preflight",
+    "gatekeeper-replay",
+    "readiness-evidence"
+  ],
+  "blockedPhases": [],
+  "deferredPhases": [],
+  "acceptedCarryForward": [],
+  "currentBranch": "projectos-post-v3-selfhost-pilot1a",
+  "currentHead": "abc4dce99c764523cd67577fd288b6f401c97c3c",
+  "currentRemoteHead": null,
+  "workingTreeStatus": "dirty",
+  "currentRisks": [],
+  "currentBlockers": [],
+  "lastEvidenceReference": "plan-approval decision PLANDEC-ed43358710f336a092cab5d0",
+  "nextRecommendedPhase": "validation-cache",
+  "lastUpdated": "2026-09-04T08:23:14.541Z",
+  "updatedByRole": "gatekeeper"
+}

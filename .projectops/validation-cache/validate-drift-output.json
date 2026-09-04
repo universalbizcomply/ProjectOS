@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "1.0.0",
+  "validator": "validate-drift-output",
+  "key": "a3880e3a348fc26fb17f38d3960451ef0dd96824f6d0b9afa2cc3d43abcca933",
+  "passed": true,
+  "errorCount": 0,
+  "createdAt": "2026-09-04T14:06:40.631Z",
+  "lastUsedAt": "2026-09-04T14:08:27.029Z"
+}

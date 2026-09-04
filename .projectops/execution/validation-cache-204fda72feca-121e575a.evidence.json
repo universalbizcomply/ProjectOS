@@ -1,0 +1,89 @@
+{
+  "schemaVersion": "1.0.0",
+  "sessionId": "validation-cache-204fda72feca-121e575a",
+  "phaseId": "validation-cache",
+  "briefId": "validation-cache@204fda72feca455c76d0a078d2c4900d3704132c",
+  "collectedAt": "2026-09-04T11:01:18.584Z",
+  "baseHead": "204fda72feca455c76d0a078d2c4900d3704132c",
+  "currentHead": "204fda72feca455c76d0a078d2c4900d3704132c",
+  "changedFiles": [
+    ".projectops/current-state-67aabc6989dbc9e9-c38a9fee4466.json",
+    ".projectops/execution/validation-cache-204fda72feca-121e575a.brief.json",
+    ".projectops/execution/validation-cache-204fda72feca-121e575a.effects.json",
+    ".projectops/execution/validation-cache-204fda72feca-121e575a.findings.json",
+    ".projectops/execution/validation-cache-204fda72feca-121e575a.invocation.json",
+    ".projectops/execution/validation-cache-204fda72feca-121e575a.session.json",
+    ".projectops/execution/validation-cache-3011be923c00-1d841ce3.brief.json",
+    ".projectops/execution/validation-cache-3011be923c00-1d841ce3.effects.json",
+    ".projectops/execution/validation-cache-3011be923c00-1d841ce3.evidence.json",
+    ".projectops/execution/validation-cache-3011be923c00-1d841ce3.findings.json",
+    ".projectops/execution/validation-cache-3011be923c00-1d841ce3.invocation.json",
+    ".projectops/execution/validation-cache-3011be923c00-1d841ce3.session.json",
+    ".projectops/execution/validation-cache-3011be923c00-62d33c78.brief.json",
+    ".projectops/execution/validation-cache-3011be923c00-62d33c78.invocation.json",
+    ".projectops/execution/validation-cache-3011be923c00-e233cc34.brief.json",
+    ".projectops/execution/validation-cache-3011be923c00-e233cc34.evidence.json",
+    ".projectops/execution/validation-cache-3011be923c00-e233cc34.invocation.json",
+    ".projectops/execution/validation-cache-3011be923c00-e233cc34.session.json",
+    ".projectops/execution/validation-cache-70c1329ead4d-f4acbbc8.brief.json",
+    ".projectops/execution/validation-cache-70c1329ead4d-f4acbbc8.invocation.json",
+    ".projectops/execution/validation-cache-abc4dce99c76-313b5143.brief.json",
+    ".projectops/execution/validation-cache-abc4dce99c76-313b5143.effects.json",
+    ".projectops/execution/validation-cache-abc4dce99c76-313b5143.evidence.json",
+    ".projectops/execution/validation-cache-abc4dce99c76-313b5143.findings.json",
+    ".projectops/execution/validation-cache-abc4dce99c76-313b5143.invocation.json",
+    ".projectops/execution/validation-cache-abc4dce99c76-313b5143.session.json",
+    ".projectops/gatekeeper-ledger.json",
+    ".projectops/objectives/67aabc6989dbc9e9.json",
+    ".projectops/plan-67aabc6989dbc9e9-c38a9fee4466.json",
+    ".projectops/plan-decisions/PLANDEC-ed43358710f336a092cab5d0.json",
+    ".projectops/project-config.json",
+    ".projectops/validation-cache/",
+    ".projectops/work.v1.json",
+    "projectos/control-center/src/owner/SafetyProviders.tsx",
+    "projectos/control-center/src/ux/ControlCenter.tsx",
+    "projectos/speed/",
+    "projectos/validators/validate-speed-validation-cache.cjs"
+  ],
+  "diffStat": ".projectops/gatekeeper-ledger.json                 | 52 +++++++++++++++++++++\n .../PLANDEC-ed43358710f336a092cab5d0.json          |  3 +-\n .projectops/project-config.json                    |  8 ++--\n .projectops/work.v1.json                           | 16 +++----\n .../control-center/src/owner/SafetyProviders.tsx   | 54 ++++++++++------------\n projectos/control-center/src/ux/ControlCenter.tsx  |  7 ++-\n 6 files changed, 97 insertions(+), 43 deletions(-)",
+  "checks": [
+    {
+      "id": "validate-no-secrets",
+      "kind": "validator",
+      "passed": true,
+      "exitCode": 0,
+      "output": "validate-no-secrets: <redacted>",
+      "at": "2026-09-04T10:58:31.352Z"
+    },
+    {
+      "id": "core-tests",
+      "kind": "test",
+      "passed": true,
+      "exitCode": 0,
+      "output": "> @projectos/core@0.1.0 test\n> vitest run\n\n\n\u001b[1m\u001b[7m\u001b[36m RUN \u001b[39m\u001b[27m\u001b[22m \u001b[36mv2.1.9 \u001b[39m\u001b[90mC:/dev/ProjectOS/projectos/core\u001b[39m\n\n \u001b[32m✓\u001b[39m test/owner-gate-receipt.test.ts \u001b[2m(\u001b[22m\u001b[2m38 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[90m 12\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m test/gatekeeper-degraded-mode.test.ts \u001b[2m(\u001b[22m\u001b[2m43 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[90m 13\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m test/authoring-estimator-safety.test.ts \u001b[2m(\u001b[22m\u001b[2m57 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[90m 13\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m test/gatekeeper-decision.test.ts \u001b[2m(\u001b[22m\u001b[2m41 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[90m 14\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m test/gatekeeper-transport.test.ts \u001b[2m(\u001b[22m\u001b[2m41 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[90m 16\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m test/gatekeeper-bridge.test.ts \u001b[2m(\u001b[22m\u001b[2m64 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[90m 14\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m test/closure-eligibility.test.ts \u001b[2m(\u001b[22m\u001b[2m75 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[90m 17\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m test/closure-authority.test.ts \u001b[2m(\u001b[22m\u001b[2m22 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[90m 10\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m test/closure-decision.test.ts \u001b[2m(\u001b[22m\u001b[2m39 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[90m 15\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m test/execution-security.test.ts \u001b[2m(\u001b[22m\u001b[2m37 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[90m 90\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m test/gatekeeper-model-policy.test.ts \u001b[2m(\u001b[22m\u001b[2m42 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[90m 11\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m test/gatekeeper-cost-ledger.test.ts \u001b[2m(\u001b[22m\u001b[2m28 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[90m 9\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m test/gatekeeper-thread.test.ts \u001b[2m(\u001b[22m\u001b[2m27 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[90m 10\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m test/execution-recovery.test.ts \u001b[2m(\u001b[22m\u001b[2m17 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[90m 16\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m test/governance.test.ts \u001b[2m(\u001b[22m\u001b[2m16 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[90m 9\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m test/state-machines.test.ts \u001b[2m(\u001b[22m\u001b[2m14 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[90m 9\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m test/support.test.ts \u001b[2m(\u001b[22m\u001b[2m13 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[90m 9\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m test/closure-transport.test.ts \u001b[2m(\u001b[22m\u001b[2m37 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[90m 17\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m test/execution-controller.test.ts \u001b[2m(\u001b[22m\u001b[2m9 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[90m 12\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m test/execution-stateMachine.test.ts \u001b[2m(\u001b[22m\u001b[2m7 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[90m 6\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m test/workers.test.ts \u001b[2m(\u001b[22m\u001b[2m5 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[90m 5\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m test/execution-syntheticProvider.test.ts \u001b[2m(\u001b[22m\u001b[2m4 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[90m 3\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m test/orchestration.test.ts \u001b[2m(\u001b[22m\u001b[2m3 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[90m 3\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m test/plugin-catalog.test.ts \u001b[2m(\u001b[22m\u001b[2m3 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[90m 5\u001b[2mms\u001b[22m\u001b[39m\n\n\u001b[2m Test Files \u001b[22m \u001b[1m\u001b[32m24 passed\u001b[39m\u001b[22m\u001b[90m (24)\u001b[39m\n\u001b[2m      Tests \u001b[22m \u001b[1m\u001b[32m682 passed\u001b[39m\u001b[22m\u001b[90m (682)\u001b[39m\n\u001b[2m   Start at \u001b[22m 11:58:38\n\u001b[2m   Duration \u001b[22m 2.35s\u001b[2m (transform 1.68s, setup 0ms, collect 3.26s, tests 339ms, environment 5ms, prepare 12.40s)\u001b[22m",
+      "at": "2026-09-04T10:58:41.130Z"
+    },
+    {
+      "id": "agent-tests",
+      "kind": "test",
+      "passed": true,
+      "exitCode": 0,
+      "output": "> @projectos/agent@0.1.0 test\n> vitest run\n\n\n\u001b[1m\u001b[7m\u001b[36m RUN \u001b[39m\u001b[27m\u001b[22m \u001b[36mv2.1.9 \u001b[39m\u001b[90mC:/dev/ProjectOS/projectos/agent\u001b[39m\n\n \u001b[32m✓\u001b[39m test/commands.test.ts \u001b[2m(\u001b[22m\u001b[2m67 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[90m 166\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m test/loopRunner.test.ts \u001b[2m(\u001b[22m\u001b[2m65 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[33m 302\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m test/planAuthoring.test.ts \u001b[2m(\u001b[22m\u001b[2m66 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[33m 723\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m test/closureOwnerCommit.test.ts \u001b[2m(\u001b[22m\u001b[2m54 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[90m 28\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m test/gatekeeperDelegationAuthority.test.ts \u001b[2m(\u001b[22m\u001b[2m33 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[33m 338\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m test/planAuthority.test.ts \u001b[2m(\u001b[22m\u001b[2m33 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[90m 142\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m test/gatekeeperSpendRelease.test.ts \u001b[2m(\u001b[22m\u001b[2m25 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[90m 245\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m test/gatekeeperTurn.test.ts \u001b[2m(\u001b[22m\u001b[2m43 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[90m 31\u001b[2mms\u001b[22m\u001b[39m\n\u001b[90mstdout\u001b[2m | test/planIntake.test.ts\u001b[2m > \u001b[22m\u001b[2mF3 intake — an objective is input, never authority\u001b[2m > \u001b[22m\u001b[2mO. discovery stays inside the project root and a symlink cannot widen it\n\u001b[22m\u001b[39mO: symlink creation unavailable (unprivileged Windows); traversal half asserted only\n\n \u001b[32m✓\u001b[39m test/planIntake.test.ts \u001b[2m(\u001b[22m\u001b[2m29 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[33m 405\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m test/authoringAttemptEvidence.test.ts \u001b[2m(\u001b[22m\u001b[2m26 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[90m 291\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m test/loopOutcome.test.ts \u001b[2m(\u001b[22m\u001b[2m42 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[90m 198\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m test/planApproval.test.ts \u001b[2m(\u001b[22m\u001b[2m113 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[33m 6438\u001b[2mms\u001b[22m\u001b[39m\n   \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m first-plan genesis authority\u001b[2m > \u001b[22mrefuses genesis governance that could never produce a schema-valid plan \u001b[33m426\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m test/mcpOAuth.test.ts \u001b[2m(\u001b[22m\u001b[2m37 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[33m 10475\u001b[2mms\u001b[22m\u001b[39m\n   \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m the metadata an MCP client discovers\u001b[2m > \u001b[22mpublishes protected-resource metadata naming this bridge and its authorization server \u001b[33m543\u001b[2mms\u001b[22m\u001b[39m\n   \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m the metadata an MCP client discovers\u001b[2m > \u001b[22mpublishes authorization-server metadata requiring PKCE S256 and no client secret \u001b[33m488\u001b[2mms\u001b[22m\u001b[39m\n   \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m the metadata an MCP client discovers\u001b[2m > \u001b[22manswers metadata without a token, because a client cannot have one yet \u001b[33m579\u001b[2mms\u001b[22m\u001b[39m\n   \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m the authorization code flow\u001b[2m > \u001b[22mregisters a client without widening where a code may be sent \u001b[33m462\u001b[2mms\u001b[22m\u001b[39m\n   \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m the authorization code flow\u001b[2m > \u001b[22mcompletes: authorize, approve, exchange, then a real MCP call with the issued token \u001b[33m581\u001b[2mms\u001b[22m\u001b[39m\n   \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m the authorization code flow\u001b[2m > \u001b[22mleaves the installation credential working, so the local path is unchanged \u001b[33m454\u001b[2mms\u001b[22m\u001b[39m\n   \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m what the new surface refuses\u001b[2m > \u001b[22mrefuses an unknown token, and points an MCP client at the metadata \u001b[33m448\u001b[2mms\u001b[22m\u001b[39m\n   \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m what the new surface refuses\u001b[2m > \u001b[22mrefuses no token at all \u001b[33m401\u001b[2mms\u001b[22m\u001b[39m\n   \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m what the new surface refuses\u001b[2m > \u001b[22mrefuses a redirect_uri that is not on the allowlist, and does NOT redirect to it \u001b[33m460\u001b[2mms\u001b[22m\u001b[39m\n   \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m what the new surface refuses\u001b[2m > \u001b[22mrefuses a registration that asks for a redirect outside the allowlist \u001b[33m387\u001b[2mms\u001b[22m\u001b[39m\n   \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m what the new surface refuses\u001b[2m > \u001b[22mrefuses a missing state \u001b[33m438\u001b[2mms\u001b[22m\u001b[39m\n   \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m what the new surface refuses\u001b[2m > \u001b[22mrefuses PKCE that is absent, plain, or malformed \u001b[33m409\u001b[2mms\u001b[22m\u001b[39m\n   \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m what the new surface refuses\u001b[2m > \u001b[22mrefuses an exchange whose verifier does not match the challenge \u001b[33m481\u001b[2mms\u001b[22m\u001b[39m\n   \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m what\n… output truncated at 4000 characters",
+      "at": "2026-09-04T11:01:02.526Z"
+    },
+    {
+      "id": "agent-typecheck",
+      "kind": "typecheck",
+      "passed": true,
+      "exitCode": 0,
+      "output": "> @projectos/agent@0.1.0 typecheck:all\n> npm run typecheck && npm run typecheck:tests\n\n\n> @projectos/agent@0.1.0 typecheck\n> tsc -p tsconfig.json --noEmit\n\n\n> @projectos/agent@0.1.0 typecheck:tests\n> tsc -p tsconfig.test.json",
+      "at": "2026-09-04T11:01:17.957Z"
+    }
+  ],
+  "requiredReviews": [
+    "Security and privacy review of cache contents and redaction guarantees",
+    "Validation correctness review of dependency coverage, invalidation, and fail-toward-run behavior",
+    "Performance benchmark review"
+  ],
+  "invocationId": "121e575ad34738b7"
+}

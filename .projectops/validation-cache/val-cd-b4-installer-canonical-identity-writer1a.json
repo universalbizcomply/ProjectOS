@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "1.0.0",
+  "validator": "val-cd-b4-installer-canonical-identity-writer1a",
+  "key": "361d89349149bcf6207025d7e5eefb4c7f1ddf3ffc486aad918606f6a93479d5",
+  "passed": true,
+  "errorCount": 0,
+  "createdAt": "2026-09-04T09:00:52.976Z",
+  "lastUsedAt": "2026-09-04T14:08:29.547Z"
+}

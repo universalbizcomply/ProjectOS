@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "1.0.0",
+  "validator": "validate-staging-deploy-guard",
+  "key": "8edead162e72413564feb069ec7ba6ee1dfdd1b92b7cabf81a1f5c58456e94c2",
+  "passed": true,
+  "errorCount": 0,
+  "createdAt": "2026-09-04T14:06:40.323Z",
+  "lastUsedAt": "2026-09-04T14:08:26.833Z"
+}

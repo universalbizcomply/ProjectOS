@@ -1,0 +1,34 @@
+{
+  "schemaVersion": "1.0.0",
+  "recordKind": "gatekeeper-decision-evidence",
+  "decisionId": "GKDEC-GKREQ-19b1e0d40870a7d903e9789b",
+  "projectId": "projectos",
+  "phaseId": "validation-cache",
+  "subjectCommit": "204fda72feca455c76d0a078d2c4900d3704132c",
+  "requestDigest": "sha256:f3977918c8023bb9957de3f9b41fc479c1256c10aa5f28543fca0b5566d51ca8",
+  "decision": "AWAITING_OWNER",
+  "reason": "The evidence shows all required checks and reviews pass, but it does not establish that the owner-established restricted ProjectOS source-write prerequisite is effective. That prerequisite is mandatory before execution may begin. The evidence also lists ff-only-integration while the governing constraint prohibits merge, so the requested continuation scope must be reconciled before authorization.",
+  "allowedActions": [
+    "preserve-and-present-evidence",
+    "inspect-prerequisite-status",
+    "prepare-owner-decision-brief",
+    "reconcile-continuation-scope",
+    "record-owner-decision-when-provided"
+  ],
+  "forbiddenActions": [
+    "commit",
+    "push",
+    "ff-only-integration",
+    "merge",
+    "force-push",
+    "phase-closure",
+    "secrets-handling",
+    "payment-or-live-charge",
+    "deploy",
+    "database-mutation",
+    "external-message"
+  ],
+  "ownerApprovalRequired": true,
+  "decidedBy": "ChatGPT",
+  "decidedAt": "2026-09-04T11:01:30.000Z"
+}

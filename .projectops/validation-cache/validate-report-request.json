@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "1.0.0",
+  "validator": "validate-report-request",
+  "key": "251b11ef78bc5ff9615ae5b9c36f3acd3753960ef13e26671ee8d103678bcbbf",
+  "passed": true,
+  "errorCount": 0,
+  "createdAt": "2026-09-04T14:06:40.132Z",
+  "lastUsedAt": "2026-09-04T14:08:26.737Z"
+}

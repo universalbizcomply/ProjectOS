@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "1.0.0",
+  "validator": "validate-windows-runtime-primitives-boundary",
+  "key": "c60d462b43fc6ccd1f1ac4046711eeb643c540532bb07bf2597c330880e78983",
+  "passed": true,
+  "errorCount": 0,
+  "createdAt": "2026-09-04T08:52:16.596Z",
+  "lastUsedAt": "2026-09-04T14:08:28.435Z"
+}

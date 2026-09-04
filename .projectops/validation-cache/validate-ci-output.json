@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "1.0.0",
+  "validator": "validate-ci-output",
+  "key": "41cfa680084285b3c36d7b9b615da2a7ab1bafec1fa1c40f7a379216b6d02218",
+  "passed": true,
+  "errorCount": 0,
+  "createdAt": "2026-09-04T14:06:40.864Z",
+  "lastUsedAt": "2026-09-04T14:08:27.141Z"
+}

@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "1.0.0",
+  "validator": "validate-desktop-e2e",
+  "key": "8b2009b946022a0cea376a143647afd96f6b9c9b97acafadf7537ea1e3e1edb8",
+  "passed": true,
+  "errorCount": 0,
+  "createdAt": "2026-09-04T14:06:48.327Z",
+  "lastUsedAt": "2026-09-04T14:08:28.174Z"
+}

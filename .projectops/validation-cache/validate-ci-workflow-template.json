@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "1.0.0",
+  "validator": "validate-ci-workflow-template",
+  "key": "261b0fb0a228fcc8015882e2fb29190c4bdbebd8d6bdc1e4c43081798e44983c",
+  "passed": true,
+  "errorCount": 0,
+  "createdAt": "2026-09-04T14:06:40.821Z",
+  "lastUsedAt": "2026-09-04T14:08:27.121Z"
+}

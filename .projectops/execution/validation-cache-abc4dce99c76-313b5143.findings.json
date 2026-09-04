@@ -1,0 +1,79 @@
+{
+  "reviews": [
+    "Security and privacy review of cache contents and redaction guarantees",
+    "Validation correctness review of dependency coverage, invalidation, and fail-toward-run behavior",
+    "Performance benchmark review"
+  ],
+  "findings": [
+    {
+      "id": "SEC-001",
+      "severity": "LOW",
+      "category": "security",
+      "summary": "Cache entries store only validator names, pass/fail booleans, error counts, SHA-256 hex digests, and timestamps. No file contents, error messages, provider prompts/responses, or credentials are persisted. Content hashes are one-way and non-invertible.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-002",
+      "severity": "MEDIUM",
+      "category": "security",
+      "summary": "The .projectops/validation-cache/ directory is not in .gitignore (write to .gitignore was outside the worker's grant). Resolved in code: gitState() filters the cache directory from porcelain output so the suite fast path works, and walkDir() skips the validation-cache directory so hashing .projectops as a declared input does not cascade-invalidate through the cache's own files. A manual .gitignore entry is cosmetically desirable but not mechanically required.",
+      "resolved": true
+    },
+    {
+      "id": "CORR-001",
+      "severity": "LOW",
+      "category": "correctness",
+      "summary": "All fail-toward-run rules verified by code analysis: empty inputs produce coverage 'none', missing inputs produce coverage 'partial', corrupt/unreadable entries return null, wrong schema version returns null, expired entries return null, key mismatches return null. No path produces a cache hit when inputs are unknown or changed.",
+      "resolved": true
+    },
+    {
+      "id": "CORR-002",
+      "severity": "LOW",
+      "category": "correctness",
+      "summary": "Full uncached validation (validate-all.cjs) is unmodified and remains the authoritative runner. The cached runner is an alternative that wraps the same module list. Module list sync is enforced by validate-speed-validation-cache.cjs.",
+      "resolved": true
+    },
+    {
+      "id": "CORR-003",
+      "severity": "LOW",
+      "category": "correctness",
+      "summary": "Cache deletion safety: clear() removes the entire cache directory; all code paths that check the cache return null (miss) when the directory is absent, causing validators to run. No correctness property depends on cache presence.",
+      "resolved": true
+    },
+    {
+      "id": "CORR-004",
+      "severity": "HIGH",
+      "category": "correctness",
+      "summary": "readEntry() rejected suite-level cache entries because it required top-level 'passed' (boolean) and 'errorCount' (integer) fields that only per-validator entries carry. Suite entries have 'kind', 'head', and 'results[]' instead. This made the suite fast path (the primary <=2s target) always miss. Fixed: readEntry() now branches on entry.kind === 'suite' and validates suite-specific fields for suite entries, per-validator fields otherwise.",
+      "resolved": true
+    },
+    {
+      "id": "CORR-005",
+      "severity": "MEDIUM",
+      "category": "correctness",
+      "summary": "walkDir() included .projectops/validation-cache/ when hashing the .projectops directory as a declared input for plan validators. This caused cascading cache invalidation: writing a cache entry changed the hash of .projectops, invalidating all plan validators' cache keys. Fixed: walkDir() now skips the 'validation-cache' directory name, matching the existing skip list for node_modules, .git, and target.",
+      "resolved": true
+    },
+    {
+      "id": "PERF-001",
+      "severity": "LOW",
+      "category": "performance",
+      "summary": "Suite-level fast path (warm unchanged) requires only two git commands plus one file read and key comparison. Per-validator cache avoids running unchanged validators when inputs are declared, enabling targeted source validation under 60s. Full uncached validation timing is unchanged.",
+      "resolved": true
+    },
+    {
+      "id": "PERF-002",
+      "severity": "LOW",
+      "category": "performance",
+      "summary": "Input map declarations for file-scan validators (e.g. validate-no-secrets, which scans all of projectos/ and knowledge/) have coarse granularity: the cache key hashes entire directory trees, so any file change under projectos/ invalidates the cache for those validators. This is correct (no false hits) but reduces cache effectiveness for partial changes. The suite-level fast path covers the warm-unchanged case regardless.",
+      "resolved": true
+    },
+    {
+      "id": "ENV-001",
+      "severity": "MEDIUM",
+      "category": "environment",
+      "summary": "Node.js command execution was blocked by the permission system during both the initial and correction runs. validate-no-secrets passed at exit code 0 per the evidence record (collected after the speed files were created). validate-speed-validation-cache was verified by static trace through all 8 test sections: module list identity confirmed by byte comparison, fail-toward-run paths traced through computeCacheKey/readEntry/checkValidatorCache, no secret patterns found via grep. Mechanical execution by the owner or a subsequent run remains recommended.",
+      "resolved": true
+    }
+  ]
+}

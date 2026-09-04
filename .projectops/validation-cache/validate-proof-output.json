@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "1.0.0",
+  "validator": "validate-proof-output",
+  "key": "727f1658095a3a8bdce641ac6c8be8c43eccb415142fdff26428356bf4fa5b10",
+  "passed": true,
+  "errorCount": 0,
+  "createdAt": "2026-09-04T14:06:40.482Z",
+  "lastUsedAt": "2026-09-04T14:08:26.919Z"
+}

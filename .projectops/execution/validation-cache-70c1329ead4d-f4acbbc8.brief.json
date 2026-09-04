@@ -1,0 +1,100 @@
+{
+  "schemaVersion": "1.0.0",
+  "briefId": "validation-cache@70c1329ead4d52de19c2affd0784d9ef44fc5a68",
+  "generatedAt": "2026-09-04T08:13:27.772Z",
+  "projectId": "projectos",
+  "projectName": "ProjectOS",
+  "repository": {
+    "root": "C:\\dev\\ProjectOS",
+    "remote": "universalbizcomply/ProjectOS",
+    "branch": "projectos-post-v3-selfhost-pilot1a",
+    "head": "70c1329ead4d52de19c2affd0784d9ef44fc5a68"
+  },
+  "plan": {
+    "path": "C:\\dev\\ProjectOS/.projectops/plan-9e373cb6b5324fde-ca4fc29feedd.json",
+    "planId": "plan-9e373cb6b5324fde-ca4fc29feedd",
+    "planVersion": "1.2"
+  },
+  "phase": {
+    "phaseId": "validation-cache",
+    "description": "Establish safe, fail-closed incremental validation and content-addressed caching while retaining authoritative full validation.",
+    "dependsOn": [],
+    "acceptanceCriteria": [
+      "Every cacheable validation result is keyed by content fingerprints covering all identified validation-relevant inputs, declared dependencies, applicable policy/configuration, and validator/tool compatibility information.",
+      "A missing, unverifiable, incomplete, stale, corrupted, incompatible, or dependency-unsafe cache state never yields a reused pass; it fails closed to full validation or a blocking result.",
+      "Automated tests demonstrate invalidation when each material cache-key input changes and demonstrate that unknown dependency safety cannot produce a cache hit.",
+      "For an approved representative corpus of eligible changes, incremental and full validation yield equivalent governance/validation outcomes.",
+      "Full validation remains invocable and authoritative, with no removed checks or reduced gate enforcement.",
+      "Tests demonstrate that existing owner gates remain required and cannot be satisfied, bypassed, or altered merely through cache reuse.",
+      "Implementation and tests record cache eligibility exclusions for validators or gates whose dependency safety cannot be proven."
+    ],
+    "riskLevel": "high",
+    "autonomyLevel": "gated-execution",
+    "requiredValidators": [
+      "targeted unit and integration tests for fingerprinting, cache addressing, invalidation, corruption handling, and fail-closed behavior",
+      "incremental-versus-full validation equivalence suite on representative fixtures",
+      "existing full validation suite",
+      "owner-gate preservation regression tests",
+      "static analysis, formatting, and repository-required checks"
+    ],
+    "requiredReviews": [
+      "maintainer/architecture review of dependency model and cache-key completeness",
+      "security/reliability review of cache integrity, invalidation, and fail-closed handling",
+      "governance review confirming owner-gate semantics are unchanged"
+    ],
+    "requiredBrowserProof": false,
+    "requiredOwnerGates": [
+      "Owner approval is required before any production cache sharing, production rollout, or change to mandatory command workflows.",
+      "Any validator or gate without demonstrable dependency-safe cache eligibility remains full-validation-only.",
+      "Existing owner gates remain in force and are not delegated, bypassed, or satisfied by this proposed work."
+    ]
+  },
+  "records": {
+    "briefPath": "C:\\dev\\ProjectOS/.projectops/execution/validation-cache-70c1329ead4d-f4acbbc8.brief.json",
+    "findingsPath": "C:\\dev\\ProjectOS/.projectops/execution/validation-cache-70c1329ead4d-f4acbbc8.findings.json",
+    "effectsPath": "C:\\dev\\ProjectOS/.projectops/execution/validation-cache-70c1329ead4d-f4acbbc8.effects.json",
+    "evidencePath": "C:\\dev\\ProjectOS/.projectops/execution/validation-cache-70c1329ead4d-f4acbbc8.evidence.json",
+    "effectsContract": {
+      "location": "top-level",
+      "valueType": "boolean",
+      "requiredFields": [
+        "productionTouched",
+        "deploymentOccurred",
+        "databaseMutationOccurred",
+        "externalSendOccurred",
+        "paymentOccurred",
+        "rawSecretStored"
+      ]
+    }
+  },
+  "boundaries": {
+    "forbiddenActions": [
+      "production-deploy",
+      "production-db-mutation",
+      "real-email-sms-whatsapp",
+      "payment-or-live-charge",
+      "force-push",
+      "use-anthropic-api",
+      "provider-credential-access",
+      "store-real-secret",
+      "modify-projectos-v2-core",
+      "modify-v2-closure-records",
+      "modify-polygo"
+    ],
+    "approvalGates": [
+      "commit",
+      "push",
+      "phase-closure",
+      "secrets-handling",
+      "production-deploy",
+      "production-db-mutation",
+      "real-email-sms-whatsapp",
+      "payment-or-live-charge"
+    ],
+    "protectedBranches": [
+      "main",
+      "projectos-v2-core"
+    ],
+    "productionFreeze": true
+  }
+}
