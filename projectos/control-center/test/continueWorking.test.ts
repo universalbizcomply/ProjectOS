@@ -73,6 +73,44 @@ describe('buildContinueWorking — what gets offered, and in what order', () => 
     expect(m.primary.sessionId).toBe('PHASE1A-abc-123');
   });
 
+  it('a finished phase waiting on the owner is not "Interrupted" work to continue', () => {
+    // Until the loop started writing phase records this state could not occur, so the only branch
+    // that described it said "Work stopped before it finished" and offered "Continue". The work DID
+    // finish -- it was reviewed, committed and pushed -- and Continue is exactly what the runtime
+    // refuses: OWNER_DECISION_REQUIRED.
+    const m = buildContinueWorking(
+      projection({
+        sessions: [session()],
+        activePhase: {
+          phaseId: 'PHASE1A',
+          description: 'Deliver validation caching',
+          status: 'awaiting_closure',
+        },
+      } as unknown as Partial<GovernedProjection>),
+      [],
+      NOW,
+    );
+    expect(m.status).toBe('Waiting for you');
+    expect(m.primary.kind).toBe('review');
+    expect(m.primary.label).toBe('Review and close');
+    expect(m.primary.detail).toContain('Deliver validation caching');
+    // Starting something else would step over a decision that is the owner's.
+    expect(m.canStartSomethingNew).toBe(false);
+  });
+
+  it('awaiting_review is still the loop to carry, so Continue stays the offer', () => {
+    const m = buildContinueWorking(
+      projection({
+        sessions: [session()],
+        activePhase: { phaseId: 'PHASE1A', description: 'x', status: 'awaiting_review' },
+      } as unknown as Partial<GovernedProjection>),
+      [],
+      NOW,
+    );
+    expect(m.status).toBe('Interrupted');
+    expect(m.primary.label).toBe('Continue');
+  });
+
   it('says when the work last happened the way a person would say it', () => {
     const m = buildContinueWorking(projection({ sessions: [session()] }), [], NOW);
     expect(m.primary.detail).toBe('Last worked on 30 minutes ago. Nothing is running now.');

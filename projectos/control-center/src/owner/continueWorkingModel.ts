@@ -180,6 +180,36 @@ export function buildContinueWorking(
     };
   }
 
+  // 2d. THE PHASE IS FINISHED AND WAITING ON THE OWNER.
+  //
+  //     Until the loop started writing phase records, this state could not occur: a completed phase
+  //     left no lifecycle trace at all, so the only thing below to describe it was branch 3 -- "work
+  //     stopped before it finished", offering "Continue". Both halves were untrue. The work did
+  //     finish; it was reviewed, committed and pushed; and continuing is precisely what the runtime
+  //     refuses, because `awaiting_closure` is a state only the owner may move a phase out of.
+  //
+  //     `awaiting_review` is deliberately NOT here. The loop may carry that one forward on its own,
+  //     so "Continue" is the right offer there; `awaiting_closure` is the only one that is the
+  //     owner's alone.
+  if (state.activePhase?.status === 'awaiting_closure') {
+    return {
+      projectName: state.projectName,
+      status: 'Waiting for you',
+      primary: {
+        kind: 'review',
+        label: 'Review and close',
+        heading: 'Finished - waiting for your decision',
+        detail:
+          `${state.activePhase.description.trim() === '' ? state.activePhase.phaseId : state.activePhase.description} ` +
+          'is done and reviewed. Nothing else starts until you close it.',
+        sessionId: session?.sessionId ?? null,
+      },
+      canStartSomethingNew: false,
+      phaseId,
+      sessionId: session?.sessionId ?? null,
+    };
+  }
+
   // 3. Work started earlier and is NOT running now. Resuming it is cheaper than starting again -
   //    but it is interrupted work, and calling that "Working" is the untruth this branch once told.
   if (session !== null && phaseId !== null) {
