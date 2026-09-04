@@ -12,9 +12,43 @@
  *
  * Created in PROJECTOS-CONTROL-CENTER-UX-ARCHITECTURE1A.
  */
+import { useEffect, useState } from 'react';
 import { hasLocalHost } from './HostCapability';
 import { dotColour, initialsOf, statusInk, type ProjectState } from '../owner/workspaceModel';
 import type { ProjectRow, ProjectsModel } from './projectsModel';
+
+/**
+ * How long "reading…" may honestly stand before it becomes a lie.
+ *
+ * The inventory arrives over the native bridge within a moment of the shell mounting. Fifteen
+ * seconds is far longer than that ever takes and short enough that an owner is not left staring at
+ * a sentence describing work that is not happening.
+ */
+const SILENCE_BEFORE_SAYING_SO_MS = 15_000;
+
+/**
+ * Has the runtime failed to answer at all?
+ *
+ * THE DEFECT THIS EXISTS FOR. An unsigned packaged build opens its window and refuses to launch its
+ * daemon -- failure is refusal, by design, and that design is right. What was wrong is what the
+ * owner saw: "Reading the list of projects on this computer…", for ever, describing work that had
+ * already been refused and would never begin. Observed directly against a real unsigned build.
+ *
+ * IT REPORTS OUR OWN WAITING, NOT A DIAGNOSIS. This knows that nothing arrived in a bounded time. It
+ * does not know why, and says so in those terms rather than naming a cause it cannot establish.
+ */
+function useRuntimeSilence(unknown: boolean): boolean {
+  const [silent, setSilent] = useState(false);
+  useEffect(() => {
+    if (!unknown) {
+      setSilent(false);
+      return;
+    }
+    const id = setTimeout(() => setSilent(true), SILENCE_BEFORE_SAYING_SO_MS);
+    return () => clearTimeout(id);
+  }, [unknown]);
+  return silent;
+}
 
 /** The row's dot colour comes from the same state vocabulary the workspace uses. */
 function stateOfRow(row: ProjectRow): ProjectState {
@@ -95,6 +129,7 @@ export function ProjectsScreen({
   onOpen: (projectId: string) => void;
   onAddProject: () => void;
 }) {
+  const runtimeSilent = useRuntimeSilence(model.unknown);
   return (
     <section className="os-stack" aria-labelledby="ux-projects-title">
       <header className="ux-screenhead">
@@ -111,12 +146,33 @@ export function ProjectsScreen({
         then describes work in progress that will never finish, and an owner waits for something
         that cannot come. See `HostCapability`.
       */}
-      {model.unknown && (
+      {model.unknown && !hasLocalHost() && (
         <p className="os-empty" role="status">
-          {hasLocalHost()
-            ? 'Reading the list of projects on this computer…'
-            : 'Your projects live on your own computer, and this page cannot reach them. Open the ProjectOS application there to see them.'}
+          Your projects live on your own computer, and this page cannot reach them. Open the
+          ProjectOS application there to see them.
         </p>
+      )}
+
+      {model.unknown && hasLocalHost() && !runtimeSilent && (
+        <p className="os-empty" role="status">Reading the list of projects on this computer…</p>
+      )}
+
+      {/*
+        NOTHING ANSWERED. Said plainly, because the alternative is the sentence above standing for
+        ever over a runtime that was refused before it started.
+      */}
+      {model.unknown && hasLocalHost() && runtimeSilent && (
+        <div className="os-plate" role="alert">
+          <h2 className="os-h2">ProjectOS could not start its runtime</h2>
+          <p className="os-set-sub">
+            Nothing answered, so there is nothing to show — this is not an empty list, it is no
+            answer at all. Your projects and their records are untouched.
+          </p>
+          <p className="os-set-sub">
+            Close ProjectOS and open it again. If it still cannot start, the installed application
+            could not verify itself and needs to be reinstalled.
+          </p>
+        </div>
       )}
 
       {model.registryProblem !== null && (
