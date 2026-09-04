@@ -328,3 +328,41 @@ describe('the whole view', () => {
     expect(v.ownerGate).toBeNull();
   });
 });
+
+describe('a finished step waiting on the owner is HELD, not QUEUED', () => {
+  test('awaiting_closure holds the step even when the run finished cleanly', () => {
+    // The run that produced it wrote COMPLETE with ownerRequired: false -- it succeeded. Reading
+    // only that checkpoint made the screen call a finished, reviewed step QUEUED, which is what an
+    // unstarted step is called. `awaiting_closure` is a status only the owner may move a phase out
+    // of; the runtime refuses it outright with OWNER_DECISION_REQUIRED.
+    const v = buildExecutionView(
+      projection({
+        phases: [
+          phase({ phaseId: 'ONE1A', status: 'awaiting_closure' }),
+          phase({ phaseId: 'TWO1A', status: 'not-started' }),
+        ],
+        work: { phaseId: 'ONE1A', state: 'COMPLETE', stopCode: null, stopDetail: null, ownerRequired: false, sessionId: null, updatedAt: 't' },
+      }),
+      null,
+      NOW,
+    );
+    expect(v.steps[0]?.state).toBe('HELD');
+    expect(v.steps[1]?.state).toBe('QUEUED');
+    expect(v.ownerGate?.phaseId).toBe('ONE1A');
+    expect(v.ownerGate?.wants).toContain('Close this step');
+    expect(v.ownerGate?.ownerMustDo).toContain('Nothing else starts until you do');
+  });
+
+  test('with nothing awaiting closure the checkpoint still decides, exactly as before', () => {
+    const v = buildExecutionView(
+      projection({
+        phases: [phase({ phaseId: 'ONE1A', status: 'implementing' })],
+        work: { phaseId: 'ONE1A', state: 'BLOCKED', stopCode: 'CONTINUATION_READY', stopDetail: 'x', ownerRequired: true, sessionId: null, updatedAt: 't' },
+      }),
+      null,
+      NOW,
+    );
+    expect(v.steps[0]?.state).toBe('HELD');
+    expect(v.ownerGate?.wants).toContain('Commit the finished work');
+  });
+});

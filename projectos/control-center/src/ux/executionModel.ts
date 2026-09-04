@@ -324,7 +324,26 @@ export function buildExecutionView(
   // failing that the checkpoint's. Never a guess from position in the list.
   const currentId = (running ? liveRun?.phaseId : null) ?? state.activePhase?.phaseId ?? work?.phaseId ?? state.nextStartablePhase?.phaseId ?? null;
 
-  const heldId = work !== null && work.ownerRequired && work.state !== 'COMPLETE' ? work.phaseId : null;
+  /**
+   * WHICH STEP IS WAITING FOR THE OWNER — asked of the lifecycle, not only of the loop.
+   *
+   * This read `work.v1` alone: the loop's own checkpoint, which says `ownerRequired` when a RUN
+   * stopped for a decision. That misses the most ordinary case there is. A run that finishes
+   * successfully writes `COMPLETE` with `ownerRequired: false` and leaves the phase at
+   * `awaiting_closure` — finished, reviewed, and waiting for the owner to close it. The screen
+   * called that step QUEUED, which is what an unstarted step is called.
+   *
+   * `awaiting_closure` is not an inference. It is a status only the owner may move a phase out of,
+   * and the runtime refuses to touch it: `STOPPED (OWNER_DECISION_REQUIRED)`. The phase record is
+   * the lifecycle authority, so it is asked first and the checkpoint second.
+   */
+  const awaitingClosure = state.phases.find((p) => p.status === 'awaiting_closure') ?? null;
+  const heldId =
+    awaitingClosure !== null
+      ? awaitingClosure.phaseId
+      : work !== null && work.ownerRequired && work.state !== 'COMPLETE'
+        ? work.phaseId
+        : null;
 
   const steps: StepView[] = state.phases.map((phase, i) => {
     const isCurrent = phase.phaseId === currentId;
@@ -369,7 +388,16 @@ export function buildExecutionView(
     heldId === null
       ? null
       : (() => {
-          const words = gateWordsFor(work?.stopCode ?? null, work?.stopDetail ?? null);
+          // A closure hold is not a loop stop and has no stop code to look up: the run ended
+          // successfully and the step is simply the owner's now.
+          const words =
+            awaitingClosure !== null
+              ? {
+                  wants: 'Close this step and let the plan move on.',
+                  why: 'The work is finished, every required check passed, and the reviewer approved it. Closing a step is yours alone — ProjectOS cannot do it, and will not start the next step until you have.',
+                  risk: 'Low. Nothing new is built, sent or spent by closing it; it records that this step is done.',
+                }
+              : gateWordsFor(work?.stopCode ?? null, work?.stopDetail ?? null);
           const waiting = state.pendingApprovals.length;
           return {
             held: true as const,
@@ -380,7 +408,9 @@ export function buildExecutionView(
             ownerMustDo:
               waiting > 0
                 ? `${waiting === 1 ? 'One request is' : `${waiting} requests are`} waiting for your decision below. Each one names what it permits, and asks you to confirm before it is recorded.`
-                : 'There is no request for this screen to answer. ProjectOS needs a decision recorded outside it before this step can continue — it will carry on by itself once that exists.',
+                : awaitingClosure !== null
+                  ? 'Open this step and close it when you are satisfied. Nothing else starts until you do.'
+                  : 'There is no request for this screen to answer. ProjectOS needs a decision recorded outside it before this step can continue — it will carry on by itself once that exists.',
           };
         })();
 
