@@ -104,6 +104,8 @@ export function stateFromStatus(
   if (status === 'Waiting for you') return 'waiting';
   if (status === 'Blocked') return 'blocked';
   if (status === 'Working') return 'working';
+  // Interrupted work needs the owner's eye - it is not running, and it is not finished either.
+  if (status === 'Interrupted') return 'paused';
   return complete ? 'done' : 'ready';
 }
 

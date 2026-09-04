@@ -24,6 +24,9 @@ const MESSAGE_KINDS = new Set([
   'run-started',
   'run-output',
   'run-finished',
+  // The same liveness fact in snapshot form, sent with every governed emission so a renderer that
+  // reloaded or connected mid-run is not told that live work has stopped.
+  'run-snapshot',
 ]);
 
 /** Encode a message as one newline-terminated JSON line (sidecar → stdout). */

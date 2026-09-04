@@ -297,8 +297,8 @@ export function Shell({
   // summary reaches both surfaces or neither. One model, two presentations.
   const portfolio = usePortfolio();
   const projectsModel = useMemo(
-    () => buildProjectsModel(inventory, governed, Date.now(), portfolio),
-    [inventory, governed, portfolio],
+    () => buildProjectsModel(inventory, governed, Date.now(), portfolio, run),
+    [inventory, governed, portfolio, run],
   );
   const recents: readonly NavRecent[] = useMemo(
     () =>
@@ -407,6 +407,11 @@ export function Shell({
                 tab={projectTab}
                 setTab={setProjectTab}
                 now={Date.now()}
+                liveRun={
+                  // A run event carries its own root. A run belonging to another project is not this
+                  // project's activity and must never be painted onto this screen.
+                  run.root !== null && run.root === live.repository.localPath ? run : null
+                }
                 onPrimary={(primary) => {
                   // THE OVERVIEW'S "START" IS THE SAME DOOR AS THE COMPOSER'S. Landing on the Control
                   // Center with an empty composer made the owner say what they wanted twice — once to

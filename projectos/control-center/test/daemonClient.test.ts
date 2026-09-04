@@ -270,3 +270,116 @@ describe('the portfolio arrives as the daemon built it', () => {
     expect(stored?.projects[0]?.nextSafeAction).toBe('Continue POLYGO-TWO');
   });
 });
+
+/**
+ * A RELOADED WINDOW MUST NOT REPORT LIVE WORK AS STOPPED.
+ *
+ * `run-started` is an event: a renderer that reloads, reconnects, or opens mid-run never hears it,
+ * and showed a running programme as "Interrupted" while the process was still going. The sidecar
+ * now repeats the liveness fact as a snapshot with every governed emission.
+ */
+describe('run-snapshot — liveness for a client that missed the event', () => {
+  test('a snapshot for an unseen run makes it live, with no invented output', () => {
+    const { transport, client } = setup();
+    client.start();
+    expect(client.store.getState().governedRun.active).toBe(false);
+
+    transport.emit({
+      kind: 'run-snapshot',
+      root: 'C:/dev/ProjectOS',
+      active: true,
+      phaseId: 'validation-cache',
+      startedAt: '2026-09-04T08:24:00.000Z',
+    } as never);
+
+    const run = client.store.getState().governedRun;
+    expect(run.active).toBe(true);
+    expect(run.root).toBe('C:/dev/ProjectOS');
+    expect(run.phaseId).toBe('validation-cache');
+    expect(run.startedAt).toBe('2026-09-04T08:24:00.000Z');
+    // A snapshot carries no lines and must not pretend otherwise.
+    expect(run.lines).toEqual([]);
+  });
+
+  test('a snapshot for the run already being followed keeps its output', () => {
+    const { transport, client } = setup();
+    client.start();
+    transport.emit({ kind: 'run-started', root: 'C:/dev/ProjectOS', phaseId: 'validation-cache', resumed: false } as never);
+    transport.emit({ kind: 'run-output', root: 'C:/dev/ProjectOS', phaseId: 'validation-cache', stream: 'stdout', line: 'Worker dispatched.' } as never);
+    transport.emit({
+      kind: 'run-snapshot',
+      root: 'C:/dev/ProjectOS',
+      active: true,
+      phaseId: 'validation-cache',
+      startedAt: '2026-09-04T08:24:00.000Z',
+    } as never);
+
+    const run = client.store.getState().governedRun;
+    expect(run.active).toBe(true);
+    expect(run.lines.map((l) => l.line)).toEqual(['Worker dispatched.']);
+  });
+
+  test('a snapshot saying nothing is running ends a run this client thought was live', () => {
+    const { transport, client } = setup();
+    client.start();
+    transport.emit({ kind: 'run-started', root: 'C:/dev/ProjectOS', phaseId: 'validation-cache', resumed: false } as never);
+    expect(client.store.getState().governedRun.active).toBe(true);
+
+    transport.emit({ kind: 'run-snapshot', root: 'C:/dev/ProjectOS', active: false, phaseId: null, startedAt: null } as never);
+    expect(client.store.getState().governedRun.active).toBe(false);
+  });
+
+  test('a snapshot for ANOTHER project does not carry this project\'s output across', () => {
+    const { transport, client } = setup();
+    client.start();
+    transport.emit({ kind: 'run-started', root: 'C:/dev/ProjectOS', phaseId: 'validation-cache', resumed: false } as never);
+    transport.emit({ kind: 'run-output', root: 'C:/dev/ProjectOS', phaseId: 'validation-cache', stream: 'stdout', line: 'ProjectOS line.' } as never);
+
+    transport.emit({ kind: 'run-snapshot', root: 'C:/dev/Other', active: true, phaseId: 'x', startedAt: null } as never);
+    const run = client.store.getState().governedRun;
+    expect(run.root).toBe('C:/dev/Other');
+    expect(run.lines).toEqual([]);
+  });
+});
+
+/**
+ * ONE PROJECT'S ENDING MUST NOT BE REPORTED ON ANOTHER.
+ *
+ * `GovernedActions` renders "Finished (exit code N)" from `lastExitCode` with no root filter, so a
+ * code carried across a project switch is displayed on a project that never ran anything.
+ */
+describe('run-snapshot — nothing crosses between projects', () => {
+  test('a finished run\'s exit code does not follow the store to another project', () => {
+    const { transport, client } = setup();
+    client.start();
+    transport.emit({ kind: 'run-started', root: 'C:/dev/A', phaseId: 'p', resumed: false } as never);
+    transport.emit({ kind: 'run-finished', root: 'C:/dev/A', phaseId: 'p', exitCode: 3 } as never);
+    expect(client.store.getState().governedRun.lastExitCode).toBe(3);
+
+    // Selecting project B: its snapshot says nothing is running there.
+    transport.emit({ kind: 'run-snapshot', root: 'C:/dev/B', active: false, phaseId: null, startedAt: null } as never);
+    const run = client.store.getState().governedRun;
+    expect(run.root).toBe('C:/dev/B');
+    expect(run.lastExitCode).toBeNull();
+    expect(run.lines).toEqual([]);
+  });
+
+  test('a repeated snapshot for an idle project does not churn the store', () => {
+    const { transport, client } = setup();
+    client.start();
+    transport.emit({ kind: 'run-snapshot', root: 'C:/dev/A', active: false, phaseId: null, startedAt: null } as never);
+    const first = client.store.getState().governedRun;
+    transport.emit({ kind: 'run-snapshot', root: 'C:/dev/A', active: false, phaseId: null, startedAt: null } as never);
+    // Same object identity: subscribers must not re-render on a heartbeat that changed nothing.
+    expect(client.store.getState().governedRun).toBe(first);
+  });
+
+  test('the exit code survives a snapshot for the SAME idle project', () => {
+    const { transport, client } = setup();
+    client.start();
+    transport.emit({ kind: 'run-started', root: 'C:/dev/A', phaseId: 'p', resumed: false } as never);
+    transport.emit({ kind: 'run-finished', root: 'C:/dev/A', phaseId: 'p', exitCode: 0 } as never);
+    transport.emit({ kind: 'run-snapshot', root: 'C:/dev/A', active: false, phaseId: null, startedAt: null } as never);
+    expect(client.store.getState().governedRun.lastExitCode).toBe(0);
+  });
+});

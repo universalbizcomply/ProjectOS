@@ -20,6 +20,8 @@ import { buildContinueWorking, type PrimaryAction } from '../owner/continueWorki
 import { OwnerActionInbox } from '../owner/OwnerActionInbox';
 import { recordedItems, relativeTime, statusInk, dotColour, stateFromStatus } from '../owner/workspaceModel';
 import { PlansScreen } from './PlansScreen';
+import { WorkingNow } from './WorkingNow';
+import type { GovernedRunState } from '../daemon/types';
 import type { IpcBridge } from '../daemon/ipcBridge';
 import {
   FILE_PURPOSES,
@@ -176,12 +178,15 @@ function FilesTab({ projectId, bridge }: { projectId: string; bridge: IpcBridge 
 function Overview({
   state,
   now,
+  liveRun,
   onOpenPlans,
   onSeeAll,
   onPrimary,
 }: {
   state: GovernedProjection;
   now: number;
+  /** The run this sidecar spawned and tracks, when it belongs to THIS project. Null otherwise. */
+  liveRun: GovernedRunState | null;
   onOpenPlans: () => void;
   onSeeAll: () => void;
   /**
@@ -192,7 +197,25 @@ function Overview({
   onPrimary: (primary: PrimaryAction) => void;
 }) {
   const home = useMemo(() => buildHomeModel(state), [state]);
-  const next = useMemo(() => buildContinueWorking(state, home.ownerActions, now), [state, home, now]);
+  const next = useMemo(
+    () => buildContinueWorking(state, home.ownerActions, now, liveRun),
+    [state, home, now, liveRun],
+  );
+  /**
+   * WHICH STEP IS RUNNING, AND WHERE IT SITS IN THE PLAN. Taken from the runtime's own phase list:
+   * the run event carries a phase id, and the plan says what that phase is FOR and how far along it
+   * is. Nothing is counted here that the projection does not already state.
+   */
+  const activeStep = useMemo(() => {
+    const id = liveRun?.phaseId ?? state.activePhase?.phaseId ?? null;
+    if (id === null) return null;
+    return state.phases.find((ph) => ph.phaseId === id) ?? null;
+  }, [liveRun, state]);
+  const stepNumber = useMemo(() => {
+    if (activeStep === null) return null;
+    const at = state.phases.findIndex((ph) => ph.phaseId === activeStep.phaseId);
+    return at < 0 ? null : at + 1;
+  }, [activeStep, state]);
   const complete =
     state.programme.totalPhaseCount > 0 &&
     state.programme.acceptedPhaseCount === state.programme.totalPhaseCount;
@@ -225,6 +248,26 @@ function Overview({
         </section>
       )}
 
+      {/*
+        WHILE IT IS WORKING, THE SCREEN SHOWS THE WORK. The primary card asks the owner to do
+        something; during a live run there is nothing for them to do, and the honest thing to show
+        is what is happening. The card comes back the moment the run ends.
+      */}
+      {liveRun !== null && liveRun.active ? (
+        <WorkingNow
+          /*
+            KEYED BY THE RUN. Without this, switching to another project whose run is also live
+            reuses this component instance: a Stop still in flight would keep the new card disabled,
+            swallow its Stop press, and print the first project's answer onto the second one's screen.
+          */
+          key={`${liveRun.root ?? ''}:${liveRun.phaseId ?? ''}:${liveRun.startedAt ?? ''}`}
+          run={liveRun}
+          stepPurpose={activeStep?.description ?? null}
+          stepNumber={stepNumber}
+          stepCount={state.programme.totalPhaseCount > 0 ? state.programme.totalPhaseCount : null}
+          now={now}
+        />
+      ) : (
       <section className="os-plate">
         <h2 className="os-h2">{next.primary.heading}</h2>
         <p className="os-set-sub">{next.primary.detail}</p>
@@ -237,6 +280,7 @@ function Overview({
           </button>
         </div>
       </section>
+      )}
 
       {home.blockers.length > 0 && (
         <section className="os-plate" aria-labelledby="ux-blocked-title">
@@ -294,6 +338,7 @@ export function ProjectHome({
   tab,
   setTab,
   now,
+  liveRun,
   onPrimary,
   onOpenAdvanced,
   onOpenPlanDetail,
@@ -304,6 +349,12 @@ export function ProjectHome({
   tab: ProjectTab;
   setTab: (t: ProjectTab) => void;
   now: number;
+  /**
+   * The live governed run, or null. Passed rather than read here so ONE place decides whether an
+   * observed run belongs to the project on screen - a run event carries its own root, and painting
+   * one project's activity onto another's screen is the mistake that field exists to prevent.
+   */
+  liveRun: GovernedRunState | null;
   /** Which primary was pressed — see Overview's prop of the same name. */
   onPrimary: (primary: PrimaryAction) => void;
   onOpenAdvanced: (which: string) => void;
@@ -340,6 +391,7 @@ export function ProjectHome({
         <Overview
           state={state}
           now={now}
+          liveRun={liveRun}
           onOpenPlans={() => setTab('plans')}
           onSeeAll={() => setTab('activity')}
           onPrimary={onPrimary}

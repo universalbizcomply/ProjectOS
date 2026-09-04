@@ -63,17 +63,19 @@ describe('buildContinueWorking — what gets offered, and in what order', () => 
 
   it('offers to resume work that already started, and knows the session itself', () => {
     const m = buildContinueWorking(projection({ sessions: [session()] }), [], NOW);
-    expect(m.status).toBe('Working');
+    // A session record alone no longer says "Working": that is a claim about the present tense and
+    // needs the live process the sidecar tracks. See workingNow.test.tsx.
+    expect(m.status).toBe('Interrupted');
     expect(m.primary.kind).toBe('resume');
     expect(m.primary.label).toBe('Continue');
-    expect(m.primary.heading).toBe('Continue where you left off');
+    expect(m.primary.heading).toBe('Work stopped before it finished');
     // The owner is never asked for this; it is supplied.
     expect(m.primary.sessionId).toBe('PHASE1A-abc-123');
   });
 
   it('says when the work last happened the way a person would say it', () => {
     const m = buildContinueWorking(projection({ sessions: [session()] }), [], NOW);
-    expect(m.primary.detail).toBe('Last worked on 30 minutes ago.');
+    expect(m.primary.detail).toBe('Last worked on 30 minutes ago. Nothing is running now.');
   });
 
   it('offers to continue a phase that has never run, quoting the runtime', () => {

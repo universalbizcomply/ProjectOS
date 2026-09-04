@@ -707,6 +707,13 @@ function emitGovernedState({ refresh = true } = {}) {
   const at = new Date().toISOString();
   const state = buildGovernedState(governedRoot(), at);
   process.stdout.write(JSON.stringify({ kind: 'governed', state }) + '\n');
+  // WHETHER A RUN IS ALIVE, SAID WITH EVERY SNAPSHOT — not only when one starts.
+  //
+  // `run-started` is an EVENT: a renderer that reloads, reconnects, or was opened after the run
+  // began never hears it, and showed live work as "Interrupted" while the process was still going.
+  // The event stream stays exactly as it was; this is the same fact in snapshot form, from the same
+  // `activeRuns` map the events come from, so the two cannot disagree.
+  emitRunSnapshot();
 
   // THE PORTFOLIO: the same projection, for every registered root, reduced to a row.
   //
@@ -793,6 +800,26 @@ function governedWorkActive() {
 const activeRuns = new Map();
 
 /**
+ * The live-run fact, for the project currently governed. Emitted with every governed snapshot so a
+ * renderer that missed `run-started` still knows work is under way. Reports only what `activeRuns`
+ * holds — a run this sidecar spawned and is still tracking — and never infers liveness from a file.
+ */
+function emitRunSnapshot() {
+  const root = governedRoot();
+  if (root === null) return;
+  const tracked = activeRuns.get(root) ?? null;
+  process.stdout.write(
+    JSON.stringify({
+      kind: 'run-snapshot',
+      root,
+      active: tracked !== null,
+      phaseId: tracked?.phaseId ?? null,
+      startedAt: tracked?.startedAt ?? null,
+    }) + '\n',
+  );
+}
+
+/**
  * The governed runtime's CLI entry point, or `null` when this installation cannot reach one.
  *
  * THE DEFECT THIS FIXES. It resolved `<this file>/../../agent/bin/projectos.js` unconditionally.
@@ -873,7 +900,8 @@ function startGovernedRun(root, phaseId, sessionId) {
   } catch {
     return { code: 2, lines: ['REFUSED (RUN_SPAWN_FAILED): the governed run process could not be started.'] };
   }
-  activeRuns.set(root, { child, phaseId: phaseId ?? null });
+  // `startedAt` is kept so a renderer that arrives late can still say how long it has been going.
+  activeRuns.set(root, { child, phaseId: phaseId ?? null, startedAt: new Date().toISOString() });
 
   const streamLines = (readable, stream) => {
     let buffer = '';

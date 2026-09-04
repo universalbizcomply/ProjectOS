@@ -19,11 +19,15 @@
 import type { GovernedProjection, GovernedSessionView } from '../governed/types';
 
 /** The single headline word for the project. */
-export type ProjectStatus = 'Waiting for you' | 'Blocked' | 'Working' | 'Ready';
+/**
+ * `Interrupted` is work that STARTED and is not running now - a distinct thing from `Working`, which
+ * is a claim about the present tense and needs a live process behind it.
+ */
+export type ProjectStatus = 'Waiting for you' | 'Blocked' | 'Working' | 'Interrupted' | 'Ready';
 
 export interface PrimaryAction {
   /** What pressing it does. */
-  readonly kind: 'review' | 'resume' | 'continue' | 'start';
+  readonly kind: 'review' | 'resume' | 'continue' | 'start' | 'working';
   /** Where a `review` goes. `plans` when the thing to review is a proposal. Absent means the Overview itself. */
   readonly target?: 'plans';
   /** The button. Never a verb the owner has to interpret. */
@@ -87,6 +91,13 @@ export function buildContinueWorking(
   state: GovernedProjection,
   ownerActions: readonly { readonly title: string; readonly severity: string }[],
   now: number,
+  /**
+   * WHETHER A RUN IS ACTUALLY ALIVE — from the process the sidecar spawned and tracks, never from a
+   * record. Without it this model said "Working" over a session record whose process had died hours
+   * earlier, and offered to continue work that was not happening. Absent means "not known to be
+   * running", which is the honest default: an interrupted run reads as interrupted.
+   */
+  liveRun?: { readonly active: boolean } | null,
 ): ContinueWorkingModel {
   const phaseId = state.activePhase?.phaseId ?? state.nextStartablePhase?.phaseId ?? null;
   const session = resumableSession(state.sessions, phaseId);
@@ -150,16 +161,36 @@ export function buildContinueWorking(
     };
   }
 
-  // 3. Work already started. Resuming it is cheaper than starting again.
-  if (session !== null && phaseId !== null) {
+  // 2c. A RUN IS ALIVE RIGHT NOW. The screen shows what it is doing; there is nothing to press, and
+  //     offering "Continue" here would ask the runtime to start a second run of the same plan.
+  if (liveRun?.active === true) {
     return {
       projectName: state.projectName,
       status: 'Working',
       primary: {
+        kind: 'working',
+        label: 'Working',
+        heading: 'ProjectOS is working',
+        detail: 'It will stop and ask you if your authority is needed.',
+        sessionId: session?.sessionId ?? null,
+      },
+      canStartSomethingNew: false,
+      phaseId,
+      sessionId: session?.sessionId ?? null,
+    };
+  }
+
+  // 3. Work started earlier and is NOT running now. Resuming it is cheaper than starting again -
+  //    but it is interrupted work, and calling that "Working" is the untruth this branch once told.
+  if (session !== null && phaseId !== null) {
+    return {
+      projectName: state.projectName,
+      status: 'Interrupted',
+      primary: {
         kind: 'resume',
         label: 'Continue',
-        heading: 'Continue where you left off',
-        detail: `Last worked on ${whenPhrase(session.startedAt, now)}.`,
+        heading: 'Work stopped before it finished',
+        detail: `Last worked on ${whenPhrase(session.startedAt, now)}. Nothing is running now.`,
         sessionId: session.sessionId,
       },
       canStartSomethingNew: true,

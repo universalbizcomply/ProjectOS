@@ -121,7 +121,12 @@ describe('only the selected project may claim a status', () => {
     expect(row.status).toBe('Ready');
   });
 
-  test('a live session for the active phase is what makes a project Working', () => {
+  /**
+   * A SESSION RECORD IS NOT A RUNNING PROCESS. It says work STARTED, which is why this row reads
+   * "Interrupted" without a live run behind it, and "Working" with one. The distinction was added
+   * after a screen showed "Working — last worked on 10 hours ago" over a dead session.
+   */
+  test('a session record alone makes a project Interrupted, not Working', () => {
     const m = buildProjectsModel(
       inventory(),
       projection({
@@ -133,7 +138,30 @@ describe('only the selected project may claim a status', () => {
     );
     const row = m.rows[0];
     if (row === undefined || !row.live) throw new Error('expected a live row');
-    expect(row.status).toBe('Working');
+    expect(row.status).toBe('Interrupted');
+  });
+
+  test('a live run on THIS project makes it Working; one on another project does not', () => {
+    const withSession = projection({
+      sessions: [
+        { sessionId: 'S1', phaseId: 'TWO', workerId: 'w', kind: 'run', startedAt: '2026-08-27T19:50:00.000Z', state: 'started', exitCode: null },
+      ],
+    });
+    const here = buildProjectsModel(inventory(), withSession, NOW, null, {
+      root: withSession.connected ? withSession.repository.localPath : null,
+      active: true,
+    });
+    const hereRow = here.rows[0];
+    if (hereRow === undefined || !hereRow.live) throw new Error('expected a live row');
+    expect(hereRow.status).toBe('Working');
+
+    const elsewhere = buildProjectsModel(inventory(), withSession, NOW, null, {
+      root: 'C:/dev/SomeOtherProject',
+      active: true,
+    });
+    const otherRow = elsewhere.rows[0];
+    if (otherRow === undefined || !otherRow.live) throw new Error('expected a live row');
+    expect(otherRow.status).toBe('Interrupted');
   });
 
   test('every other row is dormant and has no status field at all', () => {

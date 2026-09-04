@@ -128,6 +128,11 @@ export function buildProjectsModel(
   governed: GovernedState | null,
   now: number,
   portfolio: PortfolioMessage | null = null,
+  /**
+   * The live governed run, so a row for a project that IS running says so. Rows are matched to it by
+   * repository root, never by selection: a run belongs to one project and must not colour another's.
+   */
+  liveRun: { readonly root: string | null; readonly active: boolean } | null = null,
 ): ProjectsModel {
   if (inventory === null) {
     return { rows: [], empty: false, unknown: true, registryProblem: null, refusedCount: 0 };
@@ -157,7 +162,11 @@ export function buildProjectsModel(
     }
 
     const home = buildHomeModel(live);
-    const cw = buildContinueWorking(live, home.ownerActions, now);
+    const runHere =
+      liveRun !== null && liveRun.active && liveRun.root !== null && liveRun.root === live.repository.localPath
+        ? { active: true }
+        : null;
+    const cw = buildContinueWorking(live, home.ownerActions, now, runHere);
     const blocking = home.ownerActions.find((a) => a.severity === 'blocking') ?? null;
     // A problem is a recorded blocker or an unusable connection — never a status word, and never
     // the mere absence of something. Nothing here is decoration.

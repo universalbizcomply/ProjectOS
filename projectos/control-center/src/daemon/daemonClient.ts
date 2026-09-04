@@ -152,6 +152,34 @@ export class DaemonClient {
           },
         });
         break;
+      case 'run-snapshot': {
+        // A SNAPSHOT CORRECTS LIVENESS; IT NEVER INVENTS HISTORY. The output lines are an event
+        // stream, and a client that missed them cannot be given them here — so a snapshot for the
+        // run already being followed keeps the lines it has, and one for a run this client never
+        // saw start begins with none. It is the only way a reloaded window learns work is running.
+        const current = this.store.getState().governedRun;
+        const sameProject = current.root === message.root;
+        // NOTHING TO SAY. A snapshot that repeats what the store already holds must not replace it:
+        // these arrive with every governed emission, and a fresh object each time re-renders every
+        // subscriber on a heartbeat for no reason.
+        if (sameProject && current.active === message.active) break;
+        this.store.update({
+          governedRun: {
+            root: message.root,
+            active: message.active,
+            phaseId: message.phaseId ?? (sameProject ? current.phaseId : null),
+            resumed: sameProject ? current.resumed : false,
+            startedAt: message.startedAt ?? (sameProject ? current.startedAt : null),
+            // ANOTHER PROJECT'S RUN NEVER INHERITS THIS ONE'S ENDING. Held only for the same root and
+            // only while nothing new is running; otherwise a finished run's exit code would be
+            // reported on a project that has never run anything - the exact cross-project
+            // attribution this message exists to prevent.
+            lastExitCode: message.active || !sameProject ? null : current.lastExitCode,
+            lines: sameProject ? current.lines : [],
+          },
+        });
+        break;
+      }
       case 'run-output': {
         const current = this.store.getState().governedRun;
         // Bounded so a long-running review cannot grow the store without limit; only the most

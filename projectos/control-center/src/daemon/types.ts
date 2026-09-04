@@ -198,6 +198,18 @@ export type TransportMessage =
       readonly line: string;
     }
   | { readonly kind: 'run-finished'; readonly root: string; readonly phaseId: string | null; readonly exitCode: number | null }
+  /**
+   * THE SAME LIVENESS FACT, IN SNAPSHOT FORM. Sent with every governed state emission, so a renderer
+   * that reloaded or connected mid-run learns that work is under way instead of showing it stopped.
+   * Carries no output: the lines are an event stream and a snapshot cannot invent the ones it missed.
+   */
+  | {
+      readonly kind: 'run-snapshot';
+      readonly root: string;
+      readonly active: boolean;
+      readonly phaseId: string | null;
+      readonly startedAt: string | null;
+    }
   | { readonly kind: 'closed' };
 
 /**

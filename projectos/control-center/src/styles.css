@@ -2624,3 +2624,39 @@ h1.os-h1 { margin: 0; font-size: 36px; font-weight: 600; letter-spacing: -0.035e
   .ux-filerow { flex-direction: column; gap: 2px; }
   .ux-filemeta { white-space: normal; }
 }
+
+/* ── ProjectOS is working ──────────────────────────────────────────────────────────────────────
+   The live-run card. Shown only while the sidecar is tracking a running process, so the movement
+   on screen always corresponds to work actually happening. */
+.ux-working { border-color: color-mix(in srgb, var(--os-accent) 40%, transparent); }
+.ux-workingdot {
+  width: 9px; height: 9px; border-radius: 50%; flex: none; margin-top: 5px;
+  background: var(--os-accent);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--os-accent) 60%, transparent);
+  animation: ux-pulse 1.9s ease-out infinite;
+}
+@keyframes ux-pulse {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--os-accent) 55%, transparent); }
+  70%  { box-shadow: 0 0 0 9px color-mix(in srgb, var(--os-accent) 0%, transparent); }
+  100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--os-accent) 0%, transparent); }
+}
+/* Motion is information here, not decoration - but it must never be the ONLY information, and a
+   viewer who asked for less of it gets a steady dot and the same words. */
+@media (prefers-reduced-motion: reduce) { .ux-workingdot { animation: none; } }
+:root[data-calm='1'] .ux-workingdot { animation: none; }
+
+.ux-needs-nothing {
+  margin: 14px 0 0; padding: 12px 14px; border-radius: 10px; font-size: 13.5px; line-height: 1.5;
+  background: color-mix(in srgb, var(--os-accent) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--os-accent) 22%, transparent);
+}
+.ux-feedbox {
+  margin-top: 14px; padding: 10px 12px; max-height: 168px; overflow-y: auto; overflow-x: auto;
+  border-radius: 10px; background: var(--os-inset, rgba(0, 0, 0, 0.16));
+  border: 1px solid var(--os-line);
+}
+.ux-feedline {
+  margin: 0 0 4px; font-family: var(--os-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px; line-height: 1.55; color: var(--os-ink-dim); white-space: pre-wrap; word-break: break-word;
+}
+.ux-feedline:last-child { margin-bottom: 0; color: var(--os-ink); }
