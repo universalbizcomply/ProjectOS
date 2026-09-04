@@ -21,7 +21,7 @@ import { dotColour, initialsOf, type ProjectState } from '../owner/workspaceMode
 import { IconPlus, IconSettings } from '../owner/icons';
 
 /** The four destinations. Plans live inside a project, so they are not one of them. */
-export type NavDestination = 'projects' | 'control' | 'health' | 'settings';
+export type NavDestination = 'projects' | 'execution' | 'control' | 'health' | 'settings';
 
 export interface NavRecent {
   readonly projectId: string;
@@ -33,6 +33,9 @@ export interface NavRecent {
 
 const DESTINATIONS: ReadonlyArray<{ id: NavDestination; label: string; hint: string }> = [
   { id: 'projects', label: 'Projects', hint: 'Everything ProjectOS is working on' },
+  // THE PRIMARY OPERATING SURFACE. It sits directly under Projects because it is where an owner
+  // spends their time: the plan, what is running, what finished, and any decision that is theirs.
+  { id: 'execution', label: 'Execution', hint: 'The plan, live, and anything waiting for you' },
   { id: 'control', label: 'Control Center', hint: 'Ask, command, and watch it happen' },
   { id: 'health', label: 'Health', hint: 'Spending, connections and the runtime' },
 ];

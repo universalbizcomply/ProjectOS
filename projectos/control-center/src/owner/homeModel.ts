@@ -85,6 +85,14 @@ export function plainStop(work: GovernedWorkView): { readonly title: string; rea
         title: `"${step}" is waiting for your decision`,
         detail: `The next action needs your approval before ProjectOS may take it. ProjectOS said: ${detail}`,
       };
+    case 'CONTINUATION_READY':
+      return {
+        title: `"${step}" is finished and waiting for the reviewer`,
+        detail:
+          'The work is done and passed every required check. ProjectOS will not commit its own work ' +
+          'unquestioned - it stops here so the independent reviewer can decide whether the change may ' +
+          `be committed. ProjectOS said: ${detail}`,
+      };
     case 'BUDGET_STOP':
       return { title: 'The reviewer budget was reached', detail };
     default:

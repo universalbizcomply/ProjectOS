@@ -28,6 +28,8 @@ import { ControlCenter, type ControlCenterEntry } from './ux/ControlCenter';
 import { HealthScreen } from './ux/HealthScreen';
 import { NoLocalHostNotice } from './ux/HostCapability';
 import { buildProjectsModel } from './ux/projectsModel';
+import { ExecutionWorkspace } from './ux/ExecutionWorkspace';
+import { sameRepositoryRoot } from './governed/sameRoot';
 import { AddProjectWizard } from './owner/AddProjectWizard';
 import { StartSomethingNew } from './owner/StartSomethingNew';
 import { SettingsScreen } from './owner/SettingsScreen';
@@ -59,6 +61,7 @@ import type { Session } from '@supabase/supabase-js';
  */
 type View =
   | 'projects'   // the list of every governed project — the landing surface
+  | 'execution'  // THE PRIMARY OPERATING SURFACE — the plan, live, in one screen
   | 'project'    // one project: overview, plans, activity, files, advanced
   | 'control'    // the universal command surface
   | 'health'     // spending, connections, runtime, execution
@@ -188,7 +191,7 @@ export function App() {
  * Which of the four accepted destinations are BUILT. Settings is always present at the rail's foot.
  * Control Center and Health join this list when their screens land.
  */
-const AVAILABLE_DESTINATIONS: readonly NavDestination[] = ['projects', 'control', 'health'];
+const AVAILABLE_DESTINATIONS: readonly NavDestination[] = ['projects', 'execution', 'control', 'health'];
 
 export function Shell({
   canChangePassword,
@@ -409,8 +412,10 @@ export function Shell({
                 now={Date.now()}
                 liveRun={
                   // A run event carries its own root. A run belonging to another project is not this
-                  // project's activity and must never be painted onto this screen.
-                  run.root !== null && run.root === live.repository.localPath ? run : null
+                  // project's activity and must never be painted onto this screen. Compared through
+                  // `sameRepositoryRoot` because the host spells the root with backslashes and the
+                  // project record spells it with forward slashes - the same folder, twice.
+                  sameRepositoryRoot(run.root, live.repository.localPath) ? run : null
                 }
                 onPrimary={(primary) => {
                   // THE OVERVIEW'S "START" IS THE SAME DOOR AS THE COMPOSER'S. Landing on the Control
@@ -440,6 +445,38 @@ export function Shell({
                 </p>
                 <button type="button" className="os-sec" onClick={() => go('projects')}>
                   Back to projects
+                </button>
+              </div>
+            )}
+
+            {/*
+              THE EXECUTION WORKSPACE. It needs a projection to describe, and says so plainly when
+              there is none rather than rendering an empty frame that looks like a broken screen.
+            */}
+            {view === 'execution' && live !== null && (
+              <ExecutionWorkspace
+                state={live}
+                liveRun={sameRepositoryRoot(run.root, live.repository.localPath) ? run : null}
+                now={Date.now()}
+                onOpenEvidence={() => { setProjectTab('activity'); go('project'); }}
+                onNavigate={(to) => {
+                  if (to === 'projects') return go('projects');
+                  if (to === 'health') return go('health');
+                  setProjectTab(to === 'plans' ? 'plans' : 'activity');
+                  go('project');
+                }}
+                onStartObjective={() => { setObjectiveMode('new'); setObjectiveOpen(true); go('control'); }}
+              />
+            )}
+            {view === 'execution' && live === null && (
+              <div className="os-stack">
+                <h1 className="os-h1">Execution</h1>
+                <p className="os-lede">
+                  ProjectOS has not reported on a project yet, so there is nothing to show here. Open a
+                  project first.
+                </p>
+                <button type="button" className="os-pri" onClick={() => go('projects')}>
+                  Go to projects
                 </button>
               </div>
             )}

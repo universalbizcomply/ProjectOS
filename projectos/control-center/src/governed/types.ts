@@ -43,6 +43,16 @@ export interface GovernedPhaseView {
   readonly startable: boolean;
   readonly requiredOwnerGates: readonly string[];
   readonly requiredBrowserProof: boolean;
+  /**
+   * WHAT THE APPROVED PLAN PROMISES FOR THIS STEP. All four were already recorded in the plan and
+   * none of them reached the owner: the surface could show that a step existed but never what it had
+   * to satisfy to be finished. They are the plan's own words, shown as written.
+   */
+  readonly acceptanceCriteria: readonly string[];
+  readonly requiredValidators: readonly string[];
+  readonly requiredReviews: readonly string[];
+  readonly riskLevel: string;
+  readonly autonomyLevel: string;
   readonly history: readonly GovernedTransition[];
   /** Recorded complete by the programme record even though the runtime never drove it. */
   readonly closedByRecord: boolean;
@@ -252,8 +262,45 @@ export interface GovernedWorkView {
   readonly updatedAt: string;
 }
 
+/** One check the loop ran, exactly as it recorded it. */
+export interface GovernedCheckView {
+  readonly id: string;
+  /** `validator`, `test`, `typecheck` — the loop's own word for what kind of check this was. */
+  readonly kind: string;
+  readonly passed: boolean;
+  readonly at: string;
+}
+
+/** One thing the worker reported about its own work. */
+export interface GovernedFindingView {
+  readonly id: string;
+  readonly severity: string;
+  readonly summary: string;
+  readonly resolved: boolean;
+}
+
+/**
+ * WHAT THE LAST RUN OF A STEP ACTUALLY PROVED — read from the execution records the loop writes.
+ *
+ * Kept separate from the plan's promises above: one says what must be true, the other says what was
+ * observed. Showing them together is what lets a step's requirements be ticked off honestly, and
+ * keeping them apart is what stops a promise being mistaken for a result.
+ */
+export interface GovernedEvidenceView {
+  readonly phaseId: string;
+  readonly sessionId: string;
+  readonly collectedAt: string;
+  readonly checks: readonly GovernedCheckView[];
+  /** Reviews the worker recorded as done. Names, matched against the plan's required list. */
+  readonly reviewsRecorded: readonly string[];
+  readonly findings: readonly GovernedFindingView[];
+  readonly changedFileCount: number;
+}
+
 export interface GovernedProjection {
   readonly connected: true;
+  /** The execution evidence for the most recent run, when there is one. */
+  readonly evidence?: GovernedEvidenceView | null;
   /** The loop's durable checkpoint, when one exists. See `GovernedWorkView`. */
   readonly work?: GovernedWorkView | null;
   readonly projectId: string;

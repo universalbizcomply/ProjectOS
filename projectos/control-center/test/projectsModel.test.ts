@@ -147,8 +147,9 @@ describe('only the selected project may claim a status', () => {
         { sessionId: 'S1', phaseId: 'TWO', workerId: 'w', kind: 'run', startedAt: '2026-08-27T19:50:00.000Z', state: 'started', exitCode: null },
       ],
     });
+    // The host spells the root with backslashes; the project record uses forward slashes. Same folder.
     const here = buildProjectsModel(inventory(), withSession, NOW, null, {
-      root: withSession.connected ? withSession.repository.localPath : null,
+      root: withSession.connected ? withSession.repository.localPath.split('/').join(String.fromCharCode(92)) : null,
       active: true,
     });
     const hereRow = here.rows[0];

@@ -34,7 +34,7 @@
  *
  * Run `npm run build:sidecar` first (emits node-build/) so the import below resolves.
  */
-import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { resolve as resolvePath, join as joinPath, isAbsolute, basename, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -287,6 +287,49 @@ function readApprovalRecords(root) {
   return out;
 }
 
+/**
+ * The NEWEST execution evidence, and the findings written beside it.
+ *
+ * Newest by the file's own `collectedAt` where it has one, falling back to modification time — a
+ * directory listing is not chronological, and showing an older run's checks against the current step
+ * would be the kind of quiet untruth this surface exists to avoid. Read-only; missing or unreadable
+ * records yield nulls, which the projection reports as "no evidence" rather than as a pass.
+ */
+function readNewestExecutionRecords(root) {
+  const dir = joinPath(root, '.projectops', 'execution');
+  if (!existsSync(dir)) return { evidenceRecord: null, findingsRecord: null };
+  let best = null;
+  let bestAt = '';
+  try {
+    for (const name of readdirSync(dir)) {
+      if (!name.endsWith('.evidence.json')) continue;
+      const record = readJsonFile(joinPath(dir, name));
+      if (record === null) continue;
+      // The record's own timestamp when it has one; the file's modification time when it does not.
+      // A directory listing is not chronological, so without the fallback two records with no
+      // `collectedAt` would be ordered by whatever the filesystem returned first — and the comment
+      // above would be promising a guarantee the code did not provide.
+      let at = typeof record['collectedAt'] === 'string' ? record['collectedAt'] : '';
+      if (at === '') {
+        try {
+          at = statSync(joinPath(dir, name)).mtime.toISOString();
+        } catch {
+          at = '';
+        }
+      }
+      if (best === null || at > bestAt) {
+        best = { name, record };
+        bestAt = at;
+      }
+    }
+  } catch {
+    return { evidenceRecord: null, findingsRecord: null };
+  }
+  if (best === null) return { evidenceRecord: null, findingsRecord: null };
+  const findingsName = best.name.replace(/\.evidence\.json$/, '.findings.json');
+  return { evidenceRecord: best.record, findingsRecord: readJsonFile(joinPath(dir, findingsName)) };
+}
+
 /** Every drafted plan proposal — `.projectops/drafts/<id>.json`. */
 function readDraftRecords(root) {
   const dir = joinPath(root, '.projectops', 'drafts');
@@ -454,6 +497,7 @@ function buildGovernedState(root, observedAt) {
       sessionRecords: readSessionRecords(root),
       // The loop's durable checkpoint. Read, never written, here — it is the loop's record.
       workRecord: readJsonFile(joinPath(root, '.projectops', 'work.v1.json')),
+      ...readNewestExecutionRecords(root),
       credentialRows: readCredentialRows(String(cfg['projectId'] ?? '')),
       readiness: engine.evaluatePlanReady(plan),
       planPath: declaredPlan === undefined ? DEFAULT_PLAN_RELPATH : declaredPlan,

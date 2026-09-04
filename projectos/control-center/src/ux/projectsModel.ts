@@ -28,6 +28,7 @@ import type {
   GovernedState,
 } from '../governed/types';
 import { buildContinueWorking, type ProjectStatus } from '../owner/continueWorkingModel';
+import { sameRepositoryRoot } from '../governed/sameRoot';
 import { buildHomeModel } from '../owner/homeModel';
 
 /**
@@ -163,7 +164,7 @@ export function buildProjectsModel(
 
     const home = buildHomeModel(live);
     const runHere =
-      liveRun !== null && liveRun.active && liveRun.root !== null && liveRun.root === live.repository.localPath
+      liveRun !== null && liveRun.active && sameRepositoryRoot(liveRun.root, live.repository.localPath)
         ? { active: true }
         : null;
     const cw = buildContinueWorking(live, home.ownerActions, now, runHere);

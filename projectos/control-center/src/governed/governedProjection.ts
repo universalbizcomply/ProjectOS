@@ -20,6 +20,9 @@ import {
 } from '@projectos/core';
 import type {
   GovernedWorkView,
+  GovernedEvidenceView,
+  GovernedCheckView,
+  GovernedFindingView,
   GovernedApprovalView,
   GovernedAuthorityView,
   GovernedDelegationView,
@@ -72,6 +75,9 @@ export interface GovernedInputs {
   readonly sessionRecords?: readonly Record<string, unknown>[];
   /** Parsed `.projectops/work.v1.json` — the loop's durable checkpoint — or null when absent. */
   readonly workRecord?: Record<string, unknown> | null;
+  /** The newest `.projectops/execution/*.evidence.json`, and the findings beside it. */
+  readonly evidenceRecord?: Record<string, unknown> | null;
+  readonly findingsRecord?: Record<string, unknown> | null;
   /**
    * Credential METADATA rows, exactly as `credentials status --json` emits them, or null when the
    * credential router could not be reached. Null and "an empty list" are different facts and are
@@ -384,8 +390,13 @@ const DECISION_MAX_CHARS = 400;
  * the agent. Truncation is by code point so an emoji at the boundary is dropped whole, never split.
  */
 const REORDERING = /[\u202A-\u202E\u2066-\u2069\u200E\u200F\u061C]/g;
+/** C0 was already excluded by `>= ' '`; DEL and the C1 block are control characters too. */
+const isControl = (ch: string): boolean => {
+  const c = ch.codePointAt(0) ?? 0;
+  return c < 0x20 || c === 0x7f || (c >= 0x80 && c <= 0x9f);
+};
 const clip = (text: string, max: number): string => {
-  const points = Array.from(text.replace(REORDERING, '')).filter((ch) => ch >= ' ');
+  const points = Array.from(text.replace(REORDERING, '')).filter((ch) => !isControl(ch));
   return points.length <= max ? points.join('') : points.slice(0, max - 1).join('') + '\u2026';
 };
 
@@ -443,6 +454,62 @@ function proposalContent(
   const decisions = own.length > 0 ? own : strArray(d, 'ownerDecisionsRequired');
   if (decisions.length > 0) out.ownerDecisions = decisions.slice(0, DECISIONS_MAX).map((t) => clip(guard(t), DECISION_MAX_CHARS));
   return out;
+}
+
+/**
+ * What the last run proved, as the owner surface sees it. Null when nothing has run, or the records
+ * cannot be read — "we have no evidence" is the honest answer, never an assumed pass.
+ */
+function evidenceOf(
+  evidence: Record<string, unknown> | null,
+  findings: Record<string, unknown> | null,
+): GovernedEvidenceView | null {
+  if (evidence === null) return null;
+  const phaseId = str(evidence, 'phaseId');
+  const sessionId = str(evidence, 'sessionId');
+  if (phaseId === '' || sessionId === '') return null;
+  const rawChecks = Array.isArray(evidence['checks']) ? (evidence['checks'] as readonly unknown[]) : [];
+  const checks: GovernedCheckView[] = [];
+  for (const c of rawChecks.slice(0, 60)) {
+    if (typeof c !== 'object' || c === null) continue;
+    const row = c as Record<string, unknown>;
+    const id = str(row, 'id');
+    if (id === '') continue;
+    checks.push({
+      id: clip(id, 120),
+      kind: clip(str(row, 'kind'), 40),
+      // A check is passed ONLY when it says so. Anything else — missing, malformed, undefined — is
+      // not a pass, because the whole point of showing this is that it was actually run.
+      passed: row['passed'] === true,
+      at: clip(str(row, 'at'), 40),
+    });
+  }
+  const rawFindings = findings !== null && Array.isArray(findings['findings']) ? (findings['findings'] as readonly unknown[]) : [];
+  const out: GovernedFindingView[] = [];
+  for (const f of rawFindings.slice(0, 40)) {
+    if (typeof f !== 'object' || f === null) continue;
+    const row = f as Record<string, unknown>;
+    const id = str(row, 'id');
+    if (id === '') continue;
+    out.push({
+      id: clip(id, 60),
+      severity: clip(str(row, 'severity'), 20),
+      // Worker-authored prose reaching the owner's screen: guarded like every other such field.
+      summary: clip(guard(str(row, 'summary')), 500),
+      resolved: row['resolved'] === true,
+    });
+  }
+  const reviews = findings === null ? [] : strArray(findings, 'reviews').map((r) => clip(r, 300));
+  const changed = Array.isArray(evidence['changedFiles']) ? (evidence['changedFiles'] as readonly unknown[]).length : 0;
+  return {
+    phaseId: clip(phaseId, 120),
+    sessionId: clip(sessionId, 160),
+    collectedAt: clip(str(evidence, 'collectedAt'), 40),
+    checks,
+    reviewsRecorded: reviews,
+    findings: out,
+    changedFileCount: changed,
+  };
 }
 
 /** The loop's checkpoint as the owner surface sees it. Null when there is none, or it is unreadable. */
@@ -577,7 +644,9 @@ export function projectGovernedState(inputs: GovernedInputs): GovernedProjection
     const status = rec === undefined ? 'not-started' : asStatus(rec['status']);
     return {
       phaseId,
-      description: str(ph, 'description'),
+      // Shown as the step's title on the primary operating surface, so it is bounded and stripped
+      // like every other authored string that reaches the owner.
+      description: clip(str(ph, 'description'), 400),
       status,
       dependsOn,
       unmetDependencies,
@@ -592,6 +661,12 @@ export function projectGovernedState(inputs: GovernedInputs): GovernedProjection
         readiness.ready,
       requiredOwnerGates: strArray(ph, 'requiredOwnerGates'),
       requiredBrowserProof: ph['requiredBrowserProof'] === true,
+      // The plan's own words for what this step must satisfy. Bounded, because they are shown.
+      acceptanceCriteria: strArray(ph, 'acceptanceCriteria').map((c) => clip(c, 400)),
+      requiredValidators: strArray(ph, 'requiredValidators').map((c) => clip(c, 120)),
+      requiredReviews: strArray(ph, 'requiredReviews').map((c) => clip(c, 300)),
+      riskLevel: clip(str(ph, 'riskLevel'), 40),
+      autonomyLevel: clip(str(ph, 'autonomyLevel'), 40),
       history: rec === undefined ? [] : historyOf(rec),
       closedByRecord: rec === undefined && recordedComplete.has(phaseId),
     };
@@ -661,6 +736,7 @@ export function projectGovernedState(inputs: GovernedInputs): GovernedProjection
     },
     blockers: strArray(currentState ?? undefined, 'currentBlockers'),
     work: workOf(inputs.workRecord ?? null),
+    evidence: evidenceOf(inputs.evidenceRecord ?? null, inputs.findingsRecord ?? null),
     risks: strArray(currentState ?? undefined, 'currentRisks'),
     nextSafeAction: deriveNextSafeAction(
       readiness.ready,

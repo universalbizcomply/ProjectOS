@@ -198,3 +198,22 @@ describe('the card belongs to its own run', () => {
     expect(container.querySelector('[role="log"]')).not.toBeNull();
   });
 });
+
+describe('a finished-but-unreviewed stop reads plainly', () => {
+  test('CONTINUATION_READY says the work is done and waiting for the reviewer', async () => {
+    const { plainStop } = await import('../src/owner/homeModel');
+    const p = plainStop({
+      phaseId: 'validation-cache',
+      state: 'BLOCKED',
+      stopCode: 'CONTINUATION_READY',
+      stopDetail: 'every required check passed',
+      ownerRequired: true,
+      sessionId: null,
+      updatedAt: 't',
+    });
+    expect(p.title).toBe('"validation-cache" is finished and waiting for the reviewer');
+    expect(p.detail).toContain('passed every required check');
+    expect(p.detail).toContain('will not commit its own work');
+    expect(p.detail).toContain('every required check passed');
+  });
+});
