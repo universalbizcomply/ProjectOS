@@ -61,9 +61,24 @@ describe('the governance request carries an enforced output maximum', () => {
     expect(wire()).toHaveProperty('max_output_tokens');
   });
 
-  test('its value is 800', () => {
-    expect(wire()['max_output_tokens']).toBe(800);
-    expect(GATEKEEPER_OUTPUT_TOKEN_LIMIT).toBe(800);
+  /**
+   * RAISED FROM 800 AFTER A LIVE INCOMPLETE. The ceiling is shared with the model's own reasoning
+   * tokens on a reasoning model; at 800 a continuation review returned `status: "incomplete"` with no
+   * verdict at all, billed. The number is asserted through the constant so the wire and the reserve
+   * can never disagree, and pinned as a bound so a future change is a deliberate one.
+   */
+  test('the wire carries exactly what the ledger reserves', () => {
+    expect(wire()['max_output_tokens']).toBe(GATEKEEPER_OUTPUT_TOKEN_LIMIT);
+  });
+
+  test('it leaves room to reason AND answer, without becoming an authoring-sized allowance', () => {
+    expect(GATEKEEPER_OUTPUT_TOKEN_LIMIT).toBeGreaterThanOrEqual(2000);
+    expect(GATEKEEPER_OUTPUT_TOKEN_LIMIT).toBeLessThan(12_000);
+  });
+
+  test('reasoning effort is bounded, or the allowance is spent before the answer starts', () => {
+    expect(wire()).toHaveProperty('reasoning');
+    expect((wire()['reasoning'] as { effort?: string }).effort).toBe('low');
   });
 
   test('it serializes as a number, not a string', () => {
@@ -136,27 +151,28 @@ describe('the reservation is the enforced maximum, on both paid routes', () => {
 
 describe('a provider that bills past its own limit is surfaced, not absorbed', () => {
   test('usage at or under the limit behaves normally', () => {
-    expect(gatekeeperOutputAnomaly(675)).toBe(null);
+    expect(gatekeeperOutputAnomaly(GATEKEEPER_OUTPUT_TOKEN_LIMIT - 1)).toBe(null);
     expect(gatekeeperOutputAnomaly(GATEKEEPER_OUTPUT_TOKEN_LIMIT)).toBe(null);
   });
 
   test('usage above the limit is reported with both numbers', () => {
-    const msg = gatekeeperOutputAnomaly(801);
+    const over = GATEKEEPER_OUTPUT_TOKEN_LIMIT + 1;
+    const msg = gatekeeperOutputAnomaly(over);
     expect(msg).not.toBe(null);
-    expect(msg).toContain('800');
-    expect(msg).toContain('801');
+    expect(msg).toContain(String(GATEKEEPER_OUTPUT_TOKEN_LIMIT));
+    expect(msg).toContain(String(over));
   });
 
   test('it refuses to call the decision a normally bounded result', () => {
-    expect(gatekeeperOutputAnomaly(1200)).toContain('not a normally bounded result');
+    expect(gatekeeperOutputAnomaly(GATEKEEPER_OUTPUT_TOKEN_LIMIT + 400)).toContain('not a normally bounded result');
   });
 
   test('it does not clamp the bill', () => {
-    expect(gatekeeperOutputAnomaly(1200)).toContain('records what was billed');
+    expect(gatekeeperOutputAnomaly(GATEKEEPER_OUTPUT_TOKEN_LIMIT + 400)).toContain('records what was billed');
   });
 
   test('it never suggests a retry', () => {
-    expect(gatekeeperOutputAnomaly(1200)).toContain('do not retry');
+    expect(gatekeeperOutputAnomaly(GATEKEEPER_OUTPUT_TOKEN_LIMIT + 400)).toContain('do not retry');
   });
 
   test('an unusable token count is an anomaly, not a pass', () => {

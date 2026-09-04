@@ -39,6 +39,7 @@
 import type { System } from '../system.js';
 import { computeCandidateIdentity, describeCandidateDrift } from './candidateIdentity.js';
 import {
+  TECHNICAL_ACTIONS,
   TECHNICAL_CONTINUATION_SCOPE,
   authoriseTechnicalContinuation,
   enforcedOwnerOnlyActions,
@@ -490,3 +491,24 @@ function doFastForward(
 
 /** The scope a technical continuation requires, re-exported so a caller need not reach into core. */
 export { TECHNICAL_CONTINUATION_SCOPE };
+
+/**
+ * THE ACTIONS THIS RUNTIME CAN ACTUALLY PERFORM RIGHT NOW.
+ *
+ * A reviewer was offered `ff-only-integration` while no integration target is configured, so the
+ * action could only ever have been refused by the executor — and the governing constraint for that
+ * plan prohibited merge outright. The reviewer refused to authorise anything until the scope was
+ * reconciled, which was the correct answer to an incoherent question: the request had named
+ * something the runtime cannot do.
+ *
+ * OFFERING IS A CLAIM. Asking "may I do these?" asserts they are things that could be done. This
+ * removes the ones that could not, so the question is answerable as asked.
+ */
+export function performableTechnicalActions(
+  integrationTargetBranch: string | null,
+): readonly string[] {
+  const configured = typeof integrationTargetBranch === 'string' && integrationTargetBranch.trim() !== '';
+  return configured
+    ? TECHNICAL_ACTIONS
+    : TECHNICAL_ACTIONS.filter((a) => a !== 'ff-only-integration');
+}

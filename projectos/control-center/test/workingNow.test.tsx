@@ -217,3 +217,49 @@ describe('a finished-but-unreviewed stop reads plainly', () => {
     expect(p.detail).toContain('every required check passed');
   });
 });
+
+/**
+ * WORK THAT HAPPENED BUT HAS NOT MOVED A PHASE IS STILL WORK.
+ *
+ * A newly activated plan has no phase history, so for the whole of its first step the owner's
+ * "Recently" list said "Nothing has been recorded for this project yet" while a worker was running,
+ * checks were passing and a reviewer was being paid — all of which the runtime had recorded.
+ */
+describe('the activity feed reports what the runtime recorded', () => {
+  test('a running session appears even when no phase has advanced', async () => {
+    const { recordedItems } = await import('../src/owner/workspaceModel');
+    const state = projection({
+      phases: [{ phaseId: 'validation-cache', description: 'Deliver caching.', status: 'not-started', dependsOn: [], unmetDependencies: [], startable: true, requiredOwnerGates: [], requiredBrowserProof: false, acceptanceCriteria: [], requiredValidators: [], requiredReviews: [], riskLevel: '', autonomyLevel: '', history: [], closedByRecord: false }] as never,
+      sessions: [{ sessionId: 's1', phaseId: 'validation-cache', workerId: 'claude-local', kind: 'run', startedAt: '2026-09-04T09:00:00.000Z', state: 'started', exitCode: null }] as never,
+    });
+    const rows = recordedItems(state);
+    expect(rows.length).toBe(1);
+    expect(rows[0]!.title).toBe('Deliver caching.');
+    expect(rows[0]!.outcome).toBe('Started');
+  });
+
+  test('a finished session says so, and a failed one says why', async () => {
+    const { recordedItems } = await import('../src/owner/workspaceModel');
+    const mk = (state: string, exitCode: number | null) =>
+      recordedItems(
+        projection({
+          sessions: [{ sessionId: 's', phaseId: 'p', workerId: 'w', kind: 'run', startedAt: 't', state, exitCode }] as never,
+        }),
+      )[0]!;
+    expect(mk('exited', 0).outcome).toBe('Finished');
+    expect(mk('exited', 3).outcome).toBe('Stopped (exit 3)');
+    expect(mk('rejoined', null).outcome).toBe('Picked up again');
+  });
+
+  test('a phase that HAS advanced still reports its transitions', async () => {
+    const { recordedItems } = await import('../src/owner/workspaceModel');
+    const rows = recordedItems(
+      projection({
+        sessions: [],
+        phases: [{ phaseId: 'p', description: 'A step.', status: 'closed', dependsOn: [], unmetDependencies: [], startable: false, requiredOwnerGates: [], requiredBrowserProof: false, acceptanceCriteria: [], requiredValidators: [], requiredReviews: [], riskLevel: '', autonomyLevel: '', history: [{ from: 'in_progress', to: 'closed', by: 'ChatGPT', at: '2026-09-04T10:00:00.000Z' }], closedByRecord: false }] as never,
+      }),
+    );
+    expect(rows.length).toBe(1);
+    expect(rows[0]!.title).toBe('A step.');
+  });
+});

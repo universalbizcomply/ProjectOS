@@ -15,6 +15,7 @@
 import { describe, it, expect } from 'vitest';
 import { takeClosureTurn, type ClosureTurnDeps, type ClosureTurnInput } from '../src/loop/closureTurn.js';
 import { buildClosureResponsesBody, closureSystemInstruction } from '../src/loop/transports/closureResponses.js';
+import { GATEKEEPER_OUTPUT_TOKEN_LIMIT } from '../src/loop/transports/openaiResponses.js';
 import { inMemoryResolverForTests, unprovisionedResolver } from '../src/loop/credentialResolver.js';
 import {
   APPROVED_PILOT_POLICY,
@@ -344,7 +345,9 @@ describe('the request body binds what the trusted broker will check', () => {
     expect((input0 as { content: { text: string }[] }).content[0]?.text.split('\n')[0]).toBe(
       `requestId: ${expectedRequest().requestId}`,
     );
-    expect(body['max_output_tokens']).toBe(800);
+    // Asserted through the constant, so the wire and the ledger's reserve can never disagree; the
+    // literal was raised from 800 after a live call returned incomplete with no verdict.
+    expect(body['max_output_tokens']).toBe(GATEKEEPER_OUTPUT_TOKEN_LIMIT);
   });
 
   it('never puts a credential in the body', () => {

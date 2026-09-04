@@ -8,10 +8,11 @@
  */
 import { useMemo } from 'react';
 import { PROJECTOS_V3, OWNER_MODELS } from './ownerSnapshot';
-import { chainFor, decisionTone, statusTone } from './governedChain';
+import { chainFor, decisionTone } from './governedChain';
 import { buildOwnerControlView } from './ownerModel';
 import { useGovernedProjects, useGovernedState } from '../daemon/DaemonProvider';
 import { SelectedProjectIdentity } from './SelectedProjectIdentity';
+import { OwnerActionInbox } from './OwnerActionInbox';
 import { ownerModelFromGoverned } from './governedOwnerModel';
 
 export function SafetyProviders() {
@@ -44,13 +45,14 @@ export function SafetyProviders() {
     [live, projectId],
   );
   const safetyBadges = buildOwnerControlView(model).safetyBadges;
-  // The approval queue and provider-guard table come from the fixture chain, which knows only the
+  // The provider-guard table below still comes from the recorded chain, which knows only the
   // projects the snapshot shipped with. For any other registered project there is no chain, and
-  // showing ProjectOS's would put one project's approvals under another project's name.
+  // showing ProjectOS's would put one project's decisions under another project's name. The
+  // approval queue no longer reads from it at all - it reads the live one.
   const chainDescribesThisProject = chain.projectId === projectId;
-  const pending = chainDescribesThisProject
-    ? chain.approvalItems.filter((i) => i.status === 'pending').length
-    : 0;
+  // A projection that does not report a queue is not a projection with an empty one; both read as
+  // "nothing to answer here", and neither may throw.
+  const waitingApprovals = live?.pendingApprovals ?? [];
 
   return (
     <section className="ocp" aria-labelledby="sp-title">
@@ -80,30 +82,27 @@ export function SafetyProviders() {
         </div>
       </div>
 
-      {/* Approval queue */}
-      <div className={`ocp-panel decisions${pending > 0 ? ' active' : ''}`}>
-        <h2>Owner approval queue{pending > 0 ? ` · ${pending} pending` : ''}</h2>
-        {chainDescribesThisProject && chain.approvalItems.length ? (
-          <ul className="ocp-decisions">
-            {chain.approvalItems.map((item) => (
-              <li key={item.id} className="ocp-decision">
-                <div className="ocp-decision-title">
-                  {item.summary} <span className={`ocp-badge ${statusTone(item.status)}`}>{item.status}</span>
-                </div>
-                <div className="ocp-decision-detail">{item.kind} · {item.id}</div>
-                {item.status === 'pending' && (
-                  <div className="ocp-decision-actions">
-                    <button type="button" className="ocp-btn primary" disabled aria-disabled="true">Approve</button>
-                    <button type="button" className="ocp-btn" disabled aria-disabled="true">Return</button>
-                    <button type="button" className="ocp-btn danger" disabled aria-disabled="true">Reject</button>
-                    <span className="ocp-preview-tag" role="note">Preview — record approvals in the ProjectOS desktop app.</span>
-                  </div>
-                )}
-              </li>
-            ))}
-          </ul>
-        ) : (
+      {/*
+        THE REAL QUEUE, ANSWERED WHERE IT IS ANSWERED.
+        This panel used to list a FIXTURE chain's approval items and offer three permanently disabled
+        buttons under them — a queue that was not the project's, and controls that could never do
+        anything. Both are replaced by the live pending approvals and the one component that decides
+        them: it names each request and asks a second question before recording an answer. Rather than
+        a second, weaker copy of the same controls.
+      */}
+      <div className={`ocp-panel decisions${waitingApprovals.length > 0 ? ' active' : ''}`}>
+        <h2>
+          Owner approval queue
+          {waitingApprovals.length > 0 ? ` · ${waitingApprovals.length} pending` : ''}
+        </h2>
+        {live === null ? (
+          <p className="ocp-empty">
+            ProjectOS is not reporting on this project, so its approval queue cannot be read from here.
+          </p>
+        ) : waitingApprovals.length === 0 ? (
           <p className="ocp-empty">No items are waiting for your approval.</p>
+        ) : (
+          <OwnerActionInbox state={live} />
         )}
       </div>
 

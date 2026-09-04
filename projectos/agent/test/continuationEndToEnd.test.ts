@@ -24,6 +24,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { runLoop } from '../src/loop/runner.js';
+import { performableTechnicalActions } from '../src/loop/technicalContinuation.js';
 import { inMemoryResolverForTests } from '../src/loop/credentialResolver.js';
 import { nodeSystem, resolveBoundGit } from '../src/system.js';
 import { normaliseRemote } from '../src/loop/observation.js';
@@ -360,8 +361,20 @@ describe('the governed chain, end to end', () => {
     const shown = sent.join(String.fromCharCode(10));
     // The evidence JSON travels as a STRING inside the request body, so its quotes arrive escaped;
     // matching the escaped form is what proves the exact action name, not a word in prose.
-    for (const action of TECHNICAL_ACTIONS) expect(shown, `evidence must name '${action}'`).toContain(`\\"${action}\\"`);
+    // EVERY ACTION THIS RUNTIME CAN PERFORM, AND NOT ONE IT CANNOT.
+    //
+    // The list is what the runtime can do HERE, not the whole vocabulary: this fixture configures no
+    // integration target, so `ff-only-integration` could only ever have been refused by the executor.
+    // Offering it made the question unanswerable, and a live reviewer said so - it declined to
+    // authorise anything until the requested scope was reconciled with the plan's own constraint.
+    for (const action of performableTechnicalActions(null)) {
+      expect(shown, `evidence must name '${action}'`).toContain(`\\"${action}\\"`);
+    }
+    expect(shown, 'an action the runtime cannot perform must not be offered').not.toContain('\\"ff-only-integration\\"');
     expect(shown).toContain('performableActions');
+    // AND WHAT THE OWNER HAS ALREADY ESTABLISHED. A reviewer that cannot see whether a mandatory
+    // prerequisite is in place refuses and refers to the owner - which is what happened live.
+    expect(shown).toContain('workerSourceWriteGrant');
     // AND WHICH VERDICT CARRIES IT. Attempt 4 answered APPROVED_TO_PUSH - an owner-gated verdict the
     // contract refuses without ownerApprovalRequired - because nothing said a delegated continuation
     // travels as APPROVED_TO_PROCEED.

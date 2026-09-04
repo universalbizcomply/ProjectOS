@@ -307,6 +307,10 @@ export function ControlCenter({
           available in this shell. The position is the accepted one; the capability is stated as
           absent rather than mimed.
         */}
+        {/* VISIBLE AND DISABLED, DELIBERATELY. Hiding these two was tried during a sweep for dead
+            controls and reverted: a surface that silently omits what it cannot do teaches an owner
+            less than one that shows the control and says why it is unavailable. The test in
+            planDetailAndControlCenter pins that choice, and caught the change. */}
         <button type="button" className="os-iconbtn" disabled title="ProjectOS cannot take files yet." aria-label="Attach a file — not available yet">
           📎
         </button>

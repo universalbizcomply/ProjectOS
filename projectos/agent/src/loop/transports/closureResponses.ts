@@ -35,6 +35,7 @@ import type { CredentialResolver } from '../credentialResolver.js';
 import type { BrokeredTransport } from './brokeredHttpPort.js';
 import {
   GATEKEEPER_OUTPUT_TOKEN_LIMIT,
+  GATEKEEPER_REASONING_EFFORT,
   OPENAI_RESPONSES_URL,
   interpretProviderReply,
   type HttpPort,
@@ -230,6 +231,9 @@ export function buildClosureResponsesBody(
     // verdict with a note, which is the same shape of output; a second, larger number here would be a
     // second worst-case price nobody approved.
     max_output_tokens: GATEKEEPER_OUTPUT_TOKEN_LIMIT,
+    // The same pairing as the review route: a ceiling shared with reasoning tokens needs the effort
+    // bounded, or the answer never gets written. See GATEKEEPER_REASONING_EFFORT.
+    reasoning: { effort: GATEKEEPER_REASONING_EFFORT },
     store: true,
   };
   return JSON.stringify(body);

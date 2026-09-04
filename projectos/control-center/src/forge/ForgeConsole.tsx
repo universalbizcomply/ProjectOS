@@ -1,111 +1,169 @@
 /**
- * Forge Console — the owner types a build command and watches the governed pipeline (F1–F6): blueprint,
- * planned scaffold, budget, verification, snapshots. Read-only + inert: no real generation/exec here (the
- * real build runs via the local worker, owner-approved); owner-only actions are inert chips routed to the
- * approval queue. Snapshot-driven and deterministic. Created in PROJECTOS-FORGE-COMMAND-UI1A.
+ * FORGE — what it is, what it can do, and what is not wired up yet.
+ *
+ * WHAT THIS REPLACED. This screen used to run a deterministic synthetic demo: an owner typed a build
+ * command and watched "A Booking App" appear with twelve scaffolded files, a 42,000-token budget bar,
+ * four passing verification checks and two snapshots. None of it happened. The engines it depicted
+ * are real and their validators pass, but nothing on this screen ever called them — so the one
+ * surface an owner would judge Forge by was showing invented work as though it were work.
+ *
+ * WHAT IT SHOWS NOW. The stages that genuinely exist as engines in `projectos/forge/`, each with the
+ * validator that proves it, and a plain statement of the one thing that is missing: nothing here
+ * dispatches them yet. That is Programme C. An owner reading this screen should come away knowing
+ * exactly what Forge is and exactly what it cannot do today, which is the opposite of what the demo
+ * taught them.
+ *
+ * NO NUMBERS ARE SHOWN THAT NOTHING MEASURED. There is no progress bar, no token count, no pass
+ * count — because there is no run.
  */
-import { useMemo, useState } from 'react';
-import { FORGE_RUNS, forgeRunForCommand, budgetPercent, verifyTone, isVerified, type ForgeRun } from './forgeModel';
-import { buildOwnerControlView } from '../owner/ownerModel';
-import { PROJECTOS_V3 } from '../owner/ownerSnapshot';
 
-function Stage({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
-  return (
-    <div className="ocp-panel fg-stage">
-      <h2><span className="fg-num">{n}</span>{title}</h2>
-      {children}
-    </div>
-  );
+/**
+ * The pipeline as it exists in the repository. Each entry names a real module and the validator that
+ * covers it; both are checked by `forgeModel.test.ts` against the filesystem, so this list cannot
+ * quietly drift away from what is actually there.
+ */
+export interface ForgeStage {
+  readonly id: string;
+  readonly title: string;
+  readonly what: string;
+  /** The module in `projectos/forge/` that implements it. */
+  readonly module: string;
+  /** The validator that proves it. */
+  readonly validator: string;
+  /** True when performing it for real needs the owner, whatever else is delegated. */
+  readonly ownerGated: boolean;
 }
 
+export const FORGE_STAGES: readonly ForgeStage[] = [
+  {
+    id: 'blueprint',
+    title: 'Blueprint',
+    what: 'Turn a description into a structured plan: pages, data, and which integrations it needs.',
+    module: 'blueprint-engine.cjs',
+    validator: 'validate-forge-blueprint',
+    ownerGated: false,
+  },
+  {
+    id: 'scaffold',
+    title: 'Scaffold',
+    what: 'Write the starting project — secure by default, with no secret in the client bundle.',
+    module: 'scaffold-engine.cjs',
+    validator: 'validate-forge-scaffold',
+    ownerGated: false,
+  },
+  {
+    id: 'integrations',
+    title: 'Integrations',
+    what: 'Wire auth, payments, email and storage from known-good playbooks.',
+    module: 'integration-playbooks.cjs',
+    validator: 'validate-forge-integrations',
+    ownerGated: false,
+  },
+  {
+    id: 'generation',
+    title: 'Generation',
+    what: 'Build features against the blueprint, within a bounded budget.',
+    module: 'generation-loop.cjs',
+    validator: 'validate-forge-generation',
+    ownerGated: false,
+  },
+  {
+    id: 'verify',
+    title: 'Verification',
+    what: 'Prove it actually works: build, tests, routes, and a real data round-trip.',
+    module: 'verify-harness.cjs',
+    validator: 'validate-forge-verify',
+    ownerGated: false,
+  },
+  {
+    id: 'snapshot',
+    title: 'Snapshots',
+    what: 'Make every step restorable, so a change that goes wrong can be rolled back.',
+    module: 'env-snapshot.cjs',
+    validator: 'validate-forge-snapshot',
+    ownerGated: false,
+  },
+  {
+    id: 'provision',
+    title: 'Provision',
+    what: 'Install, migrate and run it locally.',
+    module: 'provisioner.cjs',
+    validator: 'validate-forge-provisioner',
+    ownerGated: true,
+  },
+  {
+    id: 'deploy',
+    title: 'Deploy',
+    what: 'Put it somewhere real. Never happens without you.',
+    module: 'secure-deploy-gate.cjs',
+    validator: 'validate-forge-deploy',
+    ownerGated: true,
+  },
+  {
+    id: 'e2e',
+    title: 'End to end',
+    what: 'Run the whole pipeline as one proof.',
+    module: 'forge-e2e.cjs',
+    validator: 'validate-forge-e2e',
+    ownerGated: true,
+  },
+];
+
 export function ForgeConsole() {
-  const [command, setCommand] = useState<string>(FORGE_RUNS[0]!.command);
-  const [run, setRun] = useState<ForgeRun>(FORGE_RUNS[0]!);
-  const safetyBadges = useMemo(() => buildOwnerControlView({ ...PROJECTOS_V3, safety: run.safety }).safetyBadges, [run]);
-  const pct = budgetPercent(run.spent, run.budgetCap);
-  const verified = isVerified(run);
-
-  function submit(cmd: string) {
-    const c = cmd.trim();
-    if (!c) return;
-    setRun(forgeRunForCommand(c));
-  }
-
   return (
     <section className="ocp fg" aria-labelledby="fg-title">
       <div className="head">
         <div>
           <h1 id="fg-title">Forge</h1>
-          <p>Describe an app. Forge plans it, scaffolds it, and proves it — locally, you own it. No external calls.</p>
+          <p>
+            Describe an app; Forge plans it, builds it and proves it — locally, and you own the
+            result.
+          </p>
         </div>
       </div>
 
-      <form className="fg-command" onSubmit={(e) => { e.preventDefault(); submit(command); }}>
-        <label className="fg-command-label" htmlFor="fg-input">Build command</label>
-        <input id="fg-input" type="text" value={command} onChange={(e) => setCommand(e.target.value)} placeholder="e.g. a booking app with payments and accounts" />
-        <button type="submit" className="ocp-btn primary">Plan it</button>
-      </form>
-
-      <div className="fg-examples" aria-label="Example commands">
-        {FORGE_RUNS.map((r) => (
-          <button type="button" key={r.commandId} className="ocp-chip fg-example" onClick={() => { setCommand(r.command); setRun(r); }}>{r.projectName}</button>
-        ))}
+      <div className="ocp-panel warn" role="status">
+        <h2>Not connected to this screen yet</h2>
+        <p>
+          The stages below exist and each is covered by a validator that passes. What does not exist
+          yet is the connection between this screen and them: nothing here starts a Forge build, and
+          no build has been run from ProjectOS. Wiring that up is a programme of its own, and it has
+          not started.
+        </p>
+        <p>
+          This page previously showed a worked example — a booking app, its files, its budget and its
+          passing checks. None of that had happened. It has been removed rather than relabelled.
+        </p>
       </div>
 
-      <Stage n={1} title="Blueprint">
-        <div className="ocp-grid2">
-          <div>
-            <div className="fg-kv"><span>Project</span><b>{run.projectName}</b></div>
-            <div className="fg-kv"><span>Stack</span><b>{run.stack}</b></div>
-            <div className="fg-kv"><span>Pages</span><b>{run.pages.join(', ')}</b></div>
-            <div className="fg-kv"><span>Data</span><b>{run.entities.join(', ') || 'none'}</b></div>
-          </div>
-          <div>
-            <div className="fg-kv"><span>Integrations</span><b>
-              {run.integrations.map((i) => (<span key={i.id} className={`ocp-badge ${i.ownerGated ? 'warn' : 'ok'}`}>{i.id}{i.ownerGated ? ' · approval' : ''}</span>))}
-            </b></div>
-            {run.refused.length > 0 && (
-              <div className="fg-kv"><span>Refused</span><b><span className="ocp-badge crit">{run.refused.join(', ')} (no metered AI API)</span></b></div>
-            )}
-          </div>
-        </div>
-      </Stage>
+      <div className="ocp-panel">
+        <h2>What Forge is built to do</h2>
+        <ol className="fg-stages">
+          {FORGE_STAGES.map((s, i) => (
+            <li className="fg-stage-row" key={s.id}>
+              <span className="fg-stagenum">{String(i + 1).padStart(2, '0')}</span>
+              <span className="fg-stagebody">
+                <span className="fg-stagetitle">
+                  {s.title}
+                  {s.ownerGated && <span className="fg-gated">needs your approval</span>}
+                </span>
+                <span className="fg-stagewhat">{s.what}</span>
+                <span className="fg-stagesrc">
+                  {s.module} · {s.validator}
+                </span>
+              </span>
+            </li>
+          ))}
+        </ol>
+      </div>
 
-      <Stage n={2} title={`Scaffold · ${run.scaffoldFiles.length} files`}>
-        <div className="fg-files">
-          {run.scaffoldFiles.map((f) => <code key={f} className="fg-file">{f}</code>)}
-        </div>
-        <p className="ocp-sub">Secure by default: RLS on, service-role server-only, no secret in the client bundle, governance seeded.</p>
-      </Stage>
-
-      <Stage n={3} title="Budget">
-        <div className="ocp-meter" role="group" aria-label="Token budget">
-          <div className="ocp-meter-track">
-            <div className="ocp-meter-fill" style={{ width: `${pct}%` }} role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} />
-          </div>
-          <div className="ocp-meter-label">{run.spent.toLocaleString()} / {run.budgetCap.toLocaleString()} tokens · {pct}% (hard cap — never exceeded)</div>
-        </div>
-      </Stage>
-
-      <Stage n={4} title="Verification">
-        <div className="ocp-badges">
-          {run.verification.map((v) => <span key={v.kind} className={`ocp-badge ${verifyTone(v.passed)}`}>{v.kind}: {v.passed ? 'pass' : 'FAIL'}</span>)}
-        </div>
-        <p className={`fg-verdict ${verified ? 'ok' : 'crit'}`}>{verified ? 'Verified — build, tests, and the wired data round-trip all pass.' : 'NOT verified — a required check (incl. the anti-Potemkin wired check) failed. Not done.'}</p>
-      </Stage>
-
-      <Stage n={5} title="Snapshots">
-        <div className="ocp-chips">
-          {run.snapshots.map((s) => <span key={s.id} className="ocp-chip">{s.label} · {s.id}</span>)}
-        </div>
-        <p className="ocp-sub">Every step is a restorable snapshot — roll the whole environment back if a change goes wrong.</p>
-      </Stage>
-
-      <Stage n={6} title="Safety & owner-only actions">
-        <div className="ocp-badges">{safetyBadges.map((b, i) => <span key={i} className={`ocp-badge ${b.tone}`}>{b.label}</span>)}</div>
-        <p className="ocp-sub">These require your approval — ProjectOS and Claude cannot perform them:</p>
-        <div className="ocp-chips">{run.ownerActions.map((a) => <span key={a} className="ocp-chip">{a}</span>)}</div>
-      </Stage>
+      <div className="ocp-panel">
+        <h2>What it will never do without you</h2>
+        <p>
+          Provisioning, deploying, adding a real provider key and pushing to git are owner actions.
+          Forge is built so those are refused rather than requested, whatever else is delegated to it.
+        </p>
+      </div>
     </section>
   );
 }

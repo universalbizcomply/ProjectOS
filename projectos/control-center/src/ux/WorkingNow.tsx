@@ -128,6 +128,17 @@ export function WorkingNow({
         <strong>You do not need to do anything.</strong> ProjectOS does the ordinary technical work
         itself and will stop and ask you if your authority is needed.
       </div>
+      {/*
+        THE ONE THING THAT LOSES WORK, SAID WHERE THE WORK IS.
+        The job runs inside this window on purpose: the operating system terminates it when the
+        window goes, which is what stops a worker being orphaned if ProjectOS is force-killed. That
+        guarantee is worth keeping, so the owner is told rather than the protection weakened. Two
+        runs were lost to closing the window before this line existed.
+      */}
+      <p className="ux-keepopen" role="note">
+        Keep this window open while it works — closing it stops the job. Nothing is lost: you can
+        pick it up again from where it stopped.
+      </p>
 
       {lines.length > 0 && (
         <div className="ux-feedbox" ref={feed} role="log" aria-label="What ProjectOS is doing">

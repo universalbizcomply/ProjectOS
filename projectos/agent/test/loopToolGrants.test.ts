@@ -271,3 +271,31 @@ describe('the committed grant record is scoped, and a missing scope grants nothi
     expect(committedSourceGrants(garbage, 'projectos', 'claude-local')).toEqual([]);
   });
 });
+
+/**
+ * A QUESTION MUST BE ANSWERABLE AS ASKED.
+ *
+ * The reviewer was offered `ff-only-integration` while no integration target is configured — the
+ * executor could only ever have refused it, and the plan's own constraint prohibited merge. It
+ * declined to authorise anything until the scope was reconciled, which was correct: ProjectOS had
+ * asked permission to do something it cannot do.
+ */
+describe('performableTechnicalActions', () => {
+  it('does not offer fast-forward integration when no target is configured', async () => {
+    const { performableTechnicalActions } = await import('../src/loop/technicalContinuation.js');
+    for (const none of [null, '', '   ']) {
+      expect(performableTechnicalActions(none)).not.toContain('ff-only-integration');
+    }
+  });
+
+  it('offers it when a target IS configured, and never invents an action', async () => {
+    const { performableTechnicalActions } = await import('../src/loop/technicalContinuation.js');
+    const core = await import('@projectos/core');
+    expect(performableTechnicalActions('main')).toContain('ff-only-integration');
+    for (const a of performableTechnicalActions('main')) {
+      expect(core.TECHNICAL_ACTIONS as readonly string[]).toContain(a);
+    }
+    expect(performableTechnicalActions(null)).toContain('commit');
+    expect(performableTechnicalActions(null)).toContain('push');
+  });
+});

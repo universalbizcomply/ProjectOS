@@ -241,6 +241,36 @@ export function recordedItems(state: GovernedProjection): readonly RecordedItem[
       });
     });
   }
+  // WORK THAT HAPPENED BUT HAS NOT YET MOVED A PHASE.
+  //
+  // A phase record gains history when the lifecycle ADVANCES it. A newly activated plan has none, so
+  // for the whole of its first step this list read "Nothing has been recorded for this project yet"
+  // while a worker was running, checks were passing and a reviewer was being paid — every one of
+  // which the runtime had recorded. Sessions are the runtime's own account of work starting and
+  // ending; they belong here for the same reason the transitions do.
+  for (const session of state.sessions ?? []) {
+    const phase = state.phases.find((ph) => ph.phaseId === session.phaseId) ?? null;
+    const what = phase?.description ?? session.phaseId;
+    const outcome =
+      session.state === 'started'
+        ? 'Started'
+        : session.state === 'rejoined'
+          ? 'Picked up again'
+          : session.exitCode === 0
+            ? 'Finished'
+            : session.exitCode === null
+              ? 'Stopped'
+              : `Stopped (exit ${session.exitCode})`;
+    rows.push({
+      id: `session:${session.sessionId}`,
+      title: what || 'Recorded work',
+      outcome,
+      at: session.startedAt,
+      state: session.state === 'started' || session.state === 'rejoined' ? 'working' : 'ready',
+      byOwner: false,
+      waiting: false,
+    });
+  }
   return rows.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
 }
 

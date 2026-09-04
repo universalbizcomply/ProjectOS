@@ -26,12 +26,14 @@ import { loadGovernedContext, refusalLines, type GovernedContext } from '../gove
 import { verifyExecutionContext } from './observation.js';
 import { computeCandidateIdentity } from './candidateIdentity.js';
 import { consumeAnsweredOwnerGates, ownerGateReceiptRelPath } from './ownerGateReceipts.js';
-import { runTechnicalContinuation } from './technicalContinuation.js';
+import { runTechnicalContinuation, performableTechnicalActions } from './technicalContinuation.js';
 import { resolveTechnicalDelegation } from './gatekeeperConfig.js';
 import { selectNextPhase, selectionStopLines } from './selection.js';
 import { buildWorkerBrief, briefProvenanceProblems, type WorkerBrief } from './brief.js';
 import {
   committedExecutionProblems,
+  committedSourceGrants,
+  WORKER_SOURCE_GRANT_REL,
   resolveWorker,
   type AdapterRegistry,
   type WorkerOutcome,
@@ -1048,8 +1050,33 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
         // reads as a prohibition on the continuation. Put in the evidence rather than the system
         // instruction for the same reason the candidate is: this text's digest is part of the
         // request digest, so the decision is bound to having been told.
+        // WHAT THE OWNER HAS ALREADY PUT IN PLACE, STATED RATHER THAN ASSUMED.
+        //
+        // A plan may make an owner-established prerequisite mandatory before execution begins — this
+        // programme's source-write grant is one. The reviewer could see the constraint in the plan and
+        // nothing at all about whether it had been satisfied, so it correctly declined to authorise
+        // and referred the decision to the owner. The grant is a COMMITTED record; reading it here is
+        // the same read the loop already makes before it dispatches a worker, reported rather than
+        // left for the reviewer to guess at.
+        prerequisites: {
+          workerSourceWriteGrant: (() => {
+            const granted = committedSourceGrants({ sys, root }, context.projectId, resolution.worker.workerId);
+            return granted.length === 0
+              ? { effective: false, detail: 'no committed source-write grant names this project and worker' }
+              : {
+                  effective: true,
+                  record: WORKER_SOURCE_GRANT_REL,
+                  workerId: resolution.worker.workerId,
+                  paths: granted,
+                  detail:
+                    'read from the committed tree, intersected with the runtime closed list; the worker may ' +
+                    'write only these paths and nothing else',
+                };
+          })(),
+        },
         technicalContinuation: {
-          performableActions: TECHNICAL_ACTIONS,
+          // ONLY WHAT CAN ACTUALLY BE DONE. See performableTechnicalActions.
+          performableActions: performableTechnicalActions(null),
           // THE VERDICT THAT CARRIES A DELEGATED CONTINUATION. The next live attempt after the
           // vocabulary was stated answered APPROVED_TO_PUSH with ownerApprovalRequired false - and
           // the decision contract refused it, correctly: APPROVED_TO_COMMIT, APPROVED_TO_PUSH and

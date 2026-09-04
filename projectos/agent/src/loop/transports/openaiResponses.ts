@@ -58,7 +58,32 @@ export const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses';
  *
  * One value, both jobs: it is sent as `max_output_tokens` and it is what both routes reserve.
  */
-export const GATEKEEPER_OUTPUT_TOKEN_LIMIT = 800;
+/**
+ * MEASURED, NOT ASSUMED — and 800 was too small for the reason the note above could not see.
+ *
+ * The ceiling is shared with the model's OWN REASONING TOKENS on a reasoning model, and the strong
+ * tier is one. A live continuation review on 2026-09-04 came back `status: "incomplete"` with no
+ * decision at all: the reasoning had consumed the whole allowance before a single character of the
+ * verdict was written. The call was billed, the run stopped, and nothing had been decided — the same
+ * failure plan authoring had already paid to learn, in the same shape.
+ *
+ * WHY THIS NUMBER. A verdict is genuinely small: a decision word, a reason, a handful of action
+ * names. Two thousand five hundred leaves room for the model to think AND to answer, while staying
+ * far below authoring's twelve thousand, because a governance turn is not a plan. It is paired with
+ * LOW reasoning effort below, so the allowance is spent on the answer rather than on deliberation.
+ *
+ * IT IS NOT A COST INCREASE IN PRACTICE. These calls are dominated by INPUT — the evidence — and an
+ * `incomplete` response bills for the reasoning it did and returns nothing usable, which is the most
+ * expensive outcome available.
+ */
+export const GATEKEEPER_OUTPUT_TOKEN_LIMIT = 2500;
+
+/**
+ * Spend the allowance on the verdict, not on deliberating about it. The decision is a bounded,
+ * schema-constrained answer over evidence that has already been assembled; it does not need deep
+ * reasoning, and on this ceiling deep reasoning is what leaves no room to reply.
+ */
+export const GATEKEEPER_REASONING_EFFORT = 'low' as const;
 
 /**
  * Whether a settled call billed for more output than the provider was told it could generate.
@@ -249,6 +274,9 @@ export function buildResponsesBody(
     // owner's budget was charged for is what the provider was actually permitted to produce. Its
     // absence is how an authoring call billed past an approved ceiling.
     max_output_tokens: GATEKEEPER_OUTPUT_TOKEN_LIMIT,
+    // See GATEKEEPER_REASONING_EFFORT: without this the reasoning consumes the ceiling and the call
+    // returns `incomplete` with no verdict, billed.
+    reasoning: { effort: GATEKEEPER_REASONING_EFFORT },
     store: true,
   };
   return JSON.stringify(body);

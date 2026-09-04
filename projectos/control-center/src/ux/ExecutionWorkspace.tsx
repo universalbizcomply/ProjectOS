@@ -274,9 +274,9 @@ export function ExecutionWorkspace({
         </div>
         <div className="xw-barright">
           {view.working && (
-            <span className="xw-elapsed">
+            <span className="xw-elapsed" title="Closing this window stops the job. You can pick it up again from where it stopped.">
               <span className="xw-workingdot" aria-hidden="true" />
-              Running {elapsed(view.elapsedMs)}
+              Running {elapsed(view.elapsedMs)} · keep this window open
             </span>
           )}
           <span className={`xw-owneraction${gate === null ? '' : ' xw-owneraction-held'}`}>{view.ownerAction}</span>
