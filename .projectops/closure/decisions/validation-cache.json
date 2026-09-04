@@ -10,5 +10,6 @@
   "decision": "close",
   "note": "Closure is warranted at the stated subject. The active plan is ready and includes validation-cache; the phase is awaiting_closure; validators and configured checks pass; required reviews are complete; no unresolved CRITICAL or HIGH findings remain; no owner acceptance of residual HIGH findings is needed; protected effects are attested absent; the working tree is clean and remote reconciled; delegation is valid; the evidence subject is an ancestor of the implementation head with no substantive changes since it. Headed proof is not required by the approved plan, so its recorded absence does not block closure.",
   "ownerAcceptedFindings": [],
-  "requestDigest": "sha256:c43af23f446ae73b65bfc615c6a280d2852c36fd28192988bf437db9973253f4"
+  "requestDigest": "sha256:c43af23f446ae73b65bfc615c6a280d2852c36fd28192988bf437db9973253f4",
+  "consumedAt": "2026-09-04T23:43:12.561Z"
 }

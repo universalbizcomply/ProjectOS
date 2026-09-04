@@ -2,7 +2,7 @@
   "phaseId": "validation-cache",
   "project": "ProjectOS",
   "objective": "Deliver safe, local repository-scoped validation caching that accelerates routine validation without reducing correctness.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "advisor",
       "at": "2026-09-04T22:56:56.750Z",
       "note": "work complete; the loop recorded this and awaits the owner, after a recorded gate decision"
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "advisor",
+      "at": "2026-09-04T23:43:12.560Z",
+      "note": "closed by the closure transport on the owner-committed record — closed by ChatGPT under the projectos-scoped phase-closure delegation, decision closure-validation-cache-db220a8"
     }
   ]
 }
