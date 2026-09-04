@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "1.0.0",
+  "recordKind": "gatekeeper-decision-evidence",
+  "decisionId": "GKDEC-GKREQ-d5209573d4f8fb03e8e09126",
+  "projectId": "projectos",
+  "phaseId": "validation-cache",
+  "subjectCommit": "0889574bd1c33c76ba1d0486b5439088341e7f78",
+  "requestDigest": "sha256:92e981c2b81b68dd9a97cf7b1a2916a2fbf215dcb74b961fafd08d787f096ea1",
+  "decision": "APPROVED_TO_PROCEED",
+  "reason": "All required checks passed, the required reviews are recorded, all findings are resolved, effects are fully attested absent, and the restricted source-write prerequisite is effective. The candidate is available and the phase delegates the exact technical continuation actions of commit and push.",
+  "allowedActions": [
+    "commit",
+    "push"
+  ],
+  "forbiddenActions": [
+    "merge",
+    "force-push",
+    "phase-closure",
+    "secrets-handling",
+    "payment-or-live-charge",
+    "deploy",
+    "database-mutation",
+    "external-message",
+    "broaden-scope",
+    "unrelated-file-changes"
+  ],
+  "ownerApprovalRequired": false,
+  "decidedBy": "ChatGPT",
+  "decidedAt": "2026-09-04T22:04:08.000Z"
+}

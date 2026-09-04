@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "1.0.0",
+  "recordKind": "gatekeeper-decision-evidence",
+  "decisionId": "GKDEC-GKREQ-e5aee2e25799e44f901867a6",
+  "projectId": "projectos",
+  "phaseId": "validation-cache",
+  "subjectCommit": "0889574bd1c33c76ba1d0486b5439088341e7f78",
+  "requestDigest": "sha256:a1ba7842af1b6fdf055188b3ed71db2a9a3e1e05576a76e45be4bb26391550ad",
+  "decision": "AWAITING_OWNER",
+  "reason": "The current validation-cache run has no effects attestation and no recorded reviews. An absent effects record is not evidence that protected effects did not occur, so the no-effects boundary cannot be established despite the listed passing checks and effective restricted source-write prerequisite.",
+  "allowedActions": [
+    "preserve-current-evidence",
+    "inspect-effects-attestation-and-review-record-status",
+    "prepare-owner-decision-brief",
+    "run-non-mutating-verification"
+  ],
+  "forbiddenActions": [
+    "commit",
+    "push",
+    "merge",
+    "force-push",
+    "phase-closure",
+    "secrets-handling",
+    "payment-or-live-charge",
+    "deploy",
+    "database-mutation",
+    "external-message",
+    "unscoped-source-edits"
+  ],
+  "ownerApprovalRequired": true,
+  "decidedBy": "ChatGPT",
+  "decidedAt": "2026-09-04T21:49:04.000Z"
+}
