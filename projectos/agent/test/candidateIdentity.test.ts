@@ -202,3 +202,35 @@ describe('naming fails closed', () => {
     rmSync(notARepo, { recursive: true, force: true });
   });
 });
+
+/**
+ * D: the records the ordering fix moved writes AHEAD of must still be INSIDE the candidate.
+ *
+ * The fix for candidate drift was to make the lifecycle write happen before the freeze -- NOT to
+ * exclude the records from the reviewed subject. If they ever leave the candidate, a phase record
+ * or a declared current-state could change between review and commit without refusal, which is the
+ * failure the drift check exists to prevent. This pins the membership the fix relies on.
+ */
+const NL = String.fromCharCode(10);
+
+describe('phase and current-state records remain part of the reviewed candidate', () => {
+  it('a phase record change moves the digest', () => {
+    const root = repo();
+    mkdirSync(join(root, '.projectops', 'phases'), { recursive: true });
+    writeFileSync(join(root, '.projectops', 'phases', 'validation-cache.json'), '{"status":"validating"}' + NL);
+    const before = digestOf(root);
+    writeFileSync(join(root, '.projectops', 'phases', 'validation-cache.json'), '{"status":"awaiting_review"}' + NL);
+    expect(digestOf(root)).not.toBe(before);
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it('a declared current-state change moves the digest', () => {
+    const root = repo();
+    mkdirSync(join(root, '.projectops'), { recursive: true });
+    writeFileSync(join(root, '.projectops', 'current-state-abc123.json'), '{"activePhase":null}' + NL);
+    const before = digestOf(root);
+    writeFileSync(join(root, '.projectops', 'current-state-abc123.json'), '{"activePhase":"validation-cache"}' + NL);
+    expect(digestOf(root)).not.toBe(before);
+    rmSync(root, { recursive: true, force: true });
+  });
+});

@@ -2,6 +2,42 @@
   "phaseId": "validation-cache",
   "project": "ProjectOS",
   "objective": "Deliver safe, local repository-scoped validation caching that accelerates routine validation without reducing correctness.",
-  "status": "draft",
-  "history": []
+  "status": "awaiting_review",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-09-04T21:52:25.015Z",
+      "note": "recorded by the autonomous loop (WAITING_AI)"
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-09-04T21:52:25.016Z",
+      "note": "recorded by the autonomous loop (WAITING_AI)"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-09-04T22:04:03.506Z",
+      "note": "recorded by the autonomous loop (VALIDATING)"
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-09-04T22:04:04.103Z",
+      "note": "recorded by the autonomous loop (AWAITING_GATE)"
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-09-04T22:04:04.103Z",
+      "note": "recorded by the autonomous loop (AWAITING_GATE)"
+    }
+  ]
 }

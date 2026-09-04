@@ -839,9 +839,9 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     const deps = options.gatekeeper;
     if (deps === undefined) return null;
 
-    // The question is about to be asked. Reported before the call, because a process that dies
-    // mid-call must leave behind that it was waiting on a gate, not that it was still working.
-    options.onWorkState?.({ state: 'AWAITING_GATE', phaseId, sessionId, lastStopCode: candidate.code });
+    // AWAITING_GATE is reported by `evidenceFor`, BEFORE the candidate is frozen. See the note
+    // there: reporting it here wrote lifecycle records into a candidate that had already been
+    // sealed, so the reviewer was shown bytes that were stale by the time it saw them.
 
     const turn = takeGatekeeperTurn(
       {
@@ -1006,6 +1006,37 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
       readonly effects: EvidencePart<EffectsRecord | null>;
     },
   ): string => {
+    // EVERY WRITE THAT BELONGS TO THE CANDIDATE HAPPENS BEFORE THE CANDIDATE IS FROZEN.
+    //
+    // This is where the reviewed candidate is sealed: `candidateEvidence()` below computes the
+    // digest and stores it as `reviewedCandidate`, and the continuation later refuses if the tree
+    // no longer matches. So this call must be the LAST thing that changes the tree, and anything
+    // reacting to "a gate is about to be asked" must have finished by now.
+    //
+    // AWAITING_GATE used to be reported inside `consultGatekeeper`, one step further on — AFTER
+    // this function had already sealed the candidate. The lifecycle recorder listens to that report
+    // and walked the phase from `validating` to `awaiting_review`, writing
+    // `.projectops/phases/<id>.json` and the declared current-state 250ms after the seal. Both are
+    // deliberately INSIDE the reviewed subject, so every continuation then refused, correctly:
+    // "the candidate changed after the gatekeeper reviewed it". Proven from write timestamps —
+    // evidence at T, phase record at T+250ms, current-state at T+425ms, decision at T+11.4s.
+    //
+    // Moving the report here changes nothing about what is reported or why. The original reason for
+    // reporting it before the call — a process that dies mid-call must leave behind that it was
+    // waiting on a gate, not that it was still working — is preserved, and strengthened: it is now
+    // recorded before the question is even assembled.
+    // ONLY WHEN A QUESTION WILL ACTUALLY BE ASKED.
+    //
+    // Its old home inside `consultGatekeeper` sat AFTER that function's `deps === undefined` early
+    // return, so a project with no reviewer never reported a gate. Moving the report here lost that
+    // guard: `evidenceFor` runs on every stop, and `onWorkState` is wired unconditionally while
+    // `gatekeeper` is only present when configured. A gatekeeper-less run would therefore have
+    // recorded `awaiting_review` for a phase no reviewer would ever see -- and `BLOCKED` maps to no
+    // transition, so nothing would ever have moved it back. Caught by review before it shipped.
+    if (options.gatekeeper !== undefined) {
+      options.onWorkState?.({ state: 'AWAITING_GATE', phaseId, sessionId, lastStopCode: reason.code });
+    }
+
     const f = parts.findings;
     const c = parts.checks;
     return JSON.stringify(

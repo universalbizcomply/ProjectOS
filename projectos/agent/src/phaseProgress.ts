@@ -121,6 +121,23 @@ export interface PhaseProgressResult {
   readonly problem?: string;
 }
 
+/**
+ * Do these two name the same project?
+ *
+ * Compares identities rather than strings: case and non-alphanumeric characters are noise here,
+ * because one side is a human-facing display name and the other is a configuration id for the same
+ * thing. `ProjectOS` and `projectos` are the same project; `PolyGo` and `projectos` are not.
+ */
+function sameProjectIdentity(a: string, b: string): boolean {
+  const key = (v: string): string => v.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const ka = key(a);
+  const kb = key(b);
+  // A RECORD THAT NAMES NO PROJECT IS NOT THIS RUN'S TO CLAIM. Treating an empty side as "no
+  // disagreement" would have made a blank `project` field weaker than the strict comparison this
+  // replaced -- the one shape a stale or hand-edited record is most likely to have.
+  return ka === kb;
+}
+
 /** Refused before core is asked. See the header: this boundary is stated where it is read. */
 function refuseOwnerOnly(to: PhaseStatus): string | null {
   return requiresOwner(to)
@@ -199,7 +216,16 @@ export function recordPhaseProgress(
   // A RECORD THAT BELONGS TO SOMETHING ELSE IS NOT THIS RUN'S TO MOVE. One root is normally one
   // project, but a stale record left behind by another, or two plans reusing a phase id, would
   // otherwise be silently transitioned by whoever ran next.
-  if (record.project !== project) {
+  //
+  // COMPARED AS IDENTITIES, NOT AS STRINGS. A phase record stores `project` as the DISPLAY name
+  // `phase new --project` was given (defaulting to `ProjectOS`), while the loop only knows the
+  // configuration's `projectId` (`projectos`). Demanding those be equal compared two different
+  // KINDS of thing, and refused to record the lifecycle of the very project it was protecting —
+  // observed on a real run, which reported `belongs to project 'ProjectOS', not 'projectos'` and
+  // wrote nothing. Normalising both sides keeps the protection that matters — a record naming a
+  // genuinely different project still fails — without inventing a disagreement out of casing and
+  // punctuation.
+  if (sameProjectIdentity(record.project, project) === false) {
     return {
       moved: [],
       created,

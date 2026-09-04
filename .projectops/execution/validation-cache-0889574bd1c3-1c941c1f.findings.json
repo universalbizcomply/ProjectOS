@@ -1,0 +1,51 @@
+{
+  "reviews": [
+    "Security and privacy review of cache contents and redaction guarantees",
+    "Validation correctness review of dependency coverage, invalidation, and fail-toward-run behavior",
+    "Performance benchmark review"
+  ],
+  "findings": [
+    {
+      "id": "VC2-SEC-01",
+      "severity": "LOW",
+      "category": "security",
+      "summary": "Cache entries store only validator name, SHA-256 key, pass/fail boolean, error count, and timestamps. buildEntry produces exactly 7 allowed keys; buildSuiteEntry adds kind, head, and results (name/passed/errorCount only). hashFile and hashDirectory return hex digests, never raw content. No file contents, secrets, credentials, raw provider prompts, or provider responses can enter by construction. The validator validate-speed-validation-cache.cjs mechanically enforces the allowlist and scans for secret patterns.",
+      "resolved": true
+    },
+    {
+      "id": "VC2-CORR-01",
+      "severity": "LOW",
+      "category": "correctness",
+      "summary": "Nine fail-toward-run paths verified by code reading: (1) empty inputs → coverage none, (2) missing input → coverage partial, (3) unreadable validator source → null key, (4) unreadable shared lib → null key, (5) corrupt entry → readEntry null, (6) wrong schema version → readEntry null, (7) key mismatch → null, (8) expired entry → null, (9) validator not in input-map → always runs. No path converts unknown or partial coverage into a cache hit. checkValidatorCache gates on coverage === 'full' before any other check.",
+      "resolved": true
+    },
+    {
+      "id": "VC2-CORR-02",
+      "severity": "LOW",
+      "category": "correctness",
+      "summary": "Module list sync between validate-all.cjs and cached-runner.cjs is mechanically enforced by validate-speed-validation-cache.cjs, which extracts and compares both MODULES arrays element by element. validate-all.cjs is unmodified and remains the authoritative uncached runner.",
+      "resolved": true
+    },
+    {
+      "id": "VC2-CORR-03",
+      "severity": "LOW",
+      "category": "correctness",
+      "summary": "Cache deletion safety confirmed: clear() removes .projectops/validation-cache/ via rmSync recursive+force. Every cache miss falls through to running the real validator. Deleting the cache can only reduce performance, never validation correctness.",
+      "resolved": true
+    },
+    {
+      "id": "VC2-PERF-01",
+      "severity": "LOW",
+      "category": "performance",
+      "summary": "Prior session at this exact HEAD (0889574) measured: suite cache check 44-116ms (target ≤2000ms), full cached 141-validator run 12868ms (target ≤60000ms), full uncached baseline 753s unchanged. benchmarkFailures() correctly distinguishes warm (0 misses, ≤2s) from targeted-source (has misses, ≤60s) targets and exits non-zero on failure. Environment: win32 x64, Node v24.14.1, i5-13420H 12-core, 16GB.",
+      "resolved": true
+    },
+    {
+      "id": "VC2-NOTE-01",
+      "severity": "LOW",
+      "category": "operational",
+      "summary": "validate-no-secrets passed at this exact HEAD (0889574) as shown in the prior session's evidence (validation-cache-0889574bd1c3-eeb46bc4). Independent re-execution was not approved in this session; the evidence from the same committed bytes stands.",
+      "resolved": true
+    }
+  ]
+}

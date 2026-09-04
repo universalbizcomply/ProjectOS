@@ -291,11 +291,21 @@ describe('a record it cannot trust is refused, never repaired in place', () => {
     expect(() => recordPhaseProgress(w.sys, w.root, w.context, report('VALIDATING'), 'ProjectOS')).not.toThrow();
   });
 
+  test('the display name and the configuration id are the same project', () => {
+    // A real run refused to record anything, reporting "belongs to project 'ProjectOS', not
+    // 'projectos'". `phase new` writes the DISPLAY name; the loop knows only the configuration id.
+    // Comparing them as strings compared two different kinds of thing.
+    const w = world({ 'P-ONE1A': { status: 'implementing', project: 'ProjectOS' } });
+    const r = recordPhaseProgress(w.sys, w.root, w.context, report('VALIDATING'), 'projectos');
+    expect(r.problem).toBeUndefined();
+    expect(phaseOf(w.root, 'P-ONE1A').status).toBe('validating');
+  });
+
   test("a record belonging to another project is not this run's to move", () => {
-    const w = world({ 'P-ONE1A': { status: 'implementing', project: 'SomethingElse' } });
+    const w = world({ 'P-ONE1A': { status: 'implementing', project: 'PolyGo' } });
     const r = recordPhaseProgress(w.sys, w.root, w.context, report('VALIDATING'), 'ProjectOS');
     expect(r.moved).toEqual([]);
-    expect(r.problem).toMatch(/belongs to project 'SomethingElse'/);
+    expect(r.problem).toMatch(/belongs to project 'PolyGo'/);
     expect(phaseOf(w.root, 'P-ONE1A').status).toBe('implementing');
   });
 });

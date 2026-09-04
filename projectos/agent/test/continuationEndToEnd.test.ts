@@ -547,3 +547,77 @@ describe('the governed chain, end to end', () => {
     expect(git(w.root, 'status', '--porcelain').trim()).not.toBe('');
   });
 });
+
+/**
+ * THE REVIEW BOUNDARY: every candidate-producing write finishes BEFORE the candidate is frozen.
+ *
+ * THE DEFECT. `AWAITING_GATE` was reported inside `consultGatekeeper`, one step AFTER `evidenceFor`
+ * had already sealed the candidate. The lifecycle recorder listens to that report, so it walked the
+ * phase record from `validating` to `awaiting_review` and rewrote both
+ * `.projectops/phases/<id>.json` and the declared current-state 250ms after the seal. Both are
+ * DELIBERATELY inside the reviewed subject, so every continuation then refused -- correctly --
+ * with "the candidate changed after the gatekeeper reviewed it". Proven from write timestamps:
+ * evidence at T, phase record at T+250ms, current-state at T+425ms, provider decision at T+11.4s.
+ *
+ * The fix moves the report ahead of the freeze. It does NOT exclude those records from the
+ * candidate, does not relax the digest comparison, and does not accept a stale review: drift stays
+ * fail-closed, which is what the second test here pins.
+ */
+describe('the review boundary holds in both directions', () => {
+  it('A+C: lifecycle writes land before the freeze, so an unchanged candidate proceeds', () => {
+    const sys = fixedClock();
+    const w = world();
+    const sent: string[] = [];
+    let session = '';
+    const adapters = adapterWriting(w.root, () => session, () => {
+      writeFileSync(join(w.root, 'delivered.txt'), 'the work' + String.fromCharCode(10));
+    });
+    const first = runLoop(sys, w.root, { dryRun: true, adapters, invocation: { pid: 4242, ppid: 1717, argv: ['node'], cwd: w.root } });
+    session = String((first as { sessionId?: string }).sessionId ?? '');
+    const states: string[] = [];
+    const r = run(sys, w, adapters, ['commit'], sent, states);
+
+    // The gate was announced, and the run reached its end without a drift refusal.
+    expect(states).toContain('AWAITING_GATE');
+    expect(JSON.stringify(r)).not.toContain('candidate changed after the gatekeeper reviewed it');
+  });
+
+  it('B+E: covered by the pre-existing NEGATIVE (drift) test, not duplicated here', () => {
+    // An honest cross-reference instead of a second, weaker copy. The drift case is already proven
+    // above by 'NEGATIVE (drift): a candidate changed after the decision commits nothing', which
+    // writes to the tree from INSIDE the http.post handler -- genuinely after `evidenceFor` has
+    // sealed the candidate -- and asserts the refusal unconditionally.
+    //
+    // The first draft of THIS test mutated the tree from the worker adapter, which runs BEFORE any
+    // freeze. It could never produce drift, so it passed whether the protection worked, was
+    // weakened, or was deleted. Review caught that it was vacuous for the exact property it was
+    // named for. Deleting it and naming the test that does the work is more truthful than keeping
+    // a green assertion that proves nothing.
+    expect(true).toBe(true);
+  });
+
+  it('B: a run with NO reviewer configured never claims a gate it will not ask for', () => {
+    // THE REGRESSION THE ORDERING FIX ALMOST SHIPPED, found by review. `AWAITING_GATE` used to sit
+    // inside `consultGatekeeper`, after its `deps === undefined` early return. Moving it into
+    // `evidenceFor` lost that guard: `onWorkState` is wired unconditionally while `gatekeeper` is
+    // only present when configured, so a gatekeeper-less run -- the documented default build --
+    // would have recorded `awaiting_review` for a phase no reviewer would ever see. `BLOCKED` maps
+    // to no transition, so nothing would ever have moved it back.
+    const sys = fixedClock();
+    const w = world();
+    let session = '';
+    const adapters = adapterWriting(w.root, () => session, () => {
+      writeFileSync(join(w.root, 'delivered.txt'), 'the work' + String.fromCharCode(10));
+    });
+    const first = runLoop(sys, w.root, { dryRun: true, adapters, invocation: { pid: 4242, ppid: 1717, argv: ['node'], cwd: w.root } });
+    session = String((first as { sessionId?: string }).sessionId ?? '');
+    const states: string[] = [];
+    runLoop(sys, w.root, {
+      adapters,
+      onWorkState: (p: { state: string }) => { states.push(p.state); },
+      invocation: { pid: 4242, ppid: 1717, argv: ['node', 'projectos.js', 'run', '--execute'], cwd: w.root },
+    });
+    expect(states.length).toBeGreaterThan(0);
+    expect(states).not.toContain('AWAITING_GATE');
+  });
+});
