@@ -1,9 +1,0 @@
-{
-  "schemaVersion": "1.0.0",
-  "validator": "val-windows-local-ipc-capability-b3",
-  "key": "369b0693d634b07082b4cd8b0b4274e5ee774f0fff0282247b5dadc3df7b04c2",
-  "passed": true,
-  "errorCount": 0,
-  "createdAt": "2026-09-04T08:52:20.342Z",
-  "lastUsedAt": "2026-09-04T14:08:28.712Z"
-}

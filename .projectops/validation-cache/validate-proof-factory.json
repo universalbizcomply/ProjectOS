@@ -1,9 +1,0 @@
-{
-  "schemaVersion": "1.0.0",
-  "validator": "validate-proof-factory",
-  "key": "c925659eb5eac5884fdda4c6e1ede44c037e8de8601b0b636eee489f746671cb",
-  "passed": true,
-  "errorCount": 0,
-  "createdAt": "2026-09-04T14:06:40.519Z",
-  "lastUsedAt": "2026-09-04T14:08:26.941Z"
-}

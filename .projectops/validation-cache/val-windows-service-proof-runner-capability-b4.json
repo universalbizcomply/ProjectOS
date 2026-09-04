@@ -1,9 +1,0 @@
-{
-  "schemaVersion": "1.0.0",
-  "validator": "val-windows-service-proof-runner-capability-b4",
-  "key": "128efde8d6e9ec3e07b19f66130206acf2ccb6498ff3e12ffe8f5ee8ae7a1920",
-  "passed": true,
-  "errorCount": 0,
-  "createdAt": "2026-09-04T08:54:07.725Z",
-  "lastUsedAt": "2026-09-04T14:08:28.759Z"
-}

@@ -1,9 +1,0 @@
-{
-  "schemaVersion": "1.0.0",
-  "validator": "validate-v3.2-ai-provider-independence",
-  "key": "c480571d14b3674e61c27752984962becb72a801892a045593c8c7939378d075",
-  "passed": true,
-  "errorCount": 0,
-  "createdAt": "2026-09-04T14:07:33.695Z",
-  "lastUsedAt": "2026-09-04T14:08:30.220Z"
-}

@@ -1,9 +1,0 @@
-{
-  "schemaVersion": "1.0.0",
-  "validator": "val-projectos-v3-zero-relay-failure-matrix1a",
-  "key": "e61d1cc3a38de3d403a1bf1dc9fb34233f6b48e131c3f83721f2b257eae31928",
-  "passed": true,
-  "errorCount": 0,
-  "createdAt": "2026-09-04T14:07:33.645Z",
-  "lastUsedAt": "2026-09-04T14:08:30.184Z"
-}

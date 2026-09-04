@@ -1,9 +1,0 @@
-{
-  "schemaVersion": "1.0.0",
-  "validator": "validate-ecc-routing",
-  "key": "08a1db943db895e9de0200ec9602da3feee907fa8f720431eaf8e3cede441460",
-  "passed": true,
-  "errorCount": 0,
-  "createdAt": "2026-09-04T14:06:40.020Z",
-  "lastUsedAt": "2026-09-04T14:08:26.718Z"
-}

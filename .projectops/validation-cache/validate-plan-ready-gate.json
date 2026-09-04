@@ -1,9 +1,0 @@
-{
-  "schemaVersion": "1.0.0",
-  "validator": "validate-plan-ready-gate",
-  "key": "970f7ac30509984abda6b9c308dbd6fd114c31b610f82846d9031c20f0560a64",
-  "passed": true,
-  "errorCount": 0,
-  "createdAt": "2026-09-04T14:06:43.252Z",
-  "lastUsedAt": "2026-09-04T14:08:27.424Z"
-}

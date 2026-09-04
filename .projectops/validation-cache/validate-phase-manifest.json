@@ -1,9 +1,0 @@
-{
-  "schemaVersion": "1.0.0",
-  "validator": "validate-phase-manifest",
-  "key": "fad048620d1094ae2d15265e1ff08a0e8ca76ac300735a9d0b5f833ebee8dc4b",
-  "passed": true,
-  "errorCount": 0,
-  "createdAt": "2026-09-04T09:07:25.616Z",
-  "lastUsedAt": "2026-09-04T14:08:26.653Z"
-}

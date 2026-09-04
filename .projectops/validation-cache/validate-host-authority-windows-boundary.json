@@ -1,9 +1,0 @@
-{
-  "schemaVersion": "1.0.0",
-  "validator": "validate-host-authority-windows-boundary",
-  "key": "d1467e0261b473c469e88221709e7f2aec03e42d70f80febb3d17ac389605148",
-  "passed": true,
-  "errorCount": 0,
-  "createdAt": "2026-09-04T08:52:17.842Z",
-  "lastUsedAt": "2026-09-04T14:08:28.527Z"
-}

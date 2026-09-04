@@ -1,9 +1,0 @@
-{
-  "schemaVersion": "1.0.0",
-  "validator": "validate-approval-queue",
-  "key": "b52e24a87fe8bab57173bf1eb2b1e54a9fec73360d5bcee5da48ab782bd97dbd",
-  "passed": true,
-  "errorCount": 0,
-  "createdAt": "2026-09-04T14:06:48.039Z",
-  "lastUsedAt": "2026-09-04T14:08:28.009Z"
-}

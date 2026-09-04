@@ -1,9 +1,0 @@
-{
-  "schemaVersion": "1.0.0",
-  "validator": "val-windows-service-control-capability-b1",
-  "key": "ea0cf22cfee3d0763ca4822de155d5b7a61507dff9b249541a408308c56bd1ed",
-  "passed": true,
-  "errorCount": 0,
-  "createdAt": "2026-09-04T08:52:18.546Z",
-  "lastUsedAt": "2026-09-04T14:08:28.585Z"
-}

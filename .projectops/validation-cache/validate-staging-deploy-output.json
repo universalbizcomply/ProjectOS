@@ -1,9 +1,0 @@
-{
-  "schemaVersion": "1.0.0",
-  "validator": "validate-staging-deploy-output",
-  "key": "1ace70f6159601de7dcab798a2c94aeb9170c338c2c62ebb55d143dcb6212071",
-  "passed": true,
-  "errorCount": 0,
-  "createdAt": "2026-09-04T14:06:40.362Z",
-  "lastUsedAt": "2026-09-04T14:08:26.853Z"
-}

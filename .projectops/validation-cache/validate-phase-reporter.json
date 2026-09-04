@@ -1,9 +1,0 @@
-{
-  "schemaVersion": "1.0.0",
-  "validator": "validate-phase-reporter",
-  "key": "dd26ccd6641f88a25b6c2a560bd3fdfa5b6307e5848510d8b2e7398b46caecc1",
-  "passed": true,
-  "errorCount": 0,
-  "createdAt": "2026-09-04T14:06:40.246Z",
-  "lastUsedAt": "2026-09-04T14:08:26.796Z"
-}

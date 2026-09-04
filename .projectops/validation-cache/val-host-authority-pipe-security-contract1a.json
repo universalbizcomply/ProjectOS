@@ -1,9 +1,0 @@
-{
-  "schemaVersion": "1.0.0",
-  "validator": "val-host-authority-pipe-security-contract1a",
-  "key": "8391c2f01b6541946e1a5cce2a339c258d379f54b4d6d7acac860810d2bee87a",
-  "passed": true,
-  "errorCount": 0,
-  "createdAt": "2026-09-04T08:52:20.030Z",
-  "lastUsedAt": "2026-09-04T14:08:28.686Z"
-}

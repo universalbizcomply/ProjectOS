@@ -1,9 +1,0 @@
-{
-  "schemaVersion": "1.0.0",
-  "validator": "validate-plan-version",
-  "key": "307a085c744c8926653f2fc0131c7d27715048a21b10fa606328249eae67fa72",
-  "passed": true,
-  "errorCount": 0,
-  "createdAt": "2026-09-04T14:06:43.402Z",
-  "lastUsedAt": "2026-09-04T14:08:27.526Z"
-}

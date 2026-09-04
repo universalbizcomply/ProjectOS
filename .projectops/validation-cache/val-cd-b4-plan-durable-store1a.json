@@ -1,9 +1,0 @@
-{
-  "schemaVersion": "1.0.0",
-  "validator": "val-cd-b4-plan-durable-store1a",
-  "key": "b35d88324f989ba4c829d28d8515dd453ec6e91338176dfa607b9fbf9a755980",
-  "passed": true,
-  "errorCount": 0,
-  "createdAt": "2026-09-04T08:55:02.091Z",
-  "lastUsedAt": "2026-09-04T14:08:28.933Z"
-}

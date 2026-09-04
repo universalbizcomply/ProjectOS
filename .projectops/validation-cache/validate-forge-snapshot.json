@@ -1,9 +1,0 @@
-{
-  "schemaVersion": "1.0.0",
-  "validator": "validate-forge-snapshot",
-  "key": "cfbd84137ce494f3ad5e9dec4c57a6553c5dffb7081d184aadd7c3f61ea6be00",
-  "passed": true,
-  "errorCount": 0,
-  "createdAt": "2026-09-04T14:06:48.832Z",
-  "lastUsedAt": "2026-09-04T14:08:28.235Z"
-}

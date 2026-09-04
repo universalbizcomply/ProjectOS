@@ -1,9 +1,0 @@
-{
-  "schemaVersion": "1.0.0",
-  "validator": "validate-current-project-state",
-  "key": "27b6b52946206cce7820f2e00b7c683740b5f1f19982f0d848c8b31e245d527a",
-  "passed": true,
-  "errorCount": 0,
-  "createdAt": "2026-09-04T14:06:43.093Z",
-  "lastUsedAt": "2026-09-04T14:08:27.345Z"
-}

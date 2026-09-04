@@ -1,9 +1,0 @@
-{
-  "schemaVersion": "1.0.0",
-  "validator": "validate-shared-runtime-no-tauri",
-  "key": "66caffc33f06a8aecbf631b3f0bfb85b2e8f77dc1bff57b5a98373772a3f084f",
-  "passed": true,
-  "errorCount": 0,
-  "createdAt": "2026-09-04T14:06:49.177Z",
-  "lastUsedAt": "2026-09-04T14:08:28.381Z"
-}

@@ -1,9 +1,0 @@
-{
-  "schemaVersion": "1.0.0",
-  "validator": "validate-host-identity-boundary",
-  "key": "b457f6169f58f4684db5a53f9748a0433cca227fe5dc4309fdf30fabf60c3666",
-  "passed": true,
-  "errorCount": 0,
-  "createdAt": "2026-09-04T08:52:17.092Z",
-  "lastUsedAt": "2026-09-04T14:08:28.470Z"
-}

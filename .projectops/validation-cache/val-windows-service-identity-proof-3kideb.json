@@ -1,9 +1,0 @@
-{
-  "schemaVersion": "1.0.0",
-  "validator": "val-windows-service-identity-proof-3kideb",
-  "key": "3339275be3f64f4e9ae40ea062f52dd0013f482e60a015980069c90732bcb191",
-  "passed": true,
-  "errorCount": 0,
-  "createdAt": "2026-09-04T08:52:18.165Z",
-  "lastUsedAt": "2026-09-04T14:08:28.560Z"
-}

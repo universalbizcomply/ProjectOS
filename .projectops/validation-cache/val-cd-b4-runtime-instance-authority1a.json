@@ -1,9 +1,0 @@
-{
-  "schemaVersion": "1.0.0",
-  "validator": "val-cd-b4-runtime-instance-authority1a",
-  "key": "9b5b7c881bdd2f6de9f60a4cef8da2dcdaefcfc73e6389b43d0dff026e0c3182",
-  "passed": true,
-  "errorCount": 0,
-  "createdAt": "2026-09-04T08:56:58.203Z",
-  "lastUsedAt": "2026-09-04T14:08:29.089Z"
-}

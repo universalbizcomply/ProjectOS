@@ -1,9 +1,0 @@
-{
-  "schemaVersion": "1.0.0",
-  "validator": "validate-e2e-runner",
-  "key": "8848ead090453236a318fb889213e65e0e86d157b78737078cd84c7dda391707",
-  "passed": true,
-  "errorCount": 0,
-  "createdAt": "2026-09-04T14:06:48.024Z",
-  "lastUsedAt": "2026-09-04T14:08:27.995Z"
-}

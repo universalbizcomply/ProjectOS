@@ -1,9 +1,0 @@
-{
-  "schemaVersion": "1.0.0",
-  "validator": "validate-drift-request",
-  "key": "2d7b37530fa06b55635f2cc056e8e782b7941996cf5a38fddac646a6fb6f07b4",
-  "passed": true,
-  "errorCount": 0,
-  "createdAt": "2026-09-04T14:06:40.556Z",
-  "lastUsedAt": "2026-09-04T14:08:26.971Z"
-}

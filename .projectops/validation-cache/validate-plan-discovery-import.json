@@ -1,9 +1,0 @@
-{
-  "schemaVersion": "1.0.0",
-  "validator": "validate-plan-discovery-import",
-  "key": "b2606d671d277f1dfa216e6ee19a7741d454bf48632cf69441619f201c0c7728",
-  "passed": true,
-  "errorCount": 0,
-  "createdAt": "2026-09-04T14:06:43.684Z",
-  "lastUsedAt": "2026-09-04T14:08:27.694Z"
-}

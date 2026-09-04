@@ -1,9 +1,0 @@
-{
-  "schemaVersion": "1.0.0",
-  "validator": "val-cd-b4-installer-readiness1a",
-  "key": "374b8b0271be662a709c998e0bb9e7f2b6cc9fe1c5b83c5809269d2ada0845f5",
-  "passed": true,
-  "errorCount": 0,
-  "createdAt": "2026-09-04T09:03:11.539Z",
-  "lastUsedAt": "2026-09-04T14:08:29.618Z"
-}

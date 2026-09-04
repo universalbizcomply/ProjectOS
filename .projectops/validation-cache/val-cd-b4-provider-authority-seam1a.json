@@ -1,9 +1,0 @@
-{
-  "schemaVersion": "1.0.0",
-  "validator": "val-cd-b4-provider-authority-seam1a",
-  "key": "12b7f2e60172d8606e82398ea2264243c09a1be7cad6c861ae7ea61bd183d782",
-  "passed": true,
-  "errorCount": 0,
-  "createdAt": "2026-09-04T08:59:38.326Z",
-  "lastUsedAt": "2026-09-04T14:08:29.310Z"
-}

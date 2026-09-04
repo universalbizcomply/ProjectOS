@@ -1,9 +1,0 @@
-{
-  "schemaVersion": "1.0.0",
-  "validator": "validate-host-authority-contract-boundary",
-  "key": "05210533e36b50043698ec646aa05e2277c5914d8a9da62c35517a4a4f2a56c7",
-  "passed": true,
-  "errorCount": 0,
-  "createdAt": "2026-09-04T08:52:17.446Z",
-  "lastUsedAt": "2026-09-04T14:08:28.495Z"
-}

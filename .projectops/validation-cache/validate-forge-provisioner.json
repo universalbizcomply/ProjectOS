@@ -1,9 +1,0 @@
-{
-  "schemaVersion": "1.0.0",
-  "validator": "validate-forge-provisioner",
-  "key": "6648a646e7f7d52653da945339f39ffed04ef4f40be5731cdef02750b4b5c297",
-  "passed": true,
-  "errorCount": 0,
-  "createdAt": "2026-09-04T14:06:48.769Z",
-  "lastUsedAt": "2026-09-04T14:08:28.210Z"
-}

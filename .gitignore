@@ -50,3 +50,7 @@ projectos/control-center/bridge.config.json
 # refuse that closure. The DECISION it points at is tracked, committed by the owner, and is the thing
 # that actually counts.
 .projectops/closure/waits/
+
+# Disposable local validation cache. Deleting it costs speed, never correctness, so it is
+# rebuildable state and not governance evidence - it must never enter the history.
+.projectops/validation-cache/

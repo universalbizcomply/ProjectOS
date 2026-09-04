@@ -1,9 +1,0 @@
-{
-  "schemaVersion": "1.0.0",
-  "validator": "validate-session-launcher",
-  "key": "37d5311e7ecee7506cd41f57e5b9c2482de792a99bf6569aa8a73ed2c6392c74",
-  "passed": true,
-  "errorCount": 0,
-  "createdAt": "2026-09-04T14:06:46.312Z",
-  "lastUsedAt": "2026-09-04T14:08:27.824Z"
-}
