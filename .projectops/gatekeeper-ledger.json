@@ -624,6 +624,19 @@
       },
       "costMicroUsd": 17715,
       "at": "2026-09-04T22:56:35.940Z"
+    },
+    {
+      "requestId": "CLREQ-e69c3796793ef9f980f4ead0",
+      "projectId": "projectos",
+      "phaseId": "validation-cache",
+      "model": "gpt-5.6-terra",
+      "usage": {
+        "inputTokens": 179122,
+        "cachedInputTokens": 0,
+        "outputTokens": 370
+      },
+      "costMicroUsd": 227603,
+      "at": "2026-09-04T23:39:07.690Z"
     }
   ]
 }

@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "closure-validation-cache-db220a8",
+  "phaseId": "validation-cache",
+  "projectId": "projectos",
+  "scope": "phase-closure",
+  "decidedBy": "ChatGPT",
+  "decidedAt": "2026-09-05T00:30:00Z",
+  "evidenceSubjectHead": "db220a873534e8cdfef209c1d20d3a2c7a873659",
+  "decision": "close",
+  "note": "Closure is warranted at the stated subject. The active plan is ready and includes validation-cache; the phase is awaiting_closure; validators and configured checks pass; required reviews are complete; no unresolved CRITICAL or HIGH findings remain; no owner acceptance of residual HIGH findings is needed; protected effects are attested absent; the working tree is clean and remote reconciled; delegation is valid; the evidence subject is an ancestor of the implementation head with no substantive changes since it. Headed proof is not required by the approved plan, so its recorded absence does not block closure.",
+  "ownerAcceptedFindings": [],
+  "requestDigest": "sha256:c43af23f446ae73b65bfc615c6a280d2852c36fd28192988bf437db9973253f4"
+}
