@@ -1,0 +1,45 @@
+{
+  "schemaVersion": "1.0.0",
+  "recordId": "PROJECTOS-SIGNING-DELEGATION-20260904",
+  "capability": "manifest-signing",
+  "projectId": "projectos",
+  "signingKeyId": "projectos-signing-20260812",
+  "delegatedBy": "Murad",
+  "delegatedTo": "Claude (assistant session 2026-09-04)",
+  "delegationDate": "2026-09-04",
+  "temporary": true,
+  "scope": [
+    "Operate the owner's existing Windows CNG key 'projectos-signing-20260812' to produce a detached ECDSA P-256 signature over a ProjectOS trust-manifest canonical subject."
+  ],
+  "excludes": [
+    "Exporting, printing, copying or disclosing private key material.",
+    "Provisioning or changing the embedded trust anchor.",
+    "Creating, deleting or rotating any signing key.",
+    "Signing anything other than a ProjectOS trust-manifest canonical subject.",
+    "Authenticode or any other code-signing identity."
+  ],
+  "subjectsSigned": [
+    {
+      "buildId": "b231cb612c83",
+      "commit": "b231cb612c83",
+      "canonicalBytes": 712,
+      "canonicalSha256": "e7ed45171cf78f44501863edf7bc18ad96b83488ecef3f5c64909e90b497f5d2",
+      "generatedAt": "2026-09-04T21:30:00.000Z",
+      "signedAt": "2026-09-04T21:35:00.000Z",
+      "signedBy": "Claude, under the owner authorisation recorded here"
+    }
+  ],
+  "provenance": {
+    "ownerStatement": "I authorise you to do it on my behalf",
+    "askedAndAnswered": "The assistant raised, before acting, that operating the key collapses a two-party trust chain into one actor: the signature would no longer distinguish 'the owner approved this build' from 'the process that built it also blessed it'. The owner restated the authorisation. This record exists so that distinction survives in the evidence rather than being silently lost.",
+    "keyHandling": "The key was opened by name in the Microsoft Software Key Storage Provider and used in place. Its export policy is None, so the private key cannot leave the store. Only the public point and the detached signature were written to disk.",
+    "verification": "All seven owner-specified checks were run independently before attachment: 712-byte subject, expected SHA-256, well-formed uncompressed public point, byte-identical match to the EMBEDDED trust anchor in projectos/host/host-identity/src/identity/anchor.rs, 64-byte raw r||s with r and s in range, verification over the exact canonical bytes, and four mutated-subject negative controls all rejected."
+  },
+  "revokeWhen": [
+    "The owner withdraws this authorisation, in which case signing returns to the owner performing it manually as on 2026-09-04 earlier the same day.",
+    "A build-signing identity distinct from the owner anchor is provisioned, which is an architecture decision the owner has not yet taken."
+  ],
+  "trustBasis": "MANUAL_GOVERNANCE_APPROVAL",
+  "tamperProof": false,
+  "notes": "A signature produced under this delegation is cryptographically indistinguishable from one the owner produced by hand. That is precisely why this record is committed: the anchor proves the KEY, and only this record says WHO operated it and on whose instruction."
+}
