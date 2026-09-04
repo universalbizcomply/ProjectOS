@@ -602,6 +602,22 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
   };
 
   let attempts = 0;
+  /**
+   * HOW MANY TIMES A MISSING RECORD THE WORKER OWNS HAS BEEN RE-ASKED FOR, FREE.
+   *
+   * The findings and effects records are the two files the worker is granted to write, and the brief
+   * names both with their exact paths and required fields. When one is simply absent, that is not a
+   * judgement call — it is a mechanical fact about the filesystem. The loop nevertheless sent it
+   * straight to the reviewer, so a strong-tier reasoning model was paid `$0.17` to observe that a
+   * local JSON file did not exist, three times in one afternoon.
+   *
+   * A missing record is now treated the way a failing check is: the same worker is dispatched again
+   * within the SAME attempt budget, at no cost, and every check, review and gate downstream runs
+   * exactly as before. It buys one re-ask, not a second opinion — if the record is still absent the
+   * reviewer is consulted as it always was, and the reviewer is told this was already tried.
+   */
+  let attestationReasks = 0;
+  const MAX_ATTESTATION_REASKS = 1;
   let stop: LoopStop | null = null;
   /** Grants for the NEXT attempt only. Cleared after use so authority never outlives its amendment. */
   let correctionGrants: readonly string[] = [];
@@ -1529,7 +1545,20 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     // means the run said it did something, and this run said nothing usable.
     const effects = store.readEffects(sys, root, sessionId);
     if (!effects.ok) {
-      const unattested: LoopStop = { code: 'EFFECTS_NOT_ATTESTED', detail: effects.problem };
+      // ASK AGAIN BEFORE PAYING. See `attestationReasks`. Nothing is authorised by this: the worker
+      // runs under the grants it already had, and the whole gate chain below is unchanged.
+      if (attestationReasks < MAX_ATTESTATION_REASKS) {
+        attestationReasks += 1;
+        lines.push(
+          `  no effects attestation was written; asking ${resolution.worker.workerId} again before consulting the reviewer ` +
+            `(${attestationReasks} of ${MAX_ATTESTATION_REASKS}, no cost)`,
+        );
+        continue;
+      }
+      const unattested: LoopStop = {
+        code: 'EFFECTS_NOT_ATTESTED',
+        detail: `${effects.problem}; the worker was asked again and still wrote none`,
+      };
       const answered = applyReviewerAnswer(unattested, evidenceFor(unattested, {
         checks: { available: true, value: checks },
         findings: { available: true, value: findings.value },
