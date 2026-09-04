@@ -1,8 +1,1 @@
-{
-  "productionTouched": false,
-  "deploymentOccurred": false,
-  "databaseMutationOccurred": false,
-  "externalSendOccurred": false,
-  "paymentOccurred": false,
-  "rawSecretStored": false
-}
+{"productionTouched":false,"deploymentOccurred":false,"databaseMutationOccurred":false,"externalSendOccurred":false,"paymentOccurred":false,"rawSecretStored":false}
