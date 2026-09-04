@@ -258,7 +258,12 @@ function phaseNew(ctx: CommandContext, flags: Flags): CommandResult {
     project: str(flags, 'project', 'ProjectOS'),
     objective: objective.objective,
   });
-  savePhase(sys, root, p);
+  if (!savePhase(sys, root, p)) {
+    return fail(2, [
+      `REFUSED (UNSAFE_PHASE_ID): '${id}' cannot safely become a record filename, so nothing was written.`,
+      '  - a phase id must be 4-128 characters of letters, digits, underscore or hyphen',
+    ]);
+  }
   // The durable memory must not contradict the record we just wrote. See currentStateStore.
   const sync = syncCurrentState(sys, root, gc.context, 'implementer');
   return ok([
@@ -332,7 +337,12 @@ function phaseReconcileObjective(ctx: CommandContext, flags: Flags): CommandResu
   const resolved = resolveObjective('', auth.planPhase.description);
   if (!resolved.ok) return fail(2, [`REFUSED (NO_OBJECTIVE): phase '${id}' — ${resolved.reason}`]);
 
-  savePhase(sys, root, { ...current, objective: resolved.objective });
+  if (!savePhase(sys, root, { ...current, objective: resolved.objective })) {
+    return fail(2, [
+      `REFUSED (UNSAFE_PHASE_ID): '${id}' cannot safely become a record filename, so nothing was written.`,
+      '  - a phase id must be 4-128 characters of letters, digits, underscore or hyphen',
+    ]);
+  }
   return ok([
     `Reconciled objective for ${id} from the active approved plan.`,
     `  objective: ${resolved.objective}`,
@@ -523,7 +533,12 @@ function phaseAdvance(ctx: CommandContext, flags: Flags): CommandResult {
     const code = r.error.includes("requires role 'owner'") ? 2 : 1;
     return fail(code, [r.error]);
   }
-  savePhase(sys, root, r.value);
+  if (!savePhase(sys, root, r.value)) {
+    return fail(2, [
+      `REFUSED (UNSAFE_PHASE_ID): '${id}' cannot safely become a record filename, so nothing was written.`,
+      '  - a phase id must be 4-128 characters of letters, digits, underscore or hyphen',
+    ]);
+  }
   // Spend the decision, in the decision. A phase record can be reset; this cannot be reset with it.
   if (consumedDecisionId !== undefined) markDecisionConsumed(sys, root, id, ctx.sys.now());
   const how = basisNote === undefined ? '' : ` [${basisNote}]`;

@@ -14,7 +14,7 @@
  */
 import type { System } from '../system.js';
 import type { Phase, PhaseStatus } from '@projectos/core';
-import { loadPhase } from '../phaseStore.js';
+import { loadPhase, isSafePhaseId } from '../phaseStore.js';
 import {
   approvedPlanPhases,
   authorisePhase,
@@ -36,7 +36,15 @@ export type SelectionStopCode =
   | 'DEPENDENCY_NOT_SATISFIED'
   | 'PHASE_NOT_AUTHORISED'
   /** A durable phase record exists for a phase the plan does not contain, or is unreadable. */
-  | 'RECORD_DISAGREES_WITH_PLAN';
+  | 'RECORD_DISAGREES_WITH_PLAN'
+  /**
+   * The plan names a phase whose id cannot safely become a filename.
+   *
+   * The plan schema constrains `phaseId` to a non-empty string and nothing more, and a phase id
+   * becomes a path in several stores. `phaseStore` declines such an id, but the loop must not START
+   * work it could never record — so this is a refusal to run, not a bookkeeping problem.
+   */
+  | 'UNSAFE_PHASE_ID';
 
 export interface SelectionStop {
   readonly code: SelectionStopCode;
@@ -91,6 +99,14 @@ export function selectNextPhase(sys: System, root: string, context: GovernedCont
     return stop(
       'PROGRAMME_COMPLETE',
       `every one of the ${phases.length} approved phase(s) is recorded complete; the loop has nothing left to start`,
+    );
+  }
+
+  if (!isSafePhaseId(next.phaseId)) {
+    return stop(
+      'UNSAFE_PHASE_ID',
+      `the approved plan names phase '${next.phaseId}', whose id cannot safely become a record ` +
+        'filename; a phase id must be 4-128 characters of letters, digits, underscore or hyphen',
     );
   }
 

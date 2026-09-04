@@ -43,34 +43,12 @@ import { readBrokerAnsweredState } from '../installation/brokerAnsweredState.js'
 import { nodeInstallationStateDir, nodeProjectosRuntime } from '../nodeRuntimeRoot.js';
 import { canonicalRepositoryIdentity, installationAllowsProject } from '../installation/projectAllowlist.js';
 import { resolveBoundGit } from '../system.js';
+import { createLifecycleRecorder } from '../phaseProgress.js';
 
 /** The governed project's declared id, from its own configuration. Empty when there is none. */
 function governedProjectId(ctx: CommandContext): string {
   const governed = loadGovernedContext(ctx.sys, ctx.root);
   return governed.ok ? governed.context.projectId : '';
-}
-
-/**
- * The phase the governed state says is active. Never a caller's claim.
- *
- * Read through `loadGovernedContext` so the path comes from the project's own configuration rather
- * than from a guess about where state lives — an earlier version of this function looked in
- * `.projectops/`, where this project's current-state file is not.
- */
-function activePhaseId(ctx: CommandContext): string | null {
-  const governed = loadGovernedContext(ctx.sys, ctx.root);
-  if (!governed.ok) return null;
-  const statePath = governed.context.currentStatePath;
-  if (statePath === null) return null;
-  const text = ctx.sys.readText(statePath);
-  if (text === null) return null;
-  try {
-    const parsed = JSON.parse(text) as Record<string, unknown>;
-    const id = parsed['activePhase'];
-    return typeof id === 'string' && id.trim() !== '' ? id.trim() : null;
-  } catch {
-    return null;
-  }
 }
 
 export function run(ctx: CommandContext, flags: Flags): CommandResult {
@@ -301,7 +279,25 @@ export function run(ctx: CommandContext, flags: Flags): CommandResult {
     const { state, phaseId: _phaseId, ...rest } = progress;
     work = advanceWork(work, { state, ...rest }, at);
     writeWorkRecord(ctx.sys, ctx.root, work);
+    recordLifecycle(progress);
   };
+
+  // THE SAME PROGRESS, WRITTEN WHERE THE PLAN CAN SEE IT.
+  //
+  // `work.v1` is the loop's own checkpoint and nothing else reads it for lifecycle. The canonical
+  // phase record is what `syncCurrentState` recomputes the owner's plan screen from, and until now
+  // the loop never wrote one — so a phase could run to completion, commit and push while the plan
+  // still read `0 of 4 - PLAN READY`. See `phaseProgress.ts` for what this may and may not record;
+  // in particular it can never close a phase.
+  //
+  // A failure to record is NOT a failure of the run: the work happened either way, and refusing to
+  // report it because its bookkeeping failed would be the worse outcome. It is always surfaced.
+  const lifecycleContext = loadGovernedContext(ctx.sys, ctx.root);
+  const lifecycle =
+    lifecycleContext.ok
+      ? createLifecycleRecorder(ctx.sys, ctx.root, lifecycleContext.context, workProjectId)
+      : null;
+  const recordLifecycle = (progress: WorkStateReport): void => lifecycle?.record(progress);
 
   const result = runLoop(ctx.sys, ctx.root, {
     onWorkState,
@@ -326,8 +322,17 @@ export function run(ctx: CommandContext, flags: Flags): CommandResult {
           },
         }),
   });
-  if (!result.ok) return fail(1, result.lines);
+  const lifecycleProblems =
+    lifecycle === null
+      ? ['no governed context could be loaded, so the phase record was not updated from this run']
+      : lifecycle.problems();
+  const lifecycleLines =
+    lifecycleProblems.length === 0
+      ? []
+      : ['', 'The phase record was not fully updated (the work itself is unaffected):',
+         ...lifecycleProblems.map((p) => `  - ${p}`)];
+  if (!result.ok) return fail(1, [...result.lines, ...lifecycleLines]);
   // A stop is a governed outcome, not an error: the loop did its job and the next move is someone
   // else's. Only a refusal to run at all is a non-zero exit.
-  return ok(result.lines);
+  return ok([...result.lines, ...lifecycleLines]);
 }

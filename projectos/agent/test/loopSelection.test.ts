@@ -103,68 +103,68 @@ function record(phaseId: string, status: PhaseStatus): Phase {
   return { phaseId, project: 'projectos', objective: 'o', status, history: [] };
 }
 
-const AB = [planPhase('A'), planPhase('B', ['A'])];
+const AB = [planPhase('PH-A'), planPhase('PH-B', ['PH-A'])];
 
 describe('selectNextPhase', () => {
   it('starts the first plan phase when nothing has been recorded', () => {
     const sys = fakeSystem();
     const sel = selectNextPhase(sys, ROOT, contextWith(AB));
     expect(sel.kind).toBe('start');
-    if (sel.kind === 'start') expect(sel.planPhase.phaseId).toBe('A');
+    if (sel.kind === 'start') expect(sel.planPhase.phaseId).toBe('PH-A');
     expect(sys.writes).toEqual([]);
   });
 
   it('continues an open phase rather than starting the next one', () => {
-    const sys = fakeSystem({ phases: { A: record('A', 'implementing') } });
+    const sys = fakeSystem({ phases: { 'PH-A': record('PH-A', 'implementing') } });
     const sel = selectNextPhase(sys, ROOT, contextWith(AB));
     expect(sel.kind).toBe('continue');
     if (sel.kind === 'continue') {
-      expect(sel.planPhase.phaseId).toBe('A');
+      expect(sel.planPhase.phaseId).toBe('PH-A');
       expect(sel.record.status).toBe('implementing');
     }
   });
 
   it('advances to the dependent phase once its dependency is recorded complete', () => {
-    const sys = fakeSystem({ completed: ['A'] });
+    const sys = fakeSystem({ completed: ['PH-A'] });
     const sel = selectNextPhase(sys, ROOT, contextWith(AB));
     expect(sel.kind).toBe('start');
-    if (sel.kind === 'start') expect(sel.planPhase.phaseId).toBe('B');
+    if (sel.kind === 'start') expect(sel.planPhase.phaseId).toBe('PH-B');
   });
 
   it('stops at a phase awaiting closure — closure is the owner’s, never the loop’s', () => {
-    const sys = fakeSystem({ phases: { A: record('A', 'awaiting_closure') } });
+    const sys = fakeSystem({ phases: { 'PH-A': record('PH-A', 'awaiting_closure') } });
     const sel = selectNextPhase(sys, ROOT, contextWith(AB));
     expect(sel.kind).toBe('stop');
     if (sel.kind === 'stop') {
       expect(sel.reason.code).toBe('OWNER_DECISION_REQUIRED');
-      expect(sel.reason.detail).toContain('A');
+      expect(sel.reason.detail).toContain('PH-A');
     }
     expect(sys.writes).toEqual([]);
   });
 
   it('stops on a blocked phase instead of stepping over it', () => {
-    const sys = fakeSystem({ phases: { A: record('A', 'closed_as_blocked') } });
+    const sys = fakeSystem({ phases: { 'PH-A': record('PH-A', 'closed_as_blocked') } });
     const sel = selectNextPhase(sys, ROOT, contextWith(AB));
     expect(sel.kind).toBe('stop');
     if (sel.kind === 'stop') expect(sel.reason.code).toBe('PHASE_BLOCKED');
   });
 
   it('does not resume a rolled-back phase on its own', () => {
-    const sys = fakeSystem({ phases: { A: record('A', 'rolled_back') } });
+    const sys = fakeSystem({ phases: { 'PH-A': record('PH-A', 'rolled_back') } });
     const sel = selectNextPhase(sys, ROOT, contextWith(AB));
     expect(sel.kind).toBe('stop');
     if (sel.kind === 'stop') expect(sel.reason.code).toBe('OWNER_DECISION_REQUIRED');
   });
 
   it('reports the programme complete when every plan phase is recorded complete', () => {
-    const sys = fakeSystem({ completed: ['A', 'B'] });
+    const sys = fakeSystem({ completed: ['PH-A', 'PH-B'] });
     const sel = selectNextPhase(sys, ROOT, contextWith(AB));
     expect(sel.kind).toBe('stop');
     if (sel.kind === 'stop') expect(sel.reason.code).toBe('PROGRAMME_COMPLETE');
   });
 
   it('surfaces a record that claims closed while the completion sources do not', () => {
-    const sys = fakeSystem({ phases: { A: record('A', 'closed') } });
+    const sys = fakeSystem({ phases: { 'PH-A': record('PH-A', 'closed') } });
     const sel = selectNextPhase(sys, ROOT, contextWith(AB));
     expect(sel.kind).toBe('stop');
     if (sel.kind === 'stop') expect(sel.reason.code).toBe('RECORD_DISAGREES_WITH_PLAN');
@@ -172,11 +172,11 @@ describe('selectNextPhase', () => {
 
   it('never selects a phase the authorisation gate would refuse', () => {
     const sys = fakeSystem();
-    const sel = selectNextPhase(sys, ROOT, contextWith([planPhase('B', ['MISSING'])]));
+    const sel = selectNextPhase(sys, ROOT, contextWith([planPhase('PH-B', ['PH-MISSING'])]));
     expect(sel.kind).toBe('stop');
     if (sel.kind === 'stop') {
       expect(sel.reason.code).toBe('DEPENDENCY_NOT_SATISFIED');
-      expect(sel.reason.detail).toContain('MISSING');
+      expect(sel.reason.detail).toContain('PH-MISSING');
     }
     expect(sys.writes).toEqual([]);
   });
@@ -264,5 +264,18 @@ describe('verifyExecutionContext', () => {
     expect(v.mismatches).toEqual([]);
     expect(v.observed.clean).toBe(false);
     expect(v.observed.dirtyPaths).toEqual(['src/a.ts']);
+  });
+});
+
+describe('a phase id that could escape the phases directory is refused, not run', () => {
+  it('stops rather than starting work it could never record', () => {
+    // The plan schema constrains phaseId to a non-empty string and nothing more, and a phase id
+    // becomes a path in several stores. The loop must not begin work whose lifecycle it would then
+    // be unable to write down.
+    const sys = fakeSystem();
+    const sel = selectNextPhase(sys, ROOT, contextWith([planPhase('../../escape')]));
+    expect(sel.kind).toBe('stop');
+    if (sel.kind === 'stop') expect(sel.reason.code).toBe('UNSAFE_PHASE_ID');
+    expect(sys.writes).toEqual([]);
   });
 });

@@ -27,6 +27,14 @@ import {
 } from '@projectos/core';
 import type { GovernedContext } from './governedContext.js';
 
+/**
+ * The statuses this module DERIVES, and therefore the only ones it may stand back down.
+ *
+ * A word this module wrote must not be left standing once the condition that produced it is gone;
+ * a word it never writes is not its to reset.
+ */
+const DERIVED_STATUSES: readonly string[] = ['IN EXECUTION', 'PLAN BLOCKED'];
+
 /** Statuses in which work has stopped, so the phase must not be reported as the active one. */
 const NOT_IN_FLIGHT: ReadonlySet<string> = new Set(['closed', 'closed_as_blocked', 'rolled_back']);
 
@@ -146,7 +154,37 @@ export function syncCurrentState(
   // module has no business deciding cannot be silently reset by it.
   const next: Record<string, unknown> = {
     ...existing,
-    currentStatus: activePhase === null && completed.length === total && total > 0 ? 'COMPLETE' : existing['currentStatus'],
+    // THE HEADLINE WORD, DERIVED LIKE EVERY OTHER LIFECYCLE FIELD HERE.
+    //
+    // `IN EXECUTION` and `PLAN BLOCKED` are both in the schema's vocabulary and in the owner
+    // surface's type, and nothing had ever derived either — so a project with a phase plainly
+    // running still announced `PLAN READY` across the top of the screen while a worker was mid-run.
+    //
+    // ASKED OF `inFlight`, NOT OF `activePhase`. `activePhase` is deliberately null when more than
+    // one phase is in flight, because no single one of them is THE active phase. Deriving the
+    // headline from it would have re-created the very untruth this exists to end, in a new place:
+    // two phases running and a screen saying `PLAN READY`. Whether work is happening and which
+    // phase is the active one are different questions, and only the first one decides this word.
+    //
+    // A BLOCKED PHASE IS NOT A READY PLAN. Standing `IN EXECUTION` down to `PLAN READY` while
+    // `blockedPhases` was non-empty produced a record that contradicted itself — a ready plan
+    // beside a phase closed as blocked — and understated that the owner is needed.
+    //
+    // BOTH ARE REVERSIBLE, which is the part that needs care: a stale `IN EXECUTION` or `PLAN
+    // BLOCKED` is just as untrue in the other direction, so the two words this module derives are
+    // the two it will also stand back down. Every other status the record may carry — the
+    // plan-authoring words, `PAUSED`, `COMPLETE` — is left exactly as it was, because none of them
+    // is decidable from the phase records read here.
+    currentStatus:
+      inFlight.length > 0
+        ? 'IN EXECUTION'
+        : completed.length === total && total > 0
+          ? 'COMPLETE'
+          : blocked.length > 0
+            ? 'PLAN BLOCKED'
+            : DERIVED_STATUSES.includes(String(existing['currentStatus']))
+              ? 'PLAN READY'
+              : existing['currentStatus'],
     acceptedPhaseCount: completed.length,
     totalPhaseCount: total,
     // One decimal place, matching the rule the projection and the programme validators already

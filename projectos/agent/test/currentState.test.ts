@@ -120,6 +120,61 @@ function stateOf(statePath: string): Record<string, unknown> {
 }
 
 describe('current state follows the phase records', () => {
+  test('a running phase says IN EXECUTION, not PLAN READY', () => {
+    // The owner read `PLAN READY` across the top of the screen while a worker was mid-run. The word
+    // is as derivable as `activePhase` is, so it is derived rather than remembered.
+    const w = world({ 'P-ONE1A': { status: 'implementing' } });
+    syncCurrentState(w.sys, w.root, w.context, 'implementer');
+    expect(stateOf(w.statePath)['currentStatus']).toBe('IN EXECUTION');
+  });
+
+  test('two phases in flight still says IN EXECUTION, though neither is THE active phase', () => {
+    // `activePhase` is null when more than one phase is in flight, because no single one of them is
+    // the active phase. Deriving the headline from it would have put "PLAN READY" over two running
+    // phases -- the same untruth, in a new place.
+    const w = world({ 'P-ONE1A': { status: 'implementing' }, 'P-TWO1A': { status: 'validating' } });
+    syncCurrentState(w.sys, w.root, w.context, 'implementer');
+    expect(stateOf(w.statePath)['activePhase']).toBeNull();
+    expect(stateOf(w.statePath)['currentStatus']).toBe('IN EXECUTION');
+  });
+
+  test('a blocked phase is not a ready plan', () => {
+    const w = world({ 'P-ONE1A': { status: 'closed_as_blocked' } });
+    syncCurrentState(w.sys, w.root, w.context, 'implementer');
+    const s = stateOf(w.statePath);
+    expect(s['blockedPhases']).toEqual(['P-ONE1A']);
+    expect(s['currentStatus']).toBe('PLAN BLOCKED');
+  });
+
+  test('PLAN BLOCKED is stood back down once nothing is blocked', () => {
+    const w = world({});
+    writeFileSync(
+      w.statePath,
+      JSON.stringify({ ...JSON.parse(readFileSync(w.statePath, 'utf8')), currentStatus: 'PLAN BLOCKED' }, null, 2),
+    );
+    syncCurrentState(w.sys, w.root, w.context, 'implementer');
+    expect(stateOf(w.statePath)['currentStatus']).toBe('PLAN READY');
+  });
+
+  test('IN EXECUTION is stood back down when no phase is running', () => {
+    // A stale IN EXECUTION would be exactly as untrue in the other direction.
+    const w = world({ 'P-ONE1A': { status: 'rolled_back' } });
+    syncCurrentState(w.sys, w.root, w.context, 'implementer');
+    expect(stateOf(w.statePath)['activePhase']).toBeNull();
+    expect(stateOf(w.statePath)['currentStatus']).toBe('PLAN READY');
+  });
+
+  test('a status this module cannot decide is left exactly as it was', () => {
+    // `PAUSED` is nowhere in the phase records this module reads, so it is not this module's to
+    // reset -- unlike the two words it derives, which it also stands back down.
+    const w = world({});
+    const path = w.statePath;
+    const before = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
+    writeFileSync(path, JSON.stringify({ ...before, currentStatus: 'PAUSED' }, null, 2));
+    syncCurrentState(w.sys, w.root, w.context, 'implementer');
+    expect(stateOf(path)['currentStatus']).toBe('PAUSED');
+  });
+
   test('an in-flight phase becomes the active phase, and the rest stay pending', () => {
     const w = world({ 'P-ONE1A': { status: 'awaiting_closure' } });
     const r = syncCurrentState(w.sys, w.root, w.context, 'implementer');
