@@ -269,7 +269,7 @@ not attest ends on the owner, having certified nothing.
 | rust | 1.96.1 (31fca3adb 2026-06-26) |
 | cpu | 13th Gen Intel(R) Core(TM) i5-13420H, 12 logical |
 | memory | 15.7 GB |
-| tree | `2b7ca11` **plus the uncommitted remediation** — see the blocker below |
+| tree | `2b7ca11` **plus the uncommitted remediation** — the interim reading; superseded by the clean-tree measurement at `d87bfcd` in the verdict below |
 | measured | 2026-09-05 |
 
 **The measurement environment was shared, and that is recorded rather than hidden.** Four other
@@ -279,7 +279,10 @@ interactive sessions were running on this machine during the work. Standalone `d
 every sample: the numbers below were taken once the machine was quiet, and their spreads are tight
 enough to show it.
 
-### The five standards
+### The five standards — interim reading, on the uncommitted tree
+
+*Superseded by the clean-tree measurement at `d87bfcd` in the verdict below. Kept because it is what
+the evidence said at the moment the commit was requested.*
 
 | # | Standard | Target | Median | Samples | |
 |---|---|---|---|---|---|
@@ -321,29 +324,76 @@ changed files re-scanned clean.
 
 ---
 
-## VERDICT: **PROJECTOS READINESS — NOT READY — EXACT REMAINING BLOCKER**
+## VERDICT: **PROJECTOS READINESS — READY**
 
-> **Standard 1, warm unchanged validation ≤ 2,000 ms, is unmeasured.** It is measurable only on a
-> clean working tree, because "warm *unchanged*" is a claim about an unchanged tree and
-> `checkSuiteCache` returns nothing without one. The remediation is uncommitted, so the tree is
-> dirty. **Committing it is an owner gate**, and it is the only thing standing between this and a
-> READY verdict.
+**Accepted by the ChatGPT gate at subject `d87bfcd0f10bac3ab118025e663e162d0e1c7b62`, 2026-09-05.**
 
-Nothing else is outstanding. Four of five standards are measured and met, every suite is green, both
-reviews are clear, and the one MEDIUM raised against this work is fixed and proven.
+All five approved standards are measured and met, on a **clean working tree at the exact remediation
+commit**. The measurement below supersedes the interim one recorded in the section above, which was
+taken while the remediation was still uncommitted.
 
-**This is not an engineering blocker and it is not a request for a decision about the standard.** The
-previous measurement of standard 1 was 55 / 57 / 68 ms against a 2,000 ms target, and nothing in this
-remediation touches `checkSuiteCache` or the suite entry format. But the entire point of the exercise
-is that "we did not measure it" and "it met the target" must never produce the same answer, so it is
-reported as unmeasured rather than assumed.
+### The five standards, measured at `d87bfcd` on a clean tree
 
-**On the commit, the benchmark is re-run against the clean tree.** If standard 1 measures inside
-2,000 ms, the verdict becomes **PROJECTOS READINESS — READY**, with the exact candidate integrity the
-gate requires. If it does not, that is a real finding and it will be reported as one.
+| # | Standard | Target | Samples | Median | |
+|---|---|---|---|---|---|
+| 1 | Warm unchanged validation | ≤ 2,000 ms | 65 / 75 / 70 | **70 ms** | **MET** |
+| 2 | Proof/data-only validation | ≤ 5,000 ms | 4,391 / 4,425 / **5,340** | **4,425 ms** | **MET** |
+| 3 | Targeted source validation | ≤ 60,000 ms | 55,257 / 53,135 / 54,041 | **54,041 ms** | **MET** |
+| 4 | Doctor preflight | ≤ 10,000 ms | 226 / 200 / 208 | **208 ms** | **MET** |
+| 5 | Gatekeeper replay | ≤ 2,000 ms, zero spend | 7,635 / 1,194 / 1,158 | **1,194 ms** | **MET**, ledger unchanged |
+
+Conditions: `HEAD d87bfcd`, `git status --porcelain` empty before and after, `gitState.clean = true`.
+The suite cache was a MISS at the new HEAD and was established by the benchmark's own warm-up through
+the ordinary cached-runner path (18,237 ms, recorded as a warm-up and judged as nothing). Benchmark
+exit 0: *all five standards proven on this machine*.
+
+**Two samples are stated rather than smoothed.** Standard 2's third sample was **5,340 ms — outside
+the 5,000 ms target**; the median rule did what it exists for, and the honest reading is that the
+standard passes with one of three samples over. Standard 5's first sample was 7,635 ms, which is cold
+vitest dependency loading on first invocation and not replay.
+
+### Validation accepted with this verdict
+
+`validate-all` uncached **141/141 PASS**; cached runner at `d87bfcd` **141 PASS / 0 FAIL** (suite
+cache hit); benchmark/scorer **52/52 PASS**; agent **1923/1923**; core **682/682**; typechecks clean;
+code review **0 CRITICAL / 0 HIGH**; security review **0 CRITICAL / 0 HIGH**; control-character scan
+clean across all 17 candidate files; candidate and source unchanged after the commit.
+
+### What the earlier NOT READY verdict was, and why it stands in the record
+
+The section above records **NOT READY — EXACT REMAINING BLOCKER: standard 1 is measurable only on a
+clean tree, and the remediation was uncommitted.** That was true when written, and it is deliberately
+left intact rather than rewritten: the interim state is part of how this result was reached. The
+blocker was an owner gate, not an engineering defect, and it is now discharged — the commit created
+the clean-tree condition and standard 1 measured **70 ms** against a 2,000 ms target.
 
 **The verdict starts nothing.** It does not begin Forge Programme C, and it authorises no protected
-action.
+action beyond the ordinary push the owner granted for this commit and this reconciliation.
+
+---
+
+---
+
+## Carry-forward, recorded without reopening readiness
+
+The gate accepted READY with these three carried rather than resolved. None reopens the readiness
+programme; **C is a required gate on Run-to-Completion.**
+
+**A. Data-only margin.** Median 4,425 ms of 5,000 ms — 89% of budget, with one of three samples at
+5,340 ms, outside the target. MET, and thin. The remaining cost is roughly 1.2 s of unavoidable
+key hashing plus the validators a proof/data change genuinely invalidates; there is no further
+headroom available without narrowing a declaration, which this work deliberately did not do.
+
+**B. Targeted-source margin.** 54,041 ms of 60,000 ms — ~90% of budget.
+`val-projectos-credential-router-adversarial1a` remains ~40 s of it, the dominant single cost. MET,
+and not expanded into optimisation.
+
+**C. Provider cost estimator — REQUIRED Run-to-Completion safety item.** Reserve calculations have
+under-estimated actual billed usage by approximately **8.4× and 13.8×**. Before long unattended
+execution, Run-to-Completion must carry actual-spend tracking, a conservative reserve or bound, a
+hard programme spend ceiling, a pre-dispatch budget check, stop-before-overspend behaviour, and safe
+handling when actual spend diverges materially from the estimate. **ProjectOS must never continue
+paid autonomous work because an inaccurate estimate says budget remains.**
 
 ---
 

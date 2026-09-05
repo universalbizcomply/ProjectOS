@@ -1,6 +1,11 @@
 # readiness-remediation — Evidence Pack
 
-> Status: IMPLEMENTED-LOCALLY / AWAITING-REVIEW. Closure is owner-gated.
+> Status: **ACCEPTED — PROJECTOS READINESS — READY**, by the ChatGPT gate at subject
+> `d87bfcd0f10bac3ab118025e663e162d0e1c7b62`, 2026-09-05.
+>
+> The filename is deliberately NOT renamed; acceptance state lives in the Reports Index and in this
+> line, never in a path. The NOT READY verdict recorded below was true when written and is left
+> intact — see *Final measurement and gate decision* at the end for what superseded it.
 
 1. **Project:** ProjectOS
 2. **Work:** the three bounded readiness remediations ordered on the owner's acceptance of the `readiness-evidence` NOT READY verdict. **Not a plan phase and not a programme** — no phase record was created and no plan was amended.
@@ -9,7 +14,9 @@
 5. **Files changed (14):** `projectos/speed/{benchmark.cjs, cached-runner.cjs, input-map.cjs, validation-cache.cjs}`, `projectos/validators/{validate-project-plan.cjs, validate-speed-validation-cache.cjs}`, `projectos/agent/src/loop/{brief.ts, runner.ts, gatekeeperRouting.ts, adapters/claudeCodeCli.ts}`, `projectos/agent/test/{speedBenchmarkScorer, loopBrief, loopRunner, loopGatekeeperRouting}.test.ts`. Plus `docs/speed/readiness-remediation.md` (new — the full evidence).
 6. **Summary:** All three remediations are complete. Four of the five timing standards are measured and met, including the one that was missed by 5.3×. The fifth cannot be measured on a dirty tree.
 
-## VERDICT: NOT READY — EXACT REMAINING BLOCKER
+## VERDICT AS FIRST RECORDED (superseded — see the final section)
+
+## NOT READY — EXACT REMAINING BLOCKER
 
 **Standard 1, warm unchanged validation ≤ 2,000 ms, is unmeasured, because it is measurable only on a clean working tree.** The remediation is uncommitted, so the tree is dirty. Committing it is an owner gate and is the only outstanding item.
 
@@ -62,6 +69,60 @@ Four other interactive sessions were running on this machine during the work. St
 ## Cost estimator
 
 Carried forward, not addressed here, per the owner's instruction: provider estimates observed at **8.4× and 13.8×** below actual billed usage. Recorded as a required **Run-to-Completion** safety item — reliable-enough reserve or conservative bound, a hard actual-spend ceiling, stop-before-overspend behaviour, and no dependence on a knowingly optimistic estimate.
+
+## Final measurement and gate decision
+
+**The blocker above is discharged.** The owner authorised the exact 17-file commit that creates the
+clean-tree condition; the benchmark was then re-run from that unchanged HEAD.
+
+**Committed subject:** `d87bfcd0f10bac3ab118025e663e162d0e1c7b62` — 17 paths, 1855 insertions,
+227 deletions. Pre-commit: `git status --porcelain` exactly 17 entries and nothing else; control
+characters clean across all 17; the five approved targets verified unchanged in code; the fail-safe
+rule verified intact; and the input map proven unchanged **by construction** — HEAD's map and the
+candidate's were both built and compared, 141 validators either side, identical, so not one
+declaration was narrowed, widened or removed. Post-commit: tree clean, and still clean after the
+benchmark ran.
+
+### The five standards, clean tree, at `d87bfcd`
+
+| # | Standard | Target | Samples | Median | |
+|---|---|---|---|---|---|
+| 1 | Warm unchanged validation | ≤ 2,000 ms | 65 / 75 / 70 | **70 ms** | **MET** |
+| 2 | Proof/data-only validation | ≤ 5,000 ms | 4,391 / 4,425 / **5,340** | **4,425 ms** | **MET** |
+| 3 | Targeted source validation | ≤ 60,000 ms | 55,257 / 53,135 / 54,041 | **54,041 ms** | **MET** |
+| 4 | Doctor preflight | ≤ 10,000 ms | 226 / 200 / 208 | **208 ms** | **MET** |
+| 5 | Gatekeeper replay | ≤ 2,000 ms, zero spend | 7,635 / 1,194 / 1,158 | **1,194 ms** | **MET**, ledger unchanged |
+
+The suite cache was a MISS at the new HEAD and was established by the benchmark's own warm-up through
+the ordinary cached-runner path — recorded as a warm-up and judged as nothing. Benchmark exit 0.
+
+**Stated rather than smoothed:** standard 2's third sample was **5,340 ms, outside the target**. The
+median rule did what it exists for; the honest reading is that the standard passes with one of three
+samples over. Standard 5's first sample of 7,635 ms is cold vitest dependency loading, not replay.
+
+**Validation accepted with the decision:** `validate-all` uncached **141/141**; cached runner at
+`d87bfcd` **141 PASS / 0 FAIL**; scorer **52/52**; agent **1923/1923**; core **682/682**; typechecks
+clean; code review **0 CRITICAL / 0 HIGH**; security review **0 CRITICAL / 0 HIGH**;
+control-character scan clean; candidate and source unchanged after the commit.
+
+### DECISION: **PROJECTOS READINESS — READY**
+
+Accepted by the ChatGPT gate, 2026-09-05. Speed & Reliability is reconciled as READY.
+
+**Forge has NOT been executed and is NOT started.** The next programme item is Run-to-Completion /
+automatic programme continuation reconciliation; Product-Flow follows it; Forge remains later in the
+approved sequence.
+
+### Carry-forward, recorded without reopening readiness
+
+- **A. Data-only margin** — 4,425 ms of 5,000 ms, 89% of budget, one sample at 5,340 ms. MET, thin.
+- **B. Targeted-source margin** — 54,041 ms of 60,000 ms, ~90% of budget;
+  `val-projectos-credential-router-adversarial1a` is ~40 s and remains the dominant cost. MET.
+- **C. Provider cost estimator — a REQUIRED gate on Run-to-Completion.** Reserve has under-estimated
+  actual billed usage by ~**8.4× and 13.8×**. Run-to-Completion must carry actual-spend tracking, a
+  conservative reserve or bound, a hard programme ceiling, a pre-dispatch budget check,
+  stop-before-overspend, and safe handling when actual spend diverges materially from estimate.
+  **Paid autonomous work must never continue because an optimistic estimate says budget remains.**
 
 ## What this does not do
 
