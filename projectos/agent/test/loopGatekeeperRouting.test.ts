@@ -25,6 +25,14 @@ const OWNER_STOPS: LoopStopCode[] = [
   // and the run ends. It is routed to the owner not because the owner must decide anything, but
   // because the owner is the only one who can act on it.
   'DOCTOR_PREFLIGHT_FAILED',
+  // WHETHER A NAMED LOCAL FILE EXISTS IS NOT A JUDGEMENT. This was routed to the gatekeeper, and two
+  // overnight runs paid ~$0.23 each for a strong-tier model to reply, in prose, that an effects
+  // attestation was absent — 63% of that night's provider spend on the one question the loop had
+  // already answered by reading the disk. The loop now re-asks the worker itself, free, and a run
+  // that still writes nothing ends on the owner. Nothing is weakened: the route carries no
+  // applicable verdict at all, so there is no answer that could carry a run past a missing
+  // attestation.
+  'EFFECTS_NOT_ATTESTED',
 ];
 const GATEKEEPER_STOPS: LoopStopCode[] = [
   'UNRESOLVED_CRITICAL_OR_HIGH',
@@ -34,7 +42,6 @@ const GATEKEEPER_STOPS: LoopStopCode[] = [
   // A BOUNDED ATTEMPT THAT WAS ENDED IS THE REVIEWER'S QUESTION TOO, and a separate one: it is not
   // the worker declining, so it may not inherit the refusal route by sharing its code.
   'WORKER_TIMED_OUT',
-  'EFFECTS_NOT_ATTESTED',
   // THE ONE THAT IS NOT A FAILURE. Every stop above is something going wrong; this is the work being
   // finished and sound, and the reviewer deciding whether the bounded technical continuation may
   // happen. It is listed here rather than with the owner stops because that decision was delegated —
@@ -147,10 +154,15 @@ describe('verdicts that cannot answer the stop they were given', () => {
   });
 
   // THE ONE THAT MATTERS MOST. An absent effects attestation means it is unknown whether production
-  // was touched. Approval cannot convert an absent record into a denial.
-  it('refuses to approve past a run that never said what it did', () => {
-    const action = applyVerdictToStop(stop('EFFECTS_NOT_ATTESTED'), { decision: 'APPROVED_TO_PROCEED', nextClaudeInstruction: null, problems: [] });
-    expect(action.kind).toBe('owner');
+  // was touched. No verdict can convert an absent record into a denial — and since the stop moved to
+  // the owner, there is no longer any verdict offered for it at all, which is stricter than the
+  // refusal this test used to assert.
+  it('refuses EVERY verdict against a run that never said what it did, and offers none', () => {
+    expect(STOP_ROUTES.EFFECTS_NOT_ATTESTED.applicableVerdicts).toEqual([]);
+    for (const verdict of GATEKEEPER_VERDICTS) {
+      const action = applyVerdictToStop(stop('EFFECTS_NOT_ATTESTED'), { decision: verdict, nextClaudeInstruction: 'write it', problems: [] });
+      expect(action.kind).toBe('owner');
+    }
   });
 
   it('refuses to approve past a defect that resisted correction', () => {

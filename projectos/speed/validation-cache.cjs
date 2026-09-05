@@ -63,13 +63,71 @@ function hashDirectory(dirPath) {
       // Include the relative path in the hash so renames invalidate.
       h.update(path.relative(dirPath, f).replace(/\\/g, "/"));
       h.update("\0");
-      h.update(fs.readFileSync(f));
+      // A DIGEST PER FILE, NOT THE BYTES, so a file read for one declaration is not read again for
+      // the declarations that contain it. `projectos` and `projectos/agent/src` are both declared;
+      // every file under the second was previously read twice, and the sub-trees together cost
+      // 578ms of the 1,768ms a full distinct pass takes. sha256-of-sha256 over the sorted path/digest
+      // pairs is exactly as strong a fingerprint as sha256 over the concatenated bytes.
+      h.update(fileDigest(f));
       h.update("\0");
     }
     return h.digest("hex");
   } catch (_) {
     return null;
   }
+}
+
+/** SHA-256 of one file's contents, memoised for the run's snapshot when one is open. */
+function fileDigest(abs) {
+  return snapshotHash("file:" + abs, () => sha256(fs.readFileSync(abs)));
+}
+
+/**
+ * ONE SNAPSHOT PER RUN — the reason a data-only change cost 26 seconds.
+ *
+ * WHAT WAS ACTUALLY SLOW. 141 validators declare 15 distinct input paths between them:
+ * `projectos/agent/src` is declared by 79 of them, `projectos/core/src` by 74, `projectos/host` by
+ * 49. Every one of those declarations re-read and re-hashed the entire tree, from scratch, and a
+ * missed validator did it TWICE — once to check the cache and once to save it. Measured on the
+ * reference machine: computing all 141 keys takes 59,870 ms; hashing each distinct path exactly once
+ * takes 1,768 ms. Thirty-four times the work, for identical bytes and identical digests.
+ *
+ * NO CACHE DECISION CHANGES. A memoised digest is the same digest — this is not a shortcut around
+ * hashing, it is the same hash computed once instead of three hundred times. Coverage, key equality,
+ * expiry and every fail-toward-run rule are untouched.
+ *
+ * IT MAKES THE RUN MORE COHERENT, NOT LESS. Without it a sweep is already non-atomic: the first
+ * validator hashes a tree at t=0 and the last hashes it a minute later, so a file changed in between
+ * is half-seen. With it, one run judges one snapshot of the tree, taken when the run began. A change
+ * that lands mid-run is then simply not in this run's snapshot — it is caught by the next run, which
+ * takes its own, exactly as a change landing after the run would be.
+ *
+ * AND IT FAILS TOWARD RUNNING. The saved key is now the digest the validator was JUDGED against
+ * rather than a fresher one computed after it finished; a tree that moved under a running validator
+ * therefore mismatches next time and the validator runs again. The old behaviour saved the post-run
+ * digest, which would hit next time on the strength of a result produced before the change.
+ *
+ * OFF UNLESS ASKED FOR. `beginSnapshot`/`endSnapshot` are called by the cached runner around its
+ * sweep. A caller that does not open one hashes exactly as before, so nothing acquires this
+ * behaviour by accident.
+ */
+let hashSnapshot = null;
+
+function beginSnapshot() {
+  hashSnapshot = new Map();
+}
+
+function endSnapshot() {
+  hashSnapshot = null;
+}
+
+/** The digest for one input path, from this run's snapshot when there is one. */
+function snapshotHash(abs, compute) {
+  if (hashSnapshot === null) return compute();
+  if (hashSnapshot.has(abs)) return hashSnapshot.get(abs);
+  const h = compute();
+  hashSnapshot.set(abs, h);
+  return h;
 }
 
 function walkDir(dir, out) {
@@ -147,9 +205,14 @@ function computeCacheKey(params) {
     const abs = path.resolve(root, rel);
     let h = null;
     try {
-      const st = fs.statSync(abs);
-      if (st.isDirectory()) h = hashDirectory(abs);
-      else if (st.isFile()) h = hashFile(abs);
+      // MEMOISED PER RUN. See `hashSnapshot`: the same directory is declared by up to 79 validators
+      // and was re-hashed for every one of them. The digest is identical either way.
+      h = snapshotHash("input:" + abs, () => {
+        const st = fs.statSync(abs);
+        if (st.isDirectory()) return hashDirectory(abs);
+        if (st.isFile()) return hashFile(abs);
+        return null;
+      });
     } catch (_) {
       // Input missing or unreadable → fail toward run
       coverage = "partial";
@@ -387,8 +450,15 @@ function saveSuiteCache(root, head, results) {
  * @returns {{ passed: boolean, errorCount: number } | null}
  */
 function checkValidatorCache(root, validatorName, keyResult) {
-  // Coverage must be full — unknown inputs fail toward run
-  if (keyResult === null || keyResult.coverage !== "full") return null;
+  // Coverage must be full — unknown inputs fail toward run.
+  //
+  // `undefined` IS ALSO NO KEY. The guard tested `=== null` only, so a caller passing undefined got
+  // a TypeError from `undefined.coverage` instead of a cache miss — a crash where the whole module's
+  // contract is "anything unusable falls toward running the validator". Not reachable through
+  // `computeCacheKey`, which returns null or an object, and recorded as latent in the readiness
+  // evidence; closed here because a robustness note that is never acted on is just a known hole.
+  if (keyResult === null || keyResult === undefined || typeof keyResult !== "object") return null;
+  if (keyResult.coverage !== "full") return null;
 
   const fp = entryPath(root, validatorName);
   const entry = readEntry(fp);
@@ -527,6 +597,8 @@ module.exports = {
   environmentFingerprint,
   sharedLibHash,
   computeCacheKey,
+  beginSnapshot,
+  endSnapshot,
   gitState,
   checkSuiteCache,
   saveSuiteCache,

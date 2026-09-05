@@ -994,6 +994,22 @@ describe('runLoop with an unattended gatekeeper', () => {
     [`${ROOT}/.projectops/execution/${SESSION}.effects.json`]: JSON.stringify(attestation()),
   });
 
+  /**
+   * BOTH RECORDS UNUSABLE — the fixture the reviewer-facing tests now use.
+   *
+   * They used to drive the gatekeeper through EFFECTS_NOT_ATTESTED, which is no longer routed there
+   * (see ROUTE C). REVIEW_OUTSTANDING still is, and it carries the effects record as evidence — so
+   * the property those tests exist for, "an unusable attestation is sent as unusable and never as
+   * six falses", is asserted on a stop that genuinely reaches a reviewer.
+   */
+  const unreadableFindingsAndNestedAttestation = () => ({
+    [`${ROOT}/.projectops/execution/${SESSION}.findings.json`]: '{ this is not json',
+    [`${ROOT}/.projectops/execution/${SESSION}.effects.json`]: JSON.stringify({
+      schemaVersion: '1.0.0',
+      attestation: attestation(),
+    }),
+  });
+
   it('ROUTE A — WORKER_REFUSED reaches the gatekeeper instead of ending the run', () => {
     const sys = world({ files: cleanFindings(SESSION) });
     const sent: string[] = [];
@@ -1022,18 +1038,64 @@ describe('runLoop with an unattended gatekeeper', () => {
     expect(stopCodeSent(sent)).toBe('REVIEW_OUTSTANDING');
   });
 
-  it('ROUTE C — EFFECTS_NOT_ATTESTED reaches the gatekeeper (the stop that ended discovery 2)', () => {
+  /**
+   * ROUTE C, INVERTED — EFFECTS_NOT_ATTESTED must reach the gatekeeper NEVER, and cost nothing.
+   *
+   * It used to be routed there, and two overnight runs paid a strong-tier model ~$0.23 each to
+   * reply, in prose, that a local JSON file did not exist: $0.46 of a $0.74 night on the one
+   * question the loop had already answered by reading the disk. The stop is now the owner's, the
+   * loop re-asks the worker itself first, and this asserts the consequence that matters — a
+   * gatekeeper was configured and willing, and no request was sent to it.
+   */
+  it('ROUTE C — EFFECTS_NOT_ATTESTED never reaches the gatekeeper, and buys one free re-ask first', () => {
     const sys = world({ files: nestedAttestation() });
     const sent: string[] = [];
+    const { calls, registry } = fakeAdapter();
     const r = runLoop(sys, ROOT, {
-      adapters: fakeAdapter().registry,
+      adapters: registry,
       expectedDecider: 'ChatGPT',
       gatekeeper: gatekeeper({ status: 200, body: decisionBody('DO_NOT_PROCEED', null) }, sent),
     });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.stop?.code).toBe('EFFECTS_NOT_ATTESTED');
-    expect(stopCodeSent(sent)).toBe('EFFECTS_NOT_ATTESTED');
+    expect(sent).toEqual([]);
+    // The re-ask is what replaces the paid call: the worker was dispatched twice, free.
+    expect(calls.length).toBe(2);
+    expect(r.lines.join('\n')).toContain('no cost');
+  });
+
+  /**
+   * AND THE COMMON SHAPE, WHICH THE RE-ASK USED TO MISS ENTIRELY.
+   *
+   * `readEffects` reports an ABSENT record as `{ok:true, value:null}` and a corrupt one as
+   * `{ok:false}`. The re-ask was guarded on `!effects.ok`, so it only ever fired for corruption —
+   * the shape a real worker almost never produces — while a plainly missing file went straight past
+   * it to the reviewer. That is the exact path both overnight runs took.
+   */
+  it('an ABSENT attestation gets the same free re-ask as a corrupt one, and never a paid call', () => {
+    const sys = world({
+      files: {
+        [`${ROOT}/.projectops/execution/${SESSION}.findings.json`]: JSON.stringify({
+          reviews: ['code-review', 'security-review'],
+          findings: [],
+        }),
+      },
+    });
+    const sent: string[] = [];
+    const { calls, registry } = fakeAdapter();
+    const r = runLoop(sys, ROOT, {
+      adapters: registry,
+      expectedDecider: 'ChatGPT',
+      gatekeeper: gatekeeper({ status: 200, body: decisionBody('AMENDMENT_REQUIRED', 'write the record') }, sent),
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.stop?.code).toBe('EFFECTS_NOT_ATTESTED');
+    expect(sent).toEqual([]);
+    expect(calls.length).toBe(2);
+    expect(r.stop?.detail).toContain('asked again');
+    expect(r.stop?.detail).toContain('No reviewer was consulted');
   });
 
   it('ROUTE D — UNRESOLVED_CRITICAL_OR_HIGH still reaches it', () => {
@@ -1072,7 +1134,7 @@ describe('runLoop with an unattended gatekeeper', () => {
   });
 
   it('ROUTE — exactly ONE consultation per stop, never a second for the same failure', () => {
-    const sys = world({ files: nestedAttestation() });
+    const sys = world({ files: unreadableFindings() });
     const sent: string[] = [];
     runLoop(sys, ROOT, {
       adapters: fakeAdapter().registry,
@@ -1082,25 +1144,28 @@ describe('runLoop with an unattended gatekeeper', () => {
     expect(sent).toHaveLength(1);
   });
 
-  it('ROUTE — an unattested run cannot be APPROVED past; the verdict is refused, not applied', () => {
-    const sys = world({ files: nestedAttestation() });
+  it('ROUTE — a run whose reviews are unaccounted for cannot be APPROVED past; the verdict is refused', () => {
+    // MIGRATED FROM EFFECTS_NOT_ATTESTED, which no longer reaches a reviewer at all. The property
+    // under test is APPLICABILITY — a verdict outside the stop's applicable set is refused rather
+    // than applied — and REVIEW_OUTSTANDING is now the stop that exercises it: it is routed to the
+    // gatekeeper and deliberately excludes APPROVED_TO_PROCEED, because one word must not discharge
+    // reviews nobody performed. The instruction is carried so this is the applicability refusal and
+    // not an earlier well-formedness one.
+    const sys = world({ files: unreadableFindings() });
     const sent: string[] = [];
     const r = runLoop(sys, ROOT, {
       adapters: fakeAdapter().registry,
       expectedDecider: 'ChatGPT',
-      // The one verdict that would be fail-open here: approving an attestation that does not exist.
-      // It carries an instruction so it passes checkGatekeeperDecision and the refusal under test is
-      // the APPLICABILITY refusal, not an earlier well-formedness one.
       gatekeeper: gatekeeper({ status: 200, body: decisionBody('APPROVED_TO_PROCEED', 'ship it') }, sent),
     });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.stop?.code).toBe('EFFECTS_NOT_ATTESTED');
+    expect(r.stop?.code).toBe('REVIEW_OUTSTANDING');
     expect(r.lines.join('\n')).toContain('which cannot answer this stop');
   });
 
   it('EVIDENCE — missing evidence is sent as missing, never as an empty or clean result', () => {
-    const sys = world({ files: nestedAttestation() });
+    const sys = world({ files: unreadableFindingsAndNestedAttestation() });
     const sent: string[] = [];
     runLoop(sys, ROOT, {
       adapters: fakeAdapter().registry,
@@ -1183,7 +1248,9 @@ describe('runLoop with an unattended gatekeeper', () => {
   it.each([
     ['WORKER_REFUSED', 3, () => cleanFindings(SESSION)],
     ['REVIEW_OUTSTANDING', 0, () => unreadableFindings()],
-    ['EFFECTS_NOT_ATTESTED', 0, () => nestedAttestation()],
+    // WAS EFFECTS_NOT_ATTESTED. That stop no longer reaches a reviewer, so it cannot exercise an
+    // unreachable one; a blocking finding is the third stop that does.
+    ['UNRESOLVED_CRITICAL_OR_HIGH', 0, () => ({ ...cleanFindings(SESSION), ...highFinding() })],
   ])('UNAVAILABLE — %s now reaches the owner three choices instead of ending silently', (code, exit, mk) => {
     const sys = world({ files: mk() });
     const sent: string[] = [];
@@ -1257,7 +1324,7 @@ describe('runLoop with an unattended gatekeeper', () => {
   };
 
   const runUnavailable = (availability: { reachable: boolean }, over: Record<string, unknown> = {}) => {
-    const sys = withCommittedOwner(world({ files: nestedAttestation() }));
+    const sys = withCommittedOwner(world({ files: unreadableFindings() }));
     const deps = gatekeeper({ status: 200, body: decisionBody('DO_NOT_PROCEED', null) });
     const r = runLoop(sys, ROOT, {
       adapters: fakeAdapter().registry,
@@ -1271,13 +1338,13 @@ describe('runLoop with an unattended gatekeeper', () => {
 
   it('WIRING — an unreachable transport yields the UNREACHABLE outage, end to end', () => {
     const { outage, stop } = runUnavailable({ reachable: false });
-    expect(stop).toBe('EFFECTS_NOT_ATTESTED');
+    expect(stop).toBe('REVIEW_OUTSTANDING');
     expect(outage).toBe(
       deriveUnavailabilityId({
         projectId: 'projectos',
         phaseId: PHASE,
         subjectCommit: HEAD,
-        stopCode: 'EFFECTS_NOT_ATTESTED',
+        stopCode: 'REVIEW_OUTSTANDING',
         cause: 'TRANSPORT_UNREACHABLE',
       }),
     );
@@ -1298,7 +1365,7 @@ describe('runLoop with an unattended gatekeeper', () => {
         projectId: 'projectos',
         phaseId: PHASE,
         subjectCommit: HEAD,
-        stopCode: 'EFFECTS_NOT_ATTESTED',
+        stopCode: 'REVIEW_OUTSTANDING',
         cause: 'TRANSPORT_NOT_APPROVED',
       }),
     );
@@ -1312,7 +1379,7 @@ describe('runLoop with an unattended gatekeeper', () => {
         projectId: 'projectos',
         phaseId: PHASE,
         subjectCommit: HEAD,
-        stopCode: 'EFFECTS_NOT_ATTESTED',
+        stopCode: 'REVIEW_OUTSTANDING',
         cause: 'TRANSPORT_NOT_CONFIGURED',
       }),
     );
@@ -1320,7 +1387,7 @@ describe('runLoop with an unattended gatekeeper', () => {
   });
 
   it('UNAVAILABLE — with a grant named but none committed, the degraded route REFUSES and no work runs', () => {
-    const sys = world({ files: nestedAttestation() });
+    const sys = world({ files: unreadableFindings() });
     const deps = gatekeeper({ status: 200, body: decisionBody('DO_NOT_PROCEED', null) });
     const r = runLoop(sys, ROOT, {
       adapters: fakeAdapter().registry,
@@ -1330,7 +1397,7 @@ describe('runLoop with an unattended gatekeeper', () => {
     });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.stop?.code).toBe('EFFECTS_NOT_ATTESTED');
+    expect(r.stop?.code).toBe('REVIEW_OUTSTANDING');
     // Reached the degraded route at all — the step the live run never got to.
     expect(r.degraded).not.toBeNull();
     expect(r.degraded?.kind).not.toBe('WORK_DONE');

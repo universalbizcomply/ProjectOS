@@ -110,12 +110,30 @@ export const STOP_ROUTES: { readonly [K in LoopStopCode]: StopRoute } = {
     rationale: 'a refusal is information about the brief; the brief may be amended but the refusal may not be overruled',
   },
   EFFECTS_NOT_ATTESTED: {
-    audience: 'gatekeeper',
-    // NEVER APPROVED_TO_PROCEED either: the unknown here is whether production was touched, and no
-    // amount of reviewing turns an absent record into a denial.
-    applicableVerdicts: ['AMENDMENT_REQUIRED', 'DO_NOT_PROCEED', 'AWAITING_OWNER'],
+    // MOVED OFF THE REVIEWER, AND IT COST $0.46 TO LEARN WHY.
+    //
+    // This stop was routed to the gatekeeper on the reasoning that "a run that never said what it did
+    // can be sent back to say so". That is true, and it is also something no reviewer is needed for.
+    // Whether a named local file exists is not a judgement — it is a fact the loop has already read,
+    // and the only verdict a reviewer could usefully return is AMENDMENT_REQUIRED, which says exactly
+    // what the loop already knows: ask the worker again. Two overnight runs proved it. Each paid a
+    // strong-tier model ~$0.23 to reply, in prose, that an effects attestation was absent — 63% of the
+    // whole night's provider spend, on the one question with a mechanical answer.
+    //
+    // SO THE LOOP ANSWERS IT ITSELF, FREE, FIRST: the runner re-asks the worker for the record within
+    // the same attempt budget (`attestationReasks`), and only a run that STILL wrote nothing after
+    // being asked again reaches this route. At that point the machine has done everything it can and
+    // the question is no longer "is the record missing" but "why will this worker not attest", which
+    // is the owner's to look at.
+    //
+    // THIS DOES NOT WEAKEN THE ATTESTATION REQUIREMENT — it hardens it. `applicableVerdicts: []` means
+    // no verdict can answer this stop, so there is no longer any verdict that could carry a run past a
+    // missing attestation. Absence still fails closed; it now fails closed for nothing.
+    audience: 'owner',
+    applicableVerdicts: [],
     rationale:
-      'a run that never said what it did can be sent back to say so; it cannot be certified as having ' +
+      'whether the record exists is a fact the loop already read, not a judgement a reviewer can add; ' +
+      'the worker has been asked again and still wrote none, and nothing may be certified as having ' +
       'done nothing',
   },
   PROTECTED_EFFECT: {

@@ -20,6 +20,7 @@
 import type { GovernedContext } from '../governedContext.js';
 import type { RepositoryObservation } from './observation.js';
 import { PROTECTED_EFFECT_FIELDS } from './outcome.js';
+import { configuredChecks } from './verification.js';
 
 export const BRIEF_SCHEMA_VERSION = '1.0.0';
 
@@ -42,6 +43,21 @@ export const EFFECTS_CONTRACT = {
   valueType: 'boolean',
   requiredFields: PROTECTED_EFFECT_FIELDS as readonly string[],
 } as const;
+
+/**
+ * WHO RUNS THE CONFIGURED CHECKS. ProjectOS does, and the worker was never told so.
+ *
+ * A worker that believes it must prove the suite passes will try to run it, discover it holds no
+ * shell grant, and end the attempt asking for an approval no one is there to give — which is what
+ * two overnight runs did before stopping with no records written at all. The loop then paid a
+ * strong-tier reviewer to observe that a local JSON file did not exist. The reviewer was not the
+ * problem; the worker not knowing who runs the checks was.
+ *
+ * A CONSTANT, PINNED BY EQUALITY, for the same reason `EFFECTS_CONTRACT` is: it is generated rather
+ * than copied from the plan, so the provenance walk cannot clear it, and exempting the subtree
+ * without pinning it would open the free-text channel the walk exists to close.
+ */
+export const VERIFICATION_CONTRACT = { runner: 'projectos' } as const;
 
 export interface WorkerBrief {
   readonly schemaVersion: string;
@@ -107,6 +123,16 @@ export interface WorkerBrief {
       /** Every field that must be present. */
       readonly requiredFields: readonly string[];
     };
+  };
+  /**
+   * WHO RUNS THE CHECKS, AND WHICH ONES. See `VERIFICATION_CONTRACT`.
+   *
+   * `runner` is generated and pinned; `checkIds` is copied from the project config, so the
+   * provenance walk covers it exactly as it covers every other copied field.
+   */
+  readonly verification: {
+    readonly runner: 'projectos';
+    readonly checkIds: readonly string[];
   };
   /** The limits the worker is bound by, copied from the project config it is running under. */
   readonly boundaries: {
@@ -207,6 +233,13 @@ export function buildWorkerBrief(
       requiredOwnerGates: strings(phase['requiredOwnerGates']),
     },
     records: { ...records, effectsContract: EFFECTS_CONTRACT },
+    verification: {
+      ...VERIFICATION_CONTRACT,
+      // The ids only. Not the commands, and not their arguments: those are absolute paths on the
+      // owner's machine, and a brief is a governance record the worker reads — it has no reason to
+      // learn where the owner keeps their toolchain.
+      checkIds: configuredChecks(context.config as unknown as Record<string, unknown>).checks.map((c) => c.id),
+    },
     boundaries: {
       forbiddenActions: context.config.forbiddenActions,
       approvalGates: context.config.approvalGates,
@@ -273,6 +306,11 @@ export function briefProvenanceProblems(
     // waved through: `effectsContractProblems` pins it to one exact value, which is a stricter test
     // than "appears somewhere in the plan". The skip is by exact PATH, so nothing else inherits it.
     if (path === 'brief.records.effectsContract') return;
+    // The second generated string, and the same treatment: `verificationContractProblems` pins it to
+    // one exact value, which the walk could not do because it comes from neither the plan, the
+    // config nor the checkout. Skipped by exact PATH, so `brief.verification.checkIds` — which IS
+    // copied from the config — is still walked.
+    if (path === 'brief.verification.runner') return;
     if (typeof value === 'string') {
       if (isExempt(key)) return;
       if (value.length > 0 && !sources.includes(JSON.stringify(value).slice(1, -1))) {
@@ -289,7 +327,35 @@ export function briefProvenanceProblems(
     }
   };
   walk(brief, 'brief', 'brief');
-  return [...problems, ...effectsContractProblems(brief)];
+  return [...problems, ...effectsContractProblems(brief), ...verificationContractProblems(brief)];
+}
+
+/**
+ * The verification contract is EXACTLY the generated one, and `checkIds` is exactly what the config
+ * declares — or the brief is refused.
+ *
+ * Same argument as `effectsContractProblems`: the walk skips `brief.verification.runner`, so without
+ * this the one string it cannot see would be defended by nothing. The key set is pinned too, so an
+ * added key — the "helpful hint" this whole module exists to keep out — is a refusal rather than a
+ * silent passenger. `checkIds` is NOT pinned here: it varies per project and the walk already proves
+ * every id came from the config.
+ */
+export function verificationContractProblems(brief: WorkerBrief): readonly string[] {
+  const v = brief.verification;
+  if (v === null || typeof v !== 'object') return ['the brief states no verification contract'];
+  const problems: string[] = [];
+  const keys = Object.keys(v).sort();
+  const expected = [...Object.keys(VERIFICATION_CONTRACT), 'checkIds'].sort();
+  if (keys.length !== expected.length || keys.some((k, i) => k !== expected[i])) {
+    problems.push(`the verification contract carries ${JSON.stringify(keys)}, not exactly ${JSON.stringify(expected)}`);
+  }
+  if (v.runner !== VERIFICATION_CONTRACT.runner) {
+    problems.push(`the verification contract names '${String(v.runner)}' as the runner, not '${VERIFICATION_CONTRACT.runner}'`);
+  }
+  if (!Array.isArray(v.checkIds) || v.checkIds.some((c) => typeof c !== 'string')) {
+    problems.push('the verification contract does not list the configured check ids as strings');
+  }
+  return problems;
 }
 
 /**

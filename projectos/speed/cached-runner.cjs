@@ -26,7 +26,7 @@ const path = require("path");
 const ROOT = path.resolve(__dirname, "..", "..");
 
 const cache = require("./validation-cache.cjs");
-const { buildInputMap } = require("./input-map.cjs");
+const { buildInputMap, validatorsInvalidatedBy } = require("./input-map.cjs");
 const scratch = require("../validators/lib/scratch.cjs");
 
 // The same module list as validate-all.cjs. Kept in sync by the validator
@@ -148,6 +148,15 @@ const MODULES = [
 
 const REGISTERED_MODULE_COUNT = MODULES.length;
 
+/**
+ * The mechanically binding secret scanner, which must be the sweep's FIRST module.
+ *
+ * Named as a constant so the runner and `validate-speed-validation-cache` enforce the same thing.
+ * See the snapshot note in `run()` for why its position is what makes the per-run hash memo safe for
+ * it, and what happens when it is not first.
+ */
+const SECRET_SCANNER = "validate-no-secrets";
+
 // ---------------------------------------------------------------------------
 // Runner
 // ---------------------------------------------------------------------------
@@ -167,13 +176,42 @@ function run(options) {
   const benchmark = opts.benchmark === true;
   const startTime = benchmark ? Date.now() : 0;
 
+  /**
+   * VALIDATORS THE CALLER HAS DECLARED CHANGED, so the cache must not answer for them.
+   *
+   * WHY THIS EXISTS, AND WHY IT CANNOT MAKE THE CACHE LOOSER. The benchmark has to measure what a
+   * data-only change and a targeted source change actually COST, and the only honest way to measure
+   * that is to run the validators such a change would invalidate. The alternative — editing a file,
+   * timing a run and reverting — mutates the governed checkout in the middle of a measurement, which
+   * is exactly the kind of thing a benchmark must not do.
+   *
+   * IT ONLY EVER FORCES A RUN. There is no value of this option that turns a miss into a hit: it is
+   * checked before the cache lookup and, when it matches, the lookup is skipped and the validator
+   * executes. Every fail-toward-run rule below is untouched, and a caller passing nonsense gets a
+   * SLOWER run, never a weaker one.
+   */
+  const forced = new Set(Array.isArray(opts.invalidate) ? opts.invalidate : []);
+
+  /**
+   * WHETHER A CHANGE WAS DECLARED AT ALL — which is not the same as whether it matched anything.
+   *
+   * A surface that projects onto zero validators would otherwise leave `forced` empty, take the
+   * suite short-circuit, and return in fifty milliseconds — a number that would be recorded as the
+   * cost of the declared scenario. That is the vacuous measurement this whole exercise exists to
+   * eliminate, so the short-circuit is refused whenever a change was declared, matched or not.
+   */
+  const declaredChange = opts.declaredChange === true || forced.size > 0;
+
   const results = [];
   let cacheHits = 0;
   let cacheMisses = 0;
   let total = 0;
 
   // --- Suite-level fast path ---
-  if (useCache) {
+  // SKIPPED ENTIRELY WHEN A CHANGE WAS DECLARED. The suite entry answers for all 141 at once, so
+  // taking it would silently ignore the caller's declaration that some of them changed — and would
+  // report a 50ms "measurement" of a scenario that never ran.
+  if (useCache && !declaredChange) {
     const suiteResults = cache.checkSuiteCache(ROOT);
     if (suiteResults !== null && suiteResults.length === REGISTERED_MODULE_COUNT) {
       // Verify every expected module is present
@@ -213,9 +251,50 @@ function run(options) {
   const libHash = cache.sharedLibHash(ROOT);
   const gitBefore = cache.gitState(ROOT);
 
+  // ONE SNAPSHOT OF THE TREE FOR THE WHOLE SWEEP. See `hashSnapshot` in validation-cache.cjs: the
+  // fifteen distinct declared input paths were being re-hashed once per declaration — 59.9s of
+  // identical digests where 1.8s of distinct ones would do. Closed at the end of the sweep, in a
+  // `finally`, so a crashing validator cannot leave a stale snapshot behind for the next caller in
+  // this process.
+  //
+  // AND ITS ONE RESIDUAL WINDOW, MADE INTO AN ENFORCED INVARIANT RATHER THAN AN ACCIDENT.
+  //
+  // Inside a snapshot the FIRST validator to touch a path fixes that path's digest for every later
+  // validator declaring it. `projectos/agent/src` is declared by 79 of 141, so sharing is the rule,
+  // not the exception — which means a late validator's cache decision is made against the tree as it
+  // was when an EARLY one looked. If a file changed in between, that sweep answers from the earlier
+  // digest and the change is caught by the NEXT sweep instead of this one.
+  //
+  // That needs a writer running concurrently with validation, which the operating model excludes: the
+  // worker has finished by the time checks run and holds no shell grant, and the sweep is a single
+  // synchronous read-only pass. It is still a WIDER window than the unmemoised code had, and the one
+  // validator where a widened window is unacceptable is the mechanically binding secret scanner.
+  //
+  // So the safety of `validate-no-secrets` is no longer an emergent property of a hand-maintained
+  // array. It is safe precisely when it is the sweep's FIRST module — then it is always the memo's
+  // producer and never its consumer, and the snapshot changes nothing at all for it. That condition
+  // is checked here, and when it does not hold the snapshot is simply not opened: hashing falls back
+  // to the old unmemoised behaviour, which is slower and narrower. Raised as MEDIUM by the security
+  // review of this change; the review's own recommendation was to make it mechanical rather than
+  // ordering-dependent.
+  //
+  // A REORDERING IS THEREFORE LOUD, NOT SILENT. Losing the snapshot costs ~58s a run, which the
+  // benchmark's five timing standards fail on immediately, and `validate-speed-validation-cache`
+  // asserts the ordering directly.
+  const snapshotSafe = MODULES[0] === SECRET_SCANNER;
+  if (!snapshotSafe) {
+    console.error(
+      "cached-runner: '" + SECRET_SCANNER + "' is not the first module, so the per-run hash snapshot " +
+      "is NOT used — every declared input is re-hashed per declaration, as it was before. Validation " +
+      "is unaffected; only its speed is."
+    );
+  }
+  if (snapshotSafe) cache.beginSnapshot();
+  try {
+
   for (const m of MODULES) {
     // Check per-validator cache
-    if (useCache) {
+    if (useCache && !forced.has(m)) {
       const validatorPath = path.join(ROOT, "projectos", "validators", m + ".cjs");
       const inputs = inputMap[m] || [];
       const keyResult = cache.computeCacheKey({
@@ -276,6 +355,10 @@ function run(options) {
     }
   }
 
+  } finally {
+    if (snapshotSafe) cache.endSnapshot();
+  }
+
   // Save suite cache if tree is clean and HEAD hasn't drifted
   if (useCache) {
     const gitAfter = cache.gitState(ROOT);
@@ -331,11 +414,36 @@ if (require.main === module) {
     process.exit(0);
   }
 
+  /**
+   * `--surface=<comma-separated paths>` — run as if exactly those paths had changed.
+   *
+   * THE BENCHMARK NEEDS ITS OWN PROCESS PER SCENARIO. Measuring several scenarios back to back
+   * inside one process produced numbers that were wrong by a factor of six: a data-only run measured
+   * 3.9s on its own and 23.8s after a warm-up in the same process. Whatever the cause — heap the
+   * size of every file digest in the repository, module graph, disk still settling — an operator
+   * runs validation once, in a fresh process, and that is what the standards describe. So the
+   * scenario is passed on the command line and timed from the outside.
+   *
+   * IT ONLY EVER FORCES A RUN. `validatorsInvalidatedBy` is a projection of the input map onto a
+   * declared change; the runner then refuses the cache for exactly those validators. Nothing here
+   * can turn a miss into a hit.
+   */
+  const surfaceArg = args.find((a) => a.startsWith("--surface="));
+  const surface = surfaceArg === undefined
+    ? []
+    : surfaceArg.slice("--surface=".length).split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+  const invalidate = surface.length === 0 ? [] : validatorsInvalidatedBy(surface, MODULES);
+  if (surface.length > 0) {
+    console.log("cached-runner: declared change to " + surface.join(", ") + " invalidates " + invalidate.length + " validator(s)");
+  }
+
   run({
     cache: !args.includes("--no-cache"),
     benchmark: args.includes("--benchmark"),
+    invalidate,
+    declaredChange: surface.length > 0,
     exit: true,
   });
 }
 
-module.exports = { run, MODULES, REGISTERED_MODULE_COUNT };
+module.exports = { run, MODULES, REGISTERED_MODULE_COUNT, SECRET_SCANNER };

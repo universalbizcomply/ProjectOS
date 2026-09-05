@@ -631,8 +631,18 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
    *
    * A missing record is now treated the way a failing check is: the same worker is dispatched again
    * within the SAME attempt budget, at no cost, and every check, review and gate downstream runs
-   * exactly as before. It buys one re-ask, not a second opinion — if the record is still absent the
-   * reviewer is consulted as it always was, and the reviewer is told this was already tried.
+   * exactly as before.
+   *
+   * AND THE GUARD USED TO MISS THE COMMON CASE. It was written `if (!effects.ok)`, which is the
+   * CORRUPT record — while `readEffects` reports an ABSENT one as `{ok:true, value:null}`. So the
+   * budget below was never spent on the shape that actually occurs, and two overnight runs went
+   * straight to the reviewer at ~$0.23 each, 63% of the night's spend, to be told a file was missing.
+   *
+   * WHAT HAPPENS WHEN IT IS STILL MISSING IS NOW THE OWNER, NOT THE REVIEWER. `STOP_ROUTES` moved
+   * `EFFECTS_NOT_ATTESTED` off the gatekeeper: whether a named local file exists is a fact the loop
+   * has already read, and the only verdict a reviewer could return is the re-ask this budget already
+   * bought. Nothing is weakened — the route now carries NO applicable verdict at all, so there is no
+   * longer any answer that could carry a run past a missing attestation.
    */
   let attestationReasks = 0;
   const MAX_ATTESTATION_REASKS = 1;
@@ -1622,28 +1632,49 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     // absence it is, rather than as a protected effect that was never claimed — `PROTECTED_EFFECT`
     // means the run said it did something, and this run said nothing usable.
     const effects = store.readEffects(sys, root, sessionId);
-    if (!effects.ok) {
-      // ASK AGAIN BEFORE PAYING. See `attestationReasks`. Nothing is authorised by this: the worker
-      // runs under the grants it already had, and the whole gate chain below is unchanged.
+
+    /**
+     * A MISSING ATTESTATION, ANSWERED LOCALLY: re-ask once, free, then stop on the owner.
+     *
+     * `'continue'` means another attempt should run; `'break'` means the run ends here. Nothing in
+     * it authorises anything — the worker is re-dispatched under the grants it already had, and the
+     * whole gate chain is untouched.
+     *
+     * IT IS NOT A GATE BEING SKIPPED. `STOP_ROUTES.EFFECTS_NOT_ATTESTED` is the owner's and carries
+     * no applicable verdict, so consulting would take a Doctor preflight and a routing round-trip to
+     * arrive at this same ending. The candidate is deliberately NOT sealed by `evidenceFor` either:
+     * nothing is being reviewed.
+     */
+    const answerUnattested = (why: string): 'continue' | 'break' => {
       if (attestationReasks < MAX_ATTESTATION_REASKS) {
         attestationReasks += 1;
         lines.push(
-          `  no effects attestation was written; asking ${resolution.worker.workerId} again before consulting the reviewer ` +
+          `  ${why}; asking ${resolution.worker.workerId} again ` +
             `(${attestationReasks} of ${MAX_ATTESTATION_REASKS}, no cost)`,
         );
-        continue;
+        return 'continue';
       }
-      const unattested: LoopStop = {
-        code: 'EFFECTS_NOT_ATTESTED',
-        detail: `${effects.problem}; the worker was asked again and still wrote none`,
-      };
-      const answered = applyReviewerAnswer(unattested, evidenceFor(unattested, {
-        checks: { available: true, value: checks },
-        findings: { available: true, value: findings.value },
-        effects: unavailable(effects.problem),
-      }));
-      if (answered === 'continue') continue;
-      if (stop === null) stop = unattested;
+      if (stop === null) {
+        stop = {
+          code: 'EFFECTS_NOT_ATTESTED',
+          detail:
+            `${why}; the worker was asked again and still wrote none. ` +
+            'Whether this run touched anything protected is unknown, and an absent record is not ' +
+            'evidence that nothing happened. No reviewer was consulted: whether the record exists is ' +
+            'a fact, not a judgement.',
+        };
+      }
+      return 'break';
+    };
+
+    // AN UNREADABLE RECORD IS HANDLED HERE BECAUSE NOTHING BELOW CAN READ IT. An ABSENT one is NOT:
+    // it goes on to `decideContinuation`, which raises EFFECTS_NOT_ATTESTED at the point of
+    // CERTIFICATION — after failing checks and blocking findings have had their say. Hoisting the
+    // absent case to here was a real regression: a run with an unresolved HIGH finding and no
+    // attestation stopped on the attestation, so the finding — the more serious fact, and the one
+    // with a reviewer who can answer it — was never reported.
+    if (!effects.ok) {
+      if (answerUnattested(effects.problem) === 'continue') continue;
       break;
     }
 
@@ -1676,6 +1707,16 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
 
 
     if (decision.kind === 'stop') {
+      // THE ONE STOP THE LOOP ANSWERS ITSELF. Raised here, at certification, once everything more
+      // serious has been ruled out — which is exactly where `decideContinuation` puts it. Whether a
+      // named local file exists is a fact the loop has already read, not a judgement, so it re-asks
+      // the worker for free and, failing that, ends on the owner. It never reaches a reviewer: two
+      // overnight runs paid ~$0.23 each for a strong-tier model to reply, in prose, that the file
+      // was missing — 63% of that night's spend on the one question with a mechanical answer.
+      if (decision.reason.code === 'EFFECTS_NOT_ATTESTED') {
+        if (answerUnattested(`no effects attestation was written to ${brief.records.effectsPath}`) === 'continue') continue;
+        break;
+      }
       // THE RELAY REMOVAL, at the one place the loop used to end. A reviewer that requires an
       // amendment sends the phase back through the SAME bounded correction budget as an ordinary
       // failing check - it does not get its own, and it cannot reset the one that exists.

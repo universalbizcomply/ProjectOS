@@ -236,6 +236,108 @@ function run() {
     errors.push("environmentFingerprint is not stable within a single process");
   }
 
+  // -----------------------------------------------------------------------
+  // 9. An unusable key result is a MISS, never a crash
+  // -----------------------------------------------------------------------
+  // `undefined` reached `undefined.coverage` and threw a TypeError, because the guard tested
+  // `=== null` only. Recorded as a latent defect in the readiness evidence and closed there; asserted
+  // here so it stays closed. The whole module's contract is that anything unusable falls toward
+  // running the validator, and a crash is not a miss — it takes the runner down with it.
+  for (const unusable of [null, undefined, "", 0, false, "a-key", 42]) {
+    let got;
+    try {
+      got = vc.checkValidatorCache(ROOT, "test-unusable", unusable);
+    } catch (e) {
+      errors.push("checkValidatorCache threw on an unusable key result (" + String(unusable) + "): " + e.message);
+      continue;
+    }
+    if (got !== null) {
+      errors.push("checkValidatorCache answered from cache for an unusable key result: " + String(unusable));
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // 10. The per-run hash snapshot changes no digest, and does not leak
+  // -----------------------------------------------------------------------
+  // The snapshot exists to stop the same directory being re-hashed once per declaration — 59.9s of
+  // identical digests, measured, where 1.6s of distinct ones will do. It is a performance change
+  // ONLY if the digest is identical either way, which is asserted rather than assumed. A digest that
+  // differed inside a snapshot would silently invalidate or, worse, silently match.
+  const probe = "projectos/schemas";
+  const bare = vc.hashDirectory(path.join(ROOT, probe));
+  vc.beginSnapshot();
+  const first = vc.hashDirectory(path.join(ROOT, probe));
+  const second = vc.hashDirectory(path.join(ROOT, probe));
+  vc.endSnapshot();
+  const after = vc.hashDirectory(path.join(ROOT, probe));
+  if (bare !== first || first !== second || second !== after) {
+    errors.push("the per-run hash snapshot changes the digest: " + [bare, first, second, after].join(" / "));
+  }
+  // And an ended snapshot is really ended: a stale one would carry one run's view of the tree into
+  // the next, which is the one way this optimisation could become a false hit.
+  vc.beginSnapshot();
+  vc.endSnapshot();
+  const keyA = vc.computeCacheKey({
+    root: ROOT, validatorName: "validate-examples",
+    validatorPath: path.join(ROOT, "projectos/validators/validate-examples.cjs"),
+    inputPaths: [probe], envHash: vc.environmentFingerprint(), libHash: vc.sharedLibHash(ROOT),
+  });
+  if (keyA === null || keyA.coverage !== "full") {
+    errors.push("a readable declared input did not produce full coverage after a closed snapshot");
+  }
+
+  // -----------------------------------------------------------------------
+  // 11. Declared-change projection reaches in both directions
+  // -----------------------------------------------------------------------
+  // `validatorsInvalidatedBy` is measurement-only — no cache decision consults it — but a projection
+  // that under-reported the blast radius would make the benchmark measure a cheaper scenario than
+  // the one it names. Containment has to work both ways round: a declaration can contain a change
+  // (`.projectops` declared, `.projectops/proof` changed) and a change can contain a declaration
+  // (`projectos` changed, `projectos/examples` declared).
+  const { pathsIntersect, validatorsInvalidatedBy } = require("../speed/input-map.cjs");
+  const intersects = [
+    [".projectops", ".projectops/proof", true],
+    ["projectos/examples", "projectos", true],
+    ["projectos/examples", "projectos/examples", true],
+    ["projectos/example", "projectos/examples", false],
+    ["projectos/core/src", "projectos/agent/src", false],
+  ];
+  for (const [a, b, want] of intersects) {
+    if (pathsIntersect(a, b) !== want) {
+      errors.push("pathsIntersect('" + a + "','" + b + "') should be " + want);
+    }
+  }
+  // A validator with no declaration is invalidated by everything, because the cache runs it anyway.
+  const projected = validatorsInvalidatedBy([".projectops"], ["validate-project-plan", "validate-examples", "no-such-validator"]);
+  if (!projected.includes("validate-project-plan")) errors.push("projection missed a validator declaring .projectops");
+  if (projected.includes("validate-examples")) errors.push("projection invalidated a validator that declares no .projectops path");
+  if (!projected.includes("no-such-validator")) errors.push("projection excused an undeclared validator, which the cache always runs");
+
+  // -----------------------------------------------------------------------
+  // 12. The secret scanner runs FIRST, which is what makes the hash snapshot safe for it
+  // -----------------------------------------------------------------------
+  // Inside a per-run snapshot the first validator to touch a path fixes that path's digest for every
+  // later validator declaring it. `validate-no-secrets` declares `projectos` and `knowledge`, which
+  // between them contain almost every other declared path — so if it ran late it would be deciding
+  // from a digest taken by someone else, at a moment it did not choose. Running first makes it always
+  // the memo's PRODUCER and never its consumer, so the snapshot changes nothing at all for it.
+  //
+  // Raised as MEDIUM by the security review of the snapshot change: the property held, but only as an
+  // accident of a hand-maintained array that another file is "kept in sync" with. This is the check
+  // that stops it being an accident. `cached-runner` also refuses to open the snapshot when it does
+  // not hold, so a reordering costs speed rather than correctness — and this says so out loud.
+  const { SECRET_SCANNER, MODULES: RUNNER_MODULES } = require("../speed/cached-runner.cjs");
+  if (RUNNER_MODULES[0] !== SECRET_SCANNER) {
+    errors.push(
+      "the cached runner's first module is '" + RUNNER_MODULES[0] + "', not '" + SECRET_SCANNER +
+      "'; the secret scanner must run first or the per-run hash snapshot decides its cache key from a " +
+      "digest another validator took"
+    );
+  }
+  if (validateAllModules[0] !== SECRET_SCANNER) {
+    errors.push("validate-all's first module is '" + validateAllModules[0] + "', not '" + SECRET_SCANNER + "'");
+  }
+
   return errors;
 }
 

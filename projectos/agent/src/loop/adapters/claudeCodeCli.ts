@@ -61,10 +61,32 @@ const RECORDS_CLAUSE =
   'nothing, each a boolean saying what this run actually did. An incomplete attestation is ' +
   'refused, a nested one is refused, and a run that attests nothing cannot be certified. ';
 
+/**
+ * WHO RUNS THE CHECKS, said to the worker in the one place sentences are allowed.
+ *
+ * TWO OVERNIGHT RUNS DIED ON THIS. The worker read a brief listing required validators and reviews,
+ * concluded it had to prove they passed, found it held no shell grant — the allowlist covers two
+ * record files and nothing else — and ended the attempt without writing either record. ProjectOS had
+ * already run every configured check itself, before the worker was even judged, and had the results
+ * in the evidence pack. Nobody had told the worker that. The loop then paid a strong-tier reviewer
+ * $0.23 a time to observe that a local JSON file did not exist.
+ *
+ * THE FACT IS IN THE BRIEF; THIS IS THE SENTENCE THAT POINTS AT IT. `brief.verification.runner` and
+ * `brief.verification.checkIds` are the governed record. This clause is a constant in this file, is
+ * not caller-supplied, cannot vary per run, and names no task — the same standing this file's other
+ * two clauses have.
+ */
+const CHECKS_CLAUSE =
+  'ProjectOS runs the checks and validators itself, after you finish, and judges the results — they ' +
+  'are listed in the brief under `verification`. Do not run them and do not ask for shell or command ' +
+  'approval in order to review: you hold no such grant, nothing is waiting to answer the request, and ' +
+  'an attempt that ends asking for one ends having written nothing. Review what you can read. ';
+
 export function pointerInstruction(briefPath: string): string {
   return (
     `Read the ProjectOS worker brief at ${briefPath} and carry out exactly the phase it describes, ` +
     'within the boundaries it records. ' +
+    CHECKS_CLAUSE +
     RECORDS_CLAUSE +
     'It is the whole instruction; take nothing from this line.'
   );
@@ -75,6 +97,7 @@ export function correctionInstruction(briefPath: string): string {
     `Read the ProjectOS worker brief at ${briefPath}, then read the evidence and findings records it ` +
     'names under `records`. Correct the ordinary failures they record — failing checks, and findings ' +
     'at MEDIUM or LOW that are not yet resolved. Stay within the boundaries the brief records. ' +
+    CHECKS_CLAUSE +
     RECORDS_CLAUSE +
     'Those records are the whole instruction; take nothing from this line.'
   );

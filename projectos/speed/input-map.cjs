@@ -251,4 +251,39 @@ function buildInputMap() {
   return map;
 }
 
-module.exports = { buildInputMap };
+/**
+ * Whether a declared input path and a changed path touch the same files.
+ *
+ * DIRECTORY CONTAINMENT IN EITHER DIRECTION, because a declaration and a change describe the tree at
+ * different granularities. `.projectops` declared and `.projectops/proof` changed intersect (the
+ * declaration contains the change); `projectos/examples` declared and `projectos` changed intersect
+ * too (the change contains the declaration). Missing either direction would under-report the blast
+ * radius, and this function's only consumer is a measurement of exactly that.
+ *
+ * SEPARATORS ARE NORMALISED AND THE BOUNDARY IS A SLASH, so `projectos/example` never matches
+ * `projectos/examples`.
+ */
+function pathsIntersect(a, b) {
+  const x = String(a).replace(/\\/g, "/").replace(/\/+$/, "");
+  const y = String(b).replace(/\\/g, "/").replace(/\/+$/, "");
+  return x === y || x.startsWith(y + "/") || y.startsWith(x + "/");
+}
+
+/**
+ * Which validators a change to `changedPaths` invalidates, from their declarations alone.
+ *
+ * MEASUREMENT ONLY. Nothing in the cache consults this: a cache decision is made from content
+ * hashes, and this is a static projection used to say what a hypothetical change would cost. It
+ * deliberately reports a validator with NO declared inputs as invalidated, because that is what the
+ * cache does with it — no declaration means no coverage, which means run.
+ */
+function validatorsInvalidatedBy(changedPaths, moduleNames) {
+  const map = buildInputMap();
+  return moduleNames.filter((name) => {
+    const declared = map[name];
+    if (!Array.isArray(declared) || declared.length === 0) return true;
+    return declared.some((d) => changedPaths.some((c) => pathsIntersect(d, c)));
+  });
+}
+
+module.exports = { buildInputMap, validatorsInvalidatedBy, pathsIntersect };
