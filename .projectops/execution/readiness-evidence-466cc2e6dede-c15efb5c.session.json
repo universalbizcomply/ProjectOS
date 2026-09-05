@@ -1,0 +1,15 @@
+{
+  "startedAt": "2026-09-05T04:59:35.297Z",
+  "providerRef": "d54145fc-aa2d-4a3a-9889-ed64f4001ca4",
+  "state": "rejoined",
+  "exitCode": 0,
+  "corrections": 1,
+  "invocationId": "c15efb5cc8256bd1",
+  "sessionId": "readiness-evidence-466cc2e6dede-c15efb5c",
+  "workerId": "claude-local",
+  "kind": "claude-code-cli",
+  "phaseId": "readiness-evidence",
+  "briefId": "readiness-evidence@466cc2e6dede105d3168b2ddca832cc99a8dc31a",
+  "briefPath": "C:\\dev\\ProjectOS/.projectops/execution/readiness-evidence-466cc2e6dede-c15efb5c.brief.json",
+  "timedOut": false
+}

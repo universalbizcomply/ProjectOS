@@ -1,17 +1,17 @@
 {
   "schemaVersion": "1.0.0",
   "projectId": "projectos",
-  "phaseId": "gatekeeper-replay",
-  "state": "COMPLETE",
-  "sessionId": "gatekeeper-replay-97f1731150cd-fceeaf81",
+  "phaseId": "readiness-evidence",
+  "state": "BLOCKED",
+  "sessionId": "readiness-evidence-466cc2e6dede-c15efb5c",
   "attempt": 1,
-  "subjectCommit": "97f1731150cd234c4cf9b95cf858a8056762e43b",
-  "lastCompletedStep": "technical-continuation:push",
-  "lastStopCode": null,
-  "lastStopDetail": null,
+  "subjectCommit": "466cc2e6dede105d3168b2ddca832cc99a8dc31a",
+  "lastCompletedStep": "checks ran for attempt 2",
+  "lastStopCode": "REVIEW_OUTSTANDING",
+  "lastStopDetail": "the approved plan requires Owner review of readiness evidence and READY/NOT READY verdict for this phase and no finding record exists for them in this run; a review that did not happen has not passed",
   "evidenceSessionId": null,
-  "gateDecisionId": "GKDEC-GKREQ-5552a9f7919bf02ac96187c3",
+  "gateDecisionId": null,
   "nextCandidateAction": null,
-  "ownerRequired": false,
-  "updatedAt": "2026-09-05T03:33:24.008Z"
+  "ownerRequired": true,
+  "updatedAt": "2026-09-05T05:33:19.734Z"
 }

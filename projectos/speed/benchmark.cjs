@@ -16,14 +16,24 @@
  */
 const os = require("os");
 const path = require("path");
+const { execFileSync } = require("child_process");
 const ROOT = path.resolve(__dirname, "..", "..");
 const cache = require("./validation-cache.cjs");
+
+function rustVersion() {
+  try {
+    return execFileSync("rustc", ["--version"], { timeout: 5000, encoding: "utf8" }).trim();
+  } catch (_) {
+    return "unknown";
+  }
+}
 
 function environment() {
   return {
     platform: process.platform,
     arch: process.arch,
     nodeVersion: process.version,
+    rustVersion: rustVersion(),
     osRelease: os.release(),
     osType: os.type(),
     cpuModel: os.cpus()[0] ? os.cpus()[0].model : "unknown",

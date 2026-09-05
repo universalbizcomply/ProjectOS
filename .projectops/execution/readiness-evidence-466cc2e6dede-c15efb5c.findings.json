@@ -1,0 +1,60 @@
+{
+  "reviews": [
+    "Independent validation and benchmark evidence review",
+    "Cache fail-toward-run correctness review",
+    "Doctor mandatory and advisory boundary review",
+    "Gatekeeper replay zero-provider-spend review",
+    "Benchmark environment completeness correction"
+  ],
+  "findings": [
+    {
+      "id": "F1-CACHE-FAIL-TOWARD",
+      "severity": "LOW",
+      "category": "validation-correctness",
+      "summary": "Cache fail-toward-run behavior is structurally sound: computeCacheKey returns null on unreadable source/lib, checkValidatorCache refuses non-full coverage, readEntry returns null on corrupt/missing/schema-mismatch entries, checkSuiteCache returns null on dirty tree/wrong HEAD/expired/key-mismatch. Every unknown or degraded condition produces a MISS (run validation). Verified in validation-cache.cjs lines 132-135, 141-158, 244-265, 341-363, 389-391.",
+      "resolved": true
+    },
+    {
+      "id": "F2-DOCTOR-BOUNDARIES",
+      "severity": "LOW",
+      "category": "governance-boundary",
+      "summary": "Doctor is mandatory for exactly 3 contexts (autonomous-execution, paid-gatekeeper-dispatch, technical-continuation) enforced at runner.ts lines 474, 870, 1316, and 1756. MANDATORY_CONTEXTS is a closed list at doctor.ts:74-78. Advisory-only for browsing/inspection/preview: governed-directory check has severity 'advisory' (doctor.ts:234). No boundary gap found.",
+      "resolved": true
+    },
+    {
+      "id": "F3-REPLAY-ZERO-SPEND",
+      "severity": "LOW",
+      "category": "provider-spend",
+      "summary": "Gatekeeper replay is zero-provider-spend by construction: gatekeeperReplay.test.ts imports only checkGatekeeperDecision (pure function) and fs/path for fixture reading. No transport, credential, broker, or HTTP client is imported. 51 tests pass without network access. Replay fixtures are redacted and normalised minimum-contract data derived from committed B9 decision records.",
+      "resolved": true
+    },
+    {
+      "id": "F4-BENCHMARK-TARGETS",
+      "severity": "LOW",
+      "category": "performance",
+      "summary": "All timing targets met on the reference environment (Windows 11, Node v24.14.1, 13th Gen Intel i5-13420H, 15.7 GB RAM): suite cache check 65ms (target ≤2000ms), full cached run with cache hits within warm target (≤2000ms). benchmarkFailures() correctly reads fullCachedRun and judges every measurement — a missing measurement is itself a failure (benchmark.cjs lines 144-185).",
+      "resolved": true
+    },
+    {
+      "id": "F5-RUST-VERSION-UNVERIFIABLE",
+      "severity": "MEDIUM",
+      "category": "environment",
+      "summary": "CORRECTED. The benchmark's environment() function did not record the Rust toolchain version. Added rustVersion() to benchmark.cjs: spawns `rustc --version` with a 5-second timeout, returns 'unknown' on failure. The field now appears in the environment summary alongside nodeVersion, platform, arch, CPU, and memory, satisfying the acceptance criterion that names Rust 1.96 as part of the reference environment record.",
+      "resolved": true
+    },
+    {
+      "id": "F6-VALIDATE-ALL-PASS",
+      "severity": "LOW",
+      "category": "validation",
+      "summary": "validate-all passes with 141+ validators (all PASS), core tests 682/682 passed, agent tests all passed including 51 replay tests, agent typecheck passed. The mechanically binding validator is satisfied.",
+      "resolved": true
+    },
+    {
+      "id": "F7-VERDICT-NO-AUTOSTART",
+      "severity": "LOW",
+      "category": "governance-boundary",
+      "summary": "This evidence collection does not start Forge Programme C or authorise any protected action. The verdict is a record, not an action. The plan's requiredOwnerGates explicitly require a separate owner programme-transition decision.",
+      "resolved": true
+    }
+  ]
+}

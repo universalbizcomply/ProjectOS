@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "1.0.0",
+  "recordKind": "gatekeeper-decision-evidence",
+  "decisionId": "GKDEC-GKREQ-ca1337d60e14564c13d6a839",
+  "projectId": "projectos",
+  "phaseId": "readiness-evidence",
+  "subjectCommit": "466cc2e6dede105d3168b2ddca832cc99a8dc31a",
+  "requestDigest": "sha256:a54d6d6e7199360f44109bd87e9d8d88a0f7655c6ba66b0fe99c3d8d0e5c70a6",
+  "decision": "AWAITING_OWNER",
+  "reason": "The evidence and technical checks are complete, with all findings resolved and effects attested absent, but the phase explicitly requires an Owner review of readiness evidence and a READY/NOT READY verdict. No owner readiness verdict or corresponding finding record exists in this run, so the phase cannot proceed to technical continuation.",
+  "allowedActions": [
+    "preserve-and-present-readiness-evidence",
+    "prepare-owner-readiness-decision-brief",
+    "record-owner-ready-or-not-ready-verdict-when-provided",
+    "run-non-mutating-verification"
+  ],
+  "forbiddenActions": [
+    "commit",
+    "push",
+    "merge",
+    "force-push",
+    "phase-closure",
+    "secrets-handling",
+    "payment-or-live-charge",
+    "deploy",
+    "database-mutation",
+    "external-message",
+    "credential-creation",
+    "credential-disclosure",
+    "forge-programme-transition"
+  ],
+  "ownerApprovalRequired": true,
+  "decidedBy": "ChatGPT",
+  "decidedAt": "2026-09-05T05:33:12.000Z"
+}

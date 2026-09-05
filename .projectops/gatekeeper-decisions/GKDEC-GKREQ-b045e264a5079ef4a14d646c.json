@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "1.0.0",
+  "recordKind": "gatekeeper-decision-evidence",
+  "decisionId": "GKDEC-GKREQ-b045e264a5079ef4a14d646c",
+  "projectId": "projectos",
+  "phaseId": "readiness-evidence",
+  "subjectCommit": "466cc2e6dede105d3168b2ddca832cc99a8dc31a",
+  "requestDigest": "sha256:8c383e8ead23ec4002a8a5bd7f4e71db23c4a220e014ec6fad3b36944e48f164",
+  "decision": "AWAITING_OWNER",
+  "reason": "The bound readiness-evidence run lacks an effects attestation and required review records. An absent effects record cannot establish that no protected effects occurred, so the listed passing checks are insufficient to authorize technical continuation.",
+  "allowedActions": [
+    "preserve-current-evidence",
+    "inspect-effects-attestation-status",
+    "inspect-review-record-status",
+    "prepare-owner-decision-brief",
+    "run-non-mutating-verification"
+  ],
+  "forbiddenActions": [
+    "commit",
+    "push",
+    "merge",
+    "force-push",
+    "phase-closure",
+    "secrets-handling",
+    "payment-or-live-charge",
+    "deploy",
+    "database-mutation",
+    "external-message",
+    "credential-creation",
+    "credential-disclosure",
+    "unscoped-source-edits"
+  ],
+  "ownerApprovalRequired": true,
+  "decidedBy": "ChatGPT",
+  "decidedAt": "2026-09-05T04:58:32.000Z"
+}

@@ -1,0 +1,43 @@
+{
+  "phaseId": "readiness-evidence",
+  "project": "projectos",
+  "objective": "Produce the bounded benchmark and evidence needed to determine Forge autonomy-proof readiness, without initiating further hardening or Forge Programme C.",
+  "status": "awaiting_review",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-09-05T04:42:02.776Z",
+      "note": "recorded by the autonomous loop (WAITING_AI)"
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-09-05T04:42:02.776Z",
+      "note": "recorded by the autonomous loop (WAITING_AI)"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-09-05T04:58:29.284Z",
+      "note": "recorded by the autonomous loop (VALIDATING)"
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-09-05T04:58:29.474Z",
+      "note": "recorded by the autonomous loop (AWAITING_GATE)"
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-09-05T04:58:29.475Z",
+      "note": "recorded by the autonomous loop (AWAITING_GATE)"
+    }
+  ]
+}

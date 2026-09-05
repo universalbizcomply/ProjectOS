@@ -715,6 +715,32 @@
       },
       "costMicroUsd": 239105,
       "at": "2026-09-05T03:50:50.236Z"
+    },
+    {
+      "requestId": "GKREQ-b045e264a5079ef4a14d646c",
+      "projectId": "projectos",
+      "phaseId": "readiness-evidence",
+      "model": "gpt-5.6-terra",
+      "usage": {
+        "inputTokens": 184232,
+        "cachedInputTokens": 0,
+        "outputTokens": 432
+      },
+      "costMicroUsd": 234610,
+      "at": "2026-09-05T04:58:29.739Z"
+    },
+    {
+      "requestId": "GKREQ-ca1337d60e14564c13d6a839",
+      "projectId": "projectos",
+      "phaseId": "readiness-evidence",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "inputTokens": 187452,
+        "cachedInputTokens": 0,
+        "outputTokens": 516
+      },
+      "costMicroUsd": 18952,
+      "at": "2026-09-05T05:33:10.474Z"
     }
   ]
 }
