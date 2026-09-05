@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "1.0.0",
+  "recordKind": "gatekeeper-decision-evidence",
+  "decisionId": "GKDEC-GKREQ-a0057e482a37fedc6168d8de",
+  "projectId": "projectos",
+  "phaseId": "gatekeeper-replay",
+  "subjectCommit": "97f1731150cd234c4cf9b95cf858a8056762e43b",
+  "requestDigest": "sha256:0c306b6414561ed7904cfe5da85d2fad3890888de0ceb2948d870e7634f4aa88",
+  "decision": "AWAITING_OWNER",
+  "reason": "The gate is blocked because the current gatekeeper-replay run has no effects attestation. An absent record cannot establish that protected effects did not occur. Required review records are also absent for this run. Listed passing checks do not replace current effects and review evidence.",
+  "allowedActions": [
+    "preserve-current-evidence",
+    "inspect-effects-attestation-status",
+    "inspect-review-record-status",
+    "prepare-owner-decision-brief",
+    "run-non-mutating-verification"
+  ],
+  "forbiddenActions": [
+    "commit",
+    "push",
+    "merge",
+    "force-push",
+    "phase-closure",
+    "secrets-handling",
+    "payment-or-live-charge",
+    "deploy",
+    "database-mutation",
+    "external-message",
+    "credential-creation",
+    "credential-disclosure",
+    "unscoped-source-edits"
+  ],
+  "ownerApprovalRequired": true,
+  "decidedBy": "ChatGPT",
+  "decidedAt": "2026-09-05T03:20:18.000Z"
+}

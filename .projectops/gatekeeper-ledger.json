@@ -676,6 +676,32 @@
       },
       "costMicroUsd": 230603,
       "at": "2026-09-05T02:24:58.070Z"
+    },
+    {
+      "requestId": "GKREQ-a0057e482a37fedc6168d8de",
+      "projectId": "projectos",
+      "phaseId": "gatekeeper-replay",
+      "model": "gpt-5.6-terra",
+      "usage": {
+        "inputTokens": 179324,
+        "cachedInputTokens": 0,
+        "outputTokens": 494
+      },
+      "costMicroUsd": 229095,
+      "at": "2026-09-05T03:20:16.114Z"
+    },
+    {
+      "requestId": "GKREQ-5552a9f7919bf02ac96187c3",
+      "projectId": "projectos",
+      "phaseId": "gatekeeper-replay",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "inputTokens": 182409,
+        "cachedInputTokens": 0,
+        "outputTokens": 549
+      },
+      "costMicroUsd": 18461,
+      "at": "2026-09-05T03:33:11.289Z"
     }
   ]
 }

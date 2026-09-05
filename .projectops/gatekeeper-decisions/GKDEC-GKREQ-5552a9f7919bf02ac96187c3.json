@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "1.0.0",
+  "recordKind": "gatekeeper-decision-evidence",
+  "decisionId": "GKDEC-GKREQ-5552a9f7919bf02ac96187c3",
+  "projectId": "projectos",
+  "phaseId": "gatekeeper-replay",
+  "subjectCommit": "97f1731150cd234c4cf9b95cf858a8056762e43b",
+  "requestDigest": "sha256:ca3411658be667f951231722d238dd93dd3192dd721f042ef4043dc52368063b",
+  "decision": "APPROVED_TO_PROCEED",
+  "reason": "All required checks passed, the required security/privacy and gatekeeper contract reviews are recorded, all findings are resolved, effects are attested absent, and the candidate change is within the effective projectos/agent/test/replay/** worker grant. The phase delegates the exact bounded continuation actions of commit and push; no paid dispatch is requested.",
+  "allowedActions": [
+    "commit",
+    "push"
+  ],
+  "forbiddenActions": [
+    "merge",
+    "force-push",
+    "phase-closure",
+    "secrets-handling",
+    "payment-or-live-charge",
+    "deploy",
+    "database-mutation",
+    "external-message",
+    "credential-creation",
+    "credential-disclosure",
+    "unrelated-file-changes",
+    "paid-gatekeeper-dispatch"
+  ],
+  "ownerApprovalRequired": false,
+  "decidedBy": "ChatGPT",
+  "decidedAt": "2026-09-05T03:33:13.000Z"
+}

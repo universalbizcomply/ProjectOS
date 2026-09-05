@@ -2,7 +2,7 @@
   "phaseId": "gatekeeper-replay",
   "project": "projectos",
   "objective": "Provide fast, privacy-safe offline replay of accepted gatekeeper contracts for reliable governed testing without provider spend.",
-  "status": "awaiting_review",
+  "status": "awaiting_closure",
   "history": [
     {
       "from": "draft",
@@ -38,6 +38,13 @@
       "by": "implementer",
       "at": "2026-09-05T03:20:15.804Z",
       "note": "recorded by the autonomous loop (AWAITING_GATE)"
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "advisor",
+      "at": "2026-09-05T03:33:24.009Z",
+      "note": "work complete; the loop recorded this and awaits the owner, after a recorded gate decision"
     }
   ]
 }
