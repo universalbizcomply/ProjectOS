@@ -12,3 +12,10 @@ unsafe_code = "forbid"
 [dependencies]
 # Already used throughout the host tree for content digests. No new third-party surface.
 sha2 = "0.10"
+# THE canonical trust-manifest model, its ONE canonical signing-byte function, the production ES256
+# verifier and `verify_execution_closure`. Depended on rather than reimplemented: a second opinion
+# about which bytes are signed is how a signature scheme quietly becomes decorative.
+projectos-host-identity = { path = "../host-identity" }
+# THE packaging contract's fixed repository paths. The Host reads the closure artefacts at THESE
+# paths, never at the ones an unverified manifest declares — see `run_gatekeeper_review`.
+projectos-packaged-runtime-contract = { path = "../packaged-runtime-contract" }

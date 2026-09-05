@@ -25,6 +25,9 @@
 
 #![forbid(unsafe_code)]
 
+/// THE HOST OPERATION: the ordered production decision for one independent gatekeeper review.
+pub mod operation;
+
 use std::collections::HashSet;
 use std::io::Read;
 
@@ -214,6 +217,15 @@ pub fn accept_request_body(
 /// Consumption here is SEPARATE from attestation consumption. Both are one-shot and they protect
 /// different things: this stops the same question being asked twice, the attestation's own one-shot
 /// state stops the same answer being spent twice.
+///
+/// IN MEMORY ONLY, AND THAT LIMIT IS REAL. `consumed` lives in this process, so a host restart
+/// forgets every request it has answered. If a live inbox implementation does not also delete the
+/// request file on consumption, the same correlation could be accepted again after a restart and
+/// re-executed against a paid provider. That is a repeat-cost and repeat-review exposure rather than
+/// an integrity break — the second run would mint its own correctly-attributed attestation with its
+/// own provider response id, not forge or overwrite the first — but "cannot be replayed" is not yet
+/// true across a restart, and saying so plainly is better than a guarantee that quietly has a
+/// boundary. Durable lifecycle state is owed by the phase that gives this crate a real store.
 #[derive(Debug, Default)]
 pub struct RequestLifecycle {
     /// A SET, not a list. A linear scan over an ever-growing vector makes every later review pay for
