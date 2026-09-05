@@ -1,0 +1,22 @@
+{
+  "phaseId": "doctor-preflight",
+  "evidenceSubjectHead": "6c829a296269bcef4143f3cf606fdc77cae28b18",
+  "validatorsPass": true,
+  "checksPass": true,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "unresolvedCritical": 0,
+  "unresolvedHighIds": [],
+  "headedProofPass": false,
+  "establishedAt": "2026-09-05T03:24:00.000Z",
+  "notes": [
+    "Authored under the owner's standing authorisation of 2026-09-05 to record closure evidence, given after the assistant stopped to ask on validation-cache. Every field is transcribed from a record a governed step produced; none is asserted on the assistant's judgement.",
+    "validatorsPass: .projectops/validation/6c829a296269bcef4143f3cf606fdc77cae28b18.json records 141 of 141 registered modules PASS from a clean working tree at this exact subject, including the one validator this phase requires, validate-no-secrets.",
+    "checksPass: the run that landed d3c8e29 recorded PASS for all five configured checks - validate-no-secrets, core-tests, agent-tests, agent-typecheck and speed-benchmark.",
+    "reviewsComplete: the worker recorded both reviews this phase requires - governance review of mandatory versus advisory execution boundaries, and performance and failure-mode review.",
+    "unresolved counts: the latest findings record lists three findings, all resolved. Zero unresolved CRITICAL, zero unresolved HIGH. An earlier attempt in the same run carried one unresolved LOW, which the loop corrected by itself without owner involvement.",
+    "headedProofPass is false because no headed proof was run. This phase does not require one (requiredBrowserProof is false in the approved plan), and recording a proof that never happened would be the exact failure this record exists to prevent.",
+    "Separately from the worker's own reviews, two ECC reviews were run on the enforcement boundary and returned 0 CRITICAL and 0 HIGH after four defects were fixed: a write-probe inside the reviewed candidate rated HIGH by both reviewers independently, a blocking check that skipped bare-name commands while reporting them verified, a regex whose backslash did not survive being a string, and the absence of any test capable of failing if the three enforcement sites were deleted.",
+    "The gatekeeper was unreachable on the first attempt (HTTP 429, credit balance exhausted). The loop refused to proceed and named the owner's choices rather than self-reviewing. The owner restored credits; the work was unchanged between the refusal and the approval."
+  ]
+}
