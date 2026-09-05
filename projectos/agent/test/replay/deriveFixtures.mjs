@@ -140,8 +140,31 @@ files.forEach((f, i) => {
   const fixture = normalise(raw, i);
   // One fixture per distinct CONTRACT SHAPE, not one per historical record. Twelve copies of the
   // same shape would make the suite slower and prove nothing extra.
+  //
   // The key must name EVERY field the checker's outcome can turn on, or two records the contract
   // treats differently collapse into one and the difference is never captured.
+  //
+  // CORRESPONDENCE WITH checkGatekeeperDecision (gatekeeperDecision.ts):
+  //   Keyed here           Checker branch
+  //   ─────────────────    ──────────────────────────────────────────────
+  //   decision             verdict vocabulary, continuation, owner-gated
+  //   allowedActions       owner-only grant check, array validity
+  //   forbiddenActions     array presence check
+  //   ownerApprovalRequired boolean type + owner-gated consistency
+  //   decidedBy            decider identity + implementer guard
+  //   nextClaudeInstruction continuation instruction presence
+  //   consumedAt           consumption marker replay guard
+  //
+  // NOT KEYED (uniform across all source records after normalisation):
+  //   schemaVersion        always "1.0.0" — the only accepted value
+  //   decisionId           normalised to GKDEC-REPLAY-NN — always valid
+  //   decidedAt            normalised to a fixed timestamp — always present
+  //   reason               normalised to synthetic text — always present
+  //   projectId/phaseId/subjectCommit/requestDigest — binding checks only,
+  //     normalised to synthetic values, tested via mutation in the suite
+  //
+  // IF THE CHECKER GAINS A NEW DISCRIMINATING FIELD, add it here or two
+  // records it now treats differently will collapse into one fixture.
   const shape = JSON.stringify([
     fixture.decision,
     fixture.allowedActions,

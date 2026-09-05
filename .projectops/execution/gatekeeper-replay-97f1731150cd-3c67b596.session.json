@@ -1,0 +1,15 @@
+{
+  "startedAt": "2026-09-05T03:16:02.150Z",
+  "providerRef": "3e566b34-ec0c-451f-8192-5c9968e2175f",
+  "state": "started",
+  "exitCode": 0,
+  "corrections": 0,
+  "invocationId": "3c67b596f7617ad9",
+  "sessionId": "gatekeeper-replay-97f1731150cd-3c67b596",
+  "workerId": "claude-local",
+  "kind": "claude-code-cli",
+  "phaseId": "gatekeeper-replay",
+  "briefId": "gatekeeper-replay@97f1731150cd234c4cf9b95cf858a8056762e43b",
+  "briefPath": "C:\\dev\\ProjectOS/.projectops/execution/gatekeeper-replay-97f1731150cd-3c67b596.brief.json",
+  "timedOut": false
+}

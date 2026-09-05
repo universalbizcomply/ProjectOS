@@ -1,0 +1,94 @@
+{
+  "schemaVersion": "1.0.0",
+  "briefId": "gatekeeper-replay@97f1731150cd234c4cf9b95cf858a8056762e43b",
+  "generatedAt": "2026-09-05T03:16:02.072Z",
+  "projectId": "projectos",
+  "projectName": "ProjectOS",
+  "repository": {
+    "root": "C:\\dev\\ProjectOS",
+    "remote": "universalbizcomply/ProjectOS",
+    "branch": "projectos-post-v3-selfhost-pilot1a",
+    "head": "97f1731150cd234c4cf9b95cf858a8056762e43b"
+  },
+  "plan": {
+    "path": "C:\\dev\\ProjectOS/.projectops/plan-67aabc6989dbc9e9-c38a9fee4466.json",
+    "planId": "plan-67aabc6989dbc9e9-c38a9fee4466",
+    "planVersion": "1.3"
+  },
+  "phase": {
+    "phaseId": "gatekeeper-replay",
+    "description": "Provide fast, privacy-safe offline replay of accepted gatekeeper contracts for reliable governed testing without provider spend.",
+    "dependsOn": [
+      "doctor-preflight"
+    ],
+    "acceptanceCriteria": [
+      "Replay completes in 2 seconds or less on the recorded reference environment with zero provider spend.",
+      "Fixtures contain only minimum redacted and normalised contract data needed for replay, including coverage derived from the four committed B9 decision records and synthetic adversarial cases.",
+      "Replay neither requires nor exposes credentials, secrets, raw provider prompts, or unnecessary full provider responses.",
+      "The configured project test suites run and the mechanically binding validator validate-no-secrets passes.",
+      "Paid gatekeeper dispatch remains subject to mandatory Doctor preflight and existing owner gates."
+    ],
+    "riskLevel": "high",
+    "autonomyLevel": "gated-execution",
+    "requiredValidators": [
+      "validate-no-secrets"
+    ],
+    "requiredReviews": [
+      "Security/privacy review of fixture derivation and redaction",
+      "Gatekeeper contract and zero-provider-spend review"
+    ],
+    "requiredBrowserProof": false,
+    "requiredOwnerGates": [
+      "No production deployment, database mutation, messaging, payment, credential creation or disclosure, force push, or merge.",
+      "Any paid gatekeeper dispatch remains owner-gated and requires mandatory Doctor preflight."
+    ]
+  },
+  "records": {
+    "briefPath": "C:\\dev\\ProjectOS/.projectops/execution/gatekeeper-replay-97f1731150cd-3c67b596.brief.json",
+    "findingsPath": "C:\\dev\\ProjectOS/.projectops/execution/gatekeeper-replay-97f1731150cd-3c67b596.findings.json",
+    "effectsPath": "C:\\dev\\ProjectOS/.projectops/execution/gatekeeper-replay-97f1731150cd-3c67b596.effects.json",
+    "evidencePath": "C:\\dev\\ProjectOS/.projectops/execution/gatekeeper-replay-97f1731150cd-3c67b596.evidence.json",
+    "effectsContract": {
+      "location": "top-level",
+      "valueType": "boolean",
+      "requiredFields": [
+        "productionTouched",
+        "deploymentOccurred",
+        "databaseMutationOccurred",
+        "externalSendOccurred",
+        "paymentOccurred",
+        "rawSecretStored"
+      ]
+    }
+  },
+  "boundaries": {
+    "forbiddenActions": [
+      "production-deploy",
+      "production-db-mutation",
+      "real-email-sms-whatsapp",
+      "payment-or-live-charge",
+      "force-push",
+      "use-anthropic-api",
+      "provider-credential-access",
+      "store-real-secret",
+      "modify-projectos-v2-core",
+      "modify-v2-closure-records",
+      "modify-polygo"
+    ],
+    "approvalGates": [
+      "commit",
+      "push",
+      "phase-closure",
+      "secrets-handling",
+      "production-deploy",
+      "production-db-mutation",
+      "real-email-sms-whatsapp",
+      "payment-or-live-charge"
+    ],
+    "protectedBranches": [
+      "main",
+      "projectos-v2-core"
+    ],
+    "productionFreeze": true
+  }
+}
