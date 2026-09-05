@@ -2,7 +2,7 @@
   "phaseId": "doctor-preflight",
   "project": "projectos",
   "objective": "Make Doctor a fast, reliable mandatory preflight for the specified autonomous and paid governed actions.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "advisor",
       "at": "2026-09-05T02:08:55.494Z",
       "note": "work complete; the loop recorded this and awaits the owner, after a recorded gate decision"
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "advisor",
+      "at": "2026-09-05T02:25:53.615Z",
+      "note": "closed by the closure transport on the owner-committed record — closed by ChatGPT under the projectos-scoped phase-closure delegation, decision closure:doctor-preflight:6c829a296269bcef"
     }
   ]
 }

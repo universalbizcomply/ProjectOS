@@ -10,5 +10,6 @@
   "decision": "close",
   "note": "Close at the stated evidence subject. The phase is awaiting closure; the approved plan is ready, the phase is in the active plan, required validation and configured checks pass, required reviews are complete, and there are no unresolved CRITICAL or HIGH findings. Headed proof is recorded absent, but it is not required for this phase. The implementation subject is an ancestor of the clean, remotely reconciled implementation head with no substantive changes since the evidence subject. No protected effect occurred, and the closure evidence reports all G4 conditions satisfied.",
   "ownerAcceptedFindings": [],
-  "requestDigest": "sha256:8d7b08ad914f43754b7e1e92194397dea18d9c9586dbcfe207a2b2ebc63f33f1"
+  "requestDigest": "sha256:8d7b08ad914f43754b7e1e92194397dea18d9c9586dbcfe207a2b2ebc63f33f1",
+  "consumedAt": "2026-09-05T02:25:53.617Z"
 }
