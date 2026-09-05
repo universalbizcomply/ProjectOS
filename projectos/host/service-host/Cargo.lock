@@ -106,6 +106,7 @@ dependencies = [
 name = "projectos-host-identity"
 version = "0.0.0"
 dependencies = [
+ "projectos-packaged-runtime-contract",
  "projectos-windows-runtime-primitives",
  "serde",
  "serde_json",
@@ -197,6 +198,10 @@ dependencies = [
  "projectos-host-windows-capability-preflight",
  "thiserror",
 ]
+
+[[package]]
+name = "projectos-packaged-runtime-contract"
+version = "0.0.0"
 
 [[package]]
 name = "projectos-trust-contract"

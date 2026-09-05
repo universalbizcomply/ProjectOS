@@ -48,6 +48,76 @@
 //! use projectos_host_windows_local_ipc::Nonce;
 //! let _ = Nonce::from_fixed_bytes([0u8; 32]);
 //! ```
+//!
+//! ## The request-scoped C4 authority ladder is not forgeable from outside
+//!
+//! These examples are compiled as an EXTERNAL consumer of this crate, so they are a proof rather
+//! than a claim: the ones marked `compile_fail` genuinely do not build, and `cargo test` fails if
+//! any of them ever starts building.
+//!
+//! The untrusted rung IS reachable, deliberately — a parsed delegation record is a claim, and
+//! claims are meant to be constructible:
+//!
+//! ```
+//! use projectos_host_windows_local_ipc::{
+//!     OperationClass, OwnerProgrammeDelegation, DELEGATION_DIGEST_LEN, MAX_DELEGATED_PHASES,
+//! };
+//! let _claim = OwnerProgrammeDelegation {
+//!     delegation_id: [0u8; DELEGATION_DIGEST_LEN],
+//!     owner: [0u8; DELEGATION_DIGEST_LEN],
+//!     project: [0u8; DELEGATION_DIGEST_LEN],
+//!     repository: [0u8; DELEGATION_DIGEST_LEN],
+//!     plan: [0u8; DELEGATION_DIGEST_LEN],
+//!     plan_digest: [0u8; DELEGATION_DIGEST_LEN],
+//!     allowed_phases: [[0u8; DELEGATION_DIGEST_LEN]; MAX_DELEGATED_PHASES],
+//!     allowed_phase_count: 0,
+//!     operation: OperationClass::IndependentGatekeeperReview,
+//!     model_policy: [0u8; DELEGATION_DIGEST_LEN],
+//!     credential_ref: [0u8; DELEGATION_DIGEST_LEN],
+//!     budget_ceiling_micro_usd: 0,
+//!     expires_at_epoch_s: 0,
+//!     revoked_or_completed: false,
+//! };
+//! ```
+//!
+//! A VERIFIED delegation cannot be fabricated — the seal field is private and there is no
+//! constructor:
+//!
+//! ```compile_fail
+//! use projectos_host_windows_local_ipc::VerifiedOwnerProgrammeDelegation;
+//! let _forged = VerifiedOwnerProgrammeDelegation { delegation: todo!(), _seal: todo!() };
+//! ```
+//!
+//! ```compile_fail
+//! use projectos_host_windows_local_ipc::VerifiedOwnerProgrammeDelegation;
+//! let _forged: VerifiedOwnerProgrammeDelegation = VerifiedOwnerProgrammeDelegation::for_test(todo!());
+//! ```
+//!
+//! Host-resolved facts cannot be fabricated without one either — the constructor demands it, and the
+//! fields are private:
+//!
+//! ```compile_fail
+//! use projectos_host_windows_local_ipc::HostResolvedRequestFacts;
+//! let _forged = HostResolvedRequestFacts { project: todo!(), _seal: todo!() };
+//! ```
+//!
+//! Owner presence itself is not even NAMEABLE from outside this crate, which is stronger than being
+//! unconstructible:
+//!
+//! ```compile_fail
+//! use projectos_host_windows_local_ipc::RequestScopedOwnerPresence;
+//! ```
+//!
+//! ```compile_fail
+//! use projectos_host_windows_local_ipc::satisfy_c4_for_gatekeeper_request;
+//! ```
+//!
+//! And an authorised operation still has no constructor at all:
+//!
+//! ```compile_fail
+//! use projectos_host_windows_local_ipc::AuthorisedProtectedOperation;
+//! let _forged = AuthorisedProtectedOperation { _seal: todo!(), correlation: todo!(), operation: todo!(), service_epoch: todo!() };
+//! ```
 
 mod adapter;
 mod contracts;
@@ -168,6 +238,30 @@ pub use operation_contract::{
     ProtectedOperationRequest, ProtectedOperationResponse, RejectionReason, ResponseState,
     ResultClass, TerminalStatus, TrustedPeerContext, APPROVAL_REF_LEN, BINDING_DIGEST_LEN,
     CORRELATION_LEN, EVIDENCE_REF_LEN, SESSION_REF_LEN,
+};
+
+// The REQUEST-SCOPED C4 surface, exported at the narrowest shape that still lets the host use it.
+//
+// WHAT IS DELIBERATELY ABSENT, and it is the whole point of this list: `RequestScopedOwnerPresence`
+// and `satisfy_c4_for_gatekeeper_request` are NOT here. They are crate-private, so owner presence is
+// a value no downstream crate can name, hold, store or carry between requests — it is minted inside
+// `evaluate_protected_operation` and consumed in the same expression.
+//
+// WHAT IS HERE, and why each is safe to expose:
+//   * `OwnerProgrammeDelegation` — the UNTRUSTED parsed record. Constructible on purpose; it is a
+//     claim, and holding one satisfies nothing because the evaluator will not accept it.
+//   * `VerifiedOwnerProgrammeDelegation` — sealed, no public constructor. A consumer can receive and
+//     read one; it can never make one.
+//   * `HostResolvedRequestFacts` — sealed, and its constructor demands the verified delegation, so
+//     fabricated facts are not a rung of their own.
+//   * `GatekeeperDelegationEvidence` — a borrow of the two sealed values plus the host's own clock
+//     and the claimed phase. Assembling it is not a way around the ladder.
+//
+// So a downstream crate can build the untrusted DTO and nothing above it. That is the property.
+pub use operation_contract::{
+    GatekeeperDelegationEvidence, HostResolvedFacts, HostResolvedRequestFacts,
+    OwnerProgrammeDelegation, VerifiedOwnerProgrammeDelegation, DELEGATION_DIGEST_LEN,
+    MAX_DELEGATED_PHASES,
 };
 /// Resolve the ProjectOSHost pipe security STATUS, read-only.
 ///

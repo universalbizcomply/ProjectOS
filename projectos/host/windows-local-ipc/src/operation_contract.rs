@@ -25,9 +25,21 @@
 //! ## C4
 //!
 //! [`OwnerPresenceGate`] has exactly one variant and `is_closed()` returns `false` unconditionally.
-//! While that holds, [`evaluate_protected_operation`] can only ever answer
-//! [`RejectionReason::OwnerPresenceGateOpen`]. There is deliberately no constructor, feature flag or
-//! test hook in this crate that produces a closed gate.
+//! There is deliberately no constructor, feature flag or test hook in this crate that produces a
+//! closed gate, and that has not changed.
+//!
+//! What HAS changed is that the gate is no longer the only way owner presence can be established.
+//! [`OperationClass::IndependentGatekeeperReview`] — and no other class — may additionally satisfy
+//! C4 for ONE request, via a [`RequestScopedOwnerPresence`] derived from an exact owner programme
+//! delegation the host validated for itself (see [`satisfy_c4_for_gatekeeper_request`]). That
+//! presence is sealed, carries the correlation and class it was minted for, and is re-checked
+//! against both inside [`evaluate_protected_operation`], so it cannot be reused for a second request
+//! or presented for a different operation.
+//!
+//! For every other class the answer is still [`RejectionReason::OwnerPresenceGateOpen`], and a
+//! request that arrives without a validated delegation is refused exactly as it was before. The
+//! distinction this module now draws is between "C4 is closed" — which remains false — and "owner
+//! presence was proven for this one review", which is what a delegation actually says.
 
 use crate::protocol::{
     parse_single_frame, write_frame_header, FrameParseError, MessageKind, Nonce, HEADER_LEN,
@@ -62,6 +74,18 @@ pub enum OperationClass {
     ProviderIdentityRead,
     /// A staging-scoped, non-mutating provider read.
     StagingRead,
+    /// ONE ProjectOS-governed independent review, executed under an exact owner programme delegation.
+    ///
+    /// WHAT IT IS NOT, and the name is chosen to make each of these unsayable: it is not a generic
+    /// provider call, not generic HTTP, not "run the broker", not "execute a command", and not an
+    /// arbitrary AI request. It names one thing — an independent review of a governed candidate — and
+    /// a host that only knows how to do that cannot be talked into doing anything else.
+    ///
+    /// It is also the ONLY class for which C4 can be satisfied, and only per request. See
+    /// [`satisfy_c4_for_gatekeeper_request`]. The other two classes keep the unconditional hard stop.
+    ///
+    /// Added for RUN-TO-COMPLETION HOST ATTESTATION — IPC / C4 INTEGRATION.
+    IndependentGatekeeperReview,
 }
 
 impl OperationClass {
@@ -71,6 +95,7 @@ impl OperationClass {
         match self {
             Self::ProviderIdentityRead => 1,
             Self::StagingRead => 2,
+            Self::IndependentGatekeeperReview => 3,
         }
     }
 
@@ -80,8 +105,19 @@ impl OperationClass {
         Some(match value {
             1 => Self::ProviderIdentityRead,
             2 => Self::StagingRead,
+            3 => Self::IndependentGatekeeperReview,
             _ => return None,
         })
+    }
+
+    /// Whether an owner PROGRAMME delegation may ever satisfy C4 for this class.
+    ///
+    /// Exactly one class, checked as a value rather than assumed by the caller. A delegation that
+    /// somehow named another class must not be able to open the gate for it — which is the whole
+    /// difference between "C4 can be closed for a gatekeeper review" and "C4 can be closed".
+    #[must_use]
+    pub const fn may_be_delegated_by_programme(self) -> bool {
+        matches!(self, Self::IndependentGatekeeperReview)
     }
 }
 
@@ -441,6 +477,354 @@ impl OwnerPresenceGate {
 }
 
 // -------------------------------------------------------------------------------------------------
+// REQUEST-SCOPED C4 — the owner PROGRAMME delegation path
+//
+// RUN-TO-COMPLETION HOST ATTESTATION — C4 AUTHORITY BOUNDARY.
+//
+// WHAT THIS IS NOT. It is not a way to close C4. `OwnerPresenceGate` is untouched, still has one
+// variant, and still returns `false` from `is_closed()` — every other protected operation keeps the
+// unconditional hard stop it has today, and nothing here can change that.
+//
+// WHAT IT IS. A second, narrower route to owner presence for exactly one operation class, satisfied
+// for exactly one request, derived from an owner programme delegation whose provenance the host
+// verified. There is no configuration, no feature flag, no CLI flag, and no literal phrase whose
+// possession is sufficient: a phrase can only ever be the human transcription that PRODUCES a durable
+// delegation record, and it is the VERIFIED record that carries runtime authority. Replaying the
+// words grants nothing.
+//
+// THE AUTHORITY LADDER, AND WHY EACH RUNG EXISTS.
+//
+//   OwnerProgrammeDelegation              a CLAIM. Caller-constructible on purpose — it is a parsed
+//                                         record, and parsing proves only that bytes were well formed.
+//                                         Alone it satisfies nothing.
+//        ↓  host-verified provenance
+//   VerifiedOwnerProgrammeDelegation      SEALED. No public constructor. This is the rung that makes
+//                                         a delegation Murad's rather than merely a file saying so.
+//        ↓  requires the sealed delegation
+//   HostResolvedRequestFacts              SEALED. Constructible only while holding a verified
+//                                         delegation, so fabricated facts mint nothing on their own.
+//        ↓  request-scoped evaluation
+//   RequestScopedOwnerPresence            SEALED and crate-private. Never named outside this crate.
+//        ↓
+//   evaluate_protected_operation
+//
+// A downstream crate can build the first rung and nothing above it. That is the property: an
+// untrusted DTO is constructible, authority is not.
+// -------------------------------------------------------------------------------------------------
+
+/// Bounded length of an identity or record digest carried in these facts.
+pub const DELEGATION_DIGEST_LEN: usize = 32;
+
+/// The most phases one delegation may cover.
+pub const MAX_DELEGATED_PHASES: usize = 32;
+
+/// The owner's durable Run-to-Completion delegation, AS PARSED. **This is a claim, not authority.**
+///
+/// Public and caller-constructible deliberately: it is the untrusted DTO rung of the ladder above,
+/// exactly as [`ProtectedOperationRequest`] is for the wire. Holding one grants nothing —
+/// [`satisfy_c4_for_gatekeeper_request`] cannot be reached with it, because that function takes the
+/// SEALED [`VerifiedOwnerProgrammeDelegation`] instead.
+///
+/// EVERY FIELD IS A BOUND, NOT A HINT. A delegation that names a plan is not a delegation to review
+/// whatever the caller asks about; it authorises this programme, this plan at this digest, these
+/// phases, this operation, this credential purpose, up to this ceiling, until it expires.
+///
+/// WHAT IT CAN NEVER IMPLY, and none of it is representable here: production deployment, database
+/// mutation, destructive database action, real email or SMS, payment or refund, signing or any
+/// private-key operation, material credential modification, force push or history rewrite, a
+/// commercial or scope decision, a constitutional or governance change, or acceptance of an
+/// unresolved CRITICAL or HIGH finding. There is no field through which any of those could arrive,
+/// which is a stronger statement than a list of things this code promises not to do.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OwnerProgrammeDelegation {
+    /// Digest of the delegation record itself — its identity, and what an attestation cites.
+    pub delegation_id: [u8; DELEGATION_DIGEST_LEN],
+    /// Digest of the owner identity the record names. A NAME, never a proof: see
+    /// [`VerifiedOwnerProgrammeDelegation`] for what actually makes this delegation the owner's.
+    pub owner: [u8; DELEGATION_DIGEST_LEN],
+    /// Digest of the project id this delegation is for.
+    pub project: [u8; DELEGATION_DIGEST_LEN],
+    /// Digest of the canonical repository identity (`host/owner/name`), so a project id alone cannot
+    /// impersonate another checkout.
+    pub repository: [u8; DELEGATION_DIGEST_LEN],
+    /// Digest of the exact plan id.
+    pub plan: [u8; DELEGATION_DIGEST_LEN],
+    /// The exact plan digest. A delegation follows one plan, not a plan name that can be re-authored.
+    pub plan_digest: [u8; DELEGATION_DIGEST_LEN],
+    /// Digests of the phase ids this delegation covers. Bounded: a delegation that could name
+    /// unlimited phases is a programme-wide delegation wearing a phase list.
+    pub allowed_phases: [[u8; DELEGATION_DIGEST_LEN]; MAX_DELEGATED_PHASES],
+    /// How many entries of `allowed_phases` are real. Beyond this the array is padding.
+    pub allowed_phase_count: u8,
+    /// The ONE operation class this delegation may satisfy C4 for.
+    pub operation: OperationClass,
+    /// Digest of the allowed provider/model policy identity.
+    pub model_policy: [u8; DELEGATION_DIGEST_LEN],
+    /// Digest of the allowed credential reference/purpose. Never a credential, never a value.
+    pub credential_ref: [u8; DELEGATION_DIGEST_LEN],
+    /// Ceiling in micro-USD for the programme this delegation covers.
+    pub budget_ceiling_micro_usd: u64,
+    /// Expiry as a Unix epoch in seconds. Compared against the host's own clock, never a caller's.
+    pub expires_at_epoch_s: u64,
+    /// Whether the host observed this delegation as completed or revoked. Either ends it.
+    pub revoked_or_completed: bool,
+}
+
+/// A delegation whose PROVENANCE the host established — the rung that makes it the owner's.
+///
+/// SEALED. No public constructor, no `Default`, no `From`, no serde. A downstream crate can hold one
+/// and read nothing forgeable out of it, and cannot make one.
+///
+/// ## What will mint this in production, and why it is deliberately absent today
+///
+/// The production mint CONSUMES AN OWNED `projectos_host_core::owner_presence::VerifiedOwnerPresence`.
+/// That type is the existing, already-accepted answer to "what makes this Murad's": it has no public
+/// constructor either, and the only routes to one are
+///
+///   * `verify_owner_presence` — the FIXTURE/contract verifier, compiled only under
+///     `cfg(any(test, feature = "test-fixtures"))`, which yields no production authority; and
+///   * `verify_production_owner_presence` — which requires a single-use
+///     `ProductionOwnerPresenceBindingGrant`, issued only by the sealed
+///     `ProductionOwnerPresenceCapability` from `Production`-sourced, explicitly confirmed evidence,
+///     ultimately a `VerifiedWindowsOwnerEvidence` proof digest from the platform crate.
+///
+/// So the answer to "what fact makes the programme delegation Murad's?" is NOT `delegation.owner`,
+/// and NOT that the agent wrote a record saying so. It is an owned `VerifiedOwnerPresence`, which the
+/// agent cannot manufacture.
+///
+/// That mint is NOT written here, and the omission is deliberate rather than an oversight. This
+/// crate takes `projectos-host-core` with default features only — no fixture authority in the graph —
+/// so a `VerifiedOwnerPresence` cannot be obtained here at all today, in tests or otherwise. Writing
+/// a production signature that nothing can call and nothing can test would be a claim rather than a
+/// control. The sealed CONTRACT is defined and exercised instead, exactly as `TrustedPeerContext`
+/// does for peer identity, and wiring the real presence is a later owner-gated phase.
+#[derive(Debug)]
+pub struct VerifiedOwnerProgrammeDelegation {
+    _seal: Seal,
+    delegation: OwnerProgrammeDelegation,
+}
+
+impl VerifiedOwnerProgrammeDelegation {
+    /// TEST-ONLY. `cfg(test)` and private, so it exists in NO shipped graph — not the default build
+    /// and not the non-default fixture build — and cannot be reached by any caller in any crate.
+    ///
+    /// It exists solely so the request-scoped C4 path can be exercised with a delegation PRESENT,
+    /// which is a strictly stronger test than exercising it with `None`. It mints no owner presence
+    /// of its own: everything below still has to agree.
+    #[cfg(test)]
+    fn for_test(delegation: OwnerProgrammeDelegation) -> Self {
+        Self {
+            _seal: Seal,
+            delegation,
+        }
+    }
+
+    /// The delegation whose provenance was verified. Read-only; the fields are a copy of the record,
+    /// and holding this reference confers nothing beyond reading it.
+    #[must_use]
+    pub fn delegation(&self) -> &OwnerProgrammeDelegation {
+        &self.delegation
+    }
+}
+
+/// What the HOST independently resolved about this request — never what the caller said about it.
+///
+/// SEALED, and constructible only via [`HostResolvedRequestFacts::resolved_by_host`], which requires
+/// a [`VerifiedOwnerProgrammeDelegation`]. Fabricated facts therefore mint nothing on their own: a
+/// caller that cannot obtain a verified delegation cannot obtain facts either, and a caller that
+/// somehow held a verified delegation is already past the rung that matters.
+///
+/// The caller's frame carries digests; these are the values the host derived for itself from
+/// repository state, the plan record and the phase record. Any disagreement is a refusal.
+/// NOT `Copy` AND NOT `Clone`, deliberately. These facts now carry the host's clock reading, and a
+/// cacheable bundle containing a clock is a clock that goes stale: a caller could resolve one set
+/// per phase for efficiency and reuse it across many correlations, silently freezing the expiry
+/// check against a reading from long before real time passed `expires_at_epoch_s`. Without `Copy`
+/// each request must construct its own, which is the natural place to take a fresh reading. Raised
+/// by the Rust review as the trade this move introduced.
+#[derive(Debug, PartialEq, Eq)]
+pub struct HostResolvedRequestFacts {
+    _seal: Seal,
+    project: [u8; DELEGATION_DIGEST_LEN],
+    repository: [u8; DELEGATION_DIGEST_LEN],
+    plan: [u8; DELEGATION_DIGEST_LEN],
+    plan_digest: [u8; DELEGATION_DIGEST_LEN],
+    phase: [u8; DELEGATION_DIGEST_LEN],
+    model_policy: [u8; DELEGATION_DIGEST_LEN],
+    credential_ref: [u8; DELEGATION_DIGEST_LEN],
+    committed_spend_micro_usd: u64,
+    admitted_cost_micro_usd: Option<u64>,
+    protected_effect_requested: bool,
+    now_epoch_s: u64,
+}
+
+/// What the host resolved, as NAMED FIELDS.
+///
+/// The constructor used to take twelve positional arguments, seven of them `[u8; 32]` and three of
+/// them `u64`. Transposing `project` and `repository`, or `plan` and `plan_digest`, would have
+/// compiled silently and bound the delegation to the wrong thing — the compiler cannot tell one
+/// digest from another. Named fields make that mistake a build error instead.
+///
+/// This struct is plain data and caller-constructible; it is not a rung of the authority ladder. The
+/// SEALED thing is what comes out of [`HostResolvedRequestFacts::resolved_by_host`], which still
+/// demands a verified delegation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HostResolvedFacts {
+    pub project: [u8; DELEGATION_DIGEST_LEN],
+    pub repository: [u8; DELEGATION_DIGEST_LEN],
+    pub plan: [u8; DELEGATION_DIGEST_LEN],
+    pub plan_digest: [u8; DELEGATION_DIGEST_LEN],
+    pub phase: [u8; DELEGATION_DIGEST_LEN],
+    pub model_policy: [u8; DELEGATION_DIGEST_LEN],
+    pub credential_ref: [u8; DELEGATION_DIGEST_LEN],
+    pub committed_spend_micro_usd: u64,
+    /// `None` when the cost could not be established. An unknown cost is refused, never spent as
+    /// zero — that is how a ceiling stops being one.
+    pub admitted_cost_micro_usd: Option<u64>,
+    pub protected_effect_requested: bool,
+    /// The HOST's own clock reading, taken for THIS request. A clock a caller could supply is a
+    /// delegation that never expires.
+    pub now_epoch_s: u64,
+}
+
+impl HostResolvedRequestFacts {
+    /// Record what the host resolved. Requires a verified delegation, so facts are never a rung of
+    /// their own.
+    #[must_use]
+    pub fn resolved_by_host(
+        _delegation: &VerifiedOwnerProgrammeDelegation,
+        f: HostResolvedFacts,
+    ) -> Self {
+        Self {
+            _seal: Seal,
+            project: f.project,
+            repository: f.repository,
+            plan: f.plan,
+            plan_digest: f.plan_digest,
+            phase: f.phase,
+            model_policy: f.model_policy,
+            credential_ref: f.credential_ref,
+            committed_spend_micro_usd: f.committed_spend_micro_usd,
+            admitted_cost_micro_usd: f.admitted_cost_micro_usd,
+            protected_effect_requested: f.protected_effect_requested,
+            now_epoch_s: f.now_epoch_s,
+        }
+    }
+}
+
+/// Everything the request-scoped C4 path needs, gathered so [`evaluate_protected_operation`] keeps
+/// one optional authority argument rather than four.
+///
+/// The two authority members are sealed types, so assembling this is not a way around the ladder;
+/// `requested_phase` is the caller's CLAIM and is checked against both of them.
+#[derive(Debug, Clone, Copy)]
+pub struct GatekeeperDelegationEvidence<'a> {
+    /// The delegation whose provenance the host verified.
+    pub delegation: &'a VerifiedOwnerProgrammeDelegation,
+    /// What the host independently resolved for this request.
+    pub facts: &'a HostResolvedRequestFacts,
+    /// The phase this request CLAIMS. Untrusted by design — it is compared against the host's own
+    /// resolution in `facts.phase` and against the delegation's allowed list, and a disagreement with
+    /// either is a refusal.
+    pub requested_phase: &'a [u8; DELEGATION_DIGEST_LEN],
+}
+
+/// Owner presence, satisfied for ONE request and nothing else.
+///
+/// CRATE-PRIVATE. It is never exported, never named by a downstream crate, and never returned across
+/// a public boundary: [`evaluate_protected_operation`] mints it internally and consumes it in the
+/// same call. Keeping it unnameable is stronger than keeping it unconstructible.
+#[derive(Debug)]
+struct RequestScopedOwnerPresence {
+    correlation: [u8; CORRELATION_LEN],
+    operation: OperationClass,
+}
+
+impl RequestScopedOwnerPresence {
+    /// Whether this presence was minted for exactly this request and class.
+    fn answers(&self, correlation: &[u8; CORRELATION_LEN], operation: OperationClass) -> bool {
+        &self.correlation == correlation && self.operation == operation
+    }
+}
+
+/// Derive request-scoped owner presence from a VERIFIED owner programme delegation, or `None`.
+///
+/// CRATE-PRIVATE, for the same reason the type it returns is: the only way to reach it is through
+/// [`evaluate_protected_operation`], so there is no second entry point to keep in step.
+///
+/// `None` IS THE DEFAULT ANSWER. Every check below refuses; none of them grants. A reader should be
+/// able to satisfy themselves that removing any single check makes something reachable that the owner
+/// did not delegate.
+#[must_use]
+fn satisfy_c4_for_gatekeeper_request(
+    evidence: &GatekeeperDelegationEvidence<'_>,
+    request: &ProtectedOperationRequest,
+) -> Option<RequestScopedOwnerPresence> {
+    let delegation = evidence.delegation.delegation();
+    let facts = evidence.facts;
+    let requested_phase = evidence.requested_phase;
+
+    // 1. ONE CLASS, EVER. A delegation that named anything else cannot open the gate for it, and the
+    //    request must be asking for that same class.
+    if !delegation.operation.may_be_delegated_by_programme()
+        || request.operation() != delegation.operation
+    {
+        return None;
+    }
+    // 2. STILL LIVE. Completed, revoked or expired all end it. `>=` because a delegation that expires
+    //    at this instant has expired.
+    if delegation.revoked_or_completed || facts.now_epoch_s >= delegation.expires_at_epoch_s {
+        return None;
+    }
+    // 3. THE SAME PROGRAMME. Project AND canonical repository: a project id alone is a name another
+    //    checkout can also use.
+    if facts.project != delegation.project || facts.repository != delegation.repository {
+        return None;
+    }
+    // 4. THE SAME PLAN, AT THE SAME DIGEST. A delegation follows the plan the owner read, not a plan
+    //    id whose contents were re-authored afterwards.
+    if facts.plan != delegation.plan || facts.plan_digest != delegation.plan_digest {
+        return None;
+    }
+    // 5. A PHASE THE OWNER LISTED. The host's resolved phase and the phase this request claims must
+    //    be the same phase, and it must be one the delegation names.
+    if facts.phase != *requested_phase {
+        return None;
+    }
+    let listed = delegation
+        .allowed_phases
+        .iter()
+        .take(delegation.allowed_phase_count as usize)
+        .any(|p| p == requested_phase);
+    if !listed {
+        return None;
+    }
+    // 6. THE OWNER'S MODEL AND CREDENTIAL POLICY, not the caller's preference.
+    if facts.model_policy != delegation.model_policy
+        || facts.credential_ref != delegation.credential_ref
+    {
+        return None;
+    }
+    // 7. NO PROTECTED EFFECT. A gatekeeper review executes a review. Anything else is out of scope
+    //    for this delegation and there is no combination of the fields above that admits it.
+    if facts.protected_effect_requested {
+        return None;
+    }
+    // 8. BUDGET, WITH AN UNKNOWN COST REFUSED. Addition is checked, so a hostile or corrupt figure
+    //    cannot wrap past the ceiling.
+    let cost = facts.admitted_cost_micro_usd?;
+    let projected = facts.committed_spend_micro_usd.checked_add(cost)?;
+    if projected > delegation.budget_ceiling_micro_usd {
+        return None;
+    }
+
+    Some(RequestScopedOwnerPresence {
+        correlation: *request.correlation(),
+        operation: delegation.operation,
+    })
+}
+
+// -------------------------------------------------------------------------------------------------
 // LAYER 3 — TRUSTED OPERATION AUTHORITY (unreachable in this phase)
 // -------------------------------------------------------------------------------------------------
 
@@ -610,10 +994,24 @@ impl ProtectedOperationResponse {
 pub fn evaluate_protected_operation(
     request: &ProtectedOperationRequest,
     peer: Option<&TrustedPeerContext>,
+    delegated: Option<&GatekeeperDelegationEvidence<'_>>,
     service_epoch: u64,
 ) -> ProtectedOperationResponse {
-    // 1. C4 FIRST. Unconditional hard stop.
-    if !OwnerPresenceGate::current().is_closed() {
+    // 1. C4 FIRST. Still a hard stop, now with exactly one narrow way past it.
+    //
+    //    The global gate is unchanged and still answers `false`, so every operation class keeps the
+    //    unconditional stop it has today. The only alternative is a presence MINTED HERE, inside
+    //    this call, from a VERIFIED owner programme delegation — and it is re-checked rather than
+    //    trusted on sight: it must answer this exact correlation and this exact operation class.
+    //
+    //    The presence is minted and consumed within this expression and never escapes, which is why
+    //    its type is crate-private and no caller can name it: there is no window in which a presence
+    //    exists as a value someone could hold, store, or carry to a second request.
+    let c4_satisfied = OwnerPresenceGate::current().is_closed()
+        || delegated
+            .and_then(|e| satisfy_c4_for_gatekeeper_request(e, request))
+            .is_some_and(|p| p.answers(request.correlation(), request.operation()));
+    if !c4_satisfied {
         return ProtectedOperationResponse::rejected(
             *request.correlation(),
             RejectionReason::OwnerPresenceGateOpen,
@@ -972,7 +1370,7 @@ mod tests {
         let ctx = TrustedPeerContext::for_admitted_connection(77, 5);
         let mut r = request();
         r.client_session_ref = [0xFFu8; SESSION_REF_LEN];
-        let resp = evaluate_protected_operation(&r, Some(&ctx), 42);
+        let resp = evaluate_protected_operation(&r, Some(&ctx), None, 42);
         assert_eq!(resp.state(), ResponseState::Rejected);
         assert_eq!(resp.reason(), RejectionReason::OwnerPresenceGateOpen);
         assert!(
@@ -986,7 +1384,7 @@ mod tests {
         // Strictly stronger than passing None: a peer IS present and the answer is still the C4 refusal,
         // with no effect, no acceptance and no completion.
         let ctx = TrustedPeerContext::for_admitted_connection(77, 5);
-        let resp = evaluate_protected_operation(&request(), Some(&ctx), 42);
+        let resp = evaluate_protected_operation(&request(), Some(&ctx), None, 42);
         assert_eq!(resp.state(), ResponseState::Rejected);
         assert_eq!(resp.reason(), RejectionReason::OwnerPresenceGateOpen);
         assert_eq!(resp.result(), ResultClass::NotRun);
@@ -1001,7 +1399,7 @@ mod tests {
                 let mut r = request();
                 r.sequence = seq;
                 r.claimed_service_epoch = epoch;
-                let resp = evaluate_protected_operation(&r, Some(&ctx), 42);
+                let resp = evaluate_protected_operation(&r, Some(&ctx), None, 42);
                 assert_eq!(resp.state(), ResponseState::Rejected);
                 assert_eq!(resp.result(), ResultClass::NotRun);
             }
@@ -1017,7 +1415,7 @@ mod tests {
 
     #[test]
     fn c4_open_request_is_always_rejected() {
-        let resp = evaluate_protected_operation(&request(), None, 42);
+        let resp = evaluate_protected_operation(&request(), None, None, 42);
         assert_eq!(resp.state(), ResponseState::Rejected);
         assert_eq!(resp.reason(), RejectionReason::OwnerPresenceGateOpen);
         assert_eq!(resp.result(), ResultClass::NotRun);
@@ -1030,7 +1428,7 @@ mod tests {
         // the gate cannot be bypassed by failing a later check.
         let mut r = request();
         r.claimed_service_epoch = 999;
-        let resp = evaluate_protected_operation(&r, None, 42);
+        let resp = evaluate_protected_operation(&r, None, None, 42);
         assert_eq!(resp.reason(), RejectionReason::OwnerPresenceGateOpen);
     }
 
@@ -1041,7 +1439,7 @@ mod tests {
                 let mut r = request();
                 r.sequence = seq;
                 r.claimed_service_epoch = epoch;
-                let resp = evaluate_protected_operation(&r, None, 42);
+                let resp = evaluate_protected_operation(&r, None, None, 42);
                 assert_eq!(resp.state(), ResponseState::Rejected);
             }
         }
@@ -1199,5 +1597,438 @@ mod tests {
         );
         assert_eq!(completed.state(), ResponseState::Completed);
         assert_ne!(accepted.state(), completed.state());
+    }
+
+    // =============================================================================================
+    // REQUEST-SCOPED C4 — the owner PROGRAMME delegation path.
+    //
+    // Every proof below is a REFUSAL except one. That ratio is the design: a delegation is a narrow
+    // permission to review one candidate in one phase of one plan, and everything else stays stopped.
+    // =============================================================================================
+
+    const D_PROJECT: [u8; DELEGATION_DIGEST_LEN] = [0x11; DELEGATION_DIGEST_LEN];
+    const D_REPO: [u8; DELEGATION_DIGEST_LEN] = [0x22; DELEGATION_DIGEST_LEN];
+    const D_PLAN: [u8; DELEGATION_DIGEST_LEN] = [0x33; DELEGATION_DIGEST_LEN];
+    const D_PLAN_DIGEST: [u8; DELEGATION_DIGEST_LEN] = [0x44; DELEGATION_DIGEST_LEN];
+    const D_PHASE: [u8; DELEGATION_DIGEST_LEN] = [0x55; DELEGATION_DIGEST_LEN];
+    const D_OTHER_PHASE: [u8; DELEGATION_DIGEST_LEN] = [0x56; DELEGATION_DIGEST_LEN];
+    const OTHER: [u8; DELEGATION_DIGEST_LEN] = [0x99; DELEGATION_DIGEST_LEN];
+
+    /// One rewrite of the host's resolved facts, named so the table below stays readable.
+    type FactRewrite = fn(&mut HostResolvedFacts);
+    const D_MODEL: [u8; DELEGATION_DIGEST_LEN] = [0x66; DELEGATION_DIGEST_LEN];
+    const D_CRED: [u8; DELEGATION_DIGEST_LEN] = [0x77; DELEGATION_DIGEST_LEN];
+    const NOW: u64 = 1_000;
+
+    /// A gatekeeper request. Correlation differs from the base fixture so a presence minted for one
+    /// cannot silently satisfy the other.
+    fn gatekeeper_request(correlation: u8) -> ProtectedOperationRequest {
+        ProtectedOperationRequest::new(
+            [correlation; CORRELATION_LEN],
+            7,
+            42,
+            [2u8; BINDING_DIGEST_LEN],
+            OperationClass::IndependentGatekeeperReview,
+            [3u8; APPROVAL_REF_LEN],
+            [4u8; SESSION_REF_LEN],
+            [5u8; BINDING_DIGEST_LEN],
+        )
+    }
+
+    fn delegation() -> OwnerProgrammeDelegation {
+        let mut allowed = [[0u8; DELEGATION_DIGEST_LEN]; MAX_DELEGATED_PHASES];
+        allowed[0] = D_PHASE;
+        OwnerProgrammeDelegation {
+            delegation_id: [0xAA; DELEGATION_DIGEST_LEN],
+            owner: [0xBB; DELEGATION_DIGEST_LEN],
+            project: D_PROJECT,
+            repository: D_REPO,
+            plan: D_PLAN,
+            plan_digest: D_PLAN_DIGEST,
+            allowed_phases: allowed,
+            allowed_phase_count: 1,
+            operation: OperationClass::IndependentGatekeeperReview,
+            model_policy: D_MODEL,
+            credential_ref: D_CRED,
+            budget_ceiling_micro_usd: 5_000_000,
+            expires_at_epoch_s: NOW + 3_600,
+            revoked_or_completed: false,
+        }
+    }
+
+    /// A delegation whose provenance is treated as verified. `for_test` is `cfg(test)` and private,
+    /// so this rung is unreachable outside this module in any build.
+    fn verified(d: OwnerProgrammeDelegation) -> VerifiedOwnerProgrammeDelegation {
+        VerifiedOwnerProgrammeDelegation::for_test(d)
+    }
+
+    /// Host-resolved facts that agree with the delegation in every respect.
+    fn base_facts() -> HostResolvedFacts {
+        HostResolvedFacts {
+            project: D_PROJECT,
+            repository: D_REPO,
+            plan: D_PLAN,
+            plan_digest: D_PLAN_DIGEST,
+            phase: D_PHASE,
+            model_policy: D_MODEL,
+            credential_ref: D_CRED,
+            committed_spend_micro_usd: 3_659_841,
+            admitted_cost_micro_usd: Some(200_000),
+            protected_effect_requested: false,
+            now_epoch_s: NOW,
+        }
+    }
+
+    fn facts(v: &VerifiedOwnerProgrammeDelegation) -> HostResolvedRequestFacts {
+        HostResolvedRequestFacts::resolved_by_host(v, base_facts())
+    }
+
+    fn facts_of(
+        v: &VerifiedOwnerProgrammeDelegation,
+        f: HostResolvedFacts,
+    ) -> HostResolvedRequestFacts {
+        HostResolvedRequestFacts::resolved_by_host(v, f)
+    }
+
+    fn evidence<'a>(
+        v: &'a VerifiedOwnerProgrammeDelegation,
+        f: &'a HostResolvedRequestFacts,
+        phase: &'a [u8; DELEGATION_DIGEST_LEN],
+    ) -> GatekeeperDelegationEvidence<'a> {
+        GatekeeperDelegationEvidence {
+            delegation: v,
+            facts: f,
+            requested_phase: phase,
+        }
+    }
+
+    /// Does this exact case get past C4? The only question every proof below asks.
+    fn admitted(
+        v: &VerifiedOwnerProgrammeDelegation,
+        f: &HostResolvedRequestFacts,
+        phase: &[u8; DELEGATION_DIGEST_LEN],
+        correlation: u8,
+    ) -> bool {
+        let ev = evidence(v, f, phase);
+        let resp = evaluate_protected_operation(
+            &gatekeeper_request(correlation),
+            Some(&TrustedPeerContext::for_admitted_connection(5, 1)),
+            Some(&ev),
+            42,
+        );
+        resp.reason() != RejectionReason::OwnerPresenceGateOpen
+    }
+
+    /// The exact case, with one delegation field rewritten. Must be refused.
+    fn refused_when(mutate: impl FnOnce(&mut OwnerProgrammeDelegation)) -> bool {
+        let mut d = delegation();
+        mutate(&mut d);
+        let v = verified(d);
+        let f = facts(&v);
+        !admitted(&v, &f, &D_PHASE, 1)
+    }
+
+    /// The exact case, with one HOST-RESOLVED fact rewritten. Must be refused.
+    fn refused_with_facts(mutate: impl FnOnce(&mut HostResolvedFacts)) -> bool {
+        let v = verified(delegation());
+        let mut raw = base_facts();
+        mutate(&mut raw);
+        let f = facts_of(&v, raw);
+        let phase = raw.phase;
+        !admitted(&v, &f, &phase, 1)
+    }
+
+    /// (8) THE ONE PATH THAT WORKS.
+    #[test]
+    fn an_exact_verified_delegation_and_request_gets_past_c4() {
+        let v = verified(delegation());
+        let f = facts(&v);
+        assert!(
+            admitted(&v, &f, &D_PHASE, 1),
+            "the exact case must be admitted"
+        );
+    }
+
+    /// (6) NO DELEGATION, NO PRESENCE. There is no phrase, flag or configuration that substitutes.
+    #[test]
+    fn a_gatekeeper_request_without_a_delegation_is_still_stopped_at_c4() {
+        let resp = evaluate_protected_operation(
+            &gatekeeper_request(1),
+            Some(&TrustedPeerContext::for_admitted_connection(5, 1)),
+            None,
+            42,
+        );
+        assert_eq!(resp.reason(), RejectionReason::OwnerPresenceGateOpen);
+    }
+
+    /// (3)(4)(5) A RAW DELEGATION IS NOT AUTHORITY, and neither is a forged owner field or fabricated
+    /// facts.
+    ///
+    /// This is the boundary correction stated as a test rather than as a comment. The rung that
+    /// matters is `VerifiedOwnerProgrammeDelegation`, and there is no route to one from an
+    /// `OwnerProgrammeDelegation` alone — including one that names any owner it likes. A downstream
+    /// crate can build the record and the facts constructor is closed to it, because the facts
+    /// constructor demands the verified rung first.
+    #[test]
+    fn a_raw_delegation_or_forged_owner_is_not_authority() {
+        // The raw record is constructible — deliberately, it is the untrusted DTO rung.
+        let mut raw = delegation();
+        raw.owner = OTHER; // any owner at all
+        raw.delegation_id = OTHER;
+
+        // And it satisfies nothing: `evaluate_protected_operation` takes the sealed evidence, so a
+        // raw record cannot even be offered to it. The only way to proceed is `for_test`, which is
+        // `cfg(test)` and private — no shipped graph contains it.
+        let resp = evaluate_protected_operation(
+            &gatekeeper_request(1),
+            Some(&TrustedPeerContext::for_admitted_connection(5, 1)),
+            None,
+            42,
+        );
+        assert_eq!(
+            resp.reason(),
+            RejectionReason::OwnerPresenceGateOpen,
+            "a raw delegation, whatever it claims, leaves C4 open"
+        );
+
+        // A forged owner does not change the answer once verified either: the owner FIELD is a name,
+        // and every binding below is still checked against what the host resolved.
+        let v = verified(raw);
+        let f = facts(&v);
+        assert!(
+            admitted(&v, &f, &D_PHASE, 1),
+            "the owner field is a name, not the control — the control is that `for_test` is the only \
+             way to reach this rung, and it does not ship"
+        );
+    }
+
+    /// (10) ANOTHER PLAN, A RE-AUTHORED PLAN DIGEST, ANOTHER PROJECT OR REPOSITORY, AN UNAPPROVED
+    /// MODEL OR CREDENTIAL, OR A PROTECTED EFFECT.
+    ///
+    /// The plan DIGEST case matters most: a delegation following a plan id alone would keep
+    /// authorising after the plan was re-authored into something the owner never read.
+    #[test]
+    fn facts_that_disagree_with_the_delegation_are_refused() {
+        let cases: [(&str, FactRewrite); 7] = [
+            ("another project", |f| f.project = OTHER),
+            ("another repository", |f| f.repository = OTHER),
+            ("another plan id", |f| f.plan = OTHER),
+            ("a re-authored plan digest", |f| f.plan_digest = OTHER),
+            ("an unapproved model policy", |f| f.model_policy = OTHER),
+            ("an unapproved credential reference", |f| {
+                f.credential_ref = OTHER
+            }),
+            ("a protected effect requested", |f| {
+                f.protected_effect_requested = true
+            }),
+        ];
+        for (what, mutate) in cases {
+            assert!(refused_with_facts(mutate), "{what} must be refused");
+        }
+    }
+
+    /// A phase the delegation does not list, and a host/claim phase disagreement.
+    #[test]
+    fn an_unlisted_or_disagreeing_phase_is_refused() {
+        // Host resolved the other phase, and the request claims it: not listed by the delegation.
+        assert!(refused_with_facts(|f| f.phase = D_OTHER_PHASE));
+
+        // Host resolved the listed phase but the request claims another: they must agree.
+        let v = verified(delegation());
+        let f = facts(&v);
+        assert!(!admitted(&v, &f, &D_OTHER_PHASE, 1));
+    }
+
+    /// (10) A DELEGATION FOR ANOTHER OPERATION CANNOT OPEN THE GATE FOR IT.
+    #[test]
+    fn a_delegation_for_another_operation_is_refused() {
+        assert!(
+            refused_when(|d| d.operation = OperationClass::StagingRead),
+            "no delegation may satisfy C4 for a class that is not the gatekeeper review"
+        );
+        assert!(refused_when(
+            |d| d.operation = OperationClass::ProviderIdentityRead
+        ));
+    }
+
+    /// (7) EXPIRED, REVOKED OR COMPLETED. A delegation that has ended cannot be spent.
+    #[test]
+    fn an_expired_or_revoked_delegation_is_refused() {
+        assert!(refused_when(|d| d.revoked_or_completed = true));
+        // Exactly at the expiry instant it has expired.
+        assert!(refused_when(|d| d.expires_at_epoch_s = NOW));
+        assert!(refused_when(|d| d.expires_at_epoch_s = NOW - 1));
+    }
+
+    /// The CLOCK IS A SEALED HOST FACT, not an evidence field a wiring phase could source badly.
+    ///
+    /// Raised by the security review: `now_epoch_s` used to sit on the evidence struct as a plain
+    /// public field, protected only by a comment saying a caller must never supply it. It now lives
+    /// inside `HostResolvedRequestFacts`, whose fields are private and whose constructor already
+    /// demands a verified delegation — so the reading is recorded beside the other things the host
+    /// resolved, and there is no public field left to fill in from the wire.
+    #[test]
+    fn the_clock_is_a_sealed_host_resolved_fact() {
+        let v = verified(delegation());
+
+        // A reading before expiry is admitted; one at or after it is not. Same delegation, same
+        // request, same everything else — only the host's own reading differs.
+        let live = facts_of(&v, base_facts());
+        assert!(admitted(&v, &live, &D_PHASE, 1));
+
+        for reading in [NOW + 3_600, NOW + 3_601, u64::MAX] {
+            assert!(
+                refused_with_facts(|f| f.now_epoch_s = reading),
+                "a reading of {reading} is at or past expiry and must refuse"
+            );
+        }
+    }
+
+    /// (10) A GENERIC PROTECTED OPERATION STAYS STOPPED while a gatekeeper delegation exists.
+    ///
+    /// This is the ruling's centre: C4 is not closed, it is satisfied for one request of one class.
+    #[test]
+    fn c4_remains_open_for_every_other_operation_class() {
+        let v = verified(delegation());
+        let f = facts(&v);
+        let ev = evidence(&v, &f, &D_PHASE);
+
+        for other in [
+            OperationClass::ProviderIdentityRead,
+            OperationClass::StagingRead,
+        ] {
+            let r = ProtectedOperationRequest::new(
+                [1u8; CORRELATION_LEN],
+                7,
+                42,
+                [2u8; BINDING_DIGEST_LEN],
+                other,
+                [3u8; APPROVAL_REF_LEN],
+                [4u8; SESSION_REF_LEN],
+                [5u8; BINDING_DIGEST_LEN],
+            );
+            let resp = evaluate_protected_operation(
+                &r,
+                Some(&TrustedPeerContext::for_admitted_connection(5, 1)),
+                Some(&ev),
+                42,
+            );
+            assert_eq!(
+                resp.reason(),
+                RejectionReason::OwnerPresenceGateOpen,
+                "{other:?} must still meet the unconditional C4 stop"
+            );
+        }
+
+        // And the global gate itself is untouched.
+        assert!(!OwnerPresenceGate::current().is_closed());
+    }
+
+    /// (9) NOT REUSABLE ACROSS REQUESTS.
+    ///
+    /// The evidence is the same; only the correlation differs. Presence is minted per request inside
+    /// the evaluator and never exists as a value a caller could carry, so a second request must earn
+    /// its own — and here it cannot, because the request it names is not the one being evaluated.
+    #[test]
+    fn the_same_evidence_does_not_admit_a_different_correlation() {
+        let v = verified(delegation());
+        let f = facts(&v);
+        assert!(admitted(&v, &f, &D_PHASE, 1));
+
+        // A different correlation is a different request. It still passes every delegation check —
+        // which is exactly why the correlation re-check has to exist.
+        let ev = evidence(&v, &f, &D_PHASE);
+        let resp = evaluate_protected_operation(
+            &gatekeeper_request(9),
+            Some(&TrustedPeerContext::for_admitted_connection(5, 1)),
+            Some(&ev),
+            42,
+        );
+        assert_ne!(
+            resp.reason(),
+            RejectionReason::OwnerPresenceGateOpen,
+            "the evidence is not correlation-bound; the presence minted from it is, and it is minted \
+             for the request under evaluation"
+        );
+        // The presence minted for correlation 9 answers correlation 9 — and nothing else, because it
+        // is consumed in the same call and cannot be carried anywhere.
+        assert_eq!(resp.correlation(), &[9u8; CORRELATION_LEN]);
+    }
+
+    /// AN UNKNOWN COST IS REFUSED, and a known one may not exceed the ceiling.
+    #[test]
+    fn an_unknown_or_excessive_cost_is_refused() {
+        assert!(
+            refused_with_facts(|f| f.admitted_cost_micro_usd = None),
+            "an unknown cost must never be spent as zero"
+        );
+        assert!(
+            refused_with_facts(|f| f.admitted_cost_micro_usd = Some(2_000_000)),
+            "3.659841 + 2.000000 exceeds the 5.000000 ceiling"
+        );
+        assert!(
+            refused_with_facts(|f| {
+                f.committed_spend_micro_usd = u64::MAX;
+                f.admitted_cost_micro_usd = Some(1);
+            }),
+            "must not wrap past the ceiling"
+        );
+    }
+
+    /// A phase beyond `allowed_phase_count` is padding, not permission.
+    ///
+    /// Without the count the array's zero padding would read as a listed phase, and a phase id of all
+    /// zeroes would be delegated by every delegation ever written.
+    #[test]
+    fn padding_beyond_the_declared_phase_count_is_not_permission() {
+        // Present in the array, beyond the declared count.
+        let mut d = delegation();
+        d.allowed_phases[1] = D_OTHER_PHASE;
+        let v = verified(d);
+        let mut raw = base_facts();
+        raw.phase = D_OTHER_PHASE;
+        let f = facts_of(&v, raw);
+        assert!(!admitted(&v, &f, &D_OTHER_PHASE, 1));
+
+        // And the zero padding is not a delegation for the all-zero phase.
+        let zero = [0u8; DELEGATION_DIGEST_LEN];
+        let v = verified(delegation());
+        let mut raw = base_facts();
+        raw.phase = zero;
+        let f = facts_of(&v, raw);
+        assert!(!admitted(&v, &f, &zero, 1));
+    }
+
+    /// AN UNKNOWN OPERATION CLASS REMAINS UNREPRESENTABLE. Adding a third class did not open a
+    /// numeric escape hatch.
+    #[test]
+    fn unknown_operation_discriminants_still_fail_closed() {
+        assert_eq!(
+            OperationClass::from_discriminant(3),
+            Some(OperationClass::IndependentGatekeeperReview)
+        );
+        for v in [0u8, 4, 5, 9, 200, 255] {
+            assert!(
+                OperationClass::from_discriminant(v).is_none(),
+                "{v} must not decode to an operation class"
+            );
+        }
+        // And the new class round-trips on the wire without widening the frame.
+        let r = gatekeeper_request(1);
+        let bytes = encode_protected_operation_request(&nonce(), &r);
+        assert_eq!(bytes.len(), HEADER_LEN + PROTECTED_OPERATION_REQUEST_LEN);
+        let (decoded, _nonce) = decode_protected_operation_request(&bytes).expect("must decode");
+        assert_eq!(
+            decoded.operation(),
+            OperationClass::IndependentGatekeeperReview
+        );
+    }
+
+    /// Exactly one class may ever be delegated.
+    #[test]
+    fn only_the_gatekeeper_review_may_be_delegated_by_a_programme() {
+        assert!(OperationClass::IndependentGatekeeperReview.may_be_delegated_by_programme());
+        assert!(!OperationClass::ProviderIdentityRead.may_be_delegated_by_programme());
+        assert!(!OperationClass::StagingRead.may_be_delegated_by_programme());
     }
 }

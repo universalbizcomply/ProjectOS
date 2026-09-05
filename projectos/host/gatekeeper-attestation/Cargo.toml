@@ -1,0 +1,14 @@
+[package]
+name = "projectos-host-gatekeeper-attestation"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "UNLICENSED"
+description = "RUN-TO-COMPLETION HOST ATTESTATION. The bounded gatekeeper REQUEST INBOX contract: how ProjectOSHost derives a request file's identity from trusted request identity rather than from a caller-supplied path, bounds its size, reads it exactly once, binds those exact in-memory bytes to the parameter digest carried on the 512-byte authority wire, and consumes it one-shot so a stale file can never authorise a later call. PURE LOGIC: it opens no file, creates no directory, changes no ACL, spawns no process, holds no credential and performs no Windows call — the filesystem is an injected port so every property here is provable without touching disk."
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[dependencies]
+# Already used throughout the host tree for content digests. No new third-party surface.
+sha2 = "0.10"
