@@ -2796,6 +2796,7 @@ dependencies = [
 name = "projectos-host-identity"
 version = "0.0.0"
 dependencies = [
+ "projectos-packaged-runtime-contract",
  "projectos-windows-runtime-primitives",
  "serde",
  "serde_json",

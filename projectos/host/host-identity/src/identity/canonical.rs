@@ -6,7 +6,9 @@
 
 use serde::Serialize;
 
-use super::manifest::{DaemonArtefactManifest, RuntimeManifest, TrustManifest};
+use super::manifest::{
+    DaemonArtefactManifest, ExecutionClosureManifest, RuntimeManifest, TrustManifest,
+};
 use super::types::InstallationModel;
 
 /// A view of every signed field in a fixed declaration order, excluding `signature`.
@@ -25,6 +27,17 @@ struct CanonicalView<'a> {
     minimum_protocol_version: u32,
     signature_algorithm: &'a str,
     signing_key_id: &'a str,
+    /// The execution closure, APPENDED LAST and omitted entirely when absent.
+    ///
+    /// BOTH OF THOSE ARE LOAD-BEARING. serde emits struct fields in declaration order, so a field
+    /// inserted anywhere but the end would shift the bytes of every manifest that has one — and a
+    /// field emitted as `null` rather than omitted would change the bytes of every manifest that
+    /// does not. Appending it and skipping `None` is what makes a version 1 canonical subject
+    /// byte-for-byte what it was before this contract existed, so every signature already made over
+    /// a v1 manifest still verifies and none of them silently starts covering a closure it never
+    /// signed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    execution_closure: Option<&'a ExecutionClosureManifest>,
 }
 
 /// Deterministic canonical bytes over all fields except `signature`.
@@ -42,6 +55,7 @@ pub fn canonical_bytes(m: &TrustManifest) -> Vec<u8> {
         minimum_protocol_version: m.minimum_protocol_version,
         signature_algorithm: &m.signature_algorithm,
         signing_key_id: &m.signing_key_id,
+        execution_closure: m.execution_closure.as_ref(),
     };
     // serde_json emits struct fields in declaration order → deterministic compact bytes.
     serde_json::to_vec(&view).unwrap_or_default()

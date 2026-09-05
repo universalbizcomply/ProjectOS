@@ -72,8 +72,33 @@ pub use identity::{EvalContext, IdentityFs, RealFs};
 /// one implementation, and this is it.
 pub use identity::canonical::canonical_bytes;
 pub use identity::manifest::{
-    DaemonArtefactFormat, DaemonArtefactManifest, RuntimeManifest, TrustManifest,
+    CommittedArtefactManifest, DaemonArtefactFormat, DaemonArtefactManifest,
+    ExecutionClosureManifest, RuntimeManifest, TrustManifest, EXECUTION_CLOSURE_MANIFEST_VERSION,
 };
+
+/// RUN-TO-COMPLETION HOST ATTESTATION: the second integrity witness over a provider call.
+///
+/// `verify_execution_closure` is exported beside the manifest types because the two travel together
+/// — a consumer that can build a v2 manifest must be able to ask whether the committed bytes still
+/// match it, and a consumer that cannot ask would have a manifest field it is unable to enforce.
+pub use identity::{verify_execution_closure, CommittedClosureBytes};
+
+/// Verify a manifest's detached signature AGAINST THE EMBEDDED PRODUCTION ANCHOR, and nothing else.
+///
+/// WHY THIS IS A FUNCTION AND NOT THE TRAIT. Re-exporting `TrustManifestSignatureVerifier` and
+/// `SignatureInput` would have been the obvious way to let a proof anchor itself to a real
+/// signature — and it would have widened the facade in exactly the way this crate exists to prevent.
+/// `EvalContext::verifier` is caller-supplied, and `evaluate_packaged_authority` mints the SEALED
+/// `VerifiedPackagedIdentity` from a successful evaluation. With the trait public, any consumer
+/// could implement a verifier whose `is_production()` returns true and whose `verify()` accepts
+/// anything, hand it to an `EvalContext`, and obtain the very proof that is documented as having no
+/// public constructor. Before, no outside crate could name the trait, so `ctx.verifier` could only
+/// be `None` or the real `ProductionEs256Verifier`.
+///
+/// This grants none of that. There is no verifier parameter: the anchor is the embedded one, so a
+/// caller can ASK whether the owner's key signed some bytes and can never answer the question for
+/// itself. It mints nothing, and there is still no signing counterpart.
+pub use identity::verify_against_embedded_anchor;
 
 /// PROJECTOS-RECOVERY-INSTALLED-APP1A: the INDEPENDENT installation observation.
 ///

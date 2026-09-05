@@ -100,6 +100,8 @@ pub fn classify_packaged_candidate(
 
 use std::path::{Path, PathBuf};
 
+use projectos_packaged_runtime_contract as contract;
+
 use composite::InstallationIdentity;
 use errors::IdentityError;
 use manifest::TrustManifest;
@@ -308,6 +310,162 @@ pub fn evaluate(
             "Test identity verified (never production).".to_string()
         },
     }
+}
+
+/// Ask whether the OWNER'S EMBEDDED PRODUCTION KEY signed these exact bytes.
+///
+/// A QUESTION, NOT AN AUTHORITY. There is deliberately no verifier parameter and no policy
+/// parameter: the anchor is the embedded one, so a caller can ask the question and can never answer
+/// it for itself. It mints nothing — no capability, no identity, no sealed proof — and a `true` here
+/// says only "this signature matches the embedded key over these bytes". Whether an installation may
+/// be trusted remains `evaluate()`'s judgement, and whether a provider call may happen remains
+/// `verify_execution_closure`'s.
+///
+/// It exists so a PROOF can anchor itself to a real signature instead of to a second committed file
+/// — which is the difference between establishing that canonicalisation still means what it meant
+/// and merely establishing that two files agree.
+#[must_use]
+pub fn verify_against_embedded_anchor(
+    canonical: &[u8],
+    algorithm: &str,
+    signing_key_id: &str,
+    signature: &str,
+) -> bool {
+    let v = production_verifier::ProductionEs256Verifier::from_embedded();
+    // A verifier with no anchor is not a verifier. Refuse rather than report a vacuous success.
+    if !v.is_production() {
+        return false;
+    }
+    v.verify(&verifier::SignatureInput {
+        canonical,
+        algorithm,
+        signing_key_id,
+        signature,
+    })
+    .is_ok()
+}
+
+/// The committed bytes of the gatekeeper execution closure, as the caller established them.
+///
+/// `None` MEANS "COULD NOT BE ESTABLISHED", AND IT IS NOT THE SAME AS EMPTY. The bytes come from the
+/// installation's git object store, and every step of that read can fail for reasons that have
+/// nothing to do with the file: no git, not a repository, the path uncommitted, the working tree
+/// dirty. Collapsing those into an empty slice would hash to a real digest and compare unequal,
+/// which is the right OUTCOME reached by the wrong reasoning — and one day it would be reached with
+/// a digest that happened to match. `None` makes "I could not ask" a distinct, named refusal.
+pub struct CommittedClosureBytes<'a> {
+    pub gatekeeper_broker: Option<&'a [u8]>,
+    pub installation_project_allowlist: Option<&'a [u8]>,
+    pub credential_adapter: Option<&'a [u8]>,
+}
+
+/// The three artefact-specific refusals for one closure member, so no artefact borrows another's.
+struct ClosureErrors {
+    path_mismatch: IdentityError,
+    not_readable: IdentityError,
+    hash_mismatch: IdentityError,
+}
+
+fn check_committed(
+    declared: &manifest::CommittedArtefactManifest,
+    expected_path: &str,
+    committed: Option<&[u8]>,
+    errors: ClosureErrors,
+) -> Result<(), IdentityError> {
+    // PATH FIRST. A manifest that named a different file would otherwise be judged only on a digest
+    // — and an attacker who can choose WHICH file is attested does not need to forge one.
+    if declared.repository_relative_path != expected_path {
+        return Err(errors.path_mismatch);
+    }
+    let bytes = committed.ok_or(errors.not_readable)?;
+    if !hash::hash_matches(bytes, &declared.sha256) {
+        return Err(errors.hash_mismatch);
+    }
+    Ok(())
+}
+
+/// Verify that the gatekeeper EXECUTION CLOSURE the owner signed is the closure that is committed.
+///
+/// THE SECOND WITNESS, NOT A REPLACEMENT FOR THE FIRST. The caller already proves these bytes are
+/// the installation's committed bytes, by reading them out of the git object store and executing
+/// exactly what it read. Git can establish that a file is committed and unmodified; it cannot
+/// establish that the commit was one an owner approved — anyone who can commit can satisfy it. This
+/// adds that second, independent question, answered by an owner-held key over a subject the running
+/// code cannot alter. Neither witness is sufficient alone and neither is weakened by the other.
+///
+/// EXPECTED PATHS COME FROM THE PACKAGING CONTRACT, NEVER FROM A CALLER AND NEVER FROM THE MANIFEST.
+/// A verifier that accepted the manifest's own idea of which files matter would let a manifest
+/// attest three harmless files and satisfy every digest check while the real broker went unbound.
+///
+/// SEPARATE FROM `evaluate()` ON PURPOSE. `evaluate()` answers "is this installation what it claims
+/// to be", from bytes in the payload; this answers "may a provider call happen", from bytes in the
+/// repository. Folding the second into the first would have forced every existing caller — none of
+/// which is making a provider call — to supply committed bytes it has no reason to hold, and a
+/// parameter that most callers pass as `None` becomes a check most callers skip.
+///
+/// IT VERIFIES THE SIGNATURE ITSELF RATHER THAN TRUSTING THE CALLER TO HAVE DONE SO. Taking a bare
+/// `&TrustManifest` was a real hazard raised by the security review: nothing stopped a future
+/// integration parsing a manifest and passing it straight here, and an attacker who can commit —
+/// but cannot sign — would then only need to write a manifest whose digests match their own
+/// committed bytes. Every digest check would pass and no signature would ever be consulted. Taking
+/// the policy and the verifier makes the ordering impossible to get wrong: the owner's signature is
+/// established over the whole subject BEFORE any digest is compared, so the digests being checked
+/// are always ones an owner key actually vouched for.
+pub fn verify_execution_closure(
+    m: &TrustManifest,
+    policy: Policy,
+    verifier: &dyn TrustManifestSignatureVerifier,
+    committed: &CommittedClosureBytes<'_>,
+) -> Result<(), IdentityError> {
+    // Shape first. `check_versions` is repeated here rather than assumed, because this function is
+    // reachable on its own and a check whose safety depends on another one having run first is a
+    // check with a bypass.
+    m.check_versions()?;
+    // A version 1 manifest is not broken and is not being rejected as a manifest; it simply never
+    // signed a closure, so it can never satisfy one. Stated as its own refusal rather than as
+    // "closure missing", because the operator's action differs: install a release that has one.
+    if m.manifest_version < manifest::EXECUTION_CLOSURE_MANIFEST_VERSION {
+        return Err(IdentityError::ExecutionClosureManifestVersionTooLow);
+    }
+    // THE SIGNATURE, BEFORE ANY DIGEST. Everything below compares the manifest's numbers against
+    // real bytes; without this, those numbers would be whatever the manifest's author chose.
+    verify_signature(m, policy, verifier)?;
+    let closure = m
+        .execution_closure
+        .as_ref()
+        .ok_or(IdentityError::ExecutionClosureMissing)?;
+
+    check_committed(
+        &closure.gatekeeper_broker,
+        contract::BROKER_REPOSITORY_RELATIVE_PATH,
+        committed.gatekeeper_broker,
+        ClosureErrors {
+            path_mismatch: IdentityError::BrokerArtefactPathMismatch,
+            not_readable: IdentityError::BrokerArtefactNotReadable,
+            hash_mismatch: IdentityError::BrokerArtefactHashMismatch,
+        },
+    )?;
+    check_committed(
+        &closure.installation_project_allowlist,
+        contract::INSTALLATION_ALLOWLIST_REPOSITORY_RELATIVE_PATH,
+        committed.installation_project_allowlist,
+        ClosureErrors {
+            path_mismatch: IdentityError::InstallationAllowlistPathMismatch,
+            not_readable: IdentityError::InstallationAllowlistNotReadable,
+            hash_mismatch: IdentityError::InstallationAllowlistHashMismatch,
+        },
+    )?;
+    check_committed(
+        &closure.credential_adapter,
+        contract::CREDENTIAL_ADAPTER_REPOSITORY_RELATIVE_PATH,
+        committed.credential_adapter,
+        ClosureErrors {
+            path_mismatch: IdentityError::CredentialAdapterPathMismatch,
+            not_readable: IdentityError::CredentialAdapterNotReadable,
+            hash_mismatch: IdentityError::CredentialAdapterHashMismatch,
+        },
+    )?;
+    Ok(())
 }
 
 /// Bind a runtime path, rejecting absolute manifest paths (would bypass the install root) and

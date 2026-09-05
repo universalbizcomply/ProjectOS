@@ -19,15 +19,23 @@
 use std::path::{Path, PathBuf};
 
 use projectos_host_identity::{
-    canonical_bytes, sha256_hex, DaemonArtefactFormat, DaemonArtefactManifest, InstallationModel,
-    RuntimeManifest, TrustManifest,
+    canonical_bytes, sha256_hex, CommittedArtefactManifest, DaemonArtefactFormat,
+    DaemonArtefactManifest, ExecutionClosureManifest, InstallationModel, RuntimeManifest,
+    TrustManifest, EXECUTION_CLOSURE_MANIFEST_VERSION,
 };
 use projectos_packaged_runtime_contract as contract;
 
 /// Schema constants this generator emits. They match what the verifier accepts; a mismatch would
 /// produce manifests the application refuses, which the round-trip proof catches immediately.
 const SCHEMA_VERSION: u32 = 1;
-const MANIFEST_VERSION: u32 = 1;
+/// This generator emits the EXECUTION-CLOSURE version and no other.
+///
+/// Taken from the verifier's own constant rather than written as a second literal: the whole point
+/// of the version is that generator and verifier agree on which subject it names, and two numbers
+/// that must be equal are two numbers that will one day differ. There is deliberately no flag to
+/// emit the older version — a generator that could still produce a manifest without the closure is
+/// a downgrade path, and the release that used it would look identical to a correct one.
+const MANIFEST_VERSION: u32 = EXECUTION_CLOSURE_MANIFEST_VERSION;
 const MINIMUM_PROTOCOL_VERSION: u32 = 1;
 /// The one supported signature algorithm. Fixed by the application, never chosen by a manifest.
 pub const SIGNATURE_ALGORITHM: &str = "es256";
@@ -36,6 +44,17 @@ pub const SIGNATURE_ALGORITHM: &str = "es256";
 pub struct ManifestInputs<'a> {
     /// The assembled payload root. Both artefact paths are bound beneath it, from the contract.
     pub payload_root: &'a Path,
+    /// The ProjectOS INSTALLATION root — the repository holding the execution-closure artefacts.
+    ///
+    /// A SECOND ROOT, BECAUSE THEY ARE A SECOND KIND OF EVIDENCE. The payload root holds bytes that
+    /// ship; this holds bytes that stay committed and are proven through git at run time. The three
+    /// closure paths are taken from the packaging contract and bound beneath this, so a caller
+    /// chooses WHICH INSTALLATION is being attested and never WHICH FILES are.
+    ///
+    /// MUST BE A CLEAN CHECKOUT. The closure artefacts here are hashed from disk, so this root's
+    /// three contract paths must already be committed at `HEAD` and unmodified. Establishing that is
+    /// the CALLER's job — see the precondition on [`generate_unsigned_manifest`].
+    pub install_root: &'a Path,
     pub application_version: &'a str,
     pub build_id: &'a str,
     /// Identifier for the signing key that will later sign this. An identifier is not key material.
@@ -63,6 +82,17 @@ pub enum GeneratorError {
     /// A required identifier was blank. A manifest with an empty application id binds nothing, and
     /// would compare equal to any other build that also left it blank.
     RequiredFieldEmpty(&'static str),
+    /// An execution-closure artefact is not present in the installation at its declared path.
+    ///
+    /// NAMED BY ITS CONTRACT PATH, not by an absolute one: the diagnosis a packager needs is which
+    /// artefact is missing, and an absolute path from a build machine is noise in a report that may
+    /// travel. Carrying the relative path also keeps a build-machine layout out of the record.
+    ExecutionClosureArtefactMissing(&'static str),
+    /// An execution-closure artefact is a DIRECTORY. There are no committed bytes to hash, and
+    /// hashing one file of a tree would attest to a fraction of what is actually read.
+    ExecutionClosureArtefactNotSingleFile(&'static str),
+    /// An execution-closure artefact exists but could not be read.
+    ExecutionClosureArtefactUnreadable(&'static str),
     /// A file existed but could not be read, or the manifest could not be serialised.
     Unreadable(PathBuf),
 }
@@ -105,7 +135,57 @@ fn read_artefact(
     std::fs::read(&path).map_err(|_| GeneratorError::Unreadable(path))
 }
 
+/// Hash one execution-closure artefact where the packaging contract says it lives.
+///
+/// THE PATH IS NOT AN INPUT. `rel` is a contract constant and the root is the installation; there is
+/// no parameter through which a caller could name a different file, because a caller that could
+/// choose which bytes are attested has already defeated the attestation.
+///
+/// WHY HASHING THE WORKING-TREE FILE IS THE COMMITTED DIGEST HERE. The repository is configured with
+/// `core.autocrlf=false` and carries no `.gitattributes`, so git stores and returns blob bytes
+/// verbatim — the working-tree file and `git show HEAD:./<rel>` are byte-identical. That equality is
+/// what makes this digest the one the run-time committed-bytes reader will compute. It is also
+/// re-checked where it matters rather than assumed: the verifier compares the manifest against the
+/// bytes the caller actually read from the object store, so a repository that did rewrite line
+/// endings would produce a refusal, never a false accept.
+fn hash_committed_artefact(
+    install_root: &Path,
+    rel: &'static str,
+) -> Result<CommittedArtefactManifest, GeneratorError> {
+    let path = install_root.join(Path::new(rel));
+    if path.is_dir() {
+        return Err(GeneratorError::ExecutionClosureArtefactNotSingleFile(rel));
+    }
+    if !path.is_file() {
+        return Err(GeneratorError::ExecutionClosureArtefactMissing(rel));
+    }
+    let bytes = std::fs::read(&path)
+        .map_err(|_| GeneratorError::ExecutionClosureArtefactUnreadable(rel))?;
+    Ok(CommittedArtefactManifest {
+        // FROM THE CONTRACT, NEVER FROM THE FILESYSTEM. Joining and then re-deriving a relative path
+        // would spell it in the host's separator style, and the verifier compares this against a
+        // forward-slashed git pathspec.
+        repository_relative_path: rel.to_string(),
+        sha256: sha256_hex(&bytes),
+    })
+}
+
 /// Generate the unsigned manifest from an assembled payload.
+///
+/// # PRECONDITION THIS FUNCTION CANNOT CHECK FOR ITSELF
+///
+/// The three execution-closure artefacts under `install_root` MUST already be committed at `HEAD`
+/// and unmodified in the working tree. This reads whatever bytes are on disk; it has no git
+/// awareness, and it deliberately never will — the packaging library is required to contain no
+/// process lookup, and its own test asserts that.
+///
+/// The refusal therefore lives one layer up, in `projectos-manifest-gen`'s
+/// `execution_closure_is_committed_and_clean`, which runs before any of this. A NEW caller that
+/// skips it — another tool, a CI script, a test harness — will silently attest bytes that were never
+/// committed, and an owner could then be asked to sign a digest that corresponds to no commit. The
+/// run-time verifier would refuse it much later as an unexplainable mismatch.
+///
+/// Any caller of this function is responsible for establishing that precondition first.
 ///
 /// Reads the real runtime and daemon bytes, hashes them, and emits a manifest whose signature is
 /// deliberately empty.
@@ -149,6 +229,26 @@ pub fn generate_unsigned_manifest(
         Some(GeneratorError::DaemonArtefactNotSingleFile),
     )?;
 
+    // ---- the execution closure: attested, and deliberately NOT copied anywhere ------------------
+    //
+    // These three stay exactly where the broker's architecture expects them. Nothing is written,
+    // nothing is relocated, and nothing about their bytes changes — the manifest records what they
+    // ARE so that an owner signature can later say the committed bytes are the approved ones.
+    let execution_closure = ExecutionClosureManifest {
+        gatekeeper_broker: hash_committed_artefact(
+            inputs.install_root,
+            contract::BROKER_REPOSITORY_RELATIVE_PATH,
+        )?,
+        installation_project_allowlist: hash_committed_artefact(
+            inputs.install_root,
+            contract::INSTALLATION_ALLOWLIST_REPOSITORY_RELATIVE_PATH,
+        )?,
+        credential_adapter: hash_committed_artefact(
+            inputs.install_root,
+            contract::CREDENTIAL_ADAPTER_REPOSITORY_RELATIVE_PATH,
+        )?,
+    };
+
     let manifest = TrustManifest {
         schema_version: SCHEMA_VERSION,
         manifest_version: MANIFEST_VERSION,
@@ -180,6 +280,7 @@ pub fn generate_unsigned_manifest(
         minimum_protocol_version: MINIMUM_PROTOCOL_VERSION,
         signature_algorithm: SIGNATURE_ALGORITHM.to_string(),
         signing_key_id: inputs.signing_key_id.to_string(),
+        execution_closure: Some(execution_closure),
         // UNSIGNED. Never a placeholder that could be mistaken for a signature.
         signature: String::new(),
     };

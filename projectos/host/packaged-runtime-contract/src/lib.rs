@@ -137,6 +137,62 @@ pub const TRUST_MANIFEST_FILENAME: &str = "projectos-trust-manifest.json";
 /// because a second derivation is a second implementation waiting to disagree with the verifier.
 pub const CANONICAL_SIGNING_FILENAME: &str = "projectos-trust-manifest.canonical";
 
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// THE GATEKEEPER EXECUTION CLOSURE — attested, and deliberately NOT packaged.
+//
+// WHAT THESE ARE. The three ProjectOS-controlled inputs that decide whether the installation's
+// provider credential may be used at all: the trusted-side broker program, the installation's
+// project allowlist, and the credential adapter the broker runs to resolve the value. Between them
+// they answer every authority question on the paid path.
+//
+// WHY THEY ARE NOT PAYLOAD PATHS, AND WHY THAT IS NOT A GAP. The broker is never executed from a
+// path. Its caller reads its bytes out of the installation's git object store, pins the trusted
+// install root into the source, and runs THOSE BYTES via `node -e` — so the thing verified is
+// literally the thing that runs, and there is no verify-then-spawn window to close. The broker then
+// reads the allowlist and the adapter through the same committed-bytes reader. Copying any of the
+// three into the payload would create a SECOND copy whose relationship to the executed bytes is
+// unproven; the manifest would then attest bytes nobody runs, which is worse than attesting nothing
+// because it looks like coverage.
+//
+// SO THESE PATHS ARE REPOSITORY-RELATIVE, NOT PAYLOAD-RELATIVE. They name a location inside the
+// ProjectOS installation's own committed tree. `RUNTIME_RELATIVE_PATH` and `DAEMON_RELATIVE_PATH`
+// above are a different kind of thing and the manifest keeps them in a different kind of field: one
+// describes bytes shipped in the payload, the other describes bytes proven committed. Calling both
+// "packaged" would make the trust model read as if the installation carried files it does not.
+//
+// WHAT THE ATTESTATION BUYS. A second, independent witness. Git already proves these bytes are the
+// committed ones; the owner-signed manifest proves the committed ones are the ones the owner
+// approved. Neither replaces the other: git alone cannot tell a genuine commit from an approved
+// one, and a digest alone cannot tell you what actually executed.
+//
+// Declared here because this crate is the ONE place packaging path facts live. A second literal
+// elsewhere is the drift this crate exists to prevent.
+// Added for RUN-TO-COMPLETION HOST ATTESTATION — EXECUTION CLOSURE TRUST.
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+/// The trusted-side gatekeeper transport broker, relative to the ProjectOS installation root.
+pub const BROKER_REPOSITORY_RELATIVE_PATH: &str =
+    "projectos/security/gatekeeper-transport-broker.cjs";
+
+/// The installation's committed project allowlist — the first factor on every paid call.
+pub const INSTALLATION_ALLOWLIST_REPOSITORY_RELATIVE_PATH: &str =
+    "projectos/security/installation-project-allowlist.json";
+
+/// The Windows credential-store adapter the broker executes to resolve the credential.
+pub const CREDENTIAL_ADAPTER_REPOSITORY_RELATIVE_PATH: &str =
+    "projectos/credentials/windows-credential-store.ps1";
+
+/// The complete closure, in one place, so "which files are attested?" has a single answer.
+///
+/// EXACT, NOT GENEROUS. Widening this to "every file in ProjectOS" would make the manifest
+/// impossible to regenerate and the refusal impossible to diagnose; narrowing it below three would
+/// leave an authority-bearing input outside the owner-signed subject.
+pub const EXECUTION_CLOSURE_REPOSITORY_PATHS: [&str; 3] = [
+    BROKER_REPOSITORY_RELATIVE_PATH,
+    INSTALLATION_ALLOWLIST_REPOSITORY_RELATIVE_PATH,
+    CREDENTIAL_ADAPTER_REPOSITORY_RELATIVE_PATH,
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -178,6 +234,55 @@ mod tests {
         assert!(!PAYLOAD_RELATIVE_ROOT.contains('/'));
         assert!(!PAYLOAD_RELATIVE_ROOT.contains('\\'));
         assert!(!std::path::Path::new(PAYLOAD_RELATIVE_ROOT).is_absolute());
+    }
+
+    /// The execution-closure paths are git pathspecs into the installation's own tree.
+    ///
+    /// They are handed to `git show HEAD:./<rel>` and compared against a manifest field, so they
+    /// must be relative, traversal-free and forward-slashed. A backslash would name a different
+    /// object to git than it does to the filesystem, and the two witnesses would silently diverge.
+    #[test]
+    fn the_execution_closure_paths_are_relative_forward_slashed_pathspecs() {
+        for p in EXECUTION_CLOSURE_REPOSITORY_PATHS {
+            assert!(!p.is_empty());
+            assert!(!p.contains(".."), "{p} must not traverse");
+            assert!(
+                !p.contains('\\'),
+                "{p} must be a forward-slashed git pathspec"
+            );
+            assert!(
+                !p.starts_with('/'),
+                "{p} must be relative to the install root"
+            );
+            assert!(
+                !std::path::Path::new(p).is_absolute(),
+                "{p} must be relative"
+            );
+        }
+    }
+
+    /// Three DISTINCT artefacts. A copy-paste that pointed two entries at one file would attest the
+    /// same bytes twice and leave a real authority input unbound — and every digest check would
+    /// still pass.
+    #[test]
+    fn the_execution_closure_names_three_distinct_artefacts() {
+        let mut seen = EXECUTION_CLOSURE_REPOSITORY_PATHS.to_vec();
+        seen.sort_unstable();
+        seen.dedup();
+        assert_eq!(seen.len(), EXECUTION_CLOSURE_REPOSITORY_PATHS.len());
+    }
+
+    /// The closure paths are REPOSITORY-relative and must never be confused with the PAYLOAD-relative
+    /// ones. They describe different kinds of evidence and are verified by different mechanisms; a
+    /// collision would let a payload file satisfy a committed-bytes check.
+    #[test]
+    fn payload_paths_and_execution_closure_paths_do_not_overlap() {
+        for payload in [RUNTIME_RELATIVE_PATH, DAEMON_RELATIVE_PATH] {
+            assert!(
+                !EXECUTION_CLOSURE_REPOSITORY_PATHS.contains(&payload),
+                "{payload} is a payload path and must not also be an attested committed path"
+            );
+        }
     }
 
     /// The application id is a reverse-DNS bundle identifier, the shape Windows packaging emits.

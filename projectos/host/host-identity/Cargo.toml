@@ -23,6 +23,10 @@ sha2 = "0.10"
 # Canonical low-level primitives (owned-handle RAII + build-derived AppMode). Same direction as the
 # accepted architecture: host-identity -> windows-runtime-primitives -> windows.
 projectos-windows-runtime-primitives = { path = "../windows-runtime-primitives" }
+# THE packaging contract, for the execution-closure paths the verifier must not take from a caller
+# or from the manifest under test. A leaf crate with no dependencies of its own, so this adds no
+# third-party surface; the generator already depends on both, so the edge is not a new direction.
+projectos-packaged-runtime-contract = { path = "../packaged-runtime-contract" }
 
 [target.'cfg(windows)'.dependencies]
 # Exact identity feature slice already used by the relocated implementation (WinVerifyTrust +

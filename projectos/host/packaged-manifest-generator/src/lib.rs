@@ -36,4 +36,7 @@ pub mod manifest;
 
 pub use assemble::{assemble_payload, AssembleError, AssembledPayload};
 pub use closure::{verify_closure, ClosureFinding, ClosureReport};
-pub use manifest::{generate_unsigned_manifest, GeneratedManifest, GeneratorError, ManifestInputs};
+pub use manifest::{
+    generate_unsigned_manifest, GeneratedManifest, GeneratorError, ManifestInputs,
+    SIGNATURE_ALGORITHM,
+};
