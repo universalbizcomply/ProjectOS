@@ -6,6 +6,7 @@ import type { CommandContext, CommandResult } from './context.js';
 import { ok } from './context.js';
 import type { Flags } from './flags.js';
 import { status } from './commands/status.js';
+import { doctor } from './commands/doctor.js';
 import { init } from './commands/init.js';
 import { validate } from './commands/validate.js';
 import { prompt } from './commands/prompt.js';
@@ -62,6 +63,7 @@ export const HELP: readonly string[] = [
   'Usage: projectos <command> [flags]',
   '',
   'Commands:',
+  '  doctor                       Preflight: is this machine fit for governed work (read-only)',
   '  status                       Show project, branch, config, report counts',
   '  init --id <slug> [--name ..] Scaffold .projectops/project-config.json (cwd)',
   '  install --target <path> --id <slug>  Install .projectops into a product repo',
@@ -98,6 +100,8 @@ export function run(ctx: CommandContext, argv: readonly string[]): CommandResult
       return mcp(ctx, flags, positionals);
     case 'plugins':
       return plugins(ctx);
+    case 'doctor':
+      return doctor(ctx);
     case 'status':
       return status(ctx);
     case 'init':

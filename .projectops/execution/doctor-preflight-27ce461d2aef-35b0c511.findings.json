@@ -1,0 +1,15 @@
+{
+  "reviews": [
+    "Governance review of mandatory versus advisory execution boundaries",
+    "Performance and failure-mode review"
+  ],
+  "findings": [
+    {
+      "id": "DOC-F1",
+      "severity": "LOW",
+      "category": "test-execution",
+      "summary": "The previous worker reported that configured test suites could not be executed due to sandbox permission restrictions. The evidence record collected in the same session proves all four checks ran and passed: validate-no-secrets (exit 0), core-tests (682 passed, exit 0), agent-tests (exit 0), agent-typecheck (exit 0), speed-benchmark (exit 0). The finding was a statement about the worker's own sandbox, not about the tests. Resolved: the evidence record is the proof.",
+      "resolved": true
+    }
+  ]
+}

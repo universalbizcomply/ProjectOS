@@ -1,0 +1,43 @@
+{
+  "phaseId": "doctor-preflight",
+  "project": "projectos",
+  "objective": "Make Doctor a fast, reliable mandatory preflight for the specified autonomous and paid governed actions.",
+  "status": "awaiting_review",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-09-05T01:16:32.951Z",
+      "note": "recorded by the autonomous loop (WAITING_AI)"
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-09-05T01:16:32.952Z",
+      "note": "recorded by the autonomous loop (WAITING_AI)"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-09-05T01:25:23.172Z",
+      "note": "recorded by the autonomous loop (VALIDATING)"
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-09-05T01:29:16.603Z",
+      "note": "recorded by the autonomous loop (AWAITING_GATE)"
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-09-05T01:29:16.603Z",
+      "note": "recorded by the autonomous loop (AWAITING_GATE)"
+    }
+  ]
+}

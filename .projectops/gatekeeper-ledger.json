@@ -637,6 +637,19 @@
       },
       "costMicroUsd": 227603,
       "at": "2026-09-04T23:39:07.690Z"
+    },
+    {
+      "requestId": "GKREQ-3ebee5401211dd03ef232e9f",
+      "projectId": "projectos",
+      "phaseId": "doctor-preflight",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "inputTokens": 0,
+        "outputTokens": 0
+      },
+      "costMicroUsd": 1286,
+      "unresolved": true,
+      "at": "2026-09-05T01:29:16.892Z"
     }
   ]
 }

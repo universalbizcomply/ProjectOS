@@ -15,7 +15,17 @@ import {
 import { GATEKEEPER_VERDICTS, verdictRequiresOwner, type GatekeeperVerdict } from '@projectos/core';
 import type { LoopStop, LoopStopCode } from '../src/loop/outcome.js';
 
-const OWNER_STOPS: LoopStopCode[] = ['PROTECTED_EFFECT', 'OWNER_GATE', 'SCOPE_DECISION'];
+const OWNER_STOPS: LoopStopCode[] = [
+  'PROTECTED_EFFECT',
+  'OWNER_GATE',
+  'SCOPE_DECISION',
+  // A FACT ABOUT THE MACHINE, WHICH NO REVIEW CAN CHANGE. Doctor's preflight failing means git has
+  // gone, or the checks' runtime has, or the governed records cannot be read. A reviewer cannot make
+  // a binary present, so there is nothing to ask and no verdict that could answer -- the stop stands
+  // and the run ends. It is routed to the owner not because the owner must decide anything, but
+  // because the owner is the only one who can act on it.
+  'DOCTOR_PREFLIGHT_FAILED',
+];
 const GATEKEEPER_STOPS: LoopStopCode[] = [
   'UNRESOLVED_CRITICAL_OR_HIGH',
   'CORRECTION_EXHAUSTED',
@@ -276,5 +286,21 @@ describe('the loop never continues by accident', () => {
         expect(applyVerdictToStop(stop(code), { decision: verdict, nextClaudeInstruction: 'instruction', problems: [] }).kind).not.toBe('retry');
       }
     }
+  });
+});
+
+/**
+ * A stop nobody can answer must offer nobody a verdict.
+ *
+ * `DOCTOR_PREFLIGHT_FAILED` is the first stop in this table with an EMPTY applicable-verdict list,
+ * and that emptiness is the protection: it is what stops a future change routing a broken machine
+ * to a paid reviewer and letting an approval word past it.
+ */
+describe('a stop about the machine is never answerable by review', () => {
+  it('offers no verdict at all, and is not gatekeeper-routable', () => {
+    const route = STOP_ROUTES.DOCTOR_PREFLIGHT_FAILED;
+    expect(route.audience).toBe('owner');
+    expect(route.applicableVerdicts).toEqual([]);
+    expect([...gatekeeperRoutableCodes()]).not.toContain('DOCTOR_PREFLIGHT_FAILED');
   });
 });

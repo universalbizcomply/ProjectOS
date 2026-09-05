@@ -91,6 +91,7 @@ function world(opts: WorldOpts = {}) {
       if (cmd !== 'git') return { code: opts.validatorExit ?? 0, stdout: 'validator ran', stderr: '' };
       const key = args.join(' ');
       if (key.includes('rev-parse --abbrev-ref HEAD')) return { code: 0, stdout: `${branch}\n`, stderr: '' };
+      if (key.includes('--is-inside-work-tree')) return { code: 0, stdout: 'true', stderr: '' };
       if (key.includes('rev-parse HEAD')) return { code: 0, stdout: `${HEAD}\n`, stderr: '' };
       if (key.includes('remote get-url origin')) return { code: 0, stdout: `${remote}\n`, stderr: '' };
       if (key.includes('status --porcelain')) return { code: 0, stdout: '', stderr: '' };
@@ -1574,5 +1575,41 @@ describe('work state around a dispatch', () => {
     expect(last.lastStopCode).toBe('WORKER_TIMED_OUT');
     // AND IT REMAINS A REPORT. Nothing here was read back; the loop was never asked what the
     // checkpoint said, and no state in it changed what the loop did.
+  });
+});
+
+/**
+ * CRITERION 2, ASSERTED AGAINST THE LOOP ITSELF.
+ *
+ * Doctor's own unit tests prove `runDoctor` classifies a broken machine correctly. They prove
+ * nothing about whether `runLoop` acts on it -- review pointed out that all three enforcement sites
+ * could be deleted and the suite would stay green, which for the phase's central acceptance
+ * criterion is not coverage at all.
+ *
+ * This drives the real loop against a git that cannot answer, and asserts the run refuses BEFORE a
+ * worker is ever started. Remove the gate at the top of `runLoop` and this fails.
+ */
+describe('a machine that fails the mandatory preflight cannot start autonomous work', () => {
+  it('refuses the run, and starts no worker', () => {
+    const base = world();
+    // Git stops answering. Everything else about the project is fine, so the only thing that can
+    // stop this run is the preflight.
+    const broken = {
+      ...base,
+      exec: (cmd: string, args: readonly string[], options?: unknown) =>
+        cmd === 'git' && args.join(' ').includes('--is-inside-work-tree')
+          ? { code: 128, stdout: '', stderr: 'not a git repository' }
+          : base.exec(cmd, args, options as never),
+    };
+    const fake = fakeAdapter();
+    const r = runLoop(broken, ROOT, {
+      adapters: fake.registry,
+      invocation: { pid: 1, ppid: 2, argv: ['node'], cwd: ROOT },
+    });
+
+    const said = JSON.stringify(r);
+    expect(said).toContain('DOCTOR_PREFLIGHT_FAILED');
+    // The point of gating BEFORE `resolveWorker`: nothing is half-done to undo.
+    expect(fake.calls).toEqual([]);
   });
 });

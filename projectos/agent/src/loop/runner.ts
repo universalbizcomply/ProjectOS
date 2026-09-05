@@ -41,6 +41,7 @@ import {
 } from './workers.js';
 import { BUILT_IN_ADAPTERS } from './adapters/claudeCodeCli.js';
 import { collectEvidence, configuredChecks, requiredChecks, runChecks, type CheckResult } from './verification.js';
+import { runDoctor, doctorRefusalLines, type DoctorReport } from '../doctor.js';
 import {
   decideContinuation,
   loopStopLines,
@@ -460,6 +461,23 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     ]);
   }
 
+  // MANDATORY DOCTOR PREFLIGHT — autonomous execution.
+  //
+  // The first of the three contexts the approved plan makes mandatory. It runs BEFORE a worker is
+  // resolved, let alone started, because the point is to refuse the run rather than to abandon one
+  // midway: a worker that has already written half its records is not undone by discovering that
+  // git was never reachable.
+  //
+  // It reads only. Doctor performs no action and authorises none — a failing preflight WITHHOLDS,
+  // it does not substitute its own judgement for a gate. Advisory findings never reach here: only a
+  // BLOCKING failure stops a run, so a slow disk cannot masquerade as a governance refusal.
+  const preflight: DoctorReport = runDoctor(sys, root, {
+    checkCommands: suites.checks.map((c) => c.command),
+  });
+  if (!preflight.safeToActAutonomously) {
+    return refused(doctorRefusalLines(preflight, 'autonomous-execution'));
+  }
+
   const resolution = resolveWorker(context, options.adapters ?? BUILT_IN_ADAPTERS, options.workerId, { sys, root });
   if (!resolution.ok) {
     return refused(['REFUSED (NO_AUTHORISED_WORKER): the loop has no worker it may start', ...resolution.problems.map((p) => `  - ${p}`)]);
@@ -842,6 +860,18 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     // AWAITING_GATE is reported by `evidenceFor`, BEFORE the candidate is frozen. See the note
     // there: reporting it here wrote lifecycle records into a candidate that had already been
     // sealed, so the reviewer was shown bytes that were stale by the time it saw them.
+
+    // MANDATORY DOCTOR PREFLIGHT — paid gatekeeper dispatch.
+    //
+    // Re-asked here rather than trusted from the run's start: a preflight is a statement about NOW,
+    // and the minutes a worker takes are long enough for a disk to fill or a network drive to go.
+    // The thing being protected is money — a call made on a machine that cannot assemble its own
+    // evidence is one that pays to be told so.
+    const gatePreflight = runDoctor(sys, root, { checkCommands: suites.checks.map((c) => c.command) });
+    if (!gatePreflight.safeToActAutonomously) {
+      lines.push(...doctorRefusalLines(gatePreflight, 'paid-gatekeeper-dispatch'));
+      return null;
+    }
 
     const turn = takeGatekeeperTurn(
       {
@@ -1273,6 +1303,23 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
    * pushed at cc324a7. Every refusal below is the executor's, reported rather than interpreted.
    */
   const runContinuation = (): ContinuationResult => {
+    // MANDATORY DOCTOR PREFLIGHT — automatic technical commit or push continuation.
+    //
+    // The third and last of the contexts the approved plan makes mandatory, and the one where a
+    // false start costs most: a commit made on a machine whose git cannot reach its remote leaves a
+    // branch that looks landed and is not. Asked here, immediately before any action is performed,
+    // rather than inherited from the run's opening preflight.
+    //
+    // It WITHHOLDS. `NO_ACTION` is the same outcome an unapproved continuation produces, so a
+    // failing preflight can never be mistaken for an approval, and it authorises nothing: the
+    // accepted decision and the reviewed candidate are still required below, unchanged.
+    const continuationPreflight = runDoctor(sys, root, {
+      checkCommands: suites.checks.map((c) => c.command),
+    });
+    if (!continuationPreflight.safeToActAutonomously) {
+      lines.push(...doctorRefusalLines(continuationPreflight, 'technical-continuation'));
+      return { kind: 'NO_ACTION', detail: 'the mandatory Doctor preflight did not pass' };
+    }
     if (acceptedDecision === null || reviewedCandidate === null) {
       const detail = 'the continuation was approved but no accepted decision, or no named candidate, reached it';
       lines.push(`  no technical continuation: ${detail}`);
@@ -1699,6 +1746,19 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
       if (answered === 'break') break;
     }
     attempts = decision.attempt;
+    // MANDATORY DOCTOR PREFLIGHT — the correction retry is a worker dispatch too.
+    //
+    // The same reasoning the paid call and the continuation already use: a preflight is a statement
+    // about NOW, and the minutes a worker takes are long enough for a disk to fill or a git binary
+    // to go. Re-asked here because a correction loops back to `adapter.start`, which is a dispatch
+    // in every sense that matters — it was the one path the opening preflight was silently covering
+    // for the whole run. Review caught the inconsistency with this file's own stated rationale.
+    const retryPreflight = runDoctor(sys, root, { checkCommands: suites.checks.map((c) => c.command) });
+    if (!retryPreflight.safeToActAutonomously) {
+      lines.push(...doctorRefusalLines(retryPreflight, 'autonomous-execution'));
+      stop = { code: 'DOCTOR_PREFLIGHT_FAILED', detail: 'the machine became unfit for autonomous work mid-run' };
+      break;
+    }
     lines.push(`  correcting (attempt ${attempts} of ${MAX_CORRECTION_ATTEMPTS}): ${decision.detail}`);
   }
 

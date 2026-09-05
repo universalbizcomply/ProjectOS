@@ -61,6 +61,17 @@ export const STOP_ROUTES: { readonly [K in LoopStopCode]: StopRoute } = {
       'whether a finding is real, and what to do about it, is a review question — this is the judgement ' +
       'the owner has been relaying by hand',
   },
+  DOCTOR_PREFLIGHT_FAILED: {
+    audience: 'owner',
+    // NO VERDICT CAN ANSWER THIS, so none is offered. A reviewer cannot make a disk writable or a
+    // missing binary present, and asking one to judge the state of a machine would be paying for an
+    // opinion about something it cannot observe. Doctor WITHHOLDS; it never asks permission to
+    // proceed anyway, and this route is what makes that structural rather than a convention.
+    applicableVerdicts: [],
+    rationale:
+      'the machine stopped being fit for autonomous work; that is a fact about the environment, not a ' +
+      'judgement about the work, and no review can change it',
+  },
   CORRECTION_EXHAUSTED: {
     audience: 'gatekeeper',
     applicableVerdicts: ['AMENDMENT_REQUIRED', 'DO_NOT_PROCEED', 'AWAITING_OWNER'],

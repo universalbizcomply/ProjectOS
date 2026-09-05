@@ -1,17 +1,17 @@
 {
   "schemaVersion": "1.0.0",
   "projectId": "projectos",
-  "phaseId": "validation-cache",
-  "state": "COMPLETE",
-  "sessionId": "validation-cache-0889574bd1c3-1c941c1f",
-  "attempt": 0,
-  "subjectCommit": "0889574bd1c33c76ba1d0486b5439088341e7f78",
-  "lastCompletedStep": "technical-continuation:push",
-  "lastStopCode": null,
-  "lastStopDetail": null,
+  "phaseId": "doctor-preflight",
+  "state": "BLOCKED",
+  "sessionId": "doctor-preflight-27ce461d2aef-35b0c511",
+  "attempt": 1,
+  "subjectCommit": "27ce461d2aef0310c09475e8eb805893d1f780ed",
+  "lastCompletedStep": "checks ran for attempt 2",
+  "lastStopCode": "CONTINUATION_READY",
+  "lastStopDetail": "every required check passed, every required review is recorded, and this phase reserves no part of the technical continuation to the owner; the completed work is ready for the reviewer's decision on whether the bounded technical continuation may happen",
   "evidenceSessionId": null,
-  "gateDecisionId": "GKDEC-GKREQ-1c9c82b507d7d91c0a76e809",
+  "gateDecisionId": null,
   "nextCandidateAction": null,
-  "ownerRequired": false,
-  "updatedAt": "2026-09-04T22:56:56.749Z"
+  "ownerRequired": true,
+  "updatedAt": "2026-09-05T01:29:21.116Z"
 }

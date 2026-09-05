@@ -39,6 +39,20 @@ export type LoopStopCode =
    * here: whatever is on disk is a partial account of work that never reached its own conclusion.
    */
   | 'WORKER_TIMED_OUT'
+  /**
+   * The machine stopped being fit for autonomous work part-way through a run.
+   *
+   * A STATEMENT ABOUT THE MACHINE, NOT THE WORK. Every other stop here describes something about
+   * the task, the worker or the evidence. This one says the run was ended because the environment
+   * it depends on changed underneath it — git went, the checks' runtime went — and continuing would
+   * produce findings about the code that are really findings about the machine. That mistake has
+   * been made in this project before, and cost a day.
+   *
+   * IT IS NOT REVIEWER-ANSWERABLE, deliberately. A reviewer cannot make a disk writable or a
+   * binary present, so there is nothing to ask: the stop stands and the run ends. Doctor withholds;
+   * it never asks permission to proceed anyway.
+   */
+  | 'DOCTOR_PREFLIGHT_FAILED'
   | 'REVIEW_OUTSTANDING'
   /**
    * The work is FINISHED AND SOUND, and what happens to it next is the reviewer's to say.

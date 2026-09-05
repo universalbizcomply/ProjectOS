@@ -89,6 +89,9 @@ import type { LoopStop, LoopStopCode } from './outcome.js';
  */
 export const STOP_ASKS: { readonly [K in LoopStopCode]: string } = {
   UNRESOLVED_CRITICAL_OR_HIGH: 'security-review',
+  // Named for completeness because the type demands it. It is never dispatched: the routing table
+  // sends this stop to the owner with no answerable verdict, so no request is ever built from it.
+  DOCTOR_PREFLIGHT_FAILED: 'doctor-preflight-failed',
   CORRECTION_EXHAUSTED: 'correction-exhausted',
   REVIEW_OUTSTANDING: 'evidence-review',
   WORKER_REFUSED: 'worker-refusal',
