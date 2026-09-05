@@ -663,6 +663,19 @@
       },
       "costMicroUsd": 17981,
       "at": "2026-09-05T02:08:36.692Z"
+    },
+    {
+      "requestId": "CLREQ-7bf2edcc159a8730a67a7860",
+      "projectId": "projectos",
+      "phaseId": "doctor-preflight",
+      "model": "gpt-5.6-terra",
+      "usage": {
+        "inputTokens": 181490,
+        "cachedInputTokens": 0,
+        "outputTokens": 374
+      },
+      "costMicroUsd": 230603,
+      "at": "2026-09-05T02:24:58.070Z"
     }
   ]
 }
