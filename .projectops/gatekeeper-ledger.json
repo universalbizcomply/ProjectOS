@@ -702,6 +702,19 @@
       },
       "costMicroUsd": 18461,
       "at": "2026-09-05T03:33:11.289Z"
+    },
+    {
+      "requestId": "CLREQ-1148608041fb05f2dbecd1a8",
+      "projectId": "projectos",
+      "phaseId": "gatekeeper-replay",
+      "model": "gpt-5.6-terra",
+      "usage": {
+        "inputTokens": 186908,
+        "cachedInputTokens": 0,
+        "outputTokens": 547
+      },
+      "costMicroUsd": 239105,
+      "at": "2026-09-05T03:50:50.236Z"
     }
   ]
 }
