@@ -335,7 +335,7 @@ function run() {
     E("V8 InstallerTarget is Copy");
   // serde_json is the strict PARSER the codec already uses; a serialisation DERIVE is the thing that
   // would make a sealed value transportable.
-  if (/#\[derive\([^)]*(Serialize|Deserialize)/.test(w) || /serde::(Serialize|Deserialize)/.test(w))
+  if (/#\[derive\([^)]*(Serialize|Deserialize)/.test(w) || /(^|[^A-Za-z0-9_])serde::(Serialize|Deserialize)($|[^A-Za-z0-9_])/.test(w))
     E("V8 the writer gained a serialisation route");
   {
     const m = /pub struct InstallerTarget \{([\s\S]*?)\n\}/.exec(w);

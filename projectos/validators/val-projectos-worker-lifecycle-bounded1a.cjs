@@ -252,7 +252,17 @@ function run() {
     if (stopFn.trim() === "" || !/spawnSync\(/.test(stopFn)) {
       E(`${SIDECAR_REL} does not wait for the termination it reports, so its answer cannot be true`);
     }
-    if (/spawn\(/.test(stopFn)) {
+    // BOUNDARY AS A CHARACTER CLASS, NOT \b — THIS LINE WAS DEAD.
+    //
+    // The comment eight lines above warns that this file has been edited through tooling that
+    // mangles backslash escapes, and builds a newline with String.fromCharCode for exactly that
+    // reason. This line then fell to the same hazard anyway: its \b became a literal 0x08 byte,
+    // so the pattern matched a backspace character followed by `spawn(` and could never fire.
+    // The rule reported PASS while evaluating nothing.
+    //
+    // `[^A-Za-z0-9_$]` is the boundary spelled out. It cannot be mangled, and it still keeps
+    // `spawnSync(` out while catching `child_process.spawn(` and a bare `spawn(`.
+    if (/(^|[^A-Za-z0-9_$])spawn\(/.test(stopFn)) {
       E(`${SIDECAR_REL} terminates asynchronously; a spawn failure there is unobservable and ends this process`);
     }
   }
