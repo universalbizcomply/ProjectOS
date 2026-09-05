@@ -1,0 +1,15 @@
+{
+  "startedAt": "2026-09-05T02:02:05.856Z",
+  "providerRef": "d808f4ff-6ed0-4e32-9114-96b1695f45d1",
+  "state": "started",
+  "exitCode": 0,
+  "corrections": 0,
+  "invocationId": "fb4f863f1a2ca772",
+  "sessionId": "doctor-preflight-96fceb42ec8a-fb4f863f",
+  "workerId": "claude-local",
+  "kind": "claude-code-cli",
+  "phaseId": "doctor-preflight",
+  "briefId": "doctor-preflight@96fceb42ec8acf252901a8cd7ff8a1890dd49caf",
+  "briefPath": "C:\\dev\\ProjectOS/.projectops/execution/doctor-preflight-96fceb42ec8a-fb4f863f.brief.json",
+  "timedOut": false
+}

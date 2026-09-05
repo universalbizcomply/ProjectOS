@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "1.0.0",
+  "invocationId": "fb4f863f1a2ca772",
+  "createdAt": "2026-09-05T02:02:05.765Z",
+  "projectId": "projectos",
+  "phaseId": "doctor-preflight",
+  "sessionId": "doctor-preflight-96fceb42ec8a-fb4f863f",
+  "repository": {
+    "root": "C:\\dev\\ProjectOS",
+    "branch": "projectos-post-v3-selfhost-pilot1a",
+    "head": "96fceb42ec8acf252901a8cd7ff8a1890dd49caf"
+  },
+  "executionMode": "live",
+  "process": {
+    "pid": 22220,
+    "ppid": 16064,
+    "argv": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\dev\\ProjectOS\\projectos\\agent\\bin\\projectos.js",
+      "run",
+      "--execute"
+    ],
+    "cwd": "C:\\dev\\ProjectOS"
+  },
+  "workerId": "claude-local",
+  "workerKind": "claude-code-cli",
+  "brief": {
+    "path": "C:\\dev\\ProjectOS/.projectops/execution/doctor-preflight-96fceb42ec8a-fb4f863f.brief.json",
+    "briefId": "doctor-preflight@96fceb42ec8acf252901a8cd7ff8a1890dd49caf",
+    "digest": "sha256:045375ce1802ad2cbe9a32e685bdf47f29dd0319dcb63efba04709eedea0fe6c"
+  }
+}
