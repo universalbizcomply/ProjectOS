@@ -49,6 +49,10 @@ import {
   estimateCostMicroUsd,
   type TechnicalDelegationCondition,
   estimateInputTokensFromText,
+  reservationOrNull,
+  carriedContextTokens,
+  utf8ByteLength,
+  type TokenUsage,
   evaluateBudget,
   gatekeeperRequestDigest,
   modelForAsk,
@@ -73,6 +77,7 @@ import { applyVerdictToStop, routeStop, type NextLoopAction } from './gatekeeper
 import type { BrokeredTransport } from './transports/brokeredHttpPort.js';
 import {
   submitToOpenAi,
+  buildResponsesBody,
   GATEKEEPER_OUTPUT_TOKEN_LIMIT,
   gatekeeperOutputAnomaly,
   type HttpPort,
@@ -106,6 +111,33 @@ export const STOP_ASKS: { readonly [K in LoopStopCode]: string } = {
   // for a question the corpus already describes.
   CONTINUATION_READY: 'evidence-review',
 };
+
+/**
+ * The most recent turn the provider actually billed, or null when there is none.
+ *
+ * The ONLY local evidence of how much stored conversation a continued request would replay. The
+ * ledger keeps what the provider reported, so this is measurement rather than estimation — and its
+ * absence is what makes a continued call unpriceable, which is why null is a real answer here and
+ * not a convenience.
+ *
+ * Entries without usage are skipped: a reservation that was never settled records what was RESERVED,
+ * and reading a reservation back as though it were a bill would compound the original defect.
+ */
+export function lastBilledUsage(ledger: readonly LedgerEntry[]): TokenUsage | null {
+  if (!Array.isArray(ledger)) return null;
+  for (let i = ledger.length - 1; i >= 0; i -= 1) {
+    const usage = ledger[i]?.usage;
+    if (
+      usage !== undefined &&
+      usage !== null &&
+      typeof usage.inputTokens === 'number' &&
+      typeof usage.outputTokens === 'number'
+    ) {
+      return usage;
+    }
+  }
+  return null;
+}
 
 export interface GatekeeperTurnInput {
   readonly stop: LoopStop;
@@ -214,7 +246,6 @@ export interface GatekeeperTurnDeps {
    * that this project owns this conversation — and exists before any call has been made. This
    * continues the CONVERSATION and can only exist after one.
    */
-  readonly previousResponseId?: string | null;
   /** Who the configured transport claims to be. Stamped as the decision's provenance. */
   readonly transportDecider: string;
   readonly consumedDecisionIds: readonly string[];
@@ -449,14 +480,101 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
     ]);
   }
 
-  // The estimate uses the evidence actually being sent, so it is a real bound rather than a nominal one.
-  // UTF-8 bytes through the one conservative estimator — not UTF-16 length divided by four.
-  const estimatedInput = estimateInputTokensFromText(input.evidenceText);
+  /**
+   * THE GOVERNED REVIEW IS STATELESS, AND THAT IS A RULING RATHER THAN AN OPTIMISATION.
+   *
+   * The thread cost 117x and bought nothing the contract uses. Every governed decision is bound to an
+   * exact `subjectCommit` and `requestDigest`, carries its own complete evidence pack, and is judged
+   * by `checkGatekeeperDecision` on binding, replay and authority — not one of which consults a
+   * conversation. `projectos reconcile` has always sent `previousResponseId: null` and its decisions
+   * are checked by the same function, so a stateless governed call is a proven shape here rather than
+   * a new one. Per-project ISOLATION is a property of the committed thread binding in
+   * `gatekeeperThread.ts`, which this does not touch.
+   *
+   * WHAT IS DELIBERATELY NOT REMOVED. The transport still accepts a continuation, because the
+   * capability is not the defect — pricing it as though it were free was. A caller that supplies one
+   * must be able to bound it, and `carriedContextTokens` refuses when it cannot. So the budget
+   * invariant holds whether or not anyone re-enables the thread later, which is the point: the gate
+   * is correct independently of this ruling.
+   */
+  const continuation = {
+    previousResponseId: null as string | null,
+    lastBilledTurn: lastBilledUsage(deps.ledger),
+  };
+
+  // THE RESERVATION IS PRICED AGAINST THE WHOLE REQUEST, NOT THE EVIDENCE INSIDE IT.
+  //
+  // This read `estimateInputTokensFromText(input.evidenceText)` and the comment above it said that
+  // made the estimate "a real bound rather than a nominal one". It was not a bound at all. On
+  // `GKREQ-b045e264` the evidence pack was 21,018 bytes — 8,408 estimated tokens — and the provider
+  // billed 184,232. The missing 176,000 tokens were never in the request: `previous_response_id`
+  // with `store: true` makes the provider replay the entire stored conversation and bill it again.
+  // Across one thread's fifty calls that grew from 1,599 to 187,452 input tokens, ~3,793 per call,
+  // with nothing cached. No multiplier fixes an unbounded quantity.
+  //
+  // So the body is BUILT FIRST and priced by its own bytes. `buildResponsesBody` is pure and
+  // exported precisely so it can be inspected without sending anything, which is what makes
+  // admission-before-dispatch possible rather than merely intended.
+  const requestBody = buildResponsesBody(request, input.evidenceText, {
+    model,
+    decidedBy: deps.transportDecider,
+    credentialRef: transport.credentialRef ?? '',
+    previousResponseId: continuation.previousResponseId,
+  });
+  // AND WHAT THE PROVIDER WILL REPLAY FROM ITS OWN STORE IS ADDED, OR THE CALL IS REFUSED.
+  // `carriedContextTokens` returns null when a continued conversation cannot be bounded from a
+  // billing record — an unknown cost, which is never spent.
+  const carried = carriedContextTokens({
+    continuesStoredConversation: continuation.previousResponseId !== null,
+    lastBilledTurn: continuation.lastBilledTurn,
+  });
+  if (carried === null) {
+    return {
+      action: ownerAction([
+        `STOPPED (${input.stop.code}): ${input.stop.detail}`,
+        'this call would continue a stored provider conversation whose replayed size ProjectOS has no ' +
+          'billing record to bound, so its cost cannot be established and it was not made',
+      ]),
+      lines,
+      request,
+      ledgerEntry: null,
+      ownerChoices: null,
+      unavailabilityCause: null,
+      providerResponseId: null,
+      checkedDecision: null,
+    };
+  }
+  const estimatedInput = reservationOrNull({
+    requestBytes: utf8ByteLength(requestBody),
+    carriedContextTokens: carried,
+  });
+  // A RESERVATION THAT CANNOT BE COMPUTED IS A REFUSAL, NOT A CRASH. `reservationInputTokens` throws
+  // rather than ever returning zero, and a throw here would take the runner down instead of refusing
+  // one call — the same argument that closed `checkValidatorCache`'s undefined-key crash.
+  if (estimatedInput === null) {
+    return {
+      action: ownerAction([
+        `STOPPED (${input.stop.code}): ${input.stop.detail}`,
+        'this request could not be priced, so it was not made; ProjectOS does not spend against an unknown estimate',
+      ]),
+      lines,
+      request,
+      ledgerEntry: null,
+      ownerChoices: null,
+      unavailabilityCause: null,
+      providerResponseId: null,
+      checkedDecision: null,
+    };
+  }
   const estimate = estimateCostMicroUsd(
     // The number the provider is actually held to, imported rather than repeated: a reservation that
     // does not match the limit on the wire is not a reservation.
     { inputTokens: estimatedInput, outputTokens: GATEKEEPER_OUTPUT_TOKEN_LIMIT },
     rate,
+  );
+  lines.push(
+    `reservation: ${utf8ByteLength(requestBody)} request bytes + ${carried} carried context token(s) ` +
+      `-> ${estimatedInput} input token(s) at ${model}`,
   );
   const totals = summariseLedger(deps.ledger, {
     projectId: input.projectId,
@@ -512,7 +630,9 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
             model,
             decidedBy: deps.transportDecider,
             credentialRef: transport.credentialRef ?? '',
-            previousResponseId: deps.previousResponseId ?? null,
+            // The same value the reservation was priced against. Reading `deps.previousResponseId`
+            // here would price one request and send another.
+            previousResponseId: continuation.previousResponseId,
             // When the installation composes a trusted transport, the credential is resolved inside
             // it and never in this process.
             ...(deps.broker === undefined

@@ -47,6 +47,9 @@ import {
   deriveClosureRequestId,
   estimateCostMicroUsd,
   estimateInputTokensFromText,
+  reservationOrNull,
+  carriedContextTokens,
+  utf8ByteLength,
   evaluateBudget,
   modelForAsk,
   recordCall,
@@ -68,7 +71,8 @@ import {
 import type { CredentialResolver } from './credentialResolver.js';
 import type { BrokeredTransport } from './transports/brokeredHttpPort.js';
 import { GATEKEEPER_OUTPUT_TOKEN_LIMIT, gatekeeperOutputAnomaly, type HttpPort } from './transports/openaiResponses.js';
-import { submitClosureRequest, type ClosureTransportOutcome } from './transports/closureResponses.js';
+import { submitClosureRequest, buildClosureResponsesBody, type ClosureTransportOutcome } from './transports/closureResponses.js';
+import { lastBilledUsage } from './gatekeeperTurn.js';
 
 export interface ClosureTurnInput {
   readonly projectId: string;
@@ -117,7 +121,6 @@ export interface ClosureTurnDeps {
     cause: string,
   ) => void;
   readonly threadBinding: GovernanceThreadBinding | null;
-  readonly previousResponseId?: string | null;
   /** Closure decision ids already consumed for this phase, so a replayed answer is refused. */
   readonly consumedDecisionIds: readonly string[];
   /** Set only for a local rehearsal route; see `gatekeeperTransport.ts`. */
@@ -303,9 +306,49 @@ export function takeClosureTurn(input: ClosureTurnInput, deps: ClosureTurnDeps):
     ]);
   }
 
-  // 4. BUDGET, AGAINST THE EVIDENCE ACTUALLY BEING SENT AND THE LIMIT ACTUALLY ON THE WIRE.
+  // 4. BUDGET, AGAINST THE WHOLE REQUEST AND THE LIMIT ACTUALLY ON THE WIRE.
+  //
+  // This priced `input.evidenceText` alone, which is not what the provider bills. `previous_response_id`
+  // with `store: true` makes it replay the entire stored conversation as fresh input — measured at
+  // 21.9x the reservation on one real call, growing without limit. The body is therefore built first
+  // and priced by its own bytes, and anything the provider will replay is bounded or the call is
+  // refused. Same ruling as the technical route: the governed closure question is STATELESS, because
+  // it is bound to an exact subject and carries its own complete evidence.
+  const continuation = {
+    previousResponseId: null as string | null,
+    lastBilledTurn: lastBilledUsage(deps.ledger),
+  };
+  const requestBody = buildClosureResponsesBody(request, input.evidenceText, {
+    model,
+    credentialRef: transport.credentialRef ?? '',
+    previousResponseId: continuation.previousResponseId,
+  });
+  const carried = carriedContextTokens({
+    continuesStoredConversation: continuation.previousResponseId !== null,
+    lastBilledTurn: continuation.lastBilledTurn,
+  });
+  if (carried === null) {
+    return stopped('NOT_SENT', lines, request, [
+      'this call would continue a stored provider conversation whose replayed size ProjectOS has no ' +
+        'billing record to bound, so its cost cannot be established',
+      'a call whose price is unknown is not made',
+    ]);
+  }
+  // A RESERVATION THAT CANNOT BE COMPUTED IS A REFUSAL, NOT A CRASH — see the same guard on the
+  // technical route. `reservationInputTokens` throws rather than ever returning zero, and a throw at
+  // a dispatch site would take the process down instead of refusing one call.
+  const reservedInput = reservationOrNull({
+    requestBytes: utf8ByteLength(requestBody),
+    carriedContextTokens: carried,
+  });
+  if (reservedInput === null) {
+    return stopped('NOT_SENT', lines, request, [
+      'this request could not be priced, so it was not made',
+      'a call whose price is unknown is not made',
+    ]);
+  }
   const estimate = estimateCostMicroUsd(
-    { inputTokens: estimateInputTokensFromText(input.evidenceText), outputTokens: GATEKEEPER_OUTPUT_TOKEN_LIMIT },
+    { inputTokens: reservedInput, outputTokens: GATEKEEPER_OUTPUT_TOKEN_LIMIT },
     rate,
   );
   const totals = summariseLedger(deps.ledger, {
@@ -344,7 +387,8 @@ export function takeClosureTurn(input: ClosureTurnInput, deps: ClosureTurnDeps):
           {
             model,
             credentialRef: transport.credentialRef ?? '',
-            previousResponseId: deps.previousResponseId ?? null,
+            // The same value the reservation was priced against; see the ruling above.
+            previousResponseId: continuation.previousResponseId,
             ...(deps.broker === undefined
               ? {}
               : {

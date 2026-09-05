@@ -44,7 +44,8 @@ import {
   checkGatekeeperDecision,
   checkThreadBinding,
   estimateCostMicroUsd,
-  estimateInputTokensFromText,
+  reservationOrNull,
+  utf8ByteLength,
   gatekeeperRequestDigest,
   recordCall,
   reconciliationState,
@@ -59,7 +60,7 @@ import {
   type ReconciliationRecord,
 } from '@projectos/core';
 import { deriveRequestId, evidenceDigest } from './gatekeeperTurn.js';
-import { submitToOpenAi, GATEKEEPER_OUTPUT_TOKEN_LIMIT } from './transports/openaiResponses.js';
+import { submitToOpenAi, buildResponsesBody, GATEKEEPER_OUTPUT_TOKEN_LIMIT } from './transports/openaiResponses.js';
 import type { CredentialResolver } from './credentialResolver.js';
 import type { HttpPort } from './transports/openaiResponses.js';
 import type { BrokeredTransport } from './transports/brokeredHttpPort.js';
@@ -834,10 +835,40 @@ export function reconcileDegradedWork(
 
   // THE SPEND LIMIT APPLIES HERE TOO. A limit tested only after the money is gone is a report, not a
   // stop — and this route was the one entry point that could spend without asking.
+  //
+  // AND IT IS PRICED AGAINST THE WHOLE REQUEST, like the other two paid routes.
+  //
+  // This reserved `estimateInputTokensFromText(evidenceText)`. That is smaller than what is sent: the
+  // JSON envelope, the `instructions` block and the `text.format` schema are all on the wire and none
+  // of them were priced. The route was never exposed to the 21.9x replay multiplier that broke the
+  // other two — it has always sent `previousResponseId: null`, three lines below — so this is a
+  // smaller gap than that one was. It is still a gap, and the invariant is that what ProjectOS admits
+  // bounds what the provider can bill, on every path that can spend. Raised as MEDIUM by the security
+  // review of the gatekeeper/closure fix, which is exactly the review that should have caught the
+  // third caller.
+  const requestBody = buildResponsesBody(request, evidenceText, {
+    model: deps.rate.model,
+    decidedBy: deps.decidedBy,
+    credentialRef: deps.transport.credentialRef ?? '',
+    previousResponseId: null,
+  });
+  // Stateless by construction here, so there is nothing replayed to bound and the wire bytes are the
+  // whole cost. Zero is passed explicitly rather than omitted, so both halves of the bound stay
+  // visible. `null` back means the request could not be priced, which is a refusal, never a crash.
+  const reservedInput = reservationOrNull({
+    requestBytes: utf8ByteLength(requestBody),
+    carriedContextTokens: 0,
+  });
+  if (reservedInput === null) {
+    return outcome(
+      'SPEND_REFUSED',
+      ['this request could not be priced, so it was not made; ProjectOS does not spend against an unknown estimate'],
+      { workId: input.workId, requestId, outstandingAfter: before.outstandingWorkIds },
+    );
+  }
   const estimate = estimateCostMicroUsd(
-    // UTF-8 bytes through the one conservative estimator — not UTF-16 length divided by four.
-    // Same constant the request carries, so the reservation is the enforced maximum.
-    { inputTokens: estimateInputTokensFromText(evidenceText), outputTokens: GATEKEEPER_OUTPUT_TOKEN_LIMIT },
+    // Same output constant the request carries, so the reservation is the enforced maximum.
+    { inputTokens: reservedInput, outputTokens: GATEKEEPER_OUTPUT_TOKEN_LIMIT },
     deps.rate,
   );
   const totals = summariseLedger(deps.ledger, {

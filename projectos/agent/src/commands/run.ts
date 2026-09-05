@@ -13,7 +13,8 @@
 import type { CommandContext, CommandResult } from '../context.js';
 import { ok, fail } from '../context.js';
 import { type Flags, str, bool } from '../flags.js';
-import { runLoop } from '../loop/runner.js';
+import { runLoop, type RunResult } from '../loop/runner.js';
+import { continuationLines, continueProgramme, phaseAttemptOf } from '../loop/programmeContinuation.js';
 import { isDegradedOperation, DEGRADED_OPERATIONS } from '../loop/degradedMode.js';
 import { loadGovernedContext } from '../governedContext.js';
 import {
@@ -36,6 +37,7 @@ import {
   type WorkRecord,
 } from '../loop/workRecord.js';
 import type { WorkStateReport } from '../loop/runner.js';
+import type { GatekeeperTurnDeps } from '../loop/gatekeeperTurn.js';
 import { unprovisionedResolver } from '../loop/credentialResolver.js';
 import { nodeBrokeredTransport } from '../loop/transports/brokeredHttpPort.js';
 import { nodeHttpPort } from '../loop/transports/nodeHttpPort.js';
@@ -82,6 +84,15 @@ export function run(ctx: CommandContext, flags: Flags): CommandResult {
   }
 
   const resume = bool(flags, 'resume');
+  /**
+   * CARRY THE PROGRAMME, rather than stopping after one phase.
+   *
+   * The flag is what removes "type continue" from between two phases. Opt-in, so every existing
+   * caller behaves exactly as it did, and because starting a programme that will carry itself is a
+   * decision worth making explicitly rather than inheriting. It grants nothing: see
+   * `loop/programmeContinuation.ts` for what still stops it.
+   */
+  const carryProgramme = bool(flags, 'continue');
   const session = str(flags, 'session');
   if (resume && session === '') {
     return fail(2, [
@@ -127,7 +138,9 @@ export function run(ctx: CommandContext, flags: Flags): CommandResult {
     return fail(2, ['REFUSED (GATEKEEPER_MISCONFIGURED): a gatekeeper is configured but cannot be used.', ...gk.reasons.map((r) => `  - ${r}`)]);
   }
 
-  let gatekeeper;
+  // TYPED EXPLICITLY because the loop below now reads it from inside a closure, and an inferred
+  // `any` there would silently drop every check on what the turn is handed.
+  let gatekeeper: GatekeeperTurnDeps | undefined;
   let expectedDecider = '';
   if (gk.ok) {
     // Credential release needs the owner's committed secrets-handling receipt. It is read from the
@@ -161,7 +174,6 @@ export function run(ctx: CommandContext, flags: Flags): CommandResult {
       budget: gk.config.budget,
       ledger,
       threadBinding: gk.config.threadBinding,
-      previousResponseId: readPreviousResponseId(ctx.sys, ctx.root),
       transportDecider: gk.config.transportDecider,
       consumedDecisionIds: consumedDecisionIds(ledger),
       // THE DECISION ITSELF IS KEPT, AS EVIDENCE. The ledger records that a call happened and what
@@ -299,7 +311,19 @@ export function run(ctx: CommandContext, flags: Flags): CommandResult {
       : null;
   const recordLifecycle = (progress: WorkStateReport): void => lifecycle?.record(progress);
 
-  const result = runLoop(ctx.sys, ctx.root, {
+  /**
+   * ONE PHASE, THE WAY IT HAS ALWAYS RUN — now callable more than once.
+   *
+   * Nothing inside changed. Continuation re-enters this exact path, so every phase it carries gets
+   * the same Doctor preflight, the same worker grants, the same checks, reviews and owner-only floor,
+   * and the same budget admission. It adds no way to run a phase that did not exist before it.
+   *
+   * THE LEDGER SNAPSHOT IS DELIBERATELY NOT REBUILT PER PHASE, and that is safe because it is not
+   * what admits spend: `admitSpend` below re-reads the ledger under an exclusive lock for every
+   * request. The snapshot only feeds the reported status, so a second phase cannot spend against a
+   * first phase's stale view of the money.
+   */
+  const runOnePhase = (): RunResult => runLoop(ctx.sys, ctx.root, {
     onWorkState,
     ...(worker === '' ? {} : { workerId: worker }),
     dryRun,
@@ -322,15 +346,36 @@ export function run(ctx: CommandContext, flags: Flags): CommandResult {
           },
         }),
   });
-  const lifecycleProblems =
-    lifecycle === null
-      ? ['no governed context could be loaded, so the phase record was not updated from this run']
-      : lifecycle.problems();
-  const lifecycleLines =
-    lifecycleProblems.length === 0
+
+  /**
+   * ONE PHASE, OR THE PROGRAMME — and the difference is a flag the owner sets when starting it.
+   *
+   * `--continue` is what removes "type continue" from between two phases. It is opt-in so that every
+   * existing caller behaves exactly as it did, and because starting a programme that will carry
+   * itself is a decision worth making explicitly rather than inheriting.
+   *
+   * IT GRANTS NOTHING. `continueProgramme` can only decide whether to ASK for another phase; it stops
+   * on any stop, on no progress, and at a hard bound. See `programmeContinuation.ts`.
+   */
+  const lifecycleLinesNow = (): readonly string[] => {
+    const problems =
+      lifecycle === null
+        ? ['no governed context could be loaded, so the phase record was not updated from this run']
+        : lifecycle.problems();
+    return problems.length === 0
       ? []
-      : ['', 'The phase record was not fully updated (the work itself is unaffected):',
-         ...lifecycleProblems.map((p) => `  - ${p}`)];
+      : ['', 'The phase record was not fully updated (the work itself is unaffected):', ...problems.map((p) => `  - ${p}`)];
+  };
+
+  if (carryProgramme) {
+    const continued = continueProgramme({ runPhase: () => phaseAttemptOf(runOnePhase()) });
+    const report = [...continued.lines, ...continuationLines(continued), ...lifecycleLinesNow()];
+    // REFUSED is the one continuation end that is not a governed outcome: nothing ran at all.
+    return continued.end === 'REFUSED' ? fail(1, report) : ok(report);
+  }
+
+  const result = runOnePhase();
+  const lifecycleLines = lifecycleLinesNow();
   if (!result.ok) return fail(1, [...result.lines, ...lifecycleLines]);
   // A stop is a governed outcome, not an error: the loop did its job and the next move is someone
   // else's. Only a refusal to run at all is a non-zero exit.

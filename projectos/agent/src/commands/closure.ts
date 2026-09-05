@@ -76,6 +76,7 @@ import { installationAllowsProject } from '../installation/projectAllowlist.js';
 import { readBrokerAnsweredState } from '../installation/brokerAnsweredState.js';
 import { resolveBoundGit } from '../system.js';
 import { phase as phaseCommand } from './phase.js';
+import { run as runCommand } from './run.js';
 import {
   closureRequestDigest,
   consumedDecisionIds as consumedDecisionIdsOf,
@@ -734,7 +735,6 @@ function productionClosureDeps(args: {
     // Read, never written. The call joins this project's governance conversation; writing the pointer
     // back would dirty `.projectops/gatekeeper-thread.json`, which is NOT a closure-tail path, so the
     // next closure call simply continues from the same turn as this one. Stated rather than hidden.
-    previousResponseId: readPreviousResponseId(sys, root),
     admitSpend: (request) =>
       admitGatekeeperSpend(sys, root, request, config.budget, () =>
         readBrokerAnsweredState(sys, nodeInstallationStateDir(), request),
@@ -850,7 +850,49 @@ function closureResume(ctx: CommandContext, flags: Flags): CommandResult {
   if (advanced.code !== 0) return { code: advanced.code, lines: [...lines, ...advanced.lines] };
 
   resolveClosureWait(sys, root, waiting, sys.now());
-  return ok([...lines, ...advanced.lines]);
+
+  /**
+   * AND THEN THE PROGRAMME CARRIES ON — through the SAME authority `run` uses, never a second one.
+   *
+   * WHAT WAS MISSING. A delegated closure recorded the close and exited, so the programme advanced
+   * only when the owner typed the next command. That is one of the three things run-to-completion
+   * exists to remove.
+   *
+   * WHY IT DELEGATES TO `run` RATHER THAN CONTINUING HERE. Two continuation paths disagree
+   * eventually, and the disagreement is discovered by a programme continuing when it should have
+   * stopped. This command closes a phase; it does not decide what happens next and it does not know
+   * how to start a worker. It hands over to the one entry point that does, which then asks
+   * `continueProgramme` exactly as it would have if the owner had typed it.
+   *
+   * OPT-IN, AND ONLY AFTER A REAL CLOSE. Without `--continue` this behaves exactly as it always has.
+   * `--execute` is set because a closure that carries the programme is by definition starting work;
+   * a caller that wants to close without starting anything simply omits `--continue`.
+   */
+  if (!bool(flags, 'continue')) return ok([...lines, ...advanced.lines]);
+  const carried = runCommand(ctx, { execute: true, continue: true });
+
+  /**
+   * THE CLOSE SUCCEEDED, SO THIS COMMAND SUCCEEDED — whatever the follow-on run did.
+   *
+   * Returning `carried.code` conflated two different facts. The phase is closed and the record is
+   * written by the time this line is reached (`advanced.code === 0` is checked above), so a follow-on
+   * run that merely refused to START — a missing git binding, a misconfigured gatekeeper — would have
+   * exited non-zero and told a script that the CLOSURE failed. A script that retries on that would
+   * re-run a closure that already happened. Raised as LOW by the code review of this change.
+   *
+   * The continuation's own outcome is not hidden: it is in the lines, in its own words, and a
+   * continuation that refused says so there.
+   */
+  return ok([
+    ...lines,
+    ...advanced.lines,
+    '',
+    `phase ${id} closed; carrying the approved programme forward from the same continuation authority`,
+    ...carried.lines,
+    ...(carried.code === 0
+      ? []
+      : ['', `the closure stands; the follow-on run ended non-zero (${carried.code}) and its reasons are above`]),
+  ]);
 }
 
 /** STEP 0 — where this phase stands. Reads only; asks nobody; spends nothing. */

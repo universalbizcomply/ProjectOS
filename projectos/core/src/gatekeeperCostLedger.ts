@@ -114,6 +114,108 @@ export function estimateInputTokensFromText(text: string): number {
   return estimateInputTokensFromBytes(utf8ByteLength(text));
 }
 
+/**
+ * WHAT THE PROVIDER CAN BILL FOR, WHICH IS NOT WHAT THE REQUEST CONTAINS.
+ *
+ * THE DEFECT THIS EXISTS TO CLOSE, MEASURED. Both paid routes reserved
+ * `estimateInputTokensFromText(evidenceText)` — the evidence pack alone — and the comment above the
+ * call said that made it "a real bound rather than a nominal one". It did not. On request
+ * `GKREQ-b045e264` the evidence pack was 21,018 bytes, estimating 8,408 input tokens; the provider
+ * billed **184,232**. A 21.9x under-reservation, on a gate whose entire job is to refuse the call
+ * that would cross the budget.
+ *
+ * IT IS NOT A CALIBRATION ERROR, AND NO MULTIPLIER FIXES IT. The bytes were never in the request.
+ * The transport sends `previous_response_id` with `store: true`, so the provider replays the whole
+ * stored conversation server-side and bills every prior turn as fresh input. Measured across one
+ * thread's fifty calls: 1,599 input tokens on the first, 187,452 on the fiftieth — a 117x growth at
+ * ~3,793 tokens per call, with `cachedInputTokens: 0` throughout, so nothing is discounted. It grows
+ * without limit, so any constant chosen today is wrong tomorrow.
+ *
+ * SO A RESERVATION HAS TWO PARTS. What is on the wire, which is bytes and can be counted; and what
+ * the provider will replay from its own store, which is NOT in the request and can only be bounded
+ * from what it billed last time. Callers that carry no continuation pass zero and get an exact bound.
+ */
+export interface EffectivePaidContext {
+  /** UTF-8 bytes of the request body ACTUALLY sent — not the evidence, the whole body. */
+  readonly requestBytes: number;
+  /**
+   * Input tokens the provider will replay from stored state and bill again.
+   *
+   * Zero for a stateless request. For a continued one it must be a MEASURED bound — see
+   * `carriedContextTokens` — because there is no way to derive it from the request.
+   */
+  readonly carriedContextTokens: number;
+}
+
+/**
+ * The input tokens to reserve for one call.
+ *
+ * Throws `InvalidEstimateInputError` on anything unusable rather than coercing, for the same reason
+ * `authoriseRequestSpend` refuses a non-finite estimate: a zero reservation is a free call, and a
+ * free call is under every budget.
+ */
+export function reservationInputTokens(context: EffectivePaidContext): number {
+  // NOTE FOR CALLERS: this THROWS on anything unusable rather than returning a number, so that a
+  // reservation can never silently become zero. Every call site must therefore treat a throw as a
+  // refusal to dispatch — `reservationOrNull` below is the form that does it for you.
+  const onTheWire = estimateInputTokensFromBytes(context.requestBytes);
+  const carried = context.carriedContextTokens;
+  if (typeof carried !== 'number' || Number.isNaN(carried)) throw new InvalidEstimateInputError('carried context is not a number');
+  if (!Number.isFinite(carried)) throw new InvalidEstimateInputError('carried context is not finite');
+  if (!Number.isInteger(carried)) throw new InvalidEstimateInputError('carried context is not a whole number of tokens');
+  if (carried < 0) throw new InvalidEstimateInputError('carried context is negative');
+  if (!Number.isSafeInteger(onTheWire + carried)) throw new InvalidEstimateInputError('reservation beyond safe integer range');
+  return onTheWire + carried;
+}
+
+/**
+ * How much stored context a CONTINUED request will replay, or `null` when that cannot be bounded.
+ *
+ * `null` IS THE IMPORTANT RETURN VALUE. A request that continues a conversation ProjectOS has no
+ * billing record for cannot be priced at all — the replayed history is on the provider's side and
+ * nothing local reveals its size. The honest answer is that the cost is unknown, and an unknown cost
+ * must refuse rather than guess, which is what every caller does with `null`.
+ *
+ * THE BOUND, WHEN THERE IS ONE. After a turn, the stored chain holds everything that was billed as
+ * input to it plus everything it produced. So the next turn replays at least
+ * `inputTokens + outputTokens` of the last one — measured numbers reported by the provider itself,
+ * not an estimate of them.
+ *
+ * NO SAFETY MARGIN IS APPLIED TO IT, DELIBERATELY. The margin in `estimateInputTokensFromBytes`
+ * exists because bytes-to-tokens is a guess; these are counts the provider published. What the
+ * margin would have to cover — the chain having grown since — is covered instead by adding this
+ * turn's own wire bytes, which is precisely what grows it.
+ */
+/**
+ * The same reservation, as `null` instead of a throw.
+ *
+ * WHY BOTH FORMS EXIST. Throwing is right for the primitive: a reservation that quietly became zero
+ * is the failure this whole module guards against, so an unusable input must not be able to produce
+ * a number. But a THROW at a dispatch site is a crash, and a crash takes the runner down instead of
+ * refusing one call — the same argument that closed `checkValidatorCache`'s undefined-key crash.
+ * Call sites use this and treat `null` exactly as they treat an unboundable continuation: refuse.
+ */
+export function reservationOrNull(context: EffectivePaidContext): number | null {
+  try {
+    return reservationInputTokens(context);
+  } catch {
+    return null;
+  }
+}
+
+export function carriedContextTokens(input: {
+  readonly continuesStoredConversation: boolean;
+  readonly lastBilledTurn: TokenUsage | null;
+}): number | null {
+  if (!input.continuesStoredConversation) return 0;
+  const last = input.lastBilledTurn;
+  if (last === null || last === undefined) return null;
+  const inputTokens = last.inputTokens;
+  const outputTokens = last.outputTokens;
+  if (![inputTokens, outputTokens].every((n) => typeof n === 'number' && Number.isSafeInteger(n) && n >= 0)) return null;
+  return inputTokens + outputTokens;
+}
+
 /** Published prices for one model, in integer micro-USD per million tokens. Supplied, never assumed. */
 export interface RateCard {
   readonly model: string;

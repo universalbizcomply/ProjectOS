@@ -360,11 +360,48 @@ describe('multi-project isolation', () => {
     expect(fake.sent[0]?.body).not.toContain('resp_7f3a9c2e5b81d40a');
   });
 
-  it('continues the conversation only from an id the provider actually issued', () => {
+  /**
+   * THE GOVERNED REVIEW IS NOW STATELESS, AND THIS TEST IS THE INVERSE OF WHAT IT USED TO ASSERT.
+   *
+   * It required the turn to send `previous_response_id` whenever one had been issued. That is the
+   * behaviour that broke the budget: `store: true` plus a continuation makes the provider replay the
+   * whole stored conversation and bill it again as fresh input, and the reservation never saw a byte
+   * of it. Measured on `GKREQ-b045e264`: 8,408 tokens reserved, 184,232 billed — 21.9x — and across
+   * one thread's fifty calls the input grew from 1,599 to 187,452, unbounded and uncached.
+   *
+   * Nothing in the decision contract wanted it. A decision is bound to an exact `subjectCommit` and
+   * `requestDigest`, carries its own complete evidence, and is judged on binding, replay and
+   * authority — none of which consults a conversation. `projectos reconcile` has always sent
+   * `previousResponseId: null` and its decisions pass the same checker.
+   *
+   * So the turn must NOT continue a stored conversation even when one is offered.
+   */
+  it('never continues a stored conversation — the turn cannot even be given one', () => {
+    // STRONGER THAN THE ASSERTION IT REPLACES. The deps no longer carry a `previousResponseId` at
+    // all, so this is not "the turn declines to use it" but "there is nothing to use". The security
+    // review of this change flagged the leftover field as a footgun: a future edit wiring it into the
+    // dispatch while the pricing call kept the local null would silently restore the exact
+    // priced-vs-dispatched mismatch that cost 21.9x. Removing it means that edit does not compile.
     const fake = fakeHttp(okReply(AMENDMENT));
-    takeGatekeeperTurn(input(), deps({ http: fake.http, previousResponseId: 'resp_realone123456' }));
-    expect(fake.sent[0]?.body).toContain('previous_response_id');
-    expect(fake.sent[0]?.body).toContain('resp_realone123456');
+    takeGatekeeperTurn(input(), deps({ http: fake.http }));
+    expect(fake.sent[0]?.body).not.toContain('previous_response_id');
+    expect(Object.keys(deps({}))).not.toContain('previousResponseId');
+  });
+
+  it('reserves against the whole request body, not the evidence inside it', () => {
+    // The reservation line names both halves of the bound, so an under-reservation is legible in the
+    // run's own output rather than only in the ledger a month later.
+    const fake = fakeHttp(okReply(AMENDMENT));
+    const result = takeGatekeeperTurn(input(), deps({ http: fake.http }));
+    const reservation = result.lines.find((l) => l.startsWith('reservation:'));
+    expect(reservation).toBeDefined();
+    expect(reservation).toContain('request bytes');
+    expect(reservation).toContain('carried context token(s)');
+    // The body really is bigger than the evidence it carries — instructions, schema and binding.
+    const evidenceBytes = Buffer.byteLength(input().evidenceText, 'utf8');
+    const bodyBytes = Buffer.byteLength(String(fake.sent[0]?.body ?? ''), 'utf8');
+    expect(bodyBytes).toBeGreaterThan(evidenceBytes);
+    expect(reservation).toContain(String(bodyBytes));
   });
 
   it('returns the provider response id so the next turn can continue the thread', () => {
