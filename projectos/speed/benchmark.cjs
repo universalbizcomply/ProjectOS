@@ -133,17 +133,42 @@ function runBenchmark() {
  */
 function benchmarkFailures(result) {
   const failures = [];
+  // An absent measurement is a failure here too, for the same reason: "we did not measure it" and
+  // "it met the target" must never produce the same exit code.
   const suite = result.suiteCheck;
-  if (suite && typeof suite.elapsed === 'number' && suite.elapsed > suite.target) {
+  if (!suite || typeof suite.elapsed !== 'number' || typeof suite.target !== 'number') {
+    failures.push('benchmark result carries no suite cache-check measurement, so no timing was proven');
+  } else if (suite.elapsed > suite.target) {
     failures.push(`suite cache check took ${suite.elapsed}ms, target ${suite.target}ms`);
   }
-  const full = result.fullRun;
-  if (full && typeof full.elapsed === 'number') {
+  // READ BY THE NAME THE RESULT ACTUALLY USES. This branch never ran.
+  //
+  // `runBenchmark` returns `fullCachedRun` with `cacheMisses`; this function asked for `fullRun`
+  // with `misses`. Both lookups were undefined, so the whole branch was skipped and the ONE target
+  // this check exists to enforce could never fail it. The docstring above is right that a check
+  // which cannot fail proves nothing — it just described a fix the wiring did not deliver, and the
+  // benchmark printed "FAIL" on its own summary line while exiting 0 and reporting every target met.
+  //
+  // It is a configured check in the governed loop, so it reported PASS for validation-cache,
+  // doctor-preflight and gatekeeper-replay without ever evaluating the timing.
+  //
+  // A missing or malformed section is now a FAILURE rather than a skip: if the result does not
+  // carry the measurement, nothing measured it, and that is not a pass.
+  const full = result.fullCachedRun;
+  if (!full || typeof full.elapsed !== 'number') {
+    failures.push('benchmark result carries no full cached run measurement, so no timing was proven');
+  } else {
     // The warm target applies only when the run really was warm; a run with misses is measured
     // against the targeted-source target, which is what the plan says.
-    const target = full.misses === 0 ? full.targetWarm : full.targetTargeted;
-    if (typeof target === 'number' && full.elapsed > target) {
-      failures.push(`full cached run took ${full.elapsed}ms, target ${target}ms`);
+    const target = full.cacheMisses === 0 ? full.targetWarm : full.targetTargeted;
+    if (typeof target !== 'number') {
+      failures.push('full cached run records no applicable target, so it cannot be judged');
+    } else if (full.elapsed > target) {
+      const kind = full.cacheMisses === 0 ? 'warm' : 'targeted-source';
+      failures.push(
+        `full cached run took ${full.elapsed}ms against the ${kind} target of ${target}ms ` +
+          `(${full.cacheHits} hit, ${full.cacheMisses} miss)`,
+      );
     }
   }
   return failures;
