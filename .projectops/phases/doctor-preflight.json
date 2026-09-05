@@ -2,7 +2,7 @@
   "phaseId": "doctor-preflight",
   "project": "projectos",
   "objective": "Make Doctor a fast, reliable mandatory preflight for the specified autonomous and paid governed actions.",
-  "status": "awaiting_review",
+  "status": "awaiting_closure",
   "history": [
     {
       "from": "draft",
@@ -38,6 +38,13 @@
       "by": "implementer",
       "at": "2026-09-05T01:29:16.603Z",
       "note": "recorded by the autonomous loop (AWAITING_GATE)"
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "advisor",
+      "at": "2026-09-05T02:08:55.494Z",
+      "note": "work complete; the loop recorded this and awaits the owner, after a recorded gate decision"
     }
   ]
 }

@@ -20,13 +20,13 @@
   "deferredPhases": [],
   "acceptedCarryForward": [],
   "currentBranch": "projectos-post-v3-selfhost-pilot1a",
-  "currentHead": "27ce461d2aef0310c09475e8eb805893d1f780ed",
+  "currentHead": "d3c8e2962ce443c4aaa7da1796e237e3e03462bd",
   "currentRemoteHead": null,
   "workingTreeStatus": "dirty",
   "currentRisks": [],
   "currentBlockers": [],
   "lastEvidenceReference": "plan-approval decision PLANDEC-ed43358710f336a092cab5d0",
   "nextRecommendedPhase": "doctor-preflight",
-  "lastUpdated": "2026-09-05T01:29:16.683Z",
+  "lastUpdated": "2026-09-05T02:08:55.570Z",
   "updatedByRole": "implementer"
 }
