@@ -2,7 +2,7 @@
   "phaseId": "gatekeeper-replay",
   "project": "projectos",
   "objective": "Provide fast, privacy-safe offline replay of accepted gatekeeper contracts for reliable governed testing without provider spend.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "advisor",
       "at": "2026-09-05T03:33:24.009Z",
       "note": "work complete; the loop recorded this and awaits the owner, after a recorded gate decision"
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "advisor",
+      "at": "2026-09-05T03:51:35.280Z",
+      "note": "closed by the closure transport on the owner-committed record — closed by ChatGPT under the projectos-scoped phase-closure delegation, decision projectos:gatekeeper-replay:closure:484f14e3"
     }
   ]
 }
