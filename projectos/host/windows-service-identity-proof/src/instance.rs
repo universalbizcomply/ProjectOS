@@ -964,6 +964,88 @@ impl ServiceInstanceBindingAttempt<ScmAfterObserved> {
         }
         self.bind_observations()
     }
+
+    /// Finalise into a SEALED admission, or into the closed verdict that refused it.
+    ///
+    /// ## Why a verdict enum was not enough
+    ///
+    /// [`Self::finalise_for_connection`] already answers correctly, but it answers with a
+    /// [`ServiceInstanceBinding`] — a public enum whose `Match` variant any caller can write down.
+    /// A consumer that turned `Match` into peer authority would be trusting a value it could have
+    /// produced itself, and the enum cannot tell the two apart. That is not a flaw in the enum: a
+    /// verdict is a description, and descriptions are meant to be constructible.
+    ///
+    /// So the positive answer gets a type only this function can produce. Possession of a
+    /// [`VerifiedPeerAdmission`] IS the proof that one canonical attempt — with a real OS-derived
+    /// peer observation, agreeing SCM observations either side of it, inside the bounded window —
+    /// finalised as `Match` for EXACTLY the host-issued connection and handshake generation it
+    /// carries. A downstream crate can hold one and can never make one.
+    ///
+    /// ## What it still cannot become
+    ///
+    /// It is not operation authority and it authorises no effect: it says who the peer is, and
+    /// nothing about what the peer may ask for. It also exposes no raw identity — no process id, no
+    /// SID, no session, no token — only the two identifiers the HOST itself issued.
+    ///
+    /// Consuming, like both finalisers, so an attempt cannot be admitted twice or re-paired against
+    /// a second connection.
+    ///
+    /// # Errors
+    /// The closed [`ServiceInstanceBinding`] verdict that refused, so an operator learns which gate
+    /// said no without the admission ever having existed.
+    #[cfg(any(test, feature = "consumer-contract"))]
+    pub fn admit_peer_for_connection(
+        self,
+        connection_id: u64,
+        handshake_generation: u64,
+    ) -> Result<VerifiedPeerAdmission, ServiceInstanceBinding> {
+        // ONE IMPLEMENTATION OF THE VERDICT. This delegates rather than re-deciding, so an admission
+        // can never be granted under conditions that `finalise_for_connection` would have refused.
+        match self.finalise_for_connection(connection_id, handshake_generation) {
+            ServiceInstanceBinding::Match => Ok(VerifiedPeerAdmission {
+                _sealed: Sealed,
+                connection_id,
+                handshake_generation,
+            }),
+            refused => Err(refused),
+        }
+    }
+}
+
+/// SEALED proof that a canonical identity attempt admitted one peer on one host-issued connection.
+///
+/// No public constructor, no `Default`, no `Clone`, no `From`, and nothing that would let it be
+/// written to or read back from bytes. The only route to one is
+/// [`ServiceInstanceBindingAttempt::admit_peer_for_connection`], which requires a completed attempt
+/// that finalised as [`ServiceInstanceBinding::Match`] for exactly the connection asked about.
+///
+/// NOT `Clone` DELIBERATELY. An admission belongs to one connection and one moment; a copyable one
+/// could be kept and presented again after the connection it describes had gone.
+///
+/// It carries ONLY the two identifiers the host issued. There is deliberately no accessor for the
+/// process, user, session or integrity level the attempt observed: those never leave the attempt,
+/// and an admission that exposed them would turn a proof of identity into a source of identity.
+#[cfg(any(test, feature = "consumer-contract"))]
+#[derive(Debug)]
+pub struct VerifiedPeerAdmission {
+    _sealed: Sealed,
+    connection_id: u64,
+    handshake_generation: u64,
+}
+
+#[cfg(any(test, feature = "consumer-contract"))]
+impl VerifiedPeerAdmission {
+    /// The host-issued connection this admission belongs to.
+    #[must_use]
+    pub fn connection_id(&self) -> u64 {
+        self.connection_id
+    }
+
+    /// The host-issued handshake generation this admission belongs to.
+    #[must_use]
+    pub fn handshake_generation(&self) -> u64 {
+        self.handshake_generation
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -2704,6 +2786,103 @@ mod tests {
                 .finalise_for_connection(conn, gen);
             assert_eq!(wrong, ServiceInstanceBinding::CrossAttemptObservation);
         }
+    }
+
+    // ---- SEALED PEER ADMISSION (RUN-TO-COMPLETION HOST ATTESTATION) ----------------------------
+
+    /// ONLY A MATCHING ATTEMPT YIELDS AN ADMISSION, and it carries exactly the host's own pair.
+    #[test]
+    fn a_matching_attempt_admits_the_peer_for_its_own_connection() {
+        let admission = captured(&owner_sid(), 2, Some(0x2000))
+            .record_scm_after(observed(PID_A, CREATED_A))
+            .into_attempt()
+            .expect("scm-after")
+            .admit_peer_for_connection(77, 5)
+            .expect("a matching attempt must admit its peer");
+        assert_eq!(admission.connection_id(), 77);
+        assert_eq!(admission.handshake_generation(), 5);
+    }
+
+    /// SUPPLYING THE RIGHT NUMBERS TO THE WRONG ATTEMPT ADMITS NOTHING.
+    ///
+    /// The pair is compared against what the attempt CAPTURED, so a caller cannot present a genuine
+    /// attempt under another connection's identifiers and be admitted on it.
+    #[test]
+    fn a_cross_connection_presentation_admits_no_peer() {
+        for (conn, generation) in [(78u64, 5u64), (77, 6), (0, 0)] {
+            let refused = captured(&owner_sid(), 2, Some(0x2000))
+                .record_scm_after(observed(PID_A, CREATED_A))
+                .into_attempt()
+                .expect("scm-after")
+                .admit_peer_for_connection(conn, generation)
+                .expect_err("a cross-connection presentation must not be admitted");
+            assert_eq!(refused, ServiceInstanceBinding::CrossAttemptObservation);
+        }
+    }
+
+    /// A PEER THAT IS NOT THE SERVICE ADMITS NOTHING.
+    ///
+    /// The SCM observation on the far side of the window names a different running instance, so the
+    /// cross-source comparison refuses — and the admission is simply never produced. This is the
+    /// case a caller-constructible `Match` enum would have let a consumer paper over.
+    #[test]
+    fn a_peer_that_is_not_the_observed_service_admits_no_peer() {
+        let refused = captured(&owner_sid(), 2, Some(0x2000))
+            .record_scm_after(observed(PID_B, CREATED_B))
+            .into_attempt()
+            .expect("scm-after")
+            .admit_peer_for_connection(77, 5)
+            .expect_err("a differing instance must not be admitted");
+        assert_ne!(
+            refused,
+            ServiceInstanceBinding::Match,
+            "a refusal must never be the success verdict"
+        );
+    }
+
+    /// A RESTART THAT REUSES THE PROCESS ID ADMITS NOTHING.
+    ///
+    /// Same process id, different creation time: the classic identity confusion. The token compares
+    /// both, so the attempt refuses and no admission exists.
+    #[test]
+    fn a_restart_reusing_the_process_id_admits_no_peer() {
+        let refused = captured(&owner_sid(), 2, Some(0x2000))
+            .record_scm_after(observed(PID_A, CREATED_B))
+            .into_attempt()
+            .expect("scm-after")
+            .admit_peer_for_connection(77, 5)
+            .expect_err("a reused process id must not be admitted");
+        assert_ne!(refused, ServiceInstanceBinding::Match);
+    }
+
+    /// THE ADMISSION IS THE ONLY POSITIVE ANSWER THAT IS NOT A VALUE A CALLER COULD WRITE DOWN.
+    ///
+    /// `ServiceInstanceBinding::Match` is a public enum variant and this test constructs one to make
+    /// the point. The admission cannot be constructed the same way: it has a private sealed field,
+    /// no public constructor, no `Default`, no `Clone` and no `From`, so the only one in existence
+    /// is the one the attempt above produced.
+    #[test]
+    fn the_match_verdict_is_constructible_but_an_admission_is_not() {
+        // Anyone can produce this.
+        let anybody_can_write_this = ServiceInstanceBinding::Match;
+        assert_eq!(anybody_can_write_this, ServiceInstanceBinding::Match);
+
+        // Nobody can produce this without an attempt. The lines below do not compile:
+        //   let _ = VerifiedPeerAdmission { _sealed: Sealed, connection_id: 77, handshake_generation: 5 };
+        //   let _ = VerifiedPeerAdmission::default();
+        //   let _ = admission.clone();
+        let admission = captured(&owner_sid(), 2, Some(0x2000))
+            .record_scm_after(observed(PID_A, CREATED_A))
+            .into_attempt()
+            .expect("scm-after")
+            .admit_peer_for_connection(77, 5)
+            .expect("admitted");
+        // And it reveals only what the host issued — there is no accessor for the observed process,
+        // user, session or integrity level.
+        assert_eq!(
+            (admission.connection_id(), admission.handshake_generation()),
+            (77, 5)
+        );
     }
 
     #[test]

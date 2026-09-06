@@ -80,8 +80,26 @@ function run() {
   // Dependency direction: service-identity-proof + host-authority only.
   const depBody = (stripComments(toml).split(/^\[dependencies\]/m)[1] || "").split(/\n\[/)[0];
   const deps = (depBody.match(/^\s*([a-z0-9_-]+)\s*=/gim) || []).map((s) => s.replace(/\s*=$/, "").trim());
+  // AMENDMENT (RUN-TO-COMPLETION HOST ATTESTATION - AUTHORITY REACHABILITY, gate-authorised):
+  // `projectos-host-identity` joins the closed list for ONE reason - the durable owner programme
+  // delegation must be verified against the SAME embedded owner anchor the packaged trust manifest
+  // uses. Re-embedding the anchor or writing a second ES256 verifier here was the alternative, and a
+  // second opinion about what a valid owner signature is would be far worse than one more edge. The
+  // list stays closed: nothing else may be added without a further ruling, and that crate exposes no
+  // signing counterpart to import.
+  //
+  // THE EDGE HAS A TRANSITIVE COST, recorded here rather than discovered later: on a Windows target
+  // `projectos-host-identity` links the `windows` crate, so this crate's DEFAULT build now pulls it
+  // transitively where it previously pulled none.
+  //
+  // AND SOME OF IT RUNS. `verify_against_embedded_anchor` performs a bounded BCrypt ECDSA-P256
+  // verification inside `host-identity` whenever a delegation is checked - so "nothing calls it"
+  // would be false, and is not said. The two accurate statements are: the Authenticode /
+  // WinVerifyTrust surface that edge also links is never reached, and no Windows call is added to
+  // THIS crate's own sources outside the feature-gated `windows_ffi.rs` - which the scan below still
+  // enforces. The Cargo.toml carries the same wording, so the crate claims no property it lost.
   for (const d of deps) {
-    if (!["projectos-host-windows-service-identity-proof", "projectos-host-authority", "projectos-host-core"].includes(d))
+    if (!["projectos-host-windows-service-identity-proof", "projectos-host-authority", "projectos-host-core", "projectos-host-identity"].includes(d))
       errors.push("unexpected dependency: " + d);
   }
   if (!deps.includes("projectos-host-authority")) errors.push("missing host-authority dependency");

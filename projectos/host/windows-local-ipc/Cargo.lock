@@ -120,6 +120,7 @@ version = "0.0.0"
 dependencies = [
  "projectos-host-authority",
  "projectos-host-core",
+ "projectos-host-identity",
  "projectos-host-windows-service-identity-proof",
  "windows",
 ]

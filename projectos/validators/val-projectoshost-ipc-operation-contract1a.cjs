@@ -12,7 +12,8 @@
 //   O4  both payload lengths are fixed constants and fit the accepted 471-byte ceiling
 //   O5  the C4 gate cannot report closed - one variant, is_closed() returns false unconditionally
 //   O6  evaluation checks C4 FIRST, so no later check can be failed into an acceptance
-//   O7  TrustedPeerContext has NO constructor in this phase
+//   O7  TrustedPeerContext is minted ONLY from the sealed canonical peer admission - never from
+//       caller data, a boolean, or the public verdict enum
 //   O8  the trusted types are sealed against struct-literal fabrication
 //   O9  Completed/Accepted require the host-held authority, so a caller cannot assert an effect ran
 //   O10 InstalledHostStatus is NOT overloaded - its kind, discriminant and length are untouched
@@ -131,13 +132,89 @@ function run() {
     }
   }
 
-  // O7 - TrustedPeerContext must have no constructor in this phase.
+  // O7 - TrustedPeerContext may be minted ONLY from the sealed canonical peer admission.
+  //
+  // AMENDMENT (RUN-TO-COMPLETION HOST ATTESTATION - AUTHORITY REACHABILITY, gate-authorised).
+  // O7 originally required NO constructor at all, because kernel-attested peer identity was a later
+  // phase. That phase has now arrived, so the rule changes shape rather than disappearing: the
+  // absence of a constructor is replaced by a constraint on WHICH constructor may exist. What must
+  // never come back is a constructor a caller can satisfy from data it holds - the whole point is
+  // that a peer is established by a completed canonical attempt, never asserted.
   if (!/pub struct TrustedPeerContext/.test(contract)) {
     e.push("O7 TrustedPeerContext is missing");
   }
-  for (const re of [/impl TrustedPeerContext \{[\s\S]*?pub fn new\s*\(/, /impl TrustedPeerContext \{[\s\S]*?pub\(crate\) fn new\s*\(/]) {
-    if (re.test(contract)) {
-      e.push("O7 TrustedPeerContext gained a constructor; kernel-attested peer identity is phase 2, not phase 1");
+  {
+    // THE SCAN MUST COVER THE WHOLE TYPE, NOT THE FIRST BLOCK OF IT. Splitting on the first
+    // `impl TrustedPeerContext {` and taking segment [1] reads only ONE inherent block: a second
+    // block appended anywhere else in the file lands in segment [2] and was invisible, and a trait
+    // impl (`impl From<(u64, u64)> for TrustedPeerContext`) never matched the split token at all.
+    // Both bypasses were demonstrated against this very check. Rather than trying to parse every
+    // block, the shape is PINNED: exactly one inherent block, and no trait impl for the type. A
+    // second block is then a validator failure rather than a blind spot.
+    const inherentBlocks = (contract.match(/impl TrustedPeerContext\s*\{/g) || []).length;
+    if (inherentBlocks !== 1) {
+      e.push("O7 expected exactly one `impl TrustedPeerContext` block, found " + inherentBlocks + "; the public-function enumeration below only covers one");
+    }
+    if (/impl(?:<[^>]*>)?\s+[^\n]*\bfor\s+TrustedPeerContext\b/.test(contract)) {
+      e.push("O7 a trait impl for TrustedPeerContext exists; a trait could mint the type outside the enumerated block");
+    }
+    const impls = contract.split(/impl TrustedPeerContext\s*\{/)[1] || "";
+    const body = impls.split(/\n\}/)[0];
+    // AN ALLOWLIST, NOT A DENYLIST. Enumerating known-bad constructor names would pass anything
+    // spelled differently - `from_ids(connection_id: u64, handshake_generation: u64)` names nothing
+    // forbidden and would have sailed through. So every public function on the type is enumerated
+    // and checked against the closed set that is allowed to exist; a new one fails until it is
+    // ruled on by name.
+    const ALLOWED = new Set([
+      "from_verified_peer_admission", // the ONE mint: consumes the sealed canonical admission
+      "connection_id", // read-only accessor
+      "handshake_generation", // read-only accessor
+      "is_bound_to", // read-only comparison
+    ]);
+    // GENERICS TOLERATED. `pub fn evil<T>(flag: bool)` put a `<...>` between the name and the paren,
+    // so the old regex matched nothing and the function escaped both this enumeration AND the
+    // bool/verdict checks below. Also demonstrated against this check.
+    const publicFns = [...body.matchAll(/pub(?:\((?:crate|super|in [^)]*)\))?\s+fn\s+([a-z0-9_]+)\s*(?:<[^>]*>)?\s*\(/g)].map((m) => m[1]);
+    for (const name of publicFns) {
+      if (!ALLOWED.has(name)) {
+        e.push("O7 TrustedPeerContext gained an unruled public function `" + name + "`; a peer must be proven, not asserted");
+      }
+    }
+    // The ONE permitted mint MUST exist and MUST consume the sealed admission. Asserted rather than
+    // checked-if-present: if it disappears or is reshaped, that is exactly when O7 must speak up.
+    if (!/pub fn from_verified_peer_admission\s*\(\s*admission\s*:\s*&[^)]*VerifiedPeerAdmission\s*,?\s*\)/.test(body)) {
+      e.push("O7 the sealed peer-admission mint is missing or no longer consumes a &VerifiedPeerAdmission");
+    } else {
+      // THE CALLS MUST BE THE FIELD VALUES, not merely present somewhere in the body. Checking that
+      // `admission.connection_id()` appears anywhere was satisfied by
+      // `let _ = admission.connection_id();` followed by `connection_id: 999` - a mint that consults
+      // the admission and then ignores it. Anchoring the accessor to the struct-literal field
+      // position is what makes "read off the admission" the thing actually checked.
+      for (const field of ["connection_id", "handshake_generation"]) {
+        const initialised = new RegExp(field + "\\s*:\\s*admission\\." + field + "\\s*\\(\\s*\\)");
+        if (!initialised.test(body)) {
+          e.push("O7 the peer mint does not initialise `" + field + "` from `admission." + field + "()`");
+        }
+      }
+      if (/from_verified_peer_admission[\s\S]{0,200}?(connection_id|handshake_generation)\s*:\s*u64/.test(body)) {
+        e.push("O7 the peer mint accepts a caller-supplied identifier alongside the admission");
+      }
+    }
+    // NO MACRO MAY EXPAND INSIDE THE ENUMERATED BLOCK. A `macro_rules!` invocation is one token to a
+    // text scan and an arbitrary `pub fn` to the compiler, so a forbidden constructor could be
+    // written once elsewhere and invoked here while every check above saw nothing. The contract
+    // needs no macro in this impl, so the honest rule is that there must not be one.
+    if (/\b[a-z_][a-z0-9_]*!\s*[([{]/i.test(body)) {
+      e.push("O7 a macro is invoked inside the TrustedPeerContext impl; it could expand to a constructor this scan cannot see");
+    }
+    // And no shape that lets a caller assert the answer, whatever it is called.
+    for (const [re, why] of [
+      [/pub[^\n]*fn [a-z0-9_]+\s*(?:<[^>]*>)?\s*\([^)]*:\s*bool/, "a public function taking a bool"],
+      [/pub[^\n]*fn [a-z0-9_]+\s*(?:<[^>]*>)?\s*\([^)]*:\s*&?ServiceInstanceBinding/, "a public function taking the verdict enum"],
+    ]) {
+      if (re.test(body)) {
+        e.push("O7 TrustedPeerContext exposes " + why + "; a verdict is a description, not authority");
+      }
     }
   }
 

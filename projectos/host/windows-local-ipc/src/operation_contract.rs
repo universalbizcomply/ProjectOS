@@ -425,6 +425,45 @@ impl TrustedPeerContext {
         }
     }
 
+    /// THE PRODUCTION MINT: one admitted peer, from the canonical identity proof.
+    ///
+    /// ## What it consumes, and why nothing weaker would do
+    ///
+    /// It takes a sealed `VerifiedPeerAdmission`, which only a COMPLETED canonical attempt can
+    /// produce — a real OS-derived peer observation with agreeing SCM observations either side of
+    /// it, inside the bounded window, finalised as a match for exactly the host-issued connection
+    /// and handshake generation it carries.
+    ///
+    /// Every weaker shape was available and every one of them is a way to fake a peer:
+    ///
+    /// * `new(connection_id, handshake_generation)` — the caller states who the peer is.
+    /// * `verified(bool)` — the caller states that somebody checked.
+    /// * `from_match(ServiceInstanceBinding)` — the caller writes down the enum variant that means
+    ///   success. A verdict is a description, and descriptions are constructible.
+    ///
+    /// None of those is implemented and none should be. The identifiers below are READ OFF the
+    /// admission rather than accepted alongside it, so there is no argument through which a caller
+    /// could pair a genuine admission with a different connection.
+    ///
+    /// ## What it is still not
+    ///
+    /// Being an admitted peer is not permission to do anything. This context satisfies exactly one
+    /// gate in [`evaluate_protected_operation`] — that a peer was authenticated at all — and every
+    /// other gate stands untouched in front of any effect.
+    ///
+    /// Gated with the attempt typestate it consumes, so a default build has neither.
+    #[cfg(any(feature = "test-fixtures", feature = "windows-live-ipc"))]
+    #[must_use]
+    pub fn from_verified_peer_admission(
+        admission: &projectos_host_windows_service_identity_proof::VerifiedPeerAdmission,
+    ) -> Self {
+        Self {
+            _seal: Seal,
+            connection_id: admission.connection_id(),
+            handshake_generation: admission.handshake_generation(),
+        }
+    }
+
     /// The host-issued connection identity this context is bound to.
     #[must_use]
     pub fn connection_id(&self) -> u64 {
@@ -575,30 +614,30 @@ pub struct OwnerProgrammeDelegation {
 /// SEALED. No public constructor, no `Default`, no `From`, no serde. A downstream crate can hold one
 /// and read nothing forgeable out of it, and cannot make one.
 ///
-/// ## What will mint this in production, and why it is deliberately absent today
+/// ## What mints this in production — and why it is a SIGNATURE, not a live presence
 ///
-/// The production mint CONSUMES AN OWNED `projectos_host_core::owner_presence::VerifiedOwnerPresence`.
-/// That type is the existing, already-accepted answer to "what makes this Murad's": it has no public
-/// constructor either, and the only routes to one are
+/// THIS SECTION PREVIOUSLY SAID THE MINT WAS DELIBERATELY ABSENT. It no longer is, and leaving that
+/// prose in place would have been the most misleading kind of stale comment: a reader would have
+/// concluded the type was still unreachable.
 ///
-///   * `verify_owner_presence` — the FIXTURE/contract verifier, compiled only under
-///     `cfg(any(test, feature = "test-fixtures"))`, which yields no production authority; and
-///   * `verify_production_owner_presence` — which requires a single-use
-///     `ProductionOwnerPresenceBindingGrant`, issued only by the sealed
-///     `ProductionOwnerPresenceCapability` from `Production`-sourced, explicitly confirmed evidence,
-///     ultimately a `VerifiedWindowsOwnerEvidence` proof digest from the platform crate.
+/// The route it described consumed an owned `projectos_host_core::owner_presence::VerifiedOwnerPresence`,
+/// obtainable in production only through `verify_production_owner_presence` — a single-use grant from
+/// the sealed `ProductionOwnerPresenceCapability`, ultimately a `VerifiedWindowsOwnerEvidence` digest
+/// produced by an INTERACTIVE Windows owner-verification ceremony. That is the right answer to "is
+/// Murad here now?" and the wrong one for Run-to-Completion, which exists for when he is not. It is
+/// unchanged, unweakened, and still required wherever live presence is what matters.
 ///
-/// So the answer to "what fact makes the programme delegation Murad's?" is NOT `delegation.owner`,
-/// and NOT that the agent wrote a record saying so. It is an owned `VerifiedOwnerPresence`, which the
-/// agent cannot manufacture.
-///
-/// That mint is NOT written here, and the omission is deliberate rather than an oversight. This
-/// crate takes `projectos-host-core` with default features only — no fixture authority in the graph —
-/// so a `VerifiedOwnerPresence` cannot be obtained here at all today, in tests or otherwise. Writing
-/// a production signature that nothing can call and nothing can test would be a claim rather than a
-/// control. The sealed CONTRACT is defined and exercised instead, exactly as `TrustedPeerContext`
-/// does for peer identity, and wiring the real presence is a later owner-gated phase.
-#[derive(Debug)]
+/// The production mint is therefore [`crate::owner_programme_delegation::verify_owner_programme_delegation`],
+/// which answers the OTHER question: did Murad, at some earlier moment, sign exactly this bounded
+/// programme? The fact that makes the delegation his is an ECDSA-P256 signature over a
+/// domain-separated canonical record, checked against the SAME embedded owner anchor the packaged
+/// trust manifest uses. It is still not `delegation.owner`, and still not that an agent wrote a
+/// record saying so — the agent cannot manufacture a signature any more than it can manufacture a
+/// presence.
+/// `PartialEq`/`Eq` compare the delegation a token carries; they mint nothing and are not a
+/// construction route, exactly as they are not for [`HostResolvedRequestFacts`]. Deliberately NOT
+/// `Clone`: a verified delegation is obtained by verifying, not by copying one somebody else holds.
+#[derive(Debug, PartialEq, Eq)]
 pub struct VerifiedOwnerProgrammeDelegation {
     _seal: Seal,
     delegation: OwnerProgrammeDelegation,
@@ -613,6 +652,27 @@ impl VerifiedOwnerProgrammeDelegation {
     /// of its own: everything below still has to agree.
     #[cfg(test)]
     fn for_test(delegation: OwnerProgrammeDelegation) -> Self {
+        Self {
+            _seal: Seal,
+            delegation,
+        }
+    }
+
+    /// THE PRODUCTION MINT, crate-private.
+    ///
+    /// Crate-visible, with exactly one call site: [`crate::owner_programme_delegation`], after that
+    /// module has established the owner's signature over the domain-separated canonical subject and
+    /// checked the delegation against this installation's programme and the host's clock.
+    ///
+    /// `pub(crate)` RATHER THAN SOMETHING TIGHTER, and the reason is Rust's, not a choice:
+    /// `pub(in ...)` accepts only an ANCESTOR module, and the one legitimate caller is a SIBLING of
+    /// this one, so it cannot be named. The narrowest expressible visibility is therefore the crate,
+    /// and the guarantee that matters is unaffected — a downstream crate can hold one of these and
+    /// can never make one.
+    ///
+    /// The seal is what makes that true rather than merely intended — this function is the only
+    /// place outside the test constructor where `Seal` is applied to a delegation.
+    pub(crate) fn from_verified_owner_signature(delegation: OwnerProgrammeDelegation) -> Self {
         Self {
             _seal: Seal,
             delegation,
@@ -1571,6 +1631,91 @@ mod tests {
             decode_protected_operation_response(&rb),
             Err(FrameParseError::UnknownStatusEnum)
         );
+    }
+
+    /// A TRUSTED PEER COMES FROM A CANONICAL ATTEMPT, AND FROM NOTHING ELSE.
+    ///
+    /// This drives the real identity-proof attempt to a match on one host-issued connection, takes
+    /// the SEALED admission it produces, and mints the context from it. The identifiers on the
+    /// context are the ones the ATTEMPT captured — they are read off the admission, never accepted
+    /// as arguments, so there is no seam through which a genuine admission could be paired with a
+    /// different connection.
+    ///
+    /// What this test cannot do is as important as what it does: there is no way here to write down
+    /// a `TrustedPeerContext`, and no way to obtain an admission except by running an attempt that
+    /// actually matched.
+    #[cfg(feature = "test-fixtures")]
+    #[test]
+    fn a_trusted_peer_context_comes_only_from_a_sealed_canonical_admission() {
+        use projectos_host_windows_service_identity_proof as idp;
+
+        let service = idp::SyntheticInstanceSelector::new(1, 1);
+        let capability = idp::LiveInstanceObservationCapability::synthetic_for_fixture();
+
+        let admission = idp::ServiceInstanceBindingAttempt::begin(&capability)
+            .record_scm_before(idp::synthetic_observation(service))
+            .into_attempt()
+            .expect("scm-before")
+            .record_ipc_peer_on_connection(idp::synthetic_observation(service), 77, 5)
+            .into_attempt()
+            .expect("peer captured on the host-issued connection")
+            .record_scm_after(idp::synthetic_observation(service))
+            .into_attempt()
+            .expect("scm-after")
+            .admit_peer_for_connection(77, 5)
+            .expect("a matching attempt admits its peer");
+
+        let peer = TrustedPeerContext::from_verified_peer_admission(&admission);
+        assert!(peer.is_bound_to(77, 5));
+        assert!(
+            !peer.is_bound_to(78, 5),
+            "another connection is not this one"
+        );
+        assert!(
+            !peer.is_bound_to(77, 6),
+            "another generation is not this one"
+        );
+    }
+
+    /// AN ADMITTED PEER IS NOT PERMISSION TO DO ANYTHING.
+    ///
+    /// With a genuine trusted peer present and the epoch correct, the evaluator still refuses,
+    /// because C4 is checked first and no owner delegation was supplied. Being who you say you are
+    /// and being allowed to do something remain separate questions.
+    #[cfg(feature = "test-fixtures")]
+    #[test]
+    fn a_genuine_peer_still_reaches_only_the_owner_presence_refusal() {
+        use projectos_host_windows_service_identity_proof as idp;
+
+        let service = idp::SyntheticInstanceSelector::new(2, 1);
+        let capability = idp::LiveInstanceObservationCapability::synthetic_for_fixture();
+        let admission = idp::ServiceInstanceBindingAttempt::begin(&capability)
+            .record_scm_before(idp::synthetic_observation(service))
+            .into_attempt()
+            .expect("scm-before")
+            .record_ipc_peer_on_connection(idp::synthetic_observation(service), 90, 3)
+            .into_attempt()
+            .expect("peer captured")
+            .record_scm_after(idp::synthetic_observation(service))
+            .into_attempt()
+            .expect("scm-after")
+            .admit_peer_for_connection(90, 3)
+            .expect("admitted");
+        let peer = TrustedPeerContext::from_verified_peer_admission(&admission);
+
+        let request = ProtectedOperationRequest::new(
+            [1u8; CORRELATION_LEN],
+            1,
+            42,
+            [0u8; BINDING_DIGEST_LEN],
+            OperationClass::IndependentGatekeeperReview,
+            [0u8; APPROVAL_REF_LEN],
+            [0u8; SESSION_REF_LEN],
+            [0u8; BINDING_DIGEST_LEN],
+        );
+        let response = evaluate_protected_operation(&request, Some(&peer), None, 42);
+        assert_eq!(response.state(), ResponseState::Rejected);
+        assert_eq!(response.reason(), RejectionReason::OwnerPresenceGateOpen);
     }
 
     #[test]

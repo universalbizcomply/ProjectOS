@@ -122,6 +122,7 @@
 mod adapter;
 mod contracts;
 mod operation_contract;
+mod owner_programme_delegation;
 mod protocol;
 mod security;
 mod verification;
@@ -262,6 +263,32 @@ pub use operation_contract::{
     GatekeeperDelegationEvidence, HostResolvedFacts, HostResolvedRequestFacts,
     OwnerProgrammeDelegation, VerifiedOwnerProgrammeDelegation, DELEGATION_DIGEST_LEN,
     MAX_DELEGATED_PHASES,
+};
+
+// THE DURABLE OWNER PROGRAMME DELEGATION — the record the owner signs once and the host verifies
+// while the owner is away. This is the production provenance for
+// `VerifiedOwnerProgrammeDelegation`, and it is a SECOND, DISTINCT question from live owner
+// presence, which keeps its own semantics untouched.
+//
+// WHAT IS DELIBERATELY ABSENT, and it is the whole point of this list: `OwnerSignatureOracle`, its
+// production implementation and `verify_delegation_with_oracle` are NOT here. They are
+// module-private, so no downstream crate can name the trait, implement it as `true`, or choose
+// which verifier decides whether the owner signed. The only route in is
+// `verify_owner_programme_delegation`, which takes no verifier and consults the embedded anchor.
+//
+// WHAT IS HERE, and why each is safe to expose:
+//   * `decode_signed_owner_programme_delegation` / `SignedOwnerProgrammeDelegation` — the UNTRUSTED
+//     parsed record. Public on purpose; it is a claim, and holding one satisfies nothing.
+//   * `ExpectedProgramme` — plain data the HOST resolves about itself. Not a rung: supplying it
+//     cannot make an unsigned record verify, because the signature is checked first.
+//   * `verify_owner_programme_delegation` — the one mint. No verifier parameter, no bypass.
+//   * the refusal taxonomy, the domain tag, and the frozen layout constants, so the eventual
+//     signing ceremony can produce exactly the bytes this verifier will check.
+pub use owner_programme_delegation::{
+    decode_signed_owner_programme_delegation, verify_owner_programme_delegation, DelegationRefusal,
+    ExpectedProgramme, SignedOwnerProgrammeDelegation, DELEGATION_BODY_LEN,
+    DELEGATION_SCHEMA_VERSION, DELEGATION_SIGNATURE_ALGORITHM, DELEGATION_SIGNING_DOMAIN,
+    SIGNED_DELEGATION_RECORD_LEN,
 };
 /// Resolve the ProjectOSHost pipe security STATUS, read-only.
 ///

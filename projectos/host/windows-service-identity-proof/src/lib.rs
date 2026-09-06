@@ -83,6 +83,14 @@ pub use instance::{
     AttemptOutcome, IpcPeerObserved, Prepared, ScmAfterObserved, ScmBeforeObserved,
     ServiceInstanceBindingAttempt, ServiceInstanceObservation,
 };
+// THE SEALED POSITIVE ANSWER. `ServiceInstanceBinding::Match` is a public enum variant and therefore
+// something any caller can write down; a consumer that treated it as peer authority would be
+// trusting a value it could have produced itself. `VerifiedPeerAdmission` is the same answer in a
+// form only a completed canonical attempt can produce, so a downstream crate can hold one and can
+// never make one. It carries only host-issued identifiers — no process, user, session or token
+// identity leaves the attempt.
+#[cfg(any(test, feature = "consumer-contract"))]
+pub use instance::VerifiedPeerAdmission;
 // SYNTHETIC FIXTURES: explicit, non-default, never implied by the contract or by live observation.
 #[cfg(any(test, feature = "test-fixtures"))]
 pub use instance::{synthetic_observation, synthetic_refusal, SyntheticInstanceSelector};

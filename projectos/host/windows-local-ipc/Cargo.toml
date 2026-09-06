@@ -4,7 +4,7 @@ version = "0.0.0"
 edition = "2021"
 publish = false
 license = "UNLICENSED"
-description = "EFFECT-FREE local-IPC transport CONTRACT for the future ProjectOSHost service-identity proof (WINDOWS-PACKAGED-HOST-TRUST-ENFORCEMENT3K-I-D-E-C-CAPABILITY-B1). Freezes the closed shape a later, separately-approved named-pipe transport must obey: local-only (remote clients refused), first-instance required, a bounded protocol version, a single-use per-run nonce with replay refusal, stale-endpoint refusal, a PROTECTED allowlist security policy (expected service SID + LocalSystem + Builtin Administrators only; broad principals receive no allow ACE and no explicit deny ACE is required), and a closed IPC evidence payload that carries only the redacted service-identity proof evidence, authority result, peer-role, corroboration, readiness, typed refusal, shutdown and residue classifications. It has NO arbitrary pipe-name string, NO arbitrary byte payload, NO free-form metadata, NO arbitrary diagnostics, and cannot represent any raw username, SID, machine name, session or credential. It performs NO Windows call, creates NO pipe, binds NO endpoint and opens NO handle. #![forbid(unsafe_code)], no windows dependency, execution readiness false."
+description = "EFFECT-FREE local-IPC transport CONTRACT for the future ProjectOSHost service-identity proof (WINDOWS-PACKAGED-HOST-TRUST-ENFORCEMENT3K-I-D-E-C-CAPABILITY-B1). Freezes the closed shape a later, separately-approved named-pipe transport must obey: local-only (remote clients refused), first-instance required, a bounded protocol version, a single-use per-run nonce with replay refusal, stale-endpoint refusal, a PROTECTED allowlist security policy (expected service SID + LocalSystem + Builtin Administrators only; broad principals receive no allow ACE and no explicit deny ACE is required), and a closed IPC evidence payload that carries only the redacted service-identity proof evidence, authority result, peer-role, corroboration, readiness, typed refusal, shutdown and residue classifications. It has NO arbitrary pipe-name string, NO arbitrary byte payload, NO free-form metadata, NO arbitrary diagnostics, and cannot represent any raw username, SID, machine name, session or credential. The transport itself creates NO pipe, binds NO endpoint and opens NO handle outside the feature-gated windows_ffi.rs. Since the owner-anchor edge to projectos-host-identity, a Windows target pulls the windows crate transitively even by default, and verifying a durable owner programme delegation makes one bounded BCrypt ECDSA-P256 call inside that crate - so this is no longer a no-windows-dependency build, and the Authenticode/WinVerifyTrust surface that edge also links is never reached. unsafe is denied crate-wide and re-allowed only in windows_ffi.rs; execution readiness false."
 
 [lints.rust]
 # The live named-pipe FFI requires unsafe; it is DENIED crate-wide and re-allowed ONLY in the private
@@ -32,7 +32,8 @@ windows-live-ipc = [
 # nothing else: no shutdown, no service control, no write, no other message kind.
 owner-approved-status-read = []
 # EXPLICIT, NON-DEFAULT fixture graph. It proves the dependent-consumer API shape without any pipe or
-# Win32 activity: it does NOT imply windows-live-ipc and pulls NO windows dependency. It supplies
+# Win32 activity: it does NOT imply windows-live-ipc and adds no DIRECT windows edge of its own (see
+# the transitive note below the windows dependency). It supplies
 # fixture-only capability acquisition and a fixture handshake runner that drives the REAL verification
 # order; real live capability production stays absent and owner-gated.
 test-fixtures = [
@@ -56,11 +57,30 @@ projectos-host-windows-service-identity-proof = { path = "../windows-service-ide
 # by default; the opaque descriptor + borrowed lease arrive under `windows-live-ipc`. This crate NEVER
 # resolves a SID or builds an ACL/SDDL of its own.
 projectos-host-authority = { path = "../host-authority" }
+# THE OWNER TRUST ANCHOR, for its EXISTING verification facade only
+# (`verify_against_embedded_anchor`). Authorised by the RUN-TO-COMPLETION HOST ATTESTATION —
+# COMMITTED-BYTE CHECKPOINT + AUTHORITY REACHABILITY gate for the durable owner programme
+# delegation, so that ONE anchor and ONE signature implementation serve both the packaged trust
+# manifest and this record. There is no signing counterpart anywhere in that crate and none is
+# wanted: ProjectOS never holds the owner's private key.
+projectos-host-identity = { path = "../host-identity" }
 
 [target.'cfg(windows)'.dependencies]
-# Minimum named-pipe surface only. Optional + feature-gated: linked ONLY under `windows-live-ipc`, so
-# the default build pulls no windows dependency. No SCM / token / SID-lookup / registry / process /
-# network feature.
+# Minimum named-pipe surface only. Optional + feature-gated: this crate's DIRECT edge to `windows` is
+# linked ONLY under `windows-live-ipc`. No SCM / token / SID-lookup / registry / process / network
+# feature.
+#
+# TRANSITIVE, AND NO LONGER ZERO. Since `projectos-host-identity` joined the dependencies for the
+# owner anchor, a Windows target pulls `windows` transitively even with default features.
+#
+# AND IT IS NOT MERELY LINKED. `verify_against_embedded_anchor` is the one item used from that
+# crate, and on Windows it really does call Win32: a bounded BCrypt chain
+# (`BCryptOpenAlgorithmProvider` / `BCryptImportKeyPair` / `BCryptVerifySignature`) to check one
+# ECDSA-P256 signature over fixed-length inputs. Saying "nothing here calls it" would have been the
+# comfortable wording and it would have been false. What IS true, and is the property worth stating:
+# the WinVerifyTrust/Authenticode surface that edge also links is never reached from this crate, no
+# `unsafe` and no Windows call is added to THIS crate's own sources outside the feature-gated
+# `windows_ffi.rs`, and the signature check runs only when a delegation is actually verified.
 windows = { version = "0.61.3", optional = true, features = [
     "Win32_Foundation",
     "Win32_Security",
