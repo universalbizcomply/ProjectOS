@@ -36,4 +36,17 @@ pub enum RepoAdapterError {
     /// A Git object id was malformed (not 40/64 lowercase hex).
     #[error("malformed git oid")]
     MalformedOid,
+    /// A repository-relative path offered to the committed reader failed bounded validation: empty,
+    /// oversize, absolute, traversing, backslashed, option-shaped, carrying `:`, or containing any
+    /// byte that is not ASCII-graphic — which is the rule that rejects NUL, control characters,
+    /// whitespace and every non-ASCII spelling in one.
+    #[error("invalid committed path")]
+    CommittedPathInvalid,
+    /// No committed blob exists at the requested revision and path.
+    ///
+    /// DISTINCT FROM [`RepoAdapterError::MalformedOutput`], and the distinction is the point: this
+    /// is a definite answer about the repository ("that content is not committed there"), not a
+    /// failure to understand what Git said. A caller must never read it as "unchanged".
+    #[error("committed object unavailable")]
+    CommittedObjectUnavailable,
 }

@@ -8,6 +8,15 @@
 //! bounded stdout/stderr, and structurally parses only machine-readable output (porcelain v2, exact
 //! OIDs, integer counts). The result is an UNTRUSTED [`projectos_host_core::GitRepositoryObservation`].
 //!
+//! ## Committed bytes (RUN-TO-COMPLETION HOST ATTESTATION)
+//!
+//! [`CommittedFileReader`] adds the ONE read the host was missing: the committed content of a
+//! contract-fixed path, answered from the object store rather than the working tree. It mints no
+//! authority either — bytes are an observation, and whether they are the bytes the owner signed is
+//! decided by the trust manifest, not here. The allowlist stays closed: a read names one exact
+//! [`CommitId`] — `HEAD` is resolved to one when the reader opens and never carried onto a command
+//! line — the path is a validated [`CommittedPath`], and no other object read exists.
+//!
 //! ## Authority boundary
 //!
 //! The adapter mints NO authority. `VerifiedRepositoryIdentity` / `VerifiedRepositoryBaseline` come
@@ -31,7 +40,7 @@ pub mod path;
 
 mod adapter;
 
-pub use adapter::RepositoryAdapter;
-pub use command::{GitCommand, GitRunner};
+pub use adapter::{CommittedFileReader, RepositoryAdapter};
+pub use command::{CommitId, CommittedPath, CommittedRevision, GitCommand, GitRunner};
 pub use config::RepositoryAdapterConfig;
 pub use error::RepoAdapterError;
