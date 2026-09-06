@@ -21,6 +21,40 @@ function read(p) {
 function stripComments(src) {
   return src.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/.*$/gm, " ");
 }
+/**
+ * Whitespace collapsed onto one line, so a check cannot be defeated by where rustfmt happens to
+ * wrap. Any pattern using this must bound itself (e.g. `[^{;]`) rather than relying on newlines.
+ */
+function flatten(src) {
+  return src.replace(/\s+/g, " ");
+}
+
+/**
+ * The inside of the `{ .. }` that follows `header`, by BRACE BALANCING rather than by splitting on
+ * the first newline-plus-close-brace.
+ *
+ * `split(/\n}/)[0]` reads only as far as the first closing brace at column 0, so a
+ * deliberately or accidentally mis-indented brace inside the block truncates the scan and hides
+ * everything after it from every check that consumes the body. Balancing is not parsing Rust - it
+ * makes no claim about strings or char literals containing braces, which the scanned declarations
+ * do not have - but it does mean indentation no longer decides what the controls can see.
+ */
+function blockBody(src, header) {
+  const at = src.indexOf(header);
+  if (at === -1) return "";
+  const open = src.indexOf("{", at);
+  if (open === -1) return "";
+  let depth = 0;
+  for (let i = open; i < src.length; i++) {
+    if (src[i] === "{") depth++;
+    else if (src[i] === "}") {
+      depth--;
+      if (depth === 0) return src.slice(open + 1, i);
+    }
+  }
+  return src.slice(open + 1); // unbalanced: hand back the rest, so nothing hides in the tail
+}
+
 function rsFiles(dir) {
   const out = [];
   const walk = (d) => {
@@ -30,7 +64,7 @@ function rsFiles(dir) {
       if (e.isDirectory()) {
         if (e.name === "target") continue;
         walk(full);
-      } else if (e.name.endsWith(".rs")) out.push(full);
+      } else if (e.isFile() && e.name.endsWith(".rs")) out.push(full);
     }
   };
   walk(dir);
@@ -877,6 +911,260 @@ function run() {
       "a_recorded_peer_identity_is_never_rendered",
     ]) {
       if (!inst.includes(t)) errors.push("missing peer-capture test: " + t);
+    }
+  }
+
+  // 8k. SEALED PEER ADMISSION (RUN-TO-COMPLETION HOST ATTESTATION - AUTHORITY REACHABILITY RUNG 2).
+  //
+  // WHY THIS EXISTS. The authority-reachability checkpoint added `VerifiedPeerAdmission` - the sealed
+  // positive answer to "was this peer admitted for this connection?" - and its canonical mint
+  // `ServiceInstanceBindingAttempt::admit_peer_for_connection`. It shipped with NO regression control
+  // here, while the SIBLING crate's consumer of it (`TrustedPeerContext`) was given a deliberately
+  // adversarial one in the same commit. The ECC security review called that asymmetry out: the type is
+  // correctly sealed today, so nothing is exploitable, but a later `impl Clone`, a dropped `_sealed`, or
+  // a second mint taking a caller-supplied identifier pair would pass CI in silence - and
+  // `TrustedPeerContext::from_verified_peer_admission` would become forgeable end to end through it.
+  //
+  // WHAT THIS DOES NOT CLAIM. It does not prove the binding logic. That three separately-obtained
+  // identities must agree, that an unreverted impersonation is refused first, and that a reused PID with
+  // a different creation identity is refused, are proven by the behavioural tests pinned in 8i/8j above
+  // and by module privacy. This pins the AUTHORITY SURFACE: which constructors may exist, what they may
+  // consume, and that nothing else can mint the type.
+  //
+  // CRATE-WIDE, NOT FILE-WIDE. Rust permits an inherent `impl` in ANY module of the defining crate, and
+  // a private-field struct can be built by struct literal from the defining module or any DESCENDANT of
+  // it. A second mint in a new `mod admission;` file would be invisible to a single-file scan - an
+  // ordinary refactor, not an exploit - so the counts below run over every `.rs` in the crate.
+  if (fs.existsSync(instPath)) {
+    const inst = stripComments(read(instPath));
+    const crateRs = rsFiles(path.join(CRATE, "src"));
+    const crateSrc = crateRs.map((f) => stripComments(read(f))).join("\n");
+
+    /**
+     * The attribute blocks immediately above a declaration, joined and whitespace-collapsed.
+     *
+     * A BALANCED-BRACKET SCAN, NOT A PER-LINE PREFIX TEST: a rustfmt-wrapped `#[derive(\n ..\n)]` puts
+     * `)]` immediately above the declaration, which a per-line `startsWith("#[")` test rejects, and the
+     * derive checks below would then have found nothing to match and passed in silence.
+     */
+    const attrsAbove = (src, decl) => {
+      const at = src.indexOf(decl);
+      if (at === -1) return "";
+      let cursor = at;
+      let collected = "";
+      for (;;) {
+        let j = cursor - 1;
+        while (j >= 0 && /\s/.test(src[j])) j--;
+        if (j < 0 || src[j] !== "]") break;
+        let depth = 0;
+        let k = j;
+        for (; k >= 0; k--) {
+          if (src[k] === "]") depth++;
+          else if (src[k] === "[") {
+            depth--;
+            if (depth === 0) break;
+          }
+        }
+        if (k < 1 || src[k - 1] !== "#") break;
+        collected = src.slice(k - 1, j + 1) + " " + collected;
+        cursor = k - 1;
+      }
+      return collected.replace(/\s+/g, " ").trim();
+    };
+
+    if (!/pub struct VerifiedPeerAdmission\s*\{/.test(inst)) {
+      errors.push("VerifiedPeerAdmission is missing; the sealed peer admission is the rung TrustedPeerContext consumes");
+    } else {
+      const structBody = blockBody(inst, "pub struct VerifiedPeerAdmission");
+      // The seal, and private identifiers. A public field is a struct-literal mint in disguise.
+      if (!/_sealed\s*:\s*Sealed/.test(structBody)) {
+        errors.push("VerifiedPeerAdmission lost its private seal; it could be fabricated by struct literal");
+      }
+      for (const field of ["connection_id", "handshake_generation"]) {
+        if (!new RegExp(field + "\\s*:\\s*u64").test(structBody)) {
+          errors.push("VerifiedPeerAdmission no longer carries a private " + field);
+        }
+      }
+      if (/\bpub\s+[a-z_]/.test(structBody)) {
+        errors.push("VerifiedPeerAdmission gained a public field; an admission could be written directly");
+      }
+      // DERIVES. Debug is permitted (it renders only host-issued identifiers). Clone/Copy would let a
+      // holder duplicate an admission rather than earn it; Default would mint one from nothing; serde
+      // would mint one from bytes.
+      const derives = attrsAbove(inst, "pub struct VerifiedPeerAdmission");
+      for (const bad of ["Clone", "Copy", "Default", "Serialize", "Deserialize"]) {
+        if (new RegExp("derive\\s*\\([^)]*\\b" + bad + "\\b").test(derives)) {
+          errors.push("VerifiedPeerAdmission derives " + bad + "; an admission must be proven by an attempt, never copied, defaulted or deserialised");
+        }
+      }
+      // NO TRAIT IMPL ANYWHERE IN THE CRATE. From/TryFrom/Into/Default/Clone are all trait routes to a
+      // value, and naming the forbidden ones would pass whichever was thought of next.
+      if (/impl[^{;]*?\bfor\s+VerifiedPeerAdmission\b/.test(flatten(crateSrc))) {
+        errors.push("a trait impl for VerifiedPeerAdmission exists; a trait could mint the type outside the enumerated block");
+      }
+      // ONE INHERENT BLOCK IN THE WHOLE CRATE, so the enumeration below cannot be bypassed by appending
+      // a second one in this file or in any other module.
+      const blocks = (crateSrc.match(/impl VerifiedPeerAdmission\s*\{/g) || []).length;
+      if (blocks !== 1) {
+        errors.push("expected exactly one `impl VerifiedPeerAdmission` block in the crate, found " + blocks + "; the enumeration below only covers one");
+      }
+      const body = blockBody(inst, "impl VerifiedPeerAdmission {");
+      // A CLOSED ALLOWLIST, covering pub(crate) too, with generics tolerated so `fn evil<T>(..)` cannot
+      // slip past the way it once did against the sibling crate's O7.
+      const ALLOWED_ADMISSION = new Set(["connection_id", "handshake_generation"]);
+      const fns = [...body.matchAll(/pub(?:\((?:crate|super|in [^)]*)\))?\s+fn\s+([a-z0-9_]+)\s*(?:<[^>]*>)?\s*\(/g)].map((m) => m[1]);
+      for (const name of fns) {
+        if (!ALLOWED_ADMISSION.has(name)) {
+          errors.push("VerifiedPeerAdmission gained an unruled function `" + name + "`; an admission must be proven, not asserted");
+        }
+      }
+      for (const required of ALLOWED_ADMISSION) {
+        if (!fns.includes(required)) {
+          errors.push("VerifiedPeerAdmission lost its `" + required + "` accessor");
+        }
+      }
+      // ITS OWN IMPL MINTS NOTHING. The accessors are the whole block, so a `Self { .. }` appearing here
+      // would be a mint reachable without going through the attempt - including from a private helper
+      // the public-function allowlist never sees.
+      const selfMints = (body.match(/(?<!-> )(?<!let )Self\s*\{/g) || []).length;
+      if (selfMints !== 0) {
+        errors.push("the VerifiedPeerAdmission impl constructs " + selfMints + " value(s) via `Self {`; only the canonical attempt may mint one");
+      }
+      // No shape that lets a caller state the answer, whatever it is called.
+      // Flattened, so a wrapped signature cannot slip past; `[^{;]` keeps each pattern inside one
+      // signature. Redundant with the name allowlist above by design - a dead check is still a lie.
+      const flatBody = flatten(body);
+      for (const [re, why] of [
+        [/pub[^{;]*?fn [a-z0-9_]+\s*(?:<[^>]*>)?\s*\([^)]*:\s*bool/, "a function taking a bool"],
+        [/pub[^{;]*?fn [a-z0-9_]+\s*(?:<[^>]*>)?\s*\([^)]*:\s*&?ServiceInstanceBinding/, "a function taking the verdict enum"],
+        [/pub[^{;]*?fn [a-z0-9_]+\s*(?:<[^>]*>)?\s*\([^)]*:\s*u64/, "a function taking a raw identifier"],
+      ]) {
+        if (re.test(flatBody)) {
+          errors.push("VerifiedPeerAdmission exposes " + why + "; a verdict is a description, not authority");
+        }
+      }
+      // NO MACRO inside the authority impl: one token to this scan, an arbitrary `fn` to the compiler.
+      if (/\b[a-z_][a-z0-9_]*!\s*[([{]/i.test(body)) {
+        errors.push("a macro is invoked inside the VerifiedPeerAdmission impl; it could expand to a constructor this scan cannot see");
+      }
+    }
+
+    // THE GATE ITSELF, pinned the way section 8j pins it for the sibling peer types - and pinned
+    // EXACTLY, not merely "mentions consumer-contract and not test-fixtures". A fourth OR'd feature
+    // would satisfy a substring test while making the admission reachable from a graph nobody
+    // audited, which is precisely the widening this rule exists to refuse. Raised by the ECC
+    // security review, twice: once to add the rule, once because the first version of it was looser
+    // than the comment describing it.
+    const EXPECTED_ADMISSION_GATE = '#[cfg(any(test, feature = "consumer-contract"))]';
+    const cfgOf = (attrs) => {
+      const m = attrs.match(/#\[cfg\([^\]]*\)\]/);
+      return m ? m[0].replace(/\s+/g, " ") : null;
+    };
+    for (const [decl, what] of [
+      ["pub struct VerifiedPeerAdmission", "the VerifiedPeerAdmission declaration"],
+      ["impl VerifiedPeerAdmission {", "the VerifiedPeerAdmission impl"],
+    ]) {
+      const gate = cfgOf(attrsAbove(inst, decl));
+      if (gate === null) {
+        errors.push(what + " carries no cfg gate; the sealed admission must not become unconditionally available");
+      } else if (gate !== EXPECTED_ADMISSION_GATE) {
+        errors.push(what + " gate changed to " + gate + "; it must be exactly " + EXPECTED_ADMISSION_GATE);
+      }
+    }
+    {
+      const libSrc = stripComments(read(path.join(CRATE, "src", "lib.rs")));
+      const gate = cfgOf(attrsAbove(libSrc, "pub use instance::VerifiedPeerAdmission;"));
+      if (gate === null) {
+        errors.push("the VerifiedPeerAdmission re-export in lib.rs carries no cfg gate");
+      } else if (gate !== EXPECTED_ADMISSION_GATE) {
+        errors.push("the VerifiedPeerAdmission re-export gate changed to " + gate + "; it must be exactly " + EXPECTED_ADMISSION_GATE);
+      }
+    }
+
+    // NO REBINDING OF THE SEALED TYPE NAMES, ANYWHERE IN THE CRATE.
+    //
+    // Every structural check above keys on the LITERAL type name - `impl Type {`, `Type {`. Rust
+    // lets an inherent impl be written against a type ALIAS, and a struct with private fields can
+    // be built from any module that can see those fields. So this, in the defining module, is a
+    // complete forgery route that every one of those checks reads straight past:
+    //
+    //     type Alias = SealedType;
+    //     impl Alias {
+    //         pub(crate) fn forged(..) -> Self { Self { _seal: Seal, .. } }
+    //     }
+    //
+    // Demonstrated by the ECC security review and reproduced here against rustc 1.96.1: it
+    // compiles, runs, and yields a sealed value with no signature, programme or liveness check.
+    // Rather than teaching every scan to resolve aliases - which is parsing Rust - the rebinding
+    // itself is refused. Production has no legitimate reason to rename these types, so the honest
+    // rule is that it must not happen.
+    for (const sealedType of ["VerifiedPeerAdmission"]) {
+      const aliased = new RegExp("\\btype\\s+\\w+\\s*(?:<[^>]*>)?\\s*=\\s*(?:[\\w]+::)*" + sealedType + "\\b");
+      if (aliased.test(crateSrc)) {
+        errors.push(sealedType + " is rebound by a type alias; an inherent impl on the alias would be invisible to every check that names the type");
+      }
+      const renamed = new RegExp("\\buse\\s+[^;]*\\b" + sealedType + "\\s+as\\s+\\w+");
+      if (renamed.test(crateSrc)) {
+        errors.push(sealedType + " is imported under another name; an inherent impl on that name would be invisible to every check that names the type");
+      }
+    }
+
+    // EXACTLY ONE MINT IN THE WHOLE CRATE, AND IT IS THE CANONICAL FINALISATION. Writing the struct
+    // literal is what minting IS, so the number of places that write one is the number of mints. The
+    // `struct` and `impl` headers are excluded because they are declarations; `-> Type {` is excluded
+    // because a return type followed by a function body is not a construction either.
+    const literals = (crateSrc.match(/(?<!struct )(?<!impl )(?<!-> )VerifiedPeerAdmission\s*\{/g) || []).length;
+    if (literals !== 1) {
+      errors.push("expected exactly 1 VerifiedPeerAdmission construction site in the crate, found " + literals);
+    }
+    // SIGNATURE + BRACE-BALANCED BODY. This used the same `\n    }` indentation idiom the rest of
+    // this round replaced: truncation could only fail closed here, but a control should not depend on
+    // where a brace sits when the helper to avoid that exists three lines up.
+    const mintAt = inst.indexOf("pub fn admit_peer_for_connection(");
+    const mint =
+      mintAt === -1
+        ? null
+        : [
+            inst.slice(mintAt, inst.indexOf("{", mintAt)),
+            "{",
+            blockBody(inst, "pub fn admit_peer_for_connection("),
+            "}",
+          ].join("");
+    if (!mint) {
+      errors.push("the canonical mint `admit_peer_for_connection` is missing");
+    } else {
+      const m = mint;
+      // It must CONSUME the attempt. `&self` would let one attempt mint an unbounded number of
+      // admissions, which is a different property from the one the attempt proves.
+      if (!/pub fn admit_peer_for_connection\(\s*self\s*,/.test(m)) {
+        errors.push("admit_peer_for_connection no longer consumes the attempt by value; one attempt could mint many admissions");
+      }
+      // It must DELEGATE to the one verdict implementation rather than re-deciding, and it must do so
+      // for the SAME connection and handshake generation the admission will carry.
+      if (!/self\.finalise_for_connection\(\s*connection_id\s*,\s*handshake_generation\s*,?\s*\)/.test(m)) {
+        errors.push("admit_peer_for_connection does not delegate to finalise_for_connection for the requested connection and handshake generation");
+      }
+      // Only the accepting verdict may produce it, and only inside that arm.
+      if (!/ServiceInstanceBinding::Match\s*=>\s*Ok\(VerifiedPeerAdmission\s*\{/.test(m)) {
+        errors.push("the admission is no longer produced solely by the ServiceInstanceBinding::Match arm");
+      }
+      if (!/(?:_|refused)\s*=>/.test(m)) {
+        errors.push("admit_peer_for_connection has no refusing arm; every non-Match verdict must refuse");
+      }
+      // A VERDICT VALUE IS NOT AUTHORITY. If the mint accepted a ServiceInstanceBinding, a caller could
+      // write down the enum variant that means success and be admitted on the strength of the word.
+      const sig = m.slice(0, m.indexOf(")") + 1);
+      if (/ServiceInstanceBinding/.test(sig) || /:\s*bool/.test(sig)) {
+        errors.push("admit_peer_for_connection accepts a caller-supplied verdict or flag; a Match value must never itself be sufficient authority");
+      }
+      // The identifiers must be the mint's own parameters, carried by shorthand, so there is no seam to
+      // pair a genuine finalisation with a different connection.
+      const literal = m.slice(m.indexOf("Ok(VerifiedPeerAdmission"));
+      for (const field of ["connection_id", "handshake_generation"]) {
+        if (new RegExp(field + "\\s*:").test(literal)) {
+          errors.push("the admission sets `" + field + "` explicitly instead of carrying the finalised parameter by shorthand");
+        }
+      }
     }
   }
 
