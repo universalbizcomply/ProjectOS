@@ -423,6 +423,351 @@ impl BoundIpcSession {
 }
 
 // ---------------------------------------------------------------------------------------------
+// REQUEST ADMISSION (RUN-TO-COMPLETION HOST ATTESTATION - OPERATION AUTHORITY + REQUEST BINDING)
+//
+// WHY IT LIVES HERE, AND NOT IN THE IPC CRATE. `BoundIpcSession` is already the sole IPC-session
+// authority: it owns the connection identity, the handshake generation and the session digest, and
+// those fields are crate-private, so nothing outside `core` can read them, let alone assert them. A
+// second session model in the transport crate would be a second opinion about the same connection,
+// which is exactly the duplication the peer-contract reconciliation removed once already. So
+// sequence, correlation and replay admission are answered HERE, by the session that already knows
+// which connection it is, and the transport crate receives a sealed answer it cannot fabricate.
+//
+// WHAT AN ADMISSION IS NOT. It is not permission to do anything. It says one thing: this exact
+// request arrived on this exact session, its sequence advanced, and its correlation has not been
+// seen before. Every authority gate stands untouched in front of any effect.
+// ---------------------------------------------------------------------------------------------
+
+/// Bounded correlation width. A correlation is an opaque tag, never a message.
+pub const REQUEST_CORRELATION_LEN: usize = 16;
+
+/// The most correlations one session will remember before refusing.
+///
+/// BOUNDED ON PURPOSE. An unbounded set is a memory exhaustion the peer controls: a caller that can
+/// open a session can otherwise make the host remember one entry per request for as long as the
+/// connection lives. When the bound is reached the answer is a refusal, never an eviction - evicting
+/// the oldest entry is precisely how a replay window reopens.
+pub const MAX_REMEMBERED_CORRELATIONS: usize = 1024;
+
+/// Why a request was not admitted. Closed set; every variant refuses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum RequestAdmissionError {
+    /// The store belongs to a different session than the one asked to admit the request.
+    StoreNotBoundToSession,
+    /// The sequence did not advance. A repeat and a rewind are the same answer: no.
+    SequenceNotAdvancing,
+    /// This correlation has already been admitted on this session.
+    CorrelationReplayed,
+    /// The session has remembered as many correlations as it will.
+    AdmissionCapacityExhausted,
+}
+
+/// Where a session's admission history lives.
+///
+/// SEALED. A downstream crate cannot implement it, so "has this correlation been seen?" is never a
+/// question a caller gets to answer about itself. The trait exists so that the durable, restart
+/// surviving store belonging to the persistence checkpoint can back exactly this contract without
+/// changing what admission MEANS - the ordering and replay rules below stay here either way.
+///
+/// # Compile-fail evidence
+///
+/// Downstream cannot implement it: the supertrait lives in a private module, so no outside type can
+/// satisfy the bound.
+///
+/// ```compile_fail
+/// use projectos_host_core::{RequestAdmissionError, RequestAdmissionStore, REQUEST_CORRELATION_LEN};
+/// struct MyStore;
+/// impl RequestAdmissionStore for MyStore {
+///     fn session_digest(&self) -> [u8; 32] { [0u8; 32] }
+///     fn last_sequence(&self) -> u64 { 0 }
+///     fn is_correlation_seen(&self, _c: &[u8; REQUEST_CORRELATION_LEN]) -> bool { false }
+///     fn record(&mut self, _s: u64, _c: [u8; REQUEST_CORRELATION_LEN])
+///         -> Result<(), RequestAdmissionError> { Ok(()) }
+/// }
+/// ```
+///
+/// The positive control, so the refusal above is a refusal about the SEAL and not about a name that
+/// does not resolve - the trait is public, nameable and implemented by the store this module ships:
+///
+/// ```
+/// use projectos_host_core::{InMemoryRequestAdmissionStore, RequestAdmissionStore};
+/// fn last<S: RequestAdmissionStore + ?Sized>(s: &S) -> u64 { s.last_sequence() }
+/// fn _read(s: &InMemoryRequestAdmissionStore) -> u64 { last(s) }
+/// ```
+pub trait RequestAdmissionStore: sealed::Sealed {
+    /// The session this store belongs to. Compared before anything is recorded.
+    fn session_digest(&self) -> [u8; 32];
+    /// The highest sequence admitted so far. Zero when nothing has been admitted.
+    fn last_sequence(&self) -> u64;
+    /// Whether this correlation was already admitted on this session.
+    fn is_correlation_seen(&self, correlation: &[u8; REQUEST_CORRELATION_LEN]) -> bool;
+    /// Record an admission.
+    ///
+    /// AN IMPLEMENTATION MUST RE-ENFORCE THE ORDERING AND REPLAY RULES rather than storing whatever
+    /// it is handed. This method is public on a public trait, so a caller holding a store reaches it
+    /// WITHOUT passing through [`BoundIpcSession::admit_request`]. If the rules lived only in the
+    /// mint, one direct `record` with a lower number would rewind the watermark and reopen every
+    /// sequence beneath it - the invariant has to hold at the place that writes.
+    ///
+    /// # Errors
+    /// [`RequestAdmissionError::SequenceNotAdvancing`] when `sequence` does not exceed
+    /// [`Self::last_sequence`]; [`RequestAdmissionError::CorrelationReplayed`] when the correlation
+    /// was already recorded; [`RequestAdmissionError::AdmissionCapacityExhausted`] when the bound is
+    /// reached.
+    fn record(
+        &mut self,
+        sequence: u64,
+        correlation: [u8; REQUEST_CORRELATION_LEN],
+    ) -> Result<(), RequestAdmissionError>;
+}
+
+/// The in-memory admission history for one session.
+///
+/// Bound to its session at construction, so it cannot be presented to another one. It survives
+/// nothing: a restart forgets it, which is why durable replay storage is its own checkpoint. What it
+/// must not do, and does not, is forget while the session is still alive.
+///
+/// HOST OBLIGATION, STATED PLAINLY: open exactly ONE store per session and keep it for the session's
+/// whole life. The store binds to the session; the session does not own the store. A second store
+/// opened for the same session is an empty history, and an empty history admits everything the first
+/// one already refused. Nothing a PEER sends can cause that - the peer never touches a store - but
+/// host code that reopened one per request would have removed replay protection by itself. The
+/// durable-store checkpoint is where a session's history stops being a value the host has to hold.
+pub struct InMemoryRequestAdmissionStore {
+    session_digest: [u8; 32],
+    last_sequence: u64,
+    seen: Vec<[u8; REQUEST_CORRELATION_LEN]>,
+}
+
+impl fmt::Debug for InMemoryRequestAdmissionStore {
+    // Redacted like the session it binds to: the digest and the remembered tags never print. The
+    // two counts are diagnostics, not identity.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "InMemoryRequestAdmissionStore(last_sequence={}, remembered={}, [REDACTED])",
+            self.last_sequence,
+            self.seen.len()
+        )
+    }
+}
+
+impl InMemoryRequestAdmissionStore {
+    /// Open an empty history for exactly this session.
+    #[must_use]
+    pub fn for_session(session: &BoundIpcSession) -> Self {
+        Self {
+            session_digest: session.session_digest(),
+            last_sequence: 0,
+            seen: Vec::new(),
+        }
+    }
+}
+
+impl sealed::Sealed for InMemoryRequestAdmissionStore {}
+
+impl RequestAdmissionStore for InMemoryRequestAdmissionStore {
+    fn session_digest(&self) -> [u8; 32] {
+        self.session_digest
+    }
+    fn last_sequence(&self) -> u64 {
+        self.last_sequence
+    }
+    fn is_correlation_seen(&self, correlation: &[u8; REQUEST_CORRELATION_LEN]) -> bool {
+        self.seen.iter().any(|c| c == correlation)
+    }
+    fn record(
+        &mut self,
+        sequence: u64,
+        correlation: [u8; REQUEST_CORRELATION_LEN],
+    ) -> Result<(), RequestAdmissionError> {
+        // Re-enforced HERE, not only in the mint, because this method is reachable directly.
+        if sequence <= self.last_sequence {
+            return Err(RequestAdmissionError::SequenceNotAdvancing);
+        }
+        if self.is_correlation_seen(&correlation) {
+            return Err(RequestAdmissionError::CorrelationReplayed);
+        }
+        if self.seen.len() >= MAX_REMEMBERED_CORRELATIONS {
+            return Err(RequestAdmissionError::AdmissionCapacityExhausted);
+        }
+        self.seen.push(correlation);
+        self.last_sequence = sequence;
+        Ok(())
+    }
+}
+
+/// Evidence that one exact request was admitted on one exact session.
+///
+/// Opaque: private fields, no public constructor, no `Default`, no `Clone`, no serde, redacted
+/// `Debug`, thread-bound. The identifiers it exposes are the ones the HOST issued - a caller cannot
+/// pair a genuine admission with a different connection, because it never supplies them.
+///
+/// It is deliberately NOT `Clone`: an admission answers one request. Handing out copies of it is how
+/// a single admitted request comes to authorise several.
+///
+/// # What it does NOT carry
+///
+/// It answers no authority question, and it is not a shortcut past one. Capability, operation family,
+/// peer, channel and currentness remain the SESSION's to answer, at the moment the operation is
+/// attempted - see [`BoundIpcSession::permits_capability`], [`BoundIpcSession::permits_family`],
+/// [`BoundIpcSession::matches_peer`], [`BoundIpcSession::matches_channel`] and
+/// [`BoundIpcSession::is_current`]. Admission deliberately consults none of them, so holding an
+/// admission never means a gate was passed; it means one request was not a duplicate.
+///
+/// # Compile-fail evidence
+///
+/// A caller cannot build one - every field is private and there is no constructor:
+///
+/// ```compile_fail
+/// use projectos_host_core::AdmittedRequest;
+/// let _ = AdmittedRequest {
+///     connection_id: 1,
+///     handshake_generation: 1,
+///     session_digest: [0u8; 32],
+///     correlation: [0u8; 16],
+///     sequence: 1,
+/// };
+/// ```
+///
+/// The positive control, so that refusal is about the type's shape rather than a name that does not
+/// resolve:
+///
+/// ```
+/// use projectos_host_core::AdmittedRequest;
+/// fn _read(a: &AdmittedRequest) -> u64 { a.sequence() }
+/// ```
+///
+/// It answers no capability question - only the session does:
+///
+/// ```compile_fail
+/// use projectos_host_core::{AdmittedRequest, ChannelCapability};
+/// fn _f(a: &AdmittedRequest) { let _ = a.permits_capability(ChannelCapability::RecordMarker); }
+/// ```
+///
+/// ```
+/// use projectos_host_core::{BoundIpcSession, ChannelCapability};
+/// fn _f(s: &BoundIpcSession) { let _ = s.permits_capability(ChannelCapability::RecordMarker); }
+/// ```
+///
+/// ...and it converts into no permit:
+///
+/// ```compile_fail
+/// use projectos_host_core::{AdmittedRequest, ExecutionPermit};
+/// fn _f(a: AdmittedRequest) -> ExecutionPermit { a.into() }
+/// ```
+///
+/// ```
+/// use projectos_host_core::{AdmittedRequest, ExecutionPermit};
+/// fn _f(_a: &AdmittedRequest, _p: &ExecutionPermit) {}
+/// ```
+pub struct AdmittedRequest {
+    connection_id: u64,
+    handshake_generation: u64,
+    session_digest: [u8; 32],
+    correlation: [u8; REQUEST_CORRELATION_LEN],
+    sequence: u64,
+    _thread_bound: ThreadBound,
+}
+
+impl fmt::Debug for AdmittedRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "AdmittedRequest([REDACTED])")
+    }
+}
+
+impl AdmittedRequest {
+    /// The host-issued connection this admission belongs to.
+    #[must_use]
+    pub fn connection_id(&self) -> u64 {
+        self.connection_id
+    }
+    /// The host-issued handshake generation this admission belongs to.
+    #[must_use]
+    pub fn handshake_generation(&self) -> u64 {
+        self.handshake_generation
+    }
+    /// The session this admission belongs to.
+    #[must_use]
+    pub fn session_digest(&self) -> [u8; 32] {
+        self.session_digest
+    }
+    /// The correlation this admission answers.
+    #[must_use]
+    pub fn correlation(&self) -> &[u8; REQUEST_CORRELATION_LEN] {
+        &self.correlation
+    }
+    /// The sequence this admission recorded.
+    #[must_use]
+    pub fn sequence(&self) -> u64 {
+        self.sequence
+    }
+    /// Whether this admission answers exactly this correlation on exactly this connection.
+    #[must_use]
+    pub fn answers(
+        &self,
+        correlation: &[u8; REQUEST_CORRELATION_LEN],
+        connection_id: u64,
+        handshake_generation: u64,
+    ) -> bool {
+        &self.correlation == correlation
+            && self.connection_id == connection_id
+            && self.handshake_generation == handshake_generation
+    }
+}
+
+impl BoundIpcSession {
+    /// Admit ONE request on this session, or refuse.
+    ///
+    /// THE SOLE MINT of [`AdmittedRequest`]. It is a method on the session rather than a free
+    /// function because the facts it stamps - connection, handshake generation, session digest - are
+    /// the session's own private fields, so there is no argument through which a caller could supply
+    /// them and no version of this that takes them on trust.
+    ///
+    /// Order is fail-closed. The store must belong to this session; the sequence must ADVANCE, so a
+    /// rewind and a repeat receive the same refusal; the correlation must be new. Only then is
+    /// anything recorded, so a refused request leaves no trace to interfere with a later legitimate
+    /// one.
+    ///
+    /// WHAT IT DOES NOT CHECK. Admission consults no clock, no verifier and no runtime instance: it
+    /// says nothing about whether this session is still current, still connected, or still within its
+    /// window, and nothing about capability or family. Those are [`Self::is_current`],
+    /// [`Self::permits_capability`], [`Self::permits_family`], [`Self::matches_peer`] and
+    /// [`Self::matches_channel`], and the operation gate must ask them at the moment it acts. An
+    /// admission on a session that has since expired is still a correct statement - the request was
+    /// not a duplicate - and still authorises nothing.
+    ///
+    /// # Errors
+    /// [`RequestAdmissionError`] naming the first gate that refused.
+    pub fn admit_request<S: RequestAdmissionStore + ?Sized>(
+        &self,
+        store: &mut S,
+        correlation: [u8; REQUEST_CORRELATION_LEN],
+        sequence: u64,
+    ) -> Result<AdmittedRequest, RequestAdmissionError> {
+        if store.session_digest() != self.session_digest {
+            return Err(RequestAdmissionError::StoreNotBoundToSession);
+        }
+        if sequence <= store.last_sequence() {
+            return Err(RequestAdmissionError::SequenceNotAdvancing);
+        }
+        if store.is_correlation_seen(&correlation) {
+            return Err(RequestAdmissionError::CorrelationReplayed);
+        }
+        store.record(sequence, correlation)?;
+        Ok(AdmittedRequest {
+            connection_id: self.connection_id,
+            handshake_generation: self.handshake_generation,
+            session_digest: self.session_digest,
+            correlation,
+            sequence,
+            _thread_bound: ThreadBound::default(),
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
 // The crate-internal mint + sealed verifier
 // ---------------------------------------------------------------------------------------------
 

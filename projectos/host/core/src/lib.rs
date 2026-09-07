@@ -97,9 +97,11 @@ pub use facts::{
 #[cfg(any(test, feature = "test-fixtures"))]
 pub use ipc_session::FixtureIpcSessionVerifier;
 pub use ipc_session::{
-    BoundIpcSession, ChannelCapability, ConfirmedHandshakeEvidence, ConnectionLiveness,
-    ExpectedChannel, ExpectedPeer, IpcPeerObservation, IpcSessionError, IpcSessionVerifier,
-    OperationFamily, PeerUserClass, ProductionIpcSessionVerifier,
+    AdmittedRequest, BoundIpcSession, ChannelCapability, ConfirmedHandshakeEvidence,
+    ConnectionLiveness, ExpectedChannel, ExpectedPeer, InMemoryRequestAdmissionStore,
+    IpcPeerObservation, IpcSessionError, IpcSessionVerifier, OperationFamily, PeerUserClass,
+    ProductionIpcSessionVerifier, RequestAdmissionError, RequestAdmissionStore,
+    MAX_REMEMBERED_CORRELATIONS, REQUEST_CORRELATION_LEN,
 };
 pub use observation::{
     ApprovalObservation, CollectedObservations, ConnectionObservation,

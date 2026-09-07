@@ -10,11 +10,13 @@
 #![cfg(feature = "test-fixtures")]
 
 use projectos_host_core::{
-    BoundIpcSession, ChannelCapability, ConfirmedHandshakeEvidence, ExpectedChannel, ExpectedPeer,
-    FixtureClock, FixtureIpcSessionVerifier, FixtureRuntimeInstanceVerifier, HostRole,
-    IpcPeerObservation, IpcSessionError, IpcSessionVerifier, OperationFamily, PeerUserClass,
-    RuntimeInstanceObservation, RuntimeInstanceVerifier, RuntimeSource, SessionId, TrustedClock,
-    VerifiedAuthorityTime, VerifiedRuntimeInstance,
+    AdmittedRequest, BoundIpcSession, ChannelCapability, ConfirmedHandshakeEvidence,
+    ExpectedChannel, ExpectedPeer, FixtureClock, FixtureIpcSessionVerifier,
+    FixtureRuntimeInstanceVerifier, HostRole, InMemoryRequestAdmissionStore, IpcPeerObservation,
+    IpcSessionError, IpcSessionVerifier, OperationFamily, PeerUserClass, RequestAdmissionError,
+    RequestAdmissionStore, RuntimeInstanceObservation, RuntimeInstanceVerifier, RuntimeSource,
+    SessionId, TrustedClock, VerifiedAuthorityTime, VerifiedRuntimeInstance,
+    MAX_REMEMBERED_CORRELATIONS, REQUEST_CORRELATION_LEN,
 };
 use projectos_trust_contract::{EnvironmentId, ProjectId};
 
@@ -494,4 +496,248 @@ fn i29_debug_redacted() {
     // handshake evidence is redacted too.
     let ev = ConfirmedHandshakeEvidence::confirmed(1);
     assert!(format!("{ev:?}").contains("[REDACTED]"));
+}
+
+// ---------------------------------------------------------------------------------------------
+// REQUEST ADMISSION (RUN-TO-COMPLETION HOST ATTESTATION - OPERATION AUTHORITY + REQUEST BINDING)
+//
+// The session already refuses a wrong connection, a re-handshake and a restart above. These prove
+// the per-REQUEST layer: the sequence must advance, a correlation is admitted once, the store
+// belongs to one session, and the bound is a refusal rather than an eviction.
+// ---------------------------------------------------------------------------------------------
+
+fn corr(tag: u8) -> [u8; REQUEST_CORRELATION_LEN] {
+    [tag; REQUEST_CORRELATION_LEN]
+}
+
+#[test]
+fn an_advancing_sequence_with_a_fresh_correlation_is_admitted() {
+    let c = FixtureClock::new(150);
+    let rv = FixtureRuntimeInstanceVerifier::new();
+    let v = FixtureIpcSessionVerifier::new();
+    let s = mint(&c, &rv, &v);
+    let mut store = InMemoryRequestAdmissionStore::for_session(&s);
+
+    let first = s.admit_request(&mut store, corr(1), 1).unwrap();
+    assert!(first.answers(&corr(1), v.connection_id(), v.handshake_generation()));
+    assert_eq!(first.sequence(), 1);
+
+    // A later request on the same session is admitted too.
+    let second = s.admit_request(&mut store, corr(2), 2).unwrap();
+    assert_eq!(second.sequence(), 2);
+}
+
+#[test]
+fn a_repeated_sequence_is_refused() {
+    let c = FixtureClock::new(150);
+    let rv = FixtureRuntimeInstanceVerifier::new();
+    let v = FixtureIpcSessionVerifier::new();
+    let s = mint(&c, &rv, &v);
+    let mut store = InMemoryRequestAdmissionStore::for_session(&s);
+
+    s.admit_request(&mut store, corr(1), 5).unwrap();
+    // Same sequence, DIFFERENT correlation: the sequence rule alone must refuse it.
+    assert_eq!(
+        s.admit_request(&mut store, corr(2), 5).unwrap_err(),
+        RequestAdmissionError::SequenceNotAdvancing
+    );
+}
+
+#[test]
+fn a_stale_sequence_is_refused() {
+    let c = FixtureClock::new(150);
+    let rv = FixtureRuntimeInstanceVerifier::new();
+    let v = FixtureIpcSessionVerifier::new();
+    let s = mint(&c, &rv, &v);
+    let mut store = InMemoryRequestAdmissionStore::for_session(&s);
+
+    s.admit_request(&mut store, corr(1), 10).unwrap();
+    assert_eq!(
+        s.admit_request(&mut store, corr(2), 9).unwrap_err(),
+        RequestAdmissionError::SequenceNotAdvancing
+    );
+}
+
+#[test]
+fn a_replayed_correlation_is_refused_even_with_an_advancing_sequence() {
+    let c = FixtureClock::new(150);
+    let rv = FixtureRuntimeInstanceVerifier::new();
+    let v = FixtureIpcSessionVerifier::new();
+    let s = mint(&c, &rv, &v);
+    let mut store = InMemoryRequestAdmissionStore::for_session(&s);
+
+    s.admit_request(&mut store, corr(7), 1).unwrap();
+    assert_eq!(
+        s.admit_request(&mut store, corr(7), 2).unwrap_err(),
+        RequestAdmissionError::CorrelationReplayed
+    );
+}
+
+#[test]
+fn a_store_from_another_session_is_refused() {
+    let c = FixtureClock::new(150);
+    let rv = FixtureRuntimeInstanceVerifier::new();
+    let v1 = FixtureIpcSessionVerifier::new();
+    let v2 = FixtureIpcSessionVerifier::new();
+    let s1 = mint(&c, &rv, &v1);
+    let s2 = mint(&c, &rv, &v2);
+
+    let mut foreign = InMemoryRequestAdmissionStore::for_session(&s2);
+    assert_eq!(
+        s1.admit_request(&mut foreign, corr(1), 1).unwrap_err(),
+        RequestAdmissionError::StoreNotBoundToSession
+    );
+}
+
+#[test]
+fn a_refused_request_records_nothing() {
+    let c = FixtureClock::new(150);
+    let rv = FixtureRuntimeInstanceVerifier::new();
+    let v = FixtureIpcSessionVerifier::new();
+    let s = mint(&c, &rv, &v);
+    let mut store = InMemoryRequestAdmissionStore::for_session(&s);
+
+    s.admit_request(&mut store, corr(1), 5).unwrap();
+    // Refused on the sequence rule.
+    assert!(s.admit_request(&mut store, corr(3), 4).is_err());
+    // The refused correlation was NOT remembered, so the same tag still works later. A refusal that
+    // recorded its subject would let a hostile caller burn a correlation the legitimate one needs.
+    assert!(s.admit_request(&mut store, corr(3), 6).is_ok());
+}
+
+#[test]
+fn the_correlation_bound_refuses_rather_than_forgetting() {
+    let c = FixtureClock::new(150);
+    let rv = FixtureRuntimeInstanceVerifier::new();
+    let v = FixtureIpcSessionVerifier::new();
+    let s = mint(&c, &rv, &v);
+    let mut store = InMemoryRequestAdmissionStore::for_session(&s);
+
+    for i in 0..MAX_REMEMBERED_CORRELATIONS {
+        let mut tag = [0u8; REQUEST_CORRELATION_LEN];
+        tag[0..8].copy_from_slice(&(i as u64).to_be_bytes());
+        s.admit_request(&mut store, tag, i as u64 + 1).unwrap();
+    }
+    let mut over = [0xFFu8; REQUEST_CORRELATION_LEN];
+    over[0] = 1;
+    assert_eq!(
+        s.admit_request(&mut store, over, MAX_REMEMBERED_CORRELATIONS as u64 + 1)
+            .unwrap_err(),
+        RequestAdmissionError::AdmissionCapacityExhausted
+    );
+    // And the earliest correlation is still remembered - the bound did not evict a replay window open.
+    let mut first = [0u8; REQUEST_CORRELATION_LEN];
+    first[0..8].copy_from_slice(&0u64.to_be_bytes());
+    assert!(store.is_correlation_seen(&first));
+}
+
+#[test]
+fn an_admission_does_not_answer_another_connection() {
+    let c = FixtureClock::new(150);
+    let rv = FixtureRuntimeInstanceVerifier::new();
+    let v = FixtureIpcSessionVerifier::new();
+    let s = mint(&c, &rv, &v);
+    let mut store = InMemoryRequestAdmissionStore::for_session(&s);
+
+    let a = s.admit_request(&mut store, corr(1), 1).unwrap();
+    assert!(!a.answers(&corr(1), v.connection_id() + 1, v.handshake_generation()));
+    assert!(!a.answers(&corr(1), v.connection_id(), v.handshake_generation() + 1));
+    assert!(!a.answers(&corr(2), v.connection_id(), v.handshake_generation()));
+}
+
+#[test]
+fn the_admission_mint_takes_no_connection_identity_from_the_caller() {
+    // Pinning the exact signature IS the proof: there is no parameter through which a caller could
+    // hand in a connection id or a handshake generation, so the identity stamped on an admission can
+    // only ever be the session's own private one. Adding such a parameter fails this line.
+    let _mint: fn(
+        &BoundIpcSession,
+        &mut InMemoryRequestAdmissionStore,
+        [u8; REQUEST_CORRELATION_LEN],
+        u64,
+    ) -> Result<AdmittedRequest, RequestAdmissionError> =
+        BoundIpcSession::admit_request::<InMemoryRequestAdmissionStore>;
+}
+
+#[test]
+fn an_admission_grants_no_operation_authority() {
+    let c = FixtureClock::new(150);
+    let rv = FixtureRuntimeInstanceVerifier::new();
+    let v = FixtureIpcSessionVerifier::new();
+    let s = mint(&c, &rv, &v); // bound to RecordMarker capability + family only
+    let mut store = InMemoryRequestAdmissionStore::for_session(&s);
+
+    let admitted = s.admit_request(&mut store, corr(1), 1).unwrap();
+    assert!(admitted.answers(&corr(1), v.connection_id(), v.handshake_generation()));
+
+    // Every gate the session enforces answers EXACTLY as it did before the admission. A capability
+    // and a family the session never bound are still refused; an admission did not widen either.
+    assert_eq!(
+        s.permits_capability(ChannelCapability::ObserveOnly)
+            .unwrap_err(),
+        IpcSessionError::CapabilityNotPermitted
+    );
+    assert_eq!(
+        s.permits_family(OperationFamily::ReservedNoAdapter)
+            .unwrap_err(),
+        IpcSessionError::OperationFamilyNotPermitted
+    );
+    // And currentness is untouched: once the connection is gone, the session is refused regardless
+    // of how many requests it admitted while alive. The admission is not a substitute for the check.
+    v.reconnect();
+    let rt = runtime(&c, &rv);
+    assert!(s.is_current(&v, &rt, &now(&c)).is_err());
+}
+
+#[test]
+fn a_direct_store_write_cannot_rewind_the_sequence_or_repeat_a_correlation() {
+    // `record` is public on a public trait, so it is reachable without the mint. It must refuse the
+    // same things the mint refuses - otherwise a direct write with a lower number would rewind the
+    // watermark and reopen every sequence beneath it.
+    let c = FixtureClock::new(150);
+    let rv = FixtureRuntimeInstanceVerifier::new();
+    let v = FixtureIpcSessionVerifier::new();
+    let s = mint(&c, &rv, &v);
+    let mut store = InMemoryRequestAdmissionStore::for_session(&s);
+
+    s.admit_request(&mut store, corr(1), 5).unwrap();
+    assert_eq!(
+        store.record(4, corr(9)).unwrap_err(),
+        RequestAdmissionError::SequenceNotAdvancing
+    );
+    assert_eq!(
+        store.record(5, corr(9)).unwrap_err(),
+        RequestAdmissionError::SequenceNotAdvancing
+    );
+    assert_eq!(
+        store.record(6, corr(1)).unwrap_err(),
+        RequestAdmissionError::CorrelationReplayed
+    );
+    // Nothing moved, and the refused tag was not remembered.
+    assert_eq!(store.last_sequence(), 5);
+    assert!(!store.is_correlation_seen(&corr(9)));
+    // The watermark still stands for the mint too.
+    assert_eq!(
+        s.admit_request(&mut store, corr(2), 5).unwrap_err(),
+        RequestAdmissionError::SequenceNotAdvancing
+    );
+}
+
+#[test]
+fn an_admission_debug_is_redacted() {
+    let c = FixtureClock::new(150);
+    let rv = FixtureRuntimeInstanceVerifier::new();
+    let v = FixtureIpcSessionVerifier::new();
+    let s = mint(&c, &rv, &v);
+    let mut store = InMemoryRequestAdmissionStore::for_session(&s);
+
+    let admitted = s.admit_request(&mut store, corr(1), 1).unwrap();
+    let shown = format!("{admitted:?}");
+    assert!(shown.contains("[REDACTED]"));
+    assert!(!shown.contains(&v.connection_id().to_string()));
+    // The store redacts too: no digest, no remembered tag - only counts.
+    let store_shown = format!("{store:?}");
+    assert!(store_shown.contains("[REDACTED]"));
+    assert!(store_shown.contains("remembered=1"));
+    assert!(!store_shown.contains("[1, 1, 1"));
 }
