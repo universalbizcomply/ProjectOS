@@ -118,9 +118,81 @@
 //! use projectos_host_windows_local_ipc::AuthorisedProtectedOperation;
 //! let _forged = AuthorisedProtectedOperation { _seal: todo!(), correlation: todo!(), operation: todo!(), service_epoch: todo!() };
 //! ```
+//!
+//! ## The host-resolved binding inputs are not caller-suppliable (RUN-TO-COMPLETION §9B)
+//!
+//! The expected programme cannot be written down from a delegation's fields — the fields are
+//! private and there is no constructor in a shipped graph, so "compare the record to a copy of
+//! itself" does not compile:
+//!
+//! ```compile_fail
+//! use projectos_host_windows_local_ipc::ExpectedProgramme;
+//! let _echo = ExpectedProgramme { project: [0u8; 32], repository: [0u8; 32] };
+//! ```
+//!
+//! ```compile_fail
+//! use projectos_host_windows_local_ipc::{ExpectedProgramme, OwnerProgrammeDelegation};
+//! fn echo(d: &OwnerProgrammeDelegation) -> ExpectedProgramme { d.into() }
+//! ```
+//!
+//! (The fixture constructors are `cfg`-gated to tests and the non-default `test-fixtures` graph,
+//! which is a build-configuration property rather than one a doctest can state for every feature
+//! set; a default build simply has no such function.)
+//!
+//! The clock is a sealed host reading, not a number: the verifier no longer accepts a `u64`, and a
+//! reading cannot be written as a literal:
+//!
+//! ```compile_fail
+//! use projectos_host_windows_local_ipc::{
+//!     verify_owner_programme_delegation, ExpectedProgramme, HostDelegationStatus,
+//!     SignedOwnerProgrammeDelegation,
+//! };
+//! fn f(r: &SignedOwnerProgrammeDelegation, e: &ExpectedProgramme, s: &HostDelegationStatus) {
+//!     let _ = verify_owner_programme_delegation(r, e, 1_700_000_000u64, s);
+//! }
+//! ```
+//!
+//! ```compile_fail
+//! use projectos_host_windows_local_ipc::HostClockReading;
+//! let _forever = HostClockReading { epoch_s: 0 };
+//! ```
+//!
+//! The host-local delegation status cannot be selected by a caller either:
+//!
+//! ```compile_fail
+//! use projectos_host_windows_local_ipc::{DelegationLocalState, HostDelegationStatus};
+//! let _chosen = HostDelegationStatus { delegation_id: [0u8; 32], state: DelegationLocalState::Active };
+//! ```
+//!
+//! …and the positive controls, so each refusal above is about the SEAL and not about a name that
+//! does not resolve. The production clock reading exists and takes nothing; the sealed types are
+//! nameable and readable; the binding digest is a public pure function over plain data:
+//!
+//! ```
+//! use projectos_host_windows_local_ipc::{
+//!     binding_digest, BindingSubject, DelegationLocalState, ExpectedProgramme,
+//!     HostClockReading, HostDelegationStatus, OperationClass, BINDING_DIGEST_LEN,
+//! };
+//! let now = HostClockReading::now_from_host().expect("host clock");
+//! assert!(now.epoch_s() > 0);
+//! fn read(e: &ExpectedProgramme, s: &HostDelegationStatus) -> (u8, DelegationLocalState) {
+//!     (e.project()[0], s.state())
+//! }
+//! let d: [u8; BINDING_DIGEST_LEN] = binding_digest(&BindingSubject {
+//!     project: [1; 32], repository: [2; 32], plan: [3; 32], plan_digest: [4; 32],
+//!     phase: [5; 32], candidate_digest: [6; 32],
+//!     operation: OperationClass::IndependentGatekeeperReview,
+//!     model_policy: [7; 32], credential_ref: [8; 32],
+//! });
+//! assert_ne!(d, [0u8; BINDING_DIGEST_LEN]);
+//! ```
 
 mod adapter;
 mod contracts;
+// TEST-ONLY fixture session minter for the §9B request-binding proofs. Compiled for this crate's
+// tests under the non-default `test-fixtures` graph and for nothing else.
+#[cfg(all(test, feature = "test-fixtures"))]
+mod fixture_session;
 mod operation_contract;
 mod owner_programme_delegation;
 mod protocol;
@@ -253,16 +325,41 @@ pub use operation_contract::{
 //     claim, and holding one satisfies nothing because the evaluator will not accept it.
 //   * `VerifiedOwnerProgrammeDelegation` — sealed, no public constructor. A consumer can receive and
 //     read one; it can never make one.
-//   * `HostResolvedRequestFacts` — sealed, and its constructor demands the verified delegation, so
-//     fabricated facts are not a rung of their own.
-//   * `GatekeeperDelegationEvidence` — a borrow of the two sealed values plus the host's own clock
-//     and the claimed phase. Assembling it is not a way around the ladder.
+//   * `HostResolvedRequestFacts` — sealed; since §9B it has NO production constructor (the fixture
+//     one is `cfg`-gated), and even that demands the verified delegation, the sealed programme and
+//     the sealed clock reading. Fabricated facts are not a rung of their own.
+//   * `GatekeeperDelegationEvidence` — a borrow of the two sealed values. The caller's only claim
+//     about the subject is the binding digest on the wire. Assembling it is not a way around the
+//     ladder.
 //
 // So a downstream crate can build the untrusted DTO and nothing above it. That is the property.
 pub use operation_contract::{
-    GatekeeperDelegationEvidence, HostResolvedFacts, HostResolvedRequestFacts,
-    OwnerProgrammeDelegation, VerifiedOwnerProgrammeDelegation, DELEGATION_DIGEST_LEN,
-    MAX_DELEGATED_PHASES,
+    GatekeeperDelegationEvidence, HostResolvedRequestFacts, OwnerProgrammeDelegation,
+    VerifiedOwnerProgrammeDelegation, DELEGATION_DIGEST_LEN, MAX_DELEGATED_PHASES,
+};
+
+// RUN-TO-COMPLETION HOST ATTESTATION — §9B HOST-RESOLVED BINDING AUTHORITY.
+//
+// WHAT IS HERE, and why each is safe to expose:
+//   * `BindingSubject` / `binding_digest` — the ONE canonical Host binding digest, as a public pure
+//     function over plain data. A caller uses it to hash what it CLAIMS; the host hashes the facts
+//     it RESOLVED with the same function; only the comparison inside `evaluate_protected_operation`
+//     means anything. Holding a digest is not authority, and there is no second algorithm.
+//   * `HostClockReading` — sealed; the one production route reads the system clock inside.
+//   * `HostDelegationStatus` / `DelegationLocalState` — sealed status about ONE delegation id. No
+//     production constructor in this checkpoint (the durable record is the persistence rung), so a
+//     shipped graph cannot present a status and verification fails closed by construction.
+//
+// WHAT IS DELIBERATELY ABSENT: `HostResolvedFacts`, the named-field FIXTURE input. It is compiled
+// only under `test-fixtures`, so a production build has no way to write host facts down — they must
+// be READ OFF sealed sources when the composition rung wires them.
+#[cfg(feature = "test-fixtures")]
+pub use operation_contract::HostResolvedFacts;
+pub use operation_contract::{
+    binding_digest, BindingSubject, BINDING_DIGEST_DOMAIN, BINDING_DIGEST_SCHEMA_VERSION,
+};
+pub use owner_programme_delegation::{
+    DelegationLocalState, HostClockReading, HostDelegationStatus,
 };
 
 // THE DURABLE OWNER PROGRAMME DELEGATION — the record the owner signs once and the host verifies
@@ -279,8 +376,10 @@ pub use operation_contract::{
 // WHAT IS HERE, and why each is safe to expose:
 //   * `decode_signed_owner_programme_delegation` / `SignedOwnerProgrammeDelegation` — the UNTRUSTED
 //     parsed record. Public on purpose; it is a claim, and holding one satisfies nothing.
-//   * `ExpectedProgramme` — plain data the HOST resolves about itself. Not a rung: supplying it
-//     cannot make an unsigned record verify, because the signature is checked first.
+//   * `ExpectedProgramme` — SEALED since §9B: private fields, fixture-only constructor, no
+//     production mint until the installation programme source is wired. Supplying one could never
+//     make an unsigned record verify (the signature is checked first), and now it cannot be copied
+//     out of the record under test either.
 //   * `verify_owner_programme_delegation` — the one mint. No verifier parameter, no bypass.
 //   * the refusal taxonomy, the domain tag, and the frozen layout constants, so the eventual
 //     signing ceremony can produce exactly the bytes this verifier will check.

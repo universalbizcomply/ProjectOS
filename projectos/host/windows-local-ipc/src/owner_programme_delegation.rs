@@ -144,8 +144,14 @@ pub enum DelegationRefusal {
     SignatureRefused,
     /// Genuine, but not for this installation's programme.
     ProgrammeMismatch,
-    /// Revoked, completed, or expired against the host's own clock.
+    /// Revoked, completed, or expired against the host's own clock - by the signed record OR by the
+    /// host's own local state, whichever ended it first.
     NotLive,
+    /// The host-local status presented is about a different delegation than the record. A status
+    /// answers exactly one delegation id; it is never transferable.
+    LocalStatusMismatch,
+    /// The host's own clock could not produce a reading. Nothing is compared against a guess.
+    ClockUnavailable,
 }
 
 /// A signed delegation record, exactly as it was parsed. **A claim, not authority.**
@@ -343,17 +349,182 @@ pub fn decode_signed_owner_programme_delegation(
     })
 }
 
+/// Private seal for the host-resolved values this module mints. A type carrying it cannot be
+/// written as a struct literal outside this module.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Seal;
+
 /// The programme THIS installation is, as the host resolved it for itself.
 ///
 /// Never taken from the record under test, and never from a request. A delegation that is genuinely
 /// owner-signed but names another project or another checkout is refused here, which is why
 /// provenance alone is not authority.
+///
+/// SEALED (RUN-TO-COMPLETION HOST ATTESTATION - HOST-RESOLVED BINDING AUTHORITY). The fields used
+/// to be public, and that made the following compile, silently, in any composition crate:
+///
+/// ```text
+/// let expected = ExpectedProgramme { project: record.project, repository: record.repository };
+/// verify_owner_programme_delegation(&record, &expected, ...)   // "verified"
+/// ```
+///
+/// A record compared against a copy of itself agrees with itself. The fields are now private and
+/// there is NO production constructor in this checkpoint: the trusted source of the installation's
+/// programme is the signed manifest's execution closure (the installation project allowlist) read
+/// by the Host composition, and that rung is not wired yet. Until it is, no production caller can
+/// name an expected programme at all - so verification is unreachable in a shipped graph by
+/// construction rather than reachable with a value somebody typed in. The fixture constructor is
+/// compiled only for tests.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ExpectedProgramme {
+    _seal: Seal,
+    project: [u8; DELEGATION_DIGEST_LEN],
+    repository: [u8; DELEGATION_DIGEST_LEN],
+}
+
+impl ExpectedProgramme {
+    /// FIXTURE ONLY. Compiled for this crate's tests and the non-default `test-fixtures` graph,
+    /// never for a shipped build.
+    #[cfg(any(test, feature = "test-fixtures"))]
+    #[must_use]
+    pub fn fixture(
+        project: [u8; DELEGATION_DIGEST_LEN],
+        repository: [u8; DELEGATION_DIGEST_LEN],
+    ) -> Self {
+        Self {
+            _seal: Seal,
+            project,
+            repository,
+        }
+    }
+
     /// Digest of this installation's project id.
-    pub project: [u8; DELEGATION_DIGEST_LEN],
+    #[must_use]
+    pub fn project(&self) -> &[u8; DELEGATION_DIGEST_LEN] {
+        &self.project
+    }
+
     /// Digest of this installation's canonical repository identity.
-    pub repository: [u8; DELEGATION_DIGEST_LEN],
+    #[must_use]
+    pub fn repository(&self) -> &[u8; DELEGATION_DIGEST_LEN] {
+        &self.repository
+    }
+}
+
+/// The HOST's own wall-clock reading, in Unix epoch seconds, taken for one verification.
+///
+/// SEALED, with exactly one production route: [`HostClockReading::now_from_host`], which reads the
+/// system clock INSIDE and takes no argument. The verifier used to accept a plain `u64` here, and a
+/// clock a caller can supply is a delegation that never expires. There is no `u64` argument left.
+///
+/// WHY NOT `projectos_host_core`'s `TrustedClock`. That authority is a MONOTONIC tick provider with
+/// an opaque epoch - the right thing for "has this window elapsed", and deliberately not wall time.
+/// A delegation expires at an absolute instant the owner wrote down, so the comparison needs the
+/// calendar, and this reading is the smallest sealed way to get it. It is a reading, not a clock: it
+/// is taken per verification and is not `Copy`, so a cached one cannot quietly go stale.
+///
+/// The fixture constructor is compiled only for tests. Fixture time never reaches a shipped build.
+#[derive(Debug, PartialEq, Eq)]
+pub struct HostClockReading {
+    _seal: Seal,
+    epoch_s: u64,
+}
+
+impl HostClockReading {
+    /// THE PRODUCTION READING: the system clock, read here, now. Fails closed if the clock reports a
+    /// time before the Unix epoch, which is not a time a delegation can be compared against.
+    ///
+    /// # Errors
+    /// [`DelegationRefusal::ClockUnavailable`].
+    pub fn now_from_host() -> Result<Self, DelegationRefusal> {
+        let elapsed = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|_| DelegationRefusal::ClockUnavailable)?;
+        Ok(Self {
+            _seal: Seal,
+            epoch_s: elapsed.as_secs(),
+        })
+    }
+
+    /// FIXTURE ONLY. Compiled for this crate's tests and the non-default `test-fixtures` graph.
+    #[cfg(any(test, feature = "test-fixtures"))]
+    #[must_use]
+    pub fn fixture(epoch_s: u64) -> Self {
+        Self {
+            _seal: Seal,
+            epoch_s,
+        }
+    }
+
+    /// The reading, in Unix epoch seconds.
+    #[must_use]
+    pub fn epoch_s(&self) -> u64 {
+        self.epoch_s
+    }
+}
+
+/// The CLOSED host-local lifecycle state of one delegation.
+///
+/// Plain data on purpose - a state is a description. What makes it count is the sealed
+/// [`HostDelegationStatus`] that carries it, which only the Host's own record can produce.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum DelegationLocalState {
+    /// The host has not ended this delegation.
+    Active,
+    /// The host recorded this delegation as revoked. Overrides any signed copy that says otherwise.
+    Revoked,
+    /// The host recorded this delegation as completed. Overrides any signed copy that says otherwise.
+    Completed,
+}
+
+/// What the HOST itself knows about one delegation's lifecycle - never what the record says.
+///
+/// THE SIGNED `revoked_or_completed` FLAG IS NOT ENOUGH ON ITS OWN. It is inside the signature, so
+/// an older, still-valid signed copy that says "active" stays a genuine owner-signed record after
+/// the owner has revoked the programme, and would remain usable until its expiry. The host's local
+/// state therefore OVERRIDES the signed flag: `Revoked` or `Completed` here refuses a record however
+/// live the record claims to be. The signed flag still refuses on its own too - the two are ANDed,
+/// never ORed.
+///
+/// SEALED, bound to ONE delegation id, and with NO production constructor in this checkpoint. The
+/// production source is the durable host-local delegation record (the persistence checkpoint); until
+/// it is wired, no shipped path can present a status, so verification fails closed by construction.
+/// The request and the caller never select this state: there is no argument on the verification
+/// path through which a state could arrive except this sealed value.
+#[derive(Debug, PartialEq, Eq)]
+pub struct HostDelegationStatus {
+    _seal: Seal,
+    delegation_id: [u8; DELEGATION_DIGEST_LEN],
+    state: DelegationLocalState,
+}
+
+impl HostDelegationStatus {
+    /// FIXTURE ONLY. Compiled for this crate's tests and the non-default `test-fixtures` graph.
+    #[cfg(any(test, feature = "test-fixtures"))]
+    #[must_use]
+    pub fn fixture(
+        delegation_id: [u8; DELEGATION_DIGEST_LEN],
+        state: DelegationLocalState,
+    ) -> Self {
+        Self {
+            _seal: Seal,
+            delegation_id,
+            state,
+        }
+    }
+
+    /// The delegation this status is about.
+    #[must_use]
+    pub fn delegation_id(&self) -> &[u8; DELEGATION_DIGEST_LEN] {
+        &self.delegation_id
+    }
+
+    /// The host-local state.
+    #[must_use]
+    pub fn state(&self) -> DelegationLocalState {
+        self.state
+    }
 }
 
 /// Evidence that the owner's key signed exactly these bytes.
@@ -385,7 +556,8 @@ trait OwnerSignatureOracle {
 fn verify_delegation_with_oracle(
     record: &SignedOwnerProgrammeDelegation,
     expected: &ExpectedProgramme,
-    now_epoch_s: u64,
+    now: &HostClockReading,
+    local: &HostDelegationStatus,
     oracle: &dyn OwnerSignatureOracle,
 ) -> Result<VerifiedOwnerProgrammeDelegation, DelegationRefusal> {
     // 1. PROVENANCE. The owner's key, over the domain-separated subject, in the algorithm the anchor
@@ -403,14 +575,25 @@ fn verify_delegation_with_oracle(
 
     // 2. RELEVANCE. Genuine, but is it for THIS installation? Project and canonical repository both:
     //    a project id alone is a name a second checkout can also use.
-    if delegation.project != expected.project || delegation.repository != expected.repository {
+    if delegation.project != *expected.project() || delegation.repository != *expected.repository()
+    {
         return Err(DelegationRefusal::ProgrammeMismatch);
     }
 
-    // 3. STILL LIVE. Completed, revoked or expired all end it. `>=` because a delegation that expires
-    //    at this instant has expired. The clock is the HOST's own reading; a clock a caller could
-    //    supply is a delegation that never expires.
-    if delegation.revoked_or_completed || now_epoch_s >= delegation.expires_at_epoch_s {
+    // 3. THE HOST'S OWN WORD ON THIS DELEGATION. The status must be about THIS record - a status
+    //    for another delegation answers nothing - and if the host has ended the programme, an
+    //    older signed copy that still says "active" does not resurrect it.
+    if *local.delegation_id() != delegation.delegation_id {
+        return Err(DelegationRefusal::LocalStatusMismatch);
+    }
+    if local.state() != DelegationLocalState::Active {
+        return Err(DelegationRefusal::NotLive);
+    }
+
+    // 4. STILL LIVE BY THE RECORD'S OWN TERMS. Completed, revoked or expired all end it. `>=`
+    //    because a delegation that expires at this instant has expired. The clock is the HOST's
+    //    own sealed reading; there is no argument through which a caller could supply one.
+    if delegation.revoked_or_completed || now.epoch_s() >= delegation.expires_at_epoch_s {
         return Err(DelegationRefusal::NotLive);
     }
 
@@ -452,17 +635,20 @@ impl OwnerSignatureOracle for EmbeddedAnchorOracle {
 /// "whose signature counts" is settled by this crate and the embedded anchor rather than by whoever
 /// happens to be calling.
 ///
-/// `now_epoch_s` MUST be the host's own clock reading, taken for this check. A clock a caller
-/// supplies is a delegation that never expires.
+/// Every other input is SEALED and host-resolved: the expected programme, the clock reading and the
+/// host-local delegation status each have private fields and no production constructor a caller
+/// could feed from the record or the request. The former `now_epoch_s: u64` argument is gone - a
+/// clock a caller supplies is a delegation that never expires.
 ///
 /// # Errors
 /// [`DelegationRefusal`] naming the gate that refused.
 pub fn verify_owner_programme_delegation(
     record: &SignedOwnerProgrammeDelegation,
     expected: &ExpectedProgramme,
-    now_epoch_s: u64,
+    now: &HostClockReading,
+    local: &HostDelegationStatus,
 ) -> Result<VerifiedOwnerProgrammeDelegation, DelegationRefusal> {
-    verify_delegation_with_oracle(record, expected, now_epoch_s, &EmbeddedAnchorOracle)
+    verify_delegation_with_oracle(record, expected, now, local, &EmbeddedAnchorOracle)
 }
 
 /// TEST-ONLY signature oracle.
@@ -508,11 +694,24 @@ mod tests {
     const NOW: u64 = 1_000;
     const EXPIRES: u64 = 2_000;
 
+    /// The delegation id `record_bytes` writes, so a fixture status can be about THIS record.
+    const RECORD_ID: [u8; DELEGATION_DIGEST_LEN] = [0xaa; DELEGATION_DIGEST_LEN];
+
     fn expected() -> ExpectedProgramme {
-        ExpectedProgramme {
-            project: PROJECT,
-            repository: REPOSITORY,
-        }
+        ExpectedProgramme::fixture(PROJECT, REPOSITORY)
+    }
+
+    fn at(epoch_s: u64) -> HostClockReading {
+        HostClockReading::fixture(epoch_s)
+    }
+
+    fn now() -> HostClockReading {
+        at(NOW)
+    }
+
+    /// The host has not ended this delegation.
+    fn active() -> HostDelegationStatus {
+        HostDelegationStatus::fixture(RECORD_ID, DelegationLocalState::Active)
     }
 
     /// Build a well-formed record. TEST ENCODER ONLY — production never encodes one of these,
@@ -582,8 +781,9 @@ mod tests {
     fn a_signed_live_delegation_for_this_programme_verifies() {
         let record = decoded();
         let oracle = oracle_for(&record);
-        let verified = verify_delegation_with_oracle(&record, &expected(), NOW, &oracle)
-            .expect("the exact case must verify");
+        let verified =
+            verify_delegation_with_oracle(&record, &expected(), &now(), &active(), &oracle)
+                .expect("the exact case must verify");
 
         let d = verified.delegation();
         assert_eq!(d.project, PROJECT);
@@ -603,7 +803,8 @@ mod tests {
     fn the_subject_the_owner_signs_is_domain_tagged_and_is_the_body() {
         let record = decoded();
         let oracle = oracle_for(&record);
-        verify_delegation_with_oracle(&record, &expected(), NOW, &oracle).expect("verifies");
+        verify_delegation_with_oracle(&record, &expected(), &now(), &active(), &oracle)
+            .expect("verifies");
 
         let seen = oracle.seen.borrow();
         assert_eq!(seen.len(), 1, "exactly one signature question");
@@ -648,7 +849,13 @@ mod tests {
     fn a_record_the_owner_did_not_sign_is_refused_before_policy() {
         let record = decoded();
         assert_eq!(
-            verify_delegation_with_oracle(&record, &expected(), NOW, &refusing_oracle()),
+            verify_delegation_with_oracle(
+                &record,
+                &expected(),
+                &now(),
+                &active(),
+                &refusing_oracle()
+            ),
             Err(DelegationRefusal::SignatureRefused)
         );
     }
@@ -669,7 +876,7 @@ mod tests {
             seen: std::cell::RefCell::new(Vec::new()),
         };
         assert_eq!(
-            verify_delegation_with_oracle(&decoded(), &expected(), NOW, &oracle),
+            verify_delegation_with_oracle(&decoded(), &expected(), &now(), &active(), &oracle),
             Err(DelegationRefusal::SignatureRefused)
         );
     }
@@ -680,17 +887,11 @@ mod tests {
         let record = decoded();
         let oracle = oracle_for(&record);
         for wrong in [
-            ExpectedProgramme {
-                project: [0xee; DELEGATION_DIGEST_LEN],
-                repository: REPOSITORY,
-            },
-            ExpectedProgramme {
-                project: PROJECT,
-                repository: [0xee; DELEGATION_DIGEST_LEN],
-            },
+            ExpectedProgramme::fixture([0xee; DELEGATION_DIGEST_LEN], REPOSITORY),
+            ExpectedProgramme::fixture(PROJECT, [0xee; DELEGATION_DIGEST_LEN]),
         ] {
             assert_eq!(
-                verify_delegation_with_oracle(&record, &wrong, NOW, &oracle),
+                verify_delegation_with_oracle(&record, &wrong, &now(), &active(), &oracle),
                 Err(DelegationRefusal::ProgrammeMismatch),
                 "a signature is provenance, not relevance"
             );
@@ -705,11 +906,17 @@ mod tests {
 
         // Exactly at the expiry instant it has expired.
         assert_eq!(
-            verify_delegation_with_oracle(&record, &expected(), EXPIRES, &oracle),
+            verify_delegation_with_oracle(&record, &expected(), &at(EXPIRES), &active(), &oracle),
             Err(DelegationRefusal::NotLive)
         );
         assert_eq!(
-            verify_delegation_with_oracle(&record, &expected(), EXPIRES + 1, &oracle),
+            verify_delegation_with_oracle(
+                &record,
+                &expected(),
+                &at(EXPIRES + 1),
+                &active(),
+                &oracle
+            ),
             Err(DelegationRefusal::NotLive)
         );
 
@@ -718,7 +925,7 @@ mod tests {
         let ended = decode_signed_owner_programme_delegation(&ended).expect("well-formed");
         let ended_oracle = oracle_for(&ended);
         assert_eq!(
-            verify_delegation_with_oracle(&ended, &expected(), NOW, &ended_oracle),
+            verify_delegation_with_oracle(&ended, &expected(), &now(), &active(), &ended_oracle),
             Err(DelegationRefusal::NotLive)
         );
     }
@@ -887,7 +1094,7 @@ mod tests {
     fn the_production_path_refuses_every_signature_we_can_produce() {
         let record = decoded();
         assert_eq!(
-            verify_owner_programme_delegation(&record, &expected(), NOW),
+            verify_owner_programme_delegation(&record, &expected(), &now(), &active()),
             Err(DelegationRefusal::SignatureRefused),
             "an invented signature must never satisfy the owner's anchor"
         );
@@ -899,7 +1106,7 @@ mod tests {
             bytes[sig_at..].fill(fill);
             let forged = decode_signed_owner_programme_delegation(&bytes).expect("well-formed");
             assert_eq!(
-                verify_owner_programme_delegation(&forged, &expected(), NOW),
+                verify_owner_programme_delegation(&forged, &expected(), &now(), &active()),
                 Err(DelegationRefusal::SignatureRefused)
             );
         }
@@ -913,14 +1120,129 @@ mod tests {
     #[test]
     fn the_production_path_never_reports_policy_for_an_unsigned_record() {
         let record = decoded();
-        let wrong = ExpectedProgramme {
-            project: [0xee; DELEGATION_DIGEST_LEN],
-            repository: [0xee; DELEGATION_DIGEST_LEN],
-        };
+        let wrong = ExpectedProgramme::fixture(
+            [0xee; DELEGATION_DIGEST_LEN],
+            [0xee; DELEGATION_DIGEST_LEN],
+        );
         assert_eq!(
-            verify_owner_programme_delegation(&record, &wrong, EXPIRES + 10_000),
+            verify_owner_programme_delegation(&record, &wrong, &at(EXPIRES + 10_000), &active()),
             Err(DelegationRefusal::SignatureRefused),
             "provenance is decided before relevance, so this must not leak a policy verdict"
+        );
+    }
+
+    // =============================================================================================
+    // HOST-RESOLVED BINDING AUTHORITY: the host's own clock and the host's own word on lifecycle.
+    // =============================================================================================
+
+    /// THE HOST'S LOCAL STATE OVERRIDES A SIGNED COPY THAT STILL SAYS ACTIVE.
+    ///
+    /// The record is genuine, for this programme, unexpired, and its signed flag says live. The only
+    /// thing that differs is what the host itself recorded - and that is enough.
+    #[test]
+    fn a_revoked_or_completed_local_state_refuses_an_otherwise_valid_signed_delegation() {
+        let record = decoded();
+        let oracle = oracle_for(&record);
+        // Positive control: with the host's state Active, the same everything verifies.
+        assert!(
+            verify_delegation_with_oracle(&record, &expected(), &now(), &active(), &oracle).is_ok()
+        );
+
+        for ended in [
+            DelegationLocalState::Revoked,
+            DelegationLocalState::Completed,
+        ] {
+            let local = HostDelegationStatus::fixture(RECORD_ID, ended);
+            assert_eq!(
+                verify_delegation_with_oracle(&record, &expected(), &now(), &local, &oracle),
+                Err(DelegationRefusal::NotLive),
+                "{ended:?} recorded by the host must end the delegation whatever the record says"
+            );
+        }
+    }
+
+    /// A STATUS ABOUT ANOTHER DELEGATION ANSWERS NOTHING - not even an Active one.
+    #[test]
+    fn a_local_status_for_another_delegation_is_refused() {
+        let record = decoded();
+        let oracle = oracle_for(&record);
+        let other = HostDelegationStatus::fixture(
+            [0xab; DELEGATION_DIGEST_LEN],
+            DelegationLocalState::Active,
+        );
+        assert_eq!(
+            verify_delegation_with_oracle(&record, &expected(), &now(), &other, &oracle),
+            Err(DelegationRefusal::LocalStatusMismatch)
+        );
+    }
+
+    /// THE SIGNED FLAG AND THE LOCAL STATE ARE ANDED. A signed "ended" record is refused even when
+    /// the host's own state is Active - the host's state overrides towards refusal, never towards
+    /// permission.
+    #[test]
+    fn an_active_local_state_does_not_resurrect_a_signed_ended_record() {
+        let mut ended = record_bytes();
+        ended[MAGIC.len() + OFF_REVOKED] = 1;
+        let ended = decode_signed_owner_programme_delegation(&ended).expect("well-formed");
+        let oracle = oracle_for(&ended);
+        assert_eq!(
+            verify_delegation_with_oracle(&ended, &expected(), &now(), &active(), &oracle),
+            Err(DelegationRefusal::NotLive)
+        );
+    }
+
+    /// PROVENANCE STILL COMES FIRST. A revoked local state on an UNSIGNED record reports the
+    /// signature, so the local ledger is never consulted on behalf of bytes nobody signed.
+    #[test]
+    fn local_state_is_not_consulted_for_an_unsigned_record() {
+        let record = decoded();
+        let local = HostDelegationStatus::fixture(RECORD_ID, DelegationLocalState::Revoked);
+        assert_eq!(
+            verify_delegation_with_oracle(&record, &expected(), &now(), &local, &refusing_oracle()),
+            Err(DelegationRefusal::SignatureRefused)
+        );
+    }
+
+    /// EXPIRY IS DECIDED BY THE HOST'S SEALED READING. The same record, the same status; only the
+    /// host's reading moves, and there is no other clock argument left to move.
+    #[test]
+    fn expiry_is_decided_by_the_host_clock_reading() {
+        let record = decoded();
+        let oracle = oracle_for(&record);
+        assert!(verify_delegation_with_oracle(
+            &record,
+            &expected(),
+            &at(EXPIRES - 1),
+            &active(),
+            &oracle
+        )
+        .is_ok());
+        for reading in [EXPIRES, EXPIRES + 1, u64::MAX] {
+            assert_eq!(
+                verify_delegation_with_oracle(
+                    &record,
+                    &expected(),
+                    &at(reading),
+                    &active(),
+                    &oracle
+                ),
+                Err(DelegationRefusal::NotLive),
+                "a host reading of {reading} is at or past expiry"
+            );
+        }
+    }
+
+    /// THE PRODUCTION READING IS A REAL CLOCK. It is read inside, takes nothing, and reports a
+    /// calendar time this crate could not have been built before.
+    #[test]
+    fn the_production_clock_reading_comes_from_the_host_clock() {
+        let reading = HostClockReading::now_from_host().expect("the host clock is available");
+        // 2025-01-01T00:00:00Z. A reading before this is not the host's clock.
+        assert!(reading.epoch_s() >= 1_735_689_600);
+        let later = HostClockReading::now_from_host().expect("still available");
+        assert!(
+            later.epoch_s() >= reading.epoch_s(),
+            "the host clock does not run backwards"
         );
     }
 

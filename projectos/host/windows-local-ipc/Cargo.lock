@@ -122,6 +122,7 @@ dependencies = [
  "projectos-host-core",
  "projectos-host-identity",
  "projectos-host-windows-service-identity-proof",
+ "sha2",
  "windows",
 ]
 

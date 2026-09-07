@@ -64,6 +64,14 @@ projectos-host-authority = { path = "../host-authority" }
 # manifest and this record. There is no signing counterpart anywhere in that crate and none is
 # wanted: ProjectOS never holds the owner's private key.
 projectos-host-identity = { path = "../host-identity" }
+# RUN-TO-COMPLETION HOST ATTESTATION - HOST-RESOLVED BINDING AUTHORITY. ONE exact algorithm for the
+# canonical Host binding digest over the facts the Host resolved for a request: SHA-256, the same
+# crate and version core / host-identity already use, so this adds no new crate to the lock graph.
+# Default features only. It is used for that ONE digest - there is no pluggable algorithm and no
+# generic hashing surface here. (host-identity's raw-bytes helper is not exported; only its hex
+# rendering is, and hashing to text and back on a trust path is the conversion that helper itself
+# warns against.)
+sha2 = "0.10"
 
 [target.'cfg(windows)'.dependencies]
 # Minimum named-pipe surface only. Optional + feature-gated: this crate's DIRECT edge to `windows` is

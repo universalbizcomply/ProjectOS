@@ -98,8 +98,18 @@ function run() {
   // WinVerifyTrust surface that edge also links is never reached, and no Windows call is added to
   // THIS crate's own sources outside the feature-gated `windows_ffi.rs` - which the scan below still
   // enforces. The Cargo.toml carries the same wording, so the crate claims no property it lost.
+  //
+  // AMENDMENT (RUN-TO-COMPLETION HOST ATTESTATION - §9B HOST-RESOLVED BINDING AUTHORITY,
+  // gate-authorised, Option A): `sha2` joins the closed list for ONE reason - §9B computes one
+  // deterministic SHA-256 digest over fixed-width, Host-resolved request-binding bytes, and that
+  // exact algorithm is the only thing the crate uses it for. There is no generic or pluggable
+  // crypto abstraction behind it; it has no network, process, credential, ACL or service effect;
+  // it adds no Windows FFI to this crate (the unsafe scan below is unchanged); and it introduces no
+  // signing or private-key capability. Same crate and version core and host-identity already pull,
+  // so the lock graph gains an edge, not a package. The list remains CLOSED after this amendment:
+  // nothing else may be added without a further ruling.
   for (const d of deps) {
-    if (!["projectos-host-windows-service-identity-proof", "projectos-host-authority", "projectos-host-core", "projectos-host-identity"].includes(d))
+    if (!["projectos-host-windows-service-identity-proof", "projectos-host-authority", "projectos-host-core", "projectos-host-identity", "sha2"].includes(d))
       errors.push("unexpected dependency: " + d);
   }
   if (!deps.includes("projectos-host-authority")) errors.push("missing host-authority dependency");
