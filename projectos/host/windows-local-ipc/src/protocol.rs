@@ -253,8 +253,8 @@ fn required_payload_len(kind: MessageKind) -> usize {
 
 /// The EXACT, only payload length of a [`MessageKind::ProtectedOperationRequest`] frame:
 /// correlation(16) + sequence(8) + claimed epoch(8) + binding digest(32) + operation(1) +
-/// approval reference(32) + client-session reference(16) + parameter digest(32).
-pub const PROTECTED_OPERATION_REQUEST_LEN: usize = 16 + 8 + 8 + 32 + 1 + 32 + 16 + 32;
+/// approval reference(32) + parameter digest(32).
+pub const PROTECTED_OPERATION_REQUEST_LEN: usize = 16 + 8 + 8 + 32 + 1 + 32 + 32;
 
 /// The EXACT, only payload length of a [`MessageKind::ProtectedOperationResponse`] frame:
 /// correlation(16) + state(1) + reason(1) + result class(1) + service epoch(8) +

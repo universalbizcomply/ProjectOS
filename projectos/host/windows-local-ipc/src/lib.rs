@@ -112,11 +112,47 @@
 //! use projectos_host_windows_local_ipc::satisfy_c4_for_gatekeeper_request;
 //! ```
 //!
-//! And an authorised operation still has no constructor at all:
+//! And an authorised operation has no constructor at all - the evaluator is its sole mint (§9C):
 //!
 //! ```compile_fail
 //! use projectos_host_windows_local_ipc::AuthorisedProtectedOperation;
 //! let _forged = AuthorisedProtectedOperation { _seal: todo!(), correlation: todo!(), operation: todo!(), service_epoch: todo!() };
+//! ```
+//!
+//! ## Operation authority is admission, not execution (RUN-TO-COMPLETION §9C)
+//!
+//! `Completed` cannot be rendered from an authority alone: it needs sealed execution evidence,
+//! which has no production constructor in this checkpoint -
+//!
+//! ```
+//! use projectos_host_windows_local_ipc::{
+//!     AuthorisedProtectedOperation, ExecutionOutcomeEvidence, ProtectedOperationResponse,
+//! };
+//! // Pinning the signature is the proof: there is no way to ask for `Completed` without also
+//! // presenting sealed execution evidence, and the result is optional because the evidence must
+//! // be about this authority's own correlation.
+//! let _completed: fn(&AuthorisedProtectedOperation, &ExecutionOutcomeEvidence)
+//!     -> Option<ProtectedOperationResponse> = ProtectedOperationResponse::completed;
+//! ```
+//!
+//! ```compile_fail
+//! use projectos_host_windows_local_ipc::{ExecutionOutcomeEvidence, ResultClass};
+//! let _ran = ExecutionOutcomeEvidence { correlation: [0u8; 16], result: ResultClass::Succeeded, evidence_ref: [0u8; 16] };
+//! ```
+//!
+//! …and the evaluation outcome cannot be written down as `Authorised` by a caller, because the
+//! authority it would wrap cannot be (positive control: the outcome type is nameable and readable):
+//!
+//! ```
+//! use projectos_host_windows_local_ipc::{ProtectedOperationEvaluation, ProtectedOperationResponse};
+//! fn render(e: &ProtectedOperationEvaluation) -> ProtectedOperationResponse { e.response() }
+//! ```
+//!
+//! The governed-removed client-session reference is gone from the wire contract - no accessor, no
+//! constant:
+//!
+//! ```compile_fail
+//! use projectos_host_windows_local_ipc::SESSION_REF_LEN;
 //! ```
 //!
 //! ## The host-resolved binding inputs are not caller-suppliable (RUN-TO-COMPLETION §9B)
@@ -294,8 +330,11 @@ pub use windows_ffi::{
 pub use windows_ffi::RefusalProbe;
 
 // The PROTECTED-OPERATION contract (PROJECTOSHOST-IPC-OPERATION-CONTRACT1A). Types and validation
-// only: no transport, no channel, no effect. `OwnerPresenceGate` cannot report closed, so no protected
-// operation can be accepted — an admitted peer still reaches only the C4 refusal.
+// only: no transport, no channel, no effect. `OwnerPresenceGate` still cannot report closed; since
+// RUN-TO-COMPLETION §9C the ONE way past it is a request-scoped presence from a VERIFIED owner
+// programme delegation, and the evaluator is the sole mint of `AuthorisedProtectedOperation` - for
+// `IndependentGatekeeperReview` only, and meaning admission, never execution. An admitted peer
+// without that delegation still reaches only the C4 refusal.
 //
 // PROJECTOSHOST-IPC-PEER-CONTRACT-RECONCILIATION1A RETIRED THIS CRATE'S DUPLICATE PEER-IDENTITY MODEL.
 // Raw SID storage, raw Windows session identity, bounded integrity levels, the observed-evidence input
@@ -307,10 +346,10 @@ pub use windows_ffi::RefusalProbe;
 pub use operation_contract::{
     decode_protected_operation_request, decode_protected_operation_response,
     encode_protected_operation_request, encode_protected_operation_response,
-    evaluate_protected_operation, AuthorisedProtectedOperation, OperationClass, OwnerPresenceGate,
-    ProtectedOperationRequest, ProtectedOperationResponse, RejectionReason, ResponseState,
-    ResultClass, TerminalStatus, TrustedPeerContext, APPROVAL_REF_LEN, BINDING_DIGEST_LEN,
-    CORRELATION_LEN, EVIDENCE_REF_LEN, SESSION_REF_LEN,
+    evaluate_protected_operation, AuthorisedProtectedOperation, ExecutionOutcomeEvidence,
+    OperationClass, OwnerPresenceGate, ProtectedOperationEvaluation, ProtectedOperationRequest,
+    ProtectedOperationResponse, RejectionReason, ResponseState, ResultClass, TerminalStatus,
+    TrustedPeerContext, APPROVAL_REF_LEN, BINDING_DIGEST_LEN, CORRELATION_LEN, EVIDENCE_REF_LEN,
 };
 
 // The REQUEST-SCOPED C4 surface, exported at the narrowest shape that still lets the host use it.

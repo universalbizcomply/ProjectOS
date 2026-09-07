@@ -12,8 +12,12 @@
 //!    bounded attempt and never crosses into this crate. **The default graph has no constructor for
 //!    it at all**; the one production mint reads a sealed canonical `VerifiedPeerAdmission` and is
 //!    feature-gated with the attempt that produces it.
-//! 3. [`AuthorisedProtectedOperation`] — created ONLY from a trusted peer context, an independently
-//!    verified owner approval and a closed C4 gate. Unreachable today, by construction.
+//! 3. [`AuthorisedProtectedOperation`] — minted ONLY by [`evaluate_protected_operation`], and only
+//!    when EVERY sealed rung agrees: request-scoped C4 from a verified owner programme delegation,
+//!    a trusted peer context, the current service instance, the Host's own binding of the exact
+//!    subject and parameters, and a genuine canonical admission for this correlation and sequence
+//!    on that peer's connection (RUN-TO-COMPLETION HOST ATTESTATION §9C). It is admission, not
+//!    execution: it says this exact independent gatekeeper review MAY run, never that it ran.
 //!
 //! ## Why there is no wire encryption
 //!
@@ -53,8 +57,8 @@ use sha2::{Digest, Sha256};
 pub const CORRELATION_LEN: usize = 16;
 /// Bounded reference to an owner-approval record. A REFERENCE, never approval material itself.
 pub const APPROVAL_REF_LEN: usize = 32;
-/// Bounded reference to a client session. Evidence only — never authority (see the binding matrix).
-pub const SESSION_REF_LEN: usize = 16;
+// `SESSION_REF_LEN` / `client_session_ref` were GOVERNED-REMOVED in RUN-TO-COMPLETION HOST
+// ATTESTATION §9C. See the note on `ProtectedOperationRequest`.
 /// A SHA-256 binding digest. The HOST computes one over the facts it resolved for a request
 /// (see [`binding_digest`]) and compares it against the one the caller claimed on the wire.
 pub const BINDING_DIGEST_LEN: usize = 32;
@@ -299,6 +303,20 @@ impl TerminalStatus {
 ///
 /// Every accessor returns a **claim**. Holding this type proves the bytes parsed and nothing else. It
 /// is deliberately impossible to turn one of these into authority without [`evaluate_protected_operation`].
+///
+/// ## `client_session_ref` — GOVERNED-REMOVED (RUN-TO-COMPLETION HOST ATTESTATION §9C)
+///
+/// The wire used to carry a 16-byte "client session reference", documented as evidence only and
+/// never read by any gate. Once authority became reachable, an ignored caller-controlled field on
+/// the successful path is not acceptable, so its meaning had to be settled first. Under the
+/// accepted architecture it has none: the canonical session is established by the HOST
+/// (`BoundIpcSession`, whose digest is host-private), peer identity never crosses into this crate,
+/// and this request's membership in that session is already proven by the sealed `AdmittedRequest`
+/// on the peer's host-issued connection and handshake generation. A caller-supplied reference could
+/// only be compared against a value the caller cannot legitimately know (circular if it could), and
+/// it duplicated exactly the identity channel the peer-contract reconciliation retired. It was
+/// therefore removed from the authority-bearing contract rather than fake-bound: the frame is 16
+/// bytes shorter, still fixed-width and deterministic, and the layout is pinned by the tests.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProtectedOperationRequest {
     correlation: [u8; CORRELATION_LEN],
@@ -307,7 +325,6 @@ pub struct ProtectedOperationRequest {
     binding_digest: [u8; BINDING_DIGEST_LEN],
     operation: OperationClass,
     approval_ref: [u8; APPROVAL_REF_LEN],
-    client_session_ref: [u8; SESSION_REF_LEN],
     parameter_digest: [u8; BINDING_DIGEST_LEN],
 }
 
@@ -323,7 +340,6 @@ impl ProtectedOperationRequest {
         binding_digest: [u8; BINDING_DIGEST_LEN],
         operation: OperationClass,
         approval_ref: [u8; APPROVAL_REF_LEN],
-        client_session_ref: [u8; SESSION_REF_LEN],
         parameter_digest: [u8; BINDING_DIGEST_LEN],
     ) -> Self {
         Self {
@@ -333,7 +349,6 @@ impl ProtectedOperationRequest {
             binding_digest,
             operation,
             approval_ref,
-            client_session_ref,
             parameter_digest,
         }
     }
@@ -380,13 +395,12 @@ impl ProtectedOperationRequest {
         &self.approval_ref
     }
 
-    /// A client-session REFERENCE. Evidence only.
-    #[must_use]
-    pub fn client_session_ref(&self) -> &[u8; SESSION_REF_LEN] {
-        &self.client_session_ref
-    }
-
-    /// Digest of the bounded non-secret parameters. The parameters themselves are resolved host-side.
+    /// The caller's CLAIM about the exact review request body. Its meaning is fixed by the
+    /// gatekeeper inbox contract: the Host reads the request body for this correlation ONE-SHOT from
+    /// its own inbox by trusted identity, and the digest of those exact bytes is a host-resolved
+    /// fact. This claim must equal that fact ([`RejectionReason::BindingMismatch`] otherwise), so a
+    /// caller cannot be authorised for one body and have the Host act on another. Never a body,
+    /// never a parameter value: 32 bytes naming bytes the Host already holds.
     #[must_use]
     pub fn parameter_digest(&self) -> &[u8; BINDING_DIGEST_LEN] {
         &self.parameter_digest
@@ -739,6 +753,9 @@ impl VerifiedOwnerProgrammeDelegation {
 ///   name the request mentions.
 /// * `candidate_digest` — the EXACT review candidate: the committed-byte reader's digest of the
 ///   bytes at an immutable commit. Not a path, not a branch, not `HEAD`, not caller bytes.
+/// * `parameter_digest` — the digest of the exact request body the Host read ONE-SHOT from its own
+///   gatekeeper inbox for this correlation (the accepted bounded-inbox contract). The caller's wire
+///   claim must equal it; the Host never reads a body the caller hands it.
 /// * `model_policy`, `credential_ref` — the installation's signed execution closure.
 /// * `committed_spend_micro_usd`, `admitted_cost_micro_usd` — the Host's own budget ledger.
 /// * `now_epoch_s` — the sealed [`crate::owner_programme_delegation::HostClockReading`], taken for
@@ -760,6 +777,7 @@ pub struct HostResolvedRequestFacts {
     plan_digest: [u8; DELEGATION_DIGEST_LEN],
     phase: [u8; DELEGATION_DIGEST_LEN],
     candidate_digest: [u8; BINDING_DIGEST_LEN],
+    parameter_digest: [u8; BINDING_DIGEST_LEN],
     model_policy: [u8; DELEGATION_DIGEST_LEN],
     credential_ref: [u8; DELEGATION_DIGEST_LEN],
     committed_spend_micro_usd: u64,
@@ -780,6 +798,8 @@ pub struct HostResolvedFacts {
     pub plan_digest: [u8; DELEGATION_DIGEST_LEN],
     pub phase: [u8; DELEGATION_DIGEST_LEN],
     pub candidate_digest: [u8; BINDING_DIGEST_LEN],
+    /// Digest of the exact inbox request body the Host read for this correlation.
+    pub parameter_digest: [u8; BINDING_DIGEST_LEN],
     pub model_policy: [u8; DELEGATION_DIGEST_LEN],
     pub credential_ref: [u8; DELEGATION_DIGEST_LEN],
     pub committed_spend_micro_usd: u64,
@@ -810,6 +830,7 @@ impl HostResolvedRequestFacts {
             plan_digest: f.plan_digest,
             phase: f.phase,
             candidate_digest: f.candidate_digest,
+            parameter_digest: f.parameter_digest,
             model_policy: f.model_policy,
             credential_ref: f.credential_ref,
             committed_spend_micro_usd: f.committed_spend_micro_usd,
@@ -912,6 +933,11 @@ impl RequestScopedOwnerPresence {
     fn answers(&self, correlation: &[u8; CORRELATION_LEN], operation: OperationClass) -> bool {
         &self.correlation == correlation && self.operation == operation
     }
+
+    /// The one class this presence was minted for.
+    fn operation(&self) -> OperationClass {
+        self.operation
+    }
 }
 
 /// Derive request-scoped owner presence from a VERIFIED owner programme delegation, or `None`.
@@ -988,20 +1014,40 @@ fn satisfy_c4_for_gatekeeper_request(
 }
 
 // -------------------------------------------------------------------------------------------------
-// LAYER 3 — TRUSTED OPERATION AUTHORITY (unreachable in this phase)
+// LAYER 3 — TRUSTED OPERATION AUTHORITY (RUN-TO-COMPLETION HOST ATTESTATION §9C)
 // -------------------------------------------------------------------------------------------------
 
-/// An authorised protected operation.
+/// An authorised protected operation: **this exact independent gatekeeper review is admitted.**
 ///
-/// Minted only by [`evaluate_protected_operation`] and only when C4 is closed AND a trusted peer context
-/// exists. Both are impossible in this phase, so this type is currently unconstructible — which is the
-/// point: the contract exists, the path to an effect does not.
+/// SEALED. Private fields, no public or crate-visible constructor, no `Default`, no `Clone`, no
+/// `From`/`TryFrom`, no serde. THE SOLE MINT is the tail of [`evaluate_protected_operation`], after
+/// every gate in front of it has said yes, and the value carries what was proven rather than what
+/// was asked: the correlation and sequence the canonical session admitted, the peer's host-issued
+/// connection and handshake generation, the service epoch, the verified delegation's id, the Host's
+/// own binding digest, candidate digest and parameter digest, and the cost the Host admitted. Every
+/// accessor is read-only and there is no comparison that takes caller data on trust.
+///
+/// NOT `Clone`, DELIBERATELY. An authority answers one request. A copyable authority is how a
+/// single admitted review comes to authorise several.
+///
+/// WHAT IT MEANS, AND WHAT IT DOES NOT. Holding one means the review MAY run. It does not mean the
+/// review ran, that a provider answered, or that a phase closed — those are later, independently
+/// evidenced facts, and [`ProtectedOperationResponse::completed`] refuses to say "completed" from
+/// an authority alone.
 #[derive(Debug)]
 pub struct AuthorisedProtectedOperation {
     _seal: Seal,
     correlation: [u8; CORRELATION_LEN],
+    sequence: u64,
     operation: OperationClass,
     service_epoch: u64,
+    connection_id: u64,
+    handshake_generation: u64,
+    delegation_id: [u8; DELEGATION_DIGEST_LEN],
+    binding_digest: [u8; BINDING_DIGEST_LEN],
+    candidate_digest: [u8; BINDING_DIGEST_LEN],
+    parameter_digest: [u8; BINDING_DIGEST_LEN],
+    admitted_cost_micro_usd: u64,
 }
 
 impl AuthorisedProtectedOperation {
@@ -1009,6 +1055,12 @@ impl AuthorisedProtectedOperation {
     #[must_use]
     pub fn correlation(&self) -> &[u8; CORRELATION_LEN] {
         &self.correlation
+    }
+
+    /// The sequence the canonical session admitted for that correlation.
+    #[must_use]
+    pub fn sequence(&self) -> u64 {
+        self.sequence
     }
 
     /// The single operation class this authority permits.
@@ -1022,6 +1074,144 @@ impl AuthorisedProtectedOperation {
     pub fn service_epoch(&self) -> u64 {
         self.service_epoch
     }
+
+    /// Whether this authority belongs to exactly this host-issued connection and generation.
+    #[must_use]
+    pub fn is_bound_to(&self, connection_id: u64, handshake_generation: u64) -> bool {
+        self.connection_id == connection_id && self.handshake_generation == handshake_generation
+    }
+
+    /// The verified delegation this review runs under.
+    #[must_use]
+    pub fn delegation_id(&self) -> &[u8; DELEGATION_DIGEST_LEN] {
+        &self.delegation_id
+    }
+
+    /// The Host's binding digest for the exact subject.
+    #[must_use]
+    pub fn binding_digest(&self) -> &[u8; BINDING_DIGEST_LEN] {
+        &self.binding_digest
+    }
+
+    /// The exact review candidate, as the Host resolved it.
+    #[must_use]
+    pub fn candidate_digest(&self) -> &[u8; BINDING_DIGEST_LEN] {
+        &self.candidate_digest
+    }
+
+    /// The exact inbox request body, as the Host resolved it.
+    #[must_use]
+    pub fn parameter_digest(&self) -> &[u8; BINDING_DIGEST_LEN] {
+        &self.parameter_digest
+    }
+
+    /// The cost the Host admitted against the programme ceiling.
+    #[must_use]
+    pub fn admitted_cost_micro_usd(&self) -> u64 {
+        self.admitted_cost_micro_usd
+    }
+}
+
+/// Evidence that a Host-executed operation actually finished: its correlation, redacted result
+/// class and bounded evidence reference.
+///
+/// SEALED, AND WITHOUT A PRODUCTION CONSTRUCTOR IN THIS CHECKPOINT. `Completed` must never be
+/// rendered from an authority alone - an authority is admission, and the review has not run - so
+/// [`ProtectedOperationResponse::completed`] demands this second, independent proof. The execution
+/// rung that mints it is later. The only constructor here is gated `cfg(all(test, feature =
+/// "test-fixtures"))` - narrower than `cfg(test)` - so no shipped graph can say "completed" about
+/// anything.
+#[derive(Debug)]
+pub struct ExecutionOutcomeEvidence {
+    _seal: Seal,
+    correlation: [u8; CORRELATION_LEN],
+    result: ResultClass,
+    evidence_ref: [u8; EVIDENCE_REF_LEN],
+}
+
+impl ExecutionOutcomeEvidence {
+    /// TEST-ONLY. `cfg(all(test, feature = "test-fixtures"))` and private, so it exists in NO
+    /// shipped graph and only where an authority can be minted to pair it with.
+    #[cfg(all(test, feature = "test-fixtures"))]
+    fn for_test(
+        correlation: [u8; CORRELATION_LEN],
+        result: ResultClass,
+        evidence_ref: [u8; EVIDENCE_REF_LEN],
+    ) -> Self {
+        Self {
+            _seal: Seal,
+            correlation,
+            result,
+            evidence_ref,
+        }
+    }
+
+    /// The correlation this outcome is about.
+    #[must_use]
+    pub fn correlation(&self) -> &[u8; CORRELATION_LEN] {
+        &self.correlation
+    }
+
+    /// The redacted result class.
+    #[must_use]
+    pub fn result(&self) -> ResultClass {
+        self.result
+    }
+
+    /// The bounded evidence reference.
+    #[must_use]
+    pub fn evidence_ref(&self) -> &[u8; EVIDENCE_REF_LEN] {
+        &self.evidence_ref
+    }
+}
+
+/// The CLOSED outcome of evaluating one request: refused with a wire answer, or authorised.
+///
+/// Two variants, nothing else. Authority is never carried inside a response - `Accepted` is
+/// RENDERED from an authority by [`ProtectedOperationEvaluation::response`], and a response holds no
+/// authority - so a caller that can build responses (it can; refusing is never privileged) still
+/// cannot build the thing that admits an operation.
+#[derive(Debug)]
+#[must_use = "an evaluation outcome decides whether an operation may run"]
+pub enum ProtectedOperationEvaluation {
+    /// Refused. The wire answer names the gate that refused.
+    Rejected(ProtectedOperationResponse),
+    /// Admitted. The authority is the only thing the next rung may act on.
+    Authorised(AuthorisedProtectedOperation),
+}
+
+impl ProtectedOperationEvaluation {
+    /// The wire answer: the refusal as it stands, or `Accepted` / `NotRun` rendered FROM the
+    /// authority. Rendering does not consume or copy the authority; it reports admission.
+    #[must_use]
+    pub fn response(&self) -> ProtectedOperationResponse {
+        match self {
+            Self::Rejected(response) => *response,
+            Self::Authorised(authority) => ProtectedOperationResponse::accepted(authority),
+        }
+    }
+
+    /// The authority, if this evaluation minted one.
+    #[must_use]
+    pub fn authority(&self) -> Option<&AuthorisedProtectedOperation> {
+        match self {
+            Self::Rejected(_) => None,
+            Self::Authorised(authority) => Some(authority),
+        }
+    }
+
+    /// Take the authority, or the refusal.
+    ///
+    /// # Errors
+    /// The refusal response when the request was rejected.
+    pub fn into_authority(
+        self,
+    ) -> Result<AuthorisedProtectedOperation, ProtectedOperationResponse> {
+        match self {
+            Self::Rejected(response) => Err(response),
+            Self::Authorised(authority) => Ok(authority),
+        }
+    }
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -1030,8 +1220,10 @@ impl AuthorisedProtectedOperation {
 
 /// A protected-operation response.
 ///
-/// `Completed` cannot be built from caller data: [`ProtectedOperationResponse::completed`] consumes an
-/// [`AuthorisedProtectedOperation`], which only the host can hold.
+/// `Accepted` is rendered only FROM an [`AuthorisedProtectedOperation`] and reports `NotRun`.
+/// `Completed` needs that authority AND sealed [`ExecutionOutcomeEvidence`] about the same
+/// correlation, so neither a caller nor a holder of a fresh authority can assert that an operation
+/// ran.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProtectedOperationResponse {
     correlation: [u8; CORRELATION_LEN],
@@ -1078,23 +1270,27 @@ impl ProtectedOperationResponse {
         }
     }
 
-    /// Build a COMPLETION. Requires the host-held authority, so a caller can never assert that an
-    /// operation ran.
+    /// Build a COMPLETION. Requires BOTH the host-held authority AND sealed evidence that the
+    /// operation actually finished, about the same correlation. An authority alone renders
+    /// nothing here - it is admission, not execution - and evidence about another correlation
+    /// answers nothing, so `None` is returned rather than a response that would be untrue.
     #[must_use]
     pub fn completed(
         authority: &AuthorisedProtectedOperation,
-        result: ResultClass,
-        evidence_ref: [u8; EVIDENCE_REF_LEN],
-    ) -> Self {
-        Self {
+        evidence: &ExecutionOutcomeEvidence,
+    ) -> Option<Self> {
+        if evidence.correlation() != authority.correlation() {
+            return None;
+        }
+        Some(Self {
             correlation: *authority.correlation(),
             state: ResponseState::Completed,
             reason: RejectionReason::PolicyRefused,
-            result,
+            result: evidence.result(),
             service_epoch: authority.service_epoch(),
-            evidence_ref,
+            evidence_ref: *evidence.evidence_ref(),
             terminal: TerminalStatus::Terminal,
-        }
+        })
     }
 
     /// The correlation this response answers.
@@ -1147,49 +1343,53 @@ impl ProtectedOperationResponse {
 // EVALUATION — the C4 hard stop
 // -------------------------------------------------------------------------------------------------
 
-/// Evaluate an untrusted request.
+/// Evaluate an untrusted request: refuse with a wire answer, or mint the ONE authority.
 ///
 /// Order is fail-closed and deliberate: the C4 gate is checked FIRST, so no amount of peer or binding
 /// work can produce an acceptance while owner presence is unproven. Then the peer, then the service
-/// instance, then WHAT the request is about (the host-resolved binding against the caller's claim),
-/// then whether it is FRESH on the canonical session (the §9A [`AdmittedRequest`]). Nothing is
-/// minted at the end of it: the final answer is still a refusal, because the operation-authority
-/// mint is a later rung. What this function now establishes is that a request which reaches that
-/// final stop is owner-delegated, peer-attested, instance-bound, subject-bound and fresh.
+/// instance, then WHAT the request is about (the host-resolved binding, parameter digest and
+/// delegation reference against the caller's claims), then whether it is FRESH on the canonical
+/// session (the §9A [`AdmittedRequest`]). Only when every one of those has said yes does the tail
+/// mint an [`AuthorisedProtectedOperation`] - THE SOLE PRODUCTION MINT of that type - and it mints
+/// it from the sealed evidence it consumed, never from a caller's word: there is no boolean
+/// argument anywhere on this path, and every value stamped on the authority was read off a sealed
+/// rung.
 ///
-/// `admitted` is the sealed proof from `BoundIpcSession::admit_request`. It is READ here, never
-/// widened: it says the request was fresh on this session, and it must answer this exact
-/// correlation on exactly the peer's host-issued connection and handshake generation. Its meaning
-/// stays "fresh", not "authorised".
-#[must_use]
+/// `admitted` is the sealed proof from `BoundIpcSession::admit_request`, taken BY VALUE so one
+/// admission can back at most one evaluation. It is READ, never widened: it says the request was
+/// fresh on this session, and it must answer this exact correlation on exactly the peer's
+/// host-issued connection and handshake generation. Its meaning stays "fresh", not "authorised".
 pub fn evaluate_protected_operation(
     request: &ProtectedOperationRequest,
     peer: Option<&TrustedPeerContext>,
     delegated: Option<&GatekeeperDelegationEvidence<'_>>,
-    admitted: Option<&AdmittedRequest>,
+    admitted: Option<AdmittedRequest>,
     service_epoch: u64,
-) -> ProtectedOperationResponse {
-    // 1. C4 FIRST. Still a hard stop, now with exactly one narrow way past it.
+) -> ProtectedOperationEvaluation {
+    let refuse = |reason: RejectionReason| {
+        ProtectedOperationEvaluation::Rejected(ProtectedOperationResponse::rejected(
+            *request.correlation(),
+            reason,
+            service_epoch,
+            TerminalStatus::Terminal,
+        ))
+    };
+    // 1. C4 FIRST. Still a hard stop, with exactly one narrow way past it.
     //
     //    The global gate is unchanged and still answers `false`, so every operation class keeps the
     //    unconditional stop it has today. The only alternative is a presence MINTED HERE, inside
     //    this call, from a VERIFIED owner programme delegation — and it is re-checked rather than
     //    trusted on sight: it must answer this exact correlation and this exact operation class.
     //
-    //    The presence is minted and consumed within this expression and never escapes, which is why
-    //    its type is crate-private and no caller can name it: there is no window in which a presence
-    //    exists as a value someone could hold, store, or carry to a second request.
-    let c4_satisfied = OwnerPresenceGate::current().is_closed()
-        || delegated
-            .and_then(|e| satisfy_c4_for_gatekeeper_request(e, request))
-            .is_some_and(|p| p.answers(request.correlation(), request.operation()));
+    //    The presence is crate-private and never escapes this function: it is held only so the
+    //    mint at the tail can REQUIRE it as a value. The global gate satisfies the stop; it never
+    //    satisfies the mint.
+    let presence = delegated
+        .and_then(|e| satisfy_c4_for_gatekeeper_request(e, request))
+        .filter(|p| p.answers(request.correlation(), request.operation()));
+    let c4_satisfied = OwnerPresenceGate::current().is_closed() || presence.is_some();
     if !c4_satisfied {
-        return ProtectedOperationResponse::rejected(
-            *request.correlation(),
-            RejectionReason::OwnerPresenceGateOpen,
-            service_epoch,
-            TerminalStatus::Terminal,
-        );
+        return refuse(RejectionReason::OwnerPresenceGateOpen);
     }
     // 2. An admitted peer is mandatory. Canonical peer identity is established inside the
     //    identity-proof crate's attempt and minted into a context from its sealed admission.
@@ -1198,46 +1398,28 @@ pub fn evaluate_protected_operation(
     //    its "C4 before the peer check" ordering assertion on that exact spelling. A `let-else`
     //    here reads better and would silently turn that assertion into one that matches nothing.
     if peer.is_none() {
-        return ProtectedOperationResponse::rejected(
-            *request.correlation(),
-            RejectionReason::PeerNotAuthenticated,
-            service_epoch,
-            TerminalStatus::Terminal,
-        );
+        return refuse(RejectionReason::PeerNotAuthenticated);
     }
     // 3. The claimed epoch must be this instance's.
     if request.claimed_service_epoch() != service_epoch {
-        return ProtectedOperationResponse::rejected(
-            *request.correlation(),
-            RejectionReason::ServiceEpochMismatch,
-            service_epoch,
-            TerminalStatus::Terminal,
-        );
+        return refuse(RejectionReason::ServiceEpochMismatch);
     }
     // 4. WHAT IS THIS REQUEST ABOUT — ACCORDING TO THE HOST. C4 was satisfied above, and the only
     //    way it can be is through delegation evidence, so `delegated` is present here; a `None`
-    //    is a refusal all the same rather than an assumption. The caller's binding digest and its
-    //    approval reference are CLAIMS. The host hashes the facts it resolved for itself and
-    //    requires the claim to name that exact subject and that exact delegation. The caller never
-    //    supplies a fact through this comparison; it can only agree or be refused.
+    //    is a refusal all the same rather than an assumption. The caller's binding digest, its
+    //    approval reference and its parameter digest are CLAIMS. The host hashes the facts it
+    //    resolved for itself and requires the claims to name that exact subject, that exact
+    //    delegation and that exact inbox body. The caller never supplies a fact through these
+    //    comparisons; it can only agree or be refused.
     let Some(evidence) = delegated else {
-        return ProtectedOperationResponse::rejected(
-            *request.correlation(),
-            RejectionReason::BindingMismatch,
-            service_epoch,
-            TerminalStatus::Terminal,
-        );
+        return refuse(RejectionReason::BindingMismatch);
     };
     let expected = evidence.facts.expected_binding_digest(request.operation());
     if *request.binding_digest() != expected
         || *request.approval_ref() != evidence.delegation.delegation().delegation_id
+        || *request.parameter_digest() != evidence.facts.parameter_digest
     {
-        return ProtectedOperationResponse::rejected(
-            *request.correlation(),
-            RejectionReason::BindingMismatch,
-            service_epoch,
-            TerminalStatus::Terminal,
-        );
+        return refuse(RejectionReason::BindingMismatch);
     }
     // 5. IS THIS REQUEST FRESH ON THE CANONICAL SESSION. The §9A admission must exist, must answer
     //    this correlation on exactly the peer's host-issued connection and handshake generation —
@@ -1245,49 +1427,50 @@ pub fn evaluate_protected_operation(
     //    sequence this frame carries. The peer was required at step 2; a `None` here is a refusal
     //    all the same rather than an assumption.
     let Some(peer) = peer else {
-        return ProtectedOperationResponse::rejected(
-            *request.correlation(),
-            RejectionReason::PeerNotAuthenticated,
-            service_epoch,
-            TerminalStatus::Terminal,
-        );
+        return refuse(RejectionReason::PeerNotAuthenticated);
     };
     let Some(admitted) = admitted else {
-        return ProtectedOperationResponse::rejected(
-            *request.correlation(),
-            RejectionReason::CorrelationMismatch,
-            service_epoch,
-            TerminalStatus::Terminal,
-        );
+        return refuse(RejectionReason::CorrelationMismatch);
     };
     if !admitted.answers(
         request.correlation(),
         peer.connection_id(),
         peer.handshake_generation(),
     ) {
-        return ProtectedOperationResponse::rejected(
-            *request.correlation(),
-            RejectionReason::CorrelationMismatch,
-            service_epoch,
-            TerminalStatus::Terminal,
-        );
+        return refuse(RejectionReason::CorrelationMismatch);
     }
     if admitted.sequence() != request.sequence() {
-        return ProtectedOperationResponse::rejected(
-            *request.correlation(),
-            RejectionReason::SequenceRefused,
-            service_epoch,
-            TerminalStatus::Terminal,
-        );
+        return refuse(RejectionReason::SequenceRefused);
     }
-    // Every fact is proven and the request is fresh. The operation-authority mint is the NEXT rung;
-    // this one deliberately ends in a refusal so that nothing here can be mistaken for permission.
-    ProtectedOperationResponse::rejected(
-        *request.correlation(),
-        RejectionReason::PolicyRefused,
+    // 6. THE MINT. Every gate above said yes. The mint additionally REQUIRES the request-scoped
+    //    presence as a value - so the global gate, even if it could ever close, would satisfy the
+    //    stop and never the mint - and re-states the one delegable class at the point of minting.
+    //    Everything stamped on the authority is read off a sealed rung: the presence, the
+    //    delegation, the facts, the peer and the admission. Nothing is read off the request except
+    //    the operation byte, which the presence and the binding digest have both already bound.
+    let Some(presence) = presence else {
+        return refuse(RejectionReason::OwnerPresenceGateOpen);
+    };
+    if !presence.operation().may_be_delegated_by_programme() {
+        return refuse(RejectionReason::PolicyRefused);
+    }
+    let Some(admitted_cost_micro_usd) = evidence.facts.admitted_cost_micro_usd else {
+        return refuse(RejectionReason::PolicyRefused);
+    };
+    ProtectedOperationEvaluation::Authorised(AuthorisedProtectedOperation {
+        _seal: Seal,
+        correlation: *admitted.correlation(),
+        sequence: admitted.sequence(),
+        operation: presence.operation(),
         service_epoch,
-        TerminalStatus::Terminal,
-    )
+        connection_id: peer.connection_id(),
+        handshake_generation: peer.handshake_generation(),
+        delegation_id: evidence.delegation.delegation().delegation_id,
+        binding_digest: expected,
+        candidate_digest: evidence.facts.candidate_digest,
+        parameter_digest: evidence.facts.parameter_digest,
+        admitted_cost_micro_usd,
+    })
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -1320,8 +1503,6 @@ pub fn encode_protected_operation_request(
     o += 1;
     out[o..o + APPROVAL_REF_LEN].copy_from_slice(&request.approval_ref);
     o += APPROVAL_REF_LEN;
-    out[o..o + SESSION_REF_LEN].copy_from_slice(&request.client_session_ref);
-    o += SESSION_REF_LEN;
     out[o..o + BINDING_DIGEST_LEN].copy_from_slice(&request.parameter_digest);
     out
 }
@@ -1358,9 +1539,6 @@ pub fn decode_protected_operation_request(
     let mut approval_ref = [0u8; APPROVAL_REF_LEN];
     approval_ref.copy_from_slice(&buf[o..o + APPROVAL_REF_LEN]);
     o += APPROVAL_REF_LEN;
-    let mut client_session_ref = [0u8; SESSION_REF_LEN];
-    client_session_ref.copy_from_slice(&buf[o..o + SESSION_REF_LEN]);
-    o += SESSION_REF_LEN;
     let mut parameter_digest = [0u8; BINDING_DIGEST_LEN];
     parameter_digest.copy_from_slice(&buf[o..o + BINDING_DIGEST_LEN]);
     Ok((
@@ -1371,7 +1549,6 @@ pub fn decode_protected_operation_request(
             binding_digest,
             operation,
             approval_ref,
-            client_session_ref,
             parameter_digest,
         },
         nonce,
@@ -1469,9 +1646,20 @@ mod tests {
             [2u8; BINDING_DIGEST_LEN],
             OperationClass::ProviderIdentityRead,
             [3u8; APPROVAL_REF_LEN],
-            [4u8; SESSION_REF_LEN],
             [5u8; BINDING_DIGEST_LEN],
         )
+    }
+
+    /// Evaluate and RENDER, for the proofs that ask about the wire answer. The authority itself is
+    /// examined directly where the proof is about the authority.
+    fn eval_response(
+        request: &ProtectedOperationRequest,
+        peer: Option<&TrustedPeerContext>,
+        delegated: Option<&GatekeeperDelegationEvidence<'_>>,
+        admitted: Option<AdmittedRequest>,
+        service_epoch: u64,
+    ) -> ProtectedOperationResponse {
+        evaluate_protected_operation(request, peer, delegated, admitted, service_epoch).response()
     }
 
     #[test]
@@ -1522,6 +1710,12 @@ mod tests {
             resp.len() <= 512,
             "response frame exceeds the frame ceiling"
         );
+        // The governed removal of the client-session reference shrank the request by exactly the
+        // 16 bytes it occupied, and nothing else moved.
+        assert_eq!(
+            PROTECTED_OPERATION_REQUEST_LEN,
+            16 + 8 + 8 + 32 + 1 + 32 + 32
+        );
     }
 
     // ---- RECONCILIATION: what remains of the peer surface -------------------------------------
@@ -1564,6 +1758,10 @@ mod tests {
             concat!("authenticate", "_peer"),
             concat!("PeerUser", "Class"),
             concat!("from_kernel", "_bytes"),
+            // §9C: the client-session reference was governed-removed from the authority-bearing
+            // contract. It must not creep back as a second session model.
+            concat!("client_session", "_ref"),
+            concat!("SESSION_REF", "_LEN"),
         ] {
             assert!(
                 !code.contains(part),
@@ -1608,13 +1806,14 @@ mod tests {
 
     #[test]
     fn wire_values_cannot_establish_or_alter_a_peer_context() {
-        // The DTO carries a client_session_ref. It is a claim. Changing it must not reach the trusted
-        // context, and there is no conversion from the request into one — there cannot be, because the
-        // only constructor is test-only and takes host-issued values.
+        // Every wire field is a claim. Changing the caller's digests must not reach the trusted
+        // context, and there is no conversion from the request into one — there cannot be, because
+        // the only constructor is test-only and takes host-issued values.
         let ctx = TrustedPeerContext::for_admitted_connection(77, 5);
         let mut r = request();
-        r.client_session_ref = [0xFFu8; SESSION_REF_LEN];
-        let resp = evaluate_protected_operation(&r, Some(&ctx), None, None, 42);
+        r.parameter_digest = [0xFFu8; BINDING_DIGEST_LEN];
+        r.binding_digest = [0xEEu8; BINDING_DIGEST_LEN];
+        let resp = eval_response(&r, Some(&ctx), None, None, 42);
         assert_eq!(resp.state(), ResponseState::Rejected);
         assert_eq!(resp.reason(), RejectionReason::OwnerPresenceGateOpen);
         assert!(
@@ -1628,7 +1827,7 @@ mod tests {
         // Strictly stronger than passing None: a peer IS present and the answer is still the C4 refusal,
         // with no effect, no acceptance and no completion.
         let ctx = TrustedPeerContext::for_admitted_connection(77, 5);
-        let resp = evaluate_protected_operation(&request(), Some(&ctx), None, None, 42);
+        let resp = eval_response(&request(), Some(&ctx), None, None, 42);
         assert_eq!(resp.state(), ResponseState::Rejected);
         assert_eq!(resp.reason(), RejectionReason::OwnerPresenceGateOpen);
         assert_eq!(resp.result(), ResultClass::NotRun);
@@ -1643,7 +1842,7 @@ mod tests {
                 let mut r = request();
                 r.sequence = seq;
                 r.claimed_service_epoch = epoch;
-                let resp = evaluate_protected_operation(&r, Some(&ctx), None, None, 42);
+                let resp = eval_response(&r, Some(&ctx), None, None, 42);
                 assert_eq!(resp.state(), ResponseState::Rejected);
                 assert_eq!(resp.result(), ResultClass::NotRun);
             }
@@ -1659,7 +1858,7 @@ mod tests {
 
     #[test]
     fn c4_open_request_is_always_rejected() {
-        let resp = evaluate_protected_operation(&request(), None, None, None, 42);
+        let resp = eval_response(&request(), None, None, None, 42);
         assert_eq!(resp.state(), ResponseState::Rejected);
         assert_eq!(resp.reason(), RejectionReason::OwnerPresenceGateOpen);
         assert_eq!(resp.result(), ResultClass::NotRun);
@@ -1672,18 +1871,18 @@ mod tests {
         // the gate cannot be bypassed by failing a later check.
         let mut r = request();
         r.claimed_service_epoch = 999;
-        let resp = evaluate_protected_operation(&r, None, None, None, 42);
+        let resp = eval_response(&r, None, None, None, 42);
         assert_eq!(resp.reason(), RejectionReason::OwnerPresenceGateOpen);
     }
 
     #[test]
-    fn no_evaluation_path_returns_accepted_or_completed() {
+    fn no_undelegated_evaluation_path_returns_accepted_or_completed() {
         for epoch in [0u64, 42, u64::MAX] {
             for seq in [0u64, 1, u64::MAX] {
                 let mut r = request();
                 r.sequence = seq;
                 r.claimed_service_epoch = epoch;
-                let resp = evaluate_protected_operation(&r, None, None, None, 42);
+                let resp = eval_response(&r, None, None, None, 42);
                 assert_eq!(resp.state(), ResponseState::Rejected);
             }
         }
@@ -1894,38 +2093,11 @@ mod tests {
             [0u8; BINDING_DIGEST_LEN],
             OperationClass::IndependentGatekeeperReview,
             [0u8; APPROVAL_REF_LEN],
-            [0u8; SESSION_REF_LEN],
             [0u8; BINDING_DIGEST_LEN],
         );
-        let response = evaluate_protected_operation(&request, Some(&peer), None, None, 42);
+        let response = eval_response(&request, Some(&peer), None, None, 42);
         assert_eq!(response.state(), ResponseState::Rejected);
         assert_eq!(response.reason(), RejectionReason::OwnerPresenceGateOpen);
-    }
-
-    #[test]
-    fn accepted_is_not_completed_and_reports_nothing_ran() {
-        // Constructed here only because the test module is inside the crate; note that even so it
-        // needs an AuthorisedProtectedOperation, which no production path can obtain.
-        let authority = AuthorisedProtectedOperation {
-            _seal: Seal,
-            correlation: [1u8; CORRELATION_LEN],
-            operation: OperationClass::ProviderIdentityRead,
-            service_epoch: 42,
-        };
-        let accepted = ProtectedOperationResponse::accepted(&authority);
-        assert_eq!(accepted.state(), ResponseState::Accepted);
-        assert_eq!(
-            accepted.result(),
-            ResultClass::NotRun,
-            "ACCEPTED must never imply an executed effect"
-        );
-        let completed = ProtectedOperationResponse::completed(
-            &authority,
-            ResultClass::Succeeded,
-            [6u8; EVIDENCE_REF_LEN],
-        );
-        assert_eq!(completed.state(), ResponseState::Completed);
-        assert_ne!(accepted.state(), completed.state());
     }
 
     // =============================================================================================
@@ -1942,6 +2114,7 @@ mod tests {
     const D_PHASE: [u8; DELEGATION_DIGEST_LEN] = [0x55; DELEGATION_DIGEST_LEN];
     const D_OTHER_PHASE: [u8; DELEGATION_DIGEST_LEN] = [0x56; DELEGATION_DIGEST_LEN];
     const D_CANDIDATE: [u8; BINDING_DIGEST_LEN] = [0x88; BINDING_DIGEST_LEN];
+    const D_PARAMS: [u8; BINDING_DIGEST_LEN] = [0x5A; BINDING_DIGEST_LEN];
     const OTHER: [u8; DELEGATION_DIGEST_LEN] = [0x99; DELEGATION_DIGEST_LEN];
     const D_ID: [u8; DELEGATION_DIGEST_LEN] = [0xAA; DELEGATION_DIGEST_LEN];
 
@@ -1966,7 +2139,6 @@ mod tests {
             [2u8; BINDING_DIGEST_LEN],
             OperationClass::IndependentGatekeeperReview,
             [3u8; APPROVAL_REF_LEN],
-            [4u8; SESSION_REF_LEN],
             [5u8; BINDING_DIGEST_LEN],
         )
     }
@@ -1987,7 +2159,8 @@ mod tests {
         }
     }
 
-    /// A request that CLAIMS exactly `subject` and NAMES the delegation. This is the correct claim.
+    /// A request that CLAIMS exactly `subject`, NAMES the delegation and carries the parameter
+    /// digest the host resolved. This is the correct claim.
     fn bound_request(correlation: u8, subject: &BindingSubject) -> ProtectedOperationRequest {
         ProtectedOperationRequest::new(
             [correlation; CORRELATION_LEN],
@@ -1996,8 +2169,7 @@ mod tests {
             binding_digest(subject),
             subject.operation,
             D_ID,
-            [4u8; SESSION_REF_LEN],
-            [5u8; BINDING_DIGEST_LEN],
+            D_PARAMS,
         )
     }
 
@@ -2044,6 +2216,7 @@ mod tests {
             plan_digest: D_PLAN_DIGEST,
             phase: D_PHASE,
             candidate_digest: D_CANDIDATE,
+            parameter_digest: D_PARAMS,
             model_policy: D_MODEL,
             credential_ref: D_CRED,
             committed_spend_micro_usd: 3_659_841,
@@ -2077,14 +2250,14 @@ mod tests {
         TrustedPeerContext::for_admitted_connection(PEER_CONN, PEER_GEN)
     }
 
-    /// The full evaluation of `request` under this evidence, with no §9A admission presented.
+    /// The RENDERED answer for `request` under this evidence, with no §9A admission presented.
     fn evaluate(
         request: &ProtectedOperationRequest,
         v: &VerifiedOwnerProgrammeDelegation,
         f: &HostResolvedRequestFacts,
     ) -> ProtectedOperationResponse {
         let ev = evidence(v, f);
-        evaluate_protected_operation(request, Some(&peer()), Some(&ev), None, 42)
+        eval_response(request, Some(&peer()), Some(&ev), None, 42)
     }
 
     /// Does this exact case get past C4? The question every DELEGATION proof below asks.
@@ -2126,8 +2299,7 @@ mod tests {
     /// (6) NO DELEGATION, NO PRESENCE. There is no phrase, flag or configuration that substitutes.
     #[test]
     fn a_gatekeeper_request_without_a_delegation_is_still_stopped_at_c4() {
-        let resp =
-            evaluate_protected_operation(&gatekeeper_request(1), Some(&peer()), None, None, 42);
+        let resp = eval_response(&gatekeeper_request(1), Some(&peer()), None, None, 42);
         assert_eq!(resp.reason(), RejectionReason::OwnerPresenceGateOpen);
     }
 
@@ -2148,8 +2320,7 @@ mod tests {
         // And it satisfies nothing: `evaluate_protected_operation` takes the sealed evidence, so a
         // raw record cannot even be offered to it. The only way to proceed is `for_test`, which is
         // `cfg(test)` and private — no shipped graph contains it.
-        let resp =
-            evaluate_protected_operation(&gatekeeper_request(1), Some(&peer()), None, None, 42);
+        let resp = eval_response(&gatekeeper_request(1), Some(&peer()), None, None, 42);
         assert_eq!(
             resp.reason(),
             RejectionReason::OwnerPresenceGateOpen,
@@ -2279,7 +2450,7 @@ mod tests {
             let mut subject = host_subject();
             subject.operation = other;
             let r = bound_request(1, &subject);
-            let resp = evaluate_protected_operation(&r, Some(&peer()), Some(&ev), None, 42);
+            let resp = eval_response(&r, Some(&peer()), Some(&ev), None, 42);
             assert_eq!(
                 resp.reason(),
                 RejectionReason::OwnerPresenceGateOpen,
@@ -2303,13 +2474,7 @@ mod tests {
         assert!(admitted(&v, &f, 1));
 
         let ev = evidence(&v, &f);
-        let resp = evaluate_protected_operation(
-            &gatekeeper_request(9),
-            Some(&peer()),
-            Some(&ev),
-            None,
-            42,
-        );
+        let resp = eval_response(&gatekeeper_request(9), Some(&peer()), Some(&ev), None, 42);
         assert_ne!(resp.reason(), RejectionReason::OwnerPresenceGateOpen);
         // The presence minted for correlation 9 answers correlation 9 — and nothing else, because it
         // is consumed in the same call and cannot be carried anywhere.
@@ -2530,8 +2695,7 @@ mod tests {
             binding_digest(&claim),
             OperationClass::IndependentGatekeeperReview,
             D_ID,
-            [4u8; SESSION_REF_LEN],
-            [5u8; BINDING_DIGEST_LEN],
+            D_PARAMS,
         );
         assert_eq!(
             evaluate(&r, &v, &f).reason(),
@@ -2566,12 +2730,38 @@ mod tests {
             binding_digest(&host_subject()),
             OperationClass::IndependentGatekeeperReview,
             OTHER,
-            [4u8; SESSION_REF_LEN],
-            [5u8; BINDING_DIGEST_LEN],
+            D_PARAMS,
         );
         assert_eq!(
             evaluate(&r, &v, &f).reason(),
             RejectionReason::BindingMismatch
+        );
+    }
+
+    /// THE PARAMETER DIGEST MUST BE THE HOST'S (§9C). The host resolved the digest of the exact
+    /// request body it read from its own inbox; a claim naming any other body is refused at the
+    /// binding gate, and one naming the host's passes it.
+    #[test]
+    fn a_parameter_digest_that_is_not_the_hosts_is_refused() {
+        let v = verified(delegation());
+        let f = facts(&v); // host resolved D_PARAMS
+        let mut r = bound_request(1, &host_subject());
+        r.parameter_digest = [0x5B; BINDING_DIGEST_LEN];
+        assert_eq!(
+            evaluate(&r, &v, &f).reason(),
+            RejectionReason::BindingMismatch
+        );
+        // Same claim, host resolved a different body: refused too.
+        let mut raw = base_facts();
+        raw.parameter_digest = [0x5C; BINDING_DIGEST_LEN];
+        assert_eq!(
+            evaluate(&bound_request(1, &host_subject()), &v, &facts_of(&v, raw)).reason(),
+            RejectionReason::BindingMismatch
+        );
+        // Positive control: agreeing digests pass the binding gate (next gate refuses).
+        assert_eq!(
+            evaluate(&bound_request(1, &host_subject()), &v, &f).reason(),
+            RejectionReason::CorrelationMismatch
         );
     }
 
@@ -2606,7 +2796,7 @@ mod tests {
         let mut wrong_epoch = gatekeeper_request(1);
         wrong_epoch.claimed_service_epoch = 41;
         assert_eq!(
-            evaluate_protected_operation(&wrong_epoch, Some(&peer()), Some(&ev), None, 42).reason(),
+            eval_response(&wrong_epoch, Some(&peer()), Some(&ev), None, 42).reason(),
             RejectionReason::ServiceEpochMismatch
         );
         assert_eq!(
@@ -2619,23 +2809,33 @@ mod tests {
         );
     }
 
-    /// NO EVALUATION PATH MINTS AUTHORITY IN THIS CHECKPOINT. The fully bound request, with every
-    /// host fact agreeing, still ends in a refusal: the mint is the next rung.
+    /// NO ADMISSION, NO AUTHORITY. Every fact agreeing is not enough without the §9A proof, and the
+    /// rendered answer is a refusal, not an acceptance.
     #[test]
-    fn a_fully_bound_request_still_mints_nothing() {
+    fn a_fully_bound_request_without_an_admission_mints_nothing() {
         let v = verified(delegation());
         let f = facts(&v);
-        let resp = evaluate(&bound_request(1, &host_subject()), &v, &f);
+        let ev = evidence(&v, &f);
+        let outcome = evaluate_protected_operation(
+            &bound_request(1, &host_subject()),
+            Some(&peer()),
+            Some(&ev),
+            None,
+            42,
+        );
+        assert!(outcome.authority().is_none());
+        let resp = outcome.response();
         assert_eq!(resp.state(), ResponseState::Rejected);
         assert_eq!(resp.result(), ResultClass::NotRun);
     }
 
-    // ---- §9A REUSE: the canonical admission, read here and not widened ------------------------
+    // ---- §9A REUSE + §9C MINT: the canonical admission, read here and not widened ---------------
     //
     // These need a real `BoundIpcSession`, which only the core fixture verifier can mint, so they
     // run under the non-default `test-fixtures` graph. What they prove: the evaluator consumes the
     // §9A `AdmittedRequest` as the freshness proof, requires it to answer THIS correlation on THIS
-    // peer's connection, and requires the admitted sequence to be the frame's sequence.
+    // peer's connection, requires the admitted sequence to be the frame's sequence — and, with
+    // every rung present, mints exactly one authority that means admission and nothing more.
 
     #[cfg(feature = "test-fixtures")]
     mod admission {
@@ -2643,7 +2843,7 @@ mod tests {
         use crate::fixture_session::fixture_bound_session;
         use projectos_host_core::{
             BoundIpcSession, FixtureClock, FixtureIpcSessionVerifier,
-            InMemoryRequestAdmissionStore, IpcSessionVerifier,
+            InMemoryRequestAdmissionStore, IpcSessionVerifier, RequestAdmissionError,
         };
 
         /// One live canonical session on the fixture verifier's host-issued connection.
@@ -2656,78 +2856,228 @@ mod tests {
             TrustedPeerContext::for_admitted_connection(v.connection_id(), v.handshake_generation())
         }
 
-        /// THE WHOLE CHAIN, ENDING AT THE FINAL STOP. Delegation, peer, epoch, binding and a
-        /// genuine §9A admission for this correlation on this connection: the answer is the policy
-        /// stop — every gate in front of the mint is satisfied, and the mint is not here.
-        #[test]
-        fn a_bound_request_with_a_genuine_admission_reaches_the_final_policy_stop() {
-            let c = FixtureClock::new(150);
-            let iv = FixtureIpcSessionVerifier::new();
-            let s = session(&c, &iv);
-            let mut store = InMemoryRequestAdmissionStore::for_session(&s);
-            let v = verified(delegation());
-            let f = facts(&v);
-            let ev = evidence(&v, &f);
-            let r = bound_request(1, &host_subject());
+        /// Everything the exact case needs, minted fresh: a session, its store, the verified
+        /// delegation and agreeing facts.
+        struct Exact {
+            verifier: FixtureIpcSessionVerifier,
+            session: BoundIpcSession,
+            store: InMemoryRequestAdmissionStore,
+            delegation: VerifiedOwnerProgrammeDelegation,
+        }
 
-            let admitted = s.admit_request(&mut store, *r.correlation(), SEQ).unwrap();
-            let resp = evaluate_protected_operation(
+        impl Exact {
+            fn new() -> Self {
+                let clock = FixtureClock::new(150);
+                let verifier = FixtureIpcSessionVerifier::new();
+                let session = session(&clock, &verifier);
+                let store = InMemoryRequestAdmissionStore::for_session(&session);
+                Self {
+                    verifier,
+                    session,
+                    store,
+                    delegation: verified(delegation()),
+                }
+            }
+        }
+
+        /// Admit `r` on the session (a free function over disjoint fields, so the delegation can
+        /// stay borrowed by the evidence while the store is written).
+        fn admit(
+            session: &BoundIpcSession,
+            store: &mut InMemoryRequestAdmissionStore,
+            r: &ProtectedOperationRequest,
+        ) -> AdmittedRequest {
+            session
+                .admit_request(store, *r.correlation(), r.sequence())
+                .expect("fresh on this session")
+        }
+
+        /// THE ONE POSITIVE CASE. Delegation, peer, epoch, binding, parameter digest and a genuine
+        /// §9A admission for this correlation on this connection: the evaluator mints an
+        /// AuthorisedProtectedOperation that carries exactly what was proven, and renders as
+        /// Accepted / NotRun.
+        #[test]
+        fn the_exact_gatekeeper_review_is_authorised_and_renders_as_accepted_not_run() {
+            let mut x = Exact::new();
+            let f = facts(&x.delegation);
+            let ev = evidence(&x.delegation, &f);
+            let r = bound_request(1, &host_subject());
+            let admitted = admit(&x.session, &mut x.store, &r);
+
+            let outcome = evaluate_protected_operation(
                 &r,
-                Some(&peer_for(&iv)),
+                Some(&peer_for(&x.verifier)),
                 Some(&ev),
-                Some(&admitted),
+                Some(admitted),
                 42,
             );
-            assert_eq!(resp.reason(), RejectionReason::PolicyRefused);
-            assert_eq!(resp.state(), ResponseState::Rejected, "still no mint");
+            let authority = outcome
+                .authority()
+                .expect("the exact case must be authorised");
+            assert_eq!(
+                authority.operation(),
+                OperationClass::IndependentGatekeeperReview
+            );
+            assert_eq!(authority.correlation(), r.correlation());
+            assert_eq!(authority.sequence(), SEQ);
+            assert_eq!(authority.service_epoch(), 42);
+            assert!(authority.is_bound_to(
+                x.verifier.connection_id(),
+                x.verifier.handshake_generation()
+            ));
+            assert_eq!(authority.delegation_id(), &D_ID);
+            assert_eq!(authority.binding_digest(), &binding_digest(&host_subject()));
+            assert_eq!(authority.candidate_digest(), &D_CANDIDATE);
+            assert_eq!(authority.parameter_digest(), &D_PARAMS);
+            assert_eq!(authority.admitted_cost_micro_usd(), 200_000);
+
+            // Rendered: admitted, and NOTHING RAN.
+            let resp = outcome.response();
+            assert_eq!(resp.state(), ResponseState::Accepted);
             assert_eq!(resp.result(), ResultClass::NotRun);
+            assert_eq!(resp.correlation(), r.correlation());
+            assert!(resp.answers(r.correlation(), 42));
+        }
+
+        /// AUTHORITY ALONE IS NOT COMPLETION. There is no execution evidence in this checkpoint and
+        /// no production way to make one, so a holder of a fresh authority cannot render Completed.
+        /// The only evidence constructor is `cfg(test)`, and even that must name the authority's
+        /// own correlation.
+        #[test]
+        fn a_fresh_authority_alone_cannot_render_completed() {
+            let mut x = Exact::new();
+            let f = facts(&x.delegation);
+            let ev = evidence(&x.delegation, &f);
+            let r = bound_request(1, &host_subject());
+            let admitted = admit(&x.session, &mut x.store, &r);
+            let authority = evaluate_protected_operation(
+                &r,
+                Some(&peer_for(&x.verifier)),
+                Some(&ev),
+                Some(admitted),
+                42,
+            )
+            .into_authority()
+            .expect("authorised");
+
+            // Evidence about ANOTHER correlation renders nothing.
+            let foreign = ExecutionOutcomeEvidence::for_test(
+                [2u8; CORRELATION_LEN],
+                ResultClass::Succeeded,
+                [6u8; EVIDENCE_REF_LEN],
+            );
+            assert!(ProtectedOperationResponse::completed(&authority, &foreign).is_none());
+
+            // Evidence about THIS correlation - obtainable here only through the test constructor -
+            // renders Completed, distinct from Accepted.
+            let own = ExecutionOutcomeEvidence::for_test(
+                *authority.correlation(),
+                ResultClass::Succeeded,
+                [6u8; EVIDENCE_REF_LEN],
+            );
+            let completed = ProtectedOperationResponse::completed(&authority, &own)
+                .expect("evidence for this authority");
+            assert_eq!(completed.state(), ResponseState::Completed);
+            assert_eq!(completed.result(), ResultClass::Succeeded);
+            let accepted = ProtectedOperationResponse::accepted(&authority);
+            assert_eq!(accepted.state(), ResponseState::Accepted);
+            assert_eq!(accepted.result(), ResultClass::NotRun);
+            assert_ne!(accepted.state(), completed.state());
+        }
+
+        /// ONE ADMISSION, ONE AUTHORITY. The admission is CONSUMED by evaluation and cannot be
+        /// presented again, and the session refuses to admit the same correlation twice - so a
+        /// replayed frame can never reach a fresh authority.
+        #[test]
+        fn a_replayed_request_cannot_reach_a_fresh_authority() {
+            let mut x = Exact::new();
+            let f = facts(&x.delegation);
+            let ev = evidence(&x.delegation, &f);
+            let r = bound_request(1, &host_subject());
+            let admitted = admit(&x.session, &mut x.store, &r);
+            let first = evaluate_protected_operation(
+                &r,
+                Some(&peer_for(&x.verifier)),
+                Some(&ev),
+                Some(admitted),
+                42,
+            );
+            assert!(first.authority().is_some());
+            // The admission moved into `first`; the only way to evaluate again is a NEW admission,
+            // and the session refuses one for a correlation it already admitted.
+            assert_eq!(
+                x.session
+                    .admit_request(&mut x.store, *r.correlation(), r.sequence())
+                    .unwrap_err(),
+                RequestAdmissionError::SequenceNotAdvancing
+            );
+            assert_eq!(
+                x.session
+                    .admit_request(&mut x.store, *r.correlation(), r.sequence() + 1)
+                    .unwrap_err(),
+                RequestAdmissionError::CorrelationReplayed
+            );
+            // With no admission, the replay is refused before any authority.
+            let replay =
+                evaluate_protected_operation(&r, Some(&peer_for(&x.verifier)), Some(&ev), None, 42);
+            assert!(replay.authority().is_none());
+            assert_eq!(
+                replay.response().reason(),
+                RejectionReason::CorrelationMismatch
+            );
         }
 
         /// AN ADMISSION FROM ANOTHER CONNECTION DOES NOT ANSWER THIS PEER. Same correlation, same
         /// sequence, admitted on a session bound to a different host-issued connection.
         #[test]
         fn an_admission_on_another_connection_is_refused() {
-            let c = FixtureClock::new(150);
+            let mut x = Exact::new();
             let this_conn = FixtureIpcSessionVerifier::new();
-            let other_conn = FixtureIpcSessionVerifier::new();
-            let s = session(&c, &other_conn);
-            let mut store = InMemoryRequestAdmissionStore::for_session(&s);
-            let v = verified(delegation());
-            let f = facts(&v);
-            let ev = evidence(&v, &f);
+            let f = facts(&x.delegation);
+            let ev = evidence(&x.delegation, &f);
             let r = bound_request(1, &host_subject());
-
-            let foreign = s.admit_request(&mut store, *r.correlation(), SEQ).unwrap();
-            let resp = evaluate_protected_operation(
+            let foreign = admit(&x.session, &mut x.store, &r); // admitted on x's connection, presented for this_conn's peer
+            let resp = eval_response(
                 &r,
                 Some(&peer_for(&this_conn)),
                 Some(&ev),
-                Some(&foreign),
+                Some(foreign),
                 42,
             );
+            assert_eq!(resp.reason(), RejectionReason::CorrelationMismatch);
+        }
+
+        /// A PEER FROM ANOTHER HANDSHAKE GENERATION IS NOT THIS PEER. The admission is genuine for the
+        /// connection; the peer context presented is from a re-handshake.
+        #[test]
+        fn a_peer_from_another_handshake_generation_is_refused() {
+            let mut x = Exact::new();
+            let f = facts(&x.delegation);
+            let ev = evidence(&x.delegation, &f);
+            let r = bound_request(1, &host_subject());
+            let admitted = admit(&x.session, &mut x.store, &r);
+            let stale_peer = TrustedPeerContext::for_admitted_connection(
+                x.verifier.connection_id(),
+                x.verifier.handshake_generation() + 1,
+            );
+            let resp = eval_response(&r, Some(&stale_peer), Some(&ev), Some(admitted), 42);
             assert_eq!(resp.reason(), RejectionReason::CorrelationMismatch);
         }
 
         /// AN ADMISSION FOR ANOTHER CORRELATION DOES NOT ANSWER THIS REQUEST.
         #[test]
         fn an_admission_for_another_correlation_is_refused() {
-            let c = FixtureClock::new(150);
-            let iv = FixtureIpcSessionVerifier::new();
-            let s = session(&c, &iv);
-            let mut store = InMemoryRequestAdmissionStore::for_session(&s);
-            let v = verified(delegation());
-            let f = facts(&v);
-            let ev = evidence(&v, &f);
-
-            let admitted = s
-                .admit_request(&mut store, [2u8; CORRELATION_LEN], SEQ)
-                .unwrap();
+            let mut x = Exact::new();
+            let f = facts(&x.delegation);
+            let ev = evidence(&x.delegation, &f);
+            let other = bound_request(2, &host_subject());
+            let admitted = admit(&x.session, &mut x.store, &other);
             let r = bound_request(1, &host_subject());
-            let resp = evaluate_protected_operation(
+            let resp = eval_response(
                 &r,
-                Some(&peer_for(&iv)),
+                Some(&peer_for(&x.verifier)),
                 Some(&ev),
-                Some(&admitted),
+                Some(admitted),
                 42,
             );
             assert_eq!(resp.reason(), RejectionReason::CorrelationMismatch);
@@ -2737,23 +3087,19 @@ mod tests {
         /// correlation at another sequence is a different request.
         #[test]
         fn an_admission_at_another_sequence_is_refused() {
-            let c = FixtureClock::new(150);
-            let iv = FixtureIpcSessionVerifier::new();
-            let s = session(&c, &iv);
-            let mut store = InMemoryRequestAdmissionStore::for_session(&s);
-            let v = verified(delegation());
-            let f = facts(&v);
-            let ev = evidence(&v, &f);
+            let mut x = Exact::new();
+            let f = facts(&x.delegation);
+            let ev = evidence(&x.delegation, &f);
             let r = bound_request(1, &host_subject());
-
-            let admitted = s
-                .admit_request(&mut store, *r.correlation(), SEQ + 1)
+            let admitted = x
+                .session
+                .admit_request(&mut x.store, *r.correlation(), SEQ + 1)
                 .unwrap();
-            let resp = evaluate_protected_operation(
+            let resp = eval_response(
                 &r,
-                Some(&peer_for(&iv)),
+                Some(&peer_for(&x.verifier)),
                 Some(&ev),
-                Some(&admitted),
+                Some(admitted),
                 42,
             );
             assert_eq!(resp.reason(), RejectionReason::SequenceRefused);
@@ -2763,24 +3109,166 @@ mod tests {
         /// on the binding — being fresh does not make a request about what the caller says.
         #[test]
         fn a_genuine_admission_does_not_rescue_a_wrong_binding() {
-            let c = FixtureClock::new(150);
-            let iv = FixtureIpcSessionVerifier::new();
-            let s = session(&c, &iv);
-            let mut store = InMemoryRequestAdmissionStore::for_session(&s);
-            let v = verified(delegation());
-            let f = facts(&v);
-            let ev = evidence(&v, &f);
+            let mut x = Exact::new();
+            let f = facts(&x.delegation);
+            let ev = evidence(&x.delegation, &f);
             let r = gatekeeper_request(1); // placeholder binding claim
-
-            let admitted = s.admit_request(&mut store, *r.correlation(), SEQ).unwrap();
-            let resp = evaluate_protected_operation(
+            let admitted = admit(&x.session, &mut x.store, &r);
+            let resp = eval_response(
                 &r,
-                Some(&peer_for(&iv)),
+                Some(&peer_for(&x.verifier)),
                 Some(&ev),
-                Some(&admitted),
+                Some(admitted),
                 42,
             );
             assert_eq!(resp.reason(), RejectionReason::BindingMismatch);
+        }
+
+        /// EVERY OTHER RUNG STILL REFUSES WITH A GENUINE ADMISSION PRESENT. The admission is the last
+        /// gate; it rescues nothing in front of it. One focused case per rung.
+        #[test]
+        fn a_genuine_admission_rescues_no_earlier_refusal() {
+            // No peer.
+            {
+                let mut x = Exact::new();
+                let f = facts(&x.delegation);
+                let ev = evidence(&x.delegation, &f);
+                let r = bound_request(1, &host_subject());
+                let admitted = admit(&x.session, &mut x.store, &r);
+                assert_eq!(
+                    eval_response(&r, None, Some(&ev), Some(admitted), 42).reason(),
+                    RejectionReason::PeerNotAuthenticated
+                );
+            }
+            // Stale service epoch.
+            {
+                let mut x = Exact::new();
+                let f = facts(&x.delegation);
+                let ev = evidence(&x.delegation, &f);
+                let mut r = bound_request(1, &host_subject());
+                r.claimed_service_epoch = 41;
+                let admitted = admit(&x.session, &mut x.store, &r);
+                assert_eq!(
+                    eval_response(
+                        &r,
+                        Some(&peer_for(&x.verifier)),
+                        Some(&ev),
+                        Some(admitted),
+                        42
+                    )
+                    .reason(),
+                    RejectionReason::ServiceEpochMismatch
+                );
+            }
+            // Locally revoked delegation: the facts' clock is fine, but the C4 rung refuses on
+            // the signed flag, and the delegation rung refuses locally-ended ones before facts
+            // ever exist. Here: signed-ended.
+            {
+                let mut x = Exact::new();
+                let mut d = delegation();
+                d.revoked_or_completed = true;
+                x.delegation = verified(d);
+                let f = facts(&x.delegation);
+                let ev = evidence(&x.delegation, &f);
+                let r = bound_request(1, &host_subject());
+                let admitted = admit(&x.session, &mut x.store, &r);
+                assert_eq!(
+                    eval_response(
+                        &r,
+                        Some(&peer_for(&x.verifier)),
+                        Some(&ev),
+                        Some(admitted),
+                        42
+                    )
+                    .reason(),
+                    RejectionReason::OwnerPresenceGateOpen
+                );
+            }
+            // Unknown cost.
+            {
+                let mut x = Exact::new();
+                let mut raw = base_facts();
+                raw.admitted_cost_micro_usd = None;
+                let f = facts_of(&x.delegation, raw);
+                let ev = evidence(&x.delegation, &f);
+                let r = bound_request(1, &host_subject());
+                let admitted = admit(&x.session, &mut x.store, &r);
+                assert_eq!(
+                    eval_response(
+                        &r,
+                        Some(&peer_for(&x.verifier)),
+                        Some(&ev),
+                        Some(admitted),
+                        42
+                    )
+                    .reason(),
+                    RejectionReason::OwnerPresenceGateOpen
+                );
+            }
+            // Another operation class, with everything else agreeing: never authorised.
+            for other in [
+                OperationClass::ProviderIdentityRead,
+                OperationClass::StagingRead,
+            ] {
+                let mut x = Exact::new();
+                let f = facts(&x.delegation);
+                let ev = evidence(&x.delegation, &f);
+                let mut subject = host_subject();
+                subject.operation = other;
+                let r = bound_request(1, &subject);
+                let admitted = admit(&x.session, &mut x.store, &r);
+                let outcome = evaluate_protected_operation(
+                    &r,
+                    Some(&peer_for(&x.verifier)),
+                    Some(&ev),
+                    Some(admitted),
+                    42,
+                );
+                assert!(
+                    outcome.authority().is_none(),
+                    "{other:?} must never be authorised"
+                );
+                assert_eq!(
+                    outcome.response().reason(),
+                    RejectionReason::OwnerPresenceGateOpen
+                );
+            }
+        }
+
+        /// PROVIDER IDENTITY READ AND STAGING READ CANNOT USE THE DELEGATED AUTHORITY PATH, even
+        /// with a delegation that (impossibly, but say it did) named them: the delegable set is
+        /// closed at the class, not at the record.
+        #[test]
+        fn provider_identity_read_and_staging_read_cannot_use_the_delegated_authority() {
+            for other in [
+                OperationClass::ProviderIdentityRead,
+                OperationClass::StagingRead,
+            ] {
+                let mut x = Exact::new();
+                let mut d = delegation();
+                d.operation = other;
+                x.delegation = verified(d);
+                let mut raw = base_facts();
+                raw.protected_effect_requested = false;
+                let f = facts_of(&x.delegation, raw);
+                let ev = evidence(&x.delegation, &f);
+                let mut subject = host_subject();
+                subject.operation = other;
+                let r = bound_request(1, &subject);
+                let admitted = admit(&x.session, &mut x.store, &r);
+                let outcome = evaluate_protected_operation(
+                    &r,
+                    Some(&peer_for(&x.verifier)),
+                    Some(&ev),
+                    Some(admitted),
+                    42,
+                );
+                assert!(outcome.authority().is_none());
+                assert_eq!(
+                    outcome.response().reason(),
+                    RejectionReason::OwnerPresenceGateOpen
+                );
+            }
         }
     }
 }
