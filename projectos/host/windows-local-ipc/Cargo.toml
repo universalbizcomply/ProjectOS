@@ -42,6 +42,12 @@ test-fixtures = [
     # ONLY place core fixtures are enabled; the live graph never enables it, so a production build never
     # gains core fixture authority.
     "projectos-host-core/test-fixtures",
+    # RUN-TO-COMPLETION HOST ATTESTATION §10A. The Host composition needs an ATTESTED INSTALLATION
+    # PROGRAMME to compose anything, and the only production route to one is a manifest signed with
+    # the owner's private key - which ProjectOS does not hold and must never hold. host-identity's
+    # fixture graph supplies the sealed value so the composition can be proven; it mints no owner
+    # authority, exposes no signing counterpart, and the live graph never enables it.
+    "projectos-host-identity/test-fixtures",
 ]
 
 [dependencies]

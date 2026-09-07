@@ -87,6 +87,16 @@ mod sealed {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct Seal;
 }
+
+/// RUN-TO-COMPLETION HOST ATTESTATION §10A — THE HOST'S OWN PRODUCTION COMPOSITION.
+///
+/// A CHILD MODULE, DELIBERATELY. Composition must build a [`HostResolvedRequestFacts`], and the only
+/// way to do that without a PUBLIC constructor is from inside this module's own subtree: Rust makes
+/// private fields and the private [`sealed::Seal`] visible to descendants and to nobody else. So the
+/// production route to facts is not `pub`, not `pub(crate)` and not reachable by any other module in
+/// this crate — it is a private function in the child below, and running the composition's ordered
+/// pass is the only way to reach it.
+pub mod host_composition;
 use sealed::Seal;
 
 /// The CLOSED set of protected operation classes. There is no `Other`, no numeric escape hatch and no
@@ -786,12 +796,21 @@ pub struct HostResolvedRequestFacts {
     now_epoch_s: u64,
 }
 
-/// FIXTURE INPUT for the facts a sealed host source does not yet supply, as NAMED FIELDS so a
-/// transposed digest is a build error rather than a wrong binding.
+/// THE HOST-RESOLVED MATERIAL for one request, as NAMED FIELDS so a transposed digest is a build
+/// error rather than a wrong binding.
 ///
-/// Compiled for this crate's tests and the non-default `test-fixtures` graph ONLY. It is not a rung
-/// of the ladder and it does not ship: a production build has no way to write these values down.
-#[cfg(any(test, feature = "test-fixtures"))]
+/// PLAIN DATA, AND IT AUTHORISES NOTHING. Holding one is not holding facts: it is a carrier, and the
+/// only things that can turn it into a [`HostResolvedRequestFacts`] are
+/// `HostResolvedRequestFacts::production_resolved` and the fixture beside it, both of which
+/// additionally require SEALED values a caller cannot fabricate. It was gated to the test graph
+/// while no production constructor existed; §10A gives it one, so the carrier ships — the seal that
+/// matters was never on this type.
+///
+/// EVERY FIELD IS SOMETHING THE HOST RESOLVED FOR ITSELF. The composition that fills this in reads
+/// each one off a named trusted source — the validated approved plan, the committed-byte reader at
+/// an immutable commit, the exact one-shot inbox bytes, the signed execution closure and the Host's
+/// own budget authority — and never off the request. A request carries digests; this carries
+/// answers, and [`evaluate_protected_operation`] exists to refuse the two when they disagree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HostResolvedFacts {
     pub plan: [u8; DELEGATION_DIGEST_LEN],

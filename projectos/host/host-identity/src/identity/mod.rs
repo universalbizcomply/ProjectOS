@@ -22,6 +22,9 @@ pub mod composite;
 pub mod errors;
 pub mod es256;
 pub mod hash;
+/// RUN-TO-COMPLETION HOST ATTESTATION §10A: the owner-signed source of the installation's own
+/// programme identity. Portable pure logic - no Windows gate, no filesystem.
+pub mod installation_programme;
 pub mod manifest;
 pub mod mode;
 pub mod packaged_authority;

@@ -1298,3 +1298,149 @@ fn equivalent_looking_path_spellings_are_still_refused() {
         );
     }
 }
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════════
+// RUN-TO-COMPLETION HOST ATTESTATION §10A — THE TRUSTED INSTALLATION PROGRAMME
+//
+// The selection rules are proven beside the parser they belong to. What is proven HERE is the one
+// thing that needs the real signed-closure fixtures: THE ORDER. The owner's signature over the whole
+// closure is established before a single allowlist byte is interpreted, and a closure that does not
+// verify refuses without the allowlist ever being consulted — however perfect that allowlist is.
+// ═════════════════════════════════════════════════════════════════════════════════════════════════
+
+use super::installation_programme::{
+    attest_under_policy, HostGovernedRoot, ProgrammeAttestationError,
+};
+
+/// A real allowlist document whose bytes the closure will attest.
+const REAL_ALLOWLIST: &str = concat!(
+    r#"{"projects":[{"projectId":"projectos","#,
+    r#""repository":"github.com/universalbizcomply/ProjectOS","#,
+    r#""governedRoot":"C:/dev/ProjectOS"}]}"#
+);
+
+/// A v2 manifest + committed bytes in which the allowlist artefact is the real document above.
+fn programme_fixture() -> (TrustManifest, &'static [u8]) {
+    let allowlist: &'static [u8] = REAL_ALLOWLIST.as_bytes();
+    let mut m = base_manifest();
+    m.manifest_version = EXECUTION_CLOSURE_MANIFEST_VERSION;
+    m.execution_closure = Some(ExecutionClosureManifest {
+        gatekeeper_broker: committed(contract::BROKER_REPOSITORY_RELATIVE_PATH, BROKER_BYTES),
+        installation_project_allowlist: committed(
+            contract::INSTALLATION_ALLOWLIST_REPOSITORY_RELATIVE_PATH,
+            allowlist,
+        ),
+        credential_adapter: committed(
+            contract::CREDENTIAL_ADAPTER_REPOSITORY_RELATIVE_PATH,
+            ADAPTER_BYTES,
+        ),
+    });
+    sign_test(&mut m);
+    (m, allowlist)
+}
+
+fn programme_committed(allowlist: &[u8]) -> CommittedClosureBytes<'_> {
+    CommittedClosureBytes {
+        gatekeeper_broker: Some(BROKER_BYTES),
+        installation_project_allowlist: Some(allowlist),
+        credential_adapter: Some(ADAPTER_BYTES),
+    }
+}
+
+fn governed_root() -> HostGovernedRoot {
+    HostGovernedRoot::from_installation_root(r"C:\dev\ProjectOS").expect("valid root")
+}
+
+/// THE POSITIVE CASE, through the identical verification order the production facade runs. Only the
+/// policy and the verifier differ, and neither is reachable from outside this crate.
+#[test]
+fn a_signed_execution_closure_attests_this_installations_programme() {
+    let (m, allowlist) = programme_fixture();
+    let attested = attest_under_policy(
+        &m,
+        Policy::Test,
+        &DeterministicTestVerifier,
+        &programme_committed(allowlist),
+        &governed_root(),
+    )
+    .expect("the closure verifies and the installation is listed");
+    // Digests, not names — and the two fields are genuinely different values.
+    assert_ne!(attested.project(), attested.repository());
+}
+
+/// THE ORDER. An UNSIGNED manifest refuses with a closure refusal even though the allowlist beneath
+/// it is perfect — so no governance document is ever read on behalf of bytes nobody signed.
+#[test]
+fn an_unsigned_manifest_refuses_before_the_allowlist_is_read() {
+    let (mut m, allowlist) = programme_fixture();
+    m.signature = String::new();
+    assert!(matches!(
+        attest_under_policy(
+            &m,
+            Policy::Test,
+            &DeterministicTestVerifier,
+            &programme_committed(allowlist),
+            &governed_root(),
+        ),
+        Err(ProgrammeAttestationError::ClosureRefused(_))
+    ));
+}
+
+/// SUBSTITUTED ALLOWLIST BYTES ARE REFUSED BY THE CLOSURE, not by the parser. An attacker who can
+/// write the working tree — or hand the Host any bytes at all — cannot introduce a programme, because
+/// the bytes must first hash to what the owner signed.
+#[test]
+fn substituted_allowlist_bytes_never_reach_the_parser() {
+    let (m, _) = programme_fixture();
+    let hostile = br#"{"projects":[{"projectId":"attacker","repository":"r","governedRoot":"C:/dev/ProjectOS"}]}"#;
+    assert!(matches!(
+        attest_under_policy(
+            &m,
+            Policy::Test,
+            &DeterministicTestVerifier,
+            &programme_committed(hostile),
+            &governed_root(),
+        ),
+        Err(ProgrammeAttestationError::ClosureRefused(
+            IdentityError::InstallationAllowlistHashMismatch
+        ))
+    ));
+}
+
+/// A GENUINELY SIGNED CLOSURE STILL REFUSES AN INSTALLATION IT DOES NOT LIST. Provenance is not
+/// relevance: the owner signing an allowlist says nothing about whether THIS root is in it.
+#[test]
+fn a_signed_closure_still_refuses_an_unlisted_installation() {
+    let (m, allowlist) = programme_fixture();
+    assert_eq!(
+        attest_under_policy(
+            &m,
+            Policy::Test,
+            &DeterministicTestVerifier,
+            &programme_committed(allowlist),
+            &HostGovernedRoot::from_installation_root(r"D:\elsewhere").expect("valid root"),
+        ),
+        Err(ProgrammeAttestationError::ProgrammeNotListed)
+    );
+}
+
+/// A VERSION 1 MANIFEST CANNOT ATTEST A PROGRAMME. It signed no closure, so it can satisfy none.
+#[test]
+fn a_version_1_manifest_cannot_attest_a_programme() {
+    let (_, allowlist) = programme_fixture();
+    let mut m = base_manifest();
+    m.execution_closure = None;
+    sign_test(&mut m);
+    assert!(matches!(
+        attest_under_policy(
+            &m,
+            Policy::Test,
+            &DeterministicTestVerifier,
+            &programme_committed(allowlist),
+            &governed_root(),
+        ),
+        Err(ProgrammeAttestationError::ClosureRefused(
+            IdentityError::ExecutionClosureManifestVersionTooLow
+        ))
+    ));
+}

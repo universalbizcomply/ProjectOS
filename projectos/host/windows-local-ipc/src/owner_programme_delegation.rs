@@ -152,6 +152,14 @@ pub enum DelegationRefusal {
     LocalStatusMismatch,
     /// The host's own clock could not produce a reading. Nothing is compared against a guess.
     ClockUnavailable,
+    /// The host's own durable record of this delegation's lifecycle could not be consulted.
+    ///
+    /// NOT "ACTIVE", AND NOT `NotLive` EITHER. "I could not ask" is a third answer, and folding it
+    /// into either of the other two would be a lie in a different direction each time: as `Active`
+    /// it would let a revoked programme run whenever the store was unavailable, and as `NotLive` it
+    /// would tell an operator the owner had ended a programme that is running perfectly well. It
+    /// refuses, like `NotLive` does, and it says something different.
+    LocalStatusUnavailable,
 }
 
 /// A signed delegation record, exactly as it was parsed. **A claim, not authority.**
@@ -398,6 +406,37 @@ impl ExpectedProgramme {
         }
     }
 
+    /// THE PRODUCTION ROUTE, and the only one: the programme an owner-signed execution closure says
+    /// this installation is.
+    ///
+    /// `pub(crate)`. No crate in the workspace can name it, so the only way to obtain an
+    /// `ExpectedProgramme` at all is to run `crate::host_composition::compose_protected_operation`,
+    /// whose very next step is the owner's signature. A public constructor would have been the
+    /// ordinary shape and would have meant any crate could state what programme this installation is.
+    ///
+    /// IT TAKES NO VALUES, ONLY A SEALED PROOF. There is no project argument, no repository
+    /// argument and no string of any kind, so there is nothing here for a caller — or for the record
+    /// under test — to choose. The sealed
+    /// [`projectos_host_identity::AttestedInstallationProgramme`] can be obtained in exactly one
+    /// way: by verifying the installed trust manifest's signature and its whole execution closure
+    /// over the installation's COMMITTED bytes, and then finding this Host's own governed root
+    /// listed in the allowlist those bytes are. A caller that could produce one has already
+    /// satisfied the owner's signature.
+    ///
+    /// This is a projection, not a second opinion. The digests are carried across unchanged, and
+    /// the rule that produced them lives in one place — `projectos-host-identity` — so there is no
+    /// second answer to "what is this installation's project identity?" for the two to drift apart.
+    #[must_use]
+    pub(crate) fn from_attested_installation(
+        attested: &projectos_host_identity::AttestedInstallationProgramme,
+    ) -> Self {
+        Self {
+            _seal: Seal,
+            project: *attested.project(),
+            repository: *attested.repository(),
+        }
+    }
+
     /// Digest of this installation's project id.
     #[must_use]
     pub fn project(&self) -> &[u8; DELEGATION_DIGEST_LEN] {
@@ -499,7 +538,69 @@ pub struct HostDelegationStatus {
     state: DelegationLocalState,
 }
 
+/// The private supertrait that seals [`DurableDelegationStateStore`].
+mod durable_state {
+    /// Unnameable outside this crate, so the trait below cannot be implemented downstream.
+    pub trait Sealed {}
+}
+
+/// THE HOST'S OWN DURABLE RECORD of a delegation's lifecycle.
+///
+/// SEALED, AND THAT IS THE WHOLE DESIGN. If a downstream crate could implement this it could answer
+/// `Active` for any delegation id it liked, and the host-local override that exists precisely to
+/// beat a stale signed `Active` would be worth nothing. Sealing it means "what does the Host itself
+/// say about this delegation?" is not a question a caller gets to answer.
+///
+/// NO PRODUCTION IMPLEMENTATION EXISTS IN THIS CHECKPOINT, and none is faked. The authoritative
+/// record must survive a Host restart — a revocation that a restart forgets is not a revocation —
+/// and restart-safe durable storage is its own checkpoint. An in-memory map shipped behind this
+/// trait would look like durability and would silently resurrect every ended programme on restart,
+/// so what ships instead is the SEAM: production has no store, [`HostDelegationStatus`] therefore
+/// has no production value, and delegation verification fails closed by construction.
+pub trait DurableDelegationStateStore: durable_state::Sealed {
+    /// The state the Host has durably recorded for exactly this delegation, or `None` when the
+    /// store cannot establish one.
+    ///
+    /// `None` IS "COULD NOT ASK", NEVER "NOTHING IS WRONG". An implementation that cannot reach its
+    /// storage, cannot decode what it found, or has no record of this id must answer `None` — and
+    /// `HostDelegationStatus::from_durable_store` turns that into a refusal.
+    fn recorded_state(
+        &self,
+        delegation_id: &[u8; DELEGATION_DIGEST_LEN],
+    ) -> Option<DelegationLocalState>;
+}
+
 impl HostDelegationStatus {
+    /// THE PRODUCTION ROUTE: ask the Host's own durable store about exactly this delegation.
+    ///
+    /// THERE IS NO STATE ARGUMENT. A constructor taking a `DelegationLocalState` would be a public
+    /// way to declare a delegation active, which is the one thing this type exists to prevent; the
+    /// state is read from a store no caller outside this crate can implement, keyed by an id the
+    /// caller does not choose (it comes off the decoded record).
+    ///
+    /// UNAVAILABLE FAILS CLOSED. An unknown delegation, an unreachable store and an undecodable
+    /// record are one answer — [`DelegationRefusal::LocalStatusUnavailable`] — and it is a refusal.
+    ///
+    /// `pub(crate)`, like every other §10A production constructor: the composition is the only
+    /// caller, and no crate in the workspace can reach it.
+    ///
+    /// # Errors
+    /// [`DelegationRefusal::LocalStatusUnavailable`] when the store cannot supply an authoritative
+    /// record for this delegation.
+    pub(crate) fn from_durable_store(
+        store: &dyn DurableDelegationStateStore,
+        delegation_id: &[u8; DELEGATION_DIGEST_LEN],
+    ) -> Result<Self, DelegationRefusal> {
+        let state = store
+            .recorded_state(delegation_id)
+            .ok_or(DelegationRefusal::LocalStatusUnavailable)?;
+        Ok(Self {
+            _seal: Seal,
+            delegation_id: *delegation_id,
+            state,
+        })
+    }
+
     /// FIXTURE ONLY. Compiled for this crate's tests and the non-default `test-fixtures` graph.
     #[cfg(any(test, feature = "test-fixtures"))]
     #[must_use]
@@ -524,6 +625,49 @@ impl HostDelegationStatus {
     #[must_use]
     pub fn state(&self) -> DelegationLocalState {
         self.state
+    }
+}
+
+/// FIXTURE ONLY: a store that has durably recorded exactly one delegation.
+///
+/// Compiled for this crate's tests and the non-default `test-fixtures` graph, so no shipped build
+/// can present it. ONE entry rather than a map, deliberately: the property under test is that a
+/// status answers exactly one delegation id, and a fixture that could answer several would make it
+/// easy to write a test that never exercises the mismatch.
+#[cfg(feature = "test-fixtures")]
+#[derive(Debug, Clone, Copy)]
+pub struct FixtureDurableDelegationStateStore {
+    recorded_id: [u8; DELEGATION_DIGEST_LEN],
+    recorded_state: DelegationLocalState,
+}
+
+#[cfg(feature = "test-fixtures")]
+impl FixtureDurableDelegationStateStore {
+    /// A fixture store holding one durable record.
+    #[must_use]
+    pub fn holding(
+        recorded_id: [u8; DELEGATION_DIGEST_LEN],
+        recorded_state: DelegationLocalState,
+    ) -> Self {
+        Self {
+            recorded_id,
+            recorded_state,
+        }
+    }
+}
+
+#[cfg(feature = "test-fixtures")]
+impl durable_state::Sealed for FixtureDurableDelegationStateStore {}
+
+#[cfg(feature = "test-fixtures")]
+impl DurableDelegationStateStore for FixtureDurableDelegationStateStore {
+    fn recorded_state(
+        &self,
+        delegation_id: &[u8; DELEGATION_DIGEST_LEN],
+    ) -> Option<DelegationLocalState> {
+        // A store that answered about a delegation it does not hold would be exactly the confusion
+        // the id check exists to prevent.
+        (*delegation_id == self.recorded_id).then_some(self.recorded_state)
     }
 }
 
@@ -683,6 +827,43 @@ impl OwnerSignatureOracle for FixtureSignatureOracle {
             && !signing_key_id.is_empty()
             && signature_hex.len() == SIGNATURE_LEN * 2
     }
+}
+
+/// TEST-ONLY: encode one well-formed, DECODABLE signed record.
+///
+/// `cfg(test)`, so it exists in NO shipped graph — not the default build and not the fixture build.
+/// It encodes a record; it signs nothing and verifies nothing, and the signature bytes it writes are
+/// filler that the embedded anchor will always refuse. It exists so a sibling module's tests can
+/// prove what the composition does with a record BEFORE the signature is reached, which is a
+/// question that needs a decodable record and nothing more.
+#[cfg(all(test, feature = "test-fixtures"))]
+pub(crate) fn test_decodable_record_bytes(
+    delegation_id: [u8; DELEGATION_DIGEST_LEN],
+    project: [u8; DELEGATION_DIGEST_LEN],
+    repository: [u8; DELEGATION_DIGEST_LEN],
+) -> Vec<u8> {
+    let mut body = [0u8; DELEGATION_BODY_LEN];
+    body[OFF_SCHEMA..OFF_SCHEMA + 4].copy_from_slice(&DELEGATION_SCHEMA_VERSION.to_be_bytes());
+    let key = b"projectos-signing-20260812";
+    body[OFF_KEY_ID..OFF_KEY_ID + key.len()].copy_from_slice(key);
+    body[OFF_DELEGATION_ID..OFF_DELEGATION_ID + DELEGATION_DIGEST_LEN]
+        .copy_from_slice(&delegation_id);
+    body[OFF_PROJECT..OFF_PROJECT + DELEGATION_DIGEST_LEN].copy_from_slice(&project);
+    body[OFF_REPOSITORY..OFF_REPOSITORY + DELEGATION_DIGEST_LEN].copy_from_slice(&repository);
+    body[OFF_PHASE_COUNT] = 1;
+    body[OFF_OPERATION] = OperationClass::IndependentGatekeeperReview.discriminant();
+    body[OFF_BUDGET..OFF_BUDGET + 8].copy_from_slice(&5_000_000u64.to_be_bytes());
+    body[OFF_EXPIRES..OFF_EXPIRES + 8].copy_from_slice(&2_000u64.to_be_bytes());
+
+    let mut out = Vec::with_capacity(SIGNED_DELEGATION_RECORD_LEN);
+    out.extend_from_slice(&MAGIC);
+    out.extend_from_slice(&body);
+    let mut alg = [0u8; ALGORITHM_LEN];
+    alg[..DELEGATION_SIGNATURE_ALGORITHM.len()]
+        .copy_from_slice(DELEGATION_SIGNATURE_ALGORITHM.as_bytes());
+    out.extend_from_slice(&alg);
+    out.extend_from_slice(&[0x9c; SIGNATURE_LEN]);
+    out
 }
 
 #[cfg(test)]

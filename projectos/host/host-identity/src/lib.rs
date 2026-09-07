@@ -83,6 +83,20 @@ pub use identity::manifest::{
 /// match it, and a consumer that cannot ask would have a manifest field it is unable to enforce.
 pub use identity::{verify_execution_closure, CommittedClosureBytes};
 
+/// RUN-TO-COMPLETION HOST ATTESTATION §10A — THE TRUSTED INSTALLATION PROGRAMME.
+///
+/// Exported beside the closure it is derived from. `attest_installation_programme` is the ONLY route
+/// to an `AttestedInstallationProgramme`, it fixes the production policy and the embedded anchor
+/// internally, and the sealed value it returns is what the Host composition turns into the
+/// `ExpectedProgramme` a delegation is checked against — so an installation can never be told what
+/// programme it is by the record under test, by a request, or by anything in the working tree.
+pub use identity::installation_programme::{
+    attest_installation_programme, project_identity_digest, repository_identity_digest,
+    AttestedInstallationProgramme, HostGovernedRoot, ProgrammeAttestationError,
+    MAX_ALLOWLIST_BYTES, MAX_ALLOWLIST_ENTRIES, PROGRAMME_IDENTITY_DIGEST_LEN,
+    PROGRAMME_IDENTITY_DOMAIN,
+};
+
 /// Verify a manifest's detached signature AGAINST THE EMBEDDED PRODUCTION ANCHOR, and nothing else.
 ///
 /// WHY THIS IS A FUNCTION AND NOT THE TRAIT. Re-exporting `TrustManifestSignatureVerifier` and

@@ -364,9 +364,11 @@ pub use operation_contract::{
 //     claim, and holding one satisfies nothing because the evaluator will not accept it.
 //   * `VerifiedOwnerProgrammeDelegation` — sealed, no public constructor. A consumer can receive and
 //     read one; it can never make one.
-//   * `HostResolvedRequestFacts` — sealed; since §9B it has NO production constructor (the fixture
-//     one is `cfg`-gated), and even that demands the verified delegation, the sealed programme and
-//     the sealed clock reading. Fabricated facts are not a rung of their own.
+//   * `HostResolvedRequestFacts` — sealed: private fields, no `Default`, no `From`, no serde. Its
+//     sole production mint is private to the Host composition module (§10A), so no other module in
+//     this crate and no crate anywhere can call it; the `cfg`-gated fixture is the only other route.
+//     Both demand the verified delegation, the sealed programme and the sealed clock reading.
+//     Fabricated facts are not a rung of their own.
 //   * `GatekeeperDelegationEvidence` — a borrow of the two sealed values. The caller's only claim
 //     about the subject is the binding digest on the wire. Assembling it is not a way around the
 //     ladder.
@@ -389,10 +391,11 @@ pub use operation_contract::{
 //     production constructor in this checkpoint (the durable record is the persistence rung), so a
 //     shipped graph cannot present a status and verification fails closed by construction.
 //
-// WHAT IS DELIBERATELY ABSENT: `HostResolvedFacts`, the named-field FIXTURE input. It is compiled
-// only under `test-fixtures`, so a production build has no way to write host facts down — they must
-// be READ OFF sealed sources when the composition rung wires them.
-#[cfg(feature = "test-fixtures")]
+// RUN-TO-COMPLETION HOST ATTESTATION §10A. `HostResolvedFacts` is a PUBLIC, PLAIN CARRIER of the
+// material the Host resolved for one request, and it is NOT authority: it carries no seal, and
+// stating one grants nothing. It ships (it was `test-fixtures`-only while no production constructor
+// existed) because the composition fills it from its own trusted sources. Turning one into the
+// sealed `HostResolvedRequestFacts` is the separate, guarded step — see the mint note above.
 pub use operation_contract::HostResolvedFacts;
 pub use operation_contract::{
     binding_digest, BindingSubject, BINDING_DIGEST_DOMAIN, BINDING_DIGEST_SCHEMA_VERSION,
@@ -400,6 +403,47 @@ pub use operation_contract::{
 pub use owner_programme_delegation::{
     DelegationLocalState, HostClockReading, HostDelegationStatus,
 };
+
+// RUN-TO-COMPLETION HOST ATTESTATION §10A — THE HOST'S OWN PRODUCTION COMPOSITION.
+//
+// `compose_protected_operation` is the ONE ordered pass in which the Host assembles, from its own
+// trusted sources, every prerequisite the closed §9 chain requires — and then asks that chain. It
+// mints no authority: the sole mint is still the tail of `evaluate_protected_operation`, which
+// re-checks each of these against the caller's claims and against the owner's record.
+//
+// WHAT IS DELIBERATELY ABSENT FROM THIS LIST, and it is the point of it: the production routes to
+// `ExpectedProgramme`, `HostDelegationStatus` and `HostResolvedRequestFacts`. The first two are
+// `pub(crate)` and the third is private to the composition's own module, so no crate in the
+// workspace — and, for the facts, no other module in THIS crate — can state what programme this
+// installation is, whether a delegation is still live, or what the Host resolved for a request.
+//
+// The ports ARE here, because a port is Host code and an adapter has to be wireable. Each one's own
+// documentation names the cross-check that makes a wrong answer a refusal rather than an escalation.
+pub use operation_contract::host_composition::{
+    compose_protected_operation, AdmittedCostSource, BudgetRefusal, BudgetReservation,
+    CanonicalBudgetLedger, CommittedCandidateSource, ComposedProtectedOperation,
+    CompositionRefusal, HostPlanAuthority, HostRequestSources, OneShotRequestSubject,
+    SignedExecutionClosureFacts, COMPOSED_OPERATION, MAX_OUTSTANDING_RESERVATIONS,
+};
+
+/// FIXTURE ONLY. Non-default graph; a shipped build cannot name it, so it cannot state a budget
+/// position.
+#[cfg(feature = "test-fixtures")]
+pub use operation_contract::host_composition::FixtureBudgetLedger;
+
+// RUN-TO-COMPLETION HOST ATTESTATION §10A — THE HOST-OWNED DELEGATION STATE SEAM.
+//
+// `DurableDelegationStateStore` is exported so the Host composition can be handed one; it is SEALED
+// by a private supertrait, so exporting the name lets a caller NAME a store and never implement one.
+// No production implementation exists in this checkpoint and none is faked: restart-safe durable
+// storage is its own checkpoint, and an in-memory map behind this trait would resurrect every
+// revoked programme on restart while looking like durability. Until that store exists,
+// `HostDelegationStatus` has no production value and delegation verification fails closed.
+pub use owner_programme_delegation::DurableDelegationStateStore;
+
+/// FIXTURE ONLY. Non-default graph; a shipped build cannot name it.
+#[cfg(feature = "test-fixtures")]
+pub use owner_programme_delegation::FixtureDurableDelegationStateStore;
 
 // THE DURABLE OWNER PROGRAMME DELEGATION — the record the owner signs once and the host verifies
 // while the owner is away. This is the production provenance for
