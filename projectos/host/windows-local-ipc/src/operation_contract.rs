@@ -97,6 +97,19 @@ mod sealed {
 /// this crate — it is a private function in the child below, and running the composition's ordered
 /// pass is the only way to reach it.
 pub mod host_composition;
+
+/// RUN-TO-COMPLETION HOST ATTESTATION §10C — THE HOST'S OWN DURABLE REQUEST-REPLAY HISTORY.
+///
+/// A CHILD MODULE FOR THE SAME REASON [`host_composition`] is one. The governed request identity is
+/// derived from the Host's SEALED [`HostResolvedRequestFacts`] — its binding subject and its
+/// parameter digest — and reading those without a public accessor is only possible from inside this
+/// module's own subtree. Putting the replay history in a sibling module would have meant widening
+/// the closed §9B facts type with public getters purely so persistence could reach it, which is the
+/// kind of change §10C is explicitly not allowed to make.
+///
+/// IT CHANGES NOTHING ABOVE IT. This declaration is the only edit §10C makes to this file: no
+/// authority type, no mint, no refusal variant, no evaluation order and no wire shape moves.
+pub mod request_replay;
 use sealed::Seal;
 
 /// The CLOSED set of protected operation classes. There is no `Other`, no numeric escape hatch and no

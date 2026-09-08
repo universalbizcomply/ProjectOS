@@ -44,6 +44,7 @@ pub mod manifest;
 pub mod operation_record;
 pub mod plan_record;
 pub mod project_registry;
+pub mod request_replay;
 pub mod trust_policy;
 pub mod version;
 
@@ -74,4 +75,5 @@ pub use plan_record::{
     ProviderPolicyDto, RepositoryPolicyDto, ResidueDto,
 };
 pub use project_registry::ProjectRegistryDto;
+pub use request_replay::{RequestReplayRecordDto, RequestReplayStateDto};
 pub use trust_policy::TrustPolicyDto;

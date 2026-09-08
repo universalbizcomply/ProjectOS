@@ -17,7 +17,7 @@ use projectos_host_persistence::version::JOURNAL_RECORD_SCHEMA;
 use projectos_host_persistence::{
     ApprovalRecordDto, AuditRecordDto, CredentialEnvelopeDto, CredentialMetadataDto,
     DelegationLifecycleRecordDto, EmergencyStopDto, JournalRecordDto, OperationRecordDto,
-    PlanRecordDto, ProjectRegistryDto, TargetFamilyDto, TrustPolicyDto,
+    PlanRecordDto, ProjectRegistryDto, RequestReplayRecordDto, TargetFamilyDto, TrustPolicyDto,
 };
 
 use crate::error::DurableStoreError;
@@ -224,6 +224,9 @@ pub(crate) fn validate_payload_family(
         TargetFamilyDto::Plan => PlanRecordDto::parse_json(payload).and_then(|d| d.validate()),
         TargetFamilyDto::DelegationLifecycle => {
             DelegationLifecycleRecordDto::parse_json(payload).and_then(|d| d.validate())
+        }
+        TargetFamilyDto::RequestReplay => {
+            RequestReplayRecordDto::parse_json(payload).and_then(|d| d.validate())
         }
     };
     result.map_err(|_| DurableStoreError::InvalidInput)

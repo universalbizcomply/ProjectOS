@@ -22,6 +22,8 @@ pub const AUDIT_RECORD_SCHEMA: u32 = 1;
 pub const PLAN_RECORD_SCHEMA: u32 = 1;
 /// Durable owner-delegation lifecycle record schema version.
 pub const DELEGATION_LIFECYCLE_SCHEMA: u32 = 1;
+/// Durable governed-request replay record schema version.
+pub const REQUEST_REPLAY_SCHEMA: u32 = 1;
 /// Protected-state manifest schema version.
 pub const MANIFEST_SCHEMA: u32 = 1;
 /// Journal/transaction record schema version.

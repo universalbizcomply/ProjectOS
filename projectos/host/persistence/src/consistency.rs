@@ -96,7 +96,12 @@ pub fn validate_journal_targets_manifest(
         // durable store advances all family revisions uniformly with the store revision).
         // Delegation-lifecycle records track the manifest's generic record revision for the same
         // reason plan records do: the durable store advances all family revisions uniformly.
-        TargetFamilyDto::Plan | TargetFamilyDto::DelegationLifecycle => manifest.record_revision,
+        // Request-replay records track the manifest's generic record revision for the same reason
+        // plan and delegation-lifecycle records do: the durable store advances all family revisions
+        // uniformly with the store revision.
+        TargetFamilyDto::Plan
+        | TargetFamilyDto::DelegationLifecycle
+        | TargetFamilyDto::RequestReplay => manifest.record_revision,
     };
     if journal.target_revision <= current {
         return Err(PersistError::InvalidChainReference);

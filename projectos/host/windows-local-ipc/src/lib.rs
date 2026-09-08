@@ -238,6 +238,84 @@
 //! }
 //! ```
 //!
+//!
+//! RUN-TO-COMPLETION HOST ATTESTATION §10C. The replay ledger is sealed for the same reason, and it
+//! matters more here than anywhere else in the chain: a downstream ledger that answered "fresh" to
+//! everything would silently restore the exact behaviour §10C exists to remove — a Host restart
+//! turning already-consumed governed work back into fresh work. The sealing supertrait is
+//! unnameable outside this crate, so no outside type can satisfy the bound:
+//!
+//! ```compile_fail
+//! use projectos_host_windows_local_ipc::{
+//!     ConsumedRequest, ReplayRefusal, RequestReplayIdentity, RequestReplayLedger,
+//! };
+//! struct AlwaysFresh;
+//! impl RequestReplayLedger for AlwaysFresh {
+//!     fn consume(
+//!         &mut self,
+//!         _identity: &RequestReplayIdentity,
+//!     ) -> Result<ConsumedRequest, ReplayRefusal> {
+//!         unimplemented!()
+//!     }
+//! }
+//! ```
+//!
+//! …and it cannot point the production store at a directory of its own choosing. A fresh directory
+//! is a perfect replay oracle — every governed request in it reads back fresh — which is precisely
+//! why the root is a capability with private fields and no public constructor:
+//!
+//! ```compile_fail
+//! use projectos_host_windows_local_ipc::HostOwnedRequestReplayRoot;
+//! let _mine = HostOwnedRequestReplayRoot { root: std::path::PathBuf::from("C:\\attacker") };
+//! ```
+//!
+//! ```compile_fail
+//! use projectos_host_windows_local_ipc::DurableRequestReplayFileStore;
+//! let _ = DurableRequestReplayFileStore::open("C:\\attacker");
+//! ```
+//!
+//! …and it cannot fabricate the question either. A caller that could build a
+//! [`RequestReplayIdentity`] from bytes could present one that has never been consumed and replay
+//! under it, so there is no such constructor: the only production route reads the delegation id off
+//! a sealed verified delegation and the two digests off sealed host-resolved facts.
+//!
+//! ```compile_fail
+//! use projectos_host_windows_local_ipc::RequestReplayIdentity;
+//! let _forged = RequestReplayIdentity { digest: [0u8; 32] };
+//! ```
+//!
+//! The fixture constructor beside it, `RequestReplayIdentity::fixture_over`, IS reachable from an
+//! external crate — but only in the non-default `test-fixtures` graph, exactly like every other
+//! fixture here. That is worth stating precisely rather than implying otherwise: these doctests are
+//! compiled with all features on, so a `compile_fail` block asserting the fixture is unreachable
+//! would COMPILE and fail the suite. (It did, which is how this wording was arrived at.) The claim
+//! that holds without qualification is the one above: the digest field is private, so no build can
+//! write an identity down directly, and a shipped build has no fixture either.
+//!
+//! …and a `ConsumedRequest` converts into no authority. It is not an admission, not an authorised
+//! operation, and not a permit — it has no conversion at all:
+//!
+//! ```compile_fail
+//! use projectos_host_windows_local_ipc::ConsumedRequest;
+//! use projectos_host_core::AdmittedRequest;
+//! fn f(c: ConsumedRequest) -> AdmittedRequest { c.into() }
+//! ```
+//!
+//! …and the positive controls, so each refusal above is about the SEAL rather than a name that does
+//! not resolve. Every type is public, nameable and usable as a bound:
+//!
+//! ```
+//! use projectos_host_windows_local_ipc::{
+//!     ConsumedRequest, ReplayRefusal, RequestReplayIdentity, RequestReplayLedger,
+//!     REPLAY_IDENTITY_DOMAIN, REPLAY_IDENTITY_LEN, REPLAY_IDENTITY_SCHEMA_VERSION,
+//! };
+//! fn take<L: RequestReplayLedger + ?Sized>(_l: &L) {}
+//! fn read(i: &RequestReplayIdentity) -> &[u8; REPLAY_IDENTITY_LEN] { i.as_bytes() }
+//! fn answers(c: &ConsumedRequest, i: &RequestReplayIdentity) -> bool { c.answers(i) }
+//! fn refusal() -> ReplayRefusal { ReplayRefusal::AlreadyConsumed }
+//! assert_eq!(REPLAY_IDENTITY_DOMAIN.len(), 32);
+//! assert_eq!(REPLAY_IDENTITY_SCHEMA_VERSION, 1);
+//! ```
 //! …and the positive controls, so each refusal above is about the SEAL and not about a name that
 //! does not resolve. The production clock reading exists and takes nothing; the sealed types are
 //! nameable and readable; the binding digest is a public pure function over plain data:
@@ -515,6 +593,44 @@ pub use owner_programme_delegation::durable_store::{
 /// FIXTURE ONLY. Non-default graph; a shipped build cannot name it.
 #[cfg(feature = "test-fixtures")]
 pub use owner_programme_delegation::FixtureDurableDelegationStateStore;
+
+// RUN-TO-COMPLETION HOST ATTESTATION §10C — THE DURABLE REQUEST-REPLAY HISTORY.
+//
+// §9A refuses a replayed request for the life of ONE connection, in memory. A Host restart discards
+// that history AND regenerates every field the caller or the transport could be distinguished by:
+// the connection identity, the handshake generation, the session digest and the service epoch are
+// all new, and the correlation and sequence were the caller's to choose in the first place. So a
+// governed request that had already been consumed became fresh again simply because the service
+// restarted. `DurableRequestReplayFileStore` closes that: it records one bounded terminal record per
+// GOVERNED REQUEST IDENTITY - a digest over the owner's delegation id, the Host's binding digest and
+// the Host's parameter digest, none of which a restart changes and none of which the caller supplies
+// - through the same accepted durable protected-store engine §10B reuses.
+//
+// `RequestReplayLedger` is exported so the Host composition can be handed one; it is SEALED by a
+// private supertrait, so exporting the name lets a caller NAME a ledger and never implement one. A
+// downstream ledger that always answered "fresh" would be the whole attack.
+//
+// IT IS STILL UNREACHABLE IN A DEFAULT BUILD, for the reason §10B's store is: opening it requires a
+// `HostOwnedRequestReplayRoot` whose PRODUCTION mint is absent, because resolving the real
+// ProgramData state root is installation composition and inventing one here - from an environment
+// variable, the working directory, a literal or a request field - would be fabricating installation
+// truth. A fresh directory is a perfect replay oracle, which is exactly why the path may not be a
+// caller's to choose. So a default build constructs no root, opens no store, supplies no ledger, and
+// `compose_protected_operation` refuses.
+pub use operation_contract::request_replay::durable_store::{
+    DurableRequestReplayFileStore, HostOwnedRequestReplayRoot, MAX_REPLAY_RECORDS,
+    MAX_REPLAY_RECORD_BYTES, REQUEST_REPLAY_RELATIVE_ROOT,
+};
+pub use operation_contract::request_replay::{
+    ConsumedRequest, ReplayRefusal, RequestReplayIdentity, RequestReplayLedger,
+    REPLAY_IDENTITY_DOMAIN, REPLAY_IDENTITY_LEN, REPLAY_IDENTITY_SCHEMA_VERSION,
+};
+
+/// FIXTURE ONLY. Non-default graph; a shipped build cannot name it — and no restart, crash or
+/// concurrency proof may use it, because an in-memory ledger forgets exactly what §10C exists to
+/// remember.
+#[cfg(feature = "test-fixtures")]
+pub use operation_contract::request_replay::FixtureRequestReplayLedger;
 
 // THE DURABLE OWNER PROGRAMME DELEGATION — the record the owner signs once and the host verifies
 // while the owner is away. This is the production provenance for

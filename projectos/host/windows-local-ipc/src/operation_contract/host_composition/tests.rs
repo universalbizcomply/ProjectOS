@@ -17,6 +17,10 @@
 use super::*;
 
 use crate::fixture_session::fixture_bound_session;
+use crate::operation_contract::request_replay::{
+    AlwaysFreshReplayLedger, FixtureRequestReplayLedger, RefusingReplayLedger, ReplayRefusal,
+    RequestReplayIdentity, RequestReplayLedger,
+};
 use crate::operation_contract::{
     binding_digest, BindingSubject, OwnerProgrammeDelegation, RejectionReason, ResponseState,
     APPROVAL_REF_LEN, MAX_DELEGATED_PHASES,
@@ -235,6 +239,10 @@ struct Rig {
     cost: Cost,
     inbox: Inbox,
     budget: FixtureBudgetLedger,
+    /// The HOST-WIDE replay history (§10C). It belongs to the rig rather than to `Live` on purpose:
+    /// replay protection that lived on the session would be forgotten with the session, which is
+    /// the whole failure this checkpoint closes.
+    replay: FixtureRequestReplayLedger,
 }
 
 impl Rig {
@@ -247,6 +255,7 @@ impl Rig {
             cost: Cost(Some(COST)),
             inbox: Inbox::holding(SUBJECT_DIGEST, correlation(seed)),
             budget: FixtureBudgetLedger::holding(CEILING, COMMITTED),
+            replay: FixtureRequestReplayLedger::empty(),
         }
     }
 }
@@ -307,6 +316,39 @@ fn compose(
         &mut rig.budget,
         &live.session,
         &mut live.store,
+        &mut rig.replay,
+        &peer,
+        request,
+        EPOCH,
+    )
+}
+
+/// Compose one request against an EXPLICIT replay ledger, for the §10C proofs that need to supply a
+/// refusing or an always-fresh one.
+fn compose_with_replay(
+    live: &mut Live,
+    rig: &mut Rig,
+    replay: &mut dyn RequestReplayLedger,
+    request: &ProtectedOperationRequest,
+) -> Result<ComposedProtectedOperation, CompositionRefusal> {
+    let v = verified();
+    let peer = live.peer();
+    let mut sources = HostRequestSources {
+        plan: rig.plan.as_ref(),
+        closure: &rig.closure,
+        candidate: &rig.candidate,
+        cost: &rig.cost,
+        subject: &mut rig.inbox,
+    };
+    compose_verified(
+        &v,
+        &programme(),
+        &clock(),
+        &mut sources,
+        &mut rig.budget,
+        &live.session,
+        &mut live.store,
+        replay,
         &peer,
         request,
         EPOCH,
@@ -847,6 +889,7 @@ fn an_unsigned_record_never_reaches_the_delegation_registry() {
         &mut rig.budget,
         &live.session,
         &mut live.store,
+        &mut rig.replay,
         &peer,
         &request(1, 1),
         EPOCH,
@@ -917,6 +960,7 @@ fn registry_membership_is_indistinguishable_to_an_unsigned_caller() {
             &mut rig.budget,
             &live.session,
             &mut live.store,
+            &mut rig.replay,
             &peer,
             &request(1, 1),
             EPOCH,
@@ -978,6 +1022,7 @@ fn a_record_for_another_installation_stops_before_the_registry() {
         &mut rig.budget,
         &live.session,
         &mut live.store,
+        &mut rig.replay,
         &peer,
         &request(1, 1),
         EPOCH,
@@ -1032,6 +1077,7 @@ fn an_active_local_state_still_cannot_manufacture_an_owner_signature() {
         &mut rig.budget,
         &live.session,
         &mut live.store,
+        &mut rig.replay,
         &peer,
         &request(1, 1),
         EPOCH,
@@ -1327,6 +1373,7 @@ fn the_owners_ceiling_binds_even_when_the_installation_could_afford_it() {
         &mut rig.budget,
         &live.session,
         &mut live.store,
+        &mut rig.replay,
         &peer,
         &request(1, 1),
         EPOCH,
@@ -1509,6 +1556,7 @@ fn a_ledger_that_misreports_the_admitting_ceiling_is_refused() {
         &mut lying,
         &live.session,
         &mut live.store,
+        &mut rig.replay,
         &peer,
         &request(1, 1),
         EPOCH,
@@ -1531,4 +1579,337 @@ fn a_ledger_that_misreports_the_admitting_ceiling_is_refused() {
         rig.inbox.asks, 0,
         "the confirmation refuses before the inbox is spent"
     );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// RUN-TO-COMPLETION HOST ATTESTATION §10C — THE DURABLE REPLAY GATE, AS THE COMPOSITION USES IT
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+//
+// The STORE's own properties - restart, corruption, concurrency, capacity - are proven against real
+// bytes in `request_replay::durable_store::tests`. What is proven HERE is the part only the
+// composition can answer: that the gate is consulted at all, that it is consulted with the identity
+// the HOST resolved rather than anything the caller sent, that its refusal releases what was
+// reserved, and that it sits between the facts and the mint.
+
+/// A rig whose one-shot inbox answers for a DIFFERENT correlation, with the SAME subject bytes.
+///
+/// This is the replayer's best move made concrete: the same governed work, presented under a fresh
+/// correlation. Nothing about the subject changed, so the parameter digest is identical.
+fn rig_for(seed: u8) -> Rig {
+    let mut rig = Rig::exact(seed);
+    rig.inbox = Inbox::holding(SUBJECT_DIGEST, correlation(seed));
+    rig
+}
+
+#[test]
+fn the_same_governed_work_is_refused_under_a_new_correlation_sequence_and_session() {
+    // CASE B AND CASE C TOGETHER, at the composition. The FIRST request composes. The second
+    // presents the same governed work - same delegation, same binding subject, same inbox bytes -
+    // but changes every single thing a Host restart would have changed for free: a NEW correlation,
+    // a NEW sequence, and a NEW live session with its own connection id, handshake generation,
+    // session digest and empty section 9A admission history.
+    //
+    // A HOST-WIDE LEDGER IS THE ONLY THING THAT SURVIVES ALL OF IT, which is exactly why the replay
+    // history cannot live on the session.
+    let mut replay = FixtureRequestReplayLedger::empty();
+
+    let mut first_live = Live::open();
+    let mut first_rig = rig_for(1);
+    compose_with_replay(&mut first_live, &mut first_rig, &mut replay, &request(1, 1))
+        .expect("the first presentation of this governed work is authorised");
+    assert_eq!(replay.recorded(), 1);
+
+    // The "restart": a completely new session, a new admission history, a new correlation, and a
+    // sequence starting again from 1.
+    let mut second_live = Live::open();
+    let mut second_rig = rig_for(2);
+    let outcome = compose_with_replay(
+        &mut second_live,
+        &mut second_rig,
+        &mut replay,
+        &request(2, 1),
+    );
+    assert!(
+        matches!(
+            outcome,
+            Err(CompositionRefusal::ReplayRefused(
+                ReplayRefusal::AlreadyConsumed
+            ))
+        ),
+        "the same governed work was authorised twice, got {outcome:?}"
+    );
+    assert_eq!(
+        replay.recorded(),
+        1,
+        "a refused request must add nothing to the history"
+    );
+}
+
+#[test]
+fn without_the_gate_the_same_work_would_run_twice() {
+    // THE NEGATIVE CONTROL. If this did not pass, the refusal above might be coming from the
+    // section 9A admission, the inbox, or the budget rather than from section 10C, and the gate
+    // would be proving nothing. With a ledger that always answers fresh, the identical replay
+    // composes.
+    let mut always_fresh = AlwaysFreshReplayLedger;
+
+    let mut first_live = Live::open();
+    let mut first_rig = rig_for(1);
+    compose_with_replay(
+        &mut first_live,
+        &mut first_rig,
+        &mut always_fresh,
+        &request(1, 1),
+    )
+    .expect("first");
+
+    let mut second_live = Live::open();
+    let mut second_rig = rig_for(2);
+    compose_with_replay(
+        &mut second_live,
+        &mut second_rig,
+        &mut always_fresh,
+        &request(2, 1),
+    )
+    .expect("a ledger that always says fresh lets the replay through - that is the point");
+}
+
+#[test]
+fn genuinely_new_work_is_not_blocked_by_an_earlier_consumption() {
+    // The opposite property: replay protection must not end the programme. A DIFFERENT inbox body
+    // is different work, and it composes even though an earlier request has been consumed.
+    const OTHER_SUBJECT: [u8; BINDING_DIGEST_LEN] = [0x7e; BINDING_DIGEST_LEN];
+    let mut replay = FixtureRequestReplayLedger::empty();
+
+    let mut first_live = Live::open();
+    let mut first_rig = rig_for(1);
+    compose_with_replay(&mut first_live, &mut first_rig, &mut replay, &request(1, 1))
+        .expect("first");
+
+    let mut second_live = Live::open();
+    let mut second_rig = rig_for(2);
+    // A different review subject: the Host reads different bytes, so the parameter digest differs.
+    second_rig.inbox = Inbox::holding(OTHER_SUBJECT, correlation(2));
+    let other_request = ProtectedOperationRequest::new(
+        correlation(2),
+        1,
+        EPOCH,
+        exact_binding(),
+        OperationClass::IndependentGatekeeperReview,
+        approval_ref(),
+        OTHER_SUBJECT,
+    );
+    compose_with_replay(
+        &mut second_live,
+        &mut second_rig,
+        &mut replay,
+        &other_request,
+    )
+    .expect("different parameters are different work and must still be authorisable");
+    assert_eq!(replay.recorded(), 2);
+}
+
+#[test]
+fn every_replay_refusal_releases_the_reservation() {
+    // A reserved-then-refused request that kept its reservation would drain the owner's ceiling
+    // without anything ever being billed - the same rule every other refusal after step 8 obeys.
+    for refusal in [
+        ReplayRefusal::AlreadyConsumed,
+        ReplayRefusal::StateRootUnusable,
+        ReplayRefusal::StoreUnavailable,
+        ReplayRefusal::HistoryUnreadable,
+        ReplayRefusal::CapacityExhausted,
+        ReplayRefusal::WriteRefused,
+    ] {
+        let mut live = Live::open();
+        let mut rig = Rig::exact(1);
+        let mut ledger = RefusingReplayLedger::always(refusal);
+        let outcome = compose_with_replay(&mut live, &mut rig, &mut ledger, &request(1, 1));
+        assert!(
+            matches!(outcome, Err(CompositionRefusal::ReplayRefused(got)) if got == refusal),
+            "{refusal:?} did not surface as a replay refusal, got {outcome:?}"
+        );
+        assert_eq!(ledger.asked(), 1, "the gate must be consulted exactly once");
+        assert_eq!(
+            rig.budget.available_micro_usd(),
+            CEILING - COMMITTED,
+            "{refusal:?} left capacity reserved for a request that never ran"
+        );
+    }
+}
+
+#[test]
+fn an_unavailable_history_refuses_rather_than_assuming_freshness() {
+    // FAIL CLOSED IS THE WHOLE POINT of the taxonomy. A store the Host cannot reach is not a store
+    // that says nothing has run; every one of these is a refusal, and none of them composes.
+    for refusal in [
+        ReplayRefusal::StateRootUnusable,
+        ReplayRefusal::StoreUnavailable,
+        ReplayRefusal::HistoryUnreadable,
+    ] {
+        let mut live = Live::open();
+        let mut rig = Rig::exact(1);
+        let mut ledger = RefusingReplayLedger::always(refusal);
+        assert!(
+            compose_with_replay(&mut live, &mut rig, &mut ledger, &request(1, 1)).is_err(),
+            "{refusal:?} was treated as freshness"
+        );
+    }
+}
+
+#[test]
+fn the_replay_gate_runs_before_the_session_admission() {
+    // ORDERING. The gate is consulted with facts that only exist after step 10, and BEFORE the
+    // section 9A admission consumes the correlation on the live session, so a request refused for
+    // replay leaves the session history untouched. If the order were reversed, the durable refusal
+    // would arrive only after an in-memory correlation had already been spent.
+    let mut live = Live::open();
+    let mut rig = Rig::exact(1);
+    let mut ledger = RefusingReplayLedger::always(ReplayRefusal::AlreadyConsumed);
+    let before = live.store.last_sequence();
+    assert!(compose_with_replay(&mut live, &mut rig, &mut ledger, &request(1, 1)).is_err());
+    assert_eq!(ledger.asked(), 1);
+    assert_eq!(
+        live.store.last_sequence(),
+        before,
+        "the section 9A admission ran even though the durable replay gate had already refused"
+    );
+}
+
+#[test]
+fn the_replay_gate_runs_after_every_free_refusal() {
+    // It must not be consulted for a request the Host was going to refuse anyway: consuming a
+    // governed identity for a request that never had a plan, a closure, a candidate or a budget
+    // would permanently deny work that never ran. Each of these refuses ABOVE the gate.
+    /// One way to make a source unable to answer, named so the failure message says which.
+    type BreakOneSource = fn(&mut Rig);
+    let cases: [(&str, BreakOneSource); 4] = [
+        ("no plan", |rig| rig.plan = Box::new(Plan(None))),
+        ("no closure", |rig| rig.closure = Closure(None)),
+        ("no candidate", |rig| rig.candidate = Candidate(None)),
+        ("no cost", |rig| rig.cost = Cost(None)),
+    ];
+    for (what, break_it) in cases {
+        let mut live = Live::open();
+        let mut rig = Rig::exact(1);
+        break_it(&mut rig);
+        let mut ledger = RefusingReplayLedger::always(ReplayRefusal::AlreadyConsumed);
+        assert!(compose_with_replay(&mut live, &mut rig, &mut ledger, &request(1, 1)).is_err());
+        assert_eq!(
+            ledger.asked(),
+            0,
+            "{what} reached the replay gate; a request refused for another reason must not consume a governed identity"
+        );
+    }
+}
+
+#[test]
+fn the_gate_receives_the_identity_the_host_resolved() {
+    // The composition must present the identity derived from ITS OWN facts. Deriving it from the
+    // caller's claims would let a replayer choose which history entry it collides with, and the
+    // claims are only equal to the facts because the evaluator refuses when they are not.
+    let mut live = Live::open();
+    let mut rig = Rig::exact(1);
+    let mut replay = FixtureRequestReplayLedger::empty();
+    compose_with_replay(&mut live, &mut rig, &mut replay, &request(1, 1)).expect("composes");
+    assert_eq!(replay.recorded(), 1);
+
+    // Independently derived from the same Host answers: the owner's delegation id, the binding
+    // digest the Host computes for the exact case, and the digest of the bytes the inbox held.
+    let expected =
+        RequestReplayIdentity::fixture_over(&DELEGATION_ID, &exact_binding(), &SUBJECT_DIGEST);
+    assert_eq!(
+        replay.consume(&expected).map(|_| ()),
+        Err(ReplayRefusal::AlreadyConsumed),
+        "the composition consumed some OTHER identity than the one the Host's own facts derive"
+    );
+}
+
+/// (§10C) WHAT A WRONG OPERATION CLASS ACTUALLY COSTS — the evidence behind a PROPOSED change.
+///
+/// The ECC security review for §10C observed that the class comparison is free yet happens only
+/// inside the evaluator, so a wrong-class request first spends things that cannot be given back.
+/// This test MEASURES that cost rather than asserting it away, because hoisting the check turned
+/// out to be a regression: the evaluator's refusal is a real wire answer, and a composition-level
+/// refusal would be silence on the wire. See the module docstring.
+///
+/// If a future gate rules that the check should move, THIS test is the one that must change, and it
+/// says so here so the decision is not made by accident.
+#[test]
+fn a_wrong_operation_class_still_reaches_the_evaluator_and_spends_what_it_spends() {
+    for wrong in [
+        OperationClass::ProviderIdentityRead,
+        OperationClass::StagingRead,
+    ] {
+        let mut live = Live::open();
+        let mut rig = Rig::exact(1);
+        let mut replay = FixtureRequestReplayLedger::empty();
+        let req = ProtectedOperationRequest::new(
+            correlation(1),
+            1,
+            EPOCH,
+            exact_binding(),
+            wrong,
+            approval_ref(),
+            SUBJECT_DIGEST,
+        );
+        let outcome = compose_with_replay(&mut live, &mut rig, &mut replay, &req);
+
+        // THE ACCEPTED §10A BEHAVIOUR IS UNCHANGED BY §10C: the refusal is still the evaluator's,
+        // and it is still a wire answer the transport can send back.
+        assert_eq!(
+            refusal_reason(&outcome),
+            RejectionReason::OwnerPresenceGateOpen,
+            "{wrong:?} must still be refused by the evaluator, as a wire answer"
+        );
+        // AND THIS IS THE MEASURED COST, stated rather than hidden: reaching the evaluator means
+        // the one-shot inbox entry was consumed and one durable replay identity was spent.
+        assert_eq!(rig.inbox.asks, 1, "{wrong:?}: inbox read count");
+        assert_eq!(
+            replay.recorded(),
+            1,
+            "{wrong:?}: a durable replay identity was spent before the class refusal"
+        );
+        // The reservation is still released, so a refused class cannot drain the owner's ceiling.
+        assert_eq!(rig.budget.available_micro_usd(), CEILING - COMMITTED);
+    }
+}
+
+/// (§10C) THE WRONG-CLASS IDENTITY IS A DIFFERENT SLOT, so the cost above cannot deny the real work.
+///
+/// The operation class is folded into the binding digest and therefore into the replay identity, so
+/// a request that burns a slot under `ProviderIdentityRead` has not touched the identity the
+/// legitimate `IndependentGatekeeperReview` would use. That is what bounds the finding.
+#[test]
+fn a_wrong_class_cannot_deny_the_delegated_class() {
+    let mut replay = FixtureRequestReplayLedger::empty();
+
+    let mut live = Live::open();
+    let mut rig = Rig::exact(1);
+    let wrong = ProtectedOperationRequest::new(
+        correlation(1),
+        1,
+        EPOCH,
+        exact_binding(),
+        OperationClass::ProviderIdentityRead,
+        approval_ref(),
+        SUBJECT_DIGEST,
+    );
+    assert_eq!(
+        refusal_reason(&compose_with_replay(
+            &mut live,
+            &mut rig,
+            &mut replay,
+            &wrong
+        )),
+        RejectionReason::OwnerPresenceGateOpen
+    );
+    assert_eq!(replay.recorded(), 1);
+
+    // The delegated class, same subject, still composes: its identity was never touched.
+    let mut live2 = Live::open();
+    let mut rig2 = rig_for(2);
+    compose_with_replay(&mut live2, &mut rig2, &mut replay, &request(2, 1))
+        .expect("the delegated class must still be authorisable after a wrong-class attempt");
+    assert_eq!(replay.recorded(), 2);
 }

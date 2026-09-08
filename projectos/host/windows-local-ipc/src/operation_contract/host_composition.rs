@@ -35,6 +35,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use projectos_host_core::{BoundIpcSession, RequestAdmissionError, RequestAdmissionStore};
 use projectos_host_identity::AttestedInstallationProgramme;
 
+use super::request_replay::{ReplayRefusal, RequestReplayIdentity, RequestReplayLedger};
 use super::{
     evaluate_protected_operation, sealed::Seal, AuthorisedProtectedOperation,
     GatekeeperDelegationEvidence, HostResolvedFacts, HostResolvedRequestFacts, OperationClass,
@@ -610,6 +611,10 @@ pub enum CompositionRefusal {
     BudgetRefused(BudgetRefusal),
     /// The request was not fresh on this session.
     AdmissionRefused(RequestAdmissionError),
+    /// The Host's durable replay history refused this governed request. Either it has already been
+    /// consumed - the RUN-TO-COMPLETION HOST ATTESTATION 10C refusal, which survives a Host restart
+    /// - or the history could not be established, which fails closed for the same reason.
+    ReplayRefused(ReplayRefusal),
     /// The §9 evaluator refused, and this is the wire answer it produced. The reservation taken for
     /// this request has been RELEASED before this is returned: no provider effect happened, so no
     /// capacity stays set aside.
@@ -695,10 +700,36 @@ impl ComposedProtectedOperation {
 /// 9. THE ONE-SHOT SUBJECT. Deliberately after every free refusal, and after the one reversible one:
 ///    consuming an inbox entry spends a resource that cannot be un-spent, so nothing that could have
 ///    refused earlier is left until after it.
-/// 10. THE FACTS, sealed together with the programme and the Host's clock reading.
+/// 10. THE FACTS, sealed together with the programme and the Host's clock reading — and then,
+///     immediately, FRESHNESS ACROSS RESTARTS: the §10C durable replay gate. The governed request
+///     identity is derived from the owner's delegation and these sealed facts, and is consumed
+///     durably. It cannot come earlier, because the identity needs the facts, and it must not come
+///     later, because the mark has to be durable before the authority that unlocks execution
+///     exists - so this is the only correct place for it. Every refusal here releases the
+///     reservation.
 /// 11. FRESHNESS on the canonical session — the §9A admission, minted by the session itself.
 /// 12. THE §9 EVALUATOR. It re-checks every one of these against the caller's claims and against
 ///     the owner's record, and mints the authority only if they all agree.
+///
+/// ## Why the OPERATION-CLASS check is NOT hoisted above the spending steps
+///
+/// The ECC security review for §10C observed that `request.operation() != delegation.operation` is
+/// a free comparison of two values of a closed enum, yet it is reached only inside the evaluator at
+/// step 12 — so a request naming a class this delegation does not grant still consumes a one-shot
+/// inbox entry at step 9 and a durable §10C replay identity at step 10b before being refused. By
+/// this module's own ordering law that check looks like it belongs with the free refusals.
+///
+/// IT WAS TRIED, AND IT IS A REGRESSION, WHICH IS WHY IT IS NOT HERE. A wrong class is not merely
+/// refused by the evaluator: the evaluator produces a `ProtectedOperationResponse` — a real wire
+/// answer, `OwnerPresenceGateOpen`, that the transport sends back to the caller. A composition-level
+/// refusal produces no response frame at all, so hoisting the check would replace a proper protocol
+/// rejection with silence on the wire. The accepted §10A proof
+/// `a_read_only_class_cannot_use_the_composition` pins exactly that behaviour.
+///
+/// So the cost is real but bounded — it is the already-documented "a request refused after the gate
+/// spends its identity" trade-off, applied to one more field — and removing it means changing what
+/// a wrong-class request receives on the wire, which is accepted §9/§10A semantics rather than
+/// anything §10C may decide. Recorded as PROPOSED and left to the gate.
 ///
 /// ## SEC-L1 — why gate 2 precedes gate 3
 ///
@@ -737,6 +768,7 @@ pub fn compose_protected_operation(
     ledger: &mut dyn CanonicalBudgetLedger,
     session: &BoundIpcSession,
     admissions: &mut dyn RequestAdmissionStore,
+    replay: &mut dyn RequestReplayLedger,
     peer: &TrustedPeerContext,
     request: &ProtectedOperationRequest,
     service_epoch: u64,
@@ -773,6 +805,7 @@ pub fn compose_protected_operation(
         ledger,
         session,
         admissions,
+        replay,
         peer,
         request,
         service_epoch,
@@ -801,6 +834,7 @@ fn compose_verified(
     ledger: &mut dyn CanonicalBudgetLedger,
     session: &BoundIpcSession,
     admissions: &mut dyn RequestAdmissionStore,
+    replay: &mut dyn RequestReplayLedger,
     peer: &TrustedPeerContext,
     request: &ProtectedOperationRequest,
     service_epoch: u64,
@@ -896,6 +930,57 @@ fn compose_verified(
             // class, and a port that could would be a way to ask for one.
             protected_effect_requested: false,
         },
+    );
+
+    // 10b. FRESHNESS ACROSS RESTARTS — the §10C durable replay gate.
+    //
+    //     WHY IT IS HERE AND NOT ANYWHERE ELSE. It cannot be earlier: the identity is derived from
+    //     the facts, and the facts are step 10. It must not be later: it has to be durable BEFORE
+    //     anything downstream can produce an effect, and the authority the evaluator mints at step
+    //     12 is exactly what a later rung executes against. Between the two is the only correct
+    //     place, and it is also the only place where the answer is known and nothing external has
+    //     happened yet.
+    //
+    //     THE IDENTITY IS THE HOST'S, NOT THE CALLER'S. It is derived from the verified delegation
+    //     and these sealed facts — the binding subject and the exact inbox body — and from nothing
+    //     the request supplied. A replayer that reconnects, picks a new correlation, restarts the
+    //     sequence and meets a new service epoch changes none of it, which is the whole point: those
+    //     are the four things a Host restart regenerates for free.
+    //
+    //     CHECK AND MARK ARE ONE TRANSITION inside the ledger, so two concurrent attempts at the
+    //     same governed request cannot both be told they are fresh. Every refusal — already
+    //     consumed, store unavailable, history unreadable, capacity exhausted, write refused —
+    //     releases the reservation, because nothing was executed.
+    //
+    //     CONSUMED IS NOT EXECUTED. Crossing this gate says the Host has taken replay authority for
+    //     this identity once; it asserts nothing about a provider having run. A crash after this
+    //     point leaves the request refused rather than repeatable, and that is the intended
+    //     direction: a governed request that may have started is not one to start again.
+    //
+    //     THE COST OF PUTTING IT HERE, STATED RATHER THAN LEFT TO BE FOUND. Because the mark is
+    //     durable BEFORE steps 11 and 12, a request that is consumed and then refused by the §9A
+    //     admission or by the evaluator has permanently spent its governed identity. That is a real
+    //     denial, and it is accepted for two reasons. First, it is not a NEW one: step 9 already
+    //     spent the one-shot inbox entry for this correlation, so such a request was unrepeatable
+    //     under the accepted contract before §10C existed. Second, the alternative is worse in the
+    //     direction that matters - marking after the mint would leave a window in which authority
+    //     exists and no durable record does, and a crash inside that window is exactly how a
+    //     governed request becomes repeatable. A denial the owner can see beats a replay nobody can.
+    //
+    //     It is also why the gate sits BELOW every free refusal: a request that could not establish
+    //     a plan, a closure, a candidate or a budget never reaches here, so it never spends an
+    //     identity for work that was never going to run.
+    let identity = RequestReplayIdentity::for_request(delegation, &facts, request.operation());
+    let consumed = match replay.consume(&identity) {
+        Ok(consumed) => consumed,
+        Err(err) => {
+            release_unused(ledger, reservation);
+            return Err(CompositionRefusal::ReplayRefused(err));
+        }
+    };
+    debug_assert!(
+        consumed.answers(&identity),
+        "the ledger returned evidence for an identity this request did not present"
     );
 
     // 11. FRESHNESS ON THE CANONICAL SESSION. One store per live session is the §9A invariant; this
