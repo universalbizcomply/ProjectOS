@@ -35,6 +35,7 @@ pub mod common;
 pub mod consistency;
 pub mod credential_envelope;
 pub mod credential_metadata;
+pub mod delegation_lifecycle;
 pub mod emergency_stop;
 pub mod enums;
 pub mod error;
@@ -58,6 +59,7 @@ pub use consistency::{
 };
 pub use credential_envelope::CredentialEnvelopeDto;
 pub use credential_metadata::CredentialMetadataDto;
+pub use delegation_lifecycle::{DelegationLifecycleRecordDto, DelegationLifecycleStateDto};
 pub use emergency_stop::EmergencyStopDto;
 pub use enums::{
     AuditEventClassDto, CredentialLifecycleDto, JournalPhaseDto, OperationStateDto,

@@ -20,6 +20,8 @@ pub const EMERGENCY_STOP_SCHEMA: u32 = 1;
 pub const AUDIT_RECORD_SCHEMA: u32 = 1;
 /// Approved-plan record schema version.
 pub const PLAN_RECORD_SCHEMA: u32 = 1;
+/// Durable owner-delegation lifecycle record schema version.
+pub const DELEGATION_LIFECYCLE_SCHEMA: u32 = 1;
 /// Protected-state manifest schema version.
 pub const MANIFEST_SCHEMA: u32 = 1;
 /// Journal/transaction record schema version.

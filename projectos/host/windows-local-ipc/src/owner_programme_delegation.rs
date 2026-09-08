@@ -60,6 +60,14 @@ use crate::operation_contract::{
     DELEGATION_DIGEST_LEN, MAX_DELEGATED_PHASES,
 };
 
+/// THE PRODUCTION DURABLE LIFECYCLE STORE (RUN-TO-COMPLETION HOST ATTESTATION §10B).
+///
+/// A CHILD of this module, deliberately: the private `durable_state::Sealed` supertrait below is
+/// unnameable outside this module tree, so the one place a real implementation of
+/// [`DurableDelegationStateStore`] can live is inside it. Putting the store in a sibling crate would
+/// have required widening the seal, which is the property the seal exists for.
+pub mod durable_store;
+
 /// The domain tag prefixed to every byte string an owner signs as a programme delegation.
 ///
 /// DOMAIN SEPARATION IS THE POINT. The owner's key also signs the packaged trust manifest, whose
@@ -526,11 +534,14 @@ pub enum DelegationLocalState {
 /// live the record claims to be. The signed flag still refuses on its own too - the two are ANDed,
 /// never ORed.
 ///
-/// SEALED, bound to ONE delegation id, and with NO production constructor in this checkpoint. The
-/// production source is the durable host-local delegation record (the persistence checkpoint); until
-/// it is wired, no shipped path can present a status, so verification fails closed by construction.
-/// The request and the caller never select this state: there is no argument on the verification
-/// path through which a state could arrive except this sealed value.
+/// SEALED and bound to ONE delegation id. Its production source is now REAL: §10B's
+/// [`durable_store::DurableDelegationStateFileStore`], a restart-safe filesystem record read through
+/// the crate-private [`Self::from_durable_store`]. What is still absent is the last link — the
+/// production mint of the store's Host-owned state root — so a default build can open no store, can
+/// present no status, and delegation verification still fails closed by construction.
+///
+/// The request and the caller never select this state either way: there is no argument on the
+/// verification path through which a state could arrive except this sealed value.
 #[derive(Debug, PartialEq, Eq)]
 pub struct HostDelegationStatus {
     _seal: Seal,
@@ -551,12 +562,18 @@ mod durable_state {
 /// beat a stale signed `Active` would be worth nothing. Sealing it means "what does the Host itself
 /// say about this delegation?" is not a question a caller gets to answer.
 ///
-/// NO PRODUCTION IMPLEMENTATION EXISTS IN THIS CHECKPOINT, and none is faked. The authoritative
-/// record must survive a Host restart — a revocation that a restart forgets is not a revocation —
-/// and restart-safe durable storage is its own checkpoint. An in-memory map shipped behind this
-/// trait would look like durability and would silently resurrect every ended programme on restart,
-/// so what ships instead is the SEAM: production has no store, [`HostDelegationStatus`] therefore
-/// has no production value, and delegation verification fails closed by construction.
+/// THE PRODUCTION IMPLEMENTATION IS [`durable_store::DurableDelegationStateFileStore`] (§10B). §9
+/// deliberately shipped the SEAM instead of a store, because the authoritative record must survive a
+/// Host restart — a revocation that a restart forgets is not a revocation — and an in-memory map
+/// behind this trait would have looked like durability while silently resurrecting every ended
+/// programme. §10B replaces the seam with real restart-safe storage rather than with a stand-in:
+/// `Revoked` and `Completed` are durable and terminal, and every unknown, unreachable or
+/// undecodable answer is still `None`.
+///
+/// ONE LINK IS STILL DELIBERATELY MISSING. The store can only be opened with a Host-owned state
+/// root, and that root has no production constructor in this checkpoint — resolving the real one is
+/// installation composition. So a default build still opens no store, [`HostDelegationStatus`] still
+/// has no production value, and delegation verification still fails closed by construction.
 pub trait DurableDelegationStateStore: durable_state::Sealed {
     /// The state the Host has durably recorded for exactly this delegation, or `None` when the
     /// store cannot establish one.
@@ -671,6 +688,61 @@ impl DurableDelegationStateStore for FixtureDurableDelegationStateStore {
     }
 }
 
+/// TEST-ONLY: a store that COUNTS how many times it was asked.
+///
+/// `cfg(test)`, so it exists in NO shipped graph. It exists for exactly one proof and it is a proof
+/// nothing else can make: SEC-L1 is not a claim about which refusal comes back, it is a claim that
+/// the durable delegation registry is NOT CONSULTED AT ALL for a record the owner did not sign. A
+/// test that only compared refusal variants would still pass if the read happened and its answer
+/// were discarded — and the timing and filesystem side channels would be wide open.
+///
+/// It lives here rather than beside the composition tests because the sealing supertrait is private
+/// to this module, which is the property the seal exists for.
+#[cfg(all(test, feature = "test-fixtures"))]
+#[derive(Debug, Default)]
+pub(crate) struct CountingDelegationStateStore {
+    /// The state to answer with, if any. `None` makes it an empty registry.
+    holding: Option<([u8; DELEGATION_DIGEST_LEN], DelegationLocalState)>,
+    /// How many times `recorded_state` was called.
+    asks: std::cell::Cell<usize>,
+}
+
+#[cfg(all(test, feature = "test-fixtures"))]
+impl CountingDelegationStateStore {
+    /// A counting store that holds exactly one delegation.
+    pub(crate) fn holding(id: [u8; DELEGATION_DIGEST_LEN], state: DelegationLocalState) -> Self {
+        Self {
+            holding: Some((id, state)),
+            asks: std::cell::Cell::new(0),
+        }
+    }
+
+    /// A counting store that holds nothing at all.
+    pub(crate) fn empty() -> Self {
+        Self::default()
+    }
+
+    /// How many times the registry was consulted.
+    pub(crate) fn asks(&self) -> usize {
+        self.asks.get()
+    }
+}
+
+#[cfg(all(test, feature = "test-fixtures"))]
+impl durable_state::Sealed for CountingDelegationStateStore {}
+
+#[cfg(all(test, feature = "test-fixtures"))]
+impl DurableDelegationStateStore for CountingDelegationStateStore {
+    fn recorded_state(
+        &self,
+        delegation_id: &[u8; DELEGATION_DIGEST_LEN],
+    ) -> Option<DelegationLocalState> {
+        self.asks.set(self.asks.get() + 1);
+        self.holding
+            .and_then(|(id, state)| (*delegation_id == id).then_some(state))
+    }
+}
+
 /// Evidence that the owner's key signed exactly these bytes.
 ///
 /// CRATE-PRIVATE, AND THAT IS THE WHOLE DESIGN. If this were public, a downstream crate could
@@ -704,25 +776,14 @@ fn verify_delegation_with_oracle(
     local: &HostDelegationStatus,
     oracle: &dyn OwnerSignatureOracle,
 ) -> Result<VerifiedOwnerProgrammeDelegation, DelegationRefusal> {
-    // 1. PROVENANCE. The owner's key, over the domain-separated subject, in the algorithm the anchor
-    //    uses. Nothing below this line runs for a record the owner did not sign.
-    if !oracle.owner_signed(
-        &record.canonical_subject(),
-        record.signature_algorithm(),
-        record.signing_key_id(),
-        &record.signature_hex(),
-    ) {
-        return Err(DelegationRefusal::SignatureRefused);
-    }
+    // 1-2. PROVENANCE, THEN RELEVANCE. Extracted so the composition can run EXACTLY these two gates
+    //    before it touches the durable delegation registry - see `establish_provenance_and_relevance`
+    //    for why that ordering is a security property and not a refactor. It is the same function in
+    //    both places, so there is no second opinion about what "the owner signed this, and it is for
+    //    this installation" means.
+    establish_provenance_and_relevance(record, expected, oracle)?;
 
     let delegation = record.claimed_delegation();
-
-    // 2. RELEVANCE. Genuine, but is it for THIS installation? Project and canonical repository both:
-    //    a project id alone is a name a second checkout can also use.
-    if delegation.project != *expected.project() || delegation.repository != *expected.repository()
-    {
-        return Err(DelegationRefusal::ProgrammeMismatch);
-    }
 
     // 3. THE HOST'S OWN WORD ON THIS DELEGATION. The status must be about THIS record - a status
     //    for another delegation answers nothing - and if the host has ended the programme, an
@@ -742,6 +803,76 @@ fn verify_delegation_with_oracle(
     }
 
     Ok(VerifiedOwnerProgrammeDelegation::from_verified_owner_signature(delegation.clone()))
+}
+
+/// GATES 1 AND 2 ONLY: the owner signed these exact bytes, and they are for THIS installation.
+///
+/// ## Why this is a separate function
+///
+/// SEC-L1. The Host composition has to hand `verify_owner_programme_delegation` a
+/// [`HostDelegationStatus`], and the only way to obtain one is to ASK THE DURABLE DELEGATION
+/// REGISTRY about the id on the record. Before this split, that read happened for every record that
+/// decoded - including a forged one - so a caller could tell "this delegation id is known to the
+/// Host" from "it is not" by which refusal came back, how long it took, and whether the store was
+/// touched at all. That is a membership oracle over the owner's programme registry, handed to
+/// unauthenticated bytes.
+///
+/// Splitting these two gates out lets the composition establish PROVENANCE FIRST and only then read
+/// the registry. Nothing about the verification ORDER changed - this is the same code, in the same
+/// sequence, still reached through the same single `verify_delegation_with_oracle` - and no authority
+/// type, no mint and no refusal taxonomy changed. What changed is that an unsigned record now never
+/// reaches the filesystem at all.
+///
+/// RELEVANCE IS INCLUDED, not just the signature. It costs nothing (two array comparisons against
+/// host-resolved values), it needs no store, and it means a genuinely owner-signed delegation for
+/// ANOTHER project or checkout is also refused before this installation's registry is consulted.
+///
+/// # Errors
+/// [`DelegationRefusal::SignatureRefused`] or [`DelegationRefusal::ProgrammeMismatch`].
+fn establish_provenance_and_relevance(
+    record: &SignedOwnerProgrammeDelegation,
+    expected: &ExpectedProgramme,
+    oracle: &dyn OwnerSignatureOracle,
+) -> Result<(), DelegationRefusal> {
+    // 1. PROVENANCE. The owner's key, over the domain-separated subject, in the algorithm the anchor
+    //    uses. Nothing below this line runs for a record the owner did not sign.
+    if !oracle.owner_signed(
+        &record.canonical_subject(),
+        record.signature_algorithm(),
+        record.signing_key_id(),
+        &record.signature_hex(),
+    ) {
+        return Err(DelegationRefusal::SignatureRefused);
+    }
+
+    // 2. RELEVANCE. Genuine, but is it for THIS installation? Project and canonical repository both:
+    //    a project id alone is a name a second checkout can also use.
+    let delegation = record.claimed_delegation();
+    if delegation.project != *expected.project() || delegation.repository != *expected.repository()
+    {
+        return Err(DelegationRefusal::ProgrammeMismatch);
+    }
+
+    Ok(())
+}
+
+/// THE PRE-REGISTRY GATE the Host composition runs before it reads the durable delegation store.
+///
+/// Same two gates as above, against the SAME production anchor the full verification uses, so a
+/// record that passes here is one the owner really signed for this installation. It grants NOTHING:
+/// it returns `()`, it cannot mint a [`VerifiedOwnerProgrammeDelegation`], and the full
+/// verification order runs afterwards in its entirety - the signature is simply checked twice, which
+/// is a deterministic pure computation over bytes already in memory.
+///
+/// `pub(crate)`: the composition is the only caller and no crate in the workspace can reach it.
+///
+/// # Errors
+/// [`DelegationRefusal`] naming the gate that refused.
+pub(crate) fn owner_provenance_established(
+    record: &SignedOwnerProgrammeDelegation,
+    expected: &ExpectedProgramme,
+) -> Result<(), DelegationRefusal> {
+    establish_provenance_and_relevance(record, expected, &EmbeddedAnchorOracle)
 }
 
 /// THE ONE PRODUCTION ORACLE: the owner's embedded anchor, and nothing else.

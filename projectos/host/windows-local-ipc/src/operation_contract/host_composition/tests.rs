@@ -791,16 +791,29 @@ fn the_durable_store_supplies_the_state_for_exactly_one_delegation() {
     }
 }
 
-/// (B) AN UNAVAILABLE STORE FAILS CLOSED, and it does so BEFORE the signature is consulted.
+/// (B) SEC-L1 — AN UNSIGNED RECORD NEVER REACHES THE DURABLE DELEGATION REGISTRY.
 ///
-/// THIS IS THE REFUSAL PRODUCTION GIVES TODAY, so it is worth proving rather than describing. No
-/// durable delegation store exists yet, so every real composition stops here — and it stops with
-/// "the Host cannot establish this delegation's lifecycle", not with "the signature is bad" and
-/// certainly not by assuming the programme is live. The record below decodes and its signature can
-/// never verify; getting `LocalStatusUnavailable` rather than `SignatureRefused` is what proves the
-/// order.
+/// ## What this replaces, and why
+///
+/// This test previously asserted the OPPOSITE ordering: that an unavailable delegation state refused
+/// BEFORE the signature was consulted. That was a true description of the code and it was a
+/// membership oracle. Every decodable record — forged, expired, or addressed to someone else — made
+/// the Host look its delegation id up in its own registry, and the two outcomes were
+/// distinguishable: an id the Host holds carried on to the signature check, an id it does not know
+/// refused at the store. With §10B that registry is a real filesystem store, so the leak would also
+/// have had a timing and a filesystem-activity component.
+///
+/// ## What is proven now
+///
+/// Not merely that the refusal variant changed. The store COUNTS its calls, and the count is zero:
+/// the registry is not consulted at all. A test that only compared refusal variants would still pass
+/// if the read happened and its answer were thrown away, which is exactly the case the side channels
+/// would still leak.
+///
+/// The record below decodes and its signature can never satisfy the owner's embedded anchor —
+/// ProjectOS does not hold the owner's private key and must never hold it.
 #[test]
-fn an_unavailable_delegation_state_refuses_before_the_signature_is_consulted() {
+fn an_unsigned_record_never_reaches_the_delegation_registry() {
     let bytes = crate::owner_programme_delegation::test_decodable_record_bytes(
         DELEGATION_ID,
         PROJECT,
@@ -809,9 +822,10 @@ fn an_unavailable_delegation_state_refuses_before_the_signature_is_consulted() {
     let record =
         crate::owner_programme_delegation::decode_signed_owner_programme_delegation(&bytes)
             .expect("a well-formed record");
-    // A store that holds SOME OTHER delegation — which is indistinguishable, from here, from the
-    // store that does not exist at all.
-    let store = FixtureDurableDelegationStateStore::holding(OTHER, DelegationLocalState::Active);
+    let store = crate::owner_programme_delegation::CountingDelegationStateStore::holding(
+        DELEGATION_ID,
+        DelegationLocalState::Active,
+    );
 
     let mut live = Live::open();
     let mut rig = Rig::exact(1);
@@ -841,16 +855,143 @@ fn an_unavailable_delegation_state_refuses_before_the_signature_is_consulted() {
         matches!(
             outcome,
             Err(CompositionRefusal::DelegationRefused(
-                DelegationRefusal::LocalStatusUnavailable
+                DelegationRefusal::SignatureRefused
             ))
         ),
         "got {outcome:?}"
+    );
+    assert_eq!(
+        store.asks(),
+        0,
+        "SEC-L1: an unauthenticated record must not cause a delegation-registry lookup"
     );
     assert_eq!(
         rig.inbox.asks, 0,
         "nothing above the signature may spend the inbox"
     );
     assert_eq!(rig.budget.available_micro_usd(), CEILING - COMMITTED);
+}
+
+/// (B) SEC-L1 — THE REFUSAL IS IDENTICAL WHETHER OR NOT THE HOST HOLDS THAT DELEGATION.
+///
+/// The oracle is only useful if the caller can TELL THE TWO CASES APART. Same unsigned record, three
+/// registries — one holding exactly this delegation, one holding a different one, one holding
+/// nothing — and one indistinguishable answer, with no lookup in any of them. There is nothing in
+/// the response to correlate with membership.
+#[test]
+fn registry_membership_is_indistinguishable_to_an_unsigned_caller() {
+    use crate::owner_programme_delegation::CountingDelegationStateStore;
+
+    let bytes = crate::owner_programme_delegation::test_decodable_record_bytes(
+        DELEGATION_ID,
+        PROJECT,
+        REPOSITORY,
+    );
+    let record =
+        crate::owner_programme_delegation::decode_signed_owner_programme_delegation(&bytes)
+            .expect("a well-formed record");
+
+    for store in [
+        CountingDelegationStateStore::holding(DELEGATION_ID, DelegationLocalState::Active),
+        CountingDelegationStateStore::holding(DELEGATION_ID, DelegationLocalState::Revoked),
+        CountingDelegationStateStore::holding(OTHER, DelegationLocalState::Active),
+        CountingDelegationStateStore::empty(),
+    ] {
+        let mut live = Live::open();
+        let mut rig = Rig::exact(1);
+        let peer = live.peer();
+        let attested = attested_programme();
+        let mut sources = HostRequestSources {
+            plan: rig.plan.as_ref(),
+            closure: &rig.closure,
+            candidate: &rig.candidate,
+            cost: &rig.cost,
+            subject: &mut rig.inbox,
+        };
+        let outcome = compose_protected_operation(
+            &record,
+            &attested,
+            &clock(),
+            &store,
+            &mut sources,
+            &mut rig.budget,
+            &live.session,
+            &mut live.store,
+            &peer,
+            &request(1, 1),
+            EPOCH,
+        );
+        assert!(
+            matches!(
+                outcome,
+                Err(CompositionRefusal::DelegationRefused(
+                    DelegationRefusal::SignatureRefused
+                ))
+            ),
+            "every registry must give the same answer; got {outcome:?}"
+        );
+        assert_eq!(store.asks(), 0, "and none of them may be read");
+    }
+}
+
+/// (B) SEC-L1 — A RECORD FOR ANOTHER INSTALLATION ALSO STOPS BEFORE THE REGISTRY.
+///
+/// Relevance is part of the pre-registry gate, not only the signature. A delegation naming another
+/// project or another checkout is refused with `ProgrammeMismatch` and this installation's registry
+/// is never consulted — so one installation cannot be used to probe another's delegation list.
+///
+/// Note the ordering this proves: the signature is checked FIRST, so a record for another project
+/// that is ALSO unsigned refuses with `SignatureRefused`. Reaching `ProgrammeMismatch` from outside
+/// would require the owner's private key, which is why this asserts the pre-gate function directly.
+#[test]
+fn a_record_for_another_installation_stops_before_the_registry() {
+    let other_project = [0x5au8; DELEGATION_DIGEST_LEN];
+    let bytes = crate::owner_programme_delegation::test_decodable_record_bytes(
+        DELEGATION_ID,
+        other_project,
+        REPOSITORY,
+    );
+    let record =
+        crate::owner_programme_delegation::decode_signed_owner_programme_delegation(&bytes)
+            .expect("a well-formed record");
+    let store = crate::owner_programme_delegation::CountingDelegationStateStore::holding(
+        DELEGATION_ID,
+        DelegationLocalState::Active,
+    );
+    let mut live = Live::open();
+    let mut rig = Rig::exact(1);
+    let peer = live.peer();
+    let attested = attested_programme();
+    let mut sources = HostRequestSources {
+        plan: rig.plan.as_ref(),
+        closure: &rig.closure,
+        candidate: &rig.candidate,
+        cost: &rig.cost,
+        subject: &mut rig.inbox,
+    };
+    let outcome = compose_protected_operation(
+        &record,
+        &attested,
+        &clock(),
+        &store,
+        &mut sources,
+        &mut rig.budget,
+        &live.session,
+        &mut live.store,
+        &peer,
+        &request(1, 1),
+        EPOCH,
+    );
+    assert!(
+        matches!(
+            outcome,
+            Err(CompositionRefusal::DelegationRefused(
+                DelegationRefusal::SignatureRefused
+            ))
+        ),
+        "got {outcome:?}"
+    );
+    assert_eq!(store.asks(), 0);
 }
 
 /// (B) A REAL, DECODABLE RECORD WITH AN ACTIVE LOCAL STATE IS STILL REFUSED — by the signature.

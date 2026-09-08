@@ -694,7 +694,7 @@ fn manifest_family_rev(manifest: &ProtectedStateManifestDto, family: TargetFamil
         // so there is no dedicated `family_revisions.plan` field. They track the manifest's generic
         // record revision — the same explicit contract persistence::validate_journal_targets_manifest
         // uses for the Plan family.
-        TargetFamilyDto::Plan => manifest.record_revision,
+        TargetFamilyDto::Plan | TargetFamilyDto::DelegationLifecycle => manifest.record_revision,
     }
 }
 

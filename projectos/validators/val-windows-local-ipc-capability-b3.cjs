@@ -108,8 +108,36 @@ function run() {
   // signing or private-key capability. Same crate and version core and host-identity already pull,
   // so the lock graph gains an edge, not a package. The list remains CLOSED after this amendment:
   // nothing else may be added without a further ruling.
+  //
+  // AMENDMENT (RUN-TO-COMPLETION HOST ATTESTATION - §10B DURABLE DELEGATION STATE,
+  // gate-authorised): `projectos-host-persistence` and
+  // `projectos-host-windows-durable-protected-store` join the closed list for ONE reason - the
+  // sealed `DurableDelegationStateStore` can only be implemented INSIDE this crate (its sealing
+  // supertrait is private to the delegation module), so the real restart-safe lifecycle store has no
+  // other home, and the alternative was writing a SECOND persistence framework here: another journal
+  // state machine, another integrity framing, another atomic-replacement primitive, another lock.
+  // Reusing the two accepted crates ProjectOS already reviewed is strictly the smaller change.
+  //
+  // THE EDGES HAVE A TRANSITIVE COST, recorded here rather than discovered later: the durable-store
+  // crate confines `unsafe` to its own `windows_fs.rs` and really does call Win32 (LockFileEx,
+  // MoveFileExW, FlushFileBuffers) whenever a store is opened or written, so this crate's default
+  // build now reaches real filesystem primitives through it. What stays true, and the scan below
+  // still enforces it: no `unsafe` and no Windows call is added to THIS crate's own sources outside
+  // the feature-gated `windows_ffi.rs`, and neither edge adds a network, process, registry, SCM,
+  // ACL-builder, credential or signing surface.
+  //
+  // The list remains CLOSED after this amendment: nothing else may be added without a further
+  // ruling. RATIFIED at the §10B landing gate for EXACTLY these two crates and no others.
   for (const d of deps) {
-    if (!["projectos-host-windows-service-identity-proof", "projectos-host-authority", "projectos-host-core", "projectos-host-identity", "sha2"].includes(d))
+    if (![
+      "projectos-host-windows-service-identity-proof",
+      "projectos-host-authority",
+      "projectos-host-core",
+      "projectos-host-identity",
+      "sha2",
+      "projectos-host-persistence",
+      "projectos-host-windows-durable-protected-store",
+    ].includes(d))
       errors.push("unexpected dependency: " + d);
   }
   if (!deps.includes("projectos-host-authority")) errors.push("missing host-authority dependency");

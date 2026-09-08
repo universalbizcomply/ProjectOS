@@ -142,6 +142,8 @@ pub enum TargetFamilyDto {
     Audit,
     /// Approved-plan records.
     Plan,
+    /// Durable owner-delegation lifecycle records.
+    DelegationLifecycle,
 }
 
 /// Governance audit event class (bounded — never free text).

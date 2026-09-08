@@ -200,6 +200,44 @@
 //! let _chosen = HostDelegationStatus { delegation_id: [0u8; 32], state: DelegationLocalState::Active };
 //! ```
 //!
+//! RUN-TO-COMPLETION HOST ATTESTATION §10B. Now that a REAL durable store exists, the seal matters
+//! more than it did when the trait had no implementation at all. A downstream crate still cannot
+//! supply a rival store, because the sealing supertrait is unnameable outside this crate:
+//!
+//! ```compile_fail
+//! use projectos_host_windows_local_ipc::{DelegationLocalState, DurableDelegationStateStore};
+//! struct AlwaysLive;
+//! impl DurableDelegationStateStore for AlwaysLive {
+//!     fn recorded_state(&self, _id: &[u8; 32]) -> Option<DelegationLocalState> {
+//!         Some(DelegationLocalState::Active)
+//!     }
+//! }
+//! ```
+//!
+//! …and it cannot point the production store at a directory of its own choosing, because the root
+//! is a capability with private fields and no public constructor:
+//!
+//! ```compile_fail
+//! use projectos_host_windows_local_ipc::HostOwnedDelegationStateRoot;
+//! let _mine = HostOwnedDelegationStateRoot { root: std::path::PathBuf::from("C:\\attacker") };
+//! ```
+//!
+//! ```compile_fail
+//! use projectos_host_windows_local_ipc::DurableDelegationStateFileStore;
+//! let _ = DurableDelegationStateFileStore::open("C:\\attacker");
+//! ```
+//!
+//! …and it cannot record a lifecycle state, because the mutation engine is crate-private:
+//!
+//! ```compile_fail
+//! use projectos_host_windows_local_ipc::{
+//!     DelegationLocalState, DurableDelegationStateFileStore, HostOwnedDelegationStateRoot,
+//! };
+//! fn f(store: &mut DurableDelegationStateFileStore) {
+//!     let _ = store.record_lifecycle(&[0u8; 32], DelegationLocalState::Active);
+//! }
+//! ```
+//!
 //! …and the positive controls, so each refusal above is about the SEAL and not about a name that
 //! does not resolve. The production clock reading exists and takes nothing; the sealed types are
 //! nameable and readable; the binding digest is a public pure function over plain data:
@@ -221,6 +259,21 @@
 //!     model_policy: [7; 32], credential_ref: [8; 32],
 //! });
 //! assert_ne!(d, [0u8; BINDING_DIGEST_LEN]);
+//! ```
+//!
+//! The §10B names are all nameable and readable, so the refusals above are about the seal:
+//!
+//! ```
+//! use projectos_host_windows_local_ipc::{
+//!     DelegationStoreRefusal, DurableDelegationStateFileStore, HostOwnedDelegationStateRoot,
+//!     DELEGATION_STATE_RELATIVE_ROOT, MAX_DELEGATION_RECORDS, MAX_DELEGATION_RECORD_BYTES,
+//! };
+//! fn open(r: &HostOwnedDelegationStateRoot)
+//!     -> Result<DurableDelegationStateFileStore, DelegationStoreRefusal> {
+//!     DurableDelegationStateFileStore::open(r)
+//! }
+//! assert_eq!(DELEGATION_STATE_RELATIVE_ROOT, "delegation-state");
+//! assert!(MAX_DELEGATION_RECORDS > 0 && MAX_DELEGATION_RECORD_BYTES > 0);
 //! ```
 
 mod adapter;
@@ -435,11 +488,29 @@ pub use operation_contract::host_composition::FixtureBudgetLedger;
 //
 // `DurableDelegationStateStore` is exported so the Host composition can be handed one; it is SEALED
 // by a private supertrait, so exporting the name lets a caller NAME a store and never implement one.
-// No production implementation exists in this checkpoint and none is faked: restart-safe durable
-// storage is its own checkpoint, and an in-memory map behind this trait would resurrect every
-// revoked programme on restart while looking like durability. Until that store exists,
-// `HostDelegationStatus` has no production value and delegation verification fails closed.
+// §10A shipped no implementation at all, deliberately: an in-memory map behind this trait would
+// have resurrected every revoked programme on restart while looking like durability. §10B below
+// supplies the real restart-safe one.
 pub use owner_programme_delegation::DurableDelegationStateStore;
+
+// RUN-TO-COMPLETION HOST ATTESTATION §10B — THE PRODUCTION DURABLE LIFECYCLE STORE.
+//
+// The seam above is now backed by a REAL restart-safe store: `DurableDelegationStateFileStore`
+// persists one bounded lifecycle record per delegation through the accepted durable protected-store
+// engine (single-writer OS lock, SHA-256 framing, Prepared->Committed journal, write-through atomic
+// replacement, journal-aware recovery) and the accepted `DelegationLifecycleRecordDto`. Revoked and
+// Completed are TERMINAL and survive restart; every unknown, unreadable, mis-schema'd, unknown-state
+// or mis-filed record answers None, which is a refusal.
+//
+// IT IS STILL UNREACHABLE IN A DEFAULT BUILD, and deliberately so. Opening it requires a
+// `HostOwnedDelegationStateRoot`, whose PRODUCTION mint is absent: resolving the real ProgramData
+// state root is installation composition, and inventing one here from an environment variable, a
+// literal or a request field would be fabricating installation truth. The lifecycle mutation engine
+// is `pub(crate)` and has no production caller, so nothing in the workspace can record a state.
+pub use owner_programme_delegation::durable_store::{
+    DelegationStoreRefusal, DurableDelegationStateFileStore, HostOwnedDelegationStateRoot,
+    DELEGATION_STATE_RELATIVE_ROOT, MAX_DELEGATION_RECORDS, MAX_DELEGATION_RECORD_BYTES,
+};
 
 /// FIXTURE ONLY. Non-default graph; a shipped build cannot name it.
 #[cfg(feature = "test-fixtures")]

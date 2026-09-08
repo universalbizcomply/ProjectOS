@@ -78,6 +78,24 @@ projectos-host-identity = { path = "../host-identity" }
 # rendering is, and hashing to text and back on a trust path is the conversion that helper itself
 # warns against.)
 sha2 = "0.10"
+# RUN-TO-COMPLETION HOST ATTESTATION §10B - THE DURABLE DELEGATION LIFECYCLE STORE.
+#
+# The sealed `DurableDelegationStateStore` can only be implemented inside this crate, so the real
+# restart-safe store has to live here - and it must NOT be a second persistence framework. These two
+# edges are the accepted ones ProjectOS already reviewed: `projectos-host-persistence` supplies the
+# strict bounded DTO family that is persisted, and `projectos-host-windows-durable-protected-store`
+# supplies every filesystem mechanic (single-writer OS lock, reparse-hardened bounded layout, SHA-256
+# framing, the Prepared->Committed/Aborted journal, MoveFileExW write-through replacement,
+# journal-aware recovery, monotonic revisions, optimistic expected-revision replacement).
+#
+# THE TRANSITIVE COST, recorded rather than discovered later: the durable-store crate confines
+# `unsafe` to its own `windows_fs.rs` and really does call Win32 (LockFileEx / MoveFileExW /
+# FlushFileBuffers) when a store is opened or written. THIS crate adds no `unsafe` and no Windows
+# call of its own outside the feature-gated `windows_ffi.rs`, which the capability scan still
+# enforces. Neither edge adds a network, process, registry, SCM, ACL-builder, credential or signing
+# surface.
+projectos-host-persistence = { path = "../persistence" }
+projectos-host-windows-durable-protected-store = { path = "../windows-durable-protected-store" }
 
 [target.'cfg(windows)'.dependencies]
 # Minimum named-pipe surface only. Optional + feature-gated: this crate's DIRECT edge to `windows` is

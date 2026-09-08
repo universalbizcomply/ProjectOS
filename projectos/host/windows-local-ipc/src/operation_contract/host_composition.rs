@@ -43,8 +43,9 @@ use super::{
     DELEGATION_DIGEST_LEN,
 };
 use crate::owner_programme_delegation::{
-    verify_owner_programme_delegation, DelegationRefusal, DurableDelegationStateStore,
-    ExpectedProgramme, HostClockReading, HostDelegationStatus, SignedOwnerProgrammeDelegation,
+    owner_provenance_established, verify_owner_programme_delegation, DelegationRefusal,
+    DurableDelegationStateStore, ExpectedProgramme, HostClockReading, HostDelegationStatus,
+    SignedOwnerProgrammeDelegation,
 };
 
 // -------------------------------------------------------------------------------------------------
@@ -676,24 +677,42 @@ impl ComposedProtectedOperation {
 ///
 /// 1. THE PROGRAMME. Taken from the sealed attestation of the owner-signed execution closure, never
 ///    from the record about to be checked and never from the request.
-/// 2. THE HOST'S OWN WORD on this delegation's lifecycle, read from its durable store. Unavailable
+/// 2. THE OWNER'S SIGNATURE, AND THAT THIS INSTALLATION IS THE ONE ADDRESSED — before anything is
+///    read from the Host's own state. See the SEC-L1 note below: this gate exists so that
+///    unauthenticated bytes never reach the durable delegation registry at all.
+/// 3. THE HOST'S OWN WORD on this delegation's lifecycle, read from its durable store. Unavailable
 ///    fails closed, and a local `Revoked`/`Completed` beats a signed copy that still says active.
-/// 3. THE OWNER'S SIGNATURE, then relevance, then liveness — inside
+/// 4. THE FULL VERIFICATION ORDER — signature, relevance, then liveness — inside
 ///    [`verify_owner_programme_delegation`], which is the only production route to a verified
-///    delegation and takes no verifier.
-/// 4. THE HOST'S OWN ANSWERS about plan, phase, closure policy and candidate (steps 4-6). Free to
+///    delegation and takes no verifier. Gate 2 is a pre-check, never a substitute: every gate runs
+///    again here, in one place, exactly as before.
+/// 5. THE HOST'S OWN ANSWERS about plan, phase, closure policy and candidate (steps 5-7). Free to
 ///    obtain and free to refuse, so they come before anything is spent.
-/// 7. THE BUDGET RESERVATION. Check and reserve in one transition, so a second concurrent request
+/// 8. THE BUDGET RESERVATION. Check and reserve in one transition, so a second concurrent request
 ///    sees this one's cost before either has spent anything. It comes before the inbox because both
 ///    of its gates are free and neither can see the subject, and because a reservation is reversible
 ///    where a consumed inbox entry is not.
-/// 8. THE ONE-SHOT SUBJECT. Deliberately after every free refusal, and after the one reversible one:
+/// 9. THE ONE-SHOT SUBJECT. Deliberately after every free refusal, and after the one reversible one:
 ///    consuming an inbox entry spends a resource that cannot be un-spent, so nothing that could have
 ///    refused earlier is left until after it.
-/// 9. THE FACTS, sealed together with the programme and the Host's clock reading.
-/// 10. FRESHNESS on the canonical session — the §9A admission, minted by the session itself.
-/// 11. THE §9 EVALUATOR. It re-checks every one of these against the caller's claims and against
+/// 10. THE FACTS, sealed together with the programme and the Host's clock reading.
+/// 11. FRESHNESS on the canonical session — the §9A admission, minted by the session itself.
+/// 12. THE §9 EVALUATOR. It re-checks every one of these against the caller's claims and against
 ///     the owner's record, and mints the authority only if they all agree.
+///
+/// ## SEC-L1 — why gate 2 precedes gate 3
+///
+/// A `HostDelegationStatus` can only be obtained by asking the durable registry about the id on the
+/// record, so before this ordering EVERY decodable record — forged, expired, someone else's —
+/// caused a lookup in the Host's own delegation store. With §10B that store is a real filesystem
+/// registry, and the two outcomes are distinguishable: an id the Host knows carries on to the
+/// signature check, an id it does not know refuses at the store. Response taxonomy, timing and
+/// filesystem activity would all have leaked delegation-registry MEMBERSHIP to an unauthenticated
+/// caller. Establishing provenance first closes it: an attacker who cannot produce the owner's
+/// signature learns nothing about which delegations exist, because no read happens.
+///
+/// It costs one extra ECDSA verification on the success path — deterministic, over bytes already in
+/// memory — and it changes no authority type, no mint and no refusal variant.
 ///
 /// EVERY REFUSAL AFTER THE RESERVATION RELEASES IT — the absent subject, the refused admission and
 /// the evaluator's rejection alike. A reserved-then-refused request that kept its reservation would
@@ -725,7 +744,15 @@ pub fn compose_protected_operation(
     // 1. THE PROGRAMME THIS INSTALLATION IS.
     let expected = ExpectedProgramme::from_attested_installation(attested_programme);
 
-    // 2. THE HOST'S OWN RECORD of this delegation. The id comes off the DECODED record, so a status
+    // 2. SEC-L1 — PROVENANCE BEFORE THE REGISTRY. The owner really signed these bytes, and they
+    //    address this installation. Nothing below this line runs for a record that failed either,
+    //    and in particular the durable delegation store is NOT consulted, so an unauthenticated
+    //    caller cannot learn which delegation ids the Host holds. It mints nothing: the full
+    //    verification order still runs at step 4.
+    owner_provenance_established(record, &expected)
+        .map_err(CompositionRefusal::DelegationRefused)?;
+
+    // 3. THE HOST'S OWN RECORD of this delegation. The id comes off the DECODED record, so a status
     //    is always about the delegation actually being checked; `verify_owner_programme_delegation`
     //    re-checks that pairing anyway rather than trusting this line to have got it right.
     let status = HostDelegationStatus::from_durable_store(
@@ -734,7 +761,7 @@ pub fn compose_protected_operation(
     )
     .map_err(CompositionRefusal::DelegationRefused)?;
 
-    // 3. THE OWNER'S SIGNATURE, THEN RELEVANCE, THEN LIVENESS.
+    // 4. THE ONE VERIFICATION ORDER: signature, relevance, liveness. Unchanged and undiminished.
     let delegation = verify_owner_programme_delegation(record, &expected, now, &status)
         .map_err(CompositionRefusal::DelegationRefused)?;
 
@@ -752,7 +779,7 @@ pub fn compose_protected_operation(
     )
 }
 
-/// Steps 4-11, after the owner's signature and the Host's own liveness record have been established.
+/// Steps 5-12, after the owner's signature and the Host's own liveness record have been established.
 ///
 /// MODULE-PRIVATE, not merely crate-private: it is visible only to this module and its test
 /// submodule, so not even the rest of `operation_contract` can call it. It ASSUMES the delegation was
@@ -778,7 +805,7 @@ fn compose_verified(
     request: &ProtectedOperationRequest,
     service_epoch: u64,
 ) -> Result<ComposedProtectedOperation, CompositionRefusal> {
-    // 4. THE HOST'S PLAN AUTHORITY. A plan the Host cannot establish is not a plan it may review
+    // 5. THE HOST'S PLAN AUTHORITY. A plan the Host cannot establish is not a plan it may review
     //    against, whatever the request believes.
     let (Some(plan), Some(plan_digest), Some(phase)) = (
         sources.plan.plan(),
@@ -788,7 +815,7 @@ fn compose_verified(
         return Err(CompositionRefusal::PlanAuthorityUnavailable);
     };
 
-    // 5. THE SIGNED CLOSURE'S MODEL AND CREDENTIAL POLICY.
+    // 6. THE SIGNED CLOSURE'S MODEL AND CREDENTIAL POLICY.
     let (Some(model_policy), Some(credential_ref)) = (
         sources.closure.model_policy(),
         sources.closure.credential_ref(),
@@ -796,12 +823,12 @@ fn compose_verified(
         return Err(CompositionRefusal::ClosureFactsUnavailable);
     };
 
-    // 6. THE EXACT COMMITTED CANDIDATE.
+    // 7. THE EXACT COMMITTED CANDIDATE.
     let Some(candidate_digest) = sources.candidate.candidate_digest() else {
         return Err(CompositionRefusal::CandidateUnavailable);
     };
 
-    // 7. CHECK AND RESERVE, BEFORE THE INBOX IS TOUCHED.
+    // 8. CHECK AND RESERVE, BEFORE THE INBOX IS TOUCHED.
     //
     //    THIS USED TO COME AFTER THE ONE-SHOT READ, AND THAT WAS WRONG. The reasoning offered for it
     //    was that "the subject is what the cost is for" — but `AdmittedCostSource` takes no argument
@@ -837,7 +864,7 @@ fn compose_verified(
         ));
     }
 
-    // 8. THE ONE-SHOT SUBJECT — the first irreversible act, and now genuinely the last thing after
+    // 9. THE ONE-SHOT SUBJECT — the first irreversible act, and now genuinely the last thing after
     //    every free refusal. The digest is of the exact bytes the Host read; the caller's own claim
     //    is compared against it at step 11 and never copied into it.
     //
@@ -848,7 +875,7 @@ fn compose_verified(
         return Err(CompositionRefusal::RequestSubjectUnavailable);
     };
 
-    // 9. THE FACTS. `committed_spend` is the reservation-aware snapshot, so §9's own budget
+    // 10. THE FACTS. `committed_spend` is the reservation-aware snapshot, so §9's own budget
     //    arithmetic reproduces the reservation check without the closed evaluator changing at all.
     let facts = HostResolvedRequestFacts::production_resolved(
         delegation,
@@ -871,7 +898,7 @@ fn compose_verified(
         },
     );
 
-    // 10. FRESHNESS ON THE CANONICAL SESSION. One store per live session is the §9A invariant; this
+    // 11. FRESHNESS ON THE CANONICAL SESSION. One store per live session is the §9A invariant; this
     //     function never opens one, so it cannot be the place a history is reset.
     //
     //     WHY ADMISSION STAYS AFTER THE ONE-SHOT READ, having been asked to move ahead of it. The
@@ -901,7 +928,7 @@ fn compose_verified(
         };
     debug_assert_eq!(admitted.sequence(), request.sequence());
 
-    // 11. THE §9 EVALUATOR — the sole mint, unchanged.
+    // 12. THE §9 EVALUATOR — the sole mint, unchanged.
     let evidence = GatekeeperDelegationEvidence {
         delegation,
         facts: &facts,
