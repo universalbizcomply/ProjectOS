@@ -34,20 +34,22 @@
 //!
 //! ## Not in this checkpoint
 //!
-//! No live ProgramData directory is created, resolved or written: the production mint of
-//! [`HostOwnedDelegationStateRoot`] is deliberately ABSENT (see its documentation), so a default
-//! build still cannot construct a root, therefore cannot open a store, therefore cannot present a
-//! [`super::HostDelegationStatus`] — and delegation verification keeps failing closed. No
-//! owner-facing revocation command, no generic mutation command, and no provisioning route is wired
-//! to a caller. Anti-rollback rests on the FUTURE restricted ProgramData ACL, not on anything here:
-//! an attacker who can already replace protected files as SYSTEM is outside this checkpoint's
-//! boundary, and no local counter would honestly change that.
+//! No live ProgramData directory is created or written. §10E added the composition that RESOLVES
+//! the Host state root — see [`HostOwnedDelegationStateRoot::from_activated`] — but not the
+//! acceptance that activates it: a default build still cannot construct a root, therefore cannot
+//! open a store, therefore cannot present a [`super::HostDelegationStatus`] — and delegation
+//! verification keeps failing closed. No owner-facing revocation command, no generic mutation
+//! command, and no provisioning route is wired to a caller. Anti-rollback rests on the FUTURE
+//! restricted ProgramData ACL, not on anything here: an attacker who can already replace protected
+//! files as SYSTEM is outside this checkpoint's boundary, and no local counter would honestly change
+//! that.
 
 use std::path::PathBuf;
 
 use projectos_host_persistence::{
     DelegationLifecycleRecordDto, DelegationLifecycleStateDto, TargetFamilyDto,
 };
+use projectos_host_trusted_roots::{ActivatedHostStateRoot, TrustedRootRefusal};
 use projectos_host_windows_durable_protected_store::{DurableProtectedStore, DurableStoreError};
 
 use super::{DelegationLocalState, DurableDelegationStateStore, DELEGATION_DIGEST_LEN};
@@ -107,7 +109,7 @@ pub enum DelegationStoreRefusal {
 /// The path therefore arrives as an already-trusted capability with PRIVATE fields and no public
 /// constructor outside this module.
 ///
-/// ## The production mint is ABSENT, and that is deliberate
+/// ## Where the production root comes from — §10E
 ///
 /// The accepted Host persistence boundary is the ProjectOS ProgramData root, and resolving it for
 /// real is installation composition: the approved Known Folder anchor, the installed layout beneath
@@ -116,9 +118,15 @@ pub enum DelegationStoreRefusal {
 /// directory, a literal, or a request field — would be inventing installation truth, and every one
 /// of those sources is attacker-influencable in exactly the situation the store is meant to survive.
 ///
-/// So this checkpoint ships the STORE, complete and proven, and leaves the root as the narrow
-/// fail-closed seam. Wiring the real root is a later, explicitly governed composition step and is
-/// recorded as carry-forward.
+/// §10B therefore shipped the STORE, complete and proven, and left the root as the narrow
+/// fail-closed seam. §10E built the composition it was waiting for: the trusted-roots crate resolves
+/// the Host state root from the approved Known Folder anchor and the frozen installation segments,
+/// walks every level for reparse substitution, and seals the result. The route in is
+/// [`HostOwnedDelegationStateRoot::from_activated`], and it still takes NO path.
+///
+/// IT IS STILL FAIL-CLOSED, one level further along. Activation requires a boundary acceptance whose
+/// production mint does not exist until the ProgramData ACL is accepted, so a default build resolves
+/// the root correctly and still cannot construct this capability.
 #[derive(Debug, Clone)]
 pub struct HostOwnedDelegationStateRoot {
     /// The Host-owned state root. Private: no caller outside this module can name a directory.
@@ -126,6 +134,36 @@ pub struct HostOwnedDelegationStateRoot {
 }
 
 impl HostOwnedDelegationStateRoot {
+    /// THE PRODUCTION MINT — RUN-TO-COMPLETION HOST ATTESTATION §10E.
+    ///
+    /// NO PATH PARAMETER. The root arrives as an [`ActivatedHostStateRoot`], which can only be
+    /// obtained by resolving the installation's own Host state root through the approved anchor AND
+    /// presenting an accepted protected boundary. Nothing about which directory this is comes from
+    /// the caller, and this function has no way to disagree with what was resolved.
+    ///
+    /// IT IS THE HOST STATE ROOT, NOT A PROJECT ROOT. The parameter type is what enforces that: a
+    /// governed project root cannot be passed here, in any build.
+    /// # Errors
+    /// [`TrustedRootRefusal`] when the root no longer denotes the object, or no longer lives at the
+    /// location, that resolution captured.
+    pub fn from_activated(activated: &ActivatedHostStateRoot) -> Result<Self, TrustedRootRefusal> {
+        // REVALIDATED AT THE HANDOFF, because this is where the handle-owned capability becomes an
+        // ordinary path. The trusted root holds a pinned Windows handle and can prove, on demand,
+        // that the directory has not been replaced or re-aimed; a `PathBuf` cannot prove anything.
+        // Checking here is what stops that proof being discarded unexamined.
+        //
+        // IT IS NOT A STANDING GUARANTEE, and saying so matters more than the check itself. After
+        // this call the root is a path, and what protects it from then on is the engine's own
+        // re-verification at open plus the single-writer lock handle it holds inside the leaf for
+        // the store's lifetime - which does keep the leaf directory from being removed or renamed
+        // while a store lives. Carrying the custody handle INTO this type would be the complete
+        // answer; it is a change to a closed 10B type's shape and is recorded as carry-forward.
+        activated.revalidate()?;
+        Ok(Self {
+            root: activated.path().to_path_buf(),
+        })
+    }
+
     /// FIXTURE ONLY: treat a disposable directory the test already owns as the Host state root.
     ///
     /// Compiled for this crate's tests and the non-default `test-fixtures` graph, so no shipped

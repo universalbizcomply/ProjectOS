@@ -22,14 +22,20 @@
 //! implementation can live is a module inside it. That is the same fact that decided §10B's file
 //! layout, and it is worth restating: the seal is not decoration, it dictates where the code goes.
 //!
-//! ## The root is the remaining fail-closed seam
+//! ## The root, and where §10E put it
 //!
-//! [`HostOwnedGatekeeperProjectRoot`] has a private field and NO production constructor. Resolving
-//! the real governed project root is installation composition — it is the same missing wiring the
-//! durable delegation store (§10B) and the durable replay ledger (§10C) are waiting on — and
-//! inventing one here would be fabricating installation truth. So a default build cannot name a
-//! project root, cannot construct this ledger, and its budget gate fails closed. Wiring that root is
-//! the gating carry-forward for all three.
+//! [`HostOwnedGatekeeperProjectRoot`] has a private field and no path-taking constructor. Resolving
+//! the real governed project root is installation composition — it was the same missing wiring the
+//! durable delegation store (§10B) and the durable replay ledger (§10C) were waiting on — and
+//! inventing one here would be fabricating installation truth. §10E supplied it: the canonical
+//! installed-project registry selects the ONE repository root for an exact project id, cross-checked
+//! against that repository's own `projectId`, and custody seals it. The route in is
+//! [`HostOwnedGatekeeperProjectRoot::from_activated`].
+//!
+//! IT IS STILL FAIL-CLOSED, one level further along. Activation requires a boundary acceptance whose
+//! production mint does not exist until the protected installation boundary is accepted — and that
+//! boundary is what makes the registry itself trustworthy — so a default build cannot construct this
+//! ledger and its budget gate refuses.
 //!
 //! ## What it will not do
 //!
@@ -42,6 +48,7 @@ use projectos_host_gatekeeper_ledger::{
     admit_spend, commit_reservation, release_reservation, AdmissionRequest, LedgerRefusal,
     SettledProviderCall,
 };
+use projectos_host_trusted_roots::{ActivatedGovernedProjectRoot, TrustedRootRefusal};
 use sha2::{Digest, Sha256};
 
 use super::{
@@ -60,14 +67,45 @@ const HOST_REQUEST_ID_PREFIX: &str = "GKHOST-";
 
 /// The Host-owned governed project root whose `.projectops` holds the canonical ledger.
 ///
-/// PRIVATE FIELD, NO PRODUCTION CONSTRUCTOR. See the module header: this is the deliberate
-/// fail-closed seam, not an oversight, and it is the same seam §10B and §10C are held behind.
+/// PRIVATE FIELD, AND NO CONSTRUCTOR THAT TAKES A PATH — in any build. The production route is
+/// [`HostOwnedGatekeeperProjectRoot::from_activated`], added in §10E, which accepts only an
+/// already-resolved, registry-attested, custody-sealed governed project root.
 #[derive(Debug, Clone)]
 pub struct HostOwnedGatekeeperProjectRoot {
     root: PathBuf,
 }
 
 impl HostOwnedGatekeeperProjectRoot {
+    /// THE PRODUCTION MINT — RUN-TO-COMPLETION HOST ATTESTATION §10E.
+    ///
+    /// NO PATH PARAMETER, AND NO PROJECT PARAMETER EITHER. Which project this is was decided when the
+    /// [`ActivatedGovernedProjectRoot`] was resolved, by the canonical installed-project registry;
+    /// this call cannot disagree with it, and cannot be handed a directory belonging to a different
+    /// project or a different repository.
+    ///
+    /// IT IS A PROJECT ROOT, NOT THE HOST STATE ROOT. The parameter type is what enforces that: the
+    /// Host's own state root cannot be passed here, so the canonical ledger can never be transacted
+    /// against the protected installation subtree.
+    /// # Errors
+    /// [`TrustedRootRefusal`] when the root no longer denotes the object, or no longer lives at the
+    /// location, that resolution captured.
+    pub fn from_activated(
+        activated: &ActivatedGovernedProjectRoot,
+    ) -> Result<Self, TrustedRootRefusal> {
+        // REVALIDATED AT THE HANDOFF, because this is where the handle-owned capability becomes an
+        // ordinary path. The trusted root holds a pinned Windows handle and can prove, on demand,
+        // that the directory has not been replaced or re-aimed; a `PathBuf` cannot prove anything.
+        // Checking here is what stops that proof being discarded unexamined.
+        //
+        // THIS ONE HAS THE WEAKEST AFTERWARDS, and it should be said plainly: the canonical ledger
+        // takes its lock per transaction rather than holding one, so nothing pins the governed
+        // project root between transactions. Carry-forward, with the same fix.
+        activated.revalidate()?;
+        Ok(Self {
+            root: activated.path().to_path_buf(),
+        })
+    }
+
     /// FIXTURE ONLY: treat a disposable directory the test already owns as the governed project
     /// root.
     ///

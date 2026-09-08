@@ -1,0 +1,54 @@
+[package]
+name = "projectos-host-trusted-roots"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "UNLICENSED"
+description = "RUN-TO-COMPLETION HOST ATTESTATION 10E. Resolves and SEALS the two conceptually distinct trusted roots ProjectOSHost needs: the HOST STATE ROOT (the frozen ProjectOS/host segments beneath the registered ProgramData location, reached through the approved SHGetKnownFolderPath primitive and the canonical installation-record segment vocabulary) and the GOVERNED PROJECT ROOT (the ONE repository root the canonical installed-project registry maps a project id to). Both arrive as sealed capabilities with private fields and no path-taking public constructor in any build, so no caller, environment variable, working directory, argv entry or request field can nominate either. Canonicalisation, traversal/UNC/device/ADS syntax refusal and reparse-point refusal are delegated WHOLE to the accepted handle-owned custody primitive; project attestation is delegated WHOLE to the accepted canonical registry; no second path-security framework and no second installation registry is created. It creates nothing, writes nothing, mutates no ACL, installs or starts no service, launches no process, opens no socket, contacts no provider and touches no credential - its only filesystem effect is opening directory handles for FILE_READ_ATTRIBUTES inside the custody primitive. ACTIVATION IS NOT GRANTED HERE: the production mint of the boundary acceptance is deliberately absent, so a default build resolves both roots correctly and still cannot open a durable store."
+
+[lints.rust]
+# This crate performs NO FFI of its own. Every Windows call it needs is made by the accepted
+# custody / known-folder primitives it depends on, so `unsafe` is forbidden outright rather than
+# confined - there is nowhere in these sources it could legitimately appear.
+unsafe_code = "forbid"
+
+[features]
+# EXPLICIT, NON-DEFAULT fixture graph. It supplies the two fixture SOURCES (a disposable anchor
+# directory and an in-memory registry document) plus the fixture boundary acceptance, so the REAL
+# resolution algorithm - the same segment composition, the same ancestor chain walk, the same
+# custody opens, the same registry validator - can be proven against disposable roots without a live
+# ProgramData directory or an installed project. There is no `default` feature list, so a shipped
+# graph compiles none of it.
+test-fixtures = []
+
+[dependencies]
+# THE FROZEN PATH VOCABULARY, and nothing else from this crate. The product and host-state segments
+# are the SAME two constants the canonical identity record, the installed-application record and the
+# installed-project registry already compose beneath the ProgramData anchor. Spelling them again
+# here would have produced a second vocabulary, and the day the two disagreed the installer and the
+# Host would stop meaning the same directory.
+projectos-host-identity = { path = "../host-identity" }
+# THE CANONICAL INSTALLED-PROJECT REGISTRY. It is the accepted authority for which repository roots
+# this installation may govern, and it already performs every check a governed root needs -
+# absolute, no traversal, an existing directory, a `.git` marker, no reparse point, a readable
+# `.projectops/project-config.json`, and a project id that AGREES with the registry entry. This
+# crate adds selection and custody; it re-implements none of that and defines no registry of its own.
+projectos-project-registry = { path = "../project-registry" }
+# THE ACCEPTED HANDLE-OWNED CUSTODY PRIMITIVE. Path syntax classification (empty / relative / UNC /
+# device namespace / forward-slash / traversal / alternate data stream), reparse-point refusal,
+# handle-derived stable identity, the canonical final path and two-sided revalidation all come from
+# here. Writing any of it again would have been the second path-security framework 10E forbids.
+projectos-host-windows-root-custody = { path = "../windows-root-custody" }
+
+[target.'cfg(windows)'.dependencies]
+# THE APPROVED READ-ONLY KNOWN-FOLDER RESOLVER. SHGetKnownFolderPath with KF_FLAG_DONT_VERIFY and
+# never the creation flag, so the registered ProgramData location is READ and nothing on disk is
+# created, verified or touched. The %ProgramData% environment variable is never consulted.
+projectos-windows-runtime-primitives = { path = "../windows-runtime-primitives" }
+
+[dev-dependencies]
+# PROOF ONLY, never in the production graph. The one authoritative frozen production-root plan lives
+# here, and a test asserts that the segments this crate composes are exactly the plan's anchor, its
+# segments and its host-state subtree. Keeping it a DEV dependency is deliberate: the plan crate
+# carries an ACL-policy edge, and 10E may not put an ACL surface into the Host's runtime graph.
+projectos-host-windows-activation-plan = { path = "../windows-host-activation-plan" }

@@ -38,10 +38,10 @@
 //!
 //! ## Not in this checkpoint
 //!
-//! No live ProgramData directory is created, resolved or written: the production mint of
-//! [`HostOwnedRequestReplayRoot`] is deliberately ABSENT (see its documentation), so a default build
-//! cannot construct a root, therefore cannot open a store, therefore cannot supply a ledger — and
-//! the composition fails closed.
+//! No live ProgramData directory is created or written. §10E added the composition that RESOLVES
+//! the Host state root — see [`HostOwnedRequestReplayRoot::from_activated`] — but not the acceptance
+//! that activates it, so a default build cannot construct a root, therefore cannot open a store,
+//! therefore cannot supply a ledger — and the composition fails closed.
 //!
 //! ## THE DELETION BOUNDARY, MEASURED
 //!
@@ -63,6 +63,7 @@
 use std::path::PathBuf;
 
 use projectos_host_persistence::{RequestReplayRecordDto, RequestReplayStateDto, TargetFamilyDto};
+use projectos_host_trusted_roots::{ActivatedHostStateRoot, TrustedRootRefusal};
 use projectos_host_windows_durable_protected_store::{DurableProtectedStore, DurableStoreError};
 
 use super::{
@@ -116,7 +117,7 @@ pub const MAX_REPLAY_RECORD_BYTES: usize = 4096;
 /// directory is a perfect replay oracle. The path therefore arrives as an already-trusted capability
 /// with PRIVATE fields and no public constructor outside this module.
 ///
-/// ## The production mint is ABSENT, and that is deliberate
+/// ## Where the production root comes from — §10E
 ///
 /// The accepted Host persistence boundary is the ProjectOS ProgramData root, and resolving it for
 /// real is installation composition: the approved Known Folder anchor, the installed layout beneath
@@ -125,9 +126,14 @@ pub const MAX_REPLAY_RECORD_BYTES: usize = 4096;
 /// directory, a literal, or a request field — would be inventing installation truth, and every one
 /// of those sources is attacker-influencable in exactly the situation the store is meant to survive.
 ///
-/// So this checkpoint ships the STORE, complete and proven, and leaves the root as the narrow
-/// fail-closed seam. Wiring the real root is a later, explicitly governed composition step and is
-/// recorded as carry-forward.
+/// §10C therefore shipped the STORE, complete and proven, and left the root as the narrow
+/// fail-closed seam. §10E built the composition it was waiting for, and the route in is
+/// [`HostOwnedRequestReplayRoot::from_activated`] — which still takes NO path.
+///
+/// IT IS STILL FAIL-CLOSED, one level further along. Activation requires a boundary acceptance whose
+/// production mint does not exist until the ProgramData ACL is accepted, so a default build resolves
+/// the root correctly and still cannot construct this capability. A FRESH TEMPORARY DIRECTORY IS A
+/// PERFECT REPLAY ORACLE, which is exactly why the route in cannot be handed one.
 #[derive(Debug, Clone)]
 pub struct HostOwnedRequestReplayRoot {
     /// The Host-owned state root. Private: no caller outside this module can name a directory.
@@ -135,6 +141,31 @@ pub struct HostOwnedRequestReplayRoot {
 }
 
 impl HostOwnedRequestReplayRoot {
+    /// THE PRODUCTION MINT — RUN-TO-COMPLETION HOST ATTESTATION §10E.
+    ///
+    /// NO PATH PARAMETER. The root arrives as an [`ActivatedHostStateRoot`], which can only be
+    /// obtained by resolving the installation's own Host state root through the approved anchor AND
+    /// presenting an accepted protected boundary.
+    ///
+    /// THE SAME STATE ROOT AS THE DELEGATION STORE, DIFFERENT LEAF. Both take the Host state root and
+    /// each joins its own frozen segment beneath it, so the two histories cannot collide and neither
+    /// can be pointed at the other's directory.
+    /// # Errors
+    /// [`TrustedRootRefusal`] when the root no longer denotes the object, or no longer lives at the
+    /// location, that resolution captured.
+    pub fn from_activated(activated: &ActivatedHostStateRoot) -> Result<Self, TrustedRootRefusal> {
+        // REVALIDATED AT THE HANDOFF, because this is where the handle-owned capability becomes an
+        // ordinary path. The trusted root holds a pinned Windows handle and can prove, on demand,
+        // that the directory has not been replaced or re-aimed; a `PathBuf` cannot prove anything.
+        // Checking here is what stops that proof being discarded unexamined.
+        //
+        // The same limit as 10B's store applies afterwards, and the same lock handle mitigates it.
+        activated.revalidate()?;
+        Ok(Self {
+            root: activated.path().to_path_buf(),
+        })
+    }
+
     /// FIXTURE ONLY: treat a disposable directory the test already owns as the Host state root.
     ///
     /// Compiled for this crate's tests and the non-default `test-fixtures` graph, so no shipped

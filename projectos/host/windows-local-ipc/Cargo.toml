@@ -112,6 +112,37 @@ projectos-host-windows-durable-protected-store = { path = "../windows-durable-pr
 # credential and no signing surface; the capability scan below is unchanged and still enforces that
 # for THIS crate's own sources.
 projectos-host-gatekeeper-ledger = { path = "../gatekeeper-ledger" }
+# RUN-TO-COMPLETION HOST ATTESTATION 10E - THE TRUSTED HOST ROOTS.
+#
+# The three root capabilities this crate owns - HostOwnedDelegationStateRoot (10B),
+# HostOwnedRequestReplayRoot (10C) and HostOwnedGatekeeperProjectRoot (10D) - each shipped with NO
+# production mint, because resolving a real root is installation composition and fabricating one
+# here would have been inventing installation truth. This edge is that composition, and it is a
+# separate crate rather than more code in this one for two reasons: the resolution needs the
+# approved Known Folder resolver, the accepted handle-owned custody primitive and the canonical
+# installed-project registry, none of which belong in an IPC transport; and the three root types
+# have private fields, so their production constructors have to live HERE and take an already-sealed
+# value from THERE.
+#
+# WHAT THIS EDGE DOES NOT GRANT. The value those constructors require is an ACTIVATED root, and the
+# production mint of the boundary acceptance that produces one is deliberately absent until the
+# ProgramData ACL boundary is accepted. So this edge adds the wiring and changes nothing a default
+# build can reach: the stores still fail closed, for the same reason, one level further along.
+#
+# THE TRANSITIVE COST, recorded rather than discovered later. The new crate pulls
+# `projectos-project-registry` (which links `serde`/`serde_json`, already in this crate's lock graph
+# through `projectos-host-persistence`), `projectos-host-windows-root-custody` (`windows-sys` with
+# Win32_Foundation / Win32_Storage_FileSystem / Win32_Security, for a read-only CreateFileW +
+# GetFileInformationByHandleEx + GetFinalPathNameByHandleW handle open) and, on Windows,
+# `projectos-windows-runtime-primitives` (the `windows` crate with Win32_UI_Shell / Win32_System_Com,
+# for one read-only SHGetKnownFolderPath call). `projectos-host-identity` is already a dependency and
+# is reused, not added. It adds NO `unsafe` and NO Windows call to THIS crate's own sources, and NO
+# network, process launch, registry, SCM, ACL builder, credential or signing surface anywhere - the
+# capability scan below is extended to the new crate and enforces exactly that, as it does for the
+# canonical ledger crate.
+#
+# PROPOSED, 10E - AWAITING RATIFICATION AT THE 10E GATE, exactly as the 10D ledger edge was.
+projectos-host-trusted-roots = { path = "../trusted-roots" }
 
 [target.'cfg(windows)'.dependencies]
 # Minimum named-pipe surface only. Optional + feature-gated: this crate's DIRECT edge to `windows` is
@@ -137,3 +168,12 @@ windows = { version = "0.61.3", optional = true, features = [
     "Win32_Storage_FileSystem",
     "Win32_System_Threading",
 ] }
+
+[dev-dependencies]
+# TEST GRAPH ONLY. Enabling the trusted-roots fixture feature here - rather than from this crate's
+# own `test-fixtures` feature - keeps it out of every graph a consumer can select: a dev-dependency
+# is not part of the published dependency graph at all. It supplies the fixture installation anchor,
+# the fixture registry document and the fixture boundary acceptance, so the three production root
+# constructors can be exercised end to end against disposable directories without a live ProgramData
+# directory, an installed project, or an accepted ACL boundary.
+projectos-host-trusted-roots = { path = "../trusted-roots", features = ["test-fixtures"] }

@@ -133,6 +133,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "projectos-host-trusted-roots"
+version = "0.0.0"
+dependencies = [
+ "projectos-host-identity",
+ "projectos-host-windows-root-custody",
+ "projectos-project-registry",
+ "projectos-windows-runtime-primitives",
+]
+
+[[package]]
 name = "projectos-host-windows-durable-protected-store"
 version = "0.0.0"
 dependencies = [
@@ -153,10 +163,20 @@ dependencies = [
  "projectos-host-gatekeeper-ledger",
  "projectos-host-identity",
  "projectos-host-persistence",
+ "projectos-host-trusted-roots",
  "projectos-host-windows-durable-protected-store",
  "projectos-host-windows-service-identity-proof",
  "sha2",
  "windows",
+]
+
+[[package]]
+name = "projectos-host-windows-root-custody"
+version = "0.0.0"
+dependencies = [
+ "projectos-host-persistence",
+ "thiserror",
+ "windows-sys",
 ]
 
 [[package]]
@@ -171,6 +191,16 @@ dependencies = [
 [[package]]
 name = "projectos-packaged-runtime-contract"
 version = "0.0.0"
+
+[[package]]
+name = "projectos-project-registry"
+version = "0.0.0"
+dependencies = [
+ "projectos-host-identity",
+ "projectos-windows-runtime-primitives",
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "projectos-trust-contract"

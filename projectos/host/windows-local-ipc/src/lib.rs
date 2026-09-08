@@ -617,8 +617,10 @@ pub use operation_contract::host_composition::{
 // because the root it needs cannot be constructed in a default build.
 //
 // `HostOwnedGatekeeperProjectRoot` is exported for the same reason its 10B and 10C counterparts are:
-// a caller may NAME the root type and can never mint one. Resolving the real governed project root
-// is installation composition, and it is the gating carry-forward for all three durable seams.
+// a caller may NAME the root type and can never hand it a path. 10E supplied the resolution - the
+// canonical installed-project registry selects the ONE repository root for an exact project id, and
+// custody seals it - so what remains gating all three durable seams is no longer "which directory"
+// but the boundary acceptance that activates it.
 pub use operation_contract::host_composition::canonical_ledger::{
     CanonicalGatekeeperLedger, HostOwnedGatekeeperProjectRoot,
 };
@@ -651,10 +653,12 @@ pub use owner_programme_delegation::DurableDelegationStateStore;
 // or mis-filed record answers None, which is a refusal.
 //
 // IT IS STILL UNREACHABLE IN A DEFAULT BUILD, and deliberately so. Opening it requires a
-// `HostOwnedDelegationStateRoot`, whose PRODUCTION mint is absent: resolving the real ProgramData
-// state root is installation composition, and inventing one here from an environment variable, a
-// literal or a request field would be fabricating installation truth. The lifecycle mutation engine
-// is `pub(crate)` and has no production caller, so nothing in the workspace can record a state.
+// `HostOwnedDelegationStateRoot`, and §10E moved where that stops rather than removing the stop: the
+// root is now RESOLVED for real - the approved Known Folder anchor, the frozen installation
+// segments, a reparse-checked walk of every level, handle-owned custody - but minting the capability
+// needs an ACTIVATED root, and the boundary acceptance that activates one has no production mint
+// until the ProgramData ACL is accepted. The lifecycle mutation engine is `pub(crate)` and has no
+// production caller, so nothing in the workspace can record a state.
 pub use owner_programme_delegation::durable_store::{
     DelegationStoreRefusal, DurableDelegationStateFileStore, HostOwnedDelegationStateRoot,
     DELEGATION_STATE_RELATIVE_ROOT, MAX_DELEGATION_RECORDS, MAX_DELEGATION_RECORD_BYTES,
@@ -681,12 +685,12 @@ pub use owner_programme_delegation::FixtureDurableDelegationStateStore;
 // downstream ledger that always answered "fresh" would be the whole attack.
 //
 // IT IS STILL UNREACHABLE IN A DEFAULT BUILD, for the reason §10B's store is: opening it requires a
-// `HostOwnedRequestReplayRoot` whose PRODUCTION mint is absent, because resolving the real
-// ProgramData state root is installation composition and inventing one here - from an environment
-// variable, the working directory, a literal or a request field - would be fabricating installation
-// truth. A fresh directory is a perfect replay oracle, which is exactly why the path may not be a
-// caller's to choose. So a default build constructs no root, opens no store, supplies no ledger, and
-// `compose_protected_operation` refuses.
+// `HostOwnedRequestReplayRoot`, and §10E supplied the RESOLUTION of the Host state root without
+// supplying the ACTIVATION - the boundary acceptance an activated root needs has no production mint
+// until the ProgramData ACL is accepted. A fresh directory is a perfect replay oracle, which is
+// exactly why the path is not, and never becomes, a caller's to choose. So a default build
+// constructs no root, opens no store, supplies no ledger, and `compose_protected_operation`
+// refuses.
 pub use operation_contract::request_replay::durable_store::{
     DurableRequestReplayFileStore, HostOwnedRequestReplayRoot, MAX_REPLAY_RECORDS,
     MAX_REPLAY_RECORD_BYTES, REQUEST_REPLAY_RELATIVE_ROOT,

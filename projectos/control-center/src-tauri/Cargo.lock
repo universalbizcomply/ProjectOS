@@ -2793,6 +2793,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "projectos-host-gatekeeper-ledger"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "projectos-host-identity"
 version = "0.0.0"
 dependencies = [
@@ -2805,12 +2813,50 @@ dependencies = [
 ]
 
 [[package]]
+name = "projectos-host-persistence"
+version = "0.0.0"
+dependencies = [
+ "projectos-host-core",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "projectos-host-trusted-roots"
+version = "0.0.0"
+dependencies = [
+ "projectos-host-identity",
+ "projectos-host-windows-root-custody",
+ "projectos-project-registry",
+ "projectos-windows-runtime-primitives",
+]
+
+[[package]]
+name = "projectos-host-windows-durable-protected-store"
+version = "0.0.0"
+dependencies = [
+ "projectos-host-persistence",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 1.0.69",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
 name = "projectos-host-windows-local-ipc"
 version = "0.0.0"
 dependencies = [
  "projectos-host-authority",
  "projectos-host-core",
+ "projectos-host-gatekeeper-ledger",
+ "projectos-host-identity",
+ "projectos-host-persistence",
+ "projectos-host-trusted-roots",
+ "projectos-host-windows-durable-protected-store",
  "projectos-host-windows-service-identity-proof",
+ "sha2",
  "windows",
 ]
 
@@ -2819,6 +2865,15 @@ name = "projectos-host-windows-owner-verification"
 version = "0.0.0"
 dependencies = [
  "sha2",
+]
+
+[[package]]
+name = "projectos-host-windows-root-custody"
+version = "0.0.0"
+dependencies = [
+ "projectos-host-persistence",
+ "thiserror 1.0.69",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

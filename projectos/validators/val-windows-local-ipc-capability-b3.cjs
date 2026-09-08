@@ -161,6 +161,36 @@ function run() {
   // automated check reachable from here. A future change to it could have added a forbidden
   // capability with nothing to catch it. It is now scanned with the same rules.
   //
+  // AMENDMENT, §10E - THE TRUSTED HOST ROOTS.
+  //
+  // The three root capabilities this crate owns - HostOwnedDelegationStateRoot (§10B),
+  // HostOwnedRequestReplayRoot (§10C) and HostOwnedGatekeeperProjectRoot (§10D) - each shipped with
+  // NO production mint, because resolving a real root is installation composition. This edge IS that
+  // composition. It is a SEPARATE crate rather than more code here because the resolution needs the
+  // approved Known Folder resolver, the accepted handle-owned custody primitive and the canonical
+  // installed-project registry, none of which belong in an IPC transport - and because the three
+  // root types have private fields, so their production constructors must live HERE and take an
+  // already-sealed value from THERE.
+  //
+  // IT GRANTS NO ACTIVATION. Those constructors require an ACTIVATED root, and the production mint
+  // of the boundary acceptance that produces one is absent until the ProgramData ACL boundary is
+  // accepted. The stores still fail closed - one level further along.
+  //
+  // THE TRANSITIVE COST, recorded rather than discovered later: `projectos-project-registry`
+  // (serde/serde_json, already in this graph through `projectos-host-persistence`),
+  // `projectos-host-windows-root-custody` (windows-sys, for a read-only CreateFileW +
+  // GetFileInformationByHandleEx + GetFinalPathNameByHandleW handle open) and, on Windows,
+  // `projectos-windows-runtime-primitives` (the `windows` crate's Win32_UI_Shell / Win32_System_Com,
+  // for one read-only SHGetKnownFolderPath call). `projectos-host-identity` is already a dependency
+  // and is reused rather than added. NO network, process launch, registry, SCM, ACL builder,
+  // credential or signing surface is added.
+  //
+  // AND THE CLAIM IS CHECKED RATHER THAN ASSERTED - see the trusted-roots scan below, which applies
+  // this crate's own FORBIDDEN_ANY set, its unsafe prohibition and an ambient-input prohibition to
+  // the new crate's sources. That is the §10D lesson applied at the point it was learned.
+  //
+  // PROPOSED, §10E - AWAITING RATIFICATION AT THE §10E GATE, exactly as the §10D edge was.
+  //
   // The list remains CLOSED after this amendment: nothing else may be added without a further ruling.
   for (const d of deps) {
     if (![
@@ -173,6 +203,8 @@ function run() {
       "projectos-host-windows-durable-protected-store",
       // PROPOSED, §10D - see the amendment note above. Not yet ratified.
       "projectos-host-gatekeeper-ledger",
+      // PROPOSED, §10E - see the amendment note above. Not yet ratified.
+      "projectos-host-trusted-roots",
     ].includes(d))
       errors.push("unexpected dependency: " + d);
   }
@@ -234,6 +266,108 @@ function run() {
       if (/std::env::(var|current_dir)|env!\(/.test(code))
         errors.push(rel + ": environment or working-directory input");
     }
+  }
+
+  // 2c. THE §10E TRUSTED-ROOTS CRATE, scanned with THIS crate's rules.
+  //
+  // PROPOSED - AWAITING RATIFICATION AT THE §10E GATE, with the dependency amendment above.
+  //
+  // It is a dependency of this crate and it decides WHICH DIRECTORY the Host's durable security state
+  // and the canonical budget ledger live in, so the capability claims made for it are this contract's
+  // business. The rules applied are the same FORBIDDEN_ANY set and the same ambient-input prohibition
+  // the ledger crate is held to; the difference is that this crate confines unsafe to windows_ffi.rs,
+  // while the trusted-roots crate is permitted NONE at all and says so at the crate level. Its
+  // Windows work is done ENTIRELY by the accepted custody and known-folder primitives, so a
+  // `use windows::` or `windows_sys` line in its own sources would mean it had started doing FFI of
+  // its own.
+  const ROOTS_CRATE = path.join(ROOT, "projectos", "host", "trusted-roots");
+  if (!fs.existsSync(ROOTS_CRATE)) {
+    errors.push("trusted-roots crate missing: " + ROOTS_CRATE);
+  } else {
+    const rootsToml = read(path.join(ROOTS_CRATE, "Cargo.toml"));
+    if (!/name\s*=\s*"projectos-host-trusted-roots"/.test(rootsToml))
+      errors.push("trusted-roots: wrong package name");
+    if (!/publish\s*=\s*false/.test(rootsToml)) errors.push("trusted-roots: not publish=false");
+    if (!/unsafe_code\s*=\s*"forbid"/.test(rootsToml))
+      errors.push("trusted-roots: crate does not forbid unsafe at the lint level");
+    if (/^\s*\[\[bin\]\]/m.test(rootsToml)) errors.push("trusted-roots: has a binary target");
+    // THE FIXTURE GRAPH IS EXPLICIT AND NON-DEFAULT. A default feature list that enabled it would put
+    // a disposable anchor and an arbitrary registry document into every shipped build.
+    if (!/^test-fixtures\s*=\s*\[/m.test(rootsToml))
+      errors.push("trusted-roots: no explicit test-fixtures feature is declared");
+    if (/^\s*default\s*=\s*\[/m.test(rootsToml))
+      errors.push("trusted-roots: declares a default feature list");
+    // ITS OWN RUNTIME DEPENDENCY LIST IS CLOSED. `[dev-dependencies]` is excluded deliberately: a dev
+    // dependency is in no consumer's graph, and the frozen-plan agreement proof needs one.
+    const rootsDepBody = (stripComments(rootsToml).split(/^\[dependencies\]/m)[1] || "").split(
+      /^\[/m,
+    )[0];
+    const rootsTargetBody = (
+      stripComments(rootsToml).split(/^\[target\.'cfg\(windows\)'\.dependencies\]/m)[1] || ""
+    ).split(/^\[/m)[0];
+    const rootsDeps = ((rootsDepBody + rootsTargetBody).match(/^\s*([a-z0-9_-]+)\s*=/gim) || []).map(
+      (d) => d.replace(/\s*=$/, "").trim(),
+    );
+    for (const d of rootsDeps) {
+      if (
+        ![
+          "projectos-host-identity",
+          "projectos-project-registry",
+          "projectos-host-windows-root-custody",
+          "projectos-windows-runtime-primitives",
+        ].includes(d)
+      )
+        errors.push("trusted-roots: unexpected dependency: " + d);
+    }
+    const rootsSrc = path.join(ROOTS_CRATE, "src");
+    let sawFixtureGate = false;
+    for (const f of rsFiles(rootsSrc)) {
+      const rel = path.relative(ROOT, f).replace(/\\/g, "/");
+      const code = stripComments(read(f));
+      if (/unsafe\s*(fn|\{)/.test(code)) errors.push(rel + ": unsafe in a crate that forbids it");
+      if (WINDOWS_FFI.test(code)) errors.push(rel + ": windows FFI in the trusted-roots crate");
+      for (const { re, why } of FORBIDDEN_ANY) if (re.test(code)) errors.push(rel + ": " + why);
+      // NO AMBIENT INPUT MAY DECIDE WHICH ROOT IS AUTHORITATIVE. An environment variable, the working
+      // directory, argv and a compile-time environment value are exactly the forgeable answers to the
+      // only question this crate exists to answer. `std::env::temp_dir` is not one of them and
+      // appears only in the tests beside the sources.
+      if (/std::env::(var|set_var|remove_var|current_dir|args)\b|env!\(/.test(code))
+        errors.push(rel + ": environment, argv or working-directory input");
+      // EVERY FIXTURE ITEM IS GATED. A fixture source, or the fixture boundary acceptance, reachable
+      // from a default build would hand a caller the path authority the whole crate denies.
+      const lines = code.split(/\r?\n/);
+      lines.forEach((line, i) => {
+        if (!/\bpub\s+(fn|struct)\s+\w*[Ff]ixture/.test(line)) return;
+        const window = lines.slice(Math.max(0, i - 6), i).join("\n");
+        if (!/#\[cfg\(any\(test,\s*feature\s*=\s*"test-fixtures"\)\)\]/.test(window))
+          errors.push(rel + ": an ungated fixture item at line " + (i + 1));
+        else sawFixtureGate = true;
+      });
+    }
+    if (!sawFixtureGate)
+      errors.push("trusted-roots: no gated fixture item found (the scan matched nothing)");
+    // NO PATH-TAKING PUBLIC CONSTRUCTOR ON EITHER TRUSTED ROOT, in any graph.
+    for (const [file, ty] of [
+      ["host_state.rs", "TrustedHostStateRoot"],
+      ["governed_project.rs", "TrustedGovernedProjectRoot"],
+    ]) {
+      const code = stripComments(read(path.join(rootsSrc, file)));
+      if (/pub\s+fn\s+\w+\s*\([^)]*:\s*&(?:std::path::)?Path\b/.test(code))
+        errors.push(ty + ": a public constructor or method takes a caller-supplied path");
+    }
+    // THE ACTIVATION GATE HAS NO PRODUCTION MINT. If one appears, this phase's central claim is gone.
+    const activation = stripComments(read(path.join(rootsSrc, "activation.rs")));
+    const acceptImpl = (activation.match(
+      /impl ProtectedInstallationBoundaryAcceptance \{[\s\S]*?\n\}/,
+    ) || [""])[0];
+    const mints = (acceptImpl.match(/pub\s+fn\s+\w+/g) || []).map((m) => m.trim());
+    if (mints.length !== 1 || !/pub\s+fn\s+fixture/.test(mints[0]))
+      errors.push(
+        "the protected-boundary acceptance has a mint other than the gated fixture: " +
+          mints.join(", "),
+      );
+    if (!/#\[cfg\(any\(test,\s*feature\s*=\s*"test-fixtures"\)\)\]/.test(acceptImpl))
+      errors.push("the protected-boundary acceptance fixture mint is not feature-gated");
   }
 
   // 3. windows_ffi.rs: gated, unsafe-allowed, correct pipe configuration, opaque-lease consumption.
