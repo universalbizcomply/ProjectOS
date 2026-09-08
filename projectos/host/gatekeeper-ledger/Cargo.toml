@@ -1,0 +1,19 @@
+[package]
+name = "projectos-host-gatekeeper-ledger"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "UNLICENSED"
+description = "RUN-TO-COMPLETION HOST ATTESTATION §10D. The Host's CONFORMING CLIENT of the ONE canonical ProjectOS budget ledger: `.projectops/gatekeeper-ledger.json` under `.projectops/gatekeeper-ledger.lock`, the exact file, lock and schema the TypeScript `admitGatekeeperSpend` transaction already owns. It is NOT a second ledger: it keeps no budget position of its own, persists nothing anywhere else, and every decision is taken inside ONE exclusive lock acquisition over a FRESH read of that same file — lock, read, resolve the owner-approved budget policy, check, reserve, write, unlock. Where its reading is stricter than the canonical implementation it only ever REFUSES MORE (a malformed, oversize or impossible ledger is a refusal, never an empty budget); it never admits what the canonical transaction would refuse. Entries are re-serialised in the canonical key order and byte-compared against the real file in its tests. It takes a project root and no other path, reads no environment variable, uses no working directory, resolves no `..`, follows no reparse point, spawns no process, prices nothing and contacts no provider. Its `tests/` drive the REAL compiled TypeScript implementation over the same temporary ledger to prove the two agree."
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[dependencies]
+# The canonical ledger and the canonical gatekeeper configuration are JSON. `derive` is what gives the
+# entries their canonical KEY ORDER — a map type would not — and `deny_unknown_fields` on the entry
+# model is what turns an unrecognised field into a refusal rather than a silent loss on rewrite. No
+# new package enters the host lock graph: both are already depended on by `projectos-host-persistence`
+# and `projectos-host-windows-durable-protected-store`.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

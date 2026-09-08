@@ -96,6 +96,22 @@ sha2 = "0.10"
 # surface.
 projectos-host-persistence = { path = "../persistence" }
 projectos-host-windows-durable-protected-store = { path = "../windows-durable-protected-store" }
+# RUN-TO-COMPLETION HOST ATTESTATION 10D - THE CANONICAL BUDGET LEDGER TRANSACTION.
+#
+# The sealed `CanonicalBudgetLedger` can only be implemented INSIDE this crate (its sealing
+# supertrait is private to the composition module), so the production adapter has no other home. What
+# that adapter must NOT be is a second ledger, and the way to keep it from becoming one is to put the
+# transaction - take the canonical `.projectops/gatekeeper-ledger.lock`, read
+# `.projectops/gatekeeper-ledger.json` fresh, apply the canonical policy, write the canonical entry -
+# in one small crate that does nothing else, and prove it against the REAL compiled TypeScript
+# implementation. That crate is this edge.
+#
+# THE TRANSITIVE COST, recorded rather than discovered later: it links `serde`/`serde_json`, which
+# `projectos-host-persistence` already puts in this crate's lock graph, and `std::fs`. It adds no
+# `unsafe`, no Windows call, no network, no process, no registry, no SCM, no ACL builder, no
+# credential and no signing surface; the capability scan below is unchanged and still enforces that
+# for THIS crate's own sources.
+projectos-host-gatekeeper-ledger = { path = "../gatekeeper-ledger" }
 
 [target.'cfg(windows)'.dependencies]
 # Minimum named-pipe surface only. Optional + feature-gated: this crate's DIRECT edge to `windows` is

@@ -103,6 +103,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "projectos-host-gatekeeper-ledger"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "projectos-host-identity"
 version = "0.0.0"
 dependencies = [
@@ -142,6 +150,7 @@ version = "0.0.0"
 dependencies = [
  "projectos-host-authority",
  "projectos-host-core",
+ "projectos-host-gatekeeper-ledger",
  "projectos-host-identity",
  "projectos-host-persistence",
  "projectos-host-windows-durable-protected-store",

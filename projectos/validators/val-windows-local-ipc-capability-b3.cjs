@@ -128,6 +128,40 @@ function run() {
   //
   // The list remains CLOSED after this amendment: nothing else may be added without a further
   // ruling. RATIFIED at the §10B landing gate for EXACTLY these two crates and no others.
+  //
+  // AMENDMENT (RUN-TO-COMPLETION HOST ATTESTATION - §10D CANONICAL BUDGET ADAPTER):
+  // ***PROPOSED - AWAITING CHATGPT RATIFICATION AT THE §10D GATE. NOT gate-authorised.***
+  //
+  // `projectos-host-gatekeeper-ledger` joins the closed list for ONE reason - the sealed
+  // `CanonicalBudgetLedger` can only be implemented INSIDE this crate (its sealing supertrait is
+  // private to the composition module), so the production budget adapter has no other home; and what
+  // that adapter must NOT become is a SECOND source of spend truth. The way to stop it becoming one
+  // is to put the canonical transaction - take `.projectops/gatekeeper-ledger.lock`, read
+  // `.projectops/gatekeeper-ledger.json` fresh, apply the canonical policy, write the canonical
+  // entry, unlock - in one small crate that does nothing else and is proven against the REAL
+  // compiled TypeScript implementation of the same protocol. Writing that transaction inline here
+  // would have put a filesystem ledger inside the IPC contract crate with no such proof.
+  //
+  // WHY IT IS NOT A SUBPROCESS INSTEAD. The obvious alternative - have the Host run the canonical
+  // TypeScript through Node - is forbidden by this very validator (`std::process::Command` is on the
+  // FORBIDDEN_ANY list below, and rightly), needs an installation-fixed Node identity that does not
+  // exist, and could only ever return a REPORT of a transaction rather than take a decision. The
+  // file, the lock and the schema are what the two implementations share.
+  //
+  // THE TRANSITIVE COST, recorded rather than discovered later: the new edge links `serde` and
+  // `serde_json`, both already in this crate's lock graph through `projectos-host-persistence`, and
+  // `std::fs`. It adds NO `unsafe`, NO Windows API call, NO network, NO process launch, NO registry,
+  // NO SCM, NO ACL builder, NO credential and NO signing surface, and the scan below still enforces
+  // every one of those for THIS crate's own sources.
+  //
+  // AND THE CLAIM IS CHECKED RATHER THAN ASSERTED — see the gatekeeper-ledger scan below. The ECC
+  // code review for §10D pointed out that this amendment stated the new crate adds no process,
+  // network, registry, SCM or ACL surface while nothing mechanically confirmed it: this validator's
+  // capability scan walks `windows-local-ipc/src` only, so the sibling crate was outside every
+  // automated check reachable from here. A future change to it could have added a forbidden
+  // capability with nothing to catch it. It is now scanned with the same rules.
+  //
+  // The list remains CLOSED after this amendment: nothing else may be added without a further ruling.
   for (const d of deps) {
     if (![
       "projectos-host-windows-service-identity-proof",
@@ -137,6 +171,8 @@ function run() {
       "sha2",
       "projectos-host-persistence",
       "projectos-host-windows-durable-protected-store",
+      // PROPOSED, §10D - see the amendment note above. Not yet ratified.
+      "projectos-host-gatekeeper-ledger",
     ].includes(d))
       errors.push("unexpected dependency: " + d);
   }
@@ -152,6 +188,52 @@ function run() {
     if (WINDOWS_FFI.test(code) && base !== FFI) errors.push(rel + ": windows FFI outside windows_ffi.rs");
     for (const { re, why } of FORBIDDEN_ANY) if (re.test(code)) errors.push(rel + ": " + why);
     if (RAW_ENDPOINT_FIELD.test(code)) errors.push(rel + ": public raw endpoint/byte field");
+  }
+
+  // 2b. THE §10D CANONICAL LEDGER CRATE, scanned with THIS crate's rules.
+  //
+  // PROPOSED - AWAITING CHATGPT RATIFICATION AT THE §10D GATE, with the dependency amendment above.
+  //
+  // It is a dependency of this crate and it performs the Host's budget transaction, so the
+  // capability claims made for it are this contract's business. The rules applied are the same
+  // FORBIDDEN_ANY set and the same unsafe prohibition; the difference is that this crate confines
+  // unsafe to windows_ffi.rs, while the ledger crate is permitted NONE at all and says so at the
+  // crate level.
+  const LEDGER_CRATE = path.join(ROOT, "projectos", "host", "gatekeeper-ledger");
+  if (!fs.existsSync(LEDGER_CRATE)) {
+    errors.push("gatekeeper-ledger crate missing: " + LEDGER_CRATE);
+  } else {
+    const ledgerToml = read(path.join(LEDGER_CRATE, "Cargo.toml"));
+    if (!/name\s*=\s*"projectos-host-gatekeeper-ledger"/.test(ledgerToml))
+      errors.push("gatekeeper-ledger: wrong package name");
+    if (!/publish\s*=\s*false/.test(ledgerToml)) errors.push("gatekeeper-ledger: not publish=false");
+    if (!/unsafe_code\s*=\s*"forbid"/.test(ledgerToml))
+      errors.push("gatekeeper-ledger: crate does not forbid unsafe at the lint level");
+    if (/^\s*\[\[bin\]\]/m.test(ledgerToml)) errors.push("gatekeeper-ledger: has a binary target");
+    // ITS OWN DEPENDENCY LIST IS CLOSED TOO. The transaction needs a JSON reader and nothing else;
+    // anything further would be a capability arriving in this crate's graph by the back door.
+    const ledgerDepBody = (stripComments(ledgerToml).split(/^\[dependencies\]/m)[1] || "")
+      .split(/^\[/m)[0];
+    const ledgerDeps = (ledgerDepBody.match(/^\s*([a-z0-9_-]+)\s*=/gim) || []).map((d) =>
+      d.replace(/\s*=$/, "").trim(),
+    );
+    for (const d of ledgerDeps) {
+      if (!["serde", "serde_json"].includes(d))
+        errors.push("gatekeeper-ledger: unexpected dependency: " + d);
+    }
+    const ledgerSrc = path.join(LEDGER_CRATE, "src");
+    for (const f of rsFiles(ledgerSrc)) {
+      const rel = path.relative(ROOT, f).replace(/\\/g, "/");
+      const code = stripComments(read(f));
+      if (/unsafe\s*(fn|\{)/.test(code)) errors.push(rel + ": unsafe in a crate that forbids it");
+      if (WINDOWS_FFI.test(code)) errors.push(rel + ": windows FFI in the canonical ledger crate");
+      for (const { re, why } of FORBIDDEN_ANY) if (re.test(code)) errors.push(rel + ": " + why);
+      // NO AMBIENT INPUT MAY DECIDE WHICH LEDGER IS AUTHORITATIVE. The root arrives as an argument
+      // from a Host-owned seam; a working directory or an environment variable would be a second,
+      // forgeable answer to the only question that matters here.
+      if (/std::env::(var|current_dir)|env!\(/.test(code))
+        errors.push(rel + ": environment or working-directory input");
+    }
   }
 
   // 3. windows_ffi.rs: gated, unsafe-allowed, correct pipe configuration, opaque-lease consumption.

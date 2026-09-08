@@ -164,6 +164,15 @@ pub enum BudgetRefusal {
     /// The reservation presented is not outstanding on this ledger — minted by a different ledger,
     /// or already settled.
     ReservationNotOutstanding,
+    /// THE CANONICAL LEDGER TRANSACTION ITSELF REFUSED, and this is what it said.
+    ///
+    /// RUN-TO-COMPLETION HOST ATTESTATION 10D. Everything above is a refusal 10A could name from its
+    /// own vocabulary; this carries the ones only a real ledger has - a held lock, an unenforceable
+    /// configured policy, a malformed or oversize record, the installation's own hard stop as
+    /// distinct from the owner's ceiling, a settlement recording no call. Carried WHOLE rather than
+    /// flattened into "the budget refused": an operator meeting a stuck admission needs to know
+    /// whether to wait for another process, fix a configuration, or ask the owner.
+    LedgerRefused(projectos_host_gatekeeper_ledger::LedgerRefusal),
 }
 
 /// A bounded reservation against one programme's ceiling, held for exactly one request.
@@ -232,6 +241,61 @@ impl BudgetReservation {
     }
 }
 
+/// WHAT THIS SPEND IS FOR, as the Host resolved it.
+///
+/// RUN-TO-COMPLETION HOST ATTESTATION 10D. The canonical ledger entry is not an anonymous amount:
+/// every record carries the project, the phase and the model it was spent on, because a ledger that
+/// cannot say which phase spent this is a running total rather than a record. A production adapter
+/// therefore cannot write a canonical entry from a correlation and a cost alone.
+///
+/// IT IS THREE DIGESTS BECAUSE THE HOST HAS THREE DIGESTS. The project arrives inside the sealed
+/// programme attestation, the phase from the Host's own plan authority, the model policy from the
+/// signed execution closure - and each is a digest, never a name. The adapter renders them; it does
+/// not invent names for them.
+///
+/// IT IS THREADED THROUGH THE TRANSACTION RATHER THAN HELD BY THE ADAPTER, and that is the point of
+/// the parameter. An adapter constructed with its own idea of the phase would be a SECOND resolution
+/// of a fact the composition already resolved at step 5, free to disagree with the facts the
+/// reservation is actually taken for. Threading it makes the label provably the same answer.
+#[derive(Debug, Clone, Copy)]
+pub struct BudgetReservationSubject<'a> {
+    /// The programme's project, from the sealed attested installation.
+    pub project: &'a [u8; DELEGATION_DIGEST_LEN],
+    /// The governed phase under review, from the Host's approved-plan authority.
+    pub phase: &'a [u8; DELEGATION_DIGEST_LEN],
+    /// The model policy the signed execution closure fixes.
+    pub model_policy: &'a [u8; DELEGATION_DIGEST_LEN],
+}
+
+/// WHAT A PROVIDER CALL ACTUALLY COST, once it has happened.
+///
+/// RUN-TO-COMPLETION HOST ATTESTATION 10D. `commit_reservation` takes one because the canonical
+/// ledger HAS NO WAY TO SAY "committed with nothing recorded": an entry carrying no usage IS a
+/// reservation, by the canonical rule, so a commit that wrote zeroes would leave behind an entry the
+/// agent's own release path is entitled to delete - silently erasing a charge that really was
+/// incurred. Settlement REPLACES the provisional entry with the real call, which means the real call
+/// has to be presented.
+///
+/// NOTHING IN THIS CHECKPOINT CONSTRUCTS ONE OUTSIDE A TEST. No provider is executed anywhere in
+/// 10D, so the only settlements that exist are fixtures; the execution rung is what will report a
+/// real one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProviderCallSettlement {
+    /// Input tokens the provider billed.
+    pub input_tokens: u64,
+    /// Cached input tokens, when the provider reported them.
+    pub cached_input_tokens: Option<u64>,
+    /// Output tokens the provider billed.
+    pub output_tokens: u64,
+    /// What those tokens cost at the configured rate card, in integer micro-USD.
+    ///
+    /// THE RATE CARD IS THE AGENT'S, NOT THE HOST'S. 10D prices nothing: the Host has no rate card,
+    /// no tokenizer and no request body, so this figure is reported to it rather than derived by it.
+    /// That is the same reason an unknown admitted cost refuses instead of defaulting - see
+    /// [`AdmittedCostSource`].
+    pub cost_micro_usd: u64,
+}
+
 /// The private supertrait that seals [`CanonicalBudgetLedger`].
 mod canonical_budget {
     /// Unnameable outside this crate, so the trait below cannot be implemented downstream.
@@ -275,18 +339,30 @@ pub trait CanonicalBudgetLedger: canonical_budget::Sealed {
     /// # Errors
     /// [`BudgetRefusal`] naming the gate that refused. An unknown cost refuses; overflow refuses;
     /// either ceiling refuses.
+    /// `subject` says WHAT the spend is for. The canonical ledger entry carries a project, a phase
+    /// and a model, so an implementation that persists one needs all three; see
+    /// [`BudgetReservationSubject`] for why they are threaded rather than held.
     fn admit_spend(
         &mut self,
         correlation: [u8; CORRELATION_LEN],
         cost_micro_usd: Option<u64>,
         delegation_ceiling_micro_usd: u64,
+        subject: &BudgetReservationSubject<'_>,
     ) -> Result<BudgetReservation, BudgetRefusal>;
 
     /// A charge was actually incurred: turn this reservation into committed spend, once.
     ///
+    /// `settlement` is what the provider actually billed. It is required rather than optional
+    /// because the canonical ledger expresses "committed" AS the recorded call - see
+    /// [`ProviderCallSettlement`].
+    ///
     /// # Errors
     /// [`BudgetRefusal::ReservationNotOutstanding`] for a reservation this ledger is not holding.
-    fn commit_reservation(&mut self, reservation: BudgetReservation) -> Result<(), BudgetRefusal>;
+    fn commit_reservation(
+        &mut self,
+        reservation: BudgetReservation,
+        settlement: &ProviderCallSettlement,
+    ) -> Result<(), BudgetRefusal>;
 
     /// No provider effect happened: give the capacity back, once.
     ///
@@ -351,10 +427,19 @@ impl CanonicalBudgetLedger for FixtureBudgetLedger {
         correlation: [u8; CORRELATION_LEN],
         cost_micro_usd: Option<u64>,
         delegation_ceiling_micro_usd: u64,
+        // AN IN-MEMORY POSITION HAS NOWHERE TO PUT A LABEL. The fixture persists no record, so there
+        // is nothing here to attribute; a production ledger writes an entry and needs all three.
+        _subject: &BudgetReservationSubject<'_>,
     ) -> Result<BudgetReservation, BudgetRefusal> {
         self.reserve(correlation, cost_micro_usd, delegation_ceiling_micro_usd)
     }
-    fn commit_reservation(&mut self, reservation: BudgetReservation) -> Result<(), BudgetRefusal> {
+    fn commit_reservation(
+        &mut self,
+        reservation: BudgetReservation,
+        // Likewise: the fixture's `commit` moves an amount between two integers, and there is no
+        // persisted entry for a settlement to replace.
+        _settlement: &ProviderCallSettlement,
+    ) -> Result<(), BudgetRefusal> {
         self.commit(reservation).map(|_| ())
     }
     fn release_reservation(&mut self, reservation: BudgetReservation) -> Result<(), BudgetRefusal> {
@@ -885,6 +970,15 @@ fn compose_verified(
             *request.correlation(),
             sources.cost.admitted_cost_micro_usd(),
             owner_ceiling,
+            // WHAT THE SPEND IS FOR, from the sources already resolved above and from nothing the
+            // request supplied: the project is the programme's, taken from the sealed attestation at
+            // step 1; the phase is the Host's own plan authority's, from step 5; the model policy is
+            // the signed closure's, from step 6.
+            &BudgetReservationSubject {
+                project: expected.project(),
+                phase: &phase,
+                model_policy: &model_policy,
+            },
         )
         .map_err(CompositionRefusal::BudgetRefused)?;
     //    AND THE OWNER'S CEILING IS CONFIRMED, not assumed. An implementation that ignored the
@@ -1061,6 +1155,12 @@ fn release_unused(ledger: &mut dyn CanonicalBudgetLedger, reservation: BudgetRes
 /// asserted in the tests against [`OperationClass::may_be_delegated_by_programme`] so the two can
 /// never drift.
 pub const COMPOSED_OPERATION: OperationClass = OperationClass::IndependentGatekeeperReview;
+
+/// RUN-TO-COMPLETION HOST ATTESTATION 10D - THE PRODUCTION `CanonicalBudgetLedger`.
+///
+/// A CHILD MODULE FOR THE SAME REASON THIS ONE IS: `canonical_budget::Sealed` is private here, so
+/// the only place a real implementation of the sealed trait can live is inside this subtree.
+pub mod canonical_ledger;
 
 // GATED ON THE FIXTURE GRAPH, because almost every proof here needs a LIVE `BoundIpcSession` and the
 // only way to mint one without a real named pipe is core's fixture verifier. Run with

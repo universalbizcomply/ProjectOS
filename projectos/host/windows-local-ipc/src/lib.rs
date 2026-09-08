@@ -155,6 +155,57 @@
 //! use projectos_host_windows_local_ipc::SESSION_REF_LEN;
 //! ```
 //!
+//! ## The budget is one canonical ledger, and nothing downstream can answer for it (§10D)
+//!
+//! The production `CanonicalBudgetLedger` is real now — it is the Host's client of
+//! `.projectops/gatekeeper-ledger.json` under `.projectops/gatekeeper-ledger.lock`. What a downstream
+//! crate can do with it is exactly nothing, and these are the mechanical reasons rather than the
+//! documented intention.
+//!
+//! A project root cannot be stated: the field is private, so no caller can point the Host's budget
+//! at a ledger of its choosing —
+//!
+//! ```compile_fail
+//! use projectos_host_windows_local_ipc::HostOwnedGatekeeperProjectRoot;
+//! let _chosen = HostOwnedGatekeeperProjectRoot { root: todo!() };
+//! ```
+//!
+//! …and the ledger cannot be opened without one, so a shipped build (where `fixture` does not exist)
+//! has no route to a budget position at all. The type is nameable, which is deliberate: a Host must
+//! be able to say what it needs, and still cannot mint it.
+//!
+//! ```
+//! use projectos_host_windows_local_ipc::{
+//!     CanonicalGatekeeperLedger, HostOwnedGatekeeperProjectRoot,
+//! };
+//! // Pinning the signature is the proof: opening the canonical ledger DEMANDS a Host-owned root.
+//! let _open: fn(HostOwnedGatekeeperProjectRoot, &_) -> CanonicalGatekeeperLedger =
+//!     CanonicalGatekeeperLedger::open;
+//! ```
+//!
+//! A reservation still cannot be fabricated, and now that one means a real entry in a real file:
+//!
+//! ```compile_fail
+//! use projectos_host_windows_local_ipc::BudgetReservation;
+//! let _forged = BudgetReservation { _seal: todo!(), ledger_id: todo!(), correlation: todo!(), cost_micro_usd: todo!(), delegation_ceiling_micro_usd: todo!(), spend_snapshot_micro_usd: todo!() };
+//! ```
+//!
+//! And a downstream crate cannot supply its own answer about money: the trait's supertrait is
+//! private, so implementing it outside this crate does not compile —
+//!
+//! ```compile_fail
+//! use projectos_host_windows_local_ipc::{
+//!     BudgetRefusal, BudgetReservation, BudgetReservationSubject, CanonicalBudgetLedger,
+//!     ProviderCallSettlement,
+//! };
+//! struct MyOwnBudget;
+//! impl CanonicalBudgetLedger for MyOwnBudget {
+//!     fn admit_spend(&mut self, _c: [u8; 16], _cost: Option<u64>, _ceiling: u64, _s: &BudgetReservationSubject<'_>) -> Result<BudgetReservation, BudgetRefusal> { todo!() }
+//!     fn commit_reservation(&mut self, _r: BudgetReservation, _s: &ProviderCallSettlement) -> Result<(), BudgetRefusal> { todo!() }
+//!     fn release_reservation(&mut self, _r: BudgetReservation) -> Result<(), BudgetRefusal> { todo!() }
+//! }
+//! ```
+//!
 //! ## The host-resolved binding inputs are not caller-suppliable (RUN-TO-COMPLETION §9B)
 //!
 //! The expected programme cannot be written down from a delegation's fields — the fields are
@@ -552,10 +603,29 @@ pub use owner_programme_delegation::{
 // documentation names the cross-check that makes a wrong answer a refusal rather than an escalation.
 pub use operation_contract::host_composition::{
     compose_protected_operation, AdmittedCostSource, BudgetRefusal, BudgetReservation,
-    CanonicalBudgetLedger, CommittedCandidateSource, ComposedProtectedOperation,
-    CompositionRefusal, HostPlanAuthority, HostRequestSources, OneShotRequestSubject,
-    SignedExecutionClosureFacts, COMPOSED_OPERATION, MAX_OUTSTANDING_RESERVATIONS,
+    BudgetReservationSubject, CanonicalBudgetLedger, CommittedCandidateSource,
+    ComposedProtectedOperation, CompositionRefusal, HostPlanAuthority, HostRequestSources,
+    OneShotRequestSubject, ProviderCallSettlement, SignedExecutionClosureFacts, COMPOSED_OPERATION,
+    MAX_OUTSTANDING_RESERVATIONS,
 };
+
+// RUN-TO-COMPLETION HOST ATTESTATION 10D - THE PRODUCTION CANONICAL BUDGET LEDGER.
+//
+// `CanonicalGatekeeperLedger` is the real implementation of the sealed `CanonicalBudgetLedger`: the
+// Host's client of `.projectops/gatekeeper-ledger.json` under `.projectops/gatekeeper-ledger.lock`,
+// which is the ONE source of spend truth. Exporting it lets a Host wire it; it grants nothing,
+// because the root it needs cannot be constructed in a default build.
+//
+// `HostOwnedGatekeeperProjectRoot` is exported for the same reason its 10B and 10C counterparts are:
+// a caller may NAME the root type and can never mint one. Resolving the real governed project root
+// is installation composition, and it is the gating carry-forward for all three durable seams.
+pub use operation_contract::host_composition::canonical_ledger::{
+    CanonicalGatekeeperLedger, HostOwnedGatekeeperProjectRoot,
+};
+
+/// The canonical ledger's own refusal vocabulary, re-exported because
+/// [`BudgetRefusal::LedgerRefused`] carries one and a caller must be able to read it.
+pub use projectos_host_gatekeeper_ledger::LedgerRefusal as CanonicalLedgerRefusal;
 
 /// FIXTURE ONLY. Non-default graph; a shipped build cannot name it, so it cannot state a budget
 /// position.

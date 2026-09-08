@@ -323,6 +323,38 @@ fn compose(
     )
 }
 
+/// Compose one request against an EXPLICIT budget ledger, for the §10D proofs that hand the
+/// composition the REAL canonical one instead of the in-memory fixture.
+fn compose_with_ledger(
+    live: &mut Live,
+    rig: &mut Rig,
+    ledger: &mut dyn CanonicalBudgetLedger,
+    request: &ProtectedOperationRequest,
+) -> Result<ComposedProtectedOperation, CompositionRefusal> {
+    let v = verified();
+    let peer = live.peer();
+    let mut sources = HostRequestSources {
+        plan: rig.plan.as_ref(),
+        closure: &rig.closure,
+        candidate: &rig.candidate,
+        cost: &rig.cost,
+        subject: &mut rig.inbox,
+    };
+    compose_verified(
+        &v,
+        &programme(),
+        &clock(),
+        &mut sources,
+        ledger,
+        &live.session,
+        &mut live.store,
+        &mut rig.replay,
+        &peer,
+        request,
+        EPOCH,
+    )
+}
+
 /// Compose one request against an EXPLICIT replay ledger, for the §10C proofs that need to supply a
 /// refusing or an always-fresh one.
 fn compose_with_replay(
@@ -1512,17 +1544,25 @@ impl CanonicalBudgetLedger for CeilingMisreportingLedger {
         correlation: [u8; CORRELATION_LEN],
         cost_micro_usd: Option<u64>,
         delegation_ceiling_micro_usd: u64,
+        subject: &BudgetReservationSubject<'_>,
     ) -> Result<BudgetReservation, BudgetRefusal> {
-        let mut r =
-            self.inner
-                .admit_spend(correlation, cost_micro_usd, delegation_ceiling_micro_usd)?;
+        let mut r = self.inner.admit_spend(
+            correlation,
+            cost_micro_usd,
+            delegation_ceiling_micro_usd,
+            subject,
+        )?;
         // The lie: the capacity really was set aside, but the record of WHICH ceiling permitted it
         // is wrong.
         r.delegation_ceiling_micro_usd = self.report_instead;
         Ok(r)
     }
-    fn commit_reservation(&mut self, r: BudgetReservation) -> Result<(), BudgetRefusal> {
-        self.inner.commit_reservation(r)
+    fn commit_reservation(
+        &mut self,
+        r: BudgetReservation,
+        settlement: &ProviderCallSettlement,
+    ) -> Result<(), BudgetRefusal> {
+        self.inner.commit_reservation(r, settlement)
     }
     fn release_reservation(&mut self, r: BudgetReservation) -> Result<(), BudgetRefusal> {
         self.inner.release_reservation(r)
@@ -1912,4 +1952,257 @@ fn a_wrong_class_cannot_deny_the_delegated_class() {
     compose_with_replay(&mut live2, &mut rig2, &mut replay, &request(2, 1))
         .expect("the delegated class must still be authorisable after a wrong-class attempt");
     assert_eq!(replay.recorded(), 2);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// RUN-TO-COMPLETION HOST ATTESTATION §10D — THE COMPOSITION AGAINST THE REAL CANONICAL LEDGER
+//
+// Everything above hands the composition the in-memory FIXTURE ledger, which is right for proving
+// what the composition decides. These hand it the PRODUCTION one, because two questions can only be
+// answered that way: does an admitted request really leave a reservation in the canonical file, and
+// does a refused one really take it back out again? A release that only happened in memory would
+// look identical to every fixture assertion above and would drain a real owner's ceiling.
+//
+// NO REAL LEDGER IS TOUCHED: each of these builds a disposable project root and removes it.
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+/// A disposable governed project root carrying a real gatekeeper configuration.
+struct CanonicalProject {
+    root: std::path::PathBuf,
+}
+
+impl CanonicalProject {
+    fn new(hard_stop: u64) -> Self {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "projectos-10d-e2e-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join(".projectops")).expect("scratch");
+        std::fs::write(
+            root.join(".projectops").join("gatekeeper.json"),
+            format!(
+                "{{\"schemaVersion\":\"1.0.0\",\"enabled\":true,\"budget\":{{\"initialCreditMicroUsd\":5000000,\"warnAtMicroUsd\":0,\"hardStopAtMicroUsd\":{hard_stop},\"autoRecharge\":false}},\"budgetRaiseAuthorities\":[]}}"
+            ),
+        )
+        .expect("config");
+        Self { root }
+    }
+
+    fn ledger(&self) -> canonical_ledger::CanonicalGatekeeperLedger {
+        canonical_ledger::CanonicalGatekeeperLedger::open(
+            canonical_ledger::HostOwnedGatekeeperProjectRoot::fixture(&self.root),
+            &HostClockReading::fixture(1_788_872_400),
+        )
+    }
+
+    fn entries(&self) -> Vec<projectos_host_gatekeeper_ledger::LedgerEntry> {
+        projectos_host_gatekeeper_ledger::read_ledger_for_evidence(&self.root)
+            .expect("readable")
+            .entries
+    }
+}
+
+impl Drop for CanonicalProject {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.root);
+    }
+}
+
+/// (§10D) AN ADMITTED REQUEST LEAVES A REAL RESERVATION IN THE REAL FILE.
+///
+/// And the facts the evaluator saw carry the snapshot that transaction read — not a figure this
+/// composition computed, and not one the caller supplied.
+#[test]
+fn a_composition_against_the_canonical_ledger_reserves_in_the_canonical_file() {
+    let project = CanonicalProject::new(CEILING);
+    let mut ledger = project.ledger();
+    let mut live = Live::open();
+    let mut rig = Rig::exact(1);
+
+    let composed =
+        compose_with_ledger(&mut live, &mut rig, &mut ledger, &request(1, 1)).expect("composed");
+
+    assert_eq!(composed.reservation().cost_micro_usd(), COST);
+    // Nothing was spent in this project before, so the snapshot the ledger read is zero — which is
+    // also proof the figure did not come from the fixture's COMMITTED.
+    assert_eq!(composed.reservation().spend_snapshot_micro_usd(), 0);
+
+    let entries = project.entries();
+    assert_eq!(entries.len(), 1, "the canonical file holds one record");
+    assert_eq!(entries[0].cost_micro_usd, COST);
+    assert!(entries[0].is_outstanding(), "an authority is not a charge");
+    assert!(entries[0].request_id.starts_with("GKHOST-"));
+}
+
+/// (§10D) A REFUSAL AFTER THE RESERVATION GIVES THE CAPACITY BACK — IN THE FILE.
+///
+/// The absent subject is the case §10A introduced the ordering for: the budget is reserved BEFORE
+/// the one-shot inbox is touched precisely so that a request with no subject costs nothing. That
+/// argument is only true if the release reaches the durable record.
+#[test]
+fn a_refusal_after_the_reservation_removes_it_from_the_canonical_file() {
+    let project = CanonicalProject::new(CEILING);
+    let mut ledger = project.ledger();
+    let mut live = Live::open();
+    let mut rig = Rig::exact(1);
+    rig.inbox = Inbox::empty();
+
+    assert!(matches!(
+        compose_with_ledger(&mut live, &mut rig, &mut ledger, &request(1, 1)),
+        Err(CompositionRefusal::RequestSubjectUnavailable)
+    ));
+    assert!(
+        project.entries().is_empty(),
+        "a refused request kept its reservation in the canonical ledger"
+    );
+
+    // And the capacity really is available again to the very next request.
+    let mut live = Live::open();
+    let mut rig = Rig::exact(1);
+    compose_with_ledger(&mut live, &mut rig, &mut ledger, &request(1, 1)).expect("composed");
+    assert_eq!(project.entries().len(), 1);
+}
+
+/// (§10D) AN EVALUATOR REJECTION ALSO RELEASES, and it is the case that matters most: the request
+/// reached the last gate, so everything before it had already succeeded.
+#[test]
+fn an_evaluator_rejection_releases_the_canonical_reservation() {
+    let project = CanonicalProject::new(CEILING);
+    let mut ledger = project.ledger();
+    let mut live = Live::open();
+    let mut rig = Rig::exact(1);
+
+    // A request whose binding digest is not the one the Host resolved: composed, reserved, and then
+    // refused by §9 itself.
+    let wrong = ProtectedOperationRequest::new(
+        correlation(1),
+        1,
+        EPOCH,
+        [0x01; BINDING_DIGEST_LEN],
+        OperationClass::IndependentGatekeeperReview,
+        approval_ref(),
+        SUBJECT_DIGEST,
+    );
+    assert!(matches!(
+        compose_with_ledger(&mut live, &mut rig, &mut ledger, &wrong),
+        Err(CompositionRefusal::Rejected(_))
+    ));
+    assert!(
+        project.entries().is_empty(),
+        "a rejected request kept its reservation in the canonical ledger"
+    );
+}
+
+/// (§10D) THE INSTALLATION'S CONFIGURED HARD STOP REFUSES THE COMPOSITION, and the Host never
+/// supplied it: the owner's ceiling here is the delegation's own, far above the configured stop.
+#[test]
+fn the_configured_hard_stop_refuses_the_composition() {
+    let project = CanonicalProject::new(COST - 1);
+    let mut ledger = project.ledger();
+    let mut live = Live::open();
+    let mut rig = Rig::exact(1);
+
+    let outcome = compose_with_ledger(&mut live, &mut rig, &mut ledger, &request(1, 1));
+    assert!(
+        matches!(
+            outcome,
+            Err(CompositionRefusal::BudgetRefused(
+                BudgetRefusal::LedgerRefused(
+                    projectos_host_gatekeeper_ledger::LedgerRefusal::HardStopExceeded
+                )
+            ))
+        ),
+        "got {outcome:?}"
+    );
+    assert_eq!(
+        rig.inbox.asks, 0,
+        "a free refusal must not cost a correlation"
+    );
+    assert!(project.entries().is_empty());
+}
+
+/// (§10D) THE OWNER'S CEILING STILL BINDS INDEPENDENTLY OF THE CONFIGURED ONE, through the real
+/// ledger.
+#[test]
+fn the_owners_ceiling_binds_through_the_canonical_ledger_too() {
+    let project = CanonicalProject::new(CEILING);
+    let mut ledger = project.ledger();
+    let mut live = Live::open();
+    let mut rig = Rig::exact(1);
+
+    let mut d = delegation();
+    d.budget_ceiling_micro_usd = COST - 1;
+    let v = VerifiedOwnerProgrammeDelegation::for_test(d);
+    let peer = live.peer();
+    let mut sources = HostRequestSources {
+        plan: rig.plan.as_ref(),
+        closure: &rig.closure,
+        candidate: &rig.candidate,
+        cost: &rig.cost,
+        subject: &mut rig.inbox,
+    };
+    let outcome = compose_verified(
+        &v,
+        &programme(),
+        &clock(),
+        &mut sources,
+        &mut ledger,
+        &live.session,
+        &mut live.store,
+        &mut rig.replay,
+        &peer,
+        &request(1, 1),
+        EPOCH,
+    );
+    assert!(
+        matches!(
+            outcome,
+            Err(CompositionRefusal::BudgetRefused(
+                BudgetRefusal::CeilingExceeded
+            ))
+        ),
+        "got {outcome:?}"
+    );
+    assert!(project.entries().is_empty());
+}
+
+/// (§10D) ONE PROJECT, ONE MONTH, ONE TOTAL — two composed requests see each other through the file.
+#[test]
+fn a_second_composition_sees_the_first_reservation_in_the_canonical_ledger() {
+    let project = CanonicalProject::new(COST * 2);
+    let mut ledger = project.ledger();
+
+    let mut live = Live::open();
+    let mut rig = Rig::exact(1);
+    compose_with_ledger(&mut live, &mut rig, &mut ledger, &request(1, 1)).expect("first");
+
+    // A SECOND ADAPTER, as a second process would have.
+    let mut second = project.ledger();
+    let mut live = Live::open();
+    let mut rig = Rig::exact(2);
+    let composed = compose_with_ledger(&mut live, &mut rig, &mut second, &request(2, 1))
+        .expect("second fits exactly");
+    assert_eq!(composed.reservation().spend_snapshot_micro_usd(), COST);
+
+    // A THIRD would cross the configured stop, and is refused.
+    let mut third = project.ledger();
+    let mut live = Live::open();
+    let mut rig = Rig::exact(3);
+    let outcome = compose_with_ledger(&mut live, &mut rig, &mut third, &request(3, 1));
+    assert!(
+        matches!(
+            outcome,
+            Err(CompositionRefusal::BudgetRefused(
+                BudgetRefusal::LedgerRefused(
+                    projectos_host_gatekeeper_ledger::LedgerRefusal::HardStopExceeded
+                )
+            ))
+        ),
+        "got {outcome:?}"
+    );
+    assert_eq!(project.entries().len(), 2);
 }
