@@ -4,7 +4,7 @@ version = "0.0.0"
 edition = "2021"
 publish = false
 license = "UNLICENSED"
-description = "RUN-TO-COMPLETION HOST ATTESTATION 10E. Resolves and SEALS the two conceptually distinct trusted roots ProjectOSHost needs: the HOST STATE ROOT (the frozen ProjectOS/host segments beneath the registered ProgramData location, reached through the approved SHGetKnownFolderPath primitive and the canonical installation-record segment vocabulary) and the GOVERNED PROJECT ROOT (the ONE repository root the canonical installed-project registry maps a project id to). Both arrive as sealed capabilities with private fields and no path-taking public constructor in any build, so no caller, environment variable, working directory, argv entry or request field can nominate either. Canonicalisation, traversal/UNC/device/ADS syntax refusal and reparse-point refusal are delegated WHOLE to the accepted handle-owned custody primitive; project attestation is delegated WHOLE to the accepted canonical registry; no second path-security framework and no second installation registry is created. It creates nothing, writes nothing, mutates no ACL, installs or starts no service, launches no process, opens no socket, contacts no provider and touches no credential - its only filesystem effect is opening directory handles for FILE_READ_ATTRIBUTES inside the custody primitive. ACTIVATION IS NOT GRANTED HERE: the production mint of the boundary acceptance is deliberately absent, so a default build resolves both roots correctly and still cannot open a durable store."
+description = "RUN-TO-COMPLETION HOST ATTESTATION 10E. Resolves and SEALS the two conceptually distinct trusted roots ProjectOSHost needs: the HOST STATE ROOT (the frozen ProjectOS/host segments beneath the registered ProgramData location, reached through the approved SHGetKnownFolderPath primitive and the canonical installation-record segment vocabulary) and the GOVERNED PROJECT ROOT (the ONE repository root the canonical installed-project registry maps a project id to). Both arrive as sealed capabilities with private fields and no path-taking public constructor in any build, so no caller, environment variable, working directory, argv entry or request field can nominate either. Canonicalisation, traversal/UNC/device/ADS syntax refusal and reparse-point refusal are delegated WHOLE to the accepted handle-owned custody primitive; project attestation is delegated WHOLE to the accepted canonical registry; no second path-security framework and no second installation registry is created. It creates nothing, writes nothing, mutates no ACL, installs or starts no service, launches no process, opens no socket, contacts no provider and touches no credential - its only filesystem effect is opening directory handles for FILE_READ_ATTRIBUTES inside the custody and ACL primitives. RUN-TO-COMPLETION HOST ATTESTATION 10F adds the ONE production mint of the boundary acceptance: it revalidates the sealed Host state root, resolves the NT SERVICE\\ProjectOSHost SID through the approved Windows lookup, composes the SAME frozen production ACL policy the installer applies, READS the real owner and DACL through the accepted handle-based inspection primitive, refuses on any violation or uncertainty, revalidates the root again, and only then mints. It takes no policy, no path, no SID, no descriptor and no caller verdict, and it still applies no ACL and performs no privileged effect: a non-conforming boundary is REPORTED, never repaired."
 
 [lints.rust]
 # This crate performs NO FFI of its own. Every Windows call it needs is made by the accepted
@@ -45,10 +45,16 @@ projectos-host-windows-root-custody = { path = "../windows-root-custody" }
 # never the creation flag, so the registered ProgramData location is READ and nothing on disk is
 # created, verified or touched. The %ProgramData% environment variable is never consulted.
 projectos-windows-runtime-primitives = { path = "../windows-runtime-primitives" }
-
-[dev-dependencies]
-# PROOF ONLY, never in the production graph. The one authoritative frozen production-root plan lives
-# here, and a test asserts that the segments this crate composes are exactly the plan's anchor, its
-# segments and its host-state subtree. Keeping it a DEV dependency is deliberate: the plan crate
-# carries an ACL-policy edge, and 10E may not put an ACL surface into the Host's runtime graph.
+# 10F. THE ACCEPTED ACL INSPECTION AND VERIFICATION PRIMITIVE, and nothing else from it. The
+# boundary mint reads the real owner and DACL through this crate's handle-based, reparse-refusing,
+# revalidating path and judges the result with this crate's verifier. Raw descriptors, raw SID bytes
+# and the ACL parser are crate-private there and unreachable here by construction, so what crosses
+# the edge is a semantic verdict. `resolve_account_sid` is the approved authoritative lookup - the
+# service SID is never inferred from the account name's spelling.
+projectos-host-windows-acl-policy = { path = "../windows-acl-policy" }
+# 10F. THE FROZEN PRODUCTION ACL PLAN. The one accepted composition (owner, principals, rights,
+# inheritance, broad-principal closure) lives here and is the SAME composition the installer's own
+# effect path applies. 10E kept this a DEV dependency deliberately, because 10E was not permitted to
+# put an ACL surface into the Host's runtime graph; 10F is exactly the phase that is, and promoting
+# the edge rather than restating the policy is what keeps the applier and the verifier in agreement.
 projectos-host-windows-activation-plan = { path = "../windows-host-activation-plan" }

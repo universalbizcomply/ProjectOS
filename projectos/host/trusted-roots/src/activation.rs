@@ -8,7 +8,7 @@
 //! * RESOLUTION says "this is the directory the installation means". That is what
 //!   [`crate::host_state`] and [`crate::governed_project`] establish, and they establish it fully.
 //! * ACCEPTANCE says "and its restricted ACL makes writing there mean something". Nothing in
-//!   ProjectOS establishes that yet.
+//!   ProjectOS established that until §10F, and [`boundary`] is where it now happens.
 //!
 //! The durable delegation store, the durable replay ledger and the canonical budget adapter all rest
 //! on the second claim, not the first. A store opened on a correctly-resolved directory that any
@@ -17,11 +17,12 @@
 //!
 //! ## How the gate is closed, and by what
 //!
-//! [`ProtectedInstallationBoundaryAcceptance`] has a private field and, in every shipped graph, NO
-//! constructor at all. It is therefore uninhabitable in production, which makes
-//! [`ActivatedHostStateRoot`] and [`ActivatedGovernedProjectRoot`] uninhabitable too, which makes the
-//! store constructors that consume them unreachable. The seam is closed by CONSTRUCTION rather than
-//! by a runtime check somebody could forget to call.
+//! [`ProtectedInstallationBoundaryAcceptance`] has a private field, so it cannot be built outside
+//! this crate. §10F adds the ONE production route that builds it —
+//! [`ProtectedInstallationBoundaryAcceptance::verify`], documented in [`boundary`] — and that
+//! route takes a sealed trusted root and nothing else. The seam is therefore closed by CONSTRUCTION:
+//! a caller that cannot obtain a conforming boundary cannot obtain an activation, and cannot reach
+//! the store constructors that consume one, whatever it asserts.
 //!
 //! ## Why ONE acceptance for both roots
 //!
@@ -36,11 +37,14 @@
 //! governed project root cannot be activated as a Host state root or the reverse. That is a compile
 //! error, not a check.
 //!
-//! ## What the ACL phase adds here, and only here
+//! ## What the ACL phase added here, and only here
 //!
-//! One production mint on [`ProtectedInstallationBoundaryAcceptance`], taking whatever evidence that
-//! phase defines. Nothing below it changes: the activated types, the store constructors and every
-//! consumer are already written against this shape.
+//! One production mint on [`ProtectedInstallationBoundaryAcceptance`]. Nothing below it changed:
+//! the activated types, their accessors, the store constructors and every consumer are exactly the
+//! shape §10E froze, which is what the gate being a single seam was for.
+
+#[cfg(windows)]
+pub mod boundary;
 
 use std::path::Path;
 
@@ -54,32 +58,50 @@ struct Seal;
 
 /// PROOF THAT THE PROTECTED INSTALLATION BOUNDARY WAS ACCEPTED.
 ///
-/// ## The production mint is ABSENT, and that is the phase's result rather than an omission
+/// ## The production mint (§10F)
 ///
 /// Accepting the boundary means reading the installed subtree's owner and DACL and deciding they
-/// match the restricted policy the installer is supposed to have applied. ProjectOS has the
-/// inspection primitive for that and has NOT accepted the policy, so there is no honest value to
-/// return. Manufacturing one — by assuming the installer ran, by checking that the directory merely
-/// exists, or by trusting a record that lives inside the directory being judged — would be asserting
-/// the one fact the whole boundary depends on.
+/// match the restricted policy the installer applied. [`Self::verify`] is that mint and the ONLY
+/// one: it revalidates the trusted root, resolves the service identity through Windows, composes
+/// the one accepted production policy, observes the real descriptor, judges it, revalidates the
+/// root again, and only then returns a value. It is documented in [`boundary`].
 ///
-/// Until that phase lands, no value of this type exists in a shipped build, and everything gated
-/// behind it fails closed.
+/// There is no other route. The type has a private field, so it cannot be built outside this crate;
+/// no public constructor takes a bool, a path, a policy, a SID, a security descriptor or a
+/// caller-supplied verification result; and nothing stored INSIDE the boundary being judged is
+/// consulted to decide whether that boundary is trustworthy.
 #[derive(Debug)]
 pub struct ProtectedInstallationBoundaryAcceptance {
     _seal: Seal,
 }
 
 impl ProtectedInstallationBoundaryAcceptance {
-    /// FIXTURE ONLY: stand in for an acceptance the ACL phase has not yet been built to produce.
+    /// THE SINGLE POINT AT WHICH THE SEAL IS CREATED, and the narrowest visibility Rust can give it.
+    ///
+    /// `pub(in crate::activation)` — NOT `pub(crate)`. The difference is the whole guarantee. A
+    /// `pub(crate)` constructor is callable from ANY module in this crate, so a helper added
+    /// anywhere later could mint an acceptance without resolving a SID, composing a policy or
+    /// reading a descriptor, and the compiler would not object. Restricting visibility to this
+    /// module and its descendants leaves exactly two places that can call it: this file, and
+    /// [`boundary`] — which is a descendant precisely so that the restriction can be stated.
+    /// A new sibling module cannot reach it at all.
+    ///
+    /// This is the crate's stated philosophy applied to itself: closed by construction, not by a
+    /// convention someone could forget.
+    pub(in crate::activation) fn mint() -> Self {
+        Self { _seal: Seal }
+    }
+
+    /// FIXTURE ONLY: an acceptance for proofs of the shape BELOW the gate.
     ///
     /// Compiled for this crate's tests and the non-default `test-fixtures` graph, so no shipped
-    /// build can reach it. It exists so the shape BELOW the gate — activation, the accessors, and
-    /// the store constructors that consume them — can be proven now rather than designed twice.
+    /// build can reach it. It exists so activation, the accessors and the store constructors that
+    /// consume them can be exercised without a conforming real boundary. It is NOT the production
+    /// mint and never was: [`Self::verify`] is.
     #[cfg(any(test, feature = "test-fixtures"))]
     #[must_use]
     pub fn fixture() -> Self {
-        Self { _seal: Seal }
+        Self::mint()
     }
 }
 

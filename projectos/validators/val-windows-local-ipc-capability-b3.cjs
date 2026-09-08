@@ -314,11 +314,29 @@ function run() {
           "projectos-host-identity",
           "projectos-project-registry",
           "projectos-host-windows-root-custody",
+          // PROPOSED, §10F - see the §10F amendment note in section 2d. Not yet ratified.
+          //
+          // §10E froze this list WITHOUT an ACL edge, deliberately: §10E resolved roots and was not
+          // permitted to accept a boundary, so an ACL surface in the Host's runtime graph would have
+          // been a capability it could not use. §10F is the phase that accepts the boundary, and the
+          // acceptance is worth nothing unless the policy the Host VERIFIES is the same policy the
+          // installer APPLIES. Depending on the accepted verifier and on the frozen plan is what
+          // makes those one object rather than two spellings free to drift apart.
+          "projectos-host-windows-acl-policy",
+          "projectos-host-windows-activation-plan",
           "projectos-windows-runtime-primitives",
         ].includes(d)
       )
         errors.push("trusted-roots: unexpected dependency: " + d);
     }
+    // ...AND THE §10F EDGES ARE REQUIRED, not merely tolerated. Their absence would mean the mint had
+    // stopped consulting Windows, or had started restating the policy locally.
+    for (const required of [
+      "projectos-host-windows-acl-policy",
+      "projectos-host-windows-activation-plan",
+    ])
+      if (!rootsDeps.includes(required))
+        errors.push("trusted-roots: missing §10F dependency: " + required);
     const rootsSrc = path.join(ROOTS_CRATE, "src");
     let sawFixtureGate = false;
     for (const f of rsFiles(rootsSrc)) {
@@ -355,19 +373,98 @@ function run() {
       if (/pub\s+fn\s+\w+\s*\([^)]*:\s*&(?:std::path::)?Path\b/.test(code))
         errors.push(ty + ": a public constructor or method takes a caller-supplied path");
     }
-    // THE ACTIVATION GATE HAS NO PRODUCTION MINT. If one appears, this phase's central claim is gone.
+    // THE ACTIVATION MODULE STILL HAS NO PRODUCTION MINT OF ITS OWN. §10F adds exactly one, and it
+    // lives in `activation/boundary.rs` beside the verification sequence - a DESCENDANT of `activation`,
+    // which is what lets `mint()` be visible to it and to nothing else. `activation.rs` itself must
+    // continue to expose nothing but the gated fixture.
     const activation = stripComments(read(path.join(rootsSrc, "activation.rs")));
     const acceptImpl = (activation.match(
       /impl ProtectedInstallationBoundaryAcceptance \{[\s\S]*?\n\}/,
     ) || [""])[0];
     const mints = (acceptImpl.match(/pub\s+fn\s+\w+/g) || []).map((m) => m.trim());
     if (mints.length !== 1 || !/pub\s+fn\s+fixture/.test(mints[0]))
-      errors.push(
-        "the protected-boundary acceptance has a mint other than the gated fixture: " +
-          mints.join(", "),
-      );
+      errors.push("activation.rs exposes a mint other than the gated fixture: " + mints.join(", "));
     if (!/#\[cfg\(any\(test,\s*feature\s*=\s*"test-fixtures"\)\)\]/.test(acceptImpl))
       errors.push("the protected-boundary acceptance fixture mint is not feature-gated");
+    // THE SEAL IS CONSTRUCTED IN EXACTLY ONE PLACE, AND `mint()` IS CALLED FROM EXACTLY TWO.
+    //
+    // The construction count alone was not enough, and the gap is worth naming. `mint()` is
+    // `pub(in crate::activation)`, so the compiler already refuses a call from a sibling module -
+    // but it does NOT refuse a second call added inside `activation.rs` or `boundary.rs` themselves,
+    // and such a call would mint an acceptance without resolving a SID, composing a policy or
+    // reading a descriptor. The two legitimate call sites are the gated fixture and the mint.
+    if ((activation.match(/Self\s*\{\s*_seal:\s*Seal\s*\}/g) || []).length !== 1)
+      errors.push("the boundary acceptance seal is not constructed in exactly one place");
+    if (!/pub\(in crate::activation\)\s+fn\s+mint\s*\(/.test(activation))
+      errors.push("mint() is not restricted to `pub(in crate::activation)`");
+    {
+      let mintCalls = 0;
+      for (const f of rsFiles(rootsSrc)) {
+        const rel = path.relative(ROOT, f).replace(/\\/g, "/");
+        const hits = (stripComments(read(f)).match(/(?:Self|ProtectedInstallationBoundaryAcceptance)::mint\s*\(/g) || [])
+          .length;
+        if (!hits) continue;
+        mintCalls += hits;
+        if (!/\/activation\.rs$|\/activation\/boundary\.rs$/.test(rel))
+          errors.push(rel + ": calls mint() outside activation.rs and activation/boundary.rs");
+      }
+      if (mintCalls !== 2)
+        errors.push("mint() has " + mintCalls + " call sites; exactly two are permitted (the gated fixture and the mint)");
+    }
+
+    // 2d. THE §10F PRODUCTION MINT.
+    //
+    // PROPOSED - AWAITING RATIFICATION AT THE §10F GATE, with the dependency amendment above.
+    //
+    // §10E's rule here was "there must be NO production mint", and that rule was right for §10E.
+    // Inverting it IS §10F, so the replacement has to be at least as specific as what it replaces:
+    // not "a mint exists" - which any bool-returning stub satisfies - but a mint whose SHAPE forbids
+    // the ways acceptance could be faked.
+    const BOUNDARY = path.join(rootsSrc, "activation", "boundary.rs");
+    if (!fs.existsSync(BOUNDARY)) {
+      errors.push("trusted-roots: the §10F boundary module is missing");
+    } else {
+      const boundary = stripComments(read(BOUNDARY));
+      // ONE MINT, TAKING A SEALED ROOT AND NOTHING ELSE. A second parameter is how a caller would
+      // supply the policy, the path or the verdict that judges the boundary.
+      if (
+        !/pub\s+fn\s+verify\s*\(\s*root:\s*&TrustedHostStateRoot\s*\)\s*->\s*Result<Self,\s*BoundaryRefusal>/.test(
+          boundary,
+        )
+      )
+        errors.push(
+          "the §10F mint is not `verify(root: &TrustedHostStateRoot) -> Result<Self, BoundaryRefusal>`",
+        );
+      const boundaryPubFns = (boundary.match(/pub\s+fn\s+\w+/g) || []).map((m) => m.trim());
+      if (boundaryPubFns.length !== 1 || boundaryPubFns[0] !== "pub fn verify")
+        errors.push(
+          "boundary.rs exposes a route other than the single mint: " + boundaryPubFns.join(", "),
+        );
+      // THE POLICY IS THE ACCEPTED ONE, COMPOSED HERE - never restated, never caller-chosen.
+      if (!/AclCompositionPlan::production\(\)/.test(boundary))
+        errors.push("the mint does not compose the frozen production ACL plan");
+      if (!/ServiceIdentityStrategy::VirtualServiceAccount/.test(boundary))
+        errors.push("the mint does not bind the owner-decided service identity strategy");
+      if (!/resolve_account_sid\(/.test(boundary))
+        errors.push("the mint does not resolve the service SID authoritatively");
+      if (!/from_resolved_sid\(/.test(boundary))
+        errors.push("the mint binds a guessed principal instead of a RESOLVED sid");
+      if (/AclPolicy::strict\(|AclPolicy\s*\{/.test(boundary))
+        errors.push("the mint states an ACL policy of its own instead of composing the accepted one");
+      // IT IS A VERIFIER, AND THE ROOT IS RECHECKED ON BOTH SIDES OF THE OBSERVATION.
+      if (!/verify_directory\(/.test(boundary))
+        errors.push("the mint does not perform an authoritative descriptor verification");
+      if ((boundary.match(/root\.revalidate\(\)/g) || []).length < 2)
+        errors.push("the mint does not revalidate the root on both sides of the observation");
+    }
+    // A MINT THAT COULD REPAIR THE BOUNDARY COULD ALSO CREATE THE STATE IT THEN ACCEPTS. No ACL
+    // mutation entry point may be reachable from ANY source in this crate.
+    for (const f of rsFiles(rootsSrc)) {
+      const rel = path.relative(ROOT, f).replace(/\\/g, "/");
+      const code = stripComments(read(f));
+      if (/apply_directory_policy\(|apply_file_policy\(|apply_and_verify(_file)?\(/.test(code))
+        errors.push(rel + ": an ACL mutation entry point is reachable from the trusted-roots crate");
+    }
   }
 
   // 3. windows_ffi.rs: gated, unsafe-allowed, correct pipe configuration, opaque-lease consumption.

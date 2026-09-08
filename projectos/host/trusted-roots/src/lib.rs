@@ -1,4 +1,4 @@
-//! # ProjectOS Host Trusted Roots — RUN-TO-COMPLETION HOST ATTESTATION §10E
+//! # ProjectOS Host Trusted Roots — RUN-TO-COMPLETION HOST ATTESTATION §10E, §10F
 //!
 //! ## The two roots, and why they are two
 //!
@@ -37,8 +37,28 @@
 //!
 //! Resolving a root says "this is the directory the installation means". It does NOT say "and its
 //! restricted ACL makes writing there mean something", and the durable stores rest on the second
-//! claim. [`crate::activation`] is the gate between them, and its production mint is deliberately
-//! absent: a default build resolves both roots correctly and still cannot open a store.
+//! claim. [`crate::activation`] is the gate between them, and [`crate::activation::boundary`] is the ONE
+//! production route through it: an observation of the real Windows owner and DACL, judged against
+//! the frozen accepted policy. A build whose boundary does not conform resolves both roots correctly
+//! and still cannot open a store.
+//!
+//! ## What acceptance protects against — and what it does not (§10F)
+//!
+//! The accepted policy leaves the Host state root owned by `NT AUTHORITY\SYSTEM` with a PROTECTED,
+//! non-inherited DACL carrying exactly three allow ACEs: the service principal, `BUILTIN\
+//! Administrators` and SYSTEM, each full control. No `Everyone`, `Authenticated Users`, `Users` or
+//! `INTERACTIVE` ACE exists, and no ACE is inherited from `ProgramData`, whose default DACL DOES
+//! grant `CREATOR OWNER` and `Users` create rights. So an ordinary non-privileged local account —
+//! including the interactive owner's own logged-on session while it is not elevated — cannot write,
+//! append to, rename, delete or re-secure the delegation store, the replay ledger or the
+//! installed-project registry. That is the tamper and rollback risk §10B and §10C carried, and this
+//! is what closes it.
+//!
+//! It closes NOTHING against a local administrator, SYSTEM, a kernel-level compromise, or offline
+//! disk access. `BUILTIN\Administrators` holds an explicit full-control ACE by design: removing it
+//! would not remove an administrator — who can take ownership, restore a backup or load a driver —
+//! it would only make the host unserviceable while proving nothing. Anti-rollback here means
+//! "an unprivileged actor cannot roll the Host's state back", and it is not stated more broadly.
 //!
 //! ## What it reuses rather than rebuilds
 //!
@@ -127,7 +147,17 @@
 //! use projectos_host_trusted_roots::ProtectedInstallationBoundaryAcceptance;
 //! let _ = ProtectedInstallationBoundaryAcceptance::new();
 //! ```
-
+//! …nor minted from a caller's own verdict, however it is spelled — §10F adds exactly one route and
+//! it is not this one:
+//! ```compile_fail
+//! use projectos_host_trusted_roots::ProtectedInstallationBoundaryAcceptance;
+//! let _ = ProtectedInstallationBoundaryAcceptance::from_verified(true);
+//! ```
+//! The crate-private seal constructor is not reachable from outside, even by name:
+//! ```compile_fail
+//! use projectos_host_trusted_roots::ProtectedInstallationBoundaryAcceptance;
+//! let _ = ProtectedInstallationBoundaryAcceptance::mint();
+//! ```
 pub mod activation;
 mod canonical;
 pub mod governed_project;
@@ -138,6 +168,8 @@ pub mod source;
 #[cfg(test)]
 mod tests;
 
+#[cfg(windows)]
+pub use activation::boundary::BoundaryRefusal;
 pub use activation::{
     ActivatedGovernedProjectRoot, ActivatedHostStateRoot, ProtectedInstallationBoundaryAcceptance,
 };

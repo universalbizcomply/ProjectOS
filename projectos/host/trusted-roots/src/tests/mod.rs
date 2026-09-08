@@ -21,6 +21,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 mod activation;
+mod boundary;
 mod governed_project;
 mod host_state;
 

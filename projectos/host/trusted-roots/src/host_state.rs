@@ -70,8 +70,9 @@ pub const HOST_STATE_SEGMENT: &str =
 /// ## Holding one does not open anything
 ///
 /// It is not an activation. The durable stores are reached through
-/// [`crate::activation::ActivatedHostStateRoot`], whose production mint is absent until the ACL
-/// boundary is accepted.
+/// [`crate::activation::ActivatedHostStateRoot`], which needs an accepted protected installation
+/// boundary as well as a resolved root — and §10F's mint REFUSES to produce one until it has
+/// observed this root's real owner and DACL and found them to match the accepted policy.
 pub struct TrustedHostStateRoot {
     /// The canonical path derived FROM the held handle — one spelling, whatever the anchor's was.
     canonical: PathBuf,
