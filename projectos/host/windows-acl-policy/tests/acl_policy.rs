@@ -1,8 +1,12 @@
 //! Real Windows ACL evidence, on ISOLATED SYNTHETIC temporary directories only.
 //!
-//! No ProgramData, no repository directory, no user-profile root, no service installation directory,
-//! and no administrator privilege is required. Every fixture directory is created by the test, is
-//! deleted by the test, and is the only object whose ACL is ever touched.
+//! No ProgramData, no repository directory, no user-profile root and no service installation
+//! directory. Every fixture directory is created by the test, is deleted by the test, and is the only
+//! object whose ACL is ever touched.
+//!
+//! Since §10G-PRIV every APPLY enables `SeRestorePrivilege` around its one ownership write and is
+//! refused (`PrivilegeUnavailable`) by a token that does not hold it, so the apply tests here need an
+//! elevated administrator token. Inspection and verification need no privilege.
 //!
 //! `mklink` and `icacls` appear ONLY as fixture builders — to create a junction and to introduce a
 //! broad-principal ACE that this crate must then refuse. Neither is used as an implementation

@@ -71,6 +71,19 @@ pub enum AclPolicyError {
     #[error("reconciliation required")]
     ReconciliationRequired,
 
+    /// `SeRestorePrivilege` — what lets this process assign an owner other than itself — could not be
+    /// admitted: the token does not hold it (`ERROR_NOT_ALL_ASSIGNED`), it could not be enabled, or the
+    /// calling thread is impersonating so the write would be checked against a different token.
+    /// Refused BEFORE any effect: no descriptor was written.
+    #[error("privilege unavailable")]
+    PrivilegeUnavailable,
+
+    /// The ownership write ran (or was about to), but the token's prior `SeRestorePrivilege` state
+    /// could not be restored and confirmed by a re-read. NOT a success whatever the write returned:
+    /// the descriptor may have changed and the token may still hold the privilege enabled.
+    #[error("privilege restore failed")]
+    PrivilegeRestoreFailed,
+
     /// A supported Windows call failed for a reason not classified above. The Windows error text is
     /// deliberately discarded.
     #[error("windows api failure")]

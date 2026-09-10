@@ -1246,10 +1246,11 @@ mod state_root_repair_tests {
 
     const ALL: [StateRootLevel; 3] = StateRootLevel::REPAIR_ORDER;
 
-    /// Every `AclPolicyError` variant at `65f8563`. The enum is `#[non_exhaustive]`, so the compiler
-    /// cannot enforce this list: a variant added to `windows-acl-policy/src/error.rs` MUST be added
-    /// here too, or `no_error_after_the_effect_boundary_is_ever_a_refusal` stops being exhaustive.
-    const EVERY_ACL_ERROR: [AclPolicyError; 16] = [
+    /// Every `AclPolicyError` variant at `65f8563`, plus the two §10G-PRIV privilege classes. The enum
+    /// is `#[non_exhaustive]`, so the compiler cannot enforce this list: a variant added to
+    /// `windows-acl-policy/src/error.rs` MUST be added here too, or
+    /// `no_error_after_the_effect_boundary_is_ever_a_refusal` stops being exhaustive.
+    const EVERY_ACL_ERROR: [AclPolicyError; 18] = [
         AclPolicyError::UnsupportedPlatform,
         AclPolicyError::EmptyPath,
         AclPolicyError::RelativePath,
@@ -1266,6 +1267,8 @@ mod state_root_repair_tests {
         AclPolicyError::PolicyRefused,
         AclPolicyError::ReconciliationRequired,
         AclPolicyError::WindowsApiFailure,
+        AclPolicyError::PrivilegeUnavailable,
+        AclPolicyError::PrivilegeRestoreFailed,
     ];
 
     fn index(level: StateRootLevel) -> usize {
@@ -1991,11 +1994,11 @@ mod state_root_repair_tests {
 
         #[test]
         fn a_real_effect_failure_is_reconciliation_required_even_when_nothing_changed() {
-            // The ACCEPTED policy (SYSTEM-owned) against a disposable tree. A token that cannot
-            // assign SYSTEM as owner — every token without SeRestorePrivilege ENABLED, including an
-            // elevated administrator's — gets `ERROR_INVALID_OWNER` from `SetSecurityInfo`, which the
-            // accepted crate reports as an `Err`. Nothing changes, and the outcome must STILL be
-            // reconciliation: that error is indistinguishable from one raised after an effect.
+            // The ACCEPTED policy (SYSTEM-owned) against a disposable tree. Since §10G-PRIV the accepted
+            // crate enables SeRestorePrivilege around its one ownership write, so a token that HOLDS
+            // it repairs; one that does not is refused `PrivilegeUnavailable` before any write, as an
+            // `Err`. Nothing changes, and the outcome must STILL be reconciliation: to this route that
+            // error is indistinguishable from one raised after an effect.
             let (root, levels) = tree("uncertain");
             let policy = accepted_policy();
             let service = WindowsAclPolicyService::new();

@@ -18,6 +18,15 @@
 //! INSIDE it. Both are copied into owned Rust values immediately, and the descriptor is released
 //! exactly once by an RAII guard on every path — success, refusal, or early return. No borrowed SID or
 //! ACL pointer outlives the descriptor, and no pointer is ever returned to a caller.
+//!
+//! ## One privilege, one write (§10G-PRIV)
+//!
+//! Assigning an owner other than the caller (SYSTEM, for every accepted policy) needs
+//! `SeRestorePrivilege` ENABLED. An elevated token HOLDS it but, launched from PowerShell, has it
+//! disabled; launched from Git Bash, enabled. So the ownership write never relies on that ambient
+//! state: [`apply_security`] enables it explicitly for its single `SetSecurityInfo` call, restores the
+//! exact prior state Windows reported, and confirms the restoration by re-reading the token. The
+//! privilege is a Windows constant — no caller, environment variable or shell can select another.
 
 use std::path::Path;
 
@@ -295,9 +304,23 @@ pub(crate) fn read_security(
 /// The ACL image is validated by Windows (`IsValidAcl`) before it is applied, and the DACL is always
 /// marked PROTECTED so no parent authority is inherited.
 ///
+/// The write runs inside ONE `SeRestorePrivilege` window (see [`run_in_restore_privilege_window`]), so
+/// assigning an owner other than the caller does not depend on the privilege state the process
+/// happened to inherit from whatever launched it.
+///
+/// The target handle is admitted BEFORE the window, deliberately: nothing but the one write runs
+/// privileged. The open therefore still sees whatever privilege state the process already had, and
+/// with `FILE_FLAG_BACKUP_SEMANTICS` an ALREADY-enabled `SeRestorePrivilege` can grant
+/// `WRITE_DAC`/`WRITE_OWNER` that the DACL withholds. Every accepted policy — and the real state root it
+/// repairs — grants Administrators `FullControl`, so for those targets the open is DACL-granted either
+/// way. A target whose DACL withholds `WRITE_OWNER` from the caller is refused `AccessDenied`, before
+/// any effect, unless the process arrived with the privilege enabled (pinned by
+/// `a_target_withholding_write_owner_is_decided_at_the_open_by_the_prior_state`).
+///
 /// # Errors
 /// [`AclPolicyError`] classifying the refusal. A refusal returned before `SetSecurityInfo` means the
-/// ACL was NOT changed.
+/// ACL was NOT changed — including [`AclPolicyError::PrivilegeUnavailable`].
+/// [`AclPolicyError::PrivilegeRestoreFailed`] is returned after it and is never a success.
 #[cfg(windows)]
 pub(crate) fn apply_security(
     path: &Path,
@@ -306,7 +329,7 @@ pub(crate) fn apply_security(
     expected: SecuredObjectKind,
 ) -> Result<(), AclPolicyError> {
     use std::os::windows::io::AsRawHandle;
-    use windows_sys::Win32::Foundation::{ERROR_SUCCESS, HANDLE};
+    use windows_sys::Win32::Foundation::HANDLE;
     use windows_sys::Win32::Security::Authorization::{SetSecurityInfo, SE_FILE_OBJECT};
     use windows_sys::Win32::Security::{
         IsValidAcl, IsValidSid, ACL, DACL_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION,
@@ -329,30 +352,465 @@ pub(crate) fn apply_security(
         return Err(AclPolicyError::MalformedDescriptor);
     }
 
+    // Privilege admission PREREQUISITES, all pre-effect and none of them enabling anything: serialise
+    // this process's privilege windows, refuse an impersonating thread, open the process token and
+    // resolve the privilege.
+    let serialised = admit_privilege_window(&PRIVILEGE_WINDOW)?;
+    let mut privilege = ProcessRestorePrivilege::open()?;
+
     // Opened AFTER validation, so the object is held for the shortest possible window, and opened
     // without following reparse points so the write cannot be redirected.
     let handle = open_secure_handle(path, ACCESS_WRITE_SECURITY, expected)?;
     let raw = handle.as_raw_handle() as HANDLE;
 
-    // SAFETY: `raw` is a live handle opened with WRITE_DAC|WRITE_OWNER; the owner and ACL pointers are
-    // aligned, owned and alive across the call; no SACL is supplied.
-    let status = unsafe {
-        SetSecurityInfo(
-            raw,
-            SE_FILE_OBJECT,
-            OWNER_SECURITY_INFORMATION
-                | DACL_SECURITY_INFORMATION
-                | PROTECTED_DACL_SECURITY_INFORMATION,
-            owner_ptr,
-            std::ptr::null_mut(),
-            acl_ptr,
-            std::ptr::null(),
-        )
+    // THE WINDOW: enable → exactly this one write → restore the prior state and confirm it.
+    run_in_restore_privilege_window(&serialised, &mut privilege, || {
+        // SAFETY: `raw` is a live handle opened with WRITE_DAC|WRITE_OWNER; the owner and ACL
+        // pointers are aligned, owned and alive across the call; no SACL is supplied.
+        unsafe {
+            SetSecurityInfo(
+                raw,
+                SE_FILE_OBJECT,
+                OWNER_SECURITY_INFORMATION
+                    | DACL_SECURITY_INFORMATION
+                    | PROTECTED_DACL_SECURITY_INFORMATION,
+                owner_ptr,
+                std::ptr::null_mut(),
+                acl_ptr,
+                std::ptr::null(),
+            )
+        }
+    })
+}
+
+// ---- §10G-PRIV: SeRestorePrivilege, enabled for exactly one ownership write ----
+
+/// Serialises every privilege window in this process.
+///
+/// Privilege state lives on the PROCESS token. Two overlapping windows would each capture the other's
+/// enabled state as "prior", and whichever restored last would leave the privilege enabled. Holding
+/// this lock from admission to confirmed restoration makes windows strictly sequential. It cannot
+/// bind code outside this crate that adjusts the same token; nothing in ProjectOS does.
+#[cfg(windows)]
+static PRIVILEGE_WINDOW: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Upper bound for a `TOKEN_PRIVILEGES` buffer; anything larger is malformed rather than allocated.
+#[cfg(windows)]
+const MAX_TOKEN_PRIVILEGES_BYTES: usize = 4096;
+
+/// The token's `SeRestorePrivilege` state before a window, exactly as Windows reported it.
+#[cfg(windows)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PriorPrivilege {
+    /// Already enabled. Windows changed nothing, so restoration writes nothing.
+    AlreadyEnabled,
+    /// Held but not enabled. Windows returned these exact prior attributes; they are written back.
+    Changed(u32),
+}
+
+#[cfg(windows)]
+impl PriorPrivilege {
+    fn was_enabled(self) -> bool {
+        use windows_sys::Win32::Security::SE_PRIVILEGE_ENABLED;
+        match self {
+            Self::AlreadyEnabled => true,
+            Self::Changed(attributes) => attributes & SE_PRIVILEGE_ENABLED != 0,
+        }
+    }
+}
+
+/// The three token operations a window performs.
+///
+/// Private to this module. The process token is the only production implementation; the only other
+/// is a scripted test double. The privilege is not a parameter of any method.
+#[cfg(windows)]
+trait RestorePrivilegeToken {
+    /// Request `SeRestorePrivilege` ENABLED and return the state Windows says it replaced.
+    fn enable(&mut self) -> Result<PriorPrivilege, AclPolicyError>;
+    /// Write the prior state back. `AlreadyEnabled` writes nothing.
+    fn restore(&mut self, prior: PriorPrivilege) -> Result<(), AclPolicyError>;
+    /// Re-read from Windows whether the privilege is enabled now.
+    fn is_enabled(&self) -> Result<bool, AclPolicyError>;
+}
+
+/// Take the window lock. A POISONED lock means an earlier window panicked part-way; the token state it
+/// left is not trusted, so every later window in this process is refused before any effect.
+#[cfg(windows)]
+fn admit_privilege_window(
+    lock: &std::sync::Mutex<()>,
+) -> Result<std::sync::MutexGuard<'_, ()>, AclPolicyError> {
+    lock.lock()
+        .map_err(|_| AclPolicyError::PrivilegeUnavailable)
+}
+
+/// Run exactly ONE effect with `SeRestorePrivilege` enabled, then restore the prior state and confirm
+/// it by re-reading the token.
+///
+/// `_serialised` is the caller's hold on the window lock. `effect` is `FnOnce`, so it runs at most once
+/// per window; it returns the raw Win32 status of the one ownership write.
+///
+/// * a failure to ENABLE returns before `effect` runs: nothing was written;
+/// * once `effect` has run, restoration is attempted on every path, and a restoration that fails — or
+///   that the re-read does not confirm — is [`AclPolicyError::PrivilegeRestoreFailed`] even when the
+///   write succeeded. Success is never reported with the token left altered.
+#[cfg(windows)]
+fn run_in_restore_privilege_window<T: RestorePrivilegeToken>(
+    _serialised: &std::sync::MutexGuard<'_, ()>,
+    token: &mut T,
+    effect: impl FnOnce() -> u32,
+) -> Result<(), AclPolicyError> {
+    use windows_sys::Win32::Foundation::ERROR_SUCCESS;
+
+    let prior = token.enable()?;
+    let window = PrivilegeWindow {
+        token,
+        prior: Some(prior),
     };
+    let status = effect();
+    window.close()?;
     if status != ERROR_SUCCESS {
         return Err(classify(status));
     }
     Ok(())
+}
+
+/// An OPEN window: the privilege is enabled and `prior` has not yet been written back.
+///
+/// [`Self::close`] is the only success path: it restores, re-reads and RETURNS the result. `Drop` is a
+/// best-effort backstop for an unwinding panic only — it cannot report failure, so no success path
+/// relies on it.
+#[cfg(windows)]
+struct PrivilegeWindow<'a, T: RestorePrivilegeToken> {
+    token: &'a mut T,
+    prior: Option<PriorPrivilege>,
+}
+
+#[cfg(windows)]
+impl<T: RestorePrivilegeToken> PrivilegeWindow<'_, T> {
+    fn close(mut self) -> Result<(), AclPolicyError> {
+        let Some(prior) = self.prior.take() else {
+            return Err(AclPolicyError::PrivilegeRestoreFailed);
+        };
+        match self
+            .token
+            .restore(prior)
+            .and_then(|()| self.token.is_enabled())
+        {
+            Ok(now) if now == prior.was_enabled() => Ok(()),
+            _ => Err(AclPolicyError::PrivilegeRestoreFailed),
+        }
+    }
+}
+
+#[cfg(windows)]
+impl<T: RestorePrivilegeToken> Drop for PrivilegeWindow<'_, T> {
+    fn drop(&mut self) {
+        if let Some(prior) = self.prior.take() {
+            // Unwinding: there is no caller to return a result to. The write-back is still attempted
+            // so a panic never deliberately leaves the privilege enabled.
+            let _ = self.token.restore(prior);
+        }
+    }
+}
+
+/// Interpret the `PreviousState` Windows returned for a one-privilege request.
+///
+/// Windows lists only the privileges it CHANGED: none means it was already enabled; one entry for this
+/// LUID carries the exact attributes it replaced. Anything else is not a state this window can restore
+/// faithfully, and is `None`.
+#[cfg(windows)]
+fn decode_previous(
+    previous: &windows_sys::Win32::Security::TOKEN_PRIVILEGES,
+    luid: windows_sys::Win32::Foundation::LUID,
+) -> Option<PriorPrivilege> {
+    match previous.PrivilegeCount {
+        0 => Some(PriorPrivilege::AlreadyEnabled),
+        1 => {
+            let entry = previous.Privileges[0];
+            (entry.Luid.LowPart == luid.LowPart && entry.Luid.HighPart == luid.HighPart)
+                .then_some(PriorPrivilege::Changed(entry.Attributes))
+        }
+        _ => None,
+    }
+}
+
+/// Refuse when the calling THREAD is impersonating.
+///
+/// `SetSecurityInfo` checks privileges against the thread's impersonation token when there is one,
+/// while a window adjusts the PROCESS token. Enabling on one token and writing under another is the
+/// wrong-token adjustment, so the window is refused before anything is enabled.
+#[cfg(windows)]
+fn refuse_impersonating_thread() -> Result<(), AclPolicyError> {
+    use std::os::windows::io::{FromRawHandle, OwnedHandle};
+    use windows_sys::Win32::Foundation::{GetLastError, ERROR_NO_TOKEN, HANDLE};
+    use windows_sys::Win32::Security::TOKEN_QUERY;
+    use windows_sys::Win32::System::Threading::{GetCurrentThread, OpenThreadToken};
+
+    let mut raw: HANDLE = std::ptr::null_mut();
+    // SAFETY: the current-thread pseudo-handle is always valid and never closed; `raw` is a writable
+    // slot. OpenAsSelf=TRUE checks access as the process, so an impersonation level too low to open
+    // the token still cannot hide that one exists (that case fails with an error other than NO_TOKEN).
+    let opened = unsafe { OpenThreadToken(GetCurrentThread(), TOKEN_QUERY, 1, &mut raw) };
+    if opened != 0 {
+        // SAFETY: `raw` is a valid token handle owned nowhere else; adopting it closes it here.
+        drop(unsafe { OwnedHandle::from_raw_handle(raw as std::os::windows::io::RawHandle) });
+        return Err(AclPolicyError::PrivilegeUnavailable);
+    }
+    // SAFETY: reading the calling thread's last-error code has no preconditions.
+    match unsafe { GetLastError() } {
+        ERROR_NO_TOKEN => Ok(()),
+        _ => Err(AclPolicyError::PrivilegeUnavailable),
+    }
+}
+
+/// The CURRENT PROCESS token, admitted for exactly one privilege: `SeRestorePrivilege`.
+///
+/// Opened with `TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY` only — adjust, and read the state back. The
+/// privilege is the Windows constant `SE_RESTORE_NAME`; no caller, environment variable or shell can
+/// select another. The handle is closed by `OwnedHandle` on every path.
+#[cfg(windows)]
+struct ProcessRestorePrivilege {
+    token: std::os::windows::io::OwnedHandle,
+    luid: windows_sys::Win32::Foundation::LUID,
+}
+
+#[cfg(windows)]
+impl ProcessRestorePrivilege {
+    /// Every step is PRE-EFFECT and changes nothing.
+    fn open() -> Result<Self, AclPolicyError> {
+        use std::os::windows::io::{FromRawHandle, OwnedHandle};
+        use windows_sys::Win32::Foundation::{HANDLE, LUID};
+        use windows_sys::Win32::Security::{
+            LookupPrivilegeValueW, SE_RESTORE_NAME, TOKEN_ADJUST_PRIVILEGES, TOKEN_QUERY,
+        };
+        use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+
+        refuse_impersonating_thread()?;
+
+        let mut raw: HANDLE = std::ptr::null_mut();
+        // SAFETY: the current-process pseudo-handle is always valid and never closed; `raw` is a
+        // writable slot whose handle is adopted for RAII closure immediately below.
+        let opened = unsafe {
+            OpenProcessToken(
+                GetCurrentProcess(),
+                TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY,
+                &mut raw,
+            )
+        };
+        if opened == 0 {
+            return Err(AclPolicyError::PrivilegeUnavailable);
+        }
+        // SAFETY: `raw` is a valid token handle owned nowhere else.
+        let token = unsafe { OwnedHandle::from_raw_handle(raw as std::os::windows::io::RawHandle) };
+
+        let mut luid = LUID {
+            LowPart: 0,
+            HighPart: 0,
+        };
+        // SAFETY: a null system name means the local system; `SE_RESTORE_NAME` is a static
+        // NUL-terminated UTF-16 constant; `luid` is a writable slot.
+        if unsafe { LookupPrivilegeValueW(std::ptr::null(), SE_RESTORE_NAME, &mut luid) } == 0 {
+            return Err(AclPolicyError::PrivilegeUnavailable);
+        }
+        Ok(Self { token, luid })
+    }
+
+    fn raw(&self) -> windows_sys::Win32::Foundation::HANDLE {
+        use std::os::windows::io::AsRawHandle;
+        self.token.as_raw_handle() as windows_sys::Win32::Foundation::HANDLE
+    }
+
+    /// Write ONE attribute set for this privilege. `DisableAllPrivileges` is FALSE and the state names
+    /// only this LUID, so no other privilege can be touched. `SE_PRIVILEGE_REMOVED` — which would
+    /// delete the privilege from the token for good — is refused.
+    fn write(&mut self, attributes: u32) -> Result<(), AclPolicyError> {
+        use windows_sys::Win32::Foundation::{GetLastError, SetLastError, ERROR_SUCCESS};
+        use windows_sys::Win32::Security::{
+            AdjustTokenPrivileges, LUID_AND_ATTRIBUTES, SE_PRIVILEGE_REMOVED, TOKEN_PRIVILEGES,
+        };
+
+        if attributes & SE_PRIVILEGE_REMOVED != 0 {
+            return Err(AclPolicyError::PrivilegeRestoreFailed);
+        }
+        let state = TOKEN_PRIVILEGES {
+            PrivilegeCount: 1,
+            Privileges: [LUID_AND_ATTRIBUTES {
+                Luid: self.luid,
+                Attributes: attributes,
+            }],
+        };
+        // SAFETY: the token handle is live and holds TOKEN_ADJUST_PRIVILEGES; `state` is a complete
+        // one-entry TOKEN_PRIVILEGES alive across the call; no previous state is requested (null
+        // buffer, zero length). The last-error code is cleared first and read immediately after, so
+        // a stale value cannot be mistaken for this call's result.
+        let (ok, status) = unsafe {
+            SetLastError(ERROR_SUCCESS);
+            let ok = AdjustTokenPrivileges(
+                self.raw(),
+                0,
+                &state,
+                0,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            );
+            (ok, GetLastError())
+        };
+        if ok == 0 || status != ERROR_SUCCESS {
+            return Err(AclPolicyError::PrivilegeRestoreFailed);
+        }
+        Ok(())
+    }
+
+    /// Every privilege the token holds, as `(LUID low, LUID high, attributes)`, re-read from Windows.
+    fn snapshot(&self) -> Result<Vec<(u32, i32, u32)>, AclPolicyError> {
+        use windows_sys::Win32::Security::{
+            GetTokenInformation, TokenPrivileges, LUID_AND_ATTRIBUTES, TOKEN_PRIVILEGES,
+        };
+
+        // Size probe: this call is EXPECTED to fail with ERROR_INSUFFICIENT_BUFFER; only `needed`
+        // matters.
+        let mut needed: u32 = 0;
+        // SAFETY: a null buffer with length 0 is the documented size-query form; `needed` is writable.
+        unsafe {
+            GetTokenInformation(
+                self.raw(),
+                TokenPrivileges,
+                std::ptr::null_mut(),
+                0,
+                &mut needed,
+            )
+        };
+        let needed_usize = needed as usize;
+        if needed_usize < std::mem::size_of::<u32>() || needed_usize > MAX_TOKEN_PRIVILEGES_BYTES {
+            return Err(AclPolicyError::WindowsApiFailure);
+        }
+        // `Vec<u64>`: 8-byte aligned, which satisfies TOKEN_PRIVILEGES' 4-byte alignment.
+        let mut buf: Vec<u64> = vec![0; needed_usize.div_ceil(8)];
+        let mut written: u32 = 0;
+        // SAFETY: `buf` is at least `needed` bytes, aligned, and exclusively borrowed for the call.
+        if unsafe {
+            GetTokenInformation(
+                self.raw(),
+                TokenPrivileges,
+                buf.as_mut_ptr().cast(),
+                needed,
+                &mut written,
+            )
+        } == 0
+        {
+            return Err(last_error());
+        }
+
+        let header = buf.as_ptr().cast::<TOKEN_PRIVILEGES>();
+        // SAFETY: `buf` holds at least the 4-byte count, written by the successful call above.
+        let count = unsafe { (*header).PrivilegeCount } as usize;
+        // SAFETY: `addr_of!` on a raw-pointer place creates no reference, so the resulting pointer
+        // keeps the provenance of the WHOLE buffer rather than of the one-element declared array.
+        let first =
+            unsafe { std::ptr::addr_of!((*header).Privileges) }.cast::<LUID_AND_ATTRIBUTES>();
+        let offset = first as usize - header as usize;
+        let fits = count
+            .checked_mul(std::mem::size_of::<LUID_AND_ATTRIBUTES>())
+            .and_then(|bytes| bytes.checked_add(offset))
+            .is_some_and(|end| end <= written as usize);
+        if !fits {
+            return Err(AclPolicyError::WindowsApiFailure);
+        }
+        // SAFETY: bounds proven on the lines above: `count` entries starting at `first` lie inside the
+        // bytes Windows wrote into `buf`, which outlives the slice; entries are copied out here.
+        let entries = unsafe { std::slice::from_raw_parts(first, count) };
+        Ok(entries
+            .iter()
+            .map(|e| (e.Luid.LowPart, e.Luid.HighPart, e.Attributes))
+            .collect())
+    }
+}
+
+#[cfg(windows)]
+impl RestorePrivilegeToken for ProcessRestorePrivilege {
+    fn enable(&mut self) -> Result<PriorPrivilege, AclPolicyError> {
+        use windows_sys::Win32::Foundation::{
+            GetLastError, SetLastError, ERROR_NOT_ALL_ASSIGNED, ERROR_SUCCESS, LUID,
+        };
+        use windows_sys::Win32::Security::{
+            AdjustTokenPrivileges, LUID_AND_ATTRIBUTES, SE_PRIVILEGE_ENABLED, TOKEN_PRIVILEGES,
+        };
+
+        let requested = TOKEN_PRIVILEGES {
+            PrivilegeCount: 1,
+            Privileges: [LUID_AND_ATTRIBUTES {
+                Luid: self.luid,
+                Attributes: SE_PRIVILEGE_ENABLED,
+            }],
+        };
+        let mut previous = TOKEN_PRIVILEGES {
+            PrivilegeCount: 0,
+            Privileges: [LUID_AND_ATTRIBUTES {
+                Luid: LUID {
+                    LowPart: 0,
+                    HighPart: 0,
+                },
+                Attributes: 0,
+            }],
+        };
+        let mut returned: u32 = 0;
+        // SAFETY: the token handle is live and holds TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY (the latter
+        // is required for PreviousState); `requested` is a complete one-entry TOKEN_PRIVILEGES;
+        // `previous` is a writable buffer of exactly the length passed, which fits the one entry a
+        // one-privilege request can change. The last-error code is cleared first and read
+        // immediately after: a successful BOOL alone does NOT mean the privilege was assigned.
+        let (ok, status) = unsafe {
+            SetLastError(ERROR_SUCCESS);
+            let ok = AdjustTokenPrivileges(
+                self.raw(),
+                0,
+                &requested,
+                std::mem::size_of::<TOKEN_PRIVILEGES>() as u32,
+                &mut previous,
+                &mut returned,
+            );
+            (ok, GetLastError())
+        };
+        if ok == 0 {
+            // The call failed as a whole; Windows adjusted nothing.
+            return Err(AclPolicyError::PrivilegeUnavailable);
+        }
+        match (status, decode_previous(&previous, self.luid)) {
+            (ERROR_SUCCESS, Some(prior)) => Ok(prior),
+            // The token does not HOLD the privilege. Windows changed nothing.
+            (ERROR_NOT_ALL_ASSIGNED, Some(PriorPrivilege::AlreadyEnabled)) => {
+                Err(AclPolicyError::PrivilegeUnavailable)
+            }
+            // Any other status with a change Windows DID report: put back exactly what it replaced,
+            // then refuse. Still pre-effect.
+            (_, Some(changed @ PriorPrivilege::Changed(_))) => {
+                self.restore(changed)?;
+                Err(AclPolicyError::PrivilegeUnavailable)
+            }
+            (_, Some(PriorPrivilege::AlreadyEnabled)) => Err(AclPolicyError::PrivilegeUnavailable),
+            // Windows reported a previous state this window cannot restore faithfully. The exact prior
+            // is unknowable, so it fails closed to LEAST privilege and reports the restoration failed.
+            (_, None) => {
+                let _ = self.write(0);
+                Err(AclPolicyError::PrivilegeRestoreFailed)
+            }
+        }
+    }
+
+    fn restore(&mut self, prior: PriorPrivilege) -> Result<(), AclPolicyError> {
+        match prior {
+            PriorPrivilege::AlreadyEnabled => Ok(()),
+            PriorPrivilege::Changed(attributes) => self.write(attributes),
+        }
+    }
+
+    fn is_enabled(&self) -> Result<bool, AclPolicyError> {
+        use windows_sys::Win32::Security::SE_PRIVILEGE_ENABLED;
+        let luid = self.luid;
+        Ok(self.snapshot()?.iter().any(|&(low, high, attributes)| {
+            low == luid.LowPart && high == luid.HighPart && attributes & SE_PRIVILEGE_ENABLED != 0
+        }))
+    }
 }
 
 /// Resolve the CURRENT ACCOUNT SID (`TokenUser`) of the calling process.
@@ -552,3 +1010,6 @@ pub fn resolve_account_sid(account: &str) -> Result<OwnedSid, AclPolicyError> {
 pub fn resolve_account_sid(_account: &str) -> Result<OwnedSid, AclPolicyError> {
     Err(AclPolicyError::WindowsApiFailure)
 }
+
+#[cfg(all(test, windows))]
+mod privilege_tests;
