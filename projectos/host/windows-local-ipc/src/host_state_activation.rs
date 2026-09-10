@@ -16,6 +16,12 @@
 //! so a running ProjectOSHost held no durable delegation or replay authority at all.
 //! [`activate_installed_host_state`] is that caller.
 //!
+//! §10I: EACH STORE OPEN IS CUSTODY, THEN THE ENGINE, THEN CUSTODY AGAIN. Inside both `open`s the
+//! store directory is created — or found — with the committed owner and protected DACL, every
+//! existing object is judged against it, the engine opens with every creation routed through that
+//! custody, and the result is judged again. A store that cannot be governed refuses its link here,
+//! so the Host never reaches Running on ambient security state.
+//!
 //! ## It takes nothing
 //!
 //! No path, no anchor, no policy, no SID, no verdict and no store. The anchor is the approved Known

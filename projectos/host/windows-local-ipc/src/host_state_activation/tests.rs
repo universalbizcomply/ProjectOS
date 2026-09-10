@@ -9,14 +9,16 @@
 use std::path::PathBuf;
 
 use projectos_host_trusted_roots::{
-    BoundaryRefusal, FixtureInstallationAnchor, ProtectedInstallationBoundaryAcceptance,
-    TrustedHostStateRoot,
+    BoundaryRefusal, FixtureInstallationAnchor, HostStateStore, HostStoreCustody,
+    ProtectedInstallationBoundaryAcceptance, TrustedHostStateRoot,
 };
 
 use super::{activate, HostStateActivationRefusal};
 use crate::operation_contract::request_replay::durable_store::REQUEST_REPLAY_RELATIVE_ROOT;
 use crate::operation_contract::request_replay::{ReplayRefusal, RequestReplayIdentity};
-use crate::owner_programme_delegation::durable_store::DELEGATION_STATE_RELATIVE_ROOT;
+use crate::owner_programme_delegation::durable_store::{
+    DelegationStoreRefusal, DELEGATION_STATE_RELATIVE_ROOT,
+};
 
 /// A disposable tree this test owns outright, removed when the guard drops.
 struct TempTree {
@@ -221,6 +223,72 @@ fn a_second_activation_while_one_lives_is_refused_by_the_single_writer_lock() {
 
     drop(first);
     let _again = activate(&tree.anchor(), fixture_acceptance).expect("released on drop");
+}
+
+// ---------------------------------------------------------------------------------------------
+// §10I — FIRST-START CUSTODY
+// ---------------------------------------------------------------------------------------------
+
+#[test]
+fn a_first_activation_creates_both_stores_under_the_committed_custody() {
+    let tree = TempTree::new("custody");
+    let host = tree.host_root();
+
+    let _state = activate(&tree.anchor(), fixture_acceptance).expect("activates");
+
+    // Judged independently, from Windows: both store directories and every object the engine laid
+    // out — subdirectories and lock file — carry the committed owner and protected DACL.
+    let custody = HostStoreCustody::fixture(&host);
+    for store in [
+        HostStateStore::DelegationLifecycle,
+        HostStateStore::RequestReplay,
+    ] {
+        let governed = custody.establish(store).expect("conforming");
+        for fixed in ["records", "temp", "journal", "store.lock"] {
+            assert!(governed.path().join(fixed).exists(), "{fixed} laid out");
+        }
+        governed.verify_contents().expect("every object conforms");
+    }
+}
+
+#[test]
+fn an_ambient_delegation_store_left_by_an_earlier_start_refuses_before_running() {
+    let tree = TempTree::new("ambient-delegation");
+    let host = tree.host_root();
+    // What a pre-§10I first start would have left: a store directory with the token's defaults.
+    std::fs::create_dir(host.join(DELEGATION_STATE_RELATIVE_ROOT)).unwrap();
+
+    let err = activate(&tree.anchor(), fixture_acceptance).expect_err("ambient custody");
+    assert_eq!(
+        err,
+        HostStateActivationRefusal::DelegationStoreUnavailable(
+            DelegationStoreRefusal::CustodyRefused
+        )
+    );
+    assert!(!host.join(REQUEST_REPLAY_RELATIVE_ROOT).exists());
+    // Refused, not repaired: the next start refuses for the same reason.
+    assert_eq!(
+        activate(&tree.anchor(), fixture_acceptance).expect_err("still ambient"),
+        err
+    );
+}
+
+#[test]
+fn an_ambient_replay_store_refuses_and_releases_the_delegation_store_it_opened() {
+    let tree = TempTree::new("ambient-replay");
+    let host = tree.host_root();
+    let ambient = host.join(REQUEST_REPLAY_RELATIVE_ROOT);
+    std::fs::create_dir(&ambient).unwrap();
+
+    let err = activate(&tree.anchor(), fixture_acceptance).expect_err("ambient custody");
+    assert_eq!(
+        err,
+        HostStateActivationRefusal::ReplayStoreUnavailable(ReplayRefusal::CustodyRefused)
+    );
+    // Only an operator removing the ambient history lets the Host start; the delegation store
+    // opened before the refusal held nothing afterwards.
+    std::fs::remove_dir(&ambient).unwrap();
+    let _state = activate(&tree.anchor(), fixture_acceptance).expect("governed now");
 }
 
 #[test]

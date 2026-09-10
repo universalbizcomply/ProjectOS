@@ -415,6 +415,8 @@ mod operation_contract;
 mod owner_programme_delegation;
 mod protocol;
 mod security;
+// RUN-TO-COMPLETION HOST ATTESTATION §10I — the governed open both durable stores share.
+mod store_custody;
 mod verification;
 
 // RUN-TO-COMPLETION HOST ATTESTATION §10H. The one production route from a running Host to its

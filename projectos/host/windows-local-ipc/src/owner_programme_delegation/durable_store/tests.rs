@@ -8,6 +8,8 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use projectos_host_trusted_roots::{HostStateStore, HostStoreCustody};
+
 use super::{
     DelegationStoreRefusal, DurableDelegationStateFileStore, HostOwnedDelegationStateRoot,
     DELEGATION_STATE_RELATIVE_ROOT, MAX_DELEGATION_RECORD_BYTES,
@@ -58,6 +60,18 @@ impl TempRoot {
             .join(DELEGATION_STATE_RELATIVE_ROOT)
             .join("records")
             .join(format!("{name}.rec"))
+    }
+
+    /// Plant `bytes` at a NEW path inside the store the way the engine creates a file — with the
+    /// store's committed descriptor (§10I) — so a tamper probe tests the rule it names instead of
+    /// tripping custody first. An AMBIENT plant is custody's own case, proven separately.
+    fn plant(&self, path: &Path, bytes: &[u8]) {
+        use std::io::Write;
+        let store = HostStoreCustody::fixture(&self.path)
+            .establish(HostStateStore::DelegationLifecycle)
+            .expect("custody");
+        let mut file = store.create_file(path).expect("governed plant");
+        file.write_all(bytes).expect("plant bytes");
     }
 }
 
@@ -289,7 +303,7 @@ fn a_substituted_record_the_engine_cannot_catch_is_refused_by_the_id_binding() {
         provision(&mut store, &ID_A);
     }
     let a_bytes = std::fs::read(temp.record_file(&ID_A)).expect("read A");
-    std::fs::write(temp.record_file(&ID_B), &a_bytes).expect("substitute");
+    temp.plant(&temp.record_file(&ID_B), &a_bytes);
 
     let store = DurableDelegationStateFileStore::open(&temp.root())
         .expect("the engine cannot detect this one, and that is the point");
@@ -303,6 +317,56 @@ fn a_substituted_record_the_engine_cannot_catch_is_refused_by_the_id_binding() {
     assert_eq!(
         store.recorded_state(&ID_A),
         Some(DelegationLocalState::Active)
+    );
+}
+
+// --- §10I custody: the store's own filesystem objects ------------------------------------------
+
+#[test]
+fn every_store_object_keeps_the_committed_descriptor_through_replacements_and_a_restart() {
+    let temp = TempRoot::new("custody-replacements");
+    {
+        let mut store = temp.open();
+        provision(&mut store, &ID_A);
+        // Active -> Revoked REPLACES A's record: a rename over an existing file.
+        store
+            .record_lifecycle(&ID_A, DelegationLocalState::Revoked)
+            .expect("revoke A");
+        provision(&mut store, &ID_B);
+    }
+    let reopened = temp.open();
+    assert_eq!(
+        reopened.recorded_state(&ID_A),
+        Some(DelegationLocalState::Revoked),
+        "the terminal state survived the restart"
+    );
+    drop(reopened);
+    HostStoreCustody::fixture(&temp.path)
+        .establish(HostStateStore::DelegationLifecycle)
+        .expect("the store directory conforms")
+        .verify_contents()
+        .expect("every record, journal entry, the manifest and the lock conform");
+}
+
+#[test]
+fn an_ambient_record_planted_in_the_store_refuses_the_next_open_and_is_not_repaired() {
+    let temp = TempRoot::new("custody-ambient-plant");
+    {
+        let mut store = temp.open();
+        provision(&mut store, &ID_A);
+    }
+    // A file an ordinary process created: the token's default owner and DACL.
+    let planted = temp.record_file(&ID_B);
+    std::fs::write(&planted, body(&super::hex_id(&ID_B), "ACTIVE")).expect("plant");
+    for _ in 0..2 {
+        assert_eq!(
+            DurableDelegationStateFileStore::open(&temp.root()).map(|_| ()),
+            Err(DelegationStoreRefusal::CustodyRefused)
+        );
+    }
+    assert!(
+        planted.exists(),
+        "a refusal must not remove what it refused"
     );
 }
 

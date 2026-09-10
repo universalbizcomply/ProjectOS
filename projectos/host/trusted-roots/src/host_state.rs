@@ -85,6 +85,10 @@ pub struct TrustedHostStateRoot {
     /// Kept because the decisive redirection check compares where the object actually lives against
     /// where it was composed to live, and revalidation has to be able to ask that question again.
     composed: PathBuf,
+    /// FIXTURE GRAPH ONLY (§10I): whether the anchor this root was resolved beneath was a disposable
+    /// test directory. Not a field at all in a shipped build, so no shipped root can claim it.
+    #[cfg(any(test, feature = "test-fixtures"))]
+    disposable: bool,
 }
 
 impl core::fmt::Debug for TrustedHostStateRoot {
@@ -138,7 +142,15 @@ impl TrustedHostStateRoot {
             custody,
             ancestors,
             composed: leaf,
+            #[cfg(any(test, feature = "test-fixtures"))]
+            disposable: <S as crate::source::sealed::Sealed>::DISPOSABLE,
         })
+    }
+
+    /// FIXTURE GRAPH ONLY (§10I): whether this root lies beneath a disposable test anchor.
+    #[cfg(any(test, feature = "test-fixtures"))]
+    pub(crate) fn is_disposable(&self) -> bool {
+        self.disposable
     }
 
     /// Non-Windows builds have no Known Folder and no handle-owned custody, so there is no root.

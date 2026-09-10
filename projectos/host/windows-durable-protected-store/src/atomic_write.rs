@@ -8,24 +8,29 @@
 //! failure is also known-before-effect. Directory-entry durability is best-effort only (see
 //! `windows_fs::flush_dir`).
 
-use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 
+use crate::creation::Creation;
 use crate::error::DurableStoreError;
 use crate::windows_fs;
 
 /// Atomically and durably write `bytes` to `final_path`, staging through `temp_path`.
 ///
+/// The staging file is created through `creation`. The replace is a RENAME, and a renamed file keeps
+/// its OWN descriptor, so whatever `creation` gave the staging file is what the published file
+/// carries — the replaced file's descriptor does not survive.
+///
 /// # Errors
 /// [`DurableStoreError::WriteRefusedBeforeEffect`] for any failure before/at the atomic replace;
 /// [`DurableStoreError::UnsupportedPlatform`] off Windows.
 pub(crate) fn atomic_write(
+    creation: &Creation,
     temp_path: &Path,
     final_path: &Path,
     bytes: &[u8],
 ) -> Result<(), DurableStoreError> {
-    write_staged(temp_path, bytes)?;
+    write_staged(creation, temp_path, bytes)?;
     if let Err(err) = windows_fs::durable_replace(temp_path, final_path) {
         let _ = std::fs::remove_file(temp_path);
         return Err(err);
@@ -36,10 +41,13 @@ pub(crate) fn atomic_write(
     Ok(())
 }
 
-fn write_staged(temp_path: &Path, bytes: &[u8]) -> Result<(), DurableStoreError> {
+fn write_staged(
+    creation: &Creation,
+    temp_path: &Path,
+    bytes: &[u8],
+) -> Result<(), DurableStoreError> {
     let result = (|| {
-        let mut file =
-            File::create(temp_path).map_err(|_| DurableStoreError::WriteRefusedBeforeEffect)?;
+        let mut file = creation.staging_file(temp_path)?;
         file.write_all(bytes)
             .map_err(|_| DurableStoreError::WriteRefusedBeforeEffect)?;
         file.sync_all()
@@ -67,7 +75,7 @@ mod tests {
         let temp = dir.join("stage.tmp");
         let final_path = dir.join("final.bin");
         std::fs::write(&final_path, b"old").unwrap();
-        atomic_write(&temp, &final_path, b"new-content").unwrap();
+        atomic_write(&Creation::Ambient, &temp, &final_path, b"new-content").unwrap();
         assert_eq!(std::fs::read(&final_path).unwrap(), b"new-content");
         assert!(!temp.exists());
         let _ = std::fs::remove_dir_all(&dir);

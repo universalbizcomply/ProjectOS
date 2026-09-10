@@ -13,6 +13,8 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use projectos_host_trusted_roots::{HostStateStore, HostStoreCustody};
+
 use super::{
     hex_identity, interpret, DurableRequestReplayFileStore, HostOwnedRequestReplayRoot,
     MAX_REPLAY_RECORD_BYTES, REQUEST_REPLAY_RELATIVE_ROOT,
@@ -72,6 +74,18 @@ impl TempRoot {
             .join(REQUEST_REPLAY_RELATIVE_ROOT)
             .join("records")
             .join(format!("{name}.rec"))
+    }
+
+    /// Plant `bytes` at a NEW path inside the history the way the engine creates a file — with the
+    /// store's committed descriptor (§10I) — so a tamper probe tests the rule it names instead of
+    /// tripping custody first. An AMBIENT plant is custody's own case, proven separately.
+    fn plant(&self, path: &std::path::Path, bytes: &[u8]) {
+        use std::io::Write;
+        let store = HostStoreCustody::fixture(&self.path)
+            .establish(HostStateStore::RequestReplay)
+            .expect("custody");
+        let mut file = store.create_file(path).expect("governed plant");
+        file.write_all(bytes).expect("plant bytes");
     }
 }
 
@@ -340,7 +354,7 @@ fn a_record_moved_under_another_key_refuses() {
     // could be emptied to make A fresh again. The key/body binding refuses both.
     let from = temp.record_file(&consumed_id);
     let to = temp.record_file(&other_id);
-    std::fs::copy(&from, &to).expect("copy record");
+    temp.plant(&to, &std::fs::read(&from).expect("read record"));
     let mut store = temp.open();
     assert_eq!(
         store.consume(&other_id).map(|_| ()),
@@ -351,6 +365,57 @@ fn a_record_moved_under_another_key_refuses() {
     assert_eq!(
         store.consume(&consumed_id).map(|_| ()),
         Err(ReplayRefusal::AlreadyConsumed)
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// §10I. CUSTODY — the history's own filesystem objects.
+// ---------------------------------------------------------------------------------------------
+
+#[test]
+fn every_history_object_keeps_the_committed_descriptor_across_consumes_and_a_restart() {
+    let temp = TempRoot::new("custody-history");
+    let a = request_a();
+    let b = RequestReplayIdentity::fixture_over(&DELEG_B, &BIND_B, &PARAM_B);
+    {
+        let mut store = temp.open();
+        store.consume(&a).expect("consume a");
+        store.consume(&b).expect("consume b");
+    }
+    {
+        let mut store = temp.open();
+        assert_eq!(
+            store.consume(&a).map(|_| ()),
+            Err(ReplayRefusal::AlreadyConsumed),
+            "consumption survived the restart"
+        );
+    }
+    HostStoreCustody::fixture(&temp.path)
+        .establish(HostStateStore::RequestReplay)
+        .expect("the history directory conforms")
+        .verify_contents()
+        .expect("every record, journal entry, the manifest and the lock conform");
+}
+
+#[test]
+fn an_ambient_record_planted_in_the_history_refuses_the_next_open_and_is_not_repaired() {
+    let temp = TempRoot::new("custody-ambient-plant");
+    let a = request_a();
+    let b = RequestReplayIdentity::fixture_over(&DELEG_B, &BIND_B, &PARAM_B);
+    {
+        temp.open().consume(&a).expect("consume a");
+    }
+    let planted = temp.record_file(&b);
+    std::fs::write(&planted, body(&hex_identity(b.as_bytes()))).expect("plant");
+    for _ in 0..2 {
+        assert_eq!(
+            DurableRequestReplayFileStore::open(&temp.root()).map(|_| ()),
+            Err(ReplayRefusal::CustodyRefused)
+        );
+    }
+    assert!(
+        planted.exists(),
+        "a refusal must not remove what it refused"
     );
 }
 

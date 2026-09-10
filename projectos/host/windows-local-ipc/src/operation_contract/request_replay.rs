@@ -110,6 +110,9 @@ pub enum ReplayRefusal {
     CapacityExhausted,
     /// The write was refused before any durable effect, so consumption is not established.
     WriteRefused,
+    /// §10I: the history's filesystem custody could not be established, or an object in it does not
+    /// carry the committed owner and DACL. Nothing was opened, and nothing was re-secured.
+    CustodyRefused,
 }
 
 /// The identity of one GOVERNED REQUEST, as the Host resolved it — restart-stable by construction.

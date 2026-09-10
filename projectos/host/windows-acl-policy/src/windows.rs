@@ -208,6 +208,31 @@ pub(crate) fn read_security(
     path: &Path,
     expected: SecuredObjectKind,
 ) -> Result<(Option<Vec<u8>>, u16, RawDacl), AclPolicyError> {
+    use std::os::windows::io::AsHandle;
+    let handle = open_secure_handle(path, ACCESS_READ_SECURITY, expected)?;
+    read_security_of(handle.as_handle())
+}
+
+/// Read the owner, control bits and DACL of a FILE this process already holds open (§10I).
+///
+/// For an object this process has just CREATED: the observation is taken from the very handle the
+/// creation returned, so no pathname is re-resolved between creating the object and judging it.
+///
+/// # Errors
+/// [`AclPolicyError`] classifying the refusal.
+#[cfg(windows)]
+pub(crate) fn read_file_security(
+    file: &std::fs::File,
+) -> Result<(Option<Vec<u8>>, u16, RawDacl), AclPolicyError> {
+    use std::os::windows::io::AsHandle;
+    read_security_of(file.as_handle())
+}
+
+/// The descriptor read itself, on an already-admitted handle.
+#[cfg(windows)]
+fn read_security_of(
+    handle: std::os::windows::io::BorrowedHandle<'_>,
+) -> Result<(Option<Vec<u8>>, u16, RawDacl), AclPolicyError> {
     use std::os::windows::io::AsRawHandle;
     use windows_sys::Win32::Foundation::{ERROR_SUCCESS, HANDLE};
     use windows_sys::Win32::Security::Authorization::{GetSecurityInfo, SE_FILE_OBJECT};
@@ -216,7 +241,6 @@ pub(crate) fn read_security(
         DACL_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID,
     };
 
-    let handle = open_secure_handle(path, ACCESS_READ_SECURITY, expected)?;
     let raw = handle.as_raw_handle() as HANDLE;
 
     let mut owner_ptr: PSID = std::ptr::null_mut();
@@ -381,6 +405,198 @@ pub(crate) fn apply_security(
             )
         }
     })
+}
+
+// ---- §10I: creation with a stated descriptor — no privilege, no later re-securing ----
+
+/// `SECURITY_DESCRIPTOR_REVISION`. Stated here rather than pulling a `SystemServices` feature for one
+/// constant Windows has never changed.
+#[cfg(windows)]
+const SECURITY_DESCRIPTOR_REVISION: u32 = 1;
+
+/// An ABSOLUTE-format security descriptor carrying exactly one owner and one PROTECTED DACL, for
+/// handing to a creation call.
+///
+/// The descriptor's owner and DACL fields point INTO the two aligned buffers this value owns; both
+/// are heap allocations that do not move when the value does, and the descriptor itself is boxed for
+/// the same reason. No group, no SACL: a creation call given none assigns the defaults Windows always
+/// assigns, and neither one is authority over the object's contents.
+#[cfg(windows)]
+struct CreationDescriptor {
+    _owner: Vec<u32>,
+    _acl: Vec<u32>,
+    descriptor: Box<windows_sys::Win32::Security::SECURITY_DESCRIPTOR>,
+}
+
+#[cfg(windows)]
+impl CreationDescriptor {
+    fn new(owner: &OwnedSid, acl_bytes: &[u8]) -> Result<Self, AclPolicyError> {
+        use windows_sys::Win32::Security::{
+            InitializeSecurityDescriptor, IsValidAcl, IsValidSid, SetSecurityDescriptorControl,
+            SetSecurityDescriptorDacl, SetSecurityDescriptorOwner, ACL, SECURITY_DESCRIPTOR,
+            SE_DACL_PROTECTED,
+        };
+
+        let owner_words = aligned(owner.as_bytes());
+        let acl_words = aligned(acl_bytes);
+        let owner_ptr = owner_words.as_ptr().cast_mut().cast();
+        let acl_ptr = acl_words.as_ptr().cast::<ACL>();
+        // SAFETY: `owner_ptr` points at an aligned, owned, well-formed binary SID alive for this call.
+        if unsafe { IsValidSid(owner_ptr) } == 0 {
+            return Err(AclPolicyError::InvalidSid);
+        }
+        // SAFETY: `acl_ptr` points at an aligned, owned ACL image alive for this call.
+        if unsafe { IsValidAcl(acl_ptr) } == 0 {
+            return Err(AclPolicyError::MalformedDescriptor);
+        }
+
+        // SAFETY: an all-zero SECURITY_DESCRIPTOR is plain data; `InitializeSecurityDescriptor`
+        // overwrites it before any other call reads it.
+        let mut descriptor: Box<SECURITY_DESCRIPTOR> = Box::new(unsafe { std::mem::zeroed() });
+        let psd = std::ptr::addr_of_mut!(*descriptor).cast();
+        // SAFETY: `psd` points at a boxed, writable SECURITY_DESCRIPTOR owned by this value. The owner
+        // and DACL pointers stored into it point into `owner_words` / `acl_words`, which this value
+        // also owns and which outlive every use of the descriptor. Each call's BOOL gates the next.
+        let ok = unsafe {
+            InitializeSecurityDescriptor(psd, SECURITY_DESCRIPTOR_REVISION) != 0
+                && SetSecurityDescriptorOwner(psd, owner_ptr, 0) != 0
+                && SetSecurityDescriptorDacl(psd, 1, acl_ptr, 0) != 0
+                && SetSecurityDescriptorControl(psd, SE_DACL_PROTECTED, SE_DACL_PROTECTED) != 0
+        };
+        if !ok {
+            return Err(last_error());
+        }
+        Ok(Self {
+            _owner: owner_words,
+            _acl: acl_words,
+            descriptor,
+        })
+    }
+
+    /// Creation attributes pointing at this descriptor. Non-inheritable handle. Valid only while
+    /// `self` is.
+    fn attributes(&mut self) -> windows_sys::Win32::Security::SECURITY_ATTRIBUTES {
+        windows_sys::Win32::Security::SECURITY_ATTRIBUTES {
+            nLength: std::mem::size_of::<windows_sys::Win32::Security::SECURITY_ATTRIBUTES>()
+                as u32,
+            lpSecurityDescriptor: std::ptr::addr_of_mut!(*self.descriptor).cast(),
+            bInheritHandle: 0,
+        }
+    }
+}
+
+/// Whether a failed creation failed because SOMETHING ALREADY EXISTS at the path.
+#[cfg(windows)]
+fn exists_status(code: u32) -> bool {
+    use windows_sys::Win32::Foundation::{ERROR_ALREADY_EXISTS, ERROR_FILE_EXISTS};
+    code == ERROR_ALREADY_EXISTS || code == ERROR_FILE_EXISTS
+}
+
+/// Create ONE new directory whose descriptor is exactly `owner` plus the PROTECTED `acl`.
+///
+/// The object comes into existence WITH that descriptor: there is no moment at which it exists
+/// under an inherited or token-default DACL, so nothing has to be re-secured afterwards and no
+/// `WRITE_DAC` is needed. Protection means the parent's inheritable ACEs are not merged in.
+///
+/// Returns `Ok(false)` — and touches nothing — when anything already exists at `path`: this creates,
+/// it never adopts or rewrites.
+///
+/// NO PRIVILEGE IS ENABLED. Windows accepts an owner the caller's token may assign (its own account
+/// or an owner-flagged group) and refuses any other with `ERROR_INVALID_OWNER`; that refusal is
+/// reported, never worked around.
+///
+/// # Errors
+/// [`AclPolicyError`] classifying the refusal.
+#[cfg(windows)]
+pub(crate) fn create_directory_with_security(
+    path: &Path,
+    owner: &OwnedSid,
+    acl_bytes: &[u8],
+) -> Result<bool, AclPolicyError> {
+    use windows_sys::Win32::Foundation::GetLastError;
+    use windows_sys::Win32::Storage::FileSystem::CreateDirectoryW;
+
+    let mut descriptor = CreationDescriptor::new(owner, acl_bytes)?;
+    let attributes = descriptor.attributes();
+    let wide = to_wide(path);
+    // SAFETY: `wide` is a valid NUL-terminated UTF-16 path and `attributes` points at a descriptor
+    // `descriptor` keeps alive across the call; only the BOOL result and last-error are read.
+    let (ok, status) = unsafe {
+        let ok = CreateDirectoryW(wide.as_ptr(), &attributes);
+        (ok, GetLastError())
+    };
+    if ok != 0 {
+        return Ok(true);
+    }
+    if exists_status(status) {
+        return Ok(false);
+    }
+    Err(classify(status))
+}
+
+/// Create ONE new FILE, opened for read and write, whose descriptor is exactly `owner` plus the
+/// PROTECTED `acl`.
+///
+/// `CREATE_NEW`, deliberately. With `CREATE_ALWAYS`/`OPEN_ALWAYS` Windows IGNORES the supplied
+/// descriptor when the file already exists, so a planted file would be adopted with whatever
+/// descriptor its planter chose. Here an existing object is `Ok(None)` and is not opened at all.
+///
+/// # Errors
+/// [`AclPolicyError`] classifying the refusal.
+#[cfg(windows)]
+pub(crate) fn create_file_with_security(
+    path: &Path,
+    owner: &OwnedSid,
+    acl_bytes: &[u8],
+) -> Result<Option<std::fs::File>, AclPolicyError> {
+    use std::os::windows::io::{FromRawHandle, OwnedHandle};
+    use windows_sys::Win32::Foundation::{
+        GetLastError, GENERIC_READ, GENERIC_WRITE, INVALID_HANDLE_VALUE,
+    };
+    use windows_sys::Win32::Storage::FileSystem::{
+        CreateFileW, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_DELETE, FILE_SHARE_READ,
+        FILE_SHARE_WRITE,
+    };
+
+    let mut descriptor = CreationDescriptor::new(owner, acl_bytes)?;
+    let attributes = descriptor.attributes();
+    let wide = to_wide(path);
+    // SAFETY: `wide` is a valid NUL-terminated UTF-16 path and `attributes` points at a descriptor
+    // `descriptor` keeps alive across the call; a null template handle is the documented default.
+    // The share mode is the one `std::fs::File` uses, so the file behaves exactly like one opened
+    // by the standard library once it exists. The result is only compared with
+    // INVALID_HANDLE_VALUE before being adopted by `OwnedHandle`, which closes it exactly once.
+    let (raw, status) = unsafe {
+        let raw = CreateFileW(
+            wide.as_ptr(),
+            GENERIC_READ | GENERIC_WRITE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            &attributes,
+            CREATE_NEW,
+            FILE_ATTRIBUTE_NORMAL,
+            std::ptr::null_mut(),
+        );
+        (raw, GetLastError())
+    };
+    if raw == INVALID_HANDLE_VALUE {
+        if exists_status(status) {
+            return Ok(None);
+        }
+        return Err(classify(status));
+    }
+    // SAFETY: `raw` is a valid handle returned by CreateFileW and owned nowhere else.
+    let handle = unsafe { OwnedHandle::from_raw_handle(raw as std::os::windows::io::RawHandle) };
+    Ok(Some(std::fs::File::from(handle)))
+}
+
+/// Refuse a governed creation on an IMPERSONATING thread (§10I).
+///
+/// A creation's owner check reads the PROCESS token, while Windows assigns and access-checks the new
+/// object under the THREAD's token when there is one; judging one identity and acting as another is
+/// refused before anything is created.
+#[cfg(windows)]
+pub(crate) fn refuse_impersonation() -> Result<(), AclPolicyError> {
+    refuse_impersonating_thread().map_err(|_| AclPolicyError::PolicyRefused)
 }
 
 // ---- §10G-PRIV: SeRestorePrivilege, enabled for exactly one ownership write ----
@@ -918,6 +1134,36 @@ pub(crate) fn current_account_sid() -> Result<OwnedSid, AclPolicyError> {
     Err(AclPolicyError::UnsupportedPlatform)
 }
 
+#[cfg(not(windows))]
+pub(crate) fn read_file_security(
+    _file: &std::fs::File,
+) -> Result<(Option<Vec<u8>>, u16, RawDacl), AclPolicyError> {
+    Err(AclPolicyError::UnsupportedPlatform)
+}
+
+#[cfg(not(windows))]
+pub(crate) fn create_directory_with_security(
+    _path: &Path,
+    _owner: &OwnedSid,
+    _acl_bytes: &[u8],
+) -> Result<bool, AclPolicyError> {
+    Err(AclPolicyError::UnsupportedPlatform)
+}
+
+#[cfg(not(windows))]
+pub(crate) fn create_file_with_security(
+    _path: &Path,
+    _owner: &OwnedSid,
+    _acl_bytes: &[u8],
+) -> Result<Option<std::fs::File>, AclPolicyError> {
+    Err(AclPolicyError::UnsupportedPlatform)
+}
+
+#[cfg(not(windows))]
+pub(crate) fn refuse_impersonation() -> Result<(), AclPolicyError> {
+    Err(AclPolicyError::UnsupportedPlatform)
+}
+
 /// The largest SID this resolver will accept, in bytes. A SID is at most 68 bytes
 /// (`SECURITY_MAX_SID_SIZE`); anything larger is refused rather than trusted.
 #[cfg(windows)]
@@ -1013,3 +1259,6 @@ pub fn resolve_account_sid(_account: &str) -> Result<OwnedSid, AclPolicyError> {
 
 #[cfg(all(test, windows))]
 mod privilege_tests;
+
+#[cfg(all(test, windows))]
+mod governed_creation_tests;

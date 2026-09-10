@@ -6,13 +6,14 @@
 //! It persists ONLY accepted persistence DTOs, bound to their real accepted family.
 
 use std::fmt;
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::path::Path;
 
 use projectos_host_persistence::version::MANIFEST_SCHEMA;
 use projectos_host_persistence::{ProtectedStateManifestDto, TargetFamilyDto};
 
 use crate::atomic_write::atomic_write;
+use crate::creation::{Creation, ObjectCreation};
 use crate::error::DurableStoreError;
 use crate::framing::{self, FrameKind, MAX_FRAMED_BYTES, MAX_PAYLOAD_BYTES};
 use crate::journal::{validate_payload_family, JournalEnvelope, JournalOp, JournalOutcome};
@@ -35,6 +36,7 @@ pub struct DurableProtectedStore {
     current_revision: u64,
     next_sequence: u64,
     temp_token: u64,
+    creation: Creation,
 }
 
 impl fmt::Debug for DurableProtectedStore {
@@ -42,6 +44,7 @@ impl fmt::Debug for DurableProtectedStore {
         f.debug_struct("DurableProtectedStore")
             .field("revision", &self.current_revision)
             .field("next_sequence", &self.next_sequence)
+            .field("governed", &self.creation.is_governed())
             .finish()
     }
 }
@@ -50,22 +53,48 @@ impl DurableProtectedStore {
     /// Open (or create the layout for) a durable store at the explicit trusted `root`, hardening fixed
     /// paths, acquiring the single-writer lock, and running journal-aware recovery.
     ///
+    /// New objects are created with the standard library, so they take their descriptor from the
+    /// parent's inheritance or the process token's defaults. A store whose custody matters opens
+    /// with [`Self::open_governed`] instead.
+    ///
     /// # Errors
     /// [`DurableStoreError`] for an invalid/redirected root, lock contention, corruption, or required
     /// reconciliation.
     pub fn open(root: &str) -> Result<Self, DurableStoreError> {
+        Self::open_with(root, Creation::Ambient)
+    }
+
+    /// As [`Self::open`], but EVERY object the engine creates — the three fixed directories, the
+    /// lock file, and every staging file (recovery's own included) — is created through `creation`.
+    ///
+    /// Nothing else changes: the same layout, lock, framing, journal, recovery and replace semantics.
+    /// The engine does not judge an existing object's descriptor; that is the store owner's job,
+    /// before and after this call.
+    ///
+    /// # Errors
+    /// As [`Self::open`]. A creation the hook refuses fails the open, or the write, before any
+    /// durable effect.
+    pub fn open_governed(
+        root: &str,
+        creation: Box<dyn ObjectCreation>,
+    ) -> Result<Self, DurableStoreError> {
+        Self::open_with(root, Creation::Governed(creation))
+    }
+
+    fn open_with(root: &str, creation: Creation) -> Result<Self, DurableStoreError> {
         let root = VerifiedRoot::verify(root)?;
-        ensure_layout(&root)?;
+        ensure_layout(&root, &creation)?;
         root.verify_fixed_paths_safe()?;
-        let lock = acquire_lock(&root)?;
+        let lock = acquire_lock(&root, &creation)?;
         cleanup_stale_temps(&root)?;
-        let (current_revision, next_sequence) = recover(&root)?;
+        let (current_revision, next_sequence) = recover(&root, &creation)?;
         Ok(Self {
             root,
             _lock: lock,
             current_revision,
             next_sequence,
             temp_token: RECOVERY_TOKEN,
+            creation,
         })
     }
 
@@ -128,7 +157,7 @@ impl DurableProtectedStore {
         self.write_journal(&plan.intent)?; // 1. Prepared intent (durable) at the journal sequence
         self.write_record(id, &plan.record_frame)?; // 2. durable write-through record replacement
         let mtoken = self.next_token()?;
-        write_manifest(&self.root, plan.next_revision, mtoken)?; // 3. durable manifest advance
+        write_manifest(&self.root, &self.creation, plan.next_revision, mtoken)?; // 3. durable manifest advance
         self.write_journal(&plan.intent.clone().into_committed())?; // 4. mark Committed (after durable point)
         self.current_revision = plan.next_revision;
         self.next_sequence = plan.sequence + 1;
@@ -197,14 +226,14 @@ impl DurableProtectedStore {
 
     fn write_journal(&mut self, env: &JournalEnvelope) -> Result<(), DurableStoreError> {
         let token = self.next_token()?;
-        write_journal_entry(&self.root, env, token)
+        write_journal_entry(&self.root, &self.creation, env, token)
     }
 
     fn write_record(&mut self, id: &[u8], frame: &[u8]) -> Result<(), DurableStoreError> {
         let token = self.next_token()?;
         let temp = self.root.temp_path(id, token)?;
         let final_path = self.root.record_path(id)?;
-        atomic_write(&temp, &final_path, frame)
+        atomic_write(&self.creation, &temp, &final_path, frame)
     }
 
     fn next_token(&mut self) -> Result<u64, DurableStoreError> {
@@ -228,7 +257,7 @@ struct PutPlan {
 // ---------------------------------------------------------------------------------------------------
 
 /// Returns `(current_revision, next_sequence)`.
-fn recover(root: &VerifiedRoot) -> Result<(u64, u64), DurableStoreError> {
+fn recover(root: &VerifiedRoot, creation: &Creation) -> Result<(u64, u64), DurableStoreError> {
     let manifest = read_manifest_revision(root)?;
     let entries = read_journal_entries(root)?; // sorted + chain-validated
     let records = scan_records(root)?;
@@ -248,7 +277,7 @@ fn recover(root: &VerifiedRoot) -> Result<(u64, u64), DurableStoreError> {
         Structural::Empty => {
             if let Some(e) = &last {
                 if e.outcome == JournalOutcome::Prepared {
-                    write_journal_entry(root, &e.clone().into_aborted(), RECOVERY_TOKEN)?;
+                    write_journal_entry(root, creation, &e.clone().into_aborted(), RECOVERY_TOKEN)?;
                 }
             }
             0
@@ -261,14 +290,14 @@ fn recover(root: &VerifiedRoot) -> Result<(u64, u64), DurableStoreError> {
                     return Err(DurableStoreError::ReconciliationRequired); // records without journal
                 }
             }
-            Some(e) => reconcile_coherent(root, &e, m)?,
+            Some(e) => reconcile_coherent(root, creation, &e, m)?,
         },
         Structural::OneAhead {
             manifest: m,
             ahead: x,
         } => match last {
             None => return Err(DurableStoreError::ReconciliationRequired),
-            Some(e) => complete_one_ahead(root, &e, m, x)?,
+            Some(e) => complete_one_ahead(root, creation, &e, m, x)?,
         },
         _ => unreachable!("hard failures handled above"),
     };
@@ -278,6 +307,7 @@ fn recover(root: &VerifiedRoot) -> Result<(u64, u64), DurableStoreError> {
 /// Coherent record set (nothing ahead of the manifest). Finalise the last journal entry.
 fn reconcile_coherent(
     root: &VerifiedRoot,
+    creation: &Creation,
     e: &JournalEnvelope,
     m: u64,
 ) -> Result<u64, DurableStoreError> {
@@ -295,14 +325,19 @@ fn reconcile_coherent(
                 // Crash after the manifest advance, before the commit-mark: the record must match.
                 let matches = matches_bound_record(root, e, m)?;
                 if matches {
-                    write_journal_entry(root, &e.clone().into_committed(), RECOVERY_TOKEN)?;
+                    write_journal_entry(
+                        root,
+                        creation,
+                        &e.clone().into_committed(),
+                        RECOVERY_TOKEN,
+                    )?;
                     Ok(m)
                 } else {
                     Err(DurableStoreError::ReconciliationRequired)
                 }
             } else if ir == m + 1 {
                 // Prepared for the next revision but no record durably ahead → the transaction aborted.
-                write_journal_entry(root, &e.clone().into_aborted(), RECOVERY_TOKEN)?;
+                write_journal_entry(root, creation, &e.clone().into_aborted(), RECOVERY_TOKEN)?;
                 Ok(m)
             } else {
                 Err(DurableStoreError::ReconciliationRequired)
@@ -314,6 +349,7 @@ fn reconcile_coherent(
 /// A single record is one revision ahead. Promote ONLY with an exact matching valid Prepared intent.
 fn complete_one_ahead(
     root: &VerifiedRoot,
+    creation: &Creation,
     e: &JournalEnvelope,
     m: u64,
     x: u64,
@@ -328,8 +364,8 @@ fn complete_one_ahead(
     if !matches_bound_record(root, e, x)? {
         return Err(DurableStoreError::ReconciliationRequired);
     }
-    write_manifest(root, x, RECOVERY_TOKEN)?;
-    write_journal_entry(root, &e.clone().into_committed(), RECOVERY_TOKEN)?;
+    write_manifest(root, creation, x, RECOVERY_TOKEN)?;
+    write_journal_entry(root, creation, &e.clone().into_committed(), RECOVERY_TOKEN)?;
     Ok(x)
 }
 
@@ -352,21 +388,15 @@ fn matches_bound_record(
 // Filesystem helpers
 // ---------------------------------------------------------------------------------------------------
 
-fn ensure_layout(root: &VerifiedRoot) -> Result<(), DurableStoreError> {
+fn ensure_layout(root: &VerifiedRoot, creation: &Creation) -> Result<(), DurableStoreError> {
     for dir in [root.records_dir(), root.temp_dir(), root.journal_dir()] {
-        std::fs::create_dir_all(&dir).map_err(|_| DurableStoreError::InvalidRoot)?;
+        creation.directory(&dir)?;
     }
     Ok(())
 }
 
-fn acquire_lock(root: &VerifiedRoot) -> Result<File, DurableStoreError> {
-    let file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(root.lock_path())
-        .map_err(|_| DurableStoreError::InvalidRoot)?;
+fn acquire_lock(root: &VerifiedRoot, creation: &Creation) -> Result<File, DurableStoreError> {
+    let file = creation.lock_file(&root.lock_path())?;
     crate::windows_fs::try_lock_exclusive(&file)?;
     Ok(file)
 }
@@ -528,6 +558,7 @@ fn build_manifest_dto(store_rev: u64) -> ProtectedStateManifestDto {
 
 fn write_manifest(
     root: &VerifiedRoot,
+    creation: &Creation,
     store_rev: u64,
     token: u64,
 ) -> Result<(), DurableStoreError> {
@@ -543,11 +574,12 @@ fn write_manifest(
         json.as_bytes(),
     )?;
     let temp = root.manifest_temp_path(token);
-    atomic_write(&temp, &root.manifest_path(), &framed)
+    atomic_write(creation, &temp, &root.manifest_path(), &framed)
 }
 
 fn write_journal_entry(
     root: &VerifiedRoot,
+    creation: &Creation,
     env: &JournalEnvelope,
     token: u64,
 ) -> Result<(), DurableStoreError> {
@@ -561,6 +593,7 @@ fn write_journal_entry(
     )?;
     let temp = root.journal_temp_path(token);
     atomic_write(
+        creation,
         &temp,
         &root.journal_entry_path(env.journal.sequence),
         &framed,
@@ -633,9 +666,163 @@ mod tests {
                 return Ok(plan.next_revision);
             }
             let mtoken = self.next_token()?;
-            write_manifest(&self.root, plan.next_revision, mtoken)?;
+            write_manifest(&self.root, &self.creation, plan.next_revision, mtoken)?;
             Ok(plan.next_revision) // intent left Prepared (crash before commit-mark)
         }
+    }
+
+    // ---- §10I: governed creation ----
+
+    /// A creator that CREATES ONLY (create-new semantics, as the trait demands) and logs every path
+    /// it was asked for; optionally it refuses everything.
+    struct Recording {
+        log: std::sync::Arc<std::sync::Mutex<Vec<std::path::PathBuf>>>,
+        refuse: bool,
+    }
+
+    impl ObjectCreation for Recording {
+        fn create_directory(&self, path: &Path) -> std::io::Result<()> {
+            self.log.lock().unwrap().push(path.to_path_buf());
+            if self.refuse {
+                return Err(std::io::ErrorKind::PermissionDenied.into());
+            }
+            std::fs::create_dir(path)
+        }
+        fn create_file(&self, path: &Path) -> std::io::Result<File> {
+            self.log.lock().unwrap().push(path.to_path_buf());
+            if self.refuse {
+                return Err(std::io::ErrorKind::PermissionDenied.into());
+            }
+            std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create_new(true)
+                .open(path)
+        }
+    }
+
+    type Log = std::sync::Arc<std::sync::Mutex<Vec<std::path::PathBuf>>>;
+
+    fn recording(refuse: bool) -> (Box<dyn ObjectCreation>, Log) {
+        let log: Log = Default::default();
+        (
+            Box::new(Recording {
+                log: log.clone(),
+                refuse,
+            }),
+            log,
+        )
+    }
+
+    fn names(log: &Log) -> Vec<String> {
+        log.lock()
+            .unwrap()
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+            .collect()
+    }
+
+    #[test]
+    fn a_governed_open_creates_its_layout_and_lock_only_through_the_hook() {
+        let r = root();
+        let (creator, log) = recording(false);
+        let s = DurableProtectedStore::open_governed(&r, creator).unwrap();
+        let mut made = names(&log);
+        made.sort();
+        assert_eq!(made, ["journal", "records", "store.lock", "temp"]);
+        drop(s);
+        let _ = std::fs::remove_dir_all(&r);
+    }
+
+    #[test]
+    fn a_hook_that_refuses_leaves_no_object_created_any_other_way() {
+        let r = root();
+        let (creator, log) = recording(true);
+        assert_eq!(
+            DurableProtectedStore::open_governed(&r, creator).unwrap_err(),
+            DurableStoreError::InvalidRoot
+        );
+        assert!(!log.lock().unwrap().is_empty(), "the hook was consulted");
+        assert_eq!(
+            std::fs::read_dir(&r).unwrap().count(),
+            0,
+            "an object was created without the hook"
+        );
+        let _ = std::fs::remove_dir_all(&r);
+    }
+
+    #[test]
+    fn every_write_stages_through_the_hook_and_a_refused_stage_writes_nothing() {
+        let r = root();
+        let p = payload();
+        let (creator, log) = recording(false);
+        let mut s = DurableProtectedStore::open_governed(&r, creator).unwrap();
+        log.lock().unwrap().clear();
+        s.put_record(b"rec-a", FAMILY, None, &p).unwrap();
+        // Intent, record, manifest, commit mark: four staging files, all through the hook.
+        let staged = names(&log);
+        assert_eq!(staged.len(), 4, "{staged:?}");
+        assert!(staged.iter().all(|n| n.ends_with(".tmp")), "{staged:?}");
+        drop(s);
+
+        // A store whose hook starts refusing cannot write: nothing reaches the records directory.
+        let (refusing, _) = recording(true);
+        // The layout exists now, so only the lock and staging creations can reach the hook.
+        let lock_exists = VerifiedRoot::verify(&r).unwrap().lock_path().exists();
+        assert!(lock_exists);
+        let mut s = DurableProtectedStore::open_governed(&r, refusing).unwrap();
+        assert_eq!(
+            s.put_record(b"rec-b", FAMILY, None, &p).unwrap_err(),
+            DurableStoreError::WriteRefusedBeforeEffect
+        );
+        assert_eq!(
+            s.get_record(b"rec-b").unwrap_err(),
+            DurableStoreError::RecordNotFound
+        );
+        assert_eq!(s.current_revision(), 1);
+        drop(s);
+        let _ = std::fs::remove_dir_all(&r);
+    }
+
+    #[test]
+    fn recovery_writes_stage_through_the_hook_too() {
+        let r = root();
+        let p = payload();
+        {
+            let (creator, _) = recording(false);
+            let mut s = DurableProtectedStore::open_governed(&r, creator).unwrap();
+            s.put_record(b"rec-a", FAMILY, None, &p).unwrap();
+            s.put_record_stop_after(b"rec-b", FAMILY, None, &p, FaultStage::AfterIntent)
+                .unwrap();
+        }
+        let (creator, log) = recording(false);
+        let s = DurableProtectedStore::open_governed(&r, creator).unwrap();
+        assert_eq!(s.current_revision(), 1, "the interrupted write aborted");
+        assert_eq!(
+            names(&log),
+            ["journal.0.tmp"],
+            "the abort mark recovery wrote was staged through the hook"
+        );
+        drop(s);
+        let _ = std::fs::remove_dir_all(&r);
+    }
+
+    #[test]
+    fn a_planted_staging_file_is_refused_not_adopted() {
+        let r = root();
+        let p = payload();
+        let (creator, _) = recording(false);
+        let mut s = DurableProtectedStore::open_governed(&r, creator).unwrap();
+        // The next staging name the store will use (token 1: the intent for the first put).
+        let planted = VerifiedRoot::verify(&r).unwrap().journal_temp_path(1);
+        std::fs::write(&planted, b"planted").unwrap();
+        assert_eq!(
+            s.put_record(b"rec-a", FAMILY, None, &p).unwrap_err(),
+            DurableStoreError::WriteRefusedBeforeEffect
+        );
+        assert_eq!(s.current_revision(), 0);
+        drop(s);
+        let _ = std::fs::remove_dir_all(&r);
     }
 
     #[test]

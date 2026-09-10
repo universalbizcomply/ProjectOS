@@ -144,6 +144,8 @@ const MODULES = [
   "val-projectos-live-gate-owner-floor1a",
   "val-projectos-technical-continuation1a",
   "val-projectos-closure-transport1a",
+  // RUN-TO-COMPLETION HOST ATTESTATION §10I — first-start durable store custody.
+  "val-host-store-custody-10i",
 ];
 
 const REGISTERED_MODULE_COUNT = MODULES.length;

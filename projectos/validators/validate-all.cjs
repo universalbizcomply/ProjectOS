@@ -111,7 +111,9 @@ const MODULES = [
   "val-projectos-worker-lifecycle-bounded1a",
   "val-projectos-live-gate-owner-floor1a",
   "val-projectos-technical-continuation1a",
-  "val-projectos-closure-transport1a"
+  "val-projectos-closure-transport1a",
+  // RUN-TO-COMPLETION HOST ATTESTATION §10I — first-start durable store custody.
+  "val-host-store-custody-10i"
 ];
 const scratch = require("./lib/scratch.cjs");
 const validationRecord = require("./lib/validation-record.cjs");

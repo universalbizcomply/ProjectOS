@@ -13,6 +13,11 @@
 //! ProjectOS can **inspect, classify, apply and verify an explicit Windows directory ACL policy on an
 //! isolated synthetic root**.
 //!
+//! Since RUN-TO-COMPLETION HOST ATTESTATION §10I it can also **create** one new directory or file
+//! WITH an explicit policy's owner and protected DACL, in the one creation call: privilege-free (the
+//! owner must be the calling account), create-only (an existing object is reported, never adopted or
+//! re-secured), and judged by an authoritative re-read.
+//!
 //! ## What this crate does NOT claim
 //!
 //! It does NOT provide resistance to a local administrator, service-only access, production
@@ -323,4 +328,111 @@ impl WindowsAclPolicyService {
         let observed = self.verify_file(path, policy)?;
         Ok(verify::classify_apply_outcome(observed))
     }
+
+    // ---- §10I: GOVERNED CREATION ----
+    //
+    // The apply path above re-secures an object that ALREADY exists, so there is always a moment at
+    // which it existed under whatever descriptor Windows gave it first, and assigning SYSTEM as owner
+    // needs `SeRestorePrivilege`. The two calls below are the other shape: the object comes into
+    // existence WITH the policy's owner and protected DACL, in the one creation call, so there is no
+    // ambient moment and nothing to repair. Neither enables a privilege, and neither can rewrite an
+    // object that already exists.
+
+    /// The exact state a governed creation will write, refused PRE-EFFECT unless the caller may
+    /// assign it WITHOUT a privilege.
+    ///
+    /// THE OWNER MUST BE THE CALLING PROCESS'S OWN ACCOUNT. Windows lets a token assign itself as
+    /// owner and refuses a stranger unless `SeRestorePrivilege` is enabled — and whether it is enabled
+    /// depends on how the process was launched (§10G-PRIV measured exactly that split). Refusing any
+    /// other owner here, before Windows is asked, keeps the outcome identical in every shell and means
+    /// no ambient privilege can ever be what made a creation succeed.
+    fn creatable_state(policy: &AclPolicy) -> Result<(OwnedSid, Vec<u8>), AclPolicyError> {
+        let (owner, acl) = Self::intended_state(policy)?;
+        windows::refuse_impersonation()?;
+        if owner != windows::current_account_sid()? {
+            return Err(AclPolicyError::PolicyRefused);
+        }
+        Ok((owner, acl))
+    }
+
+    /// Create ONE new directory whose descriptor is exactly the policy's: its owner, a PROTECTED DACL
+    /// and only non-inheritable allow ACEs — then RE-READ it from Windows and judge it.
+    ///
+    /// The parent's inheritable ACEs are NOT merged in (the DACL is protected) and the process
+    /// token's default DACL is NOT used (a DACL is supplied), so the result depends on neither.
+    ///
+    /// Anything already at `path` is reported as [`GovernedCreation::AlreadyExists`] and is NOT
+    /// touched: this never adopts, re-secures or repairs an existing object. Judging an existing one
+    /// is [`Self::verify_directory`]'s job, and deciding what to do about it is the caller's.
+    ///
+    /// # Errors
+    /// [`AclPolicyError::PolicyRefused`] PRE-EFFECT for a policy that would not verify, or whose owner
+    /// is not the calling process's own account, or on an impersonating thread;
+    /// [`AclPolicyError::RelativePath`] for a relative path;
+    /// [`AclPolicyError::ReconciliationRequired`] if a directory was created and the authoritative
+    /// re-read does not conform; otherwise the Windows classification.
+    pub fn create_directory_governed(
+        &self,
+        path: &Path,
+        policy: &AclPolicy,
+    ) -> Result<GovernedCreation, AclPolicyError> {
+        if !path.is_absolute() {
+            return Err(AclPolicyError::RelativePath);
+        }
+        let (owner, acl) = Self::creatable_state(policy)?;
+        if !windows::create_directory_with_security(path, &owner, &acl)? {
+            return Ok(GovernedCreation::AlreadyExists);
+        }
+        // AUTHORITATIVE: re-read from Windows, not the value handed to the creation call.
+        let (observed_owner, control, dacl) =
+            windows::read_security(path, windows::SecuredObjectKind::Directory)?;
+        let observed = AclInspection::from_raw(observed_owner.as_deref(), control, dacl)?;
+        if verify::verify(&observed, policy)?.is_conforming() {
+            Ok(GovernedCreation::Created)
+        } else {
+            Err(AclPolicyError::ReconciliationRequired)
+        }
+    }
+
+    /// Create ONE new FILE, opened for read and write, whose descriptor is exactly the policy's —
+    /// then read that descriptor back FROM THE HANDLE JUST CREATED and judge it.
+    ///
+    /// `Ok(None)` when anything already exists at `path`: the existing object is not opened, not
+    /// adopted and not re-secured. (Windows ignores a supplied descriptor when a creation call opens
+    /// an existing file, which is exactly why this refuses to.)
+    ///
+    /// # Errors
+    /// As [`Self::create_directory_governed`]. A created file that does not conform is closed and
+    /// reported as [`AclPolicyError::ReconciliationRequired`]; removing it is the caller's decision.
+    pub fn create_file_governed(
+        &self,
+        path: &Path,
+        policy: &AclPolicy,
+    ) -> Result<Option<std::fs::File>, AclPolicyError> {
+        if !path.is_absolute() {
+            return Err(AclPolicyError::RelativePath);
+        }
+        let (owner, acl) = Self::creatable_state(policy)?;
+        let Some(file) = windows::create_file_with_security(path, &owner, &acl)? else {
+            return Ok(None);
+        };
+        let (observed_owner, control, dacl) = windows::read_file_security(&file)?;
+        let observed = AclInspection::from_raw(observed_owner.as_deref(), control, dacl)?;
+        if verify::verify(&observed, policy)?.is_conforming() {
+            Ok(Some(file))
+        } else {
+            Err(AclPolicyError::ReconciliationRequired)
+        }
+    }
+}
+
+/// What a governed directory creation found at its target (§10I).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum GovernedCreation {
+    /// A new object was created with exactly the policy's descriptor, and an authoritative re-read
+    /// confirmed it.
+    Created,
+    /// Something already existed at the path. NOTHING was created, changed or re-secured.
+    AlreadyExists,
 }

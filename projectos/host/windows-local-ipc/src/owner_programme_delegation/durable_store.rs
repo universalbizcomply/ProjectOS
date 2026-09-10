@@ -43,23 +43,33 @@
 //! restricted ProgramData ACL, not on anything here: an attacker who can already replace protected
 //! files as SYSTEM is outside this checkpoint's boundary, and no local counter would honestly change
 //! that.
-
-use std::path::PathBuf;
+//!
+//! §10I SUPPLIES THE ORDINARY-ACCOUNT HALF OF THAT ACL. Every object in this store is created with
+//! the committed store descriptor — the service `Modify`, Administrators and SYSTEM full control,
+//! nobody else — so an ordinary local account can neither delete, rename nor rewrite a record, and a
+//! store whose descriptor says otherwise is refused at open. The privileged half is unchanged: an
+//! administrator or SYSTEM can still delete a `Revoked` record, and nothing at this level stops that.
 
 use projectos_host_persistence::{
     DelegationLifecycleRecordDto, DelegationLifecycleStateDto, TargetFamilyDto,
 };
-use projectos_host_trusted_roots::{ActivatedHostStateRoot, TrustedRootRefusal};
+use projectos_host_trusted_roots::{
+    ActivatedHostStateRoot, HostStateStore, HostStoreCustody, TrustedRootRefusal,
+};
 use projectos_host_windows_durable_protected_store::{DurableProtectedStore, DurableStoreError};
 
 use super::{DelegationLocalState, DurableDelegationStateStore, DELEGATION_DIGEST_LEN};
+use crate::store_custody::{open_governed_store, GovernedOpenRefusal};
 
 /// The ONE frozen leaf segment beneath the Host's own state root that holds delegation lifecycle.
 ///
 /// A single plain segment, exactly like the gatekeeper inbox's: it is the unit a narrow ACE can be
 /// applied to, and a nested or caller-influenced path would be a second place to look for the
 /// host's word on a delegation.
-pub const DELEGATION_STATE_RELATIVE_ROOT: &str = "delegation-state";
+///
+/// §10I: SPELLED ONCE, by the store custody that creates and judges the directory, so the store and
+/// its custody cannot come to mean two directories.
+pub const DELEGATION_STATE_RELATIVE_ROOT: &str = HostStateStore::DelegationLifecycle.segment();
 
 /// The most delegation lifecycle records one Host may hold.
 ///
@@ -97,6 +107,9 @@ pub enum DelegationStoreRefusal {
     CapacityExhausted,
     /// The write was refused before any durable effect.
     WriteRefused,
+    /// §10I: the store's filesystem custody could not be established, or an object in it does not
+    /// carry the committed owner and DACL. Nothing was opened, and nothing was re-secured.
+    CustodyRefused,
 }
 
 /// THE HOST'S OWN STATE ROOT — a capability, not a path a caller may choose.
@@ -129,8 +142,9 @@ pub enum DelegationStoreRefusal {
 /// the root correctly and still cannot construct this capability.
 #[derive(Debug, Clone)]
 pub struct HostOwnedDelegationStateRoot {
-    /// The Host-owned state root. Private: no caller outside this module can name a directory.
-    root: PathBuf,
+    /// The custody of the Host's stores beneath the Host-owned state root (§10I). Private: no caller
+    /// outside this module can name a directory, a principal or a policy.
+    custody: HostStoreCustody,
 }
 
 impl HostOwnedDelegationStateRoot {
@@ -159,31 +173,31 @@ impl HostOwnedDelegationStateRoot {
         // while a store lives. Carrying the custody handle INTO this type would be the complete
         // answer; it is a change to a closed 10B type's shape and is recorded as carry-forward.
         activated.revalidate()?;
+        // §10I: the custody comes from the SAME activated root — for the installed Host, the
+        // installed service account — so the store's owner and DACL are no more a caller's choice
+        // than its directory is.
         Ok(Self {
-            root: activated.path().to_path_buf(),
+            custody: activated.store_custody(),
         })
     }
 
-    /// FIXTURE ONLY: treat a disposable directory the test already owns as the Host state root.
+    /// FIXTURE ONLY: treat a disposable directory the test already owns as the Host state root,
+    /// custodied for the calling account.
     ///
-    /// Compiled for this crate's tests and the non-default `test-fixtures` graph, so no shipped
-    /// build can reach it. It is how the store is proven without a live ProgramData directory.
-    #[cfg(any(test, feature = "test-fixtures"))]
+    /// Compiled for this crate's tests only (§10I: its custody fixture lives in the trusted-roots
+    /// dev-dependency graph), so no shipped build can reach it. It is how the store is proven
+    /// without a live ProgramData directory.
+    #[cfg(test)]
     #[must_use]
     pub fn fixture(owned_root: &std::path::Path) -> Self {
         Self {
-            root: owned_root.to_path_buf(),
+            custody: HostStoreCustody::fixture(owned_root),
         }
-    }
-
-    /// The delegation-state directory, derived from the frozen segment — never supplied.
-    fn state_dir(&self) -> PathBuf {
-        self.root.join(DELEGATION_STATE_RELATIVE_ROOT)
     }
 
     /// Whether the Host state root is present as a real directory.
     fn exists(&self) -> bool {
-        self.root.is_dir()
+        self.custody.state_root().is_dir()
     }
 }
 
@@ -209,9 +223,16 @@ impl DurableDelegationStateFileStore {
     /// [`super::HostDelegationStatus::from_durable_store`] turns into a refusal. Nothing here
     /// provisions a record, and nothing here can decide a delegation is live.
     ///
+    /// ## Custody (§10I)
+    ///
+    /// The store directory, and every object the engine makes inside it, is created WITH the
+    /// committed owner and protected DACL rather than taking the process token's defaults; an
+    /// existing store is judged against that descriptor before the engine touches it and again
+    /// after, and a non-conforming one is refused — never re-secured.
+    ///
     /// # Errors
-    /// [`DelegationStoreRefusal`] if the root cannot be prepared, or the engine refuses the root,
-    /// the single-writer lock, or recovery.
+    /// [`DelegationStoreRefusal`] if the root cannot be prepared, custody cannot be established or
+    /// verified, or the engine refuses the root, the single-writer lock, or recovery.
     pub fn open(root: &HostOwnedDelegationStateRoot) -> Result<Self, DelegationStoreRefusal> {
         // THE ROOT IS NOT CREATED, ONLY THE LEAF. A missing state root means the Host is not
         // installed the way this store assumes, and manufacturing the whole directory chain would
@@ -221,16 +242,12 @@ impl DurableDelegationStateFileStore {
         if !root.exists() {
             return Err(DelegationStoreRefusal::StateRootUnusable);
         }
-        let dir = root.state_dir();
-        match std::fs::create_dir(&dir) {
-            Ok(()) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
-            Err(_) => return Err(DelegationStoreRefusal::StateRootUnusable),
-        }
-        let dir = dir
-            .to_str()
-            .ok_or(DelegationStoreRefusal::StateRootUnusable)?;
-        let inner = DurableProtectedStore::open(dir).map_err(map_open)?;
+        let inner = open_governed_store(&root.custody, HostStateStore::DelegationLifecycle)
+            .map_err(|refusal| match refusal {
+                GovernedOpenRefusal::StateRootUnusable => DelegationStoreRefusal::StateRootUnusable,
+                GovernedOpenRefusal::CustodyRefused => DelegationStoreRefusal::CustodyRefused,
+                GovernedOpenRefusal::Engine(err) => map_open(err),
+            })?;
         Ok(Self { inner })
     }
 

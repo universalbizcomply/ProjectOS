@@ -45,6 +45,7 @@
 
 #[cfg(windows)]
 pub mod boundary;
+pub mod store_custody;
 
 use std::path::Path;
 

@@ -280,6 +280,78 @@ impl AclCompositionPlan {
         AclCompositionOutcome::Composed(AclPolicy::strict(AclPrincipal::LocalSystem, allowed))
     }
 
+    /// Compose the custody policy for the HOST'S MUTABLE DURABLE STORES — RUN-TO-COMPLETION HOST
+    /// ATTESTATION §10I.
+    ///
+    /// ONE policy for every object in both stores: the delegation-lifecycle store and the
+    /// request-replay store run the SAME durable engine and perform the SAME operations on the same
+    /// object kinds, so there is nothing a second composition could legitimately say differently.
+    ///
+    /// ## Why this differs from the state-root policy, bit by bit
+    ///
+    /// The state root and its two ancestors are protected INFRASTRUCTURE the service reads through;
+    /// the stores are MUTABLE HOST STATE the service must create, write, replace and delete. So:
+    ///
+    /// * THE OWNER IS THE SERVICE, not SYSTEM. The stores come into existence at first service start,
+    ///   created BY the service, WITH their descriptor. A virtual service account may name itself as
+    ///   owner and may not name SYSTEM without `SeRestorePrivilege` — a privilege it does not hold and
+    ///   must not be given merely so a descriptor looks like its parent's. Creating as the service is
+    ///   what removes the ambient step entirely: nothing is created under a default descriptor and
+    ///   fixed afterwards, and nothing needs privilege.
+    /// * OWNER RIGHTS IS NAMED, with read-only attributes. Ownership would otherwise hand the service
+    ///   implicit `WRITE_DAC` over its own state — the exact authority the state-root policy moved
+    ///   to SYSTEM to remove. An OWNER RIGHTS ACE replaces the owner's implicit rights with what it
+    ///   grants, so the DACL is again the complete statement of what the owner may do.
+    /// * THE SERVICE GETS `Modify`, NOT `FullControl`. Read, traverse, create files and directories,
+    ///   write, and delete — what staging a file, flushing it, renaming it over a record, taking the
+    ///   single-writer lock and removing a stale temp need. NOT `WRITE_DAC`, `WRITE_OWNER` or
+    ///   `FILE_DELETE_CHILD`: nothing the engine does re-secures an object, takes ownership, or deletes
+    ///   a child it holds no `DELETE` on.
+    /// * ADMINISTRATORS AND SYSTEM KEEP `FullControl`, for the same honest reason as everywhere else:
+    ///   servicing, backup and recovery need them, and excluding them would exclude nobody.
+    ///
+    /// Everything else is the closed `AclPolicy::strict`: protected DACL, no inherited ACE, no
+    /// unknown principal, no deny ACE, no broad principal with any access.
+    #[must_use]
+    pub fn compose_host_store_with_resolved_principal(
+        &self,
+        identity: &ServiceIdentityPlan,
+        service: &ApprovedServicePrincipal,
+    ) -> AclCompositionOutcome {
+        let strategy = match identity.decision() {
+            IdentityDecisionStatus::Undecided | IdentityDecisionStatus::Recommended(_) => {
+                return AclCompositionOutcome::OwnerDecisionRequired
+            }
+            IdentityDecisionStatus::OwnerApproved(s) => s,
+        };
+        if service.strategy() != strategy {
+            return AclCompositionOutcome::ServiceIdentityRequired;
+        }
+        let mut allowed = vec![
+            AllowedPrincipal {
+                principal: service.principal().clone(),
+                rights: RightsClass::Modify,
+            },
+            AllowedPrincipal {
+                principal: AclPrincipal::OwnerRights,
+                rights: RightsClass::ReadAttributes,
+            },
+        ];
+        if self.administrators_retained {
+            allowed.push(AllowedPrincipal {
+                principal: AclPrincipal::BuiltinAdministrators,
+                rights: RightsClass::FullControl,
+            });
+        }
+        if self.local_system_retained && strategy != ServiceIdentityStrategy::LocalSystem {
+            allowed.push(AllowedPrincipal {
+                principal: AclPrincipal::LocalSystem,
+                rights: RightsClass::FullControl,
+            });
+        }
+        AclCompositionOutcome::Composed(AclPolicy::strict(service.principal().clone(), allowed))
+    }
+
     /// Attempt to compose the final policy.
     ///
     /// Fails CLOSED at each stage: undecided strategy → `OwnerDecisionRequired`; decided but
@@ -526,6 +598,115 @@ mod record_file_policy_tests {
             policy.expected_owner,
             AclPrincipal::ExplicitSid(_)
         ));
+    }
+
+    fn host_store() -> AclPolicy {
+        let identity = ServiceIdentityPlan::analysed()
+            .with_owner_decision(ServiceIdentityStrategy::VirtualServiceAccount);
+        let principal = ApprovedServicePrincipal::from_resolved_sid(
+            ServiceIdentityStrategy::VirtualServiceAccount,
+            resolved_service_sid(),
+        )
+        .expect("the approved strategy composes");
+        match AclCompositionPlan::production()
+            .compose_host_store_with_resolved_principal(&identity, &principal)
+        {
+            AclCompositionOutcome::Composed(p) => p,
+            other => panic!("expected a composed host-store policy, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_host_store_policy_is_service_owned_modify_only_and_owner_rights_neutralised() {
+        let policy = host_store();
+        assert_eq!(
+            policy.expected_owner,
+            AclPrincipal::ExplicitSid(resolved_service_sid()),
+            "the stores are created BY the service, which may only name itself as owner"
+        );
+        let rights = |p: &AclPrincipal| {
+            policy
+                .allowed
+                .iter()
+                .find(|a| &a.principal == p)
+                .unwrap_or_else(|| panic!("{p:?} is present"))
+                .rights
+        };
+        let service = AclPrincipal::ExplicitSid(resolved_service_sid());
+        assert_eq!(rights(&service), RightsClass::Modify);
+        // THE OWNER'S IMPLICIT WRITE_DAC IS REPLACED, and by a read-only grant.
+        assert_eq!(
+            rights(&AclPrincipal::OwnerRights),
+            RightsClass::ReadAttributes
+        );
+        assert_eq!(
+            rights(&AclPrincipal::BuiltinAdministrators),
+            RightsClass::FullControl
+        );
+        assert_eq!(rights(&AclPrincipal::LocalSystem), RightsClass::FullControl);
+        assert_eq!(policy.allowed.len(), 4, "exactly four principals");
+        // Bit by bit: the service may write and delete, never re-secure, re-own or delete-child.
+        let mask = rights(&service).mask();
+        for (name, bit) in [
+            ("WRITE_DAC", 0x0004_0000u32),
+            ("WRITE_OWNER", 0x0008_0000),
+            ("FILE_DELETE_CHILD", 0x0000_0040),
+        ] {
+            assert_eq!(mask & bit, 0, "the service must not hold {name}");
+        }
+        for (name, bit) in [
+            ("FILE_WRITE_DATA / ADD_FILE", 0x0000_0002u32),
+            ("FILE_APPEND_DATA / ADD_SUBDIRECTORY", 0x0000_0004),
+            ("DELETE", 0x0001_0000),
+            ("READ_CONTROL", 0x0002_0000),
+        ] {
+            assert_ne!(mask & bit, 0, "the service needs {name}");
+        }
+        assert_eq!(
+            RightsClass::ReadAttributes.mask() & 0x000C_0000,
+            0,
+            "OWNER RIGHTS must not hand WRITE_DAC or WRITE_OWNER back"
+        );
+    }
+
+    #[test]
+    fn the_host_store_policy_is_closed_in_every_dimension() {
+        let policy = host_store();
+        assert!(!policy.grants_broad_write());
+        assert!(policy.require_protected_dacl);
+        assert!(!policy.allow_inherited_aces);
+        assert!(!policy.allow_unknown_principals);
+        assert!(!policy.allow_deny_aces);
+        assert!(!policy.allow_broad_principals_any_access);
+        assert!(!policy.allow_broad_principals_write);
+        assert!(!policy
+            .allowed
+            .iter()
+            .any(|a| a.principal == AclPrincipal::CurrentInteractiveUser));
+    }
+
+    #[test]
+    fn an_undecided_or_mismatched_identity_blocks_the_host_store_policy() {
+        let principal = ApprovedServicePrincipal::from_resolved_sid(
+            ServiceIdentityStrategy::VirtualServiceAccount,
+            resolved_service_sid(),
+        )
+        .expect("the approved strategy composes");
+        assert_eq!(
+            AclCompositionPlan::production().compose_host_store_with_resolved_principal(
+                &ServiceIdentityPlan::analysed(),
+                &principal,
+            ),
+            AclCompositionOutcome::OwnerDecisionRequired
+        );
+        assert_eq!(
+            AclCompositionPlan::production().compose_host_store_with_resolved_principal(
+                &ServiceIdentityPlan::analysed()
+                    .with_owner_decision(ServiceIdentityStrategy::LocalService),
+                &principal,
+            ),
+            AclCompositionOutcome::ServiceIdentityRequired
+        );
     }
 
     #[test]

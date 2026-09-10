@@ -465,6 +465,25 @@ function run() {
       if (/apply_directory_policy\(|apply_file_policy\(|apply_and_verify(_file)?\(/.test(code))
         errors.push(rel + ": an ACL mutation entry point is reachable from the trusted-roots crate");
     }
+    // AMENDMENT (RUN-TO-COMPLETION HOST ATTESTATION - §10I FIRST-START DURABLE STORE CUSTODY):
+    // ***PROPOSED - AWAITING RATIFICATION AT THE §10I GATE. NOT gate-authorised.***
+    //
+    // The rule above stays exactly as it is: nothing in this crate may RE-SECURE an existing object,
+    // so the boundary the §10F mint judges can still never be repaired by the code that judges it.
+    // §10I adds the other shape, and only that shape: GOVERNED CREATION of a NEW object, with the
+    // committed descriptor, in the one creation call — the two durable store directories, and the
+    // objects the durable engine creates inside them through its creation hook. A creation cannot
+    // touch the boundary (it refuses anything that already exists), cannot re-secure anything, and
+    // may only name the calling account as owner, so it enables no privilege.
+    //
+    // Pinned, not merely tolerated: the two governed-creation entry points may be reached from ONE
+    // source in this crate, the store custody module, and every other source is refused.
+    for (const f of rsFiles(rootsSrc)) {
+      const rel = path.relative(ROOT, f).replace(/\\/g, "/");
+      const code = stripComments(read(f));
+      if (/create_(directory|file)_governed\(/.test(code) && !/\/activation\/store_custody\.rs$/.test(rel))
+        errors.push(rel + ": a governed-creation entry point is reached outside activation/store_custody.rs");
+    }
   }
 
   // 3. windows_ffi.rs: gated, unsafe-allowed, correct pipe configuration, opaque-lease consumption.

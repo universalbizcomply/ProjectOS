@@ -24,6 +24,8 @@ mod activation;
 mod boundary;
 mod governed_project;
 mod host_state;
+#[cfg(windows)]
+mod store_custody;
 
 static NEXT: AtomicU64 = AtomicU64::new(0);
 

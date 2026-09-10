@@ -26,8 +26,15 @@ use std::path::PathBuf;
 use crate::refusal::TrustedRootRefusal;
 
 /// The private supertrait. Unnameable outside this crate, so the implementor set is closed.
-mod sealed {
-    pub trait Sealed {}
+pub(crate) mod sealed {
+    pub trait Sealed {
+        /// Whether this source is a DISPOSABLE directory a test owns (§10I).
+        ///
+        /// Only a fixture source overrides it, and no fixture source exists in a shipped build — so
+        /// there, every root is the installed Host's, and its durable stores are custodied for the
+        /// installed service account and nobody else.
+        const DISPOSABLE: bool = false;
+    }
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -95,7 +102,11 @@ impl FixtureInstallationAnchor {
 }
 
 #[cfg(any(test, feature = "test-fixtures"))]
-impl sealed::Sealed for FixtureInstallationAnchor {}
+impl sealed::Sealed for FixtureInstallationAnchor {
+    /// A root beneath a disposable anchor is a disposable root: its durable stores are custodied for
+    /// the calling account, because that is the only account that can create objects it owns.
+    const DISPOSABLE: bool = true;
+}
 
 #[cfg(any(test, feature = "test-fixtures"))]
 impl InstallationAnchorSource for FixtureInstallationAnchor {

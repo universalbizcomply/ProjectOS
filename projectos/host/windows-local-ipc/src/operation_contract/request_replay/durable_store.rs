@@ -59,24 +59,33 @@
 //! ahead and the whole history refuses to open, while removing an OLDER one leaves the maximum
 //! unchanged and that one identity reads back fresh. Both cases are measured in the tests beside
 //! this file rather than asserted from the comfortable assumption.
-
-use std::path::PathBuf;
+//!
+//! §10I CLOSES THE ORDINARY-ACCOUNT HALF OF THAT BOUNDARY. Every object in this history is created
+//! with the committed store descriptor — the service `Modify`, Administrators and SYSTEM full
+//! control, nobody else — so an ordinary local account can neither delete nor rename a record, and a
+//! history whose descriptor says otherwise is refused at open. The privileged half is unchanged: an
+//! administrator or SYSTEM can still delete a record, and nothing at this level stops that.
 
 use projectos_host_persistence::{RequestReplayRecordDto, RequestReplayStateDto, TargetFamilyDto};
-use projectos_host_trusted_roots::{ActivatedHostStateRoot, TrustedRootRefusal};
+use projectos_host_trusted_roots::{
+    ActivatedHostStateRoot, HostStateStore, HostStoreCustody, TrustedRootRefusal,
+};
 use projectos_host_windows_durable_protected_store::{DurableProtectedStore, DurableStoreError};
 
 use super::{
     consumed, replay_seal, ConsumedRequest, ReplayRefusal, RequestReplayIdentity,
     RequestReplayLedger, REPLAY_IDENTITY_LEN,
 };
+use crate::store_custody::{open_governed_store, GovernedOpenRefusal};
 
 /// The ONE frozen leaf segment beneath the Host's own state root that holds replay history.
 ///
 /// A single plain segment, like the delegation store's: it is the unit a narrow ACE can be applied
 /// to, and a nested or caller-influenced path would be a second place to look for the Host's word on
 /// whether a request has run.
-pub const REQUEST_REPLAY_RELATIVE_ROOT: &str = "request-replay";
+///
+/// §10I: SPELLED ONCE, by the store custody that creates and judges the directory.
+pub const REQUEST_REPLAY_RELATIVE_ROOT: &str = HostStateStore::RequestReplay.segment();
 
 /// The most consumed-request records one Host may hold.
 ///
@@ -136,8 +145,9 @@ pub const MAX_REPLAY_RECORD_BYTES: usize = 4096;
 /// PERFECT REPLAY ORACLE, which is exactly why the route in cannot be handed one.
 #[derive(Debug, Clone)]
 pub struct HostOwnedRequestReplayRoot {
-    /// The Host-owned state root. Private: no caller outside this module can name a directory.
-    root: PathBuf,
+    /// The custody of the Host's stores beneath the Host-owned state root (§10I). Private: no caller
+    /// outside this module can name a directory, a principal or a policy.
+    custody: HostStoreCustody,
 }
 
 impl HostOwnedRequestReplayRoot {
@@ -161,31 +171,29 @@ impl HostOwnedRequestReplayRoot {
         //
         // The same limit as 10B's store applies afterwards, and the same lock handle mitigates it.
         activated.revalidate()?;
+        // §10I: the custody comes from the SAME activated root, exactly as the delegation store's.
         Ok(Self {
-            root: activated.path().to_path_buf(),
+            custody: activated.store_custody(),
         })
     }
 
-    /// FIXTURE ONLY: treat a disposable directory the test already owns as the Host state root.
+    /// FIXTURE ONLY: treat a disposable directory the test already owns as the Host state root,
+    /// custodied for the calling account.
     ///
-    /// Compiled for this crate's tests and the non-default `test-fixtures` graph, so no shipped
-    /// build can reach it. It is how the store is proven without a live ProgramData directory.
-    #[cfg(any(test, feature = "test-fixtures"))]
+    /// Compiled for this crate's tests only (§10I: its custody fixture lives in the trusted-roots
+    /// dev-dependency graph), so no shipped build can reach it. It is how the store is proven
+    /// without a live ProgramData directory.
+    #[cfg(test)]
     #[must_use]
     pub fn fixture(owned_root: &std::path::Path) -> Self {
         Self {
-            root: owned_root.to_path_buf(),
+            custody: HostStoreCustody::fixture(owned_root),
         }
-    }
-
-    /// The replay-history directory, derived from the frozen segment — never supplied.
-    fn history_dir(&self) -> PathBuf {
-        self.root.join(REQUEST_REPLAY_RELATIVE_ROOT)
     }
 
     /// Whether the Host state root is present as a real directory.
     fn exists(&self) -> bool {
-        self.root.is_dir()
+        self.custody.state_root().is_dir()
     }
 }
 
@@ -213,9 +221,16 @@ impl DurableRequestReplayFileStore {
     /// the store must never do is treat a root it could not verify as an empty history, and it does
     /// not: a missing root refuses.
     ///
+    /// ## Custody (§10I)
+    ///
+    /// Exactly as the delegation store's: every object is created WITH the committed owner and
+    /// protected DACL, an existing history is judged before the engine touches it and again after,
+    /// and a non-conforming one is refused — never re-secured. A history whose files an ordinary
+    /// account could delete is a replay window, which is why this is checked rather than assumed.
+    ///
     /// # Errors
-    /// [`ReplayRefusal`] if the root cannot be prepared, or the engine refuses the root, the
-    /// single-writer lock, or recovery.
+    /// [`ReplayRefusal`] if the root cannot be prepared, custody cannot be established or verified,
+    /// or the engine refuses the root, the single-writer lock, or recovery.
     pub fn open(root: &HostOwnedRequestReplayRoot) -> Result<Self, ReplayRefusal> {
         // THE ROOT IS NOT CREATED, ONLY THE LEAF. A missing state root means the Host is not
         // installed the way this store assumes, and manufacturing the whole directory chain would
@@ -225,14 +240,13 @@ impl DurableRequestReplayFileStore {
         if !root.exists() {
             return Err(ReplayRefusal::StateRootUnusable);
         }
-        let dir = root.history_dir();
-        match std::fs::create_dir(&dir) {
-            Ok(()) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
-            Err(_) => return Err(ReplayRefusal::StateRootUnusable),
-        }
-        let dir = dir.to_str().ok_or(ReplayRefusal::StateRootUnusable)?;
-        let inner = DurableProtectedStore::open(dir).map_err(map_open)?;
+        let inner = open_governed_store(&root.custody, HostStateStore::RequestReplay).map_err(
+            |refusal| match refusal {
+                GovernedOpenRefusal::StateRootUnusable => ReplayRefusal::StateRootUnusable,
+                GovernedOpenRefusal::CustodyRefused => ReplayRefusal::CustodyRefused,
+                GovernedOpenRefusal::Engine(err) => map_open(err),
+            },
+        )?;
         Ok(Self { inner })
     }
 

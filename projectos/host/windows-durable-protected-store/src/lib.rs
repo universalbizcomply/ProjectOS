@@ -32,6 +32,14 @@
 //! Windows provides no documented directory-entry `fsync` guarantee, so directory flushing is
 //! best-effort only. Full race-free reparse enforcement remains a later handle-based service duty.
 //!
+//! ## Governed creation (RUN-TO-COMPLETION HOST ATTESTATION §10I)
+//!
+//! [`DurableProtectedStore::open`] creates its objects with the standard library, as it always has.
+//! [`DurableProtectedStore::open_governed`] routes EVERY object the engine creates — the fixed
+//! directories, the lock file and every staging file, recovery's included — through a caller-owned
+//! [`ObjectCreation`]. The engine itself still applies no ACL and names no principal; it only stops
+//! choosing how a new object comes into existence when its owner has said how.
+//!
 //! ## Sealed API (compile-fail evidence)
 //!
 //! The store exposes no raw protected-payload getter beyond the accepted-DTO document it stored:
@@ -48,6 +56,7 @@
 
 #![deny(unsafe_code)]
 
+pub mod creation;
 pub mod error;
 pub mod framing;
 pub mod layout;
@@ -61,6 +70,7 @@ mod windows_fs;
 mod atomic_write;
 mod journal;
 
+pub use creation::ObjectCreation;
 pub use error::DurableStoreError;
 pub use layout::VerifiedRoot;
 pub use recovery::{RecordScan, Structural};

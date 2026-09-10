@@ -110,6 +110,11 @@ impl OwnedSid {
     pub fn builtin_guests() -> Self {
         Self::well_known(5, &[32, 546])
     }
+    /// `S-1-3-4` — OWNER RIGHTS.
+    #[must_use]
+    pub fn owner_rights() -> Self {
+        Self::well_known(3, &[4])
+    }
 }
 
 impl fmt::Debug for OwnedSid {
@@ -140,6 +145,15 @@ pub enum AclPrincipal {
     /// The account SID of the calling process. Intended for SYNTHETIC TEST FIXTURES; no production
     /// service principal is authorised in this phase.
     CurrentInteractiveUser,
+    /// `S-1-3-4` — OWNER RIGHTS (RUN-TO-COMPLETION HOST ATTESTATION §10I).
+    ///
+    /// NOT A PERSON AND NOT A GROUP ANYONE JOINS. Windows substitutes it for whoever owns the object
+    /// at access time, and an ACE naming it REPLACES the owner's implicit `READ_CONTROL | WRITE_DAC`
+    /// with exactly the rights that ACE grants. Naming it with a read-only class is how a policy
+    /// whose owner must be an ordinary principal (one that cannot assign SYSTEM without a privilege)
+    /// still keeps `WRITE_DAC` out of that owner's hands: the DACL becomes the complete statement of
+    /// what the owner may do.
+    OwnerRights,
     /// A validated, explicitly supplied SID. Never read from an environment variable or a repository
     /// file, and never treated as a credential.
     ExplicitSid(OwnedSid),
@@ -158,6 +172,7 @@ impl AclPrincipal {
             Self::BuiltinAdministrators => Ok(OwnedSid::builtin_administrators()),
             Self::BuiltinUsers => Ok(OwnedSid::builtin_users()),
             Self::CurrentInteractiveUser => crate::windows::current_account_sid(),
+            Self::OwnerRights => Ok(OwnedSid::owner_rights()),
             Self::ExplicitSid(sid) => Ok(sid.clone()),
         }
     }
@@ -170,6 +185,7 @@ impl AclPrincipal {
             Self::BuiltinAdministrators => "BuiltinAdministrators",
             Self::BuiltinUsers => "BuiltinUsers",
             Self::CurrentInteractiveUser => "CurrentInteractiveUser",
+            Self::OwnerRights => "OwnerRights",
             Self::ExplicitSid(_) => "ExplicitSid(redacted)",
         }
     }
@@ -251,6 +267,7 @@ mod tests {
             OwnedSid::builtin_administrators(),
             OwnedSid::builtin_users(),
             OwnedSid::builtin_guests(),
+            OwnedSid::owner_rights(),
         ] {
             let parsed =
                 OwnedSid::from_bytes(sid.as_bytes()).expect("well-known SID must validate");
@@ -324,6 +341,22 @@ mod tests {
             BroadPrincipal::classify(&OwnedSid::builtin_administrators()),
             None
         );
+        // OWNER RIGHTS names whoever owns the object, never a population of accounts.
+        assert_eq!(BroadPrincipal::classify(&OwnedSid::owner_rights()), None);
+    }
+
+    #[test]
+    fn owner_rights_has_the_documented_binary_form_and_resolves_without_windows() {
+        // S-1-3-4: revision 1, one sub-authority, authority 3 (CREATOR), sub-authority 4.
+        assert_eq!(
+            OwnedSid::owner_rights().as_bytes(),
+            &[1, 1, 0, 0, 0, 0, 0, 3, 4, 0, 0, 0]
+        );
+        assert_eq!(
+            AclPrincipal::OwnerRights.resolve().unwrap(),
+            OwnedSid::owner_rights()
+        );
+        assert_eq!(AclPrincipal::OwnerRights.label(), "OwnerRights");
     }
 
     #[test]

@@ -170,6 +170,9 @@ mod tests;
 
 #[cfg(windows)]
 pub use activation::boundary::BoundaryRefusal;
+pub use activation::store_custody::{
+    GovernedHostStore, HostStateStore, HostStoreCustody, StoreCustodyRefusal, MAX_GOVERNED_OBJECTS,
+};
 pub use activation::{
     ActivatedGovernedProjectRoot, ActivatedHostStateRoot, ProtectedInstallationBoundaryAcceptance,
 };
