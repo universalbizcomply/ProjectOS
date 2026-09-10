@@ -30,6 +30,7 @@ import {
   TECHNICAL_CONTINUATION_SCOPE,
   GATEKEEPER_DECISION_SCHEMA_VERSION,
   type BudgetPolicy,
+  type DecisionProvenanceStamp,
   type DelegableScope,
   type TechnicalDelegationState,
   type GatekeeperDecisionRecord,
@@ -107,6 +108,13 @@ export function recordGatekeeperDecisionEvidence(
   sys: System,
   root: string,
   record: GatekeeperDecisionRecord,
+  /**
+   * How the decision was obtained, as the ROUTE that received it says — never the record's own claim.
+   * Absent for the pre-hybrid composition, which keeps its evidence byte-identical to before. Because
+   * the stamp is part of the bytes, the same request id recorded under a different provenance is a
+   * conflict, never a silent relabel.
+   */
+  provenance?: DecisionProvenanceStamp,
 ): DecisionEvidenceOutcome {
   const requestId = typeof record.decisionId === 'string' ? record.decisionId : null;
   if (requestId === null) return { kind: 'refused', detail: 'decision carries no usable decisionId' };
@@ -129,6 +137,12 @@ export function recordGatekeeperDecisionEvidence(
     ownerApprovalRequired: record.ownerApprovalRequired,
     decidedBy: record.decidedBy,
     decidedAt: record.decidedAt,
+    ...(provenance === undefined
+      ? {}
+      : {
+          provenance: provenance.kind,
+          ...(provenance.hostAttestationId === undefined ? {} : { hostAttestationId: provenance.hostAttestationId }),
+        }),
   };
   const content = `${JSON.stringify(evidence, null, 2)}\n`;
   const path = join(root, ...rel.split('/'));

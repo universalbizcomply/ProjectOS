@@ -79,6 +79,7 @@ import {
   GATEKEEPER_THREAD_REL,
 } from './gatekeeperConfig.js';
 import { WORK_RECORD_REL } from './workRecord.js';
+import { GATEKEEPER_INTERACTIVE_REL, INTERACTIVE_RECORD_FILENAME } from './gatekeeperHandoff.js';
 import {
   CANDIDATE_IDENTITY_SCHEMA_VERSION,
   type CandidateEntry,
@@ -130,10 +131,24 @@ const DECISION_EVIDENCE_FILENAME = /^[A-Za-z0-9_-]{4,128}\.json$/;
  */
 function isAskingRecord(path: string): boolean {
   if (ASKING_RECORD_PATHS.includes(path)) return true;
-  const prefix = `${GATEKEEPER_DECISIONS_REL}/`;
+  // Decision evidence, and the INTERACTIVE question, its answer and its spend marker. The question
+  // and the marker exist because ProjectOS asked; the answer exists because the gatekeeper replied —
+  // a reviewer cannot review its own reply. Each is bounded by its writer's own filename shape, one
+  // level below its own directory, so nothing else sitting there leaves the candidate. An excluded
+  // path is also never COMMITTED by the continuation: `doCommit` stages exactly this candidate's own
+  // path list, so a file merely shaped like one of these records is neither reviewed nor carried past
+  // review (pinned by `hybridVerticalSlice.test.ts`).
+  return (
+    isRecordIn(path, GATEKEEPER_DECISIONS_REL, DECISION_EVIDENCE_FILENAME) ||
+    isRecordIn(path, GATEKEEPER_INTERACTIVE_REL, INTERACTIVE_RECORD_FILENAME)
+  );
+}
+
+function isRecordIn(path: string, dir: string, shape: RegExp): boolean {
+  const prefix = `${dir}/`;
   if (!path.startsWith(prefix)) return false;
   const rest = path.slice(prefix.length);
-  return !rest.includes('/') && DECISION_EVIDENCE_FILENAME.test(rest);
+  return !rest.includes('/') && shape.test(rest);
 }
 
 export type CandidateResult =

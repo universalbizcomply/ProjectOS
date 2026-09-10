@@ -28,8 +28,9 @@ import {
   releaseUndispatchedReservation,
   settleGatekeeperSpend,
   writePreviousResponseId,
+  resolveDelegatedDecider,
 } from '../loop/gatekeeperConfig.js';
-import type { GatekeeperDecisionRecord } from '@projectos/core';
+import type { DecisionProvenanceStamp, GatekeeperDecisionRecord, GatekeeperMode, HostReviewPort } from '@projectos/core';
 import {
   beginWork,
   advanceWork,
@@ -38,12 +39,13 @@ import {
 } from '../loop/workRecord.js';
 import type { WorkStateReport } from '../loop/runner.js';
 import type { GatekeeperTurnDeps } from '../loop/gatekeeperTurn.js';
+import type { InteractiveGatekeeperDeps } from '../loop/interactiveGatekeeper.js';
+import { nodeInteractivePort, resolveGatekeeperMode } from '../loop/gatekeeperHandoff.js';
 import { unprovisionedResolver } from '../loop/credentialResolver.js';
-import { nodeBrokeredTransport } from '../loop/transports/brokeredHttpPort.js';
 import { nodeHttpPort } from '../loop/transports/nodeHttpPort.js';
 import { readBrokerAnsweredState } from '../installation/brokerAnsweredState.js';
 import { nodeInstallationStateDir, nodeProjectosRuntime } from '../nodeRuntimeRoot.js';
-import { canonicalRepositoryIdentity, installationAllowsProject } from '../installation/projectAllowlist.js';
+import { canonicalRepositoryIdentity } from '../installation/projectAllowlist.js';
 import { resolveBoundGit } from '../system.js';
 import { createLifecycleRecorder } from '../phaseProgress.js';
 
@@ -51,6 +53,155 @@ import { createLifecycleRecorder } from '../phaseProgress.js';
 function governedProjectId(ctx: CommandContext): string {
   const governed = loadGovernedContext(ctx.sys, ctx.root);
   return governed.ok ? governed.context.projectId : '';
+}
+
+/** The longest an interactive run may hold the gate open waiting for the ChatGPT gatekeeper's answer. */
+const MAX_GATE_WAIT_MINUTES = 240;
+
+/**
+ * How long an interactive run holds its gate open when not told otherwise.
+ *
+ * NOT ZERO, because zero makes interactive mode a dead end: a decision answers the exact evidence it
+ * was shown, a later run asks a new question with its own evidence, so an answer has to arrive while
+ * the asking run waits. `--gate-wait-minutes 0` still ends the run at the question.
+ */
+const DEFAULT_INTERACTIVE_GATE_WAIT_MINUTES = 60;
+
+/** The gatekeeper a run is handed, or the refusal that stops it before anything starts. */
+export type GatekeeperComposition =
+  | {
+      readonly ok: true;
+      readonly mode: GatekeeperMode;
+      readonly gatekeeper: GatekeeperTurnDeps | InteractiveGatekeeperDeps | undefined;
+      readonly expectedDecider: string;
+    }
+  | { readonly ok: false; readonly lines: readonly string[] };
+
+/**
+ * Compose this project's gatekeeper for ITS mode — the one place either mode is assembled.
+ *
+ * THE MODE COMES FROM THE COMMITTED CONFIGURATION, before anything else about the reviewer is read. A
+ * configured project that declares no mode is refused rather than assigned one, and a working-copy edit
+ * cannot switch it; see `gatekeeperHandoff.ts`.
+ *
+ * `hostReview` is the route to ProjectOSHost's attested review. `projectos run` supplies none, because
+ * this build has no agent-side Host client: an unattended project therefore WAITS at its gate. It is a
+ * parameter so that client plugs in here when it exists — and so the vertical-slice proof drives this
+ * exact composition with a deterministic fake provider behind the port.
+ */
+export function composeGatekeeper(
+  ctx: CommandContext,
+  opts: {
+    readonly gateWaitMinutes: number;
+    readonly hostReview?: HostReviewPort;
+    readonly announce?: (where: { readonly request: string; readonly decision: string }) => void;
+  },
+): GatekeeperComposition {
+  const modeResolution = resolveGatekeeperMode(ctx.sys, ctx.root);
+  if (!modeResolution.ok) {
+    return {
+      ok: false,
+      lines: [
+        'REFUSED (GATEKEEPER_MODE_UNRESOLVED): which gatekeeper answers this project cannot be established.',
+        ...modeResolution.reasons.map((r) => `  - ${r}`),
+        '',
+        'Nothing was prepared and nothing was started.',
+      ],
+    };
+  }
+  // THE DECISION ITSELF IS KEPT, AS EVIDENCE, stamped with the route's provenance. The ledger records
+  // that a call happened; this records what was decided. It grants nothing — see
+  // `recordGatekeeperDecisionEvidence`. One writer for both modes.
+  const recordEvidence = (record: GatekeeperDecisionRecord, provenance?: DecisionProvenanceStamp): string => {
+    const outcome = recordGatekeeperDecisionEvidence(ctx.sys, ctx.root, record, provenance);
+    return outcome.kind === 'written' || outcome.kind === 'already-recorded' ? outcome.kind : `${outcome.kind}: ${outcome.detail}`;
+  };
+
+  if (modeResolution.mode === 'interactive') {
+    // INTERACTIVE: the ChatGPT gatekeeper answers through the owner. No transport, model, price or
+    // credential is involved — only the decider the owner's COMMITTED delegation names. With no valid
+    // delegation there is no gatekeeper to ask, and the loop stops for the owner exactly as it always has.
+    const governed = loadGovernedContext(ctx.sys, ctx.root);
+    const planProgramme = governed.ok ? governed.context.plan['programmeId'] : undefined;
+    const programmeId = typeof planProgramme === 'string' ? planProgramme.trim() : '';
+    const delegate = programmeId === '' ? null : resolveDelegatedDecider(ctx.sys, ctx.root, programmeId);
+    if (delegate === null || !delegate.ok) return { ok: true, mode: 'interactive', gatekeeper: undefined, expectedDecider: '' };
+    return {
+      ok: true,
+      mode: 'interactive',
+      expectedDecider: delegate.decider,
+      gatekeeper: {
+        mode: 'interactive',
+        interactive: nodeInteractivePort(ctx.sys, ctx.root, {
+          waitMs: opts.gateWaitMinutes * 60_000,
+          ...(opts.announce === undefined ? {} : { onWaiting: opts.announce }),
+        }),
+        consumedDecisionIds: [],
+        recordDecisionEvidence: recordEvidence,
+      },
+    };
+  }
+
+  // UNATTENDED: the configured provider is asked BY PROJECTOSHOST, which attests what it returned. A
+  // configuration that is present but BROKEN is a refusal — running unreviewed because the reviewer was
+  // misconfigured is the failure this whole loop exists to prevent.
+  const gk = loadGatekeeperConfig(ctx.sys, ctx.root);
+  if (!gk.ok) {
+    return { ok: false, lines: ['REFUSED (GATEKEEPER_MISCONFIGURED): a gatekeeper is configured but cannot be used.', ...gk.reasons.map((r) => `  - ${r}`)] };
+  }
+  const ledger = readLedger(ctx.sys, ctx.root);
+  return {
+    ok: true,
+    mode: 'unattended',
+    expectedDecider: gk.config.expectedDecider,
+    gatekeeper: {
+      mode: 'unattended',
+      // The in-process provider call is never made in this mode: with no Host route, the turn waits.
+      ...(opts.hostReview === undefined ? {} : { hostReview: opts.hostReview }),
+      transport: gk.config.transport,
+      availability: { reachable: true },
+      // THE CREDENTIAL IS NOT RESOLVED IN THIS PROCESS. The resolver handed over refuses by
+      // construction, so there is no in-process value even to leak: in unattended mode the credential is
+      // the Host's, and generated agent code running against an untrusted project never holds it.
+      resolver: unprovisionedResolver('the gatekeeper credential is resolved on the Host side, never in the agent'),
+      http: nodeHttpPort(),
+      modelPolicy: gk.config.modelPolicy,
+      rateCards: gk.config.rateCards,
+      budget: gk.config.budget,
+      ledger,
+      threadBinding: gk.config.threadBinding,
+      transportDecider: gk.config.transportDecider,
+      consumedDecisionIds: consumedDecisionIds(ledger),
+      recordDecisionEvidence: recordEvidence,
+      // THE ONLY PLACE THAT MAY TOUCH THE FILESYSTEM SUPPLIES THE ADMISSION.
+      //
+      // `ledger` above is a snapshot, and a snapshot cannot bound concurrent spend. This port re-reads
+      // the ledger under an exclusive lock, decides against the hard stop, and records the estimate
+      // before the call is allowed to happen — so a second process is refused rather than paying in
+      // parallel. C17-F1.
+      admitSpend: (request: {
+        readonly requestId: string;
+        readonly projectId: string;
+        readonly phaseId: string;
+        readonly model: string;
+        readonly estimateMicroUsd: number;
+        readonly at: string;
+      }) =>
+        admitGatekeeperSpend(ctx.sys, ctx.root, request, gk.config.budget, () =>
+          readBrokerAnsweredState(ctx.sys, nodeInstallationStateDir(), request),
+        ),
+      // The other half of admission: when the call produced no answer, the reservation it wrote is
+      // released or retained here rather than left standing (C11-W2-F6).
+      releaseUndispatched: (requestId: string) => releaseUndispatchedReservation(ctx.sys, ctx.root, requestId),
+      resolveSpend: (
+        request: { readonly requestId: string; readonly projectId: string; readonly phaseId: string },
+        cause: string,
+      ) =>
+        resolveGatekeeperSpend(ctx.sys, ctx.root, request.requestId, cause, () =>
+          readBrokerAnsweredState(ctx.sys, nodeInstallationStateDir(), request),
+        ),
+    },
+  };
 }
 
 export function run(ctx: CommandContext, flags: Flags): CommandResult {
@@ -127,94 +278,29 @@ export function run(ctx: CommandContext, flags: Flags): CommandResult {
     ]);
   }
 
-  // THE REVIEWER, WHEN ONE IS CONFIGURED.
-  //
-  // Absent configuration is not an error: the loop then stops for the owner exactly as it always did,
-  // which is right for every project that has not opted in. A configuration that is present but
-  // BROKEN is a refusal — running unreviewed because the reviewer was misconfigured is the failure
-  // this whole phase exists to prevent.
-  const gk = loadGatekeeperConfig(ctx.sys, ctx.root);
-  if (!gk.ok && !('absent' in gk)) {
-    return fail(2, ['REFUSED (GATEKEEPER_MISCONFIGURED): a gatekeeper is configured but cannot be used.', ...gk.reasons.map((r) => `  - ${r}`)]);
+  const gateWaitRaw = str(flags, 'gate-wait-minutes');
+  const gateWaitMinutes = gateWaitRaw === '' ? DEFAULT_INTERACTIVE_GATE_WAIT_MINUTES : Number(gateWaitRaw);
+  if (!Number.isInteger(gateWaitMinutes) || gateWaitMinutes < 0 || gateWaitMinutes > MAX_GATE_WAIT_MINUTES) {
+    return fail(2, [
+      `REFUSED (GATE_WAIT_INVALID): --gate-wait-minutes takes a whole number from 0 to ${MAX_GATE_WAIT_MINUTES}.`,
+      '',
+      'Nothing was prepared and nothing was started.',
+    ]);
   }
 
-  // TYPED EXPLICITLY because the loop below now reads it from inside a closure, and an inferred
-  // `any` there would silently drop every check on what the turn is handed.
-  let gatekeeper: GatekeeperTurnDeps | undefined;
-  let expectedDecider = '';
-  if (gk.ok) {
-    // Credential release needs the owner's committed secrets-handling receipt. It is read from the
-    // git object store, never from the working tree, and never asserted by the loop about itself.
-    const ledger = readLedger(ctx.sys, ctx.root);
-    expectedDecider = gk.config.expectedDecider;
-    gatekeeper = {
-      transport: gk.config.transport,
-      availability: { reachable: true },
-      // THE CREDENTIAL IS NOT RESOLVED IN THIS PROCESS.
-      //
-      // The trusted installation-side broker validates the allowlist and the committed receipt,
-      // resolves the value inside itself, makes the call and returns a status and a body. The resolver
-      // handed over refuses by construction, so there is no in-process value even to leak — which is
-      // the point: generated agent code running against an untrusted project should not be holding
-      // the installation owner's key.
-      resolver: unprovisionedResolver(
-        'the gatekeeper credential is resolved by the trusted installation broker, never in the agent',
+  // WHICH GATEKEEPER, IN WHICH MODE — composed in one place, before anything starts. No Host route is
+  // supplied: this build has no agent-side ProjectOSHost client, so an unattended project waits.
+  const composed = composeGatekeeper(ctx, {
+    gateWaitMinutes,
+    // A waiting run returns nothing until it ends, so where to answer is said the moment it starts.
+    announce: (where) =>
+      process.stderr.write(
+        `WAITING FOR THE INTERACTIVE GATEKEEPER (gate held open up to ${gateWaitMinutes} minute(s))\n` +
+          `  the question: ${where.request}\n  save the decision as: ${where.decision}\n`,
       ),
-      broker: {
-        transport: nodeBrokeredTransport(ctx.sys, nodeProjectosRuntime()),
-        governedRoot: ctx.root,
-        // The SAME committed policy the broker enforces, asked on this side so that a refusal is
-        // classified as a call that was never made rather than as one that might have been.
-        installationAllows: () =>
-          installationAllowsProject(ctx.sys, nodeProjectosRuntime(), ctx.root, governedProjectId(ctx)),
-      },
-      http: nodeHttpPort(),
-      modelPolicy: gk.config.modelPolicy,
-      rateCards: gk.config.rateCards,
-      budget: gk.config.budget,
-      ledger,
-      threadBinding: gk.config.threadBinding,
-      transportDecider: gk.config.transportDecider,
-      consumedDecisionIds: consumedDecisionIds(ledger),
-      // THE DECISION ITSELF IS KEPT, AS EVIDENCE. The ledger records that a call happened and what
-      // it cost; it has never recorded what was decided. Supplied here for the same reason as
-      // `admitSpend`: this is the only place that may touch the filesystem. It grants nothing — see
-      // `recordGatekeeperDecisionEvidence`.
-      recordDecisionEvidence: (record: GatekeeperDecisionRecord) => {
-        const outcome = recordGatekeeperDecisionEvidence(ctx.sys, ctx.root, record);
-        return outcome.kind === 'written' || outcome.kind === 'already-recorded'
-          ? outcome.kind
-          : `${outcome.kind}: ${outcome.detail}`;
-      },
-      // THE ONLY PLACE THAT MAY TOUCH THE FILESYSTEM SUPPLIES THE ADMISSION.
-      //
-      // `ledger` above is a snapshot, and a snapshot cannot bound concurrent spend. This port re-reads
-      // the ledger under an exclusive lock, decides against the hard stop, and records the estimate
-      // before the call is allowed to happen — so a second process is refused rather than paying in
-      // parallel. C17-F1.
-      admitSpend: (request: {
-        readonly requestId: string;
-        readonly projectId: string;
-        readonly phaseId: string;
-        readonly model: string;
-        readonly estimateMicroUsd: number;
-        readonly at: string;
-      }) =>
-        admitGatekeeperSpend(ctx.sys, ctx.root, request, gk.config.budget, () =>
-          readBrokerAnsweredState(ctx.sys, nodeInstallationStateDir(), request),
-        ),
-      // The other half of admission: when the call produced no answer, the reservation it wrote is
-      // released or retained here rather than left standing (C11-W2-F6).
-      releaseUndispatched: (requestId: string) => releaseUndispatchedReservation(ctx.sys, ctx.root, requestId),
-      resolveSpend: (
-        request: { readonly requestId: string; readonly projectId: string; readonly phaseId: string },
-        cause: string,
-      ) =>
-        resolveGatekeeperSpend(ctx.sys, ctx.root, request.requestId, cause, () =>
-          readBrokerAnsweredState(ctx.sys, nodeInstallationStateDir(), request),
-        ),
-    };
-  }
+  });
+  if (!composed.ok) return fail(2, composed.lines);
+  const { gatekeeper, expectedDecider } = composed;
 
   // CONTINUING WITHOUT A REVIEWER, ON THE OWNER'S COMMITTED RISK.
   //

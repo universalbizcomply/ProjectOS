@@ -1,6 +1,7 @@
 {
   "schemaVersion": "1.0.0",
   "enabled": true,
+  "mode": "interactive",
   "note": "Live gatekeeper configuration. Deliberately NOT in project-config.json: that file is covered by the plan fingerprint, so a rate-card change there would make the approved plan STALE. This governs WHICH endpoint and at WHAT price; the plan governs what may happen.",
   "transport": {
     "transportId": "openai-primary",

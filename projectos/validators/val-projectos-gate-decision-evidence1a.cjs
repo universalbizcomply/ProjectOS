@@ -203,6 +203,34 @@ function run() {
     }
   }
 
+  // 8. THE THIRD ACCEPTED-DECISION PATH — THE INTERACTIVE GATEKEEPER (hybrid routing).
+  //
+  //    Same rule, same reason: a decision the owner relayed from the ChatGPT gatekeeper is recorded
+  //    only after the checks accepted it, recorded AND spent before its verdict is applied, and a
+  //    failed record refuses the action.
+  const interRel = "projectos/agent/src/loop/interactiveGatekeeper.ts";
+  const inter = read(path.join(ROOT, ...interRel.split("/")));
+  if (inter === null) {
+    E(`${interRel} is missing — it is the path that accepts an interactive gatekeeper decision`);
+  } else {
+    const interCode = code(inter);
+    if (/gatekeeperDecisionEvidenceRelPath|GATEKEEPER_DECISIONS_REL/.test(interCode)) {
+      E(`${interRel} reaches for the evidence store's location — it writes through a port and reads nothing`);
+    }
+    if (!/problems\.length === 0[\s\S]{0,200}?recordDecisionEvidence/.test(interCode)) {
+      E(`${interRel} no longer records evidence strictly after the decision checker accepted the record`);
+    }
+    const recordAt = interCode.indexOf("recordDecisionEvidence(");
+    const spendAt = interCode.indexOf("consumeDecision(");
+    const applyAt = interCode.lastIndexOf("applyVerdictToStop(");
+    if (recordAt === -1 || spendAt === -1 || applyAt === -1 || recordAt > applyAt || spendAt > applyAt) {
+      E(`${interRel} applies the verdict before recording and spending the decision — both are preconditions of acting`);
+    }
+    if (!/recorded !== 'written'[\s\S]{0,400}?return result\(/.test(interCode)) {
+      E(`${interRel} no longer stops the turn when the decision could not be recorded`);
+    }
+  }
+
   return errors;
 }
 

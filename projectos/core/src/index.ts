@@ -23,6 +23,7 @@ export * from './gatekeeperDegradedMode.js';
 export * from './gatekeeperThread.js';
 export * from './gatekeeperBridge.js';
 export * from './gatekeeperModelPolicy.js';
+export * from './gatekeeperMode.js';
 export * from './ownerGateReceipt.js';
 export * from './ownerOnlyActions.js';
 export * from './technicalContinuation.js';

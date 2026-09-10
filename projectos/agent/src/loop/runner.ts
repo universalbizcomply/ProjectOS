@@ -52,7 +52,8 @@ import {
   type ReviewFinding,
 } from './outcome.js';
 import { readWorkRecord, type WorkState } from './workRecord.js';
-import { takeGatekeeperTurn, type GatekeeperTurnDeps } from './gatekeeperTurn.js';
+import { takeGatekeeperTurn, type GatekeeperTurnDeps, type GatekeeperTurnInput } from './gatekeeperTurn.js';
+import { takeInteractiveTurn, type InteractiveGatekeeperDeps } from './interactiveGatekeeper.js';
 import {
   technicalDelegationCondition,
   TECHNICAL_ACTIONS,
@@ -138,7 +139,7 @@ export interface RunOptions {
    * while no reviewer exists, and means wiring this in cannot alter a run nobody configured. When one
    * IS configured, a stop the reviewer may answer becomes a request instead of the end of the run.
    */
-  readonly gatekeeper?: GatekeeperTurnDeps;
+  readonly gatekeeper?: GatekeeperTurnDeps | InteractiveGatekeeperDeps;
   /**
    * Called after every gatekeeper turn that actually reached the reviewer.
    *
@@ -883,8 +884,7 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
       return null;
     }
 
-    const turn = takeGatekeeperTurn(
-      {
+    const turnInput: GatekeeperTurnInput = {
         stop: candidate,
         projectId: context.projectId,
         phaseId,
@@ -909,10 +909,15 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
         ),
         expectedDecider: options.expectedDecider ?? '',
         at: sys.now(),
-      },
-      { ...deps, ledger: gatekeeperLedger, consumedDecisionIds },
-    );
+    };
+    // ONE TURN, TWO ACQUISITION PATHS. The mode decides only how the answer arrives; everything the
+    // loop does with the result below is the same code whichever route produced it.
+    const turn =
+      deps.mode === 'interactive'
+        ? takeInteractiveTurn(turnInput, { ...deps, consumedDecisionIds })
+        : takeGatekeeperTurn(turnInput, { ...deps, ledger: gatekeeperLedger, consumedDecisionIds });
     lines.push(...turn.lines);
+    if (turn.provenance !== undefined) lines.push(`  gatekeeper decision provenance: ${turn.provenance}`);
     // CAPTURED BEFORE ANY BRANCH RETURNS. This first sat on the amendment path, so the one branch
     // that actually needs it — the approved continuation, which returns earlier — never saw it and
     // the technical action was silently skipped with "no accepted decision". Assigned once, here,

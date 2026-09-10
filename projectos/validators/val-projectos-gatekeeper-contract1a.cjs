@@ -54,6 +54,10 @@ const CONTRACT_MODULES = [
   // deliberately NOT in this list - executing the credential store is its entire job.
   path.join(AGENT_LOOP, "gatekeeperTurn.ts"),
   path.join(AGENT_LOOP, "transports", "openaiResponses.ts"),
+  // The interactive acquisition path (hybrid routing) applies verdicts too, so it is held to the same
+  // purity: it reaches the disk only through its injected port.
+  path.join(AGENT_LOOP, "interactiveGatekeeper.ts"),
+  path.join(CORE_SRC, "gatekeeperMode.ts"),
 ];
 
 // --- The owner's rulings of 2026-08-17, pinned in a second file ---------------------------------
@@ -90,6 +94,10 @@ const ALLOWED_IMPORTS = [
   // landed; the list had simply not been told about it, and the suite refused every run until it was.
   "./transports/brokeredHttpPort.js",
   "./brokeredHttpPort.js",
+  // Hybrid routing: the interactive turn shares the ONE request derivation with the unattended turn,
+  // and core's mode module shares the decision vocabulary. Both are themselves contract modules above.
+  "./gatekeeperTurn.js",
+  "./gatekeeperDecision.js",
 ];
 
 /** Capabilities that would make a "decide only" module able to act. */

@@ -71,6 +71,13 @@ import {
   type TransportAvailability,
   type GatekeeperUnavailabilityCause,
   type CheckedTechnicalDecision,
+  checkHostAttestation,
+  hostCorrelationFor,
+  type DecisionProvenanceStamp,
+  type GatekeeperProvenance,
+  type HostAttestationSummary,
+  type HostReviewOutcome,
+  type HostReviewPort,
 } from '@projectos/core';
 import type { CredentialResolver } from './credentialResolver.js';
 import { applyVerdictToStop, routeStop, type NextLoopAction } from './gatekeeperRouting.js';
@@ -225,6 +232,8 @@ export interface GatekeeperTurnDeps {
    */
   readonly recordDecisionEvidence?: (
     record: GatekeeperDecisionRecord,
+    /** How the decision was obtained, stamped by this route. Absent for the pre-hybrid composition. */
+    provenance?: DecisionProvenanceStamp,
   ) => 'written' | 'already-recorded' | string;
 
   readonly admitSpend?: (request: {
@@ -253,6 +262,15 @@ export interface GatekeeperTurnDeps {
   readonly rehearsalOnly?: boolean;
   /** A rehearsal reviewer, used INSTEAD of the network when the route is a rehearsal one. */
   readonly rehearsalReviewer?: (request: GatekeeperRequest, evidenceText: string) => TransportOutcome;
+  /**
+   * UNATTENDED MODE (hybrid routing). When set, the decision is obtained ONLY through `hostReview`:
+   * ProjectOSHost asks the independent provider and attests what it returned. The in-process provider
+   * call is never made in this mode, and with no Host route composed the turn waits rather than
+   * falling back to it, to an interactive decision, or to the implementer. Absent only for the
+   * pre-hybrid composition the unit tests use; `projectos run` always states a mode.
+   */
+  readonly mode?: 'unattended';
+  readonly hostReview?: HostReviewPort;
 }
 
 export interface GatekeeperTurnResult {
@@ -287,6 +305,11 @@ export interface GatekeeperTurnResult {
    * is where those other limbs live — not because holding it means anything.
    */
   readonly checkedDecision: CheckedTechnicalDecision | null;
+  /**
+   * The evidence class of an ACCEPTED decision, stamped by the route that obtained it. Absent whenever
+   * no decision was accepted, and for the pre-hybrid composition.
+   */
+  readonly provenance?: GatekeeperProvenance;
 }
 
 function ownerAction(reasons: readonly string[]): NextLoopAction {
@@ -322,6 +345,45 @@ export function deriveRequestId(input: {
 /** The digest of the evidence as presented. Binds the request to what the reviewer actually read. */
 export function evidenceDigest(evidenceText: string): string {
   return `sha256:${createHash('sha256').update(evidenceText, 'utf8').digest('hex')}`;
+}
+
+/**
+ * The request for this stop and the owner-only set it carries — THE ONE DERIVATION.
+ *
+ * Shared by the turn below and by the interactive turn (`interactiveGatekeeper.ts`), so both modes ask
+ * the same question under the same deterministic id and judge the answer against the same protected
+ * set. Why the set is derived rather than received, and why it only ever widens, is set out where
+ * `takeGatekeeperTurn` calls this.
+ */
+export function formGatekeeperRequest(input: GatekeeperTurnInput): {
+  readonly ask: string;
+  readonly ownerOnlyActions: readonly string[];
+  readonly request: GatekeeperRequest;
+} {
+  const ownerOnlyActions = enforcedOwnerOnlyActions(input.ownerOnlyActions, input.technicalDelegation ?? null);
+  const ask = STOP_ASKS[input.stop.code];
+  const digest = evidenceDigest(input.evidenceText);
+  const request: GatekeeperRequest = {
+    schemaVersion: GATEKEEPER_REQUEST_SCHEMA_VERSION,
+    requestId: deriveRequestId({
+      projectId: input.projectId,
+      phaseId: input.phaseId,
+      subjectCommit: input.subjectCommit,
+      ask,
+      evidenceDigest: digest,
+    }),
+    projectId: input.projectId,
+    phaseId: input.phaseId,
+    subjectCommit: input.subjectCommit,
+    ask,
+    evidenceDigests: [digest],
+    // The ENFORCED set, so the reviewer is told what will actually be refused. Note this is one of
+    // the fields `gatekeeperRequestDigest` covers and NOT one `deriveRequestId` covers: the identity
+    // of the question is what is being asked about, and the protected set is policy applied to the
+    // answer. A restart therefore still re-derives the same id and buys no second call.
+    ownerOnlyActions,
+  };
+  return { ask, ownerOnlyActions, request };
 }
 
 /**
@@ -376,31 +438,9 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
   //
   // Added in PROJECTOS-LIVE-GATE-OWNER-FLOOR-HARDENING1A; made conditional in
   // PROJECTOS-AUTOMATIC-TECHNICAL-CONTINUATION1A under "APPROVE B6 CONDITIONAL TECHNICAL FLOOR".
-  const ownerOnlyActions = enforcedOwnerOnlyActions(input.ownerOnlyActions, input.technicalDelegation ?? null);
-
-  // 2. IDENTIFY THE REQUEST DETERMINISTICALLY.
-  const ask = STOP_ASKS[input.stop.code];
-  const digest = evidenceDigest(input.evidenceText);
-  const request: GatekeeperRequest = {
-    schemaVersion: GATEKEEPER_REQUEST_SCHEMA_VERSION,
-    requestId: deriveRequestId({
-      projectId: input.projectId,
-      phaseId: input.phaseId,
-      subjectCommit: input.subjectCommit,
-      ask,
-      evidenceDigest: digest,
-    }),
-    projectId: input.projectId,
-    phaseId: input.phaseId,
-    subjectCommit: input.subjectCommit,
-    ask,
-    evidenceDigests: [digest],
-    // The ENFORCED set, so the reviewer is told what will actually be refused. Note this is one of
-    // the fields `gatekeeperRequestDigest` covers and NOT one `deriveRequestId` covers: the identity
-    // of the question is what is being asked about, and the protected set is policy applied to the
-    // answer. A restart therefore still re-derives the same id and buys no second call.
-    ownerOnlyActions,
-  };
+  //
+  // 2. IDENTIFY THE REQUEST DETERMINISTICALLY — through the one derivation both modes share.
+  const { ask, ownerOnlyActions, request } = formGatekeeperRequest(input);
   lines.push(`gatekeeper request ${request.requestId} (${ask}) for ${input.stop.code}`);
 
   // 3. ISOLATION BEFORE TRANSPORT.
@@ -438,6 +478,19 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
     return unavailable(input, lines, request, selection.cause, selection.reasons);
   }
   const transport = selection.transport;
+
+  // UNATTENDED MEANS HOST-ATTESTED, OR NOTHING. Checked before any price is computed or any estimate
+  // reserved, so a project whose Host route is not composed spends and records nothing — and in this
+  // mode nothing below can reach the in-process provider call.
+  const hostReview = deps.mode === 'unattended' ? deps.hostReview : undefined;
+  if (deps.mode === 'unattended' && hostReview === undefined) {
+    return unavailable(input, lines, request, 'TRANSPORT_NOT_CONFIGURED', [
+      'this project is in UNATTENDED gatekeeper mode, whose decisions come only through the ProjectOS Host ' +
+        'attestation route, and no Host review route is composed',
+      'no provider was called and no other route was tried: unattended mode never falls back to an ' +
+        'in-process provider call, to an interactive decision, or to the implementer',
+    ]);
+  }
 
   const model = modelForAsk(ask, deps.modelPolicy);
   const rate = deps.rateCards[model];
@@ -619,9 +672,19 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
     };
   }
 
-  // 5. THE CALL.
-  const outcome =
-    deps.rehearsalOnly === true && deps.rehearsalReviewer !== undefined
+  // 5. THE CALL. In unattended mode it goes to the Host and nowhere else.
+  const hosted =
+    hostReview?.review({
+      request,
+      requestDigest: gatekeeperRequestDigest(request),
+      correlation: hostCorrelationFor(request.requestId),
+      body: requestBody,
+    }) ?? null;
+  const attestation: HostAttestationSummary | null = hosted !== null && hosted.kind === 'attested' ? hosted.attestation : null;
+  const outcome: TransportOutcome =
+    hosted !== null
+      ? fromHost(hosted)
+      : deps.rehearsalOnly === true && deps.rehearsalReviewer !== undefined
       ? deps.rehearsalReviewer(request, input.evidenceText)
       : submitToOpenAi(
           request,
@@ -696,7 +759,16 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
     // gets granted by a decision that looked, to both sides, entirely well behaved.
     ownerOnlyActions,
   });
-  const problems = outputAnomaly === null ? checked : [outputAnomaly, ...checked];
+  // UNATTENDED: the Host's attestation must vouch for THIS answer, or the answer is not applied.
+  const attestationProblems =
+    deps.mode === 'unattended' ? checkHostAttestation(attestation, { requestId: request.requestId, record: outcome.record }) : [];
+  const checkedWithAnomaly = outputAnomaly === null ? checked : [outputAnomaly, ...checked];
+  const problems = [...checkedWithAnomaly, ...attestationProblems];
+  // The route's own statement of how this decision was obtained. Never read from the record.
+  const provenanceStamp: DecisionProvenanceStamp | undefined =
+    deps.mode === 'unattended' && attestation !== null && typeof attestation.attestationId === 'string'
+      ? { kind: 'HostIndependentProviderAttestation', hostAttestationId: attestation.attestationId }
+      : undefined;
 
   // 7. WRITE DOWN WHAT WAS DECIDED — AND DO NOT ACT UNTIL THAT SUCCEEDED.
   //
@@ -728,7 +800,7 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
   // Absent port = no governed root to write into (a rehearsal or a unit test). Production always
   // supplies one; `commands/run.ts` and `commands/reconcile.ts` are the only callers that can.
   if (problems.length === 0 && deps.recordDecisionEvidence !== undefined) {
-    const recorded = deps.recordDecisionEvidence(outcome.record);
+    const recorded = deps.recordDecisionEvidence(outcome.record, provenanceStamp);
     if (recorded !== 'written' && recorded !== 'already-recorded') {
       lines.push(`decision evidence could not be recorded: ${recorded}`);
       return {
@@ -767,6 +839,7 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
     ownerChoices: null,
     unavailabilityCause: null,
     providerResponseId: outcome.providerResponseId,
+    ...(problems.length === 0 && provenanceStamp !== undefined ? { provenance: provenanceStamp.kind } : {}),
     // ONLY WHEN THE CHECK ACCEPTED IT. `problems` is empty exactly here, so a caller receiving a
     // non-null value is receiving a decision this transition judged usable — and receiving the
     // judgement with it, so it cannot be consumed as though the check had not run.
@@ -788,6 +861,20 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
             // is actually a bug that hides one.
             reviewedCandidateDigest: '',
           },
+  };
+}
+
+/** The Host's answer in the shape the rest of the turn already judges. The attestation is kept apart. */
+function fromHost(hosted: HostReviewOutcome): TransportOutcome {
+  if (hosted.kind === 'unavailable') {
+    return { kind: 'unavailable', cause: hosted.cause, reasons: hosted.reasons, spendLimited: hosted.cause === 'PROVIDER_SPEND_LIMITED' };
+  }
+  const responseId = hosted.attestation.providerResponseId;
+  return {
+    kind: 'decision',
+    record: hosted.record,
+    providerResponseId: typeof responseId === 'string' ? responseId : null,
+    usage: hosted.usage,
   };
 }
 
