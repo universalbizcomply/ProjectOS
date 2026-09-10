@@ -67,6 +67,19 @@ const MAX_GATE_WAIT_MINUTES = 240;
  */
 const DEFAULT_INTERACTIVE_GATE_WAIT_MINUTES = 60;
 
+/**
+ * `--gate-wait-minutes`, or null when it is not a whole number in range. One parser for every command
+ * that asks an interactive gatekeeper question — `run`, `closure request` and `reconcile`.
+ */
+export function gateWaitMinutesFrom(flags: Flags): number | null {
+  const raw = str(flags, 'gate-wait-minutes');
+  const minutes = raw === '' ? DEFAULT_INTERACTIVE_GATE_WAIT_MINUTES : Number(raw);
+  return Number.isInteger(minutes) && minutes >= 0 && minutes <= MAX_GATE_WAIT_MINUTES ? minutes : null;
+}
+
+/** The refusal every such command gives for an unusable `--gate-wait-minutes`. */
+export const GATE_WAIT_INVALID = `REFUSED (GATE_WAIT_INVALID): --gate-wait-minutes takes a whole number from 0 to ${MAX_GATE_WAIT_MINUTES}.`;
+
 /** The gatekeeper a run is handed, or the refusal that stops it before anything starts. */
 export type GatekeeperComposition =
   | {
@@ -278,14 +291,9 @@ export function run(ctx: CommandContext, flags: Flags): CommandResult {
     ]);
   }
 
-  const gateWaitRaw = str(flags, 'gate-wait-minutes');
-  const gateWaitMinutes = gateWaitRaw === '' ? DEFAULT_INTERACTIVE_GATE_WAIT_MINUTES : Number(gateWaitRaw);
-  if (!Number.isInteger(gateWaitMinutes) || gateWaitMinutes < 0 || gateWaitMinutes > MAX_GATE_WAIT_MINUTES) {
-    return fail(2, [
-      `REFUSED (GATE_WAIT_INVALID): --gate-wait-minutes takes a whole number from 0 to ${MAX_GATE_WAIT_MINUTES}.`,
-      '',
-      'Nothing was prepared and nothing was started.',
-    ]);
+  const gateWaitMinutes = gateWaitMinutesFrom(flags);
+  if (gateWaitMinutes === null) {
+    return fail(2, [GATE_WAIT_INVALID, '', 'Nothing was prepared and nothing was started.']);
   }
 
   // WHICH GATEKEEPER, IN WHICH MODE — composed in one place, before anything starts. No Host route is

@@ -43,6 +43,8 @@ import {
   isClosureDecisionId,
   type ClosureDecisionRecord,
 } from './closureDecision.js';
+import type { GatekeeperUnavailabilityCause } from './gatekeeperTransport.js';
+import { hostAttestationProblems, type HostAttestationSummary, type HostReviewVerdict } from './gatekeeperMode.js';
 
 /** The request's own version. A request from another ProjectOS is refused, never guessed at. */
 export const CLOSURE_REQUEST_SCHEMA_VERSION = '1.0.0';
@@ -483,4 +485,77 @@ export function closureDecisionRecordFrom(response: ClosureResponseRecord): Clos
     // it says which question this answer was given to, so a reader of the committed diff can tell.
     requestDigest: response.requestDigest,
   } as ClosureDecisionRecord;
+}
+
+// -------------------------------------------------------------------------------------------------
+// THE CLOSURE QUESTION, ASKED THROUGH PROJECTOSHOST (unattended mode, hybrid routing)
+// -------------------------------------------------------------------------------------------------
+
+/** The closure question on its way to the Host. Its own shape, because the closure contract is its own. */
+export interface HostClosureReviewCall {
+  readonly request: ClosureRequest;
+  readonly requestDigest: string;
+  /** The Host authority wire's correlation for this request — `hostCorrelationFor(request.requestId)`. */
+  readonly correlation: string;
+  /** The exact provider request the Host will send. */
+  readonly body: string;
+}
+
+export type HostClosureReviewOutcome =
+  | {
+      readonly kind: 'attested';
+      /** The provider's closure answer as the Host received it. A CANDIDATE until checked. */
+      readonly record: ClosureResponseRecord;
+      readonly attestation: HostAttestationSummary;
+      readonly usage: { readonly inputTokens: number; readonly cachedInputTokens: number; readonly outputTokens: number };
+    }
+  | {
+      readonly kind: 'unavailable';
+      readonly cause: GatekeeperUnavailabilityCause;
+      readonly reasons: readonly string[];
+    };
+
+/**
+ * The route to ProjectOSHost's independent review, asked the CLOSURE question. A PORT, as
+ * `HostReviewPort` is: with none composed, an unattended closure waits — it never calls a provider itself.
+ */
+export interface HostClosureReviewPort {
+  reviewClosure(call: HostClosureReviewCall): HostClosureReviewOutcome;
+}
+
+/**
+ * Which Host verdict a CLOSURE answer must travel with.
+ *
+ * Its own mapping, because the closure vocabulary is disjoint from the technical one. `close` is
+ * `OwnerApprovalRequired` because a closure decision is inert until the OWNER commits it: an attestation
+ * vouches that the independent provider said "close", never that the phase is closed. Exhaustive by type.
+ */
+export const HOST_VERDICT_FOR_CLOSURE: { readonly [D in ClosureResponseDecision]: HostReviewVerdict } = {
+  close: 'OwnerApprovalRequired',
+  'do-not-close': 'ChangesRequired',
+  'awaiting-owner': 'OwnerApprovalRequired',
+};
+
+/**
+ * Why this attestation does not vouch for this CLOSURE answer, or `[]` when it does. Pure — no I/O.
+ *
+ * The same binding checks every Host attestation gets (`hostAttestationProblems`); only the verdict
+ * mapping differs. A closure answer grants no actions and always leaves the owner's commit to come, so
+ * the attestation must say exactly that: no permitted actions, and owner approval still required.
+ */
+export function checkHostClosureAttestation(
+  attestation: HostAttestationSummary | null,
+  expect: { readonly requestId: string; readonly record: ClosureResponseRecord },
+): readonly string[] {
+  const decision = expect.record.decision;
+  const expected =
+    typeof decision === 'string' && (CLOSURE_RESPONSE_DECISIONS as readonly string[]).includes(decision)
+      ? HOST_VERDICT_FOR_CLOSURE[decision as ClosureResponseDecision]
+      : null;
+  return hostAttestationProblems(attestation, expect.requestId, {
+    verdict: decision,
+    expectedHostVerdict: expected,
+    allowedActions: [],
+    ownerApprovalRequired: true,
+  });
 }

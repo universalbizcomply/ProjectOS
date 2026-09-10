@@ -865,7 +865,7 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
 }
 
 /** The Host's answer in the shape the rest of the turn already judges. The attestation is kept apart. */
-function fromHost(hosted: HostReviewOutcome): TransportOutcome {
+export function fromHost(hosted: HostReviewOutcome): TransportOutcome {
   if (hosted.kind === 'unavailable') {
     return { kind: 'unavailable', cause: hosted.cause, reasons: hosted.reasons, spendLimited: hosted.cause === 'PROVIDER_SPEND_LIMITED' };
   }

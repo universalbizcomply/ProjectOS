@@ -17,6 +17,7 @@ import {
   type HostAttestationSummary,
 } from '../src/gatekeeperMode.js';
 import { GATEKEEPER_VERDICTS, verdictRequiresOwner, type GatekeeperDecisionRecord } from '../src/gatekeeperDecision.js';
+import { CLOSURE_RESPONSE_DECISIONS, HOST_VERDICT_FOR_CLOSURE, checkHostClosureAttestation } from '../src/closureTransport.js';
 
 const REQUEST_ID = 'GKREQ-0123456789abcdef01234567';
 
@@ -131,5 +132,38 @@ describe('provenanceClaimsIn', () => {
   it('finds nothing in an ordinary decision', () => {
     expect(provenanceClaimsIn({ decision: 'APPROVED_TO_PROCEED', decidedBy: 'ChatGPT' })).toEqual([]);
     expect(provenanceClaimsIn(null)).toEqual([]);
+  });
+});
+
+describe('checkHostClosureAttestation (created in PROJECTOS-HYBRID-CLOSURE-RECONCILE-ROUTING1A)', () => {
+  const closing = { decision: 'close' };
+  const closeAttestation = (over: Partial<Record<keyof HostAttestationSummary, unknown>> = {}) =>
+    attestation({ verdict: 'OwnerApprovalRequired', allowedActions: [], ownerApprovalRequired: true, ...over });
+
+  it('maps every closure answer to a Host verdict, and "close" never to an approval to proceed', () => {
+    for (const d of CLOSURE_RESPONSE_DECISIONS) expect(HOST_VERDICT_FOR_CLOSURE[d]).toBeDefined();
+    expect(HOST_VERDICT_FOR_CLOSURE.close).toBe('OwnerApprovalRequired');
+    expect(HOST_VERDICT_FOR_CLOSURE['do-not-close']).toBe('ChangesRequired');
+  });
+
+  it('accepts an attestation bound to this request that agrees with the closure answer', () => {
+    expect(checkHostClosureAttestation(closeAttestation(), { requestId: REQUEST_ID, record: closing })).toEqual([]);
+  });
+
+  it.each([
+    ['no attestation at all', null, 'no Host attestation'],
+    ['another request', closeAttestation({ requestCorrelation: hostCorrelationFor('CLREQ-000000000000000000000000') }), 'different request'],
+    ['a different verdict', closeAttestation({ verdict: 'ChangesRequired' }), 'does not match the decision'],
+    ['permitted actions', closeAttestation({ allowedActions: ['push'] }), 'permits different actions'],
+    ['no owner approval still to come', closeAttestation({ ownerApprovalRequired: false }), 'whether the owner must still approve'],
+    ['an unknown cost', closeAttestation({ costMicroUsd: undefined }), 'no known cost'],
+  ])('refuses %s', (_label, a, expected) => {
+    const problems = checkHostClosureAttestation(a as HostAttestationSummary | null, { requestId: REQUEST_ID, record: closing });
+    expect(problems.join(' ')).toContain(expected);
+  });
+
+  it('refuses a technical verdict wearing a closure answer', () => {
+    const problems = checkHostClosureAttestation(closeAttestation(), { requestId: REQUEST_ID, record: { decision: 'APPROVED_FOR_CLOSURE' } });
+    expect(problems.join(' ')).toContain('does not match the decision');
   });
 });

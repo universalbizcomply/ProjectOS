@@ -13,7 +13,9 @@
  * eligibility gate; the decision write; the wait record; the OWNER'S COMMIT, made with real git; the
  * observation of it; and the whole of `phase advance --to closed --delegated`, including
  * `checkClosureDecision`, `authoriseClosure` and the consumption marker. Fixture: exactly one thing —
- * the closure authority's HTTP reply, because the alternative is a paid provider call.
+ * ProjectOSHost's attested closure answer behind `HostReviewPort`, because this project is in UNATTENDED
+ * mode and the alternative is a real Host and a paid provider call. The in-process HTTP port throws if
+ * it is ever called: unattended closure has no route to it.
  *
  * NO PROVIDER REQUEST IS MADE AND NOTHING IS SPENT.
  */
@@ -26,12 +28,14 @@ import { closure, closureRequest, type MakeClosureDeps } from '../src/commands/c
 import { phase as phaseCommand } from '../src/commands/phase.js';
 import { nodeSystem, resolveBoundGit } from '../src/system.js';
 import { normaliseRemote } from '../src/loop/observation.js';
-import { inMemoryResolverForTests } from '../src/loop/credentialResolver.js';
+import { unprovisionedResolver } from '../src/loop/credentialResolver.js';
 import { readClosureWait, closureDecisionSha256 } from '../src/closureWait.js';
 import {
   APPROVED_PILOT_POLICY,
   CLOSURE_DECISION_SCHEMA_VERSION,
+  HOST_VERDICT_FOR_CLOSURE,
   PHASE_CLOSURE_SCOPE,
+  type HostClosureReviewCall,
   closureEvidenceDigest,
   closureRequestDigest,
   deriveClosureRequestId,
@@ -179,6 +183,7 @@ function world(): World {
   const gatekeeper = {
     schemaVersion: '1.0.0',
     enabled: true,
+    mode: 'unattended',
     transport: {
       transportId: 'openai-primary',
       kind: 'openai-responses',
@@ -315,34 +320,49 @@ function replyFor(root: string, over: Record<string, unknown> = {}): string {
 }
 
 /**
- * Ports for the request: everything real except the HTTP reply.
+ * Ports for the request: everything real except ProjectOSHost's attested answer.
  *
- * THE REQUEST DIGEST IS COMPUTED FROM THE REQUEST THE RUNTIME ACTUALLY SENT, read out of the body the
- * fake port received. Hard-coding it would prove nothing — the point of the field is that the
- * authority answers the question that was asked.
+ * THE REQUEST DIGEST IS THE ONE THE RUNTIME ACTUALLY SENT, taken from the call the fake Host received.
+ * Hard-coding it would prove nothing — the point of the field is that the authority answers the
+ * question that was asked. `sent` records the provider body the Host was handed.
  */
 function fixtureDeps(sent: string[], mutate: (answer: Record<string, unknown>) => Record<string, unknown> = (a) => a): MakeClosureDeps {
-  return ({ root, config, consumedDecisionIds }) => ({
+  return (args) => {
+    if (args.mode !== 'unattended') throw new Error('this fixture project is in unattended mode');
+    const { root, config, consumedDecisionIds } = args;
+    return {
+    mode: 'unattended',
+    hostReview: {
+      reviewClosure(call: HostClosureReviewCall) {
+        sent.push(call.body);
+        const answer = mutate({ ...(JSON.parse(replyFor(root)) as Record<string, unknown>), requestDigest: call.requestDigest });
+        const decision = String(answer['decision']);
+        return {
+          kind: 'attested' as const,
+          record: answer,
+          attestation: {
+            schemaVersion: 1,
+            attestationId: 'c'.repeat(64),
+            requestCorrelation: call.correlation,
+            providerResponseId: 'resp_closure_e2e',
+            provider: 'fake-independent-provider',
+            model: 'fake-model',
+            verdict: decision in HOST_VERDICT_FOR_CLOSURE ? HOST_VERDICT_FOR_CLOSURE[decision as 'close'] : 'ChangesRequired',
+            allowedActions: [],
+            ownerApprovalRequired: true,
+            costMicroUsd: 9_250,
+            attestedAtEpochS: 1_788_000_000,
+          },
+          usage: { inputTokens: 5_000, cachedInputTokens: 0, outputTokens: 300 },
+        };
+      },
+    },
     transport: config.transport,
     availability: { reachable: true },
-    resolver: inMemoryResolverForTests(REF, 'sk-test-000000000000000000'),
+    resolver: unprovisionedResolver('the fixture holds no credential'),
     http: {
-      post(req: { body: string }) {
-        sent.push(req.body);
-        const body = JSON.parse(req.body) as { input: { content: { text: string }[] }[] };
-        const digestLine = body.input[0]?.content[0]?.text.split('\n')[1] ?? '';
-        const requestDigest = digestLine.replace('requestDigest: ', '');
-        const answer = mutate({ ...(JSON.parse(replyFor(root)) as Record<string, unknown>), requestDigest });
-        return {
-          kind: 'response' as const,
-          status: 200,
-          body: JSON.stringify({
-            id: 'resp_closure_e2e',
-            created_at: NOW,
-            output: [{ content: [{ type: 'output_text', text: JSON.stringify(answer) }] }],
-            usage: { input_tokens: 5_000, input_tokens_details: { cached_tokens: 0 }, output_tokens: 300 },
-          }),
-        };
+      post() {
+        throw new Error('the in-process provider route must never be reached in unattended mode');
       },
     },
     modelPolicy: config.modelPolicy,
@@ -353,7 +373,8 @@ function fixtureDeps(sent: string[], mutate: (answer: Record<string, unknown>) =
     // The fixture forwards what the command derived, so the transport-layer replay refusal is
     // exercised by the same path production uses rather than by a hardcoded empty list.
     consumedDecisionIds,
-  });
+    };
+  };
 }
 
 describe('the synthetic Route-A chain', () => {

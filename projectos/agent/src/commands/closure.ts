@@ -32,7 +32,7 @@
 import type { CommandContext, CommandResult } from '../context.js';
 import { join, ok, fail } from '../context.js';
 import { type Flags, str, bool } from '../flags.js';
-import { loadGovernedContext, refusalLines } from '../governedContext.js';
+import { authorisePhase, loadGovernedContext, refusalLines, type GovernedContext } from '../governedContext.js';
 import { loadPhase } from '../phaseStore.js';
 import {
   closureDecisionPath,
@@ -57,26 +57,30 @@ import {
   type ClosureBundleEntry,
   type ClosureWaitRecord,
 } from '../closureWait.js';
-import { takeClosureTurn, type ClosureTurnDeps } from '../loop/closureTurn.js';
+import {
+  takeClosureTurn,
+  takeInteractiveClosureTurn,
+  type ClosureTurnDeps,
+  type ClosureTurnResult,
+  type InteractiveClosureDeps,
+} from '../loop/closureTurn.js';
 import {
   loadGatekeeperConfig,
   readLedger,
-  readPreviousResponseId,
   admitGatekeeperSpend,
   releaseUndispatchedReservation,
   resolveGatekeeperSpend,
   settleGatekeeperSpend,
   type GatekeeperConfig,
 } from '../loop/gatekeeperConfig.js';
+import { CLOSURE_INTERACTIVE_REL, nodeInteractivePort, resolveGatekeeperMode } from '../loop/gatekeeperHandoff.js';
 import { unprovisionedResolver } from '../loop/credentialResolver.js';
-import { nodeBrokeredTransport } from '../loop/transports/brokeredHttpPort.js';
 import { nodeHttpPort } from '../loop/transports/nodeHttpPort.js';
-import { nodeInstallationStateDir, nodeProjectosRuntime } from '../nodeRuntimeRoot.js';
-import { installationAllowsProject } from '../installation/projectAllowlist.js';
+import { nodeInstallationStateDir } from '../nodeRuntimeRoot.js';
 import { readBrokerAnsweredState } from '../installation/brokerAnsweredState.js';
 import { resolveBoundGit } from '../system.js';
 import { phase as phaseCommand } from './phase.js';
-import { run as runCommand } from './run.js';
+import { GATE_WAIT_INVALID, gateWaitMinutesFrom, run as runCommand } from './run.js';
 import {
   closureRequestDigest,
   consumedDecisionIds as consumedDecisionIdsOf,
@@ -127,6 +131,31 @@ function planOwner(plan: Record<string, unknown>): string {
   if (typeof governance !== 'object' || governance === null) return '';
   const owner = (governance as Record<string, unknown>)['owner'];
   return typeof owner === 'string' ? owner : '';
+}
+
+/**
+ * Why a phase has no governed record to close, and the governed route to one.
+ *
+ * TWO DIFFERENT FACTS, NOT ONE. A phase the active approved plan does not contain can never have had a
+ * record — `phase new` refuses it — so closure has nothing to move to `closed` until the owner admits
+ * it to the plan. A planned phase that was simply never started needs only `phase new`. Saying "No
+ * phase" for both sent the operator looking for a registration fault that did not exist.
+ */
+function missingPhaseLines(sys: System, root: string, context: GovernedContext, id: string): readonly string[] {
+  const auth = authorisePhase(sys, root, context, id);
+  const notPlanned = !auth.ok && auth.code === 'PHASE_NOT_AUTHORISED';
+  return [
+    notPlanned
+      ? `REFUSED (NO_PHASE_RECORD): ${id} has no governed phase record, and it is not a phase of the active approved plan.`
+      : `REFUSED (NO_PHASE_RECORD): ${id} is a phase of the active approved plan, but it was never started, so it has no governed record.`,
+    ...(auth.ok ? [] : [`  ${auth.detail}`]),
+    '  Closure moves a phase RECORD to closed; with no record there is nothing it can move.',
+    notPlanned
+      ? `  To govern it: the owner approves a plan amendment that admits ${id}, then \`projectos phase new --id ${id}\` starts its record.`
+      : `  Start its record with \`projectos phase new --id ${id}\`, then advance it with the evidence it produced.`,
+    '',
+    'Nothing was asked and nothing was spent.',
+  ];
 }
 
 /**
@@ -228,14 +257,24 @@ function ownerAskLines(wait: ClosureWaitRecord): readonly string[] {
  * flag, argument or configuration through which a caller can substitute the credential boundary. A
  * test can pass a fake; a user cannot.
  */
-export type MakeClosureDeps = (args: {
+export type MakeClosureDeps = (args: ClosureCompositionArgs) => ClosureTurnDeps | InteractiveClosureDeps;
+
+/**
+ * What the composition is handed. The MODE is the committed configuration's, resolved before this is
+ * built; the unattended configuration exists only in unattended mode, because interactive needs none.
+ */
+export type ClosureCompositionArgs = {
   readonly sys: System;
   readonly root: string;
   readonly projectId: string;
-  readonly config: GatekeeperConfig;
   /** Decision ids this phase's own history records as already spent. Derived, never supplied. */
   readonly consumedDecisionIds: readonly string[];
-}) => ClosureTurnDeps;
+  /** How long an interactive question holds its gate open for the answer. */
+  readonly gateWaitMs: number;
+} & (
+  | { readonly mode: 'interactive'; readonly config: null }
+  | { readonly mode: 'unattended'; readonly config: GatekeeperConfig }
+);
 
 /**
  * Every governed path this route left uncommitted, with the exact bytes now on disk.
@@ -423,13 +462,16 @@ export function closureRequest(ctx: CommandContext, flags: Flags, makeDeps?: Mak
 
   if (!bool(flags, 'execute')) {
     return fail(2, [
-      'REFUSED (NOT_EXECUTING): `closure request` makes a PAID call to the closure authority.',
+      'REFUSED (NOT_EXECUTING): `closure request` puts the closure question to the closure authority —',
+      '  through the owner in interactive mode, or as a PAID ProjectOS Host call in unattended mode.',
       '  - `projectos closure request --id <PHASE-ID> --execute` to actually ask',
       '  - `projectos closure status --id <PHASE-ID>` to see where this phase stands, free',
       '',
       'Nothing was asked and nothing was spent.',
     ]);
   }
+  const gateWaitMinutes = gateWaitMinutesFrom(flags);
+  if (gateWaitMinutes === null) return fail(2, [GATE_WAIT_INVALID, '', 'Nothing was asked and nothing was spent.']);
 
   // THE ORACLE MUST ANSWER BEFORE ANY GOVERNANCE FACT IS REPORTED. Every fact below is read from
   // COMMITTED bytes, and git is what reads them; without it the refusals would all be false.
@@ -445,7 +487,19 @@ export function closureRequest(ctx: CommandContext, flags: Flags, makeDeps?: Mak
   const gc = loadGovernedContext(sys, root);
   if (!gc.ok) return fail(2, refusalLines(gc));
   const current = loadPhase(sys, root, id);
-  if (current === null) return fail(1, [`No phase ${id}`]);
+  if (current === null) return fail(2, missingPhaseLines(sys, root, gc.context, id));
+
+  // WHO ANSWERS, FROM THE COMMITTED CONFIGURATION — the same resolution `projectos run` uses. A
+  // configured project that declares no mode is refused, never assigned one.
+  const modeResolution = resolveGatekeeperMode(sys, root);
+  if (!modeResolution.ok) {
+    return fail(2, [
+      'REFUSED (GATEKEEPER_MODE_UNRESOLVED): which closure authority route answers this project cannot be established.',
+      ...modeResolution.reasons.map((r) => `  - ${r}`),
+      '',
+      'Nothing was asked and nothing was spent.',
+    ]);
+  }
 
   const decider = delegatedTo(gc.context.plan);
   if (decider === '') {
@@ -522,14 +576,22 @@ export function closureRequest(ctx: CommandContext, flags: Flags, makeDeps?: Mak
   // that has nothing to do with closure. Everything else the loader checks — transport, model policy,
   // rate cards, the owner's budget ceiling, the committed programme and the thread binding — still
   // runs unchanged.
-  const gk = loadGatekeeperConfig(sys, root, 'not-needed');
-  if (!gk.ok) {
-    return fail(2, [
-      'REFUSED (GATEKEEPER_MISCONFIGURED): a closure authority transport could not be used.',
-      ...('reasons' in gk ? gk.reasons.map((r) => `  - ${r}`) : ['  - no gatekeeper transport is configured']),
-      '',
-      'Nothing was asked and nothing was spent.',
-    ]);
+  //
+  // ONLY UNATTENDED MODE HAS A TRANSPORT TO LOAD. An interactive closure is answered through the owner
+  // and needs no endpoint, price or credential, so a project configured only with `"mode": "interactive"`
+  // is not refused for lacking them.
+  let config: GatekeeperConfig | null = null;
+  if (modeResolution.mode === 'unattended') {
+    const gk = loadGatekeeperConfig(sys, root, 'not-needed');
+    if (!gk.ok) {
+      return fail(2, [
+        'REFUSED (GATEKEEPER_MISCONFIGURED): a closure authority transport could not be used.',
+        ...('reasons' in gk ? gk.reasons.map((r) => `  - ${r}`) : ['  - no gatekeeper transport is configured']),
+        '',
+        'Nothing was asked and nothing was spent.',
+      ]);
+    }
+    config = gk.config;
   }
 
   const evidenceText = closureEvidenceText(
@@ -548,31 +610,35 @@ export function closureRequest(ctx: CommandContext, flags: Flags, makeDeps?: Mak
     `this call is funded by the committed secrets-handling receipt for ${id}; that receipt now also ` +
     'covers closure questions, which it did not when it was written';
 
-  const deps = (makeDeps ?? productionClosureDeps)({
+  const shared = {
     sys,
     root,
     projectId: gc.context.projectId,
-    config: gk.config,
     // FROM THE PHASE'S OWN HISTORY. An authority that answers with an id this phase has already
     // closed on is refused at the transport, before anything is written and before the owner is
     // asked to commit it — rather than only at the gate, where the refusal would arrive after a
     // record had been put in front of a person.
     consumedDecisionIds: consumedDecisionIdsOf(current.history),
-  });
-  const turn = takeClosureTurn(
-    {
-      projectId: gc.context.projectId,
-      phaseId: id,
-      subjectHead: subject,
-      repositoryRoot: root,
-      evidenceText,
-      expectedDecider: decider,
-      owner: planOwner(gc.context.plan),
-      unresolvedHighIds: g4.facts.unresolvedHighIds,
-      at: sys.now(),
-    },
-    deps,
+    gateWaitMs: gateWaitMinutes * 60_000,
+  };
+  const deps = (makeDeps ?? productionClosureDeps)(
+    config === null ? { ...shared, mode: 'interactive', config: null } : { ...shared, mode: 'unattended', config },
   );
+  const turnInput = {
+    projectId: gc.context.projectId,
+    phaseId: id,
+    subjectHead: subject,
+    repositoryRoot: root,
+    evidenceText,
+    expectedDecider: decider,
+    owner: planOwner(gc.context.plan),
+    unresolvedHighIds: g4.facts.unresolvedHighIds,
+    at: sys.now(),
+  };
+  // ONE QUESTION, TWO ACQUISITION PATHS. Everything after the turn — the decision write, the bundle,
+  // the owner's commit and `phase advance` — is the same code whichever route produced the answer.
+  const turn: ClosureTurnResult =
+    deps.mode === 'interactive' ? takeInteractiveClosureTurn(turnInput, deps) : takeClosureTurn(turnInput, deps);
 
   if (turn.outcome !== 'DECIDED_CLOSE' || turn.decision === null || turn.request === null) {
     return fail(2, [
@@ -589,7 +655,11 @@ export function closureRequest(ctx: CommandContext, flags: Flags, makeDeps?: Mak
   // SETTLE, DO NOT APPEND: admission already wrote this request id at its estimate, and the ledger
   // keeps the first entry it sees for an id — so appending the truth beside it would leave the
   // estimate standing as the recorded cost.
-  const trace = [fundedBy, ...turn.lines];
+  const trace = [
+    ...(config === null ? [] : [fundedBy]),
+    ...turn.lines,
+    ...(turn.provenance === undefined ? [] : [`closure decision provenance: ${turn.provenance}`]),
+  ];
   if (turn.ledgerEntry !== null) {
     settleGatekeeperSpend(sys, root, turn.ledgerEntry.requestId, turn.ledgerEntry);
   }
@@ -629,6 +699,7 @@ export function closureRequest(ctx: CommandContext, flags: Flags, makeDeps?: Mak
     bundle.entries,
     headAtRequest,
     sys.now(),
+    turn,
   );
   if (!writeClosureWait(sys, root, wait)) {
     return fail(2, [
@@ -650,8 +721,11 @@ function closureWaitFrom(
   bundle: readonly ClosureBundleEntry[],
   headAtRequest: string,
   at: string,
+  obtained: Pick<ClosureTurnResult, 'provenance' | 'hostAttestationId'>,
 ): ClosureWaitRecord {
   return {
+    ...(obtained.provenance === undefined ? {} : { provenance: obtained.provenance }),
+    ...(obtained.hostAttestationId === undefined ? {} : { hostAttestationId: obtained.hostAttestationId }),
     schemaVersion: CLOSURE_WAIT_SCHEMA_VERSION,
     projectId: request.projectId,
     phaseId: request.phaseId,
@@ -672,40 +746,42 @@ function closureWaitFrom(
 
 
 /**
- * The production ports: the trusted installation broker, and nothing in this process that could hold
+ * The production ports, for the project's committed mode — and nothing in this process that could hold
  * a credential.
  *
- * THE CREDENTIAL BOUNDARY IS `commands/run.ts`'s, unchanged — same broker, same refusing resolver,
- * same installation allowlist asked on this side so a refusal is knowably pre-dispatch. A second,
- * subtly different credential composition for closure would be a second place for the trusted route
- * to become the untrusted one.
+ * INTERACTIVE: the same interactive port `projectos run` uses, pointed at the closure wait directory
+ * (see `CLOSURE_INTERACTIVE_REL`). No transport, price or credential.
  *
- * IT DIFFERS FROM `run` IN EXACTLY ONE RESPECT, and the reason is below: this route supplies no
- * durable ledger ports, because a closure call is the only paid call that happens AFTER the evidence
- * subject commit.
+ * UNATTENDED: the closure question goes to ProjectOSHost and nowhere else. This build has no agent-side
+ * Host client, so no Host route is composed and an unattended closure WAITS — it never reaches the
+ * pre-hybrid in-process broker call, which this composition no longer supplies. The accounting ports
+ * stay, because a Host-attested closure is still a paid call the owner's ceiling must bound.
  */
-function productionClosureDeps(args: {
-  readonly sys: System;
-  readonly root: string;
-  readonly projectId: string;
-  readonly config: GatekeeperConfig;
-  readonly consumedDecisionIds: readonly string[];
-}): ClosureTurnDeps {
-  const { sys, root, projectId, config } = args;
+function productionClosureDeps(args: ClosureCompositionArgs): ClosureTurnDeps | InteractiveClosureDeps {
+  const { sys, root } = args;
+  if (args.mode === 'interactive') {
+    return {
+      mode: 'interactive',
+      interactive: nodeInteractivePort(sys, root, {
+        dir: CLOSURE_INTERACTIVE_REL,
+        waitMs: args.gateWaitMs,
+        // A waiting request returns nothing until it ends, so where to answer is said as it starts.
+        onWaiting: (where) =>
+          process.stderr.write(
+            `WAITING FOR THE INTERACTIVE CLOSURE AUTHORITY\n  the question: ${where.request}\n  save the decision as: ${where.decision}\n`,
+          ),
+      }),
+      consumedDecisionIds: args.consumedDecisionIds,
+    };
+  }
+  const config = args.config;
   return {
+    mode: 'unattended',
     transport: config.transport,
     availability: { reachable: true },
-    // THE CREDENTIAL IS NOT RESOLVED IN THIS PROCESS. The trusted installation broker validates the
-    // allowlist and the project's committed receipt, resolves the value inside itself, makes the call
-    // and returns a status and a body. The resolver handed over refuses by construction.
-    resolver: unprovisionedResolver(
-      'the closure authority credential is resolved by the trusted installation broker, never in the agent',
-    ),
-    broker: {
-      transport: nodeBrokeredTransport(sys, nodeProjectosRuntime()),
-      governedRoot: root,
-      installationAllows: () => installationAllowsProject(sys, nodeProjectosRuntime(), root, projectId),
-    },
+    // THE CREDENTIAL IS NOT RESOLVED IN THIS PROCESS. In unattended mode it is the Host's; the resolver
+    // handed over refuses by construction.
+    resolver: unprovisionedResolver('the closure authority credential is resolved on the Host side, never in the agent'),
     http: nodeHttpPort(),
     modelPolicy: config.modelPolicy,
     rateCards: config.rateCards,
@@ -844,7 +920,14 @@ function closureResume(ctx: CommandContext, flags: Flags): CommandResult {
     // Writing `decision <id>` into the caller's half would reproduce the exact shape of the decoy that
     // once defeated replay tracking — the anchored regex makes it harmless today, and a second string
     // of that shape in the same note is still a trap for whoever relaxes the anchor.
-    { id, to: 'closed', delegated: true, note: 'closed by the closure transport on the owner-committed record' },
+    // The note also carries HOW the committed answer was obtained, as the route that received it stated,
+    // so the durable history keeps the evidence class the owner committed.
+    {
+      id,
+      to: 'closed',
+      delegated: true,
+      note: `closed by the closure transport on the owner-committed record (${waiting.provenance ?? 'provenance unrecorded'})`,
+    },
     ['advance'],
   );
   if (advanced.code !== 0) return { code: advanced.code, lines: [...lines, ...advanced.lines] };
@@ -914,7 +997,7 @@ function closureStatus(ctx: CommandContext, flags: Flags): CommandResult {
   const gc = loadGovernedContext(sys, root);
   if (!gc.ok) return fail(2, refusalLines(gc));
   const current = loadPhase(sys, root, id);
-  if (current === null) return fail(1, [`No phase ${id}`]);
+  if (current === null) return fail(2, missingPhaseLines(sys, root, gc.context, id));
 
   // THE SAME DERIVED FACT. Hardcoding `true` here would have told a project with NO closure
   // delegation that G4-14 was satisfied — a read-only report that lies about the one predicate the
@@ -950,6 +1033,7 @@ function closureStatus(ctx: CommandContext, flags: Flags): CommandResult {
       `  closure wait:        ${waitRead.value.state}`,
       `    decision:          ${waitRead.value.decisionId} by ${waitRead.value.decidedBy}`,
       `    presented digest:  ${waitRead.value.decisionSha256}`,
+      `    provenance:        ${waitRead.value.provenance ?? 'unrecorded'}`,
     );
   }
   return ok(lines);

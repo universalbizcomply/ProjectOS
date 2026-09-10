@@ -107,7 +107,7 @@ function fakePort(opts: { reply?: (h: InteractiveHandoff) => Record<string, unkn
     locations: (id) => ({ request: `q/${id}.request.json`, decision: `q/${id}.decision.json` }),
     publishRequest: (h) => {
       calls.push('publish');
-      published.push(h);
+      published.push(h as InteractiveHandoff);
       return opts.publish ?? 'written';
     },
     awaitDecision: () => {

@@ -45,12 +45,17 @@ import { formGatekeeperRequest, type GatekeeperTurnInput, type GatekeeperTurnRes
 
 export const INTERACTIVE_HANDOFF_SCHEMA_VERSION = '1.0.0';
 
-/** The question, written down for the owner to carry to the ChatGPT gatekeeper. Holds no secret. */
-export interface InteractiveHandoff {
+/** What every interactive question has in common: which kind of question it is, and its derived id. */
+export interface InteractiveQuestion {
   readonly schemaVersion: string;
+  readonly handoffKind: string;
+  readonly requestId: string;
+}
+
+/** The question, written down for the owner to carry to the ChatGPT gatekeeper. Holds no secret. */
+export interface InteractiveHandoff extends InteractiveQuestion {
   readonly handoffKind: 'interactive-gatekeeper-request';
   readonly instructions: readonly string[];
-  readonly requestId: string;
   readonly stop: { readonly code: string; readonly detail: string };
   /** The verdicts that can answer this stop. Any other verdict is refused on return. */
   readonly applicableVerdicts: readonly GatekeeperVerdict[];
@@ -71,7 +76,7 @@ export type InteractiveDecisionRead =
  */
 export interface InteractiveDecisionPort {
   /** Write the question down. Idempotent for the same question; anything but the two words is a refusal. */
-  publishRequest(handoff: InteractiveHandoff): 'written' | 'already-published' | string;
+  publishRequest(handoff: InteractiveQuestion): 'written' | 'already-published' | string;
   /** The decision supplied for this request, if any, waiting no longer than the port's own bound. */
   awaitDecision(requestId: string): InteractiveDecisionRead;
   /** Spend the decision so it can never be applied twice. Only `'consumed'` permits acting. */
@@ -115,7 +120,30 @@ function result(
 }
 
 function handoffFor(input: GatekeeperTurnInput, request: GatekeeperRequest, requestDigest: string): InteractiveHandoff {
-  const route = routeStop(input.stop);
+  return gatekeeperHandoff({
+    stop: { code: input.stop.code, detail: input.stop.detail },
+    applicableVerdicts: routeStop(input.stop).applicableVerdicts,
+    request,
+    requestDigest,
+    expectedDecider: input.expectedDecider,
+    evidenceText: input.evidenceText,
+  });
+}
+
+/**
+ * The written question for any gatekeeper request — a stopped loop's, or a reconciliation's.
+ *
+ * `stop` names what the question is about; `applicableVerdicts` is every answer it accepts.
+ */
+export function gatekeeperHandoff(args: {
+  readonly stop: { readonly code: string; readonly detail: string };
+  readonly applicableVerdicts: readonly GatekeeperVerdict[];
+  readonly request: GatekeeperRequest;
+  readonly requestDigest: string;
+  readonly expectedDecider: string;
+  readonly evidenceText: string;
+}): InteractiveHandoff {
+  const { request, requestDigest } = args;
   return {
     schemaVersion: INTERACTIVE_HANDOFF_SCHEMA_VERSION,
     handoffKind: 'interactive-gatekeeper-request',
@@ -123,13 +151,13 @@ function handoffFor(input: GatekeeperTurnInput, request: GatekeeperRequest, requ
       'Give this request, including evidenceText, to the ChatGPT gatekeeper.',
       'Its answer is the decisionTemplate with decision, reason, nextClaudeInstruction, allowedActions, ' +
         'forbiddenActions, ownerApprovalRequired and decidedAt filled in, and every other field unchanged.',
-      `decision must be one of: ${route.applicableVerdicts.join(', ')}.`,
+      `decision must be one of: ${args.applicableVerdicts.join(', ')}.`,
       'allowedActions may never name an action in request.ownerOnlyActions.',
       'Save the answer as JSON at the decision path ProjectOS reported, then run again.',
     ],
     requestId: request.requestId,
-    stop: { code: input.stop.code, detail: input.stop.detail },
-    applicableVerdicts: route.applicableVerdicts,
+    stop: args.stop,
+    applicableVerdicts: args.applicableVerdicts,
     request,
     requestDigest,
     decisionTemplate: {
@@ -139,7 +167,7 @@ function handoffFor(input: GatekeeperTurnInput, request: GatekeeperRequest, requ
       phaseId: request.phaseId,
       subjectCommit: request.subjectCommit,
       requestDigest,
-      decidedBy: input.expectedDecider,
+      decidedBy: args.expectedDecider,
       decision: null,
       reason: null,
       nextClaudeInstruction: null,
@@ -148,7 +176,7 @@ function handoffFor(input: GatekeeperTurnInput, request: GatekeeperRequest, requ
       ownerApprovalRequired: null,
       decidedAt: null,
     },
-    evidenceText: input.evidenceText,
+    evidenceText: args.evidenceText,
   };
 }
 
@@ -167,60 +195,16 @@ export function takeInteractiveTurn(input: GatekeeperTurnInput, deps: Interactiv
   const { ask, ownerOnlyActions, request } = formGatekeeperRequest(input);
   const requestDigest = gatekeeperRequestDigest(request);
   const decisionId = `GKDEC-${request.requestId}`;
-  const where = deps.interactive.locations(request.requestId);
   const lines: string[] = [`interactive gatekeeper request ${request.requestId} (${ask}) for ${input.stop.code}`];
   const stopped = `STOPPED (${input.stop.code}): ${input.stop.detail}`;
 
   // 3. PUBLISH, THEN WAIT FOR THE ANSWER.
-  const published = deps.interactive.publishRequest(handoffFor(input, request, requestDigest));
-  if (published !== 'written' && published !== 'already-published') {
-    return result({ kind: 'owner', reasons: [stopped, `the interactive gatekeeper request could not be written: ${published}`] }, lines, request);
+  const answer = awaitInteractiveAnswer(deps.interactive, handoffFor(input, request, requestDigest), 'this stop');
+  if (answer.kind === 'stop') {
+    if (answer.line !== null) lines.push(answer.line);
+    return result({ kind: 'owner', reasons: [stopped, ...answer.reasons] }, lines, request);
   }
-  // ONLY A QUESTION THIS RUN WROTE CAN BE ANSWERED. The question's bytes are deterministic, so anything
-  // that ran before the gate — the worker included — could write a byte-identical question AND an answer
-  // beside it, and the two would be indistinguishable from a real exchange. A question that already
-  // existed is therefore never answered: nobody can establish that ProjectOS asked it. The owner clears
-  // it and the next run asks afresh — rare in practice, because the answer arrives while the asking run
-  // holds its gate open, and a later run derives a new question from its own evidence.
-  if (published === 'already-published') {
-    return result(
-      {
-        kind: 'owner',
-        reasons: [
-          stopped,
-          'a request for this exact question already existed before this run asked it, and ProjectOS cannot ' +
-            'establish that it wrote it — an answer planted beside it would look genuine — so no answer to it is accepted',
-          `  to ask again: remove ${where.request} and any ${where.decision}, then run again`,
-        ],
-      },
-      lines,
-      request,
-    );
-  }
-  const read = deps.interactive.awaitDecision(request.requestId);
-  if (read.kind === 'absent') {
-    lines.push(`waiting for the interactive gatekeeper decision at ${where.decision}`);
-    return result(
-      {
-        kind: 'owner',
-        reasons: [
-          stopped,
-          'WAITING FOR THE INTERACTIVE GATEKEEPER: this stop needs the ChatGPT gatekeeper\'s decision and none has been supplied',
-          `  the question: ${where.request}`,
-          `  save the decision as: ${where.decision}`,
-          'ProjectOS will not decide this itself, will not ask any other reviewer and will not switch to unattended mode',
-          'a decision answers only the question it was given: a later run asks again with its own evidence, so ' +
-            'save the answer while a run is waiting on it (projectos run --execute --gate-wait-minutes <n>)',
-        ],
-      },
-      lines,
-      request,
-    );
-  }
-  if (read.kind === 'unreadable') {
-    return result({ kind: 'owner', reasons: [stopped, `the supplied interactive decision could not be used: ${read.detail}`] }, lines, request);
-  }
-  const record = read.record;
+  const record = answer.record;
 
   // 4 + 5. A PROVENANCE CLAIM, THE WRONG DECISION ID, OR ANYTHING THE CONTRACT REFUSES.
   const problems: string[] = [
@@ -291,4 +275,72 @@ export function takeInteractiveTurn(input: GatekeeperTurnInput, deps: Interactiv
           },
         }),
   });
+}
+
+/** An interactive answer, or why there is none yet. `line` is set only while the question waits. */
+export type InteractiveAnswer =
+  | { readonly kind: 'answer'; readonly record: GatekeeperDecisionRecord }
+  | {
+      readonly kind: 'stop';
+      readonly cause: 'not-written' | 'pre-existing' | 'waiting' | 'unreadable';
+      readonly reasons: readonly string[];
+      readonly line: string | null;
+    };
+
+/**
+ * Publish the question, then wait for its answer — THE ONE ACQUISITION every interactive question uses:
+ * a stopped loop's, a closure's and a reconciliation's.
+ *
+ * It returns the supplied record UNJUDGED. What it guarantees is only that the record answers a question
+ * THIS call wrote; every check of the record itself belongs to the caller's own contract.
+ */
+export function awaitInteractiveAnswer(
+  port: InteractiveDecisionPort,
+  question: InteractiveQuestion,
+  subject = 'this stop',
+  rerun = 'projectos run --execute --gate-wait-minutes <n>',
+): InteractiveAnswer {
+  const where = port.locations(question.requestId);
+  const stop = (cause: Extract<InteractiveAnswer, { kind: 'stop' }>['cause'], reasons: readonly string[], line: string | null = null): InteractiveAnswer => ({
+    kind: 'stop',
+    cause,
+    reasons,
+    line,
+  });
+  const published = port.publishRequest(question);
+  if (published !== 'written' && published !== 'already-published') {
+    return stop('not-written', [`the interactive gatekeeper request could not be written: ${published}`]);
+  }
+  // ONLY A QUESTION THIS RUN WROTE CAN BE ANSWERED. The question's bytes are deterministic, so anything
+  // that ran before the gate — the worker included — could write a byte-identical question AND an answer
+  // beside it, and the two would be indistinguishable from a real exchange. A question that already
+  // existed is therefore never answered: nobody can establish that ProjectOS asked it. The owner clears
+  // it and the next run asks afresh — rare in practice, because the answer arrives while the asking run
+  // holds its gate open, and a later run derives a new question from its own evidence.
+  if (published === 'already-published') {
+    return stop('pre-existing', [
+      'a request for this exact question already existed before this run asked it, and ProjectOS cannot ' +
+        'establish that it wrote it — an answer planted beside it would look genuine — so no answer to it is accepted',
+      `  to ask again: remove ${where.request} and any ${where.decision}, then run again`,
+    ]);
+  }
+  const read = port.awaitDecision(question.requestId);
+  if (read.kind === 'absent') {
+    return stop(
+      'waiting',
+      [
+        `WAITING FOR THE INTERACTIVE GATEKEEPER: ${subject} needs the ChatGPT gatekeeper's decision and none has been supplied`,
+        `  the question: ${where.request}`,
+        `  save the decision as: ${where.decision}`,
+        'ProjectOS will not decide this itself, will not ask any other reviewer and will not switch to unattended mode',
+        'a decision answers only the question it was given: a later run asks again with its own evidence, so ' +
+          `save the answer while a run is waiting on it (${rerun})`,
+      ],
+      `waiting for the interactive gatekeeper decision at ${where.decision}`,
+    );
+  }
+  if (read.kind === 'unreadable') {
+    return stop('unreadable', [`the supplied interactive decision could not be used: ${read.detail}`]);
+  }
+  return { kind: 'answer', record: read.record };
 }

@@ -12,14 +12,19 @@
  * per item: a review that blessed "the degraded period" would let later unnamed work hide inside an
  * earlier blessing.
  *
- * IT SPENDS MONEY AND READS A CREDENTIAL, SO IT ASKS FIRST. `--execute` is required for the same reason
- * `run` requires it: on 2026-08-16 a real worker ran because starting one took no positive act.
- * `--dry-run` performs every check, prints what would be asked and what it would cost, and sends
- * nothing. The credential is released only by the owner's COMMITTED secrets-handling receipt, read from
- * the git object store by the same predicate the loop uses.
+ * THE SAME GATEKEEPER `run` USES, IN THE SAME MODE. The reviewer is composed by `composeGatekeeper` from
+ * the COMMITTED configuration: INTERACTIVE writes the question down for the ChatGPT gatekeeper and reads
+ * its bound answer back; UNATTENDED asks only ProjectOSHost, whose attestation must vouch for the answer.
+ * No mode falls back to the other, and neither reaches the pre-hybrid in-process provider call.
+ *
+ * IT ACTS ON THE OWNER'S DEBT, SO IT ASKS FIRST. `--execute` is required for the same reason `run`
+ * requires it: on 2026-08-16 a real worker ran because starting one took no positive act. `--dry-run`
+ * performs every check, prints what would be asked, and asks nothing.
  *
  * Created in PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A for acceptance criterion 11.
+ * Brought under hybrid routing in PROJECTOS-HYBRID-CLOSURE-RECONCILE-ROUTING1A.
  */
+import type { HostReviewPort } from '@projectos/core';
 import type { CommandContext, CommandResult } from '../context.js';
 import { ok, fail } from '../context.js';
 import type { Flags } from '../flags.js';
@@ -29,20 +34,20 @@ import {
   resolveGatekeeperSpend,
   releaseUndispatchedReservation,
   settleGatekeeperSpend,
-  loadGatekeeperConfig,
   readLedger,
   consumedDecisionIds,
-  recordGatekeeperDecisionEvidence,
 } from '../loop/gatekeeperConfig.js';
-import { unprovisionedResolver } from '../loop/credentialResolver.js';
-import { nodeBrokeredTransport } from '../loop/transports/brokeredHttpPort.js';
-import { nodeHttpPort } from '../loop/transports/nodeHttpPort.js';
+import type { InteractiveDecisionPort } from '../loop/interactiveGatekeeper.js';
 import { readBrokerAnsweredState } from '../installation/brokerAnsweredState.js';
 import { nodeInstallationStateDir, nodeProjectosRuntime } from '../nodeRuntimeRoot.js';
-import { canonicalRepositoryIdentity, installationAllowsProject } from '../installation/projectAllowlist.js';
-import { ownerGateReceiptRelPath, ownerApprovedSecretsHandling } from '../loop/ownerGateReceipts.js';
-import { reconcileDegradedWork, type ReconciliationDeps } from '../loop/reconciliation.js';
+import { canonicalRepositoryIdentity } from '../installation/projectAllowlist.js';
+import {
+  reconcileDegradedWork,
+  type InteractiveReconciliationDeps,
+  type ReconciliationDeps,
+} from '../loop/reconciliation.js';
 import { ALWAYS_OWNER_ONLY, committedGovernanceOwner } from '../loop/degradedMode.js';
+import { composeGatekeeper, gateWaitMinutesFrom, GATE_WAIT_INVALID } from './run.js';
 
 /** The phase in force, from the governed current-state record — the same source `run` uses. */
 function activePhaseId(ctx: CommandContext): string | null {
@@ -70,7 +75,17 @@ function bool(flags: Flags, key: string): boolean {
   return flags[key] === true;
 }
 
-export function reconcile(ctx: CommandContext, flags: Flags): CommandResult {
+/**
+ * Ports a TEST substitutes; the CLI dispatcher passes none. `hostReview` is the route to ProjectOSHost,
+ * which this build has no client for; `interactive` replaces the composed interactive port so a test can
+ * answer while the gate is held open. Neither can change the mode, which is the committed configuration's.
+ */
+export interface ReconcileSeams {
+  readonly hostReview?: HostReviewPort;
+  readonly interactive?: InteractiveDecisionPort;
+}
+
+export function reconcile(ctx: CommandContext, flags: Flags, seams: ReconcileSeams = {}): CommandResult {
   const grantId = str(flags, 'grant');
   const workId = str(flags, 'work');
   if (grantId === '' || workId === '') {
@@ -81,7 +96,7 @@ export function reconcile(ctx: CommandContext, flags: Flags): CommandResult {
     ]);
   }
 
-  // POSITIVE INTENT, because this spends the owner's money and reads the owner's credential.
+  // POSITIVE INTENT, because this acts on the owner's debt and, in unattended mode, spends.
   const dryRun = bool(flags, 'dry-run');
   const execute = bool(flags, 'execute');
   if (dryRun && execute) {
@@ -94,13 +109,15 @@ export function reconcile(ctx: CommandContext, flags: Flags): CommandResult {
   }
   if (!dryRun && !execute) {
     return fail(2, [
-      'REFUSED (NO_EXECUTION_INTENT): `reconcile` will not spend or read a credential unless you say so.',
+      'REFUSED (NO_EXECUTION_INTENT): `reconcile` will not put a question to the reviewer unless you say so.',
       '  - `projectos reconcile --grant <ID> --work <ID> --dry-run`  check everything, ask nothing',
       '  - `projectos reconcile --grant <ID> --work <ID> --execute`  put the question to the reviewer',
       '',
       'Nothing was asked and nothing was spent.',
     ]);
   }
+  const gateWaitMinutes = gateWaitMinutesFrom(flags);
+  if (gateWaitMinutes === null) return fail(2, [GATE_WAIT_INVALID, '', 'Nothing was asked and nothing was spent.']);
 
   const governed = loadGovernedContext(ctx.sys, ctx.root);
   if (!governed.ok) {
@@ -132,96 +149,87 @@ export function reconcile(ctx: CommandContext, flags: Flags): CommandResult {
   }
   const durable = { stateDir, installRoot: nodeProjectosRuntime().installRoot, repository };
 
-  const gk = loadGatekeeperConfig(ctx.sys, ctx.root);
-  if (!gk.ok) {
+  // WHICH GATEKEEPER, IN WHICH MODE — the one composition `projectos run` uses, from the committed mode.
+  const composed = composeGatekeeper(ctx, {
+    gateWaitMinutes,
+    ...(seams.hostReview === undefined ? {} : { hostReview: seams.hostReview }),
+    announce: (where) =>
+      process.stderr.write(
+        `WAITING FOR THE INTERACTIVE GATEKEEPER (gate held open up to ${gateWaitMinutes} minute(s))\n` +
+          `  the question: ${where.request}\n  save the decision as: ${where.decision}\n`,
+      ),
+  });
+  if (!composed.ok) return fail(2, composed.lines);
+  const gatekeeper = composed.gatekeeper;
+  if (gatekeeper === undefined) {
     return fail(2, [
       'REFUSED (NO_USABLE_GATEKEEPER): reconciliation is a real review and cannot be simulated.',
-      ...gk.reasons.map((r) => `  - ${r}`),
-    ]);
-  }
-
-  const rate = gk.config.rateCards[gk.config.transport.model];
-  if (rate === undefined) {
-    return fail(2, [
-      `REFUSED (NO_RATE_CARD): no rate card for model '${gk.config.transport.model}', so this call cannot be priced.`,
-      '  A call whose price is unknown is not made.',
+      '  - this project is in INTERACTIVE mode and no valid committed delegation names the gatekeeper who answers',
     ]);
   }
 
   const ledger = readLedger(ctx.sys, ctx.root);
-  const ownerConfirmation = ownerApprovedSecretsHandling(ctx.sys, ctx.root, phaseId);
   const lines: string[] = [
     `${dryRun ? 'checking' : 'reconciling'} ${workId} under grant ${grantId}`,
-    `  project ${governed.context.projectId}  phase ${phaseId}  owner ${recordedOwner}`,
+    `  project ${governed.context.projectId}  phase ${phaseId}  owner ${recordedOwner}  mode ${composed.mode}`,
   ];
-  if (!ownerConfirmation && !dryRun) {
-    lines.push(
-      '  note: no committed secrets-handling receipt approves credential use for this phase ' +
-        `(${ownerGateReceiptRelPath(phaseId, 'secrets-handling') ?? 'unsafe path'}); the call will be refused`,
-    );
-  }
 
-  const deps: ReconciliationDeps = {
-    transport: {
-      model: gk.config.transport.model,
-      credentialRef: gk.config.transport.credentialRef ?? '',
-      transportId: gk.config.transport.transportId,
-    },
-    // THE CREDENTIAL IS NOT RESOLVED IN THIS PROCESS.
-    //
-    // The trusted installation-side broker validates the allowlist and the committed receipt,
-    // resolves the value inside itself, makes the call and returns a status and a body. The
-    // resolver handed over refuses by construction, so there is no in-process value even to leak.
-    resolver: unprovisionedResolver(
-      'the gatekeeper credential is resolved by the trusted installation broker, never in the agent',
-    ),
-    broker: {
-      transport: nodeBrokeredTransport(ctx.sys, nodeProjectosRuntime()),
-      governedRoot: ctx.root,
-      // The SAME committed policy the broker enforces, asked on this side so that a refusal is
-      // classified as a call that was never made rather than as one that might have been.
-      installationAllows: () =>
-        installationAllowsProject(ctx.sys, nodeProjectosRuntime(), ctx.root, governed.context.projectId),
-    },
-    http: nodeHttpPort(),
-    rate,
-    budget: gk.config.budget,
-    ledger,
-    threadBinding: gk.config.threadBinding,
-    repositoryRoot: ctx.root,
-    decidedBy: gk.config.transportDecider,
-    consumedDecisionIds: consumedDecisionIds(ledger),
-    // THE DECISION ITSELF IS KEPT, AS EVIDENCE. The ledger records that a call happened and what
-    // it cost; it has never recorded what was decided. Supplied here for the same reason as
-    // `admitSpend`: this is the only place that may touch the filesystem. It grants nothing — see
-    // `recordGatekeeperDecisionEvidence`.
-    recordDecisionEvidence: (record) => {
-      const outcome = recordGatekeeperDecisionEvidence(ctx.sys, ctx.root, record);
-      return outcome.kind === 'written' || outcome.kind === 'already-recorded'
-        ? outcome.kind
-        : `${outcome.kind}: ${outcome.detail}`;
-    },
-    // Same serialised admission as `run`: a reconcile alongside a run is one of the concurrent pairs
-    // C17-F1 described, and both make billable calls.
-    admitSpend: (request) =>
-      admitGatekeeperSpend(ctx.sys, ctx.root, request, gk.config.budget, () =>
-        readBrokerAnsweredState(ctx.sys, nodeInstallationStateDir(), request),
-      ),
-    // Recorded the instant the call returns, so a later failure cannot lose the fact that it happened.
-    // Settlement replaces the estimate admission wrote; appending would leave the estimate standing.
-    releaseUndispatched: (requestId: string) => releaseUndispatchedReservation(ctx.sys, ctx.root, requestId),
-    resolveSpend: (
-      request: { readonly requestId: string; readonly projectId: string; readonly phaseId: string },
-      cause: string,
-    ) =>
-      resolveGatekeeperSpend(ctx.sys, ctx.root, request.requestId, cause, () =>
-        readBrokerAnsweredState(ctx.sys, nodeInstallationStateDir(), request),
-      ),
-    recordSpend: (entry) => {
-      settleGatekeeperSpend(ctx.sys, ctx.root, entry.requestId, entry);
-      lines.push(`  call recorded: ${entry.requestId} (${entry.costMicroUsd} micro-USD)`);
-    },
-  };
+  let deps: ReconciliationDeps | InteractiveReconciliationDeps;
+  if (gatekeeper.mode === 'interactive') {
+    const record = gatekeeper.recordDecisionEvidence;
+    deps = {
+      mode: 'interactive',
+      interactive: seams.interactive ?? gatekeeper.interactive,
+      consumedDecisionIds: consumedDecisionIds(ledger),
+      // THE DECISION ITSELF IS KEPT, AS EVIDENCE, stamped with the route's provenance. Grants nothing.
+      ...(record === undefined
+        ? {}
+        : { recordDecisionEvidence: (r, provenance) => record(r, provenance ?? { kind: 'InteractiveGatekeeperDecision' }) }),
+    };
+  } else {
+    const transport = gatekeeper.transport;
+    const rate = transport === null ? undefined : gatekeeper.rateCards[transport.model];
+    if (transport === null || rate === undefined) {
+      return fail(2, [
+        `REFUSED (NO_RATE_CARD): no rate card for model '${transport?.model ?? '<none>'}', so this call cannot be priced.`,
+        '  A call whose price is unknown is not made.',
+      ]);
+    }
+    deps = {
+      mode: 'unattended',
+      // The ProjectOSHost route. This build composes none, so an unattended reconciliation WAITS.
+      ...(gatekeeper.hostReview === undefined ? {} : { hostReview: gatekeeper.hostReview }),
+      transport: { model: transport.model, credentialRef: transport.credentialRef ?? '', transportId: transport.transportId },
+      // THE CREDENTIAL IS NOT RESOLVED IN THIS PROCESS; in unattended mode it is the Host's.
+      resolver: gatekeeper.resolver,
+      http: gatekeeper.http,
+      rate,
+      budget: gatekeeper.budget,
+      ledger,
+      threadBinding: gatekeeper.threadBinding,
+      repositoryRoot: ctx.root,
+      decidedBy: gatekeeper.transportDecider,
+      consumedDecisionIds: consumedDecisionIds(ledger),
+      ...(gatekeeper.recordDecisionEvidence === undefined ? {} : { recordDecisionEvidence: gatekeeper.recordDecisionEvidence }),
+      // Same serialised admission as `run`: a reconcile alongside a run is one of the concurrent pairs
+      // C17-F1 described, and both make billable calls.
+      admitSpend: (request) =>
+        admitGatekeeperSpend(ctx.sys, ctx.root, request, gatekeeper.budget, () =>
+          readBrokerAnsweredState(ctx.sys, nodeInstallationStateDir(), request),
+        ),
+      releaseUndispatched: (requestId: string) => releaseUndispatchedReservation(ctx.sys, ctx.root, requestId),
+      resolveSpend: (request, cause) =>
+        resolveGatekeeperSpend(ctx.sys, ctx.root, request.requestId, cause, () =>
+          readBrokerAnsweredState(ctx.sys, nodeInstallationStateDir(), request),
+        ),
+      // Recorded the instant the call returns, so a later failure cannot lose the fact that it happened.
+      // Settlement replaces the estimate admission wrote; appending would leave the estimate standing.
+      recordSpend: (entry) => {
+        settleGatekeeperSpend(ctx.sys, ctx.root, entry.requestId, entry);
+        lines.push(`  call recorded: ${entry.requestId} (${entry.costMicroUsd} micro-USD)`);
+      },
+    };
+  }
 
   const outcome = reconcileDegradedWork(
     ctx.sys,
@@ -231,7 +239,7 @@ export function reconcile(ctx: CommandContext, flags: Flags): CommandResult {
       phaseId,
       grantId,
       workId,
-      expectedDecider: gk.config.expectedDecider,
+      expectedDecider: composed.expectedDecider,
       ownerOnlyActions: ALWAYS_OWNER_ONLY,
       recordedOwner,
       durable,

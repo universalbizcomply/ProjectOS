@@ -174,6 +174,36 @@ export function checkHostAttestation(
   attestation: HostAttestationSummary | null,
   expect: { readonly requestId: string; readonly record: GatekeeperDecisionRecord },
 ): readonly string[] {
+  const verdict = expect.record.decision;
+  const expected =
+    typeof verdict === 'string' && (GATEKEEPER_VERDICTS as readonly string[]).includes(verdict)
+      ? HOST_VERDICT_FOR[verdict as GatekeeperVerdict]
+      : null;
+  const decided = Array.isArray(expect.record.allowedActions) ? expect.record.allowedActions.map(String) : null;
+  return hostAttestationProblems(attestation, expect.requestId, {
+    verdict,
+    expectedHostVerdict: expected,
+    allowedActions: decided,
+    ownerApprovalRequired: expect.record.ownerApprovalRequired,
+  });
+}
+
+/**
+ * The checks every Host attestation shares, whatever contract its answer belongs to: bound to THIS
+ * request, and agreeing with the answer it accompanies on verdict class, permitted actions and the
+ * owner-approval flag, at a stated cost. Exported so the closure contract (`closureTransport.ts`)
+ * applies these exact checks rather than a copy.
+ */
+export function hostAttestationProblems(
+  attestation: HostAttestationSummary | null,
+  requestId: string,
+  answer: {
+    readonly verdict: unknown;
+    readonly expectedHostVerdict: HostReviewVerdict | null;
+    readonly allowedActions: readonly string[] | null;
+    readonly ownerApprovalRequired: unknown;
+  },
+): readonly string[] {
   if (attestation === null || typeof attestation !== 'object') {
     return [
       'no Host attestation accompanied this decision; an unattested answer is not Host-independent ' +
@@ -185,34 +215,29 @@ export function checkHostAttestation(
   if (typeof attestation.attestationId !== 'string' || !HEX64.test(attestation.attestationId)) {
     e.push('Host attestation carries no usable attestationId');
   }
-  if (attestation.requestCorrelation !== hostCorrelationFor(expect.requestId)) {
-    e.push(`Host attestation answers a different request than ${expect.requestId}`);
+  if (attestation.requestCorrelation !== hostCorrelationFor(requestId)) {
+    e.push(`Host attestation answers a different request than ${requestId}`);
   }
   if (!nonEmpty(attestation.providerResponseId)) e.push('Host attestation names no provider response');
   if (!nonEmpty(attestation.provider) || !nonEmpty(attestation.model)) {
     e.push('Host attestation does not name the provider and model that answered');
   }
 
-  const verdict = expect.record.decision;
-  const expected =
-    typeof verdict === 'string' && (GATEKEEPER_VERDICTS as readonly string[]).includes(verdict)
-      ? HOST_VERDICT_FOR[verdict as GatekeeperVerdict]
-      : null;
   if (!(HOST_REVIEW_VERDICTS as readonly unknown[]).includes(attestation.verdict)) {
     e.push('Host attestation carries no recognised verdict');
-  } else if (expected === null || attestation.verdict !== expected) {
+  } else if (answer.expectedHostVerdict === null || attestation.verdict !== answer.expectedHostVerdict) {
     e.push(
       `Host attested ${String(attestation.verdict)}, which does not match the decision ` +
-        `${JSON.stringify(verdict)} it accompanies`,
+        `${JSON.stringify(answer.verdict)} it accompanies`,
     );
   }
 
   const attested = Array.isArray(attestation.allowedActions) ? attestation.allowedActions.map(String) : null;
-  const decided = Array.isArray(expect.record.allowedActions) ? expect.record.allowedActions.map(String) : null;
+  const decided = answer.allowedActions;
   if (attested === null || decided === null || [...attested].sort().join('\n') !== [...decided].sort().join('\n')) {
     e.push('Host attestation permits different actions than the decision it accompanies');
   }
-  if (attestation.ownerApprovalRequired !== expect.record.ownerApprovalRequired) {
+  if (attestation.ownerApprovalRequired !== answer.ownerApprovalRequired) {
     e.push('Host attestation disagrees with the decision about whether the owner must still approve');
   }
   const cost = attestation.costMicroUsd;

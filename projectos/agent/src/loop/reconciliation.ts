@@ -58,9 +58,21 @@ import {
   type LedgerEntry,
   type RateCard,
   type ReconciliationRecord,
+  checkHostAttestation,
+  hostCorrelationFor,
+  provenanceClaimsIn,
+  type DecisionProvenanceStamp,
+  type GatekeeperVerdict,
+  type HostReviewPort,
 } from '@projectos/core';
-import { deriveRequestId, evidenceDigest } from './gatekeeperTurn.js';
-import { submitToOpenAi, buildResponsesBody, GATEKEEPER_OUTPUT_TOKEN_LIMIT } from './transports/openaiResponses.js';
+import { deriveRequestId, evidenceDigest, fromHost } from './gatekeeperTurn.js';
+import { awaitInteractiveAnswer, gatekeeperHandoff, type InteractiveDecisionPort } from './interactiveGatekeeper.js';
+import {
+  submitToOpenAi,
+  buildResponsesBody,
+  GATEKEEPER_OUTPUT_TOKEN_LIMIT,
+  type TransportOutcome,
+} from './transports/openaiResponses.js';
 import type { CredentialResolver } from './credentialResolver.js';
 import type { HttpPort } from './transports/openaiResponses.js';
 import type { BrokeredTransport } from './transports/brokeredHttpPort.js';
@@ -101,6 +113,8 @@ export interface ReconciliationOutcome {
     | 'DECISION_REFUSED'
     | 'NOT_ACCEPTED'
     | 'PERSIST_FAILED'
+    /** Interactive: the question is written down and the ChatGPT gatekeeper has not answered it. */
+    | 'AWAITING_GATEKEEPER'
     | 'RECONCILED';
   readonly reasons: readonly string[];
   readonly workId: string | null;
@@ -209,6 +223,8 @@ export interface ReconciliationDeps {
    */
   readonly recordDecisionEvidence?: (
     record: GatekeeperDecisionRecord,
+    /** How the decision was obtained, stamped by the route. Absent for the pre-hybrid composition. */
+    provenance?: DecisionProvenanceStamp,
   ) => 'written' | 'already-recorded' | string;
   readonly decidedBy: string;
   readonly consumedDecisionIds: readonly string[];
@@ -242,6 +258,56 @@ export interface ReconciliationDeps {
     readonly estimateMicroUsd: number;
     readonly at: string;
   }) => { readonly allowed: boolean; readonly reasons: readonly string[] };
+  /**
+   * UNATTENDED MODE (hybrid routing). The question goes ONLY to ProjectOSHost, which attests the
+   * independent provider's answer; with no Host route composed the debt simply stands. Absent only for
+   * the pre-hybrid composition the unit tests use; `projectos reconcile` always states a mode.
+   */
+  readonly mode?: 'unattended';
+  readonly hostReview?: HostReviewPort;
+}
+
+/**
+ * INTERACTIVE MODE: the owner carries the reconciliation question to the ChatGPT gatekeeper, through the
+ * same port and the same written question a stopped loop uses. No transport, price or credential.
+ */
+export interface InteractiveReconciliationDeps {
+  readonly mode: 'interactive';
+  readonly interactive: InteractiveDecisionPort;
+  readonly consumedDecisionIds: readonly string[];
+  readonly recordDecisionEvidence?: NonNullable<ReconciliationDeps['recordDecisionEvidence']>;
+}
+
+/** Every verdict a reconciliation question accepts. Only `APPROVED_TO_PROCEED` discharges the debt. */
+const RECONCILIATION_VERDICTS: readonly GatekeeperVerdict[] = [
+  'APPROVED_TO_PROCEED',
+  'AMENDMENT_REQUIRED',
+  'DO_NOT_PROCEED',
+  'AWAITING_OWNER',
+];
+
+/** Everything established about the question before its answer arrives, whichever route brings it. */
+interface AskedReconciliation {
+  readonly store: DegradedStoreRecord;
+  readonly mirrorRecord: DegradedStoreRecord | null;
+  readonly fromLedger: boolean;
+  readonly before: ReturnType<typeof reconciliationState>;
+  readonly request: GatekeeperRequest;
+  readonly subjectCommit: string;
+}
+
+/** An answer, as the route that obtained it delivers it. Still a CANDIDATE: nothing here is checked. */
+interface ReconciliationAnswer {
+  readonly record: GatekeeperDecisionRecord;
+  readonly ledgerEntry: LedgerEntry | null;
+  readonly providerResponseId: string | null;
+  /** Refusals the ROUTE found before the contract is asked — a provenance claim, an attestation mismatch. */
+  readonly routeProblems: readonly string[];
+  readonly provenance?: DecisionProvenanceStamp;
+  /** Interactive only: spend the answer so it can never be applied twice. Only `'consumed'` permits acting. */
+  readonly spend?: () => 'consumed' | string;
+  /** Interactive only: nothing was ever sent to a provider, so nothing can have been billed. */
+  readonly neverSent?: boolean;
 }
 
 /**
@@ -537,7 +603,7 @@ export function reconcileDegradedWork(
   sys: System,
   root: string,
   input: ReconciliationInput,
-  deps: ReconciliationDeps,
+  deps: ReconciliationDeps | InteractiveReconciliationDeps,
 ): ReconciliationOutcome {
   const read = readDegradedStoreDetailed(sys, root, input.grantId);
   if (read.kind === 'corrupt') {
@@ -791,6 +857,65 @@ export function reconcileDegradedWork(
     );
   }
 
+  const askedQuestion: AskedReconciliation = { store, mirrorRecord, fromLedger, before, request, subjectCommit };
+
+  // INTERACTIVE: THE SAME QUESTION, WRITTEN DOWN FOR THE CHATGPT GATEKEEPER. Everything above — the
+  // grant bound, the committed wrapper, the asked-once guard — has already run, and everything after
+  // the answer is the same code the unattended route uses. Nothing is priced, reserved or sent.
+  if (deps.mode === 'interactive') {
+    if (input.prepareOnly === true) {
+      return outcome(
+        'PREPARED',
+        [
+          `every check passed; asking would write interactive request ${requestId} about ${subjectCommit.slice(0, 7)} for the ChatGPT gatekeeper`,
+          'interactive mode calls no provider, so nothing is priced or spent',
+          'nothing was sent, nothing was spent and nothing was written',
+        ],
+        { workId: input.workId, requestId, outstandingAfter: before.outstandingWorkIds },
+      );
+    }
+    const answer = awaitInteractiveAnswer(
+      deps.interactive,
+      gatekeeperHandoff({
+        stop: { code: 'RECONCILIATION', detail: `discharge degraded work item ${input.workId} under grant ${input.grantId}` },
+        applicableVerdicts: RECONCILIATION_VERDICTS,
+        request,
+        requestDigest: gatekeeperRequestDigest(request),
+        expectedDecider: input.expectedDecider,
+        evidenceText,
+      }),
+      'this reconciliation',
+      `projectos reconcile --grant ${input.grantId} --work ${input.workId} --execute --gate-wait-minutes <n>`,
+    );
+    if (answer.kind === 'stop') {
+      return outcome(
+        answer.cause === 'waiting' ? 'AWAITING_GATEKEEPER' : 'DECISION_REFUSED',
+        answer.line === null ? answer.reasons : [answer.line, ...answer.reasons],
+        { workId: input.workId, requestId, outstandingAfter: before.outstandingWorkIds },
+      );
+    }
+    const decisionId = `GKDEC-${requestId}`;
+    const interactive = deps.interactive;
+    return applyReconciliationAnswer(sys, root, input, askedQuestion, deps, {
+      record: answer.record,
+      ledgerEntry: null,
+      providerResponseId: null,
+      routeProblems: [
+        ...provenanceClaimsIn(answer.record).map(
+          (field) =>
+            `the supplied decision carries '${field}'; how a decision was obtained is recorded by the route that ` +
+            'received it, and an interactive decision can never be presented as Host-attested evidence',
+        ),
+        ...(answer.record.decisionId === decisionId
+          ? []
+          : [`the supplied decision is ${JSON.stringify(answer.record.decisionId)}, but this request's decision is '${decisionId}'`]),
+      ],
+      provenance: { kind: 'InteractiveGatekeeperDecision' },
+      spend: () => interactive.consumeDecision(requestId),
+      neverSent: true,
+    });
+  }
+
   // THE CONVERSATION MUST BE THIS PROJECT'S. The loop refuses to speak to a reviewer bound to another
   // project or another checkout before it opens a socket; so does this.
   const threadProblems = checkThreadBinding(deps.threadBinding, {
@@ -804,6 +929,22 @@ export function reconcileDegradedWork(
       requestId,
       outstandingAfter: before.outstandingWorkIds,
     });
+  }
+
+  // UNATTENDED MEANS HOST-ATTESTED, OR NOTHING. Checked before any estimate is reserved, so a project
+  // whose Host route is not composed spends nothing — and in this mode nothing below reaches the
+  // in-process provider call, an interactive question, or the implementer.
+  const hostReview = deps.mode === 'unattended' ? deps.hostReview : undefined;
+  if (deps.mode === 'unattended' && hostReview === undefined) {
+    return outcome(
+      'UNAVAILABLE',
+      [
+        'this project is in UNATTENDED gatekeeper mode, whose decisions come only through the ProjectOS Host ' +
+          'attestation route, and no Host review route is composed',
+        'no provider was called and no other route was tried; the debt stands',
+      ],
+      { workId: input.workId, requestId, definitelyNotSent: true, outstandingAfter: before.outstandingWorkIds },
+    );
   }
 
   // A CALL THAT CANNOT HAPPEN IS NOT PAID FOR, AND ITS RESERVATION IS RELEASED (C11-W2-F8).
@@ -916,7 +1057,19 @@ export function reconcileDegradedWork(
     );
   }
 
-  const sent = submitToOpenAi(
+  // THE CALL. In unattended mode it goes to the Host and nowhere else.
+  const hosted =
+    hostReview?.review({
+      request,
+      requestDigest: gatekeeperRequestDigest(request),
+      correlation: hostCorrelationFor(requestId),
+      body: requestBody,
+    }) ?? null;
+  const attestation = hosted !== null && hosted.kind === 'attested' ? hosted.attestation : null;
+  const sent: TransportOutcome =
+    hosted !== null
+      ? fromHost(hosted)
+      : submitToOpenAi(
     request,
     evidenceText,
     {
@@ -973,6 +1126,37 @@ export function reconcileDegradedWork(
   });
   deps.recordSpend(ledgerEntry);
 
+  return applyReconciliationAnswer(sys, root, input, askedQuestion, deps, {
+    record: sent.record,
+    ledgerEntry,
+    providerResponseId: sent.providerResponseId,
+    // UNATTENDED: the Host's attestation must vouch for THIS answer, or the debt stands.
+    routeProblems:
+      deps.mode === 'unattended' ? checkHostAttestation(attestation, { requestId, record: sent.record }) : [],
+    ...(deps.mode === 'unattended' && attestation !== null && typeof attestation.attestationId === 'string'
+      ? { provenance: { kind: 'HostIndependentProviderAttestation', hostAttestationId: attestation.attestationId } }
+      : {}),
+  });
+}
+
+/**
+ * Judge an answer, keep it, and discharge the debt only if it says yes — THE ONE DOWNSTREAM PATH for
+ * every acquisition route. Whichever route delivered `answer`, the same contract judges it, the same
+ * evidence is kept, the same durable ask is settled and the same record is written.
+ */
+function applyReconciliationAnswer(
+  sys: System,
+  root: string,
+  input: ReconciliationInput,
+  asked: AskedReconciliation,
+  deps: Pick<ReconciliationDeps, 'consumedDecisionIds' | 'recordDecisionEvidence'>,
+  answer: ReconciliationAnswer,
+): ReconciliationOutcome {
+  const { store, mirrorRecord, fromLedger, before, request, subjectCommit } = asked;
+  const requestId = request.requestId;
+  const sent = { record: answer.record, providerResponseId: answer.providerResponseId };
+  const ledgerEntry = answer.ledgerEntry;
+
   // THE QUESTION THAT WAS PUT, ready to be written down with whatever it settled.
   //
   // A call that happened and was not recorded is a call that can be made again, so this is written
@@ -1002,19 +1186,22 @@ export function reconcileDegradedWork(
       typeof sent.record.nextClaudeInstruction === 'string' ? sent.record.nextClaudeInstruction : null,
     ledgerEntry,
     providerResponseId: sent.providerResponseId,
-    definitelyNotSent: false,
+    definitelyNotSent: answer.neverSent === true,
     outstandingAfter: before.outstandingWorkIds,
   };
 
-  const problems = checkGatekeeperDecision(sent.record, {
-    projectId: input.projectId,
-    phaseId: input.phaseId,
-    subjectCommit,
-    requestDigest: gatekeeperRequestDigest(request),
-    expectedDecider: input.expectedDecider,
-    alreadyConsumedDecisionIds: deps.consumedDecisionIds,
-    ownerOnlyActions: input.ownerOnlyActions,
-  });
+  const problems = [
+    ...answer.routeProblems,
+    ...checkGatekeeperDecision(sent.record, {
+      projectId: input.projectId,
+      phaseId: input.phaseId,
+      subjectCommit,
+      requestDigest: gatekeeperRequestDigest(request),
+      expectedDecider: input.expectedDecider,
+      alreadyConsumedDecisionIds: deps.consumedDecisionIds,
+      ownerOnlyActions: input.ownerOnlyActions,
+    }),
+  ];
   if (problems.length > 0) {
     const settled = settleAsk(sys, input.durable.stateDir, ask, null);
     return outcome(
@@ -1040,7 +1227,7 @@ export function reconcileDegradedWork(
   // to prevent. A contradiction is the sharper case: two different answers for one question means the
   // runtime cannot know which it is acting on, so it refuses instead of choosing. The stored record
   // is left untouched, and does not become authority by being there.
-  const kept = deps.recordDecisionEvidence?.(sent.record);
+  const kept = deps.recordDecisionEvidence?.(sent.record, answer.provenance);
   if (kept !== undefined && kept !== 'written' && kept !== 'already-recorded') {
     const settled = settleAsk(sys, input.durable.stateDir, ask, null);
     return outcome(
@@ -1052,6 +1239,20 @@ export function reconcileDegradedWork(
         ...(settled.persisted
           ? []
           : [`the question could not be recorded either: ${settled.problem ?? 'unknown'}`]),
+      ],
+      shared,
+    );
+  }
+
+  // INTERACTIVE: SPENT BEFORE IT IS ACTED ON, so one relayed answer can never discharge twice.
+  const spent = answer.spend?.();
+  if (spent !== undefined && spent !== 'consumed') {
+    const settled = settleAsk(sys, input.durable.stateDir, ask, null);
+    return outcome(
+      'DECISION_REFUSED',
+      [
+        `the interactive decision was not applied: ${spent}`,
+        ...(settled.persisted ? [] : [`the question could not be recorded either: ${settled.problem ?? 'unknown'}`]),
       ],
       shared,
     );

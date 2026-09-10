@@ -39,7 +39,7 @@ import { createHash } from 'node:crypto';
 import { join, projectopsDir } from './context.js';
 import type { System } from './system.js';
 import { closureDecisionPath, closureDecisionRelPath } from './closureGate.js';
-import type { ClosureDecisionRecord } from '@projectos/core';
+import type { ClosureDecisionRecord, GatekeeperProvenance } from '@projectos/core';
 
 /**
  * `1.1.0` because the record gained `bundle`, and a `1.0.0` wait cannot be read as one.
@@ -139,6 +139,13 @@ export interface ClosureWaitRecord {
   readonly requestId: string;
   readonly requestDigest: string;
   readonly requestedAt: string;
+  /**
+   * How the closure decision was obtained, as the ROUTE that received it stated — the evidence class,
+   * never authority. Carried into the closing history note. Absent on waits written before hybrid
+   * routing, which read as unrecorded rather than as either class.
+   */
+  readonly provenance?: GatekeeperProvenance;
+  readonly hostAttestationId?: string;
   /** `WAITING_OWNER` until a closure consumes it, then `CLOSED`. Never authority; only truthfulness. */
   readonly state: 'WAITING_OWNER' | 'CLOSED';
   readonly resolvedAt?: string;

@@ -26,7 +26,11 @@ import { degradedStoreRelPath, readDegradedStore } from '../src/loop/degradedMod
 import { degradedGrantRelPath } from '../src/loop/degradedModeGrants.js';
 import { inMemoryResolverForTests, unprovisionedResolver } from '../src/loop/credentialResolver.js';
 import type { HttpPort, HttpResponse } from '../src/loop/transports/openaiResponses.js';
+import { GATEKEEPER_INTERACTIVE_REL, nodeInteractivePort } from '../src/loop/gatekeeperHandoff.js';
 import {
+  GATEKEEPER_DECISION_SCHEMA_VERSION,
+  HOST_VERDICT_FOR,
+  type HostReviewPort,
   DEGRADED_MODE_CHOICE,
   DEGRADED_MODE_SCHEMA_VERSION,
   RECONCILIATION_ASK,
@@ -1512,5 +1516,77 @@ describe('reconciliation records the decision before it acts on it', () => {
 
     expect(r.kind).not.toBe('RECONCILED');
     expect(kept).toHaveLength(0);
+  });
+});
+
+describe('hybrid routing: each route refuses what its own route must refuse, and the debt stands', () => {
+  it('UNATTENDED: an attestation that vouches for a different answer discharges nothing, and the provider is never called', () => {
+    const w = world();
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+    const host: HostReviewPort = {
+      review(call) {
+        return {
+          kind: 'attested',
+          record: {
+            ...verdict(RECONCILIATION_ACCEPTED_VERDICT),
+            schemaVersion: GATEKEEPER_DECISION_SCHEMA_VERSION,
+            decisionId: `GKDEC-${call.request.requestId}`,
+            projectId: PROJECT,
+            phaseId: PHASE,
+            subjectCommit: call.request.subjectCommit,
+            requestDigest: call.requestDigest,
+            decidedBy: 'ChatGPT',
+            decidedAt: '2026-08-20T16:00:05Z',
+          },
+          attestation: {
+            schemaVersion: 1,
+            attestationId: 'e'.repeat(64),
+            requestCorrelation: call.correlation,
+            providerResponseId: 'resp_host',
+            provider: 'fake-independent-provider',
+            model: 'fake-model',
+            // The attestation says the provider asked for changes; the record says proceed.
+            verdict: HOST_VERDICT_FOR.AMENDMENT_REQUIRED,
+            allowedActions: ['implement'],
+            ownerApprovalRequired: false,
+            costMicroUsd: 1_000,
+            attestedAtEpochS: 1_788_000_000,
+          },
+          usage: { inputTokens: 1_000, cachedInputTokens: 0, outputTokens: 100 },
+        };
+      },
+    };
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { http: fake.http, mode: 'unattended', hostReview: host }));
+    expect(r.kind).toBe('DECISION_REFUSED');
+    expect(r.reasons.join(' ')).toContain('which does not match the decision');
+    expect(fake.sent).toHaveLength(0);
+    expect(r.outstandingAfter).toEqual([WORK]);
+  });
+
+  it('INTERACTIVE: a relayed decision claiming Host provenance is refused and never spent', () => {
+    const w = world();
+    const dir = join(w.root, ...GATEKEEPER_INTERACTIVE_REL.split('/'));
+    const port = nodeInteractivePort(w.sys, w.root, {
+      waitMs: 60_000,
+      pollMs: 1_000,
+      sleep: () => {
+        const id = (readdirSync(dir).find((f) => f.endsWith('.request.json')) as string).slice(0, -'.request.json'.length);
+        const handoff = JSON.parse(readFileSync(join(dir, `${id}.request.json`), 'utf8')) as { decisionTemplate: Record<string, unknown> };
+        writeFileSync(
+          join(dir, `${id}.decision.json`),
+          JSON.stringify({
+            ...handoff.decisionTemplate,
+            ...verdict(RECONCILIATION_ACCEPTED_VERDICT),
+            decidedAt: '2026-08-20T16:00:05Z',
+            hostAttestation: { attestationId: 'e'.repeat(64) },
+          }),
+        );
+      },
+    });
+    const r = reconcileDegradedWork(w.sys, w.root, input(), { mode: 'interactive', interactive: port, consumedDecisionIds: [] });
+    expect(r.kind).toBe('DECISION_REFUSED');
+    expect(r.reasons.join(' ')).toContain("carries 'hostAttestation'");
+    expect(readdirSync(dir).some((f) => f.endsWith('.consumed.json'))).toBe(false);
+    expect(r.outstandingAfter).toEqual([WORK]);
   });
 });

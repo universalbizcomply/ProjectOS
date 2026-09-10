@@ -26,14 +26,26 @@ import {
 import type { System } from '../system.js';
 import { readCommittedJson } from '../planApproval.js';
 import { GATEKEEPER_CONFIG_REL } from './gatekeeperConfig.js';
-import type { InteractiveDecisionPort, InteractiveDecisionRead, InteractiveHandoff } from './interactiveGatekeeper.js';
+import type { InteractiveDecisionPort, InteractiveDecisionRead, InteractiveQuestion } from './interactiveGatekeeper.js';
 
 /** Where interactive questions and answers live. One flat directory, filenames derived from request ids. */
 export const GATEKEEPER_INTERACTIVE_REL = '.projectops/gatekeeper-interactive';
 
+/**
+ * Where an interactive CLOSURE question and its answer live: inside the closure wait directory.
+ *
+ * NOT BESIDE THE TECHNICAL QUESTIONS, for G4-13's reason. Closure is judged on a clean working tree, both
+ * when it is asked and when the owner's commit is resumed, so an untracked question or answer would
+ * refuse the very closure it served. `.projectops/closure/waits/` is already ignored for exactly that
+ * reason — it holds what was presented, never what decides — and the durable result of the exchange is
+ * the closure decision the owner commits, not these files.
+ */
+export const CLOSURE_INTERACTIVE_REL = '.projectops/closure/waits/interactive';
+
 /** The only filenames the interactive port reads or writes. A request id is derived, never supplied. */
 export const INTERACTIVE_RECORD_FILENAME = /^GKREQ-[0-9a-f]{24}\.(request|decision|consumed)\.json$/;
-const REQUEST_ID = /^GKREQ-[0-9a-f]{24}$/;
+/** A technical question (`GKREQ-`) or a closure question (`CLREQ-`). Both ids are derived, never supplied. */
+const REQUEST_ID = /^(GKREQ|CLREQ)-[0-9a-f]{24}$/;
 
 /** A supplied decision larger than this is not a decision; the Host inbox uses the same bound. */
 const MAX_DECISION_BYTES = 64 * 1024;
@@ -149,22 +161,25 @@ export function nodeInteractivePort(
     readonly pollMs?: number;
     readonly sleep?: (ms: number) => void;
     readonly onWaiting?: (where: { readonly request: string; readonly decision: string }) => void;
+    /** Which of the two fixed locations. A closed choice, never a caller-supplied path. */
+    readonly dir?: typeof GATEKEEPER_INTERACTIVE_REL | typeof CLOSURE_INTERACTIVE_REL;
   } = {},
 ): InteractiveDecisionPort {
-  const dir = join(root, ...GATEKEEPER_INTERACTIVE_REL.split('/'));
+  const rel = opts.dir ?? GATEKEEPER_INTERACTIVE_REL;
+  const dir = join(root, ...rel.split('/'));
   const pathOf = (requestId: string, kind: 'request' | 'decision' | 'consumed'): string | null =>
     REQUEST_ID.test(requestId) ? join(dir, `${requestId}.${kind}.json`) : null;
   const waitMs = Math.max(0, opts.waitMs ?? 0);
   const pollMs = Math.max(50, opts.pollMs ?? 5_000);
   const sleep = opts.sleep ?? blockFor;
   const locations = (requestId: string): { readonly request: string; readonly decision: string } => ({
-    request: `${GATEKEEPER_INTERACTIVE_REL}/${requestId}.request.json`,
-    decision: `${GATEKEEPER_INTERACTIVE_REL}/${requestId}.decision.json`,
+    request: `${rel}/${requestId}.request.json`,
+    decision: `${rel}/${requestId}.decision.json`,
   });
 
   return {
     locations,
-    publishRequest(handoff: InteractiveHandoff) {
+    publishRequest(handoff: InteractiveQuestion) {
       const path = pathOf(handoff.requestId, 'request');
       const answer = pathOf(handoff.requestId, 'decision');
       if (path === null || answer === null) return 'refused: the request id cannot safely become a record name';

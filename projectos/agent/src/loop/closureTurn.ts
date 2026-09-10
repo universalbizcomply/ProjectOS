@@ -67,7 +67,24 @@ import {
   type ModelPolicy,
   type RateCard,
   type TransportAvailability,
+  CLOSURE_DECISION_SCHEMA_VERSION,
+  CLOSURE_RESPONSE_DECISIONS,
+  checkHostClosureAttestation,
+  hostCorrelationFor,
+  provenanceClaimsIn,
+  type ClosureResponseExpectations,
+  type DecisionProvenanceStamp,
+  type GatekeeperProvenance,
+  type HostAttestationSummary,
+  type HostClosureReviewOutcome,
+  type HostClosureReviewPort,
 } from '@projectos/core';
+import {
+  awaitInteractiveAnswer,
+  INTERACTIVE_HANDOFF_SCHEMA_VERSION,
+  type InteractiveDecisionPort,
+  type InteractiveQuestion,
+} from './interactiveGatekeeper.js';
 import type { CredentialResolver } from './credentialResolver.js';
 import type { BrokeredTransport } from './transports/brokeredHttpPort.js';
 import { GATEKEEPER_OUTPUT_TOKEN_LIMIT, gatekeeperOutputAnomaly, type HttpPort } from './transports/openaiResponses.js';
@@ -127,6 +144,37 @@ export interface ClosureTurnDeps {
   readonly rehearsalOnly?: boolean;
   /** A rehearsal authority, used INSTEAD of the network when the route is a rehearsal one. */
   readonly rehearsalReviewer?: (request: ClosureRequest, evidenceText: string) => ClosureTransportOutcome;
+  /**
+   * UNATTENDED MODE (hybrid routing). The closure question goes ONLY to ProjectOSHost, which asks the
+   * independent provider and attests what it returned. With no Host closure route composed the turn
+   * waits: it never falls back to the in-process provider call, to an interactive answer, or to the
+   * implementer. Absent only for the pre-hybrid composition the unit tests use; `closure request`
+   * always states a mode.
+   */
+  readonly mode?: 'unattended';
+  readonly hostReview?: HostClosureReviewPort;
+}
+
+/**
+ * INTERACTIVE MODE: the owner carries the closure question to the ChatGPT closure authority and its bound
+ * answer is handed back through the same port a stopped loop uses. No transport, price or credential.
+ */
+export interface InteractiveClosureDeps {
+  readonly mode: 'interactive';
+  readonly interactive: InteractiveDecisionPort;
+  /** Closure decision ids already consumed for this phase, so a replayed answer is refused. */
+  readonly consumedDecisionIds: readonly string[];
+}
+
+/** The closure question, written down for the owner to carry to the ChatGPT closure authority. */
+export interface InteractiveClosureHandoff extends InteractiveQuestion {
+  readonly handoffKind: 'interactive-closure-request';
+  readonly instructions: readonly string[];
+  readonly request: ClosureRequest;
+  readonly requestDigest: string;
+  /** The binding fields the answer must carry verbatim, and the fields the authority fills in. */
+  readonly decisionTemplate: Readonly<Record<string, unknown>>;
+  readonly evidenceText: string;
 }
 
 export type ClosureTurnOutcome =
@@ -138,6 +186,8 @@ export type ClosureTurnOutcome =
   | 'ANSWER_REFUSED'
   /** No answer came back. The owner's three choices apply, exactly as on the technical route. */
   | 'UNAVAILABLE'
+  /** Interactive: the question is written down and the ChatGPT closure authority has not answered it. */
+  | 'AWAITING_GATEKEEPER'
   /** The turn stopped before anything was sent. */
   | 'NOT_SENT';
 
@@ -163,7 +213,60 @@ export interface ClosureTurnResult {
   readonly ownerChoices: readonly string[] | null;
   readonly unavailabilityCause: GatekeeperUnavailabilityCause | null;
   readonly providerResponseId: string | null;
+  /**
+   * The evidence class of an ACCEPTED answer, stamped by the route that obtained it — never read from
+   * the answer. Absent whenever no answer was accepted, and for the pre-hybrid composition.
+   */
+  readonly provenance?: GatekeeperProvenance;
+  readonly hostAttestationId?: string;
 }
+
+/**
+ * The closure request for this exact question — THE ONE DERIVATION both acquisition paths share, so an
+ * interactive and an unattended closure ask the same question under the same deterministic id.
+ */
+export function formClosureRequest(input: ClosureTurnInput): ClosureRequest {
+  const evidenceDigest = closureEvidenceDigest(input.evidenceText);
+  return {
+    schemaVersion: CLOSURE_REQUEST_SCHEMA_VERSION,
+    requestId: deriveClosureRequestId({
+      projectId: input.projectId,
+      phaseId: input.phaseId,
+      subjectHead: input.subjectHead,
+      evidenceDigest,
+    }),
+    projectId: input.projectId,
+    phaseId: input.phaseId,
+    subjectHead: input.subjectHead,
+    evidenceDigest,
+    expectedDecider: input.expectedDecider,
+    scope: PHASE_CLOSURE_SCOPE,
+  };
+}
+
+/** What every closure answer is judged against, whichever route delivered it. */
+function closureExpectations(
+  input: ClosureTurnInput,
+  request: ClosureRequest,
+  consumedDecisionIds: readonly string[],
+): ClosureResponseExpectations {
+  return {
+    projectId: input.projectId,
+    phaseId: input.phaseId,
+    scope: PHASE_CLOSURE_SCOPE,
+    expectedDecider: input.expectedDecider,
+    evidenceSubjectHead: input.subjectHead,
+    requestDigest: closureRequestDigest(request),
+    alreadyConsumedDecisionIds: consumedDecisionIds,
+    owner: input.owner,
+    unresolvedHighIds: input.unresolvedHighIds,
+  };
+}
+
+const NO_DELEGATE = [
+  'the active approved plan records no closure delegate, so there is nobody this project may ask',
+  'closure remains the owner\'s; record a governance.closureDelegation, or close through the owner',
+];
 
 function stopped(
   outcome: ClosureTurnOutcome,
@@ -227,32 +330,14 @@ function unavailable(
 export function takeClosureTurn(input: ClosureTurnInput, deps: ClosureTurnDeps): ClosureTurnResult {
   const lines: string[] = [];
 
-  // 1. IDENTIFY THE REQUEST DETERMINISTICALLY.
-  const evidenceDigest = closureEvidenceDigest(input.evidenceText);
-  const request: ClosureRequest = {
-    schemaVersion: CLOSURE_REQUEST_SCHEMA_VERSION,
-    requestId: deriveClosureRequestId({
-      projectId: input.projectId,
-      phaseId: input.phaseId,
-      subjectHead: input.subjectHead,
-      evidenceDigest,
-    }),
-    projectId: input.projectId,
-    phaseId: input.phaseId,
-    subjectHead: input.subjectHead,
-    evidenceDigest,
-    expectedDecider: input.expectedDecider,
-    scope: PHASE_CLOSURE_SCOPE,
-  };
+  // 1. IDENTIFY THE REQUEST DETERMINISTICALLY — through the one derivation both modes share.
+  const request = formClosureRequest(input);
   lines.push(`closure request ${request.requestId} (${CLOSURE_ASK}) for ${input.phaseId} at ${input.subjectHead.slice(0, 7)}`);
 
   // A CLOSURE QUESTION WITH NO AUTHORITY TO ASK IS NOT ASKED. Without a delegate every answer would
   // be refused by `checkClosureResponse` anyway — this simply refuses before spending to find out.
   if (input.expectedDecider.trim() === '') {
-    return stopped('NOT_SENT', lines, request, [
-      'the active approved plan records no closure delegate, so there is nobody this project may ask',
-      'closure remains the owner\'s; record a governance.closureDelegation, or close through the owner',
-    ]);
+    return stopped('NOT_SENT', lines, request, NO_DELEGATE);
   }
 
   // 2. ISOLATION BEFORE TRANSPORT.
@@ -279,6 +364,19 @@ export function takeClosureTurn(input: ClosureTurnInput, deps: ClosureTurnDeps):
     return unavailable(lines, request, selection.cause, selection.reasons);
   }
   const transport = selection.transport;
+
+  // UNATTENDED MEANS HOST-ATTESTED, OR NOTHING. Checked before any price is computed or any estimate
+  // reserved, so a project whose Host closure route is not composed spends and records nothing — and in
+  // this mode nothing below can reach the in-process provider call.
+  const hostClosure = deps.mode === 'unattended' ? deps.hostReview : undefined;
+  if (deps.mode === 'unattended' && hostClosure === undefined) {
+    return unavailable(lines, request, 'TRANSPORT_NOT_CONFIGURED', [
+      'this project is in UNATTENDED gatekeeper mode, whose closure answers come only through the ProjectOS ' +
+        'Host attestation route, and no Host closure review route is composed',
+      'no provider was called and no other route was tried: unattended mode never falls back to an ' +
+        'in-process provider call, to an interactive answer, or to the implementer',
+    ]);
+  }
 
   const model = modelForAsk(CLOSURE_ASK, deps.modelPolicy);
   const rate = deps.rateCards[model];
@@ -377,9 +475,19 @@ export function takeClosureTurn(input: ClosureTurnInput, deps: ClosureTurnDeps):
     ]);
   }
 
-  // 5. THE CALL.
+  // 5. THE CALL. In unattended mode it goes to the Host and nowhere else.
+  const hosted =
+    hostClosure?.reviewClosure({
+      request,
+      requestDigest: closureRequestDigest(request),
+      correlation: hostCorrelationFor(request.requestId),
+      body: requestBody,
+    }) ?? null;
+  const attestation: HostAttestationSummary | null = hosted !== null && hosted.kind === 'attested' ? hosted.attestation : null;
   const outcome =
-    deps.rehearsalOnly === true && deps.rehearsalReviewer !== undefined
+    hosted !== null
+      ? closureFromHost(hosted)
+      : deps.rehearsalOnly === true && deps.rehearsalReviewer !== undefined
       ? deps.rehearsalReviewer(request, input.evidenceText)
       : submitClosureRequest(
           request,
@@ -441,19 +549,25 @@ export function takeClosureTurn(input: ClosureTurnInput, deps: ClosureTurnDeps):
 
   // 6. CHECK THE ANSWER BEFORE ANYTHING IS WRITTEN.
   const record: ClosureResponseRecord = outcome.record;
-  const checked = checkClosureResponse(record, {
-    projectId: input.projectId,
-    phaseId: input.phaseId,
-    scope: PHASE_CLOSURE_SCOPE,
-    expectedDecider: input.expectedDecider,
-    evidenceSubjectHead: input.subjectHead,
-    requestDigest: closureRequestDigest(request),
-    alreadyConsumedDecisionIds: deps.consumedDecisionIds,
-    owner: input.owner,
-    unresolvedHighIds: input.unresolvedHighIds,
-  });
-  const problems = anomaly === null ? checked : [anomaly, ...checked];
+  const checked = checkClosureResponse(record, closureExpectations(input, request, deps.consumedDecisionIds));
+  // UNATTENDED: the Host's attestation must vouch for THIS answer, or the answer is not written.
+  const attestationProblems =
+    deps.mode === 'unattended' ? checkHostClosureAttestation(attestation, { requestId: request.requestId, record }) : [];
+  const checkedWithAnomaly = anomaly === null ? checked : [anomaly, ...checked];
+  const problems = [...checkedWithAnomaly, ...attestationProblems];
   const answered = typeof record.decision === 'string' ? record.decision : null;
+  // The route's own statement of how this answer was obtained. Never read from the answer.
+  const stamp: DecisionProvenanceStamp | undefined =
+    deps.mode === 'unattended' && attestation !== null && typeof attestation.attestationId === 'string'
+      ? { kind: 'HostIndependentProviderAttestation', hostAttestationId: attestation.attestationId }
+      : undefined;
+  const provenance =
+    stamp === undefined
+      ? {}
+      : {
+          provenance: stamp.kind,
+          ...(stamp.hostAttestationId === undefined ? {} : { hostAttestationId: stamp.hostAttestationId }),
+        };
 
   if (problems.length > 0) {
     return {
@@ -485,6 +599,7 @@ export function takeClosureTurn(input: ClosureTurnInput, deps: ClosureTurnDeps):
       ownerChoices: null,
       unavailabilityCause: null,
       providerResponseId: outcome.providerResponseId,
+      ...provenance,
     };
   }
 
@@ -502,5 +617,145 @@ export function takeClosureTurn(input: ClosureTurnInput, deps: ClosureTurnDeps):
     ownerChoices: null,
     unavailabilityCause: null,
     providerResponseId: outcome.providerResponseId,
+    ...provenance,
+  };
+}
+
+/** The Host's closure answer in the shape the rest of the turn already judges. The attestation is kept apart. */
+function closureFromHost(hosted: HostClosureReviewOutcome): ClosureTransportOutcome {
+  if (hosted.kind === 'unavailable') {
+    return { kind: 'unavailable', cause: hosted.cause, reasons: hosted.reasons, spendLimited: hosted.cause === 'PROVIDER_SPEND_LIMITED' };
+  }
+  const responseId = hosted.attestation.providerResponseId;
+  return {
+    kind: 'response',
+    record: hosted.record,
+    providerResponseId: typeof responseId === 'string' ? responseId : null,
+    usage: hosted.usage,
+  };
+}
+
+/**
+ * The decision id an interactive closure answer must carry. Derived from the request id, so an answer
+ * written for one closure question is refused as the answer to any other.
+ */
+export function interactiveClosureDecisionId(requestId: string): string {
+  return `CLDEC-${requestId.replace(/^CLREQ-/, '')}`;
+}
+
+function closureHandoff(
+  input: ClosureTurnInput,
+  request: ClosureRequest,
+  requestDigest: string,
+  decisionId: string,
+): InteractiveClosureHandoff {
+  return {
+    schemaVersion: INTERACTIVE_HANDOFF_SCHEMA_VERSION,
+    handoffKind: 'interactive-closure-request',
+    instructions: [
+      'Give this closure request, including evidenceText, to the ChatGPT closure authority.',
+      'Its answer is the decisionTemplate with decision, note and decidedAt filled in, and every other field unchanged.',
+      `decision must be one of: ${CLOSURE_RESPONSE_DECISIONS.join(', ')}.`,
+      "ownerAcceptedFindings stays an empty list: accepting a residual HIGH is the owner's act, never the closure authority's.",
+      'A "close" answer closes nothing by itself: ProjectOS writes it for the owner to read and commit.',
+      'Save the answer as JSON at the decision path ProjectOS reported while the request is still waiting.',
+    ],
+    requestId: request.requestId,
+    request,
+    requestDigest,
+    decisionTemplate: {
+      schemaVersion: CLOSURE_DECISION_SCHEMA_VERSION,
+      decisionId,
+      projectId: request.projectId,
+      phaseId: request.phaseId,
+      scope: request.scope,
+      decidedBy: input.expectedDecider,
+      evidenceSubjectHead: input.subjectHead,
+      requestDigest,
+      decision: null,
+      note: null,
+      decidedAt: null,
+      ownerAcceptedFindings: [],
+    },
+    evidenceText: input.evidenceText,
+  };
+}
+
+/**
+ * Ask the ChatGPT closure authority through the owner, and judge its answer — the INTERACTIVE closure.
+ *
+ * THE SAME QUESTION AND THE SAME CONTRACT AS THE UNATTENDED TURN. The request comes from
+ * `formClosureRequest` and the answer is judged by `checkClosureResponse` against the same runtime
+ * expectations; only the acquisition differs, and it is the same port a stopped loop uses. Nothing is
+ * priced, reserved or sent to any provider.
+ *
+ * AND IT PRODUCES NO AUTHORITY, exactly as the unattended turn does not: a `DECIDED_CLOSE` result is a
+ * record to write for the OWNER to read and commit. The owner's commit, `checkClosureDecision` and G4
+ * still stand between it and a closed phase.
+ */
+export function takeInteractiveClosureTurn(input: ClosureTurnInput, deps: InteractiveClosureDeps): ClosureTurnResult {
+  const request = formClosureRequest(input);
+  const lines: string[] = [
+    `interactive closure request ${request.requestId} (${CLOSURE_ASK}) for ${input.phaseId} at ${input.subjectHead.slice(0, 7)}`,
+  ];
+  if (input.expectedDecider.trim() === '') return stopped('NOT_SENT', lines, request, NO_DELEGATE);
+
+  const requestDigest = closureRequestDigest(request);
+  const decisionId = interactiveClosureDecisionId(request.requestId);
+  const answer = awaitInteractiveAnswer(
+    deps.interactive,
+    closureHandoff(input, request, requestDigest, decisionId),
+    'this closure',
+    `projectos closure request --id ${input.phaseId} --execute --gate-wait-minutes <n>`,
+  );
+  if (answer.kind === 'stop') {
+    const outcome: ClosureTurnOutcome =
+      answer.cause === 'waiting' ? 'AWAITING_GATEKEEPER' : answer.cause === 'unreadable' ? 'ANSWER_REFUSED' : 'NOT_SENT';
+    return stopped(outcome, answer.line === null ? lines : [...lines, answer.line], request, answer.reasons);
+  }
+
+  // A PROVENANCE CLAIM, THE WRONG DECISION ID, OR ANYTHING THE CLOSURE CONTRACT REFUSES.
+  const record = answer.record as unknown as ClosureResponseRecord;
+  const problems: string[] = [
+    ...provenanceClaimsIn(record).map(
+      (field) =>
+        `the supplied closure answer carries '${field}'; how an answer was obtained is recorded by the route ` +
+        'that received it, and an interactive answer can never be presented as Host-attested evidence',
+    ),
+    ...(record.decisionId === decisionId
+      ? []
+      : [`the supplied closure answer is ${JSON.stringify(record.decisionId)}, but this question's decision is '${decisionId}'`]),
+    ...checkClosureResponse(record, closureExpectations(input, request, deps.consumedDecisionIds)),
+  ];
+  const answered = typeof record.decision === 'string' ? record.decision : null;
+  if (problems.length > 0) {
+    return {
+      ...stopped('ANSWER_REFUSED', [...lines, 'the interactive closure answer did not pass its checks, so NOTHING was written'], request, problems),
+      answered,
+    };
+  }
+
+  // SPENT BEFORE IT IS WRITTEN FOR THE OWNER, so one answer can never be presented twice.
+  const spent = deps.interactive.consumeDecision(request.requestId);
+  if (spent !== 'consumed') {
+    return stopped('ANSWER_REFUSED', lines, request, [`the interactive closure answer was not used: ${spent}`]);
+  }
+  const accepted = { answered, request, ledgerEntry: null, ownerChoices: null, unavailabilityCause: null, providerResponseId: null, problems: [], provenance: 'InteractiveGatekeeperDecision' as const };
+  if (answered !== 'close') {
+    return {
+      ...accepted,
+      outcome: 'DECIDED_NOT_CLOSE',
+      decision: null,
+      lines: [...lines, `the closure authority answered '${answered}', so no closure decision was written`],
+    };
+  }
+  return {
+    ...accepted,
+    outcome: 'DECIDED_CLOSE',
+    decision: closureDecisionRecordFrom(record),
+    lines: [
+      ...lines,
+      `the closure authority decided to close ${input.phaseId} at ${input.subjectHead.slice(0, 7)} (InteractiveGatekeeperDecision)`,
+    ],
   };
 }
