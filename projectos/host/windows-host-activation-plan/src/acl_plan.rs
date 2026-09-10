@@ -206,13 +206,22 @@ impl AclCompositionPlan {
                 rights: RightsClass::Read,
             });
         }
-        // NTFS OWNERSHIP IS SYSTEM, NOT THE SERVICE. An owner holds implicit `WRITE_DAC`, so a
-        // service-owned ancestor could re-secure itself, grant itself `DELETE_CHILD`, and then
-        // delete or replace the canonical authority record beneath it — bypassing that record's
-        // own protected DACL entirely. This ONE expression governs every ProjectOS-managed
-        // ancestor of the record (`ProjectOS`, `host`, `installation`), so correcting it here
-        // closes the substitution route at every level. The DACL is untouched: `allowed` still
-        // carries exactly the rights it always did.
+        // NTFS OWNERSHIP IS SYSTEM, NOT THE SERVICE. An owner holds implicit `READ_CONTROL` and
+        // `WRITE_DAC` whatever the DACL says, so a service-owned directory would carry authority no
+        // reviewed ACE states. SYSTEM ownership removes that IMPLICIT owner authority from the
+        // service and makes the reviewed DACL the complete, explicit statement of what the service
+        // may do; the accepted production policy requires it.
+        //
+        // It does NOT take away what the service's EXPLICIT `FullControl` ACE above grants:
+        // `WRITE_DAC`, `WRITE_OWNER`, `DELETE` and `FILE_DELETE_CHILD`. Under this policy the
+        // service can still re-secure these directories and delete or replace what is beneath them
+        // through that grant. The protection this ownership supports is against ORDINARY
+        // NON-PRIVILEGED LOCAL ACCOUNTS — not against ProjectOSHost itself, Administrators, SYSTEM,
+        // kernel compromise or offline disk modification.
+        //
+        // This ONE expression governs every ProjectOS-managed ancestor of the record (`ProjectOS`,
+        // `host`, `installation`). The DACL is untouched: `allowed` still carries exactly the rights
+        // it always did.
         AclCompositionOutcome::Composed(AclPolicy::strict(AclPrincipal::LocalSystem, allowed))
     }
 
@@ -220,14 +229,16 @@ impl AclCompositionPlan {
     ///
     /// CD-B4-PROJECTOSHOST-FUNCTIONAL-PILOT1A (post-freeze installer correction).
     ///
-    /// Two things differ from the directory policy, and only these two:
+    /// One thing differs from the directory policy, and only this one: the service principal gets
+    /// [`RightsClass::Read`], NOT full control. The service only ever reads its own identity record,
+    /// so the record's own DACL grants it no right to write, append, delete, re-DAC or take ownership
+    /// of the thing that proves who it is.
     ///
-    /// 1. the service principal gets [`RightsClass::Read`], NOT full control. The service only ever
-    ///    reads its own identity record, so it must not be able to write, append, delete, re-DAC or
-    ///    take ownership of the thing that proves who it is;
-    /// 2. the expected owner is the INSTALLING account, not the service. An owner holds implicit
-    ///    `WRITE_DAC`, so making the service the owner would hand back exactly the authority point 1
-    ///    withholds. The existing owner is preserved rather than a new ownership policy invented.
+    /// The expected owner is `NT AUTHORITY\SYSTEM` — the same as the directory policy's — and NOT the
+    /// installing account. An owner holds implicit `WRITE_DAC`, so a service owner would hand back
+    /// exactly the authority the read-only grant withholds, and an installing-account owner would
+    /// keep that same implicit authority with a user. An earlier version of this policy preserved the
+    /// installing account as owner; the executable policy below does not.
     ///
     /// Everything else is the same closed `AclPolicy::strict`: protected DACL, no inherited ACEs, no
     /// unknown principals, no deny ACEs, no broad principal with any access.
