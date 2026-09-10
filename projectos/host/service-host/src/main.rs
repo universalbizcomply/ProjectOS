@@ -5,11 +5,20 @@
 //! A genuine SCM-compatible service: it registers a dispatcher and a control handler, publishes the
 //! four required states, and runs an inert loop until the SCM asks it to stop.
 //!
+//! ## What it does at start — RUN-TO-COMPLETION HOST ATTESTATION §10H
+//!
+//! Before it reports Running it activates the Host's durable state through the ONE production route
+//! ([`host_state`]): the Host state root is resolved from the approved Known Folder anchor, its
+//! protected boundary is verified live against the accepted production ACL policy, and only then are
+//! the durable delegation and replay stores opened beneath it — laying out their leaf directories on
+//! first use. Any refusal stops the service with a service-specific error; there is no mode that runs
+//! without that state. While running it serves the read-only installed-host status (`serve`).
+//!
 //! ## What it deliberately does not do
 //!
-//! It performs no protected effect of any kind: no file, registry, network, IPC or ProgramData access,
-//! no ACL, no SID resolution, no key provisioning, no authority acquisition, no service creation and no
-//! UI. Installing and starting it is the installer's job and remains gated behind
+//! No registry write, no network, no ACL or ownership change, no key provisioning, no service
+//! creation and no UI, and no path, argument or environment variable is taken as an authority.
+//! Installing and starting it is the installer's job and remains gated behind
 //! `InstallationEffectAuthority`, which is still `NotAuthorised`.
 //!
 //! ## Console mode
@@ -24,6 +33,8 @@
 
 use projectos_host_windows_service_installation_contract::contract::InstallationEffectAuthority;
 
+#[cfg(windows)]
+pub mod host_state;
 pub mod lifecycle;
 #[cfg(windows)]
 pub mod scm;
@@ -40,6 +51,10 @@ pub const SERVICE_NAME: &str = "ProjectOSHost";
 const EXIT_CLEAN_STOP: u8 = 0;
 /// The process was not started by the SCM. Non-zero on purpose: no caller may read success into it.
 const EXIT_NOT_A_SERVICE: u8 = 2;
+/// The service ran under the SCM and refused to serve, because the Host's durable state could not be
+/// activated. Distinct from not being a service at all.
+#[cfg(windows)]
+const EXIT_HOST_STATE_REFUSED: u8 = 3;
 
 fn main() -> std::process::ExitCode {
     #[cfg(windows)]
@@ -49,6 +64,14 @@ fn main() -> std::process::ExitCode {
                 // The dispatcher returns only after the service has stopped.
                 println!("{SERVICE_NAME}: stopped");
                 std::process::ExitCode::from(EXIT_CLEAN_STOP)
+            }
+            Err(scm::ScmError::HostStateRefused) => {
+                // It DID run under the SCM, and stopped rather than serve without its durable state.
+                // The SCM holds the service-specific code naming which link refused.
+                println!(
+                    "{SERVICE_NAME}: refused to serve: the Host durable state was not activated"
+                );
+                std::process::ExitCode::from(EXIT_HOST_STATE_REFUSED)
             }
             Err(e) => {
                 // The expected interactive outcome. Report it plainly rather than pretending to run.

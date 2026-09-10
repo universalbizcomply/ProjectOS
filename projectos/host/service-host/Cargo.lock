@@ -149,6 +149,8 @@ name = "projectos-host-trusted-roots"
 version = "0.0.0"
 dependencies = [
  "projectos-host-identity",
+ "projectos-host-windows-acl-policy",
+ "projectos-host-windows-activation-plan",
  "projectos-host-windows-root-custody",
  "projectos-project-registry",
  "projectos-windows-runtime-primitives",

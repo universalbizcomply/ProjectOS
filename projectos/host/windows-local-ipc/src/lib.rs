@@ -417,6 +417,11 @@ mod protocol;
 mod security;
 mod verification;
 
+// RUN-TO-COMPLETION HOST ATTESTATION §10H. The one production route from a running Host to its
+// durable state. Windows-only because the trusted Host state root and its boundary verifier are.
+#[cfg(windows)]
+mod host_state_activation;
+
 // The live Windows named-pipe backend — the ONLY module with unsafe. Compiled only under the feature.
 #[cfg(all(windows, feature = "windows-live-ipc"))]
 mod windows_ffi;
@@ -652,13 +657,14 @@ pub use owner_programme_delegation::DurableDelegationStateStore;
 // Completed are TERMINAL and survive restart; every unknown, unreadable, mis-schema'd, unknown-state
 // or mis-filed record answers None, which is a refusal.
 //
-// IT IS STILL UNREACHABLE IN A DEFAULT BUILD, and deliberately so. Opening it requires a
-// `HostOwnedDelegationStateRoot`, and §10E moved where that stops rather than removing the stop: the
-// root is now RESOLVED for real - the approved Known Folder anchor, the frozen installation
-// segments, a reparse-checked walk of every level, handle-owned custody - but minting the capability
-// needs an ACTIVATED root, and the boundary acceptance that activates one has no production mint
-// until the ProgramData ACL is accepted. The lifecycle mutation engine is `pub(crate)` and has no
-// production caller, so nothing in the workspace can record a state.
+// IN A GRAPH WITHOUT THE NON-DEFAULT `test-fixtures` FEATURE, IT IS REACHED ONLY THROUGH THE WHOLE
+// ACTIVATION CHAIN. Opening it requires a `HostOwnedDelegationStateRoot`, and the only constructor
+// outside that fixture graph takes an `ActivatedHostStateRoot`: a root RESOLVED from the approved
+// Known Folder anchor and the frozen installation segments (§10E) whose protected boundary was then
+// VERIFIED live against the accepted production ACL policy (§10F). `activate_installed_host_state`
+// below (§10H) is the one production caller of that chain, and `val-host-state-activation-wiring-10h`
+// refuses a second one or a fixture root in any production source. The lifecycle mutation engine is
+// `pub(crate)` and has no production caller, so nothing in the workspace can record a state.
 pub use owner_programme_delegation::durable_store::{
     DelegationStoreRefusal, DurableDelegationStateFileStore, HostOwnedDelegationStateRoot,
     DELEGATION_STATE_RELATIVE_ROOT, MAX_DELEGATION_RECORDS, MAX_DELEGATION_RECORD_BYTES,
@@ -684,13 +690,12 @@ pub use owner_programme_delegation::FixtureDurableDelegationStateStore;
 // private supertrait, so exporting the name lets a caller NAME a ledger and never implement one. A
 // downstream ledger that always answered "fresh" would be the whole attack.
 //
-// IT IS STILL UNREACHABLE IN A DEFAULT BUILD, for the reason §10B's store is: opening it requires a
-// `HostOwnedRequestReplayRoot`, and §10E supplied the RESOLUTION of the Host state root without
-// supplying the ACTIVATION - the boundary acceptance an activated root needs has no production mint
-// until the ProgramData ACL is accepted. A fresh directory is a perfect replay oracle, which is
-// exactly why the path is not, and never becomes, a caller's to choose. So a default build
-// constructs no root, opens no store, supplies no ledger, and `compose_protected_operation`
-// refuses.
+// IN A GRAPH WITHOUT THE NON-DEFAULT `test-fixtures` FEATURE, IT IS REACHED ONLY THROUGH THE WHOLE
+// ACTIVATION CHAIN, for the reason §10B's store is: opening it requires a
+// `HostOwnedRequestReplayRoot`, whose only non-fixture constructor takes an `ActivatedHostStateRoot`
+// - resolved (§10E) and boundary-verified (§10F) - and `activate_installed_host_state` below (§10H)
+// is the one production caller of that chain. A fresh directory is a perfect replay oracle, which
+// is exactly why the path is not, and never becomes, a caller's to choose.
 pub use operation_contract::request_replay::durable_store::{
     DurableRequestReplayFileStore, HostOwnedRequestReplayRoot, MAX_REPLAY_RECORDS,
     MAX_REPLAY_RECORD_BYTES, REQUEST_REPLAY_RELATIVE_ROOT,
@@ -705,6 +710,22 @@ pub use operation_contract::request_replay::{
 /// remember.
 #[cfg(feature = "test-fixtures")]
 pub use operation_contract::request_replay::FixtureRequestReplayLedger;
+
+// RUN-TO-COMPLETION HOST ATTESTATION §10H — THE PRODUCTION ACTIVATION ROUTE.
+//
+// `activate_installed_host_state` is the ONLY production caller of the chain that opens the two
+// stores above: resolve the Host state root from the approved Known Folder anchor, verify its
+// protected boundary live against the accepted production policy (§10F), activate it, hand it to
+// both store roots, open both stores. It takes no argument, so no caller can choose the anchor, the
+// verifier, the root or a store; and `ActivatedHostDurableState` has private fields and no public
+// constructor. The two trusted-roots refusal types are re-exported because
+// `HostStateActivationRefusal` carries them and a caller must be able to name one.
+#[cfg(windows)]
+pub use host_state_activation::{
+    activate_installed_host_state, ActivatedHostDurableState, HostStateActivationRefusal,
+};
+#[cfg(windows)]
+pub use projectos_host_trusted_roots::{BoundaryRefusal, TrustedRootRefusal};
 
 // THE DURABLE OWNER PROGRAMME DELEGATION — the record the owner signs once and the host verifies
 // while the owner is away. This is the production provenance for

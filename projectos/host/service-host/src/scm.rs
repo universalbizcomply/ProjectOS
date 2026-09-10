@@ -2,13 +2,16 @@
 //!
 //! This is the ONLY module in the crate permitted to use `unsafe`, and it holds exactly three Windows
 //! calls: register the dispatcher, register the control handler, and report status. It creates no
-//! service, opens no SCM handle for management, touches no registry, ACL, ProgramData or SID, and
-//! performs no protected effect. Installing this service remains the installer's job, gated elsewhere.
+//! service and opens no SCM handle for management, and its own code touches no registry, ACL, SID
+//! or file. The one start-up effect it drives — activating the Host's durable state (§10H) — is
+//! delegated whole to [`crate::host_state`], and a refusal there stops the service before it ever
+//! reports Running. Installing this service remains the installer's job, gated elsewhere.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::OnceLock;
 
 use windows::core::PCWSTR;
+use windows::Win32::Foundation::ERROR_SERVICE_SPECIFIC_ERROR;
 use windows::Win32::System::Services::{
     RegisterServiceCtrlHandlerExW, SetServiceStatus, StartServiceCtrlDispatcherW,
     SERVICE_ACCEPT_SHUTDOWN, SERVICE_ACCEPT_STOP, SERVICE_CONTROL_SHUTDOWN, SERVICE_CONTROL_STOP,
@@ -26,6 +29,9 @@ pub enum ScmError {
     DispatcherRefused,
     /// The control handler could not be registered, so the SCM could never reach this process.
     HandlerRegistrationFailed,
+    /// The service ran under the SCM and refused to serve: the Host's durable state could not be
+    /// activated (§10H). The service-specific code the SCM recorded names which link refused.
+    HostStateRefused,
 }
 
 /// Set once the SCM hands us a status handle. `SERVICE_STATUS_HANDLE` is a plain handle value, so it
@@ -39,6 +45,12 @@ static STOP_SIGNALLED: AtomicBool = AtomicBool::new(false);
 /// still returns success in that case, so without this flag an unreachable service would look like a
 /// clean run.
 static HANDLER_FAILED: AtomicBool = AtomicBool::new(false);
+
+/// Set by `service_main` to the refusal's service-specific code when the Host's durable state could
+/// not be activated. Zero means no refusal. Read when `Stopped` is published, so the SCM records a
+/// service-specific failure instead of a clean stop, and by `run_under_scm` for the same reason
+/// `HANDLER_FAILED` is: the dispatcher itself still returns success.
+static START_REFUSAL: AtomicU32 = AtomicU32::new(0);
 
 /// The AUTHORITATIVE status sink: it holds the SCM's status handle.
 ///
@@ -65,13 +77,23 @@ impl StatusSink for ScmStatusReporter {
             ServiceRunState::Stopped => (SERVICE_STOPPED, 0, 0, 0),
         };
 
+        // A REFUSED START IS NOT A CLEAN STOP. When the Host's durable state could not be activated
+        // the final Stopped carries ERROR_SERVICE_SPECIFIC_ERROR and the refusal's code, so the SCM
+        // records that the Host refused rather than that it finished. Every other publication
+        // reports no error, and no code is invented.
+        let refusal = START_REFUSAL.load(Ordering::SeqCst);
+        let (win32_exit, specific_exit) = if state == ServiceRunState::Stopped && refusal != 0 {
+            (ERROR_SERVICE_SPECIFIC_ERROR.0, refusal)
+        } else {
+            (0, 0)
+        };
+
         let status = SERVICE_STATUS {
             dwServiceType: SERVICE_WIN32_OWN_PROCESS,
             dwCurrentState: current,
             dwControlsAccepted: accepted,
-            // A clean stop. No error is reported, and no service-specific code is invented.
-            dwWin32ExitCode: 0,
-            dwServiceSpecificExitCode: 0,
+            dwWin32ExitCode: win32_exit,
+            dwServiceSpecificExitCode: specific_exit,
             dwCheckPoint: checkpoint,
             dwWaitHint: wait_hint,
         };
@@ -159,9 +181,25 @@ unsafe extern "system" fn service_main(_argc: u32, _argv: *mut windows::core::PW
     let _ = STATUS_HANDLE.set(handle.0 as isize);
 
     let mut lifecycle = ServiceLifecycle::begin(ScmStatusReporter { handle });
+
+    // §10H. THE HOST'S DURABLE STATE, OR NOTHING. Resolved from the approved anchor, its protected
+    // boundary verified live, activated, and both durable stores opened — all BEFORE the service
+    // reports Running or serves anything. A refusal stops the service carrying the refusal's code;
+    // there is no degraded mode that runs without it, and no second route to it.
+    let host_state = match crate::host_state::activate_for_service() {
+        Ok(state) => state,
+        Err(code) => {
+            START_REFUSAL.store(code, Ordering::SeqCst);
+            let _ = lifecycle.request_stop();
+            let _ = lifecycle.stopped();
+            return;
+        }
+    };
+
     if lifecycle.running().is_err() {
         // Refuse rather than serve from an unexpected state.
         let _ = lifecycle.request_stop();
+        drop(host_state);
         let _ = lifecycle.stopped();
         return;
     }
@@ -179,6 +217,9 @@ unsafe extern "system" fn service_main(_argc: u32, _argv: *mut windows::core::PW
     // and must never wait on a pipe. The serve thread is detached from the stop decision.
     let _ = lifecycle.request_stop();
     drop(serving);
+    // The stores' single-writer locks are released BEFORE Stopped is published, so a restart the SCM
+    // begins on seeing Stopped never finds this instance still holding them.
+    drop(host_state);
     let _ = lifecycle.stopped();
 }
 
@@ -223,6 +264,11 @@ pub fn run_under_scm() -> Result<(), ScmError> {
         // The dispatcher succeeded, but the service may still have been unreachable.
         if HANDLER_FAILED.load(Ordering::SeqCst) {
             return Err(ScmError::HandlerRegistrationFailed);
+        }
+        // The dispatcher also returns success when the Host refused to start: the service DID run
+        // under the SCM, and stopped because its durable state could not be activated.
+        if START_REFUSAL.load(Ordering::SeqCst) != 0 {
+            return Err(ScmError::HostStateRefused);
         }
         Ok(())
     } else {
