@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-HYBRID-GATEKEEPER-ROUTING1A",
   "project": "ProjectOS",
   "objective": "Record the already-landed hybrid gatekeeper routing (interactive and unattended acquisition through one governed loop) so a governed phase record can exist for lifecycle reconciliation.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -59,6 +59,13 @@
       "by": "implementer",
       "at": "2026-09-11T19:55:34.098Z",
       "note": "awaiting the ChatGPT closure decision through the interactive closure route; historical implementation 57d7694, bounded test fix 74be4ea, G4 subject dac794c; the owner commits the decision"
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "advisor",
+      "at": "2026-09-11T21:02:33.473Z",
+      "note": "closed by the closure transport on the owner-committed record (InteractiveGatekeeperDecision) — closed by ChatGPT under the projectos-scoped phase-closure delegation, decision CLDEC-17b9e0cfb3fdb63d04b1a272"
     }
   ]
 }
