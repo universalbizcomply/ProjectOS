@@ -3,18 +3,19 @@
   "projectId": "projectos",
   "activePlanId": "plan-ef6f5cdbbcea85d9-25086397bd75",
   "activePlanVersion": "1.4",
-  "currentStatus": "IN EXECUTION",
+  "currentStatus": "PLAN READY",
   "completionMethod": "phase-closure",
-  "acceptedPhaseCount": 4,
+  "acceptedPhaseCount": 5,
   "totalPhaseCount": 6,
-  "completionPercentage": 66.7,
+  "completionPercentage": 83.3,
   "completedPhases": [
     "validation-cache",
     "doctor-preflight",
     "gatekeeper-replay",
+    "readiness-evidence",
     "PROJECTOS-HYBRID-GATEKEEPER-ROUTING1A"
   ],
-  "activePhase": "readiness-evidence",
+  "activePhase": null,
   "pendingPhases": [
     "PROJECTOS-HYBRID-CLOSURE-RECONCILE-ROUTING1A"
   ],
@@ -22,13 +23,13 @@
   "deferredPhases": [],
   "acceptedCarryForward": [],
   "currentBranch": "projectos-run-to-completion-host-attestation1a",
-  "currentHead": "108914b32e0f2555e1fbb02bd52fe94c6146a9ca",
+  "currentHead": "14ccfdc75d72c8c8877d3d05489e68b053420241",
   "currentRemoteHead": null,
   "workingTreeStatus": "dirty",
   "currentRisks": [],
   "currentBlockers": [],
   "lastEvidenceReference": "plan-approval decision PLANDEC-248531e50a846a685f487b96",
-  "nextRecommendedPhase": "readiness-evidence",
-  "lastUpdated": "2026-09-11T21:38:28.017Z",
-  "updatedByRole": "implementer"
+  "nextRecommendedPhase": "PROJECTOS-HYBRID-CLOSURE-RECONCILE-ROUTING1A",
+  "lastUpdated": "2026-09-11T21:40:17.945Z",
+  "updatedByRole": "owner"
 }
