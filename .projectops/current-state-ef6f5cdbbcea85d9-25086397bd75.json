@@ -3,17 +3,18 @@
   "projectId": "projectos",
   "activePlanId": "plan-ef6f5cdbbcea85d9-25086397bd75",
   "activePlanVersion": "1.4",
-  "currentStatus": "PLAN READY",
+  "currentStatus": "IN EXECUTION",
   "completionMethod": "phase-closure",
-  "acceptedPhaseCount": 0,
+  "acceptedPhaseCount": 3,
   "totalPhaseCount": 6,
-  "completionPercentage": 0,
-  "completedPhases": [],
-  "activePhase": null,
-  "pendingPhases": [
+  "completionPercentage": 50,
+  "completedPhases": [
     "validation-cache",
     "doctor-preflight",
-    "gatekeeper-replay",
+    "gatekeeper-replay"
+  ],
+  "activePhase": null,
+  "pendingPhases": [
     "readiness-evidence",
     "PROJECTOS-HYBRID-GATEKEEPER-ROUTING1A",
     "PROJECTOS-HYBRID-CLOSURE-RECONCILE-ROUTING1A"
@@ -22,13 +23,13 @@
   "deferredPhases": [],
   "acceptedCarryForward": [],
   "currentBranch": "projectos-run-to-completion-host-attestation1a",
-  "currentHead": "4b1d62600127301b7e329e4cdea76b5c2e97de5f",
+  "currentHead": "eaac64ccec32488d51ac212e8aa7904c0c64aa97",
   "currentRemoteHead": null,
   "workingTreeStatus": "dirty",
   "currentRisks": [],
   "currentBlockers": [],
   "lastEvidenceReference": "plan-approval decision PLANDEC-248531e50a846a685f487b96",
-  "nextRecommendedPhase": "validation-cache",
-  "lastUpdated": "2026-09-11T18:10:42.462Z",
-  "updatedByRole": "gatekeeper"
+  "nextRecommendedPhase": "readiness-evidence",
+  "lastUpdated": "2026-09-11T18:37:03.161Z",
+  "updatedByRole": "implementer"
 }
