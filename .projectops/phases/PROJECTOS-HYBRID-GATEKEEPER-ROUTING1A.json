@@ -24,6 +24,20 @@
       "by": "implementer",
       "at": "2026-09-11T18:37:03.054Z",
       "note": "lifecycle reconciliation: the implementation already landed at 57d769433f782a54297a3d4cc7c147c3df5edd93 (pushed 2026-09-10, ECC CODE + SECURITY accepted) while this phase had no record; recorded now, not backdated, no new implementation; validating the three plan-required validators at the lifecycle subject commit"
+    },
+    {
+      "from": "validating",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-09-11T18:59:23.119Z",
+      "note": "bounded owner-approved test-only correction required to restore valid closure checks: projectos/agent/test/hybridVerticalSlice.test.ts:470 calls WorkerAdapter.start with 1 argument (TS2554, fails the configured agent-typecheck check); owner Murad approved the one-line test-only scope amendment 2026-09-11; no runtime change"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-09-11T19:03:47.246Z",
+      "note": "bounded test-only correction committed at 74be4eaf90837f3bd3e586576f87943219d4e59e (typecheck:all PASS; 3 hybrid agent test files 76/76; core gatekeeper-mode 35/35; ECC CODE APPROVE 0 CRITICAL/0 HIGH, 1 pre-existing LOW left; security confirmation: test-only, no runtime or authority surface changed); re-validating at a new lifecycle subject"
     }
   ]
 }
