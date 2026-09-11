@@ -21,13 +21,13 @@
   "deferredPhases": [],
   "acceptedCarryForward": [],
   "currentBranch": "projectos-run-to-completion-host-attestation1a",
-  "currentHead": "41039d8ff762fb48adea64ea7b3bbe744819a630",
+  "currentHead": "e2d5685d4aff797bac34f5248a62732a59b1f01c",
   "currentRemoteHead": null,
   "workingTreeStatus": "dirty",
   "currentRisks": [],
   "currentBlockers": [],
   "lastEvidenceReference": "plan-approval decision PLANDEC-248531e50a846a685f487b96",
   "nextRecommendedPhase": "PROJECTOS-HYBRID-CLOSURE-RECONCILE-ROUTING1A",
-  "lastUpdated": "2026-09-11T23:21:05.521Z",
+  "lastUpdated": "2026-09-11T23:24:57.635Z",
   "updatedByRole": "implementer"
 }

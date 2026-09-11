@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-HYBRID-CLOSURE-RECONCILE-ROUTING1A",
   "project": "ProjectOS",
   "objective": "Route closure and reconcile through the hybrid gatekeeper so the lifecycle path completes without the pre-hybrid paid route.",
-  "status": "validating",
+  "status": "awaiting_closure",
   "history": [
     {
       "from": "draft",
@@ -24,6 +24,27 @@
       "by": "implementer",
       "at": "2026-09-11T23:21:05.439Z",
       "note": "required validators re-run at historical implementation 9b6da53123c7f4b17df30e0d1639da29f60686e8 in a disposable detached worktree on 2026-09-12: val-projectos-gate-decision-evidence1a PASS, val-projectos-gatekeeper-contract1a PASS, validate-no-secrets PASS"
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-09-11T23:21:56.898Z",
+      "note": "G4 evidence subject reused: dac794c3c404d0c5daafd93f20fcf269c53e2d5b, still an ancestor of HEAD with zero substantive paths changed since; historical implementation 9b6da53123c7f4b17df30e0d1639da29f60686e8"
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-09-11T23:24:57.201Z",
+      "note": "reviews are the accepted historical ones for 9b6da53123c7f4b17df30e0d1639da29f60686e8: ECC CODE APPROVE 0 CRITICAL 0 HIGH 0 MEDIUM 0 LOW, ECC SECURITY APPROVE 0 CRITICAL 0 HIGH 0 MEDIUM 2 LOW; no source changed in this phase so no new review was owed"
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-09-11T23:24:57.546Z",
+      "note": "closure evidence and evidence report written; G4 subject dac794c3c404d0c5daafd93f20fcf269c53e2d5b reused with 0 substantive paths since; historical implementation 9b6da53123c7f4b17df30e0d1639da29f60686e8; closure belongs to the ChatGPT gatekeeper through the interactive route and the owner's commit"
     }
   ]
 }
