@@ -463,11 +463,11 @@ describe('the interactive records left outside the candidate are never committed
     // Shaped as a record for a request nobody asked, so the fixture's own "open question" lookup is not
     // confused by it.
     const planted = 'GKREQ-aaaaaaaaaaaaaaaaaaaaaaaa.consumed.json';
-    const planting = (): ReturnType<WorkerAdapter['start']> => {
+    const planting = (...args: Parameters<WorkerAdapter['start']>): ReturnType<WorkerAdapter['start']> => {
       mkdirSync(join(w.root, ...INTERACTIVE_DIR), { recursive: true });
       writeFileSync(join(w.root, ...INTERACTIVE_DIR, planted), '{"payload":"unreviewed bytes"}');
       const adapter = (base as unknown as Record<string, WorkerAdapter>)[WORKER_KIND] as WorkerAdapter;
-      return adapter.start({} as never);
+      return adapter.start(...args);
     };
     const adapters = { [WORKER_KIND]: { kind: WORKER_KIND, start: planting, rejoin: planting } } as unknown as AdapterRegistry;
     session = sessionFor(sys, w, adapters);
