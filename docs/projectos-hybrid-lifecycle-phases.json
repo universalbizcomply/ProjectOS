@@ -1,0 +1,59 @@
+{
+  "phases": [
+    {
+      "phaseId": "PROJECTOS-HYBRID-GATEKEEPER-ROUTING1A",
+      "description": "Record the already-landed hybrid gatekeeper routing (interactive and unattended acquisition through one governed loop) so a governed phase record can exist for lifecycle reconciliation.",
+      "scope": "Lifecycle reconciliation only for accepted commit 57d769433f782a54297a3d4cc7c147c3df5edd93; no new implementation.",
+      "dependsOn": [],
+      "acceptanceCriteria": [
+        "The phase record binds accepted commit 57d769433f782a54297a3d4cc7c147c3df5edd93.",
+        "The required validators pass on that commit.",
+        "Closure is decided through the interactive gatekeeper route and committed by the owner."
+      ],
+      "riskLevel": "medium",
+      "autonomyLevel": "gated-execution",
+      "requiredValidators": [
+        "val-projectos-gate-decision-evidence1a",
+        "val-projectos-gatekeeper-contract1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "ECC CODE review (accepted)",
+        "ECC SECURITY review (accepted)"
+      ],
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "No production deployment, database mutation, messaging, payment, credential creation or disclosure, force push, or merge.",
+        "Live unattended use requires owner-authorised ProjectOSHost start, a signed execution-closure manifest and credential provisioning."
+      ]
+    },
+    {
+      "phaseId": "PROJECTOS-HYBRID-CLOSURE-RECONCILE-ROUTING1A",
+      "description": "Route closure and reconcile through the hybrid gatekeeper so the lifecycle path completes without the pre-hybrid paid route.",
+      "scope": "Lifecycle reconciliation only for accepted commit 9b6da53123c7f4b17df30e0d1639da29f60686e8; no new implementation.",
+      "dependsOn": [
+        "PROJECTOS-HYBRID-GATEKEEPER-ROUTING1A"
+      ],
+      "acceptanceCriteria": [
+        "The phase record binds accepted commit 9b6da53123c7f4b17df30e0d1639da29f60686e8.",
+        "The required validators pass on that commit.",
+        "Closure is decided through the interactive gatekeeper route and committed by the owner."
+      ],
+      "riskLevel": "medium",
+      "autonomyLevel": "gated-execution",
+      "requiredValidators": [
+        "val-projectos-gate-decision-evidence1a",
+        "val-projectos-gatekeeper-contract1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "ECC CODE review (accepted)",
+        "ECC SECURITY review (accepted)"
+      ],
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "No production deployment, database mutation, messaging, payment, credential creation or disclosure, force push, or merge."
+      ]
+    }
+  ]
+}
