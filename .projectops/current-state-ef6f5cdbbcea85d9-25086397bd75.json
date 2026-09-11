@@ -23,13 +23,13 @@
   "deferredPhases": [],
   "acceptedCarryForward": [],
   "currentBranch": "projectos-run-to-completion-host-attestation1a",
-  "currentHead": "74be4eaf90837f3bd3e586576f87943219d4e59e",
+  "currentHead": "7e734c922c5d3d75eb5fac2ec727aac9e14ac059",
   "currentRemoteHead": null,
   "workingTreeStatus": "dirty",
   "currentRisks": [],
   "currentBlockers": [],
   "lastEvidenceReference": "plan-approval decision PLANDEC-248531e50a846a685f487b96",
   "nextRecommendedPhase": "readiness-evidence",
-  "lastUpdated": "2026-09-11T19:03:47.340Z",
+  "lastUpdated": "2026-09-11T19:55:34.203Z",
   "updatedByRole": "implementer"
 }

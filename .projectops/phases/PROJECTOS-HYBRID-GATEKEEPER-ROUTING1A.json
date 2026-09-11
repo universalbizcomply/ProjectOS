@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-HYBRID-GATEKEEPER-ROUTING1A",
   "project": "ProjectOS",
   "objective": "Record the already-landed hybrid gatekeeper routing (interactive and unattended acquisition through one governed loop) so a governed phase record can exist for lifecycle reconciliation.",
-  "status": "validating",
+  "status": "awaiting_closure",
   "history": [
     {
       "from": "draft",
@@ -38,6 +38,27 @@
       "by": "implementer",
       "at": "2026-09-11T19:03:47.246Z",
       "note": "bounded test-only correction committed at 74be4eaf90837f3bd3e586576f87943219d4e59e (typecheck:all PASS; 3 hybrid agent test files 76/76; core gatekeeper-mode 35/35; ECC CODE APPROVE 0 CRITICAL/0 HIGH, 1 pre-existing LOW left; security confirmation: test-only, no runtime or authority surface changed); re-validating at a new lifecycle subject"
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-09-11T19:55:33.428Z",
+      "note": "evidence recorded: closure evidence .projectops/closure/PROJECTOS-HYBRID-GATEKEEPER-ROUTING1A.json and report knowledge/reports/2026-09-11_ProjectOS_PROJECTOS-HYBRID-GATEKEEPER-ROUTING1A_AWAITING-CLOSURE.md; required validators PASS at subject dac794c (record .projectops/validation/dac794c3c404d0c5daafd93f20fcf269c53e2d5b.json); required G4-6 checks PASS (core 717/717, agent 2049/2049, typecheck:all); speed-benchmark 2/5 missed, non-blocking carry-forward by gatekeeper ruling"
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-09-11T19:55:33.728Z",
+      "note": "reviews: historical ECC CODE + SECURITY accepted for 57d7694; bounded fix 74be4ea ECC CODE APPROVE 0/0/0/1 LOW, security confirmed test-only; 0 unresolved CRITICAL/HIGH"
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-09-11T19:55:34.098Z",
+      "note": "awaiting the ChatGPT closure decision through the interactive closure route; historical implementation 57d7694, bounded test fix 74be4ea, G4 subject dac794c; the owner commits the decision"
     }
   ]
 }
