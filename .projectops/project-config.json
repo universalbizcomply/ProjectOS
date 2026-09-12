@@ -35,7 +35,8 @@
     ".projectops/current-state-9e373cb6b5324fde-ca4fc29feedd.json",
     "docs/projectos-hybrid-lifecycle-phases.json",
     ".projectops/plan-67aabc6989dbc9e9-c38a9fee4466.json",
-    ".projectops/current-state-67aabc6989dbc9e9-c38a9fee4466.json"
+    ".projectops/current-state-67aabc6989dbc9e9-c38a9fee4466.json",
+    "docs/projectos-host-review-path-phases.json"
   ],
   "allowedActions": [
     "inspect-repository",

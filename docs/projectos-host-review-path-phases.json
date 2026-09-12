@@ -1,0 +1,104 @@
+{
+  "projectId": "projectos",
+  "businessVision": "ProjectOS governs its own delivery through one lifecycle that a person can drive interactively today and that the host can drive unattended once its owner activates the path, with every decision attributable to the route that obtained it.",
+  "definitionOfComplete": "The complete agent-to-host unattended review path exists in production code, dormant, so that the only work remaining before live unattended operation is owner activation and not another implementation bridge.",
+  "successStandard": "The agent holds a production local transport that reaches the host boundary, the host recognises and dispatches the review operation to a production responder over an injected independent-review seam, the decision and attestation are serialised and verified by the existing checks, the real agent encoder and the real host decoder agree in both directions, one isolated round-trip exercises the real transport on a run-scoped test endpoint with no installed service, every malformed or mismatched or absent answer fails closed, a refusal that reached no provider leaves no estimate standing as provider spend, the route cannot be reached in a production build because no authority of its scope can be obtained, and no provider is called, no credential is held, no money is spent and no service is started.",
+  "approvedScope": [
+    "Agent-side production implementations of the host gatekeeper review port and the host closure review port.",
+    "An agent-side production local transport that writes the bounded review subject to the host request store at a derived name, exchanges the existing fixed-width authority frames over the host endpoint, and reads the host response record, failing closed when activation or configuration is absent.",
+    "One canonical out-of-band representation for the review subject and for the host response record, deterministic, explicitly bounded, carrying no secret, parsed as untrusted input on the agent side, with the response record bound to the wire completion by a digest.",
+    "Host-side server and client facades for the review exchange, siblings of the existing status facades, using the existing fixed-width frames and their existing codecs unchanged.",
+    "One additional capability scope identifier for the review exchange, with no production route to obtain an authority of that scope, so the route is dormant by construction.",
+    "A host execution rung that consumes the existing composed operation, invokes the review through a SEALED execution seam, mints the execution evidence only on that seam's success, reports completion on the wire, and settles or releases the existing budget reservation.",
+    "One in-crate production implementation of the sealed execution seam, placed as a child module exactly as the sealed budget ledger's one production implementation is, which drives the existing host gatekeeper-review operation and serialises its decision and attestation, plus a fixture implementation gated to the non-default fixture feature for the proofs.",
+    "A minimal host decision representation sufficient for the agent's required decision record, with reviewer choices kept separate from host-resolved binding facts and no second resolution of facts the host already resolved.",
+    "Two declared validator amendments, both ratified at this phase's gate: the operation-contract validator permits exactly one shipped mint of the execution evidence, reachable only from the single function that takes both the authority and the sealed execution seam; and the transport-boundary validator admits one further dependency edge so the host's own execution rung can drive the host's own review operation, with that crate's sources brought under the same capability scan the existing sibling edges are held to.",
+    "A cross-language proof that bytes produced by the real agent implementation are accepted by the real host decoder and vice versa, and one isolated round-trip over the real transport on a run-scoped test endpoint.",
+    "Reservation integrity for this transport: a refusal that reached no provider must not leave an estimate standing as provider spend."
+  ],
+  "excludedScope": [
+    "Starting, installing or reconfiguring the host service.",
+    "Enabling any live transport authority or any production route to an authority of the review scope.",
+    "Changing the access control on the real host endpoint, the real request store or the real response store.",
+    "Minting live delegation authority, provisioning any provider credential, and any signing or private key use.",
+    "Any real provider call, any provider spend, and enabling production unattended execution.",
+    "Any deployment, any production machine change and any production data change.",
+    "Any new wire protocol, any second transport stack, any change to the fixed frame layout and any widening of the authority frames to carry free-form data.",
+    "The wider provider actual-spend programme beyond reservation correctness for this transport.",
+    "Control Center user interface work, host security architecture deepening, and the known baseline validator failures."
+  ],
+  "phases": [
+    {
+      "phaseId": "PROJECTOS-HOST-REVIEW-PATH1A",
+      "title": "Complete dormant agent-to-host review path",
+      "description": "Implement the complete agent-to-host unattended review path in production code and leave it dormant: the agent-side review ports and local transport, the host-side review facades and operation dispatch, the execution rung that drives the existing host gatekeeper-review operation through an injected independent-review seam, the host decision and attestation serialisation, and one canonical bounded out-of-band representation bound to the existing fixed-width authority frames, proven by a cross-language codec agreement and one isolated round-trip over the real transport, with no service start, no live authority, no provider call and no spend.",
+      "scope": "Agent ports, transport, canonical out-of-band codec and composition; host review facades, one ungranted capability scope, the execution rung and its new sibling implementation crate; a minimal host decision representation reusing the single existing resolution of host facts; one declared validator amendment for the execution-evidence mint; cross-language and isolated-transport proofs; reservation release correctness. No activation of any kind.",
+      "exclusions": [
+        "No new frame codec: the fixed-width request and response codecs already exist and are reused unchanged.",
+        "No dependency added to the transport crate: the execution rung lives in a new sibling crate that depends on the transport crate, not the reverse.",
+        "No second resolution of host-resolved facts: the execution rung consumes the facts the existing composition already resolved.",
+        "No binary target in the transport crate, no second production endpoint, and no widening of the authority frames.",
+        "No production route to an authority of the review scope, so source existence never makes the route reachable.",
+        "No second copy of any binding check that already exists downstream of the agent ports.",
+        "No new unavailability cause and no change to the closed cause vocabulary."
+      ],
+      "dependsOn": [],
+      "acceptanceCriteria": [
+        "Production implementations of the host gatekeeper review port and the host closure review port exist in the agent.",
+        "A production agent-side local transport exists, reaches the host endpoint, and fails closed when activation or configuration is absent.",
+        "The run, reconcile and closure compositions each wire the client when governed activation names a transport, and wire nothing when it does not.",
+        "The host recognises the review operation on its existing fixed-width request frame and dispatches it to the production responder.",
+        "The execution rung consumes the existing composed operation, invokes the injected execution seam, and reports completion on the wire only after that seam succeeded.",
+        "The execution evidence has exactly one shipped mint, reachable only from the single function that takes both the authority and the execution seam, and the amended validator pins it to that call site.",
+        "The host decision representation is sufficient for the agent's required decision record, and reviewer choices are separate from host-resolved binding facts.",
+        "The execution rung uses the facts the existing composition already resolved; no second resolution exists.",
+        "Host attestation serialisation exists and reads the record only through its existing accessors, leaving its sealed construction unchanged.",
+        "The out-of-band subject and response representations are deterministic, explicitly bounded, and carry no credential, token, raw provider body or reasoning.",
+        "The response record is bound to the wire completion by a digest the agent recomputes and refuses on mismatch.",
+        "Request bytes produced by the real agent implementation are accepted by the real host decoder.",
+        "Response bytes produced by the real host implementation are accepted by the real agent decoder.",
+        "One isolated round-trip exercises the real production transport on a run-scoped test endpoint, with no installed service, no production endpoint and no access-control change.",
+        "A valid technical review proceeds through the actual hybrid turn to the governed continuation.",
+        "A valid closure review proceeds through the actual hybrid closure path.",
+        "Wrong project, wrong phase, wrong evidence subject and wrong request digest are each refused by the existing decision check on the real client path.",
+        "Wrong correlation is refused.",
+        "An invalid attestation is refused by the existing attestation check.",
+        "A malformed, oversize, non-parsing or trailing-data response is refused and never read as an approval.",
+        "A replayed answer is refused where the existing contract requires it.",
+        "An absent host and an unavailable host each fail closed with no secondary route.",
+        "A host refusal that reached no provider does not leave an estimate standing as provider spend, an uncertain or post-dispatch failure conservatively retains it, and an entry carrying recorded usage is never released.",
+        "With no activation, the unattended turn still refuses before spend admission and still creates no gatekeeper ledger file.",
+        "There is no direct-provider fallback, no interactive fallback and no implementer self-review fallback on any path.",
+        "The agent contains no provider client for unattended mode and no provider credential.",
+        "Evidence recorded through this path carries the host independent provider attestation provenance, and interactive evidence remains its own distinct class.",
+        "A production build cannot obtain an authority of the review scope, the live transport authority constant remains false, and the transport crate's dependency list, endpoint count, binary-target absence and unsafe confinement are unchanged.",
+        "Interactive mode is unchanged and the existing hybrid gatekeeper, hybrid closure and reconcile suites pass unmodified.",
+        "The agent typecheck across sources and tests passes and the touched host crates' tests pass.",
+        "No real provider call, no provider spend, no credential use, no service start, no access-control change and no production activity occurred during the phase."
+      ],
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredValidators": [
+        "val-projectos-host-review-path1a",
+        "val-projectoshost-ipc-operation-contract1a",
+        "val-windows-local-ipc-capability-b3",
+        "val-projectos-gatekeeper-contract1a",
+        "val-projectos-closure-transport1a",
+        "val-projectos-trust-boundary1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC CODE review",
+        "ECC SECURITY review"
+      ],
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "Commit, push and phase closure remain owner-gated.",
+        "Approving this phase also ratifies exactly one declared amendment to the operation-contract validator: the execution evidence gains exactly one shipped mint, reachable only from the single function that takes both the authority and the execution seam. No other pinned invariant changes.",
+        "No production deployment, database mutation, messaging, payment, credential or delegation creation or disclosure, signing key use, service installation or start, access-control or registry change, force push or merge.",
+        "Activating the path remains a separate explicit owner decision covering the live authority mint, the request and response store permissions, the delegation, the credential and the service start."
+      ]
+    }
+  ]
+}
