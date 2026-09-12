@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "objectiveId": "b893595595bcb8b8",
+  "objective": "Implement the complete agent-to-host unattended review path in production code and leave it dormant: the agent-side review ports and local transport, the host-side review facades and operation dispatch, a sealed execution seam with one in-crate production implementation driving the existing host gatekeeper-review operation, the host decision and attestation serialisation, and one canonical bounded out-of-band representation bound to the existing fixed-width authority frames, proven by cross-language codec agreement and one isolated round-trip over the real transport, with no service start, no live authority, no provider call and no spend.",
+  "authoritative": false,
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-run-to-completion-host-attestation1a",
+  "baseHead": "52059769a1d9cbdeba72faf1f6a8c481b6f0152f",
+  "submittedAt": "2026-09-12T13:02:29.261Z",
+  "submittedBy": "owner",
+  "instructionShaped": false
+}

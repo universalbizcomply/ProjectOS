@@ -11,5 +11,6 @@
   "decidedBy": "Murad",
   "decidedAt": "2026-09-12T13:04:03.079Z",
   "note": "APPROVE PROJECTOS PLAN v1.5 AMENDED MATERIAL - Murad, 2026-09-12. Material sha256:e9e72d69fc4a3eb8022e19d2b3ef8a477abf9e8cbbb084da6c503c510daaedf9, byte-identical to the material the owner approved. One phase PROJECTOS-HOST-REVIEW-PATH1A, scope unchanged; the sole change from sha256:106426de... is the reference development environment declaration (reference-development-pc-windows11-node24.14.1-rust1.96-base-70c1329, productionFreeze true) that plan activation requires. Re-proposed under a new objective because a decision is not revisable per proposal - the production mechanism's own instruction - and the objective text is not part of the material digest, so the approved material is unchanged. PLANDEC-6519c438b10ab7609feef394 remains unconsumed on the earlier proposal. Both ratified validator amendments remain approved as scope authority only: O6h exactly one shipped execution-evidence mint reachable only from run_authorised_review holding the authorised operation and the sealed execution seam; and exactly one dependency edge to projectos-host-gatekeeper-attestation under the same capability scan its sibling edges are held to. No implementation, no service start, no live capability, no store-permission change, no delegation, no credential, no provider call, no spend.",
-  "recordedBy": "projectos plan decide"
+  "recordedBy": "projectos plan decide",
+  "consumedAt": "2026-09-12T13:04:11.236Z"
 }
