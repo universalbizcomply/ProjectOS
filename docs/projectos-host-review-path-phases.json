@@ -16,6 +16,12 @@
     "A cross-language proof that bytes produced by the real agent implementation are accepted by the real host decoder and vice versa, and one isolated round-trip over the real transport on a run-scoped test endpoint.",
     "Reservation integrity for this transport: a refusal that reached no provider must not leave an estimate standing as provider spend."
   ],
+  "environments": [
+    {
+      "environmentId": "reference-development-pc-windows11-node24.14.1-rust1.96-base-70c1329",
+      "productionFreeze": true
+    }
+  ],
   "excludedScope": [
     "Starting, installing or reconfiguring the host service.",
     "Enabling any live transport authority or any production route to an authority of the review scope.",
