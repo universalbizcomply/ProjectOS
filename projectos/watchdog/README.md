@@ -71,6 +71,10 @@ Commands: `npm run watchdog:test`, `npm run watchdog:test:sql`, `npm run validat
   recovers only on explicit PASS. Results outside the declared scope are refused, never re-homed to
   global. Invalid declarations refuse the run before it starts. `jobHealthCheck(specs)` declares
   job health per job. Adapters must not add global stand-in results (0.1.0's JD `GLOBAL_OK`).
+  The authority is bounded (`MAX_SCOPE_IDS`, `SCOPE_AUTHORITY_TIMEOUT_MS`); beyond that it counts as
+  unavailable. Upgrading a LIVE check from global to scoped: any OPEN incident at its old
+  `(check_id, global, global)` identity will never see a result again, so retire it with the
+  audited `watchdog_incident_retire` as part of that product's upgrade.
 - **Failure isolation inside a run.** Each incident action and each notification mark is attempted
   independently; one refused incident never blocks the alerts of the others, and the run then
   FAILS truthfully. A runner given `selfJobId` records its own job STARTED / SUCCEEDED / FAILED,

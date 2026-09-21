@@ -66,6 +66,11 @@ export type PackContext = { run_id: string; db_now: string };
 // is ever re-homed to the global scope.
 
 export const SCOPE_SET_ID = "scope-set";
+// Bounds on the scope authority (it runs on the failure path, when the check's
+// own backend is least healthy): too many ids or no answer in time is treated as
+// "authority unavailable" (coverage ERROR only), never as a partial scope set.
+export const MAX_SCOPE_IDS = 1000;
+export const SCOPE_AUTHORITY_TIMEOUT_MS = 15000;
 
 export type ScopeResolver = (ctx: PackContext) => Promise<readonly string[]>;
 export type ScopeDeclaration = "global" | { scope_type: string; resolve: ScopeResolver };
@@ -179,7 +184,10 @@ function synth(check_id: string, reason: string, scope_type: string = GLOBAL_SCO
 
 // Normalise one pack's raw output. Never throws; every declared check of the
 // pack ends up with at least one result, inside its declared scope.
-export async function normalisePackResults(pack: CheckPack, raw: unknown[] | Error, ctx: PackContext, logError: (m: string) => void): Promise<CheckResult[]> {
+export async function normalisePackResults(
+  pack: CheckPack, raw: unknown[] | Error, ctx: PackContext, logError: (m: string) => void,
+  authorityTimeoutMs: number = SCOPE_AUTHORITY_TIMEOUT_MS,
+): Promise<CheckResult[]> {
   const failure = raw instanceof Error ? REASON_PACK_FAILED : null;
   if (raw instanceof Error) logError("[watchdog] pack " + pack.name + " failed: " + raw.message);
   type Acc = { rows: Map<string, CheckResult>; misplaced: boolean };
@@ -231,13 +239,20 @@ export async function normalisePackResults(pack: CheckPack, raw: unknown[] | Err
   const authority = (def: CheckDefinition, resolve: ScopeResolver): Promise<string[] | null> => {
     if (!resolved.has(resolve)) {
       resolved.set(resolve, (async () => {
+        let timer: ReturnType<typeof setTimeout> | undefined;
         try {
-          const ids = await resolve(ctx);
+          const ids = await Promise.race([
+            resolve(ctx),
+            new Promise<never>((_r, reject) => { timer = setTimeout(() => reject(new Error("scope authority timed out")), authorityTimeoutMs); }),
+          ]);
           if (!Array.isArray(ids) || !ids.every((id) => isScopeId(id) && id !== SCOPE_SET_ID)) throw new Error("scope authority returned invalid ids");
+          if (ids.length > MAX_SCOPE_IDS) throw new Error("scope authority returned more than " + MAX_SCOPE_IDS + " ids");
           return [...new Set(ids as string[])].sort();
         } catch (e) {
           logError("[watchdog] scope authority for " + def.check_id + " failed: " + (e instanceof Error ? e.message : String(e)));
           return null;
+        } finally {
+          if (timer !== undefined) clearTimeout(timer);
         }
       })());
     }

@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { CheckPack, CheckDefinition, CycleDeps } from "../src/runner.ts";
-import { runCycle, SCOPE_SET_ID } from "../src/runner.ts";
+import { runCycle, normalisePackResults, SCOPE_SET_ID, MAX_SCOPE_IDS } from "../src/runner.ts";
 import { evaluateJob, jobHealthCheck } from "../src/jobs.ts";
 import type { JobSpec } from "../src/jobs.ts";
 import type { CheckResult } from "../src/incidents.ts";
@@ -282,4 +282,33 @@ test("second product (device fleet) needs no workaround: zero devices, many devi
   fail = false;
   await runCycle(deps(s, [fleet]));
   assert.equal(open(s).length, 0);
+});
+
+test("upgrade guard: an unchanged 0.1.0 adapter (undeclared site rows + global stand-in) fails loudly, never silently", async () => {
+  const s = new MemoryStore();
+  const legacy: CheckPack = {
+    name: "jd-connected-accounts",
+    checks: [{ check_id: "connected_account_inactive", metadata: {} }], // no scope declaration (0.1.0 style)
+    async run() {
+      return [
+        { check_id: "connected_account_inactive", scope_type: "global", scope_id: "global", status: "PASS" }, // GLOBAL_OK
+        { check_id: "connected_account_inactive", scope_type: "site", scope_id: "site-1", status: "CRITICAL" },
+      ];
+    },
+  };
+  await runCycle(deps(s, [legacy]));
+  assert.deepEqual(lastResults(s).map((r) => r.scope_type + ":" + r.status + ":" + r.reason_code), ["global:ERROR:INVALID_RESULT"]);
+  assert.equal(open(s)[0].severity, "ERROR", "visible ERROR: the adapter must declare its scope before running on 0.1.1");
+});
+
+test("scope authority is bounded: oversized id lists and hangs become coverage ERROR only", async () => {
+  const s = new MemoryStore();
+  const many = Array.from({ length: MAX_SCOPE_IDS + 1 }, (_, i) => "site-" + i);
+  await runCycle(deps(s, [sitePack(THROW, async () => many)]));
+  assert.deepEqual(lastResults(s).map((r) => r.scope_id + ":" + r.status), ["scope-set:ERROR"]);
+  const hanging = sitePack(THROW, () => new Promise<readonly string[]>(() => {}));
+  const t0 = Date.now();
+  const rs = await normalisePackResults(hanging, new Error("down"), { run_id: "r", db_now: "2026-09-21T10:00:00.000Z" }, () => {}, 50);
+  assert.ok(Date.now() - t0 < 2000, "bounded by the authority timeout");
+  assert.deepEqual(rs.map((r) => r.scope_id + ":" + r.status + ":" + r.reason_code), ["scope-set:ERROR:PACK_FAILED"]);
 });
