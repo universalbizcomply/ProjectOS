@@ -1,0 +1,7 @@
+{
+  "projectId": "example-product",
+  "projectName": "Example Product",
+  "environments": {
+    "production": { "url": "https://example.com", "host": "vercel" }
+  }
+}

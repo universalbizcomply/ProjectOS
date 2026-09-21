@@ -49,7 +49,14 @@
     "dashboard:safety": "node projectos/scripts/check-dashboard-safety.cjs",
     "dashboard:report": "node projectos/scripts/create-dashboard-report.cjs",
     "summary": "node projectos/scripts/print-framework-summary.cjs",
-    "list": "node projectos/scripts/list-projectos-files.cjs"
+    "list": "node projectos/scripts/list-projectos-files.cjs",
+    "validate:watchdog": "node projectos/validators/val-watchdog-core1a.cjs",
+    "watchdog:test": "node --test \"projectos/watchdog/core/test/*.test.ts\" \"projectos/watchdog/sentinel/*.test.ts\" \"projectos/watchdog/test/*.test.cjs\"",
+    "watchdog:test:sql": "node projectos/watchdog/sql/test/pg-harness.cjs",
+    "watchdog:typecheck": "deno check --no-config projectos/watchdog/core/src/index.ts projectos/watchdog/sentinel/run-sentinel.ts",
+    "watchdog:sync": "node projectos/scripts/watchdog-sync.cjs",
+    "watchdog:registry": "node projectos/scripts/watchdog-sentinel-registry.cjs",
+    "watchdog:conformance": "node projectos/validators/val-watchdog-conformance.cjs"
   },
   "license": "UNLICENSED"
 }

@@ -1,0 +1,87 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "projectos/schemas/watchdog-profile.schema.json",
+  "title": "ProjectOS Watchdog Profile",
+  "description": "Per-product Watchdog profile, stored in the product at .projectops/watchdog.json. Owns ONLY Watchdog-specific settings. It never duplicates what project-config.json or the machine registry already own (project identity, repo, environment URLs, Supabase ref, hosting) and never holds credentials or addresses. The Watchdog core and schema versions are NOT stored here: they are read from the product's watchdog-core.lock.json. Enforced by projectos/scripts/_watchdog-lib.cjs profileErrors().",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["profile_version", "onboarding_status", "runtime", "health", "monitor", "critical_jobs", "notifications", "sentinel", "components"],
+  "properties": {
+    "profile_version": { "const": 1 },
+    "onboarding_status": {
+      "enum": ["NOT_INTEGRATED", "DISCOVERED", "PARTIAL", "WATCHDOG_INSTALLED", "CONFORMANT", "OUTER_SENTINEL_ACTIVE"],
+      "description": "Gradual onboarding. Requirements tighten from WATCHDOG_INSTALLED (runtime paths), CONFORMANT (definition-of-done fields) and OUTER_SENTINEL_ACTIVE (sentinel registered)."
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "install_path": { "type": ["string", "null"], "description": "Relative path of the vendored core (must match the lock)." },
+        "adapter_path": { "type": ["string", "null"], "description": "Relative path of the product adapter. Must be outside install_path." }
+      }
+    },
+    "health": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "health_endpoint_path": { "type": ["string", "null"], "description": "Path of the minimal public health endpoint, relative to the environment URL in project-config." },
+        "health_not_applicable_reason": { "type": ["string", "null"], "pattern": "^[A-Z0-9_]{1,64}$" },
+        "release_endpoint_path": { "type": ["string", "null"], "description": "Path serving the public release representation (may equal health_endpoint_path)." }
+      }
+    },
+    "monitor": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cadence_seconds": { "type": "integer", "minimum": 60 },
+        "sources": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "critical_jobs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["job_id", "expected_interval_s", "stale_after_s", "failure_threshold"],
+        "properties": {
+          "job_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_.:-]{0,79}$" },
+          "scheduler_name": { "type": ["string", "null"], "description": "pg_cron job name when scheduled by pg_cron; checked for existence and active state." },
+          "expected_interval_s": { "type": "integer", "minimum": 1 },
+          "stale_after_s": { "type": "integer", "minimum": 1 },
+          "max_run_s": { "type": ["integer", "null"], "minimum": 1 },
+          "failure_threshold": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+    "notifications": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "recipients_setting_ref": { "type": ["string", "null"], "description": "NAME of the product setting holding system-alert recipients. Never the addresses." }
+      }
+    },
+    "sentinel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "check_classes"],
+      "properties": {
+        "mode": { "enum": ["none", "public", "authenticated"], "description": "public = P3 unauthenticated read-only probes (no liveness written into the product); authenticated = P4+ product-scoped sentinel credential." },
+        "check_classes": { "type": "array", "items": { "enum": ["reachability", "https", "health", "release_identity"] } }
+      }
+    },
+    "components": {
+      "type": "array",
+      "description": "Maintenance routing: incident component -> repository path -> deploy target. Contract only; no automation.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["component_id", "repo_path", "deploy_target"],
+        "properties": {
+          "component_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_.:-]{0,79}$" },
+          "repo_path": { "type": "string" },
+          "deploy_target": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_.:-]{0,79}$" }
+        }
+      }
+    }
+  }
+}

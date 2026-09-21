@@ -1,0 +1,11 @@
+{
+  "profile_version": 1,
+  "onboarding_status": "DISCOVERED",
+  "runtime": { "install_path": null, "adapter_path": null },
+  "health": { "health_endpoint_path": "/health", "health_not_applicable_reason": null, "release_endpoint_path": "/health" },
+  "monitor": { "cadence_seconds": 300, "sources": ["runner", "watchdog"] },
+  "critical_jobs": [],
+  "notifications": { "recipients_setting_ref": null },
+  "sentinel": { "mode": "public", "check_classes": ["reachability", "https", "health", "release_identity"] },
+  "components": []
+}
