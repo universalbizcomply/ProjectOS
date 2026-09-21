@@ -70,7 +70,7 @@ test("schema compatibility: refuses missing, older and newer schema truthfully",
 });
 
 test("core version compatibility: 0.x needs same minor", () => {
-  assert.equal(WATCHDOG_CORE_VERSION, "0.1.0");
+  assert.equal(WATCHDOG_CORE_VERSION, "0.1.1");
   assert.equal(isCoreCompatible("0.1.7"), true);
   assert.equal(isCoreCompatible("0.2.0"), false);
   assert.equal(isCoreCompatible("1.1.0"), false);

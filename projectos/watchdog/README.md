@@ -6,7 +6,7 @@ the outer-sentinel configuration. Each product runs its own Watchdog runtime, wi
 database state, incidents, credentials, recipients and alerts. No product ever calls
 ProjectOS at build time or runtime.
 
-Phase: PROJECTOS-WATCHDOG-CORE1A (P2). Watchdog Core `0.1.0`, schema `1`. Nothing in this
+Phase: PROJECTOS-WATCHDOG-CORE1A (P2); PROJECTOS-WATCHDOG-CORE0.1.1 (scope correction). Watchdog Core `0.1.1`, schema `1`. Nothing in this
 directory is deployed to any product by this phase.
 
 ## Layout
@@ -43,7 +43,7 @@ Commands: `npm run watchdog:test`, `npm run watchdog:test:sql`, `npm run validat
 | Scheduled-job health model | Its health / release endpoints (from P4) |
 | Release-identity model, version and schema compatibility | |
 
-## Contracts (v0.1.0)
+## Contracts (v0.1.1)
 
 - **Status.** `ERROR` = the check could not establish health. It is never PASS, never recovery
   and never absence. A check that threw, returned an invalid result or did not report is recorded
@@ -61,6 +61,20 @@ Commands: `npm run watchdog:test`, `npm run watchdog:test:sql`, `npm run validat
   shows ERROR, INFO or no result, and the database closes an incident only when the run sending
   the RECOVERY notice itself shows PASS. The JD reference behaviour "run did not report X, so
   delete X" is removed. Removed checks are closed only by the audited `watchdog_incident_retire`.
+- **Scope authority (scope.v1, 0.1.1).** Each check declares its scope: omitted / `"global"`
+  (one global result) or `{ scope_type, resolve }`, where `resolve()` is the scope authority (e.g.
+  the product's site list). When a check produces no usable results (pack threw, not reported,
+  only misplaced results) the Core asks the authority and writes ERROR on each listed scope; ids
+  never come from the failure. A scoped check also gets one Core-owned coverage result at
+  `(scope_type, "scope-set")`: PASS when the check evaluated, ERROR when it did not (also when the
+  authority itself fails or lists nothing), which satisfies the one-row-per-check commit rule and
+  recovers only on explicit PASS. Results outside the declared scope are refused, never re-homed to
+  global. Invalid declarations refuse the run before it starts. `jobHealthCheck(specs)` declares
+  job health per job. Adapters must not add global stand-in results (0.1.0's JD `GLOBAL_OK`).
+  The authority is bounded (`MAX_SCOPE_IDS`, `SCOPE_AUTHORITY_TIMEOUT_MS`); beyond that it counts as
+  unavailable. Upgrading a LIVE check from global to scoped: any OPEN incident at its old
+  `(check_id, global, global)` identity will never see a result again, so retire it with the
+  audited `watchdog_incident_retire` as part of that product's upgrade.
 - **Failure isolation inside a run.** Each incident action and each notification mark is attempted
   independently; one refused incident never blocks the alerts of the others, and the run then
   FAILS truthfully. A runner given `selfJobId` records its own job STARTED / SUCCEEDED / FAILED,
@@ -83,7 +97,7 @@ Commands: `npm run watchdog:test`, `npm run watchdog:test:sql`, `npm run validat
   release (7-char), watchdog}` only; coarse monitor state only if a product's security review
   allows it. Product endpoints arrive in P4, not P2.
 - **Versions.** `WATCHDOG_CORE_VERSION` (semver) and `REQUIRED_SCHEMA_VERSION` (integer) are
-  independent. v0.1.0 requires exactly schema 1 and refuses (truthfully, before starting a run)
+  independent. v0.1.x requires exactly schema 1 and refuses (truthfully, before starting a run)
   a missing, older or newer schema, or an installed core of another 0.x minor.
 
 ## Security model (schema template)

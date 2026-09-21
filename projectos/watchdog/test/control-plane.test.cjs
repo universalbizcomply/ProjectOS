@@ -66,8 +66,8 @@ before(() => {
     "projectos/watchdog/sql/migrations", "projectos/watchdog/sql/privilege-gate.sql", "projectos/watchdog/sql/test"]) copyInto(rel);
   git(source, "add", "projectos");
   git(source, "commit", "-q", "-m", "watchdog core");
-  git(source, "tag", "watchdog-core/v0.1.0");
-  git(source, "tag", "watchdog-core/v0.2.0"); // deliberately wrong: code says 0.1.0
+  git(source, "tag", "watchdog-core/v0.1.1");
+  git(source, "tag", "watchdog-core/v0.2.0"); // deliberately wrong: code says 0.1.1
   commit = git(source, "rev-parse", "HEAD");
 });
 
@@ -75,12 +75,12 @@ after(() => { fs.rmSync(tmp, { recursive: true, force: true }); });
 
 test("sync: exact tag -> exact commit, lock is complete and path-free", () => {
   const dir = newProduct("p-lock");
-  const p = sync.plan({ target: dir, tag: "watchdog-core/v0.1.0", source });
+  const p = sync.plan({ target: dir, tag: "watchdog-core/v0.1.1", source });
   sync.apply(p);
   const lock = lib.readJson(path.join(dir, "watchdog-core.lock.json"));
   assert.deepEqual(lib.lockErrors(lock), []);
   assert.equal(lock.commit, commit);
-  assert.equal(lock.watchdog_core_version, "0.1.0");
+  assert.equal(lock.watchdog_core_version, "0.1.1");
   assert.equal(lock.schema_version, 1);
   assert.equal(lock.source_repository, "universalbizcomply/ProjectOS");
   assert.ok(lock.files["src/runner.ts"] && lock.files["sql/migrations/0001_watchdog_schema_v1.sql"] && lock.files["sql/privilege-gate.sql"]);
@@ -92,15 +92,15 @@ test("sync: exact tag -> exact commit, lock is complete and path-free", () => {
 
 test("sync: deterministic — two products get byte-identical lock and files", () => {
   const a = newProduct("p-a"), b = newProduct("p-b");
-  sync.apply(sync.plan({ target: a, tag: "watchdog-core/v0.1.0", source }));
-  sync.apply(sync.plan({ target: b, tag: "watchdog-core/v0.1.0", source }));
+  sync.apply(sync.plan({ target: a, tag: "watchdog-core/v0.1.1", source }));
+  sync.apply(sync.plan({ target: b, tag: "watchdog-core/v0.1.1", source }));
   const la = fs.readFileSync(path.join(a, "watchdog-core.lock.json"), "utf8");
   assert.equal(la, fs.readFileSync(path.join(b, "watchdog-core.lock.json"), "utf8"));
   for (const f of Object.keys(JSON.parse(la).files)) {
     assert.equal(fs.readFileSync(path.join(a, lib.DEFAULT_INSTALL_PATH, f), "utf8"), fs.readFileSync(path.join(b, lib.DEFAULT_INSTALL_PATH, f), "utf8"));
   }
   // re-running on an up-to-date product changes nothing
-  const again = sync.plan({ target: a, tag: "watchdog-core/v0.1.0", source });
+  const again = sync.plan({ target: a, tag: "watchdog-core/v0.1.1", source });
   assert.equal(sync.isCurrent(again), true);
 });
 
@@ -110,7 +110,7 @@ test("sync: reads the tagged commit, never the working tree", () => {
   fs.writeFileSync(f, original + "\n// uncommitted edit\n");
   try {
     const dir = newProduct("p-wt");
-    sync.apply(sync.plan({ target: dir, tag: "watchdog-core/v0.1.0", source }));
+    sync.apply(sync.plan({ target: dir, tag: "watchdog-core/v0.1.1", source }));
     assert.equal(fs.readFileSync(path.join(dir, lib.DEFAULT_INSTALL_PATH, "src/compare.ts"), "utf8").includes("uncommitted edit"), false);
   } finally {
     fs.writeFileSync(f, original);
@@ -125,29 +125,29 @@ test("sync: refuses a tag whose version does not match the code, and non-release
 
 test("sync: never overwrites a modified vendored core, foreign files, or an unlocked install dir", () => {
   const dir = newProduct("p-guard");
-  sync.apply(sync.plan({ target: dir, tag: "watchdog-core/v0.1.0", source }));
+  sync.apply(sync.plan({ target: dir, tag: "watchdog-core/v0.1.1", source }));
   const adapter = path.join(dir, "supabase/functions/_shared/watchdog-adapter.ts");
   fs.writeFileSync(adapter, "// product adapter\n");
   const vendored = path.join(dir, lib.DEFAULT_INSTALL_PATH, "src/status.ts");
   const orig = fs.readFileSync(vendored, "utf8");
   fs.writeFileSync(vendored, orig + "\n// local hack\n");
-  assert.throws(() => sync.plan({ target: dir, tag: "watchdog-core/v0.1.0", source }), /does not match its lock/);
+  assert.throws(() => sync.plan({ target: dir, tag: "watchdog-core/v0.1.1", source }), /does not match its lock/);
   fs.writeFileSync(vendored, orig);
   fs.writeFileSync(path.join(dir, lib.DEFAULT_INSTALL_PATH, "src/my-adapter.ts"), "x");
-  assert.throws(() => sync.plan({ target: dir, tag: "watchdog-core/v0.1.0", source }), /unexpected file/);
+  assert.throws(() => sync.plan({ target: dir, tag: "watchdog-core/v0.1.1", source }), /unexpected file/);
   fs.rmSync(path.join(dir, lib.DEFAULT_INSTALL_PATH, "src/my-adapter.ts"));
-  sync.apply(sync.plan({ target: dir, tag: "watchdog-core/v0.1.0", source }));
+  sync.apply(sync.plan({ target: dir, tag: "watchdog-core/v0.1.1", source }));
   assert.equal(fs.readFileSync(adapter, "utf8"), "// product adapter\n", "adapter untouched");
 
   const fresh = newProduct("p-unlocked");
   fs.mkdirSync(path.join(fresh, lib.DEFAULT_INSTALL_PATH), { recursive: true });
   fs.writeFileSync(path.join(fresh, lib.DEFAULT_INSTALL_PATH, "handwritten.ts"), "x");
-  assert.throws(() => sync.plan({ target: fresh, tag: "watchdog-core/v0.1.0", source }), /no lock/);
+  assert.throws(() => sync.plan({ target: fresh, tag: "watchdog-core/v0.1.1", source }), /no lock/);
 });
 
 test("sync: CRLF checkouts still verify (canonical hashing)", () => {
   const dir = newProduct("p-crlf");
-  sync.apply(sync.plan({ target: dir, tag: "watchdog-core/v0.1.0", source }));
+  sync.apply(sync.plan({ target: dir, tag: "watchdog-core/v0.1.1", source }));
   const f = path.join(dir, lib.DEFAULT_INSTALL_PATH, "src/index.ts");
   fs.writeFileSync(f, fs.readFileSync(f, "utf8").replace(/\n/g, "\r\n"));
   assert.deepEqual(lib.verifyInstall(dir, lib.readJson(path.join(dir, "watchdog-core.lock.json"))), []);
@@ -155,7 +155,7 @@ test("sync: CRLF checkouts still verify (canonical hashing)", () => {
 
 test("conformance: installed product passes; tampering, foreign keys and missing DoD fields fail", () => {
   const dir = newProduct("p-conf");
-  sync.apply(sync.plan({ target: dir, tag: "watchdog-core/v0.1.0", source }));
+  sync.apply(sync.plan({ target: dir, tag: "watchdog-core/v0.1.1", source }));
   fs.writeFileSync(path.join(dir, "supabase/functions/_shared/watchdog-adapter.ts"), "// adapter\n");
   writeProfile(dir, {});
   assert.deepEqual(conformance.run({ target: dir }), []);
@@ -203,7 +203,7 @@ test("conformance: legacy products onboard gradually", () => {
 
 test("adapter template type-checks against a synced product (Deno)", { skip: spawnSync("deno", ["--version"]).status !== 0 && "deno not installed" }, () => {
   const dir = newProduct("p-adapter");
-  sync.apply(sync.plan({ target: dir, tag: "watchdog-core/v0.1.0", source }));
+  sync.apply(sync.plan({ target: dir, tag: "watchdog-core/v0.1.1", source }));
   const adapter = path.join(dir, "supabase/functions/_shared/watchdog-adapter.ts");
   fs.copyFileSync(path.join(ROOT, "projectos/watchdog/templates/watchdog-adapter.template.ts"), adapter);
   const r = spawnSync("deno", ["check", "--no-config", adapter], { encoding: "utf8" });

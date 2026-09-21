@@ -11,7 +11,8 @@
 //   run_start           run row STARTED (DB clock)
 //   checks              every declared check yields a result; a pack that throws,
 //                       an invalid result or a missing check becomes ERROR,
-//                       never an omission
+//                       never an omission, and always within the check's
+//                       DECLARED scope (scope.v1, 0.1.1), never widened
 //   record_results      results persisted
 //   commit_results      database confirms every declared check has a row
 //                       (read-back); only committed runs may open/recover
@@ -35,9 +36,64 @@ import type { CooldownPolicy, NotificationKind, NotificationTransport } from "./
 import { planNotifications } from "./notifications.ts";
 import { WATCHDOG_CORE_VERSION, checkSchemaCompatibility, isCoreCompatible } from "./version.ts";
 
-export type CheckDefinition = { check_id: string; metadata: MetadataSpec };
-
 export type PackContext = { run_id: string; db_now: string };
+
+// ---- scope authority (scope.v1, Core 0.1.1) -----------------------------------
+//
+// Every check declares the scope its results live in.
+//
+//   omitted / "global"          exactly one result, at the global scope.
+//   { scope_type, resolve }     one result per scope id of scope_type. `resolve`
+//                               is the check's scope authority: it lists the ids
+//                               the check covers, independently of the pack's
+//                               own evaluation. The Core consults it ONLY when
+//                               the check produced no usable results (pack threw,
+//                               check not reported, only misplaced results), so
+//                               the ERROR results land on real, authoritative
+//                               scopes. Ids are never taken from an error.
+//
+// A scoped check also gets one Core-owned coverage result at
+// (scope_type, SCOPE_SET_ID): PASS when the check evaluated its scope set, ERROR
+// (PACK_FAILED / NOT_REPORTED / INVALID_RESULT) when it did not. That keeps
+// "the check could not run" visible even when the scope authority itself is
+// unavailable or lists no scopes, satisfies the one-row-per-declared-check
+// commit rule, and recovers only on an explicit coverage PASS. Adapters never
+// emit it (SCOPE_SET_ID is reserved) and never need a global stand-in.
+//
+// Results outside the declared scope are refused: a global check's stray scoped
+// result becomes INVALID_RESULT at global (its declared scope); a scoped check's
+// misplaced result is dropped and turns its coverage result into ERROR. Nothing
+// is ever re-homed to the global scope.
+
+export const SCOPE_SET_ID = "scope-set";
+// Bounds on the scope authority (it runs on the failure path, when the check's
+// own backend is least healthy): too many ids or no answer in time is treated as
+// "authority unavailable" (coverage ERROR only), never as a partial scope set.
+export const MAX_SCOPE_IDS = 1000;
+export const SCOPE_AUTHORITY_TIMEOUT_MS = 15000;
+
+export type ScopeResolver = (ctx: PackContext) => Promise<readonly string[]>;
+export type ScopeDeclaration = "global" | { scope_type: string; resolve: ScopeResolver };
+
+export type CheckDefinition = { check_id: string; metadata: MetadataSpec; scope?: ScopeDeclaration };
+
+type ResolvedScope = { global: true } | { global: false; scope_type: string; resolve: ScopeResolver };
+
+export function scopeDeclarationErrors(def: CheckDefinition): string[] {
+  const sc = def.scope;
+  if (sc === undefined || sc === "global") return [];
+  if (!sc || typeof sc !== "object") return ["scope must be \"global\" or { scope_type, resolve }"];
+  const errors: string[] = [];
+  if (!isToken(sc.scope_type)) errors.push("invalid scope_type");
+  else if (sc.scope_type === GLOBAL_SCOPE.scope_type) errors.push("a global check declares scope \"global\", not a global scope_type");
+  if (typeof sc.resolve !== "function") errors.push("scoped check needs a resolve() scope authority");
+  return errors;
+}
+
+function scopeOf(def: CheckDefinition): ResolvedScope {
+  const sc = def.scope;
+  return sc === undefined || sc === "global" ? { global: true } : { global: false, scope_type: sc.scope_type, resolve: sc.resolve };
+}
 
 export type CheckPack = {
   name: string;
@@ -114,6 +170,8 @@ export function declaredChecks(packs: readonly CheckPack[]): Map<string, CheckDe
       if (out.has(c.check_id)) throw new Error("check_id declared twice: " + c.check_id);
       const specErrors = validateMetadataSpec(c.metadata);
       if (specErrors.length) throw new Error(c.check_id + ": " + specErrors.join("; "));
+      const scopeErrors = scopeDeclarationErrors(c);
+      if (scopeErrors.length) throw new Error(c.check_id + ": " + scopeErrors.join("; "));
       out.set(c.check_id, c);
     }
   }
@@ -125,16 +183,18 @@ function synth(check_id: string, reason: string, scope_type: string = GLOBAL_SCO
 }
 
 // Normalise one pack's raw output. Never throws; every declared check of the
-// pack ends up with at least one result.
-export function normalisePackResults(pack: CheckPack, raw: unknown[] | Error, logError: (m: string) => void): CheckResult[] {
+// pack ends up with at least one result, inside its declared scope.
+export async function normalisePackResults(
+  pack: CheckPack, raw: unknown[] | Error, ctx: PackContext, logError: (m: string) => void,
+  authorityTimeoutMs: number = SCOPE_AUTHORITY_TIMEOUT_MS,
+): Promise<CheckResult[]> {
+  const failure = raw instanceof Error ? REASON_PACK_FAILED : null;
+  if (raw instanceof Error) logError("[watchdog] pack " + pack.name + " failed: " + raw.message);
+  type Acc = { rows: Map<string, CheckResult>; misplaced: boolean };
+  const acc = new Map<string, Acc>(pack.checks.map((c) => [c.check_id, { rows: new Map(), misplaced: false }]));
   const declared = new Map(pack.checks.map((c) => [c.check_id, c]));
-  if (raw instanceof Error) {
-    logError("[watchdog] pack " + pack.name + " failed: " + raw.message);
-    return pack.checks.map((c) => synth(c.check_id, REASON_PACK_FAILED));
-  }
-  const byKey = new Map<string, CheckResult>();
-  const reported = new Set<string>();
-  for (const item of raw) {
+
+  for (const item of raw instanceof Error ? [] : raw) {
     const r = item as Record<string, unknown> | null;
     const checkId = r && typeof r.check_id === "string" ? r.check_id : null;
     const def = checkId ? declared.get(checkId) : undefined;
@@ -142,31 +202,86 @@ export function normalisePackResults(pack: CheckPack, raw: unknown[] | Error, lo
       logError("[watchdog] pack " + pack.name + " returned an undeclared or malformed result; dropped");
       continue;
     }
-    reported.add(def.check_id);
-    const scopeType = r.scope_type === undefined ? GLOBAL_SCOPE.scope_type : r.scope_type;
-    const scopeId = r.scope_id === undefined ? GLOBAL_SCOPE.scope_id : r.scope_id;
-    const scopeOk = isToken(scopeType) && isScopeId(scopeId);
-    const st = scopeOk ? scopeType as string : GLOBAL_SCOPE.scope_type;
-    const sid = scopeOk ? scopeId as string : GLOBAL_SCOPE.scope_id;
-    const key = JSON.stringify([def.check_id, st, sid]);
+    const a = acc.get(def.check_id)!;
+    const sc = scopeOf(def);
+    const scopeType = r.scope_type === undefined && sc.global ? GLOBAL_SCOPE.scope_type : r.scope_type;
+    const scopeId = r.scope_id === undefined && sc.global ? GLOBAL_SCOPE.scope_id : r.scope_id;
+    const placed = sc.global
+      ? scopeType === GLOBAL_SCOPE.scope_type && scopeId === GLOBAL_SCOPE.scope_id
+      : scopeType === sc.scope_type && isScopeId(scopeId) && scopeId !== SCOPE_SET_ID;
+    if (!placed && !sc.global) {
+      logError("[watchdog] " + def.check_id + " result outside its declared " + sc.scope_type + " scope; dropped");
+      a.misplaced = true;
+      continue;
+    }
+    const st = placed ? scopeType as string : GLOBAL_SCOPE.scope_type;
+    const sid = placed ? scopeId as string : GLOBAL_SCOPE.scope_id;
+    const key = JSON.stringify([st, sid]);
 
     let status: CheckStatus;
-    try { status = parseStatus(r.status); } catch (_e) { byKey.set(key, synth(def.check_id, REASON_INVALID_RESULT, st, sid)); continue; }
+    try { status = parseStatus(r.status); } catch (_e) { a.rows.set(key, synth(def.check_id, REASON_INVALID_RESULT, st, sid)); continue; }
     const meta = validateMetadata(r.metadata, def.metadata);
     const reasonOk = r.reason_code === undefined || r.reason_code === null ||
       (typeof r.reason_code === "string" && /^[A-Z0-9_]{1,64}$/.test(r.reason_code) && !SYNTHESISED_REASONS.includes(r.reason_code));
-    if (!scopeOk || !meta.ok || !reasonOk || byKey.has(key)) {
+    if (!placed || !meta.ok || !reasonOk || a.rows.has(key)) {
       if (!meta.ok) logError("[watchdog] " + def.check_id + " metadata rejected: " + meta.errors.join("; "));
-      byKey.set(key, synth(def.check_id, REASON_INVALID_RESULT, st, sid));
+      a.rows.set(key, synth(def.check_id, REASON_INVALID_RESULT, st, sid));
       continue;
     }
-    byKey.set(key, {
+    a.rows.set(key, {
       check_id: def.check_id, scope_type: st, scope_id: sid, status,
       reason_code: (r.reason_code as string | null | undefined) ?? null, metadata: meta.value,
     });
   }
-  const out = [...byKey.values()];
-  for (const c of pack.checks) if (!reported.has(c.check_id)) out.push(synth(c.check_id, REASON_NOT_REPORTED));
+
+  const out: CheckResult[] = [];
+  const resolved = new Map<ScopeResolver, Promise<string[] | null>>();
+  const authority = (def: CheckDefinition, resolve: ScopeResolver): Promise<string[] | null> => {
+    if (!resolved.has(resolve)) {
+      resolved.set(resolve, (async () => {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          const ids = await Promise.race([
+            resolve(ctx),
+            new Promise<never>((_r, reject) => { timer = setTimeout(() => reject(new Error("scope authority timed out")), authorityTimeoutMs); }),
+          ]);
+          if (!Array.isArray(ids) || !ids.every((id) => isScopeId(id) && id !== SCOPE_SET_ID)) throw new Error("scope authority returned invalid ids");
+          if (ids.length > MAX_SCOPE_IDS) throw new Error("scope authority returned more than " + MAX_SCOPE_IDS + " ids");
+          return [...new Set(ids as string[])].sort();
+        } catch (e) {
+          logError("[watchdog] scope authority for " + def.check_id + " failed: " + (e instanceof Error ? e.message : String(e)));
+          return null;
+        } finally {
+          if (timer !== undefined) clearTimeout(timer);
+        }
+      })());
+    }
+    return resolved.get(resolve)!;
+  };
+
+  for (const def of pack.checks) {
+    const a = acc.get(def.check_id)!;
+    const sc = scopeOf(def);
+    if (sc.global) {
+      if (a.rows.size > 0) out.push(...a.rows.values());
+      else out.push(synth(def.check_id, failure ?? REASON_NOT_REPORTED));
+      continue;
+    }
+    const reason = failure ?? (a.rows.size > 0 ? null : a.misplaced ? REASON_INVALID_RESULT : REASON_NOT_REPORTED);
+    const coverage = (status: "PASS" | "ERROR", why: string | null): CheckResult =>
+      ({ check_id: def.check_id, scope_type: sc.scope_type, scope_id: SCOPE_SET_ID, status, reason_code: why, metadata: {} });
+    if (reason === null) {
+      out.push(...a.rows.values());
+      out.push(a.misplaced ? coverage("ERROR", REASON_INVALID_RESULT) : coverage("PASS", null));
+      continue;
+    }
+    const ids = await authority(def, sc.resolve);
+    if (ids === null) { out.push(coverage("ERROR", reason)); continue; }
+    // Pack evaluated fine and the authority lists no scopes: nothing to report.
+    if (reason === REASON_NOT_REPORTED && ids.length === 0) { out.push(coverage("PASS", null)); continue; }
+    for (const id of ids) out.push(synth(def.check_id, reason, sc.scope_type, id));
+    out.push(coverage("ERROR", reason));
+  }
   return out;
 }
 
@@ -212,7 +327,7 @@ export async function runCycle(deps: CycleDeps): Promise<CycleOutcome> {
       } catch (e) {
         raw = e instanceof Error ? e : new Error(String(e));
       }
-      results.push(...normalisePackResults(pack, raw, deps.logError));
+      results.push(...await normalisePackResults(pack, raw, { run_id: runId, db_now: st.db_now }, deps.logError));
     }
     outcome.actual_check_count = genuineCheckCount(results);
 

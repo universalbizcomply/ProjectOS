@@ -15,9 +15,13 @@
 //     free text, provider payloads, stack traces or credentials
 //   * scope checks that can fail independently (per site, per device,
 //     per component) so one scope never hides another
+//   * a scoped check DECLARES its scope: { scope_type, resolve }. resolve() is
+//     the scope authority (e.g. the product's site list), read independently of
+//     the check, so a failed pack reports ERROR per real scope. Never add a
+//     global stand-in result; the core owns failure scoping (Core >= 0.1.1)
 
 import type { CheckPack, JobSpec } from "./watchdog-core/src/index.ts";
-import { JOB_HEALTH_CHECK_ID, JOB_HEALTH_METADATA, evaluateJob } from "./watchdog-core/src/index.ts";
+import { evaluateJob, jobHealthCheck } from "./watchdog-core/src/index.ts";
 
 export const PROJECT_SOURCE_RUNNER = "runner";
 export const PROJECT_SOURCE_WATCHDOG = "watchdog";
@@ -34,6 +38,9 @@ export function businessPack(rpc: (fn: string) => Promise<unknown>): CheckPack {
     name: "business",
     checks: [
       // { check_id: "example_backlog", metadata: { pending_count: { type: "integer" }, oldest_age_s: { type: "integer" } } },
+      // Per-site check (scope authority = the product's site list):
+      // { check_id: "example_site_ready", metadata: {},
+      //   scope: { scope_type: "site", resolve: async () => (await rpc("<list site ids>")) as string[] } },
     ],
     async run() {
       // const rows = await rpc("<product read-only check function>");
@@ -48,7 +55,7 @@ export function businessPack(rpc: (fn: string) => Promise<unknown>): CheckPack {
 export function jobsPack(loadStates: () => Promise<{ db_now: string; jobs: unknown[] }>): CheckPack {
   return {
     name: "jobs",
-    checks: [{ check_id: JOB_HEALTH_CHECK_ID, metadata: JOB_HEALTH_METADATA }],
+    checks: [jobHealthCheck(CRITICAL_JOBS)],
     async run() {
       const { db_now, jobs } = await loadStates();
       const byId = new Map((jobs as Array<{ job_id: string }>).map((j) => [j.job_id, j]));
