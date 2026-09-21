@@ -24,9 +24,9 @@ const { execFileSync } = require("child_process");
 const lib = require("./_watchdog-lib.cjs");
 const { generate } = require("./watchdog-sentinel-registry.cjs");
 
-// Owner-approved cadences. Daily (06:17 UTC) is the Owner's choice of 21 Sep
-// 2026: the sentinel is a backup to each product's internal Watchdog.
-const ALLOWED_SCHEDULES = ["17,47 * * * *", "17 * * * *", "17 6 * * *"];
+// Owner-approved cadences. Every 4 hours is the Owner's choice of 21 Sep 2026:
+// the sentinel is a zero-cost backup to each product's internal Watchdog.
+const ALLOWED_SCHEDULES = ["17,47 * * * *", "17 * * * *", "17 */4 * * *"];
 const LOCK = "sentinel.lock.json";
 
 const git = (...args) => execFileSync("git", args, { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });

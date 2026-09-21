@@ -50,7 +50,7 @@ test("workflow: manual dispatch only unless an approved cadence is given; anythi
   assert.match(none, /workflow_dispatch/);
   assert.match(none, /permissions:\s*\n\s+contents: read\s*\n\s+issues: write/);
   for (const s of ALLOWED_SCHEDULES) assert.match(workflowFrom(TEMPLATE, s), new RegExp('cron: "' + s.replace(/\*/g, "\\*") + '"'));
-  assert.ok(ALLOWED_SCHEDULES.includes("17 6 * * *"), "Owner-chosen daily backup cadence");
+  assert.ok(ALLOWED_SCHEDULES.includes("17 */4 * * *"), "Owner-chosen 4-hourly backup cadence");
   assert.throws(() => workflowFrom(TEMPLATE, "*/5 * * * *"), /schedule must be one of/);
 });
 

@@ -12,7 +12,7 @@
 # only with an Owner-approved cadence, gated on the Actions budget check:
 #   30-minute schedule  "17,47 * * * *"  only if included free minutes suffice
 #   hourly fallback     "17 * * * *"     otherwise
-#   daily backup        "17 6 * * *"     Owner choice (21 Sep 2026): the sentinel
+#   4-hourly backup     "17 */4 * * *"   Owner choice (21 Sep 2026): the sentinel
 #                                        backs up each product's internal Watchdog
 # No paid Actions overage is authorised.
 
