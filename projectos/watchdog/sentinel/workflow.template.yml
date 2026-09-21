@@ -1,16 +1,20 @@
 # ProjectOS Watchdog — outer sentinel workflow (TEMPLATE, NOT ACTIVE).
 #
 # Canonical source: universalbizcomply/ProjectOS projectos/watchdog/sentinel/.
-# Installed as .github/workflows/watchdog-sentinel.yml in the separate, private
-# sentinel repository owned by universalbizcomply (phase P3).
+# projectos/scripts/watchdog-sentinel-package.cjs installs it as
+# .github/workflows/watchdog-sentinel.yml in the private sentinel repository
+# universalbizcomply/projectos-watchdog-sentinel.
 #
 # ONE job, ONE lightweight Linux runner, all products probed sequentially.
 # No matrix and no per-product jobs (each would multiply billed minutes).
 #
-# ACTIVATION IS A P3 DECISION, gated on the GitHub Actions budget check:
+# The template itself is never scheduled. The packager uncomments the schedule
+# only with an Owner-approved cadence, gated on the Actions budget check:
 #   30-minute schedule  "17,47 * * * *"  only if included free minutes suffice
 #   hourly fallback     "17 * * * *"     otherwise
-# No paid Actions overage is authorised. Until then only manual dispatch.
+#   4-hourly backup     "17 */4 * * *"   Owner choice (21 Sep 2026): the sentinel
+#                                        backs up each product's internal Watchdog
+# No paid Actions overage is authorised.
 
 name: watchdog-sentinel
 

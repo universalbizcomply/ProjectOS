@@ -1,0 +1,12 @@
+{
+  "project": "jd-testing",
+  "environment": "production",
+  "public_url": "https://jdtesting.uk",
+  "health_path": "/version.json",
+  "expected_service": "jd-testing",
+  "expected_environment": "production",
+  "expected_watchdog": "0.1.0",
+  "timeout_ms": 8000,
+  "check_classes": ["reachability", "https", "health", "release_identity"],
+  "product_profile_ref": "jdonlinetesting/JDtesting:.projectops/watchdog.json"
+}
