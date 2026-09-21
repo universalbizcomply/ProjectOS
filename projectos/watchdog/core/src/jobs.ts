@@ -8,6 +8,7 @@
 import type { CheckStatus } from "./status.ts";
 import type { MetadataSpec } from "./metadata.ts";
 import { isToken } from "./identity.ts";
+import type { CheckDefinition } from "./runner.ts";
 
 export const JOB_HEALTH_CHECK_ID = "job_health";
 
@@ -117,4 +118,14 @@ export function evaluateJob(spec: JobSpec, state: JobState | null, dbNowIso: str
   if (age > spec.stale_after_s * 1000) return res("CRITICAL", "STALE", { age_s: Math.floor(age / 1000), consecutive_failures: failures });
   if (failures >= spec.failure_threshold) return res("WARN", "REPEATED_FAILURE", { age_s: Math.floor(age / 1000), consecutive_failures: failures });
   return res("PASS", "OK", { age_s: Math.floor(age / 1000) });
+}
+
+// Declaration for a job-health check (scope.v1): one result per job, scope
+// "job"; the declared job list is the scope authority, so a failed jobs pack
+// reports ERROR per job (never global).
+export const JOB_SCOPE_TYPE = "job";
+
+export function jobHealthCheck(specs: readonly JobSpec[]): CheckDefinition {
+  const ids = specs.map((s) => s.job_id);
+  return { check_id: JOB_HEALTH_CHECK_ID, metadata: JOB_HEALTH_METADATA, scope: { scope_type: JOB_SCOPE_TYPE, resolve: async () => ids } };
 }

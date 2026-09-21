@@ -5,7 +5,7 @@
 // change the database keeps the same REQUIRED_SCHEMA_VERSION. A ProjectOS
 // release never implies a Watchdog release.
 
-export const WATCHDOG_CORE_VERSION = "0.1.0";
+export const WATCHDOG_CORE_VERSION = "0.1.1";
 export const REQUIRED_SCHEMA_VERSION = 1;
 
 // Contracts this core implements. The conformance validator checks that a
@@ -21,6 +21,7 @@ export const CORE_CONTRACTS = [
   "job-health.v1",
   "release-identity.v1",
   "sentinel-trust.v1",
+  "scope.v1",
 ] as const;
 
 export type SchemaCompatibility =
