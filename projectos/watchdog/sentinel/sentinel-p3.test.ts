@@ -171,3 +171,20 @@ test("registry tampering, unknown keys, duplicates and bad expectations are refu
   assert.equal(await main(ENV, async () => good.replace("jd.example.test", "evil.example.test"), github(() => site(GOOD), []).f, (m) => lines.push(m)), 1);
   assert.ok(lines.some((l) => /content hash mismatch/.test(l)), "tampered registry fails the workflow before any probe");
 });
+
+test("redirects are never followed; offsite/plain-http redirects are named; health must answer directly", async () => {
+  const seen: string[] = [];
+  const redirectTo = (loc: string) => (async (input: RequestInfo | URL, init?: RequestInit) => {
+    seen.push(String(input) + " " + init?.redirect);
+    return new Response(null, { status: 301, headers: { location: loc } });
+  }) as typeof fetch;
+  const off = by(await probeEntry(JD, redirectTo("http://169.254.169.254/latest/meta-data")));
+  assert.equal(off.https, "WARN:NOT_HTTPS");
+  assert.equal(off.reachability, "PASS:OK");
+  assert.equal(off.health, "WARN:REDIRECTED");
+  assert.equal(off.release_identity, "ERROR:HEALTH_UNAVAILABLE");
+  assert.equal(by(await probeEntry(JD, redirectTo("https://elsewhere.example.test/"))).https, "WARN:REDIRECT_OFFSITE");
+  assert.equal(by(await probeEntry(JD, redirectTo("/home"))).https, "PASS:OK");
+  assert.ok(seen.every((l) => l.endsWith(" manual")), "every request uses redirect: manual");
+  assert.ok(seen.every((l) => l.startsWith("https://jd.example.test")), "only the registered origin is contacted");
+});

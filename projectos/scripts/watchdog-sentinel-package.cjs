@@ -70,6 +70,7 @@ function build(opts) {
   files[".github/workflows/watchdog-sentinel.yml"] = workflowFrom(template, opts.schedule || null);
   const registry = generate(path.resolve(opts.sources), head);
   files["sentinel/registry.json"] = lib.canonicalJson(registry);
+  files[".gitattributes"] = "* text=auto eol=lf\n";
   files["package.json"] = lib.canonicalJson({ name: "projectos-watchdog-sentinel", private: true, type: "module", license: "UNLICENSED" });
   files["README.md"] = [
     "# ProjectOS Watchdog — outer sentinel",

@@ -46,11 +46,25 @@ function outcome(e: RegistryEntry, cls: SentinelCheckClass, status: ProbeOutcome
 
 async function timed(fetchImpl: FetchLike, url: string, ms: number): Promise<Response | "timeout" | "network"> {
   try {
-    return await fetchImpl(url, { method: "GET", redirect: "follow", signal: AbortSignal.timeout(ms), headers: { "user-agent": "projectos-watchdog-sentinel" } });
+    // Redirects are never followed: the sentinel only ever talks to the
+    // registered origin (no SSRF via a redirect to an internal address).
+    return await fetchImpl(url, { method: "GET", redirect: "manual", signal: AbortSignal.timeout(ms), headers: { "user-agent": "projectos-watchdog-sentinel" } });
   } catch (e) {
     const n = e instanceof Error ? e.name : "";
     return n === "TimeoutError" || n === "AbortError" ? "timeout" : "network";
   }
+}
+
+// A redirect is judged, not followed: to an https URL on the same host it is
+// fine; to plain http it is NOT_HTTPS; anywhere else it is REDIRECT_OFFSITE.
+function redirectOutcome(e: SentinelEntry, r: Response): ProbeOutcome | null {
+  if (r.status < 300 || r.status >= 400) return null;
+  let to: URL | null = null;
+  try { to = new URL(r.headers.get("location") ?? "", e.public_url); } catch (_x) { to = null; }
+  if (!to) return outcome(e, "https", "WARN", "REDIRECT_INVALID");
+  if (to.protocol !== "https:") return outcome(e, "https", "WARN", "NOT_HTTPS");
+  if (to.host !== new URL(e.public_url).host) return outcome(e, "https", "WARN", "REDIRECT_OFFSITE");
+  return outcome(e, "https", "PASS", "OK");
 }
 
 async function readJsonBounded(r: Response): Promise<Record<string, unknown> | null> {
@@ -91,8 +105,7 @@ export async function probeEntry(e: SentinelEntry, fetchImpl: FetchLike, observe
     } else {
       if (want.has("reachability")) out.push(outcome(e, "reachability", r.status >= 500 ? "CRITICAL" : "PASS", r.status >= 500 ? "HTTP_" + r.status : "OK"));
       if (want.has("https")) {
-        const secure = r.url === "" || r.url.startsWith("https://");
-        out.push(outcome(e, "https", secure && r.status < 400 ? "PASS" : "WARN", secure ? (r.status < 400 ? "OK" : "HTTP_" + r.status) : "NOT_HTTPS"));
+        out.push(redirectOutcome(e, r) ?? outcome(e, "https", r.status < 400 ? "PASS" : "WARN", r.status < 400 ? "OK" : "HTTP_" + r.status));
       }
       try { await r.body?.cancel(); } catch (_x) { /* body not needed */ }
     }
@@ -104,6 +117,7 @@ export async function probeEntry(e: SentinelEntry, fetchImpl: FetchLike, observe
     let failure: ProbeOutcome["status"] | null = null;
     let code = "OK";
     if (r === "timeout" || r === "network") { failure = "CRITICAL"; code = r === "timeout" ? "TIMEOUT" : "UNREACHABLE"; }
+    else if (r.status >= 300 && r.status < 400) { failure = "WARN"; code = "REDIRECTED"; try { await r.body?.cancel(); } catch (_x) { /* ignore */ } }
     else if (r.status !== 200) { failure = "CRITICAL"; code = "HTTP_" + r.status; try { await r.body?.cancel(); } catch (_x) { /* ignore */ } }
     else {
       try { body = await readJsonBounded(r); } catch (_x) { body = null; }
