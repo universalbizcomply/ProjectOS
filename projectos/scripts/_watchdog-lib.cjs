@@ -245,8 +245,11 @@ function profileErrors(p, opts = {}) {
 
 function registryEntryErrors(x) {
   const e = [];
-  const allowed = ["project", "environment", "public_url", "health_path", "expected_service", "expected_release", "timeout_ms", "check_classes"];
+  const allowed = ["project", "environment", "public_url", "health_path", "expected_service", "expected_release", "timeout_ms", "check_classes", "expected_environment", "expected_watchdog"];
   for (const k of Object.keys(x || {})) if (!allowed.includes(k)) e.push("unexpected registry key " + k);
+  // P3 public-contract expectations (optional). The release is never pinned.
+  if (x.expected_environment != null && !TOKEN.test(x.expected_environment)) e.push(x.project + ": invalid expected_environment");
+  if (x.expected_watchdog != null && !/^\d{1,4}\.\d{1,4}\.\d{1,6}$/.test(String(x.expected_watchdog))) e.push(x.project + ": invalid expected_watchdog");
   if (!TOKEN.test(x.project || "")) e.push("invalid project");
   if (!TOKEN.test(x.environment || "")) e.push("invalid environment");
   let u = null;

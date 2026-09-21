@@ -39,6 +39,7 @@ const REQUIRED_FILES = [
   "sentinel/run-sentinel.ts",
   "sentinel/workflow.template.yml",
   "sentinel/example/registry.example.json",
+  "sentinel/registry/sources.json",
   "templates/watchdog-profile.template.json",
   "templates/watchdog-adapter.template.ts",
 ];
@@ -150,11 +151,19 @@ function run() {
     catch (e) { err(s + ".schema.json invalid JSON: " + e.message); }
   }
   for (const e of lib.registryErrors(lib.readJson(rel("sentinel/example/registry.example.json")))) err("registry.example.json: " + e);
+  // P3: the live registrations must generate a valid registry.
+  try {
+    const { generate } = require("../scripts/watchdog-sentinel-registry.cjs");
+    const live = generate(rel("sentinel/registry/sources.json"), "0".repeat(40));
+    for (const e of lib.registryErrors(live)) err("sentinel/registry: " + e);
+    for (const x of live.entries) if (x.expected_release !== null) err("sentinel/registry: " + x.project + " pins a release (must be observed)");
+  } catch (e) { err("sentinel/registry: " + e.message); }
+  if (!fs.existsSync(path.join(ROOT, "projectos", "scripts", "watchdog-sentinel-package.cjs"))) err("missing projectos/scripts/watchdog-sentinel-package.cjs");
 
   // ---- sentinel workflow template ----------------------------------------------
   const wf = read(rel("sentinel/workflow.template.yml"));
   const wfCode = wf.split(/\r?\n/).filter((l) => !/^\s*#/.test(l)).join("\n");
-  if (/^\s*schedule\s*:/m.test(wfCode)) err("sentinel workflow template must not be scheduled in P2");
+  if (/^\s*schedule\s*:/m.test(wfCode)) err("sentinel workflow template must not be scheduled (the packager applies an approved cadence)");
   if (/strategy\s*:|matrix\s*:/.test(wfCode)) err("sentinel workflow must be a single job (no matrix)");
   const jobsSection = wfCode.split(/^jobs:\s*$/m)[1] || "";
   if ((jobsSection.match(/^ {2}[a-z0-9_-]+:\s*$/gm) || []).length !== 1) err("sentinel workflow must define exactly one job");

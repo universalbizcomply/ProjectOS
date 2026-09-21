@@ -67,7 +67,7 @@ test("main: failing product opens ONE issue and fails the workflow; next run wit
     const url = String(input);
     const method = init?.method ?? "GET";
     calls.push(method + " " + url);
-    if (url.startsWith("https://api.github.com/repos/o/s/issues?")) return Response.json(issues.filter((i) => i.state === "open"));
+    if (url.startsWith("https://api.github.com/repos/o/s/issues?")) return Response.json(issues.filter((i) => i.state === "open").map((i) => ({ ...i, user: { login: "github-actions[bot]" } })));
     if (url === "https://api.github.com/repos/o/s/issues" && method === "POST") {
       const b = JSON.parse(String(init!.body));
       issues.push({ number: issues.length + 1, body: b.body, state: "open" });
@@ -101,7 +101,7 @@ test("main: failing product opens ONE issue and fails the workflow; next run wit
 
 test("main: pages all open issues, closes duplicates, isolates failing GitHub actions", async () => {
   const marker = (cls: string, n: number) => ({
-    number: n, state: "open",
+    number: n, state: "open", user: { login: "github-actions[bot]" },
     body: issueMarker({ project: "example-product", environment: "production", check_class: cls as SentinelIssue["check_class"], severity: "CRITICAL", opened_at: "2026-09-21T00:00:00.000Z", last_alerted_at: "2026-09-21T00:00:00.000Z" }),
   });
   // 100 unrelated labelled issues on page 1, the real ones on page 2, plus a duplicate
@@ -111,7 +111,7 @@ test("main: pages all open issues, closes duplicates, isolates failing GitHub ac
   const f = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     const method = init?.method ?? "GET";
-    if (url.includes("/issues?")) return Response.json(url.includes("page=1&") ? filler : url.includes("page=2&") ? tracked : []);
+    if (url.includes("/issues?")) return Response.json(/page=1$/.test(url) ? filler : /page=2$/.test(url) ? tracked : []);
     if (method === "PATCH") {
       patches.push(url.split("/issues/")[1] + " " + String(init!.body));
       if (url.endsWith("/issues/6")) return new Response("{}", { status: 502 }); // one failing call

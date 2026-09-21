@@ -17,14 +17,44 @@
 // (and val-watchdog-core1a) fail on drift or tampering.
 //
 // sources.json: { "sources": [ { "project_config": "<path>", "profile": "<path>",
-//                                "environment": "production", "timeout_ms": 5000 } ] }
+//                                "environment": "production", "timeout_ms": 5000 },
+//                              { "registration": "<path>" } ] }
 // (paths relative to sources.json)
 
 const fs = require("fs");
 const path = require("path");
 const lib = require("./_watchdog-lib.cjs");
 
+// A ProjectOS-owned registration: used when the product's own profile does not
+// (yet) opt in to the sentinel and the product must not be changed to register
+// it (P3: JD's profile keeps sentinel.mode "none"; public probes change nothing
+// product-side). Carries only the safe public contract. The release is always
+// observed (expected_release null), never pinned.
+const REGISTRATION_KEYS = ["project", "environment", "public_url", "health_path", "expected_service", "expected_environment", "expected_watchdog", "timeout_ms", "check_classes", "product_profile_ref"];
+
+function entryFromRegistration(file) {
+  const r = lib.readJson(file);
+  for (const k of Object.keys(r)) if (!REGISTRATION_KEYS.includes(k)) throw new Error(file + ": unexpected key " + k);
+  if (typeof r.product_profile_ref !== "string" || !r.product_profile_ref) throw new Error(file + ": product_profile_ref required (where the product's own profile lives)");
+  const entry = {
+    project: r.project,
+    environment: r.environment,
+    public_url: r.public_url,
+    health_path: r.health_path ?? null,
+    expected_service: r.expected_service ?? null,
+    expected_release: null,
+    expected_environment: r.expected_environment ?? null,
+    expected_watchdog: r.expected_watchdog ?? null,
+    timeout_ms: r.timeout_ms || 5000,
+    check_classes: [...(r.check_classes || [])].sort(),
+  };
+  const errors = lib.registryEntryErrors(entry);
+  if (errors.length) throw new Error(file + ": " + errors.join("; "));
+  return entry;
+}
+
 function entryFor(src, baseDir) {
+  if (src.registration) return entryFromRegistration(path.resolve(baseDir, src.registration));
   const cfg = lib.readJson(path.resolve(baseDir, src.project_config));
   const prof = lib.readJson(path.resolve(baseDir, src.profile));
   const pe = lib.profileErrors(prof);
@@ -83,4 +113,4 @@ function main() {
 }
 
 if (require.main === module) main();
-module.exports = { generate, entryFor };
+module.exports = { generate, entryFor, entryFromRegistration };
