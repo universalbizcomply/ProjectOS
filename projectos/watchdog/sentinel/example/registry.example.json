@@ -1,0 +1,23 @@
+{
+  "content_sha256": "3fe6fe4ff1d020e357f3bf80dc0275c550301681d6bbcadd74c3878f892a2dbd",
+  "entries": [
+    {
+      "check_classes": [
+        "health",
+        "https",
+        "reachability",
+        "release_identity"
+      ],
+      "environment": "production",
+      "expected_release": null,
+      "expected_service": "example-product",
+      "health_path": "/health",
+      "project": "example-product",
+      "public_url": "https://example.com",
+      "timeout_ms": 5000
+    }
+  ],
+  "generated_by": "projectos/scripts/watchdog-sentinel-registry.cjs",
+  "registry_version": 1,
+  "source_commit": "866cad7b475ca4d696113aa44520d5338ab0ee31"
+}

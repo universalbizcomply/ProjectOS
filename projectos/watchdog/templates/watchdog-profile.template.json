@@ -1,0 +1,26 @@
+{
+  "profile_version": 1,
+  "onboarding_status": "DISCOVERED",
+  "runtime": {
+    "install_path": "supabase/functions/_shared/watchdog-core",
+    "adapter_path": "supabase/functions/_shared/watchdog-adapter.ts"
+  },
+  "health": {
+    "health_endpoint_path": null,
+    "health_not_applicable_reason": null,
+    "release_endpoint_path": null
+  },
+  "monitor": {
+    "cadence_seconds": 300,
+    "sources": ["runner", "watchdog"]
+  },
+  "critical_jobs": [],
+  "notifications": {
+    "recipients_setting_ref": null
+  },
+  "sentinel": {
+    "mode": "none",
+    "check_classes": []
+  },
+  "components": []
+}

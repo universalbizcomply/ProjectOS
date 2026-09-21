@@ -1,0 +1,5 @@
+{
+  "sources": [
+    { "project_config": "project-config.example.json", "profile": "watchdog-profile.example.json", "environment": "production", "timeout_ms": 5000 }
+  ]
+}

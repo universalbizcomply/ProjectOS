@@ -1,0 +1,7 @@
+{
+  "name": "@projectos/watchdog-sentinel",
+  "private": true,
+  "description": "ProjectOS Watchdog outer sentinel runner (canonical source; executed only from the generated sentinel repository).",
+  "type": "module",
+  "license": "UNLICENSED"
+}

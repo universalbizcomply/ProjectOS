@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "projectos/schemas/watchdog-lock.schema.json",
+  "title": "ProjectOS Watchdog Core Lock",
+  "description": "watchdog-core.lock.json at a product repository root. Written only by projectos/scripts/watchdog-sync.cjs. Pins the vendored Watchdog Core to an exact reviewed release. Contains no credentials, no local filesystem paths and no product secrets. Hashes are SHA-256 of the file text with CRLF normalised to LF. Enforced by projectos/scripts/_watchdog-lib.cjs lockErrors().",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["lock_version", "watchdog_core_version", "schema_version", "source_repository", "tag", "commit", "install_path", "files"],
+  "properties": {
+    "lock_version": { "const": 1 },
+    "watchdog_core_version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "schema_version": { "type": "integer", "minimum": 1 },
+    "source_repository": { "const": "universalbizcomply/ProjectOS" },
+    "tag": { "type": "string", "pattern": "^watchdog-core/v\\d+\\.\\d+\\.\\d+$" },
+    "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "install_path": { "type": "string", "description": "Relative path of the vendored core inside the product." },
+    "files": {
+      "type": "object",
+      "description": "Install-relative path -> SHA-256 (hex) of canonical text.",
+      "additionalProperties": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+    }
+  }
+}

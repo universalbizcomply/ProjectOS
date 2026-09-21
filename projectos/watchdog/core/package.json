@@ -1,0 +1,11 @@
+{
+  "name": "@projectos/watchdog-core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ProjectOS Watchdog Core: run lifecycle, incidents, positive recovery, notification planning, job health, release identity and sentinel logic. Dependency-free; vendored into products by projectos/scripts/watchdog-sync.cjs.",
+  "type": "module",
+  "watchdog": {
+    "requiredSchemaVersion": 1
+  },
+  "license": "UNLICENSED"
+}
