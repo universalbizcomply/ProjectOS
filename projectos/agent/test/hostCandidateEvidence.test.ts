@@ -6,6 +6,7 @@
  * temporary one.
  */
 import { execFileSync } from 'node:child_process';
+import { deflateSync } from 'node:zlib';
 import { mkdtempSync, mkdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -108,6 +109,50 @@ describe("the agent's own evidence of a candidate, from a real repository", () =
     write(root, 'huge.bin', Buffer.alloc(1_048_577, 0x78));
     const huge = commit(root, 'over the bound');
     expect(source(baseline, huge)).toMatchObject({ problems: [expect.stringContaining('huge.bin')] });
+  });
+
+  it('a SUBSTITUTED loose object refuses the evidence (live control: cat-file serves it)', () => {
+    // AppSec F1. `git cat-file` never re-hashes an object on read, so whatever bytes sit in the store
+    // under a name are served AS that name. The control proves that premise on THIS git; the refusal
+    // afterwards is therefore the new defence, not an attack that fizzled.
+    const { root, baseline, candidate } = repository();
+    const source = candidateEvidenceSource(nodeGitBytes('git', root));
+    expect(source(baseline, candidate)).toHaveProperty('digest');
+
+    const victim = git(root, 'rev-parse', `${candidate}:mod.txt`);
+    const loose = join(root, '.git', 'objects', victim.slice(0, 2), victim.slice(2));
+    const raw = Buffer.from('benign bytes B\n');
+    rmSync(loose, { force: true });
+    writeFileSync(loose, deflateSync(Buffer.concat([Buffer.from(`blob ${raw.length}\0`), raw])));
+
+    // CONTROL: the substitution is live - git serves B under the ORIGINAL id, exit 0.
+    expect(git(root, 'cat-file', 'blob', victim)).toBe('benign bytes B');
+
+    const refused = source(baseline, candidate);
+    expect(refused).toMatchObject({ problems: [expect.stringContaining('do not hash to their own object id')] });
+  });
+
+  it('an ambient GIT_DIR cannot repoint the reading (live control: plain git follows it)', () => {
+    // ECC SECURITY (HIGH): the evidence source used to inherit the whole ambient environment. The
+    // reading must be about the governed root, whatever the process environment says.
+    const { root, baseline, candidate } = repository();
+    const decoy = repository();
+    const source = candidateEvidenceSource(nodeGitBytes('git', root));
+    const honest = source(baseline, candidate);
+    expect(honest).toHaveProperty('digest');
+
+    const saved = process.env['GIT_DIR'];
+    process.env['GIT_DIR'] = join(decoy.root, '.git');
+    try {
+      // CONTROL: a plain spawn with the inherited environment answers about the DECOY repository.
+      const redirected = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8', env: { ...process.env } }).trim();
+      expect(redirected).toBe(decoy.candidate);
+      // The production source is unmoved: same digest, about the governed root.
+      expect(source(baseline, candidate)).toEqual(honest);
+    } finally {
+      if (saved === undefined) delete process.env['GIT_DIR'];
+      else process.env['GIT_DIR'] = saved;
+    }
   });
 
   it('a planted replacement object cannot change what the agent reads', () => {

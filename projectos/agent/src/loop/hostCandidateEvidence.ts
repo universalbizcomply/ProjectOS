@@ -19,6 +19,7 @@
  * replacement objects disabled, so both sides read the difference the same way.
  */
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { candidateEvidenceDigest, type CandidateEvidenceEntry, type EvidenceChange } from '@projectos/core';
 
 /** The agent's recomputed evidence digest, or why it could not be established. */
@@ -30,6 +31,9 @@ export type CandidateEvidenceSource = (
 /** One committed-object read: raw bytes on success, `null` on any failure. Injectable for proofs. */
 export type GitBytes = (args: readonly string[]) => Buffer | null;
 
+// 40 HEX EXACTLY, BY RATIFIED CONTRACT — deliberately narrower than the Rust reader's own id type.
+// The committed-candidate rule accepts only 40 lower hex (`projectos.committed-candidate.v1`), so a
+// SHA-256 object-format repository fails CLOSED on both sides; this pairing is SHA-1-only by design.
 const COMMIT = /^[0-9a-f]{40}$/;
 const STATUS: Readonly<Record<string, EvidenceChange>> = { A: 'added', D: 'deleted', M: 'modified', T: 'type-changed' };
 /** Matches the Host reader's per-object bound; a larger object is refused, never shortened. */
@@ -91,6 +95,18 @@ export function candidateEvidenceSource(git: GitBytes): CandidateEvidenceSource 
       const readable = e.newMode === 0o100644 || e.newMode === 0o100755 || e.newMode === 0o120000;
       const contents = readable ? git(['cat-file', 'blob', '--end-of-options', `${candidateCommit}:${e.path}`]) : Buffer.alloc(0);
       if (contents === null) return { problems: [`the committed contents of '${e.path}' could not be read within the evidence bound`] };
+      // THE BYTES MUST BE THE OBJECT THEY ARE NAMED AS (AppSec F1, premise proven on this git:
+      // `cat-file` serves a substituted loose object under the original id with exit 0). The evidence
+      // names `newId` and shows `contents`; without this line those are two independent claims, and a
+      // crafted object store could have the reviewer judge bytes that are not the commit's true tree.
+      // Git's own object id IS the hash of the bytes, so the check is exact and free of new trust.
+      if (readable && gitBlobId(contents) !== e.newId) {
+        return {
+          problems: [
+            `the committed contents of '${e.path}' do not hash to their own object id - the object store is not telling the truth about this candidate`,
+          ],
+        };
+      }
       entries.push({ ...e, contents });
     }
     const computed = candidateEvidenceDigest({ baselineCommit, candidateCommit, entries });
@@ -98,12 +114,31 @@ export function candidateEvidenceSource(git: GitBytes): CandidateEvidenceSource 
   };
 }
 
+/** The git object id of `bytes` as a blob: SHA-1 over `blob <len>\0` + bytes (this pairing is SHA-1-only). */
+export function gitBlobId(bytes: Buffer): string {
+  return createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
+}
+
 /**
  * The production reader: the bound git executable, in the governed root, no shell, bounded output and
  * time, replacement objects and grafts disabled, and no pager or prompt.
+ *
+ * THE ENVIRONMENT IS AN ALLOWLIST, NOT AN INHERITANCE (ECC security, HIGH). This is the agent's
+ * INDEPENDENT reading — the one check that lets it refuse an attestation over other evidence — and it
+ * used to spread `process.env`, so an ambient `GIT_DIR`, `GIT_OBJECT_DIRECTORY`,
+ * `GIT_ALTERNATE_OBJECT_DIRECTORIES` or `GIT_CONFIG_PARAMETERS` could silently repoint WHICH repository
+ * answers, while every sibling git call in the same candidate was already allowlisted. Now nothing
+ * `GIT_*` is inherited at all; system and user configuration are the null device; and the hook
+ * directory resolves beneath it, matching `system.ts` and the Host's own runner.
  */
 export function nodeGitBytes(gitExe: string, root: string): GitBytes {
+  const NULL_DEVICE = process.platform === 'win32' ? 'NUL' : '/dev/null';
   return (args) => {
+    const kept: NodeJS.ProcessEnv = {};
+    for (const name of ['SystemRoot', 'SystemDrive', 'windir', 'TEMP', 'TMP', 'PATH']) {
+      const value = process.env[name];
+      if (typeof value === 'string') kept[name] = value;
+    }
     const result = spawnSync(gitExe, [...args], {
       cwd: root,
       encoding: 'buffer',
@@ -112,14 +147,21 @@ export function nodeGitBytes(gitExe: string, root: string): GitBytes {
       windowsHide: true,
       shell: false,
       env: {
-        ...process.env,
+        ...kept,
+        GIT_CONFIG_NOSYSTEM: '1',
+        GIT_CONFIG_SYSTEM: NULL_DEVICE,
+        GIT_CONFIG_GLOBAL: NULL_DEVICE,
+        GIT_ATTR_NOSYSTEM: '1',
         GIT_NO_REPLACE_OBJECTS: '1',
-        GIT_GRAFT_FILE: process.platform === 'win32' ? 'NUL' : '/dev/null',
+        GIT_GRAFT_FILE: NULL_DEVICE,
         GIT_TERMINAL_PROMPT: '0',
         GIT_OPTIONAL_LOCKS: '0',
         GIT_PAGER: 'cat',
         GIT_NO_LAZY_FETCH: '1',
         LC_ALL: 'C',
+        GIT_CONFIG_COUNT: '1',
+        GIT_CONFIG_KEY_0: 'core.hooksPath',
+        GIT_CONFIG_VALUE_0: NULL_DEVICE,
       },
     });
     if (result.error !== undefined || result.status !== 0) return null;

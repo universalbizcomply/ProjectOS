@@ -1011,7 +1011,10 @@ pub mod evidence_fixture {
                     old_mode: 0,
                     new_mode: 0o100_644,
                     old_id: "0".repeat(40),
-                    new_id: "a".repeat(40),
+                    // THE TRUE blob id of the contents below (`git hash-object`). The fixture used to
+                    // say `a` x40; once the readers verify contents against their object id (AppSec
+                    // F1), a fixture with a dishonest id is a fixture no production path could serve.
+                    new_id: "fe95c7fd563fd89c3f4813f9bfed6e5d79288cde".to_string(),
                     new_contents: Some(b"fn reviewed() {}\n".to_vec()),
                 }],
             )

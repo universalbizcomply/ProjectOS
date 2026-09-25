@@ -384,3 +384,45 @@ fn evidence_of_another_commit_or_from_another_baseline_never_reaches_a_reviewer(
     assert!(reviewer.0.borrow().is_empty(), "nothing was ever shown to a reviewer");
     cleanup(&dir);
 }
+
+/// A SUBSTITUTED OBJECT NEVER BECOMES EVIDENCE — AppSec F1, with its LIVE CONTROL.
+///
+/// `git cat-file` does not re-hash an object on read: whatever bytes the store holds under a name are
+/// served as that name. The CONTROL below proves that premise against THIS git — the one reader really
+/// does return the substituted bytes — so the port's refusal afterwards is a defence being exercised,
+/// never an attack that failed on its own.
+#[test]
+fn evidence_contents_that_do_not_hash_to_their_object_id_refuse_the_review() {
+    let dir = temp("substituted");
+    let (baseline, candidate) = repository(&dir);
+
+    // The honest reading first, so the refusal below cannot be a pre-existing failure.
+    {
+        let r = reader(&dir, &candidate);
+        assert!(PinnedCommitEvidence::over(&r).candidate_evidence(&baseline).is_ok());
+    }
+
+    // Substitute the loose object of the MODIFIED file: copy another blob's loose file over its name.
+    // No zlib needed - the other object's file IS a valid loose blob, just for different bytes.
+    let victim = git(&dir, &["rev-parse", &format!("{candidate}:mod.txt")]);
+    let benign = git(&dir, &["hash-object", "-w", "--stdin"]); // empty stdin => the empty blob
+    let loose = |oid: &str| dir.join(".git").join("objects").join(&oid[..2]).join(&oid[2..]);
+    let victim_path = loose(&victim);
+    let mut perms = std::fs::metadata(&victim_path).unwrap().permissions();
+    perms.set_readonly(false);
+    std::fs::set_permissions(&victim_path, perms).unwrap();
+    std::fs::copy(loose(&benign), &victim_path).unwrap();
+
+    // CONTROL: the reader now genuinely serves the substituted bytes under the original id.
+    let r = reader(&dir, &candidate);
+    let served = r.committed_bytes(&projectos_host_repository::CommittedPath::new("mod.txt").unwrap()).unwrap();
+    assert_eq!(served, b"", "control: the substitution must be live, or this test proves nothing");
+    assert_ne!(victim, git(&dir, &["hash-object", "--stdin"]), "the id still names the ORIGINAL bytes");
+
+    // THE DEFENCE: bytes that do not hash to their own object id refuse the whole review.
+    assert_eq!(
+        PinnedCommitEvidence::over(&r).candidate_evidence(&baseline).unwrap_err(),
+        EvidenceUnavailable::RepositoryRefused,
+    );
+    cleanup(&dir);
+}

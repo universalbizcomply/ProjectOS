@@ -107,20 +107,36 @@ function removeQuietly(dir: string | null): void {
   }
 }
 
-/** A repository-relative path git reported, re-checked before it becomes an argument. */
+/**
+ * A repository-relative path git reported, re-checked before it becomes an argument.
+ *
+ * ASCII-GRAPHIC PLUS `/` ONLY — the SAME charset the evidence contract accepts (AppSec F4). The
+ * evidence refuses a space or non-ASCII path outright, so committing one would create a candidate
+ * that is permanently unreviewable on this route, discovered only when the Host refuses it. Refusing
+ * at COMMIT time says so while the operator is looking, and nothing narrower than the evidence
+ * charset can ever be recorded and then stuck.
+ */
 function isPlainRelativePath(path: string): boolean {
   return (
     path !== '' &&
     !path.startsWith('/') &&
     !path.startsWith('-') &&
-    !path.includes('\\') &&
-    !path.includes('\0') &&
+    [...path].every((c) => c === '/' || (c >= '!' && c <= '~')) &&
     !/^[A-Za-z]:/.test(path) &&
     !path.split('/').some((s) => s === '' || s === '.' || s === '..')
   );
 }
 
 type IsolatedGit = (args: readonly string[], indexFile?: string) => ExecResult;
+
+/** What actually sits at `root/rel`, judged by `lstat` — the entry itself, never what a link resolves to. */
+function entryKindAt(root: string, rel: string): 'file' | 'absent' | 'other' {
+  try {
+    return lstatSync(join(root, rel)).isFile() ? 'file' : 'other';
+  } catch {
+    return 'absent';
+  }
+}
 
 /**
  * The command-scope overrides that stop every filter driver the configuration defines from running.
@@ -228,21 +244,28 @@ function commitWithin(root: string, phaseId: string, git: IsolatedGit, scratchIn
   const present: { path: string; mode: string }[] = [];
   const deleted: string[] = [];
   for (const e of entries) {
-    if (!isPlainRelativePath(e.path)) return refused(`'${e.path}' is not a plain repository path`);
+    if (!isPlainRelativePath(e.path)) {
+      return refused(
+        `'${e.path}' is not a plain repository path in the evidence charset (ASCII-graphic and '/'), ` +
+          'so committing it would record a candidate the review contract must refuse',
+      );
+    }
     if (e.state === 'deleted') {
+      // A "deleted" path must be GONE, judged without following anything: `git status` reports a
+      // dangling symlink as a live path, but a follow-based existence check reads it as absent - and a
+      // force-removed link would silently drop work and misreport the reason (ECC code review).
+      if (entryKindAt(root, e.path) !== 'absent') {
+        return refused(`'${e.path}' is reported deleted but something still sits at that path (a link is never judged by what it points to)`);
+      }
       deleted.push(e.path);
       continue;
     }
     if (!FILE_MODES.includes(e.mode)) {
       return refused(`'${e.path}' has mode ${e.mode}; only ordinary files enter a local candidate`);
     }
-    let isFile = false;
-    try {
-      isFile = lstatSync(join(root, e.path)).isFile();
-    } catch {
-      isFile = false;
+    if (entryKindAt(root, e.path) !== 'file') {
+      return refused(`'${e.path}' is not an ordinary file (a link is never followed into a candidate)`);
     }
-    if (!isFile) return refused(`'${e.path}' is not an ordinary file (a link is never followed into a candidate)`);
     present.push({ path: e.path, mode: e.mode });
   }
 
@@ -254,6 +277,17 @@ function commitWithin(root: string, phaseId: string, git: IsolatedGit, scratchIn
     const lines = hashed.stdout.split(/\r?\n/).map((l) => l.trim()).filter((l) => l !== '');
     if (hashed.code !== 0 || lines.length !== present.length || !lines.every((l) => COMMIT_ID.test(l))) {
       return refused('the candidate content could not be stored completely, so nothing was committed');
+    }
+    // THE TYPE IS RE-JUDGED ON THE FAR SIDE OF THE READ (ECC code review: check-then-open by name). The
+    // lstat above and git's own open are two lookups, so a path swapped to a link between them would
+    // have been stored as its target text. Re-checking every path AFTER the store means a swap in that
+    // window is caught whichever side of the read it landed on; a swap wholly inside git's single open
+    // is not representable as a regular-file-to-link change visible to neither lstat. Nothing has been
+    // committed yet - a refusal here leaves only unreferenced loose objects, never a candidate.
+    for (const p of present) {
+      if (entryKindAt(root, p.path) !== 'file') {
+        return refused(`'${p.path}' changed type while the candidate was being stored; nothing was committed`);
+      }
     }
     blobs.push(...lines);
   }

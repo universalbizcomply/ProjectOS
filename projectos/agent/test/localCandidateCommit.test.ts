@@ -243,6 +243,33 @@ describe('criterion 12 - the candidate is committed locally, before review, and 
     expect(git(w.root, 'rev-parse', 'refs/heads/work').trim()).toBe(intruder);
   });
 
+  it('a path outside the evidence charset is refused AT COMMIT TIME, not discovered at review', () => {
+    // AppSec F4: the evidence contract accepts ASCII-graphic paths only, so committing `My File.md`
+    // would create a candidate this route could never review. The refusal happens here, out loud.
+    const w = world();
+    writeFileSync(join(w.root, 'My File.md'), 'has a space\n');
+    const r = commitLocalCandidate(nodeSystem, w.root, PHASE);
+    expect(r.kind).toBe('REFUSED');
+    expect(r.kind === 'REFUSED' && r.reasons.join(' ')).toContain('evidence charset');
+    expect(git(w.root, 'rev-parse', 'HEAD').trim()).toBe(w.head);
+  });
+
+  it('a "deleted" path with something still sitting at it is refused, never force-removed', () => {
+    // ECC code review: `git status` reports a dangling symlink as a live path, and a follow-based
+    // existence check reads it as absent - the two must not combine into a silent force-remove.
+    const w = world();
+    rmSync(join(w.root, 'other.txt'));
+    try {
+      execFileSync('cmd', ['/c', 'mklink', join(w.root, 'other.txt'), join(w.root, 'no-such-target.txt')], { stdio: 'pipe' });
+    } catch {
+      return; // Symlink creation needs Developer Mode or elevation here; the lstat guard is unconditional.
+    }
+    const r = commitLocalCandidate(nodeSystem, w.root, PHASE);
+    expect(r.kind).toBe('REFUSED');
+    expect(r.kind === 'REFUSED' && r.reasons.join(' ')).toContain('reported deleted');
+    expect(git(w.root, 'rev-parse', 'HEAD').trim()).toBe(w.head);
+  });
+
   it('a symbolic link is never followed into a candidate', () => {
     const w = world();
     const target = join(temp('projectos-lc-outside-'), 'secret.txt');
@@ -305,8 +332,11 @@ describe('criterion 13 - no hook and no configuration-driven program runs', () =
     writeFileSync(join(w.root, 'control.txt'), 'control\n');
     gitMayFail(w.root, 'add', '--', 'control.txt');
     expect(existsSync(marker), 'control: the clean filter must be live').toBe(true);
-    rmSync(marker);
+    // The cleanup `rm --cached` below ALSO runs the live filter (proven empirically: index refresh
+    // re-cleans tracked files, racily with the stat cache), so the marker is cleared only AFTER it -
+    // otherwise its echoes leak into the assertion about the candidate commit.
     gitMayFail(w.root, 'rm', '--cached', '--quiet', '--', 'control.txt');
+    rmSync(marker, { force: true });
 
     doWork(w);
     const r = committedOk(w);

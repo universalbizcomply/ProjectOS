@@ -59,6 +59,19 @@ impl<'a> PinnedCommitEvidence<'a> {
                     .map_err(|e| unavailable(&e))?,
             ),
         };
+        // THE BYTES MUST BE THE OBJECT THE TREE NAMES (AppSec F1, premise proven live: `git cat-file`
+        // returns a substituted loose object under the original id with exit 0 - it never re-hashes on
+        // read). The evidence records `new_id` AND shows `new_contents`; without this check those are
+        // two independent claims about an object store the implementer writes, and the reviewer could
+        // be shown bytes that are not the candidate tree's true content while the attestation binds
+        // them as if they were. Git's object id IS the hash of the bytes, so recomputing it here makes
+        // the two claims one. Only 40-hex (SHA-1) ids are checkable and only those are ratified; any
+        // other length already refused upstream.
+        if let Some(bytes) = &new_contents {
+            if git_blob_id_hex(bytes) != change.new_id().as_str() {
+                return Err(EvidenceUnavailable::RepositoryRefused);
+            }
+        }
         Ok(EvidenceEntryInput {
             change: match change.kind() {
                 ChangeKind::Added => EvidenceChange::Added,
@@ -74,6 +87,25 @@ impl<'a> PinnedCommitEvidence<'a> {
             new_contents,
         })
     }
+}
+
+/// The git object id of `bytes` as a blob: SHA-1 over `blob <len>\0` || bytes, lower hex.
+///
+/// SHA-1 here binds to GIT'S OWN identifier, which is SHA-1 by the ratified 40-hex contract; it is not
+/// used as a collision-resistant primitive (an implementer who can collide SHA-1 can simply commit the
+/// colliding bytes honestly - the reviewer then sees them).
+fn git_blob_id_hex(bytes: &[u8]) -> String {
+    use sha1::{Digest, Sha1};
+    let mut hasher = Sha1::new();
+    hasher.update(format!("blob {}\0", bytes.len()).as_bytes());
+    hasher.update(bytes);
+    let digest = hasher.finalize();
+    let mut out = String::with_capacity(40);
+    for b in digest {
+        use std::fmt::Write as _;
+        let _ = write!(out, "{b:02x}");
+    }
+    out
 }
 
 /// The three answers about the COMMITS keep their meaning; every other repository refusal is one
