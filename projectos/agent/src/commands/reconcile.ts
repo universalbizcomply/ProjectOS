@@ -31,7 +31,7 @@ import type { Flags } from '../flags.js';
 import { loadGovernedContext } from '../governedContext.js';
 import {
   admitGatekeeperSpend,
-  resolveGatekeeperSpend,
+  settleUnansweredGatekeeperSpend,
   releaseUndispatchedReservation,
   settleGatekeeperSpend,
   readLedger,
@@ -218,8 +218,8 @@ export function reconcile(ctx: CommandContext, flags: Flags, seams: ReconcileSea
           readBrokerAnsweredState(ctx.sys, nodeInstallationStateDir(), request),
         ),
       releaseUndispatched: (requestId: string) => releaseUndispatchedReservation(ctx.sys, ctx.root, requestId),
-      resolveSpend: (request, cause) =>
-        resolveGatekeeperSpend(ctx.sys, ctx.root, request.requestId, cause, () =>
+      resolveSpend: (request, cause, providerDispatched) =>
+        settleUnansweredGatekeeperSpend(ctx.sys, ctx.root, request.requestId, cause, providerDispatched, () =>
           readBrokerAnsweredState(ctx.sys, nodeInstallationStateDir(), request),
         ),
       // Recorded the instant the call returns, so a later failure cannot lose the fact that it happened.

@@ -998,6 +998,79 @@ impl ProductionIpcSessionVerifier {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// PROJECTOS-HOST-REVIEW-PATH1B — the PER-CONNECTION production verifier.
+//
+// A `ProductionIpcSessionVerifier` fixes ONE connection identity at construction, and the only route
+// to one is a `ProviderAuthorityLease`, which converts exactly once. Taken together, that bound the
+// whole Host lifetime to a single client connection: a second connection would have needed a second
+// lease, and therefore a second machine-wide authority acquisition, which the gatekeeper rejected.
+//
+// This type separates the two lifetimes. The machine-wide authority and the provider capability set
+// stay long-lived; a FRESH connection-bound verifier is derived for each accepted IPC connection, with
+// its own non-zero crate-assigned connection identity and handshake generation.
+//
+// IT BORROWS THE CAPABILITY SET. The lifetime parameter is the whole ownership model: a per-connection
+// verifier cannot outlive the provider capabilities that authorised it, cannot be extracted from them,
+// and dropping it releases nothing — the machine-wide authority is released only when the capability
+// set itself drops. The borrow is what makes that structural rather than a runtime convention.
+// ---------------------------------------------------------------------------------------------
+
+/// A production IPC-session verifier bound to ONE accepted connection, borrowing the provider
+/// authority that issued it.
+///
+/// Opaque, non-`Clone`, non-`Copy`, non-`Default`, non-serialisable, thread-bound, redacted `Debug`.
+/// Its connection identity and handshake generation are crate-assigned and non-zero; no caller — and
+/// in particular no Agent, request field or peer — can choose or influence them.
+pub struct ConnectionBoundIpcSessionVerifier<'a> {
+    inner: ProductionIpcSessionVerifier,
+    /// The borrow of the issuing provider capability set. Carries no data; it carries the LIFETIME.
+    _authority: PhantomData<&'a ()>,
+}
+
+impl fmt::Debug for ConnectionBoundIpcSessionVerifier<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("ConnectionBoundIpcSessionVerifier([REDACTED])")
+    }
+}
+
+impl<'a> ConnectionBoundIpcSessionVerifier<'a> {
+    /// CRATE-PRIVATE derivation, reached only from
+    /// [`crate::provider_authority::ProviderCapabilitySet::begin_connection`]. Each call yields a
+    /// FRESH identity, so two accepted connections can never share one.
+    pub(crate) fn derive() -> Self {
+        Self {
+            inner: ProductionIpcSessionVerifier::new_internal(),
+            _authority: PhantomData,
+        }
+    }
+}
+
+impl sealed::Sealed for ConnectionBoundIpcSessionVerifier<'_> {}
+impl IpcSessionVerifier for ConnectionBoundIpcSessionVerifier<'_> {
+    fn connection_id(&self) -> u64 {
+        self.inner.connection_id()
+    }
+    fn handshake_generation(&self) -> u64 {
+        self.inner.handshake_generation()
+    }
+    fn liveness(&self) -> ConnectionLiveness {
+        self.inner.liveness()
+    }
+    fn max_window(&self) -> u64 {
+        self.inner.max_window()
+    }
+    fn max_staleness(&self) -> u64 {
+        self.inner.max_staleness()
+    }
+    fn permitted_capabilities(&self) -> &[ChannelCapability] {
+        self.inner.permitted_capabilities()
+    }
+    fn permitted_families(&self) -> &[OperationFamily] {
+        self.inner.permitted_families()
+    }
+}
+
 impl sealed::Sealed for ProductionIpcSessionVerifier {}
 impl IpcSessionVerifier for ProductionIpcSessionVerifier {
     fn connection_id(&self) -> u64 {

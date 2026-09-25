@@ -11,7 +11,8 @@
 
 use projectos_host_identity::canonical_record::{
     release_manifest_digest_for_artefact_digest, verify_record, InstallationIdentityRecordV1,
-    RecordInstallationEvidence, RECORD_FILE_NAME, RECORD_SUBDIRECTORY,
+    RecordInstallationEvidence, VerifiedCanonicalInstallation, RECORD_FILE_NAME,
+    RECORD_SUBDIRECTORY,
 };
 use projectos_host_identity::sha256_hex;
 use projectos_host_windows_local_ipc::{
@@ -85,31 +86,86 @@ fn record_path() -> Option<std::path::PathBuf> {
     )
 }
 
+/// What ONE read of the installed canonical identity record established.
+///
+/// RUN-TO-COMPLETION HOST ATTESTATION - PATH1B G1. The verified value is CARRIED, not discarded.
+/// Before this, `read_and_verify` bound the successful `verify_record` result as `_verified` and
+/// threw it away, so the one trusted canonical identity the Host ever establishes never reached a
+/// caller - leaving both the production authority scope and the W1 `EnrolledOwnerPrincipal` with
+/// nothing to derive from, and inviting a SECOND verification opinion or a record-derived
+/// substitute. There is exactly one verification, and this is what it produced.
+///
+/// `verified` is `Some` if and ONLY IF `report` is [`IdentityVerificationReport::Verified`]: the two
+/// are produced by the same match arm over the same `verify_record` call, so a caller cannot see a
+/// verified installation the report disagrees with, or a `Verified` report with nothing behind it.
+pub struct CanonicalIdentityRead {
+    /// The report the status record carries.
+    pub report: IdentityVerificationReport,
+    /// The record that was read, whether or not it verified. Reporting evidence only - the channel
+    /// and manifest prefix are projected from it, and NO authority is ever derived from it.
+    pub record: Option<InstallationIdentityRecordV1>,
+    /// THE TRUSTED VALUE. `Some` only when the frozen reader contract accepted the record, and it is
+    /// the exact value that contract returned - never rebuilt, re-verified or reconstructed.
+    pub verified: Option<VerifiedCanonicalInstallation>,
+}
+
 /// Read and verify the installed canonical identity record.
 ///
-/// Returns the verification outcome together with the record it verified, if any. A missing,
-/// unparseable or unverifiable record yields `Refused` / `Unavailable` and NO record — there is no
-/// path that reports success without `verify_record` having accepted it.
-fn read_and_verify() -> (
-    IdentityVerificationReport,
-    Option<InstallationIdentityRecordV1>,
-) {
+/// Returns the verification outcome, the record it read, and - on success - THE
+/// [`VerifiedCanonicalInstallation`] the frozen reader contract produced. A missing, unparseable or
+/// unverifiable record yields `Refused` / `Unavailable` and NO verified value; there is no path that
+/// reports success without `verify_record` having accepted it, and no path that yields a verified
+/// value any other way.
+fn read_and_verify() -> CanonicalIdentityRead {
     let Some(path) = record_path() else {
-        return (IdentityVerificationReport::Unavailable, None);
+        return CanonicalIdentityRead {
+            report: IdentityVerificationReport::Unavailable,
+            record: None,
+            verified: None,
+        };
     };
     let Ok(bytes) = std::fs::read(&path) else {
-        return (IdentityVerificationReport::Unavailable, None);
+        return CanonicalIdentityRead {
+            report: IdentityVerificationReport::Unavailable,
+            record: None,
+            verified: None,
+        };
     };
     let Ok(record) = serde_json::from_slice::<InstallationIdentityRecordV1>(&bytes) else {
         // Present but unparseable is a REFUSAL, not an absence: something is there and it is wrong.
-        return (IdentityVerificationReport::Refused, None);
+        return CanonicalIdentityRead {
+            report: IdentityVerificationReport::Refused,
+            record: None,
+            verified: None,
+        };
     };
     // The frozen reader contract decides. It recomputes the digest, checks every frozen binding and
-    // refuses the placeholder digest.
+    // refuses the placeholder digest. ONE call, ONE opinion, and its result is what travels.
     match verify_record(&record, RecordInstallationEvidence::Matched) {
-        Ok(_verified) => (IdentityVerificationReport::Verified, Some(record)),
-        Err(_) => (IdentityVerificationReport::Refused, Some(record)),
+        Ok(verified) => CanonicalIdentityRead {
+            report: IdentityVerificationReport::Verified,
+            record: Some(record),
+            verified: Some(verified),
+        },
+        Err(_) => CanonicalIdentityRead {
+            report: IdentityVerificationReport::Refused,
+            record: Some(record),
+            verified: None,
+        },
     }
+}
+
+/// THE ONE PRODUCTION SOURCE of this installation's verified canonical identity.
+///
+/// It is the SAME read and the SAME `verify_record` call the status observer makes - there is no
+/// second verification path and no second opinion. `None` means the record is absent, unparseable or
+/// refused; it never means "assume the installation is fine".
+///
+/// The startup composition derives BOTH the production authority scope and the W1 enrolled-owner
+/// principal from this one value, so those two can never disagree about which installation this is.
+#[must_use]
+pub fn verified_canonical_installation() -> Option<VerifiedCanonicalInstallation> {
+    read_and_verify().verified
 }
 
 /// Map the record's channel string onto the closed report enum. An unrecognised value is `Unknown`.
@@ -128,7 +184,14 @@ fn channel_of(record: Option<&InstallationIdentityRecordV1>) -> ChannelReport {
 /// lifecycle — this module does not guess it.
 #[must_use]
 pub fn observe(service_state: ServiceStateReport) -> InstalledHostStatus {
-    let (identity, record) = read_and_verify();
+    let CanonicalIdentityRead {
+        report: identity,
+        record,
+        // The status record is a READ-ONLY report and derives no authority, so the verified value is
+        // deliberately unused here. `verified_canonical_installation` is how the startup composition
+        // obtains it, through this very same function.
+        verified: _,
+    } = read_and_verify();
     let executable_digest = current_executable_digest();
     let current = release_is_current(executable_digest.as_deref(), record.as_ref());
 
@@ -218,6 +281,44 @@ mod tests {
                 observe(s).protected_operations(),
                 ProtectedOperationsReport::Refused
             );
+        }
+    }
+
+    // ---- PATH1B G1: the verified canonical installation is CARRIED, not discarded ----------
+
+    #[test]
+    fn a_verified_value_exists_exactly_when_the_report_says_verified() {
+        // The whole G1 invariant, on whatever this machine actually has installed. Both directions:
+        // no verified value without a Verified report, and no Verified report without the value.
+        let read = read_and_verify();
+        assert_eq!(
+            read.verified.is_some(),
+            read.report == IdentityVerificationReport::Verified,
+            "the trusted value and the report must come from the same verify_record call"
+        );
+    }
+
+    #[test]
+    fn the_public_source_returns_the_same_value_the_one_read_produced() {
+        // There is ONE production source and it is this read. If the two ever disagreed, something
+        // would be verifying a second time or reconstructing from the record.
+        let read = read_and_verify();
+        let public = verified_canonical_installation();
+        assert_eq!(read.verified.is_some(), public.is_some());
+        if let (Some(a), Some(b)) = (read.verified.as_ref(), public.as_ref()) {
+            assert_eq!(a.digest(), b.digest(), "same canonical digest");
+            assert_eq!(a, b, "the exact same verified value");
+        }
+    }
+
+    #[test]
+    fn an_unverified_installation_yields_no_trusted_value() {
+        // Fail closed: a Refused or Unavailable report must never hand a caller something it could
+        // derive an authority scope or an enrolled owner from.
+        let read = read_and_verify();
+        if read.report != IdentityVerificationReport::Verified {
+            assert!(read.verified.is_none());
+            assert!(verified_canonical_installation().is_none());
         }
     }
 

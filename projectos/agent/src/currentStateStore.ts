@@ -20,6 +20,7 @@
 import type { System } from './system.js';
 import { join, projectopsDir } from './context.js';
 import { loadPhase, listPhaseIds } from './phaseStore.js';
+import { isParkedHistoricalPhase } from './loop/selection.js';
 import {
   isGenuineClosure,
   type ClosureDecisionRecord,
@@ -97,7 +98,11 @@ export function syncCurrentState(
   // Only phases of THIS plan may shape this plan's state. A closed phase of a previous programme is
   // history and belongs to the record that programme wrote, not to this one.
   const mine = records.filter((r) => planPhases.includes(r.phaseId));
-  const inFlight = mine.filter((r) => !NOT_IN_FLIGHT.has(r.status));
+  // A PARKED HISTORICAL RECORD IS NOT WORK IN FLIGHT (PROJECTOS-HOST-REVIEW-PATH1B). The one ratified
+  // historical phase is never selected for implementation; while it sits as a `draft` it is neither a
+  // second active phase beside the running continuation nor execution on its own. The pairing is named
+  // only by the selection module, so the question is asked there.
+  const inFlight = mine.filter((r) => !NOT_IN_FLIGHT.has(r.status) && !isParkedHistoricalPhase(r.phaseId, r.status));
   // The authority the ACTIVE PLAN records, and the decision each closure consumed. Both read here
   // rather than assumed, for the reason in `isProperlyClosed`.
   const gov = (context.plan['governance'] as Record<string, unknown> | undefined) ?? {};

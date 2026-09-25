@@ -50,6 +50,10 @@
 #![deny(unsafe_code)]
 
 mod classify;
+/// PROJECTOS-HOST-REVIEW-PATH1B — the canonical PRODUCTION CLIENT-ADMISSION attempt. Safe, portable
+/// decision logic only; its live kernel reads are the already-audited ones in `instance_ffi`.
+#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+mod client_admission;
 mod evidence;
 mod instance;
 /// OS-derived instance observation. The ONLY unsafe in this crate, compiled only on Windows under the
@@ -91,6 +95,32 @@ pub use instance::{
 // identity leaves the attempt.
 #[cfg(any(test, feature = "consumer-contract"))]
 pub use instance::VerifiedPeerAdmission;
+// PROJECTOS-HOST-REVIEW-PATH1B — THE SECOND CANONICAL PROPOSITION, ending in the SAME sealed
+// admission.
+//
+// The installed ProjectOSHost is the pipe SERVER and the governed Agent is the CLIENT, so a
+// service-instance attempt about the Host's own client can never be `Match` — the client is not the
+// service. This route proves the claim the installed product actually needs: the connected CLIENT is
+// the EXACT enrolled configured owner, on exactly this host-issued connection and generation.
+//
+// It yields the EXISTING `VerifiedPeerAdmission`, so downstream there is still ONE admission type,
+// ONE `TrustedPeerContext` mint and ONE `BoundIpcSession` mint. O7 is unchanged. The two routes
+// share the sealed output and nothing else: there is deliberately no common positive verdict whose
+// meaning would depend on which caller produced it.
+#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+pub use client_admission::{
+    AdmittedClientProcess, ClientAdmissionObservationCapability, ClientAdmissionVerdict,
+    ClientAttemptOutcome, ClientObserved, ClientPeerAdmissionAttempt, ClientPrepared,
+    ConfiguredOwnerRefusal, EnrolledOwnerPrincipal,
+};
+// SYNTHETIC CLIENT-ADMISSION FIXTURES: explicit, non-default, and never implied by live observation.
+// They let a dependent drive the REAL client-admission ordering with no Windows call; the label is
+// opaque and is not a SID.
+#[cfg(all(
+    feature = "test-fixtures",
+    any(test, all(windows, feature = "windows-live-instance-observation"))
+))]
+pub use client_admission::SyntheticOwnerSelector;
 // SYNTHETIC FIXTURES: explicit, non-default, never implied by the contract or by live observation.
 #[cfg(any(test, feature = "test-fixtures"))]
 pub use instance::{synthetic_observation, synthetic_refusal, SyntheticInstanceSelector};

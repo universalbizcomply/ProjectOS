@@ -89,6 +89,8 @@ version = "0.0.0"
 dependencies = [
  "projectos-host-identity",
  "projectos-packaged-runtime-contract",
+ "serde",
+ "serde_json",
  "sha2",
 ]
 

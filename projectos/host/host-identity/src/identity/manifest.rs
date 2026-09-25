@@ -112,6 +112,94 @@ pub struct ExecutionClosureManifest {
     pub installation_project_allowlist: CommittedArtefactManifest,
     /// The adapter the broker runs to resolve the credential out of the Windows Credential Manager.
     pub credential_adapter: CommittedArtefactManifest,
+    /// THE OWNER-SIGNED EXECUTION-COST POLICY. PROJECTOS-HOST-REVIEW-PATH1B.
+    ///
+    /// REQUIRED, WITH NO DEFAULT — deliberately not `Option` and deliberately without
+    /// `#[serde(default)]`. A closure that does not state what a review may cost is not one the Host
+    /// can reserve against, and "absent" must never be readable as "free". No owner has signed a
+    /// version 2 manifest yet, so requiring these three fields invalidates no existing signature.
+    pub cost_policy: ExecutionCostPolicyManifest,
+    /// The MODEL POLICY, as canonical MACHINE-READABLE text: `<provider>/<model-id>`, for example
+    /// `openai/gpt-5.6-terra`. See [`parse_model_policy`].
+    ///
+    /// IT IS THE HOST'S ONLY AUTHORITY FOR WHICH MODEL REVIEWS. The Host derives the model-policy
+    /// identity digest from THESE EXACT BYTES under the owner's signature - the owner programme
+    /// delegation's digest is only the cross-check, never the source - and resolves the model id from
+    /// the same bytes. No agent, no broker and no default ever selects a model.
+    pub model_policy: String,
+    /// The CREDENTIAL REFERENCE, as canonical text: the NAME the Host resolves, never a credential.
+    /// Same rule — the Host derives the identity digest from this signed text.
+    pub credential_ref: String,
+}
+
+/// What the owner has signed that ONE independent review may be admitted to cost.
+///
+/// IT IS AN ADMITTED COST, NOT A BILL. The figure is what the Host reserves BEFORE a provider is
+/// reached, because the fixed authority frames carry no cost and the Host holds no rate card. Nothing
+/// here, and nothing derived from it, is ever described as actual or provider-billed cost.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct ExecutionCostPolicyManifest {
+    /// The cost admitted for one independent review, in micro-USD. Non-zero and bounded.
+    pub admitted_review_cost_micro_usd: u64,
+}
+
+/// Upper bound on the admitted cost of one review: 100 USD. A policy above it is refused as
+/// malformed rather than obeyed, so a typo cannot authorise an unbounded reservation.
+pub const MAX_ADMITTED_REVIEW_COST_MICRO_USD: u64 = 100_000_000;
+/// Upper bound on the signed model-policy and credential-reference text.
+pub const MAX_CLOSURE_POLICY_TEXT_LEN: usize = 256;
+
+/// The providers a signed model policy may name. CLOSED: the trusted broker sends to one fixed provider
+/// endpoint, so a policy naming any other provider is a policy nothing could carry out.
+pub const MODEL_POLICY_PROVIDERS: &[&str] = &["openai"];
+
+/// Resolve a signed model policy to `(provider, model id)`, or `None`.
+///
+/// ONE SPELLING, NO DEFAULTS. Exactly `<provider>/<model-id>`: a provider from the closed list, one
+/// `/`, and a model id of 1..=64 characters drawn from lower-case letters, digits, `.`, `-` and `_`,
+/// starting with a letter or digit. Anything else - an unknown provider, a missing part, upper case, a
+/// second `/`, surrounding space - is `None`, and the closure is refused rather than read generously.
+#[must_use]
+pub fn parse_model_policy(text: &str) -> Option<(&str, &str)> {
+    let (provider, model) = text.split_once('/')?;
+    if !MODEL_POLICY_PROVIDERS.contains(&provider) {
+        return None;
+    }
+    let first_ok = model
+        .bytes()
+        .next()
+        .is_some_and(|b| b.is_ascii_lowercase() || b.is_ascii_digit());
+    let rest_ok = model.len() <= 64
+        && model.bytes().all(|b| {
+            b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'.' | b'-' | b'_')
+        });
+    (first_ok && rest_ok).then_some((provider, model))
+}
+
+impl ExecutionClosureManifest {
+    /// The signed policy facts, validated. `Err` names the field that is unusable.
+    ///
+    /// BOUNDED, NON-EMPTY, ASCII-GRAPHIC TEXT with no surrounding ambiguity: the identity digest is
+    /// taken over these exact bytes, so there must be exactly one spelling of a given policy.
+    pub fn check_policy_facts(&self) -> Result<(), IdentityError> {
+        let cost = self.cost_policy.admitted_review_cost_micro_usd;
+        if cost == 0 || cost > MAX_ADMITTED_REVIEW_COST_MICRO_USD {
+            return Err(IdentityError::ExecutionCostPolicyInvalid);
+        }
+        let usable = |text: &str| {
+            !text.is_empty()
+                && text.len() <= MAX_CLOSURE_POLICY_TEXT_LEN
+                && text.bytes().all(|b| b.is_ascii_graphic())
+        };
+        if !usable(&self.model_policy) || parse_model_policy(&self.model_policy).is_none() {
+            return Err(IdentityError::ModelPolicyTextInvalid);
+        }
+        if !usable(&self.credential_ref) {
+            return Err(IdentityError::CredentialReferenceTextInvalid);
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

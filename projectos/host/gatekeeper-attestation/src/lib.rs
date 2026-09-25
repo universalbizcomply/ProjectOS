@@ -28,6 +28,19 @@
 /// THE HOST OPERATION: the ordered production decision for one independent gatekeeper review.
 pub mod operation;
 
+/// PROJECTOS-HOST-REVIEW-PATH1B: the Host's candidate evidence, its canonical digest and the framed
+/// reviewer input.
+pub mod candidate_evidence;
+
+/// PROJECTOS-HOST-REVIEW-PATH1B: the Host-authored provider request and the normalisation of its answer.
+pub mod provider_request;
+
+/// THE OUT-OF-BAND HALVES: the review subject the agent writes and the response record the Host writes.
+pub mod envelope;
+
+/// THE HOST REVIEW RESPONDER: one authorised review, from verified subject to bound response record.
+pub mod responder;
+
 use std::collections::HashSet;
 use std::io::Read;
 
@@ -58,6 +71,65 @@ pub const INBOX_RELATIVE_ROOT: &str = "gatekeeper-inbox";
 
 /// The fixed extension of a request file.
 pub const REQUEST_FILE_EXTENSION: &str = "request";
+
+/// The fixed response-record subdirectory beneath the ProjectOS ProgramData root.
+///
+/// THE MIRROR OF THE INBOX, AND A LEAF FOR THE SAME REASON. The answer to a review is as large as the
+/// question, so it cannot cross the fixed authority wire either: the wire completion carries a 16-byte
+/// `evidence_ref`, and the record travels here. It is a constant rather than configuration because a
+/// response location a caller could redirect is a response an attacker chooses, and it is a leaf so the
+/// narrow permission that later lets the owner/agent identity READ it belongs to this directory alone.
+pub const RESPONSE_RELATIVE_ROOT: &str = "gatekeeper-outbox";
+
+/// The fixed extension of a response-record file.
+pub const RESPONSE_FILE_EXTENSION: &str = "response";
+
+/// The maximum bytes one response record may occupy. The same bound the request subject has, for the
+/// same reason: comfortably above the observed need and far too small to be a channel for anything else.
+pub const MAX_RESPONSE_RECORD_BYTES: usize = 64 * 1024;
+
+/// The identity of one response-record file, DERIVED and never supplied.
+///
+/// Exactly the rule [`RequestFileIdentity`] follows: the only constructor renders the wire correlation
+/// as lower-case hex and appends a fixed extension, so a traversal, an absolute path, an alternate root
+/// or a device name is not merely rejected - it is unrepresentable.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ResponseFileIdentity {
+    file_name: String,
+}
+
+impl ResponseFileIdentity {
+    /// Derive the file identity from the correlation the authority wire already carries.
+    #[must_use]
+    pub fn for_correlation(correlation: &[u8; CORRELATION_LEN]) -> Self {
+        let request = RequestFileIdentity::for_correlation(correlation);
+        let stem = request
+            .file_name()
+            .strip_suffix(REQUEST_FILE_EXTENSION)
+            .unwrap_or_default();
+        let mut file_name = String::with_capacity(stem.len() + RESPONSE_FILE_EXTENSION.len());
+        file_name.push_str(stem);
+        file_name.push_str(RESPONSE_FILE_EXTENSION);
+        Self { file_name }
+    }
+
+    /// The file name, relative to the response root. Never absolute, never nested.
+    #[must_use]
+    pub fn file_name(&self) -> &str {
+        &self.file_name
+    }
+}
+
+/// Durable, ONE-SHOT response-record storage owned by the Host.
+///
+/// A PORT, because writing is an effect and this crate has none. An implementation stores the exact
+/// bytes under the derived identity if and only if nothing is stored there yet, and reports whether it
+/// did. `false` covers every other outcome - already present, unwritable, over the bound - because they
+/// are one answer to the responder: the record is not there to be read.
+pub trait ResponseRecordSink {
+    /// Store `record` once under `identity`. `true` only when it was durably written by this call.
+    fn store_once(&mut self, identity: &ResponseFileIdentity, record: &[u8]) -> bool;
+}
 
 /// Why an inbox request could not be accepted. Coarse on purpose: a refusal taxonomy is an oracle,
 /// so it names the gate that refused and never the value that failed.
@@ -181,6 +253,19 @@ pub fn accept_request_body(
     identity: &RequestFileIdentity,
     parameter_digest: &[u8; DIGEST_LEN],
 ) -> Result<VerifiedRequestBody, InboxRefusal> {
+    let bytes = read_bounded(reader, identity)?;
+    if &digest_of_body(&bytes) != parameter_digest {
+        return Err(InboxRefusal::ParameterDigestMismatch);
+    }
+    Ok(VerifiedRequestBody { bytes })
+}
+
+/// THE ONE BOUNDED READ. Shared by [`accept_request_body`] and [`RetainedRequestInbox`] so there is a
+/// single opinion about how much of an untrusted file the Host is willing to read.
+fn read_bounded(
+    reader: &dyn InboxReader,
+    identity: &RequestFileIdentity,
+) -> Result<Vec<u8>, InboxRefusal> {
     let mut stream = reader
         .open_once(identity)
         .ok_or(InboxRefusal::RequestNotPresent)?;
@@ -197,14 +282,82 @@ pub fn accept_request_body(
     if bytes.len() > MAX_REQUEST_BODY_BYTES {
         return Err(InboxRefusal::RequestTooLarge);
     }
+    Ok(bytes)
+}
 
+fn digest_of_body(bytes: &[u8]) -> [u8; DIGEST_LEN] {
     let mut h = Sha256::new();
-    h.update(&bytes);
-    let seen: [u8; DIGEST_LEN] = h.finalize().into();
-    if &seen != parameter_digest {
-        return Err(InboxRefusal::ParameterDigestMismatch);
+    h.update(bytes);
+    h.finalize().into()
+}
+
+/// ONE OPEN, TWO CONSUMERS: the inbox as the Host COMPOSITION and the review OPERATION both need it.
+///
+/// PROJECTOS-HOST-REVIEW-PATH1A. Composition must learn the subject's digest BEFORE authority exists
+/// (the evaluator compares it with the caller's wire claim), and the operation must later execute
+/// those very bytes. Two opens of the same file would be a substitution window: hash one body, run
+/// another. This adapter closes it. [`read_once`](Self::read_once) opens the underlying inbox exactly
+/// once per correlation, reads under the crate's cap, hashes the in-memory bytes and RETAINS them; as
+/// an [`InboxReader`] it then serves ONLY those retained bytes, once, and never touches the underlying
+/// inbox again. The operation's own [`RequestLifecycle::accept_once`] still re-hashes what it is
+/// handed against the wire's `parameter_digest`, so this adapter is not trusted for the binding - it
+/// only guarantees there was one read.
+///
+/// PURE, like everything else here: the file arrives through the wrapped [`InboxReader`] port.
+pub struct RetainedRequestInbox<'a> {
+    underlying: &'a dyn InboxReader,
+    spent: HashSet<RequestFileIdentity>,
+    retained: std::cell::RefCell<Option<(RequestFileIdentity, Vec<u8>)>>,
+}
+
+impl<'a> RetainedRequestInbox<'a> {
+    /// Wrap the real inbox. Nothing is opened until a correlation is asked for.
+    #[must_use]
+    pub fn over(underlying: &'a dyn InboxReader) -> Self {
+        Self {
+            underlying,
+            spent: HashSet::new(),
+            retained: std::cell::RefCell::new(None),
+        }
     }
-    Ok(VerifiedRequestBody { bytes })
+
+    /// Open this correlation's request ONCE, read it under the cap, retain the bytes and report their
+    /// digest. `None` for every outcome that is not a body.
+    ///
+    /// SPENT ON EVERY ANSWER EXCEPT "NOT THERE YET" - the same rule, for the same reason, as
+    /// [`RequestLifecycle::accept_once`]. A body retained for an earlier correlation and never
+    /// executed is DROPPED here: at most one subject is ever held.
+    pub fn read_once(&mut self, correlation: &[u8; CORRELATION_LEN]) -> Option<[u8; DIGEST_LEN]> {
+        let identity = RequestFileIdentity::for_correlation(correlation);
+        if self.spent.contains(&identity) {
+            return None;
+        }
+        let outcome = read_bounded(self.underlying, &identity);
+        if !matches!(outcome, Err(InboxRefusal::RequestNotPresent)) {
+            self.spent.insert(identity.clone());
+        }
+        let bytes = outcome.ok()?;
+        let digest = digest_of_body(&bytes);
+        *self.retained.borrow_mut() = Some((identity, bytes));
+        Some(digest)
+    }
+}
+
+impl InboxReader for RetainedRequestInbox<'_> {
+    /// Serves the RETAINED bytes for exactly the identity that was read, exactly once. It never falls
+    /// through to the underlying inbox: a request composition did not read is not there.
+    fn open_once(&self, identity: &RequestFileIdentity) -> Option<Box<dyn Read + '_>> {
+        let mut slot = self.retained.borrow_mut();
+        match slot.take() {
+            Some((held, bytes)) if &held == identity => {
+                Some(Box::new(std::io::Cursor::new(bytes)) as Box<dyn Read + '_>)
+            }
+            other => {
+                *slot = other;
+                None
+            }
+        }
+    }
 }
 
 /// The one-shot lifecycle of a request identity.
@@ -567,3 +720,7 @@ mod tests {
         assert!(!std::path::Path::new(INBOX_RELATIVE_ROOT).is_absolute());
     }
 }
+
+#[cfg(test)]
+#[path = "retained_inbox_tests.rs"]
+mod retained_inbox_tests;

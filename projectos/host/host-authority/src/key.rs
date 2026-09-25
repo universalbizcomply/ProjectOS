@@ -38,6 +38,7 @@ pub(crate) fn production_object_name(key: &AuthorityKey) -> String {
 /// contains no username, SID, machine name or private path; bounded; and — being a mutex handle — is
 /// removed automatically when every handle closes.
 #[must_use]
+#[cfg(feature = "test-fixtures")]
 pub(crate) fn test_object_name(process_id: u32, unique: &str) -> String {
     // Only bounded ASCII alphanumerics/hyphen from the caller's tag are used.
     let safe: String = unique

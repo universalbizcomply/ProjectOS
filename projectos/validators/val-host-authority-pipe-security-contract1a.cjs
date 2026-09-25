@@ -254,8 +254,20 @@ function run() {
   // Synthetic constructors + fixture modules remain test-fixtures-only.
   if (!/#\[cfg\(feature\s*=\s*"test-fixtures"\)\]\s*(#\[must_use\]\s*)?pub fn build_synthetic_for_test/.test(sec))
     errors.push("build_synthetic_for_test is not gated to test-fixtures");
-  if (!/#\[cfg\(all\(windows,\s*feature\s*=\s*"test-fixtures"\)\)\]\s*mod existence/.test(lib))
-    errors.push("existence fixture module is not gated to test-fixtures");
+  // PROJECTOS-HOST-REVIEW-PATH1B (ROUTE A) - THE DECLARED AMENDMENT.
+  //
+  //   OLD: `mod existence` was gated to `test-fixtures` ALONE, so the existence-token acquisition
+  //        shipped in no release graph at all - which is why the production session route was
+  //        unreachable and `compose_protected_operation` was uncallable.
+  //   NEW: `any(test-fixtures, windows-authority-acquisition)`. NO logic moved; only the cfg.
+  //
+  // The permitted gate is matched EXACTLY, so a third feature - or a bare `cfg(windows)` - cannot
+  // slip in unnamed, and the SYNTHETIC surface below is separately proven still fixture-only.
+  if (!/#\[cfg\(all\(\s*windows,\s*any\(feature\s*=\s*"test-fixtures",\s*feature\s*=\s*"windows-authority-acquisition"\)\s*\)\)\]\s*mod existence/.test(lib))
+    errors.push("existence module is not gated to exactly any(test-fixtures, windows-authority-acquisition)");
+  // The synthetic proof surface must NOT have been widened with it.
+  if (!/#\[cfg\(all\(windows,\s*feature\s*=\s*"test-fixtures"\)\)\]\s*pub mod windows_proof/.test(lib))
+    errors.push("windows_proof is no longer confined to test-fixtures");
   if (!/#\[cfg\(all\(windows,\s*feature\s*=\s*"test-fixtures"\)\)\]\s*pub mod windows_proof/.test(lib))
     errors.push("windows_proof fixture module is not gated to test-fixtures");
   // The runtime feature must not (indirectly) export a synthetic constructor: build_synthetic_for_test

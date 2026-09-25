@@ -893,6 +893,7 @@ mod tests {
             shutdown_required: true,
             disconnect_required: true,
             residue: ResidueRequirement::ExactlyZero,
+            approved_baseline: None,
         }
     }
 

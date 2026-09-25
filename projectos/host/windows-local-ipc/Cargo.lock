@@ -103,6 +103,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "projectos-host-gatekeeper-attestation"
+version = "0.0.0"
+dependencies = [
+ "projectos-host-identity",
+ "projectos-packaged-runtime-contract",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "projectos-host-gatekeeper-ledger"
 version = "0.0.0"
 dependencies = [
@@ -179,12 +190,14 @@ version = "0.0.0"
 dependencies = [
  "projectos-host-authority",
  "projectos-host-core",
+ "projectos-host-gatekeeper-attestation",
  "projectos-host-gatekeeper-ledger",
  "projectos-host-identity",
  "projectos-host-persistence",
  "projectos-host-trusted-roots",
  "projectos-host-windows-durable-protected-store",
  "projectos-host-windows-service-identity-proof",
+ "serde_json",
  "sha2",
  "windows",
 ]
@@ -203,6 +216,7 @@ name = "projectos-host-windows-service-identity-proof"
 version = "0.0.0"
 dependencies = [
  "projectos-host-authority",
+ "projectos-host-identity",
  "projectos-windows-runtime-primitives",
  "windows",
 ]

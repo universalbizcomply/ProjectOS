@@ -279,7 +279,16 @@ describe('the exclusion is closed and cannot conceal work', () => {
       expect(src).toContain(name);
     }
     // And it is derived, never supplied: the signature takes no boundary.
-    expect(src).toContain('export function computeCandidateIdentity(sys: System, root: string): CandidateResult');
+    //
+    // PROJECTOS-HOST-REVIEW-PATH1B, UNIT L — DECLARED AMENDMENT of this pin.
+    //   OLD: `(sys: System, root: string)` — two parameters, no boundary, no runner.
+    //   NEW: an optional third parameter `run?: CandidateGit` — HOW a git question is asked (the bounded
+    //   local candidate commit passes its hook-and-config-isolated runner), never WHICH paths answer:
+    //   `CandidateGit` receives the argument list this module built and returns an ExecResult, so it can
+    //   name no path, no boundary and no repository of its own. The boundary still comes only from
+    //   `git status` minus the closed asking-record set, unchanged above.
+    expect(src).toContain('export function computeCandidateIdentity(sys: System, root: string, run?: CandidateGit): CandidateResult');
+    expect(src).toContain('export type CandidateGit = (args: readonly string[]) => ExecResult;');
   });
 
   it('excluded records cannot enter the candidate even when everything else is staged', () => {

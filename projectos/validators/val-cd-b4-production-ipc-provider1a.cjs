@@ -33,6 +33,20 @@ function stripTests(src) {
   const i = src.search(/#\[cfg\((?:all\(test|test)[^\]]*\)\]\s*\nmod tests/);
   return i === -1 ? src : src.slice(0, i);
 }
+function stripLineComments(src) {
+  return src.split("\n").filter((line) => !/^\s*\/\//.test(line)).join("\n");
+}
+// The balanced `{...}` body of the item starting at `at`, signature included.
+function fnBody(src, at) {
+  const open = src.indexOf("{", src.indexOf(")", at));
+  if (open === -1) return "";
+  let depth = 0;
+  for (let i = open; i < src.length; i++) {
+    if (src[i] === "{") depth++;
+    else if (src[i] === "}" && --depth === 0) return src.slice(at, i + 1);
+  }
+  return "";
+}
 function workdir() {
   if (!__SCRATCH_DIR) __SCRATCH_DIR = scratch.owned("cd-b4-production-ipc-provider1a");
   return __SCRATCH_DIR;
@@ -94,6 +108,29 @@ const NEGATIVES = [
     body: `fn main(){ let _ = projectos_host_core::fixture_production_clock_binding_grant; }` },
 ];
 
+// PROJECTOS-HOST-REVIEW-PATH1B - the sealed paired output, proven by the COMPILER in the ONE graph
+// where it exists at all (the fixture graph). Each negative differs from the control by one
+// expression and must fail with the NAMED rustc error, so "it did not compile" cannot be satisfied by
+// a typo, a missing feature or a broken dependency graph.
+const WLI_FIXTURE_DEP = `projectos-host-windows-local-ipc = { path = "${WLI}", features = ["test-fixtures"] }`;
+const PAIR_CONTROL = `
+use projectos_host_windows_local_ipc::CanonicalPeerAndSessionEvidence;
+fn take(pair: CanonicalPeerAndSessionEvidence) { let (_observation, _handshake, _admission) = pair.into_parts(); }
+fn main(){ let _ = take; println!("CONTROL_OK"); }
+`;
+const PAIR_NEGATIVES = [
+  { name: "neg_pair_clone", code: "E0599", why: "CanonicalPeerAndSessionEvidence is Clone (one verdict could feed many admissions)",
+    body: `use projectos_host_windows_local_ipc::CanonicalPeerAndSessionEvidence;\nfn take(pair: CanonicalPeerAndSessionEvidence) { let _again = pair.clone(); let _ = pair.into_parts(); }\nfn main(){ let _ = take; }` },
+  { name: "neg_pair_used_twice", code: "E0382", why: "CanonicalPeerAndSessionEvidence can be consumed twice",
+    body: `use projectos_host_windows_local_ipc::CanonicalPeerAndSessionEvidence;\nfn take(pair: CanonicalPeerAndSessionEvidence) { let _first = pair.into_parts(); let _second = pair.into_parts(); }\nfn main(){ let _ = take; }` },
+  { name: "neg_pair_default", code: "E0599", why: "CanonicalPeerAndSessionEvidence has an ambient Default value",
+    body: `use projectos_host_windows_local_ipc::CanonicalPeerAndSessionEvidence;\nfn make() -> CanonicalPeerAndSessionEvidence { CanonicalPeerAndSessionEvidence::default() }\nfn main(){ let _ = make; }` },
+  { name: "neg_pair_field_read", code: "E0616", why: "CanonicalPeerAndSessionEvidence exposes its admission as a field",
+    body: `use projectos_host_windows_local_ipc::CanonicalPeerAndSessionEvidence;\nfn take(pair: CanonicalPeerAndSessionEvidence) { let _admission = pair.admission; }\nfn main(){ let _ = take; }` },
+  { name: "neg_admission_clone", code: "E0599", why: "the sealed VerifiedPeerAdmission taken from the pair is Clone",
+    body: `use projectos_host_windows_local_ipc::CanonicalPeerAndSessionEvidence;\nfn take(pair: CanonicalPeerAndSessionEvidence) { let (_o, _h, admission) = pair.into_parts(); let _again = admission.clone(); }\nfn main(){ let _ = take; }` },
+];
+
 function run() {
   const errors = [];
   const ipc = stripTests(read(path.join(HOST, "core", "src", "ipc_session.rs")));
@@ -137,12 +174,108 @@ function run() {
   // attempt's own captured connection/generation are proven to be the bundle's
   // (PROJECTOSHOST-IPC-CANONICAL-SESSION-INTEGRATION1A). The unpaired `finalise()` would prove
   // peer/service agreement without proving which connection produced it.
-  if (!/attempt\.finalise_for_connection\(\s*bundle\.connection_id\(\),\s*bundle\.handshake_generation\(\),?\s*\)/.test(obs))
-    errors.push("the crossing does not derive the verdict by consuming the attempt through the paired finalisation");
-  if (/attempt\.finalise\(\)/.test(obs))
-    errors.push("the crossing uses the UNPAIRED finalise (the attempt-to-bundle pairing would go unproven)");
-  if (!/ServiceInstanceBinding::Match => Ok\(bundle\.into_core_evidence\(\)\)/.test(obs))
-    errors.push("the crossing does not require exactly ServiceInstanceBinding::Match");
+  //
+  // AMENDED by PROJECTOS-HOST-REVIEW-PATH1B (owner material amendment to plan v1.6: session/peer DUAL
+  // FINALISATION, Option A). Two pins change; every other pin in this section is unchanged.
+  //
+  //   OLD INVARIANT  the crossing derives the verdict by calling
+  //                  `attempt.finalise_for_connection(bundle.connection_id(), bundle.handshake_generation())`
+  //                  and yields `Ok(bundle.into_core_evidence())` on exactly `ServiceInstanceBinding::Match`.
+  //                  The consumed attempt therefore produced session evidence ONLY, and the sealed
+  //                  `VerifiedPeerAdmission` the one `TrustedPeerContext` mint requires could never be
+  //                  obtained for the same connection - one attempt, one consuming finaliser, one output.
+  //
+  //   NEW INVARIANT  the crossing consumes the attempt through the canonical crate's SEALED ADMISSION
+  //                  finaliser, `attempt.admit_peer_for_connection(bundle.connection_id(),
+  //                  bundle.handshake_generation())`, for the same pair. That finaliser is pinned elsewhere
+  //                  (val-windows-service-identity-proof-3kideb, val-projectoshost-ipc-kernel-peer-capture1a
+  //                  C13) to delegate to the SAME `finalise_for_connection` and to admit on exactly Match,
+  //                  so the verdict logic is identical and Match-only is still demanded - by the type:
+  //                  `Ok(admission)` cannot exist for any other verdict. On `Ok` the crossing must
+  //                  (a) re-check the ADMISSION's connection and generation against the sealed verifier
+  //                  before anything leaves, (b) take the session evidence from that same bundle, and
+  //                  (c) return both inside the sealed single-use `CanonicalPeerAndSessionEvidence`.
+  //                  On `Err(refused)` it returns the refusal and NEITHER output.
+  //
+  //   WHAT DID NOT LOOSEN  one consuming call per attempt (exactly one finaliser call site, counted
+  //                  below); no unpaired `finalise()`; no direct `finalise_for_connection` in the
+  //                  crossing (a second finaliser beside the admission would be a second verdict); the
+  //                  bundle/verifier correlation pins; no BoundIpcSession construction; no Default/serde;
+  //                  and the paired output must not derive ANYTHING - it is not Clone, Copy or Default.
+  {
+    const crossingAt = obs.indexOf("pub fn bind_canonical_peer_to_session_evidence<");
+    const crossing = crossingAt === -1 ? "" : fnBody(obs, crossingAt);
+    const code = stripLineComments(crossing);
+    const ADMIT = /attempt\s*\.admit_peer_for_connection\(\s*bundle\.connection_id\(\),\s*bundle\.handshake_generation\(\),?\s*\)/g;
+    const admitCalls = (code.match(ADMIT) || []).length;
+    if (admitCalls !== 1)
+      errors.push("the crossing does not consume the attempt through EXACTLY ONE sealed admission finalisation for the bundle's own pair (found " + admitCalls + ")");
+    if ((code.match(/\battempt\s*\./g) || []).length !== 1)
+      errors.push("the crossing touches the attempt more than once (one attempt, one consuming finalisation)");
+    if (/\.finalise_for_connection\(|\.finalise\(\)/.test(code))
+      errors.push("the crossing takes a bare verdict beside the sealed admission (a second finalisation / an unpaired verdict)");
+    if (!/Ok\(admission\)\s*=>/.test(code) || !/Err\(refused\)\s*=>\s*Err\(\s*CanonicalSessionCrossingRefusal::ServiceInstanceRefused\(\s*refused,?\s*\)\s*,?\s*\)/.test(code))
+      errors.push("the crossing does not yield evidence on the admission alone and the canonical refusal otherwise");
+    if (!/admission\.connection_id\(\) != verifier\.connection_id\(\)/.test(code))
+      errors.push("the crossing does not re-check the ADMISSION's connection against the sealed verifier before evidence leaves");
+    if (!/admission\.handshake_generation\(\) != verifier\.handshake_generation\(\)/.test(code))
+      errors.push("the crossing does not re-check the ADMISSION's handshake generation against the sealed verifier before evidence leaves");
+    if ((code.match(/bundle\.into_core_evidence\(\)/g) || []).length !== 1)
+      errors.push("the crossing does not project the session evidence exactly once from the SAME bundle");
+    // Both outputs leave together or not at all: the only Ok value is the sealed pair, built from the
+    // admission this call produced.
+    const oks = code.match(/\bOk\(\s*[A-Za-z_]/g) || [];
+    if (oks.length !== 2 || !/Ok\(CanonicalPeerAndSessionEvidence\s*\{\s*observation,\s*handshake,\s*admission,?\s*\}\)/.test(code))
+      errors.push("the crossing has an Ok value other than the sealed pair carrying observation, handshake and THIS admission");
+    if (!/\) -> Result<CanonicalPeerAndSessionEvidence, CanonicalSessionCrossingRefusal>/.test(obs))
+      errors.push("the crossing does not return the sealed paired output");
+  }
+  {
+    // The paired output: sealed, single-use, underivable, consumed by its one accessor.
+    const at = obs.indexOf("pub struct CanonicalPeerAndSessionEvidence");
+    if (at === -1) errors.push("missing the sealed paired output CanonicalPeerAndSessionEvidence");
+    else {
+      const head = obs.slice(Math.max(0, at - 400), at);
+      const lastAttr = head.lastIndexOf("#[derive(");
+      const lastItemEnd = Math.max(head.lastIndexOf("}"), head.lastIndexOf(";"));
+      if (lastAttr > lastItemEnd)
+        errors.push("CanonicalPeerAndSessionEvidence derives a trait (it must not be Clone, Copy, Default, PartialEq or serialisable)");
+      const body = obs.slice(at, obs.indexOf("}", at) + 1);
+      if (/\bpub(\s*\([^)]*\))?\s+[a-z_]+\s*:/.test(body))
+        errors.push("CanonicalPeerAndSessionEvidence exposes a field (the two outputs could be re-paired)");
+      if (!/admission:\s*projectos_host_windows_service_identity_proof::VerifiedPeerAdmission/.test(body))
+        errors.push("CanonicalPeerAndSessionEvidence does not hold the sealed canonical admission itself");
+    }
+    if (/impl\s+(Clone|Copy|Default|PartialEq)\s+for\s+CanonicalPeerAndSessionEvidence/.test(obs) || /impl[^\n{]*From<[^>]*>\s+for\s+CanonicalPeerAndSessionEvidence/.test(obs))
+      errors.push("CanonicalPeerAndSessionEvidence gained a hand-written Clone/Copy/Default/PartialEq/From");
+    if (!/pub fn into_parts\(\s*self,?\s*\)/.test(obs))
+      errors.push("the paired output is not consumed by value when its parts are taken");
+    // PROJECTOS-HOST-REVIEW-PATH1B - THE DECLARED AMENDMENT.
+    //
+    //   OLD: ONE guarded crossing produced the paired evidence - the SERVICE-INSTANCE one.
+    //   NEW: TWO guarded crossings produce it. The second, bind_canonical_client_to_session_evidence,
+    //        answers the proposition the installed product actually needs (the connected CLIENT is
+    //        the exact enrolled configured owner), because the Host is the pipe SERVER there and a
+    //        service-instance attempt about its own client can never be a Match.
+    //
+    // Both are the SAME plumbing with the same ordering and the same four-way agreement, and both
+    // still mint nothing. The count is compared EXACTLY, so a third construction cannot slip in.
+    const crossings = (stripLineComments(obs).match(/Ok\(CanonicalPeerAndSessionEvidence\s*\{/g) || []).length;
+    if (crossings !== 2)
+      errors.push("CanonicalPeerAndSessionEvidence has " + crossings + " construction sites; exactly 2 (the service-instance and client-admission crossings) are allowed");
+    for (const fn of ["bind_canonical_peer_to_session_evidence", "bind_canonical_client_to_session_evidence"]) {
+      if (!new RegExp("pub fn " + fn).test(obs))
+        errors.push("the guarded crossing " + fn + " is missing");
+    }
+    if (/CanonicalPeerAndSessionEvidence\s*\{/.test(stripLineComments(obs).replace(/pub struct CanonicalPeerAndSessionEvidence\s*\{/, "").replace(/Ok\(CanonicalPeerAndSessionEvidence\s*\{/g, "").replace(/impl(\s+core::fmt::Debug\s+for)?\s+CanonicalPeerAndSessionEvidence\s*\{/g, "")))
+      errors.push("CanonicalPeerAndSessionEvidence is constructed somewhere other than the two guarded crossings");
+    if (!/CanonicalPeerAndSessionEvidence\(\[REDACTED\]\)/.test(obs))
+      errors.push("the paired output's Debug is not redacted");
+    // NO SECOND MINT. The peer context still has one production mint and it still reads the admission;
+    // nothing in the crossing module produces one, and nothing derives it from a session.
+    if (/TrustedPeerContext/.test(stripLineComments(obs)))
+      errors.push("the crossing module names TrustedPeerContext in code (the peer context must keep its ONE mint, in operation_contract)");
+  }
   if (!/bundle\.connection_id\(\) != verifier\.connection_id\(\)/.test(obs))
     errors.push("the crossing does not correlate the bundle connection against the sealed verifier");
   if (!/bundle\.handshake_generation\(\) != verifier\.handshake_generation\(\)/.test(obs))
@@ -186,6 +319,16 @@ function run() {
     const r = compileConsumer(neg.name, neg.body, neg.dep);
     if (r.ok) errors.push("PRODUCTION-IPC FORGERY / FIXTURE LEAK — " + neg.why + " (" + neg.name + " compiled)");
   }
+  // 7. The sealed paired output (PROJECTOS-HOST-REVIEW-PATH1B dual finalisation).
+  const ctlPair = compileConsumer("prodipc_control_pair", PAIR_CONTROL, WLI_FIXTURE_DEP);
+  if (!ctlPair.ok) errors.push("FIXTURE-graph paired-output control failed to compile (setup broken):\n" + ctlPair.out.slice(0, 1400));
+  else
+    for (const neg of PAIR_NEGATIVES) {
+      const r = compileConsumer(neg.name, neg.body, WLI_FIXTURE_DEP);
+      if (r.ok) errors.push("DUAL-FINALISATION SEAL BROKEN — " + neg.why + " (" + neg.name + " compiled)");
+      else if (!r.out.includes("error[" + neg.code + "]"))
+        errors.push("dual-finalisation negative " + neg.name + " failed for the WRONG reason (expected " + neg.code + "):\n" + r.out.slice(0, 900));
+    }
   return errors;
 }
 

@@ -70,7 +70,7 @@
  * Created in PROJECTOS-AUTOMATIC-TECHNICAL-CONTINUATION1A.
  */
 import { createHash } from 'node:crypto';
-import type { System } from '../system.js';
+import type { ExecResult, System } from '../system.js';
 import { porcelainPaths } from './observation.js';
 import {
   GATEKEEPER_DECISIONS_REL,
@@ -173,8 +173,18 @@ export function candidateDigest(entries: readonly CandidateEntry[]): string {
   return `sha256:${createHash('sha256').update(encode(entries), 'utf8').digest('hex')}`;
 }
 
-function git(sys: System, root: string, args: readonly string[]): { ok: boolean; out: string; err: string } {
-  const r = sys.exec('git', ['-C', root, ...args]);
+/**
+ * How a question about the checkout is put to git.
+ *
+ * Absent - every existing caller - it is the ordinary oracle call below, unchanged. The bounded local
+ * candidate commit (PATH1B, unit L) passes its own isolated runner, because computing the candidate is
+ * part of creating that commit and no configuration-driven program may run anywhere in it: `status`
+ * and `hash-object` would otherwise run a repository clean filter over every candidate path.
+ */
+export type CandidateGit = (args: readonly string[]) => ExecResult;
+
+function git(sys: System, root: string, args: readonly string[], run?: CandidateGit): { ok: boolean; out: string; err: string } {
+  const r = run === undefined ? sys.exec('git', ['-C', root, ...args]) : run(args);
   return { ok: r.code === 0, out: r.stdout, err: (r.stderr || '').trim() };
 }
 
@@ -184,10 +194,10 @@ function git(sys: System, root: string, args: readonly string[]): { ok: boolean;
  * READ FROM THE INDEX, which is what a commit would carry forward for a path whose content changed.
  * A path absent from this map is untracked, and takes git's own default for a new file.
  */
-function indexModes(sys: System, root: string, paths: readonly string[]): ReadonlyMap<string, string> {
+function indexModes(sys: System, root: string, paths: readonly string[], run?: CandidateGit): ReadonlyMap<string, string> {
   const modes = new Map<string, string>();
   if (paths.length === 0) return modes;
-  const r = git(sys, root, ['ls-files', '--stage', '-z', '--', ...paths]);
+  const r = git(sys, root, ['ls-files', '--stage', '-z', '--', ...paths], run);
   if (!r.ok) return modes;
   for (const record of r.out.split('\0')) {
     // `<mode> <object> <stage>\t<path>`
@@ -208,7 +218,7 @@ function indexModes(sys: System, root: string, paths: readonly string[]): Readon
  * whole job is to be compared against itself later, where "fewer entries than last time" reads as
  * agreement if the absence went unnoticed.
  */
-export function computeCandidateIdentity(sys: System, root: string): CandidateResult {
+export function computeCandidateIdentity(sys: System, root: string, run?: CandidateGit): CandidateResult {
   // `--untracked-files=all`, AND THE DEFAULT WOULD HAVE BEEN A HOLE IN THE CANDIDATE.
   //
   // Plain `git status --porcelain` collapses a wholly-untracked directory to a single entry ending in
@@ -221,7 +231,7 @@ export function computeCandidateIdentity(sys: System, root: string): CandidateRe
   // THE FLAG IS THIS FUNCTION'S, NOT THE PARSER'S. `porcelainPaths` is shared with `observeRepository`
   // and `collectEvidence`, which have their own reasons for the summary form; only the call here needs
   // every file.
-  const status = git(sys, root, ['status', '--porcelain', '--untracked-files=all']);
+  const status = git(sys, root, ['status', '--porcelain', '--untracked-files=all'], run);
   if (!status.ok) {
     return {
       ok: false,
@@ -252,7 +262,7 @@ export function computeCandidateIdentity(sys: System, root: string): CandidateRe
   // truncation of the candidate.
   const blobs = new Map<string, string>();
   if (present.length > 0) {
-    const hashed = git(sys, root, ['hash-object', '-t', 'blob', '--', ...present]);
+    const hashed = git(sys, root, ['hash-object', '-t', 'blob', '--', ...present], run);
     if (!hashed.ok) {
       return {
         ok: false,
@@ -275,7 +285,7 @@ export function computeCandidateIdentity(sys: System, root: string): CandidateRe
     present.forEach((p, i) => blobs.set(p, String(lines[i])));
   }
 
-  const modes = indexModes(sys, root, paths);
+  const modes = indexModes(sys, root, paths, run);
   const entries: CandidateEntry[] = paths.map((path) => {
     const isDeleted = deleted.includes(path);
     return {

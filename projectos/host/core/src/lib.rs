@@ -59,6 +59,13 @@ pub use authority_time::{
 };
 #[cfg(any(test, feature = "test-fixtures"))]
 pub use authority_time::{fixture_bind_production_clock, FixtureClock, FixtureMonotonicTickSource};
+// PROJECTOS-HOST-REVIEW-PATH1B G2. The production clock-binding route, compiled only under the
+// non-default `production-clock-binding` feature. Exporting it grants nothing: both entries still
+// demand a service-runtime-confirmed machine authority no dependent crate can construct.
+#[cfg(feature = "production-clock-binding")]
+pub use authority_time::{
+    establish_production_clock_authority, ProductionClockAuthority, ProductionClockAuthorityRefusal,
+};
 #[cfg(any(test, feature = "test-fixtures"))]
 pub use capability::FixtureDimension;
 pub use capability::{
@@ -98,7 +105,8 @@ pub use facts::{
 pub use ipc_session::FixtureIpcSessionVerifier;
 pub use ipc_session::{
     AdmittedRequest, BoundIpcSession, ChannelCapability, ConfirmedHandshakeEvidence,
-    ConnectionLiveness, ExpectedChannel, ExpectedPeer, InMemoryRequestAdmissionStore,
+    ConnectionBoundIpcSessionVerifier, ConnectionLiveness, ExpectedChannel, ExpectedPeer,
+    InMemoryRequestAdmissionStore,
     IpcPeerObservation, IpcSessionError, IpcSessionVerifier, OperationFamily, PeerUserClass,
     ProductionIpcSessionVerifier, RequestAdmissionError, RequestAdmissionStore,
     MAX_REMEMBERED_CORRELATIONS, REQUEST_CORRELATION_LEN,
@@ -137,7 +145,8 @@ pub use plan::{
     ApprovedPlanStatus, ApprovedPlanVersion, EffectPolicy, NormalizeError,
     NormalizedPhaseDefinition, PhaseDefinitionCandidate, PhaseDefinitionDigest, PhaseType,
     PlanDurableDto, PlanPolicyRefusal, ProviderPolicy, RepositoryPolicy, RequestedOperationPolicy,
-    ResidueRequirement, ValidatedApprovedPlan, PLAN_SCHEMA_VERSION,
+    ApprovedBaselineCommit, PhaseDefinitionContract, ResidueRequirement, ValidatedApprovedPlan,
+    PLAN_SCHEMA_VERSION,
 };
 pub use plan::{phase_definition_digest_hex, validate_durable_plan};
 pub use reducer::{reduce, Disposition, ReductionRequest};

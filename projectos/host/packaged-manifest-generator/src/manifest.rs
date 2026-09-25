@@ -20,8 +20,8 @@ use std::path::{Path, PathBuf};
 
 use projectos_host_identity::{
     canonical_bytes, sha256_hex, CommittedArtefactManifest, DaemonArtefactFormat,
-    DaemonArtefactManifest, ExecutionClosureManifest, InstallationModel, RuntimeManifest,
-    TrustManifest, EXECUTION_CLOSURE_MANIFEST_VERSION,
+    DaemonArtefactManifest, ExecutionClosureManifest, ExecutionCostPolicyManifest, IdentityError,
+    InstallationModel, RuntimeManifest, TrustManifest, EXECUTION_CLOSURE_MANIFEST_VERSION,
 };
 use projectos_packaged_runtime_contract as contract;
 
@@ -62,6 +62,14 @@ pub struct ManifestInputs<'a> {
     /// Generation timestamp, supplied so the caller controls determinism and so this crate takes no
     /// clock. Must already be a fixed-format UTC instant.
     pub generated_at: &'a str,
+    /// THE OWNER'S EXECUTION-COST POLICY (PROJECTOS-HOST-REVIEW-PATH1B): what one independent review may
+    /// be ADMITTED to cost, in micro-USD. An owner input and nothing else - there is no default, and
+    /// it is a reservation figure, never an actual or provider-billed cost.
+    pub admitted_review_cost_micro_usd: u64,
+    /// The model policy, as the canonical text the Host derives the model-policy identity from.
+    pub model_policy: &'a str,
+    /// The credential REFERENCE, as canonical text: the name the Host resolves, never a credential.
+    pub credential_ref: &'a str,
 }
 
 /// Why a manifest could not be generated. Every variant means "the payload is not what it claims";
@@ -79,6 +87,10 @@ pub enum GeneratorError {
     /// The daemon artefact is a DIRECTORY. A tree of loose modules cannot be a `SingleBundle`:
     /// hashing one file of it would attest to a fraction of what actually executes.
     DaemonArtefactNotSingleFile(PathBuf),
+    /// An owner policy fact is unusable: a cost of zero or over the bound, or model-policy /
+    /// credential-reference text that is empty, oversize or not canonical. Refused HERE so an owner is
+    /// never handed a manifest to sign that the Host would then refuse.
+    ClosurePolicyFactInvalid(IdentityError),
     /// A required identifier was blank. A manifest with an empty application id binds nothing, and
     /// would compare equal to any other build that also left it blank.
     RequiredFieldEmpty(&'static str),
@@ -247,7 +259,16 @@ pub fn generate_unsigned_manifest(
             inputs.install_root,
             contract::CREDENTIAL_ADAPTER_REPOSITORY_RELATIVE_PATH,
         )?,
+        cost_policy: ExecutionCostPolicyManifest {
+            admitted_review_cost_micro_usd: inputs.admitted_review_cost_micro_usd,
+        },
+        model_policy: inputs.model_policy.to_string(),
+        credential_ref: inputs.credential_ref.to_string(),
     };
+    // THE SAME RULE THE VERIFIER APPLIES, applied before anything is emitted.
+    execution_closure
+        .check_policy_facts()
+        .map_err(GeneratorError::ClosurePolicyFactInvalid)?;
 
     let manifest = TrustManifest {
         schema_version: SCHEMA_VERSION,

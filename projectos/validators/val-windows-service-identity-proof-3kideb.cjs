@@ -115,25 +115,84 @@ function run() {
   const depNames = (depBody.match(/^\s*([a-z0-9_-]+)\s*=/gim) || []).map((s) =>
     s.replace(/\s*=$/, "").trim()
   );
+  // PROJECTOS-HOST-REVIEW-PATH1B (ROUTE 1, W1) - THE DECLARED AMENDMENT.
+  //
+  //   OLD: EXACTLY ONE dependency was permitted, `projectos-host-authority`.
+  //   NEW: `projectos-host-identity` is ALSO permitted, and ONLY as an OPTIONAL, feature-gated
+  //        dependency of the client-admission route.
+  //
+  // WHY. The canonical CLIENT-ADMISSION attempt must compare the connected client's token user for
+  // EXACT equality against the enrolled configured owner, and the ONLY place that owner exists is
+  // the canonical installation record, behind host-identity's sealed
+  // `VerifiedCanonicalInstallation`. Resolving an owner any other way here would be a SECOND owner
+  // authority on the machine - which is the thing this crate exists to make impossible. The edge is
+  // the narrow one that keeps ONE enrolled owner.
+  //
+  // NOTHING ELSE IS WEAKENED: the list is still compared exactly, `control-center` and a direct
+  // `windows` dependency are still forbidden, and the new edge is checked below to be optional.
+  const ALLOWED_DEPS = new Set(["projectos-host-authority", "projectos-host-identity"]);
   for (const n of depNames) {
-    if (n !== "projectos-host-authority") errors.push("unexpected dependency: " + n);
+    if (!ALLOWED_DEPS.has(n)) errors.push("unexpected dependency: " + n);
   }
   if (!/projectos-host-authority\s*=\s*\{[^}]*path\s*=\s*"\.\.\/host-authority"/.test(toml))
     errors.push("does not depend on host-authority via the sibling path");
+  // The identity edge is a SIBLING PATH and is OPTIONAL, so the default graph does not pull it.
+  const identityDep = /projectos-host-identity\s*=\s*\{([^}]*)\}/.exec(depBody);
+  if (!identityDep) {
+    errors.push("the client-admission identity edge is missing or is not a table dependency");
+  } else {
+    if (!/path\s*=\s*"\.\.\/host-identity"/.test(identityDep[1]))
+      errors.push("host-identity is not depended on via the sibling path");
+    if (!/optional\s*=\s*true/.test(identityDep[1]))
+      errors.push("the host-identity edge is not optional, so the default graph pulls it");
+  }
+  // It is reachable ONLY through the client-admission feature, never by default.
+  if (/^default\s*=\s*\[[^\]]*projectos-host-identity/m.test(stripComments(toml)))
+    errors.push("the default feature set enables the host-identity edge");
+  if (!/windows-client-admission\s*=\s*\[[^\]]*dep:projectos-host-identity/.test(stripComments(toml)))
+    errors.push("the host-identity edge is not enabled by the client-admission feature");
   if (/control-center|windows\s*=/.test(depBody)) errors.push("forbidden dependency (control-center/windows)");
   // Lockfile: only this crate + host-authority (host-authority default is zero-dep).
   const lock = read(path.join(CRATE, "Cargo.lock"));
   const pkgNames = (lock.match(/^name = "(.*)"$/gm) || []).map((s) => s.replace(/^name = "|"$/g, ""));
   // The lock may now also carry the OPTIONAL, feature-gated instance-observation dependencies
   // (windows + the canonical handle primitive and their build-time helpers). Nothing else.
+  //   OLD: the lockfile carried only this crate, host-authority, the handle primitive and the three
+  //        proc-macro helpers.
+  //   NEW: it additionally carries host-identity and the SHA-256 / serde chain it needs to read the
+  //        canonical installation record. Every added name is a transitive of THAT one edge; the set
+  //        is still compared exactly, so an unrelated package still fails here.
   const LOCK_ALLOWED = new Set([
     "projectos-host-windows-service-identity-proof",
     "projectos-host-authority",
+    "projectos-host-identity",
     "projectos-windows-runtime-primitives",
     "proc-macro2",
     "quote",
     "syn",
     "unicode-ident",
+    // sha2 and its dependency chain - the canonical record's digest.
+    "sha2",
+    "digest",
+    "block-buffer",
+    "crypto-common",
+    "generic-array",
+    "typenum",
+    "cfg-if",
+    "cpufeatures",
+    "libc",
+    "version_check",
+    // serde and its chain - the canonical record is strict JSON with denied unknown fields.
+    "serde",
+    "serde_core",
+    "serde_derive",
+    "serde_json",
+    "itoa",
+    "memchr",
+    "ryu",
+    "zmij",
+    // The packaging contract host-identity reads its fixed artefact paths from.
+    "projectos-packaged-runtime-contract",
   ]);
   for (const n of pkgNames) {
     if (!LOCK_ALLOWED.has(n) && !/^windows(-|$)/.test(n)) {
@@ -319,8 +378,19 @@ function run() {
       if (/self\.process_id|self\.creation_time/.test(dbg[1]))
         errors.push("ServiceInstanceToken Debug reads a raw identity component");
     }
-    // Identity components may be read ONLY where the token is built or compared.
-    const strayReads = (inst.match(/self\.process_id|self\.creation_time/g) || []).length;
+    // Identity components may be read ONLY where the token is built or compared, plus the ONE
+    // bounded projection named below. The projection is excised first and the remaining count must
+    // still be zero, so a second reader cannot hide behind the amendment.
+    const PROJECTION =
+      /pub\(crate\) fn observed_parts\(&self\) -> \(u32, u64\) \{\s*\(self\.process_id, self\.creation_time\)\s*\}/;
+    if (!PROJECTION.test(inst))
+      errors.push("the bounded process projection is missing or is not exactly the two scalars");
+    if (/pub fn observed_parts/.test(inst))
+      errors.push("the bounded process projection is public; it must stay crate-private");
+    const projections = (inst.match(/fn observed_parts/g) || []).length;
+    if (projections !== 1)
+      errors.push("there are " + projections + " process projections; exactly 1 is allowed");
+    const strayReads = (inst.replace(PROJECTION, " ").match(/self\.process_id|self\.creation_time/g) || []).length;
     if (strayReads > 0)
       errors.push("an identity component is read outside token construction (" + strayReads + " site(s))");
     const tokenDerive = inst.match(/#\[derive\(([^)]*)\)\]\s*pub\s+struct\s+ServiceInstanceToken/);
@@ -1011,7 +1081,25 @@ function run() {
       const body = blockBody(inst, "impl VerifiedPeerAdmission {");
       // A CLOSED ALLOWLIST, covering pub(crate) too, with generics tolerated so `fn evil<T>(..)` cannot
       // slip past the way it once did against the sibling crate's O7.
-      const ALLOWED_ADMISSION = new Set(["connection_id", "handshake_generation"]);
+      const ALLOWED_ADMISSION = new Set([
+        "connection_id",
+        "handshake_generation",
+        "for_admitted_client",
+      ]);
+      // THE SECOND MINT IS CRATE-PRIVATE AND HAS EXACTLY ONE CALL SITE.
+      if (!/pub\(crate\) fn for_admitted_client\(connection_id: u64, handshake_generation: u64\) -> Self/.test(inst))
+        errors.push("the client-admission mint is missing, public, or does not take exactly the two host-issued identifiers");
+      {
+        const decl = /\bfn\s+for_admitted_client/g;
+        const callSites = crateSrc
+          .replace(decl, "DECLARATION")
+          .match(/for_admitted_client\s*\(/g) || [];
+        if (callSites.length !== 1)
+          errors.push("the client-admission mint has " + callSites.length + " call site(s); exactly 1 (the final admission gate) is allowed");
+        const admit = blockBody(read(path.join(CRATE, "src", "client_admission.rs")), "pub fn admit_client_for_connection(");
+        if (!/for_admitted_client\(/.test(admit))
+          errors.push("the client-admission mint is not reached from the final admission gate");
+      }
       const fns = [...body.matchAll(/pub(?:\((?:crate|super|in [^)]*)\))?\s+fn\s+([a-z0-9_]+)\s*(?:<[^>]*>)?\s*\(/g)].map((m) => m[1]);
       for (const name of fns) {
         if (!ALLOWED_ADMISSION.has(name)) {
@@ -1026,9 +1114,12 @@ function run() {
       // ITS OWN IMPL MINTS NOTHING. The accessors are the whole block, so a `Self { .. }` appearing here
       // would be a mint reachable without going through the attempt - including from a private helper
       // the public-function allowlist never sees.
+      //   OLD: the impl minted NOTHING - zero `Self {` - because its only mint lived elsewhere.
+      //   NEW: exactly ONE, the crate-private client-admission mint proven above. The count stays
+      //        exact, so a third construction still fails here.
       const selfMints = (body.match(/(?<!-> )(?<!let )Self\s*\{/g) || []).length;
-      if (selfMints !== 0) {
-        errors.push("the VerifiedPeerAdmission impl constructs " + selfMints + " value(s) via `Self {`; only the canonical attempt may mint one");
+      if (selfMints !== 1) {
+        errors.push("the VerifiedPeerAdmission impl constructs " + selfMints + " value(s) via `Self {`; exactly 1 (the crate-private client-admission mint) is allowed");
       }
       // No shape that lets a caller state the answer, whatever it is called.
       // Flattened, so a wrapped signature cannot slip past; `[^{;]` keeps each pattern inside one
@@ -1037,7 +1128,10 @@ function run() {
       for (const [re, why] of [
         [/pub[^{;]*?fn [a-z0-9_]+\s*(?:<[^>]*>)?\s*\([^)]*:\s*bool/, "a function taking a bool"],
         [/pub[^{;]*?fn [a-z0-9_]+\s*(?:<[^>]*>)?\s*\([^)]*:\s*&?ServiceInstanceBinding/, "a function taking the verdict enum"],
-        [/pub[^{;]*?fn [a-z0-9_]+\s*(?:<[^>]*>)?\s*\([^)]*:\s*u64/, "a function taking a raw identifier"],
+        // The u64 rule now excludes the ONE crate-private mint, which is proven above to be
+        // unreachable from any consumer and to have a single call site inside the admission gate.
+        // Every PUBLIC function is still forbidden to take one.
+        [/pub\s+fn [a-z0-9_]+\s*(?:<[^>]*>)?\s*\([^)]*:\s*u64/, "a function taking a raw identifier"],
       ]) {
         if (re.test(flatBody)) {
           errors.push("VerifiedPeerAdmission exposes " + why + "; a verdict is a description, not authority");

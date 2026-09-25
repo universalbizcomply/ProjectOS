@@ -84,9 +84,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "projectos-host-authority"
+version = "0.0.0"
+
+[[package]]
 name = "projectos-host-core"
 version = "0.0.0"
 dependencies = [
+ "projectos-host-authority",
  "projectos-trust-contract",
  "sha2",
  "thiserror",

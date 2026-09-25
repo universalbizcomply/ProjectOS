@@ -219,6 +219,8 @@ export interface GatekeeperTurnDeps {
   readonly resolveSpend?: (
     request: { readonly requestId: string; readonly projectId: string; readonly phaseId: string },
     cause: string,
+    /** The Host-authoritative dispatch fact, when the Host route stated one. */
+    providerDispatched?: boolean,
   ) => void;
 
   /**
@@ -725,6 +727,7 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
     deps.resolveSpend?.(
       { requestId: request.requestId, projectId: input.projectId, phaseId: input.phaseId },
       outcome.cause,
+      outcome.providerDispatched,
     );
     return unavailable(input, lines, request, outcome.cause, outcome.reasons);
   }
@@ -867,7 +870,13 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
 /** The Host's answer in the shape the rest of the turn already judges. The attestation is kept apart. */
 export function fromHost(hosted: HostReviewOutcome): TransportOutcome {
   if (hosted.kind === 'unavailable') {
-    return { kind: 'unavailable', cause: hosted.cause, reasons: hosted.reasons, spendLimited: hosted.cause === 'PROVIDER_SPEND_LIMITED' };
+    return {
+      kind: 'unavailable',
+      cause: hosted.cause,
+      reasons: hosted.reasons,
+      spendLimited: hosted.cause === 'PROVIDER_SPEND_LIMITED',
+      ...(hosted.providerDispatched === undefined ? {} : { providerDispatched: hosted.providerDispatched }),
+    };
   }
   const responseId = hosted.attestation.providerResponseId;
   return {

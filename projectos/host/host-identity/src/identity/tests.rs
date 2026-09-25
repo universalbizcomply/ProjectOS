@@ -718,7 +718,8 @@ fn only_a_single_bundle_may_anchor_production() {
 // ═════════════════════════════════════════════════════════════════════════════════════════════════
 
 use super::manifest::{
-    CommittedArtefactManifest, ExecutionClosureManifest, EXECUTION_CLOSURE_MANIFEST_VERSION,
+    CommittedArtefactManifest, ExecutionClosureManifest, ExecutionCostPolicyManifest,
+    EXECUTION_CLOSURE_MANIFEST_VERSION,
 };
 use super::{verify_execution_closure, CommittedClosureBytes};
 use projectos_packaged_runtime_contract as contract;
@@ -741,6 +742,11 @@ fn committed(path: &str, bytes: &[u8]) -> CommittedArtefactManifest {
     }
 }
 
+/// The owner-signed policy facts every fixture closure states (PROJECTOS-HOST-REVIEW-PATH1B).
+const FIXTURE_ADMITTED_COST: u64 = 250_000;
+const FIXTURE_MODEL_POLICY: &str = "openai/gpt-5.6-terra";
+const FIXTURE_CREDENTIAL_REF: &str = "PROJECTOS_GATEKEEPER_OPENAI_KEY";
+
 /// A closure that matches the fixture bytes exactly.
 fn honest_closure() -> ExecutionClosureManifest {
     ExecutionClosureManifest {
@@ -753,6 +759,11 @@ fn honest_closure() -> ExecutionClosureManifest {
             contract::CREDENTIAL_ADAPTER_REPOSITORY_RELATIVE_PATH,
             ADAPTER_BYTES,
         ),
+        cost_policy: ExecutionCostPolicyManifest {
+            admitted_review_cost_micro_usd: FIXTURE_ADMITTED_COST,
+        },
+        model_policy: FIXTURE_MODEL_POLICY.to_string(),
+        credential_ref: FIXTURE_CREDENTIAL_REF.to_string(),
     }
 }
 
@@ -788,7 +799,7 @@ fn closure_verdict(
     m: &TrustManifest,
     committed: &CommittedClosureBytes<'_>,
 ) -> Result<(), IdentityError> {
-    verify_execution_closure(m, Policy::Test, &DeterministicTestVerifier, committed)
+    verify_execution_closure(m, Policy::Test, &DeterministicTestVerifier, committed).map(|_| ())
 }
 
 /// The committed bytes as a caller would have read them from the object store.
@@ -1334,6 +1345,11 @@ fn programme_fixture() -> (TrustManifest, &'static [u8]) {
             contract::CREDENTIAL_ADAPTER_REPOSITORY_RELATIVE_PATH,
             ADAPTER_BYTES,
         ),
+        cost_policy: ExecutionCostPolicyManifest {
+            admitted_review_cost_micro_usd: FIXTURE_ADMITTED_COST,
+        },
+        model_policy: FIXTURE_MODEL_POLICY.to_string(),
+        credential_ref: FIXTURE_CREDENTIAL_REF.to_string(),
     });
     sign_test(&mut m);
     (m, allowlist)
@@ -1443,4 +1459,176 @@ fn a_version_1_manifest_cannot_attest_a_programme() {
             IdentityError::ExecutionClosureManifestVersionTooLow
         ))
     ));
+}
+
+// ---- PROJECTOS-HOST-REVIEW-PATH1B: the owner-signed policy facts of the execution closure ----------
+
+/// THE HOST'S MODEL-POLICY AND CREDENTIAL-REFERENCE DIGESTS COME FROM THE OWNER-SIGNED TEXT, and the
+/// admitted cost is the owner's figure. A verified closure yields exactly these and nothing else.
+#[test]
+fn a_verified_closure_yields_the_signed_policy_facts() {
+    let verified = verify_execution_closure(
+        &v2_manifest(),
+        Policy::Test,
+        &DeterministicTestVerifier,
+        &all_committed(),
+    )
+    .expect("the honest closure verifies");
+    assert_eq!(verified.admitted_review_cost_micro_usd(), FIXTURE_ADMITTED_COST);
+    assert_eq!(
+        verified.model_policy_digest(),
+        super::installation_programme::model_policy_identity_digest(FIXTURE_MODEL_POLICY)
+    );
+    assert_eq!(
+        verified.credential_ref_digest(),
+        super::installation_programme::credential_ref_identity_digest(FIXTURE_CREDENTIAL_REF)
+    );
+    // Two different facts are two different digests, even over the same text.
+    assert_ne!(verified.model_policy_digest(), verified.credential_ref_digest());
+    // THE MODEL COMES FROM THE SIGNED TEXT, and from nothing else.
+    assert_eq!(verified.review_provider(), "openai");
+    assert_eq!(verified.review_model(), "gpt-5.6-terra");
+    assert_eq!(verified.credential_ref_text(), FIXTURE_CREDENTIAL_REF);
+}
+
+/// A MODEL POLICY THE HOST CANNOT RESOLVE TO EXACTLY ONE MODEL IS REFUSED - even correctly signed - so
+/// there is never a moment at which a default, a guess or somebody else's choice could fill the gap.
+#[test]
+fn a_signed_model_policy_that_does_not_name_exactly_one_model_is_refused() {
+    use super::manifest::parse_model_policy;
+    assert_eq!(parse_model_policy("openai/gpt-5.6-terra"), Some(("openai", "gpt-5.6-terra")));
+    for bad in [
+        "approved-pilot-policy",
+        "gpt-5.6-terra",
+        "openai/",
+        "/gpt-5.6-terra",
+        "anthropic/claude",
+        "OpenAI/gpt-5.6-terra",
+        "openai/GPT-5",
+        "openai/gpt/5",
+        "openai/-gpt",
+        "openai/gpt-5;model=other",
+        "openai//gpt",
+    ] {
+        assert_eq!(parse_model_policy(bad), None, "{bad}");
+        let mut m = v2_manifest();
+        m.execution_closure.as_mut().unwrap().model_policy = bad.to_string();
+        sign_test(&mut m);
+        assert_eq!(
+            closure_verdict(&m, &all_committed()),
+            Err(IdentityError::ModelPolicyTextInvalid),
+            "{bad}"
+        );
+    }
+    let too_long = format!("openai/{}", "m".repeat(65));
+    assert_eq!(parse_model_policy(&too_long), None);
+}
+
+/// THE THREE FACTS ARE UNDER THE SIGNATURE. Changing any of them after signing is a signature
+/// failure - not a policy the Host then obeys.
+#[test]
+fn the_policy_facts_are_covered_by_the_owners_signature() {
+    let mutations: Vec<(&str, ClosureMutation)> = vec![
+        (
+            "cost",
+            Box::new(|c| c.cost_policy.admitted_review_cost_micro_usd += 1),
+        ),
+        ("model policy", Box::new(|c| c.model_policy.push('x'))),
+        ("credential reference", Box::new(|c| c.credential_ref.push('x'))),
+    ];
+    for (name, mutate) in mutations {
+        let mut m = v2_manifest();
+        mutate(m.execution_closure.as_mut().unwrap());
+        assert_eq!(
+            closure_verdict(&m, &all_committed()),
+            Err(IdentityError::ManifestSignatureInvalid),
+            "{name} changed after signing"
+        );
+    }
+}
+
+/// A CORRECTLY SIGNED CLOSURE WHOSE POLICY FACT IS UNUSABLE IS REFUSED, NEVER DEFAULTED - so an owner
+/// cannot sign "free", "unbounded" or "no policy" by accident, and the Host cannot invent one.
+#[test]
+fn a_signed_closure_with_an_unusable_policy_fact_is_refused_not_defaulted() {
+    use super::manifest::{MAX_ADMITTED_REVIEW_COST_MICRO_USD, MAX_CLOSURE_POLICY_TEXT_LEN};
+    let cases: Vec<(&str, ClosureMutation, IdentityError)> = vec![
+        (
+            "a zero cost",
+            Box::new(|c| c.cost_policy.admitted_review_cost_micro_usd = 0),
+            IdentityError::ExecutionCostPolicyInvalid,
+        ),
+        (
+            "a cost over the bound",
+            Box::new(|c| {
+                c.cost_policy.admitted_review_cost_micro_usd = MAX_ADMITTED_REVIEW_COST_MICRO_USD + 1
+            }),
+            IdentityError::ExecutionCostPolicyInvalid,
+        ),
+        (
+            "an empty model policy",
+            Box::new(|c| c.model_policy.clear()),
+            IdentityError::ModelPolicyTextInvalid,
+        ),
+        (
+            "a model policy with a space",
+            Box::new(|c| c.model_policy = "openai/gpt 5".into()),
+            IdentityError::ModelPolicyTextInvalid,
+        ),
+        (
+            "an oversize model policy",
+            Box::new(|c| c.model_policy = "p".repeat(MAX_CLOSURE_POLICY_TEXT_LEN + 1)),
+            IdentityError::ModelPolicyTextInvalid,
+        ),
+        (
+            "an empty credential reference",
+            Box::new(|c| c.credential_ref.clear()),
+            IdentityError::CredentialReferenceTextInvalid,
+        ),
+        (
+            "a credential reference with a control character",
+            Box::new(|c| c.credential_ref = "KEY\n".into()),
+            IdentityError::CredentialReferenceTextInvalid,
+        ),
+    ];
+    for (name, mutate, expected) in cases {
+        let mut m = v2_manifest();
+        mutate(m.execution_closure.as_mut().unwrap());
+        sign_test(&mut m);
+        assert_eq!(closure_verdict(&m, &all_committed()), Err(expected), "{name}");
+    }
+    // Exactly on the bound is accepted: the bound is a bound, not an off-by-one.
+    let mut m = v2_manifest();
+    m.execution_closure.as_mut().unwrap().cost_policy.admitted_review_cost_micro_usd =
+        MAX_ADMITTED_REVIEW_COST_MICRO_USD;
+    sign_test(&mut m);
+    assert_eq!(closure_verdict(&m, &all_committed()), Ok(()));
+}
+
+/// A CLOSURE THAT LACKS A POLICY FACT DOES NOT PARSE. The three fields carry no serde default, so
+/// "absent" can never be read as a value - the document is malformed, before any signature question.
+#[test]
+fn a_closure_document_missing_a_policy_fact_is_malformed() {
+    let full = serde_json::to_value(v2_manifest()).unwrap();
+    assert!(TrustManifest::parse(&serde_json::to_vec(&full).unwrap()).is_ok());
+    for missing in ["costPolicy", "modelPolicy", "credentialRef"] {
+        let mut doc = full.clone();
+        doc["executionClosure"]
+            .as_object_mut()
+            .unwrap()
+            .remove(missing)
+            .expect("the field was present");
+        assert_eq!(
+            TrustManifest::parse(&serde_json::to_vec(&doc).unwrap()).unwrap_err(),
+            IdentityError::ManifestMalformed,
+            "{missing} absent"
+        );
+    }
+    // An unknown field inside the cost policy is refused too.
+    let mut doc = full;
+    doc["executionClosure"]["costPolicy"]["billedCostMicroUsd"] = serde_json::json!(1);
+    assert_eq!(
+        TrustManifest::parse(&serde_json::to_vec(&doc).unwrap()).unwrap_err(),
+        IdentityError::ManifestMalformed
+    );
 }

@@ -124,6 +124,15 @@ pub struct PlanCandidateDto {
     pub disconnect_required: bool,
     /// Residue obligation.
     pub residue: ResidueDto,
+    /// THE APPROVED BASELINE COMMIT of the phase, when it was approved against one: exactly 40 lower-case
+    /// hex characters. PROJECTOS-HOST-REVIEW-PATH1B.
+    ///
+    /// PART OF THE CANDIDATE, NOT A FIELD BESIDE IT, and that is the control: the candidate is what the
+    /// core reload re-normalizes and re-digests, so a baseline edited in the stored record no longer
+    /// matches the stored digest and the record is refused. Omitted entirely when absent, so a record
+    /// without one serialises to the bytes it always did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approved_baseline: Option<String>,
 }
 
 /// A bounded path-boundary entry: non-empty, ≤512, no control chars, no backslash (paths use `/`).
@@ -153,6 +162,14 @@ impl PlanCandidateDto {
         }
         for p in &self.path_boundary {
             validate_path_entry(p)?;
+        }
+        // An approved baseline is a full-length lower-case commit identity and nothing else - no branch,
+        // no remote-tracking reference, no abbreviation. Refused BEFORE it is journaled.
+        if let Some(baseline) = &self.approved_baseline {
+            validate_hex(baseline, 40)?;
+            if baseline.len() != 40 || baseline.bytes().any(|b| b.is_ascii_uppercase()) {
+                return Err(PersistError::InvalidHex);
+            }
         }
         Ok(())
     }

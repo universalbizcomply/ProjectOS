@@ -34,6 +34,13 @@ const AGENT_SRC = path.join(ROOT, "projectos", "agent", "src");
 const OWNER_REL = "projectos/agent/src/loop/workRecord.ts";
 /** The one execution loop. */
 const RUNNER_REL = "projectos/agent/src/loop/runner.ts";
+/** The one phase-selection module. */
+const SELECTION_REL = "projectos/agent/src/loop/selection.ts";
+/** The one ratified historical-to-continuation pairing. Exactly one pair; see section 8. */
+const PAIRING = Object.freeze({
+  historical: "PROJECTOS-HOST-REVIEW-PATH1A",
+  continuation: "PROJECTOS-HOST-REVIEW-PATH1B",
+});
 /** The entrypoint that owns durability, as it already does for the ledger and decision evidence. */
 const ENTRY_REL = "projectos/agent/src/commands/run.ts";
 
@@ -214,6 +221,109 @@ function run() {
     }
   }
 
+  // 8. THE ONE HISTORICAL-TO-CONTINUATION PAIRING.
+  //
+  // AMENDMENT RATIFIED BY THE OWNER WITH PLAN v1.6, PROJECTOS-HOST-REVIEW-PATH1B.
+  //   OLD INVARIANT: automated phase selection takes the first phase in plan order that is not
+  //     recorded complete and never selects past it.
+  //   NEW INVARIANT: the same rule holds for every phase except ONE pairing. The historical host
+  //     review phase is never selected for implementation execution; the continuation phase is
+  //     selected in its place while it is not accepted; after that the historical phase is offered
+  //     only to the governed reconciliation and closure operation. The runner still selects only
+  //     through the one existing phase-selection function.
+  //
+  // Four independent pins, each with its own mutation: (a) the pair is exactly this pair, spelled
+  // only in the selection module; (b) no second or widened pairing; (c) the historical phase can
+  // never leave the pairing as the selected phase; (d) no second phase-selection function, and the
+  // pairing is never read from anything the implementer can write at run time.
+  const selectionRaw = read(SELECTION_REL);
+  if (selectionRaw === null) {
+    E(`${SELECTION_REL} is missing — it owns the one phase-selection function`);
+  } else {
+    const sel = code(selectionRaw);
+
+    // (a) EXACTLY THIS PAIR.
+    if (!new RegExp(`const HISTORICAL_PHASE_ID = '${PAIRING.historical}';`).test(sel)) {
+      E(`${SELECTION_REL} no longer pins the historical phase of the pairing to '${PAIRING.historical}'`);
+    }
+    if (!new RegExp(`const CONTINUATION_PHASE_ID = '${PAIRING.continuation}';`).test(sel)) {
+      E(`${SELECTION_REL} no longer pins the continuation phase of the pairing to '${PAIRING.continuation}'`);
+    }
+    for (const abs of sources) {
+      const rel = path.relative(ROOT, abs).split(path.sep).join("/");
+      if (rel === SELECTION_REL) continue;
+      const src = code(read(rel) || "");
+      for (const id of [PAIRING.historical, PAIRING.continuation]) {
+        if (src.includes(id)) {
+          E(`${rel} spells the paired phase id '${id}' in code — only ${SELECTION_REL} may name the pairing`);
+        }
+      }
+    }
+
+    // (b) NO SECOND AND NO WIDENED PAIRING. Two phase-id constants, one pairing function, one call.
+    const idConstants = sel.match(/const \w*PHASE_ID\w*\s*(?::[^=]+)?=/g) || [];
+    if (idConstants.length !== 2) {
+      E(
+        `${SELECTION_REL} declares ${idConstants.length} phase-id constant(s); exactly 2 are ratified — ` +
+          "another would be a second or widened pairing",
+      );
+    }
+    const phaseIdLiterals = sel.match(/'PROJECTOS-[A-Z0-9-]+'/g) || [];
+    if (phaseIdLiterals.length !== 2) {
+      E(`${SELECTION_REL} spells ${phaseIdLiterals.length} phase id literal(s); exactly the 2 of the pairing are ratified`);
+    }
+    if ((sel.match(/function applyHistoricalPairing\s*\(/g) || []).length !== 1) {
+      E(`${SELECTION_REL} must declare applyHistoricalPairing exactly once`);
+    }
+    if ((sel.match(/applyHistoricalPairing\(/g) || []).length !== 2) {
+      E(`${SELECTION_REL} must call applyHistoricalPairing exactly once, from selectNextPhase`);
+    }
+    if (/PHASE_IDS?\s*(?::[^=]+)?=\s*(\[|new (Set|Map)|\{)/.test(sel)) {
+      E(`${SELECTION_REL} holds phase ids in a collection — the pairing is one pair, never a list`);
+    }
+
+    // (c) THE HISTORICAL PHASE NEVER LEAVES THE PAIRING AS THE SELECTED PHASE.
+    const pairingBody = (sel.match(/function applyHistoricalPairing\s*\([\s\S]*?\n\}/) || [""])[0];
+    if (!/if \(next\.phaseId !== HISTORICAL_PHASE_ID\) return next;/.test(pairingBody)) {
+      E(`${SELECTION_REL} applyHistoricalPairing no longer passes every non-historical phase through unchanged`);
+    }
+    if (!/&& !complete\.has\(CONTINUATION_PHASE_ID\)\) return continuation;/.test(pairingBody)) {
+      E(`${SELECTION_REL} applyHistoricalPairing no longer substitutes the continuation only while it is not accepted`);
+    }
+    const returns = pairingBody.match(/return [^;]+?[;(]/g) || [];
+    // Exactly ONE of each. Three returns that are all allowed spellings is not enough: replacing the
+    // stop with a second `return next;` would hand the historical phase straight through.
+    const spelled = returns.map((r) => r.replace(/\s+/g, " ")).sort().join("|");
+    if (spelled !== "return continuation;|return next;|return stop(") {
+      E(
+        `${SELECTION_REL} applyHistoricalPairing must return only the untouched phase, the continuation, or a stop — ` +
+          "any other return could hand the historical phase to implementation execution",
+      );
+    }
+    if (!/const paired = applyHistoricalPairing\(firstIncomplete, phases, complete\);\s*if \('kind' in paired\) return paired;\s*const next = paired;/.test(sel)) {
+      E(`${SELECTION_REL} selectNextPhase no longer routes the first incomplete phase through the pairing before using it`);
+    }
+
+    // (d) ONE SELECTION FUNCTION, AND A PAIRING NOTHING WRITABLE CAN NOMINATE.
+    if (/workRecord|readWorkRecord|currentStateStore/.test(sel)) {
+      E(
+        `${SELECTION_REL} consults the work record or the current-state store — the pairing is committed source, ` +
+          "never something the implementer can write at run time",
+      );
+    }
+    for (const abs of sources) {
+      const rel = path.relative(ROOT, abs).split(path.sep).join("/");
+      if (rel === SELECTION_REL) continue;
+      const src = code(read(rel) || "");
+      if (/function \w*[sS]elect\w*Phase\w*\s*\(/.test(src) || /\.find\(\s*\(?\w+\)?\s*=>\s*!\w+\.has\(\s*\w+\.phaseId\s*\)/.test(src)) {
+        E(`${rel} implements phase selection — ${SELECTION_REL} selectNextPhase is the only one`);
+      }
+    }
+    if ((sel.match(/export function select\w*Phase\w*\s*\(/g) || []).length !== 1) {
+      E(`${SELECTION_REL} must export exactly one selection function`);
+    }
+  }
+
   // 7. NO FORGE GENERATION LOOP. Programme B must not absorb or extend it.
   for (const abs of sources) {
     const rel = path.relative(ROOT, abs).split(path.sep).join("/");
@@ -235,4 +345,4 @@ if (require.main === module) {
   console.log("val-projectos-work-record-not-authority1a: PASS");
 }
 
-module.exports = { run, OWNER_REL, RUNNER_REL, ENTRY_REL, AUTHORITY_NAMES };
+module.exports = { run, OWNER_REL, RUNNER_REL, ENTRY_REL, SELECTION_REL, PAIRING, AUTHORITY_NAMES };

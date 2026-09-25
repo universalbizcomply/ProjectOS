@@ -1027,6 +1027,7 @@ fn t7_wrong_plan_binding_is_refused() {
         shutdown_required: true,
         disconnect_required: true,
         residue: ResidueRequirement::ExactlyZero,
+        approved_baseline: None,
     };
     let plan = ApprovedPlanJournal::new().commit_approved_for_test(
         &candidate,

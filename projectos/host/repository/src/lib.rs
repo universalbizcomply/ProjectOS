@@ -37,6 +37,7 @@ pub mod config;
 pub mod error;
 pub mod parse;
 pub mod path;
+pub mod tree_diff;
 
 mod adapter;
 
@@ -44,3 +45,4 @@ pub use adapter::{CommittedFileReader, RepositoryAdapter};
 pub use command::{CommitId, CommittedPath, CommittedRevision, GitCommand, GitRunner};
 pub use config::RepositoryAdapterConfig;
 pub use error::RepoAdapterError;
+pub use tree_diff::{ChangeKind, EntryKind, EntryMode, ObjectId, TreeChange};

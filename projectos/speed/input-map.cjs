@@ -241,6 +241,19 @@ function buildInputMap() {
   map["val-projectos-live-gate-owner-floor1a"] = [AGENT_SRC, CORE_SRC];
   map["val-projectos-technical-continuation1a"] = [AGENT_SRC, CORE_SRC];
   map["val-projectos-closure-transport1a"] = [AGENT_SRC, CORE_SRC];
+  // PROJECTOS-HOST-REVIEW-PATH1A reads the agent path, the core codec, four Host crates, the service
+  // loop and the cross-language vector file. Declared broadly on purpose: an undeclared input is a
+  // stale PASS, and this validator is fast.
+  map["val-projectos-host-review-path1a"] = [
+    AGENT_SRC,
+    CORE_SRC,
+    "projectos/core/test/host-review-path-vectors.test.ts",
+    "projectos/contracts",
+    "projectos/host/windows-local-ipc/src",
+    "projectos/host/gatekeeper-attestation/src",
+    "projectos/host/gatekeeper-review-composition/src",
+    "projectos/host/service-host/src",
+  ];
 
   // --- File-scan validators ---
   // validate-no-secrets scans projectos/ and knowledge/ — these are broad, so the cache key

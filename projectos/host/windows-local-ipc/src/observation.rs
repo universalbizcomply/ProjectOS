@@ -185,6 +185,15 @@ pub enum CanonicalSessionCrossingRefusal {
     /// The canonical attempt did not finalise to [`ServiceInstanceBinding::Match`]; the closed
     /// verdict is carried verbatim (it is already redacted by the canonical crate).
     ServiceInstanceRefused(projectos_host_windows_service_identity_proof::ServiceInstanceBinding),
+    /// The canonical CLIENT-ADMISSION attempt refused; its closed verdict is carried verbatim (it is
+    /// already redacted by the canonical crate).
+    ///
+    /// PROJECTOS-HOST-REVIEW-PATH1B. Deliberately a SEPARATE variant from
+    /// [`Self::ServiceInstanceRefused`]: the two crossings answer different propositions, so folding
+    /// their refusals together would make the reason ambiguous exactly where an operator needs it to
+    /// be precise.
+    #[cfg(all(windows, feature = "windows-live-ipc"))]
+    ClientAdmissionRefused(projectos_host_windows_service_identity_proof::ClientAdmissionVerdict),
 }
 
 /// The guarded crossing: consume a COMPLETED canonical peer attempt and the same-connection bundle,
@@ -219,9 +228,7 @@ pub fn bind_canonical_peer_to_session_evidence<V: projectos_host_core::IpcSessio
     >,
     bundle: ConfirmedSameConnectionIpcPeerEvidence,
     verifier: &V,
-) -> Result<(IpcPeerObservation, ConfirmedHandshakeEvidence), CanonicalSessionCrossingRefusal> {
-    use projectos_host_windows_service_identity_proof::ServiceInstanceBinding;
-
+) -> Result<CanonicalPeerAndSessionEvidence, CanonicalSessionCrossingRefusal> {
     // §7 order: connection (4), handshake generation (5), service-instance binding (6).
     if bundle.connection_id() != verifier.connection_id() {
         return Err(CanonicalSessionCrossingRefusal::ConnectionMismatch);
@@ -229,13 +236,157 @@ pub fn bind_canonical_peer_to_session_evidence<V: projectos_host_core::IpcSessio
     if bundle.handshake_generation() != verifier.handshake_generation() {
         return Err(CanonicalSessionCrossingRefusal::HandshakeGenerationMismatch);
     }
-    // The verdict is derived by CONSUMING the attempt — single-use, never caller-supplied — and is
-    // Match only when the attempt's OWN captured connection/generation are these ones.
-    match attempt.finalise_for_connection(bundle.connection_id(), bundle.handshake_generation()) {
-        ServiceInstanceBinding::Match => Ok(bundle.into_core_evidence()),
-        refused => Err(CanonicalSessionCrossingRefusal::ServiceInstanceRefused(
+    // ONE CONSUMING FINALISATION, ONE VERDICT, TWO OUTPUTS (owner amendment, PROJECTOS-HOST-REVIEW-PATH1B).
+    //
+    // The canonical crate's sealed finaliser is used instead of the bare verdict. It delegates to the
+    // very same paired finalisation this crossing used before, so the verdict logic is unchanged and
+    // is still derived by CONSUMING the attempt - single-use, never caller-supplied, and Match only when
+    // the attempt's OWN captured connection/generation are these ones. What changes is only what a Match
+    // yields: the sealed admission for THIS connection and generation, instead of a verdict value that
+    // had to be thrown away - which is what left the downstream peer mint with nothing to consume.
+    match attempt.admit_peer_for_connection(bundle.connection_id(), bundle.handshake_generation()) {
+        Ok(admission) => {
+            // DEFENCE IN DEPTH, NOT THE CONTROL. The admission was minted for the bundle's pair, which
+            // was just shown to be the verifier's; this re-states the four-way agreement - attempt,
+            // bundle, verifier, admission - at the last point before anything leaves the crossing.
+            if admission.connection_id() != verifier.connection_id() {
+                return Err(CanonicalSessionCrossingRefusal::ConnectionMismatch);
+            }
+            if admission.handshake_generation() != verifier.handshake_generation() {
+                return Err(CanonicalSessionCrossingRefusal::HandshakeGenerationMismatch);
+            }
+            let (observation, handshake) = bundle.into_core_evidence();
+            Ok(CanonicalPeerAndSessionEvidence {
+                observation,
+                handshake,
+                admission,
+            })
+        }
+        Err(refused) => Err(CanonicalSessionCrossingRefusal::ServiceInstanceRefused(
             refused,
         )),
+    }
+}
+
+/// THE PRODUCTION CROSSING: consume a COMPLETED canonical CLIENT-ADMISSION attempt and the
+/// same-connection bundle, and yield the same two core evidence values.
+///
+/// PROJECTOS-HOST-REVIEW-PATH1B, ROUTE 1. The installed product makes ProjectOSHost the pipe SERVER
+/// and the governed Agent the CLIENT, so a service-instance attempt about the Host's own client can
+/// never be `Match` and [`bind_canonical_peer_to_session_evidence`] can never succeed there. This
+/// crossing is the same plumbing for the proposition that direction actually needs: the connected
+/// CLIENT is the EXACT enrolled configured owner.
+///
+/// EVERYTHING ELSE IS DELIBERATELY IDENTICAL to the service-instance crossing — the same ordering,
+/// the same four-way agreement, the same sealed single-use output, the same two unchanged mints
+/// downstream:
+///  1. the bundle names the sealed verifier's live connection,
+///  2. the bundle names the verifier's current handshake generation, and
+///  3. the canonical attempt admits the client **for that same host-issued connection and handshake
+///     generation** — the admission is produced HERE by CONSUMING the attempt, so a caller can
+///     neither supply a forged admission nor pair one connection's attempt with another's bundle.
+///
+/// The full chain is therefore: the pair the ATTEMPT stored when its client was captured == the
+/// pair inside the CAPTURE == the BUNDLE's pair == the sealed VERIFIER's live pair. The canonical
+/// crate compares the first three inside itself (it has no accessor, so the stored values are never
+/// read out), and this function compares the last two — no link is left to caller-side discipline.
+///
+/// Fail closed on the first violated relationship: NO evidence leaves this function, so nothing can
+/// reach the sealed session verifier. Runtime, provider, epoch, expiry, staleness and liveness
+/// remain the sealed verifier's sole authority at mint and currentness.
+///
+/// IT MINTS NOTHING. `BoundIpcSession` still comes only from the sealed session verifier and
+/// `TrustedPeerContext` still comes only from the admission. O7 is unchanged, and there is still
+/// exactly ONE admission type and ONE peer-context mint.
+///
+/// # Errors
+/// [`CanonicalSessionCrossingRefusal`] naming the first violated relationship.
+#[cfg(all(windows, feature = "windows-live-ipc"))]
+pub fn bind_canonical_client_to_session_evidence<V: projectos_host_core::IpcSessionVerifier>(
+    attempt: projectos_host_windows_service_identity_proof::ClientPeerAdmissionAttempt<
+        projectos_host_windows_service_identity_proof::ClientObserved,
+    >,
+    bundle: ConfirmedSameConnectionIpcPeerEvidence,
+    verifier: &V,
+) -> Result<CanonicalPeerAndSessionEvidence, CanonicalSessionCrossingRefusal> {
+    // Same section 7 order as the service-instance crossing: connection (4), handshake generation
+    // (5), canonical identity verdict (6).
+    if bundle.connection_id() != verifier.connection_id() {
+        return Err(CanonicalSessionCrossingRefusal::ConnectionMismatch);
+    }
+    if bundle.handshake_generation() != verifier.handshake_generation() {
+        return Err(CanonicalSessionCrossingRefusal::HandshakeGenerationMismatch);
+    }
+    // ONE CONSUMING ADMISSION, ONE VERDICT, TWO OUTPUTS.
+    match attempt.admit_client_for_connection(bundle.connection_id(), bundle.handshake_generation())
+    {
+        Ok(admission) => {
+            // DEFENCE IN DEPTH, NOT THE CONTROL. The admission was minted for the bundle's pair,
+            // which was just shown to be the verifier's; this restates the four-way agreement at the
+            // last point before anything leaves the crossing.
+            if admission.connection_id() != verifier.connection_id() {
+                return Err(CanonicalSessionCrossingRefusal::ConnectionMismatch);
+            }
+            if admission.handshake_generation() != verifier.handshake_generation() {
+                return Err(CanonicalSessionCrossingRefusal::HandshakeGenerationMismatch);
+            }
+            let (observation, handshake) = bundle.into_core_evidence();
+            Ok(CanonicalPeerAndSessionEvidence {
+                observation,
+                handshake,
+                admission,
+            })
+        }
+        Err(refused) => Err(CanonicalSessionCrossingRefusal::ClientAdmissionRefused(
+            refused,
+        )),
+    }
+}
+
+/// THE TWO RELATED OUTPUTS OF ONE CANONICAL VERDICT, for ONE connection and ONE handshake generation.
+///
+/// Owner amendment to PROJECTOS-HOST-REVIEW-PATH1B. The downstream composition needs a
+/// `BoundIpcSession` AND a `TrustedPeerContext` for the same connection; each has exactly one sealed
+/// mint, and each of those consumes something only a completed canonical attempt can give. Both used to
+/// require CONSUMING the attempt, so one connection could yield one or the other and never both.
+///
+/// This is EVIDENCE FAN-OUT FROM ONE VERDICT. It is not two observations, two finalisations, two
+/// admissions or a second authority path: the attempt is consumed once, by one finaliser, and this value
+/// is what that single Match produced.
+///
+/// SEALED AND SINGLE-USE. No public field, no public constructor, not `Clone`, not `Copy`, not
+/// `Default`, no serialisation - the only source is [`bind_canonical_peer_to_session_evidence`] and the
+/// only way to use it is [`CanonicalPeerAndSessionEvidence::into_parts`], which consumes it. The two
+/// halves cannot be re-paired with another connection's, because they never exist apart until the
+/// caller that holds both takes them.
+///
+/// IT MINTS NOTHING. `BoundIpcSession` still comes only from the sealed session verifier and
+/// `TrustedPeerContext` still comes only from the admission; this type is what lets one attempt feed
+/// both of those unchanged mints.
+pub struct CanonicalPeerAndSessionEvidence {
+    observation: IpcPeerObservation,
+    handshake: ConfirmedHandshakeEvidence,
+    admission: projectos_host_windows_service_identity_proof::VerifiedPeerAdmission,
+}
+
+impl core::fmt::Debug for CanonicalPeerAndSessionEvidence {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("CanonicalPeerAndSessionEvidence([REDACTED])")
+    }
+}
+
+impl CanonicalPeerAndSessionEvidence {
+    /// Take both outputs, consuming the value: the session evidence for the sealed session verifier,
+    /// and the sealed admission for the one peer-context mint.
+    #[must_use]
+    pub fn into_parts(
+        self,
+    ) -> (
+        IpcPeerObservation,
+        ConfirmedHandshakeEvidence,
+        projectos_host_windows_service_identity_proof::VerifiedPeerAdmission,
+    ) {
+        (self.observation, self.handshake, self.admission)
     }
 }
 
@@ -469,9 +620,10 @@ mod tests {
 
         // S5 - the guarded crossing proves attempt pair == bundle pair == verifier pair and consumes
         // the attempt. Evidence exists only because it returned Ok.
-        let (observation, handshake) =
+        let (observation, handshake, _admission) =
             bind_canonical_peer_to_session_evidence(attempt, bundle, &iv)
-                .expect("the complete synthetic chain must cross");
+                .expect("the complete synthetic chain must cross")
+                .into_parts();
 
         // S6/S7 - the EXISTING sealed verifier mints; there is no other constructor for a session.
         let session = iv
@@ -580,15 +732,40 @@ mod tests {
             iv.handshake_generation(),
             clock.read_current().reading(),
         );
-        let (observation, handshake) =
+        let (observation, handshake, admission) =
             bind_canonical_peer_to_session_evidence(attempt, bundle, &iv)
-                .expect("Match + correlation must cross");
+                .expect("Match + correlation must cross")
+                .into_parts();
+        // DUAL FINALISATION (owner amendment, PATH1B). The ONE consumed attempt yielded BOTH outputs,
+        // and both name the sealed verifier's own host-issued pair - the test chose neither value.
+        assert_eq!(admission.connection_id(), iv.connection_id());
+        assert_eq!(admission.handshake_generation(), iv.handshake_generation());
+        assert_eq!(observation.connection_id, admission.connection_id());
+        assert_eq!(
+            observation.handshake_generation,
+            admission.handshake_generation()
+        );
         let session = iv
             .verify(&runtime, handshake, &observation, &clock.read_current())
             .expect("the sealed verifier mints on crossed evidence");
         session
             .is_current(&iv, &runtime, &clock.read_current())
             .expect("the integrated session is current");
+        // The peer context comes from its ONE unchanged mint - the admission - and answers for the
+        // same connection and generation the session was minted on. Nothing here derives one
+        // authority from the other: the session came from the sealed verifier, the peer context from
+        // the sealed admission, and the two agree because one verdict produced both inputs.
+        let peer =
+            crate::operation_contract::TrustedPeerContext::from_verified_peer_admission(&admission);
+        assert!(peer.is_bound_to(iv.connection_id(), iv.handshake_generation()));
+        assert!(!peer.is_bound_to(
+            iv.connection_id().wrapping_add(1),
+            iv.handshake_generation()
+        ));
+        assert!(!peer.is_bound_to(
+            iv.connection_id(),
+            iv.handshake_generation().wrapping_add(1)
+        ));
         // T9: a reconnected verifier refuses the prior session.
         let reconnected = ProductionIpcSessionVerifier::for_local_proof();
         assert_eq!(
@@ -597,6 +774,141 @@ mod tests {
                 .unwrap_err(),
             IpcSessionError::ConnectionMismatch
         );
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // DUAL FINALISATION (owner amendment, PROJECTOS-HOST-REVIEW-PATH1B) - the single-use and sealing
+    // properties, proven by the COMPILER rather than asserted at run time.
+    //
+    // `NotClone` below resolves only while the named type does NOT implement `Clone`: a type that
+    // gained `Clone` (or `Copy`, which requires it) would satisfy BOTH blanket impls, the `_` could
+    // no longer be inferred, and this test module would stop compiling. So these lines cannot pass
+    // vacuously - deriving `Clone` on any of the four types is a build failure, not a missed case.
+    // ------------------------------------------------------------------------------------------
+    trait NotClone<Marker> {
+        fn proven() {}
+    }
+    impl<T: ?Sized> NotClone<()> for T {}
+    impl<T: ?Sized + Clone> NotClone<u8> for T {}
+
+    trait NotDefault<Marker> {
+        fn proven() {}
+    }
+    impl<T: ?Sized> NotDefault<()> for T {}
+    impl<T: ?Sized + Default> NotDefault<u8> for T {}
+
+    #[test]
+    fn dual_finalisation_inputs_and_outputs_are_single_use_and_sealed() {
+        use projectos_host_windows_service_identity_proof::VerifiedPeerAdmission;
+
+        // ONE ATTEMPT CANNOT BE DUAL-FINALISED TWICE: the crossing takes the attempt BY VALUE and the
+        // attempt cannot be duplicated beforehand.
+        <ServiceInstanceBindingAttempt<ScmAfterObserved> as NotClone<_>>::proven();
+        // ONE HANDSHAKE CANNOT CONTRIBUTE TWICE: the bundle holds the confirmed handshake, is taken
+        // by value, and cannot be duplicated beforehand.
+        <crate::observation::ConfirmedSameConnectionIpcPeerEvidence as NotClone<_>>::proven();
+        // THE PAIRED OUTPUT is single-use and has no ambient value.
+        <super::CanonicalPeerAndSessionEvidence as NotClone<_>>::proven();
+        <super::CanonicalPeerAndSessionEvidence as NotDefault<_>>::proven();
+        // THE ADMISSION STAYS SEALED AND NON-CLONEABLE through this amendment.
+        <VerifiedPeerAdmission as NotClone<_>>::proven();
+        <VerifiedPeerAdmission as NotDefault<_>>::proven();
+    }
+
+    // A REFUSED VERDICT YIELDS NEITHER OUTPUT. The refusal type has no field that could carry an
+    // admission or session evidence, so this is structural; the run-time leg shows the refused
+    // crossing really does return that refusal for every non-Match verdict the fixture can reach,
+    // including the two PAIRING refusals where every individual input is valid.
+    #[test]
+    fn dual_finalisation_refused_verdict_yields_neither_output() {
+        let iv = ProductionIpcSessionVerifier::for_local_proof();
+        let clock = bind_production_clock(
+            fixture_production_clock_binding_grant(),
+            FixtureMonotonicTickSource::new(1_000, 7),
+            1_000_000,
+        );
+        let (c, g) = (iv.connection_id(), iv.handshake_generation());
+        let cases: [(
+            (u8, u8),
+            (u8, u8),
+            (u8, u8),
+            u64,
+            u64,
+            ServiceInstanceBinding,
+        ); 4] = [
+            (
+                (1, 1),
+                (2, 1),
+                (1, 1),
+                c,
+                g,
+                ServiceInstanceBinding::Mismatch,
+            ),
+            ((1, 1), (1, 1), (2, 1), c, g, ServiceInstanceBinding::Stale),
+            (
+                (1, 1),
+                (1, 1),
+                (1, 1),
+                c.wrapping_sub(7),
+                g,
+                ServiceInstanceBinding::CrossAttemptObservation,
+            ),
+            (
+                (1, 1),
+                (1, 1),
+                (1, 1),
+                c,
+                g.wrapping_sub(1),
+                ServiceInstanceBinding::CrossAttemptObservation,
+            ),
+        ];
+        for (before, peer, after, on_connection, on_generation, expected) in cases {
+            let attempt = completed_attempt_on(before, peer, after, on_connection, on_generation);
+            let bundle = bundle_for(c, g, clock.read_current().reading());
+            match bind_canonical_peer_to_session_evidence(attempt, bundle, &iv) {
+                Ok(_) => panic!("a non-Match verdict produced evidence"),
+                Err(refusal) => assert_eq!(
+                    refusal,
+                    CanonicalSessionCrossingRefusal::ServiceInstanceRefused(expected)
+                ),
+            }
+        }
+    }
+
+    // THE SAME VERDICT LOGIC. The crossing now calls the sealed admission finaliser instead of the
+    // bare verdict; the two must answer identically for identical inputs, because the amendment
+    // changes what a Match YIELDS and nothing about when one is reached.
+    #[test]
+    fn dual_finalisation_reaches_match_exactly_when_the_paired_verdict_does() {
+        let selectors: [((u8, u8), (u8, u8), (u8, u8)); 4] = [
+            ((1, 1), (1, 1), (1, 1)),
+            ((1, 1), (2, 1), (1, 1)),
+            ((1, 1), (1, 2), (1, 1)),
+            ((1, 1), (1, 1), (2, 1)),
+        ];
+        for (before, peer, after) in selectors {
+            for (captured_on, asked_for) in
+                [((41, 9), (41, 9)), ((41, 9), (42, 9)), ((41, 9), (41, 8))]
+            {
+                let verdict =
+                    completed_attempt_on(before, peer, after, captured_on.0, captured_on.1)
+                        .finalise_for_connection(asked_for.0, asked_for.1);
+                let admitted =
+                    completed_attempt_on(before, peer, after, captured_on.0, captured_on.1)
+                        .admit_peer_for_connection(asked_for.0, asked_for.1);
+                match admitted {
+                    Ok(admission) => {
+                        assert_eq!(verdict, ServiceInstanceBinding::Match);
+                        assert_eq!(admission.connection_id(), asked_for.0);
+                        assert_eq!(admission.handshake_generation(), asked_for.1);
+                    }
+                    Err(refused) => {
+                        assert_ne!(refused, ServiceInstanceBinding::Match);
+                        assert_eq!(refused, verdict);
+                    }
+                }
+            }
+        }
     }
 
     // T2 + T5 + T11: a canonically REFUSED peer (substitution, and restart/pid-reuse model) never

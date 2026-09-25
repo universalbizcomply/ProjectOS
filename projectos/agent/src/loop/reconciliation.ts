@@ -248,6 +248,8 @@ export interface ReconciliationDeps {
   readonly resolveSpend?: (
     request: { readonly requestId: string; readonly projectId: string; readonly phaseId: string },
     cause: string,
+    /** The Host-authoritative dispatch fact, when the Host route stated one. */
+    providerDispatched?: boolean,
   ) => void;
   /** Serialised budget admission; see the note in gatekeeperTurn.ts. */
   readonly admitSpend?: (request: {
@@ -1101,7 +1103,7 @@ export function reconcileDegradedWork(
   );
 
   if (sent.kind === 'unavailable') {
-    deps.resolveSpend?.({ requestId, projectId: input.projectId, phaseId: input.phaseId }, sent.cause);
+    deps.resolveSpend?.({ requestId, projectId: input.projectId, phaseId: input.phaseId }, sent.cause, sent.providerDispatched);
     return outcome('UNAVAILABLE', sent.reasons, {
       workId: input.workId,
       requestId,

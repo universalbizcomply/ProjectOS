@@ -24,12 +24,13 @@ import {
   consumedDecisionIds,
   recordGatekeeperDecisionEvidence,
   admitGatekeeperSpend,
-  resolveGatekeeperSpend,
+  settleUnansweredGatekeeperSpend,
   releaseUndispatchedReservation,
   settleGatekeeperSpend,
   writePreviousResponseId,
   resolveDelegatedDecider,
 } from '../loop/gatekeeperConfig.js';
+import { composeHostReview } from '../loop/hostReviewComposition.js';
 import type { DecisionProvenanceStamp, GatekeeperDecisionRecord, GatekeeperMode, HostReviewPort } from '@projectos/core';
 import {
   beginWork,
@@ -162,6 +163,15 @@ export function composeGatekeeper(
   if (!gk.ok) {
     return { ok: false, lines: ['REFUSED (GATEKEEPER_MISCONFIGURED): a gatekeeper is configured but cannot be used.', ...gk.reasons.map((r) => `  - ${r}`)] };
   }
+  // THE HOST ROUTE, ONLY WHEN THE OWNER'S COMMITTED CONFIGURATION NAMES ONE. A caller-supplied port (the
+  // proofs) wins; otherwise the production client is composed from the committed `hostReview` block, and
+  // with no such block NOTHING is composed — the turn then refuses before spend admission, as before.
+  let hostReview: HostReviewPort | undefined = opts.hostReview;
+  if (hostReview === undefined) {
+    const composedHost = composeHostReview(ctx.sys, ctx.root);
+    if (composedHost.kind === 'refused') return { ok: false, lines: composedHost.lines };
+    if (composedHost.kind === 'composed') hostReview = composedHost.port;
+  }
   const ledger = readLedger(ctx.sys, ctx.root);
   return {
     ok: true,
@@ -170,7 +180,7 @@ export function composeGatekeeper(
     gatekeeper: {
       mode: 'unattended',
       // The in-process provider call is never made in this mode: with no Host route, the turn waits.
-      ...(opts.hostReview === undefined ? {} : { hostReview: opts.hostReview }),
+      ...(hostReview === undefined ? {} : { hostReview }),
       transport: gk.config.transport,
       availability: { reachable: true },
       // THE CREDENTIAL IS NOT RESOLVED IN THIS PROCESS. The resolver handed over refuses by
@@ -209,8 +219,9 @@ export function composeGatekeeper(
       resolveSpend: (
         request: { readonly requestId: string; readonly projectId: string; readonly phaseId: string },
         cause: string,
+        providerDispatched?: boolean,
       ) =>
-        resolveGatekeeperSpend(ctx.sys, ctx.root, request.requestId, cause, () =>
+        settleUnansweredGatekeeperSpend(ctx.sys, ctx.root, request.requestId, cause, providerDispatched, () =>
           readBrokerAnsweredState(ctx.sys, nodeInstallationStateDir(), request),
         ),
     },

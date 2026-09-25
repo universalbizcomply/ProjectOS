@@ -44,7 +44,27 @@ const ELEVATION_FILE = "elevation.rs";
 // feature-gated FFI file (session / console / station queries). Its unsafe is confined to that file and
 // every block carries SAFETY reasoning, matching the existing FFI files.
 const OBSERVER_FILE = "acquisition_win32.rs";
-const UNSAFE_ALLOWED = new Set([...HISTORICAL_UNSAFE_ALLOWED, ELEVATION_FILE, OBSERVER_FILE]);
+// PROJECTOS-HOST-REVIEW-PATH1B - THE DECLARED AMENDMENT.
+//
+//   OLD: unsafe confined to { existence.rs, security.rs, service_principal.rs, elevation.rs,
+//        acquisition_win32.rs }.
+//   NEW: self_service_runtime.rs is ALSO an approved, narrowly bounded Windows FFI owner.
+//
+// WHY. The production service-runtime acquisition must not accept a `ConfirmedPeer` as ordinary
+// data - a caller that could pass `ConfirmedPeer::ServiceRuntime` would obtain machine-wide Host
+// authority by SELECTING A VALUE. The corroboration is therefore DERIVED from a non-forgeable fact:
+// the per-service SID the SCM injects into a service process's token. Reading it needs three Win32
+// calls, so it needs unsafe, so it needs a file, and that file is pinned here.
+//
+// Its bound is checked below in `selfServiceRuntimeCheck`: three calls and nothing else, no
+// caller-selectable target, no SID or handle leaving the module, and RAII release on every path.
+const SELF_SERVICE_RUNTIME_FILE = "self_service_runtime.rs";
+const UNSAFE_ALLOWED = new Set([
+  ...HISTORICAL_UNSAFE_ALLOWED,
+  ELEVATION_FILE,
+  OBSERVER_FILE,
+  SELF_SERVICE_RUNTIME_FILE,
+]);
 
 function read(p) {
   return fs.readFileSync(p, "utf8").replace(/^﻿/, "");
@@ -201,9 +221,29 @@ function run() {
     errors.push("missing AUTHORITY_SYNTHETIC_WINDOWS_IMPLEMENTED = true");
   if (!/AUTHORITY_PRODUCTION_NAME_ACQUIRED_THIS_PHASE:\s*bool\s*=\s*false/.test(lib))
     errors.push("production name must NOT be acquired this phase");
-  // The FFI + proof surface is gated to test-fixtures (no acquisition ships by default).
-  if (!/cfg\(all\(windows,\s*feature\s*=\s*"test-fixtures"\)\)\]\s*mod existence/.test(lib))
-    errors.push("existence module is not gated to the test-fixtures feature");
+  // THE DECLARED AMENDMENT (PROJECTOS-HOST-REVIEW-PATH1B, ROUTE A).
+  //
+  //   OLD: `mod existence` and `mod key` were gated to `test-fixtures` ALONE, so the existence-token
+  //        acquisition and the production object-name derivation could not ship at all - which is
+  //        precisely why the production session route was unreachable.
+  //   NEW: both are gated to `any(test-fixtures, windows-authority-acquisition)`.
+  //
+  // This is a WIDENING OF THE GATE, not of the module: no logic moved, and the new feature is
+  // non-default and enabled only by the trusted service-host graph. The permitted gate is matched
+  // EXACTLY, so a third feature - or a bare `#[cfg(windows)]` - cannot slip in unnamed.
+  const EXPECTED_ACQUISITION_GATE =
+    /#\[cfg\(all\(\s*windows,\s*any\(feature\s*=\s*"test-fixtures",\s*feature\s*=\s*"windows-authority-acquisition"\)\s*\)\)\]\s*mod (existence|key);/g;
+  const gated = [...lib.matchAll(EXPECTED_ACQUISITION_GATE)].map((m) => m[1]).sort();
+  if (gated.join(",") !== "existence,key")
+    errors.push(
+      "the existence/key modules are not gated to exactly any(test-fixtures, windows-authority-acquisition): " +
+        JSON.stringify(gated)
+    );
+  // `windows_proof` - the SYNTHETIC surface - must NOT have been widened with them.
+  if (!/#\[cfg\(all\(windows,\s*feature\s*=\s*"test-fixtures"\)\)\]\s*pub mod windows_proof;/.test(lib))
+    errors.push("windows_proof is no longer confined to test-fixtures");
+  if (/windows-authority-acquisition[\s\S]{0,200}pub mod windows_proof/.test(lib))
+    errors.push("windows_proof may not be reachable from the production acquisition feature");
   if (!/cfg\(all\(windows,\s*feature\s*=\s*"test-fixtures"\)\)\]\s*pub mod windows_proof/.test(lib))
     errors.push("windows_proof is not gated to the test-fixtures feature");
 
@@ -265,6 +305,9 @@ function run() {
   //    states — the frozen historical state (via git show) and the current authorised state.
   amendmentTwoStateCheck(errors);
 
+  // 9. PROJECTOS-HOST-REVIEW-PATH1B: the bound on the newly allowed unsafe file.
+  selfServiceRuntimeCheck(errors);
+
   return errors;
 }
 
@@ -280,6 +323,83 @@ function gitShowFrozen(relPath) {
   } catch {
     return null;
   }
+}
+
+/// PROJECTOS-HOST-REVIEW-PATH1B: the bound on the newly allowed unsafe file.
+///
+/// It exists to answer ONE question - is this process the ProjectOSHost service runtime - from the
+/// per-service SID the SCM injects. Everything below pins that to its minimum: the three calls it
+/// needs, no caller-selectable target, no identity leaving it, and release on every path.
+function selfServiceRuntimeCheck(errors) {
+  const filePath = path.join(CRATE, "src", SELF_SERVICE_RUNTIME_FILE);
+  if (!fs.existsSync(filePath)) {
+    errors.push("self_service_runtime.rs is missing from host-authority/src");
+    return;
+  }
+  const raw = read(filePath);
+  const code = stripComments(raw);
+
+  // Gated to windows + the PRODUCTION acquisition feature, and PRIVATE - never `pub mod`.
+  const lib = read(path.join(CRATE, "src", "lib.rs"));
+  if (
+    !/#\[cfg\(all\(windows,\s*feature\s*=\s*"windows-authority-acquisition"\)\)\]\s*mod self_service_runtime;/.test(
+      lib
+    )
+  )
+    errors.push(
+      "self_service_runtime is not gated to windows + windows-authority-acquisition, or is not private"
+    );
+  if (/pub\s+mod self_service_runtime/.test(lib))
+    errors.push("self_service_runtime is publicly exported");
+
+  // Every unsafe unit carries a SAFETY note.
+  const unsafeUnits = (code.match(/unsafe\s*(fn|\{)/g) || []).length;
+  const safetyNotes = (raw.match(/\/\/\s*SAFETY:/g) || []).length;
+  if (unsafeUnits === 0)
+    errors.push("self_service_runtime.rs has no unsafe unit - the self proof is not implemented");
+  if (safetyNotes < unsafeUnits)
+    errors.push(
+      "self_service_runtime.rs has undocumented unsafe (SAFETY " +
+        safetyNotes +
+        " < unsafe " +
+        unsafeUnits +
+        ")"
+    );
+
+  // THE THREE CALLS IT IS ALLOWED, and the reason each is needed.
+  for (const required of ["ConvertStringSidToSidW", "CheckTokenMembership", "LocalFree"]) {
+    if (!new RegExp(required).test(code))
+      errors.push("self_service_runtime.rs does not use the expected call " + required);
+  }
+  // CheckTokenMembership MUST be called against the CURRENT thread/process token - `None` - so there
+  // is no caller-selectable token to aim it at.
+  if (!/CheckTokenMembership\(\s*None\s*,/.test(code))
+    errors.push(
+      "CheckTokenMembership must be called with None (the current token), never a supplied handle"
+    );
+
+  // NOTHING ELSE. A widening here would turn a one-bit self proof into a general identity engine.
+  const FORBIDDEN = [
+    "OpenProcess\\b", "OpenProcessToken", "DuplicateToken", "ImpersonateLoggedOnUser",
+    "AdjustTokenPrivileges", "SetTokenInformation", "LookupAccountSid", "GetTokenInformation",
+    "CreateProcess", "ShellExecute", "OpenSCManager", "OpenService", "QueryServiceStatus",
+    "RegOpenKey", "RegQueryValue", "std::env::var", "std::env::args",
+  ];
+  for (const bad of FORBIDDEN) {
+    if (new RegExp(bad).test(code))
+      errors.push("self_service_runtime.rs contains a forbidden route: " + bad);
+  }
+
+  // ONE BIT LEAVES IT. No SID, handle, pid or account name is returned.
+  if (!/fn running_as_projectos_host_service\(\)\s*->\s*bool/.test(code))
+    errors.push("self_service_runtime.rs must expose exactly one bool-returning self proof");
+  if (/->\s*Option<[^>]*Sid|->\s*String|->\s*Vec<u8>/.test(code))
+    errors.push("self_service_runtime.rs returns an identity value, not a single bit");
+
+  // The allocation from ConvertStringSidToSidW is released on EVERY path, by a Drop impl rather than
+  // by a call the happy path happens to reach.
+  if (!/impl\s+Drop\s+for/.test(code))
+    errors.push("self_service_runtime.rs does not release its SID allocation through Drop (RAII)");
 }
 
 function amendmentTwoStateCheck(errors) {
@@ -299,6 +419,9 @@ function amendmentTwoStateCheck(errors) {
   else {
     if (/elevation\.rs/.test(histAllowLine[1]))
       errors.push("historical allowlist unexpectedly already contained elevation.rs");
+    // THE OLD STATE OF THIS AMENDMENT, proven rather than asserted.
+    if (/self_service_runtime\.rs/.test(histAllowLine[1]))
+      errors.push("historical allowlist unexpectedly already contained self_service_runtime.rs");
     for (const f of HISTORICAL_UNSAFE_ALLOWED) {
       if (!histAllowLine[1].includes(f))
         errors.push("historical allowlist missing expected FFI file: " + f);
@@ -313,11 +436,12 @@ function amendmentTwoStateCheck(errors) {
     errors.push("historical lib.rs unexpectedly referenced TokenElevation");
 
   // --- B. CURRENT AUTHORISED STATE ---
-  // Exactly TWO files have been added to the allowlist since the frozen commit, each by a named gate:
-  // elevation.rs (windows-elevation-observation) and acquisition_win32.rs
-  // (CD-B4-PRODUCTION-HOST-AUTHORITY-WIN32-OBSERVER1A). Both are feature-gated FFI files with unsafe
-  // confined to themselves. The set is compared exactly, so a third file cannot slip in unnamed.
-  const AUTHORISED_ADDITIONS = [ELEVATION_FILE, OBSERVER_FILE];
+  // Exactly THREE files have been added to the allowlist since the frozen commit, each by a named
+  // gate: elevation.rs (windows-elevation-observation), acquisition_win32.rs
+  // (CD-B4-PRODUCTION-HOST-AUTHORITY-WIN32-OBSERVER1A) and self_service_runtime.rs
+  // (PROJECTOS-HOST-REVIEW-PATH1B). All three are feature-gated FFI files with unsafe confined to
+  // themselves. The set is compared exactly, so a fourth file cannot slip in unnamed.
+  const AUTHORISED_ADDITIONS = [ELEVATION_FILE, OBSERVER_FILE, SELF_SERVICE_RUNTIME_FILE];
   const added = [...UNSAFE_ALLOWED].filter((f) => !HISTORICAL_UNSAFE_ALLOWED.includes(f));
   const unexpected = added.filter((f) => !AUTHORISED_ADDITIONS.includes(f));
   const missing = AUTHORISED_ADDITIONS.filter((f) => !added.includes(f));

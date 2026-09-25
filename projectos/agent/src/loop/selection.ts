@@ -82,6 +82,58 @@ function stop(code: SelectionStopCode, detail: string): PhaseSelection {
 }
 
 /**
+ * THE ONE HISTORICAL-TO-CONTINUATION PAIRING — ratified in PROJECTOS-HOST-REVIEW-PATH1B.
+ *
+ * The planning mechanism cannot retire an unfinished phase, so the historical host review phase is
+ * still FIRST in plan order, while the owner has ruled that no candidate of it alone may ever become
+ * final. Left to the first-incomplete rule the loop would implement exactly the phase it must not.
+ *
+ * THESE ARE SOURCE CONSTANTS, NOT DATA. The pairing is read from the code the governed checkout has
+ * committed and from nowhere else: not the plan, not the current state, not the work record. Anything
+ * the implementer can write at run time must not be able to nominate a pair, because a writable
+ * pairing is a way to make the loop skip any phase. `val-projectos-work-record-not-authority1a` pins
+ * that the pair is exactly this one and that nothing else in the agent spells a second.
+ */
+const HISTORICAL_PHASE_ID = 'PROJECTOS-HOST-REVIEW-PATH1A';
+const CONTINUATION_PHASE_ID = 'PROJECTOS-HOST-REVIEW-PATH1B';
+
+/**
+ * Is this the historical phase of the pairing, PARKED — a `draft` record implementation never resumes?
+ *
+ * For the durable current state, which must not call a parked historical record "work in flight": it
+ * is never selected for implementation, so beside the running continuation phase it is not a second
+ * active phase, and on its own it is not execution. ONLY that phase and ONLY as a `draft` — once the
+ * governed reconciliation and closure operation moves it, it is in flight like any other phase. Asked
+ * here because this module is the one place the pairing may be named.
+ */
+export function isParkedHistoricalPhase(phaseId: string, status: string): boolean {
+  return phaseId === HISTORICAL_PHASE_ID && status === 'draft';
+}
+
+/**
+ * Apply the pairing to the phase the first-incomplete rule produced.
+ *
+ * Returns the phase to carry on with, or a stop. It only ever SUBSTITUTES the continuation for the
+ * historical phase or REFUSES; it never steps over the historical phase to reach a later one, which
+ * would be the silent reordering the first-incomplete rule exists to prevent.
+ */
+function applyHistoricalPairing(
+  next: AuthorisedPlanPhase,
+  phases: readonly AuthorisedPlanPhase[],
+  complete: ReadonlySet<string>,
+): AuthorisedPlanPhase | PhaseSelection {
+  if (next.phaseId !== HISTORICAL_PHASE_ID) return next;
+  const continuation = phases.find((p) => p.phaseId === CONTINUATION_PHASE_ID);
+  if (continuation !== undefined && !complete.has(CONTINUATION_PHASE_ID)) return continuation;
+  return stop(
+    'OWNER_DECISION_REQUIRED',
+    `phase '${HISTORICAL_PHASE_ID}' is never selected for implementation execution; it is offered only to ` +
+      `the governed reconciliation and closure operation, by owner decision, against the accepted cumulative ` +
+      `candidate of '${CONTINUATION_PHASE_ID}'`,
+  );
+}
+
+/**
  * The next phase of the approved plan, in plan order.
  *
  * The first phase that is not recorded complete is THE phase — not the first phase that happens to
@@ -94,13 +146,16 @@ export function selectNextPhase(sys: System, root: string, context: GovernedCont
   }
 
   const { ids: complete, stateProblem } = completedPhaseIds(sys, root, context);
-  const next = phases.find((p) => !complete.has(p.phaseId));
-  if (next === undefined) {
+  const firstIncomplete = phases.find((p) => !complete.has(p.phaseId));
+  if (firstIncomplete === undefined) {
     return stop(
       'PROGRAMME_COMPLETE',
       `every one of the ${phases.length} approved phase(s) is recorded complete; the loop has nothing left to start`,
     );
   }
+  const paired = applyHistoricalPairing(firstIncomplete, phases, complete);
+  if ('kind' in paired) return paired;
+  const next = paired;
 
   if (!isSafePhaseId(next.phaseId)) {
     return stop(

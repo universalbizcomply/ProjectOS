@@ -24,6 +24,7 @@ pub mod es256;
 pub mod hash;
 /// RUN-TO-COMPLETION HOST ATTESTATION §10A: the owner-signed source of the installation's own
 /// programme identity. Portable pure logic - no Windows gate, no filesystem.
+pub mod committed_candidate;
 pub mod installation_programme;
 pub mod manifest;
 pub mod mode;
@@ -419,7 +420,7 @@ pub fn verify_execution_closure(
     policy: Policy,
     verifier: &dyn TrustManifestSignatureVerifier,
     committed: &CommittedClosureBytes<'_>,
-) -> Result<(), IdentityError> {
+) -> Result<VerifiedExecutionClosure, IdentityError> {
     // Shape first. `check_versions` is repeated here rather than assumed, because this function is
     // reachable on its own and a check whose safety depends on another one having run first is a
     // check with a bypass.
@@ -468,7 +469,69 @@ pub fn verify_execution_closure(
             hash_mismatch: IdentityError::CredentialAdapterHashMismatch,
         },
     )?;
-    Ok(())
+
+    // THE SIGNED POLICY FACTS (PROJECTOS-HOST-REVIEW-PATH1B). Read only now - after the owner's
+    // signature over the whole subject and after every committed artefact matched - and refused,
+    // never defaulted, when any of the three is unusable.
+    closure.check_policy_facts()?;
+    Ok(VerifiedExecutionClosure {
+        admitted_review_cost_micro_usd: closure.cost_policy.admitted_review_cost_micro_usd,
+        model_policy: closure.model_policy.clone(),
+        credential_ref: closure.credential_ref.clone(),
+    })
+}
+
+/// THE POLICY FACTS OF A VERIFIED EXECUTION CLOSURE. PROJECTOS-HOST-REVIEW-PATH1B.
+///
+/// SEALED BY CONSTRUCTION: the fields are private and [`verify_execution_closure`] is the only place
+/// one is built, so a value of this type exists only after the owner's signature was established over
+/// the whole manifest, every closure artefact matched its committed bytes, and all three policy facts
+/// were present and usable. There is no way to obtain one from unsigned bytes and no default.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedExecutionClosure {
+    admitted_review_cost_micro_usd: u64,
+    model_policy: String,
+    credential_ref: String,
+}
+
+impl VerifiedExecutionClosure {
+    /// What the owner signed that one review may be ADMITTED to cost, in micro-USD. A reservation
+    /// figure - never an actual or provider-billed cost.
+    #[must_use]
+    pub fn admitted_review_cost_micro_usd(&self) -> u64 {
+        self.admitted_review_cost_micro_usd
+    }
+
+    /// The model-policy identity digest, DERIVED FROM THE OWNER-SIGNED TEXT.
+    #[must_use]
+    pub fn model_policy_digest(&self) -> [u8; 32] {
+        installation_programme::model_policy_identity_digest(&self.model_policy)
+    }
+
+    /// The provider the owner's signed model policy names.
+    #[must_use]
+    pub fn review_provider(&self) -> &str {
+        manifest::parse_model_policy(&self.model_policy).map_or("", |(provider, _)| provider)
+    }
+
+    /// THE EXACT MODEL ID the owner's signed model policy names. Non-empty by construction: a closure
+    /// whose policy does not resolve is refused before a value of this type can exist.
+    #[must_use]
+    pub fn review_model(&self) -> &str {
+        manifest::parse_model_policy(&self.model_policy).map_or("", |(_, model)| model)
+    }
+
+    /// The credential REFERENCE the owner signed: the name the trusted broker resolves. Never a secret.
+    #[must_use]
+    pub fn credential_ref_text(&self) -> &str {
+        &self.credential_ref
+    }
+
+    /// The credential-reference identity digest, DERIVED FROM THE OWNER-SIGNED TEXT.
+    #[must_use]
+    pub fn credential_ref_digest(&self) -> [u8; 32] {
+        installation_programme::credential_ref_identity_digest(&self.credential_ref)
+    }
 }
 
 /// Bind a runtime path, rejecting absolute manifest paths (would bypass the install root) and

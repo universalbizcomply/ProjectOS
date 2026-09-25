@@ -49,6 +49,13 @@ pub enum HostAuthorityAcquisitionRefusal {
     CorroborationIncomplete,
     /// Corroboration produced a client connection, which is never authority.
     ClientIsNotAuthority,
+    /// PROJECTOS-HOST-REVIEW-PATH1B (ROUTE A): the machine-wide authority SECURITY descriptor could
+    /// not be built, because the ProjectOSHost service principal did not resolve.
+    ///
+    /// Fail closed rather than falling back: an authority object secured by anything other than the
+    /// accepted machine-wide descriptor is not the accepted object, and creating it would publish a
+    /// differently-secured object under the production name. It names no SID, account or descriptor.
+    AuthoritySecurityUnavailable,
 }
 
 /// The already-observed facts the policy decides over.

@@ -189,6 +189,99 @@ describe('selectNextPhase', () => {
   });
 });
 
+/**
+ * THE ONE HISTORICAL-TO-CONTINUATION PAIRING — PROJECTOS-HOST-REVIEW-PATH1B.
+ *
+ * The planning mechanism cannot retire an unfinished phase, so the historical host review phase is
+ * still first in plan order while the owner has ruled it must never be implemented on its own. Each
+ * branch of the ratified rule is asserted here; `val-projectos-work-record-not-authority1a` pins that
+ * the pairing stays exactly this one pair.
+ */
+describe('selectNextPhase — the historical host review phase is never selected for implementation', () => {
+  const HISTORICAL = 'PROJECTOS-HOST-REVIEW-PATH1A';
+  const CONTINUATION = 'PROJECTOS-HOST-REVIEW-PATH1B';
+  const LATER = 'PROJECTOS-AGENT-WORKFORCE1A';
+  const PLAN = [planPhase(HISTORICAL), planPhase(CONTINUATION), planPhase(LATER, [CONTINUATION])];
+
+  it('starts the continuation phase in its place while the continuation is not accepted', () => {
+    const sys = fakeSystem();
+    const sel = selectNextPhase(sys, ROOT, contextWith(PLAN));
+    expect(sel.kind).toBe('start');
+    if (sel.kind === 'start') expect(sel.planPhase.phaseId).toBe(CONTINUATION);
+    expect(sys.writes).toEqual([]);
+  });
+
+  it('continues the continuation phase, not an open historical record', () => {
+    const sys = fakeSystem({
+      phases: { [HISTORICAL]: record(HISTORICAL, 'implementing'), [CONTINUATION]: record(CONTINUATION, 'implementing') },
+    });
+    const sel = selectNextPhase(sys, ROOT, contextWith(PLAN));
+    expect(sel.kind).toBe('continue');
+    if (sel.kind === 'continue') expect(sel.planPhase.phaseId).toBe(CONTINUATION);
+  });
+
+  it('is not held up by a stood-down historical record', () => {
+    const sys = fakeSystem({ phases: { [HISTORICAL]: record(HISTORICAL, 'rolled_back') } });
+    const sel = selectNextPhase(sys, ROOT, contextWith(PLAN));
+    expect(sel.kind).toBe('start');
+    if (sel.kind === 'start') expect(sel.planPhase.phaseId).toBe(CONTINUATION);
+  });
+
+  it('still applies every ordinary stop to the continuation phase', () => {
+    const sys = fakeSystem({ phases: { [CONTINUATION]: record(CONTINUATION, 'awaiting_closure') } });
+    const sel = selectNextPhase(sys, ROOT, contextWith(PLAN));
+    expect(sel.kind).toBe('stop');
+    if (sel.kind === 'stop') {
+      expect(sel.reason.code).toBe('OWNER_DECISION_REQUIRED');
+      expect(sel.reason.detail).toContain(CONTINUATION);
+    }
+  });
+
+  it('after the continuation is accepted, offers the historical phase only to reconciliation and closure', () => {
+    for (const status of [undefined, 'implementing', 'rolled_back', 'draft'] as const) {
+      const sys = fakeSystem({
+        completed: [CONTINUATION],
+        phases: status === undefined ? {} : { [HISTORICAL]: record(HISTORICAL, status) },
+      });
+      const sel = selectNextPhase(sys, ROOT, contextWith(PLAN));
+      expect(sel.kind).toBe('stop');
+      if (sel.kind === 'stop') {
+        expect(sel.reason.code).toBe('OWNER_DECISION_REQUIRED');
+        expect(sel.reason.detail).toContain(HISTORICAL);
+        expect(sel.reason.detail).toContain('reconciliation and closure');
+      }
+      expect(sys.writes).toEqual([]);
+    }
+  });
+
+  it('does not step over the unclosed historical phase to reach a later one', () => {
+    const sys = fakeSystem({ completed: [CONTINUATION] });
+    const sel = selectNextPhase(sys, ROOT, contextWith(PLAN));
+    expect(sel.kind).toBe('stop');
+  });
+
+  it('never selects the historical phase even in a plan that lacks the continuation', () => {
+    const sys = fakeSystem();
+    const sel = selectNextPhase(sys, ROOT, contextWith([planPhase(HISTORICAL), planPhase(LATER)]));
+    expect(sel.kind).toBe('stop');
+    if (sel.kind === 'stop') expect(sel.reason.code).toBe('OWNER_DECISION_REQUIRED');
+  });
+
+  it('moves on in plan order once both phases of the pair are recorded complete', () => {
+    const sys = fakeSystem({ completed: [HISTORICAL, CONTINUATION] });
+    const sel = selectNextPhase(sys, ROOT, contextWith(PLAN));
+    expect(sel.kind).toBe('start');
+    if (sel.kind === 'start') expect(sel.planPhase.phaseId).toBe(LATER);
+  });
+
+  it('leaves every other phase on the first-incomplete rule', () => {
+    const sys = fakeSystem();
+    const sel = selectNextPhase(sys, ROOT, contextWith([planPhase('PH-A'), planPhase(CONTINUATION)]));
+    expect(sel.kind).toBe('start');
+    if (sel.kind === 'start') expect(sel.planPhase.phaseId).toBe('PH-A');
+  });
+});
+
 /** git responses for a healthy checkout on a working branch of the configured repository. */
 function healthyGit(overrides: Readonly<Record<string, ExecResult>> = {}) {
   const declared = realConfig().repo;

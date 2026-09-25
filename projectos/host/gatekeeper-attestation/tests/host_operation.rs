@@ -10,14 +10,27 @@
 use projectos_host_gatekeeper_attestation::operation::{
     run_gatekeeper_review, AttestationStorePort, ClockPort, CommittedBytesPort,
     ExecutablePolicyPort, ExecutionFailure, GatekeeperExecutionPort, HostAttestation, HostPorts,
-    HostRefusal, ProviderOutcome, ReviewContext, ReviewVerdict, StoreOutcome, TrustManifestPort,
-    DIGEST_LEN,
+    HostRefusal, ProviderOutcome, ReviewContext, ReviewVerdict, ReviewedDecision, StoreOutcome,
+    CandidateEvidencePort, EvidenceUnavailable, TrustManifestPort, BASELINE_COMMIT_LEN, DIGEST_LEN,
 };
 use projectos_host_gatekeeper_attestation::{
-    InboxReader, RequestFileIdentity, RequestLifecycle, RequestLifecycle as Life,
-    VerifiedRequestBody, CORRELATION_LEN,
+    InboxReader, RequestFileIdentity, RequestLifecycle, RequestLifecycle as Life, CORRELATION_LEN,
 };
+use projectos_host_gatekeeper_attestation::candidate_evidence::{CandidateEvidence, BOUNDARY_MARKER_LEN};
+use projectos_host_gatekeeper_attestation::provider_request::HostProviderRequest;
 use std::io::Read;
+
+/// These proofs drive the PUBLIC entry, which refuses at the owner's signature (steps 1-3) long before
+/// candidate evidence is wanted. Reaching this port would mean the signature gate was passed.
+struct EvidenceMustNotBeReached;
+impl CandidateEvidencePort for EvidenceMustNotBeReached {
+    fn candidate_evidence(&self, _b: &str) -> Result<CandidateEvidence, EvidenceUnavailable> {
+        panic!("candidate evidence must not be reached before the signature is established");
+    }
+    fn boundary_marker(&self) -> Option<[u8; BOUNDARY_MARKER_LEN]> {
+        panic!("no marker is generated before the signature is established");
+    }
+}
 
 // ---- fixtures ------------------------------------------------------------------------------------
 
@@ -70,7 +83,7 @@ impl InboxReader for Inbox {
 
 struct Execution(Result<ProviderOutcome, ExecutionFailure>);
 impl GatekeeperExecutionPort for Execution {
-    fn execute(&self, _subject: &VerifiedRequestBody) -> Result<ProviderOutcome, ExecutionFailure> {
+    fn execute(&self, _request: &HostProviderRequest) -> Result<ProviderOutcome, ExecutionFailure> {
         self.0.clone()
     }
 }
@@ -107,7 +120,16 @@ fn outcome() -> ProviderOutcome {
         owner_approval_required: false,
         input_tokens: 3_333,
         output_tokens: 512,
-        cost_micro_usd: Some(1_333),
+        cached_input_tokens: None,
+        decision: ReviewedDecision {
+            decision_id: "GKDEC-fixture".into(),
+            verdict: "APPROVED_TO_PROCEED".into(),
+            reason: "independently reviewed".into(),
+            next_instruction: "continue".into(),
+            forbidden_actions: vec!["production-deploy".into()],
+            decided_by: "ChatGPT".into(),
+            decided_at: "2026-09-19T00:00:00Z".into(),
+        },
     }
 }
 
@@ -122,6 +144,7 @@ fn ctx(digest: &[u8; DIGEST_LEN]) -> ReviewContext<'_> {
         correlation: [0x77; CORRELATION_LEN],
         delegation_id: [0x88; DIGEST_LEN],
         parameter_digest: digest,
+        baseline_commit: [0xb4; BASELINE_COMMIT_LEN],
     }
 }
 
@@ -162,7 +185,10 @@ fn v2_manifest_full(signature: &str, broker: &str, allowlist: &str, adapter: &st
 "executionClosure":{{
   "gatekeeperBroker":{{"repositoryRelativePath":"{broker}","sha256":"{d}"}},
   "installationProjectAllowlist":{{"repositoryRelativePath":"{allowlist}","sha256":"{d}"}},
-  "credentialAdapter":{{"repositoryRelativePath":"{adapter}","sha256":"{d}"}}
+  "credentialAdapter":{{"repositoryRelativePath":"{adapter}","sha256":"{d}"}},
+  "costPolicy":{{"admittedReviewCostMicroUsd":250000}},
+  "modelPolicy":"openai/gpt-5.6-terra",
+  "credentialRef":"PROJECTOS_GATEKEEPER_OPENAI_KEY"
 }},
 "signature":"{signature}"}}"#,
         d = hex(&sha(b"committed")),
@@ -196,6 +222,7 @@ fn run_with(
         inbox: &i,
         execution: &x,
         clock: &c,
+        evidence: &EvidenceMustNotBeReached,
     };
     let digest = sha(SUBJECT);
     run_gatekeeper_review(&ports, life, store, &ctx(&digest))
@@ -288,6 +315,7 @@ fn an_absent_or_malformed_manifest_is_refused() {
         inbox: &i,
         execution: &x,
         clock: &c,
+        evidence: &EvidenceMustNotBeReached,
     };
     let d = sha(SUBJECT);
     assert_eq!(
@@ -316,7 +344,7 @@ fn an_absent_or_malformed_manifest_is_refused() {
 fn execution_is_never_reached_when_the_manifest_is_refused() {
     struct MustNotRun;
     impl GatekeeperExecutionPort for MustNotRun {
-        fn execute(&self, _s: &VerifiedRequestBody) -> Result<ProviderOutcome, ExecutionFailure> {
+        fn execute(&self, _s: &HostProviderRequest) -> Result<ProviderOutcome, ExecutionFailure> {
             panic!("execution must not be reached when the manifest was refused");
         }
     }
@@ -331,6 +359,7 @@ fn execution_is_never_reached_when_the_manifest_is_refused() {
         inbox: &i,
         execution: &MustNotRun,
         clock: &c,
+        evidence: &EvidenceMustNotBeReached,
     };
     let mut store = Store::default();
     let mut life = Life::new();
@@ -381,7 +410,7 @@ fn an_attestation_is_read_only_to_every_consumer() {
     fn reads_only(a: &HostAttestation) -> (ReviewVerdict, u64, bool, &str) {
         (
             a.verdict(),
-            a.cost_micro_usd(),
+            a.admitted_cost_micro_usd(),
             a.owner_approval_required(),
             a.provider_response_id(),
         )

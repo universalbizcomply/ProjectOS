@@ -51,6 +51,13 @@ use projectos_host_windows_service_identity_proof::{
     AttemptOutcome, IpcPeerObserved, ScmBeforeObserved, ServiceInstanceBinding,
     ServiceInstanceBindingAttempt,
 };
+// PROJECTOS-HOST-REVIEW-PATH1B G3. The canonical CLIENT-ADMISSION attempt, for the direction the
+// installed product actually runs in: ProjectOSHost is the pipe SERVER, the governed Agent is the
+// CLIENT. Enabled by `windows-live-ipc` alone.
+use projectos_host_windows_service_identity_proof::{
+    ClientAdmissionObservationCapability, ClientAttemptOutcome, ClientObserved,
+    ClientPeerAdmissionAttempt, ClientPrepared,
+};
 
 use crate::adapter::{
     BackendState, ConnectionState, EndpointOutcome, HandshakeObservation, HandshakeReceipt,
@@ -63,6 +70,11 @@ use crate::protocol::{
     parse_single_frame, FrameParseError, InstalledHostStatus, MessageKind, Nonce, MAX_FRAME_SIZE,
     NONCE_LEN,
 };
+use crate::operation_contract::{
+    decode_protected_operation_request, encode_protected_operation_response,
+    ProtectedOperationResponse,
+};
+use crate::review_exchange::ProtectedRequestReceipt;
 use crate::verification::{classify_ipc_error, CancellationTerminalState, IpcFailure, PeerRole};
 
 /// The fixed proof-endpoint prefix. The full endpoint is derived internally from this prefix plus a
@@ -758,6 +770,107 @@ impl WindowsPipeBackend {
         }
     }
 
+    /// Drive the canonical CLIENT-ADMISSION capture against the CONFIRMED pipe client.
+    ///
+    /// PROJECTOS-HOST-REVIEW-PATH1B G3, ROUTE 1. The exact mirror of `contribute_ipc_peer` above,
+    /// for the other proposition: not "is the peer the SCM-observed service" but "is the connected
+    /// client the EXACT enrolled configured owner". It reuses the canonical crate already-audited
+    /// capture verbatim and adds no Windows surface, no import and no unsafe block of its own - the
+    /// kernel reads are identical either way, because `GetNamedPipeClientProcessId` plus the
+    /// impersonated token reads always describe the CLIENT of a server handle.
+    ///
+    /// The handle is LENT for the duration of the call: the callee reads through it and never
+    /// retains, duplicates or closes it, and the `borrowed` guard keeps the owning handle alive.
+    ///
+    /// `handshake_confirmed` and the role are the caller OWN confirmed handshake result, passed in
+    /// rather than re-derived: a peer DECLARED role is a protocol assertion, so it gates the
+    /// observation and never supplies the identity. `connection_id` and `handshake_generation` are
+    /// HOST-issued and come from the sealed per-connection verifier.
+    ///
+    /// The attempt is CONSUMED and returned in its next state, so this crate never receives an
+    /// identity: it is read by the canonical crate and retained INSIDE the attempt.
+    #[allow(dead_code)]
+    pub(crate) fn admit_governed_client(
+        &self,
+        attempt: ClientPeerAdmissionAttempt<ClientPrepared>,
+        capability: &ClientAdmissionObservationCapability,
+        handshake_confirmed: bool,
+        confirmed_peer_role: PeerRole,
+        connection_id: u64,
+        handshake_generation: u64,
+    ) -> ClientAttemptOutcome<ClientObserved> {
+        // A backend whose handle went to quarantine, or which is otherwise not operational, can
+        // never present a trustworthy client. Fail closed with the canonical no-observation verdict.
+        if self.state.get() != BackendState::Operational || self.has_quarantined_io() {
+            return ClientAttemptOutcome::Refused(
+                projectos_host_windows_service_identity_proof::ClientAdmissionVerdict::NoClientObservation,
+            );
+        }
+        let borrowed = self.server.borrow();
+        let Some(handle) = borrowed.as_ref().map(|h| h.0) else {
+            return ClientAttemptOutcome::Refused(
+                projectos_host_windows_service_identity_proof::ClientAdmissionVerdict::NoClientObservation,
+            );
+        };
+        // SAFETY: `handle` is this backend live server pipe handle. The `borrowed` guard keeps the
+        // owning `OwnedHandle` alive for the whole call, and the callee only reads through it and
+        // never retains or closes it.
+        unsafe {
+            attempt.observe_client_identity(
+                capability,
+                handle,
+                true,
+                handshake_confirmed,
+                // THE PRODUCTION CLIENT ROLE. The governed Agent connects as the controller; that is
+                // the role the accepted handshake confirms, and the only one this gate accepts.
+                confirmed_peer_role == PeerRole::Controller,
+                connection_id,
+                handshake_generation,
+            )
+        }
+    }
+
+    /// Re-observe the client and reconcile it against what the attempt already recorded.
+    ///
+    /// The second reading is what closes the swap window between the capture and the admission: the
+    /// canonical crate refuses if the process instance, the EXACT user, the EXACT session or either
+    /// host-issued identifier diverged. Integrity is never compared, so a client that elevates
+    /// between the two readings keeps exactly the identity it already had.
+    #[allow(dead_code)]
+    pub(crate) fn reconcile_governed_client(
+        &self,
+        attempt: ClientPeerAdmissionAttempt<ClientObserved>,
+        capability: &ClientAdmissionObservationCapability,
+        handshake_confirmed: bool,
+        confirmed_peer_role: PeerRole,
+        connection_id: u64,
+        handshake_generation: u64,
+    ) -> ClientAttemptOutcome<ClientObserved> {
+        if self.state.get() != BackendState::Operational || self.has_quarantined_io() {
+            return ClientAttemptOutcome::Refused(
+                projectos_host_windows_service_identity_proof::ClientAdmissionVerdict::NoClientObservation,
+            );
+        }
+        let borrowed = self.server.borrow();
+        let Some(handle) = borrowed.as_ref().map(|h| h.0) else {
+            return ClientAttemptOutcome::Refused(
+                projectos_host_windows_service_identity_proof::ClientAdmissionVerdict::NoClientObservation,
+            );
+        };
+        // SAFETY: as above - a live server handle, lent for the duration of this call only.
+        unsafe {
+            attempt.reobserve_client_identity(
+                capability,
+                handle,
+                true,
+                handshake_confirmed,
+                confirmed_peer_role == PeerRole::Controller,
+                connection_id,
+                handshake_generation,
+            )
+        }
+    }
+
     /// Take the server handle OUT of the backend for the duration of an operation.
     fn take_server_handle(&self) -> Option<OwnedHandle> {
         self.server.borrow_mut().take()
@@ -1187,6 +1300,39 @@ impl IpcBackend for WindowsPipeBackend {
         }
     }
 
+    fn receive_protected_operation_request(&self) -> ProtectedRequestReceipt {
+        if !self.state.get().is_operational() {
+            return ProtectedRequestReceipt::Failed(IpcFailure::EndpointUnavailable);
+        }
+        match self.read_raw() {
+            // The STRICT decoder judges the bytes, and the frame must carry THIS exchange's nonce.
+            // Nothing here inspects or exposes the payload.
+            Ok((buf, n)) => match decode_protected_operation_request(&buf[..n]) {
+                Ok((request, nonce)) if nonce == self.nonce => ProtectedRequestReceipt::Ok(request),
+                Ok(_) => ProtectedRequestReceipt::RefusedNonce,
+                Err(e) => ProtectedRequestReceipt::Malformed(e),
+            },
+            Err(IpcFailure::UnexpectedFailure) => {
+                ProtectedRequestReceipt::Malformed(FrameParseError::OversizedPayload)
+            }
+            Err(f) => ProtectedRequestReceipt::Failed(f),
+        }
+    }
+
+    fn send_protected_operation_response(
+        &self,
+        response: &ProtectedOperationResponse,
+    ) -> SendOutcome {
+        if !self.state.get().is_operational() {
+            return SendOutcome::Failed(IpcFailure::EndpointUnavailable);
+        }
+        // The record is encoded by the canonical encoder; this method accepts no arbitrary bytes.
+        match self.write_frame(&encode_protected_operation_response(&self.nonce, response)) {
+            Ok(()) => SendOutcome::Sent,
+            Err(f) => SendOutcome::Failed(f),
+        }
+    }
+
     fn send_control(&self, kind: MessageKind) -> SendOutcome {
         if !self.state.get().is_operational() {
             return SendOutcome::Failed(IpcFailure::EndpointUnavailable);
@@ -1495,6 +1641,14 @@ pub enum ServeStatusOutcome {
     RefusedHandshake(crate::adapter::HandshakeOutcome),
     /// The record could not be put on the wire — redacted.
     SendFailed(IpcFailure),
+    /// THE CAPABILITY IS NOT FOR THIS (PROJECTOS-HOST-REVIEW-PATH1B G5). The capability presented was
+    /// minted at a different [`crate::CapabilityScope`], so nothing was prepared, nothing was
+    /// accepted, no handshake ran and nothing was observed or served.
+    ///
+    /// It is a DISTINCT variant, not folded into `RefusedPreparation`: a wrongly scoped capability is
+    /// an authority failure of the caller, not an endpoint or security failure of the machine, and an
+    /// operator must not have to guess which one happened.
+    RefusedCapabilityScope(crate::adapter::CapabilityScope),
 }
 
 /// NARROW PUBLIC FAÇADE — the read-only installed-host status SERVER.
@@ -1531,6 +1685,14 @@ impl WindowsInstalledHostStatusServer {
         security: crate::ProjectOsHostPipeSecurityStatus,
         observe: impl FnOnce() -> InstalledHostStatus,
     ) -> ServeStatusOutcome {
+        // 0. THE SCOPE, BEFORE ANYTHING IS OPENED (G5). This facade serves the OWNER-APPROVED STATUS
+        //    READ. A governed-review capability is refused here, so the review authority cannot
+        //    silently acquire the plain status-serving loop - and, with the mirrored check in
+        //    `serve_one_exchange`, the two scopes cannot substitute for one another in EITHER
+        //    direction.
+        if cap.scope() != crate::adapter::CapabilityScope::ReadInstalledHostStatusLocalOnly {
+            return ServeStatusOutcome::RefusedCapabilityScope(cap.scope());
+        }
         // 1. Prepare. A security that is not Ready refuses here; there is no weaker fallback.
         let prepared = self.adapter.prepare_server(cap, security);
         if prepared != crate::adapter::ServerPreparation::Prepared {
@@ -1633,6 +1795,259 @@ impl WindowsInstalledHostStatusClient {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// PROJECTOS-HOST-REVIEW-PATH1A - the HOST REVIEW exchange, as the installed service would run it.
+//
+// The accepted status exchange, UNCHANGED, followed by one request frame and one response frame on
+// the same connection (see `review_exchange.rs` for why there is no second endpoint). The status
+// facade above is untouched and is still what the installed service calls: THIS facade additionally
+// demands a `HostReviewIpcCapability`, which has no production mint, so a shipped service cannot call
+// it. The path is complete and dormant.
+// ---------------------------------------------------------------------------------------------
+
+/// The CLOSED outcome of one served status-then-review exchange.
+#[cfg(feature = "owner-approved-status-read")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ServeExchangeOutcome {
+    /// The accepted status half did not complete, for exactly the reason the status facade reports.
+    /// No request was read and the Host was never consulted.
+    StatusHalf(ServeStatusOutcome),
+    /// The status record was served, and this is how the review half ended.
+    ReviewHalf(crate::review_exchange::ServeReviewOutcome),
+}
+
+/// NARROW PUBLIC FACADE - the status-then-review SERVER.
+#[cfg(feature = "owner-approved-status-read")]
+pub struct WindowsHostReviewServer {
+    adapter: crate::adapter::LocalIpcAdapter<WindowsPipeBackend>,
+}
+
+#[cfg(feature = "owner-approved-status-read")]
+impl WindowsHostReviewServer {
+    /// Bind the server to the ONE frozen production endpoint. Constructing it opens nothing, and
+    /// serving demands a capability no shipped graph can mint.
+    #[must_use]
+    pub fn for_installed_host() -> Self {
+        Self {
+            adapter: crate::adapter::LocalIpcAdapter::new(WindowsPipeBackend::new(
+                crate::protocol::INSTALLED_HOST_STATUS_RUN_ID,
+            )),
+        }
+    }
+
+    /// FIXTURE ONLY. Bind the server to an ISOLATED endpoint in the run-scoped test proof namespace.
+    /// The frozen production run identifier is REFUSED, so a proof can never bind the production
+    /// endpoint through this route.
+    #[cfg(feature = "test-fixtures")]
+    #[must_use]
+    pub fn for_isolated_test_run(run_id: [u8; 8]) -> Option<Self> {
+        if run_id == crate::protocol::INSTALLED_HOST_STATUS_RUN_ID {
+            return None;
+        }
+        Some(Self {
+            adapter: crate::adapter::LocalIpcAdapter::new(WindowsPipeBackend::new(run_id)),
+        })
+    }
+
+    /// Serve at most ONE exchange: the four accepted status steps, in their accepted order, and then
+    /// at most one review request.
+    ///
+    /// `host` is called at most once, only after a CONFIRMED handshake and a served status record,
+    /// and only with a request the strict decoder accepted under this exchange's nonce.
+    #[must_use]
+    pub fn serve_one_exchange(
+        &self,
+        cap: &LiveIpcOperationCapability,
+        review: &crate::review_exchange::HostReviewIpcCapability,
+        security: crate::ProjectOsHostPipeSecurityStatus,
+        observe: impl FnOnce() -> InstalledHostStatus,
+        host: &mut dyn FnMut(
+            &crate::operation_contract::ProtectedOperationRequest,
+        ) -> ProtectedOperationResponse,
+    ) -> ServeExchangeOutcome {
+        // 0. THE SCOPE, BEFORE ANYTHING IS OPENED (G5). This facade serves a GOVERNED REVIEW, so the
+        //    transport capability must be one the review authority issued. An owner STATUS-READ
+        //    capability is refused here: the status phrase has never authorised a review, and this
+        //    is what makes that a check rather than a comment.
+        if cap.scope() != crate::adapter::CapabilityScope::GovernedHostReviewLocalOnly {
+            return ServeExchangeOutcome::StatusHalf(
+                ServeStatusOutcome::RefusedCapabilityScope(cap.scope()),
+            );
+        }
+        let prepared = self.adapter.prepare_server(cap, security);
+        if prepared != crate::adapter::ServerPreparation::Prepared {
+            return ServeExchangeOutcome::StatusHalf(ServeStatusOutcome::RefusedPreparation(
+                prepared,
+            ));
+        }
+        let connected = self.adapter.accept_unauthenticated(cap);
+        if connected != ConnectionState::TransportConnectedUnauthenticated {
+            return ServeExchangeOutcome::StatusHalf(ServeStatusOutcome::RefusedConnection(
+                connected,
+            ));
+        }
+        let handshake = self.adapter.complete_service_handshake(cap);
+        if !handshake.is_peer_confirmed() {
+            return ServeExchangeOutcome::StatusHalf(ServeStatusOutcome::RefusedHandshake(
+                handshake,
+            ));
+        }
+        let status = observe();
+        if let SendOutcome::Failed(f) = self.adapter.send_installed_host_status(cap, &status) {
+            return ServeExchangeOutcome::StatusHalf(ServeStatusOutcome::SendFailed(f));
+        }
+        ServeExchangeOutcome::ReviewHalf(self.adapter.serve_review_request(cap, review, host))
+    }
+}
+
+/// PROOF-ONLY review CLIENT. The production client is the agent's own transport, in another language;
+/// this one exists so the live server facade can be proven against the shipped client order on an
+/// isolated endpoint. Compiled only under `test-fixtures`, and bound only to the test namespace.
+#[cfg(feature = "test-fixtures")]
+pub struct WindowsHostReviewTestClient {
+    backend: WindowsPipeBackend,
+}
+
+#[cfg(feature = "test-fixtures")]
+impl WindowsHostReviewTestClient {
+    /// Bind to an isolated test endpoint. The frozen production run identifier is REFUSED.
+    #[must_use]
+    pub fn for_isolated_test_run(run_id: [u8; 8]) -> Option<Self> {
+        if run_id == crate::protocol::INSTALLED_HOST_STATUS_RUN_ID {
+            return None;
+        }
+        Some(Self {
+            backend: WindowsPipeBackend::new(run_id),
+        })
+    }
+
+    /// Run ONE status-then-review exchange through the shipped client order.
+    #[must_use]
+    pub fn request_review(
+        &self,
+        _review: &crate::review_exchange::HostReviewIpcCapability,
+        request: &crate::operation_contract::ProtectedOperationRequest,
+        response_read_attempts: u32,
+    ) -> crate::review_exchange::ClientReviewOutcome {
+        let mut link = LivePipeReviewLink {
+            backend: &self.backend,
+            handle: None,
+            response_read_attempts,
+        };
+        crate::review_exchange::run_review_client(&mut link, request)
+    }
+}
+
+#[cfg(feature = "test-fixtures")]
+struct LivePipeReviewLink<'a> {
+    backend: &'a WindowsPipeBackend,
+    handle: Option<OwnedHandle>,
+    /// Each read is bounded by the transport's own wait step; a review outlasts one step, so the
+    /// response read is re-issued a BOUNDED number of times. Never unbounded.
+    response_read_attempts: u32,
+}
+
+#[cfg(feature = "test-fixtures")]
+impl crate::review_exchange::ReviewClientLink for LivePipeReviewLink<'_> {
+    fn complete_status_exchange(&mut self) -> Result<(), crate::review_exchange::ReviewNotSent> {
+        use crate::adapter::HandshakeOutcome;
+        use crate::review_exchange::ReviewNotSent;
+
+        let handle = self
+            .backend
+            .open_client()
+            .map_err(ReviewNotSent::ConnectFailed)?;
+        let hello = encode_control_frame(
+            MessageKind::ControllerHello,
+            &self.backend.nonce,
+            PeerRole::Controller.wire(),
+        );
+        let (handle, sent) = self.backend.write_frame_owned(handle, &hello);
+        sent.map_err(ReviewNotSent::Failed)?;
+        let handle = handle.ok_or(ReviewNotSent::Failed(IpcFailure::EndpointUnavailable))?;
+
+        let (handle, ready) = self.backend.read_raw_owned(handle);
+        let handle = handle.ok_or(ReviewNotSent::Failed(IpcFailure::EndpointUnavailable))?;
+        let (buf, n) = ready.map_err(ReviewNotSent::Failed)?;
+        let (hdr, nonce) = parse_single_frame(&buf[..n]).map_err(ReviewNotSent::Malformed)?;
+        if hdr.kind() != MessageKind::ServiceReady {
+            return Err(ReviewNotSent::RefusedHandshake(
+                HandshakeOutcome::RefusedWrongMessageKind,
+            ));
+        }
+        if nonce != self.backend.nonce {
+            return Err(ReviewNotSent::RefusedHandshake(
+                HandshakeOutcome::RefusedNonceMismatch,
+            ));
+        }
+        if PeerRole::from_wire(hdr.control_flag()) != PeerRole::ServiceFixture {
+            return Err(ReviewNotSent::RefusedHandshake(HandshakeOutcome::RefusedRole));
+        }
+
+        let (handle, status) = self.backend.read_raw_owned(handle);
+        let handle = handle.ok_or(ReviewNotSent::Failed(IpcFailure::EndpointUnavailable))?;
+        let (buf, n) = status.map_err(ReviewNotSent::Failed)?;
+        let (record, nonce) =
+            decode_installed_host_status(&buf[..n]).map_err(ReviewNotSent::Malformed)?;
+        if nonce != self.backend.nonce {
+            return Err(ReviewNotSent::RefusedHandshake(
+                HandshakeOutcome::RefusedNonceMismatch,
+            ));
+        }
+        crate::review_exchange::require_host_accepting(record)?;
+        self.handle = Some(handle);
+        Ok(())
+    }
+
+    fn send_request(
+        &mut self,
+        request: &crate::operation_contract::ProtectedOperationRequest,
+    ) -> Result<(), IpcFailure> {
+        let handle = self.handle.take().ok_or(IpcFailure::EndpointUnavailable)?;
+        let frame = crate::operation_contract::encode_protected_operation_request(
+            &self.backend.nonce,
+            request,
+        );
+        let (handle, sent) = self.backend.write_frame_owned(handle, &frame);
+        self.handle = handle;
+        sent
+    }
+
+    fn receive_response(
+        &mut self,
+    ) -> Result<ProtectedOperationResponse, crate::review_exchange::ReviewUnanswered> {
+        use crate::review_exchange::ReviewUnanswered;
+
+        let mut last = IpcFailure::ReadTimedOut;
+        for _ in 0..self.response_read_attempts {
+            let Some(handle) = self.handle.take() else {
+                return Err(ReviewUnanswered::Failed(IpcFailure::EndpointUnavailable));
+            };
+            let (handle, read) = self.backend.read_raw_owned(handle);
+            self.handle = handle;
+            match read {
+                Ok((buf, n)) => {
+                    let (response, nonce) =
+                        crate::operation_contract::decode_protected_operation_response(&buf[..n])
+                            .map_err(ReviewUnanswered::Malformed)?;
+                    if nonce != self.backend.nonce {
+                        return Err(ReviewUnanswered::WrongNonce);
+                    }
+                    return Ok(response);
+                }
+                // The Host is still working. A cancelled message-mode read loses nothing.
+                Err(IpcFailure::ReadTimedOut) => last = IpcFailure::ReadTimedOut,
+                Err(IpcFailure::UnexpectedFailure) => {
+                    return Err(ReviewUnanswered::Malformed(FrameParseError::OversizedPayload))
+                }
+                Err(f) => return Err(ReviewUnanswered::Failed(f)),
+            }
+        }
+        Err(ReviewUnanswered::Failed(last))
+    }
+}
+
 // PROJECTOSHOST-IPC-NON-ELEVATED-PIPE-ACCESS1A endpoint-binding proofs. Pure construction and name
 // derivation only: no pipe is created, opened or connected. This module sits at the END of the file
 // deliberately: val-cd-b4-installed-host-status-contract1a strips everything from the first
@@ -1675,5 +2090,253 @@ mod endpoint_binding_tests {
         let name = name_of(&wide);
         assert_eq!(name, format!("{ENDPOINT_PREFIX}abababababababab"));
         assert_ne!(name, PRODUCTION_ENDPOINT);
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// PROJECTOS-HOST-REVIEW-PATH1B §10 - THE COMPLETE PER-CONNECTION GOVERNED-REVIEW SERVE PATH.
+//
+// `serve_one_exchange` above is the PATH1A shape: accept, handshake, status, then hand a decoded
+// request to a `respond(&request)` callback. That callback shape is exactly what was missing - it
+// gave the Host no way to pass the connection TRUST CHAIN to the responder, so the composition
+// (which needs a `BoundIpcSession` and a `TrustedPeerContext` for THIS connection) could not be
+// reached from the transport at all.
+//
+// This facade is that chain, in the ruling order, with nothing skipped:
+//
+//   governed-review IPC capability
+//     -> accepted Windows connection
+//     -> controller handshake (CONFIRMED, and the confirmation retained)
+//     -> served status record
+//     -> W1 exact-configured-owner client admission (capture, re-observe, admit)
+//     -> real same-connection evidence, assembled inside this boundary
+//     -> the canonical client crossing
+//     -> BoundIpcSession (sealed verifier) + TrustedPeerContext (sealed admission)
+//     -> the responder, which composes the protected operation
+//
+// NO TEST FIXTURE IS IN THIS CHAIN. Every value is produced by the production route: the sealed
+// per-connection verifier, the real handshake, the real kernel capture, the production assembler
+// and the unchanged canonical crossing.
+// ---------------------------------------------------------------------------------------------
+
+/// How one governed-review exchange ended. CLOSED and redacted: every refusal names the GATE that
+/// said no, never an identity, a pid, a SID, a handle or a digest.
+#[cfg(all(windows, feature = "owner-approved-status-read"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ServeGovernedReviewOutcome {
+    /// The accepted status half did not complete, for exactly the reason the status facade reports.
+    /// No admission ran, no session was minted and the Host was never consulted.
+    StatusHalf(ServeStatusOutcome),
+    /// The handshake accepted but its CONFIRMATION could not be taken. Structurally unreachable -
+    /// a confirming outcome always carries one - and named rather than unwrapped so a future change
+    /// to that invariant fails closed instead of panicking.
+    ConfirmationUnavailable,
+    /// The connected CLIENT is not the EXACT enrolled configured owner, or its bounded kernel
+    /// identity could not be established. The canonical closed verdict is carried verbatim.
+    ClientNotAdmitted(projectos_host_windows_service_identity_proof::ClientAdmissionVerdict),
+    /// The same-connection evidence could not be assembled from real transport facts (a zero
+    /// connection identity, handshake generation, pid or creation tick).
+    EvidenceUnavailable,
+    /// The canonical crossing refused. Its closed reason is carried verbatim.
+    CrossingRefused(crate::observation::CanonicalSessionCrossingRefusal),
+    /// The sealed session verifier refused to mint a `BoundIpcSession`.
+    SessionRefused(projectos_host_core::IpcSessionError),
+    /// The trust chain completed and this is how the review half ended.
+    ReviewHalf(crate::review_exchange::ServeReviewOutcome),
+}
+
+/// Everything the per-connection chain needs that is NOT a transport fact.
+///
+/// Each field is a HOST-resolved value or a production authority the startup composition already
+/// holds; none is, or can be derived from, anything a client sent. They are grouped so the facade
+/// signature states the trust boundary rather than burying it in a long argument list.
+#[cfg(all(windows, feature = "windows-live-ipc", feature = "owner-approved-status-read"))]
+pub struct GovernedReviewConnectionInputs<'a> {
+    /// The sealed per-connection IPC session verifier, derived from the ONE provider capability set
+    /// for THIS connection. Its identity is crate-assigned and cannot be chosen.
+    pub verifier: &'a projectos_host_core::ConnectionBoundIpcSessionVerifier<'a>,
+    /// The Host's own verified runtime instance, minted by the sealed production runtime verifier
+    /// from the Host's own process observation and the trusted clock.
+    pub runtime: &'a projectos_host_core::VerifiedRuntimeInstance,
+    /// The current trusted-clock reading. Never a wire value.
+    pub now: &'a projectos_host_core::VerifiedAuthorityTime,
+    /// How long the session authority may live from that reading. Re-bounded by the verifier.
+    pub session_window: u64,
+    /// The live client-admission capability PAIRED with the EXACT enrolled configured owner of this
+    /// installation. One value, so the capability and the principal are always about the same
+    /// installation and cannot be mismatched by a composition.
+    pub admission: &'a crate::production_peer_evidence::GovernedReviewAdmissionAuthority,
+    /// The Host's own resolved channel facts.
+    pub channel: &'a crate::production_peer_evidence::GovernedChannelContext,
+}
+
+#[cfg(all(windows, feature = "windows-live-ipc", feature = "owner-approved-status-read"))]
+impl WindowsHostReviewServer {
+    /// Serve at most ONE governed review exchange, with the FULL per-connection trust chain.
+    ///
+    /// `transport` must be the capability the review authority issued
+    /// (`HostReviewIpcCapability::issue_transport_capability`); a status-scoped capability is
+    /// refused before the endpoint is opened, exactly as in [`Self::serve_one_exchange`].
+    ///
+    /// `respond` is called AT MOST ONCE, and only with (a) a request the strict decoder accepted
+    /// under this exchange's nonce, (b) the `BoundIpcSession` the sealed verifier minted for THIS
+    /// connection, and (c) the `TrustedPeerContext` of the client the canonical attempt ADMITTED on
+    /// it. A malformed, wrong-nonce, wrong-kind or oversized frame never reaches it; neither does a
+    /// request from a client that is not the exact enrolled configured owner.
+    #[must_use]
+    pub fn serve_one_governed_review_exchange(
+        &self,
+        transport: &LiveIpcOperationCapability,
+        review: &crate::review_exchange::HostReviewIpcCapability,
+        security: crate::ProjectOsHostPipeSecurityStatus,
+        inputs: &GovernedReviewConnectionInputs<'_>,
+        observe: impl FnOnce() -> InstalledHostStatus,
+        respond: &mut dyn FnMut(
+            &crate::operation_contract::ProtectedOperationRequest,
+            &projectos_host_core::BoundIpcSession,
+            &crate::operation_contract::TrustedPeerContext,
+        ) -> ProtectedOperationResponse,
+    ) -> ServeGovernedReviewOutcome {
+        // The verifier identity is read through the SEALED trait, so the values are the ones the
+        // crossing and the mint will compare against - not a parallel accessor that could drift.
+        use projectos_host_core::IpcSessionVerifier as _;
+
+        // 0. THE SCOPE. A status-read capability cannot open a governed review endpoint.
+        if transport.scope() != crate::adapter::CapabilityScope::GovernedHostReviewLocalOnly {
+            return ServeGovernedReviewOutcome::StatusHalf(
+                ServeStatusOutcome::RefusedCapabilityScope(transport.scope()),
+            );
+        }
+        // 1. Prepare. A pipe security that is not Ready refuses here, with no weaker fallback.
+        let prepared = self.adapter.prepare_server(transport, security);
+        if prepared != crate::adapter::ServerPreparation::Prepared {
+            return ServeGovernedReviewOutcome::StatusHalf(ServeStatusOutcome::RefusedPreparation(
+                prepared,
+            ));
+        }
+        // 2. Accept a RAW local connection. Nothing is authenticated by this.
+        let connected = self.adapter.accept_unauthenticated(transport);
+        if connected != ConnectionState::TransportConnectedUnauthenticated {
+            return ServeGovernedReviewOutcome::StatusHalf(ServeStatusOutcome::RefusedConnection(
+                connected,
+            ));
+        }
+        // 3. The bounded, nonce-bound, role-bound handshake - and RETAIN its confirmation, which is
+        //    what the same-connection evidence needs and what nothing in production could produce
+        //    before G3.
+        let transition = self
+            .adapter
+            .complete_service_handshake_confirmed(transport);
+        let handshake_outcome = transition.outcome();
+        if !handshake_outcome.is_peer_confirmed() {
+            return ServeGovernedReviewOutcome::StatusHalf(ServeStatusOutcome::RefusedHandshake(
+                handshake_outcome,
+            ));
+        }
+        let Some(confirmed) = transition.into_confirmed() else {
+            return ServeGovernedReviewOutcome::ConfirmationUnavailable;
+        };
+        // 4. The status record, exactly as the accepted exchange serves it.
+        let status = observe();
+        if let SendOutcome::Failed(f) = self.adapter.send_installed_host_status(transport, &status)
+        {
+            return ServeGovernedReviewOutcome::StatusHalf(ServeStatusOutcome::SendFailed(f));
+        }
+
+        // 5. W1 - THE CLIENT ADMISSION. Capture the connected client's bounded kernel identity and
+        //    prove it is EXACTLY the enrolled configured owner, then re-observe and reconcile, which
+        //    closes the swap window between the capture and the admission.
+        let connection_id = inputs.verifier.connection_id();
+        let generation = inputs.verifier.handshake_generation();
+        let attempt = projectos_host_windows_service_identity_proof::ClientPeerAdmissionAttempt::begin(
+            inputs.admission.capability(),
+            inputs.admission.owner(),
+        );
+        let captured = self.adapter.backend().admit_governed_client(
+            attempt,
+            inputs.admission.capability(),
+            true,
+            PeerRole::Controller,
+            connection_id,
+            generation,
+        );
+        let attempt = match captured {
+            projectos_host_windows_service_identity_proof::ClientAttemptOutcome::Continue(a) => a,
+            projectos_host_windows_service_identity_proof::ClientAttemptOutcome::Refused(v) => {
+                return ServeGovernedReviewOutcome::ClientNotAdmitted(v)
+            }
+        };
+        let reconciled = self.adapter.backend().reconcile_governed_client(
+            attempt,
+            inputs.admission.capability(),
+            true,
+            PeerRole::Controller,
+            connection_id,
+            generation,
+        );
+        let attempt = match reconciled {
+            projectos_host_windows_service_identity_proof::ClientAttemptOutcome::Continue(a) => a,
+            projectos_host_windows_service_identity_proof::ClientAttemptOutcome::Refused(v) => {
+                return ServeGovernedReviewOutcome::ClientNotAdmitted(v)
+            }
+        };
+        // The ONE audited capture, projected. The process bound below is the process admitted above.
+        let Some(client) = attempt.observed_client_process() else {
+            return ServeGovernedReviewOutcome::ClientNotAdmitted(
+                projectos_host_windows_service_identity_proof::ClientAdmissionVerdict::NoClientObservation,
+            );
+        };
+
+        // 6. THE REAL SAME-CONNECTION EVIDENCE, assembled inside this trusted boundary from the
+        //    confirmed handshake, the verifier's own identity, the audited capture and the Host's
+        //    own channel facts and clock.
+        let Some(bundle) = crate::production_peer_evidence::assemble_production_same_connection_evidence(
+            confirmed,
+            inputs.verifier,
+            client,
+            inputs.channel,
+            inputs.now,
+            inputs.session_window,
+        ) else {
+            return ServeGovernedReviewOutcome::EvidenceUnavailable;
+        };
+
+        // 7. THE CANONICAL CROSSING, unchanged. It consumes the attempt, producing ONE verdict with
+        //    TWO outputs, and refuses unless attempt, bundle, verifier and admission all agree.
+        let crossed = match crate::observation::bind_canonical_client_to_session_evidence(
+            attempt,
+            bundle,
+            inputs.verifier,
+        ) {
+            Ok(c) => c,
+            Err(refusal) => return ServeGovernedReviewOutcome::CrossingRefused(refusal),
+        };
+        let (observation, handshake_evidence, admission) = crossed.into_parts();
+
+        // 8. THE TWO SEALED MINTS, both unchanged.
+        let session = match projectos_host_core::IpcSessionVerifier::verify(
+            inputs.verifier,
+            inputs.runtime,
+            handshake_evidence,
+            &observation,
+            inputs.now,
+        ) {
+            Ok(s) => s,
+            Err(e) => return ServeGovernedReviewOutcome::SessionRefused(e),
+        };
+        let peer = crate::operation_contract::TrustedPeerContext::from_verified_peer_admission(
+            &admission,
+        );
+
+        // 9. The review half, with the trust chain the responder composes against.
+        let mut with_context = |request: &crate::operation_contract::ProtectedOperationRequest| {
+            respond(request, &session, &peer)
+        };
+        ServeGovernedReviewOutcome::ReviewHalf(self.adapter.serve_review_request(
+            transport,
+            review,
+            &mut with_context,
+        ))
     }
 }

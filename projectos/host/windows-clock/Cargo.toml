@@ -19,6 +19,12 @@ windows-live-clock = ["dep:windows"]
 # SYNTHETIC TEST FIXTURES: compile-only synthetic capability so tests can exercise the contract with no
 # Windows call. Explicit, non-default, never implied by the live feature.
 test-fixtures = []
+# PROJECTOS-HOST-REVIEW-PATH1B G2. COMPILES the production acquisition of the sealed observation
+# capability from the core one-shot service-runtime clock authority. Non-default; enabled by the
+# service-host composition alone, and it pulls core's `production-clock-binding` route rather than
+# defining a second authority of its own. It mints no time and no authority: with the feature on and
+# no `ProductionClockAuthority` there is still no capability.
+production-clock-observation = ["projectos-host-core/production-clock-binding"]
 
 [dependencies]
 # The core defines the non-authority `MonotonicTickSource` trait and the sealed `ProductionTrustedClock`.

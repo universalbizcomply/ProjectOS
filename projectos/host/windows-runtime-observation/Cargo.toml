@@ -28,11 +28,22 @@ test-fixtures = [
     "projectos-host-core/test-fixtures",
     "projectos-host-windows-clock/test-fixtures",
 ]
+# PROJECTOS-HOST-REVIEW-PATH1B G4. COMPILES the production acquisition of the sealed self-observation
+# capability from the confirmed SERVICE-RUNTIME machine authority. Non-default; enabled by the
+# service-host composition alone. It mints no authority: with the feature on and no confirmed
+# service-runtime guard there is still no capability, and the observation it enables is still only
+# evidence for the sealed core verifier.
+production-runtime-observation = ["dep:projectos-host-authority"]
 
 [dependencies]
 # The core owns RuntimeInstanceObservation, the sealed ProductionRuntimeInstanceVerifier, the
 # ProductionClockBindingGrant and bind_production_clock. This crate only produces evidence for it.
 projectos-host-core = { path = "../core" }
+# PROJECTOS-HOST-REVIEW-PATH1B G4. The ONE root authority: ConfirmedAuthorityGuard, borrowed to
+# acquire the sealed observation capability. OPTIONAL and feature-gated, and DEFAULT FEATURES ONLY -
+# the host-authority default graph pulls no `windows` crate and no handle primitive, so the default
+# build of this crate is unchanged and still calls no Windows API.
+projectos-host-authority = { path = "../host-authority", optional = true }
 # The monotonic tick source bound (through a core grant) into the production clock the proof reads.
 projectos-host-windows-clock = { path = "../windows-clock" }
 

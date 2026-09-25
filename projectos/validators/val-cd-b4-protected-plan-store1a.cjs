@@ -154,6 +154,86 @@ function run() {
   if (!/PHASE-DEFINITION-CANONICAL-V1/.test(plan)) errors.push("missing digest schema version");
   if (!/DIGEST_DOMAIN/.test(digestFn) || !/DIGEST_SCHEMA/.test(digestFn))
     errors.push("the digest encoding does not include the domain separator and schema version");
+  //
+  // AMENDED by PROJECTOS-HOST-REVIEW-PATH1B (owner material amendment to plan v1.6: DIGEST VERSIONING).
+  // The three pins above are UNCHANGED and still hold. What follows is ADDED.
+  //
+  //   OLD INVARIANT  one contract: the V1 domain separator and the V1 schema label are present and folded
+  //                  into the encoding, and every definition is digested under them. Nothing said which
+  //                  definitions V1 covers, so a twentieth field could be - and in the first PATH1B
+  //                  candidate WAS - hashed under the V1 labels, letting "V1" silently mean two contracts.
+  //
+  //   NEW INVARIANT  ONE digest, TWO contract versions. V1 is exactly the historical contract: its two
+  //                  labels byte-for-byte, NINETEEN fields, no baseline. V2 has its OWN domain separator
+  //                  and schema label and states TWENTY fields - the nineteen and the owner-approved
+  //                  `baseline`. Which contract applies is DERIVED from the definition (does it state a
+  //                  baseline?) inside the ONE digest function, which still takes no version, contract
+  //                  or label argument; each arm pairs only its own constants; `baseline` enters the
+  //                  encoding only when the definition states one; and a V1 approval answers NO baseline,
+  //                  so it can never satisfy an authority that requires one. The historical V1 digest and
+  //                  the V2 digest are both pinned to values this validator RECOMPUTES ITSELF below, from
+  //                  the prose of the encoding, sharing no code with the crate.
+  {
+    const raw = read(path.join(SRC, "plan.rs"));
+    const exact = (re, why) => { if (!re.test(plan)) errors.push(why); };
+    exact(/const DIGEST_DOMAIN_V1: &str = "PROJECTOS:PHASE-DEFINITION:V1";/, "the V1 domain separator is not the historical literal");
+    exact(/const DIGEST_SCHEMA_V1: &str = "PHASE-DEFINITION-CANONICAL-V1";/, "the V1 schema label is not the historical literal");
+    exact(/const DIGEST_FIELDS_V1: u32 = 19;/, "the V1 contract no longer states exactly nineteen fields");
+    exact(/const DIGEST_DOMAIN_V2: &str = "PROJECTOS:PHASE-DEFINITION:V2";/, "missing the V2 domain separator");
+    exact(/const DIGEST_SCHEMA_V2: &str = "PHASE-DEFINITION-CANONICAL-V2";/, "missing the V2 schema label");
+    exact(/const DIGEST_FIELDS_V2: u32 = 20;/, "the V2 contract does not state exactly twenty fields");
+    // ONE digest: one producer, and it takes no contract, version-label or baseline argument.
+    if ((plan.match(/\bfn phase_definition_digest\(/g) || []).length !== 1)
+      errors.push("there is not exactly one phase_definition_digest producer (a second phase identity digest)");
+    if (!/pub fn phase_definition_digest\(\s*n: &NormalizedPhaseDefinition,\s*plan_ref: &ApprovedPlanRef,\s*version: ApprovedPlanVersion,?\s*\) -> PhaseDefinitionDigest/.test(plan))
+      errors.push("phase_definition_digest takes something other than (definition, plan ref, plan version): the contract must be derived, never chosen");
+    if (!/match n\.digest_contract\(\) \{/.test(digestFn))
+      errors.push("the digest does not select its contract from the definition itself");
+    if (!/PhaseDefinitionContract::V1 => \(DIGEST_DOMAIN_V1, DIGEST_SCHEMA_V1, DIGEST_FIELDS_V1\)/.test(digestFn))
+      errors.push("the V1 arm does not pair exactly the V1 domain, V1 schema and nineteen fields");
+    if (!/PhaseDefinitionContract::V2 => \(DIGEST_DOMAIN_V2, DIGEST_SCHEMA_V2, DIGEST_FIELDS_V2\)/.test(digestFn))
+      errors.push("the V2 arm does not pair exactly the V2 domain, V2 schema and twenty fields");
+    if (/"PROJECTOS:PHASE-DEFINITION|"PHASE-DEFINITION-CANONICAL/.test(digestFn))
+      errors.push("the digest function spells a label inline instead of using the pinned constants");
+    // `baseline` enters the encoding once, and only for a definition that states one.
+    if ((digestFn.match(/"baseline"/g) || []).length !== 1 || !/if let Some\(baseline\) = &n\.approved_baseline \{\s*put_field\(&mut b, "baseline", &\[baseline\.as_str\(\)\]\);\s*\}/.test(digestFn))
+      errors.push("`baseline` does not enter the encoding exactly once, only when the definition states one");
+    // The contract is a function of baseline presence and nothing else.
+    if (!/pub fn digest_contract\(&self\) -> PhaseDefinitionContract \{\s*match self\.approved_baseline \{\s*Some\(_\) => PhaseDefinitionContract::V2,\s*None => PhaseDefinitionContract::V1,\s*\}\s*\}/.test(plan))
+      errors.push("digest_contract is not exactly: V2 when a baseline is stated, V1 otherwise");
+    // V1 cannot satisfy baseline-required authority.
+    const baselineFn = block(plan, "pub fn approved_baseline(&self) -> Option<&ApprovedBaselineCommit>");
+    if (!/match self\.digest_contract\(\) \{\s*PhaseDefinitionContract::V1 => None,\s*PhaseDefinitionContract::V2 => self\.definition\.approved_baseline\.as_ref\(\),\s*\}/.test(baselineFn))
+      errors.push("a V1 approval can answer a baseline (V1 must never satisfy baseline-required authority)");
+    // INDEPENDENT PINS, recomputed here with node:crypto for the crate's own unit-test definition.
+    const crypto = require("crypto");
+    const u32 = (n) => { const b = Buffer.alloc(4); b.writeUInt32BE(n); return b; };
+    const seg = (s) => Buffer.concat([u32(Buffer.byteLength(s)), Buffer.from(s, "utf8")]);
+    const field = (name, values) => Buffer.concat([seg(name), u32(values.length), ...values.map(seg)]);
+    const BASE = [
+      ["plan", ["plan-1"]], ["version", ["1"]], ["project", ["proj"]], ["environment", ["staging"]],
+      ["phase", ["phase-x"]], ["type", ["SourceOnly"]], ["scope", ["a", "b"]], ["path_boundary", ["src/x", "src/y"]],
+      ["allowed", ["read"]], ["prohibited", ["write"]], ["dependencies", ["dep-1"]], ["predecessors", ["pre-1"]],
+      ["repository_policy", ["ReadOnly"]], ["provider_policy", ["None"]], ["effect_policy", ["ObservationOnly"]],
+      ["rollback", ["1"]], ["shutdown", ["1"]], ["disconnect", ["1"]], ["residue", ["ExactlyZero"]],
+    ];
+    const digestOf = (domain, schema, fields) =>
+      crypto.createHash("sha256").update(Buffer.concat([seg(domain), seg(schema), u32(fields.length), ...fields.map(([n, v]) => field(n, v))])).digest("hex");
+    const B = "b45e11e0".repeat(5);
+    const v1 = digestOf("PROJECTOS:PHASE-DEFINITION:V1", "PHASE-DEFINITION-CANONICAL-V1", BASE);
+    const v2 = digestOf("PROJECTOS:PHASE-DEFINITION:V2", "PHASE-DEFINITION-CANONICAL-V2", [...BASE, ["baseline", [B]]]);
+    const v1OverBaseline = digestOf("PROJECTOS:PHASE-DEFINITION:V1", "PHASE-DEFINITION-CANONICAL-V1", [...BASE, ["baseline", [B]]]);
+    if (v1 !== "26ab6bc977e0b5ccb4f217e7ce448174a5dcb7a781c12ec9eef11ce416cfc5e6")
+      errors.push("this validator's independent encoding no longer reproduces the historical V1 digest (validator broken): " + v1);
+    if (!new RegExp('assert_eq!\\(hex_of\\(&candidate\\(\\)\\), V1_HISTORICAL\\);').test(raw) || !raw.includes('const V1_HISTORICAL: &str = "' + v1 + '";'))
+      errors.push("the crate does not pin the historical V1 digest to the independently computed value");
+    if (!new RegExp('assert_eq!\\(hex_of\\(&with_baseline\\(FIXTURE_BASELINE_COMMIT\\)\\), V2_WITH_B\\);').test(raw) || !raw.includes('const V2_WITH_B: &str = "' + v2 + '";'))
+      errors.push("the crate does not pin the V2 baseline-bearing digest to the independently computed value");
+    if (!raw.includes('"' + v1OverBaseline + '"') || !/assert_ne!\(produced, V1_LABELS_OVER_A_BASELINE\);/.test(raw))
+      errors.push("the crate does not prove a baseline can never be produced under the V1 labels");
+    if (!/pub const FIXTURE_BASELINE_COMMIT: &str = "b45e11e0b45e11e0b45e11e0b45e11e0b45e11e0";/.test(raw))
+      errors.push("the fixture baseline the independent V2 pin was computed over has changed");
+  }
   // Unambiguous, length-prefixed encoding (u32 length prefixes), not delimiter-only concatenation.
   if (!/to_be_bytes\(\)/.test(plan) || !/fn put\(/.test(plan))
     errors.push("the canonical encoding is not length-prefixed");

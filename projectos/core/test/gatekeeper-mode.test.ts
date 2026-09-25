@@ -114,9 +114,41 @@ describe('checkHostAttestation', () => {
     expect(check(attestation({ costMicroUsd: cost })).join('\n')).toContain('states no known cost');
   });
 
+  // PROJECTOS-HOST-REVIEW-PATH1B. AN ADMITTED AMOUNT IS NOT A PROVIDER COST. Revision 2 states what the
+  // Host admitted against the budget, under its own name, and nothing about what a provider billed.
+  const revision2 = (over: Partial<Record<keyof HostAttestationSummary, unknown>> = {}): HostAttestationSummary =>
+    attestation({ schemaVersion: 2, costMicroUsd: undefined, admittedCostMicroUsd: 1234, ...over });
+
+  it('accepts a revision 2 attestation that states the admitted amount and no cost', () => {
+    expect(check(revision2())).toEqual([]);
+  });
+
+  it.each([undefined, null, -1, 1.5, '1234'])('refuses a revision 2 attestation with no usable admitted amount (%j)', (amount) => {
+    expect(check(revision2({ admittedCostMicroUsd: amount })).join('\n')).toContain('states no admitted amount');
+  });
+
+  it.each([0, 1234, null, '1234'])('refuses a revision 2 attestation that claims a provider cost (%j)', (cost) => {
+    expect(check(revision2({ costMicroUsd: cost })).join('\n')).toContain('revision 2 claims a provider cost');
+  });
+
+  it('does not let the admitted amount stand in for a revision 1 cost, or the reverse', () => {
+    // Revision 1 keeps its schema: a known cost, and no revision 2 field.
+    expect(check(attestation({ costMicroUsd: undefined, admittedCostMicroUsd: 1234 })).join('\n')).toContain('states no known cost');
+    expect(check(attestation({ admittedCostMicroUsd: 1234 })).join('\n')).toContain('that field belongs to revision 2');
+    // Revision 2 with only the revision 1 field states no admitted amount AND claims a cost.
+    const swapped = check(attestation({ schemaVersion: 2 })).join('\n');
+    expect(swapped).toContain('states no admitted amount');
+    expect(swapped).toContain('revision 2 claims a provider cost');
+  });
+
   it('refuses a malformed attestation identity, schema, provider or time', () => {
     expect(check(attestation({ attestationId: 'xyz' })).join('\n')).toContain('no usable attestationId');
-    expect(check(attestation({ schemaVersion: 2 })).join('\n')).toContain('schemaVersion is not 1');
+    // Revisions 1 and 2 share the summary shape this check reads (2 adds the evidence binding, enforced
+    // by the Host record reader). Anything else - a future revision, a string, nothing - is refused.
+    for (const unknown of [0, 3, '1', '2', null, undefined]) {
+      expect(check(attestation({ schemaVersion: unknown })).join('\n')).toContain('not a revision this agent knows');
+    }
+    expect(check(attestation({ schemaVersion: 2 })).join('\n')).not.toContain('schemaVersion');
     expect(check(attestation({ provider: '' })).join('\n')).toContain('does not name the provider');
     expect(check(attestation({ providerResponseId: '' })).join('\n')).toContain('names no provider response');
     expect(check(attestation({ attestedAtEpochS: 0 })).join('\n')).toContain('no attestation time');

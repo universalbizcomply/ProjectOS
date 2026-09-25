@@ -604,3 +604,97 @@ impl ServiceInstanceBindingAttempt<IpcPeerObserved> {
         self.reconcile_ipc_peer_identity(observation, &facts, connection_id, handshake_generation)
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// PROJECTOS-HOST-REVIEW-PATH1B — CLIENT-ADMISSION live entry points (ROUTE 1).
+//
+// The installed product is the REVERSE of the B3 proof direction: ProjectOSHost owns the pipe
+// SERVER and the governed Agent connects as the CLIENT. The kernel reads are IDENTICAL either way -
+// `GetNamedPipeClientProcessId` plus the impersonated token reads always describe the CLIENT of a
+// server handle - so these entry points REUSE the already-audited capture verbatim and add no new
+// Windows surface, no new import and no new unsafe block of their own.
+//
+// What differs is only the PROPOSITION the captured identity is then judged against, and that
+// judgement lives entirely in the safe `client_admission` core.
+// ---------------------------------------------------------------------------------------------
+
+impl crate::client_admission::ClientPeerAdmissionAttempt<crate::client_admission::ClientPrepared> {
+    /// Observe the CONFIRMED pipe client and capture its bounded kernel identity, then advance.
+    ///
+    /// `role_is_expected_production_client` is the caller's own confirmed-role check. The accepted
+    /// `decide_pipe_peer` gate is driven with it exactly as the B3 route drives that gate with its
+    /// service-fixture role: a peer's DECLARED role is a protocol assertion, so it gates the
+    /// observation and never supplies the identity.
+    ///
+    /// `connection_id` and `handshake_generation` are HOST-issued and are recorded so a later
+    /// reconciliation or admission on this attempt cannot be satisfied by a capture from another
+    /// connection. The caller lends its connected handle and never supplies, sees, holds or compares
+    /// an identity.
+    ///
+    /// # Safety
+    /// `pipe` must be a valid, connected named-pipe SERVER handle that the caller keeps open for
+    /// this call. The callee only reads through it and never retains, duplicates or closes it.
+    #[allow(clippy::too_many_arguments)]
+    pub unsafe fn observe_client_identity(
+        self,
+        _capability: &crate::client_admission::ClientAdmissionObservationCapability,
+        pipe: HANDLE,
+        connected: bool,
+        handshake_confirmed: bool,
+        role_is_expected_production_client: bool,
+        connection_id: u64,
+        handshake_generation: u64,
+    ) -> crate::client_admission::ClientAttemptOutcome<crate::client_admission::ClientObserved>
+    {
+        // The accepted process observation, unchanged.
+        // SAFETY: the handle contract is forwarded to the caller of this function.
+        let observation = unsafe {
+            observe_named_pipe_peer_instance(
+                pipe,
+                connected,
+                handshake_confirmed,
+                role_is_expected_production_client,
+            )
+        };
+        // The accepted RAII impersonation window, unchanged: three token reads and nothing else, with
+        // `RevertToSelf` on every exit path and the revert RESULT recorded rather than assumed.
+        // SAFETY: the handle contract is forwarded to the caller of this function.
+        let facts = unsafe { capture_peer_identity_facts(pipe) };
+        self.record_client_identity(observation, &facts, connection_id, handshake_generation)
+    }
+}
+
+impl crate::client_admission::ClientPeerAdmissionAttempt<crate::client_admission::ClientObserved> {
+    /// Capture the client's kernel identity AGAIN and reconcile it against the one this attempt
+    /// already recorded. Refuses if the process instance, the EXACT user, the EXACT session or
+    /// either host-issued identifier diverged; integrity is never compared.
+    ///
+    /// # Safety
+    /// `pipe` must be a valid, connected named-pipe SERVER handle that the caller keeps open for
+    /// this call. The callee only reads through it and never retains, duplicates or closes it.
+    #[allow(clippy::too_many_arguments)]
+    pub unsafe fn reobserve_client_identity(
+        self,
+        _capability: &crate::client_admission::ClientAdmissionObservationCapability,
+        pipe: HANDLE,
+        connected: bool,
+        handshake_confirmed: bool,
+        role_is_expected_production_client: bool,
+        connection_id: u64,
+        handshake_generation: u64,
+    ) -> crate::client_admission::ClientAttemptOutcome<crate::client_admission::ClientObserved>
+    {
+        // SAFETY: the handle contract is forwarded to the caller of this function.
+        let observation = unsafe {
+            observe_named_pipe_peer_instance(
+                pipe,
+                connected,
+                handshake_confirmed,
+                role_is_expected_production_client,
+            )
+        };
+        // SAFETY: the handle contract is forwarded to the caller of this function.
+        let facts = unsafe { capture_peer_identity_facts(pipe) };
+        self.reconcile_client_identity(observation, &facts, connection_id, handshake_generation)
+    }
+}

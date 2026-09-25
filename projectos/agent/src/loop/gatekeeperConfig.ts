@@ -855,6 +855,39 @@ export function releaseUndispatchedReservation(sys: System, root: string, reques
   );
 }
 
+/**
+ * Close out a reservation whose call produced no answer, HONOURING THE HOST'S DISPATCH FACT when one was
+ * stated (PROJECTOS-HOST-REVIEW-PATH1A).
+ *
+ * THREE CASES, AND ONLY THE FIRST IS NEW.
+ *  - The Host route established that NOTHING WAS DISPATCHED (`false`): the request was never sent, the
+ *    Host answered `NotRun`, or its own failure record says no provider was called. The estimate is
+ *    released — through `releaseUndispatchedReservation`, which by construction never touches an entry
+ *    carrying recorded usage, so a settled call can never be erased this way.
+ *  - The Host route established that a provider MAY have been reached (`true`): nothing is written and
+ *    the reservation stands, exactly as `resolveGatekeeperSpend` leaves it for a dispatched cause.
+ *  - No dispatch fact was stated (every non-Host route): the existing cause-based rule, unchanged.
+ *
+ * The brokered-HTTP "answered" record is NOT consulted for a Host-stated `false`: on the Host route the
+ * agent's broker is never invoked, so that record cannot speak to this request, and deferring to its
+ * `unknown` would strand an estimate for a call the Host itself says never happened.
+ */
+export function settleUnansweredGatekeeperSpend(
+  sys: System,
+  root: string,
+  requestId: string,
+  cause: string,
+  providerDispatched: boolean | undefined,
+  answered: () => BrokerAnsweredState,
+): void {
+  if (providerDispatched === false) {
+    releaseUndispatchedReservation(sys, root, requestId);
+    return;
+  }
+  if (providerDispatched === true) return;
+  resolveGatekeeperSpend(sys, root, requestId, cause, answered);
+}
+
 export function readLedger(sys: System, root: string): readonly LedgerEntry[] {
   const raw = readJson(sys, join(root, ...GATEKEEPER_LEDGER_REL.split('/')));
   const entries = raw?.['entries'];

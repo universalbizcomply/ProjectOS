@@ -293,9 +293,17 @@ impl<S: MonotonicTickSource> ProductionTrustedClock<S> {
     /// The checked read: the real fail-closed logic with a STRUCTURED error. `read_current` (the
     /// infallible trait method) delegates here and poisons on any error.
     ///
+    /// PUBLIC SINCE PROJECTOS-HOST-REVIEW-PATH1B §10. The trusted startup composition must be able to
+    /// STOP when the clock cannot produce a reading, rather than carry a poisoned reading forward and
+    /// discover it two links later as a provider mismatch. Widening this grants nothing: it returns
+    /// exactly the value `read_current` already returns, and differs only in reporting WHY a reading
+    /// failed instead of silently substituting the poisoned provider identity. It still cannot be
+    /// reached without holding a `ProductionTrustedClock`, which only `bind_production_clock` makes,
+    /// which only a `ProductionClockBindingGrant` authorises.
+    ///
     /// # Errors
     /// [`AuthorityTimeError`] naming the first failed invariant.
-    pub(crate) fn try_read_current(&self) -> Result<VerifiedAuthorityTime, AuthorityTimeError> {
+    pub fn try_read_current(&self) -> Result<VerifiedAuthorityTime, AuthorityTimeError> {
         if self.poisoned.get() {
             return Err(AuthorityTimeError::ClockUnavailable);
         }
@@ -643,5 +651,217 @@ mod tests {
         let c = prod(12345, 7, 10_000);
         assert!(format!("{c:?}").contains("[REDACTED]"));
         assert!(!format!("{c:?}").contains("12345"));
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// PROJECTOS-HOST-REVIEW-PATH1B G2 — THE PRODUCTION MINT OF THE CLOCK-BINDING GRANT
+//
+// The owner ruling, restated as code:
+//
+//   "A Cargo feature may COMPILE the production clock-binding route. A feature MUST NOT itself mint
+//    trusted temporal authority. ProductionClockBindingGrant must be obtainable only from a
+//    non-forgeable ONE-SHOT service-runtime authority proof originating from the SAME successful
+//    fresh ProjectOSHost machine-authority acquisition."
+//
+// So the feature below compiles a route whose ONLY entry takes a borrowed `ConfirmedAuthorityGuard`
+// whose corroborated state is `ServiceRuntimeConfirmed`. That guard is not constructible by any
+// dependent crate: `ConfirmedAuthorityGuard::confirm` consumes an `AuthorityGuard`, which has no
+// public constructor at all, and `confirm` additionally refuses anything but a FRESH `AcquiredToken`
+// create — so the guard attests that THIS process acquired the machine-wide authority, now. The
+// `ServiceRuntimeConfirmed` state additionally required here is derived inside host-authority from
+// the real per-service-SID self proof, never from a value a caller wrote down.
+//
+// The feature therefore decides only whether the route EXISTS. It decides nothing about authority:
+// with the feature on and no guard, there is still no grant.
+// ---------------------------------------------------------------------------------------------
+
+/// Why the production clock authority was refused. Fail closed; payload-free.
+#[cfg(feature = "production-clock-binding")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ProductionClockAuthorityRefusal {
+    /// The confirmed authority is not the SERVICE RUNTIME. An interactive fallback confirms a real
+    /// machine-wide authority, but it is not the installed ProjectOSHost service, and the production
+    /// clock lineage belongs to the service.
+    NotServiceRuntime,
+    /// A production clock lineage was ALREADY established in this process. One service startup
+    /// establishes one trusted clock lineage; a second attempt is refused rather than served.
+    AlreadyEstablished,
+}
+
+#[cfg(feature = "production-clock-binding")]
+impl fmt::Display for ProductionClockAuthorityRefusal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::NotServiceRuntime => "confirmed authority is not the service runtime",
+            Self::AlreadyEstablished => "a production clock lineage is already established",
+        })
+    }
+}
+
+#[cfg(feature = "production-clock-binding")]
+impl std::error::Error for ProductionClockAuthorityRefusal {}
+
+/// THE ONE-SHOT SERVICE-RUNTIME AUTHORITY PROOF that a production clock lineage may be established.
+///
+/// Opaque and unforgeable: private field, no public constructor, no `Default`, no `Clone`, no `Copy`,
+/// no serde, redacted `Debug`, `!Send + !Sync`. The ONLY way to obtain one is
+/// [`establish_production_clock_authority`], and that is reachable at most ONCE per process.
+///
+/// It is deliberately a SEPARATE value from the grant it yields, so the two things the ruling
+/// separates stay separate: holding this proves the service runtime was confirmed; converting it —
+/// by move, exactly once — is what authorises ONE clock binding.
+///
+/// It is NOT a second authority system. It mints no time, holds no handle, releases nothing on drop
+/// and cannot be turned back into a `ConfirmedAuthorityGuard`: it is a receipt for one already-made
+/// decision, taken by the frozen confirmation rule that made it.
+#[cfg(feature = "production-clock-binding")]
+pub struct ProductionClockAuthority {
+    /// `!Send + !Sync`: a temporal-authority proof must not silently cross a thread boundary.
+    _thread_bound: core::marker::PhantomData<*const ()>,
+}
+
+#[cfg(feature = "production-clock-binding")]
+impl fmt::Debug for ProductionClockAuthority {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("ProductionClockAuthority([REDACTED])")
+    }
+}
+
+/// The process-wide one-shot latch. `true` once a production clock lineage has been established.
+///
+/// ONE SERVICE STARTUP, ONE LINEAGE. The latch is set BEFORE the authority value is produced, with a
+/// compare-and-exchange, so two threads racing the same startup cannot both be served — the loser is
+/// told [`ProductionClockAuthorityRefusal::AlreadyEstablished`] rather than handed a second lineage.
+#[cfg(feature = "production-clock-binding")]
+static PRODUCTION_CLOCK_ESTABLISHED: core::sync::atomic::AtomicBool =
+    core::sync::atomic::AtomicBool::new(false);
+
+/// Establish THE production clock authority for this service process.
+///
+/// The ONLY input is a BORROWED `ConfirmedAuthorityGuard`. It is borrowed, not consumed, because the
+/// very same guard must go on to open the provider-authority lease: one acquisition, one guard, one
+/// lineage, one lease. Borrowing also means this call can never release the machine-wide authority,
+/// and can never be mistaken for having acquired it.
+///
+/// WHAT IT REFUSES, AND WHY THERE IS NOTHING ELSE TO REFUSE. There is no other parameter: no bool,
+/// no string, no enum a caller selects, no environment, no CLI, no request field, no Agent data, no
+/// elevation check, no feature test and no verified-installation-shaped substitute. A caller that
+/// does not already hold a service-runtime-confirmed machine authority has nothing to pass, and a
+/// caller that does has nothing left to choose.
+///
+/// # Errors
+/// [`ProductionClockAuthorityRefusal`] naming the first failed condition.
+#[cfg(feature = "production-clock-binding")]
+pub fn establish_production_clock_authority(
+    confirmed: &projectos_host_authority::model::ConfirmedAuthorityGuard,
+) -> Result<ProductionClockAuthority, ProductionClockAuthorityRefusal> {
+    use core::sync::atomic::Ordering;
+    use projectos_host_authority::model::AuthorityPeerState;
+
+    // THE SERVICE, NOT MERELY AN AUTHORITY. Matched exhaustively against the one accepted state, so a
+    // future peer state cannot join by default.
+    match confirmed.peer_state() {
+        AuthorityPeerState::ServiceRuntimeConfirmed => {}
+        _ => return Err(ProductionClockAuthorityRefusal::NotServiceRuntime),
+    }
+    // ONE-SHOT. Claimed atomically before anything is produced.
+    if PRODUCTION_CLOCK_ESTABLISHED
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return Err(ProductionClockAuthorityRefusal::AlreadyEstablished);
+    }
+    Ok(ProductionClockAuthority {
+        _thread_bound: core::marker::PhantomData,
+    })
+}
+
+#[cfg(feature = "production-clock-binding")]
+impl ProductionClockAuthority {
+    /// Convert the one-shot service-runtime authority proof into THE production
+    /// [`ProductionClockBindingGrant`], CONSUMING it.
+    ///
+    /// This is the production mint the ruling authorises, and it is the only one: the grant's own
+    /// `mint()` stays crate-private, so no dependent crate can reach it, and the fixture mint stays
+    /// `test-fixtures`-only and is never enabled by this feature.
+    ///
+    /// Consumed by move, so one authority binds one lineage even within the single startup that was
+    /// allowed to establish it.
+    #[must_use]
+    pub fn into_clock_binding_grant(self) -> ProductionClockBindingGrant {
+        let ProductionClockAuthority { _thread_bound } = self;
+        ProductionClockBindingGrant::mint()
+    }
+}
+
+/// TEST-ONLY: clear the one-shot latch so a test can exercise the route more than once in the one
+/// test process. `cfg(test)` alone — deliberately NOT behind `test-fixtures`, so no dependent crate
+/// and no fixture graph can reset a production lineage.
+#[cfg(all(test, feature = "production-clock-binding"))]
+pub(crate) fn reset_production_clock_latch_for_test() {
+    PRODUCTION_CLOCK_ESTABLISHED.store(false, core::sync::atomic::Ordering::SeqCst);
+}
+
+#[cfg(all(test, feature = "production-clock-binding"))]
+mod production_clock_authority_tests {
+    use super::*;
+    use projectos_host_authority::model::{AuthorityPeerState, ConfirmedAuthorityGuard};
+
+    /// The ONLY route to a confirmed guard inside core's own tests is host-authority's pure contract
+    /// fixture, which core enables as a DEV dependency. It is not reachable from any shipped graph.
+    fn confirmed(state: AuthorityPeerState) -> ConfirmedAuthorityGuard {
+        ConfirmedAuthorityGuard::for_local_proof(state).expect("an authoritative state")
+    }
+
+    #[test]
+    fn an_interactive_fallback_authority_cannot_mint_the_clock_grant() {
+        reset_production_clock_latch_for_test();
+        let guard = confirmed(AuthorityPeerState::InteractiveFallbackConfirmed);
+        assert_eq!(
+            establish_production_clock_authority(&guard).unwrap_err(),
+            ProductionClockAuthorityRefusal::NotServiceRuntime
+        );
+        // And the latch was NOT consumed by the refusal: a refusal must not deny the real service.
+        let service = confirmed(AuthorityPeerState::ServiceRuntimeConfirmed);
+        assert!(establish_production_clock_authority(&service).is_ok());
+        reset_production_clock_latch_for_test();
+    }
+
+    #[test]
+    fn the_service_runtime_authority_establishes_exactly_one_lineage() {
+        reset_production_clock_latch_for_test();
+        let guard = confirmed(AuthorityPeerState::ServiceRuntimeConfirmed);
+        let first = establish_production_clock_authority(&guard);
+        assert!(first.is_ok(), "the first startup establishes the lineage");
+        // A SECOND establishment in the same process is refused, with the SAME guard: one service
+        // startup, one trusted clock lineage.
+        assert_eq!(
+            establish_production_clock_authority(&guard).unwrap_err(),
+            ProductionClockAuthorityRefusal::AlreadyEstablished
+        );
+        // Even a freshly confirmed authority cannot establish a second one.
+        let another = confirmed(AuthorityPeerState::ServiceRuntimeConfirmed);
+        assert_eq!(
+            establish_production_clock_authority(&another).unwrap_err(),
+            ProductionClockAuthorityRefusal::AlreadyEstablished
+        );
+        reset_production_clock_latch_for_test();
+    }
+
+    #[test]
+    fn the_authority_is_redacted_and_binds_a_real_lineage() {
+        reset_production_clock_latch_for_test();
+        let guard = confirmed(AuthorityPeerState::ServiceRuntimeConfirmed);
+        let authority = establish_production_clock_authority(&guard).expect("service runtime");
+        assert!(format!("{authority:?}").contains("[REDACTED]"));
+        // The grant it yields binds a real production clock over an injected evidence tick source.
+        let grant = authority.into_clock_binding_grant();
+        let clock = bind_production_clock(grant, FixtureMonotonicTickSource::new(1_000, 7), 10_000);
+        let reading = clock.try_read_current().expect("a live reading");
+        assert_eq!(reading.reading(), 1_000);
+        assert_eq!(reading.provider_id(), PRODUCTION_CLOCK_PROVIDER_ID);
+        reset_production_clock_latch_for_test();
     }
 }

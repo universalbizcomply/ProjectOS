@@ -83,6 +83,7 @@ fn candidate(c: &PlanCandidateDto) -> Result<PhaseDefinitionCandidate, PlanStore
         shutdown_required: c.shutdown_required,
         disconnect_required: c.disconnect_required,
         residue: residue(c.residue),
+        approved_baseline: c.approved_baseline.clone(),
     })
 }
 

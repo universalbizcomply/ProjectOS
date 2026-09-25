@@ -43,3 +43,40 @@ projectos-host-windows-local-ipc = { path = "../windows-local-ipc", features = [
     "windows-live-ipc",
     "owner-approved-status-read",
 ] }
+
+# ---------------------------------------------------------------------------------------------
+# PROJECTOS-HOST-REVIEW-PATH1B §10 - THE TRUSTED STARTUP COMPOSITION.
+#
+# These four edges exist so the ONE production authority chain can be assembled in one place. Every
+# feature named is the NON-DEFAULT production route of its crate, and NONE of them is `test-fixtures`:
+# the installed service therefore ships no synthetic capability, no fixture grant, no synthetic SID or
+# descriptor constructor and no fixture verifier.
+# ---------------------------------------------------------------------------------------------
+
+# ROUTE A: the machine-wide authority acquisition. It takes no object name, no security descriptor,
+# no scope and no channel, and derives the service-runtime self proof from the per-service SID the SCM
+# injects - so there is no generic acquire for this binary to misuse.
+projectos-host-authority = { path = "../host-authority", features = [
+    "windows-authority-acquisition",
+] }
+# G2: the one-shot production clock authority and its mint of the clock-binding grant, plus the
+# provider-authority seam. The feature COMPILES the route; a ServiceRuntimeConfirmed guard is what
+# authorises it.
+projectos-host-core = { path = "../core", features = ["production-clock-binding"] }
+# G2: the live biased-monotonic tick source, acquired under the capability that same one-shot clock
+# authority gates. It mints no time; only the sealed core clock does.
+projectos-host-windows-clock = { path = "../windows-clock", features = [
+    "windows-live-clock",
+    "production-clock-observation",
+] }
+# 10/11: the Host OWN answer to a review request, and the attestation operation ports it composes.
+# This edge is what makes the route source-complete: without it the service would have the transport
+# chain and no way to call the composition the chain exists to reach.
+projectos-host-gatekeeper-review-composition = { path = "../gatekeeper-review-composition" }
+projectos-host-gatekeeper-attestation = { path = "../gatekeeper-attestation" }
+# G4: the host-SELF runtime observation and its installed-service projection, acquired under the SAME
+# confirmed service-runtime authority. It is evidence; only the sealed core verifier attests it.
+projectos-host-windows-runtime-observation = { path = "../windows-runtime-observation", features = [
+    "windows-live-runtime-observation",
+    "production-runtime-observation",
+] }

@@ -671,9 +671,19 @@ pub struct AuthorityGuard {
     // boundary and never via a direct `FromRawHandle`, defines no handle wrapper and no `Drop` (the
     // primitive's `OwnedHandle` owns the single close). In the default/release contract build the guard
     // is unconstructible and holds nothing.
-    #[cfg(all(windows, feature = "test-fixtures"))]
+    // LOAD-BEARING THROUGH `Drop`, NOT THROUGH A READ. The authority is released solely by this
+    // handle closing, so the field is never read in the production acquisition graph and must not be
+    // removed: deleting it would release the machine-wide authority the instant it was acquired.
+    #[allow(dead_code)]
+    #[cfg(all(
+        windows,
+        any(feature = "test-fixtures", feature = "windows-authority-acquisition")
+    ))]
     handle: std::os::windows::io::OwnedHandle,
-    #[cfg(not(all(windows, feature = "test-fixtures")))]
+    #[cfg(not(all(
+        windows,
+        any(feature = "test-fixtures", feature = "windows-authority-acquisition")
+    )))]
     _seal: Private,
 }
 
@@ -681,7 +691,10 @@ impl AuthorityGuard {
     /// CRATE-PRIVATE: take ownership of the existence-token handle already adopted through the
     /// canonical primitive (`handles::adopt`). The sole constructor; reachable only from `existence.rs`
     /// after a successful atomic create (synthetic build only).
-    #[cfg(all(windows, feature = "test-fixtures"))]
+    #[cfg(all(
+        windows,
+        any(feature = "test-fixtures", feature = "windows-authority-acquisition")
+    ))]
     #[must_use]
     pub(crate) fn from_owned(handle: std::os::windows::io::OwnedHandle) -> Self {
         Self { handle }
@@ -690,8 +703,12 @@ impl AuthorityGuard {
     /// CRATE-PRIVATE: borrow the owned handle so a bounded in-crate call can obtain a non-owning raw
     /// `HANDLE` through the canonical `handles::win32`. Never public — the raw handle cannot escape the
     /// crate.
-    #[cfg(all(windows, feature = "test-fixtures"))]
+    #[cfg(all(
+        windows,
+        any(feature = "test-fixtures", feature = "windows-authority-acquisition")
+    ))]
     #[must_use]
+    #[allow(dead_code)]
     pub(crate) fn owned(&self) -> &std::os::windows::io::OwnedHandle {
         &self.handle
     }

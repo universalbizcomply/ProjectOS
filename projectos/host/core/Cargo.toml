@@ -13,6 +13,15 @@ unsafe_code = "forbid"
 # Test-only synthetic approved-plan fixtures for integration tests. Non-default; a live graph never
 # enables it, so the fixture approval path can never reach production authority.
 test-fixtures = []
+# PROJECTOS-HOST-REVIEW-PATH1B G2. COMPILES the production clock-binding route (the one-shot
+# service-runtime clock authority and its mint of `ProductionClockBindingGrant`). NON-DEFAULT, and
+# enabled by the service-host composition alone.
+#
+# IT MINTS NOTHING BY ITSELF. With this feature on and no `ConfirmedAuthorityGuard` in
+# `ServiceRuntimeConfirmed` state there is still no authority, no grant, no clock and no
+# `VerifiedAuthorityTime` — the feature decides only whether the route exists. It does NOT imply
+# `test-fixtures`, so it never pulls the fixture grant into a production graph.
+production-clock-binding = []
 
 [dependencies]
 projectos-trust-contract = { path = "../contract" }

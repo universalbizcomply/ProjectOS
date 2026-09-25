@@ -49,4 +49,17 @@ pub enum RepoAdapterError {
     /// failure to understand what Git said. A caller must never read it as "unchanged".
     #[error("committed object unavailable")]
     CommittedObjectUnavailable,
+    /// The approved baseline is not a commit this repository has.
+    #[error("baseline commit unavailable")]
+    BaselineUnavailable,
+    /// The pinned candidate is not a commit this repository has.
+    #[error("candidate commit unavailable")]
+    CandidateUnavailable,
+    /// Both commits exist and the baseline is NOT an ancestor of the candidate.
+    ///
+    /// DISTINCT FROM THE TWO ABOVE, because it is the answer that matters most: a candidate that
+    /// does not descend from the approved baseline is not a change to what the owner approved, and
+    /// the difference between the two trees would describe something nobody asked to have reviewed.
+    #[error("baseline is not an ancestor of the candidate")]
+    BaselineNotAncestor,
 }

@@ -15,7 +15,9 @@
 use projectos_host_authority::ProjectOsHostPipeSecurityStatus;
 
 use crate::contracts::{EndpointFreshness, IpcResidue, IpcShutdownResult, ReplayClassification};
+use crate::operation_contract::ProtectedOperationResponse;
 use crate::protocol::{FrameParseError, InstalledHostStatus, MessageKind};
+use crate::review_exchange::{HostReviewIpcCapability, ProtectedRequestReceipt};
 use crate::security::{evaluate_pipe_security, EndpointSecurityDecision};
 use crate::verification::{
     verify_endpoint_fresh, verify_not_replayed, verify_peer_role, IpcFailure, PeerRole, RetryPolicy,
@@ -32,6 +34,13 @@ struct Sealed;
 /// no value exists, so every capability-gated method is unreachable.
 pub struct LiveIpcOperationCapability {
     _sealed: Sealed,
+    /// THE SCOPE THIS CAPABILITY WAS MINTED AT (PROJECTOS-HOST-REVIEW-PATH1B G5).
+    ///
+    /// It is a FIELD, not a constant, because there is now more than one thing a live transport
+    /// capability can be for, and a `scope()` that returned the same answer whatever it was minted
+    /// from would be a comment pretending to be a check. The field is private and is set only by the
+    /// two mints below; nothing can change it afterwards.
+    scope: CapabilityScope,
 }
 
 /// ONE owner-approved, READ-ONLY installed-host status read.
@@ -69,17 +78,45 @@ impl OwnerStatusReadApproval {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StatusApprovalRefused;
 
-/// What a capability is allowed to do. There is exactly one value, and it is read-only.
+/// What a capability is allowed to do.
 ///
 /// This exists so the authorisation is a value the code must match on, not a comment. A capability
-/// obtained for a status read cannot be passed where a mutating operation is required, because no
-/// mutating scope is representable.
-#[cfg(feature = "owner-approved-status-read")]
+/// obtained for one scope cannot be passed where another is required, because the serving facades
+/// REFUSE a capability whose scope is not theirs - see `serve_one_status_exchange` and
+/// `serve_one_exchange`. No mutating scope is representable at all.
+///
+/// UNGATED since PROJECTOS-HOST-REVIEW-PATH1B G5. The enum itself is a plain closed vocabulary and
+/// carries no authority; it is compiled always so the capability can carry its scope in every graph.
+/// The MINTS remain feature-gated, which is where the authority actually lives.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum CapabilityScope {
     /// Read the installed-host status of the local ProjectOSHost instance. Nothing else.
+    ///
+    /// UNCHANGED IN MEANING. It does not authorise a governed review, and G5 did not widen it: the
+    /// review is a separate value below, minted from a separate authority, and neither substitutes
+    /// for the other.
     ReadInstalledHostStatusLocalOnly,
+    /// Carry out the local transport operations of ONE governed Host review exchange, and nothing
+    /// else (PROJECTOS-HOST-REVIEW-PATH1B G5).
+    ///
+    /// # What it authorises
+    ///
+    /// * accepting the governed local connection;
+    /// * performing the required handshake;
+    /// * serving the status record that exchange begins with;
+    /// * receiving the ONE governed review request;
+    /// * sending the ONE governed review response;
+    /// * closing and classifying the connection.
+    ///
+    /// # What it does NOT authorise
+    ///
+    /// Provider or model execution, provider spend, credential access, any other IPC message kind,
+    /// service control, production mutation, deployment, database access, external sends or
+    /// payments. Each of those remains behind its own separate authority - in particular a review
+    /// capability alone reaches no provider: the execution rung still demands the owner-signed
+    /// closure, the budget ledger and the attestation ports, none of which this scope supplies.
+    GovernedHostReviewLocalOnly,
 }
 
 #[cfg(feature = "owner-approved-status-read")]
@@ -94,13 +131,40 @@ impl LiveIpcOperationCapability {
     pub fn from_owner_status_read_approval(approval: OwnerStatusReadApproval) -> Self {
         // The approval is CONSUMED, so it cannot authorise a second session.
         let OwnerStatusReadApproval { _sealed } = approval;
-        Self { _sealed }
+        Self {
+            _sealed,
+            // THE STATUS SCOPE, AND ONLY IT. The owner phrase authorises a status read; it has never
+            // authorised a review, and G5 is what makes that a value rather than a sentence.
+            scope: CapabilityScope::ReadInstalledHostStatusLocalOnly,
+        }
     }
+}
 
-    /// The scope this capability authorises. Always the read-only status scope.
+impl LiveIpcOperationCapability {
+    /// The scope this capability was MINTED at. Read off the value, never re-asserted.
     #[must_use]
     pub fn scope(&self) -> CapabilityScope {
-        CapabilityScope::ReadInstalledHostStatusLocalOnly
+        self.scope
+    }
+
+}
+
+// The GOVERNED-REVIEW acquisition stands in its OWN impl block, so the one place a review-scoped
+// capability can be minted is a block that contains nothing else - and a validator can pin it.
+impl LiveIpcOperationCapability {
+    /// The GOVERNED REVIEW transport capability (PROJECTOS-HOST-REVIEW-PATH1B G5).
+    ///
+    /// CRATE-PRIVATE, with exactly one call site:
+    /// [`crate::review_exchange::HostReviewIpcCapability::issue_transport_capability`]. The borrowed
+    /// review capability IS the authority - it has no production mint but the owner-signed
+    /// delegation - so this function adds none of its own and cannot be reached without one.
+    pub(crate) fn for_governed_review(
+        _review: &crate::review_exchange::HostReviewIpcCapability,
+    ) -> Self {
+        Self {
+            _sealed: Sealed,
+            scope: CapabilityScope::GovernedHostReviewLocalOnly,
+        }
     }
 }
 
@@ -115,7 +179,23 @@ impl LiveIpcOperationCapability {
     /// and owner-gated.
     #[must_use]
     pub fn synthetic_for_fixture() -> Self {
-        Self { _sealed: Sealed }
+        Self {
+            _sealed: Sealed,
+            scope: CapabilityScope::ReadInstalledHostStatusLocalOnly,
+        }
+    }
+
+    /// FIXTURE-ONLY acquisition at the GOVERNED REVIEW scope, so the review facades can be exercised
+    /// with a correctly scoped capability and the status facade can be proven to REFUSE one.
+    ///
+    /// It is a separate function rather than an argument to the one above, so a fixture cannot pick
+    /// a scope from a variable either.
+    #[must_use]
+    pub fn synthetic_review_scoped_for_fixture() -> Self {
+        Self {
+            _sealed: Sealed,
+            scope: CapabilityScope::GovernedHostReviewLocalOnly,
+        }
     }
 }
 
@@ -321,6 +401,24 @@ pub trait IpcBackend {
     fn send_installed_host_status(&self, status: &InstalledHostStatus) -> SendOutcome;
     /// Receive ONE installed-host status record (bounded), judged by the strict decoder.
     fn receive_installed_host_status(&self) -> StatusReceipt;
+    /// PROJECTOS-HOST-REVIEW-PATH1A. Receive ONE protected-operation request (bounded), judged by the
+    /// strict decoder and bound to this exchange's nonce.
+    ///
+    /// FAILS CLOSED BY DEFAULT: a backend that does not implement the review exchange cannot receive a
+    /// request, so no existing backend gained the ability by this method existing.
+    fn receive_protected_operation_request(&self) -> ProtectedRequestReceipt {
+        ProtectedRequestReceipt::Failed(IpcFailure::EndpointUnavailable)
+    }
+    /// PROJECTOS-HOST-REVIEW-PATH1A. Send ONE protected-operation response (bounded).
+    ///
+    /// Deliberately specific, like the status send: it takes the closed response type, so nothing but
+    /// that fixed-width record can be put on the wire through it. Fails closed by default.
+    fn send_protected_operation_response(
+        &self,
+        _response: &ProtectedOperationResponse,
+    ) -> SendOutcome {
+        SendOutcome::Failed(IpcFailure::EndpointUnavailable)
+    }
     /// Send one closed control frame (bounded).
     fn send_control(&self, kind: MessageKind) -> SendOutcome;
     /// Confirm shutdown (bounded).
@@ -392,6 +490,17 @@ pub struct LocalIpcAdapter<B: IpcBackend> {
 }
 
 impl<B: IpcBackend> LocalIpcAdapter<B> {
+    /// Borrow the backend. CRATE-PRIVATE (PROJECTOS-HOST-REVIEW-PATH1B §10): the live governed-review
+    /// facade needs to lend the backend live server handle to the canonical client-admission capture,
+    /// and the backend must not become part of the public surface to make that possible. A borrow
+    /// confers nothing on its own - every capability-gated operation still demands the capability.
+    // Used ONLY by the live governed-review facade, which is compiled under ; in a
+    // default or fixture graph there is no live server handle to lend, so it is legitimately unused.
+    #[allow(dead_code)]
+    pub(crate) fn backend(&self) -> &B {
+        &self.backend
+    }
+
     /// Construct the adapter over a backend with the default bounded wait policy.
     #[must_use]
     pub fn new(backend: B) -> Self {
@@ -467,6 +576,27 @@ impl<B: IpcBackend> LocalIpcAdapter<B> {
         self.complete_service_handshake_logic()
     }
 
+    /// Complete the service handshake and RETAIN the confirmation it produced.
+    ///
+    /// PROJECTOS-HOST-REVIEW-PATH1B G3. Byte for byte the same verification as
+    /// [`Self::complete_service_handshake`] - it calls the SAME
+    /// `complete_service_handshake_logic`, so there is one handshake order and one opinion about it.
+    /// What differs is only that the closed outcome is wrapped in a [`HandshakeTransition`], which
+    /// attaches a [`ConfirmedIpcPeerHandshake`] for an accepting outcome and nothing otherwise.
+    ///
+    /// This is what makes the production same-connection evidence assemblable: a confirmation is
+    /// unforgeable and had, until now, no production producer at all. It grants nothing on its own -
+    /// the confirmation is still only one of the facts the assembler needs, and the canonical client
+    /// admission still decides whether anything is admitted.
+    #[cfg(feature = "windows-live-ipc")]
+    #[must_use]
+    pub fn complete_service_handshake_confirmed(
+        &self,
+        _cap: &LiveIpcOperationCapability,
+    ) -> HandshakeTransition {
+        HandshakeTransition::from_outcome(self.complete_service_handshake_logic())
+    }
+
     /// Send ONE installed-host status record (live). Requires the sealed capability.
     ///
     /// The capability's only scope is the read-only status read, so this is the single thing it can
@@ -488,6 +618,36 @@ impl<B: IpcBackend> LocalIpcAdapter<B> {
         _cap: &LiveIpcOperationCapability,
     ) -> StatusReceipt {
         self.backend.receive_installed_host_status()
+    }
+
+    /// PROJECTOS-HOST-REVIEW-PATH1A. Receive ONE protected-operation request.
+    ///
+    /// Requires BOTH sealed capabilities: the transport one, and the review one - which has no
+    /// production mint, so in a shipped graph this method cannot be called at all.
+    #[must_use]
+    pub fn receive_protected_operation_request(
+        &self,
+        _cap: &LiveIpcOperationCapability,
+        _review: &HostReviewIpcCapability,
+    ) -> ProtectedRequestReceipt {
+        if !self.backend.state().is_operational() {
+            return ProtectedRequestReceipt::Failed(IpcFailure::EndpointUnavailable);
+        }
+        self.backend.receive_protected_operation_request()
+    }
+
+    /// PROJECTOS-HOST-REVIEW-PATH1A. Send ONE protected-operation response. Both capabilities, as above.
+    #[must_use]
+    pub fn send_protected_operation_response(
+        &self,
+        _cap: &LiveIpcOperationCapability,
+        _review: &HostReviewIpcCapability,
+        response: &ProtectedOperationResponse,
+    ) -> SendOutcome {
+        if !self.backend.state().is_operational() {
+            return SendOutcome::Failed(IpcFailure::EndpointUnavailable);
+        }
+        self.backend.send_protected_operation_response(response)
     }
 
     /// Receive one typed frame. Requires a sealed capability.

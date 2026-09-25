@@ -128,10 +128,124 @@ function run() {
   if (/EXECUTION_READY\s*=\s*true/.test(adapter + command + libRaw))
     errors.push("adapter overclaims EXECUTION_READY");
 
+  // ---- 5. THE REPOSITORY READER AMENDMENT — RATIFIED WITH PLAN v1.6, PROJECTOS-HOST-REVIEW-PATH1B --
+  //   OLD INVARIANT: the closed repository command vocabulary contains exactly the existing read-only
+  //     commands, its only content read is the committed blob at one path of one exact commit, and
+  //     its fixed environment does not disable replacement references, grafts or repository-local
+  //     configuration.
+  //   NEW INVARIANT: the vocabulary additionally contains exactly ONE read-only recursive
+  //     endpoint-tree difference between two exact commits (status, modes, full-length identities,
+  //     rename detection disabled) and exactly ONE read-only ancestry check between two exact
+  //     commits, both taking validated commit identities only; and EVERY command runs with
+  //     replacement references and grafts disabled and with no repository-local, user-level or
+  //     system-level configuration able to alter the result or run a program.
+  // Nothing above this line is weakened.
+
+  // 5a. THE VOCABULARY IS EXACTLY THESE VERBS. A thirteenth variant is a new capability.
+  const enumBody = (command.match(/pub enum GitCommand\s*\{([\s\S]*?)\n\}/) || ["", ""])[1];
+  const variants = (enumBody.match(/^ {4}([A-Z]\w*)\s*(?:\{|,)/gm) || []).map((v) => v.trim().replace(/\s*[{,]$/, ""));
+  const spelled = variants.slice().sort().join(",");
+  if (spelled !== GIT_VOCABULARY.slice().sort().join(","))
+    errors.push("the repository command vocabulary is [" + variants.join(", ") + "], not the ratified closed set");
+
+  // 5b. THE TWO ADDITIONS, SPELLED EXACTLY, TAKING COMMIT IDENTITIES ONLY.
+  const armOf = (name) => (command.match(new RegExp("GitCommand::" + name + "\\s*\\{[^}]*\\}\\s*=>\\s*vec!\\[([\\s\\S]*?)\\],")) || ["", ""])[1];
+  const literalsOf = (arm) => (arm.match(/"[^"]*"/g) || []).map((s) => s.slice(1, -1));
+  const diffArgs = literalsOf(armOf("DiffTreeEndpoints")).join(" ");
+  if (diffArgs !== "diff-tree -r --raw -z --no-abbrev --no-renames --no-ext-diff --end-of-options")
+    errors.push("the tree difference is spelled '" + diffArgs + "', not the ratified deterministic spelling");
+  const ancestryArgs = literalsOf(armOf("IsAncestor")).join(" ");
+  if (ancestryArgs !== "merge-base --is-ancestor")
+    errors.push("the ancestry check is spelled '" + ancestryArgs + "', not the ratified spelling");
+  for (const [variant, fields] of [["DiffTreeEndpoints", ["base", "candidate"]], ["IsAncestor", ["ancestor", "descendant"]]]) {
+    const decl = (enumBody.match(new RegExp(variant + "\\s*\\{([\\s\\S]*?)\\n {4}\\}")) || ["", ""])[1];
+    const typed = (decl.match(/^\s*(\w+):\s*([\w:<>]+),/gm) || []).map((f) => f.trim());
+    const want = fields.map((f) => f + ": CommitId,");
+    if (typed.join("|") !== want.join("|"))
+      errors.push(variant + " must take exactly two CommitId operands and nothing else (found: " + typed.join(" ") + ")");
+    const arm = armOf(variant);
+    if ((arm.match(/\.as_str\(\)\.to_string\(\)/g) || []).length !== 2 || /format!/.test(arm))
+      errors.push(variant + " must put exactly its two validated commit identities on the command line, uninterpolated");
+  }
+  // Exactly one content read, and no second way to take a difference or walk history.
+  for (const [verb, max] of [["cat-file", 1], ["diff-tree", 1], ["merge-base", 1]])
+    if ((command.match(new RegExp('"' + verb + '"', "g")) || []).length !== max)
+      errors.push("the vocabulary must spell '" + verb + "' exactly " + max + " time(s)");
+  for (const verb of ["diff", "diff-index", "diff-files", "log", "show", "ls-tree", "rev-list --all", "for-each-ref", "-M", "-C", "--find-renames", "--textconv", "--filters", "--ext-diff"])
+    if (new RegExp('"' + verb.replace(/[-]/g, "\\-") + '"').test(command))
+      errors.push("the vocabulary contains '" + verb + "', which the amendment does not ratify");
+
+  // 5c. THE ENVIRONMENT IS FIXED BY THE HOST, IN FULL, FOR EVERY COMMAND.
+  if (!/\.env_clear\(\)/.test(command)) errors.push("the runner inherits the Host's environment instead of clearing it");
+  if ((command.match(/Command::new\(/g) || []).length !== 1)
+    errors.push("the repository crate must spawn Git from exactly one place, so one environment covers every command");
+  if (!/\.envs\(fixed_environment\(root\)\)/.test(command)) errors.push("the runner does not apply the fixed environment");
+  const passthrough = (command.match(/const ENV_PASSTHROUGH: &\[&str\] = &\[([^\]]*)\]/) || ["", ""])[1];
+  const passed = (passthrough.match(/"[^"]+"/g) || []).map((s) => s.slice(1, -1));
+  if (passed.join(",") !== ENV_PASSTHROUGH.join(","))
+    errors.push("the environment passthrough is [" + passed.join(", ") + "], not the ratified closed list");
+  for (const [name, value] of FIXED_ENV)
+    if (!new RegExp('\\("' + name + '",\\s*' + value + "\\)").test(command))
+      errors.push("the fixed environment no longer sets " + name);
+  for (const [key, value] of CONFIG_OVERRIDES)
+    if (!new RegExp('\\("' + key.replace(/\./g, "\\.") + '",\\s*' + value + "\\)").test(command))
+      errors.push("repository-local configuration is no longer overridden for " + key);
+  if (/\.env\(\s*"GIT_(DIR|WORK_TREE|OBJECT_DIRECTORY|ALTERNATE_OBJECT_DIRECTORIES|INDEX_FILE|NAMESPACE|CONFIG_PARAMETERS)"/.test(command))
+    errors.push("the runner sets a variable that re-points the repository being read");
+
+  // 5d. THE READER REFUSES BEFORE IT DIFFERENCES, AND A FAILED DIFFERENCE IS NOT AN EMPTY ONE.
+  const changes = (adapter.match(/pub fn changes_since\([\s\S]*?\n {4}\}/) || [""])[0];
+  if (changes === "") errors.push("the committed reader has no changes_since");
+  else {
+    if (!/pub fn changes_since\(&self, baseline: &CommitId\)/.test(changes))
+      errors.push("changes_since must take the baseline commit and NOTHING else — the candidate is the pinned commit");
+    const order = ["BaselineUnavailable", "CandidateUnavailable", "BaselineNotAncestor", "DiffTreeEndpoints"].map((t) => changes.indexOf(t));
+    if (order.some((i) => i < 0) || order.some((v, i) => i > 0 && v < order[i - 1]))
+      errors.push("changes_since no longer refuses an absent baseline, an absent candidate and a non-ancestor BEFORE taking the difference");
+    if (!/candidate: self\.commit\.clone\(\)/.test(changes))
+      errors.push("changes_since no longer differences against the commit the reader pinned at open");
+    if (!/if out\.code != Some\(0\) \{\s*return Err\(RepoAdapterError::UnexpectedExit\);/.test(changes))
+      errors.push("changes_since no longer refuses a failed tree difference");
+  }
+  if (!/Ok\(out\.code == Some\(0\)\)/.test(adapter)) errors.push("an ancestry answer other than exit 0 can be read as yes");
+
+  // 5e. NO SECOND REPOSITORY READER anywhere in the Host tree.
+  for (const crate of fs.readdirSync(HOST)) {
+    if (crate === "repository") continue;
+    const src = path.join(HOST, crate, "src");
+    if (!exists(src)) continue;
+    const stack = [src];
+    while (stack.length) {
+      const dir = stack.pop();
+      for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+        const abs = path.join(dir, ent.name);
+        if (ent.isDirectory()) stack.push(abs);
+        else if (ent.name.endsWith(".rs") && /"(cat-file|diff-tree|merge-base|rev-list|ls-tree)"/.test(prod(read(abs))))
+          errors.push("projectos/host/" + crate + " spells a Git object read of its own — the repository crate is the one reader");
+      }
+    }
+  }
+
   return errors;
 }
 
-module.exports = { run };
+/** The ratified closed vocabulary: the ten accepted verbs plus the two PATH1B additions. */
+const GIT_VOCABULARY = Object.freeze([
+  "IsInsideWorkTree", "ShowToplevel", "GitCommonDir", "RevParseHead", "SymbolicRefHead", "StatusPorcelain",
+  "RevListCount", "SubmoduleStatus", "WorktreeList", "CatFileBlob", "DiffTreeEndpoints", "IsAncestor",
+]);
+const ENV_PASSTHROUGH = Object.freeze(["SystemRoot", "SystemDrive", "windir", "TEMP", "TMP", "PATH"]);
+const FIXED_ENV = Object.freeze([
+  ["GIT_CONFIG_NOSYSTEM", '"1"'], ["GIT_CONFIG_SYSTEM", "NULL_DEVICE"], ["GIT_CONFIG_GLOBAL", "NULL_DEVICE"],
+  ["GIT_ATTR_NOSYSTEM", '"1"'], ["GIT_NO_REPLACE_OBJECTS", '"1"'], ["GIT_GRAFT_FILE", "NULL_DEVICE"],
+  ["GIT_NO_LAZY_FETCH", '"1"'],
+]);
+const CONFIG_OVERRIDES = Object.freeze([
+  ["core.fsmonitor", '"false"'], ["core.hooksPath", "NULL_DEVICE"], ["core.pager", '"cat"'],
+  ["core.useReplaceRefs", '"false"'], ["protocol.allow", '"never"'],
+]);
+
+module.exports = { run, GIT_VOCABULARY, ENV_PASSTHROUGH };
 
 if (require.main === module) {
   const errs = run();

@@ -513,6 +513,8 @@ export type HostClosureReviewOutcome =
       readonly kind: 'unavailable';
       readonly cause: GatekeeperUnavailabilityCause;
       readonly reasons: readonly string[];
+      /** The Host-authoritative dispatch fact; see `HostReviewOutcome`. Absent reads as possibly dispatched. */
+      readonly providerDispatched?: boolean;
     };
 
 /**

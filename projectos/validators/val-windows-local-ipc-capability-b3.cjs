@@ -26,6 +26,10 @@ function read(p) {
 function stripComments(src) {
   return src.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/.*$/gm, " ");
 }
+// TOML comments only. `stripComments` is for Rust: it would also eat a `//` inside a TOML string.
+function stripTomlComments(src) {
+  return src.replace(/^\s*#.*$/gm, "");
+}
 function rsFiles(dir) {
   const out = [];
   const walk = (d) => {
@@ -192,6 +196,28 @@ function run() {
   // PROPOSED, §10E - AWAITING RATIFICATION AT THE §10E GATE, exactly as the §10D edge was.
   //
   // The list remains CLOSED after this amendment: nothing else may be added without a further ruling.
+  //
+  // AMENDMENT 2 (PROJECTOS-HOST-REVIEW-PATH1A - RATIFIED BY THE OWNER WITH PLAN v1.5 AS SCOPE
+  // AUTHORITY): `projectos-host-gatekeeper-attestation` joins the closed list for ONE reason - the
+  // sealed `GatekeeperReviewExecution` seam can only be implemented INSIDE this crate (its sealing
+  // supertrait is private to the composition module, which is what stops anything else from
+  // fabricating an execution outcome), and the one shipped implementation must drive the EXISTING
+  // ordered review operation - manifest, signature, closure, executable policy, one-shot subject,
+  // execution, cost, one-shot attestation - rather than restate any step of it. A second copy of that
+  // order here would be a second opinion about when a review may run.
+  //
+  // EXACTLY ONE EDGE. The attestation crate is pure logic over injected ports: it opens no file,
+  // creates no pipe, spawns no process, holds no credential and makes no Windows call. Its own
+  // dependencies are `sha2`, `serde`, `serde_json` (all already in this graph),
+  // `projectos-host-identity` (already a direct dependency here) and
+  // `projectos-packaged-runtime-contract` (constants only). NO network, process launch, registry,
+  // SCM, ACL builder, credential or signing surface is added.
+  //
+  // AND THE CLAIM IS CHECKED RATHER THAN ASSERTED - see section 2e below, which applies this crate's
+  // own FORBIDDEN_ANY set, the unsafe prohibition, the Windows-FFI prohibition and the ambient-input
+  // prohibition to the attestation crate's sources and closes its dependency list.
+  //
+  // The list remains CLOSED after this amendment: nothing else may be added without a further ruling.
   for (const d of deps) {
     if (![
       "projectos-host-windows-service-identity-proof",
@@ -205,6 +231,8 @@ function run() {
       "projectos-host-gatekeeper-ledger",
       // PROPOSED, §10E - see the amendment note above. Not yet ratified.
       "projectos-host-trusted-roots",
+      // AMENDMENT 2, PROJECTOS-HOST-REVIEW-PATH1A - owner-ratified; see the note above and 2e below.
+      "projectos-host-gatekeeper-attestation",
     ].includes(d))
       errors.push("unexpected dependency: " + d);
   }
@@ -484,6 +512,87 @@ function run() {
       if (/create_(directory|file)_governed\(/.test(code) && !/\/activation\/store_custody\.rs$/.test(rel))
         errors.push(rel + ": a governed-creation entry point is reached outside activation/store_custody.rs");
     }
+  }
+
+  // 2e. THE GATEKEEPER-ATTESTATION CRATE, scanned with THIS crate's rules. AMENDMENT 2.
+  //
+  // It is a dependency of this crate and it decides WHETHER A REVIEW MAY RUN and what an attestation
+  // says, so the capability claims made for it are this contract's business. Same FORBIDDEN_ANY set,
+  // no `unsafe` at all, no Windows FFI at all, no ambient input, a closed dependency list, an explicit
+  // non-default fixture feature and every fixture entry gated.
+  const ATTESTATION_CRATE = path.join(ROOT, "projectos", "host", "gatekeeper-attestation");
+  if (!fs.existsSync(ATTESTATION_CRATE)) {
+    errors.push("gatekeeper-attestation crate missing: " + ATTESTATION_CRATE);
+  } else {
+    const attToml = read(path.join(ATTESTATION_CRATE, "Cargo.toml"));
+    if (!/name\s*=\s*"projectos-host-gatekeeper-attestation"/.test(attToml))
+      errors.push("gatekeeper-attestation: wrong package name");
+    if (!/publish\s*=\s*false/.test(attToml)) errors.push("gatekeeper-attestation: not publish=false");
+    if (!/unsafe_code\s*=\s*"forbid"/.test(attToml))
+      errors.push("gatekeeper-attestation: crate does not forbid unsafe at the lint level");
+    if (/^\s*\[\[bin\]\]/m.test(attToml)) errors.push("gatekeeper-attestation: has a binary target");
+    if (/^\s*default\s*=\s*\[/m.test(stripTomlComments(attToml)))
+      errors.push("gatekeeper-attestation: declares a default feature list");
+    // THE FIXTURE FEATURE ENABLES NOTHING ELSE. It exposes steps 4-8 to a dependent proof; a feature
+    // that also switched on another crate's fixtures would be a wider door than the one ratified.
+    if (!/^test-fixtures\s*=\s*\[\s*\]/m.test(stripTomlComments(attToml)))
+      errors.push("gatekeeper-attestation: test-fixtures is absent or enables something");
+    const attSections = stripTomlComments(attToml).split(/^\[/m).map((b) => "[" + b);
+    const attDeps = [];
+    for (const block of attSections) {
+      if (!/^\[(dependencies|target\.[^\]]*\.dependencies|build-dependencies)\]/.test(block)) continue;
+      for (const m of block.match(/^\s*([a-z0-9_-]+)\s*=/gim) || [])
+        attDeps.push(m.replace(/\s*=$/, "").trim());
+    }
+    for (const d of attDeps) {
+      if (
+        ![
+          "serde",
+          "serde_json",
+          "sha2",
+          "projectos-host-identity",
+          "projectos-packaged-runtime-contract",
+        ].includes(d)
+      )
+        errors.push("gatekeeper-attestation: unexpected dependency: " + d);
+    }
+    if (attDeps.length === 0)
+      errors.push("gatekeeper-attestation: no dependency was parsed (the scan matched nothing)");
+    let sawAttFixtureGate = false;
+    let attFiles = 0;
+    for (const f of rsFiles(path.join(ATTESTATION_CRATE, "src"))) {
+      attFiles += 1;
+      const rel = path.relative(ROOT, f).replace(/\\/g, "/");
+      const code = stripComments(read(f));
+      if (/unsafe\s*(fn|\{|impl)/.test(code)) errors.push(rel + ": unsafe in a crate that forbids it");
+      if (WINDOWS_FFI.test(code)) errors.push(rel + ": windows FFI in the gatekeeper-attestation crate");
+      for (const { re, why } of FORBIDDEN_ANY) if (re.test(code)) errors.push(rel + ": " + why);
+      // NO AMBIENT INPUT AND NO EFFECT OF ITS OWN. Every file, clock and execution arrives through an
+      // injected port; an environment read, a working directory or a direct filesystem call would be
+      // this crate starting to do what it exists to let a caller prove it does not.
+      if (/std::env::(var|set_var|remove_var|current_dir|args)\b|env!\(/.test(code))
+        errors.push(rel + ": environment, argv or working-directory input");
+      if (/std::fs::|\bfs::(read|write|File|OpenOptions|create_dir|remove)|File::(open|create)/.test(code))
+        errors.push(rel + ": a direct filesystem effect in a pure-logic crate");
+      const lines = code.split(/\r?\n/);
+      lines.forEach((line, i) => {
+        if (!/\bpub\s+fn\s+\w*_for_fixture\b/.test(line)) return;
+        const window = lines.slice(Math.max(0, i - 3), i).join("\n");
+        if (!/#\[cfg\(any\(test,\s*feature\s*=\s*"test-fixtures"\)\)\]/.test(window))
+          errors.push(rel + ": an ungated fixture entry at line " + (i + 1));
+        else sawAttFixtureGate = true;
+      });
+    }
+    if (attFiles === 0) errors.push("gatekeeper-attestation: no source was scanned");
+    if (!sawAttFixtureGate)
+      errors.push("gatekeeper-attestation: no gated fixture entry found (the scan matched nothing)");
+    // THE PUBLIC PATH STILL BEGINS WITH THE SIGNATURE. Steps 4-8 stay module-private; the only
+    // ungated ways in are the two functions that verify the manifest first.
+    const op = stripComments(read(path.join(ATTESTATION_CRATE, "src", "operation.rs")));
+    if (/pub(\([^)]*\))?\s+fn\s+execute_and_attest/.test(op))
+      errors.push("gatekeeper-attestation: steps 4-8 are reachable without the manifest signature");
+    if (!/verify_execution_closure\(/.test(op))
+      errors.push("gatekeeper-attestation: the operation no longer verifies the execution closure");
   }
 
   // 3. windows_ffi.rs: gated, unsafe-allowed, correct pipe configuration, opaque-lease consumption.
@@ -887,17 +996,90 @@ function run() {
       errors.push("the owner-approved IPC capability is not scoped to the read-only status read");
   }
 
+  // PROJECTOS-HOST-REVIEW-PATH1B G5 - THE DECLARED AMENDMENT.
+  //
+  //   OLD: exactly TWO acquisition routes - the `test-fixtures` synthetic one and the
+  //        `owner-approved-status-read` one - and the capability asserted a single constant scope.
+  //   NEW: a THIRD, `pub(crate)` route exists: the GOVERNED REVIEW transport capability, reachable
+  //        only by holding a `HostReviewIpcCapability`, which itself has no mint but an OWNER-SIGNED
+  //        programme delegation. The capability now CARRIES the scope it was minted at.
+  //
+  // WHY. The dormant review loop took its transport capability from the owner STATUS-READ phrase, so
+  // an unattended review could only run where a status approval had been transcribed - making the
+  // status approval a de facto review authority. The scopes are now separate values, minted from
+  // separate authorities, and the serving facades refuse the wrong one in BOTH directions.
+  const ipcReviewImpl = adapterNoDef.match(
+    /impl LiveIpcOperationCapability \{\s*pub\(crate\) fn for_governed_review[\s\S]*?\n\}/
+  );
+  if (!ipcReviewImpl)
+    errors.push("no impl provides the governed-review transport acquisition");
+  else {
+    const review = ipcReviewImpl[0];
+    // It is CRATE-PRIVATE: no crate outside this one can mint a review-scoped transport capability.
+    if (!/pub\(crate\) fn for_governed_review/.test(review))
+      errors.push("for_governed_review is not pub(crate)");
+    // Its ONLY argument is the borrowed review capability. No bool, no string, no scope, no phrase.
+    if (
+      !/fn for_governed_review\(\s*_review: &crate::review_exchange::HostReviewIpcCapability,?\s*\)/.test(
+        review
+      )
+    )
+      errors.push(
+        "for_governed_review takes something other than exactly one borrowed review capability"
+      );
+    // It mints the REVIEW scope, and never the status one.
+    if (!/scope:\s*CapabilityScope::GovernedHostReviewLocalOnly/.test(review))
+      errors.push("the governed-review acquisition does not mint the governed-review scope");
+    if (/ReadInstalledHostStatusLocalOnly/.test(review))
+      errors.push("the governed-review acquisition can mint the status-read scope");
+  }
+
+  // THE SCOPE IS A FIELD, NOT A CONSTANT. A `scope()` that returned the same value whatever it was
+  // minted from would make every check above a comment.
+  if (!/pub struct LiveIpcOperationCapability \{[\s\S]*?scope: CapabilityScope,[\s\S]*?\}/.test(adapter))
+    errors.push("LiveIpcOperationCapability does not carry the scope it was minted at");
+  if (/fn scope\(&self\) -> CapabilityScope \{\s*CapabilityScope::/.test(adapter))
+    errors.push("scope() returns a constant rather than the minted scope");
+
+  // The status mint carries the status scope and nothing else.
+  if (ipcOwnerImpl && !/scope:\s*CapabilityScope::ReadInstalledHostStatusLocalOnly/.test(ipcOwnerImpl[0]))
+    errors.push("the owner status-read acquisition does not mint the status scope");
+  if (ipcOwnerImpl && /GovernedHostReviewLocalOnly/.test(ipcOwnerImpl[0]))
+    errors.push("the owner status-read acquisition can mint the governed-review scope");
+
+  // BOTH SCOPES EXIST AND ARE DISTINCT, and the serving facades refuse the wrong one in BOTH
+  // directions - the status facade refuses a review capability and the review facade refuses a
+  // status one. A single generic scope, or a check in only one direction, is a substitution hole.
+  const ffi = stripComments(read(path.join(SRC, "windows_ffi.rs")));
+  if (
+    !/cap\.scope\(\) != crate::adapter::CapabilityScope::ReadInstalledHostStatusLocalOnly/.test(ffi)
+  )
+    errors.push("the status serving facade does not refuse a non-status capability scope");
+  if (
+    !/cap\.scope\(\) != crate::adapter::CapabilityScope::GovernedHostReviewLocalOnly/.test(ffi)
+  )
+    errors.push("the review serving facade does not refuse a non-review capability scope");
+  const reviewEx = stripComments(read(path.join(SRC, "review_exchange.rs")));
+  if (!/cap\.scope\(\) != CapabilityScope::GovernedHostReviewLocalOnly/.test(reviewEx))
+    errors.push("the review-half primitive does not refuse a non-review capability scope");
+  // The review capability is NOT minted from the status approval or its phrase.
+  if (/OwnerStatusReadApproval/.test(reviewEx))
+    errors.push("the review exchange names the owner status-read approval - a mint-source conflation");
+
   let ipcOutside = ipcFixtureImpl ? adapterNoDef.replace(ipcFixtureImpl[0], " ") : adapterNoDef;
   if (ipcOwnerImpl) ipcOutside = ipcOutside.replace(ipcOwnerImpl[0], " ");
+  if (ipcReviewImpl) ipcOutside = ipcOutside.replace(ipcReviewImpl[0], " ");
   // The approval type's own impl builds an `OwnerStatusReadApproval`, a DIFFERENT sealed type whose
   // exact-phrase gate is proven above; exclude it so it is not mistaken for a capability construction.
   ipcOutside = ipcOutside.replace(
     /#\[cfg\(feature = "owner-approved-status-read"\)\]\s*impl OwnerStatusReadApproval \{[\s\S]*?\n\}/,
     " "
   );
-  if (/LiveIpcOperationCapability\s*\{/.test(ipcOutside))
+  // An `impl LiveIpcOperationCapability {` HEADER is not a construction. The lookbehind excludes
+  // exactly that and nothing else, so a struct LITERAL inside any impl block is still caught.
+  if (/(?<!impl )LiveIpcOperationCapability\s*\{/.test(ipcOutside))
     errors.push(
-      "LiveIpcOperationCapability is constructed outside the two gated acquisition routes"
+      "LiveIpcOperationCapability is constructed outside the three authorised acquisition routes"
     );
   if (ipcFixtureImpl && !/pub fn synthetic_for_fixture\(\) -> Self/.test(ipcFixtureImpl[0]))
     errors.push("the fixture acquisition is not the expected narrow constructor");

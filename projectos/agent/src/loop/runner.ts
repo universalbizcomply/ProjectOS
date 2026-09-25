@@ -25,6 +25,7 @@ import type { System } from '../system.js';
 import { loadGovernedContext, refusalLines, type GovernedContext } from '../governedContext.js';
 import { verifyExecutionContext } from './observation.js';
 import { computeCandidateIdentity } from './candidateIdentity.js';
+import { commitLocalCandidate } from './localCandidateCommit.js';
 import { consumeAnsweredOwnerGates, ownerGateReceiptRelPath } from './ownerGateReceipts.js';
 import { runTechnicalContinuation, performableTechnicalActions } from './technicalContinuation.js';
 import { resolveTechnicalDelegation } from './gatekeeperConfig.js';
@@ -658,6 +659,21 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
   /** The last decision `checkGatekeeperDecision` accepted, or null. Never authority on its own. */
   let acceptedDecision: CheckedTechnicalDecision | null = null;
   /**
+   * PROJECTOS-HOST-REVIEW-PATH1B, UNIT L. The local candidate commit the unattended route recorded
+   * before its last review, or null. When set it IS the review subject: ProjectOSHost pins it and derives
+   * the evidence from the approved baseline to it. Never set on the interactive route.
+   */
+  let candidateHead: string | null = null;
+  /** Why the last local candidate could not be recorded; a review is never asked while this is set. */
+  let localCandidateRefusal: readonly string[] | null = null;
+  /** The commit a review is about: the local candidate when one was recorded, else the run-start HEAD. */
+  const reviewSubject = (): string => candidateHead ?? verification.observed.head ?? '';
+  /** Only the unattended route with a composed Host review commits before it asks. */
+  const unattendedHostRoute = (): boolean => {
+    const g = options.gatekeeper;
+    return g !== undefined && g.mode === 'unattended' && g.hostReview !== undefined;
+  };
+  /**
    * Owner gates this run has PAID FOR: the receipt was judged valid and provably spent.
    *
    * A gate enters this map only after `consumeAnsweredOwnerGates` proved the spend, so membership is
@@ -868,6 +884,14 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     const deps = options.gatekeeper;
     if (deps === undefined) return null;
 
+    // UNIT L: NO REVIEW OF A CANDIDATE THAT COULD NOT BE COMMITTED. On the unattended route the Host can
+    // only review a commit; asking about the base instead would attest bytes that are not the work.
+    if (localCandidateRefusal !== null) {
+      lines.push('  the candidate could not be committed locally before review, so no review was asked:');
+      lines.push(...localCandidateRefusal.map((r) => `    ${r}`));
+      return null;
+    }
+
     // AWAITING_GATE is reported by `evidenceFor`, BEFORE the candidate is frozen. See the note
     // there: reporting it here wrote lifecycle records into a candidate that had already been
     // sealed, so the reviewer was shown bytes that were stale by the time it saw them.
@@ -888,7 +912,8 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
         stop: candidate,
         projectId: context.projectId,
         phaseId,
-        subjectCommit: verification.observed.head ?? '',
+        // THE LOCAL CANDIDATE ON THE UNATTENDED ROUTE (UNIT L), the run-start HEAD everywhere else.
+        subjectCommit: reviewSubject(),
         repositoryRoot: root,
         evidenceText,
         ownerOnlyActions: options.ownerOnlyActions ?? brief.phase.requiredOwnerGates,
@@ -1043,6 +1068,36 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
         : { note: `${c.identity.entries.length - shown.length} further path(s) are covered by the digest and not listed` }),
     };
   };
+  /**
+   * UNIT L. Record the candidate as a local commit before the review, on the unattended Host route.
+   *
+   * `null` on every other route (the evidence then carries no such key). A refusal is remembered in
+   * `localCandidateRefusal` so `consultGatekeeper` asks nothing - and is ALSO shown in the evidence, so a
+   * record of the stop says why. A candidate with nothing new to record leaves the subject where it was.
+   */
+  const recordLocalCandidate = (): Record<string, unknown> | null => {
+    localCandidateRefusal = null;
+    if (!unattendedHostRoute()) return null;
+    const made = commitLocalCandidate(sys, root, phaseId);
+    if (made.kind === 'REFUSED') {
+      localCandidateRefusal = made.reasons;
+      return { available: false, why: made.reasons.join('; ') };
+    }
+    if (made.kind === 'COMMITTED') {
+      candidateHead = made.commit;
+      lines.push(
+        `  local candidate committed before review: ${made.commit} on ${made.parent} ` +
+          `(${made.paths.length} path(s)); nothing was published`,
+      );
+    }
+    return {
+      available: true,
+      commit: reviewSubject(),
+      note:
+        'The candidate is this commit. ProjectOSHost derives the reviewed evidence from the approved baseline ' +
+        'to it; it is local and unpublished, and a correction will be a further commit on top of it.',
+    };
+  };
   const evidenceFor = (
     reason: LoopStop,
     parts: {
@@ -1081,6 +1136,14 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     if (options.gatekeeper !== undefined) {
       options.onWorkState?.({ state: 'AWAITING_GATE', phaseId, sessionId, lastStopCode: reason.code });
     }
+
+    // UNIT L — THE CANDIDATE BECOMES A COMMIT BEFORE THE REVIEW, on the unattended route only.
+    //
+    // After the lifecycle writes above (they belong to the candidate) and before `candidateEvidence()`
+    // seals what the reviewer is shown. ProjectOSHost reviews the difference from the approved baseline
+    // to the commit it pins, so without this the Host would have framed the BASE and the work would have
+    // reached the reviewer only as agent-claimed text. The interactive route never reaches this.
+    const localCandidate = recordLocalCandidate();
 
     const f = parts.findings;
     const c = parts.checks;
@@ -1132,6 +1195,8 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
         // restore the old, unbound question, and every later comparison would have nothing to
         // compare against.
         candidate: candidateEvidence(),
+        // Present on the unattended route only, so the interactive evidence text is unchanged byte for byte.
+        ...(localCandidate === null ? {} : { localCandidateCommit: localCandidate }),
         // THE ONLY WORDS THAT AUTHORISE ANYTHING, STATED WHERE THE DECISION IS BOUND TO THEM.
         //
         // The first live approval of a real continuation named
@@ -1355,7 +1420,19 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     // THE ACTIONS THE DECISION APPROVED, in the fixed order the executor proved. A decision approving
     // only a commit does not push; one approving both does them in this order and stops at the first
     // refusal. `APPROVED_TO_PROCEED` is not a licence to keep going.
-    const approved = TECHNICAL_ACTIONS.filter((a: string) => acceptedDecision!.allowedActions.includes(a));
+    const approvedActions = TECHNICAL_ACTIONS.filter((a: string) => acceptedDecision!.allowedActions.includes(a));
+    // UNIT L: ON THE UNATTENDED ROUTE THE REVIEWED OBJECT ALREADY IS A COMMIT. The decision is about the
+    // local candidate the Host pinned, so an approved `commit` has nothing left to record - and running the
+    // executor's commit over the now-empty working tree would refuse the work the reviewer just approved.
+    // Only when the decision's subject IS that local candidate; the interactive route never sets it.
+    const committedBeforeReview = candidateHead !== null && acceptedDecision.subjectCommit === candidateHead;
+    const approved = committedBeforeReview ? approvedActions.filter((a) => a !== 'commit') : approvedActions;
+    if (committedBeforeReview && approvedActions.includes('commit')) {
+      lines.push(`  commit: the reviewed local candidate ${candidateHead} is already committed; nothing further is recorded`);
+    }
+    if (approved.length === 0 && committedBeforeReview && approvedActions.length > 0) {
+      return { kind: 'APPLIED' };
+    }
     if (approved.length === 0) {
       const detail =
         `the decision approved no technical action ProjectOS performs ` +
@@ -1456,14 +1533,14 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
         requestedPaths: pathsNamedIn(lastInstruction),
         projectId: context.projectId,
         phaseId,
-        subjectCommit: verification.observed.head ?? '',
+        subjectCommit: reviewSubject(),
         decisionId: lastDecisionId,
       },
       {
         maximumPaths: correctionMaximum,
         projectId: context.projectId,
         phaseId,
-        subjectCommit: verification.observed.head ?? '',
+        subjectCommit: reviewSubject(),
         consumedDecisionIds: correctionsApplied,
         attemptsRemaining: MAX_CORRECTION_ATTEMPTS - correctionsApplied.length,
       },

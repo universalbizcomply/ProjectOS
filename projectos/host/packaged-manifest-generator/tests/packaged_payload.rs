@@ -144,6 +144,9 @@ fn inputs(root: &Path) -> ManifestInputs<'_> {
         build_id: BUILD_ID,
         signing_key_id: KEY_ID,
         generated_at: GENERATED_AT,
+        admitted_review_cost_micro_usd: 250_000,
+        model_policy: "openai/gpt-5.6-terra",
+        credential_ref: "PROJECTOS_GATEKEEPER_OPENAI_KEY",
     }
 }
 

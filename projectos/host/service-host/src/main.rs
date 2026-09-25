@@ -42,6 +42,16 @@ pub mod scm;
 pub mod serve;
 #[cfg(windows)]
 pub mod status;
+// PROJECTOS-HOST-REVIEW-PATH1B §10. The trusted startup composition: verified installation ->
+// machine-wide authority -> one-shot clock authority -> trusted clock -> ONE provider lease -> ONE
+// capability set. Windows-only, because every link in it is a Windows fact.
+#[cfg(windows)]
+pub mod trusted_startup;
+// PROJECTOS-HOST-REVIEW-PATH1B 10/11. The activation adapter: it holds the owner-signed activation
+// inputs and the production ports for the life of the serve loop, and re-binds the per-connection
+// session and peer into the Host answer on every exchange.
+#[cfg(windows)]
+pub mod governed_review_activation;
 
 /// The exact service name. Frozen: it is not derived from the file name, the command line or the
 /// environment, and no other name is representable here.

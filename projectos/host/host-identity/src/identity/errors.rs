@@ -77,6 +77,13 @@ pub enum IdentityError {
     /// The credential adapter's committed bytes are not the attested ones.
     CredentialAdapterHashMismatch,
 
+    /// The signed execution-cost policy admits nothing, or more than the bound. Never defaulted.
+    ExecutionCostPolicyInvalid,
+    /// The signed model-policy text is empty, oversize or not canonical text. Never defaulted.
+    ModelPolicyTextInvalid,
+    /// The signed credential-reference text is empty, oversize or not canonical text. Never defaulted.
+    CredentialReferenceTextInvalid,
+
     InternalErrorRedacted,
 }
 
@@ -151,6 +158,11 @@ impl IdentityError {
             | IdentityError::CredentialAdapterNotReadable
             | IdentityError::CredentialAdapterHashMismatch => {
                 "The credential adapter does not match the signed release; provider calls stay disabled."
+            }
+            IdentityError::ExecutionCostPolicyInvalid
+            | IdentityError::ModelPolicyTextInvalid
+            | IdentityError::CredentialReferenceTextInvalid => {
+                "The signed release states no usable cost, model or credential-reference policy; provider calls stay disabled."
             }
             IdentityError::InternalErrorRedacted => {
                 "Restart ProjectOS; if it persists, reinstall from an approved release."

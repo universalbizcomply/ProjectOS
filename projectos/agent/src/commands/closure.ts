@@ -57,6 +57,8 @@ import {
   type ClosureBundleEntry,
   type ClosureWaitRecord,
 } from '../closureWait.js';
+import type { HostClosureReviewPort } from '@projectos/core';
+import { composeHostReview } from '../loop/hostReviewComposition.js';
 import {
   takeClosureTurn,
   takeInteractiveClosureTurn,
@@ -69,7 +71,7 @@ import {
   readLedger,
   admitGatekeeperSpend,
   releaseUndispatchedReservation,
-  resolveGatekeeperSpend,
+  settleUnansweredGatekeeperSpend,
   settleGatekeeperSpend,
   type GatekeeperConfig,
 } from '../loop/gatekeeperConfig.js';
@@ -273,7 +275,12 @@ export type ClosureCompositionArgs = {
   readonly gateWaitMs: number;
 } & (
   | { readonly mode: 'interactive'; readonly config: null }
-  | { readonly mode: 'unattended'; readonly config: GatekeeperConfig }
+  | {
+      readonly mode: 'unattended';
+      readonly config: GatekeeperConfig;
+      /** The route to ProjectOSHost, present only when the COMMITTED configuration names one. */
+      readonly hostReview?: HostClosureReviewPort;
+    }
 );
 
 /**
@@ -581,6 +588,7 @@ export function closureRequest(ctx: CommandContext, flags: Flags, makeDeps?: Mak
   // and needs no endpoint, price or credential, so a project configured only with `"mode": "interactive"`
   // is not refused for lacking them.
   let config: GatekeeperConfig | null = null;
+  let hostClosureReview: HostClosureReviewPort | undefined;
   if (modeResolution.mode === 'unattended') {
     const gk = loadGatekeeperConfig(sys, root, 'not-needed');
     if (!gk.ok) {
@@ -592,6 +600,9 @@ export function closureRequest(ctx: CommandContext, flags: Flags, makeDeps?: Mak
       ]);
     }
     config = gk.config;
+    const composedHost = composeHostReview(sys, root);
+    if (composedHost.kind === 'refused') return fail(2, composedHost.lines);
+    if (composedHost.kind === 'composed') hostClosureReview = composedHost.port;
   }
 
   const evidenceText = closureEvidenceText(
@@ -622,7 +633,9 @@ export function closureRequest(ctx: CommandContext, flags: Flags, makeDeps?: Mak
     gateWaitMs: gateWaitMinutes * 60_000,
   };
   const deps = (makeDeps ?? productionClosureDeps)(
-    config === null ? { ...shared, mode: 'interactive', config: null } : { ...shared, mode: 'unattended', config },
+    config === null
+      ? { ...shared, mode: 'interactive', config: null }
+      : { ...shared, mode: 'unattended', config, ...(hostClosureReview === undefined ? {} : { hostReview: hostClosureReview }) },
   );
   const turnInput = {
     projectId: gc.context.projectId,
@@ -777,6 +790,9 @@ function productionClosureDeps(args: ClosureCompositionArgs): ClosureTurnDeps | 
   const config = args.config;
   return {
     mode: 'unattended',
+    // THE HOST ROUTE, ONLY WHEN THE COMMITTED CONFIGURATION NAMES ONE. `closureCommand` has already
+    // refused a block that is present but broken, so what reaches here is `composed` or nothing.
+    ...(args.hostReview === undefined ? {} : { hostReview: args.hostReview }),
     transport: config.transport,
     availability: { reachable: true },
     // THE CREDENTIAL IS NOT RESOLVED IN THIS PROCESS. In unattended mode it is the Host's; the resolver
@@ -816,8 +832,8 @@ function productionClosureDeps(args: ClosureCompositionArgs): ClosureTurnDeps | 
         readBrokerAnsweredState(sys, nodeInstallationStateDir(), request),
       ),
     releaseUndispatched: (requestId: string) => releaseUndispatchedReservation(sys, root, requestId),
-    resolveSpend: (request, cause) =>
-      resolveGatekeeperSpend(sys, root, request.requestId, cause, () =>
+    resolveSpend: (request, cause, providerDispatched) =>
+      settleUnansweredGatekeeperSpend(sys, root, request.requestId, cause, providerDispatched, () =>
         readBrokerAnsweredState(sys, nodeInstallationStateDir(), request),
       ),
     // THE IDS THIS PHASE HAS ALREADY SPENT, from its own history. The gate refuses a replay too —

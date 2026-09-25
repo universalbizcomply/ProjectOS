@@ -1,0 +1,57 @@
+[package]
+name = "projectos-host-gatekeeper-review-composition"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "UNLICENSED"
+description = "The production adapters behind ProjectOSHost's independent-gatekeeper-review composition ports. Supplies HostPlanAuthority from the accepted durable approved-plan authority (PlanDurableStore -> resolve_active -> ValidatedApprovedPlan) and CommittedCandidateSource from the accepted pinned committed-file reader, mapping each to the canonical projectos.programme-identity.v1 and projectos.committed-candidate.v1 digests. IT MINTS NOTHING: both traits are unsealed composition ports, every value returned is a digest rather than an authority, None always means 'could not establish' rather than 'nothing is wrong', and no caller-supplied value is ever accepted as a host fact. It opens no pipe, starts no service, reads no credential, contacts no provider and performs no Windows call of its own."
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[dependencies]
+# The composition ports this crate implements, plus the operation contract's digest widths. The arrow
+# points THIS WAY deliberately: windows-local-ipc's dependency list is closed by an accepted validator,
+# so an adapter that it depended on would need that list widened. Implementing its unsealed ports from
+# outside needs no such change.
+projectos-host-windows-local-ipc = { path = "../windows-local-ipc" }
+# The accepted durable approved-plan authority. Its reload path re-normalizes the candidate, recomputes
+# phase_definition_digest and compares it to what was stored, so a ValidatedApprovedPlan is reachable
+# only after that comparison passed.
+projectos-host-plan-durable-store = { path = "../plan-durable-store" }
+# The ALREADY ACCEPTED pinned committed-file reader. Reused rather than re-implemented: a second
+# repository reader is a second opinion about which commit is current, and the whole point of pinning
+# is that there is only one.
+projectos-host-repository = { path = "../repository" }
+# THE canonical identity and committed-candidate digests. One definition of meaning, shared with the
+# agent through the committed cross-language vector file.
+projectos-host-identity = { path = "../host-identity" }
+# ApprovedPlanBinding / ValidatedApprovedPlan, for the narrow read-only accessors this adapter reads.
+projectos-host-core = { path = "../core" }
+# PROJECTOS-HOST-REVIEW-PATH1A. The review operation's ports, its one-shot inbox contract and the
+# response-record sink: the Host dispatch composes them, and the three filesystem adapters implement
+# them. Pure logic; the filesystem effects are this crate's own and are confined to three derived-name
+# leaf directories beneath a root the caller resolved.
+projectos-host-gatekeeper-attestation = { path = "../gatekeeper-attestation" }
+# PROJECTOS-HOST-REVIEW-PATH1B. The canonical system-preferred CSPRNG fill, for the ONE thing this crate
+# draws at random: the boundary marker that frames a reviewer's input. Reused rather than re-bound, so
+# the Host still has a single place that talks to the system random source.
+projectos-windows-runtime-primitives = { path = "../windows-runtime-primitives" }
+# The packaging contract's FIXED repository paths of the execution-closure artefacts. The closure-facts
+# adapter reads committed bytes at these constants, never at a path an unsigned manifest names.
+projectos-packaged-runtime-contract = { path = "../packaged-runtime-contract" }
+# PROJECTOS-HOST-REVIEW-PATH1B. The production ports: SHA-256 for the runtime pin and the request digest
+# the broker checks; serde for the broker's request file and its answer. All three are already in the
+# Host tree.
+sha2 = "0.10"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+# The synthetic owner-approval + Intent/Commit journal path, so the plan under test is one the reload
+# contract produced. `test-fixtures` is non-default and no shipped graph enables it.
+projectos-host-core = { path = "../core", features = ["test-fixtures"] }
+# The Host half on a REAL disk needs steps 4-8 of the review operation, which only the attestation
+# crate's fixture entry reaches without an owner-signed manifest. Dev-only: no consumer's graph gains it.
+projectos-host-gatekeeper-attestation = { path = "../gatekeeper-attestation", features = ["test-fixtures"] }
+sha2 = "0.10"

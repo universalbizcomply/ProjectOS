@@ -1098,8 +1098,16 @@ function run() {
     const evidenceSelfAll = evidenceBodies
       .map((b) => (b.match(/(?<!-> )(?<!let )Self\s*\{/g) || []).length)
       .reduce((a, b) => a + b, 0);
-    if (evidenceSelfAll !== 0) {
-      e.push("O6 a shipped `impl ExecutionOutcomeEvidence` block constructs the type; Completed could be rendered without execution");
+    // OWNER-RATIFIED AMENDMENT 1 (PROJECTOS-HOST-REVIEW-PATH1A): EXACTLY ONE, no longer zero.
+    //
+    // "Zero shipped constructions" kept `Completed` unforgeable by keeping it IMPOSSIBLE: nothing
+    // could ever be reported as finished, so the unattended review path could not exist. The property
+    // this rule protects was never the count - it is "`Completed` cannot be rendered without
+    // execution" - and it is now held by pinning WHERE the single mint is, WHO may reach it and WHAT
+    // it may say, in the checks that follow. Any count other than one fails: zero means the path was
+    // removed without this rule being revisited, two means a second route appeared.
+    if (evidenceSelfAll !== 1) {
+      e.push("O6 expected EXACTLY ONE shipped construction inside `impl ExecutionOutcomeEvidence`, found " + evidenceSelfAll + " (owner-ratified Amendment 1 permits one and only one)");
     }
     // NO MACRO INSIDE THE EVIDENCE IMPL EITHER. Every other sealed type carries this guard, and
     // this one did not: a `macro_rules!` defined in a SIBLING module and merely invoked here spells
@@ -1116,8 +1124,106 @@ function run() {
     }
     const evidenceCtors = (crateSrc.match(/(?<!struct )(?<!impl )(?<!-> )ExecutionOutcomeEvidence\s*\{/g) || []).length;
     const evidenceSelf = (stripComments(stripNonShippedItems(balancedBody(contractRaw, "impl ExecutionOutcomeEvidence {"))).match(/Self\s*\{/g) || []).length;
-    if (evidenceCtors !== 0 || evidenceSelf !== 0) {
-      e.push("O6 ExecutionOutcomeEvidence has a shipped constructor; Completed could be rendered without execution");
+    // A NAMED struct literal is still forbidden everywhere: the one permitted construction is the
+    // `Self {` inside the single impl block, which only the defining module can spell.
+    if (evidenceCtors !== 0) {
+      e.push("O6 ExecutionOutcomeEvidence is constructed by a named struct literal; the only permitted mint is the one inside its impl block");
+    }
+    if (evidenceSelf !== 1) {
+      e.push("O6 the operation-contract module must hold EXACTLY ONE shipped ExecutionOutcomeEvidence construction, found " + evidenceSelf);
+    }
+
+    // ---- AMENDMENT 1: THE SINGLE MINT IS PINNED, NOT MERELY COUNTED -------------------------------
+    //
+    // (a) PRIVATE. Only the defining module and its descendants can name it, so no downstream crate
+    //     and no sibling module can call it.
+    const mintDecls = (contract.match(/\bfn\s+from_completed_execution\s*\(/g) || []).length;
+    if (mintDecls !== 1) {
+      e.push("O6 expected exactly one `fn from_completed_execution`, found " + mintDecls);
+    }
+    if (/pub(?:\s*\([^)]*\))?\s+fn\s+from_completed_execution\s*\(/.test(contract)) {
+      e.push("O6 the ExecutionOutcomeEvidence mint is not private; a public or crate-visible mint is reachable outside the execution rung");
+    }
+    const mintSig = (contract.match(/fn from_completed_execution\([\s\S]*?\)\s*->\s*Option<Self>/) || [""])[0].replace(/\s+/g, " ");
+    if (!/authority: &AuthorisedProtectedOperation/.test(mintSig)) {
+      e.push("O6 the ExecutionOutcomeEvidence mint no longer requires the authorised operation");
+    }
+    // (b) THE CORRELATION COMES OFF THE AUTHORITY. A mint that accepted a correlation could be aimed
+    //     at a request nobody authorised.
+    if (/correlation\s*:\s*\[u8/.test(mintSig)) {
+      e.push("O6 the ExecutionOutcomeEvidence mint accepts a caller-supplied correlation");
+    }
+    const mintBody = balancedBody(contract, "fn from_completed_execution(").replace(/\s+/g, " ");
+    if (!/correlation: \*authority\.correlation\(\)/.test(mintBody)) {
+      e.push("O6 the ExecutionOutcomeEvidence mint does not take its correlation from the authority");
+    }
+    // (c) `NotRun` IS NOT MINTABLE. Evidence says an execution happened; "nothing ran" is a refusal
+    //     and must travel as `Rejected`, never as `Completed`.
+    if (!/if result == ResultClass::NotRun \{ return None; \}/.test(mintBody)) {
+      e.push("O6 the ExecutionOutcomeEvidence mint no longer refuses ResultClass::NotRun; 'nothing ran' could be rendered Completed");
+    }
+    // (d) EXACTLY ONE CALL SITE IN THE SHIPPED CRATE, and it is inside the execution rung.
+    const mintCalls = (crateSrc.match(/ExecutionOutcomeEvidence::from_completed_execution\s*\(/g) || []).length;
+    if (mintCalls !== 1) {
+      e.push("O6 expected exactly one shipped call to the ExecutionOutcomeEvidence mint, found " + mintCalls);
+    }
+    const COMPOSITION = path.join(IPC, "operation_contract", "host_composition.rs");
+    const compositionSrc = stripComments(stripNonShippedItems(fs.readFileSync(COMPOSITION, "utf8")));
+    const rung = balancedBody(compositionSrc, "pub fn run_authorised_review(");
+    if (!rung) {
+      e.push("O6 `run_authorised_review` is missing; the ExecutionOutcomeEvidence mint has no ruled caller");
+    } else {
+      const callAt = rung.search(/ExecutionOutcomeEvidence::from_completed_execution\s*\(/);
+      const seamAt = rung.search(/execution\.execute\s*\(/);
+      if (callAt < 0) {
+        e.push("O6 the single ExecutionOutcomeEvidence mint is not called from run_authorised_review");
+      }
+      // (e) THE MINT FOLLOWS THE SEAM. Evidence minted before the execution was driven would be
+      //     evidence of nothing.
+      if (seamAt < 0) {
+        e.push("O6 run_authorised_review no longer drives the sealed execution seam");
+      } else if (callAt >= 0 && callAt < seamAt) {
+        e.push("O6 run_authorised_review mints execution evidence BEFORE driving the execution seam");
+      }
+    }
+    const rungSig = (compositionSrc.match(/pub fn run_authorised_review\([\s\S]*?\)\s*->\s*ProtectedOperationResponse/) || [""])[0].replace(/\s+/g, " ");
+    if (!/composed: ComposedProtectedOperation/.test(rungSig)) {
+      e.push("O6 run_authorised_review no longer consumes the composed, authorised operation");
+    }
+    if (!/execution: &mut dyn GatekeeperReviewExecution/.test(rungSig)) {
+      e.push("O6 run_authorised_review no longer requires the sealed execution seam");
+    }
+    // A caller-supplied truth about execution is exactly what the seam exists to prevent.
+    if (/:\s*bool\b/.test(rungSig) || /ResultClass/.test(rungSig) || /EVIDENCE_REF_LEN/.test(rungSig)) {
+      e.push("O6 run_authorised_review accepts a caller-supplied execution fact (bool, result class or evidence reference)");
+    }
+    // (f) THE SEAM IS SEALED, by a supertrait in a module nothing outside this tree can name. Pinning
+    //     where the mint is says nothing about WHO may claim an execution occurred; the seal does.
+    if (!/pub trait GatekeeperReviewExecution\s*:\s*gatekeeper_review_execution::Sealed\b/.test(compositionSrc)) {
+      e.push("O6 GatekeeperReviewExecution is not sealed; a downstream crate could claim an execution occurred");
+    }
+    if (/pub(?:\s*\([^)]*\))?\s+mod\s+gatekeeper_review_execution\b/.test(compositionSrc)) {
+      e.push("O6 the module sealing GatekeeperReviewExecution is not private; its supertrait is nameable downstream");
+    }
+    if (!/\bmod\s+gatekeeper_review_execution\s*\{/.test(compositionSrc)) {
+      e.push("O6 the private module sealing GatekeeperReviewExecution is missing");
+    }
+    // (g) AT MOST ONE SHIPPED IMPLEMENTOR, and only inside the composition's own module tree. A
+    //     fixture implementor is compiled only under `test-fixtures` and is stripped before this scan.
+    const compositionTree = path.join(IPC, "operation_contract", "host_composition");
+    let shippedSeamImpls = 0;
+    for (const f of crateFiles) {
+      const src = stripComments(stripNonShippedItems(fs.readFileSync(f, "utf8")));
+      const n = (src.match(/impl\s+(?:[A-Za-z_][A-Za-z0-9_]*::)*gatekeeper_review_execution::Sealed\s+for\b/g) || []).length;
+      if (n === 0) continue;
+      shippedSeamImpls += n;
+      const inTree = f === COMPOSITION || f.startsWith(compositionTree + path.sep);
+      if (!inTree) {
+        e.push("O6 a shipped GatekeeperReviewExecution implementor exists outside the host_composition module tree: " + path.relative(ROOT, f));
+      }
+    }
+    if (shippedSeamImpls > 1) {
+      e.push("O6 more than one shipped GatekeeperReviewExecution implementor exists (" + shippedSeamImpls + "); exactly one Host-authored execution is permitted");
     }
     // 6i. The governed removals stay removed, crate-wide: no second session reference, no ignored field.
     for (const gone of ["client_session_ref", "SESSION_REF_LEN"]) {

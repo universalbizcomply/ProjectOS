@@ -186,6 +186,8 @@ export type ClosureTransportOutcome =
       readonly cause: GatekeeperUnavailabilityCause;
       readonly reasons: readonly string[];
       readonly spendLimited: boolean;
+      /** Set ONLY by the Host route: what ProjectOSHost established about dispatch. See `TransportOutcome`. */
+      readonly providerDispatched?: boolean;
     };
 
 /** The request body, built from the governed closure request. Pure — inspectable without sending. */

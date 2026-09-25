@@ -39,7 +39,7 @@ fn arg(args: &[String], name: &str) -> Option<String> {
         .cloned()
 }
 
-const REQUIRED: [&str; 7] = [
+const REQUIRED: [&str; 10] = [
     "--daemon-bundle",
     "--out",
     // THE INSTALLATION whose committed execution closure is attested. Required, never defaulted:
@@ -50,6 +50,12 @@ const REQUIRED: [&str; 7] = [
     "--build-id",
     "--signing-key-id",
     "--generated-at",
+    // THE OWNER'S POLICY FACTS (PROJECTOS-HOST-REVIEW-PATH1B). Required, never defaulted: a default cost
+    // would be a cost nobody approved, and a default model policy or credential reference would be an
+    // identity the owner never chose. The signature that later covers them is the owner's.
+    "--admitted-review-cost-micro-usd",
+    "--model-policy",
+    "--credential-ref",
 ];
 
 fn usage() {
@@ -220,6 +226,14 @@ fn main() -> ExitCode {
     println!("closure       : CLOSED ({} file(s))", report.files.len());
 
     // ---- 3. generate ----------------------------------------------------------------------------
+    // A cost that is not a whole number of micro-USD is refused rather than rounded or defaulted.
+    let admitted_cost: u64 = match value("--admitted-review-cost-micro-usd").parse() {
+        Ok(n) => n,
+        Err(_) => {
+            eprintln!("projectos-manifest-gen: refused — --admitted-review-cost-micro-usd is not a whole number");
+            return ExitCode::FAILURE;
+        }
+    };
     let generated = match generate_unsigned_manifest(&ManifestInputs {
         payload_root: &payload.root,
         install_root: &install_root,
@@ -227,6 +241,9 @@ fn main() -> ExitCode {
         build_id: &value("--build-id"),
         signing_key_id: &value("--signing-key-id"),
         generated_at: &value("--generated-at"),
+        admitted_review_cost_micro_usd: admitted_cost,
+        model_policy: &value("--model-policy"),
+        credential_ref: &value("--credential-ref"),
     }) {
         Ok(g) => g,
         Err(e) => {

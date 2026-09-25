@@ -1,0 +1,32 @@
+{
+  "contract": "projectos.host-identity-vectors.v1",
+  "why": "ONE canonical expected value per digest, read by BOTH the Rust host implementation and the TypeScript agent mirror. Neither side hand-authors its own copy: if either drifts, its own test suite fails against this file. Changing a value here breaks every party that already agreed, so a value changes only together with the schema version beside it.",
+  "programmeIdentity": {
+    "domain": "projectos.programme-identity.v1",
+    "encoding": "sha256( u32be(len(domain)) || domain || u32be(len(fieldTag)) || fieldTag || u32be(len(value)) || value )",
+    "vectors": [
+      { "field": "project", "value": "projectos", "digest": "5aff876321f8441e1e44560ac9a32a8d8df06a06405d34f88093cd5053bc004f" },
+      { "field": "repository", "value": "github.com/universalbizcomply/ProjectOS", "digest": "4f5e35ee29360ca7dea67e8f48ea07b06023da2e544190cd754334a343b7f074" },
+      { "field": "plan", "value": "plan-a45a693cb1a5f4b2-e9e72d69fc4a", "digest": "c2efd1a00b6ebe99984163884a5d99cbc6dd5204347ad81530bdcf036ec609da" },
+      { "field": "phase", "value": "PROJECTOS-HOST-REVIEW-PATH1A", "digest": "5df3c8c9ca3a2a9ab9dfa94c0ece4661af4b069615b964c2eae25d9110b325d4" },
+      { "field": "model-policy", "value": "approved-pilot-policy", "digest": "1f59e70484cd10d48722e52a7c44b268540f7cff9e24ba91e23f72f3cf052b98" },
+      { "field": "credential-ref", "value": "PROJECTOS_GATEKEEPER_OPENAI_KEY", "digest": "10daf2c740c6ebe5e9c96475f4bc9875629d757db0b80855cdc94e1f8ff13202" }
+    ]
+  },
+  "committedCandidate": {
+    "domain": "projectos.committed-candidate.v1",
+    "schemaVersion": 1,
+    "encoding": "sha256( domain || u32be(schemaVersion) || 40 lowercase ascii hex commit oid )",
+    "accepted": [
+      { "label": "VECTOR A", "commitOid": "20fe0722528af748504baf9c094818c003a95ef7", "digest": "b51a9290b5633009dbe1f53e575ed97d4367ce142f4621ca105389a8a6ceedbf" },
+      { "label": "VECTOR B one-character mutation", "commitOid": "20fe0722528af748504baf9c094818c003a95ef8", "digest": "910f7d9ddb5ca444647da4adda2c4996d0df2862c898708316dd608b3cc74c1d" }
+    ],
+    "refused": [
+      { "label": "VECTOR C uppercase", "commitOid": "20FE0722528AF748504BAF9C094818C003A95EF7" },
+      { "label": "VECTOR D 39 chars", "commitOid": "20fe0722528af748504baf9c094818c003a95ef" },
+      { "label": "VECTOR D 41 chars", "commitOid": "20fe0722528af748504baf9c094818c003a95ef7a" },
+      { "label": "VECTOR E non-hex", "commitOid": "20fe0722528af748504baf9c094818c003a95efg" },
+      { "label": "VECTOR E trailing space", "commitOid": "20fe0722528af748504baf9c094818c003a95ef " }
+    ]
+  }
+}

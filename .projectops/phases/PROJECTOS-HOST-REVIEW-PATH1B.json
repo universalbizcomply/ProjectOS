@@ -1,0 +1,22 @@
+{
+  "phaseId": "PROJECTOS-HOST-REVIEW-PATH1B",
+  "project": "ProjectOS",
+  "objective": "Continue the accepted host review path implementation candidate so that the independent review is made about evidence the host derived from the candidate it attests, and so that every production port and the installed service route exist in source and fail closed until the owner supplies the protected activation inputs. Nothing is activated: no service start, no authority mint, no credential, no provider call and no spend.",
+  "status": "implementing",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-09-19T17:45:05.403Z",
+      "note": "explicit start by phase id under owner/gatekeeper ruling 2026-09-19; automated phase selection NOT used because the ratified PATH1A/PATH1B selection guard is not yet built. Active Plan v1.6 plan-01053932764c573b-68d21d6830c1, starting head 87f734e9f95ec9173074ebae693a06a2650473fb, inherited candidate manifest sha256 5d5d35ff761efca9edc3435f465d614f30f27cfa2c4bc556e56f193a986b448f (76 paths)"
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-09-19T17:45:05.739Z",
+      "note": "continuing the inherited host review path candidate; remaining ratified PATH1B scope only, selection guard first"
+    }
+  ]
+}

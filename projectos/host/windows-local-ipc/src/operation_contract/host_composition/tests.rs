@@ -135,6 +135,9 @@ fn request(seed: u8, sequence: u64) -> ProtectedOperationRequest {
 
 /// A plan authority that answers, or cannot.
 struct Plan(Option<()>);
+/// The approved baseline commit every fixture plan authority states (PROJECTOS-HOST-REVIEW-PATH1B).
+const FIXTURE_BASELINE: [u8; super::BASELINE_COMMIT_LEN] = [0xb4; super::BASELINE_COMMIT_LEN];
+
 impl HostPlanAuthority for Plan {
     fn plan(&self) -> Option<[u8; DELEGATION_DIGEST_LEN]> {
         self.0.map(|()| PLAN)
@@ -144,6 +147,27 @@ impl HostPlanAuthority for Plan {
     }
     fn phase(&self) -> Option<[u8; DELEGATION_DIGEST_LEN]> {
         self.0.map(|()| PHASE)
+    }
+    fn approved_baseline(&self) -> Option<[u8; super::BASELINE_COMMIT_LEN]> {
+        Some(FIXTURE_BASELINE)
+    }
+}
+
+/// A plan authority that establishes the plan, its digest and the phase - and has NO approved baseline
+/// commit for it (PROJECTOS-HOST-REVIEW-PATH1B).
+struct NoBaselinePlan;
+impl HostPlanAuthority for NoBaselinePlan {
+    fn plan(&self) -> Option<[u8; DELEGATION_DIGEST_LEN]> {
+        Some(PLAN)
+    }
+    fn plan_digest(&self) -> Option<[u8; DELEGATION_DIGEST_LEN]> {
+        Some(PLAN_DIGEST)
+    }
+    fn phase(&self) -> Option<[u8; DELEGATION_DIGEST_LEN]> {
+        Some(PHASE)
+    }
+    fn approved_baseline(&self) -> Option<[u8; super::BASELINE_COMMIT_LEN]> {
+        None
     }
 }
 
@@ -162,6 +186,9 @@ impl HostPlanAuthority for WrongPlan {
     }
     fn phase(&self) -> Option<[u8; DELEGATION_DIGEST_LEN]> {
         Some(self.phase)
+    }
+    fn approved_baseline(&self) -> Option<[u8; super::BASELINE_COMMIT_LEN]> {
+        Some(FIXTURE_BASELINE)
     }
 }
 
@@ -621,11 +648,19 @@ fn a_claimed_approval_reference_for_another_delegation_is_refused() {
 #[test]
 fn an_unavailable_host_source_refuses_before_the_inbox_is_consumed() {
     struct Case(&'static str);
-    for case in [Case("plan"), Case("closure"), Case("candidate")] {
+    for case in [
+        Case("plan"),
+        Case("baseline"),
+        Case("closure"),
+        Case("candidate"),
+    ] {
         let mut live = Live::open();
         let mut rig = Rig::exact(1);
         match case.0 {
             "plan" => rig.plan = Box::new(Plan(None)),
+            // AN ABSENT BASELINE REFUSES: everything else about the plan is established, and it is
+            // still not a plan a candidate can be measured against.
+            "baseline" => rig.plan = Box::new(NoBaselinePlan),
             "closure" => rig.closure = Closure(None),
             _ => rig.candidate = Candidate(None),
         }
@@ -640,6 +675,12 @@ fn an_unavailable_host_source_refuses_before_the_inbox_is_consumed() {
             "{} must refuse, got {outcome:?}",
             case.0
         );
+        if case.0 == "baseline" {
+            assert!(matches!(
+                outcome,
+                Err(CompositionRefusal::PlanAuthorityUnavailable)
+            ));
+        }
         assert_eq!(
             rig.inbox.asks, 0,
             "{} refused, so nothing was consumed",
@@ -2205,4 +2246,205 @@ fn a_second_composition_sees_the_first_reservation_in_the_canonical_ledger() {
         "got {outcome:?}"
     );
     assert_eq!(project.entries().len(), 2);
+}
+
+// -------------------------------------------------------------------------------------------------
+// THE EXECUTION RUNG (PROJECTOS-HOST-REVIEW-PATH1A)
+//
+// Every proof below composes a REAL authority through the same `compose` every other test here uses,
+// then drives `run_authorised_review` with the fixture seam. Nothing is asserted about a hand-built
+// authority, because there is no way to hand-build one.
+// -------------------------------------------------------------------------------------------------
+
+const EVIDENCE_REF: [u8; EVIDENCE_REF_LEN] = [0xc3; EVIDENCE_REF_LEN];
+const BILLED: u64 = 150_000;
+
+fn bill() -> ProviderCallSettlement {
+    ProviderCallSettlement {
+        input_tokens: 1_000,
+        cached_input_tokens: None,
+        output_tokens: 100,
+        cost_micro_usd: BILLED,
+    }
+}
+
+/// A REVIEW THAT RAN IS REPORTED `Completed`/`Succeeded`, about THIS request, and its bill is COMMITTED.
+#[test]
+fn a_successful_execution_completes_and_commits_the_bill() {
+    let mut live = Live::open();
+    let mut rig = Rig::exact(1);
+    let composed = compose(&mut live, &mut rig, &request(1, 1)).expect("authorised");
+    let mut seam = FixtureReviewExecution::succeeding(EVIDENCE_REF, bill());
+
+    let response = run_authorised_review(composed, &mut seam, &mut rig.budget);
+
+    assert_eq!(response.state(), ResponseState::Completed);
+    assert_eq!(response.result(), ResultClass::Succeeded);
+    assert_eq!(response.evidence_ref(), &EVIDENCE_REF);
+    assert!(response.answers(&correlation(1), EPOCH));
+    assert_eq!(seam.calls(), 1, "the seam is driven exactly once");
+    // THE RESERVATION WAS COMMITTED, EXACTLY ONCE. What this fixture can prove is the TRANSITION:
+    // the amount left `outstanding` and became committed spend. It moves the RESERVED amount, because
+    // the fixture ledger documents that it ignores the settlement ("moves an amount between two
+    // integers") - recording what the provider actually BILLED is the production canonical ledger's
+    // property and is proven against that ledger, not claimed here.
+    assert_eq!(rig.budget.committed_spend_micro_usd(), COMMITTED + COST);
+    assert_eq!(rig.budget.available_micro_usd(), CEILING - COMMITTED - COST);
+}
+
+/// NOTHING DISPATCHED MEANS NOTHING STAYS RESERVED, and the wire says `NotRun` so the caller can release
+/// its own reservation too. This is the dispatch fact crossing the EXISTING frame.
+#[test]
+fn a_refusal_before_dispatch_is_not_run_and_releases_the_reservation() {
+    let mut live = Live::open();
+    let mut rig = Rig::exact(1);
+    let composed = compose(&mut live, &mut rig, &request(1, 1)).expect("authorised");
+    assert_eq!(rig.budget.available_micro_usd(), CEILING - COMMITTED - COST);
+    let mut seam = FixtureReviewExecution::not_dispatched();
+
+    let response = run_authorised_review(composed, &mut seam, &mut rig.budget);
+
+    assert_eq!(response.state(), ResponseState::Rejected);
+    assert_eq!(response.result(), ResultClass::NotRun);
+    assert_eq!(response.evidence_ref(), &[0u8; EVIDENCE_REF_LEN]);
+    assert!(response.answers(&correlation(1), EPOCH));
+    assert_eq!(rig.budget.available_micro_usd(), CEILING - COMMITTED);
+    assert_eq!(rig.budget.committed_spend_micro_usd(), COMMITTED);
+}
+
+/// MONEY THAT MAY HAVE BEEN SPENT IS NEVER HANDED BACK ON A GUESS. An execution that occurred and
+/// failed with an UNKNOWN bill is reported `Completed`/`Failed` - never `NotRun` - and its reservation
+/// stays outstanding against the ceiling.
+#[test]
+fn a_failed_execution_with_an_unknown_bill_retains_the_reservation() {
+    let mut live = Live::open();
+    let mut rig = Rig::exact(1);
+    let composed = compose(&mut live, &mut rig, &request(1, 1)).expect("authorised");
+    let mut seam = FixtureReviewExecution::failing(true, None);
+
+    let response = run_authorised_review(composed, &mut seam, &mut rig.budget);
+
+    assert_eq!(response.state(), ResponseState::Completed);
+    assert_eq!(response.result(), ResultClass::Failed);
+    assert_ne!(response.result(), ResultClass::NotRun);
+    assert_eq!(response.evidence_ref(), &[0xf4; EVIDENCE_REF_LEN], "bound to its failure record");
+    // Still reserved: not released, not committed.
+    assert_eq!(rig.budget.available_micro_usd(), CEILING - COMMITTED - COST);
+    assert_eq!(rig.budget.committed_spend_micro_usd(), COMMITTED);
+}
+
+/// A failed execution whose bill IS known commits it: recorded usage is never erased.
+#[test]
+fn a_failed_execution_with_a_known_bill_commits_it() {
+    let mut live = Live::open();
+    let mut rig = Rig::exact(1);
+    let composed = compose(&mut live, &mut rig, &request(1, 1)).expect("authorised");
+    let mut seam = FixtureReviewExecution::failing(true, Some(bill()));
+
+    let response = run_authorised_review(composed, &mut seam, &mut rig.budget);
+
+    assert_eq!(response.state(), ResponseState::Completed);
+    assert_eq!(response.result(), ResultClass::Failed);
+    // Committed rather than left outstanding or released: usage that was recorded is never erased.
+    // (The amount is the reserved one for the reason given above; the point here is the transition.)
+    assert_eq!(rig.budget.committed_spend_micro_usd(), COMMITTED + COST);
+}
+
+/// THE SEAM REVIEWS EXACTLY WHAT THE EVALUATOR COMPARED. There is one resolution of the Host's facts,
+/// and the execution rung is handed that one - never a second resolution free to disagree with the
+/// `binding_digest` the authority was minted against.
+#[test]
+fn the_seam_is_handed_the_facts_the_evaluator_compared() {
+    let mut live = Live::open();
+    let mut rig = Rig::exact(1);
+    let composed = compose(&mut live, &mut rig, &request(1, 1)).expect("authorised");
+    let mut seam = FixtureReviewExecution::succeeding(EVIDENCE_REF, bill());
+
+    let _ = run_authorised_review(composed, &mut seam, &mut rig.budget);
+
+    let seen = seam.seen_subject().expect("the seam was driven");
+    assert_eq!(seen.project(), &PROJECT);
+    assert_eq!(seen.repository(), &REPOSITORY);
+    assert_eq!(seen.plan(), &PLAN);
+    assert_eq!(seen.plan_digest(), &PLAN_DIGEST);
+    assert_eq!(seen.phase(), &PHASE);
+    assert_eq!(seen.candidate_digest(), &CANDIDATE);
+    assert_eq!(seen.parameter_digest(), &SUBJECT_DIGEST);
+    assert_eq!(seen.delegation_id(), &DELEGATION_ID);
+    assert_eq!(seen.correlation(), &correlation(1));
+}
+
+/// A REQUEST THE EVALUATOR REFUSED NEVER REACHES THE SEAM. There is no composition to run, so there is
+/// nothing to execute and nothing to mint - the rung is unreachable without an authority.
+#[test]
+fn a_refused_composition_cannot_reach_the_execution_rung() {
+    let mut live = Live::open();
+    let mut rig = Rig::exact(1);
+    let mut wrong = request(1, 1);
+    wrong = ProtectedOperationRequest::new(
+        *wrong.correlation(),
+        wrong.sequence(),
+        wrong.claimed_service_epoch(),
+        [0xde; BINDING_DIGEST_LEN],
+        wrong.operation(),
+        *wrong.approval_ref(),
+        *wrong.parameter_digest(),
+    );
+    assert!(compose(&mut live, &mut rig, &wrong).is_err());
+    // No composition exists, so `run_authorised_review` has no value to be called with. The
+    // reservation the refused composition took was released by the composition itself.
+    assert_eq!(rig.budget.available_micro_usd(), CEILING - COMMITTED);
+}
+
+/// THE DISPATCH FACT SURVIVES THE EXISTING FIXED FRAME. Both answers are encoded and strictly decoded
+/// through the accepted codec, and the two states a caller must tell apart are still distinguishable -
+/// with nothing added to the frame.
+#[test]
+fn the_dispatch_fact_crosses_the_existing_wire_unchanged() {
+    use crate::protocol::Nonce;
+    let nonce = Nonce::from_fixed_bytes([7u8; crate::protocol::NONCE_LEN]);
+
+    let mut live = Live::open();
+    let mut rig = Rig::exact(1);
+    let composed = compose(&mut live, &mut rig, &request(1, 1)).expect("authorised");
+    let mut ran = FixtureReviewExecution::succeeding(EVIDENCE_REF, bill());
+    let completed = run_authorised_review(composed, &mut ran, &mut rig.budget);
+
+    let mut live2 = Live::open();
+    let mut rig2 = Rig::exact(2);
+    let composed2 = compose(&mut live2, &mut rig2, &request(2, 1)).expect("authorised");
+    let mut never = FixtureReviewExecution::not_dispatched();
+    let refused = run_authorised_review(composed2, &mut never, &mut rig2.budget);
+
+    for (sent, state, result) in [
+        (&completed, ResponseState::Completed, ResultClass::Succeeded),
+        (&refused, ResponseState::Rejected, ResultClass::NotRun),
+    ] {
+        let frame = super::super::encode_protected_operation_response(&nonce, sent);
+        let (decoded, _) =
+            super::super::decode_protected_operation_response(&frame).expect("strict decode");
+        assert_eq!(decoded.state(), state);
+        assert_eq!(decoded.result(), result);
+        assert_eq!(decoded.correlation(), sent.correlation());
+        assert_eq!(decoded.evidence_ref(), sent.evidence_ref());
+    }
+}
+
+/// THE SEAM RAN AND NO PROVIDER WAS REACHED (a credential that could not be resolved: "no credential,
+/// no call"). The wire still says `Completed`/`Failed` - the execution DID run - and the reservation is
+/// RELEASED, because the Host can prove nothing was dispatched. The dispatch fact is the seam's own
+/// statement; it is never inferred from the frame's state.
+#[test]
+fn a_failed_execution_that_provably_dispatched_nothing_releases_the_reservation() {
+    let mut live = Live::open();
+    let mut rig = Rig::exact(1);
+    let composed = compose(&mut live, &mut rig, &request(1, 1)).expect("authorised");
+    let mut seam = FixtureReviewExecution::failing(false, None);
+
+    let response = run_authorised_review(composed, &mut seam, &mut rig.budget);
+
+    assert_eq!(response.state(), ResponseState::Completed);
+    assert_eq!(response.result(), ResultClass::Failed);
+    assert_eq!(rig.budget.available_micro_usd(), CEILING - COMMITTED);
+    assert_eq!(rig.budget.committed_spend_micro_usd(), COMMITTED);
 }

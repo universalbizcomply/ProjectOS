@@ -19,7 +19,10 @@ pub const EMERGENCY_STOP_SCHEMA: u32 = 1;
 /// Audit-record schema version.
 pub const AUDIT_RECORD_SCHEMA: u32 = 1;
 /// Approved-plan record schema version.
-pub const PLAN_RECORD_SCHEMA: u32 = 1;
+///
+/// REVISION 2 (PROJECTOS-HOST-REVIEW-PATH1B): the record carries the approved baseline commit. A
+/// revision 1 record is refused rather than read with a default baseline.
+pub const PLAN_RECORD_SCHEMA: u32 = 2;
 /// Durable owner-delegation lifecycle record schema version.
 pub const DELEGATION_LIFECYCLE_SCHEMA: u32 = 1;
 /// Durable governed-request replay record schema version.

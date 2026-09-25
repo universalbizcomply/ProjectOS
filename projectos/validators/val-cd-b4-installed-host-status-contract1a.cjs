@@ -256,7 +256,20 @@ function run() {
       if (!m) E("V5 the capability scope enum is missing");
       else {
         const variants = (m[1].match(/^\s{4}\w+,/gm) || []).length;
-        if (variants !== 1) E(`V5 the capability scope has ${variants} variants; exactly 1 is allowed`);
+        if (variants !== 2)
+          E(`V5 the capability scope has ${variants} variants; exactly 2 are allowed (the status read and the governed review)`);
+        if (!/GovernedHostReviewLocalOnly,/.test(m[1]))
+          E("V5 the governed-review scope is missing");
+        // THE SCOPE IS CARRIED, NOT ASSERTED. With more than one scope, a `scope()` that returned a
+        // constant would make the distinction decorative.
+        if (!/pub struct LiveIpcOperationCapability \{[\s\S]*?scope: CapabilityScope,[\s\S]*?\}/.test(adapter))
+          E("V5 the capability does not carry the scope it was minted at");
+        // NEITHER SCOPE SUBSTITUTES FOR THE OTHER — proven at the serving facades, both directions.
+        const ffiSrc = read(path.join(IPC, "src", "windows_ffi.rs"));
+        if (!/cap\.scope\(\) != crate::adapter::CapabilityScope::ReadInstalledHostStatusLocalOnly/.test(ffiSrc))
+          E("V5 the status serving facade does not refuse a non-status capability scope");
+        if (!/cap\.scope\(\) != crate::adapter::CapabilityScope::GovernedHostReviewLocalOnly/.test(ffiSrc))
+          E("V5 the review serving facade does not refuse a non-review capability scope");
       }
     }
   }
@@ -280,8 +293,11 @@ function run() {
       E("V7 the observer does not use the frozen reader contract");
     // Verified may appear ONLY as the Ok arm of verify_record, and Ready only under Verified.
     const verifiedSites = (status.match(/IdentityVerificationReport::Verified/g) || []).length;
-    if (!/Ok\(_verified\) => \(IdentityVerificationReport::Verified/.test(status))
+    if (!/Ok\(verified\) => CanonicalIdentityRead \{\s*report: IdentityVerificationReport::Verified/.test(status))
       E("V7 Verified is not produced solely by a successful verify_record");
+    // AND THE RESULT IS NOT DISCARDED. The old `Ok(_verified)` spelling is the defect G1 closed.
+    if (/Ok\(_verified\)/.test(status))
+      E("V7 the successful verification result is discarded instead of carried");
     if (verifiedSites > 2)
       E(`V7 Verified appears at ${verifiedSites} sites; it must not be assignable elsewhere`);
     const m = /let readiness = match identity \{([\s\S]*?)\n    \};/.exec(status);
@@ -494,10 +510,21 @@ function run() {
         const verified = (b.match(/IdentityVerificationReport::Verified/g) || []).length;
         if (verified !== 1)
           E("V9 identity Verified is reported from " + verified + " places, not solely the reader's Ok arm");
-        if (!/Ok\(_verified\) => \(IdentityVerificationReport::Verified/.test(b))
+        if (!/Ok\(verified\) => CanonicalIdentityRead \{\s*report: IdentityVerificationReport::Verified/.test(b))
           E("V9 identity Verified is not bound to the reader accepting");
-        if (!/Err\(_\) => \(IdentityVerificationReport::Refused/.test(b))
+        if (!/Err\(_\) => CanonicalIdentityRead \{\s*report: IdentityVerificationReport::Refused/.test(b))
           E("V9 a record the reader refused is not reported as Refused");
+        // THE VERIFIED VALUE TRACKS THE REPORT, both ways. This is what the tuple shape could not
+        // express: a Verified report with nothing behind it, or a refusal carrying a trusted value,
+        // are both now representable mistakes and both now fail here.
+        for (const [, report, carried] of b.matchAll(
+          /report: IdentityVerificationReport::(\w+),\s*record:[^,]*,\s*verified: (\w+)/g
+        )) {
+          if (report === "Verified" && carried !== "Some")
+            E("V9 a Verified report carries no verified installation");
+          if (report !== "Verified" && carried !== "None")
+            E("V9 a " + report + " report carries a verified installation — it must fail closed");
+        }
       }
 
       // --- MUTATIONS 5 and 6 — the Control Centre never upgrades what the host said. ---

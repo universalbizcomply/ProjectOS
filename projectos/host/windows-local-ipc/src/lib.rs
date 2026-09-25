@@ -414,6 +414,7 @@ mod fixture_session;
 mod operation_contract;
 mod owner_programme_delegation;
 mod protocol;
+mod review_exchange;
 mod security;
 // RUN-TO-COMPLETION HOST ATTESTATION §10I — the governed open both durable stores share.
 mod store_custody;
@@ -446,10 +447,16 @@ pub use protocol::{
     MAX_FRAME_SIZE, NONCE_LEN, WIRE_PROTOCOL_VERSION,
 };
 
+// The closed capability-scope vocabulary. UNGATED since PROJECTOS-HOST-REVIEW-PATH1B G5: it is a
+// plain enum that carries no authority, and every capability now carries the scope it was minted at,
+// so a consumer must be able to name the value in any graph. The MINTS stay gated below, which is
+// where the authority actually is.
+pub use adapter::CapabilityScope;
+
 // The OWNER-APPROVED read-only status capability surface. Present only under the non-default feature
 // that gates it, so a default or merely-live build exposes no route to a capability at all.
 #[cfg(feature = "owner-approved-status-read")]
-pub use adapter::{CapabilityScope, OwnerStatusReadApproval, StatusApprovalRefused};
+pub use adapter::{OwnerStatusReadApproval, StatusApprovalRefused};
 
 // The ONE read-only status response added by CD-B4-PROJECTOSHOST-FUNCTIONAL-PILOT1A: a fixed-width
 // closed record, its canonical encoder and its strict decoder. No generic payload accessor is exported.
@@ -612,9 +619,59 @@ pub use operation_contract::host_composition::{
     compose_protected_operation, AdmittedCostSource, BudgetRefusal, BudgetReservation,
     BudgetReservationSubject, CanonicalBudgetLedger, CommittedCandidateSource,
     ComposedProtectedOperation, CompositionRefusal, HostPlanAuthority, HostRequestSources,
+    BASELINE_COMMIT_LEN,
     OneShotRequestSubject, ProviderCallSettlement, SignedExecutionClosureFacts, COMPOSED_OPERATION,
     MAX_OUTSTANDING_RESERVATIONS,
 };
+
+// PROJECTOS-HOST-REVIEW-PATH1A - THE EXECUTION RUNG.
+//
+// `run_authorised_review` is the one function that turns a composed, authorised operation into its
+// wire answer, and the home of the crate's single shipped `ExecutionOutcomeEvidence` mint
+// (owner-ratified Amendment 1). The seam it drives is exported so a Host composition site can NAME
+// it - and it is SEALED, so naming it is all a downstream crate can do: only an implementation inside
+// `host_composition`'s own module tree can say that an execution occurred.
+pub use operation_contract::host_composition::{
+    run_authorised_review, GatekeeperReviewExecution, ReviewExecutionOutcome,
+    ReviewExecutionRefusal, ReviewSubjectFacts,
+};
+
+// PROJECTOS-HOST-REVIEW-PATH1A - THE REVIEW EXCHANGE over the existing transport.
+//
+// `HostReviewIpcCapability` is exported so a Host can NAME it; it has no production mint in any
+// shipped graph, so naming it is all a caller can do and the exchange stays dormant.
+pub use review_exchange::{
+    ClientReviewOutcome, HostReviewIpcCapability, ProtectedRequestReceipt, ReviewNotSent,
+    ReviewUnanswered, ServeReviewOutcome,
+    ReviewCapabilityRefusal,
+};
+
+/// The status-then-review SERVER facade over the live pipe. Dormant: serving demands the review
+/// capability above.
+#[cfg(all(
+    windows,
+    feature = "windows-live-ipc",
+    feature = "owner-approved-status-read"
+))]
+pub use windows_ffi::{ServeExchangeOutcome, WindowsHostReviewServer};
+
+/// PROOF ONLY. The live review client for an isolated test endpoint.
+#[cfg(all(windows, feature = "windows-live-ipc", feature = "test-fixtures"))]
+pub use windows_ffi::WindowsHostReviewTestClient;
+
+/// FIXTURE ONLY. The whole exchange over real frames with no pipe.
+#[cfg(feature = "test-fixtures")]
+pub use review_exchange::loopback as review_loopback;
+
+// THE ONE SHIPPED IMPLEMENTATION OF THAT SEAM. Exported so the service host can compose it around a
+// request; constructing one grants nothing, because its production entry begins with the owner's
+// signature over the installed manifest and every effect it has arrives as an injected port.
+pub use operation_contract::host_composition::review_execution::HostReviewExecution;
+
+/// FIXTURE ONLY. A scripted seam for proofs of the rung, the wire codec and the isolated transport. A
+/// shipped build cannot name it, so it cannot state that an execution occurred.
+#[cfg(feature = "test-fixtures")]
+pub use operation_contract::host_composition::FixtureReviewExecution;
 
 // RUN-TO-COMPLETION HOST ATTESTATION 10D - THE PRODUCTION CANONICAL BUDGET LEDGER.
 //
@@ -789,13 +846,46 @@ pub use adapter::{
 mod observation;
 #[cfg(any(feature = "test-fixtures", feature = "windows-live-ipc"))]
 pub use observation::ConfirmedSameConnectionIpcPeerEvidence;
+
+// PROJECTOS-HOST-REVIEW-PATH1B §10. The COMPLETE per-connection governed-review serve path and its
+// closed outcome. Live graph only, and serving still demands a review capability that has no mint
+// but the owner-signed programme delegation.
+#[cfg(all(windows, feature = "windows-live-ipc", feature = "owner-approved-status-read"))]
+pub use windows_ffi::{GovernedReviewConnectionInputs, ServeGovernedReviewOutcome};
+
+// PROJECTOS-HOST-REVIEW-PATH1B G3. THE PRODUCTION same-connection evidence assembler, inside the
+// trusted Windows IPC boundary. Compiled only in the LIVE graph - the graph that owns the real pipe,
+// the real handshake and the real client admission - so no default, fixture or consumer-contract
+// graph gains a production assembler, and no fixture assembler exists in the live one.
+#[cfg(all(windows, feature = "windows-live-ipc"))]
+pub mod production_peer_evidence;
+#[cfg(all(windows, feature = "windows-live-ipc"))]
+pub use production_peer_evidence::{
+    assemble_production_same_connection_evidence, GovernedChannelContext,
+    GovernedReviewAdmissionAuthority, GOVERNED_REVIEW_ENVIRONMENT,
+};
 // PROJECTOSHOST-IPC-CANONICAL-SESSION-INTEGRATION1A: the ONE guarded crossing from a COMPLETED
 // canonical kernel-peer attempt to the core session evidence. It consumes the attempt (the
 // Match/refusal verdict is derived inside, never caller-supplied), correlates the bundle against the
 // sealed verifier's live connection + handshake generation, and yields evidence ONLY on Match.
 // Same gate as the bundle it consumes, so it is equally unreachable in the default graph.
 #[cfg(any(feature = "test-fixtures", feature = "windows-live-ipc"))]
-pub use observation::{bind_canonical_peer_to_session_evidence, CanonicalSessionCrossingRefusal};
+pub use observation::{
+    bind_canonical_peer_to_session_evidence, CanonicalPeerAndSessionEvidence,
+    CanonicalSessionCrossingRefusal,
+};
+// PROJECTOS-HOST-REVIEW-PATH1B: the PRODUCTION crossing, for the direction the installed product
+// actually runs — ProjectOSHost as pipe SERVER, the governed Agent as CLIENT. Same ordering, same
+// sealed single-use output, same two unchanged downstream mints; only the canonical proposition
+// differs. Gated on the LIVE graph alone, because a client admission is a live kernel observation:
+// no fixture, consumer-contract or default graph can reach it.
+#[cfg(all(windows, feature = "windows-live-ipc"))]
+pub use observation::bind_canonical_client_to_session_evidence;
+/// PROJECTOS-HOST-REVIEW-PATH1B — proofs for the production client crossing. Needs BOTH the live
+/// graph (the crossing itself) and the fixture graph (the canonical synthetic driver and the
+/// same-connection bundle), so it is compiled only where both are present.
+#[cfg(all(test, windows, feature = "test-fixtures", feature = "windows-live-ipc"))]
+mod client_crossing_tests;
 
 /// The truthful current state of this crate. CD-B1 was contract-only; the bounded Windows named-pipe
 /// transport is now IMPLEMENTED but compile-only — the implementation exists yet no runtime capability

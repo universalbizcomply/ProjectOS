@@ -297,6 +297,11 @@ export type TransportOutcome =
       readonly reasons: readonly string[];
       /** True when the provider itself said the spend limit stopped this, not the network. */
       readonly spendLimited: boolean;
+      /**
+       * Set ONLY by the Host route: what ProjectOSHost established about dispatch. `false` releases
+       * the reservation; `true` or absent leaves the existing cause-based rule in charge.
+       */
+      readonly providerDispatched?: boolean;
     };
 
 /**

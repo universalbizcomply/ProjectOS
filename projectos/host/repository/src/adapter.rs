@@ -10,6 +10,7 @@ use projectos_host_core::GitRepositoryObservation;
 use crate::command::{CommitId, CommittedPath, CommittedRevision, GitCommand, GitOut, GitRunner};
 use crate::config::RepositoryAdapterConfig;
 use crate::error::RepoAdapterError;
+use crate::tree_diff::{self, TreeChange};
 use crate::{parse, path};
 
 /// A contained, read-only local repository adapter bound to one verified Git executable + root.
@@ -262,6 +263,68 @@ impl CommittedFileReader {
             return Err(RepoAdapterError::CommittedObjectUnavailable);
         }
         Ok(out.stdout)
+    }
+
+    /// The COMPLETE changed-path set between `baseline` and the pinned candidate commit.
+    ///
+    /// PROJECTOS-HOST-REVIEW-PATH1B. The candidate is never a parameter: it is the commit this
+    /// reader pinned once, at open. The baseline is an exact [`CommitId`] — where it comes from is
+    /// the caller's authority question, and this reader mints none.
+    ///
+    /// THREE REFUSALS BEFORE ANY DIFFERENCE IS TAKEN, each its own error: the baseline is not a
+    /// commit here, the candidate is not a commit here, the baseline is not an ancestor of the
+    /// candidate. Without the third, the difference between two unrelated trees would be offered
+    /// for review as though it were a change to what the owner approved.
+    ///
+    /// A NON-ZERO EXIT IS A REFUSAL, NEVER AN EMPTY DIFFERENCE — "nothing changed" and "Git could
+    /// not answer" must not be the same value.
+    ///
+    /// # Errors
+    /// [`RepoAdapterError::BaselineUnavailable`], [`RepoAdapterError::CandidateUnavailable`],
+    /// [`RepoAdapterError::BaselineNotAncestor`]; the root refusals of
+    /// [`CommittedFileReader::committed_bytes`]; [`RepoAdapterError::UnexpectedExit`] if the
+    /// difference itself fails; and every refusal of [`tree_diff::parse_raw_z`].
+    pub fn changes_since(&self, baseline: &CommitId) -> Result<Vec<TreeChange>, RepoAdapterError> {
+        let root = prove_top_level(&self.runner, &self.configured_root)?;
+        if !self.is_ancestor(&root, baseline, baseline)? {
+            return Err(RepoAdapterError::BaselineUnavailable);
+        }
+        if !self.is_ancestor(&root, &self.commit, &self.commit)? {
+            return Err(RepoAdapterError::CandidateUnavailable);
+        }
+        if !self.is_ancestor(&root, baseline, &self.commit)? {
+            return Err(RepoAdapterError::BaselineNotAncestor);
+        }
+        let out = self.runner.run(
+            &root,
+            &GitCommand::DiffTreeEndpoints {
+                base: baseline.clone(),
+                candidate: self.commit.clone(),
+            },
+        )?;
+        if out.code != Some(0) {
+            return Err(RepoAdapterError::UnexpectedExit);
+        }
+        tree_diff::parse_raw_z(&out.stdout)
+    }
+
+    /// One ancestry question. Exit 0 is yes and exit 1 is no; ANY other exit — an absent operand, an
+    /// operand that is not a commit, a killed process — is `Ok(false)` for the two existence
+    /// questions and therefore a refusal there, and is never `Ok(true)` anywhere.
+    fn is_ancestor(
+        &self,
+        root: &Path,
+        ancestor: &CommitId,
+        descendant: &CommitId,
+    ) -> Result<bool, RepoAdapterError> {
+        let out = self.runner.run(
+            root,
+            &GitCommand::IsAncestor {
+                ancestor: ancestor.clone(),
+                descendant: descendant.clone(),
+            },
+        )?;
+        Ok(out.code == Some(0))
     }
 }
 

@@ -182,6 +182,45 @@ pub enum GitCommand {
         /// The validated repository-relative path.
         path: CommittedPath,
     },
+    /// `diff-tree -r --raw -z --no-abbrev --no-renames --no-ext-diff --end-of-options <base> <candidate>`
+    /// — the COMPLETE changed-path set between the two ENDPOINT TREES.
+    ///
+    /// RATIFIED IN PROJECTOS-HOST-REVIEW-PATH1B as the one read-only tree-difference addition.
+    ///
+    /// ENDPOINT TREES, NOT A HISTORY WALK. Given two commits `diff-tree` compares the tree of the
+    /// first with the tree of the second and nothing in between, so a change made and reverted along
+    /// the way is absent, and a path that differs between the endpoints cannot be absent. `-r`
+    /// recurses so every changed blob is its own record rather than a changed directory; `--raw -z`
+    /// is the one machine format with NUL-terminated, unquoted paths; `--no-abbrev` gives full-length
+    /// object identities; `--no-renames` keeps a rename as a delete plus an add, so no similarity
+    /// heuristic — which is configurable — decides what the evidence says; `--no-ext-diff` means no
+    /// configured program is consulted even though `--raw` would not reach one.
+    ///
+    /// BOTH OPERANDS ARE [`CommitId`]s: no reference, no path pattern and no caller-supplied option
+    /// is representable.
+    DiffTreeEndpoints {
+        /// The approved baseline commit.
+        base: CommitId,
+        /// The pinned candidate commit.
+        candidate: CommitId,
+    },
+    /// `merge-base --is-ancestor <ancestor> <descendant>` — exit 0 yes, exit 1 no, anything else a
+    /// refusal (an absent or non-commit operand).
+    ///
+    /// RATIFIED IN PROJECTOS-HOST-REVIEW-PATH1B as the one read-only ancestry check.
+    ///
+    /// IT IS ALSO THE EXISTENCE CHECK, so no third verb is needed: a commit is its own ancestor, so
+    /// asking the question of one identity twice answers "is this a commit this repository has".
+    ///
+    /// THE ANSWER IS ONLY AS GOOD AS THE PARENT LINKS, which is why [`GitRunner::run`] disables
+    /// replacement references and the graft file for every command: either could splice a baseline
+    /// into a candidate's history that never contained it.
+    IsAncestor {
+        /// The commit that must be reachable.
+        ancestor: CommitId,
+        /// The commit it must be reachable from.
+        descendant: CommitId,
+    },
 }
 
 impl GitCommand {
@@ -225,8 +264,108 @@ impl GitCommand {
                 "--end-of-options".into(),
                 format!("{}:{}", commit.as_str(), path.as_str()),
             ],
+            GitCommand::DiffTreeEndpoints { base, candidate } => vec![
+                "diff-tree".into(),
+                "-r".into(),
+                "--raw".into(),
+                "-z".into(),
+                "--no-abbrev".into(),
+                "--no-renames".into(),
+                "--no-ext-diff".into(),
+                "--end-of-options".into(),
+                base.as_str().to_string(),
+                candidate.as_str().to_string(),
+            ],
+            GitCommand::IsAncestor {
+                ancestor,
+                descendant,
+            } => vec![
+                "merge-base".into(),
+                "--is-ancestor".into(),
+                ancestor.as_str().to_string(),
+                descendant.as_str().to_string(),
+            ],
         }
     }
+}
+
+/// The null device: a configuration or graft "file" that exists, is readable and is always empty.
+#[cfg(windows)]
+const NULL_DEVICE: &str = "NUL";
+#[cfg(not(windows))]
+const NULL_DEVICE: &str = "/dev/null";
+
+/// The ONLY variables carried over from the Host process. Everything else — every `GIT_*` variable
+/// above all — is dropped, so nothing the Host inherited can re-point the object store, the index,
+/// the namespace or the configuration of a read.
+const ENV_PASSTHROUGH: &[&str] = &["SystemRoot", "SystemDrive", "windir", "TEMP", "TMP", "PATH"];
+
+/// Repository-local configuration CANNOT be switched off, so the keys through which it could run a
+/// program or change an answer are overridden at command scope, which outranks the repository file.
+const CONFIG_OVERRIDES: &[(&str, &str)] = &[
+    ("core.fsmonitor", "false"),
+    ("core.hooksPath", NULL_DEVICE),
+    ("core.pager", "cat"),
+    ("core.useReplaceRefs", "false"),
+    ("protocol.allow", "never"),
+];
+
+/// A canonical root as Git's `safe.directory` spells it: no verbatim prefix, forward slashes.
+fn safe_directory_value(root: &Path) -> String {
+    let text = root.to_string_lossy();
+    let text = text.strip_prefix(r"\\?\").unwrap_or(&text);
+    text.replace('\\', "/")
+}
+
+/// THE ENVIRONMENT EVERY COMMAND RUNS UNDER — fixed by the Host, in full.
+///
+/// RATIFIED IN PROJECTOS-HOST-REVIEW-PATH1B. The governed worktree is writable by the implementer
+/// and the reader is privileged, so nothing in that worktree, in a user profile or in the machine
+/// configuration may alter what is read or run a program:
+///
+/// * replacement references and the graft file are disabled, because either can splice history and
+///   so forge an ancestry answer or substitute an object;
+/// * system and user configuration are replaced by the null device, and system attributes are off;
+/// * a lazy fetch from a promisor remote — network, credential helper and transport program in one
+///   — is off, and every transport is refused;
+/// * the repository-local keys that name a program or change an answer are overridden.
+///
+/// `safe.directory` names exactly the proven root. The Host reads a repository it does not own BY
+/// DESIGN, and what Git's ownership check defends against — a repository-configured program — is
+/// what the overrides above remove.
+fn fixed_environment(root: &Path) -> Vec<(String, String)> {
+    let mut env: Vec<(String, String)> = [
+        ("GIT_TERMINAL_PROMPT", "0"),
+        ("GIT_OPTIONAL_LOCKS", "0"),
+        ("GIT_PAGER", "cat"),
+        ("PAGER", "cat"),
+        ("GIT_EDITOR", "true"),
+        ("GIT_SEQUENCE_EDITOR", "true"),
+        ("GIT_CONFIG_NOSYSTEM", "1"),
+        ("GIT_CONFIG_SYSTEM", NULL_DEVICE),
+        ("GIT_CONFIG_GLOBAL", NULL_DEVICE),
+        ("GIT_ATTR_NOSYSTEM", "1"),
+        ("GIT_NO_REPLACE_OBJECTS", "1"),
+        ("GIT_GRAFT_FILE", NULL_DEVICE),
+        ("GIT_NO_LAZY_FETCH", "1"),
+        ("LC_ALL", "C"),
+        ("LANG", "C"),
+    ]
+    .iter()
+    .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+    .collect();
+
+    let mut overrides: Vec<(String, String)> = CONFIG_OVERRIDES
+        .iter()
+        .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+        .collect();
+    overrides.push(("safe.directory".to_string(), safe_directory_value(root)));
+    env.push(("GIT_CONFIG_COUNT".to_string(), overrides.len().to_string()));
+    for (i, (key, value)) in overrides.into_iter().enumerate() {
+        env.push((format!("GIT_CONFIG_KEY_{i}"), key));
+        env.push((format!("GIT_CONFIG_VALUE_{i}"), value));
+    }
+    env
 }
 
 /// A bounded, contained Git observation runner rooted at a canonical work tree. The Git executable is
@@ -290,15 +429,16 @@ impl GitRunner {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .env("GIT_TERMINAL_PROMPT", "0")
-            .env("GIT_OPTIONAL_LOCKS", "0")
-            .env("GIT_PAGER", "cat")
-            .env("PAGER", "cat")
-            .env("GIT_EDITOR", "true")
-            .env("GIT_SEQUENCE_EDITOR", "true")
-            .env("GIT_CONFIG_NOSYSTEM", "1")
-            .env("LC_ALL", "C")
-            .env("LANG", "C")
+            // NOTHING IS INHERITED BUT THE CLOSED PASSTHROUGH, and everything Git-facing is set by
+            // `fixed_environment` — GIT_TERMINAL_PROMPT, GIT_OPTIONAL_LOCKS, GIT_PAGER, GIT_EDITOR
+            // and LC_ALL among them.
+            .env_clear()
+            .envs(
+                ENV_PASSTHROUGH
+                    .iter()
+                    .filter_map(|name| std::env::var_os(name).map(|value| (*name, value))),
+            )
+            .envs(fixed_environment(root))
             .spawn()
             .map_err(|_| RepoAdapterError::CommandRefused)?;
 
@@ -445,6 +585,155 @@ mod tests {
         );
     }
 
+    /// THE TREE DIFFERENCE AND THE ANCESTRY CHECK ARE FIXED ARGUMENTS PLUS TWO EXACT COMMITS.
+    ///
+    /// Pinning the arrays is what stops a later edit adding `-M` (rename detection, whose threshold
+    /// is configurable), `--abbrev`, a pathspec that would hide a changed path, or a third operand.
+    #[test]
+    fn the_tree_difference_and_ancestry_check_emit_only_fixed_args_and_two_commits() {
+        let b = "0123456789abcdef0123456789abcdef01234567";
+        let d = "89abcdef0123456789abcdef0123456789abcdef";
+        let base = CommitId::parse(b).unwrap();
+        let candidate = CommitId::parse(d).unwrap();
+        assert_eq!(
+            GitCommand::DiffTreeEndpoints {
+                base: base.clone(),
+                candidate: candidate.clone(),
+            }
+            .args(),
+            [
+                "diff-tree",
+                "-r",
+                "--raw",
+                "-z",
+                "--no-abbrev",
+                "--no-renames",
+                "--no-ext-diff",
+                "--end-of-options",
+                b,
+                d,
+            ]
+        );
+        assert_eq!(
+            GitCommand::IsAncestor {
+                ancestor: base,
+                descendant: candidate,
+            }
+            .args(),
+            ["merge-base", "--is-ancestor", b, d]
+        );
+    }
+
+    /// THE ENVIRONMENT IS FIXED IN FULL, and this is the whole of it.
+    ///
+    /// An exact list rather than a set of "must contain" checks, because the failure this guards is
+    /// an ADDITION as much as a removal: one more passthrough variable is one more thing the Host's
+    /// own environment can say to Git.
+    #[test]
+    fn the_environment_is_exactly_the_fixed_list() {
+        let env = fixed_environment(Path::new(r"\\?\C:\governed\repo"));
+        let render: Vec<String> = env.iter().map(|(k, v)| format!("{k}={v}")).collect();
+        assert_eq!(
+            render,
+            [
+                "GIT_TERMINAL_PROMPT=0".to_string(),
+                "GIT_OPTIONAL_LOCKS=0".to_string(),
+                "GIT_PAGER=cat".to_string(),
+                "PAGER=cat".to_string(),
+                "GIT_EDITOR=true".to_string(),
+                "GIT_SEQUENCE_EDITOR=true".to_string(),
+                "GIT_CONFIG_NOSYSTEM=1".to_string(),
+                format!("GIT_CONFIG_SYSTEM={NULL_DEVICE}"),
+                format!("GIT_CONFIG_GLOBAL={NULL_DEVICE}"),
+                "GIT_ATTR_NOSYSTEM=1".to_string(),
+                "GIT_NO_REPLACE_OBJECTS=1".to_string(),
+                format!("GIT_GRAFT_FILE={NULL_DEVICE}"),
+                "GIT_NO_LAZY_FETCH=1".to_string(),
+                "LC_ALL=C".to_string(),
+                "LANG=C".to_string(),
+                "GIT_CONFIG_COUNT=6".to_string(),
+                "GIT_CONFIG_KEY_0=core.fsmonitor".to_string(),
+                "GIT_CONFIG_VALUE_0=false".to_string(),
+                "GIT_CONFIG_KEY_1=core.hooksPath".to_string(),
+                format!("GIT_CONFIG_VALUE_1={NULL_DEVICE}"),
+                "GIT_CONFIG_KEY_2=core.pager".to_string(),
+                "GIT_CONFIG_VALUE_2=cat".to_string(),
+                "GIT_CONFIG_KEY_3=core.useReplaceRefs".to_string(),
+                "GIT_CONFIG_VALUE_3=false".to_string(),
+                "GIT_CONFIG_KEY_4=protocol.allow".to_string(),
+                "GIT_CONFIG_VALUE_4=never".to_string(),
+                "GIT_CONFIG_KEY_5=safe.directory".to_string(),
+                "GIT_CONFIG_VALUE_5=C:/governed/repo".to_string(),
+            ]
+        );
+        assert_eq!(
+            ENV_PASSTHROUGH,
+            ["SystemRoot", "SystemDrive", "windir", "TEMP", "TMP", "PATH"]
+        );
+        assert!(ENV_PASSTHROUGH.iter().all(|name| !name.starts_with("GIT_")));
+    }
+
+    /// `safe.directory` IS BOUNDED TO THE ONE ROOT THE COMMAND RUNS IN (gatekeeper ruling §8).
+    ///
+    /// The Host reads a repository it does not own, so Git's ownership check is answered by naming
+    /// the proven root. That is acceptable ONLY while the answer is exactly that root: a wildcard
+    /// would trust every repository on the machine, a parent would trust every sibling beneath it,
+    /// and a value that does not follow `root` would let whatever chose it choose the trusted
+    /// directory. Several unrelated roots are checked so a constant cannot pass by coincidence.
+    #[test]
+    fn safe_directory_is_exactly_the_run_root_and_never_wider() {
+        for (root, spelled) in [
+            (r"\\?\C:\governed\repo", "C:/governed/repo"),
+            (r"C:\governed\repo", "C:/governed/repo"),
+            (r"\\?\D:\deep\nested\worktree\phase", "D:/deep/nested/worktree/phase"),
+            (r"\\?\C:\x", "C:/x"),
+        ] {
+            let env = fixed_environment(Path::new(root));
+            let keys: Vec<&(String, String)> = env
+                .iter()
+                .filter(|(k, v)| k.starts_with("GIT_CONFIG_KEY_") && v == "safe.directory")
+                .collect();
+            assert_eq!(keys.len(), 1, "{root}: exactly one safe.directory entry");
+            let index = keys[0].0.trim_start_matches("GIT_CONFIG_KEY_");
+            let value = env
+                .iter()
+                .find(|(k, _)| *k == format!("GIT_CONFIG_VALUE_{index}"))
+                .map(|(_, v)| v.as_str())
+                .expect("the entry carries a value");
+            assert_eq!(value, spelled, "{root}: the value is the run root itself");
+            assert!(!value.contains('*'), "{root}: never a wildcard");
+            assert!(!value.is_empty(), "{root}: never empty");
+            assert!(
+                !value.ends_with('/'),
+                "{root}: never a directory prefix that would also match children"
+            );
+        }
+    }
+
+    /// NOTHING THE HOST INHERITED CAN ADD A SECOND `safe.directory`.
+    ///
+    /// Git also reads configuration from `GIT_CONFIG_PARAMETERS` and from a caller's own
+    /// `GIT_CONFIG_COUNT` series. Neither may be carried over from the Host process: the closed
+    /// passthrough holds no `GIT_*` name at all, so the only `safe.directory` a read ever sees is the
+    /// one `fixed_environment` wrote for the root it runs in.
+    #[test]
+    fn no_inherited_configuration_channel_is_passed_through() {
+        for channel in [
+            "GIT_CONFIG_PARAMETERS",
+            "GIT_CONFIG_COUNT",
+            "GIT_CONFIG_KEY_0",
+            "GIT_CONFIG_VALUE_0",
+            "GIT_CONFIG",
+            "GIT_DIR",
+            "GIT_CEILING_DIRECTORIES",
+        ] {
+            assert!(
+                !ENV_PASSTHROUGH.contains(&channel),
+                "{channel} must never be inherited"
+            );
+        }
+    }
+
     /// A COMMITTED READ CANNOT NAME A MOVABLE POINTER.
     ///
     /// `CatFileBlob` takes a `CommitId`, and `CommitId::parse` refuses `HEAD` along with every other
@@ -552,6 +841,14 @@ mod tests {
             GitCommand::CatFileBlob {
                 commit: CommitId::parse(&"a".repeat(40)).unwrap(),
                 path: CommittedPath::new("projectos/security/x.json").unwrap(),
+            },
+            GitCommand::DiffTreeEndpoints {
+                base: CommitId::parse(&"a".repeat(40)).unwrap(),
+                candidate: CommitId::parse(&"b".repeat(40)).unwrap(),
+            },
+            GitCommand::IsAncestor {
+                ancestor: CommitId::parse(&"a".repeat(40)).unwrap(),
+                descendant: CommitId::parse(&"b".repeat(40)).unwrap(),
             },
         ];
         const FORBIDDEN: &[&str] = &[

@@ -28,7 +28,11 @@ afterEach(() => {
 
 const PLAN_PHASES = ['P-ONE1A', 'P-TWO1A', 'P-THREE1A'];
 
-function world(phases: Record<string, { status: string; history?: { to: string; by: string }[]; decision?: false }>, declareState = true): {
+function world(
+  phases: Record<string, { status: string; history?: { to: string; by: string }[]; decision?: false }>,
+  declareState = true,
+  planPhases: readonly string[] = PLAN_PHASES,
+): {
   root: string;
   sys: System;
   context: GovernedContext;
@@ -104,7 +108,7 @@ function world(phases: Record<string, { status: string; history?: { to: string; 
   const context: GovernedContext = {
     config: {} as GovernedContext['config'],
     plan: {
-      phases: PLAN_PHASES.map((phaseId) => ({ phaseId })),
+      phases: planPhases.map((phaseId) => ({ phaseId })),
       governance: { owner: 'Ada', closureDelegation: { delegatedTo: 'Grace' } },
       projectId: 'x',
     },
@@ -118,6 +122,43 @@ function world(phases: Record<string, { status: string; history?: { to: string; 
 function stateOf(statePath: string): Record<string, unknown> {
   return JSON.parse(readFileSync(statePath, 'utf8')) as Record<string, unknown>;
 }
+
+describe('the stood-down historical host review phase is not THE active phase (PROJECTOS-HOST-REVIEW-PATH1B)', () => {
+  const HISTORICAL = 'PROJECTOS-HOST-REVIEW-PATH1A';
+  const CONTINUATION = 'PROJECTOS-HOST-REVIEW-PATH1B';
+  const PLAN = [HISTORICAL, CONTINUATION, 'PROJECTOS-AGENT-WORKFORCE1A'];
+
+  test('parked as a draft beside the running continuation, the continuation is the active phase', () => {
+    const w = world({ [HISTORICAL]: { status: 'draft' }, [CONTINUATION]: { status: 'implementing' } }, true, PLAN);
+    syncCurrentState(w.sys, w.root, w.context, 'implementer');
+    const s = stateOf(w.statePath);
+    expect(s['activePhase']).toBe(CONTINUATION);
+    expect(s['pendingPhases']).toEqual([HISTORICAL, 'PROJECTOS-AGENT-WORKFORCE1A']);
+    expect(s['nextRecommendedPhase']).toBe(CONTINUATION);
+    expect(s['currentStatus']).toBe('IN EXECUTION');
+  });
+
+  test('a parked historical draft on its own is not work in flight', () => {
+    const w = world({ [HISTORICAL]: { status: 'draft' } }, true, PLAN);
+    syncCurrentState(w.sys, w.root, w.context, 'implementer');
+    expect(stateOf(w.statePath)['activePhase']).toBeNull();
+    expect(stateOf(w.statePath)['currentStatus']).toBe('PLAN READY');
+  });
+
+  test('ONLY that phase and ONLY as a draft: any other status of it, and any other draft, is in flight as before', () => {
+    const running = world({ [HISTORICAL]: { status: 'implementing' }, [CONTINUATION]: { status: 'implementing' } }, true, PLAN);
+    syncCurrentState(running.sys, running.root, running.context, 'implementer');
+    expect(stateOf(running.statePath)['activePhase']).toBeNull();
+
+    const closing = world({ [HISTORICAL]: { status: 'awaiting_closure' } }, true, PLAN);
+    syncCurrentState(closing.sys, closing.root, closing.context, 'implementer');
+    expect(stateOf(closing.statePath)['activePhase']).toBe(HISTORICAL);
+
+    const ordinary = world({ 'P-ONE1A': { status: 'draft' }, 'P-TWO1A': { status: 'implementing' } });
+    syncCurrentState(ordinary.sys, ordinary.root, ordinary.context, 'implementer');
+    expect(stateOf(ordinary.statePath)['activePhase']).toBeNull();
+  });
+});
 
 describe('current state follows the phase records', () => {
   test('a running phase says IN EXECUTION, not PLAN READY', () => {

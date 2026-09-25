@@ -44,7 +44,7 @@ use core::fmt;
 // has no public construction route, so a sealed type remains unconstructible outside this module. They
 // exist so a sealed value-type such as `CanonicalPeerContribution` can be compared and copied.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Sealed;
+pub(crate) struct Sealed;
 
 /// Sealed, UNCONSTRUCTIBLE authority to perform a live OS instance observation.
 ///
@@ -101,6 +101,19 @@ impl fmt::Debug for ServiceInstanceToken {
     /// stable fingerprint would itself be a correlatable identity leak.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("ServiceInstanceToken([REDACTED])")
+    }
+}
+
+#[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+impl ServiceInstanceToken {
+    /// The BOUNDED process parts. CRATE-PRIVATE, and reached only through
+    /// `CanonicalPeerContribution::observed_process_parts`, whose documentation carries the reason.
+    ///
+    /// This does NOT make the token readable: it stays opaque, it still has no public accessor, and
+    /// its `Debug` still renders nothing. What it permits is one narrow projection for one caller
+    /// inside this crate.
+    pub(crate) fn observed_parts(&self) -> (u32, u64) {
+        (self.process_id, self.creation_time)
     }
 }
 
@@ -419,7 +432,7 @@ pub(crate) fn decide_service(facts: &ServiceFacts) -> ServiceInstanceObservation
 /// plausible service stop/start cycle. Anything slower is not one coherent instant-in-time
 /// observation of a single running instance, so it fails closed rather than being trusted.
 #[cfg(any(test, feature = "consumer-contract"))]
-const MAX_OBSERVATION_WINDOW_MILLIS: u64 = 5_000;
+pub(crate) const MAX_OBSERVATION_WINDOW_MILLIS: u64 = 5_000;
 
 /// The attempt's internal, closed time source.
 ///
@@ -427,7 +440,7 @@ const MAX_OBSERVATION_WINDOW_MILLIS: u64 = 5_000;
 /// change, so a clock rollback cannot extend an attempt's validity. No caller-supplied timestamp is
 /// accepted in any build, and the fake variant exists only under `cfg(test)`.
 #[cfg(any(test, feature = "consumer-contract"))]
-enum AttemptClock {
+pub(crate) enum AttemptClock {
     Monotonic(std::time::Instant),
     #[cfg(any(test, feature = "test-fixtures"))]
     Fake {
@@ -442,7 +455,12 @@ enum AttemptClock {
 #[cfg(any(test, feature = "consumer-contract"))]
 impl AttemptClock {
     /// Milliseconds elapsed since the attempt began. Never exposed publicly.
-    fn elapsed_millis(&self) -> u64 {
+    ///
+    /// CRATE-PRIVATE since PROJECTOS-HOST-REVIEW-PATH1B so the canonical CLIENT-ADMISSION attempt in
+    /// the sibling module measures its bounded window through THIS one monotonic source. A second
+    /// clock would be a second definition of "one coherent instant-in-time observation", and the two
+    /// could drift; there is deliberately only one.
+    pub(crate) fn elapsed_millis(&self) -> u64 {
         match self {
             Self::Monotonic(start) => {
                 u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX)
@@ -1046,6 +1064,34 @@ impl VerifiedPeerAdmission {
     pub fn handshake_generation(&self) -> u64 {
         self.handshake_generation
     }
+
+    /// THE SECOND CANONICAL MINT, for the production CLIENT-ADMISSION route
+    /// (PROJECTOS-HOST-REVIEW-PATH1B, ROUTE 1).
+    ///
+    /// CRATE-PRIVATE ON PURPOSE. There is still exactly ONE admission TYPE and therefore exactly one
+    /// [`projectos_host_windows_local_ipc`] peer-context mint downstream: O7 is untouched. What this
+    /// adds is a second canonical PROPOSITION that may produce one —
+    /// "the connected pipe CLIENT is the exact enrolled configured owner on this host-issued
+    /// connection" — alongside the B3 proposition
+    /// "the pipe peer IS the SCM-observed ProjectOSHost service instance".
+    ///
+    /// Those are different claims about different processes, which is why
+    /// [`ServiceInstanceBinding::Match`] was NOT widened to cover both: a single positive whose
+    /// meaning depended on which caller produced it is exactly the ambiguity this crate exists to
+    /// prevent. The two routes share the sealed OUTPUT and nothing else.
+    ///
+    /// Reachable only from this crate's `client_admission` module, and only after that module's
+    /// consuming attempt has proven every gate. No sibling crate, no feature and no fixture can
+    /// call it, so possession of a [`VerifiedPeerAdmission`] still means a completed canonical
+    /// attempt said yes.
+    #[cfg(any(test, all(windows, feature = "windows-live-instance-observation")))]
+    pub(crate) fn for_admitted_client(connection_id: u64, handshake_generation: u64) -> Self {
+        Self {
+            _sealed: Sealed,
+            connection_id,
+            handshake_generation,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1395,6 +1441,71 @@ impl CanonicalPeerContribution {
     #[cfg(test)]
     fn recorded_integrity(&self) -> PeerIntegrityEvidence {
         self.integrity
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // PROJECTOS-HOST-REVIEW-PATH1B — narrow CRATE-PRIVATE reads for the canonical CLIENT-ADMISSION
+    // attempt in the sibling module.
+    //
+    // Each is a COMPARISON or an already-opaque value. None returns the SID, the session identifier
+    // or any byte of either: `PeerUserBinding` and `PeerSessionBinding` still have no accessor, no
+    // slice view and no rendering anywhere in the crate, so the client route can decide whether a
+    // peer IS the configured owner and can never learn who the peer is.
+    // -----------------------------------------------------------------------------------------
+
+    /// Whether this contribution's token user is EXACTLY the expected principal.
+    ///
+    /// Equality against an opaque binding — the only operation exact-user reconciliation ever needs.
+    /// Neither side is readable, so a caller learns one bit and never the SID behind it.
+    pub(crate) fn is_exactly_user(&self, expected: &PeerUserBinding) -> bool {
+        self.user == *expected
+    }
+
+    /// Whether two captures observed the EXACT same opaque Windows session.
+    ///
+    /// The session stays opaque and is never compared to a caller-supplied or interactive-desktop
+    /// session: the only question asked is whether it is unchanged within one bounded attempt.
+    pub(crate) fn is_same_session(&self, other: &Self) -> bool {
+        self.session == other.session
+    }
+
+    /// The opaque OS-derived process instance. Already equality-only and already unreadable.
+    pub(crate) fn observed_instance(&self) -> ServiceInstanceToken {
+        self.instance
+    }
+
+    /// The recorded bounded NON-AUTHORISING integrity evidence.
+    ///
+    /// Handed to the client-admission attempt so it can RECORD the same evidence. It authorises
+    /// nothing there either: no branch of that attempt's decision core reads it, exactly as no branch
+    /// here does.
+    pub(crate) fn integrity_evidence(&self) -> PeerIntegrityEvidence {
+        self.integrity
+    }
+
+    /// The HOST-ISSUED `(connection_id, handshake_generation)` this capture was taken on.
+    ///
+    /// Both values were issued by the Host and passed INTO the capture; returning them discloses
+    /// nothing the caller did not already supply, and lets the client route re-prove the pairing.
+    pub(crate) fn host_pair(&self) -> (u64, u64) {
+        (self.connection_id, self.handshake_generation)
+    }
+
+    /// The BOUNDED process parts of this capture: the OS-observed process id and creation time.
+    ///
+    /// PROJECTOS-HOST-REVIEW-PATH1B G3. This is the ONE identity fact that must LEAVE the attempt,
+    /// and the reason is that keeping it in forces something worse. The Host session evidence binds
+    /// the connected peer process so a later expected-peer comparison is possible; if this crate
+    /// refused to say which process it admitted, the transport would have to read the kernel a
+    /// SECOND time to fill that field - and a second read can observe a different process than the
+    /// one that was admitted. One audited read, projected narrowly, is the safer contract.
+    ///
+    /// It is deliberately ONLY these two scalars. The SID, the session identifier and the integrity
+    /// level stay unreadable: `PeerUserBinding` and `PeerSessionBinding` still have no accessor
+    /// anywhere in this crate. A process id and creation time are what the core session evidence
+    /// already carries as public fields, so this widens nothing that was closed downstream.
+    pub(crate) fn observed_process_parts(&self) -> (u32, u64) {
+        self.instance.observed_parts()
     }
 }
 

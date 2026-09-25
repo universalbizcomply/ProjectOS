@@ -25,6 +25,12 @@ windows-live-ipc = [
     # The pipe-peer instance observation lives in the canonical identity-proof crate, so this crate
     # never assembles a service-instance identity from raw parts of its own.
     "projectos-host-windows-service-identity-proof/windows-live-instance-observation",
+    # PROJECTOS-HOST-REVIEW-PATH1B. The canonical PRODUCTION CLIENT-ADMISSION route. The installed
+    # Host is the pipe SERVER and the governed Agent is the CLIENT, so admitting that client is a
+    # different proposition from the B3 service-instance binding and has its own canonical attempt.
+    # Enabled HERE and nowhere else: the live IPC graph is the trusted production composition, and no
+    # default, fixture or consumer-contract graph gains the client-admission capability.
+    "projectos-host-windows-service-identity-proof/windows-client-admission",
 ]
 # The OWNER-APPROVED, READ-ONLY installed-host status read. Non-default. It is the only feature under
 # which a LiveIpcOperationCapability can be produced, and even then only by consuming an explicit
@@ -48,6 +54,11 @@ test-fixtures = [
     # fixture graph supplies the sealed value so the composition can be proven; it mints no owner
     # authority, exposes no signing counterpart, and the live graph never enables it.
     "projectos-host-identity/test-fixtures",
+    # PROJECTOS-HOST-REVIEW-PATH1A. Steps 1-3 of the review operation verify the installed manifest
+    # against the embedded production owner anchor, and no owner has signed a version 2 manifest - so
+    # the only way to PROVE the sealed seam end to end is the attestation crate's fixture entry to
+    # steps 4-8. The live graph never enables it; the production seam still begins with the signature.
+    "projectos-host-gatekeeper-attestation/test-fixtures",
 ]
 
 [dependencies]
@@ -143,6 +154,11 @@ projectos-host-gatekeeper-ledger = { path = "../gatekeeper-ledger" }
 #
 # PROPOSED, 10E - AWAITING RATIFICATION AT THE 10E GATE, exactly as the 10D ledger edge was.
 projectos-host-trusted-roots = { path = "../trusted-roots" }
+# AMENDMENT 2, PROJECTOS-HOST-REVIEW-PATH1A (owner-ratified with plan v1.5). EXACTLY ONE EDGE, for ONE
+# reason: the sealed `GatekeeperReviewExecution` seam can only be implemented inside this crate, and
+# its one shipped implementation must DRIVE the existing ordered review operation rather than restate
+# it. Pure logic over injected ports: no file, pipe, process, credential or Windows call of its own.
+projectos-host-gatekeeper-attestation = { path = "../gatekeeper-attestation" }
 
 [target.'cfg(windows)'.dependencies]
 # Minimum named-pipe surface only. Optional + feature-gated: this crate's DIRECT edge to `windows` is
@@ -170,6 +186,9 @@ windows = { version = "0.61.3", optional = true, features = [
 ] }
 
 [dev-dependencies]
+# The cross-language vector proof reads `projectos/contracts/host-review-path-vectors.v1.json`. Dev-only:
+# it is in no consumer's graph, and the closed runtime dependency list above is unchanged.
+serde_json = "1"
 # TEST GRAPH ONLY. Enabling the trusted-roots fixture feature here - rather than from this crate's
 # own `test-fixtures` feature - keeps it out of every graph a consumer can select: a dev-dependency
 # is not part of the published dependency graph at all. It supplies the fixture installation anchor,

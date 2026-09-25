@@ -58,6 +58,30 @@ impl LiveClockObservationCapability {
             _thread_bound: core::marker::PhantomData,
         }
     }
+
+    /// THE PRODUCTION ACQUISITION (PROJECTOS-HOST-REVIEW-PATH1B G2).
+    ///
+    /// Obtainable ONLY by BORROWING the core one-shot
+    /// [`projectos_host_core::ProductionClockAuthority`] — the receipt for the single successful
+    /// fresh ProjectOSHost machine-authority acquisition that established this process's clock
+    /// lineage. Borrowed, not consumed, because that same authority must go on to mint the binding
+    /// grant: ONE service startup establishes one authority, which gates both the observation and
+    /// the binding, so a tick source and the clock it feeds can never come from different lineages.
+    ///
+    /// It carries NO caller input of any kind, so there is nothing to steer. It is still not
+    /// temporal authority: this capability only permits READING `GetTickCount64` and the process
+    /// creation time. Only the sealed core `ProductionTrustedClock` turns those ticks into a
+    /// `VerifiedAuthorityTime`, and only the core grant binds it.
+    #[cfg(feature = "production-clock-observation")]
+    #[must_use]
+    pub fn for_production_clock_authority(
+        _authority: &projectos_host_core::ProductionClockAuthority,
+    ) -> Self {
+        Self {
+            _seal: sealed::Private,
+            _thread_bound: core::marker::PhantomData,
+        }
+    }
 }
 
 /// A bounded, redacted projection of one monotonic observation — EVIDENCE only. It carries the raw tick so

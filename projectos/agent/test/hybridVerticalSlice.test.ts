@@ -383,6 +383,22 @@ function unchanged(w: World): void {
   expect(git(w.root, 'rev-parse', `origin/${BRANCH}`).trim()).toBe(w.head);
 }
 
+/**
+ * PROJECTOS-HOST-REVIEW-PATH1B, UNIT L — DECLARED AMENDMENT of this suite, UNATTENDED ROUTE ONLY.
+ *
+ * OLD (`unchanged`, used by both modes): a run whose review did not approve leaves HEAD at the base.
+ * NEW (ratified technical-continuation amendment): on the unattended route a bounded local candidate
+ * commit PRECEDES the independent review, so HEAD is that one local commit on the base - and still
+ * NOTHING is published: origin names the base. The interactive route keeps the old invariant and every
+ * interactive assertion here is unchanged.
+ */
+function recordedLocallyNotPublished(w: World): void {
+  const head = git(w.root, 'rev-parse', 'HEAD').trim();
+  expect(head).not.toBe(w.head);
+  expect(git(w.root, 'rev-list', '--parents', '-n', '1', 'HEAD').trim()).toBe(`${head} ${w.head}`);
+  expect(git(w.root, 'rev-parse', `origin/${BRANCH}`).trim()).toBe(w.head);
+}
+
 function started(sys: System, mode: Mode, over: { gatekeeper?: Record<string, unknown> | null } = {}) {
   const w = world(mode, over);
   let session = '';
@@ -504,7 +520,7 @@ describe('fail-safe: nothing is decided that the mode cannot legitimately obtain
     expect(run.states).toContain('WAITING_OWNER');
     expect(run.finalState).toBe('BLOCKED');
     expect(run.trace).toContain('the gatekeeper could not be reached');
-    unchanged(w);
+    recordedLocallyNotPublished(w); // PATH1B unit L: was `unchanged(w)` - see the helper.
     expect(interactiveFiles(w)).toEqual([]);
   });
 
@@ -559,7 +575,9 @@ describe('fail-safe: nothing is decided that the mode cannot legitimately obtain
     const run = mode === 'interactive' ? runOnce(sys, w, adapters, { answer: { allowedActions: grant } }) : runOnce(sys, w, adapters, { hostReview: fakeHost(grant) });
     expect(run.finalState).toBe('BLOCKED');
     expect(run.trace).toContain("decision grants 'payment-or-live-charge', which is an owner-only action");
-    unchanged(w);
+    // PATH1B unit L: was `unchanged(w)` for both modes - see `recordedLocallyNotPublished`.
+    if (mode === 'interactive') unchanged(w);
+    else recordedLocallyNotPublished(w);
   });
 
   it('a configured gatekeeper that declares no mode is refused before anything starts — no silent choice', () => {

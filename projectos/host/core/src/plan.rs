@@ -24,9 +24,33 @@ use crate::facts::{validate_bounded_id, MAX_BOUNDED_ID_LEN};
 
 /// Domain separator for the phase-definition digest. Binds the hash to this exact purpose so a digest
 /// of anything else can never be mistaken for a phase-definition authority binding.
-const DIGEST_DOMAIN: &str = "PROJECTOS:PHASE-DEFINITION:V1";
+const DIGEST_DOMAIN_V1: &str = "PROJECTOS:PHASE-DEFINITION:V1";
 /// Canonical-encoding schema version. A change here deliberately changes every digest.
-const DIGEST_SCHEMA: &str = "PHASE-DEFINITION-CANONICAL-V1";
+const DIGEST_SCHEMA_V1: &str = "PHASE-DEFINITION-CANONICAL-V1";
+/// The historical contract states exactly these nineteen authority fields, and no baseline.
+const DIGEST_FIELDS_V1: u32 = 19;
+/// VERSION 2 (PROJECTOS-HOST-REVIEW-PATH1B, owner-ratified): the contract that INCLUDES the
+/// owner-approved baseline. Its own domain separator and schema label, so no V2 encoding can be read as
+/// a V1 one and no V1 encoding can be read as stating a baseline.
+const DIGEST_DOMAIN_V2: &str = "PROJECTOS:PHASE-DEFINITION:V2";
+const DIGEST_SCHEMA_V2: &str = "PHASE-DEFINITION-CANONICAL-V2";
+/// Version 2 states the nineteen fields AND `baseline`.
+const DIGEST_FIELDS_V2: u32 = 20;
+
+/// Which phase-definition contract a definition is digested under.
+///
+/// ONE DIGEST, TWO CONTRACT VERSIONS - not two digests. A definition has exactly one phase-definition
+/// digest, and which contract it is computed under is a FACT ABOUT THE DEFINITION (does it state an
+/// owner-approved baseline?), never an argument: no caller can ask for a baseline-bearing definition to
+/// be hashed under V1, or for a historical one to be re-labelled V2.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PhaseDefinitionContract {
+    /// The historical nineteen-field contract. Its bytes and digests are what they always were.
+    /// It states NO baseline and can never satisfy an authority that requires one.
+    V1,
+    /// The contract that includes the owner-approved baseline B. Changing B changes the digest.
+    V2,
+}
 
 // ---------------------------------------------------------------------------------------------
 // Canonical, unambiguous, length-prefixed encoding
@@ -190,6 +214,12 @@ pub struct PhaseDefinitionCandidate {
     pub disconnect_required: bool,
     /// Residue obligation.
     pub residue: ResidueRequirement,
+    /// THE APPROVED BASELINE COMMIT of the phase (untrusted until normalized): exactly 40 lower-case hex
+    /// characters, or `None` for a phase that is never reviewed against a candidate.
+    ///
+    /// PROJECTOS-HOST-REVIEW-PATH1B. AUTHORITY-BEARING: it is the fixed point every candidate is measured
+    /// from, so it enters the phase-definition digest the owner approves. Changing it changes the digest.
+    pub approved_baseline: Option<String>,
 }
 
 /// The canonical, validated phase definition. Built ONLY by [`normalize_candidate`]; its fields are
@@ -213,6 +243,7 @@ pub struct NormalizedPhaseDefinition {
     shutdown_required: bool,
     disconnect_required: bool,
     residue: ResidueRequirement,
+    approved_baseline: Option<ApprovedBaselineCommit>,
 }
 
 impl fmt::Debug for NormalizedPhaseDefinition {
@@ -222,6 +253,15 @@ impl fmt::Debug for NormalizedPhaseDefinition {
 }
 
 impl NormalizedPhaseDefinition {
+    /// The contract this definition is digested under: V2 exactly when it states an owner-approved
+    /// baseline, V1 otherwise. Derived from the definition, so it cannot disagree with it.
+    #[must_use]
+    pub fn digest_contract(&self) -> PhaseDefinitionContract {
+        match self.approved_baseline {
+            Some(_) => PhaseDefinitionContract::V2,
+            None => PhaseDefinitionContract::V1,
+        }
+    }
     /// The bound project.
     #[must_use]
     pub fn project(&self) -> &ProjectId {
@@ -353,6 +393,9 @@ pub enum NormalizeError {
     PredecessorCycle,
     /// The candidate declared no project/environment binding.
     EnvironmentAmbiguous,
+    /// An approved baseline was stated and is not an exact 40-character lower-case commit identity. A
+    /// reference, an abbreviation or an upper-case identity is REFUSED, never normalized into one.
+    ApprovedBaselineMalformed,
 }
 
 fn norm_token(s: &str) -> Result<String, NormalizeError> {
@@ -444,6 +487,13 @@ pub fn normalize_candidate(
         return Err(NormalizeError::AmbiguousPathBoundary);
     }
 
+    let approved_baseline = match &c.approved_baseline {
+        None => None,
+        Some(hex) => Some(
+            ApprovedBaselineCommit::parse(hex).ok_or(NormalizeError::ApprovedBaselineMalformed)?,
+        ),
+    };
+
     Ok(NormalizedPhaseDefinition {
         phase_id,
         phase_type: c.phase_type,
@@ -462,6 +512,7 @@ pub fn normalize_candidate(
         shutdown_required: c.shutdown_required,
         disconnect_required: c.disconnect_required,
         residue: c.residue,
+        approved_baseline,
     })
 }
 
@@ -477,10 +528,21 @@ pub fn phase_definition_digest(
     version: ApprovedPlanVersion,
 ) -> PhaseDefinitionDigest {
     let mut b: Vec<u8> = Vec::new();
-    put(&mut b, DIGEST_DOMAIN.as_bytes());
-    put(&mut b, DIGEST_SCHEMA.as_bytes());
-    // 19 authority fields, each length-prefixed and name-tagged.
-    b.extend_from_slice(&19u32.to_be_bytes());
+    // THE CONTRACT VERSION IS DERIVED, NEVER CHOSEN (PROJECTOS-HOST-REVIEW-PATH1B, owner-ratified).
+    //
+    // V1 is the historical nineteen-field contract: a definition without a baseline encodes to the very
+    // bytes it always did, so no digest that already exists changes and the V1 labels still mean what
+    // they meant. V2 is the contract that INCLUDES the owner-approved baseline: its own domain
+    // separator, its own schema label, twenty fields. The labels are the first bytes hashed, so a V1
+    // encoding can never be read as stating a baseline, a V2 encoding can never be read as V1, and the
+    // same definition with a different baseline - or with none - is a different digest.
+    let (domain, schema, field_count) = match n.digest_contract() {
+        PhaseDefinitionContract::V1 => (DIGEST_DOMAIN_V1, DIGEST_SCHEMA_V1, DIGEST_FIELDS_V1),
+        PhaseDefinitionContract::V2 => (DIGEST_DOMAIN_V2, DIGEST_SCHEMA_V2, DIGEST_FIELDS_V2),
+    };
+    put(&mut b, domain.as_bytes());
+    put(&mut b, schema.as_bytes());
+    b.extend_from_slice(&field_count.to_be_bytes());
     let version_s = version.0.to_string();
     let phase_type = format!("{:?}", n.phase_type);
     let repo = format!("{:?}", n.repository_policy);
@@ -518,6 +580,9 @@ pub fn phase_definition_digest(
         &[if n.disconnect_required { "1" } else { "0" }],
     );
     put_field(&mut b, "residue", &[&residue]);
+    if let Some(baseline) = &n.approved_baseline {
+        put_field(&mut b, "baseline", &[baseline.as_str()]);
+    }
 
     let out = Sha256::digest(&b);
     let mut bytes = [0u8; 32];
@@ -606,8 +671,21 @@ impl ApprovedPlanBinding {
     pub fn version(&self) -> ApprovedPlanVersion {
         self.version
     }
-    /// The digest bytes, for folding into the operation fingerprint (crate-internal; never rendered).
-    pub(crate) fn digest_bytes(&self) -> &[u8; 32] {
+    /// The digest bytes of the ALREADY-VALIDATED phase definition.
+    ///
+    /// WIDENED FROM `pub(crate)` IN PROJECTOS-HOST-REVIEW-PATH1A, and deliberately the smallest change
+    /// that works: the host's plan-authority adapter lives outside this crate and has to report this
+    /// exact value as `HostResolvedFacts.plan_digest`. Every alternative was worse — a second digest
+    /// algorithm, a new mint, or trusting `stored_digest_hex` off the disk record, which the reload path
+    /// exists to distrust.
+    ///
+    /// READ-ONLY, AND IT MINTS NOTHING. A `ValidatedApprovedPlan` can only be produced by the reload
+    /// path, which re-normalizes the candidate, recomputes `phase_definition_digest` and compares it to
+    /// what was stored — so these bytes are reachable only after that comparison passed. Handing them
+    /// out confers no authority: a digest is a value, and `PhaseDefinitionDigest` still has no public
+    /// constructor, no from-hex and no serde route, so nothing can travel back the other way.
+    #[must_use]
+    pub fn digest_bytes(&self) -> &[u8; 32] {
         &self.digest.bytes
     }
 }
@@ -731,6 +809,38 @@ pub(crate) fn revalidate_stored_record(
     ))
 }
 
+/// THE APPROVED BASELINE COMMIT of a governed phase: the exact commit the owner approved the phase
+/// against, and therefore the fixed lower endpoint of every candidate difference reviewed under it.
+///
+/// PROJECTOS-HOST-REVIEW-PATH1B. Forty lower-case hex characters and nothing else — not a branch, not
+/// a remote-tracking reference, not `HEAD`, not an abbreviation. It is WRITTEN ONCE, with the approval,
+/// into the durable record; it is never derived, advanced or re-resolved at run time, so a candidate
+/// cannot move the point it is measured from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApprovedBaselineCommit {
+    hex: String,
+}
+
+impl ApprovedBaselineCommit {
+    /// Validate one baseline commit identity. `None` for anything but 40 lower-case hex characters.
+    #[must_use]
+    pub fn parse(hex: &str) -> Option<Self> {
+        let ok = hex.len() == 40
+            && hex
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
+        ok.then(|| Self {
+            hex: hex.to_string(),
+        })
+    }
+
+    /// The validated lower-case hex identity.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.hex
+    }
+}
+
 /// A service-validated approved-plan fact: the binding plus its verified status. Produced by an
 /// [`ApprovedPlanReader`] adapter; never crosses IPC; not serializable as authority.
 #[derive(Clone, PartialEq, Eq)]
@@ -766,6 +876,28 @@ impl ValidatedApprovedPlan {
             status: record.status,
             status_revision,
         }
+    }
+    /// The approved baseline commit of this phase, from the APPROVED DEFINITION - the same value the
+    /// phase-definition digest binds, so it is covered by the owner's approval and re-proven on every
+    /// reload. NEVER a caller's value and never resolved from the repository: `None` is "no baseline was
+    /// approved", and a review without one is refused.
+    ///
+    /// V1 CANNOT ANSWER. A plan approved under the historical contract bound no baseline, so there is
+    /// none to return: the contract is checked FIRST and a V1 plan yields `None` whatever else is true of
+    /// it. Baseline-required authority (the unattended Host review) therefore fails closed for every V1
+    /// approval, by construction rather than by a caller remembering to ask.
+    #[must_use]
+    pub fn approved_baseline(&self) -> Option<&ApprovedBaselineCommit> {
+        match self.digest_contract() {
+            PhaseDefinitionContract::V1 => None,
+            PhaseDefinitionContract::V2 => self.definition.approved_baseline.as_ref(),
+        }
+    }
+    /// The phase-definition contract this approval's digest was computed - and re-proven on reload -
+    /// under.
+    #[must_use]
+    pub fn digest_contract(&self) -> PhaseDefinitionContract {
+        self.definition.digest_contract()
     }
     /// The durable status revision (bumped by revocation/supersession/staleness). Participates in
     /// execution-context comparison so a later status change invalidates an already-issued permit.
@@ -843,8 +975,16 @@ pub struct PlanDurableDto {
     pub committed: bool,
 }
 
+/// The baseline the synthetic test approval path records when a test does not name one.
+#[cfg(any(test, feature = "test-fixtures"))]
+pub const FIXTURE_BASELINE_COMMIT: &str = "b45e11e0b45e11e0b45e11e0b45e11e0b45e11e0";
+
 /// The current schema version durable plan records are written under.
-pub const PLAN_SCHEMA_VERSION: u32 = 1;
+///
+/// REVISION 2 (PROJECTOS-HOST-REVIEW-PATH1B): the candidate a record carries may state the phase's
+/// approved baseline commit, which the phase-definition digest binds. A revision 1 record predates
+/// that and is refused rather than read as though it had been approved against one.
+pub const PLAN_SCHEMA_VERSION: u32 = 2;
 
 /// Reload an untrusted DTO into a validated approved-plan fact, or refuse (fail closed). This is the
 /// ONLY bridge from durable bytes to authority:
@@ -991,6 +1131,36 @@ impl ApprovedPlanJournal {
         status: ApprovedPlanStatus,
         status_revision: u64,
     ) -> ValidatedApprovedPlan {
+        self.commit_candidate_for_test(candidate, version, status, status_revision)
+    }
+
+    /// [`ApprovedPlanJournal::commit_approved_for_test`] over the same candidate approved AGAINST A
+    /// BASELINE. The baseline is part of the definition, so this is a different approval with a
+    /// different digest - exactly as it would be for an owner.
+    #[cfg(any(test, feature = "test-fixtures"))]
+    pub fn commit_approved_with_baseline_for_test(
+        &mut self,
+        candidate: &PhaseDefinitionCandidate,
+        version: u64,
+        status: ApprovedPlanStatus,
+        status_revision: u64,
+        baseline: &ApprovedBaselineCommit,
+    ) -> ValidatedApprovedPlan {
+        let with_baseline = PhaseDefinitionCandidate {
+            approved_baseline: Some(baseline.as_str().to_string()),
+            ..candidate.clone()
+        };
+        self.commit_candidate_for_test(&with_baseline, version, status, status_revision)
+    }
+
+    #[cfg(any(test, feature = "test-fixtures"))]
+    fn commit_candidate_for_test(
+        &mut self,
+        candidate: &PhaseDefinitionCandidate,
+        version: u64,
+        status: ApprovedPlanStatus,
+        status_revision: u64,
+    ) -> ValidatedApprovedPlan {
         let normalized = normalize_candidate(candidate).expect("valid fixture candidate");
         let record = approve_normalized_definition(
             ApprovedPlanRef::new("plan-1").expect("valid ref"),
@@ -1053,6 +1223,7 @@ mod tests {
             shutdown_required: true,
             disconnect_required: true,
             residue: ResidueRequirement::ExactlyZero,
+            approved_baseline: None,
         }
     }
 
@@ -1352,6 +1523,189 @@ mod tests {
             .resolve_active(&required)
             .expect("committed active plan resolves");
         assert!(fact.is_active_for(&required));
+    }
+
+    // ---- PROJECTOS-HOST-REVIEW-PATH1B: THE APPROVED BASELINE IS BOUND BY THE DEFINITION DIGEST --------
+
+    fn with_baseline(hex: &str) -> PhaseDefinitionCandidate {
+        PhaseDefinitionCandidate {
+            approved_baseline: Some(hex.to_string()),
+            ..candidate()
+        }
+    }
+
+    // EVERY HEX VALUE BELOW WAS COMPUTED BY A SEPARATE IMPLEMENTATION written from the prose of the
+    // encoding (`tools/pin_phase_definition_digest.py`, which first reproduces the historical V1 pin and
+    // refuses to print anything if it cannot). None was copied from this crate's own output.
+    const V1_HISTORICAL: &str = "26ab6bc977e0b5ccb4f217e7ce448174a5dcb7a781c12ec9eef11ce416cfc5e6";
+    const V2_WITH_B: &str = "3a0f0d8236bba56529ab1a85864778825c71551864d4316d0ee96ecfca1a9a0e";
+    const V2_WITH_OTHER_B: &str = "7120ffb9cda903f263f258cd85647834d4784e9918e99426510c0ad71d54f528";
+    /// The twenty fields hashed under the V1 LABELS - what a baseline smuggled into V1 would produce.
+    const V1_LABELS_OVER_A_BASELINE: &str =
+        "9d53450338eef9fd22c33059f9cfda34070c0580a01985b99eaa5d2d7f240ded";
+    /// The nineteen fields hashed under the V2 LABELS - what a V2 claim with no baseline would produce.
+    const V2_LABELS_WITHOUT_A_BASELINE: &str =
+        "971ae4c625acd41833b2b0cfc63ad3f6c5c34e869c0e84d910d80c09fb19ee44";
+
+    fn hex_of(c: &PhaseDefinitionCandidate) -> String {
+        phase_definition_digest_hex(&normalize_candidate(c).unwrap(), &pref(), ApprovedPlanVersion(1))
+    }
+
+    /// V1 COMPATIBILITY IS INTACT: the historical nineteen-field definition digests to exactly what it
+    /// always did, under the contract it always had.
+    #[test]
+    fn v1_historical_digest_and_contract_are_unchanged() {
+        let n = normalize_candidate(&candidate()).unwrap();
+        assert_eq!(n.digest_contract(), PhaseDefinitionContract::V1);
+        assert_eq!(hex_of(&candidate()), V1_HISTORICAL);
+    }
+
+    /// V2 BINDS THE BASELINE: a baseline-bearing definition is digested under V2, and changing B - by
+    /// one nibble as much as by all of them - changes the V2 digest.
+    #[test]
+    fn v2_binds_the_approved_baseline_and_changing_it_changes_the_digest() {
+        let n = normalize_candidate(&with_baseline(FIXTURE_BASELINE_COMMIT)).unwrap();
+        assert_eq!(n.digest_contract(), PhaseDefinitionContract::V2);
+        assert_eq!(hex_of(&with_baseline(FIXTURE_BASELINE_COMMIT)), V2_WITH_B);
+        let other = format!("c{}", &FIXTURE_BASELINE_COMMIT[1..]);
+        assert_eq!(hex_of(&with_baseline(&other)), V2_WITH_OTHER_B);
+        assert_ne!(V2_WITH_B, V2_WITH_OTHER_B);
+    }
+
+    /// THE TWO CONTRACTS CANNOT BE READ AS ONE ANOTHER. No definition this crate can digest produces a
+    /// baseline under the V1 labels, or the V2 labels without a baseline - and those are not merely
+    /// "different values", they are the two specific cross-version encodings, computed independently.
+    #[test]
+    fn neither_contract_can_be_read_as_the_other() {
+        for produced in [
+            hex_of(&candidate()),
+            hex_of(&with_baseline(FIXTURE_BASELINE_COMMIT)),
+        ] {
+            assert_ne!(produced, V1_LABELS_OVER_A_BASELINE);
+            assert_ne!(produced, V2_LABELS_WITHOUT_A_BASELINE);
+        }
+    }
+
+    /// THE WRONG VERSION FAILS CLOSED WHERE A BASELINE IS REQUIRED. A durable record that states a
+    /// baseline but whose stored digest is a V1-LABELLED one - the historical digest of the same phase,
+    /// or the twenty fields under V1 labels - is refused on reload: the stored digest is recomputed
+    /// under the contract the DEFINITION demands (V2), and neither V1 value is that.
+    #[test]
+    fn a_v1_labelled_digest_cannot_authorise_a_baseline_bearing_record() {
+        let approved = with_baseline(FIXTURE_BASELINE_COMMIT);
+        let n = normalize_candidate(&approved).unwrap();
+        let rec = approve_normalized_definition(pref(), ApprovedPlanVersion(1), &n, ApprovedPlanStatus::Active);
+        let mut j = ApprovedPlanJournal::new();
+        let intent = j.begin_write_intent(&rec, &approved, 1);
+        j.commit(intent);
+        // Non-vacuity: the honest V2 record reloads, and answers with its baseline.
+        let honest = reload_and_validate(&j.entries[0], rec.binding()).expect("the V2 record reloads");
+        assert_eq!(honest.digest_contract(), PhaseDefinitionContract::V2);
+        assert_eq!(j.entries[0].stored_digest_hex, V2_WITH_B);
+
+        for v1_labelled in [V1_HISTORICAL, V1_LABELS_OVER_A_BASELINE] {
+            let mut dto = j.entries[0].clone();
+            dto.stored_digest_hex = v1_labelled.to_string();
+            assert!(
+                reload_and_validate(&dto, rec.binding()).is_none(),
+                "a V1-labelled digest authorised a baseline-bearing record"
+            );
+        }
+    }
+
+    /// V1 CANNOT SATISFY BASELINE-REQUIRED AUTHORITY. A V1 approval is valid - it still resolves, for
+    /// what V1 always authorised - and it answers `None` for the baseline, which the unattended Host
+    /// review refuses.
+    #[test]
+    fn a_v1_approval_stays_valid_and_never_yields_a_baseline() {
+        let mut j = ApprovedPlanJournal::new();
+        let (rec, cand) = approved(1, ApprovedPlanStatus::Active);
+        let intent = j.begin_write_intent(&rec, &cand, 1);
+        j.commit(intent);
+        let fact = j.resolve_active(rec.binding()).expect("a V1 approval still resolves");
+        assert_eq!(fact.digest_contract(), PhaseDefinitionContract::V1);
+        assert!(fact.approved_baseline().is_none());
+    }
+
+    /// WRONG B FAILS THE AUTHORITY CHECK. A record approved against one baseline cannot answer for a
+    /// binding approved against another - or against none - because they are different digests.
+    #[test]
+    fn a_plan_approved_against_one_baseline_does_not_resolve_for_another() {
+        let approve = |c: &PhaseDefinitionCandidate| {
+            let n = normalize_candidate(c).unwrap();
+            approve_normalized_definition(pref(), ApprovedPlanVersion(1), &n, ApprovedPlanStatus::Active)
+        };
+        let approved = with_baseline(FIXTURE_BASELINE_COMMIT);
+        let rec = approve(&approved);
+        let mut j = ApprovedPlanJournal::new();
+        let intent = j.begin_write_intent(&rec, &approved, 1);
+        j.commit(intent);
+
+        let fact = j.resolve_active(rec.binding()).expect("the exact approval resolves");
+        assert_eq!(
+            fact.approved_baseline().map(ApprovedBaselineCommit::as_str),
+            Some(FIXTURE_BASELINE_COMMIT)
+        );
+
+        let other = format!("c{}", &FIXTURE_BASELINE_COMMIT[1..]);
+        assert!(j.resolve_active(approve(&with_baseline(&other)).binding()).is_none());
+        assert!(j.resolve_active(approve(&candidate()).binding()).is_none());
+    }
+
+    /// A STORED RECORD WHOSE BASELINE WAS EDITED NO LONGER MATCHES ITS STORED DIGEST, so the reload
+    /// refuses it. This is what store custody alone could not give: the edit is DETECTED, not trusted.
+    #[test]
+    fn a_baseline_edited_in_the_durable_record_fails_the_digest_recomputation() {
+        let approved = with_baseline(FIXTURE_BASELINE_COMMIT);
+        let n = normalize_candidate(&approved).unwrap();
+        let rec = approve_normalized_definition(pref(), ApprovedPlanVersion(1), &n, ApprovedPlanStatus::Active);
+        let mut j = ApprovedPlanJournal::new();
+        let intent = j.begin_write_intent(&rec, &approved, 1);
+        j.commit(intent);
+        assert!(reload_and_validate(&j.entries[0], rec.binding()).is_some());
+
+        let other = format!("c{}", &FIXTURE_BASELINE_COMMIT[1..]);
+        for edited in [Some(other), None] {
+            let mut dto = j.entries[0].clone();
+            dto.candidate.approved_baseline = edited.clone();
+            assert!(
+                reload_and_validate(&dto, rec.binding()).is_none(),
+                "{edited:?} was accepted although the owner approved another baseline"
+            );
+        }
+    }
+
+    /// A BASELINE THAT IS NOT AN EXACT COMMIT IS REFUSED AT NORMALIZATION, never coerced; absent is
+    /// simply "no baseline", and a review without one is refused downstream.
+    #[test]
+    fn a_malformed_baseline_is_refused_and_an_absent_one_is_none() {
+        for bad in [
+            "",
+            "HEAD",
+            "main",
+            "refs/remotes/origin/main",
+            "b45e11e0",
+            "B45E11E0B45E11E0B45E11E0B45E11E0B45E11E0",
+            "b45e11e0b45e11e0b45e11e0b45e11e0b45e11e0b45e11e0b45e11e0b45e11e0",
+            "b45e11e0b45e11e0b45e11e0b45e11e0b45e11e ",
+        ] {
+            assert_eq!(
+                normalize_candidate(&with_baseline(bad)).unwrap_err(),
+                NormalizeError::ApprovedBaselineMalformed,
+                "{bad:?}"
+            );
+        }
+        let (rec, _) = approved(1, ApprovedPlanStatus::Active);
+        assert!(ValidatedApprovedPlan::from_record(&rec).approved_baseline().is_none());
+        // Revision 1 records predate the field and are refused.
+        let mut j = ApprovedPlanJournal::new();
+        let (rec, cand) = approved(1, ApprovedPlanStatus::Active);
+        let intent = j.begin_write_intent(&rec, &cand, 1);
+        j.commit(intent);
+        let mut old = j.entries[0].clone();
+        old.schema_version = 1;
+        assert!(reload_and_validate(&old, rec.binding()).is_none());
+        assert_eq!(PLAN_SCHEMA_VERSION, 2);
     }
 
     #[test]

@@ -998,7 +998,7 @@ pub(crate) fn test_decodable_record_bytes(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     const PROJECT: [u8; DELEGATION_DIGEST_LEN] = [0x11; DELEGATION_DIGEST_LEN];
@@ -1078,6 +1078,36 @@ mod tests {
             accepts_subject: record.canonical_subject(),
             seen: std::cell::RefCell::new(Vec::new()),
         }
+    }
+
+    /// A verified delegation for ANOTHER test module, produced by THE REAL VERIFICATION ORDER.
+    ///
+    /// PROJECTOS-HOST-REVIEW-PATH1B G5. The governed-review capability mint takes a sealed
+    /// `VerifiedOwnerProgrammeDelegation`, so its proofs need one — and O12 says, correctly, that
+    /// only the verification order may reach the internal mint. So this helper does not fabricate
+    /// one: it builds the record, signs it with the fixture oracle over the record's own canonical
+    /// subject, and runs `verify_delegation_with_oracle` — the same signature, programme and
+    /// liveness order the production entry runs. A refusal returns `None` rather than a value.
+    ///
+    /// `cfg(test)` and `pub(crate)`: it exists in NO shipped graph, not even the fixture one, and
+    /// no crate outside this one can name it.
+    pub(crate) fn verified_delegation_for_test(
+        operation: OperationClass,
+        revoked_or_completed: bool,
+    ) -> Option<VerifiedOwnerProgrammeDelegation> {
+        let mut bytes = record_bytes();
+        bytes[MAGIC.len() + OFF_OPERATION] = operation.discriminant();
+        bytes[MAGIC.len() + OFF_REVOKED] = u8::from(revoked_or_completed);
+        let record = decode_signed_owner_programme_delegation(&bytes).ok()?;
+        let oracle = oracle_for(&record);
+        // A revoked record is refused by the LOCAL liveness rung, not by the signature, so the
+        // revoked case is driven through the host status rather than through the record byte alone.
+        let status = if revoked_or_completed {
+            HostDelegationStatus::fixture(RECORD_ID, DelegationLocalState::Revoked)
+        } else {
+            active()
+        };
+        verify_delegation_with_oracle(&record, &expected(), &now(), &status, &oracle).ok()
     }
 
     /// An oracle that accepts nothing — the shape of an unsigned, wrongly-signed or foreign record.

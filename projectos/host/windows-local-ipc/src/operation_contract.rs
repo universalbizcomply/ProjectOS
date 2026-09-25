@@ -1178,6 +1178,42 @@ impl ExecutionOutcomeEvidence {
         }
     }
 
+    /// THE ONE SHIPPED MINT (PROJECTOS-HOST-REVIEW-PATH1A, owner-ratified Amendment 1 to O6h).
+    ///
+    /// Until this phase the type had no shipped constructor at all, which made `Completed`
+    /// unforgeable by making it impossible: nothing could ever be reported as finished. The
+    /// property that mattered was never "zero mints" - it was "`Completed` cannot be rendered
+    /// without execution" - and it is kept here by construction rather than by absence:
+    ///
+    /// * PRIVATE, so only this module and its descendants can name it, and the accepted
+    ///   validator pins the crate to EXACTLY ONE call site: `run_authorised_review` in
+    ///   `host_composition`, which calls it only after the SEALED execution seam reported that
+    ///   an execution genuinely occurred.
+    /// * THE CORRELATION IS TAKEN FROM THE AUTHORITY, never supplied. Evidence therefore cannot
+    ///   be minted about a request nobody authorised, and `completed()` still independently
+    ///   refuses evidence about any other correlation.
+    /// * `NotRun` IS NOT MINTABLE. Evidence says an execution happened; a request that never ran
+    ///   is a refusal, and a refusal is rendered by `rejected()`, which needs no evidence. A
+    ///   mint that accepted `NotRun` would let "nothing happened" travel as `Completed`.
+    ///
+    /// There is no `Default`, `Clone`, `Copy`, `From`, serde or macro route to this type, and
+    /// the validator refuses a second `impl` block, a trait impl or a named struct literal.
+    fn from_completed_execution(
+        authority: &AuthorisedProtectedOperation,
+        result: ResultClass,
+        evidence_ref: [u8; EVIDENCE_REF_LEN],
+    ) -> Option<Self> {
+        if result == ResultClass::NotRun {
+            return None;
+        }
+        Some(Self {
+            _seal: Seal,
+            correlation: *authority.correlation(),
+            result,
+            evidence_ref,
+        })
+    }
+
     /// The correlation this outcome is about.
     #[must_use]
     pub fn correlation(&self) -> &[u8; CORRELATION_LEN] {

@@ -933,9 +933,36 @@ function run() {
     e.push("C13 a readable accessor exposes the stored host-issued connection or handshake generation outside the sealed admission");
   }
   {
+    // PROJECTOS-HOST-REVIEW-PATH1B (ROUTE 1, W1) - THE DECLARED AMENDMENT.
+    //
+    //   OLD: the sealed admission exposed EXACTLY the two host-issued identifier accessors, and
+    //        nothing else - because its ONE mint lived on the service-instance attempt.
+    //   NEW: it additionally carries `for_admitted_client`, the CRATE-PRIVATE mint of the
+    //        CLIENT-ADMISSION route.
+    //
+    // WHY THIS IS NOT A WIDENING OF WHAT AN ADMISSION EXPOSES. The installed product makes
+    // ProjectOSHost the pipe SERVER and the governed Agent the CLIENT, so a service-instance attempt
+    // about the Host's own client can never finalise to `Match` and that route mints nothing at all
+    // in the direction the product actually runs. The new entry is a MINT, not an accessor: it
+    // reads nothing out of an admission, it is `pub(crate)` so no consumer can reach it, and it has
+    // EXACTLY ONE call site - the final gate of `admit_client_for_connection`, after the attempt has
+    // proven the capture's pair, the stored pair and the asked pair all agree and the principal is
+    // exactly the enrolled configured owner. The accessor rule itself is untouched: the readable
+    // surface is still the two host-issued identifiers and nothing else.
+    const ADMISSION_ACCESSORS = ["connection_id", "handshake_generation"];
+    const ADMISSION_MINT = "for_admitted_client";
+    if (!/pub\(crate\) fn for_admitted_client\(connection_id: u64, handshake_generation: u64\) -> Self/.test(admissionImpl))
+      e.push("C13 the client-admission mint is missing, public, or does not take exactly the two host-issued identifiers");
+    {
+      const callSites = instance
+        .replace(/\bfn\s+for_admitted_client/g, "DECLARATION")
+        .match(/for_admitted_client\s*\(/g) || [];
+      if (callSites.length !== 0)
+        e.push("C13 the client-admission mint is called " + callSites.length + " time(s) in instance.rs; its only call site is the client-admission gate");
+    }
     const fns = [...admissionImpl.matchAll(/pub(?:\((?:crate|super|in [^)]*)\))?\s+fn\s+([a-z0-9_]+)\s*(?:<[^>]*>)?\s*\(/g)].map((m) => m[1]);
     for (const name of fns) {
-      if (!["connection_id", "handshake_generation"].includes(name)) {
+      if (![...ADMISSION_ACCESSORS, ADMISSION_MINT].includes(name)) {
         e.push("C13 VerifiedPeerAdmission gained an unruled function `" + name + "`; it may expose only the two host-issued identifiers");
       }
     }

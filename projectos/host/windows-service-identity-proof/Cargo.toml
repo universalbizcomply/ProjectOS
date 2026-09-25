@@ -41,12 +41,42 @@ windows-live-instance-observation = [
 # drive an attempt to Match with no Windows call. Explicit, non-default, and NEVER implied by A or B,
 # so a default or live-only consumer cannot reach it. No machine effect, no raw process identity.
 test-fixtures = ["consumer-contract"]
+# D. PRODUCTION CLIENT ADMISSION (PROJECTOS-HOST-REVIEW-PATH1B, ROUTE 1). The installed product is the
+# REVERSE of the B3 proof direction: ProjectOSHost is the pipe SERVER and the governed Agent is the
+# CLIENT, so a canonical attempt about the Host's own client can never be a service-instance Match.
+# This feature compiles the SEPARATE client-admission attempt that judges the kernel-captured client
+# token against the EXACT enrolled configured-owner SID.
+#
+# IT IS THE NARROWEST CAPABILITY SURFACE FOR ITS OWN LIVE OBSERVATION, AND NOTHING MORE. It grants no
+# SCM mutation, no protected-operation authority and no generic identity observation, and it still
+# cannot produce a `LiveInstanceObservationCapability`, so the B3 service-instance route stays
+# unreachable in every build exactly as before.
+#
+# It activates the canonical owner source rather than introducing a second one: host-identity's
+# `canonical_record` is the SAME record that already supplies the configured-owner principal for the
+# production ProjectOSHost pipe DACL. Optional + feature-gated, so the DEFAULT build remains the
+# effect-free contract with host-authority as its only dependency.
+windows-client-admission = [
+    "windows-live-instance-observation",
+    "dep:projectos-host-identity",
+]
 
 [dependencies]
 # Reuses the canonical no-trust authority contract types (AuthorityTokenOutcome, AuthorityPeerState,
 # AuthorityHandoverState, ConfirmedPeer). host-authority's DEFAULT build is zero-dependency and
 # effect-free, so this crate pulls NO windows/SCM/handle/credential dependency.
 projectos-host-authority = { path = "../host-authority" }
+# THE CANONICAL OWNER SOURCE, for the production client-admission route ONLY (feature
+# `windows-client-admission`). This is NOT a second owner authority: `canonical_record` is the same
+# digest-bound installation record whose `OwnerEnrolment` already supplies the exact configured-owner
+# principal for the production ProjectOSHost pipe DACL, through
+# `host-authority::security::configured_owner_sid_string()`. Reusing it is what keeps ONE enrolled
+# owner on the machine; resolving an owner any other way here would be the second authority the
+# gatekeeper ruling forbids.
+#
+# NO CYCLE: host-identity depends on serde/sha2/windows-runtime-primitives/packaged-runtime-contract
+# and on nothing in this direction.
+projectos-host-identity = { path = "../host-identity", optional = true }
 
 [target.'cfg(windows)'.dependencies]
 # Minimum instance-observation and peer-identity surface only. Optional + feature-gated: linked ONLY
@@ -69,3 +99,10 @@ windows = { version = "0.61.3", optional = true, features = [
 # The canonical handle RAII primitive, so the temporary process handle closes deterministically on
 # every path instead of this crate growing a second handle implementation.
 projectos-windows-runtime-primitives = { path = "../windows-runtime-primitives", optional = true }
+
+[dev-dependencies]
+# TEST-ONLY. The canonical record's own fixture constructor, so the client-admission owner-source
+# proofs build a record through the REAL writer contract and verify it through the REAL
+# `verify_record` rather than hand-making a `VerifiedCanonicalInstallation`. Dev-only: no shipped
+# build gains the fixture surface.
+projectos-host-identity = { path = "../host-identity", features = ["test-fixtures"] }

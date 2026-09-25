@@ -55,6 +55,32 @@ const FIELD_PROJECT: &[u8] = b"project";
 /// The field tag for a canonical repository identity.
 const FIELD_REPOSITORY: &[u8] = b"repository";
 
+/// The field tag for a canonical approved-plan identity (the plan REFERENCE, never its contents).
+///
+/// A FOURTH, FIFTH AND SIXTH TAG UNDER THE SAME DOMAIN, NOT A SECOND IDENTITY SYSTEM. The owner
+/// programme delegation names its plan, its phases, its model policy and its credential reference as
+/// digests of those IDENTIFIERS, and until now only `project` and `repository` had a tag — so the two
+/// sides of that record had no shared way to spell the rest. Adding tags beneath the existing domain
+/// is exactly the extension this construction was built for ("a per-field tag beneath it"); inventing
+/// a second domain, or a generic public `identity_digest`, would have been the drift this module
+/// already exists to prevent.
+const FIELD_PLAN: &[u8] = b"plan";
+
+/// The field tag for a canonical phase identity (the phase id, never its definition).
+///
+/// DISTINCT FROM `phase_definition_digest`, DELIBERATELY. That digest is the integrity value over a
+/// normalized phase DEFINITION's nineteen authority fields, and it answers "is this definition the one
+/// that was approved". This tag answers a different question — "which phase is this" — which is what
+/// the delegation's `allowed_phases` holds. Using one where the other is meant produces a permanent
+/// refusal, so they are separate by construction.
+const FIELD_PHASE: &[u8] = b"phase";
+
+/// The field tag for a canonical model-policy identity.
+const FIELD_MODEL_POLICY: &[u8] = b"model-policy";
+
+/// The field tag for a canonical credential-reference identity. A PURPOSE, never a secret.
+const FIELD_CREDENTIAL_REF: &[u8] = b"credential-ref";
+
 /// The largest allowlist document this module will parse.
 ///
 /// A BOUND, NOT A GUESS. The committed allowlist is about 2 KiB today and lists one project; 64 KiB
@@ -107,6 +133,43 @@ pub fn project_identity_digest(project_id: &str) -> [u8; PROGRAMME_IDENTITY_DIGE
 #[must_use]
 pub fn repository_identity_digest(repository: &str) -> [u8; PROGRAMME_IDENTITY_DIGEST_LEN] {
     identity_digest(FIELD_REPOSITORY, repository.as_bytes())
+}
+
+/// THE canonical approved-plan identity digest, over the plan REFERENCE.
+///
+/// ONE TYPED HELPER PER FIELD, and `identity_digest` stays private. A public
+/// `identity_digest(field, value)` would let a caller choose the tag, which is the one thing the
+/// per-field tag exists to stop: a plan reference placed under the phase tag would satisfy a
+/// comparison it should never satisfy. Six tags therefore mean six functions, each of which can only
+/// spell one kind of identity.
+#[must_use]
+pub fn plan_identity_digest(plan_ref: &str) -> [u8; PROGRAMME_IDENTITY_DIGEST_LEN] {
+    identity_digest(FIELD_PLAN, plan_ref.as_bytes())
+}
+
+/// THE canonical phase identity digest, over the phase ID.
+///
+/// This is what an owner programme delegation's `allowed_phases` entries are, and what the host
+/// resolves for `HostResolvedFacts.phase`. It is NOT `phase_definition_digest` — see [`FIELD_PHASE`].
+#[must_use]
+pub fn phase_identity_digest(phase_id: &str) -> [u8; PROGRAMME_IDENTITY_DIGEST_LEN] {
+    identity_digest(FIELD_PHASE, phase_id.as_bytes())
+}
+
+/// THE canonical model-policy identity digest.
+#[must_use]
+pub fn model_policy_identity_digest(model_policy: &str) -> [u8; PROGRAMME_IDENTITY_DIGEST_LEN] {
+    identity_digest(FIELD_MODEL_POLICY, model_policy.as_bytes())
+}
+
+/// THE canonical credential-reference identity digest.
+///
+/// A REFERENCE OR PURPOSE, NEVER A CREDENTIAL. The value hashed here is the name by which a
+/// credential is looked up, which is why the delegation can carry it in the clear: it is the same
+/// class of value as a project id. Nothing here reads, resolves or holds a secret.
+#[must_use]
+pub fn credential_ref_identity_digest(credential_ref: &str) -> [u8; PROGRAMME_IDENTITY_DIGEST_LEN] {
+    identity_digest(FIELD_CREDENTIAL_REF, credential_ref.as_bytes())
 }
 
 /// Why an installation programme could not be attested.

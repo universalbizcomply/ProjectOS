@@ -140,7 +140,14 @@ export interface HostAttestationSummary {
   readonly verdict?: unknown;
   readonly allowedActions?: unknown;
   readonly ownerApprovalRequired?: unknown;
+  /** REVISION 1 ONLY. The historical records' cost field; revision 1 keeps its schema. */
   readonly costMicroUsd?: unknown;
+  /**
+   * REVISION 2 ONLY. What the Host ADMITTED against the budget for this review - the owner-signed
+   * amount it reserved. It is NOT a provider cost: the Host has no rate card, so revision 2 states no
+   * accounted or billed figure at all, and a revision 2 attestation carrying `costMicroUsd` is refused.
+   */
+  readonly admittedCostMicroUsd?: unknown;
   readonly attestedAtEpochS?: unknown;
 }
 
@@ -211,7 +218,15 @@ export function hostAttestationProblems(
     ];
   }
   const e: string[] = [];
-  if (attestation.schemaVersion !== 1) e.push('Host attestation schemaVersion is not 1');
+  // REVISION 1 OR 2, AND THIS IS NOT WHERE EVIDENCE IS BOUND. Revision 2 (PROJECTOS-HOST-REVIEW-PATH1B)
+  // adds the approved baseline and the candidate-evidence digest. This check reads the SUMMARY, whose
+  // shape both revisions share, so it accepts either. The evidence binding is enforced where a real
+  // Host answer becomes a summary at all - `readHostResponseRecord`, which requires revision 2 exactly
+  // and compares the digest the agent recomputed - so no summary produced from Host bytes reaches this
+  // line without it.
+  if (attestation.schemaVersion !== 1 && attestation.schemaVersion !== 2) {
+    e.push('Host attestation schemaVersion is not a revision this agent knows (1 or 2)');
+  }
   if (typeof attestation.attestationId !== 'string' || !HEX64.test(attestation.attestationId)) {
     e.push('Host attestation carries no usable attestationId');
   }
@@ -240,9 +255,25 @@ export function hostAttestationProblems(
   if (attestation.ownerApprovalRequired !== answer.ownerApprovalRequired) {
     e.push('Host attestation disagrees with the decision about whether the owner must still approve');
   }
-  const cost = attestation.costMicroUsd;
-  if (typeof cost !== 'number' || !Number.isSafeInteger(cost) || cost < 0) {
-    e.push('Host attestation states no known cost; an unknown cost is refused, never read as free');
+  // AN ADMITTED AMOUNT IS NOT A COST, AND EACH REVISION SAYS ONLY WHAT IT KNOWS. Revision 1 keeps its
+  // schema: a known `costMicroUsd`. Revision 2 states the amount the Host ADMITTED against the budget,
+  // under its own name, and must not also carry a cost: the Host has no rate card, so a revision 2
+  // attestation that claims one is claiming something nobody measured.
+  const known = (v: unknown): boolean => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
+  if (attestation.schemaVersion === 2) {
+    if (!known(attestation.admittedCostMicroUsd)) {
+      e.push('Host attestation states no admitted amount; an unknown amount is refused, never read as free');
+    }
+    if (attestation.costMicroUsd !== undefined) {
+      e.push('Host attestation revision 2 claims a provider cost; it may state only the amount it admitted');
+    }
+  } else {
+    if (!known(attestation.costMicroUsd)) {
+      e.push('Host attestation states no known cost; an unknown cost is refused, never read as free');
+    }
+    if (attestation.admittedCostMicroUsd !== undefined) {
+      e.push('Host attestation revision 1 carries an admitted amount; that field belongs to revision 2');
+    }
   }
   const at = attestation.attestedAtEpochS;
   if (typeof at !== 'number' || !Number.isSafeInteger(at) || at <= 0) {
@@ -277,6 +308,13 @@ export type HostReviewOutcome =
       /** The material cause. Stable across rewording; an outage identity may bind it. */
       readonly cause: GatekeeperUnavailabilityCause;
       readonly reasons: readonly string[];
+      /**
+       * THE HOST-AUTHORITATIVE DISPATCH FACT (PROJECTOS-HOST-REVIEW-PATH1A). `false` ONLY where nothing
+       * can have reached a provider: the request was never sent, the Host answered `NotRun`, or the
+       * Host's own failure record says no provider was called. Absent means "not stated", which every
+       * consumer reads as possibly dispatched. It is never inferred from a frame's state.
+       */
+      readonly providerDispatched?: boolean;
     };
 
 /**

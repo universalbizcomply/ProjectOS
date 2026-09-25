@@ -9,7 +9,17 @@ description = "RUN-TO-COMPLETION HOST ATTESTATION. The bounded gatekeeper REQUES
 [lints.rust]
 unsafe_code = "forbid"
 
+[features]
+# FIXTURE GRAPH ONLY, non-default, enabled by no shipped graph. Exposes steps 4-8 of the review
+# operation so a dependent crate can prove the responder and the sealed execution seam; the public
+# production path still begins with the owner's signature.
+test-fixtures = []
+
 [dependencies]
+# The response record's canonical encoding and the review subject's strict parse. Both already in the
+# host tree's lock graph (host-identity, persistence, gatekeeper-ledger); no new third-party surface.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 # Already used throughout the host tree for content digests. No new third-party surface.
 sha2 = "0.10"
 # THE canonical trust-manifest model, its ONE canonical signing-byte function, the production ES256

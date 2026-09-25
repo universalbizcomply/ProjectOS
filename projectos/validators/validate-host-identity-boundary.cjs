@@ -52,9 +52,19 @@ function count(re, s) {
 // CD-B4-CANONICAL-INSTALLATION-IDENTITY-WIRING1A: the versioned canonical installation identity record
 // and its read-only provider, which replaced the all-zero placeholder. It contains no unsafe, performs
 // no filesystem access, and is bound by the FORBIDDEN_ROUTES scan below like every other file here.
+//
+// PROJECTOS-HOST-REVIEW-PATH1B adds exactly TWO, and no more:
+//   * `installation_programme.rs` - the sealed `AttestedInstallationProgramme`: the programme this
+//     installation was attested as, reachable ONLY by verifying the installed trust manifest's
+//     signature and its whole execution closure over the installation's COMMITTED bytes. It performs
+//     no filesystem access, holds no unsafe and mints no authority of its own.
+//   * `committed_candidate.rs` - the canonical `projectos.committed-candidate.v1` digest over a
+//     pinned immutable commit. A digest function and nothing else.
+// Both are bound by the FORBIDDEN_ROUTES scan below exactly like every other file here.
 const IDENTITY_FILES = [
-  "anchor.rs", "authenticode.rs", "canonical.rs", "canonical_record.rs", "composite.rs", "errors.rs",
-  "es256.rs", "hash.rs", "install_root.rs", "installed_application.rs", "manifest.rs", "mod.rs",
+  "anchor.rs", "authenticode.rs", "canonical.rs", "canonical_record.rs", "committed_candidate.rs",
+  "composite.rs", "errors.rs", "es256.rs", "hash.rs", "install_root.rs",
+  "installation_programme.rs", "installed_application.rs", "manifest.rs", "mod.rs",
   "mode.rs", "packaged_authority.rs", "paths.rs", "production_verifier.rs", "publisher_policy.rs",
   "running_executable.rs", "tests.rs", "types.rs", "verifier.rs",
 ];
@@ -103,7 +113,9 @@ const FORBIDDEN_ROUTES = [
   { re: /RegCreate|RegSetValue|RegOpenKey/, why: "registry route" },
   { re: /CredRead|CredWrite|CryptProtectData|CryptUnprotectData|\bGCM\b|\bPAT\b/, why: "credential/GCM/PAT route" },
   { re: /\bgithub\b/i, why: "GitHub route" },
-  { re: /TcpStream|reqwest|hyper::|ureq/, why: "network-client route" },
+  { re: /TcpStream|TcpListener|std::net::|reqwest|hyper::|ureq|curl/, why: "network-client route" },
+  { re: /https?:\/\//, why: "URL route" },
+  { re: /api\.github|raw\.githubusercontent|codeload/, why: "GitHub API/host route" },
   { re: /CertCreateSelfSign|CryptSignMessage|SignerSign|PFXImport/, why: "signing/cert-generation route" },
 ];
 
@@ -180,8 +192,15 @@ function run() {
           ": " + unsafeUnits + " unsafe unit(s) but only " + safetyMarkers +
           " SAFETY: marker(s) — every unsafe unit needs its own justification",
       );
+    // THE ONE CANONICAL REPOSITORY IDENTITY LITERAL is excised before the route scan. It is the
+    // string the canonical repository digest is taken OVER - the identity the owner's delegation and
+    // the attested programme are bound to - so the identity crate must be able to name it. Only this
+    // exact literal is excised; any other github mention still fails, as do the URL, API-host and
+    // network-client bans added above.
+    const CANONICAL_REPOSITORY_IDENTITY = /github\.com\/universalbizcomply\/ProjectOS/g;
+    const routeCode = code.replace(CANONICAL_REPOSITORY_IDENTITY, "<canonical-repository-identity>");
     for (const { re, why } of FORBIDDEN_ROUTES) {
-      if (re.test(code)) errors.push(path.relative(ROOT, f).replace(/\\/g, "/") + ": " + why);
+      if (re.test(routeCode)) errors.push(path.relative(ROOT, f).replace(/\\/g, "/") + ": " + why);
     }
     // A ProgramData MUTATION route: the identity tests legitimately use a ProgramData path string as
     // read-only classification INPUT, so the name alone is not an effect — only the name combined

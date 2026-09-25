@@ -126,7 +126,14 @@ pub mod pipe_security;
 //
 // Pure object-name derivation (no unsafe). The production name is implemented but never acquired this
 // phase; tests use the separate test-only name.
-#[cfg(all(windows, feature = "test-fixtures"))]
+// PROJECTOS-HOST-REVIEW-PATH1B (ROUTE A): also compiled for the PRODUCTION acquisition graph. The
+// production name derivation was already implemented here and already validated; it simply had no
+// build that could reach it. `windows-authority-acquisition` does NOT enable `test-fixtures`, so the
+// TEST object-name route stays out of a production build.
+#[cfg(all(
+    windows,
+    any(feature = "test-fixtures", feature = "windows-authority-acquisition")
+))]
 mod key;
 // Windows FFI: machine-wide security descriptor + read-only DACL inspection, the OPAQUE ProjectOSHost
 // pipe-security runtime descriptor, and read-only service-SID resolution. Gated to the NON-fixture
@@ -138,14 +145,35 @@ mod security;
 mod service_principal;
 // Named `existence` (not `token`) because the repo `.gitignore` ignores `*token*` for secret-token
 // files; the module implements the existence-token acquisition.
-#[cfg(all(windows, feature = "test-fixtures"))]
+// PROJECTOS-HOST-REVIEW-PATH1B (ROUTE A): also compiled for the PRODUCTION acquisition graph, so a
+// release service-host can actually acquire the machine-wide authority. Unchanged code; only the gate
+// moved. The synthetic helper inside it (`create_colliding_event`) stays on `test-fixtures` alone.
+#[cfg(all(
+    windows,
+    any(feature = "test-fixtures", feature = "windows-authority-acquisition")
+))]
 mod existence;
+// THE PRODUCTION SERVICE-RUNTIME ACQUISITION FACADE. The ONLY production route to a machine-wide
+// authority, and deliberately the minimum surface service-host needs: it takes no object name, no
+// security descriptor and no caller-chosen scope.
+// The GENUINE self service-runtime corroboration the facade derives instead of accepting. Unsafe is
+// confined to it exactly as it is to `security.rs`, `existence.rs` and `service_principal.rs`.
+#[cfg(all(windows, feature = "windows-authority-acquisition"))]
+mod self_service_runtime;
+#[cfg(all(windows, feature = "windows-authority-acquisition"))]
+mod service_runtime_acquisition;
 
 // TEST-ONLY synthetic authority surface, present only under the `test-fixtures` feature. It exposes
 // the Windows helpers to the integration tests using TEST-ONLY object names; it is never compiled into
 // a default/release build, so no live-acquisition surface ships.
 #[cfg(all(windows, feature = "test-fixtures"))]
 pub mod windows_proof;
+
+// PROJECTOS-HOST-REVIEW-PATH1B (ROUTE A): the ONE production acquisition entry point. It takes no
+// object name, no security descriptor, no scope and no channel, so there is no generic
+// `acquire(any_name, any_security)` for a dependent crate to reach.
+#[cfg(all(windows, feature = "windows-authority-acquisition"))]
+pub use service_runtime_acquisition::acquire_service_runtime_authority;
 
 pub use model::{
     AuthorityChannel, AuthorityDiagnosticCode, AuthorityEvidence, AuthorityGuard,

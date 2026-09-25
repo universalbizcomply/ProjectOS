@@ -27,11 +27,11 @@ use windows::Win32::Security::Authorization::{
 use windows::Win32::Security::{PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES};
 
 // Fixture-only Win32 imports for the machine-wide authority DACL inspector (test-fixtures).
-#[cfg(feature = "test-fixtures")]
+#[cfg(any(feature = "test-fixtures", feature = "windows-authority-acquisition"))]
 use windows::Win32::Foundation::HANDLE;
-#[cfg(feature = "test-fixtures")]
+#[cfg(any(feature = "test-fixtures", feature = "windows-authority-acquisition"))]
 use windows::Win32::Security::Authorization::{GetSecurityInfo, SE_KERNEL_OBJECT};
-#[cfg(feature = "test-fixtures")]
+#[cfg(any(feature = "test-fixtures", feature = "windows-authority-acquisition"))]
 use windows::Win32::Security::{
     GetAce, ACCESS_ALLOWED_ACE, ACE_HEADER, ACL, DACL_SECURITY_INFORMATION,
 };
@@ -83,7 +83,7 @@ impl OwnedSecurityDescriptor {
 
     /// `SECURITY_ATTRIBUTES` referencing this descriptor. Used only by the fixture-only machine-wide
     /// authority descriptor (the pipe path builds its lease directly from `descriptor_ptr`).
-    #[cfg(feature = "test-fixtures")]
+    #[cfg(any(feature = "test-fixtures", feature = "windows-authority-acquisition"))]
     pub(crate) fn security_attributes(&self) -> SECURITY_ATTRIBUTES {
         SECURITY_ATTRIBUTES {
             nLength: size_of::<SECURITY_ATTRIBUTES>() as u32,
@@ -111,28 +111,28 @@ impl Drop for OwnedSecurityDescriptor {
 // ProjectOSHost pipe-security runtime path (the shared `OwnedSecurityDescriptor` + `ProjectOsHostPipeSecurity`).
 
 /// `SYNCHRONIZE` (0x0010_0000) — open/detect the existence token.
-#[cfg(feature = "test-fixtures")]
+#[cfg(any(feature = "test-fixtures", feature = "windows-authority-acquisition"))]
 pub const RIGHT_SYNCHRONIZE: u32 = 0x0010_0000;
 /// `READ_CONTROL` (0x0002_0000) — read the object's security descriptor for cross-identity inspection.
-#[cfg(feature = "test-fixtures")]
+#[cfg(any(feature = "test-fixtures", feature = "windows-authority-acquisition"))]
 pub const RIGHT_READ_CONTROL: u32 = 0x0002_0000;
 /// The ONLY rights the machine-wide profile grants: `SYNCHRONIZE | READ_CONTROL` (0x0012_0000).
 /// Deliberately excludes `MODIFY_STATE` (0x0001), `WRITE_DAC` (0x0004_0000), `WRITE_OWNER`
 /// (0x0008_0000), `DELETE` (0x0001_0000) and `MUTEX_ALL_ACCESS`.
-#[cfg(feature = "test-fixtures")]
+#[cfg(any(feature = "test-fixtures", feature = "windows-authority-acquisition"))]
 pub const AUTHORITY_DETECTION_RIGHTS: u32 = RIGHT_SYNCHRONIZE | RIGHT_READ_CONTROL;
 
 /// `WRITE_DAC` (0x0004_0000). Never granted; used only by the OWNER_RIGHTS suppression proof to show a
 /// request for it is denied.
-#[cfg(feature = "test-fixtures")]
+#[cfg(any(feature = "test-fixtures", feature = "windows-authority-acquisition"))]
 pub const RIGHT_WRITE_DAC: u32 = 0x0004_0000;
 
 /// The `ACCESS_ALLOWED_ACE_TYPE` header value (0). A conforming DACL contains only this ACE type.
-#[cfg(feature = "test-fixtures")]
+#[cfg(any(feature = "test-fixtures", feature = "windows-authority-acquisition"))]
 const ACCESS_ALLOWED_ACE_TYPE: u8 = 0;
 
 /// The read-only classification of an existing object's DACL.
-#[cfg(feature = "test-fixtures")]
+#[cfg(any(feature = "test-fixtures", feature = "windows-authority-acquisition"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum SecurityProfileInspection {
@@ -147,14 +147,14 @@ pub enum SecurityProfileInspection {
 }
 
 /// The machine-wide authority security descriptor, owned by the shared [`OwnedSecurityDescriptor`].
-#[cfg(feature = "test-fixtures")]
+#[cfg(any(feature = "test-fixtures", feature = "windows-authority-acquisition"))]
 pub struct MachineWideAuthoritySecurity {
     inner: OwnedSecurityDescriptor,
     /// Whether the service ACE was included (i.e. the service principal was resolvable).
     includes_service_ace: bool,
 }
 
-#[cfg(feature = "test-fixtures")]
+#[cfg(any(feature = "test-fixtures", feature = "windows-authority-acquisition"))]
 impl MachineWideAuthoritySecurity {
     /// Build `MachineWideAuthoritySecurityV1`.
     ///
@@ -518,10 +518,10 @@ impl BorrowedPipeSecurityAttributes<'_> {
 }
 
 /// A `GetSecurityInfo`-allocated security descriptor, freed exactly once.
-#[cfg(feature = "test-fixtures")]
+#[cfg(any(feature = "test-fixtures", feature = "windows-authority-acquisition"))]
 struct OwnedInfoDescriptor(PSECURITY_DESCRIPTOR);
 
-#[cfg(feature = "test-fixtures")]
+#[cfg(any(feature = "test-fixtures", feature = "windows-authority-acquisition"))]
 impl Drop for OwnedInfoDescriptor {
     fn drop(&mut self) {
         if !self.0.is_invalid() {
@@ -540,7 +540,7 @@ impl Drop for OwnedInfoDescriptor {
 /// ACE. A conforming object has only access-ALLOWED ACEs whose masks lie within the detection rights;
 /// any additional right, any deny/audit ACE, or a NULL DACL is a rejection. The handle is BORROWED —
 /// nothing is opened, modified or closed here.
-#[cfg(feature = "test-fixtures")]
+#[cfg(any(feature = "test-fixtures", feature = "windows-authority-acquisition"))]
 #[must_use]
 pub fn inspect_object_security(handle: HANDLE) -> SecurityProfileInspection {
     let mut pdacl: *mut ACL = std::ptr::null_mut();

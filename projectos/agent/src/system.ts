@@ -93,6 +93,71 @@ export interface ExecOptions {
    * how a runtime runs out of memory.
    */
   readonly maxOutputBytes?: number;
+  /**
+   * Run THIS `git` call under the fixed isolation the bounded local candidate commit requires.
+   *
+   * PROJECTOS-HOST-REVIEW-PATH1B, UNIT L. The oracle environment above still reads system, user and
+   * repository configuration, so a `core.fsmonitor`, a `gpg.program` or a `filter.*.clean` named in any
+   * of them would run as a program inside a ProjectOS WRITE. With this set, system and user
+   * configuration are replaced by the null device, system attributes are off, replacement objects,
+   * grafts and lazy fetches are disabled, the author and committer are a fixed ProjectOS identity, and
+   * `indexFile` - when given - names a scratch index so the governed checkout's own staged work can
+   * neither enter a candidate nor be disturbed by building one. Repository-local keys cannot be
+   * switched off from the environment; the caller overrides those at command scope.
+   *
+   * CLOSED: there is no way to name any other variable. Ignored for anything that is not `git`.
+   */
+  readonly isolatedGit?: { readonly indexFile?: string };
+}
+
+/** The null device: a configuration or graft "file" that exists, is readable and is always empty. */
+const NULL_DEVICE = process.platform === 'win32' ? 'NUL' : '/dev/null';
+
+/**
+ * The fixed identity a bounded local candidate commit is recorded under.
+ *
+ * Not the owner's and not the implementer's: the commit is ProjectOS recording, before review, exactly
+ * the bytes it is about to ask the independent reviewer about. A fixed identity also means no
+ * configuration file is consulted to learn one.
+ */
+export const LOCAL_CANDIDATE_GIT_IDENTITY = Object.freeze({
+  name: 'ProjectOS local candidate',
+  email: 'local-candidate@projectos.invalid',
+});
+
+/**
+ * The governed checkout's hook directory, closed for every git call this runtime makes: hooks resolve
+ * beneath the null device, where none can exist. Applied at command scope, so no configuration file of
+ * the repository, the user or the machine can re-open it.
+ */
+const HOOKS_OFF_ENV: NodeJS.ProcessEnv = Object.freeze({
+  GIT_CONFIG_COUNT: '1',
+  GIT_CONFIG_KEY_0: 'core.hooksPath',
+  GIT_CONFIG_VALUE_0: NULL_DEVICE,
+});
+
+/** The whole isolation `ExecOptions.isolatedGit` adds, and nothing else. */
+function isolatedGitEnv(isolation: { readonly indexFile?: string }): NodeJS.ProcessEnv {
+  return {
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_SYSTEM: NULL_DEVICE,
+    GIT_CONFIG_GLOBAL: NULL_DEVICE,
+    GIT_ATTR_NOSYSTEM: '1',
+    GIT_NO_REPLACE_OBJECTS: '1',
+    GIT_GRAFT_FILE: NULL_DEVICE,
+    GIT_NO_LAZY_FETCH: '1',
+    GIT_TERMINAL_PROMPT: '0',
+    GIT_OPTIONAL_LOCKS: '0',
+    GIT_EDITOR: 'true',
+    GIT_SEQUENCE_EDITOR: 'true',
+    GIT_PAGER: 'cat',
+    LC_ALL: 'C',
+    GIT_AUTHOR_NAME: LOCAL_CANDIDATE_GIT_IDENTITY.name,
+    GIT_AUTHOR_EMAIL: LOCAL_CANDIDATE_GIT_IDENTITY.email,
+    GIT_COMMITTER_NAME: LOCAL_CANDIDATE_GIT_IDENTITY.name,
+    GIT_COMMITTER_EMAIL: LOCAL_CANDIDATE_GIT_IDENTITY.email,
+    ...(isolation.indexFile === undefined ? {} : { GIT_INDEX_FILE: isolation.indexFile }),
+  };
 }
 
 export interface System {
@@ -507,9 +572,21 @@ export const nodeSystem: System = {
     // environment for exactly this reason; the agent-side verifier that decides WHICH BYTES BECOME
     // that broker did not, so the whole trusted side could be chosen by an environment variable.
     // Found by the second adversarial review, 2026-08-21.
+    // AND NO GIT CALL THIS RUNTIME MAKES EVER RUNS A HOOK OF THE GOVERNED CHECKOUT (PATH1B, criterion
+    // 13). Hooks are not committed content: `.git/hooks/*`, a repository `core.hooksPath` or a user-level
+    // one are ordinary files and settings. Before this, a plain `git status` here rewrote the index and
+    // ran the checkout's `post-index-change`, and the continuation's commit and push ran `pre-commit`,
+    // `post-commit` and `pre-push` - proven by `localCandidateCommit.test.ts`. Command-scope
+    // configuration (`GIT_CONFIG_COUNT`) outranks every configuration file, so this one setting closes
+    // the hook directory for every git call without changing any argument any caller passes.
     let env =
       bare === 'git'
-        ? minimalGitEnv(process.env)
+        ? {
+            ...(options?.isolatedGit === undefined
+              ? minimalGitEnv(process.env)
+              : { ...minimalGitEnv(process.env), ...isolatedGitEnv(options.isolatedGit) }),
+            ...HOOKS_OFF_ENV,
+          }
         : options?.scrubCredentials === true
           ? scrubbedEnv(process.env)
           : undefined;

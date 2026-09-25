@@ -136,6 +136,8 @@ export interface ClosureTurnDeps {
   readonly resolveSpend?: (
     request: { readonly requestId: string; readonly projectId: string; readonly phaseId: string },
     cause: string,
+    /** The Host-authoritative dispatch fact, when the Host route stated one. */
+    providerDispatched?: boolean,
   ) => void;
   readonly threadBinding: GovernanceThreadBinding | null;
   /** Closure decision ids already consumed for this phase, so a replayed answer is refused. */
@@ -522,6 +524,7 @@ export function takeClosureTurn(input: ClosureTurnInput, deps: ClosureTurnDeps):
     deps.resolveSpend?.(
       { requestId: request.requestId, projectId: input.projectId, phaseId: input.phaseId },
       outcome.cause,
+      outcome.providerDispatched,
     );
     return unavailable(lines, request, outcome.cause, outcome.reasons);
   }
@@ -624,7 +627,13 @@ export function takeClosureTurn(input: ClosureTurnInput, deps: ClosureTurnDeps):
 /** The Host's closure answer in the shape the rest of the turn already judges. The attestation is kept apart. */
 function closureFromHost(hosted: HostClosureReviewOutcome): ClosureTransportOutcome {
   if (hosted.kind === 'unavailable') {
-    return { kind: 'unavailable', cause: hosted.cause, reasons: hosted.reasons, spendLimited: hosted.cause === 'PROVIDER_SPEND_LIMITED' };
+    return {
+      kind: 'unavailable',
+      cause: hosted.cause,
+      reasons: hosted.reasons,
+      spendLimited: hosted.cause === 'PROVIDER_SPEND_LIMITED',
+      ...(hosted.providerDispatched === undefined ? {} : { providerDispatched: hosted.providerDispatched }),
+    };
   }
   const responseId = hosted.attestation.providerResponseId;
   return {

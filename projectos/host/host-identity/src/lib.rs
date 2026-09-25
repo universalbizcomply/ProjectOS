@@ -81,7 +81,11 @@ pub use identity::manifest::{
 /// `verify_execution_closure` is exported beside the manifest types because the two travel together
 /// — a consumer that can build a v2 manifest must be able to ask whether the committed bytes still
 /// match it, and a consumer that cannot ask would have a manifest field it is unable to enforce.
-pub use identity::{verify_execution_closure, CommittedClosureBytes};
+pub use identity::manifest::{
+    parse_model_policy, ExecutionCostPolicyManifest, MAX_ADMITTED_REVIEW_COST_MICRO_USD,
+    MAX_CLOSURE_POLICY_TEXT_LEN, MODEL_POLICY_PROVIDERS,
+};
+pub use identity::{verify_execution_closure, CommittedClosureBytes, VerifiedExecutionClosure};
 
 /// RUN-TO-COMPLETION HOST ATTESTATION §10A — THE TRUSTED INSTALLATION PROGRAMME.
 ///
@@ -90,8 +94,19 @@ pub use identity::{verify_execution_closure, CommittedClosureBytes};
 /// internally, and the sealed value it returns is what the Host composition turns into the
 /// `ExpectedProgramme` a delegation is checked against — so an installation can never be told what
 /// programme it is by the record under test, by a request, or by anything in the working tree.
+/// THE canonical committed-candidate digest, ratified for PROJECTOS-HOST-REVIEW-PATH1A.
+///
+/// Exported because both sides of the host boundary must produce the same 32 bytes for the same
+/// immutable commit: the agent to state its wire claim, the host to resolve its own fact. A digest is
+/// not authority, and the evaluator still refuses unless the two agree.
+pub use identity::committed_candidate::{
+    committed_candidate_digest, is_canonical_commit_oid, COMMITTED_CANDIDATE_DIGEST_LEN,
+    COMMITTED_CANDIDATE_DOMAIN, COMMITTED_CANDIDATE_SCHEMA_VERSION, COMMIT_OID_CHARS,
+};
+
 pub use identity::installation_programme::{
-    attest_installation_programme, project_identity_digest, repository_identity_digest,
+    attest_installation_programme, credential_ref_identity_digest, model_policy_identity_digest,
+    phase_identity_digest, plan_identity_digest, project_identity_digest, repository_identity_digest,
     AttestedInstallationProgramme, HostGovernedRoot, ProgrammeAttestationError,
     MAX_ALLOWLIST_BYTES, MAX_ALLOWLIST_ENTRIES, PROGRAMME_IDENTITY_DIGEST_LEN,
     PROGRAMME_IDENTITY_DOMAIN,

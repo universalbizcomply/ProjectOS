@@ -113,7 +113,9 @@ const MODULES = [
   "val-projectos-technical-continuation1a",
   "val-projectos-closure-transport1a",
   // RUN-TO-COMPLETION HOST ATTESTATION §10I — first-start durable store custody.
-  "val-host-store-custody-10i"
+  "val-host-store-custody-10i",
+  "val-projectos-host-review-path1a",
+  "val-projectos-host-review-path1b"
 ];
 const scratch = require("./lib/scratch.cjs");
 const validationRecord = require("./lib/validation-record.cjs");

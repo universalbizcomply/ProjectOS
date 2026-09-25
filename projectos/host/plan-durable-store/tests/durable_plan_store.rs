@@ -58,6 +58,7 @@ fn core_candidate() -> PhaseDefinitionCandidate {
         shutdown_required: true,
         disconnect_required: true,
         residue: ResidueRequirement::ExactlyZero,
+        approved_baseline: Some(BASELINE.into()),
     }
 }
 
@@ -80,6 +81,7 @@ fn dto_candidate() -> PlanCandidateDto {
         shutdown_required: true,
         disconnect_required: true,
         residue: ResidueDto::ExactlyZero,
+        approved_baseline: Some(BASELINE.into()),
     }
 }
 
@@ -99,9 +101,12 @@ fn required(version: u64) -> ApprovedPlanBinding {
         .clone()
 }
 
+/// The approved baseline commit every fixture definition is approved against.
+const BASELINE: &str = "b45e11e0b45e11e0b45e11e0b45e11e0b45e11e0";
+
 fn record(version: u64, status: PlanStatusDto, revision: u64, committed: bool) -> PlanRecordDto {
     PlanRecordDto {
-        schema_version: 1,
+        schema_version: 2,
         record_revision: if committed { 2 } else { 1 },
         project: "proj".into(),
         environment: "staging".into(),
@@ -263,13 +268,90 @@ fn an_unsupported_schema_is_refused_at_write() {
     let root = temp_root("bad-schema");
     {
         let mut s = PlanDurableStore::open(&root).unwrap();
-        let mut bad = intent(1);
-        bad.schema_version = 2;
-        // The durable store validates the DTO family before journaling → refused before any effect.
-        assert!(matches!(
-            s.begin_intent(&bad).unwrap_err(),
-            PlanStoreError::Storage(_)
-        ));
+        // A revision the store does not know, AND the retired revision 1 — which predates the approved
+        // baseline commit (PROJECTOS-HOST-REVIEW-PATH1B) and must not be journaled as though it had one.
+        for unsupported in [1, 3] {
+            let mut bad = intent(1);
+            bad.schema_version = unsupported;
+            // The durable store validates the DTO family before journaling → refused before any effect.
+            assert!(
+                matches!(
+                    s.begin_intent(&bad).unwrap_err(),
+                    PlanStoreError::Storage(_)
+                ),
+                "schema revision {unsupported} must be refused at write"
+            );
+        }
+    }
+    cleanup(&root);
+}
+
+// ---- THE APPROVED BASELINE (PROJECTOS-HOST-REVIEW-PATH1B) ---------------------------------------
+
+/// The baseline a resolved fact carries is the one journaled with the approval, after a real reopen
+/// of the store — not a value held in memory.
+#[test]
+fn the_approved_baseline_survives_the_store_and_reaches_the_validated_fact() {
+    let root = temp_root("baseline");
+    {
+        let mut s = PlanDurableStore::open(&root).unwrap();
+        s.begin_intent(&intent(1)).unwrap();
+        s.commit(&commit(1)).unwrap();
+    }
+    let s = PlanDurableStore::open(&root).unwrap();
+    let fact = s.resolve_active("plan-1", 1, &required(1)).unwrap();
+    assert_eq!(fact.approved_baseline().map(|b| b.as_str()), Some(BASELINE));
+    cleanup(&root);
+}
+
+/// STORE CUSTODY IS NOT THE CONTROL - THE DIGEST IS. A record whose baseline was changed (or removed)
+/// after approval is structurally valid and journals fine; it is the core reload's digest recomputation
+/// that refuses it, because the owner approved a definition with a different baseline.
+#[test]
+fn a_baseline_edited_after_approval_never_resolves() {
+    let other = "c45e11e0b45e11e0b45e11e0b45e11e0b45e11e0";
+    for (tag, edited) in [("swapped", Some(other.to_string())), ("removed", None)] {
+        let root = temp_root(tag);
+        {
+            let mut s = PlanDurableStore::open(&root).unwrap();
+            let mut i = intent(1);
+            i.candidate.approved_baseline = edited.clone();
+            let mut c = commit(1);
+            c.candidate.approved_baseline = edited.clone();
+            s.begin_intent(&i).unwrap();
+            s.commit(&c).unwrap();
+            assert_eq!(
+                s.resolve_active("plan-1", 1, &required(1)).unwrap_err(),
+                PlanStoreError::Refused,
+                "{tag}: the stored digest was computed over the approved baseline"
+            );
+        }
+        cleanup(&root);
+    }
+}
+
+/// A reference, an abbreviation, an upper-case or over-long identity is not an approved baseline, and
+/// is refused BEFORE it is journaled.
+#[test]
+fn a_record_whose_baseline_is_not_an_exact_commit_is_refused_at_write() {
+    let root = temp_root("bad-baseline");
+    {
+        let mut s = PlanDurableStore::open(&root).unwrap();
+        for bad in [
+            "",
+            "HEAD",
+            "refs/remotes/origin/main",
+            "b45e11e0",
+            "B45E11E0B45E11E0B45E11E0B45E11E0B45E11E0",
+            "b45e11e0b45e11e0b45e11e0b45e11e0b45e11e0b45e11e0b45e11e0b45e11e0",
+        ] {
+            let mut dto = intent(1);
+            dto.candidate.approved_baseline = Some(bad.into());
+            assert!(
+                matches!(s.begin_intent(&dto).unwrap_err(), PlanStoreError::Storage(_)),
+                "{bad:?} must not be journaled as an approved baseline"
+            );
+        }
     }
     cleanup(&root);
 }

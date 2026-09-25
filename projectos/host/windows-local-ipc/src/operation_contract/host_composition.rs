@@ -38,10 +38,11 @@ use projectos_host_identity::AttestedInstallationProgramme;
 use super::request_replay::{ReplayRefusal, RequestReplayIdentity, RequestReplayLedger};
 use super::{
     evaluate_protected_operation, sealed::Seal, AuthorisedProtectedOperation,
-    GatekeeperDelegationEvidence, HostResolvedFacts, HostResolvedRequestFacts, OperationClass,
-    ProtectedOperationEvaluation, ProtectedOperationRequest, ProtectedOperationResponse,
-    TrustedPeerContext, VerifiedOwnerProgrammeDelegation, BINDING_DIGEST_LEN, CORRELATION_LEN,
-    DELEGATION_DIGEST_LEN,
+    ExecutionOutcomeEvidence, GatekeeperDelegationEvidence, HostResolvedFacts,
+    HostResolvedRequestFacts, OperationClass, ProtectedOperationEvaluation,
+    ProtectedOperationRequest, ProtectedOperationResponse, RejectionReason, ResultClass,
+    TerminalStatus, TrustedPeerContext, VerifiedOwnerProgrammeDelegation, BINDING_DIGEST_LEN,
+    CORRELATION_LEN, DELEGATION_DIGEST_LEN, EVIDENCE_REF_LEN,
 };
 use crate::owner_programme_delegation::{
     owner_provenance_established, verify_owner_programme_delegation, DelegationRefusal,
@@ -60,6 +61,10 @@ use crate::owner_programme_delegation::{
 // CROSS-CHECK makes a wrong answer harmless, and the one port where no cross-check exists — the
 // Host's own record of whether a delegation is still live — is sealed.
 
+/// Width of an approved baseline commit: a full-length SHA-1 object identity, as raw bytes. Fixed
+/// width and free of text for the same reason every other Host fact here is.
+pub const BASELINE_COMMIT_LEN: usize = 20;
+
 /// The Host's validated approved-plan authority for the phase under review.
 ///
 /// CROSS-CHECKED BY THE OWNER'S RECORD. Everything this port reports is compared against the
@@ -76,6 +81,13 @@ pub trait HostPlanAuthority {
     fn plan_digest(&self) -> Option<[u8; DELEGATION_DIGEST_LEN]>;
     /// The governed phase currently under review.
     fn phase(&self) -> Option<[u8; DELEGATION_DIGEST_LEN]>;
+    /// THE APPROVED BASELINE COMMIT of that phase, as raw object-identity bytes.
+    ///
+    /// PROJECTOS-HOST-REVIEW-PATH1B. It comes from the durable approved-plan record and from nowhere
+    /// else: no request, no frame and no caller value can supply or influence it, it is never read
+    /// from a remote-tracking reference, and it is never derived or advanced at run time. `None` is
+    /// "no baseline was approved", and a review without one is refused.
+    fn approved_baseline(&self) -> Option<[u8; BASELINE_COMMIT_LEN]>;
 }
 
 /// The model and credential policy the installation's SIGNED EXECUTION CLOSURE fixes.
@@ -684,7 +696,8 @@ impl HostResolvedRequestFacts {
 pub enum CompositionRefusal {
     /// The owner programme delegation did not verify, or the Host's own record ended it.
     DelegationRefused(DelegationRefusal),
-    /// The Host's approved-plan authority could not establish the plan, its digest or the phase.
+    /// The Host's approved-plan authority could not establish the plan, its digest, the phase or
+    /// the phase's approved baseline commit.
     PlanAuthorityUnavailable,
     /// The signed execution closure could not supply the model or credential policy.
     ClosureFactsUnavailable,
@@ -736,6 +749,14 @@ pub struct ComposedProtectedOperation {
     _seal: Seal,
     authority: AuthorisedProtectedOperation,
     reservation: BudgetReservation,
+    /// What the Host resolved for this request, carried forward for the execution rung.
+    ///
+    /// THE SINGLE EXISTING RESOLUTION, NOT A SECOND ONE. The review operation needs the project,
+    /// repository, plan, plan digest, phase and candidate the Host resolved; the authority carries
+    /// only digests OF them. Resolving them again at execution time would be a second opinion, free
+    /// to disagree with the `binding_digest` the authority was minted against - so the facts the
+    /// evaluator compared are the facts the review runs over, by construction.
+    review_subject: ReviewSubjectFacts,
 }
 
 impl ComposedProtectedOperation {
@@ -759,6 +780,272 @@ impl ComposedProtectedOperation {
     pub fn into_parts(self) -> (AuthorisedProtectedOperation, BudgetReservation) {
         (self.authority, self.reservation)
     }
+
+    /// The facts the Host resolved for this request, as the execution rung will review them.
+    #[must_use]
+    pub fn review_subject(&self) -> &ReviewSubjectFacts {
+        &self.review_subject
+    }
+}
+
+// -------------------------------------------------------------------------------------------------
+// THE EXECUTION RUNG (PROJECTOS-HOST-REVIEW-PATH1A)
+// -------------------------------------------------------------------------------------------------
+
+/// What the Host resolved for ONE admitted request, in the shape the review operation consumes.
+///
+/// PLAIN DIGESTS, AND IT AUTHORISES NOTHING. Every value here is one the evaluator already compared:
+/// `project` .. `candidate_digest` are the fields of the binding subject the authority's
+/// `binding_digest` was computed over, and `correlation`, `delegation_id` and `parameter_digest` are
+/// read off the minted authority itself. Nothing in it is secret - the same values are public fields
+/// of the caller-constructible `OwnerProgrammeDelegation` and are published after a review by the
+/// attestation's accessors - and holding one opens nothing, because the only function that acts on it
+/// also demands the composition it came from.
+///
+/// THE ONLY CONSTRUCTOR IS PRIVATE AND TAKES THE SEALED FACTS, so there is no way to build one from
+/// caller data and no way for it to disagree with what was authorised.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReviewSubjectFacts {
+    project: [u8; DELEGATION_DIGEST_LEN],
+    repository: [u8; DELEGATION_DIGEST_LEN],
+    plan: [u8; DELEGATION_DIGEST_LEN],
+    plan_digest: [u8; DELEGATION_DIGEST_LEN],
+    phase: [u8; DELEGATION_DIGEST_LEN],
+    candidate_digest: [u8; BINDING_DIGEST_LEN],
+    correlation: [u8; CORRELATION_LEN],
+    delegation_id: [u8; DELEGATION_DIGEST_LEN],
+    parameter_digest: [u8; BINDING_DIGEST_LEN],
+    baseline_commit: [u8; BASELINE_COMMIT_LEN],
+}
+
+impl ReviewSubjectFacts {
+    fn from_resolved(
+        facts: &HostResolvedRequestFacts,
+        authority: &AuthorisedProtectedOperation,
+        baseline_commit: [u8; BASELINE_COMMIT_LEN],
+    ) -> Self {
+        Self {
+            project: facts.project,
+            repository: facts.repository,
+            plan: facts.plan,
+            plan_digest: facts.plan_digest,
+            phase: facts.phase,
+            candidate_digest: facts.candidate_digest,
+            correlation: *authority.correlation(),
+            delegation_id: *authority.delegation_id(),
+            parameter_digest: *authority.parameter_digest(),
+            baseline_commit,
+        }
+    }
+
+    /// The approved baseline commit of the phase, from the durable approved-plan record. NOT part of
+    /// the request binding: the fixed authority frames are unchanged, and a caller never states it.
+    #[must_use]
+    pub fn baseline_commit(&self) -> &[u8; BASELINE_COMMIT_LEN] {
+        &self.baseline_commit
+    }
+
+    /// The canonical programme identity of the project.
+    #[must_use]
+    pub fn project(&self) -> &[u8; DELEGATION_DIGEST_LEN] {
+        &self.project
+    }
+    /// The canonical programme identity of the repository.
+    #[must_use]
+    pub fn repository(&self) -> &[u8; DELEGATION_DIGEST_LEN] {
+        &self.repository
+    }
+    /// The canonical programme identity of the approved plan reference.
+    #[must_use]
+    pub fn plan(&self) -> &[u8; DELEGATION_DIGEST_LEN] {
+        &self.plan
+    }
+    /// The validated phase-definition digest of the approved plan.
+    #[must_use]
+    pub fn plan_digest(&self) -> &[u8; DELEGATION_DIGEST_LEN] {
+        &self.plan_digest
+    }
+    /// The canonical programme identity of the phase id.
+    #[must_use]
+    pub fn phase(&self) -> &[u8; DELEGATION_DIGEST_LEN] {
+        &self.phase
+    }
+    /// The committed-candidate digest the Host resolved.
+    #[must_use]
+    pub fn candidate_digest(&self) -> &[u8; BINDING_DIGEST_LEN] {
+        &self.candidate_digest
+    }
+    /// The correlation of the authorised request.
+    #[must_use]
+    pub fn correlation(&self) -> &[u8; CORRELATION_LEN] {
+        &self.correlation
+    }
+    /// The delegation the authority was minted under.
+    #[must_use]
+    pub fn delegation_id(&self) -> &[u8; DELEGATION_DIGEST_LEN] {
+        &self.delegation_id
+    }
+    /// The digest of the exact one-shot request subject.
+    #[must_use]
+    pub fn parameter_digest(&self) -> &[u8; BINDING_DIGEST_LEN] {
+        &self.parameter_digest
+    }
+}
+
+/// An execution that GENUINELY OCCURRED, as the sealed seam reports it.
+///
+/// BOTH VARIANTS MEAN THE EXECUTION RAN - which is what `ExecutionOutcomeEvidence` records. Neither
+/// means the provider succeeded, and `Failed` does not by itself mean a provider was reached: that is
+/// the separate, Host-authoritative `provider_dispatched` fact. A review that never began executing is
+/// not an outcome at all, it is a [`ReviewExecutionRefusal`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReviewExecutionOutcome {
+    /// The review ran, an attestation was minted and durably stored, and the response record exists.
+    Succeeded {
+        /// First sixteen bytes of SHA-256 over the exact response-record bytes, so the wire
+        /// completion and the out-of-band record are bound to each other rather than merely both
+        /// present.
+        evidence_ref: [u8; EVIDENCE_REF_LEN],
+        /// What the provider actually billed.
+        settlement: ProviderCallSettlement,
+    },
+    /// The execution ran and produced no usable attested answer.
+    Failed {
+        /// First sixteen bytes of SHA-256 over the exact FAILURE record, so a failure is bound to its
+        /// out-of-band record exactly as a success is.
+        evidence_ref: [u8; EVIDENCE_REF_LEN],
+        /// THE HOST-AUTHORITATIVE DISPATCH FACT. `Completed`/`Failed` on the wire says the execution
+        /// seam RAN; it does not say a billable provider call occurred, and the two must not be
+        /// conflated. `false` only where the Host can prove no provider was reached (a credential
+        /// that could not be resolved is "no credential, no call"); every ambiguity is `true`.
+        provider_dispatched: bool,
+        /// What the provider billed, when that is known. `None` with `provider_dispatched` leaves
+        /// the reservation OUTSTANDING: money that may have been spent is never released on a guess.
+        settlement: Option<ProviderCallSettlement>,
+    },
+}
+
+/// The review was refused BEFORE anything could reach a provider.
+///
+/// ONE VARIANT, AND THE NAME IS THE CONTRACT. Every cause that lands here - the manifest, the
+/// execution closure, the trusted-executable policy, the one-shot subject - is decided before
+/// execution is contemplated, so the reservation held for the request is provably unspent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReviewExecutionRefusal {
+    /// Nothing was dispatched. The reservation is released.
+    NotDispatched,
+}
+
+/// The private supertrait that seals [`GatekeeperReviewExecution`].
+mod gatekeeper_review_execution {
+    /// Unnameable outside this module tree, so the seam below cannot be implemented downstream.
+    pub trait Sealed {}
+}
+
+/// THE SEALED EXECUTION SEAM: run ONE authorised independent gatekeeper review.
+///
+/// SEALED, FOR THE REASON `CanonicalBudgetLedger` IS - and with more at stake. This seam answers "did
+/// a real attested review run, and how did it end", and there is no second oracle the rung below
+/// could check that answer against. If a downstream crate could implement it, it could answer
+/// `Succeeded` for a review that never touched the manifest check, the one-shot subject or the
+/// review operation, and the rung would mint genuine-looking evidence of an execution that never
+/// happened. The accepted validator pins WHERE the evidence is minted; sealing is what pins WHO may
+/// say an execution occurred. The one production implementation therefore lives in this module's
+/// own subtree, exactly as the production budget ledger does.
+pub trait GatekeeperReviewExecution: gatekeeper_review_execution::Sealed {
+    /// Execute the review this authority admits, over the facts the Host resolved for it.
+    ///
+    /// # Errors
+    /// [`ReviewExecutionRefusal::NotDispatched`] when the review was refused before any provider
+    /// could be reached.
+    fn execute(
+        &mut self,
+        authority: &AuthorisedProtectedOperation,
+        subject: &ReviewSubjectFacts,
+    ) -> Result<ReviewExecutionOutcome, ReviewExecutionRefusal>;
+}
+
+/// THE EXECUTION RUNG: turn one composed, authorised operation into its wire answer.
+///
+/// ## The order is the control
+///
+/// 1. The composition is CONSUMED, so one authority answers one request and cannot be run twice.
+/// 2. The review runs ONLY through the sealed seam. There is no argument through which a caller could
+///    state that an execution happened - no bool, no result class, no evidence reference.
+/// 3. Evidence is minted ONLY after the seam reported an execution that genuinely occurred, with the
+///    correlation taken from the authority. This is the crate's single shipped mint of
+///    [`ExecutionOutcomeEvidence`] (owner-ratified Amendment 1), and the accepted validator pins it
+///    to this function.
+/// 4. The reservation follows the DISPATCH FACT: released when nothing was dispatched, committed
+///    when the provider's bill is known, and left outstanding when money may have been spent and
+///    nobody can say how much.
+///
+/// ## What the wire says, without widening it
+///
+/// `Rejected` + `NotRun` means nothing ran, so the caller releases its own reservation. `Completed`
+/// means an execution occurred - `Succeeded` or `Failed` - and the caller must treat money as
+/// possibly spent. The dispatch fact therefore crosses the existing fixed frame in fields it already
+/// had; nothing was added to it.
+pub fn run_authorised_review(
+    composed: ComposedProtectedOperation,
+    execution: &mut dyn GatekeeperReviewExecution,
+    ledger: &mut dyn CanonicalBudgetLedger,
+) -> ProtectedOperationResponse {
+    let subject = composed.review_subject;
+    let (authority, reservation) = composed.into_parts();
+
+    let (result, evidence_ref, dispatched, settlement) = match execution.execute(&authority, &subject) {
+        Err(ReviewExecutionRefusal::NotDispatched) => {
+            // The review never began executing, so nothing may stay reserved.
+            release_unused(ledger, reservation);
+            return refused_after_authority(&authority);
+        }
+        Ok(ReviewExecutionOutcome::Succeeded {
+            evidence_ref,
+            settlement,
+        }) => (ResultClass::Succeeded, evidence_ref, true, Some(settlement)),
+        Ok(ReviewExecutionOutcome::Failed {
+            evidence_ref,
+            provider_dispatched,
+            settlement,
+        }) => (ResultClass::Failed, evidence_ref, provider_dispatched, settlement),
+    };
+
+    // THE RESERVATION FOLLOWS THE HOST-AUTHORITATIVE DISPATCH FACT, never the frame's state.
+    //   - the seam ran and PROVABLY reached no provider  -> released;
+    //   - a provider was or may have been reached, bill known -> committed;
+    //   - a provider may have been reached, bill UNKNOWN  -> left OUTSTANDING on purpose: dropping
+    //     the value does not release it, the ledger still counts it against the ceiling, and money
+    //     that may have been spent is never handed back on a guess.
+    match (dispatched, settlement) {
+        (false, _) => release_unused(ledger, reservation),
+        (true, Some(bill)) => {
+            let committed = ledger.commit_reservation(reservation, &bill);
+            debug_assert!(
+                committed.is_ok(),
+                "a reservation this composition just minted must still be outstanding on this authority"
+            );
+        }
+        (true, None) => {}
+    }
+
+    // THE ONE SHIPPED MINT. `completed` independently refuses evidence about another correlation;
+    // it cannot fail here because the correlation came off this same authority, and if it ever did
+    // the honest answer is a refusal, never a fabricated completion.
+    ExecutionOutcomeEvidence::from_completed_execution(&authority, result, evidence_ref)
+        .and_then(|evidence| ProtectedOperationResponse::completed(&authority, &evidence))
+        .unwrap_or_else(|| refused_after_authority(&authority))
+}
+
+/// The refusal an authorised request receives when its review did not run. `NotRun` on the wire is
+/// what tells the caller nothing was dispatched.
+fn refused_after_authority(authority: &AuthorisedProtectedOperation) -> ProtectedOperationResponse {
+    ProtectedOperationResponse::rejected(
+        *authority.correlation(),
+        RejectionReason::PolicyRefused,
+        authority.service_epoch(),
+        TerminalStatus::Terminal,
+    )
 }
 
 /// Compose one independent gatekeeper review from the Host's own trusted sources, or refuse.
@@ -926,10 +1213,11 @@ fn compose_verified(
 ) -> Result<ComposedProtectedOperation, CompositionRefusal> {
     // 5. THE HOST'S PLAN AUTHORITY. A plan the Host cannot establish is not a plan it may review
     //    against, whatever the request believes.
-    let (Some(plan), Some(plan_digest), Some(phase)) = (
+    let (Some(plan), Some(plan_digest), Some(phase), Some(baseline_commit)) = (
         sources.plan.plan(),
         sources.plan.plan_digest(),
         sources.plan.phase(),
+        sources.plan.approved_baseline(),
     ) else {
         return Err(CompositionRefusal::PlanAuthorityUnavailable);
     };
@@ -1121,6 +1409,7 @@ fn compose_verified(
     ) {
         ProtectedOperationEvaluation::Authorised(authority) => Ok(ComposedProtectedOperation {
             _seal: Seal,
+            review_subject: ReviewSubjectFacts::from_resolved(&facts, &authority, baseline_commit),
             authority,
             reservation,
         }),
@@ -1149,6 +1438,91 @@ fn release_unused(ledger: &mut dyn CanonicalBudgetLedger, reservation: BudgetRes
     );
 }
 
+/// FIXTURE-ONLY implementation of the sealed execution seam.
+///
+/// THE SAME SHAPE AS [`FixtureBudgetLedger`], FOR THE SAME REASON: the seam is sealed, so the only place
+/// even a deterministic stand-in can live is inside this module tree, and it is compiled only under the
+/// non-default `test-fixtures` feature that no shipped graph enables. It plays back ONE scripted answer
+/// and records what it was asked, so a proof can assert both what the rung did with the answer and
+/// which facts the seam was actually handed.
+///
+/// It contacts nothing, reads nothing and executes nothing. It is how the rung, the wire codec and the
+/// isolated transport are proven with no provider, no credential and no spend.
+#[cfg(feature = "test-fixtures")]
+#[derive(Debug)]
+pub struct FixtureReviewExecution {
+    script: Result<ReviewExecutionOutcome, ReviewExecutionRefusal>,
+    calls: u32,
+    seen: Option<ReviewSubjectFacts>,
+}
+
+#[cfg(feature = "test-fixtures")]
+impl FixtureReviewExecution {
+    /// FIXTURE ONLY. A review that ran, was attested, and billed `settlement`.
+    #[must_use]
+    pub fn succeeding(
+        evidence_ref: [u8; EVIDENCE_REF_LEN],
+        settlement: ProviderCallSettlement,
+    ) -> Self {
+        Self::scripted(Ok(ReviewExecutionOutcome::Succeeded {
+            evidence_ref,
+            settlement,
+        }))
+    }
+
+    /// FIXTURE ONLY. An execution that occurred and produced no usable attested answer.
+    #[must_use]
+    pub fn failing(provider_dispatched: bool, settlement: Option<ProviderCallSettlement>) -> Self {
+        Self::scripted(Ok(ReviewExecutionOutcome::Failed {
+            evidence_ref: [0xf4; EVIDENCE_REF_LEN],
+            provider_dispatched,
+            settlement,
+        }))
+    }
+
+    /// FIXTURE ONLY. A review refused before anything could reach a provider.
+    #[must_use]
+    pub fn not_dispatched() -> Self {
+        Self::scripted(Err(ReviewExecutionRefusal::NotDispatched))
+    }
+
+    fn scripted(script: Result<ReviewExecutionOutcome, ReviewExecutionRefusal>) -> Self {
+        Self {
+            script,
+            calls: 0,
+            seen: None,
+        }
+    }
+
+    /// How many times the rung drove the seam.
+    #[must_use]
+    pub fn calls(&self) -> u32 {
+        self.calls
+    }
+
+    /// The facts the seam was handed, if it was driven at all.
+    #[must_use]
+    pub fn seen_subject(&self) -> Option<&ReviewSubjectFacts> {
+        self.seen.as_ref()
+    }
+}
+
+#[cfg(feature = "test-fixtures")]
+impl gatekeeper_review_execution::Sealed for FixtureReviewExecution {}
+
+#[cfg(feature = "test-fixtures")]
+impl GatekeeperReviewExecution for FixtureReviewExecution {
+    fn execute(
+        &mut self,
+        _authority: &AuthorisedProtectedOperation,
+        subject: &ReviewSubjectFacts,
+    ) -> Result<ReviewExecutionOutcome, ReviewExecutionRefusal> {
+        self.calls += 1;
+        self.seen = Some(*subject);
+        self.script.clone()
+    }
+}
+
 /// The one operation class this composition serves.
 ///
 /// Restated here so a reader does not have to follow the enum to know what is being composed, and
@@ -1161,6 +1535,11 @@ pub const COMPOSED_OPERATION: OperationClass = OperationClass::IndependentGateke
 /// A CHILD MODULE FOR THE SAME REASON THIS ONE IS: `canonical_budget::Sealed` is private here, so
 /// the only place a real implementation of the sealed trait can live is inside this subtree.
 pub mod canonical_ledger;
+
+/// PROJECTOS-HOST-REVIEW-PATH1A - THE ONE SHIPPED `GatekeeperReviewExecution`.
+///
+/// A CHILD MODULE FOR THE SAME REASON: `gatekeeper_review_execution::Sealed` is private here.
+pub mod review_execution;
 
 // GATED ON THE FIXTURE GRAPH, because almost every proof here needs a LIVE `BoundIpcSession` and the
 // only way to mint one without a real named pipe is core's fixture verifier. Run with

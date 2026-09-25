@@ -55,6 +55,27 @@ windows-host-authority-observer = [
     "dep:projectos-host-identity",
 ]
 
+# PROJECTOS-HOST-REVIEW-PATH1B (ROUTE A). The PRODUCTION machine-wide authority acquisition.
+#
+# Before this, the existence-token acquisition and the authority object-name derivation were compiled
+# ONLY under `test-fixtures`, so a release build could not acquire authority at all — which made the
+# whole production session route (ConfirmedAuthorityGuard -> ProviderAuthorityLease ->
+# ProductionIpcSessionVerifier -> BoundIpcSession) unreachable and `compose_protected_operation`
+# uncallable. This feature ships that ALREADY-AUDITED machinery. NO logic changed; only its cfg.
+#
+# It is enabled ONLY by the trusted service-host production graph.
+#
+# IT DELIBERATELY DOES NOT ENABLE `test-fixtures`, and therefore ships NONE of the synthetic surface:
+# no `windows_proof` module, no synthetic SID/descriptor constructors, no test object-name route, no
+# fixture minting and no test-only authority shortcut. It compiles exactly the production name
+# derivation, the existence-token create-or-open, and the guard that owns the real handle.
+windows-authority-acquisition = [
+    "windows-pipe-security-runtime",
+    "dep:windows",
+    "dep:projectos-windows-runtime-primitives",
+    "dep:projectos-host-identity",
+]
+
 # TEST-ONLY synthetic authority surface. Present only under this feature; never in a default/release
 # build. INCLUDES the runtime feature (so the opaque runtime contract is available) and additionally
 # compiles the synthetic descriptor/SID constructors, the `windows_proof` module, the existence-token

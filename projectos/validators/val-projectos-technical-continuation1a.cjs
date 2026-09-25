@@ -394,6 +394,149 @@ function run() {
     );
   }
 
+  // 16. THE BOUNDED LOCAL CANDIDATE COMMIT — DECLARED AMENDMENT, PROJECTOS-HOST-REVIEW-PATH1B UNIT L.
+  //
+  //     OLD INVARIANT: on every route the independent review precedes the commit, and an approval
+  //     authorises the commit and the push.
+  //     NEW INVARIANT: on the UNATTENDED route only, a bounded local candidate commit precedes the
+  //     independent review, the review is made against that immutable commit, and an approval authorises
+  //     the separately governed continuation; the interactive route keeps the old invariant unchanged
+  //     (sections 13-14 above still pin it). The local commit performs no push, merge, tag, amend, reset,
+  //     rebase, force update or history rewrite, runs no hook and lets no configuration run a program,
+  //     and no git call this runtime makes ever runs a hook of the governed checkout.
+  errors.push(...localCandidateRules(loopRunner));
+
+  return errors;
+}
+
+const LOCAL_CANDIDATE_REL = "projectos/agent/src/loop/localCandidateCommit.ts";
+const SYSTEM_REL = "projectos/agent/src/system.ts";
+const LOCAL_CANDIDATE_TEST_REL = "projectos/agent/test/localCandidateCommit.test.ts";
+/** The closed verb set, in its pinned order. */
+const LOCAL_CANDIDATE_VERBS = [
+  "config",
+  "status",
+  "ls-files",
+  "rev-parse",
+  "symbolic-ref",
+  "read-tree",
+  "hash-object",
+  "update-index",
+  "write-tree",
+  "commit-tree",
+  "update-ref",
+];
+
+function localCandidateRules(loopRunner) {
+  const errors = [];
+  const E = (m) => errors.push("16 " + m);
+  const raw = read(LOCAL_CANDIDATE_REL);
+  const sysRaw = read(SYSTEM_REL);
+  if (raw === null || sysRaw === null) {
+    E(`${LOCAL_CANDIDATE_REL} or ${SYSTEM_REL} is missing — the bounded local candidate commit is not present`);
+    return errors;
+  }
+  const lc = code(raw);
+  const sys = code(sysRaw);
+
+  // (a) THE CLOSED VERB SET, exactly, and every direct call uses one of its members.
+  const declared = /export const LOCAL_CANDIDATE_GIT_VERBS = \[([\s\S]*?)\] as const;/.exec(lc);
+  const listed = declared ? [...declared[1].matchAll(/'([a-z-]+)'/g)].map((m) => m[1]) : [];
+  if (JSON.stringify(listed) !== JSON.stringify(LOCAL_CANDIDATE_VERBS)) {
+    E(`the local candidate verb set is [${listed.join(", ")}], expected exactly [${LOCAL_CANDIDATE_VERBS.join(", ")}]`);
+  }
+  const called = [...lc.matchAll(/\b(?:git|base|run)\(\s*\[\s*'([a-z-]+)'/g)].map((m) => m[1]);
+  if (called.length === 0) E("no git call could be located in the local candidate commit");
+  for (const verb of called) {
+    if (!LOCAL_CANDIDATE_VERBS.includes(verb)) E(`the local candidate commit issues '${verb}', outside its closed verb set`);
+  }
+
+  // (b) NOTHING THAT PUBLISHES, REWRITES, DELETES OR REACHES A SHELL.
+  for (const banned of [
+    "'push'", "'merge'", "'tag'", "'reset'", "'rebase'", "'--amend'", "'--force'", "'-f'", "'checkout'",
+    "'switch'", "'fetch'", "'branch'", "'commit'", "'-d'", "'--delete'", "'--no-verify'",
+    "child_process", "spawnSync", "execSync", "shell: true",
+  ]) {
+    if (lc.includes(banned)) E(`the local candidate commit contains ${banned}`);
+  }
+
+  // (c) THE ONE REF WRITE IS A COMPARE-AND-SWAP FAST-FORWARD FROM THE PARENT, over a single-parent commit.
+  if ((lc.match(/git\(\['update-ref'/g) || []).length !== 1 || !/git\(\['update-ref', '-m', [^\]]*, branchRef, commit, parent\]/.test(lc)) {
+    E("the branch is not advanced by exactly one compare-and-swap `update-ref <ref> <new> <parent>`");
+  }
+  if (!/'commit-tree',\s*'--no-gpg-sign',\s*'-p',\s*parent,/.test(lc)) {
+    E("the candidate commit is not a single-parent, unsigned `commit-tree -p <parent>`");
+  }
+
+  // (d) NO HOOK, NO CONFIGURATION-DRIVEN PROGRAM — including while the candidate is computed.
+  for (const [needle, what] of [
+    ["mkdtempSync(", "a freshly created hook-free directory"],
+    ["`core.hooksPath=${hooks}`", "core.hooksPath pointed at that directory"],
+    ["'core.fsmonitor=false'", "the file-system monitor switched off"],
+    ["'commit.gpgSign=false'", "signing switched off"],
+    ["`filter.${n}.clean=`", "every filter driver's clean command emptied"],
+    ["`filter.${n}.smudge=`", "every filter driver's smudge command emptied"],
+    ["`filter.${n}.process=`", "every filter driver's process command emptied"],
+    ["`filter.${n}.required=false`", "every filter driver made optional"],
+    ["computeCandidateIdentity(sys, root, (args) => git(args))", "the candidate computed through the isolated runner"],
+  ]) {
+    if (!lc.includes(needle)) E(`the local candidate commit is missing ${what}`);
+  }
+  const execs = (lc.match(/sys\.exec\('git'/g) || []).length;
+  const isolated = (lc.match(/sys\.exec\('git', \[[^\]]*\], \{\s*isolatedGit:/g) || []).length;
+  if (execs === 0 || execs !== isolated) E(`${execs - isolated} git call(s) in the local candidate commit are not isolated`);
+  if (/--no-filters/.test(lc)) {
+    // Not forbidden for safety, but it would record bytes an ordinary commit would not; the pinned
+    // design is "git's built-in handling, no program".
+    E("the local candidate commit bypasses git's built-in content handling with --no-filters");
+  }
+
+  // (e) THE ISOLATION ITSELF, and the hook directory closed for EVERY git call this runtime makes.
+  for (const key of ["GIT_CONFIG_NOSYSTEM: '1'", "GIT_CONFIG_SYSTEM: NULL_DEVICE", "GIT_CONFIG_GLOBAL: NULL_DEVICE", "GIT_ATTR_NOSYSTEM: '1'", "GIT_NO_REPLACE_OBJECTS: '1'"]) {
+    if (!sys.includes(key)) E(`the isolated git environment no longer sets ${key}`);
+  }
+  if (!/const HOOKS_OFF_ENV[\s\S]{0,120}GIT_CONFIG_KEY_0: 'core\.hooksPath',\s*GIT_CONFIG_VALUE_0: NULL_DEVICE/.test(sys)) {
+    E("the runtime no longer closes the governed checkout's hook directory at command scope");
+  }
+  if (!/bare === 'git'\s*\?\s*\{[\s\S]{0,260}\.\.\.HOOKS_OFF_ENV,\s*\}/.test(sys)) {
+    E("not every git call this runtime makes carries the closed hook directory");
+  }
+
+  // (f) THE ROUTE: unattended with a composed Host review ONLY; the subject is the local candidate; the
+  //     commit happens before the candidate is sealed; a refused commit asks nothing.
+  if ((loopRunner.match(/commitLocalCandidate\(/g) || []).length !== 1) {
+    E("runner.ts calls the local candidate commit other than exactly once");
+  }
+  if (!/const unattendedHostRoute = \(\): boolean => \{[\s\S]{0,160}g\.mode === 'unattended' && g\.hostReview !== undefined/.test(loopRunner)) {
+    E("the local candidate commit is no longer confined to the unattended route with a composed Host review");
+  }
+  if (!/if \(!unattendedHostRoute\(\)\) return null;\s*const made = commitLocalCandidate\(sys, root, phaseId\);/.test(loopRunner)) {
+    E("the local candidate commit is reachable without the unattended-route guard");
+  }
+  const iRecord = loopRunner.indexOf("const localCandidate = recordLocalCandidate();");
+  const iSeal = loopRunner.indexOf("candidate: candidateEvidence(),");
+  if (iRecord === -1 || iSeal === -1 || iRecord > iSeal) {
+    E("the local candidate is not recorded BEFORE the reviewed candidate is sealed");
+  }
+  // THE TURN'S subject specifically (it sits beside `repositoryRoot`), and both correction bindings: three
+  // sites, exactly. A looser check was found VACUOUS by the mutation battery - reverting only the turn input
+  // to the base still matched the two correction sites.
+  if (
+    !/subjectCommit: reviewSubject\(\),\s*repositoryRoot: root,/.test(loopRunner) ||
+    (loopRunner.match(/subjectCommit: reviewSubject\(\),/g) || []).length !== 3 ||
+    !/const reviewSubject = \(\): string => candidateHead \?\? verification\.observed\.head \?\? '';/.test(loopRunner)
+  ) {
+    E("the review subject is no longer the local candidate on the unattended route");
+  }
+  if (!/if \(localCandidateRefusal !== null\) \{[\s\S]{0,260}return null;/.test(loopRunner)) {
+    E("a review can still be asked after the local candidate commit refused");
+  }
+
+  // (g) PROVEN, with live controls.
+  const proof = read(LOCAL_CANDIDATE_TEST_REL) || "";
+  for (const needle of ["post-index-change", "filter.evil.clean", "gpg.program", "core.hooksPath", "USER-LEVEL", "control:"]) {
+    if (!proof.includes(needle)) E(`${LOCAL_CANDIDATE_TEST_REL} no longer proves (${needle}) with a live control`);
+  }
   return errors;
 }
 

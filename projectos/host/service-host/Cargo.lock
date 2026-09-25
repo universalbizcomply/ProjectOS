@@ -103,11 +103,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "projectos-host-gatekeeper-attestation"
+version = "0.0.0"
+dependencies = [
+ "projectos-host-identity",
+ "projectos-packaged-runtime-contract",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "projectos-host-gatekeeper-ledger"
 version = "0.0.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "projectos-host-gatekeeper-review-composition"
+version = "0.0.0"
+dependencies = [
+ "projectos-host-core",
+ "projectos-host-gatekeeper-attestation",
+ "projectos-host-identity",
+ "projectos-host-plan-durable-store",
+ "projectos-host-repository",
+ "projectos-host-windows-local-ipc",
+ "projectos-packaged-runtime-contract",
+ "projectos-windows-runtime-primitives",
+ "serde",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]
@@ -133,11 +161,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "projectos-host-plan-durable-store"
+version = "0.0.0"
+dependencies = [
+ "projectos-host-core",
+ "projectos-host-persistence",
+ "projectos-host-windows-durable-protected-store",
+ "thiserror",
+]
+
+[[package]]
+name = "projectos-host-repository"
+version = "0.0.0"
+dependencies = [
+ "projectos-host-core",
+ "thiserror",
+]
+
+[[package]]
 name = "projectos-host-service-host"
 version = "0.0.0"
 dependencies = [
+ "projectos-host-authority",
+ "projectos-host-core",
+ "projectos-host-gatekeeper-attestation",
+ "projectos-host-gatekeeper-review-composition",
  "projectos-host-identity",
+ "projectos-host-windows-clock",
  "projectos-host-windows-local-ipc",
+ "projectos-host-windows-runtime-observation",
  "projectos-host-windows-service-installation-contract",
  "projectos-windows-runtime-primitives",
  "serde_json",
@@ -183,6 +235,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "projectos-host-windows-clock"
+version = "0.0.0"
+dependencies = [
+ "projectos-host-core",
+ "windows",
+]
+
+[[package]]
 name = "projectos-host-windows-durable-protected-store"
 version = "0.0.0"
 dependencies = [
@@ -200,6 +260,7 @@ version = "0.0.0"
 dependencies = [
  "projectos-host-authority",
  "projectos-host-core",
+ "projectos-host-gatekeeper-attestation",
  "projectos-host-gatekeeper-ledger",
  "projectos-host-identity",
  "projectos-host-persistence",
@@ -220,10 +281,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "projectos-host-windows-runtime-observation"
+version = "0.0.0"
+dependencies = [
+ "projectos-host-authority",
+ "projectos-host-core",
+ "projectos-host-windows-clock",
+ "windows",
+]
+
+[[package]]
 name = "projectos-host-windows-service-identity-proof"
 version = "0.0.0"
 dependencies = [
  "projectos-host-authority",
+ "projectos-host-identity",
  "projectos-windows-runtime-primitives",
  "windows",
 ]
