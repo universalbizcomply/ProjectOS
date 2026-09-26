@@ -123,6 +123,7 @@ dependencies = [
  "projectos-host-core",
  "projectos-host-gatekeeper-attestation",
  "projectos-host-identity",
+ "projectos-host-persistence",
  "projectos-host-plan-durable-store",
  "projectos-host-repository",
  "projectos-host-windows-local-ipc",

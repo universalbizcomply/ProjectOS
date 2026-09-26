@@ -36,6 +36,9 @@
 /// THE HOST'S ANSWER TO ONE REVIEW REQUEST, and the three filesystem adapters it needs.
 pub mod candidate_evidence;
 pub mod closure_facts;
+// PROJECTOS-HOST-REVIEW-PATH1B, criterion 21: the Host's ingestion of the COMMITTED approved plan,
+// bound to the owner-signed delegation digests.
+pub mod committed_plan;
 pub mod host_ports;
 pub mod review_dispatch;
 

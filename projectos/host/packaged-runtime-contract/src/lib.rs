@@ -127,6 +127,17 @@ pub const RUNTIME_RELATIVE_PATH: &str = "runtime/node.exe";
 /// Where the single closed daemon bundle sits inside the payload, relative to the PAYLOAD root.
 pub const DAEMON_RELATIVE_PATH: &str = "daemon/projectos-daemon.mjs";
 
+/// Where the packaged Git sits inside the payload, relative to the PAYLOAD root.
+///
+/// PROJECTOS-HOST-REVIEW-PATH1B, criterion 21. The Host's repository reader takes a validated
+/// absolute Git executable, and the service-entry resolver has to name one from a FIXED location
+/// for the same reason the runtime is fixed above: a Git whose location could be redirected is a
+/// Git an attacker chooses. Unlike the Node runtime it is not hash-pinned by this contract — the
+/// executable-policy port validates it as an absolute plain file and the reader confines what any
+/// Git can be asked (closed verb vocabulary, fixed environment) — and adding a pin later narrows
+/// rather than widens this constant.
+pub const PACKAGED_GIT_RELATIVE_PATH: &str = "runtime/git/cmd/git.exe";
+
 /// The manifest file name, inside the PAYLOAD root. Part of the closed subject, not of the
 /// application's own directory: the manifest describes the payload and travels with it.
 pub const TRUST_MANIFEST_FILENAME: &str = "projectos-trust-manifest.json";

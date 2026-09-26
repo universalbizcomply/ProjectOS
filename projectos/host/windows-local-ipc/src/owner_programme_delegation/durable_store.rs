@@ -303,7 +303,8 @@ impl DurableDelegationStateFileStore {
     ///
     /// # Errors
     /// [`DelegationStoreRefusal`] naming the rule or the engine condition that refused.
-    #[cfg_attr(not(test), allow(dead_code))]
+    // The governed production caller is `activate_owner_programme_delegation` (criterion 21); the
+    // former `cfg_attr(not(test), allow(dead_code))` is gone with it.
     pub(crate) fn record_lifecycle(
         &mut self,
         delegation_id: &[u8; DELEGATION_DIGEST_LEN],

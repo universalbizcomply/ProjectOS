@@ -1017,6 +1017,21 @@ pub mod evidence_fixture {
                     new_id: "fe95c7fd563fd89c3f4813f9bfed6e5d79288cde".to_string(),
                     new_contents: Some(b"fn reviewed() {}\n".to_vec()),
                 }],
+                // F2: the ONE-COMMIT ancestry of a fixture candidate sitting directly on its
+                // baseline. The step's result IS the candidate, so nothing vanished.
+                vec![crate::candidate_evidence::AncestryStepInput {
+                    commit: self.candidate.clone(),
+                    parent: baseline.to_string(),
+                    entries: vec![crate::candidate_evidence::AncestryEntryInput {
+                        change: EvidenceChange::Added,
+                        path: "src/reviewed.rs".to_string(),
+                        old_mode: 0,
+                        new_mode: 0o100_644,
+                        old_id: "0".repeat(40),
+                        new_id: "fe95c7fd563fd89c3f4813f9bfed6e5d79288cde".to_string(),
+                        vanished_contents: None,
+                    }],
+                }],
             )
             .map_err(EvidenceUnavailable::Refused)
         }

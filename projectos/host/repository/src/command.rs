@@ -221,6 +221,23 @@ pub enum GitCommand {
         /// The commit it must be reachable from.
         descendant: CommitId,
     },
+    /// `rev-list --reverse --parents --end-of-options <base>..<tip>` — the EXACT ORDERED ancestry
+    /// between two exact commits, each line a commit followed by its parents.
+    ///
+    /// RATIFIED IN PROJECTOS-HOST-REVIEW-PATH1B (the F2 correction) as the one read-only ancestry
+    /// ENUMERATION: a push publishes every commit in `base..tip`, so the review evidence must bind
+    /// that exact ordered set — endpoint trees alone let bytes exist in commit N and vanish by tip.
+    ///
+    /// `--reverse` yields oldest first, so the chain reads base-child … tip; `--parents` puts each
+    /// commit's parent identities on its own line, which is what lets the parser REFUSE a merge, a
+    /// gap or a substituted ordering rather than trusting the walk. Both operands are [`CommitId`]s
+    /// joined by the two-dot range in ONE argument, so no reference, path or option is representable.
+    RevListLinear {
+        /// The approved baseline commit (excluded from the output, as `..` semantics say).
+        base: CommitId,
+        /// The pinned candidate commit.
+        tip: CommitId,
+    },
 }
 
 impl GitCommand {
@@ -284,6 +301,13 @@ impl GitCommand {
                 "--is-ancestor".into(),
                 ancestor.as_str().to_string(),
                 descendant.as_str().to_string(),
+            ],
+            GitCommand::RevListLinear { base, tip } => vec![
+                "rev-list".into(),
+                "--reverse".into(),
+                "--parents".into(),
+                "--end-of-options".into(),
+                format!("{}..{}", base.as_str(), tip.as_str()),
             ],
         }
     }
@@ -616,11 +640,28 @@ mod tests {
         );
         assert_eq!(
             GitCommand::IsAncestor {
-                ancestor: base,
-                descendant: candidate,
+                ancestor: base.clone(),
+                descendant: candidate.clone(),
             }
             .args(),
             ["merge-base", "--is-ancestor", b, d]
+        );
+        // F2: the ancestry ENUMERATION is fixed arguments plus ONE two-dot range of two exact
+        // commits. `--reverse --parents` is what lets the parser refuse merges, gaps and
+        // substituted orderings; nothing here is a reference, a path or a caller option.
+        assert_eq!(
+            GitCommand::RevListLinear {
+                base,
+                tip: candidate,
+            }
+            .args(),
+            [
+                "rev-list",
+                "--reverse",
+                "--parents",
+                "--end-of-options",
+                &format!("{b}..{d}"),
+            ]
         );
     }
 

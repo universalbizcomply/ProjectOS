@@ -276,10 +276,25 @@ function run() {
     if (/TrustedPeerContext/.test(stripLineComments(obs)))
       errors.push("the crossing module names TrustedPeerContext in code (the peer context must keep its ONE mint, in operation_contract)");
   }
-  if (!/bundle\.connection_id\(\) != verifier\.connection_id\(\)/.test(obs))
-    errors.push("the crossing does not correlate the bundle connection against the sealed verifier");
-  if (!/bundle\.handshake_generation\(\) != verifier\.handshake_generation\(\)/.test(obs))
-    errors.push("the crossing does not correlate the handshake generation against the sealed verifier");
+  // PROJECTOS-HOST-REVIEW-PATH1B FREEZE BATTERY CORRECTION - THE DECLARED AMENDMENT.
+  //   OLD: the two correlations were required ANYWHERE in the module (one crossing existed).
+  //   NEW: with TWO guarded crossings, a module-wide needle is vacuous for either one alone - the
+  //        other's copy satisfies it. Each crossing must correlate the bundle against the sealed
+  //        verifier ITSELF. (Found by mutate_dual_finalisation.cjs: peer-scoped removals survived.)
+  {
+    const peerAt = obs.indexOf("pub fn bind_canonical_peer_to_session_evidence");
+    const clientAt = obs.indexOf("pub fn bind_canonical_client_to_session_evidence");
+    const slices = [
+      ["service-instance crossing", peerAt < 0 ? "" : obs.slice(peerAt, clientAt < 0 ? obs.length : clientAt)],
+      ["client-admission crossing", clientAt < 0 ? "" : obs.slice(clientAt)],
+    ];
+    for (const [which, slice] of slices) {
+      if (!/bundle\.connection_id\(\) != verifier\.connection_id\(\)/.test(slice))
+        errors.push("the " + which + " does not correlate the bundle connection against the sealed verifier");
+      if (!/bundle\.handshake_generation\(\) != verifier\.handshake_generation\(\)/.test(slice))
+        errors.push("the " + which + " does not correlate the handshake generation against the sealed verifier");
+    }
+  }
   if (/->[^\n]*BoundIpcSession|BoundIpcSession\s*\{|::mint\b/.test(obs)) errors.push("observation bundle constructs/returns BoundIpcSession (must not mint authority)");
   if (/#\[derive\([^)]*(Default|serde)/.test(obs)) errors.push("bundle derives Default/serde");
 

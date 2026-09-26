@@ -471,8 +471,14 @@ function run() {
         E("V9 the service does not fail closed when the phrase is refused");
       if (!/status::observe\(ServiceStateReport::Running\)/.test(serve))
         E("V9 the serve loop does not report the state it is actually serving in");
-      if (!/serve::serve_installed_host_status_until_stop\(&STOP_SIGNALLED\)/.test(scm))
-        E("V9 the SCM entry does not start the status serve loop");
+      // PROJECTOS-HOST-REVIEW-PATH1B, CRITERION 21 — DECLARED AMENDMENT.
+      //   OLD: the SCM entry starts the status serve loop directly.
+      //   NEW: it calls the one dispatcher whose fallback IS that status loop; the status loop
+      //        itself is unchanged and still reachable from the dispatcher.
+      if (!/serve::serve_resolved_until_stop\(&STOP_SIGNALLED, &mut host_state\)/.test(scm))
+        E("V9 the SCM entry does not start the serving dispatcher");
+      if (!/serve_installed_host_status_until_stop\(stop\)/.test(serve))
+        E("V9 the dispatcher lost its status-loop fallback");
       if (!/run_inert_loop\(&mut lifecycle, &STOP_SIGNALLED\)/.test(scm))
         E("V9 the proven stop path was replaced rather than kept");
 

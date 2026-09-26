@@ -80,3 +80,10 @@ projectos-host-windows-runtime-observation = { path = "../windows-runtime-observ
     "windows-live-runtime-observation",
     "production-runtime-observation",
 ] }
+
+# CRITERION 21 - the service-entry activation resolver's own inputs: the canonical installed-project
+# registry, the one repository reader, and the packaging contract's fixed payload paths.
+projectos-project-registry = { path = "../project-registry" }
+projectos-host-repository = { path = "../repository" }
+projectos-packaged-runtime-contract = { path = "../packaged-runtime-contract" }
+projectos-host-plan-durable-store = { path = "../plan-durable-store" }

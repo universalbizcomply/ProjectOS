@@ -783,6 +783,10 @@ pub use operation_contract::request_replay::FixtureRequestReplayLedger;
 pub use host_state_activation::{
     activate_installed_host_state, ActivatedHostDurableState, HostStateActivationRefusal,
 };
+// CRITERION 21: the governed project's ledger root, resolved through the SAME activation module, so
+// service-host still names no root, no acceptance and no trusted-roots type.
+#[cfg(windows)]
+pub use host_state_activation::activate_governed_project_ledger_root;
 #[cfg(windows)]
 pub use projectos_host_trusted_roots::{BoundaryRefusal, TrustedRootRefusal};
 
@@ -812,6 +816,17 @@ pub use owner_programme_delegation::{
     ExpectedProgramme, SignedOwnerProgrammeDelegation, DELEGATION_BODY_LEN,
     DELEGATION_SCHEMA_VERSION, DELEGATION_SIGNATURE_ALGORITHM, DELEGATION_SIGNING_DOMAIN,
     SIGNED_DELEGATION_RECORD_LEN,
+};
+// PROJECTOS-HOST-REVIEW-PATH1B, criterion 21 — the two service-entry routes, safe to expose for the
+// same reason `verify_owner_programme_delegation` is: every input is sealed or untrusted-by-type.
+//   * `verify_owner_programme_delegation_for_installation` — the SAME one verifier, composed over
+//     the sealed attested programme, the host's own clock reading and the sealed durable store.
+//     No verifier parameter, no expected-programme parameter, no clock parameter.
+//   * `activate_owner_programme_delegation` — the governed route to the `Active` lifecycle record.
+//     Its whole authority is two owner signatures; the store's lifecycle rules do the rest.
+pub use owner_programme_delegation::{
+    activate_owner_programme_delegation, verify_owner_programme_delegation_for_installation,
+    DelegationActivationRefusal,
 };
 /// Resolve the ProjectOSHost pipe security STATUS, read-only.
 ///

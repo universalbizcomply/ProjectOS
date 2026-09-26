@@ -186,7 +186,7 @@ unsafe extern "system" fn service_main(_argc: u32, _argv: *mut windows::core::PW
     // boundary verified live, activated, and both durable stores opened — all BEFORE the service
     // reports Running or serves anything. A refusal stops the service carrying the refusal's code;
     // there is no degraded mode that runs without it, and no second route to it.
-    let host_state = match crate::host_state::activate_for_service() {
+    let mut host_state = match crate::host_state::activate_for_service() {
         Ok(state) => state,
         Err(code) => {
             START_REFUSAL.store(code, Ordering::SeqCst);
@@ -204,19 +204,17 @@ unsafe extern "system" fn service_main(_argc: u32, _argv: *mut windows::core::PW
         return;
     }
 
-    // The status server runs on its OWN thread so the stop path stays exactly as proven: the
-    // lifecycle thread below still notices a stop on its next poll and is never blocked behind a
-    // pipe wait. The serve thread reads the same stop flag and ends with the process.
-    let serving = std::thread::spawn(|| {
-        crate::serve::serve_installed_host_status_until_stop(&STOP_SIGNALLED);
-    });
-
+    // CRITERION 21: the service now SERVES on this thread, through the one dispatcher that decides
+    // - once, from durable activation inputs alone - between the governed review loop and the
+    // accepted status-only loop. Both poll the same stop flag on the same bound the inert loop
+    // polled, so the stop path's promptness is unchanged; the durable state stays owned HERE so its
+    // single-writer locks are still released before Stopped is published, exactly as before.
+    crate::serve::serve_resolved_until_stop(&STOP_SIGNALLED, &mut host_state);
     run_inert_loop(&mut lifecycle, &STOP_SIGNALLED);
 
     // Stop is published FIRST, before waiting on anything: the SCM must see the transition promptly
-    // and must never wait on a pipe. The serve thread is detached from the stop decision.
+    // and must never wait on a pipe.
     let _ = lifecycle.request_stop();
-    drop(serving);
     // The stores' single-writer locks are released BEFORE Stopped is published, so a restart the SCM
     // begins on seeing Stopped never finds this instance still holding them.
     drop(host_state);

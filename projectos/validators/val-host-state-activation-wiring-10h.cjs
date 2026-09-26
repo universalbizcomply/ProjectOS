@@ -83,7 +83,23 @@ function productionSources() {
     const src = path.join(HOST, c.name, "src");
     if (c.isDirectory() && fs.existsSync(src)) walk(src);
   }
-  return out;
+  // PROJECTOS-HOST-REVIEW-PATH1B, CRITERION 21 — DECLARED AMENDMENT of the production file set.
+  //   OLD: every `src/**/*.rs` except `tests.rs` counted as production.
+  //   NEW: a whole-file test module compiled ONLY under a cfg(test)-gated `mod` declaration in its
+  //        parent is excluded — but only after this validator PROVES the gate is present, so
+  //        removing the gate re-admits the file to every scan below. Exactly one file qualifies.
+  const gatedTestFiles = [
+    {
+      file: path.join(IPC_SRC, "owner_programme_delegation", "service_entry_tests.rs"),
+      parent: path.join(IPC_SRC, "owner_programme_delegation.rs"),
+      gate: /#\[cfg\(all\(test,\s*feature = "test-fixtures",\s*windows\)\)\]\s*mod service_entry_tests;/,
+    },
+  ];
+  return out.filter((f) => {
+    const gated = gatedTestFiles.find((g) => path.resolve(g.file) === path.resolve(f));
+    if (!gated) return true;
+    return !gated.gate.test(stripComments(read(gated.parent)));
+  });
 }
 
 const count = (s, re) => (s.match(re) || []).length;
@@ -126,9 +142,45 @@ function run() {
   if (/pub(\s*\([^)]*\))?\s+fn\s+activate\s*[<(]/.test(mod))
     E("H2 the chain-taking helper is visible outside its module");
   {
-    const allowed = ["activate_installed_host_state", "stores_for_composition", "revalidate"];
+    // PROJECTOS-HOST-REVIEW-PATH1B, CRITERION 21 — DECLARED AMENDMENT of the H2 route list.
+    //   OLD: exactly {activate_installed_host_state, stores_for_composition, revalidate}.
+    //   NEW: three more, each still resolving authority INSIDE this module so service-host names no
+    //        root, store, acceptance or trusted-roots type:
+    //        - activate_delegation: forwards to the crate's governed Active-lifecycle writer over
+    //          the store THIS activation opened (whole authority = two owner signatures; the store's
+    //          own lifecycle rules bound it);
+    //        - host_state_root: read-only path exposure of the activated root, for deriving the
+    //          fixed activation-input leaves; it opens nothing and carries no custody;
+    //        - activate_governed_project_ledger_root: the §10D governed-project ledger root, chained
+    //          resolve→verify→activate→handoff here rather than letting service-host compose roots.
+    const allowed = [
+      "activate_installed_host_state",
+      "stores_for_composition",
+      "revalidate",
+      "activate_delegation",
+      "host_state_root",
+      "activate_governed_project_ledger_root",
+    ];
     for (const m of mod.matchAll(/pub(?:\s*\([^)]*\))?\s+fn\s+(\w+)/g))
       if (!allowed.includes(m[1])) E("H2 the activation module exposes an unexpected route: " + m[1]);
+    // The three new routes keep their bounds: the forward, the read-only path, the in-module chain.
+    if (!/pub fn activate_delegation\(\s*&mut self,\s*record: &crate::SignedOwnerProgrammeDelegation,\s*attested: &projectos_host_identity::AttestedInstallationProgramme,\s*\)[\s\S]{0,220}crate::activate_owner_programme_delegation\(&mut self\.delegation, record, attested\)/.test(mod))
+      E("H2 activate_delegation no longer forwards, whole, to the governed Active-lifecycle writer");
+    if (!/pub fn host_state_root\(&self\) -> &std::path::Path \{\s*self\.root\.path\(\)\s*\}/.test(mod))
+      E("H2 host_state_root is no longer a read-only path exposure");
+    const ledgerRoute = /pub fn activate_governed_project_ledger_root\(([\s\S]*?)\n\}/.exec(mod);
+    if (!ledgerRoute) E("H2 the governed ledger-root route is missing");
+    else {
+      const body = ledgerRoute[1];
+      for (const step of [
+        "TrustedHostStateRoot::resolve(&ApprovedKnownFolderAnchor)",
+        "ProtectedInstallationBoundaryAcceptance::verify(&trusted_state)",
+        "TrustedGovernedProjectRoot::resolve(&CanonicalProjectRegistry, project_id)",
+        "ActivatedGovernedProjectRoot::activate(trusted_project, &accepted)",
+        "HostOwnedGatekeeperProjectRoot::from_activated(&activated)",
+      ])
+        if (!body.includes(step)) E("H2 the governed ledger-root chain is missing: " + step);
+    }
   }
   {
     const s = /pub struct ActivatedHostDurableState\s*\{([\s\S]*?)\n\}/.exec(mod);
@@ -254,7 +306,14 @@ function run() {
     else {
       const iAct = body.indexOf("crate::host_state::activate_for_service()");
       const iRun = body.indexOf("lifecycle.running()");
-      const iServe = body.indexOf("serve_installed_host_status_until_stop");
+      // PROJECTOS-HOST-REVIEW-PATH1B, CRITERION 21 — DECLARED AMENDMENT of the serving entry.
+      //   OLD: service_main starts `serve_installed_host_status_until_stop` on a side thread.
+      //   NEW: service_main calls the ONE dispatcher `serve_resolved_until_stop(&STOP, &mut
+      //        host_state)`, which decides — once, from durable activation inputs alone — between
+      //        the governed review loop and that same status loop, and falls back to the status
+      //        loop on ANY unavailability. Ordering unchanged: activation still precedes Running
+      //        and serving.
+      const iServe = body.indexOf("crate::serve::serve_resolved_until_stop(&STOP_SIGNALLED, &mut host_state)");
       if (iAct === -1) E("H6 service_main does not activate the Host's durable state");
       else if (!(iRun > iAct && iServe > iAct))
         E("H6 the service reports Running or starts serving before its durable state is activated");

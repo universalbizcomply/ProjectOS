@@ -138,6 +138,36 @@ impl ActivatedHostDurableState {
     pub fn revalidate(&self) -> Result<(), TrustedRootRefusal> {
         self.root.revalidate()
     }
+
+    /// RECORD one owner-signed delegation as `Active` in THIS state's durable registry.
+    ///
+    /// PROJECTOS-HOST-REVIEW-PATH1B, criterion 21. A thin forwarding of
+    /// [`crate::activate_owner_programme_delegation`] to the store this activation opened, so the
+    /// service-entry resolver never holds the concrete store — the same reason
+    /// [`Self::stores_for_composition`] lends trait objects. All the authority gates live in the
+    /// forwarded function; this adds none and removes none.
+    ///
+    /// # Errors
+    /// [`crate::DelegationActivationRefusal`] naming the gate or store rule that refused.
+    pub fn activate_delegation(
+        &mut self,
+        record: &crate::SignedOwnerProgrammeDelegation,
+        attested: &projectos_host_identity::AttestedInstallationProgramme,
+    ) -> Result<(), crate::DelegationActivationRefusal> {
+        crate::activate_owner_programme_delegation(&mut self.delegation, record, attested)
+    }
+
+    /// The activated Host state root's path — READ-ONLY EXPOSURE, no custody, no store.
+    ///
+    /// PROJECTOS-HOST-REVIEW-PATH1B, criterion 21. The service-entry resolver derives the fixed
+    /// activation-input leaves (the owner-delegation record, the gatekeeper inbox/outbox/attestation
+    /// directories, the Host plan-store leaf) beneath exactly this root, and before this accessor it
+    /// had no production way to learn it. Handing out the PATH grants nothing the path did not
+    /// already grant: every store beneath it still opens only through its own governed custody.
+    #[must_use]
+    pub fn host_state_root(&self) -> &std::path::Path {
+        self.root.path()
+    }
 }
 
 /// THE PRODUCTION ROUTE. Activate the installed Host's durable state, or refuse.
@@ -167,6 +197,45 @@ pub fn activate_installed_host_state(
         &ApprovedKnownFolderAnchor,
         ProtectedInstallationBoundaryAcceptance::verify,
     )
+}
+
+/// ACTIVATE THE GOVERNED PROJECT'S LEDGER ROOT — PROJECTOS-HOST-REVIEW-PATH1B, criterion 21.
+///
+/// The canonical budget ledger's root is the GOVERNED PROJECT root (§10D), which is a different
+/// root class from the Host state root above, resolved through the canonical installed-project
+/// registry and judged by the SAME live boundary rule. Doing that here — and only here — keeps the
+/// §10H invariant intact: service-host still cannot name a root, an acceptance or the trusted-roots
+/// crate, so there is still exactly one module that can turn directories into authority.
+///
+/// Takes a project id and NOTHING else: the anchor is the approved Known Folder resolver, the
+/// registry is the canonical one, and the boundary is verified live per call. Returns the sealed
+/// ledger root BY VALUE — `CanonicalGatekeeperLedger::open` consumes one per opening, so a caller
+/// opening a ledger per exchange calls this per exchange, and every call re-proves the chain.
+///
+/// # Errors
+/// [`HostStateActivationRefusal`] reusing the existing refusal classes: the roots that did not
+/// resolve report as [`HostStateActivationRefusal::RootUnresolved`], the boundary as
+/// [`HostStateActivationRefusal::BoundaryNotAccepted`], and the handoff as
+/// [`HostStateActivationRefusal::RootChangedAfterAcceptance`].
+#[cfg(windows)]
+pub fn activate_governed_project_ledger_root(
+    project_id: &str,
+) -> Result<
+    crate::operation_contract::host_composition::canonical_ledger::HostOwnedGatekeeperProjectRoot,
+    HostStateActivationRefusal,
+> {
+    use projectos_host_trusted_roots::{
+        ActivatedGovernedProjectRoot, CanonicalProjectRegistry, TrustedGovernedProjectRoot,
+    };
+    let trusted_state = TrustedHostStateRoot::resolve(&ApprovedKnownFolderAnchor)
+        .map_err(HostStateActivationRefusal::RootUnresolved)?;
+    let accepted = ProtectedInstallationBoundaryAcceptance::verify(&trusted_state)
+        .map_err(HostStateActivationRefusal::BoundaryNotAccepted)?;
+    let trusted_project = TrustedGovernedProjectRoot::resolve(&CanonicalProjectRegistry, project_id)
+        .map_err(HostStateActivationRefusal::RootUnresolved)?;
+    let activated = ActivatedGovernedProjectRoot::activate(trusted_project, &accepted);
+    crate::operation_contract::host_composition::canonical_ledger::HostOwnedGatekeeperProjectRoot::from_activated(&activated)
+        .map_err(HostStateActivationRefusal::RootChangedAfterAcceptance)
 }
 
 /// How the boundary is judged. In production this is exactly

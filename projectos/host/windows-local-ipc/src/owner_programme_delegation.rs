@@ -68,6 +68,11 @@ use crate::operation_contract::{
 /// have required widening the seal, which is the property the seal exists for.
 pub mod durable_store;
 
+// PROJECTOS-HOST-REVIEW-PATH1B, criterion 21 — the service-entry routes' proofs. Windows + fixture
+// graph: the real durable store is Windows-only and the positive legs need the fixture oracle.
+#[cfg(all(test, feature = "test-fixtures", windows))]
+mod service_entry_tests;
+
 /// The domain tag prefixed to every byte string an owner signs as a programme delegation.
 ///
 /// DOMAIN SEPARATION IS THE POINT. The owner's key also signs the packaged trust manifest, whose
@@ -924,6 +929,153 @@ pub fn verify_owner_programme_delegation(
     local: &HostDelegationStatus,
 ) -> Result<VerifiedOwnerProgrammeDelegation, DelegationRefusal> {
     verify_delegation_with_oracle(record, expected, now, local, &EmbeddedAnchorOracle)
+}
+
+/// THE SERVICE-ENTRY VERIFICATION ROUTE — PROJECTOS-HOST-REVIEW-PATH1B, criterion 21.
+///
+/// The ONLY other production verification runs inside `compose_protected_operation`, once per
+/// request, and never returns the verified value — correct for answering a request, and useless for
+/// the service-entry resolver, which must hold a [`VerifiedOwnerProgrammeDelegation`] to mint the
+/// governed-review IPC capability BEFORE any request exists. This entry composes the same three
+/// sealed inputs the composition composes, in the same SEC-L1 order, and runs the SAME one verifier:
+///
+/// * the expected programme comes ONLY from the sealed owner-signed
+///   [`projectos_host_identity::AttestedInstallationProgramme`] — no project or repository argument
+///   exists;
+/// * PROVENANCE PRECEDES THE REGISTRY READ, so an unsigned or irrelevant record still never
+///   touches the durable store (the membership-oracle property is preserved);
+/// * the clock reading is taken HERE, from the host;
+/// * the local status comes only from the sealed durable store.
+///
+/// NOTHING NEW IS DECIDABLE HERE: no new format, no second verifier, no caller-supplied verified
+/// value, and the mint stays exactly where O12 pins it — inside `verify_delegation_with_oracle`.
+///
+/// # Errors
+/// [`DelegationRefusal`] naming the gate that refused.
+pub fn verify_owner_programme_delegation_for_installation(
+    record: &SignedOwnerProgrammeDelegation,
+    attested: &projectos_host_identity::AttestedInstallationProgramme,
+    store: &dyn DurableDelegationStateStore,
+) -> Result<VerifiedOwnerProgrammeDelegation, DelegationRefusal> {
+    verify_for_installation_with_oracle(record, attested, store, &EmbeddedAnchorOracle)
+}
+
+/// The one service-entry order, shared by the production entry and its test twin — so the positive
+/// leg (provable only with the fixture oracle, because the embedded anchor is the owner's real key)
+/// exercises literally this code.
+fn verify_for_installation_with_oracle(
+    record: &SignedOwnerProgrammeDelegation,
+    attested: &projectos_host_identity::AttestedInstallationProgramme,
+    store: &dyn DurableDelegationStateStore,
+    oracle: &dyn OwnerSignatureOracle,
+) -> Result<VerifiedOwnerProgrammeDelegation, DelegationRefusal> {
+    let expected = ExpectedProgramme::from_attested_installation(attested);
+    // SEC-L1: provenance and relevance BEFORE the durable registry is consulted.
+    establish_provenance_and_relevance(record, &expected, oracle)?;
+    let local =
+        HostDelegationStatus::from_durable_store(store, &record.claimed_delegation().delegation_id)?;
+    let now = HostClockReading::now_from_host()?;
+    verify_delegation_with_oracle(record, &expected, &now, &local, oracle)
+}
+
+/// TEST-ONLY twin of the service-entry verification: same order, fixture oracle.
+#[cfg(all(test, feature = "test-fixtures"))]
+pub(crate) fn verify_for_installation_with_test_oracle(
+    record: &SignedOwnerProgrammeDelegation,
+    attested: &projectos_host_identity::AttestedInstallationProgramme,
+    store: &dyn DurableDelegationStateStore,
+    accepts_subject: Vec<u8>,
+) -> Result<VerifiedOwnerProgrammeDelegation, DelegationRefusal> {
+    let oracle = FixtureSignatureOracle {
+        accepts_subject,
+        seen: std::cell::RefCell::new(Vec::new()),
+    };
+    verify_for_installation_with_oracle(record, attested, store, &oracle)
+}
+
+/// Why a delegation could not be RECORDED ACTIVE. Closed, payload-light.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum DelegationActivationRefusal {
+    /// The owner did not sign these exact bytes, or they are for another installation, or the
+    /// record is not live by its own terms. The activation gates are the verification's own.
+    RecordRefused(DelegationRefusal),
+    /// The durable store refused the lifecycle write — a terminal record is final, capacity is
+    /// exhausted, or the store could not be read or written.
+    StoreRefused(durable_store::DelegationStoreRefusal),
+}
+
+/// RECORD ONE OWNER-SIGNED DELEGATION AS `Active` IN THE HOST'S DURABLE REGISTRY —
+/// PROJECTOS-HOST-REVIEW-PATH1B, criterion 21 (the "Active lifecycle writer").
+///
+/// "Bringing a delegation into the registry is a governed act" (`record_lifecycle`'s own contract),
+/// and this is that act's production route. Its ENTIRE authority derives from two owner signatures
+/// already in hand — the ECDSA-P256 signature over the delegation record itself, and the signed
+/// execution closure behind the sealed [`AttestedInstallationProgramme`] the record must address.
+/// Nothing else can reach the write:
+///
+/// * NOT service-host asking — this function demands the sealed attested programme and the sealed
+///   store, which only the activation chain yields;
+/// * NOT the Agent, an environment variable, a CLI flag, elevation or a handshake — none of those
+///   is an input, so none can be the reason;
+/// * NOT a stale or ended programme — the signed `revoked_or_completed` flag and the expiry refuse
+///   BEFORE any write, and the store itself refuses to resurrect a terminal record.
+///
+/// IDEMPOTENT for a record already `Active` (a service restart re-presents the same input), and
+/// deliberately CLASS-NEUTRAL: which operations the delegation authorises is judged where authority
+/// is minted, not where its lifecycle is recorded.
+///
+/// # Errors
+/// [`DelegationActivationRefusal`] naming the gate or store rule that refused.
+pub fn activate_owner_programme_delegation(
+    store: &mut durable_store::DurableDelegationStateFileStore,
+    record: &SignedOwnerProgrammeDelegation,
+    attested: &projectos_host_identity::AttestedInstallationProgramme,
+) -> Result<(), DelegationActivationRefusal> {
+    activate_delegation_with_oracle(store, record, attested, &EmbeddedAnchorOracle)
+}
+
+/// The one activation order, shared by the production entry and its test twin.
+fn activate_delegation_with_oracle(
+    store: &mut durable_store::DurableDelegationStateFileStore,
+    record: &SignedOwnerProgrammeDelegation,
+    attested: &projectos_host_identity::AttestedInstallationProgramme,
+    oracle: &dyn OwnerSignatureOracle,
+) -> Result<(), DelegationActivationRefusal> {
+    let expected = ExpectedProgramme::from_attested_installation(attested);
+    // 1-2. PROVENANCE, THEN RELEVANCE — the same gates, in the same order, as every verification.
+    establish_provenance_and_relevance(record, &expected, oracle)
+        .map_err(DelegationActivationRefusal::RecordRefused)?;
+    // 3. LIVE BY THE RECORD'S OWN TERMS. An ended or expired programme is never (re)activated; the
+    //    clock is the host's own reading, taken here.
+    let delegation = record.claimed_delegation();
+    let now =
+        HostClockReading::now_from_host().map_err(DelegationActivationRefusal::RecordRefused)?;
+    if delegation.revoked_or_completed || now.epoch_s() >= delegation.expires_at_epoch_s {
+        return Err(DelegationActivationRefusal::RecordRefused(
+            DelegationRefusal::NotLive,
+        ));
+    }
+    // 4. THE WRITE, under the store's own lifecycle rules: absent -> Active provisions, Active ->
+    //    Active writes nothing, terminal refuses. No rule is restated here — the store is the rule.
+    store
+        .record_lifecycle(&delegation.delegation_id, DelegationLocalState::Active)
+        .map_err(DelegationActivationRefusal::StoreRefused)
+}
+
+/// TEST-ONLY twin of the activation: same order, fixture oracle.
+#[cfg(all(test, feature = "test-fixtures"))]
+pub(crate) fn activate_delegation_with_test_oracle(
+    store: &mut durable_store::DurableDelegationStateFileStore,
+    record: &SignedOwnerProgrammeDelegation,
+    attested: &projectos_host_identity::AttestedInstallationProgramme,
+    accepts_subject: Vec<u8>,
+) -> Result<(), DelegationActivationRefusal> {
+    let oracle = FixtureSignatureOracle {
+        accepts_subject,
+        seen: std::cell::RefCell::new(Vec::new()),
+    };
+    activate_delegation_with_oracle(store, record, attested, &oracle)
 }
 
 /// TEST-ONLY signature oracle.

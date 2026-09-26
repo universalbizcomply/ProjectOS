@@ -426,3 +426,95 @@ fn evidence_contents_that_do_not_hash_to_their_object_id_refuse_the_review() {
     );
     cleanup(&dir);
 }
+
+// =================================================================================================
+// PROJECTOS-HOST-REVIEW-PATH1B, F2 — NEGATIVE PROOFS A and B: intermediate-only content cannot
+// disappear from the review subject, against a REAL repository.
+// =================================================================================================
+
+/// PROOF A: an intermediate commit introduces a file, a later commit removes it. The endpoint
+/// difference cannot contain it — and the evidence still EXPOSES it, bytes and all, because the
+/// ancestry section binds every commit a push would publish.
+#[test]
+fn proof_a_a_file_added_and_removed_along_the_way_is_still_in_the_evidence() {
+    let dir = temp("f2-proof-a");
+    git(&dir, &["init", "-q", "-b", "main"]);
+    git(&dir, &["config", "core.autocrlf", "false"]);
+    write(&dir, "keep.txt", b"base\n");
+    git(&dir, &["add", "-A"]);
+    git(&dir, &["commit", "-q", "-m", "baseline"]);
+    let baseline = git(&dir, &["rev-parse", "HEAD"]);
+
+    write(&dir, "exfil.txt", b"SECRET-BYTES-A-PUSH-WOULD-PUBLISH\n");
+    git(&dir, &["add", "-A"]);
+    git(&dir, &["commit", "-q", "-m", "introduce"]);
+    std::fs::remove_file(dir.join("exfil.txt")).unwrap();
+    write(&dir, "keep.txt", b"changed\n");
+    git(&dir, &["add", "-A"]);
+    git(&dir, &["commit", "-q", "-m", "remove again"]);
+    let candidate = git(&dir, &["rev-parse", "HEAD"]);
+
+    let r = reader(&dir, &candidate);
+    let evidence = PinnedCommitEvidence::over(&r).candidate_evidence(&baseline).unwrap();
+    let text = String::from_utf8_lossy(&evidence.canonical_bytes()).to_string();
+
+    // The ENDPOINT set does not name it — that is the gap F2 exists for...
+    assert!(!evidence.entries().iter().any(|e| e.path() == "exfil.txt"));
+    // ...and the ANCESTRY does, bytes verbatim, marked as vanished.
+    assert!(text.contains("ancestry-commits: 2"));
+    assert!(text.contains("~ added exfil.txt"));
+    assert!(text.contains("SECRET-BYTES-A-PUSH-WOULD-PUBLISH"));
+    assert!(text.contains("vanished-bytes: 34 (utf-8, verbatim)"));
+    cleanup(&dir);
+}
+
+/// PROOF B: an intermediate commit flips security-sensitive source and a later commit flips it
+/// back. The endpoints agree, so the path is absent from the endpoint set — and the evidence still
+/// shows the malicious version at its step.
+#[test]
+fn proof_b_a_security_flip_flop_cannot_disappear_from_the_review_subject() {
+    let dir = temp("f2-proof-b");
+    git(&dir, &["init", "-q", "-b", "main"]);
+    git(&dir, &["config", "core.autocrlf", "false"]);
+    write(&dir, "auth.rs", b"fn allow() -> bool { verified() }\n");
+    write(&dir, "work.txt", b"one\n");
+    git(&dir, &["add", "-A"]);
+    git(&dir, &["commit", "-q", "-m", "baseline"]);
+    let baseline = git(&dir, &["rev-parse", "HEAD"]);
+
+    write(&dir, "auth.rs", b"fn allow() -> bool { true } // backdoor\n");
+    git(&dir, &["add", "-A"]);
+    git(&dir, &["commit", "-q", "-m", "loosen"]);
+    write(&dir, "auth.rs", b"fn allow() -> bool { verified() }\n");
+    write(&dir, "work.txt", b"two\n");
+    git(&dir, &["add", "-A"]);
+    git(&dir, &["commit", "-q", "-m", "tighten back"]);
+    let candidate = git(&dir, &["rev-parse", "HEAD"]);
+
+    let r = reader(&dir, &candidate);
+    let evidence = PinnedCommitEvidence::over(&r).candidate_evidence(&baseline).unwrap();
+    let text = String::from_utf8_lossy(&evidence.canonical_bytes()).to_string();
+
+    assert!(!evidence.entries().iter().any(|e| e.path() == "auth.rs"), "the endpoints agree");
+    assert!(text.contains("~ modified auth.rs"), "the flip is in the ancestry");
+    assert!(text.contains("// backdoor"), "the malicious version's bytes are shown");
+    // And the SUBSTITUTED-OBJECT defence covers history too: corrupt the backdoor blob's loose
+    // object and the whole review refuses (AppSec F1 applied to a vanished read).
+    // The empty blob, written properly - only used to have a VALID loose file to copy over the
+    // victim's, exactly as the endpoint substitution proof does.
+    let backdoor_oid = git(&dir, &["hash-object", "-w", "--stdin"]);
+    let middle = git(&dir, &["rev-parse", "HEAD~1"]);
+    let victim = git(&dir, &["rev-parse", &format!("{middle}:auth.rs")]);
+    let loose = |oid: &str| dir.join(".git").join("objects").join(&oid[..2]).join(&oid[2..]);
+    let victim_path = loose(&victim);
+    let mut perms = std::fs::metadata(&victim_path).unwrap().permissions();
+    perms.set_readonly(false);
+    std::fs::set_permissions(&victim_path, perms).unwrap();
+    std::fs::copy(loose(&backdoor_oid), &victim_path).unwrap();
+    let r2 = reader(&dir, &candidate);
+    assert_eq!(
+        PinnedCommitEvidence::over(&r2).candidate_evidence(&baseline).unwrap_err(),
+        EvidenceUnavailable::RepositoryRefused
+    );
+    cleanup(&dir);
+}

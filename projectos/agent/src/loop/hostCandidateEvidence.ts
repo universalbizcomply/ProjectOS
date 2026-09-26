@@ -20,7 +20,14 @@
  */
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { candidateEvidenceDigest, type CandidateEvidenceEntry, type EvidenceChange } from '@projectos/core';
+import {
+  candidateEvidenceDigest,
+  MAX_ANCESTRY_STEPS,
+  type AncestryEvidenceEntry,
+  type AncestryEvidenceStep,
+  type CandidateEvidenceEntry,
+  type EvidenceChange,
+} from '@projectos/core';
 
 /** The agent's recomputed evidence digest, or why it could not be established. */
 export type CandidateEvidenceSource = (
@@ -109,9 +116,76 @@ export function candidateEvidenceSource(git: GitBytes): CandidateEvidenceSource 
       }
       entries.push({ ...e, contents });
     }
-    const computed = candidateEvidenceDigest({ baselineCommit, candidateCommit, entries });
+    // F2: THE EXACT ORDERED PUSH BOUNDARY, derived with the agent's OWN git exactly as the Host
+    // derives it - the strict linear enumeration, each step's own changes, and the BYTES of any step
+    // result that does not survive to the candidate. The digest equality below is then an agreement
+    // about the whole pushed history, not only about the endpoint trees.
+    const ancestry = deriveAncestry(git, baselineCommit, candidateCommit, entries);
+    if ('problems' in ancestry) return ancestry;
+
+    const computed = candidateEvidenceDigest({ baselineCommit, candidateCommit, entries, ancestry: ancestry.steps });
     return computed.digest === null ? { problems: computed.problems } : { digest: computed.digest };
   };
+}
+
+/** The strict linear enumeration and per-step evidence, mirroring the Host's reader rules. */
+function deriveAncestry(
+  git: GitBytes,
+  baselineCommit: string,
+  candidateCommit: string,
+  finalEntries: readonly CandidateEvidenceEntry[],
+): { readonly steps: AncestryEvidenceStep[] } | { readonly problems: readonly string[] } {
+  const raw = git(['rev-list', '--reverse', '--parents', '--end-of-options', `${baselineCommit}..${candidateCommit}`]);
+  if (raw === null) return { problems: ['the ordered ancestry between the baseline and the candidate could not be read'] };
+  const malformed = { problems: ['the ancestry between the baseline and the candidate is not one linear chain'] } as const;
+  const lines = raw.toString('latin1').split('\n').map((l) => l.trim()).filter((l) => l !== '');
+  if (lines.length > MAX_ANCESTRY_STEPS) return malformed;
+  const chain: { commit: string; parent: string }[] = [];
+  for (const line of lines) {
+    const fields = line.split(' ');
+    if (fields.length !== 2 || !COMMIT.test(fields[0]!) || !COMMIT.test(fields[1]!)) return malformed;
+    const expected = chain.length === 0 ? baselineCommit : chain[chain.length - 1]!.commit;
+    if (fields[1] !== expected) return malformed;
+    chain.push({ commit: fields[0]!, parent: fields[1]! });
+  }
+  if (chain.length === 0 ? baselineCommit !== candidateCommit : chain[chain.length - 1]!.commit !== candidateCommit) {
+    return malformed;
+  }
+
+  const finalIdByPath = new Map(finalEntries.map((e) => [e.path, e.newId]));
+  const steps: AncestryEvidenceStep[] = [];
+  for (const [index, link] of chain.entries()) {
+    const rawStep = git(['diff-tree', '-r', '--raw', '-z', '--no-abbrev', '--no-renames', '--no-ext-diff', '--end-of-options', link.parent, link.commit]);
+    if (rawStep === null) return { problems: [`the changes of ancestry commit ${link.commit} could not be read`] };
+    const parsed = parseRawTreeDifference(rawStep);
+    if ('problems' in parsed) return parsed;
+    const entries: AncestryEvidenceEntry[] = [];
+    for (const e of parsed.entries) {
+      // SURVIVES iff the endpoint difference records this very object for this very path; the last
+      // step IS the candidate. Anything else is bytes a push publishes that the tip no longer holds:
+      // read AT THE STEP, and verified against the step's own object id (AppSec F1, on history too).
+      const survives = index === chain.length - 1 || e.newMode === 0 || finalIdByPath.get(e.path) === e.newId;
+      let vanishedContents: Buffer | null = null;
+      if (!survives) {
+        const readable = e.newMode === 0o100644 || e.newMode === 0o100755 || e.newMode === 0o120000;
+        if (readable) {
+          const bytes = git(['cat-file', 'blob', '--end-of-options', `${link.commit}:${e.path}`]);
+          if (bytes === null) return { problems: [`the vanished contents of '${e.path}' at ${link.commit} could not be read`] };
+          if (gitBlobId(bytes) !== e.newId) {
+            return {
+              problems: [
+                `the vanished contents of '${e.path}' do not hash to their own object id - the object store is not telling the truth about this history`,
+              ],
+            };
+          }
+          vanishedContents = bytes;
+        }
+      }
+      entries.push({ ...e, vanishedContents });
+    }
+    steps.push({ commit: link.commit, parent: link.parent, entries });
+  }
+  return { steps };
 }
 
 /** The git object id of `bytes` as a blob: SHA-1 over `blob <len>\0` + bytes (this pairing is SHA-1-only). */

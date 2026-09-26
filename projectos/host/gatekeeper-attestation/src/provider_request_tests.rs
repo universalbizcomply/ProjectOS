@@ -4,7 +4,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use super::*;
-use crate::candidate_evidence::{CandidateEvidence, EvidenceChange, EvidenceEntryInput};
+use crate::candidate_evidence::{AncestryStepInput, CandidateEvidence, EvidenceChange, EvidenceEntryInput};
 use crate::envelope::parse_review_subject;
 use crate::operation::evidence_fixture::{
     fixture_policy, FIXTURE_CANDIDATE_COMMIT, FIXTURE_MARKER, FIXTURE_PHASE_ID, FIXTURE_PROJECT_ID,
@@ -58,6 +58,11 @@ fn evidence() -> CandidateEvidence {
             old_id: "0".repeat(40),
             new_id: "a".repeat(40),
             new_contents: Some(b"fn reviewed() -> &'static str {\n    \"quotes, \\\\ and\ttabs survive\"\n}\n".to_vec()),
+        }],
+        vec![AncestryStepInput {
+            commit: FIXTURE_CANDIDATE_COMMIT.to_string(),
+            parent: "b4".repeat(20),
+            entries: vec![],
         }],
     )
     .unwrap()
@@ -151,7 +156,7 @@ fn the_provider_receives_exactly_the_bytes_whose_digest_is_attested() {
     assert_eq!(&digest, request.framed().evidence_digest());
     assert_eq!(digest, evidence().digest());
     // Exactly once: there is no second, differing copy for a reviewer to read instead.
-    assert_eq!(text.matches("projectos-candidate-evidence: v1").count(), 1);
+    assert_eq!(text.matches("projectos-candidate-evidence: v2").count(), 1);
     assert!(text.contains(&format!("template: {HOST_REVIEW_REQUEST_TEMPLATE}")));
 }
 

@@ -45,8 +45,17 @@ fn mode_only(path: &str) -> EvidenceEntryInput {
     }
 }
 
+/// F2: the one-commit ancestry linking `b` to `d` — the minimum a two-endpoint evidence may bind.
+fn step(b: &str, d: &str) -> Vec<AncestryStepInput> {
+    vec![AncestryStepInput {
+        commit: d.to_string(),
+        parent: b.to_string(),
+        entries: vec![],
+    }]
+}
+
 fn assemble(inputs: Vec<EvidenceEntryInput>) -> Result<CandidateEvidence, EvidenceRefusal> {
-    CandidateEvidence::assemble(B, D, inputs)
+    CandidateEvidence::assemble(B, D, inputs, step(B, D))
 }
 
 fn text(framed: &FramedReviewInput) -> String {
@@ -83,11 +92,11 @@ fn every_field_moves_the_digest() {
     let variants: Vec<(&str, Result<CandidateEvidence, EvidenceRefusal>)> = vec![
         (
             "baseline",
-            CandidateEvidence::assemble(X, D, vec![added("a.txt", b"hello")]),
+            CandidateEvidence::assemble(X, D, vec![added("a.txt", b"hello")], step(X, D)),
         ),
         (
             "candidate",
-            CandidateEvidence::assemble(B, X, vec![added("a.txt", b"hello")]),
+            CandidateEvidence::assemble(B, X, vec![added("a.txt", b"hello")], step(B, X)),
         ),
         ("path", assemble(vec![added("a.txs", b"hello")])),
         ("contents", assemble(vec![added("a.txt", b"hellp")])),
@@ -142,13 +151,13 @@ fn the_canonical_evidence_bytes_are_pinned() {
     ])
     .unwrap();
     let canonical = evidence.canonical_bytes();
-    assert!(canonical.starts_with(b"projectos-candidate-evidence: v1\nbaseline-commit: "));
+    assert!(canonical.starts_with(b"projectos-candidate-evidence: v2\nbaseline-commit: "));
     // Computed INDEPENDENTLY from the written encoding (a separate implementation, not this one's
     // output), so the pin is an agreement between two readings of the specification.
-    assert_eq!(canonical.len(), 962);
+    assert_eq!(canonical.len(), 1111);
     assert_eq!(
         hex(&evidence.digest()),
-        "1ec96dc1d9fe03d95ab07e541152ecbf2855411d8e31520fcadd74a4ceff8a1d"
+        "9b928df73f9461668591886dbf910157e0281f58ed5fd05564f325f36119a0f7"
     );
 }
 
@@ -360,11 +369,11 @@ fn inconsistent_and_malformed_inputs_refuse() {
         PathDuplicated
     );
     assert_eq!(
-        CandidateEvidence::assemble("HEAD", D, vec![]).unwrap_err(),
+        CandidateEvidence::assemble("HEAD", D, vec![], step("HEAD", D)).unwrap_err(),
         CommitIdentityMalformed
     );
     assert_eq!(
-        CandidateEvidence::assemble(B, &"2".repeat(64), vec![]).unwrap_err(),
+        CandidateEvidence::assemble(B, &"2".repeat(64), vec![], step(B, &"2".repeat(64))).unwrap_err(),
         CommitIdentityMalformed
     );
 }
@@ -486,4 +495,133 @@ fn binary_contents_are_described_and_never_decoded_lossily() {
     let framed = FramedReviewInput::frame(&evidence, b"{}", &MARKER).unwrap();
     assert!(text(&framed).contains("contents-bytes: 4 (binary, not shown)"));
     assert!(text(&framed).contains("contents-sha256: "));
+}
+
+// =================================================================================================
+// PROJECTOS-HOST-REVIEW-PATH1B, F2 — the ordered ancestry is part of the evidence, and it must LINK.
+// =================================================================================================
+
+fn linked(chain: &[(&str, &str)]) -> Vec<AncestryStepInput> {
+    chain
+        .iter()
+        .map(|(parent, commit)| AncestryStepInput {
+            commit: (*commit).to_string(),
+            parent: (*parent).to_string(),
+            entries: vec![],
+        })
+        .collect()
+}
+
+#[test]
+fn the_ancestry_must_link_baseline_to_candidate_exactly() {
+    let mid = &"3".repeat(40);
+    // A real two-step chain assembles.
+    assert!(CandidateEvidence::assemble(B, D, vec![added("a.txt", b"x")], linked(&[(B, mid), (mid, D)])).is_ok());
+    for (why, ancestry) in [
+        ("empty for two different endpoints", vec![]),
+        ("a gap", linked(&[(B, mid)])),
+        ("wrong first parent", linked(&[(mid, D)])),
+        ("reordered", linked(&[(mid, D), (B, mid)])),
+        ("a stray tip beyond the candidate", linked(&[(B, D), (D, mid)])),
+    ] {
+        assert_eq!(
+            CandidateEvidence::assemble(B, D, vec![added("a.txt", b"x")], ancestry).unwrap_err(),
+            EvidenceRefusal::AncestryInconsistent,
+            "{why}"
+        );
+    }
+    // Identical endpoints: an empty chain is the ONLY honest one.
+    assert!(CandidateEvidence::assemble(B, B, vec![], vec![]).is_ok());
+    assert_eq!(
+        CandidateEvidence::assemble(B, B, vec![], linked(&[(B, B)])).unwrap_err(),
+        EvidenceRefusal::AncestryInconsistent
+    );
+    // The bound refuses; nothing is truncated.
+    let mut long = Vec::new();
+    let mut parent = B.to_string();
+    for i in 0..=MAX_ANCESTRY_STEPS {
+        let commit = format!("{:040x}", 0x1000 + i);
+        long.push(AncestryStepInput { commit: commit.clone(), parent, entries: vec![] });
+        parent = commit;
+    }
+    let last = long.last().unwrap().commit.clone();
+    assert_eq!(
+        CandidateEvidence::assemble(B, &last, vec![], long).unwrap_err(),
+        EvidenceRefusal::AncestryInconsistent
+    );
+}
+
+#[test]
+fn vanished_bytes_are_shown_and_move_the_digest() {
+    let mid = &"3".repeat(40);
+    let with_vanished = |bytes: &[u8]| {
+        CandidateEvidence::assemble(
+            B,
+            D,
+            vec![added("kept.txt", b"kept\n")],
+            vec![
+                AncestryStepInput {
+                    commit: mid.to_string(),
+                    parent: B.to_string(),
+                    entries: vec![AncestryEntryInput {
+                        change: EvidenceChange::Added,
+                        path: "secret.txt".to_string(),
+                        old_mode: 0,
+                        new_mode: 0o100_644,
+                        old_id: Z.to_string(),
+                        new_id: Y.to_string(),
+                        vanished_contents: Some(bytes.to_vec()),
+                    }],
+                },
+                AncestryStepInput {
+                    commit: D.to_string(),
+                    parent: mid.to_string(),
+                    entries: vec![AncestryEntryInput {
+                        change: EvidenceChange::Deleted,
+                        path: "secret.txt".to_string(),
+                        old_mode: 0o100_644,
+                        new_mode: 0,
+                        old_id: Y.to_string(),
+                        new_id: Z.to_string(),
+                        vanished_contents: None,
+                    }],
+                },
+            ],
+        )
+        .unwrap()
+    };
+    let evidence = with_vanished(b"the bytes a push publishes and the tip no longer holds\n");
+    let text = String::from_utf8(evidence.canonical_bytes()).unwrap();
+    assert!(text.contains("ancestry-commits: 2"));
+    assert!(text.contains(&format!("commit [1/2] {mid} parent {B}")));
+    assert!(text.contains("the bytes a push publishes and the tip no longer holds"));
+    assert!(text.contains("vanished-bytes: 55 (utf-8, verbatim)"));
+    // The vanished bytes are INSIDE the digest: one changed byte is a different evidence.
+    assert_ne!(
+        evidence.digest(),
+        with_vanished(b"the bytes a push publishes and the tip no longer holdz\n").digest()
+    );
+    // And a step carrying contents for an ABSENT side refuses.
+    assert_eq!(
+        CandidateEvidence::assemble(
+            B,
+            D,
+            vec![],
+            vec![AncestryStepInput {
+                commit: D.to_string(),
+                parent: B.to_string(),
+                entries: vec![AncestryEntryInput {
+                    change: EvidenceChange::Deleted,
+                    path: "gone.txt".to_string(),
+                    old_mode: 0o100_644,
+                    new_mode: 0,
+                    old_id: Y.to_string(),
+                    new_id: Z.to_string(),
+                    vanished_contents: Some(b"x".to_vec()),
+                }],
+            }],
+        )
+        .unwrap_err(),
+        EvidenceRefusal::AncestryContentsInconsistent
+    );
 }

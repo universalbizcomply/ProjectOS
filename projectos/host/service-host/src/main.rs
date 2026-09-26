@@ -47,6 +47,10 @@ pub mod status;
 // capability set. Windows-only, because every link in it is a Windows fact.
 #[cfg(windows)]
 pub mod trusted_startup;
+// PROJECTOS-HOST-REVIEW-PATH1B, criterion 21. The service-entry activation resolver: reads every
+// governed-review activation input from its fixed durable location, or reports the route dormant.
+#[cfg(windows)]
+pub mod activation_resolver;
 // PROJECTOS-HOST-REVIEW-PATH1B 10/11. The activation adapter: it holds the owner-signed activation
 // inputs and the production ports for the life of the serve loop, and re-binds the per-connection
 // session and peer into the Host answer on every exchange.

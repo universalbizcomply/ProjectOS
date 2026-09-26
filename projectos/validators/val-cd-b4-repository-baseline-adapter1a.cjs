@@ -167,6 +167,34 @@ function run() {
     if ((arm.match(/\.as_str\(\)\.to_string\(\)/g) || []).length !== 2 || /format!/.test(arm))
       errors.push(variant + " must put exactly its two validated commit identities on the command line, uninterpolated");
   }
+  // 5b'. THE F2 ADDITION, SPELLED EXACTLY (see the amendment note at GIT_VOCABULARY).
+  {
+    const arm = armOf("RevListLinear");
+    // The format! template string is itself a literal; the fixed argument words are what is pinned.
+    const literals = literalsOf(arm).filter((l) => !l.includes("{}")).join(" ");
+    if (literals !== "rev-list --reverse --parents --end-of-options")
+      errors.push("the ancestry enumeration is spelled '" + literals + "', not the ratified deterministic spelling");
+    const decl = (enumBody.match(/RevListLinear\s*\{([\s\S]*?)\n {4}\}/) || ["", ""])[1];
+    const typed = (decl.match(/^\s*(\w+):\s*([\w:<>]+),/gm) || []).map((f) => f.trim());
+    if (typed.join("|") !== "base: CommitId,|tip: CommitId,")
+      errors.push("RevListLinear must take exactly two CommitId operands and nothing else (found: " + typed.join(" ") + ")");
+    if (!/format!\("\{\}\.\.\{\}", base\.as_str\(\), tip\.as_str\(\)\)/.test(arm))
+      errors.push("RevListLinear must interpolate exactly its two validated identities into one two-dot range");
+    // The strict parse: single parent, linked chain, bound, exact tip. Each is load-bearing.
+    const ancestryFn = (adapter.match(/pub fn linear_ancestry\([\s\S]*?\n {4}\}/) || [""])[0];
+    if (ancestryFn === "") errors.push("the reader has no linear_ancestry");
+    else {
+      for (const [needle, why] of [
+        ["if fields.next().is_some()", "a merge no longer refuses"],
+        ["if parent != *expected_parent", "a gapped or substituted chain no longer refuses"],
+        ["MAX_ANCESTRY_COMMITS", "the ancestry bound is gone"],
+        ["Some(last) if *last == self.commit => Ok(chain)", "a chain that does not end at the pinned candidate no longer refuses"],
+        ["BaselineNotAncestor", "the ancestry pre-checks are gone"],
+      ])
+        if (!ancestryFn.includes(needle)) errors.push("linear_ancestry: " + why);
+    }
+  }
+
   // Exactly one content read, and no second way to take a difference or walk history.
   for (const [verb, max] of [["cat-file", 1], ["diff-tree", 1], ["merge-base", 1]])
     if ((command.match(new RegExp('"' + verb + '"', "g")) || []).length !== max)
@@ -230,9 +258,18 @@ function run() {
 }
 
 /** The ratified closed vocabulary: the ten accepted verbs plus the two PATH1B additions. */
+// PROJECTOS-HOST-REVIEW-PATH1B, F2 CORRECTION — DECLARED AMENDMENT of the ratified vocabulary.
+//   OLD: exactly the twelve verbs through IsAncestor (the v1.6 reader amendment).
+//   NEW: exactly ONE more — RevListLinear, the read-only ORDERED ancestry enumeration between two
+//        exact commits (`rev-list --reverse --parents --end-of-options <base>..<tip>`), because a
+//        push publishes every commit in that range and the review evidence must bind it. Its two
+//        operands are validated commit identities in one two-dot range argument; no reference, path
+//        or caller option is representable, and its parse refuses merges, gaps, substituted
+//        orderings and anything over the ancestry bound. Nothing else changed.
 const GIT_VOCABULARY = Object.freeze([
   "IsInsideWorkTree", "ShowToplevel", "GitCommonDir", "RevParseHead", "SymbolicRefHead", "StatusPorcelain",
   "RevListCount", "SubmoduleStatus", "WorktreeList", "CatFileBlob", "DiffTreeEndpoints", "IsAncestor",
+  "RevListLinear",
 ]);
 const ENV_PASSTHROUGH = Object.freeze(["SystemRoot", "SystemDrive", "windir", "TEMP", "TMP", "PATH"]);
 const FIXED_ENV = Object.freeze([

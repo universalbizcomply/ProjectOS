@@ -538,3 +538,74 @@ describe('the authority stays bounded in source', () => {
     expect(code).toMatch(/'update-ref', '-m', [^\]]*, branchRef, commit, parent\]/);
   });
 });
+
+// =================================================================================================
+// PROJECTOS-HOST-REVIEW-PATH1B, F2 — PROOFS E and G: the pushed boundary is the reviewed boundary.
+// =================================================================================================
+
+describe('F2: the final push boundary is exactly the reviewed ancestry', () => {
+  const delegation = (): TechnicalDelegationState => ({ problems: [], carriesTechnicalScope: true, delegatedTo: 'ChatGPT' });
+  const ask = (w: World, subjectCommit: string, digest: string, entries: readonly unknown[]) =>
+    authoriseTechnicalContinuation({
+      action: 'push',
+      context: {
+        projectId: 'projectos',
+        phaseId: PHASE,
+        programmeId: 'projectos-autonomous-self-hosting',
+        root: w.root,
+        currentBranch: 'work',
+        expectedBranch: 'work',
+        currentHead: git(w.root, 'rev-parse', 'HEAD').trim(),
+        currentCandidate: (() => {
+          const c = computeCandidateIdentity(nodeSystem, w.root);
+          if (!c.ok) throw new Error(c.problems.join('; '));
+          return c.identity;
+        })(),
+      },
+      decision: {
+        problems: [],
+        decisionId: 'GKDEC-f2',
+        projectId: 'projectos',
+        phaseId: PHASE,
+        subjectCommit,
+        allowedActions: ['push'],
+        reviewedCandidateDigest: digest,
+        reviewedEntries: entries,
+      } as CheckedTechnicalDecision,
+      delegation: delegation(),
+      ownerOnlyActions: [],
+    });
+
+  it('PROOF E: an extra unreviewed commit between reviewed D and pushed D refuses', () => {
+    const w = world();
+    doWork(w);
+    const reviewed = committedOk(w); // D, the commit the review is about
+    const c = computeCandidateIdentity(nodeSystem, w.root);
+    if (!c.ok) throw new Error(c.problems.join('; '));
+
+    // Something lands ON TOP of D after the review answered - HEAD is no longer the subject.
+    writeFileSync(join(w.root, 'sneaky.txt'), 'unreviewed\n');
+    const extra = commitLocalCandidate(nodeSystem, w.root, PHASE);
+    expect(extra.kind).toBe('COMMITTED');
+
+    const verdict = ask(w, reviewed.commit, c.identity.digest, c.identity.entries);
+    expect(verdict.authorised).toBe(false);
+    expect(verdict.authorised === false && verdict.reasons.join(' ')).toContain('the decision was taken against');
+  });
+
+  it('PROOF G: with HEAD the reviewed candidate and the remote at the reviewed baseline, the push publishes exactly baseline..candidate', () => {
+    const w = world();
+    doWork(w);
+    const reviewed = committedOk(w);
+    const c = computeCandidateIdentity(nodeSystem, w.root);
+    if (!c.ok) throw new Error(c.problems.join('; '));
+
+    const verdict = ask(w, reviewed.commit, c.identity.digest, c.identity.entries);
+    expect(verdict.authorised).toBe(true);
+    // The boundary facts the evidence bound: remote tip IS the baseline, HEAD IS the candidate, so
+    // the publish set is exactly the reviewed exclusive range.
+    expect(git(w.root, 'rev-parse', 'origin/work').trim()).toBe(w.head);
+    const range = git(w.root, 'rev-list', `${w.head}..${reviewed.commit}`).trim().split(/\r?\n/);
+    expect(range).toEqual([reviewed.commit]);
+  });
+});

@@ -72,6 +72,22 @@ describe("the agent's own evidence of a candidate, from a real repository", () =
     const independent = candidateEvidenceDigest({
       baselineCommit: baseline,
       candidateCommit: candidate,
+      // F2: the repository's real one-commit ancestry; the step's changes are the endpoint set and
+      // all survive (the step IS the candidate).
+      ancestry: [
+        {
+          commit: candidate,
+          parent: baseline,
+          entries: [
+            { change: 'added', path: 'blob.bin', oldMode: 0, newMode: 0o100644, oldId: Z, newId: oid(`${candidate}:blob.bin`), vanishedContents: null },
+            { change: 'deleted', path: 'gone.txt', oldMode: 0o100644, newMode: 0, oldId: oid(`${baseline}:gone.txt`), newId: Z, vanishedContents: null },
+            { change: 'added', path: 'link', oldMode: 0, newMode: 0o120000, oldId: Z, newId: oid(`${candidate}:link`), vanishedContents: null },
+            { change: 'modified', path: 'mod.txt', oldMode: 0o100644, newMode: 0o100644, oldId: oid(`${baseline}:mod.txt`), newId: oid(`${candidate}:mod.txt`), vanishedContents: null },
+            { change: 'modified', path: 'run.sh', oldMode: 0o100644, newMode: 0o100755, oldId: oid(`${baseline}:run.sh`), newId: oid(`${candidate}:run.sh`), vanishedContents: null },
+            { change: 'added', path: 'src/added.ts', oldMode: 0, newMode: 0o100644, oldId: Z, newId: oid(`${candidate}:src/added.ts`), vanishedContents: null },
+          ],
+        },
+      ],
       entries: [
         { change: 'added', path: 'blob.bin', oldMode: 0, newMode: 0o100644, oldId: Z, newId: oid(`${candidate}:blob.bin`), contents: Buffer.from([0, 159, 146, 150, 255]) },
         { change: 'deleted', path: 'gone.txt', oldMode: 0o100644, newMode: 0, oldId: oid(`${baseline}:gone.txt`), newId: Z, contents: null },
@@ -102,7 +118,9 @@ describe("the agent's own evidence of a candidate, from a real repository", () =
     git(root, 'commit', '-q', '-m', 'with a submodule pointer');
     const withGitlink = git(root, 'rev-parse', 'HEAD');
     const refused = source(baseline, withGitlink);
-    expect(refused).toMatchObject({ problems: [expect.stringContaining('unsupported entry kind')] });
+    // Since F2 the SAME pointer is also refused by its ancestry step, so two problems arrive; the
+    // property is that the unsupported kind refuses, not how many gates say so.
+    expect('problems' in refused && refused.problems.join(' ')).toContain('unsupported entry kind');
 
     // ONE BYTE OVER THE BOUND refuses; nothing is shortened to fit.
     git(root, 'rm', '-q', '--cached', 'vendor/sub');

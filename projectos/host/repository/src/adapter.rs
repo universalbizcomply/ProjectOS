@@ -195,6 +195,11 @@ impl std::fmt::Debug for CommittedFileReader {
     }
 }
 
+/// The most ancestry commits one review will bind. A governed additive chain is short; a range
+/// longer than this is not a candidate history this contract describes, and evidence is never
+/// truncated to fit.
+pub const MAX_ANCESTRY_COMMITS: usize = 128;
+
 impl CommittedFileReader {
     /// Open a reader over a verified configuration, pinning ONE commit.
     ///
@@ -265,6 +270,61 @@ impl CommittedFileReader {
         Ok(out.stdout)
     }
 
+    /// The COMPLETE changed-path set between two EXACT commits of this repository — the same
+    /// difference [`CommittedFileReader::changes_since`] takes, generalised to a consecutive
+    /// ancestry pair so per-commit evidence can be derived (PROJECTOS-HOST-REVIEW-PATH1B, F2).
+    ///
+    /// The pair is trusted only as far as the caller's chain is: [`CommittedFileReader::linear_ancestry`]
+    /// is what proves the pair is consecutive, and it runs the ancestry pre-checks first.
+    ///
+    /// # Errors
+    /// The root refusals; [`RepoAdapterError::UnexpectedExit`]; every refusal of
+    /// [`tree_diff::parse_raw_z`].
+    pub fn changes_between(
+        &self,
+        base: &CommitId,
+        descendant: &CommitId,
+    ) -> Result<Vec<TreeChange>, RepoAdapterError> {
+        let root = prove_top_level(&self.runner, &self.configured_root)?;
+        let out = self.runner.run(
+            &root,
+            &GitCommand::DiffTreeEndpoints {
+                base: base.clone(),
+                candidate: descendant.clone(),
+            },
+        )?;
+        if out.code != Some(0) {
+            return Err(RepoAdapterError::UnexpectedExit);
+        }
+        tree_diff::parse_raw_z(&out.stdout)
+    }
+
+    /// The committed bytes at one path OF ONE EXACT ANCESTRY COMMIT — the same read as
+    /// [`CommittedFileReader::committed_bytes`], at a commit the verified chain named instead of the
+    /// pinned tip (PROJECTOS-HOST-REVIEW-PATH1B, F2: exposing bytes that exist in an intermediate
+    /// commit and are gone by the tip).
+    ///
+    /// # Errors
+    /// Exactly [`CommittedFileReader::committed_bytes`]'s.
+    pub fn committed_bytes_at(
+        &self,
+        commit: &CommitId,
+        path: &CommittedPath,
+    ) -> Result<Vec<u8>, RepoAdapterError> {
+        let root = prove_top_level(&self.runner, &self.configured_root)?;
+        let out = self.runner.run(
+            &root,
+            &GitCommand::CatFileBlob {
+                commit: commit.clone(),
+                path: path.clone(),
+            },
+        )?;
+        if out.code != Some(0) {
+            return Err(RepoAdapterError::CommittedObjectUnavailable);
+        }
+        Ok(out.stdout)
+    }
+
     /// The COMPLETE changed-path set between `baseline` and the pinned candidate commit.
     ///
     /// PROJECTOS-HOST-REVIEW-PATH1B. The candidate is never a parameter: it is the commit this
@@ -306,6 +366,79 @@ impl CommittedFileReader {
             return Err(RepoAdapterError::UnexpectedExit);
         }
         tree_diff::parse_raw_z(&out.stdout)
+    }
+
+    /// The EXACT ORDERED LINEAR ancestry from `baseline` (exclusive) to the pinned candidate —
+    /// PROJECTOS-HOST-REVIEW-PATH1B, the F2 correction.
+    ///
+    /// A push publishes every commit in this range, so the review evidence has to bind exactly this
+    /// ordered set: which commits, in which order, each linked to its parent. The same three
+    /// pre-checks as [`CommittedFileReader::changes_since`] run first, then `rev-list --reverse
+    /// --parents` is parsed STRICTLY:
+    ///
+    /// * every line must be full-length identities — the commit, then its parents;
+    /// * a MERGE (more than one parent) refuses: the governed candidate history is additive and
+    ///   linear by construction, and evidence for a shape it cannot have is evidence for nothing;
+    /// * the CHAIN must LINK — the first commit's parent is the baseline, each next commit's parent
+    ///   is the previous commit, and the last commit IS the pinned candidate — so a substituted,
+    ///   reordered, gapped or truncated listing refuses rather than becoming the reviewed history;
+    /// * more than [`MAX_ANCESTRY_COMMITS`] commits refuses; authoritative evidence is never
+    ///   truncated.
+    ///
+    /// An EMPTY range (the baseline IS the candidate) yields an empty chain, which is a fact.
+    ///
+    /// # Errors
+    /// The pre-check refusals of [`CommittedFileReader::changes_since`];
+    /// [`RepoAdapterError::UnexpectedExit`] if the enumeration fails;
+    /// [`RepoAdapterError::MalformedOutput`] for anything not strictly understood.
+    pub fn linear_ancestry(&self, baseline: &CommitId) -> Result<Vec<CommitId>, RepoAdapterError> {
+        let root = prove_top_level(&self.runner, &self.configured_root)?;
+        if !self.is_ancestor(&root, baseline, baseline)? {
+            return Err(RepoAdapterError::BaselineUnavailable);
+        }
+        if !self.is_ancestor(&root, &self.commit, &self.commit)? {
+            return Err(RepoAdapterError::CandidateUnavailable);
+        }
+        if !self.is_ancestor(&root, baseline, &self.commit)? {
+            return Err(RepoAdapterError::BaselineNotAncestor);
+        }
+        let out = self.runner.run(
+            &root,
+            &GitCommand::RevListLinear {
+                base: baseline.clone(),
+                tip: self.commit.clone(),
+            },
+        )?;
+        if out.code != Some(0) {
+            return Err(RepoAdapterError::UnexpectedExit);
+        }
+        let text = std::str::from_utf8(&out.stdout).map_err(|_| RepoAdapterError::MalformedOutput)?;
+        let mut chain: Vec<CommitId> = Vec::new();
+        for line in text.lines() {
+            let mut fields = line.split(' ');
+            let commit = CommitId::parse(fields.next().unwrap_or(""))
+                .map_err(|_| RepoAdapterError::MalformedOutput)?;
+            let parent = fields.next().ok_or(RepoAdapterError::MalformedOutput)?;
+            if fields.next().is_some() {
+                // A merge. The additive candidate chain is linear; anything else is unreviewable.
+                return Err(RepoAdapterError::MalformedOutput);
+            }
+            let parent =
+                CommitId::parse(parent).map_err(|_| RepoAdapterError::MalformedOutput)?;
+            let expected_parent = chain.last().unwrap_or(baseline);
+            if parent != *expected_parent {
+                return Err(RepoAdapterError::MalformedOutput);
+            }
+            if chain.len() >= MAX_ANCESTRY_COMMITS {
+                return Err(RepoAdapterError::OutputOverflow);
+            }
+            chain.push(commit);
+        }
+        match chain.last() {
+            None if baseline == &self.commit => Ok(chain),
+            Some(last) if *last == self.commit => Ok(chain),
+            _ => Err(RepoAdapterError::MalformedOutput),
+        }
     }
 
     /// One ancestry question. Exit 0 is yes and exit 1 is no; ANY other exit — an absent operand, an

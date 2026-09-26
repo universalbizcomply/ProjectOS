@@ -38,4 +38,5 @@ mod convert;
 pub mod error;
 
 pub use adapter::PlanDurableStore;
+pub use convert::to_core_dto;
 pub use error::PlanStoreError;

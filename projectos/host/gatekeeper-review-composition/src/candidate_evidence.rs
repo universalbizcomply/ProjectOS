@@ -20,7 +20,8 @@
 //! * SHORTEN ANYTHING. An object over the reader's bound, or evidence over the contract's, refuses.
 
 use projectos_host_gatekeeper_attestation::candidate_evidence::{
-    CandidateEvidence, EvidenceChange, EvidenceEntryInput, EvidenceRefusal, BOUNDARY_MARKER_LEN,
+    AncestryEntryInput, AncestryStepInput, CandidateEvidence, EvidenceChange, EvidenceEntryInput,
+    EvidenceRefusal, BOUNDARY_MARKER_LEN,
 };
 use projectos_host_gatekeeper_attestation::operation::{CandidateEvidencePort, EvidenceUnavailable};
 use projectos_host_repository::{
@@ -119,6 +120,75 @@ fn unavailable(error: &RepoAdapterError) -> EvidenceUnavailable {
     }
 }
 
+impl PinnedCommitEvidence<'_> {
+    /// ONE ANCESTRY STEP's evidence (F2): the step's own changed paths, and — for a result that does
+    /// not survive to the candidate — the step's committed bytes, verified against their object id
+    /// exactly as endpoint contents are.
+    fn ancestry_step(
+        &self,
+        parent: &CommitId,
+        commit: &CommitId,
+        final_new_id_by_path: &std::collections::BTreeMap<&str, &str>,
+        is_last: bool,
+    ) -> Result<AncestryStepInput, EvidenceUnavailable> {
+        let changes = self
+            .reader
+            .changes_between(parent, commit)
+            .map_err(|e| unavailable(&e))?;
+        let mut entries = Vec::with_capacity(changes.len());
+        for change in &changes {
+            for kind in [change.old_mode().kind(), change.new_mode().kind()] {
+                if matches!(kind, EntryKind::Gitlink | EntryKind::Unsupported) {
+                    return Err(EvidenceUnavailable::Refused(
+                        EvidenceRefusal::UnsupportedEntryKind,
+                    ));
+                }
+            }
+            // SURVIVES iff the candidate's endpoint difference records this very object for this
+            // very path. The last step IS the candidate, so its results survive by identity. A step
+            // result the endpoints never mention (touched then reverted to the baseline), or one the
+            // endpoint records with another id (overwritten later), is exactly what a push publishes
+            // that the reviewer would otherwise never see - its bytes are read AT THE STEP and
+            // verified against the step's own object id (AppSec F1, applied to history too).
+            let step_new_id = change.new_id().as_str();
+            let survives = is_last
+                || change.new_mode().kind() == EntryKind::Absent
+                || final_new_id_by_path.get(change.path().as_str()) == Some(&step_new_id);
+            let vanished_contents = if survives {
+                None
+            } else {
+                let bytes = self
+                    .reader
+                    .committed_bytes_at(commit, change.path())
+                    .map_err(|e| unavailable(&e))?;
+                if git_blob_id_hex(&bytes) != step_new_id {
+                    return Err(EvidenceUnavailable::RepositoryRefused);
+                }
+                Some(bytes)
+            };
+            entries.push(AncestryEntryInput {
+                change: match change.kind() {
+                    ChangeKind::Added => EvidenceChange::Added,
+                    ChangeKind::Deleted => EvidenceChange::Deleted,
+                    ChangeKind::Modified => EvidenceChange::Modified,
+                    ChangeKind::TypeChanged => EvidenceChange::TypeChanged,
+                },
+                path: change.path().as_str().to_string(),
+                old_mode: change.old_mode().octal(),
+                new_mode: change.new_mode().octal(),
+                old_id: change.old_id().as_str().to_string(),
+                new_id: step_new_id.to_string(),
+                vanished_contents,
+            });
+        }
+        Ok(AncestryStepInput {
+            commit: commit.as_str().to_string(),
+            parent: parent.as_str().to_string(),
+            entries,
+        })
+    }
+}
+
 impl CandidateEvidencePort for PinnedCommitEvidence<'_> {
     fn candidate_evidence(&self, baseline: &str) -> Result<CandidateEvidence, EvidenceUnavailable> {
         let baseline_id =
@@ -131,8 +201,37 @@ impl CandidateEvidencePort for PinnedCommitEvidence<'_> {
         for change in &changes {
             inputs.push(self.entry(change)?);
         }
-        CandidateEvidence::assemble(baseline, self.reader.pinned_commit().as_str(), inputs)
-            .map_err(EvidenceUnavailable::Refused)
+
+        // THE EXACT ORDERED PUSH BOUNDARY (F2): every commit between the baseline and the pinned
+        // candidate, each with its own changes, with vanished bytes shown. The chain itself comes
+        // from the one reader's strict enumeration - a merge, a gap or a substitution refused there.
+        let final_new_id_by_path: std::collections::BTreeMap<&str, &str> = changes
+            .iter()
+            .map(|c| (c.path().as_str(), c.new_id().as_str()))
+            .collect();
+        let chain = self
+            .reader
+            .linear_ancestry(&baseline_id)
+            .map_err(|e| unavailable(&e))?;
+        let mut ancestry = Vec::with_capacity(chain.len());
+        let mut parent = baseline_id.clone();
+        for (index, commit) in chain.iter().enumerate() {
+            ancestry.push(self.ancestry_step(
+                &parent,
+                commit,
+                &final_new_id_by_path,
+                index + 1 == chain.len(),
+            )?);
+            parent = commit.clone();
+        }
+
+        CandidateEvidence::assemble(
+            baseline,
+            self.reader.pinned_commit().as_str(),
+            inputs,
+            ancestry,
+        )
+        .map_err(EvidenceUnavailable::Refused)
     }
 
     /// 32 bytes from the system-preferred CSPRNG, drawn when asked - which the operation does only

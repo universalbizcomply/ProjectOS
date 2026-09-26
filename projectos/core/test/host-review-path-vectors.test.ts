@@ -110,6 +110,28 @@ interface VectorEvidenceEntry {
 }
 const VECTOR_EVIDENCE = (V.inputs as unknown as { evidence: VectorEvidenceEntry[] }).evidence;
 
+/** `inputs.ancestry` (F2): the ordered chain both languages bind. */
+interface VectorAncestryStep {
+  commit: string;
+  parent: string;
+  entries?: (VectorEvidenceEntry & { vanishedContentsUtf8?: string })[];
+}
+const VECTOR_ANCESTRY = (V.inputs as unknown as { ancestry: VectorAncestryStep[] }).ancestry;
+const vectorAncestry = () =>
+  VECTOR_ANCESTRY.map((s) => ({
+    commit: s.commit,
+    parent: s.parent,
+    entries: (s.entries ?? []).map((e) => ({
+      change: e.change,
+      path: e.path,
+      oldMode: parseInt(e.oldMode, 8),
+      newMode: parseInt(e.newMode, 8),
+      oldId: e.oldId,
+      newId: e.newId,
+      vanishedContents: e.vanishedContentsUtf8 === undefined ? null : Buffer.from(e.vanishedContentsUtf8, 'utf8'),
+    })),
+  }));
+
 /** THE AGENT'S OWN RECOMPUTATION, by this implementation, from the vector's two commits and entries. */
 function agentEvidence(): { baselineCommit: string; evidenceDigest: string } {
   const computed = candidateEvidenceDigest({
@@ -124,6 +146,7 @@ function agentEvidence(): { baselineCommit: string; evidenceDigest: string } {
       newId: e.newId,
       contents: e.contentsUtf8 === undefined ? null : Buffer.from(e.contentsUtf8, 'utf8'),
     })),
+    ancestry: vectorAncestry(),
   });
   if (computed.digest === null) throw new Error(`the vector evidence is not evidence: ${computed.problems.join('; ')}`);
   return { baselineCommit: I['baselineCommit']!, evidenceDigest: computed.digest };
@@ -166,13 +189,20 @@ describe('the candidate evidence both languages recompute (PROJECTOS-HOST-REVIEW
         { change: 'deleted', path: 'old.txt', oldMode: 0o100644, newMode: 0, oldId: X, newId: Z, contents: null },
         { change: 'modified', path: 'run.sh', oldMode: 0o100644, newMode: 0o100755, oldId: X, newId: X, contents: Buffer.from('#!/bin/sh\n') },
       ],
+      // F2: the one-commit ancestry linking the two pinned endpoints.
+      ancestry: [{ commit: '2'.repeat(40), parent: '1'.repeat(40), entries: [] }],
     });
     expect(pinned.problems).toEqual([]);
-    expect(pinned.digest).toBe('1ec96dc1d9fe03d95ab07e541152ecbf2855411d8e31520fcadd74a4ceff8a1d');
+    // Pinned independently: the Rust unit pin and a Python replication both give this digest.
+    expect(pinned.digest).toBe('9b928df73f9461668591886dbf910157e0281f58ed5fd05564f325f36119a0f7');
   });
 
   it('refuses what the Host refuses, rather than hashing it', () => {
-    const base = { baselineCommit: '1'.repeat(40), candidateCommit: '2'.repeat(40) };
+    const base = {
+      baselineCommit: '1'.repeat(40),
+      candidateCommit: '2'.repeat(40),
+      ancestry: [{ commit: '2'.repeat(40), parent: '1'.repeat(40), entries: [] }],
+    };
     const Z = '0'.repeat(40);
     const X = 'a'.repeat(40);
     const added = { change: 'added' as const, path: 'a', oldMode: 0, newMode: 0o100644, oldId: Z, newId: X, contents: Buffer.from('x') };
@@ -185,6 +215,8 @@ describe('the candidate evidence both languages recompute (PROJECTOS-HOST-REVIEW
       ['a present side without contents', { ...base, entries: [{ ...added, contents: null }] }],
       ['a duplicate path', { ...base, entries: [added, added] }],
       ['a reference instead of a commit', { ...base, baselineCommit: 'HEAD', entries: [] }],
+      ['an ancestry that does not link', { ...base, entries: [added], ancestry: [] }],
+      ['an ancestry with a stray tip', { ...base, entries: [added], ancestry: [...base.ancestry, { commit: 'b'.repeat(40), parent: '2'.repeat(40), entries: [] }] }],
       ['one byte over the per-file bound', { ...base, entries: [{ ...added, contents: Buffer.alloc(1_048_577) }] }],
     ];
     for (const [name, input] of refused) {

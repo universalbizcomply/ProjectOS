@@ -34,7 +34,15 @@ use sha2::{Digest, Sha256};
 use crate::operation::DIGEST_LEN;
 
 /// Schema version written into the canonical encoding.
-pub const CANDIDATE_EVIDENCE_SCHEMA: u32 = 1;
+///
+/// VERSION 2 — PROJECTOS-HOST-REVIEW-PATH1B, the F2 correction: the evidence additionally binds the
+/// EXACT ORDERED ancestry from the baseline to the candidate, because a push publishes every commit
+/// in that range and endpoint trees alone let bytes exist in commit N and vanish by the candidate.
+pub const CANDIDATE_EVIDENCE_SCHEMA: u32 = 2;
+
+/// Maximum ancestry commits one review will bind. Matches the repository reader's own enumeration
+/// bound; evidence is never truncated to fit.
+pub const MAX_ANCESTRY_STEPS: usize = 128;
 
 /// Maximum changed paths in one review.
 pub const MAX_EVIDENCE_ENTRIES: usize = 2_000;
@@ -79,6 +87,12 @@ pub enum EvidenceRefusal {
     /// The boundary marker occurs inside a block. With a random marker this is a fault in the marker
     /// source, and it is refused rather than reasoned about.
     MarkerCollision,
+    /// The ordered ancestry does not link baseline -> ... -> candidate, is empty for two different
+    /// endpoints, is non-empty for identical endpoints, or exceeds [`MAX_ANCESTRY_STEPS`].
+    AncestryInconsistent,
+    /// A step carries vanished contents for a side that is absent, or its contents exceed the entry
+    /// bound.
+    AncestryContentsInconsistent,
 }
 
 /// How a path changed. The discriminants are the canonical encoding.
@@ -203,6 +217,65 @@ fn is_null_id(text: &str) -> bool {
     text.bytes().all(|b| b == b'0')
 }
 
+/// One changed path OF ONE ANCESTRY STEP, before validation.
+///
+/// `vanished_contents` is `Some` EXACTLY when this step's resulting bytes do NOT survive to the
+/// candidate — reverted or overwritten later — which is precisely what an endpoint-tree difference
+/// cannot show and a push still publishes. Surviving bytes are already in the endpoint entries and
+/// are not repeated.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AncestryEntryInput {
+    /// How the path changed IN THIS STEP.
+    pub change: EvidenceChange,
+    /// The repository-relative path.
+    pub path: String,
+    /// The parent side's octal mode (`0` when absent).
+    pub old_mode: u32,
+    /// This step's octal mode (`0` when absent).
+    pub new_mode: u32,
+    /// The parent side's full-length object identity (all zero when absent).
+    pub old_id: String,
+    /// This step's full-length object identity (all zero when absent).
+    pub new_id: String,
+    /// This step's committed bytes, ONLY when they do not survive to the candidate.
+    pub vanished_contents: Option<Vec<u8>>,
+}
+
+/// One ancestry commit, before validation: the commit, the parent that links it, and its own
+/// changed paths.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AncestryStepInput {
+    /// The commit's full-length identity.
+    pub commit: String,
+    /// Its single parent (the baseline for the first step). A merge is unrepresentable upstream and
+    /// refused here.
+    pub parent: String,
+    /// The step's own changed paths.
+    pub entries: Vec<AncestryEntryInput>,
+}
+
+/// One validated ancestry entry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AncestryEntry {
+    change: EvidenceChange,
+    path: String,
+    old_mode: u32,
+    new_mode: u32,
+    new_kind: EvidenceEntryKind,
+    old_id: String,
+    new_id: String,
+    vanished_contents: Option<Vec<u8>>,
+    vanished_sha256: Option<[u8; DIGEST_LEN]>,
+}
+
+/// One validated ancestry step.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AncestryStep {
+    commit: String,
+    parent: String,
+    entries: Vec<AncestryEntry>,
+}
+
 /// The Host's evidence of what changed between the approved baseline and the pinned candidate.
 ///
 /// SEALED BY CONSTRUCTION: every field is private and [`CandidateEvidence::assemble`] is the only
@@ -212,6 +285,7 @@ pub struct CandidateEvidence {
     baseline: String,
     candidate: String,
     entries: Vec<EvidenceEntry>,
+    ancestry: Vec<AncestryStep>,
 }
 
 impl CandidateEvidence {
@@ -224,6 +298,7 @@ impl CandidateEvidence {
         baseline: &str,
         candidate: &str,
         inputs: Vec<EvidenceEntryInput>,
+        ancestry: Vec<AncestryStepInput>,
     ) -> Result<Self, EvidenceRefusal> {
         if !is_object_id(baseline) || !is_object_id(candidate) || baseline.len() != candidate.len()
         {
@@ -253,10 +328,106 @@ impl CandidateEvidence {
             return Err(EvidenceRefusal::PathDuplicated);
         }
 
+        // THE ORDERED ANCESTRY — the F2 correction. It must LINK, exactly: baseline -> first ->
+        // ... -> candidate, one parent each, in the given order (ancestry order is history, so it is
+        // NOT sorted). Two different endpoints with no steps would hide every intermediate commit a
+        // push publishes; identical endpoints with steps would invent history.
+        if ancestry.len() > MAX_ANCESTRY_STEPS {
+            return Err(EvidenceRefusal::AncestryInconsistent);
+        }
+        if (ancestry.is_empty()) != (baseline == candidate) {
+            return Err(EvidenceRefusal::AncestryInconsistent);
+        }
+        let mut steps = Vec::with_capacity(ancestry.len());
+        let mut expected_parent = baseline.to_string();
+        for step in ancestry {
+            if !is_object_id(&step.commit)
+                || step.commit.len() != baseline.len()
+                || step.parent != expected_parent
+                || is_null_id(&step.commit)
+            {
+                return Err(EvidenceRefusal::AncestryInconsistent);
+            }
+            if step.entries.len() > MAX_EVIDENCE_ENTRIES {
+                return Err(EvidenceRefusal::TooManyEntries);
+            }
+            let mut validated = Vec::with_capacity(step.entries.len());
+            for entry in step.entries {
+                let entry = Self::validate_ancestry_entry(entry, baseline.len())?;
+                total = total
+                    .checked_add(entry.vanished_contents.as_ref().map_or(0, Vec::len))
+                    .ok_or(EvidenceRefusal::EvidenceTooLarge)?;
+                if total > MAX_TOTAL_CONTENT_BYTES {
+                    return Err(EvidenceRefusal::EvidenceTooLarge);
+                }
+                validated.push(entry);
+            }
+            validated.sort_by(|a, b| a.path.as_bytes().cmp(b.path.as_bytes()));
+            if validated.windows(2).any(|pair| pair[0].path == pair[1].path) {
+                return Err(EvidenceRefusal::PathDuplicated);
+            }
+            expected_parent = step.commit.clone();
+            steps.push(AncestryStep {
+                commit: step.commit,
+                parent: step.parent,
+                entries: validated,
+            });
+        }
+        if let Some(last) = steps.last() {
+            if last.commit != candidate {
+                return Err(EvidenceRefusal::AncestryInconsistent);
+            }
+        }
+
         Ok(Self {
             baseline: baseline.to_string(),
             candidate: candidate.to_string(),
             entries,
+            ancestry: steps,
+        })
+    }
+
+    fn validate_ancestry_entry(
+        input: AncestryEntryInput,
+        id_len: usize,
+    ) -> Result<AncestryEntry, EvidenceRefusal> {
+        // The SAME path, identity, mode and consistency rules as an endpoint entry, applied to one
+        // step. Reuse them by round-tripping through the endpoint validator with a stand-in for the
+        // contents flag, then re-attach the step's own vanished contents under their own rules.
+        let probe = EvidenceEntryInput {
+            change: input.change,
+            path: input.path.clone(),
+            old_mode: input.old_mode,
+            new_mode: input.new_mode,
+            old_id: input.old_id.clone(),
+            new_id: input.new_id.clone(),
+            new_contents: (input.new_mode != 0).then(Vec::new),
+        };
+        let validated = Self::validate(probe, id_len)?;
+        if input.vanished_contents.is_some() && input.new_mode == 0 {
+            return Err(EvidenceRefusal::AncestryContentsInconsistent);
+        }
+        if input
+            .vanished_contents
+            .as_ref()
+            .is_some_and(|c| c.len() > MAX_ENTRY_CONTENT_BYTES)
+        {
+            return Err(EvidenceRefusal::AncestryContentsInconsistent);
+        }
+        let vanished_sha256 = input
+            .vanished_contents
+            .as_ref()
+            .map(|c| Sha256::digest(c).into());
+        Ok(AncestryEntry {
+            change: validated.change,
+            path: validated.path,
+            old_mode: validated.old_mode,
+            new_mode: validated.new_mode,
+            new_kind: validated.new_kind,
+            old_id: validated.old_id,
+            new_id: validated.new_id,
+            vanished_contents: input.vanished_contents,
+            vanished_sha256,
         })
     }
 
@@ -360,6 +531,49 @@ impl CandidateEvidence {
         line(&mut out, format!("projectos-candidate-evidence: v{CANDIDATE_EVIDENCE_SCHEMA}"));
         line(&mut out, format!("baseline-commit: {}", self.baseline));
         line(&mut out, format!("candidate-commit: {}", self.candidate));
+        // THE EXACT REVIEWED PUSH BOUNDARY (F2): every commit a push of the candidate publishes, in
+        // order, each linked to its parent, with the step's own changed paths — and, for bytes that
+        // do NOT survive to the candidate, the bytes themselves. Counts precede variable parts, so
+        // the encoding stays injective.
+        line(&mut out, format!("ancestry-commits: {}", self.ancestry.len()));
+        for (step_index, step) in self.ancestry.iter().enumerate() {
+            line(&mut out, String::new());
+            line(
+                &mut out,
+                format!(
+                    "commit [{}/{}] {} parent {}",
+                    step_index + 1,
+                    self.ancestry.len(),
+                    step.commit,
+                    step.parent
+                ),
+            );
+            line(&mut out, format!("    step-changed-paths: {}", step.entries.len()));
+            for e in &step.entries {
+                line(&mut out, format!("    ~ {} {}", e.change.label(), e.path));
+                line(
+                    &mut out,
+                    format!("      mode: {:06o} -> {:06o} ({})", e.old_mode, e.new_mode, e.new_kind.label()),
+                );
+                line(&mut out, format!("      object: {} -> {}", e.old_id, e.new_id));
+                match (&e.vanished_contents, &e.vanished_sha256) {
+                    (Some(contents), Some(sha)) => {
+                        // BYTES A PUSH PUBLISHES THAT THE CANDIDATE TREE NO LONGER HOLDS — shown in
+                        // full, under the same verbatim-or-described rule as endpoint contents.
+                        line(&mut out, format!("      vanished-sha256: {}", hex(sha)));
+                        match std::str::from_utf8(contents) {
+                            Ok(text) if !text.contains('\0') => {
+                                line(&mut out, format!("      vanished-bytes: {} (utf-8, verbatim)", contents.len()));
+                                out.extend_from_slice(contents);
+                                out.push(b'\n');
+                            }
+                            _ => line(&mut out, format!("      vanished-bytes: {} (binary, not shown)", contents.len())),
+                        }
+                    }
+                    _ => line(&mut out, "      survives-to-candidate".to_string()),
+                }
+            }
+        }
         line(&mut out, format!("changed-paths: {}", self.entries.len()));
         for (index, e) in self.entries.iter().enumerate() {
             line(&mut out, String::new());

@@ -500,10 +500,47 @@ fn the_real_agent_bytes_are_served_by_the_real_host_and_the_host_half_is_stable(
             new_contents: e["contentsUtf8"].as_str().map(|c| c.as_bytes().to_vec()),
         })
         .collect();
+    // F2: the vector's ordered ancestry, exactly as the contract file states it.
+    let ancestry = inputs["ancestry"]
+        .as_array()
+        .expect("the vector carries its ancestry")
+        .iter()
+        .map(|s| projectos_host_gatekeeper_attestation::candidate_evidence::AncestryStepInput {
+            commit: text(s, "commit").to_string(),
+            parent: text(s, "parent").to_string(),
+            entries: s["entries"]
+                .as_array()
+                .map(|list| {
+                    list.iter()
+                        .map(|e| {
+                            projectos_host_gatekeeper_attestation::candidate_evidence::AncestryEntryInput {
+                                change: match text(e, "change") {
+                                    "added" => EvidenceChange::Added,
+                                    "deleted" => EvidenceChange::Deleted,
+                                    "modified" => EvidenceChange::Modified,
+                                    "type-changed" => EvidenceChange::TypeChanged,
+                                    other => panic!("unknown change {other}"),
+                                },
+                                path: text(e, "path").to_string(),
+                                old_mode: u32::from_str_radix(text(e, "oldMode"), 8).expect("octal"),
+                                new_mode: u32::from_str_radix(text(e, "newMode"), 8).expect("octal"),
+                                old_id: text(e, "oldId").to_string(),
+                                new_id: text(e, "newId").to_string(),
+                                vanished_contents: e["vanishedContentsUtf8"]
+                                    .as_str()
+                                    .map(|c| c.as_bytes().to_vec()),
+                            }
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+        })
+        .collect();
     let evidence = CandidateEvidence::assemble(
         text(inputs, "baselineCommit"),
         text(inputs, "subjectCommit"),
         entries,
+        ancestry,
     )
     .expect("the vector evidence assembles");
     let attested_exchanges = produced["attested"].as_array().expect("attested exchanges");

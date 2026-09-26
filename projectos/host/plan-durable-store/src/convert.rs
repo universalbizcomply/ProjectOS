@@ -89,9 +89,14 @@ fn candidate(c: &PlanCandidateDto) -> Result<PhaseDefinitionCandidate, PlanStore
 
 /// Reshape a persisted plan record into the core untrusted reload DTO.
 ///
+/// PUBLIC since PROJECTOS-HOST-REVIEW-PATH1B (criterion 21): the Host's committed-plan ingestion
+/// reads the SAME persisted record shape out of the governed repository and must reshape it with the
+/// SAME mapping, or the store and the ingestion could disagree about what a record means. It still
+/// validates NOTHING — see the module note — and returning core's UNTRUSTED DTO grants nothing.
+///
 /// # Errors
 /// [`PlanStoreError::Unconvertible`] if an identity cannot be reconstructed.
-pub(crate) fn to_core_dto(dto: &PlanRecordDto) -> Result<PlanDurableDto, PlanStoreError> {
+pub fn to_core_dto(dto: &PlanRecordDto) -> Result<PlanDurableDto, PlanStoreError> {
     Ok(PlanDurableDto {
         schema_version: dto.schema_version,
         plan_ref: ApprovedPlanRef::new(dto.plan_ref.clone())

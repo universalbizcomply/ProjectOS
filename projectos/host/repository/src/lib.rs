@@ -41,7 +41,7 @@ pub mod tree_diff;
 
 mod adapter;
 
-pub use adapter::{CommittedFileReader, RepositoryAdapter};
+pub use adapter::{CommittedFileReader, RepositoryAdapter, MAX_ANCESTRY_COMMITS};
 pub use command::{CommitId, CommittedPath, CommittedRevision, GitCommand, GitRunner};
 pub use config::RepositoryAdapterConfig;
 pub use error::RepoAdapterError;

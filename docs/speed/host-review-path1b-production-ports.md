@@ -81,7 +81,27 @@ or resolver with a trust implication; **WIRING** = ordinary code inside already-
 | Per-session admission store | `GovernedReviewActivation` held ONE store for the loop, but `InMemoryRequestAdmissionStore` is bound to one session → the 2nd connection would be refused | **FIXED** (made per exchange) |
 | Per-exchange candidate pin | HEAD moves with each unattended local candidate commit, so the reader must be pinned per exchange | Requirement recorded on `GovernedReviewActivation::candidate`; belongs to the resolver |
 
-**Answer to criterion 21 as written: NO.** The trust chain and the answer are source-complete. The
-activation resolver is not, and three of its inputs (delegation verification outside the IPC crate, the
-delegation's `Active` lifecycle writer, and Host-side plan ingestion) are authority decisions this phase did
-not ratify. None of them is exercised without owner-signed inputs, so the dormant route stays dormant.
+**Answer to criterion 21 as written at 2026-09-25: NO.** The trust chain and the answer were
+source-complete; the activation resolver was not.
+
+## FINAL STATUS (2026-09-26) — criterion 21 is MET: every row above now has a production source
+
+The gatekeeper's PRE-PUSH ruling ordered the three AUTH rows closed inside PATH1B, and they were:
+
+| INPUT | PRODUCTION SOURCE NOW | WHERE |
+|---|---|---|
+| `VerifiedOwnerProgrammeDelegation` outside the compose | `verify_owner_programme_delegation_for_installation` — the same ONE O12-pinned verifier, sealed inputs composed internally, provenance checked BEFORE the durable read (SEC-L1) | `windows-local-ipc::owner_programme_delegation` |
+| `Active` lifecycle record | `activate_owner_programme_delegation` — authority is the two owner signatures alone (manifest + delegation); store lifecycle rules bound it; idempotent on Active; terminal states never resurrected | same module (`record_lifecycle` gains its production caller) |
+| Plan identity/version/digest + `ApprovedPlanBinding` | `CommittedPlanAuthority` — the COMMITTED `PlanRecordDto` at `.projectops/host-approved-plan.v2.json` of the pinned commit, re-normalised, digest recomputed, admitted only when it equals the DELEGATION-SIGNED `plan`/`plan_digest`/phase membership; `mirror_into` is the plan store's first production writer | `gatekeeper-review-composition::committed_plan` |
+| Payload root / installation root | `RunningExecutable::open_current()` + `PAYLOAD_RELATIVE_ROOT` (existing contract) | `service-host::activation_resolver` |
+| Pinned git | `PACKAGED_GIT_RELATIVE_PATH = "runtime/git/cmd/git.exe"` under the validated payload root; reader confines it to the closed vocabulary + fixed env | `packaged-runtime-contract` |
+| Delegation record location | `owner-delegation/gatekeeper-review.delegation` under the host state root; exact `SIGNED_DELEGATION_RECORD_LEN` no-follow read; ABSENT = ordinary dormancy | `service-host::activation_resolver` |
+| Service epoch / state root / plan store root | `host_state_activation::host_state_root()` + fixed leaves (`approved-plans`, `broker-scratch`) | `windows-local-ipc::host_state_activation` |
+| Project selector | The registry entry whose committed closure attests to the delegation's owner-signed digests | `service-host::activation_resolver` |
+| Per-exchange candidate pin | `pin_exchange` re-reads HEAD and re-ingests the plan on EVERY exchange (local candidate commits move HEAD) | `service-host::activation_resolver` |
+
+The SCM entry calls ONE dispatcher, `serve_resolved_until_stop`: governed activation resolves →
+governed review serving; any `GovernedActivationUnavailable` → the status loop, exactly as before.
+Supplying the owner-signed inputs and starting the service now needs **no further production
+source**. Proof: `service_entry_tests.rs` (9/9) drives the full route end-to-end over a real
+durable store, and the production entries refuse the fixture record.

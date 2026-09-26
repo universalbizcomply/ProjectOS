@@ -452,3 +452,128 @@ fn user_level_configuration_cannot_reach_a_read() {
     cleanup(&dir);
     cleanup(&home);
 }
+
+// =================================================================================================
+// PROJECTOS-HOST-REVIEW-PATH1B, F2 — THE ORDERED LINEAR ANCESTRY, against real repositories.
+// =================================================================================================
+
+#[test]
+fn the_linear_ancestry_is_the_exact_ordered_chain_and_links_every_parent() {
+    let dir = temp("ancestry-linear");
+    init(&dir);
+    write(&dir, "a.txt", b"base");
+    let base = commit_all(&dir, "baseline");
+    write(&dir, "a.txt", b"one");
+    let c1 = commit_all(&dir, "one");
+    write(&dir, "b.txt", b"two");
+    let c2 = commit_all(&dir, "two");
+    write(&dir, "a.txt", b"three");
+    let tip = commit_all(&dir, "three");
+
+    let reader = reader_at(&dir, &tip);
+    let chain = reader.linear_ancestry(&base).expect("a linear chain enumerates");
+    assert_eq!(chain, vec![c1.clone(), c2.clone(), tip.clone()]);
+
+    // The per-step differences are per COMMIT, so bytes that vanish by the tip are reachable.
+    let step2 = reader.changes_between(&c1, &c2).expect("step diff");
+    assert_eq!(step2.len(), 1);
+    assert_eq!(step2[0].path().as_str(), "b.txt");
+    let at_step = reader
+        .committed_bytes_at(&c2, &CommittedPath::new("b.txt").unwrap())
+        .expect("step contents");
+    assert_eq!(at_step, b"two");
+
+    // An empty range is a fact, not a failure.
+    let same = reader_at(&dir, &base);
+    assert_eq!(same.linear_ancestry(&base).expect("empty chain"), Vec::<CommitId>::new());
+    cleanup(&dir);
+}
+
+#[test]
+fn a_merge_in_the_range_refuses_the_whole_enumeration() {
+    let dir = temp("ancestry-merge");
+    init(&dir);
+    write(&dir, "a.txt", b"base");
+    let base = commit_all(&dir, "baseline");
+    write(&dir, "a.txt", b"main-side");
+    commit_all(&dir, "main side");
+    git(&dir, &["checkout", "-q", "-b", "side", &base.as_str().to_string()]);
+    write(&dir, "b.txt", b"side");
+    commit_all(&dir, "side");
+    git(&dir, &["checkout", "-q", "main"]);
+    git(&dir, &["merge", "-q", "--no-ff", "-m", "merge", "side"]);
+    let tip = CommitId::parse(&git(&dir, &["rev-parse", "HEAD"])).unwrap();
+
+    let reader = reader_at(&dir, &tip);
+    assert_eq!(
+        reader.linear_ancestry(&base).unwrap_err(),
+        RepoAdapterError::MalformedOutput,
+        "a merge is not a shape the additive candidate history can have"
+    );
+    cleanup(&dir);
+}
+
+#[test]
+fn a_merge_whose_second_parent_is_already_reachable_still_refuses() {
+    // The ordinary merge above is ALSO caught by the parent-linking rule, because its side branch
+    // puts an unlinked commit in the enumeration. This shape is not: the second parent is the
+    // baseline itself, so the FIRST-parent chain stays perfectly linked and only the explicit
+    // merge refusal stands between it and the reviewed ancestry. git will not create it ("already
+    // up to date"), so it is built with plumbing, exactly as a hostile history would be.
+    let dir = temp("ancestry-merge-masked");
+    init(&dir);
+    write(&dir, "a.txt", b"base");
+    let base = commit_all(&dir, "baseline");
+    write(&dir, "a.txt", b"work");
+    let work = commit_all(&dir, "work");
+    let tree = git(&dir, &["rev-parse", "HEAD^{tree}"]);
+    let merge = git(
+        &dir,
+        &["commit-tree", &tree, "-p", work.as_str(), "-p", base.as_str(), "-m", "masked merge"],
+    );
+    let tip = CommitId::parse(&merge).unwrap();
+    git(&dir, &["update-ref", "refs/heads/main", tip.as_str()]);
+
+    assert_eq!(
+        reader_at(&dir, &tip).linear_ancestry(&base).unwrap_err(),
+        RepoAdapterError::MalformedOutput,
+        "a merge is refused for being a merge, not merely for breaking the parent links"
+    );
+    cleanup(&dir);
+}
+
+#[test]
+fn the_ancestry_pre_checks_and_the_bound_hold() {
+    let dir = temp("ancestry-bounds");
+    init(&dir);
+    write(&dir, "a.txt", b"base");
+    let base = commit_all(&dir, "baseline");
+    write(&dir, "a.txt", b"tip");
+    let tip = commit_all(&dir, "tip");
+    let reader = reader_at(&dir, &tip);
+
+    let nowhere = CommitId::parse(&"c".repeat(40)).unwrap();
+    assert_eq!(reader.linear_ancestry(&nowhere).unwrap_err(), RepoAdapterError::BaselineUnavailable);
+    assert_eq!(
+        reader_at(&dir, &base).linear_ancestry(&tip).unwrap_err(),
+        RepoAdapterError::BaselineNotAncestor
+    );
+
+    // MAX_ANCESTRY_COMMITS + 1 commits refuse rather than truncate. Bounded loop, tiny files.
+    let deep = temp("ancestry-deep");
+    init(&deep);
+    write(&deep, "n.txt", b"0");
+    let deep_base = commit_all(&deep, "base");
+    for i in 0..=projectos_host_repository::MAX_ANCESTRY_COMMITS {
+        write(&deep, "n.txt", format!("{i}").as_bytes());
+        git(&deep, &["add", "-A"]);
+        git(&deep, &["commit", "-q", "--allow-empty", "-m", "step"]);
+    }
+    let deep_tip = CommitId::parse(&git(&deep, &["rev-parse", "HEAD"])).unwrap();
+    assert_eq!(
+        reader_at(&deep, &deep_tip).linear_ancestry(&deep_base).unwrap_err(),
+        RepoAdapterError::OutputOverflow
+    );
+    cleanup(&deep);
+    cleanup(&dir);
+}

@@ -20,32 +20,58 @@ interface VectorEntry {
   readonly contentsUtf8?: string;
 }
 
+interface VectorStep {
+  readonly commit: string;
+  readonly parent: string;
+  readonly entries?: (VectorEntry & { readonly vanishedContentsUtf8?: string })[];
+}
+
 const VECTORS = JSON.parse(
   readFileSync(join(__dirname, '..', '..', '..', 'contracts', 'host-review-path-vectors.v1.json'), 'utf8'),
-) as { inputs: { baselineCommit: string; subjectCommit: string; evidence: VectorEntry[] } };
+) as { inputs: { baselineCommit: string; subjectCommit: string; evidence: VectorEntry[]; ancestry: VectorStep[] } };
 
 export const VECTOR_BASELINE_COMMIT = VECTORS.inputs.baselineCommit;
 export const VECTOR_CANDIDATE_COMMIT = VECTORS.inputs.subjectCommit;
 
 const STATUS = { added: 'A', deleted: 'D', modified: 'M', 'type-changed': 'T' } as const;
 
-/** A git that holds exactly the vector's two commits and answers the three verbs the source uses. */
-export function vectorGit(entries: readonly VectorEntry[] = VECTORS.inputs.evidence): GitBytes {
+/** A git that holds exactly the vector's commits and answers the four verbs the source uses. */
+export function vectorGit(
+  entries: readonly VectorEntry[] = VECTORS.inputs.evidence,
+  ancestry: readonly VectorStep[] = VECTORS.inputs.ancestry,
+): GitBytes {
+  const record = (e: VectorEntry): Buffer =>
+    Buffer.from(`:${e.oldMode} ${e.newMode} ${e.oldId} ${e.newId} ${STATUS[e.change]}\0${e.path}\0`, 'latin1');
   return (args) => {
     const [verb] = args;
     const last = args[args.length - 1]!;
     if (verb === 'merge-base') {
       return args[2] === VECTOR_BASELINE_COMMIT && last === VECTOR_CANDIDATE_COMMIT ? Buffer.alloc(0) : null;
     }
+    if (verb === 'rev-list') {
+      // F2: the strict linear enumeration, oldest first, `commit parent` per line.
+      if (last !== `${VECTOR_BASELINE_COMMIT}..${VECTOR_CANDIDATE_COMMIT}`) return null;
+      return Buffer.from(ancestry.map((s) => `${s.commit} ${s.parent}\n`).join(''), 'latin1');
+    }
     if (verb === 'diff-tree') {
-      if (args[args.length - 2] !== VECTOR_BASELINE_COMMIT || last !== VECTOR_CANDIDATE_COMMIT) return null;
-      return Buffer.concat(
-        entries.map((e) => Buffer.from(`:${e.oldMode} ${e.newMode} ${e.oldId} ${e.newId} ${STATUS[e.change]}\0${e.path}\0`, 'latin1')),
-      );
+      const base = args[args.length - 2]!;
+      if (base === VECTOR_BASELINE_COMMIT && last === VECTOR_CANDIDATE_COMMIT) {
+        return Buffer.concat(entries.map(record));
+      }
+      const step = ancestry.find((s) => s.parent === base && s.commit === last);
+      return step === undefined ? null : Buffer.concat((step.entries ?? []).map(record));
     }
     if (verb === 'cat-file') {
-      const entry = entries.find((e) => last === `${VECTOR_CANDIDATE_COMMIT}:${e.path}`);
-      return entry?.contentsUtf8 === undefined ? null : Buffer.from(entry.contentsUtf8, 'utf8');
+      const endpoint = entries.find((e) => last === `${VECTOR_CANDIDATE_COMMIT}:${e.path}`);
+      if (endpoint?.contentsUtf8 !== undefined) return Buffer.from(endpoint.contentsUtf8, 'utf8');
+      for (const s of ancestry) {
+        const at = (s.entries ?? []).find((e) => last === `${s.commit}:${e.path}`);
+        if (at !== undefined) {
+          const bytes = at.vanishedContentsUtf8 ?? at.contentsUtf8;
+          if (bytes !== undefined) return Buffer.from(bytes, 'utf8');
+        }
+      }
+      return null;
     }
     return null;
   };

@@ -203,7 +203,14 @@ function run() {
 
     const serve = strip(read(serveP));
     const scm = strip(read(scmP));
-    if (!/serve::serve_installed_host_status_until_stop\(&STOP_SIGNALLED\)/.test(scm)) e.push("P1 the SCM entry no longer starts the status-only loop");
+    // PROJECTOS-HOST-REVIEW-PATH1B, CRITERION 21 — DECLARED AMENDMENT.
+    //   OLD: the SCM entry starts the status-only loop directly.
+    //   NEW: it calls the ONE dispatcher, which serves the status-only loop unless every governed
+    //        activation input is live — dormancy is the fallback, never a build property. The
+    //        dispatcher itself must keep the status loop as its explicit fallback.
+    if (!/serve::serve_resolved_until_stop\(&STOP_SIGNALLED, &mut host_state\)/.test(scm)) e.push("P1 the SCM entry no longer starts the serving dispatcher");
+    if ((serve.match(/serve_installed_host_status_until_stop\(stop\)/g) || []).length < 2)
+      e.push("P1 the dispatcher no longer falls back to the status-only loop on unavailability");
     const serviceSrc = walk(P("host", "service-host", "src"), [".rs"]).map((f) => strip(read(f))).join("\n");
     if (count(serviceSrc, /serve_status_and_reviews_until_stop/g) !== 1) e.push("P1 the dormant review loop is CALLED somewhere in the installed service");
     if (!/pub fn serve_status_and_reviews_until_stop\(\s*stop: &AtomicBool,\s*review: &HostReviewIpcCapability,/.test(serve))

@@ -81,6 +81,11 @@ fn host_request(commit: &str) -> HostProviderRequest {
             new_id: "a".repeat(40),
             new_contents: Some(b"fn reviewed() {}\n".to_vec()),
         }],
+        vec![projectos_host_gatekeeper_attestation::candidate_evidence::AncestryStepInput {
+            commit: commit.to_string(),
+            parent: "b4".repeat(20),
+            entries: vec![],
+        }],
     )
     .unwrap();
     let framed = FramedReviewInput::frame(&evidence, subject.as_bytes(), &FIXTURE_MARKER).unwrap();
