@@ -304,6 +304,11 @@ impl CandidateEvidence {
         {
             return Err(EvidenceRefusal::CommitIdentityMalformed);
         }
+        // The endpoints hold themselves to the same rule the ancestry steps are held to (review
+        // finding, 2026-09-26): the all-zero id is git's "no object" sentinel, never a commit.
+        if is_null_id(baseline) || is_null_id(candidate) {
+            return Err(EvidenceRefusal::CommitIdentityMalformed);
+        }
         if inputs.len() > MAX_EVIDENCE_ENTRIES {
             return Err(EvidenceRefusal::TooManyEntries);
         }

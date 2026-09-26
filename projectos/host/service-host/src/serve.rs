@@ -498,15 +498,18 @@ fn serve_one_governed_exchange(
     inputs: &GovernedReviewConnectionInputs<'_>,
 ) -> Option<ServeGovernedReviewOutcome> {
     // The Host's durable plan-store mirror of the ingested record, beneath its own state root.
+    // FAIL CLOSED THE WHOLE WAY (review finding, 2026-09-26): a store that cannot be created or
+    // opened refuses the exchange exactly as a divergent copy does — the mirror is the plan
+    // store's required first production write, not a best-effort courtesy. The refusal lands in
+    // the loop's ordinary backoff; dormancy fallback is unaffected.
     let plan_store_root = state_root.join(PLAN_STORE_RELATIVE_ROOT);
-    let _ = std::fs::create_dir_all(&plan_store_root);
-    if let Ok(mut plan_store) =
+    std::fs::create_dir_all(&plan_store_root).ok()?;
+    let mut plan_store =
         projectos_host_plan_durable_store::PlanDurableStore::open(plan_store_root.to_str()?)
-    {
-        // Divergence refuses the exchange: a durable copy that disagrees is a question for the
-        // owner, never something a serve loop overwrites.
-        plan.mirror_into(&mut plan_store).ok()?;
-    }
+            .ok()?;
+    // Divergence refuses the exchange: a durable copy that disagrees is a question for the
+    // owner, never something a serve loop overwrites.
+    plan.mirror_into(&mut plan_store).ok()?;
 
     // The operation ports, all over the ONE pinned reader and the resolved payload.
     let manifest = InstalledTrustManifest::beneath(&activation.payload_root);
@@ -517,7 +520,7 @@ fn serve_one_governed_exchange(
     let executables = PinnedExecutablePolicy::over(&activation.node_exe, &activation.git_exe);
     let clock = SystemClock;
     let scratch = state_root.join(BROKER_SCRATCH_RELATIVE_ROOT);
-    let _ = std::fs::create_dir_all(&scratch);
+    std::fs::create_dir_all(&scratch).ok()?;
     let launcher = PinnedNodeLauncher::new(
         &activation.node_exe,
         &activation.git_exe,

@@ -376,6 +376,17 @@ fn inconsistent_and_malformed_inputs_refuse() {
         CandidateEvidence::assemble(B, &"2".repeat(64), vec![], step(B, &"2".repeat(64))).unwrap_err(),
         CommitIdentityMalformed
     );
+    // The endpoints refuse git's all-zero "no object" sentinel, exactly as ancestry steps do
+    // (review finding, 2026-09-26).
+    let null_id = "0".repeat(40);
+    assert_eq!(
+        CandidateEvidence::assemble(&null_id, D, vec![], step(&null_id, D)).unwrap_err(),
+        CommitIdentityMalformed
+    );
+    assert_eq!(
+        CandidateEvidence::assemble(B, &null_id, vec![], step(B, &null_id)).unwrap_err(),
+        CommitIdentityMalformed
+    );
 }
 
 /// NOTHING IS TRUNCATED. One byte over any bound refuses; exactly on the bound is accepted whole.

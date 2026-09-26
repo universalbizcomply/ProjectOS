@@ -113,6 +113,10 @@ export function candidateEvidenceDigest(
   const { baselineCommit, candidateCommit, entries, ancestry } = input;
   if (!OBJECT_ID.test(baselineCommit) || !OBJECT_ID.test(candidateCommit) || baselineCommit.length !== candidateCommit.length) {
     e.push('the baseline and candidate must be full-length lower-case commit identities of one length');
+  } else if (/^0+$/.test(baselineCommit) || /^0+$/.test(candidateCommit)) {
+    // The endpoints hold themselves to the ancestry steps' rule (review finding, 2026-09-26):
+    // the all-zero id is git's "no object" sentinel, never a commit. Mirrors the Rust assemble.
+    e.push('the baseline and candidate must be full-length lower-case commit identities of one length');
   }
   if (entries.length > MAX_EVIDENCE_ENTRIES) e.push(`the evidence has ${entries.length} changed paths; the bound is ${MAX_EVIDENCE_ENTRIES}`);
 

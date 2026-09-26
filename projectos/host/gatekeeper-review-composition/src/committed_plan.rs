@@ -222,14 +222,20 @@ impl CommittedPlanAuthority {
             .record
             .to_json()
             .map_err(|_| CommittedPlanRefusal::RecordUnreadable)?;
-        if let Ok(existing) = store.load(&self.plan_ref, self.version) {
-            let theirs = existing
-                .to_json()
-                .map_err(|_| CommittedPlanRefusal::RecordUnreadable)?;
-            if theirs != mine {
-                return Err(CommittedPlanRefusal::NotCommittedActive);
+        match store.load(&self.plan_ref, self.version) {
+            Ok(existing) => {
+                let theirs = existing
+                    .to_json()
+                    .map_err(|_| CommittedPlanRefusal::RecordUnreadable)?;
+                if theirs != mine {
+                    return Err(CommittedPlanRefusal::NotCommittedActive);
+                }
+                return Ok(());
             }
-            return Ok(());
+            // ONLY a proven absence proceeds to the fresh write. A copy that exists but cannot be
+            // read (corruption, I/O) is a question for the owner, never something to overwrite.
+            Err(projectos_host_plan_durable_store::PlanStoreError::NotFound) => {}
+            Err(_) => return Err(CommittedPlanRefusal::RecordUnreadable),
         }
         let mut intent = self.record.clone();
         intent.committed = false;

@@ -310,5 +310,41 @@ fn the_ingested_record_mirrors_into_the_host_durable_plan_store_idempotently() {
         other.to_json().unwrap(),
         "the divergent durable copy was left exactly as it was"
     );
+
+    // REVIEW FINDING (2026-09-26): a durable copy that EXISTS but cannot be read is a question for
+    // the owner, never something the mirror overwrites. Corrupt the stored bytes on disk (behind
+    // the store's back, as real corruption would) and the mirror must refuse - and must leave the
+    // corrupt bytes exactly as they were, so the owner can inspect them.
+    let corrupt_root = dir.join("plan-store-corrupt");
+    std::fs::create_dir_all(&corrupt_root).unwrap();
+    let mut store3 = PlanDurableStore::open(corrupt_root.to_str().unwrap()).expect("opens");
+    authority.mirror_into(&mut store3).expect("first mirror writes");
+    let mut corrupted = Vec::new();
+    let mut walk = vec![corrupt_root.clone()];
+    while let Some(d) = walk.pop() {
+        for entry in std::fs::read_dir(&d).unwrap() {
+            let p = entry.unwrap().path();
+            if p.is_dir() {
+                walk.push(p);
+            } else if std::fs::read(&p).is_ok() && std::fs::write(&p, b"{ not a record").is_ok() {
+                // A file the live store holds locked (its lock file) is infrastructure, not the
+                // record; corruption of the RECORD bytes is what this proves.
+                corrupted.push(p);
+            }
+        }
+    }
+    assert!(!corrupted.is_empty(), "the mirror stored at least one file to corrupt");
+    assert_eq!(
+        authority.mirror_into(&mut store3).unwrap_err(),
+        CommittedPlanRefusal::RecordUnreadable,
+        "an unreadable existing copy refuses; it is never treated as absent and overwritten"
+    );
+    for p in &corrupted {
+        assert_eq!(
+            std::fs::read(p).unwrap(),
+            b"{ not a record".to_vec(),
+            "the corrupt bytes were left in place for the owner"
+        );
+    }
     let _ = std::fs::remove_dir_all(&dir);
 }

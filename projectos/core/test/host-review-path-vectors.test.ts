@@ -215,6 +215,8 @@ describe('the candidate evidence both languages recompute (PROJECTOS-HOST-REVIEW
       ['a present side without contents', { ...base, entries: [{ ...added, contents: null }] }],
       ['a duplicate path', { ...base, entries: [added, added] }],
       ['a reference instead of a commit', { ...base, baselineCommit: 'HEAD', entries: [] }],
+      ['a null baseline endpoint', { ...base, baselineCommit: Z, entries: [], ancestry: [{ ...base.ancestry[0], parent: Z }] }],
+      ['a null candidate endpoint', { ...base, candidateCommit: Z, entries: [], ancestry: [{ ...base.ancestry[0], commit: Z }] }],
       ['an ancestry that does not link', { ...base, entries: [added], ancestry: [] }],
       ['an ancestry with a stray tip', { ...base, entries: [added], ancestry: [...base.ancestry, { commit: 'b'.repeat(40), parent: '2'.repeat(40), entries: [] }] }],
       ['one byte over the per-file bound', { ...base, entries: [{ ...added, contents: Buffer.alloc(1_048_577) }] }],
