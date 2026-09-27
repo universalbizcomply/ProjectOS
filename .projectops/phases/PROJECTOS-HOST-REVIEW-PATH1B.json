@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-HOST-REVIEW-PATH1B",
   "project": "ProjectOS",
   "objective": "Continue the accepted host review path implementation candidate so that the independent review is made about evidence the host derived from the candidate it attests, and so that every production port and the installed service route exist in source and fail closed until the owner supplies the protected activation inputs. Nothing is activated: no service start, no authority mint, no credential, no provider call and no spend.",
-  "status": "implementing",
+  "status": "awaiting_closure",
   "history": [
     {
       "from": "draft",
@@ -17,6 +17,34 @@
       "by": "implementer",
       "at": "2026-09-19T17:45:05.739Z",
       "note": "continuing the inherited host review path candidate; remaining ratified PATH1B scope only, selection guard first"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-09-27T00:56:44.576Z",
+      "note": "closure tail at accepted cumulative subject 6f9bd06c443c44e5a33af80c85ea94e44c3bc80d: validate-all --record-evidence at the subject, 141/144 with all 11 required validators PASS (3 disclosed FAILs); no source change"
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-09-27T00:56:44.960Z",
+      "note": "G4-6 checks at subject 6f9bd06 on 2026-09-27: core-tests 765/765, agent-tests 2182/2182, agent-typecheck PASS; speed-benchmark not required for this PATH1B closure by phase-specific gatekeeper ruling (ROUTE R1), not run and not represented as passing"
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-09-27T00:56:45.383Z",
+      "note": "reviews complete over 87f734e..c30362e: Claude self-review, ECC CODE APPROVE 0/0/0/0, ECC SECURITY APPROVE, AppSec PASS; 0 unresolved CRITICAL/HIGH"
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-09-27T00:56:45.805Z",
+      "note": "closure evidence and evidence report written at subject 6f9bd06; gatekeeper decided PATH1B CLOSED 2026-09-26 (delegated basis, G2, ROUTE R1); records only, no source"
     }
   ]
 }
