@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-HOST-REVIEW-PATH1B",
   "project": "ProjectOS",
   "objective": "Continue the accepted host review path implementation candidate so that the independent review is made about evidence the host derived from the candidate it attests, and so that every production port and the installed service route exist in source and fail closed until the owner supplies the protected activation inputs. Nothing is activated: no service start, no authority mint, no credential, no provider call and no spend.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-09-27T00:56:45.805Z",
       "note": "closure evidence and evidence report written at subject 6f9bd06; gatekeeper decided PATH1B CLOSED 2026-09-26 (delegated basis, G2, ROUTE R1); records only, no source"
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "advisor",
+      "at": "2026-09-27T00:58:08.377Z",
+      "note": "closed by ChatGPT under the projectos-scoped phase-closure delegation, decision projectos:PROJECTOS-HOST-REVIEW-PATH1B:delegated-closure:6f9bd06c"
     }
   ]
 }

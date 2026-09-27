@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-HOST-REVIEW-PATH1A",
   "project": "ProjectOS",
   "objective": "Implement the complete agent-to-host unattended review path in production code and leave it dormant: the agent-side review ports and local transport, the host-side review facades and operation dispatch, the execution rung that drives the existing host gatekeeper-review operation through an injected independent-review seam, the host decision and attestation serialisation, and one canonical bounded out-of-band representation bound to the existing fixed-width authority frames, proven by a cross-language codec agreement and one isolated round-trip over the real transport, with no service start, no live authority, no provider call and no spend.",
-  "status": "draft",
+  "status": "awaiting_closure",
   "history": [
     {
       "from": "draft",
@@ -59,6 +59,48 @@
       "by": "implementer",
       "at": "2026-09-19T19:30:10.103Z",
       "note": "GATEKEEPER RULING 2026-09-20: the earlier implementing -> rolled_back transition meant STOOD DOWN, and is corrected here because nothing was rolled back. PATH1A implementation was stood down in favour of PROJECTOS-HOST-REVIEW-PATH1B. No source or candidate bytes were reverted. PATH1A remains pending only for later reconciliation and closure, by owner decision, after PATH1B is accepted, against the same accepted cumulative candidate."
+    },
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-09-27T00:58:21.957Z",
+      "note": "reconciliation only — no implementation, no source. Governed reconciliation and closure against the accepted cumulative candidate 6f9bd06c443c44e5a33af80c85ea94e44c3bc80d, after PROJECTOS-HOST-REVIEW-PATH1B closed (PATH1B criterion 30, owner gate 13); owner-authorised O2 (2026-09-27)"
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-09-27T00:58:22.495Z",
+      "note": "reconciliation only — no implementation, no source. No implementation is performed; this transition exists only because the core lifecycle has no reconciliation shortcut. All PATH1A code landed in 1a4e56e and is carried through c30362e"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-09-27T00:58:23.076Z",
+      "note": "reconciliation only — no implementation, no source. All 7 PATH1A-required validators PASS in the validate-all record bound to 6f9bd06 (.projectops/validation/6f9bd06c443c44e5a33af80c85ea94e44c3bc80d.json)"
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-09-27T00:58:23.532Z",
+      "note": "reconciliation only — no implementation, no source. Reconciliation: 28 SATISFIED, 3 SUPERSEDED in part by ratified PATH1B rules (C9, C28, C29), 0 N/A, 0 BLOCKED; gatekeeper ACCEPTED the reconciliation (G1)"
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-09-27T00:58:23.862Z",
+      "note": "reconciliation only — no implementation, no source. Reviews: the Claude self-review, ECC CODE and ECC SECURITY reviews over the cumulative ancestry containing all PATH1A code; independent reality-checker challenge of the reconciliation, 15/15 findings verified and accepted"
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-09-27T00:58:24.266Z",
+      "note": "reconciliation only — no implementation, no source. Closure evidence and reconciliation report written at subject 6f9bd06; closes owner-direct by Murad; O1-A/O1-B confirmed; B2/B5 pins are mandatory carry-forward"
     }
   ]
 }

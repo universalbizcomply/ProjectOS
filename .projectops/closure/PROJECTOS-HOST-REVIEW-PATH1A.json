@@ -1,0 +1,25 @@
+{
+  "phaseId": "PROJECTOS-HOST-REVIEW-PATH1A",
+  "evidenceSubjectHead": "6f9bd06c443c44e5a33af80c85ea94e44c3bc80d",
+  "baselineCommit": "87f734e9f95ec9173074ebae693a06a2650473fb",
+  "validatorsPass": true,
+  "checksPass": null,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "unresolvedCritical": 0,
+  "unresolvedHighIds": [],
+  "headedProofPass": null,
+  "protectedEffects": "NONE",
+  "establishedAt": "2026-09-27T00:58:31.832Z",
+  "notes": [
+    "THIS RECORD CLOSES NOTHING. RECONCILIATION ONLY - no implementation, no source. PATH1A is closed owner-direct by Murad, only after PROJECTOS-HOST-REVIEW-PATH1B and against the same accepted cumulative candidate, as PATH1B criterion 30 and owner gate 13 require. `phase advance --as owner` does not evaluate G4, and no G4 predicate is claimed here beyond what the fields state. No code in this repository writes this file; the convention follows readiness-evidence and PROJECTOS-HYBRID-CLOSURE-RECONCILE-ROUTING1A.",
+    "SUBJECT. 6f9bd06c443c44e5a33af80c85ea94e44c3bc80d - the SAME accepted cumulative candidate that PATH1B closed on, not any earlier PATH1A-only candidate. All PATH1A code first landed in 1a4e56e (the inherited 76-path candidate, manifest 5d5d35ff...) and is carried unchanged or amended under ratified PATH1B rules through c30362e.",
+    "RECONCILIATION: 31 frozen criteria (sha256 367602ae...89fd over the plan record's list, byte-identical to the source doc): 28 SATISFIED by the accepted cumulative candidate, 3 SUPERSEDED in part by ratified PATH1B rules (criterion 9: attestation revision 2 adds the baseline and evidence digest and names the cost admitted; criterion 28: the transport crate's runtime dependency list gained exactly one ratified edge, to gatekeeper-attestation; criterion 29: two unattended hybridVerticalSlice assertions changed under the ratified technical-continuation amendment, and hooks no longer run for any ProjectOS git call), 0 NOT APPLICABLE, 0 BLOCKED. Criterion-by-criterion citations are in knowledge/reports/2026-09-27_ProjectOS_PROJECTOS-HOST-REVIEW-PATH1A_AWAITING-CLOSURE.md. The gatekeeper ACCEPTED the reconciliation (G1, 2026-09-26).",
+    "validatorsPass: .projectops/validation/6f9bd06c443c44e5a33af80c85ea94e44c3bc80d.json (sha256 728380f1246df77e06149b824c5175a0535796357927ff3a8e3c49e1f3d3894b) - all 7 validators the approved v1.6 plan requires for PATH1A PASS by name: val-projectos-host-review-path1a, val-projectoshost-ipc-operation-contract1a, val-windows-local-ipc-capability-b3, val-projectos-gatekeeper-contract1a, val-projectos-closure-transport1a, val-projectos-trust-boundary1a, validate-no-secrets. The aggregate validate-all is NOT claimed as passing (141/144; FAILs: validate-desktop-e2e, val-cd-b4-sealed-expected-window-facts1a, val-projectos-v3-active-phase-consistency1a).",
+    "checksPass is null, deliberately. core-tests 765/765, agent-tests 2182/2182 and agent-typecheck exit 0 all PASS at this subject (run 2026-09-27, configured commands, clean tree). But speed-benchmark, a configured check, was not run, and the gatekeeper's G4-6 benchmark ruling was for PATH1B only - it is NOT claimed for PATH1A. Because this closure is owner-direct and does not evaluate G4, the boolean is left null rather than asserted.",
+    "reviewsComplete: the approved v1.6 plan requires Claude self-review, ECC CODE review and ECC SECURITY review for PATH1A. They ran over the cumulative ancestry 87f734e..c30362e, which contains all PATH1A code: ECC CODE APPROVE 0/0/0/0; ECC SECURITY APPROVE, 0 CRITICAL/HIGH. The reconciliation was independently challenged by reality-checker (Agency Workforce, advisory, corpus ad9264e3): 15 findings, all verified and accepted before the pack was finalised. No machine-readable review artifact is claimed or manufactured; this note is the transcription.",
+    "O1: the two amendments without an owner-table row were CONFIRMED by the owner on 2026-09-27 - O1-A the P1 production review-capability mint with its governed-review transport route and V5 scope companions (minting requires the sealed VerifiedOwnerProgrammeDelegation; no provider or spend authority); O1-B the windows-client-admission edge, client-admission route, two production constructors and the second mint of the existing VerifiedPeerAdmission (no new principal, authority type or IPC/session model).",
+    "unresolved: zero CRITICAL, zero HIGH. MANDATORY CARRY-FORWARD, not done here: B2 pin windows-client-admission as non-default and B5 pin it out of the ipc test-fixtures graph, both mutation-proven, before PROJECTOS autonomy-bootstrap certification or unattended authority activation, or earlier if that Cargo feature graph is modified; stale 'no production mint' comments; B15 admitted-cost wording.",
+    "protectedEffects NONE: reconciliation and closure recording only - no production, provider, spend, credential, service, ACL, registry, force push or merge. Lifecycle walked with `projectos phase advance`, one transition per command, every note 'reconciliation only - no implementation, no source'; phase advance saves the record and re-syncs current state and starts no loop, worker or process."
+  ]
+}
