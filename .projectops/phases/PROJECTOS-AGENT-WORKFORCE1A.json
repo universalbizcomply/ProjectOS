@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-AGENT-WORKFORCE1A",
   "project": "projectos",
   "objective": "Create the universal governed specialist-workforce foundation for ProjectOS: exactly one persistent project leader per active governed project execution, a versioned agent registry holding the complete approved specialist catalogue at a pinned upstream commit, dynamic minimum-team selection with explained rationale, structured specialist contracts, an operational leader ledger, separation of agent role from execution model, third-party provenance, governed catalogue updates, a basic evaluation contract and independent-review boundaries, so that the full catalogue is available without ProjectOS becoming an uncontrolled swarm. The operating model is: owner, then ProjectOS governance, then exactly one project leader, then dynamically selected specialists, then execution models and tools, then evidence, then ProjectOS gates, then the owner wherever protected authority is required. Nothing is activated: no live specialist execution, no provider call, no credential and no spend.",
-  "status": "implementing",
+  "status": "awaiting_closure",
   "history": [
     {
       "from": "draft",
@@ -17,6 +17,34 @@
       "by": "implementer",
       "at": "2026-09-27T16:34:30.450Z",
       "note": "implementation begins after reconciliation inventory"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-09-27T23:07:30.047Z",
+      "note": "closure tail only - no implementation, no source. Implementation complete at evidence subject 8f7c326 (69fb141 -> 5d68070 -> 8f7c326), pushed and remote-verified. All 6 plan-required validators PASS at the subject (validate-all 143/145, FAILs disclosed and accepted: validate-desktop-e2e, val-cd-b4-sealed-expected-window-facts1a); workforce validator mutation battery 90/90; agent 2341/2341, typecheck PASS"
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-09-27T23:07:30.470Z",
+      "note": "closure tail only - no implementation, no source. Closure evidence .projectops/closure/PROJECTOS-AGENT-WORKFORCE1A.json and engineering evidence docs/speed/agent-workforce1a-evidence.md at 8f7c326; catalogue acquisition PROVEN (owner-run; ad9264e3, 279 agents, 18 divisions, MIT, digest 56ad3212...)"
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-09-27T23:07:30.829Z",
+      "note": "closure tail only - no implementation, no source. Reviews: Claude self-review; ECC CODE APPROVE and ECC SECURITY APPROVE at 8f7c326; multi-agent systems architecture recheck and application-security-engineer round-1 findings all dispositioned; Agency round-2 rechecks undelivered (tooling), accepted non-blocking by the gatekeeper; 0 CRITICAL/HIGH"
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-09-27T23:07:31.185Z",
+      "note": "closure tail only - no implementation, no source. Gatekeeper ACCEPTED FOR CLOSURE; closes owner-direct by Murad under phase-specific authority; no production, provider, credential or live specialist; pre-activation carry-forward mandatory (B2/B5 mutation-proven and items 4-9)"
     }
   ]
 }

@@ -18,13 +18,13 @@
   "deferredPhases": [],
   "acceptedCarryForward": [],
   "currentBranch": "projectos-agent-workforce1a",
-  "currentHead": "69fb141522f1d4c57870ee166048cb51d4036ae7",
+  "currentHead": "8f7c326d8643ba1fb478c8265c422538d2f34e83",
   "currentRemoteHead": null,
   "workingTreeStatus": "dirty",
   "currentRisks": [],
   "currentBlockers": [],
   "lastEvidenceReference": "plan-approval decision PLANDEC-4103522e5889694d40a9a3cf",
   "nextRecommendedPhase": "PROJECTOS-AGENT-WORKFORCE1A",
-  "lastUpdated": "2026-09-27T16:34:30.595Z",
+  "lastUpdated": "2026-09-27T23:07:31.270Z",
   "updatedByRole": "implementer"
 }
