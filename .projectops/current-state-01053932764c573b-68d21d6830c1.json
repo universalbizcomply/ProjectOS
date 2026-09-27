@@ -3,15 +3,16 @@
   "projectId": "projectos",
   "activePlanId": "plan-01053932764c573b-68d21d6830c1",
   "activePlanVersion": "1.6",
-  "currentStatus": "IN EXECUTION",
+  "currentStatus": "PLAN READY",
   "completionMethod": "phase-closure",
-  "acceptedPhaseCount": 1,
+  "acceptedPhaseCount": 2,
   "totalPhaseCount": 3,
-  "completionPercentage": 33.3,
+  "completionPercentage": 66.7,
   "completedPhases": [
+    "PROJECTOS-HOST-REVIEW-PATH1A",
     "PROJECTOS-HOST-REVIEW-PATH1B"
   ],
-  "activePhase": "PROJECTOS-HOST-REVIEW-PATH1A",
+  "activePhase": null,
   "pendingPhases": [
     "PROJECTOS-AGENT-WORKFORCE1A"
   ],
@@ -19,13 +20,13 @@
   "deferredPhases": [],
   "acceptedCarryForward": [],
   "currentBranch": "projectos-run-to-completion-host-attestation1a",
-  "currentHead": "acc92c4cde63886a09d4f11282b6ec1a2ee120c9",
+  "currentHead": "213a9528e8be24ccb5cf23daad049af28a8b03ce",
   "currentRemoteHead": null,
   "workingTreeStatus": "dirty",
   "currentRisks": [],
   "currentBlockers": [],
   "lastEvidenceReference": "plan-approval decision PLANDEC-4103522e5889694d40a9a3cf",
-  "nextRecommendedPhase": "PROJECTOS-HOST-REVIEW-PATH1A",
-  "lastUpdated": "2026-09-27T00:58:24.367Z",
-  "updatedByRole": "implementer"
+  "nextRecommendedPhase": "PROJECTOS-AGENT-WORKFORCE1A",
+  "lastUpdated": "2026-09-27T00:59:03.247Z",
+  "updatedByRole": "owner"
 }

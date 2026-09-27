@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-HOST-REVIEW-PATH1A",
   "project": "ProjectOS",
   "objective": "Implement the complete agent-to-host unattended review path in production code and leave it dormant: the agent-side review ports and local transport, the host-side review facades and operation dispatch, the execution rung that drives the existing host gatekeeper-review operation through an injected independent-review seam, the host decision and attestation serialisation, and one canonical bounded out-of-band representation bound to the existing fixed-width authority frames, proven by a cross-language codec agreement and one isolated round-trip over the real transport, with no service start, no live authority, no provider call and no spend.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -101,6 +101,13 @@
       "by": "implementer",
       "at": "2026-09-27T00:58:24.266Z",
       "note": "reconciliation only — no implementation, no source. Closure evidence and reconciliation report written at subject 6f9bd06; closes owner-direct by Murad; O1-A/O1-B confirmed; B2/B5 pins are mandatory carry-forward"
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-09-27T00:59:03.130Z",
+      "note": "closed by owner Murad, decision projectos:PROJECTOS-HOST-REVIEW-PATH1A:owner-closure:6f9bd06c"
     }
   ]
 }
