@@ -430,6 +430,7 @@ export function run(ctx: CommandContext, flags: Flags): CommandResult {
    */
   const runOnePhase = (): RunResult => runLoop(ctx.sys, ctx.root, {
     onWorkState,
+    workforce: true,
     ...(worker === '' ? {} : { workerId: worker }),
     dryRun,
     resume,

@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "policyVersion": "1",
+  "liveExecutionActivated": false,
+  "models": [
+    {
+      "ref": "fixture:deterministic-primary",
+      "kind": "fixture",
+      "approved": true
+    },
+    {
+      "ref": "fixture:deterministic-secondary",
+      "kind": "fixture",
+      "approved": true
+    },
+    {
+      "ref": "fixture:unapproved",
+      "kind": "fixture",
+      "approved": false
+    }
+  ],
+  "preferences": {
+    "policy:leader": {
+      "primary": "fixture:deterministic-primary",
+      "fallback": null
+    },
+    "policy:specialist-standard": {
+      "primary": "fixture:deterministic-primary",
+      "fallback": "fixture:deterministic-secondary"
+    },
+    "policy:specialist-high": {
+      "primary": "fixture:deterministic-primary",
+      "fallback": "fixture:deterministic-secondary"
+    }
+  }
+}

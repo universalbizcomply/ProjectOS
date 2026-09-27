@@ -30,6 +30,7 @@ import { consumeAnsweredOwnerGates, ownerGateReceiptRelPath } from './ownerGateR
 import { runTechnicalContinuation, performableTechnicalActions } from './technicalContinuation.js';
 import { resolveTechnicalDelegation } from './gatekeeperConfig.js';
 import { selectNextPhase, selectionStopLines } from './selection.js';
+import { workforceForRun } from '../workforce/orchestrator.js';
 import { buildWorkerBrief, briefProvenanceProblems, type WorkerBrief } from './brief.js';
 import {
   committedExecutionProblems,
@@ -114,6 +115,12 @@ export interface RunOptions {
    * decision still reported, so the run can be reviewed before anything is spawned.
    */
   readonly dryRun?: boolean;
+  /**
+   * Select the phase's specialist team automatically (PROJECTOS-AGENT-WORKFORCE1A). Set by the `run`
+   * command; off for every other caller, so their behaviour and output are unchanged. The workforce only
+   * SELECTS and RECORDS here — specialist execution is not activated — and it never stops the run.
+   */
+  readonly workforce?: boolean;
   /**
    * The process that invoked ProjectOS, recorded before any worker is spawned. Injected so a test
    * can assert deterministic values; a real run supplies its own — see `invocation.ts` for why this
@@ -562,6 +569,24 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     `Worker: ${resolution.worker.workerId} (${resolution.worker.kind})`,
     `Brief:  ${briefFile}`,
   ];
+
+  // THE WORKFORCE, SELECTED FROM THE SAME GOVERNED PHASE THE BRIEF WAS BUILT FROM. Nobody names an agent.
+  if (options.workforce === true) {
+    lines.push(
+      ...workforceForRun(sys, root, {
+        phase: {
+          phaseId,
+          riskLevel: brief.phase.riskLevel,
+          requiredReviews: brief.phase.requiredReviews,
+          requiredBrowserProof: brief.phase.requiredBrowserProof,
+          paths: scopePaths,
+        },
+        objective: brief.phase.description,
+        candidate: verification.observed.head,
+        dryRun: options.dryRun === true,
+      }),
+    );
+  }
 
   if (options.dryRun === true) {
     lines.push('DRY RUN: the brief is written and no worker was started.');

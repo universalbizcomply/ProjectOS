@@ -115,7 +115,8 @@ const MODULES = [
   // RUN-TO-COMPLETION HOST ATTESTATION §10I — first-start durable store custody.
   "val-host-store-custody-10i",
   "val-projectos-host-review-path1a",
-  "val-projectos-host-review-path1b"
+  "val-projectos-host-review-path1b",
+  "val-projectos-agent-workforce1a"
 ];
 const scratch = require("./lib/scratch.cjs");
 const validationRecord = require("./lib/validation-record.cjs");

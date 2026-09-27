@@ -21,6 +21,7 @@ import { install } from './commands/install.js';
 import { run as runPhase } from './commands/run.js';
 import { reconcile } from './commands/reconcile.js';
 import { mcp } from './commands/mcp.js';
+import { workforce } from './commands/workforce.js';
 import { CORE_VERSION } from '@projectos/core';
 
 export const AGENT_VERSION = '0.1.0';
@@ -76,6 +77,7 @@ export const HELP: readonly string[] = [
   '  run [--worker <id>] [--dry-run]  Advance the approved plan by one phase with the governed worker',
   '  reconcile --grant <ID> --work <ID> --dry-run|--execute  Discharge one degraded work item’s review debt',
   '  mcp status                   Whether the private owner bridge can run, and what it exposes',
+  '  workforce <roster|team|check-update|acquire|evaluate>  Inspect the governed specialist workforce',
   '  plugins                      List the integration catalog (inert)',
   '  close --phase <ID>           Refuses — closure is owner-gated',
   '  closure <request|resume|status> --id <ID>  Ask the closure authority, wait for the owner’s commit, resume',
@@ -98,6 +100,8 @@ export function run(ctx: CommandContext, argv: readonly string[]): CommandResult
       return reconcile(ctx, flags);
     case 'mcp':
       return mcp(ctx, flags, positionals);
+    case 'workforce':
+      return workforce(ctx, flags, positionals);
     case 'plugins':
       return plugins(ctx);
     case 'doctor':

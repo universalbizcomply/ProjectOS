@@ -239,6 +239,9 @@ function buildInputMap() {
   map["val-projectos-work-record-not-authority1a"] = [AGENT_SRC, CORE_SRC];
   map["val-projectos-worker-lifecycle-bounded1a"] = [AGENT_SRC, CORE_SRC, "projectos/worker"];
   map["val-projectos-live-gate-owner-floor1a"] = [AGENT_SRC, CORE_SRC];
+  // PROJECTOS-AGENT-WORKFORCE1A reads the workforce sources, core's Role, the workforce proofs and the
+  // four governance documents.
+  map["val-projectos-agent-workforce1a"] = [AGENT_SRC, CORE_SRC, "projectos/agent/test", ".projectops/workforce"];
   map["val-projectos-technical-continuation1a"] = [AGENT_SRC, CORE_SRC];
   map["val-projectos-closure-transport1a"] = [AGENT_SRC, CORE_SRC];
   // PROJECTOS-HOST-REVIEW-PATH1A reads the agent path, the core codec, four Host crates, the service
