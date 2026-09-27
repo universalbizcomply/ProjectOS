@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-AGENT-WORKFORCE1A",
   "project": "projectos",
   "objective": "Create the universal governed specialist-workforce foundation for ProjectOS: exactly one persistent project leader per active governed project execution, a versioned agent registry holding the complete approved specialist catalogue at a pinned upstream commit, dynamic minimum-team selection with explained rationale, structured specialist contracts, an operational leader ledger, separation of agent role from execution model, third-party provenance, governed catalogue updates, a basic evaluation contract and independent-review boundaries, so that the full catalogue is available without ProjectOS becoming an uncontrolled swarm. The operating model is: owner, then ProjectOS governance, then exactly one project leader, then dynamically selected specialists, then execution models and tools, then evidence, then ProjectOS gates, then the owner wherever protected authority is required. Nothing is activated: no live specialist execution, no provider call, no credential and no spend.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-09-27T23:07:31.185Z",
       "note": "closure tail only - no implementation, no source. Gatekeeper ACCEPTED FOR CLOSURE; closes owner-direct by Murad under phase-specific authority; no production, provider, credential or live specialist; pre-activation carry-forward mandatory (B2/B5 mutation-proven and items 4-9)"
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-09-27T23:08:25.922Z",
+      "note": "closed by owner Murad, decision projectos:PROJECTOS-AGENT-WORKFORCE1A:owner-closure:8f7c326d"
     }
   ]
 }
