@@ -23,7 +23,12 @@
  *      review, and no workforce result satisfies a plan-required review;
  *   G. no new governance role: `Role` is still owner | advisor | implementer, and the workforce never
  *      acts as `owner`;
- *   H. fixture execution only: no network, provider or credential reach in the workforce sources.
+ *   H. fixture execution only: no network, provider or credential reach in the workforce sources;
+ *   I. the pre-push review fixes: `run` is never stopped by the workforce; facts reach it from every path
+ *      the scope names and the candidate changed; an upstream is accepted only on `origin`; results and
+ *      contradictions stay inside their generation; a review covers all the work; panel budgets hold on
+ *      retries; the log is bounded by size; cached text is hashed before evaluation; untrusted inputs are
+ *      bounded before they reach the log or the terminal.
  *
  * Reads files. Runs nothing, calls no provider, mutates nothing.
  */
@@ -47,6 +52,10 @@ const FILES = {
   engines: `${WF}/engines.ts`,
   models: `${WF}/models.ts`,
   orchestrator: `${WF}/orchestrator.ts`,
+  facts: `${WF}/facts.ts`,
+  acquisition: `${WF}/acquisition.ts`,
+  command: "projectos/agent/src/commands/workforce.ts",
+  runner: "projectos/agent/src/loop/runner.ts",
   coreTypes: "projectos/core/src/types.ts",
 };
 const DATA = {
@@ -302,6 +311,60 @@ function run() {
     if (/\bfetch\(|node:https?'|from 'https?'|node:net'|process\.env\[['"][A-Z_]*(KEY|TOKEN|SECRET)/.test(f.text)) E(`H1 ${f.rel} can reach the network or a credential`);
   }
   if ((src.engines.match(/readonly provider: 'fixture';/g) || []).length !== 2) E("H2 an engine (specialist or leader) may be something other than a fixture");
+
+  // ---- I. PRE-PUSH REVIEW FIXES --------------------------------------------------------------------
+  const wfr = fnBody(src.orchestrator, "workforceForRun");
+  if (wfr === null || !/try \{\s*return workforceForRunUnguarded\(sys, root, input\);\s*\} catch \(e\) \{/.test(wfr) || /throw /.test(wfr)) E("I1 a workforce failure can stop `projectos run` (no exception boundary)");
+  if (loadAt === null || !/if \(!isSafeProjectId\(projectId\)\)/.test(loadAt)) E("I2 governance accepts a project id the store cannot name (crashes the run later)");
+  if (oac === null || !/startsWith\(`refs\/remotes\/\$\{GOVERNED_REMOTE\}\/`\)/.test(oac) || !/const GOVERNED_REMOTE = 'origin';/.test(src.governance)) E("I3 an upstream on any remote can pose as owner-accepted state");
+  if (!/scopeText: phaseScopeText\(context\.plan, phaseId\)/.test(src.runner)) E("I4 `run` no longer hands the whole approved scope text to the workforce");
+  const wfru = fnBody(src.orchestrator, "workforceForRunUnguarded");
+  if (wfru === null || !/pathsInText\(input\.scopeText \?\? ''\)/.test(wfru) || !/candidatePaths\(sys, root, gov\.value\.acceptedCommit\)/.test(wfru)) E("I5 the scope's paths or the candidate's changed paths no longer reach the facts");
+  const cp = fnBody(src.orchestrator, "candidatePaths");
+  if (cp === null || !/if \(r\.code !== 0\) throw new WorkforceRefusal\('CANDIDATE_PATHS_UNREADABLE'/.test(cp) || /return \[\];/.test(cp)) E("I6 an unreadable candidate diff reads as 'nothing changed'");
+  if (!/out \+= '\(\?:\.\*\/\)\?';/.test(src.facts)) E("I7 `**/` no longer matches at the root (a root Dockerfile or migrations/ would be missed)");
+  if (locked === null || !/if \(rec\.generation !== generation\) \{\s*return refuseStage\([^;]*'RESULT_FROM_ANOTHER_GENERATION'/.test(locked)) E("I8 an older generation's result can be passed on");
+  const rc = fnBody(src.decisions, "resolveContradiction");
+  if (rc === null || !/if \(rec === undefined \|\| rec\.generation !== generation\) \{/.test(rc)) E("I9 a later leader can close an older generation's contradiction");
+  if (locked === null || !/'REVIEW_BEFORE_CONTRIBUTIONS_COMPLETE'/.test(locked) || !/if \(reviewed\.length < required\.length\) \{/.test(locked) || !/'REVIEW_MUST_COVER_ALL_RESULTS'/.test(locked)) {
+    E("I10 an independent review can run before the work is finished, or cover only part of it");
+  }
+  if (irs === null || !/evidence\.unreviewedResults\.length > 0/.test(irs)) E("I11 review evidence that skipped a contributor result can satisfy independent review");
+  const ra = fnBody(src.dispatch, "runAttempts");
+  if (ra === null || !/if \(panel === null \|\| panel\.costUnits \+ unit > panel\.costBudgetUnits\) \{/.test(ra)) E("I12 retries and fallbacks are no longer held to a panel's declared cost budget");
+  const maxC = /export const MAX_CONTRADICTIONS_PER_RESULT = (\d+);/.exec(src.dispatch);
+  if (
+    accept === null ||
+    accept.search(/findContradictions\(/) < 0 ||
+    accept.search(/findContradictions\(/) > accept.search(/append\('result-recorded'/) ||
+    !/if \(contradictions\.length > MAX_CONTRADICTIONS_PER_RESULT\) \{/.test(accept) ||
+    maxC === null ||
+    Number(maxC[1]) > 50
+  ) {
+    E("I13 contradictions are no longer counted and bounded before a result is recorded");
+  }
+  if (!/if \(known\.has\(contradictionId\)\) continue;/.test(fnBody(src.dispatch, "findContradictions") || "")) E("I14 the same contradiction can be recorded twice");
+  const app = fnBody(src.store, "append") || src.store;
+  const num = (re) => {
+    const m = re.exec(src.store + src.contracts);
+    return m === null ? NaN : m[1].split("*").reduce((a, x) => a * Number(x.trim()), 1);
+  };
+  if (!/lineBytes > MAX_EVENT_BYTES/.test(app) || !/> MAX_LOG_BYTES/.test(app)) E("I15 the event log is no longer bounded by bytes (per event and in total)");
+  if (!(num(/export const MAX_RESULT_BYTES = ([\d\s*]+);/) < num(/export const MAX_EVENT_BYTES = ([\d\s*]+);/))) E("I16 a valid result may exceed the per-event bound and become unrecordable");
+  const vpd = fnBody(src.contracts, "validatePanelDeclaration") || "";
+  if (!/new Set\(subjects\)\.size !== subjects\.length\) e\.push/.test(src.contracts) || !/const extra = Object\.keys\(v\)\.filter\(\(k\) => !\(PANEL_KEYS as readonly string\[\]\)\.includes\(k\)\);/.test(vpd) || !/extra\.length > 0 \?/.test(vpd)) {
+    E("I17 a result may repeat a subject, or a panel may carry undeclared fields into the log");
+  }
+  const ev = fnBody(src.command, "evaluate");
+  if (ev === null || !/sha256Hex\(cached\.bytes\) !== entry\.source\.digest/.test(ev) || /inspectGovernanceAtHead\(/.test(ev)) E("I18 `workforce evaluate` uses cached text without hashing it, or reads un-accepted governance by default");
+  const cu = fnBody(src.command, "checkUpdate");
+  if (cu === null || !/\/\^\[0-9a-f\]\{64\}\$\/\.test\(v\)/.test(cu) || !/JSON\.stringify\(x\)/.test(cu)) E("I19 `workforce check-update` compares or prints an unvalidated manifest");
+  if (!/\/\[\\\\\\0\]\/\.test\(requested\)/.test(fnBody(src.dispatch, "scopeAllowed") || "")) E("I20 a backslash, UNC or NUL scope can pass the grant");
+  if (!/if \(idle < 0\) throw new WorkforceRefusal\('LEADER_TIME_UNKNOWN'/.test(src.leader)) E("I21 a clock that moved backwards reads the lease as live");
+  if (!/linked = lstatSync\(join\(source, division\)\)\.isSymbolicLink\(\);/.test(src.acquisition) || !/if \(linked\) \{\s*problems\.push\(/.test(src.acquisition) || !/LICENCE_NAMES\.find\(\(n\) => isPlainFile\(/.test(src.acquisition)) {
+    E("I22 the acquisition follows a linked division or licence");
+  }
+  if (!/const kind = String\(decision\.kind\)\.slice\(0, 80\);/.test(src.decisions)) E("I23 a leader-supplied decision kind reaches the log unbounded");
 
   for (const t of TESTS) if (read(t) === null) E(`T1 ${t} is missing — the behaviour it proves is no longer proven`);
   return errors;

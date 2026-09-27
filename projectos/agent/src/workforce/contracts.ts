@@ -17,6 +17,21 @@ export const RESULT_SCHEMA = 'projectos.specialist-result.v1';
 
 const MAX_TEXT = 4000;
 const MAX_ITEMS = 100;
+/** A whole result, serialised. Below the event store's per-event bound, so a valid result is always recordable. */
+export const MAX_RESULT_BYTES = 128 * 1024;
+const PANEL_KEYS = [
+  'panelId',
+  'participants',
+  'purpose',
+  'inputContract',
+  'outputContract',
+  'maxRounds',
+  'terminationRule',
+  'failureRule',
+  'costBudgetUnits',
+  'contextBudgetBytes',
+  'decisionOwner',
+] as const;
 const TASK_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/;
 const ROLE_ID = /^[a-z0-9][a-z0-9-]{0,79}$/;
 const shortList = (v: unknown): boolean => Array.isArray(v) && v.length <= 20 && v.every((x) => typeof x === 'string' && x.length <= 200);
@@ -134,11 +149,16 @@ export function validateResult(
   if (!text(v['summary'])) e.push('summary must be text within the bound');
   const findings = v['findings'];
   if (!Array.isArray(findings) || findings.length > MAX_ITEMS) e.push('findings must be a bounded list');
-  else for (const f of findings) {
-    if (!isObj(f) || exactKeys(f, ['subject', 'verdict', 'severity', 'detail']).length > 0 || !text(f['subject'], 200) || !['pass', 'fail', 'concern'].includes(String(f['verdict'])) || !SEVERITIES.includes(f['severity'] as Severity) || !text(f['detail'])) {
-      e.push('a finding is not {subject, verdict, severity, detail}');
-      break;
+  else {
+    for (const f of findings) {
+      if (!isObj(f) || exactKeys(f, ['subject', 'verdict', 'severity', 'detail']).length > 0 || !text(f['subject'], 200) || !['pass', 'fail', 'concern'].includes(String(f['verdict'])) || !SEVERITIES.includes(f['severity'] as Severity) || !text(f['detail'])) {
+        e.push('a finding is not {subject, verdict, severity, detail}');
+        break;
+      }
     }
+    // ONE verdict per subject: a result that says both is not a result, and each repeat would multiply contradictions.
+    const subjects = findings.map((f) => (isObj(f) ? f['subject'] : undefined));
+    if (new Set(subjects).size !== subjects.length) e.push('findings name the same subject more than once');
   }
   for (const k of ['evidenceRefs', 'affectedFiles', 'recommendations', 'blockers']) if (!textList(v[k])) e.push(`${k} must be a bounded list of text`);
   const risks = v['risks'];
@@ -150,6 +170,7 @@ export function validateResult(
   if (dr !== null && (!isObj(dr) || exactKeys(dr, ['question', 'owner']).length > 0 || !text(dr['question']) || !['leader', 'gate', 'owner'].includes(String(dr['owner'])))) {
     e.push('decisionRequired must be null or {question, owner}');
   }
+  if (e.length === 0 && Buffer.byteLength(JSON.stringify(v), 'utf8') > MAX_RESULT_BYTES) e.push(`the result exceeds ${MAX_RESULT_BYTES} bytes`);
   return e;
 }
 
@@ -203,9 +224,14 @@ export interface PanelDeclaration {
 
 export function validatePanelDeclaration(v: unknown): string[] {
   if (!isObj(v)) return ['the panel declaration is not a structured object'];
-  const e: string[] = [];
+  // Recorded whole, so nothing beyond the declared fields is accepted.
+  const extra = Object.keys(v).filter((k) => !(PANEL_KEYS as readonly string[]).includes(k));
+  const e: string[] = extra.length > 0 ? [`the declaration carries undeclared field(s): ${extra.slice(0, 5).map((k) => `'${k.slice(0, 40)}'`).join(', ')}`] : [];
   if (!TASK_ID.test(String(v['panelId']))) e.push('panelId is missing');
-  if (!Array.isArray(v['participants']) || v['participants'].length < 2 || !v['participants'].every((p) => typeof p === 'string')) e.push('participants must name at least two roles');
+  const participants = v['participants'];
+  if (!Array.isArray(participants) || participants.length < 2 || participants.length > 20 || !participants.every((p) => typeof p === 'string' && ROLE_ID.test(p))) {
+    e.push('participants must name two to twenty role ids');
+  }
   for (const k of ['purpose', 'inputContract', 'outputContract', 'terminationRule', 'failureRule']) if (!text(v[k]) || String(v[k]).trim() === '') e.push(`${k} must be declared`);
   for (const k of ['maxRounds', 'costBudgetUnits', 'contextBudgetBytes']) {
     if (typeof v[k] !== 'number' || !Number.isInteger(v[k]) || (v[k] as number) <= 0) e.push(`${k} must be a positive integer`);

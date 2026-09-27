@@ -30,6 +30,7 @@ import { consumeAnsweredOwnerGates, ownerGateReceiptRelPath } from './ownerGateR
 import { runTechnicalContinuation, performableTechnicalActions } from './technicalContinuation.js';
 import { resolveTechnicalDelegation } from './gatekeeperConfig.js';
 import { selectNextPhase, selectionStopLines } from './selection.js';
+import { phaseScopeText } from '../workforce/facts.js';
 import { workforceForRun } from '../workforce/orchestrator.js';
 import { buildWorkerBrief, briefProvenanceProblems, type WorkerBrief } from './brief.js';
 import {
@@ -581,6 +582,8 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
           requiredBrowserProof: brief.phase.requiredBrowserProof,
           paths: scopePaths,
         },
+        // The WHOLE scope text: `scopePaths` keeps only source files, and facts need every path it names.
+        scopeText: phaseScopeText(context.plan, phaseId),
         objective: brief.phase.description,
         candidate: verification.observed.head,
         dryRun: options.dryRun === true,

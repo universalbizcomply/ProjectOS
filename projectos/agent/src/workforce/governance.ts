@@ -8,12 +8,14 @@
  * branch's UPSTREAM names: in ProjectOS a push happens only through the owner's pre-push gate. A
  * commit carrying the local-candidate trailer is refused even there.
  *
- * RESIDUAL, STATED: a process with shell access to the checkout can move a local ref. That is the same
- * residual every committed-state read in ProjectOS carries; the leader and the specialists hold no
- * shell grant (`GRANTABLE_TOOLS`).
+ * RESIDUAL, STATED: a process with shell access to the checkout can move a local ref, or rewrite
+ * `origin`'s URL (`git remote set-url`) and fetch its own commit into `origin/<branch>` — which also
+ * changes the repository key of the workforce state. That is the same residual every committed-state
+ * read in ProjectOS carries; the leader and the specialists hold no shell grant (`GRANTABLE_TOOLS`).
  */
 import type { System } from '../system.js';
 import { digestOf } from './canonical.js';
+import { isSafeProjectId } from './eventStore.js';
 import { validateRegistryDocument } from './registry.js';
 import {
   COST_CLASSES,
@@ -37,6 +39,7 @@ export const GOVERNANCE_FILES = {
 } as const;
 
 const LOCAL_CANDIDATE_TRAILER = 'ProjectOS-Local-Candidate';
+const GOVERNED_REMOTE = 'origin';
 const COMMIT_ID = /^[0-9a-f]{40}$/;
 
 export type Loaded<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly problems: readonly string[] };
@@ -50,6 +53,15 @@ export function ownerAcceptedCommit(sys: System, root: string): Loaded<string> {
     return {
       ok: false,
       problems: ['the branch has no remote-tracking upstream, so no workforce governance is owner-accepted yet (it becomes effective after the owner-gated push)'],
+    };
+  }
+  // AND ON THE GOVERNED REMOTE. Otherwise `git remote add x <dir>; git fetch x; git branch -u x/<b>`
+  // makes an unpushed commit "accepted" with plain porcelain and no push at all. `origin` is the remote
+  // the repository identity (and the state key) is read from.
+  if (!name.stdout.trim().startsWith(`refs/remotes/${GOVERNED_REMOTE}/`)) {
+    return {
+      ok: false,
+      problems: [`the branch's upstream is not on '${GOVERNED_REMOTE}', the governed remote; only a push there is owner-accepted`],
     };
   }
   const r = sys.exec('git', ['-C', root, 'rev-parse', '--verify', '--quiet', '@{upstream}^{commit}']);
@@ -112,6 +124,10 @@ function loadAt(sys: System, root: string, commit: string): Loaded<WorkforceGove
   }
   const projectId = (project.value as { projectId?: unknown } | null)?.projectId;
   if (typeof projectId !== 'string' || projectId.length === 0) return { ok: false, problems: ['the project config at the owner-accepted commit names no projectId'] };
+  // The store is named by it, so the store's rule is governance's rule — refused here, not thrown later.
+  if (!isSafeProjectId(projectId)) {
+    return { ok: false, problems: [`the projectId '${projectId.slice(0, 80)}' at the owner-accepted commit does not make a safe workforce record name`] };
+  }
   return validateGovernance(commit, projectId, raw.config.value, raw.registry.value, raw.selectionPolicy.value, raw.modelPolicy.value);
 }
 
@@ -200,6 +216,9 @@ export function validateConfig(v: unknown): string[] {
     if (!isNonEmpty(cat['licence'])) e.push('catalogue.licence is missing');
     const loc = cat['cacheLocation'];
     if (!isObj(loc) || !isNonEmpty(loc['baseEnv']) || !isNonEmpty(loc['relative'])) e.push('catalogue.cacheLocation is missing');
+    else if (!/^[A-Za-z0-9][A-Za-z0-9._-]*(\/[A-Za-z0-9][A-Za-z0-9._-]*)*$/.test(String(loc['relative']))) {
+      e.push('catalogue.cacheLocation.relative must be a plain relative path (no "..", no root, no drive)');
+    }
   }
   const leader = v['leader'];
   if (!isObj(leader) || !isPosInt(leader['leaseBoundMs']) || !isNonEmpty(leader['modelPreference']) || !isPosInt(leader['maxProposalItems']) || !COST_CLASSES.includes(leader['costClass'] as never)) {

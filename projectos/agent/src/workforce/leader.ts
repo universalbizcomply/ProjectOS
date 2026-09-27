@@ -82,6 +82,8 @@ export function claimFromEvents(projectId: string, events: readonly WorkforceEve
 export function isStale(claim: LeaderClaim, now: string, leaseBoundMs: number): boolean {
   const idle = Date.parse(now) - Date.parse(claim.renewedAt);
   if (!Number.isFinite(idle)) throw new WorkforceRefusal('LEADER_TIME_UNKNOWN', 'the lease cannot be measured (unreadable time); refusing rather than guessing', true);
+  // A clock that reads BEFORE the last renewal has moved backwards; the lease cannot be measured either.
+  if (idle < 0) throw new WorkforceRefusal('LEADER_TIME_UNKNOWN', 'the clock reads earlier than the lease’s last renewal; refusing rather than guessing', true);
   return idle > leaseBoundMs;
 }
 

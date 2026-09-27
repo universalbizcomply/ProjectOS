@@ -68,6 +68,37 @@ was verified against the code and every one was fixed in scope, with a proof:
 | F15 LOW | `acquire --cache` accepted a path in the repo | refused |
 | F16 LOW | unreadable time read as "live" | refuses (`LEADER_TIME_UNKNOWN`) |
 
+## Pre-push review round (after `5d68070`)
+
+Four independent reviews ran on `5d68070`: ECC code review **WARN (1 HIGH)**, ECC security review **APPROVE (3 LOW)**,
+`multi-agent-systems-architect` delta recheck **CONCERNS (1 HIGH, 2 MEDIUM, 4 LOW)**, `application-security-engineer`
+**CONCERNS (5 MEDIUM, 5 LOW)**. Specialist output was treated as untrusted proposals; every finding was checked against
+the code before it was acted on. Dispositions:
+
+| Finding | Disposition | Proof |
+|---|---|---|
+| ECC HIGH / arch N5: a malformed accepted `projectId` threw through `run` | fixed twice: `run`'s workforce call is an exception boundary (every failure becomes one line), and governance refuses an id the store cannot name | `workforceRun` "refuses — never crashes the run"; I1, I2 |
+| arch N1 HIGH: record facts never reached `run` for `.sql`/`.yml`/`Dockerfile`/`.rs`; `**/` missed the root; candidate paths never passed | `run` passes the whole scope text; its path-shaped tokens (any extension) and the candidate's changed paths since the accepted commit become facts; `**/` matches zero directories; an unreadable diff REFUSES rather than reading as "nothing changed" | `workforceRun` N1 (real repo: `.sql` + workflow + root `Dockerfile` in scope, `payments/` in an unpushed commit → `data`, `production`, `payment`); dry-run through `runLoop` staffs the DB role; I4–I7 |
+| arch N2(a) MED: an older generation's result could be handed on | refused (`RESULT_FROM_ANOTHER_GENERATION`) | I8 + test |
+| arch N2(c) MED: a later leader could resolve an older contradiction with its own team's facts | refused; only the owner closes it | I9 + test |
+| arch N2(b) MED: a party to an escalated contradiction is refused for the project's lifetime | kept fail-closed; **residual** (below) | — |
+| arch N3 MED: a review could cover only the low-risk half | the reviewer runs only after every contributor finished and must be given EVERY completed contributor result; review evidence records what it skipped | I10, I11 + test |
+| arch N4 / AppSec F8 LOW: retries overran a panel budget | budget checked before every attempt | I12 + test |
+| AppSec F1 MED: `workforce evaluate` used unhashed cached text and HEAD governance | hash-before-use; owner-accepted governance unless `--candidate` (labelled); `cacheLocation.relative` must be a plain relative path | I18 + tests |
+| AppSec F2 MED: leader strings unbounded into the log | decision kind, refused facts, panel id bounded; a panel declaration with undeclared fields or more participants than the team bound is refused | I17, I23 + test |
+| AppSec F3 MED: contradiction/log exhaustion | one verdict per subject per result; contradictions deduplicated and counted BEFORE the result is recorded (a result raising > 20 is rejected whole, never half-recorded); per-event 256 KiB and log 32 MiB byte bounds (refuse, never truncate); results ≤ 128 KiB so a valid one is always recordable | I13–I16 + tests |
+| AppSec F5 MED / arch F4: `git remote add x .` made an unpushed commit "accepted" | the upstream must be on `origin`; the `set-url origin` variant is a stated residual | I3 + real-repo test |
+| AppSec F9 LOW: backslash/UNC/home/NUL scopes | refused | I20 + test |
+| AppSec F10 LOW: linked division/licence followed; `check-update` printed raw keys | links refused; manifest validated (40-hex commit, plain paths, sha256 values) and printed escaped | I19, I22 + tests |
+| AppSec F6 LOW: engine-claimed provenance unverified | ProjectOS records the engine it actually dispatched (`dispatchedEngine`) beside the claim | — |
+| arch F16 residual: backwards clock read as live | refuses (`LEADER_TIME_UNKNOWN`) | I21 + test |
+| ECC security LOW 1: `ownerDecided` in `requestProtectedAction` | no change: it only shapes the refusal reason; the verdict type has no `authorised: true` variant (C1/C2 pin it) | — |
+
+Validator section I adds 23 rules. Mutation battery v2 (off-tree, `tools\mutate_workforce_validator_v2.cjs`) reruns
+all 57 v1 mutations plus 33 new ones and counts a kill ONLY when the named rule fires: **90/90**, every file restored
+byte for byte. (Under that stricter rule v1's "D3" mutation turned out to be caught by D5; it is relabelled and a
+genuine D3 mutation added.)
+
 ## Catalogue acquisition (criterion 34) — owner action
 
 The assistant session never reads, copies or runs git in the local corpus (standing rule; the corpus's own update
@@ -84,9 +115,16 @@ It writes only `%LOCALAPPDATA%\ProjectOS\third-party\specialist-catalogue\ad9264
 
 ## Residuals (stated, not hidden)
 
-- A process with the user's own shell can move a local remote-tracking ref or reach the per-user state directory — the
-  same residual as every committed-state read and the degraded-mode ledger. The leader and specialists hold no shell.
+- A process with the user's own shell can move a local remote-tracking ref, rewrite `origin`'s URL and fetch its own
+  commit into `origin/<branch>` (which also changes the state key and so starts a fresh store), or reach the per-user
+  state directory — the same residual as every committed-state read and the degraded-mode ledger. The leader and
+  specialists hold no shell. Before live spend, ceiling state needs Host-owned custody.
+- A role that is party to an ESCALATED contradiction is refused every later task in the project, and the owner
+  decisions list only grows; there is no owner-decision recording command in this phase. Fail-closed; the recording
+  route (and ledger checkpointing under the 5,000-event bound) is a pre-activation item.
+- Pre-activation, not defects today (no live engine exists): the final prompt must be assembled by ProjectOS with each
+  leader note and forwarded summary framed (AppSec F4); a live engine must not run inside the store lock (AppSec F7,
+  ECC security LOW 3); a `--cache` inside another worktree of the same repository is not detected (arch F15).
 - Store recovery after a crash between the event write and the head write, or a left lock, is an owner action (inspect,
   then remove `store.lock` / restore `head.json`); the store fails closed until then.
 - Live eligibility, live engines, model/provider configuration, credentials and spend remain owner activation inputs.
-- Escalated contradictions have no owner-decision recording command in this phase; they stay blocking (fail closed).

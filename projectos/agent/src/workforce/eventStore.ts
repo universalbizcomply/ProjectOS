@@ -22,6 +22,13 @@ import { canonicalJson, digestOf, PREFIXED_DIGEST } from './canonical.js';
 
 export const EVENT_SCHEMA = 'projectos.workforce-event.v1';
 const PROJECT_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+/** One event, serialised, may not exceed this; a larger one is refused, never truncated. */
+export const MAX_EVENT_BYTES = 256 * 1024;
+/** The whole log may not exceed this (every append rewrites it); past it the store refuses and escalates. */
+export const MAX_LOG_BYTES = 32 * 1024 * 1024;
+
+/** A project id that makes a safe record name. Governance refuses any other at the accepted commit. */
+export const isSafeProjectId = (id: string): boolean => PROJECT_ID.test(id);
 
 export type WorkforceEventType =
   | 'leader-minted'
@@ -203,8 +210,16 @@ export class WorkforceStore {
       prevDigest: last === undefined ? null : last.digest,
     };
     const event: WorkforceEvent = { ...body, digest: eventDigest(body) };
+    const line = canonicalJson(event) + '\n';
+    const lineBytes = Buffer.byteLength(line, 'utf8');
+    if (lineBytes > MAX_EVENT_BYTES) {
+      throw new WorkforceRefusal('EVENT_TOO_LARGE', `a '${type}' event of ${lineBytes} bytes exceeds the bound of ${MAX_EVENT_BYTES}; it is refused, never truncated`);
+    }
     const existing = this.sys.readText(this.paths.events) ?? '';
-    this.replace(this.paths.events, existing + canonicalJson(event) + '\n');
+    if (Buffer.byteLength(existing, 'utf8') + lineBytes > MAX_LOG_BYTES) {
+      throw new WorkforceRefusal('LEDGER_BOUND_EXCEEDED', `appending would take the event log past ${MAX_LOG_BYTES} bytes; escalate to the owner`, true);
+    }
+    this.replace(this.paths.events, existing + line);
     this.replace(this.paths.head, canonicalJson({ seq: event.seq, digest: event.digest }));
     return event;
   }

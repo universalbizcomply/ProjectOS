@@ -5,7 +5,7 @@
  */
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -143,6 +143,16 @@ describe('discovery mirrors the governed tooling rule', () => {
     ]);
     expect(scan.divisions).toEqual(['alpha', 'beta']);
     expect(frontMatter(AGENTS['beta/beta-one.md']!)!['description']).toBe('> continued');
+  });
+
+  it('follows no link: a division directory that is a junction is refused, not walked', () => {
+    const elsewhere = join(base, 'elsewhere');
+    mkdirSync(elsewhere);
+    writeFileSync(join(elsewhere, 'gamma-one.md'), '---\nname: Gamma One\n---\n');
+    symlinkSync(elsewhere, join(source, 'gamma'), 'junction');
+    const scan = scanCatalogue(source);
+    expect(scan.problems).toContain("division 'gamma' is a link; the acquisition follows no link");
+    expect(scan.agents.some((a) => a.division === 'gamma')).toBe(false);
   });
 });
 

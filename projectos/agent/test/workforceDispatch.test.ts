@@ -3,11 +3,13 @@
  * Every engine here is a deterministic fixture engine; nothing calls a provider.
  */
 import { afterEach, describe, expect, it } from 'vitest';
-import type { TaskEnvelope } from '../src/workforce/contracts.js';
-import { acceptResult, dispatchSpecialistTask, type InstructionSource } from '../src/workforce/dispatch.js';
+import { validateResult, type TaskEnvelope } from '../src/workforce/contracts.js';
+import { acceptResult, dispatchSpecialistTask, MAX_CONTRADICTIONS_PER_RESULT, type InstructionSource } from '../src/workforce/dispatch.js';
 import { fixtureLeader, fixtureSpecialist, type EngineInput, type SpecialistEngine } from '../src/workforce/engines.js';
+import { pathPattern, pathsInText } from '../src/workforce/facts.js';
+import { validateConfig } from '../src/workforce/governance.js';
 import { ensureProjectLeader } from '../src/workforce/leader.js';
-import { declarePanel, resolveContradiction } from '../src/workforce/leaderDecisions.js';
+import { declarePanel, recordLeaderDecision, resolveContradiction } from '../src/workforce/leaderDecisions.js';
 import { runLeaderRound, startObjective, workforceStateRoot } from '../src/workforce/orchestrator.js';
 import { projectLedger } from '../src/workforce/projection.js';
 import { requestProtectedAction } from '../src/workforce/protectedActions.js';
@@ -386,16 +388,30 @@ describe('assignments, panels and review independence', () => {
     const events = () => w.store().readVerified();
     const t1 = dispatchSpecialistTask(w.runtime(), gen, task('T1', 'application-security-engineer'));
     if (t1.kind !== 'recorded') throw new Error('T1 not recorded');
+    const ref = (d: string) => ({ kind: 'result-ref' as const, resultDigest: d });
+    // N3: the reviewer reviews the FINISHED work — not while a contributor is still working.
+    expect(dispatchSpecialistTask(w.runtime(), gen, { ...task('R-early', 'security-architect', 'review subject:parser'), inputs: [ref(t1.resultDigest)] })).toMatchObject({
+      code: 'REVIEW_BEFORE_CONTRIBUTIONS_COMPLETE',
+    });
+    const t2 = dispatchSpecialistTask(w.runtime(), gen, task('T2', 'test-automation-engineer'));
+    if (t2.kind !== 'recorded') throw new Error('T2 not recorded');
     // The reviewer is never handed implementation work: its task must name the contributors' results (F12).
     expect(dispatchSpecialistTask(w.runtime(), gen, task('R0', 'security-architect', 'fix subject:parser yourself'))).toMatchObject({ code: 'REVIEW_TASK_NEEDS_A_SUBJECT' });
-    dispatchSpecialistTask(w.runtime(), gen, { ...task('R1', 'security-architect', 'independently review subject:parser defect:parser'), inputs: [{ kind: 'result-ref', resultDigest: t1.resultDigest }] });
+    // N3: and EVERY completed contributor result — a review of the low-risk half is not a review.
+    expect(dispatchSpecialistTask(w.runtime(), gen, { ...task('R-half', 'security-architect', 'review subject:parser'), inputs: [ref(t2.resultDigest)] })).toMatchObject({
+      code: 'REVIEW_MUST_COVER_ALL_RESULTS',
+    });
+    dispatchSpecialistTask(w.runtime(), gen, { ...task('R1', 'security-architect', 'independently review subject:parser defect:parser'), inputs: [ref(t1.resultDigest), ref(t2.resultDigest)] });
     const team = [
       { roleId: 'application-security-engineer', assignment: 'contribute' },
+      { roleId: 'test-automation-engineer', assignment: 'contribute' },
       { roleId: 'security-architect', assignment: 'independent-review' },
     ];
     expect(independentReviewSatisfied(team, reviewEvidenceFor(events(), 'R1')!, 'project-leader:proj-alpha').satisfied).toBe(true);
+    const partial = { ...reviewEvidenceFor(events(), 'R1')!, unreviewedResults: [t2.resultDigest] };
+    expect(independentReviewSatisfied(team, partial, 'project-leader:proj-alpha').reasons.join(' ')).toMatch(/reviewed only part of the work/);
     expect(independentReviewSatisfied(team, reviewEvidenceFor(events(), 'T1')!, 'project-leader:proj-alpha').satisfied).toBe(false);
-    expect(independentReviewSatisfied(team, { reviewerRoleId: 'project-leader:proj-alpha', taskId: 'X', status: 'completed', panelId: null, reviewedResults: [t1.resultDigest] }, 'project-leader:proj-alpha').satisfied).toBe(false);
+    expect(independentReviewSatisfied(team, { reviewerRoleId: 'project-leader:proj-alpha', taskId: 'X', status: 'completed', panelId: null, reviewedResults: [t1.resultDigest], unreviewedResults: [] }, 'project-leader:proj-alpha').satisfied).toBe(false);
     for (const r of ['ECC CODE review', 'ECC SECURITY review', 'gatekeeper', 'owner gate']) expect(workforceSatisfiesRequiredReview(r).satisfied).toBe(false);
   });
 });
@@ -448,5 +464,160 @@ describe('architecture recheck fixes', () => {
     expect(dir).toMatch(/^C:\/Users\/u\/AppData\/Local\/ProjectOS\/installation-state\/workforce\/[0-9a-f]{16}$/);
     expect(dir!.toLowerCase().startsWith(root.toLowerCase())).toBe(false);
     expect(workforceStateRoot(sys, root, {})).toBeNull();
+  });
+});
+
+describe('pre-push review fixes', () => {
+  /** A ProjectOS takeover after the lease lapses, and the new generation's own team. */
+  function takeOver(): number {
+    w.clock.advance(w.gov.config.leader.leaseBoundMs + 1);
+    const out = startObjective(w.store(), w.gov, {
+      objective: 'continue',
+      phase: { phaseId: 'PHASE-1', riskLevel: 'low', requiredReviews: [], requiredBrowserProof: false },
+      candidate: 'c'.repeat(40),
+      leaderEngine: fixtureLeader(PRIMARY, () => ({ facts: { taskType: 'bug-fix' } })),
+    });
+    if (!out.ok || !out.tookOver) throw new Error('no takeover');
+    return out.leader.generation;
+  }
+
+  it('N2: an older generation’s result cannot be passed on to a newer one', () => {
+    const gen = start('bug-fix');
+    const t1 = dispatchSpecialistTask(w.runtime(), gen, task('T1', 'minimal-change-engineer'));
+    if (t1.kind !== 'recorded') throw new Error('T1 not recorded');
+    const gen2 = takeOver();
+    expect(gen2).toBe(gen + 1);
+    expect(dispatchSpecialistTask(w.runtime(), gen2, { ...task('T2', 'test-automation-engineer', 'test it'), inputs: [{ kind: 'result-ref', resultDigest: t1.resultDigest }] })).toMatchObject({
+      code: 'RESULT_FROM_ANOTHER_GENERATION',
+    });
+  });
+
+  it('N2: a later leader cannot close a contradiction an older generation recorded — only the owner can', () => {
+    const gen = start('bug-fix');
+    const split: SpecialistEngine = {
+      engineId: 'split',
+      provider: 'fixture',
+      modelRef: PRIMARY,
+      execute: (i, l) => fixtureSpecialist(PRIMARY, i.task.roleId === 'test-automation-engineer' ? 'contradicts' : 'competent').execute(i, l),
+    };
+    dispatchSpecialistTask(w.runtime(new Map([[PRIMARY, split]])), gen, task('T1', 'minimal-change-engineer', 'review subject:parser defect:parser severity:medium'));
+    dispatchSpecialistTask(w.runtime(new Map([[PRIMARY, split]])), gen, task('T2', 'test-automation-engineer', 'review subject:parser defect:parser severity:medium'));
+    const id = String(w.store().readVerified().find((e) => e.type === 'contradiction-recorded')?.payload['contradictionId']);
+    const gen2 = takeOver();
+    const out = resolveContradiction(w.store(), w.gov, gen2, { contradictionId: id, rationale: 'a new leader picks one' });
+    expect(out).toMatchObject({ accepted: false, gate: 'owner' });
+    expect(out.accepted === false && out.reason).toMatch(/another leader generation/);
+    expect(projectLedger('proj-alpha', w.store().readVerified()).openContradictions.map((c) => c.contradictionId)).toEqual([id]);
+  });
+
+  it('N4: a retry spends the panel’s declared budget and stops at it', () => {
+    const gen = start('bug-fix');
+    const unit = w.gov.config.ceilings.costUnits.standard;
+    const panel = {
+      panelId: 'P1',
+      participants: ['minimal-change-engineer', 'test-automation-engineer'],
+      purpose: 'compare',
+      inputContract: 'projectos.specialist-task.v1',
+      outputContract: 'projectos.specialist-result.v1',
+      maxRounds: 2,
+      terminationRule: 'after two rounds',
+      failureRule: 'a failed participant ends the panel',
+      costBudgetUnits: unit,
+      contextBudgetBytes: 8192,
+      decisionOwner: 'project-leader',
+    };
+    expect(declarePanel(w.store(), w.gov, gen, panel)).toMatchObject({ accepted: true });
+    const out = dispatchSpecialistTask(w.runtime(engines('failure')), gen, task('T1', 'minimal-change-engineer', undefined, { panelId: 'P1' }));
+    expect(out).toMatchObject({ kind: 'failed' });
+    expect(out.kind === 'failed' && out.reason).toMatch(/declared cost budget/);
+    expect(w.store().readVerified().filter((e) => e.type === 'task-dispatched' && e.payload['taskId'] === 'T1')).toHaveLength(1);
+  });
+
+  it('F2: a panel is recorded only as declared; leader-supplied strings reach the log bounded', () => {
+    const gen = start('bug-fix');
+    const base = {
+      panelId: 'P1',
+      participants: ['minimal-change-engineer', 'test-automation-engineer'],
+      purpose: 'compare',
+      inputContract: 'in',
+      outputContract: 'out',
+      maxRounds: 1,
+      terminationRule: 't',
+      failureRule: 'f',
+      costBudgetUnits: 2,
+      contextBudgetBytes: 1024,
+      decisionOwner: 'owner',
+    };
+    expect(declarePanel(w.store(), w.gov, gen, { ...base, extra: 'x'.repeat(10_000) })).toMatchObject({ accepted: false });
+    const many = Array.from({ length: w.gov.config.bounds.maxTeamSize + 1 }, (_, i) => `role-${i}`);
+    expect(declarePanel(w.store(), w.gov, gen, { ...base, participants: many })).toMatchObject({ accepted: false });
+    expect(recordLeaderDecision(w.store(), w.gov, gen, { kind: 'k'.repeat(5000), detail: '' })).toMatchObject({ accepted: false });
+    const refused = w.store().readVerified().filter((e) => e.type === 'leader-decision-refused' || e.type === 'panel-refused');
+    expect(refused.every((e) => String(e.payload['kind'] ?? '').length <= 80 && !JSON.stringify(e.payload).includes('x'.repeat(100)))).toBe(true);
+  });
+
+  it('F3: a result raising more contradictions than the bound is rejected whole; subjects are unique; results are size-bounded', () => {
+    const gen = start('bug-fix');
+    const subjects = Array.from({ length: MAX_CONTRADICTIONS_PER_RESULT + 1 }, (_, i) => `subject:s${i} defect:s${i}`).join(' ');
+    const split: SpecialistEngine = {
+      engineId: 'split',
+      provider: 'fixture',
+      modelRef: PRIMARY,
+      execute: (i, l) => fixtureSpecialist(PRIMARY, i.task.roleId === 'test-automation-engineer' ? 'contradicts' : 'competent').execute(i, l),
+    };
+    const t1 = dispatchSpecialistTask(w.runtime(new Map([[PRIMARY, split]])), gen, task('T1', 'minimal-change-engineer', `review ${subjects}`));
+    const t2 = dispatchSpecialistTask(w.runtime(new Map([[PRIMARY, split]])), gen, task('T2', 'test-automation-engineer', `review ${subjects}`));
+    expect(t1.kind).toBe('recorded');
+    expect(t2.kind === 'failed' && t2.reason).toMatch(new RegExp(`${MAX_CONTRADICTIONS_PER_RESULT + 1} contradictions; the bound is ${MAX_CONTRADICTIONS_PER_RESULT}`));
+    expect(types()).not.toContain('contradiction-recorded');
+    if (t1.kind !== 'recorded') throw new Error('T1 not recorded');
+    const r = t1.result;
+    const expectOf = { taskId: r.taskId, roleId: r.agent.roleId, version: r.agent.version, modelRef: r.provenance.modelRef, substitutedFrom: null };
+    expect(validateResult({ ...r, findings: [r.findings[0], r.findings[0]] }, expectOf)).toContain('findings name the same subject more than once');
+    const bulky = { ...r, evidenceRefs: Array(100).fill('e'.repeat(1000)), recommendations: Array(100).fill('r'.repeat(1000)) };
+    expect(validateResult(bulky, expectOf).join()).toMatch(/exceeds 131072 bytes/);
+  });
+
+  it('F3: one event larger than the store bound is refused, never truncated', () => {
+    start('bug-fix');
+    const st = w.store();
+    expect(() => st.withLock(() => st.append('evidence-recorded', 1, { kind: 'note', ref: 'x'.repeat(300 * 1024) }))).toThrow(/EVENT_TOO_LARGE/);
+  });
+
+  it('F9: repository-relative scopes only — no UNC, backslash, home or NUL path passes the grant', () => {
+    const gen = start('bug-fix');
+    for (const scope of ['\\\\server\\share\\x', 'src\\parser', '~/.ssh', 'src/a\0b', '/etc']) {
+      expect(dispatchSpecialistTask(w.runtime(), gen, task(`T-${scope.length}`, 'minimal-change-engineer', undefined, { requestedScopes: { read: [scope] } }))).toMatchObject({
+        code: 'OUTSIDE_GRANT',
+      });
+    }
+  });
+
+  it('F16: a clock that reads before the lease’s last renewal refuses instead of reading as live', () => {
+    const gen = start('bug-fix');
+    w.clock.value = '2000-01-01T00:00:00.000Z';
+    expect(dispatchSpecialistTask(w.runtime(), gen, task('T1', 'minimal-change-engineer'))).toMatchObject({ code: 'LEADER_TIME_UNKNOWN' });
+  });
+
+  it('N1: `**∕` also matches at the root, and scope prose yields every path-shaped token', () => {
+    expect(pathPattern('**/Dockerfile').test('Dockerfile')).toBe(true);
+    expect(pathPattern('**/Dockerfile').test('ops/Dockerfile')).toBe(true);
+    expect(pathPattern('**/migrations/**').test('migrations/0001.sql')).toBe(true);
+    expect(pathPattern('**/*.sql').test('schema.sql')).toBe(true);
+    expect(pathPattern('.github/workflows/**').test('.github/workflowsX/ci.yml')).toBe(false);
+    expect(pathsInText('Add db/migrations/0042.sql, update .github/workflows/ci.yml, the root Dockerfile and netlify.toml.')).toEqual([
+      'db/migrations/0042.sql',
+      '.github/workflows/ci.yml',
+      'Dockerfile',
+      'netlify.toml',
+    ]);
+    expect(pathsInText('see https://example.com/x and ../../etc/passwd')).toEqual([]);
+  });
+
+  it('refuses a catalogue cache location that is not a plain relative path', () => {
+    const cfg = testGovernance().config;
+    const withRelative = (relative: string) => validateConfig({ ...cfg, catalogue: { ...cfg.catalogue, cacheLocation: { ...cfg.catalogue.cacheLocation, relative } } });
+    expect(withRelative('ProjectOS/third-party/specialist-catalogue')).toEqual([]);
+    for (const bad of ['../escape', 'a/../../b', '/abs', 'C:/x', 'a\\b']) expect(withRelative(bad).join()).toMatch(/plain relative path/);
   });
 });

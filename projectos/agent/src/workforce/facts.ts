@@ -53,18 +53,48 @@ export interface TaskFacts {
 const rank = (r: RiskLevel): number => RISK_LEVELS.indexOf(r);
 export const maxRisk = (a: RiskLevel, b: RiskLevel): RiskLevel => (rank(a) >= rank(b) ? a : b);
 
-/** `**` matches any depth, `*` one path segment; everything else is literal. Anchored at both ends. */
+/** `**` any depth (`**∕` also matches NO directory, so `**∕Dockerfile` matches `Dockerfile`), `*` one segment. Anchored. */
 export function pathPattern(glob: string): RegExp {
   let out = '';
   for (let i = 0; i < glob.length; i += 1) {
     const c = glob[i] ?? '';
-    if (c === '*' && glob[i + 1] === '*') {
+    if (c === '*' && glob[i + 1] === '*' && glob[i + 2] === '/') {
+      out += '(?:.*/)?';
+      i += 2;
+    } else if (c === '*' && glob[i + 1] === '*') {
       out += '.*';
       i += 1;
     } else if (c === '*') out += '[^/]*';
     else out += c.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
   }
   return new RegExp(`^${out}$`, 'i');
+}
+
+const MAX_PATHS = 2000;
+
+/**
+ * Every path-shaped token in governed prose (a phase scope): anything with a directory separator, or
+ * a file name with an extension, or a well-known extension-less file. ANY extension counts — the loop's
+ * own implementation-path reader keeps only source files, which would hide migrations, workflows and
+ * container files from the facts that must staff them.
+ */
+export function pathsInText(text: string): string[] {
+  const out = new Set<string>();
+  for (const raw of text.split(/[\s,;()[\]{}<>"'`]+/)) {
+    const t = raw.replace(/\\/g, '/').replace(/^\.\//, '').replace(/[.:!?]+$/, '');
+    if (t.length === 0 || t.length > 300 || t.includes('..') || /^[a-z]+:\/\//i.test(t)) continue;
+    if (t.includes('/') || /\.[A-Za-z0-9]{1,8}$/.test(t) || /^(Dockerfile|Makefile|Procfile)$/.test(t)) out.add(t);
+    if (out.size >= MAX_PATHS) break;
+  }
+  return [...out];
+}
+
+/** The approved plan's scope text for a phase, or '' when it records none. */
+export function phaseScopeText(plan: Readonly<Record<string, unknown>>, phaseId: string): string {
+  const phases = plan['phases'];
+  if (!Array.isArray(phases)) return '';
+  const phase = phases.find((p) => typeof p === 'object' && p !== null && (p as Record<string, unknown>)['phaseId'] === phaseId) as Record<string, unknown> | undefined;
+  return typeof phase?.['scope'] === 'string' ? phase['scope'] : '';
 }
 
 /** Facts the governed records establish. An unreadable risk level is taken as `high`, never as low. */
@@ -102,11 +132,13 @@ export function combineFacts(record: RecordFacts, leader: LeaderSuppliedFacts, p
   const omitted: string[] = [];
   const refused: string[] = [];
 
+  // Leader values reach the event log, so each is bounded before it is quoted.
+  const q = (v: unknown): string => String(v).slice(0, 80);
   let taskType: TaskType;
   if (record.taskType !== null) {
     taskType = record.taskType;
     if (leader.taskType !== undefined && leader.taskType !== record.taskType) {
-      refused.push(`taskType '${String(leader.taskType)}': the records establish '${record.taskType}', and a leader supplies only facts no record carries`);
+      refused.push(`taskType '${q(leader.taskType)}': the records establish '${record.taskType}', and a leader supplies only facts no record carries`);
     }
   } else if (leader.taskType === undefined) {
     taskType = policy.defaultTaskType;
@@ -116,14 +148,14 @@ export function combineFacts(record: RecordFacts, leader: LeaderSuppliedFacts, p
     leaderSupplied.push(`taskType=${taskType}`);
   } else {
     taskType = policy.defaultTaskType;
-    refused.push(`taskType '${String(leader.taskType)}' is not a task type (policy default applied)`);
+    refused.push(`taskType '${q(leader.taskType)}' is not a task type (policy default applied)`);
   }
 
   let riskLevel = record.riskLevel;
   if (leader.riskLevel === undefined) omitted.push('riskLevel');
-  else if (!RISK_LEVELS.includes(leader.riskLevel as RiskLevel)) refused.push(`riskLevel '${String(leader.riskLevel)}' is not a risk level`);
+  else if (!RISK_LEVELS.includes(leader.riskLevel as RiskLevel)) refused.push(`riskLevel '${q(leader.riskLevel)}' is not a risk level`);
   else if (rank(leader.riskLevel as RiskLevel) < rank(record.riskLevel)) {
-    refused.push(`riskLevel '${String(leader.riskLevel)}' would lower the record's '${record.riskLevel}'; a leader may only raise risk`);
+    refused.push(`riskLevel '${q(leader.riskLevel)}' would lower the record's '${record.riskLevel}'; a leader may only raise risk`);
   } else {
     riskLevel = maxRisk(record.riskLevel, leader.riskLevel as RiskLevel);
     leaderSupplied.push(`riskLevel=${String(leader.riskLevel)}`);
@@ -131,13 +163,13 @@ export function combineFacts(record: RecordFacts, leader: LeaderSuppliedFacts, p
 
   const facts = new Set<RiskFact>(record.riskFacts);
   if (leader.riskFacts === undefined) omitted.push('riskFacts');
-  else if (!Array.isArray(leader.riskFacts)) refused.push('riskFacts is not a list');
+  else if (!Array.isArray(leader.riskFacts) || leader.riskFacts.length > RISK_FACTS.length) refused.push('riskFacts is not a list of declared facts');
   else {
     for (const f of leader.riskFacts) {
       if (RISK_FACTS.includes(f as RiskFact)) {
         if (!facts.has(f as RiskFact)) leaderSupplied.push(`fact=${String(f)}`);
         facts.add(f as RiskFact);
-      } else refused.push(`fact '${String(f)}' is not a declared risk fact`);
+      } else refused.push(`fact '${q(f)}' is not a declared risk fact`);
     }
   }
   return {

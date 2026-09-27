@@ -8,6 +8,7 @@
  *   workforce result satisfies any of them. They are named in the plan's `requiredReviews` and owner
  *   gates, and those are matched only against their own records, never against workforce events.
  */
+import { contributorResults, currentTeam } from './dispatch.js';
 import type { WorkforceEvent } from './eventStore.js';
 
 export interface ReviewEvidence {
@@ -17,6 +18,8 @@ export interface ReviewEvidence {
   readonly panelId: string | null;
   /** The recorded results the review task was given (by digest). A review of nothing reviews nothing. */
   readonly reviewedResults: readonly string[];
+  /** Completed contributor results of the review's generation, recorded before it, that it was NOT given. */
+  readonly unreviewedResults: readonly string[];
 }
 
 export interface IndependenceVerdict {
@@ -41,6 +44,7 @@ export function independentReviewSatisfied(
   }
   if (evidence.panelId !== null) reasons.push('panel output never satisfies an independent-review requirement');
   if (evidence.reviewedResults.length === 0) reasons.push('the review task named no recorded contributor result, so it reviewed nothing');
+  if (evidence.unreviewedResults.length > 0) reasons.push(`the review was not given ${evidence.unreviewedResults.length} completed contributor result(s), so it reviewed only part of the work`);
   if (evidence.status !== 'completed') reasons.push(`the review result's status is '${evidence.status}', not completed`);
   return { satisfied: reasons.length === 0, reasons };
 }
@@ -50,13 +54,18 @@ export function reviewEvidenceFor(events: readonly WorkforceEvent[], taskId: str
   const e = events.find((x) => x.type === 'result-recorded' && x.payload['taskId'] === taskId);
   if (e === undefined) return null;
   const grant = events.find((x) => x.type === 'grant-issued' && x.payload['taskId'] === taskId);
-  const reviewed = grant?.payload['inputResults'];
+  const reviewed = Array.isArray(grant?.payload['inputResults']) ? (grant.payload['inputResults'] as unknown[]).map(String) : [];
+  // What the review SHOULD have covered: every contributor result its generation had completed before its grant.
+  const team = currentTeam(events, e.generation);
+  const before = grant === undefined ? [] : events.filter((x) => x.seq < grant.seq);
+  const required = team === null ? [] : contributorResults(before, e.generation, team);
   return {
     reviewerRoleId: String(e.payload['roleId']),
     taskId,
     status: String(e.payload['status']),
     panelId: typeof e.payload['panelId'] === 'string' ? (e.payload['panelId'] as string) : null,
-    reviewedResults: Array.isArray(reviewed) ? reviewed.map(String) : [],
+    reviewedResults: reviewed,
+    unreviewedResults: required.filter((d) => !reviewed.includes(d)),
   };
 }
 

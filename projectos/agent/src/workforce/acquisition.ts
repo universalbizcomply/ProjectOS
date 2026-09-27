@@ -75,11 +75,21 @@ export function frontMatter(text: string): Record<string, string> | null {
   return fields;
 }
 
+/** A regular file that is not a link (a Windows junction or symlink reads as a link to `lstat`). */
+function isPlainFile(path: string): boolean {
+  try {
+    return lstatSync(path).isFile();
+  } catch {
+    return false;
+  }
+}
+
 /** Discover the agents of a source tree. Reads bytes only; follows no link. */
 export function scanCatalogue(source: string): CatalogueScan {
   const problems: string[] = [];
   let divisionIds: string[];
   try {
+    if (!isPlainFile(join(source, 'divisions.json'))) throw new Error('not a plain file');
     const parsed = JSON.parse(readFileSync(join(source, 'divisions.json'), 'utf8')) as { divisions?: Record<string, unknown> };
     divisionIds = Object.keys(parsed.divisions ?? {});
   } catch {
@@ -113,6 +123,16 @@ export function scanCatalogue(source: string): CatalogueScan {
   for (const division of divisionIds) {
     if (!SAFE_REL.test(division)) {
       problems.push(`division '${division}' is not a safe directory name`);
+      continue;
+    }
+    let linked = false;
+    try {
+      linked = lstatSync(join(source, division)).isSymbolicLink();
+    } catch {
+      linked = false;
+    }
+    if (linked) {
+      problems.push(`division '${division}' is a link; the acquisition follows no link`);
       continue;
     }
     walk(join(source, division), division, division);
@@ -185,7 +205,7 @@ export function acquireCatalogue(input: AcquisitionInput): AcquisitionOutcome {
     }
   }
   for (const p of registered.keys()) if (!seen.has(p)) problems.push(`registered ${p} was not found in the source`);
-  const licenceName = LICENCE_NAMES.find((n) => existsSync(join(source, n)));
+  const licenceName = LICENCE_NAMES.find((n) => isPlainFile(join(source, n)));
   const licenceBytes = licenceName === undefined ? null : readFileSync(join(source, licenceName));
   if (licenceBytes === null || licenceName === undefined) problems.push('the source carries no licence file');
   else if (pin.licence === 'MIT' && !isMit(licenceBytes.toString('utf8'))) problems.push(`${licenceName} is not the MIT licence the owner pinned`);
@@ -193,7 +213,7 @@ export function acquireCatalogue(input: AcquisitionInput): AcquisitionOutcome {
 
   const snapshotDir = join(cacheRoot, pin.commit);
   if (existsSync(snapshotDir)) return { ok: false, problems: [`a snapshot already exists at ${snapshotDir}; snapshots are immutable and never overwritten`] };
-  const noticeName = NOTICE_NAMES.find((n) => existsSync(join(source, n)));
+  const noticeName = NOTICE_NAMES.find((n) => isPlainFile(join(source, n)));
   const noticeBytes = noticeName === undefined ? null : readFileSync(join(source, noticeName));
 
   const files: Record<string, string> = {};

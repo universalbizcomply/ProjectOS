@@ -77,8 +77,20 @@ export function currentTeam(events: readonly WorkforceEvent[], generation: numbe
   return team;
 }
 
+/** At most this many contradictions one result may raise; a result raising more is rejected, not half-recorded. */
+export const MAX_CONTRADICTIONS_PER_RESULT = 20;
+
+/** Digests of the COMPLETED results the team's contributors recorded in this generation, in order. */
+export function contributorResults(events: readonly WorkforceEvent[], generation: number, team: Pick<TeamState, 'members'>): string[] {
+  const contributors = new Set(team.members.filter((m) => m.assignment === 'contribute').map((m) => m.roleId));
+  return events
+    .filter((e) => e.type === 'result-recorded' && e.generation === generation && e.payload['status'] === 'completed' && contributors.has(s(e.payload['roleId'])))
+    .map((e) => s(e.payload['resultDigest']));
+}
+
 function scopeAllowed(requested: string, granted: readonly string[]): boolean {
-  if (requested.includes('..') || requested.startsWith('/') || /^[A-Za-z]:/.test(requested)) return false;
+  // Repository-relative, forward-slash paths only: no parent step, root, drive, UNC, backslash, home or NUL.
+  if (requested.includes('..') || /^[/~]/.test(requested) || /^[A-Za-z]:/.test(requested) || /[\\\0]/.test(requested)) return false;
   return granted.some((g) => g === '**' || g === requested || (g.endsWith('/**') && (requested === g.slice(0, -3) || requested.startsWith(g.slice(0, -2)))));
 }
 
@@ -178,16 +190,21 @@ function dispatchLocked(rt: WorkforceRuntime, generation: number, proposal: unkn
     }
   }
 
-  // 4b. AN INDEPENDENT REVIEWER REVIEWS: its task must name results the contributors recorded.
+  // 4b. AN INDEPENDENT REVIEWER REVIEWS THE WHOLE WORK: it runs only once every contributor has finished,
+  //     and its task must reference EVERY result they completed — a review of the low-risk half is not a review.
   if (member.assignment === 'independent-review') {
-    const contributors = new Set(team.members.filter((m) => m.assignment === 'contribute').map((m) => m.roleId));
-    const reviewed = p.inputs.filter(
-      (i) =>
-        i.kind === 'result-ref' &&
-        events.some((e) => e.type === 'result-recorded' && e.generation === generation && e.payload['resultDigest'] === i.resultDigest && contributors.has(s(e.payload['roleId']))),
-    );
+    const contributors = team.members.filter((m) => m.assignment === 'contribute').map((m) => m.roleId);
+    const unfinished = contributors.filter((r) => !team.completedRoles.has(r));
+    if (unfinished.length > 0) {
+      return refuseStage(rt, generation, p.taskId, p.roleId, 'team', 'REVIEW_BEFORE_CONTRIBUTIONS_COMPLETE', `'${p.roleId}' reviews the finished work; ${unfinished.join(', ')} ha${unfinished.length === 1 ? 's' : 've'} not completed an assignment`);
+    }
+    const required = contributorResults(events, generation, team);
+    const reviewed = required.filter((d) => refs.includes(d));
     if (reviewed.length === 0) {
       return refuseStage(rt, generation, p.taskId, p.roleId, 'team', 'REVIEW_TASK_NEEDS_A_SUBJECT', `'${p.roleId}' is the independent reviewer: its task must reference the contributors' recorded results, and it is never given implementation work`);
+    }
+    if (reviewed.length < required.length) {
+      return refuseStage(rt, generation, p.taskId, p.roleId, 'team', 'REVIEW_MUST_COVER_ALL_RESULTS', `the review names ${reviewed.length} of the ${required.length} completed contributor result(s); it must be given every one`);
     }
   }
 
@@ -218,8 +235,13 @@ function dispatchLocked(rt: WorkforceRuntime, generation: number, proposal: unkn
   for (const i of p.inputs) {
     if (i.kind === 'leader-note') inputs.push({ kind: 'leader-note', text: i.text });
     else {
+      // THIS generation's results only: contradictions are detected within a generation, so an older
+      // leader's result could be passed on here without ever having been checked against this team's.
       const rec = events.find((e) => e.type === 'result-recorded' && e.payload['resultDigest'] === i.resultDigest);
       if (rec === undefined) return refuseStage(rt, generation, p.taskId, p.roleId, 'context', 'UNKNOWN_RESULT_REF', `no recorded result has digest ${i.resultDigest}`);
+      if (rec.generation !== generation) {
+        return refuseStage(rt, generation, p.taskId, p.roleId, 'context', 'RESULT_FROM_ANOTHER_GENERATION', `result ${i.resultDigest.slice(0, 19)}… was recorded under leader generation ${rec.generation}, not ${generation}`);
+      }
       inputs.push({ kind: 'result', resultDigest: i.resultDigest, summary: s(rec.payload['summary']) });
     }
   }
@@ -272,12 +294,22 @@ function runAttempts(rt: WorkforceRuntime, generation: number, role: EffectiveRo
   const failures: string[] = [];
   for (let attempt = 1; attempt <= cfg.retries.maxAttemptsPerTask; attempt += 1) {
     // 8. THE CEILING, before EVERY dispatch — retries count against it.
-    const used = ceilingUsage(rt.store.readVerified());
+    const events = rt.store.readVerified();
+    const used = ceilingUsage(events);
     const unit = cfg.ceilings.costUnits[role.costClass];
     if (used.calls + 1 > cfg.ceilings.maxCallsPerExecution || used.costUnits + unit > cfg.ceilings.maxCostUnitsPerExecution) {
       failures.push(`ceiling reached (${used.calls} calls, ${used.costUnits} cost units used)`);
       rt.store.append('dispatch-refused', generation, { taskId: envelope.taskId, roleId: role.id, stage: 'ceiling', code: 'CEILING_REACHED', reason: failures[failures.length - 1] ?? '' });
       break;
+    }
+    // AND A PANEL'S DECLARED BUDGET, before every attempt too: a retry or a fallback spends it like a first attempt.
+    if (panelId !== null) {
+      const panel = panelState(events, generation, panelId);
+      if (panel === null || panel.costUnits + unit > panel.costBudgetUnits) {
+        failures.push(`panel '${panelId}' reached its declared cost budget`);
+        rt.store.append('panel-refused', generation, { panelId, reason: failures[failures.length - 1] ?? '' });
+        break;
+      }
     }
     rt.store.append('task-dispatched', generation, { taskId: envelope.taskId, roleId: role.id, modelRef: envelope.modelRef, attempt, taskDigest, costUnits: unit, panelId });
     const engine = rt.engines.get(envelope.modelRef);
@@ -304,7 +336,7 @@ function runAttempts(rt: WorkforceRuntime, generation: number, role: EffectiveRo
       failures.push(`attempt ${attempt}: engine failure (${out.reason})`);
       continue;
     }
-    const accepted = acceptResult(rt, generation, envelope, out.value, substitutedFrom, panelId);
+    const accepted = acceptResult(rt, generation, envelope, out.value, substitutedFrom, panelId, engine === undefined ? null : { engineId: engine.engineId, provider: engine.provider });
     if (accepted.kind === 'recorded') return accepted;
     failures.push(`attempt ${attempt}: ${accepted.reason}`);
     if (accepted.kind === 'refused' && accepted.code === 'GENERATION_VOID') return accepted;
@@ -323,6 +355,8 @@ export function acceptResult(
   value: unknown,
   substitutedFrom: string | null,
   panelId: string | null,
+  /** The engine ProjectOS actually dispatched to, recorded beside the provenance the engine CLAIMS. */
+  dispatchedEngine: { readonly engineId: string; readonly provider: string } | null = null,
 ): DispatchOutcome {
   try {
     assertCurrentGeneration(rt.store, envelope.generation, rt.store.sys.now(), rt.gov.config.leader.leaseBoundMs);
@@ -343,17 +377,24 @@ export function acceptResult(
     problems.push(`the result claims to have changed ${r.affectedFiles.length} file(s), but the grant holds no write scope`);
   }
   if (problems.length === 0 && (r.status === 'partial' || r.status === 'failed')) problems.push(`the specialist reported status '${r.status}', which is never treated as success`);
+  const resultDigest = problems.length === 0 ? digestOf(r) : '';
+  // Counted BEFORE anything is recorded: a result that would raise more contradictions than the bound
+  // is rejected whole, never recorded with some of its disagreements silently dropped.
+  const contradictions = problems.length === 0 ? findContradictions(rt.store.readVerified(), generation, r, resultDigest) : [];
+  if (contradictions.length > MAX_CONTRADICTIONS_PER_RESULT) {
+    problems.push(`the result would raise ${contradictions.length} contradictions; the bound is ${MAX_CONTRADICTIONS_PER_RESULT}`);
+  }
   if (problems.length > 0) {
     rt.store.append('result-rejected', generation, { taskId: envelope.taskId, roleId: envelope.roleId, code: 'RESULT_INVALID', reason: problems.join('; ') });
     return { kind: 'failed', taskId: envelope.taskId, reason: `result rejected: ${problems.join('; ')}`, escalated: false, attempts: 1 };
   }
-  const resultDigest = digestOf(r);
   rt.store.append('result-recorded', generation, {
     taskId: r.taskId,
     roleId: r.agent.roleId,
     resultDigest,
     status: r.status,
     provenance: r.provenance,
+    dispatchedEngine,
     summary: r.summary,
     findings: r.findings,
     risks: r.risks,
@@ -362,9 +403,9 @@ export function acceptResult(
     decisionRequired: r.decisionRequired,
     panelId,
   });
-  const contradictions = detectContradictions(rt, generation, r);
+  for (const c of contradictions) rt.store.append('contradiction-recorded', generation, c);
   rt.store.append('assignment-completed', generation, { roleId: r.agent.roleId, taskId: r.taskId, outcome: r.status });
-  return { kind: 'recorded', taskId: r.taskId, result: r, resultDigest, contradictions };
+  return { kind: 'recorded', taskId: r.taskId, result: r, resultDigest, contradictions: contradictions.map((c) => String(c['contradictionId'])) };
 }
 
 function failTask(rt: WorkforceRuntime, generation: number, roleId: string, envelope: TaskEnvelope, failures: readonly string[]): DispatchOutcome {
@@ -432,10 +473,13 @@ function mentions(p: LeaderTaskProposal, subject: string): boolean {
   return subject.length > 0 && text.includes(subject);
 }
 
-/** Record every disagreement between this result and earlier ones SIDE BY SIDE; overwrite nothing. */
-function detectContradictions(rt: WorkforceRuntime, generation: number, r: SpecialistResult): string[] {
-  const events = rt.store.readVerified();
-  const ids: string[] = [];
+/**
+ * Every disagreement between this result and earlier ones in the generation, SIDE BY SIDE; overwrites
+ * nothing. Pure: the caller records them. One per (subject, earlier result), and never one already recorded.
+ */
+function findContradictions(events: readonly WorkforceEvent[], generation: number, r: SpecialistResult, resultDigest: string): Record<string, unknown>[] {
+  const known = new Set(events.filter((e) => e.type === 'contradiction-recorded').map((e) => s(e.payload['contradictionId'])));
+  const out: Record<string, unknown>[] = [];
   for (const f of r.findings) {
     if (f.verdict === 'concern') continue;
     for (const e of events) {
@@ -444,23 +488,24 @@ function detectContradictions(rt: WorkforceRuntime, generation: number, r: Speci
         (g) => s(g.subject) === f.subject && (s(g.verdict) === 'pass' || s(g.verdict) === 'fail') && s(g.verdict) !== f.verdict,
       );
       if (other === undefined) continue;
-      const contradictionId = `C-${digestOf({ subject: f.subject, a: e.payload['resultDigest'], b: digestOf(r) }).slice(7, 19)}`;
+      const contradictionId = `C-${digestOf({ subject: f.subject, a: e.payload['resultDigest'], b: resultDigest }).slice(7, 19)}`;
+      if (known.has(contradictionId)) continue;
+      known.add(contradictionId);
       const dependents = events
         .filter((d) => d.type === 'dependency-declared' && arr(d.payload['dependsOn']).some((x) => x === r.taskId || x === e.payload['taskId']))
         .map((d) => s(d.payload['taskId']));
-      rt.store.append('contradiction-recorded', generation, {
+      out.push({
         contradictionId,
         subject: f.subject,
         results: [
           { taskId: s(e.payload['taskId']), roleId: s(e.payload['roleId']), verdict: s(other.verdict), severity: s(other.severity), resultDigest: s(e.payload['resultDigest']) },
-          { taskId: r.taskId, roleId: r.agent.roleId, verdict: f.verdict, severity: f.severity, resultDigest: digestOf(r) },
+          { taskId: r.taskId, roleId: r.agent.roleId, verdict: f.verdict, severity: f.severity, resultDigest },
         ],
-        blocksTasks: dependents,
+        blocksTasks: [...new Set(dependents)],
       });
-      ids.push(contradictionId);
     }
   }
-  return ids;
+  return out;
 }
 
 // ---- panels ----------------------------------------------------------------------------------------

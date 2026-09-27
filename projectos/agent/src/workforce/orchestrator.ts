@@ -19,7 +19,7 @@ import type { System } from '../system.js';
 import { ceilingUsage, dispatchSpecialistTask, type DispatchOutcome, type WorkforceRuntime } from './dispatch.js';
 import type { LeaderEngine } from './engines.js';
 import { WorkforceRefusal, WorkforceStore } from './eventStore.js';
-import { combineFacts, deriveRecordFacts, type PhaseRecordFacts, type TaskFacts } from './facts.js';
+import { combineFacts, deriveRecordFacts, pathsInText, type PhaseRecordFacts, type TaskFacts } from './facts.js';
 import { loadWorkforceGovernance } from './governance.js';
 import { assertCurrentGeneration, ensureProjectLeader, type LeaderClaim } from './leader.js';
 import { declarePanel, recordLeaderDecision, type DecisionOutcome } from './leaderDecisions.js';
@@ -201,10 +201,49 @@ export function workforceStateRoot(sys: System, root: string, env: NodeJS.Proces
 export function workforceForRun(
   sys: System,
   root: string,
-  input: { readonly phase: PhaseRecordFacts; readonly objective: string; readonly candidate: string | null; readonly dryRun: boolean; readonly stateRoot?: string },
+  input: {
+    readonly phase: PhaseRecordFacts;
+    /** The approved phase scope, as written; its path-shaped tokens become record facts. */
+    readonly scopeText?: string;
+    readonly objective: string;
+    readonly candidate: string | null;
+    readonly dryRun: boolean;
+    readonly stateRoot?: string;
+  },
+): readonly string[] {
+  // THE BOUNDARY `run` RELIES ON: nothing the workforce does may stop the run. Every failure — a
+  // refusal, a malformed record, an unexpected error — becomes one reported line, never a crash.
+  try {
+    return workforceForRunUnguarded(sys, root, input);
+  } catch (e) {
+    const why = e instanceof WorkforceRefusal ? `${e.code}: ${e.reason}` : `WORKFORCE_ERROR: ${e instanceof Error ? e.message : String(e)}`;
+    return [`Workforce: not active — ${why}`.slice(0, 500)];
+  }
+}
+
+/**
+ * Paths the candidate changed since the owner-accepted commit. A diff that cannot be read is REFUSED,
+ * never read as "nothing changed": an empty list would under-staff exactly the change it failed to see.
+ */
+function candidatePaths(sys: System, root: string, acceptedCommit: string): string[] {
+  const r = sys.exec('git', ['-C', root, 'diff', '--name-only', '--no-renames', '--no-ext-diff', acceptedCommit, 'HEAD', '--']);
+  if (r.code !== 0) throw new WorkforceRefusal('CANDIDATE_PATHS_UNREADABLE', `the candidate's changed paths since ${acceptedCommit.slice(0, 12)} could not be read`);
+  const paths = r.stdout.split(/\r?\n/).filter((p) => p.length > 0);
+  if (paths.length > 2000) throw new WorkforceRefusal('CANDIDATE_PATHS_UNBOUNDED', `the candidate changes ${paths.length} paths; the fact bound is 2000`);
+  return paths;
+}
+
+function workforceForRunUnguarded(
+  sys: System,
+  root: string,
+  input: Parameters<typeof workforceForRun>[2],
 ): readonly string[] {
   const gov = loadWorkforceGovernance(sys, root);
   if (!gov.ok) return [`Workforce: not active — ${gov.problems[0] ?? 'governance unavailable'}`];
+  const phase: PhaseRecordFacts = {
+    ...input.phase,
+    paths: [...(input.phase.paths ?? []), ...pathsInText(input.scopeText ?? ''), ...candidatePaths(sys, root, gov.value.acceptedCommit)],
+  };
   const lines: string[] = [];
   const describe = (team: TeamSelection): void => {
     for (const m of team.members) lines.push(`  - ${m.roleId} (${m.assignment}, ${m.modelRef}): ${m.reasons.join('; ')}`);
@@ -212,7 +251,7 @@ export function workforceForRun(
     for (const r of team.reductions) lines.push(`  - reduced: ${r}`);
   };
   if (input.dryRun) {
-    const facts = combineFacts(deriveRecordFacts(input.phase, gov.value.selectionPolicy), {}, gov.value.selectionPolicy);
+    const facts = combineFacts(deriveRecordFacts(phase, gov.value.selectionPolicy), {}, gov.value.selectionPolicy);
     const sel = selectTeam(facts, gov.value);
     if (!sel.ok) lines.push(`Workforce (preview, not recorded): selection refused — ${sel.reasons.join('; ')}`);
     else {
@@ -223,7 +262,7 @@ export function workforceForRun(
     const stateRoot = input.stateRoot ?? workforceStateRoot(sys, root);
     if (stateRoot === null) return ['Workforce: not active — no installation state location outside the checkout is available on this machine'];
     const store = new WorkforceStore(sys, stateRoot, gov.value.projectId, gov.value.config.projection.maxEvents);
-    const out = startObjective(store, gov.value, { objective: input.objective, phase: input.phase, candidate: input.candidate, leaderEngine: null });
+    const out = startObjective(store, gov.value, { objective: input.objective, phase, candidate: input.candidate, leaderEngine: null });
     if (!out.ok) lines.push(`Workforce: ${out.code} — ${out.reasons.join('; ')}`);
     else {
       lines.push(`Workforce: leader ${out.leader.leaderId} generation ${out.leader.generation}${out.tookOver ? ' (ProjectOS takeover of a stale leader)' : ''}; ${out.team.members.length} specialist(s) selected for '${out.team.taskType}'`);

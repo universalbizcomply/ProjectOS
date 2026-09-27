@@ -86,7 +86,8 @@ export function recordLeaderDecision(
   generation: number,
   decision: { readonly kind: unknown; readonly detail: unknown },
 ): DecisionOutcome {
-  const kind = String(decision.kind);
+  // Leader-supplied and bound for the log: an overlong kind is no kind, and refuses as one.
+  const kind = String(decision.kind).slice(0, 80);
   const detail = typeof decision.detail === 'string' ? decision.detail.slice(0, 2000) : '';
   return locked(store, generation, gov, (): DecisionOutcome => {
     if (kind === 'sequence-tasks' || kind === 'operational-note') {
@@ -121,7 +122,12 @@ export function resolveContradiction(
     if (c.escalated) return { accepted: false, kind: 'contradiction-resolution', gate: 'owner', reason: 'this contradiction was escalated to the owner; only the owner’s recorded decision closes it' };
     if (input.rationale.trim().length === 0) return { accepted: false, kind: 'contradiction-resolution', gate: 'ledger', reason: 'a resolution needs a recorded rationale' };
     const rec = events.find((e) => e.type === 'contradiction-recorded' && e.payload['contradictionId'] === input.contradictionId);
-    const severities = ((rec?.payload['results'] as { severity?: unknown }[] | undefined) ?? []).map((r) => String(r.severity));
+    // A contradiction belongs to the generation that recorded it. A later leader was not party to it and
+    // its team's facts are not that team's facts, so only the owner closes an older one.
+    if (rec === undefined || rec.generation !== generation) {
+      return { accepted: false, kind: 'contradiction-resolution', gate: 'owner', reason: `contradiction ${input.contradictionId} was recorded under another leader generation; only the owner’s recorded decision closes it` };
+    }
+    const severities = ((rec.payload['results'] as { severity?: unknown }[] | undefined) ?? []).map((r) => String(r.severity));
     // THE FACTS ARE THE RECORDED TEAM'S, read from the events — never supplied by the caller.
     const teamFacts = (currentTeam(events, generation)?.riskFacts ?? []) as readonly RiskFact[];
     const protectedFacts = teamFacts.filter((f) => PROTECTED_FACTS.includes(f));
@@ -149,10 +155,11 @@ export function declarePanel(store: WorkforceStore, gov: WorkforceGovernance, ge
       if (Number(d['maxRounds']) > caps.maxRounds) problems.push(`maxRounds exceeds the governance cap of ${caps.maxRounds}`);
       if (Number(d['costBudgetUnits']) > caps.maxCostUnits) problems.push(`costBudgetUnits exceeds the governance cap of ${caps.maxCostUnits}`);
       if (Number(d['contextBudgetBytes']) > caps.maxContextBytes) problems.push(`contextBudgetBytes exceeds the governance cap of ${caps.maxContextBytes}`);
+      if ((d['participants'] as unknown as unknown[]).length > gov.config.bounds.maxTeamSize) problems.push(`participants exceed the team bound of ${gov.config.bounds.maxTeamSize}`);
       if (panelState(store.readVerified(), generation, String(d['panelId'])) !== null) problems.push(`panel '${String(d['panelId'])}' was already declared; a declaration is never reset`);
     }
     if (problems.length > 0) {
-      store.append('panel-refused', generation, { panelId: String((declaration as Record<string, unknown> | null)?.['panelId'] ?? ''), reason: problems.join('; ') });
+      store.append('panel-refused', generation, { panelId: String((declaration as Record<string, unknown> | null)?.['panelId'] ?? '').slice(0, 80), reason: problems.join('; ') });
       return { accepted: false, kind: 'panel', gate: 'panel contract', reason: problems.join('; ') };
     }
     store.append('panel-declared', generation, { panel: declaration as Record<string, unknown> });
