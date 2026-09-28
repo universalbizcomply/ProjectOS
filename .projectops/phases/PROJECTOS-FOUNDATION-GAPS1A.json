@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-FOUNDATION-GAPS1A",
   "project": "ProjectOS",
   "objective": "Close the two foundation gaps the owner-ready reconciliation proved, and nothing else. Unit one renders the existing read-only portfolio summary for projects that are not selected, because project selection is refused while governed work runs and the owner otherwise cannot see any other project during a run. Unit two pins, by validator, the already accepted placement of the windows-client-admission Cargo feature and of the live IPC graph feature that reaches it, each new rule proven by a named mutation.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-09-28T23:34:20.765Z",
       "note": "closure tail only - no implementation, no source. Gatekeeper ACCEPTED FOR CLOSURE at subject 624ad21a33299a716106493c6acdfe437d4c9db2; closes owner-direct by Murad. Owner statement, verbatim: \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\" No production, provider, spend, credential, live specialist or Autonomy Bootstrap activity."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-09-28T23:37:12.252Z",
+      "note": "closed by owner Murad, decision projectos:PROJECTOS-FOUNDATION-GAPS1A:owner-closure:624ad21a"
     }
   ]
 }
