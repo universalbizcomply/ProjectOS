@@ -5,16 +5,20 @@
  * the legacy project selector. They showed the same set through three different mental models, and
  * the accepted architecture keeps exactly one.
  *
- * WHAT A ROW MAY CLAIM. See `projectsModel.ts` — only the selected project has a governed
- * projection, so only its row carries a status, a plan and a step. Every other row says what it
- * honestly knows and offers to open. Nothing here fills a card with repository internals, and
- * nothing infers a status from silence.
+ * WHAT A ROW MAY CLAIM. See `projectsModel.ts`. The selected project's row is drawn from its full
+ * governed projection. Every other row shows the read-only portfolio summary the daemon took of it,
+ * once one has arrived, and only what that summary says: an unknown stays unknown, an unreadable
+ * project says why in the daemon's words, and a row with no summary offers to open. Nothing here
+ * selects a project, fills a card with repository internals, or infers a status from silence.
  *
- * Created in PROJECTOS-CONTROL-CENTER-UX-ARCHITECTURE1A.
+ * Created in PROJECTOS-CONTROL-CENTER-UX-ARCHITECTURE1A. The summary for projects that are not
+ * selected is rendered since PROJECTOS-FOUNDATION-GAPS1A: selection is refused while governed work
+ * runs, so without it the owner could see nothing about any other project during a run.
  */
 import { useEffect, useState } from 'react';
 import { hasLocalHost } from './HostCapability';
 import { dotColour, initialsOf, statusInk, type ProjectState } from '../owner/workspaceModel';
+import type { ProjectSummary } from '../governed/projectInventory';
 import type { ProjectRow, ProjectsModel } from './projectsModel';
 
 /**
@@ -50,13 +54,85 @@ function useRuntimeSilence(unknown: boolean): boolean {
   return silent;
 }
 
-/** The row's dot colour comes from the same state vocabulary the workspace uses. */
+/**
+ * The row's dot colour comes from the same state vocabulary the workspace uses.
+ *
+ * A row that is not selected is coloured only from facts its summary records — a decision waiting on
+ * the owner, a recorded blocker, a run this daemon is tracking. Anything else, an unreadable project
+ * included, stays the neutral colour: its text says what is known, and a colour must not say more.
+ */
 function stateOfRow(row: ProjectRow): ProjectState {
-  if (!row.live) return 'ready';
+  if (!row.live) {
+    const s = row.summary;
+    if (s === null || !s.available) return 'ready';
+    if (s.ownerActionRequired) return 'waiting';
+    if (s.blockerCount > 0) return 'blocked';
+    if (s.liveness === 'RUNNING') return 'working';
+    return 'ready';
+  }
   if (row.status === 'Waiting for you') return 'waiting';
   if (row.status === 'Blocked') return 'blocked';
   if (row.status === 'Working') return 'working';
   return 'ready';
+}
+
+/**
+ * The worker line. Two values, because the summary has two: this daemon either tracks a run for the
+ * project or does not know. There is no idle — the absence of a tracked run is not knowledge that
+ * nothing is running.
+ */
+function livenessText(s: ProjectSummary): string {
+  return s.liveness === 'RUNNING' ? 'Running now' : 'Worker status not known';
+}
+
+function blockerText(s: ProjectSummary): string {
+  if (s.blockerCount === 0) return 'No blockers';
+  if (s.firstBlocker === null) {
+    return s.blockerCount === 1 ? '1 blocker, not described' : `${s.blockerCount} blockers, not described`;
+  }
+  return s.blockerCount === 1
+    ? `Blocked: ${s.firstBlocker}`
+    : `Blocked: ${s.firstBlocker} (and ${s.blockerCount - 1} more)`;
+}
+
+/**
+ * What the daemon's read-only summary says about a project that is not selected.
+ *
+ * PLAIN TEXT ONLY. Every value originates in that project's own records, so each is rendered as a
+ * text child — never as markup, and never as the target of a link. Rendering starts nothing: no
+ * selection, no command, no request. Opening the project remains the owner's explicit click.
+ */
+function DormantSummary({ summary: s }: { summary: ProjectSummary }) {
+  if (!s.available) {
+    // Unreadable is reported as exactly that — not as a project with no blockers and nothing to do.
+    return (
+      <>
+        <span className="ux-projproblem">ProjectOS could not read this project</span>
+        <span className="ux-projwhy">{s.unavailableDetail ?? 'No reason was given'}</span>
+        <span className="ux-projline">{livenessText(s)}</span>
+      </>
+    );
+  }
+  const phases =
+    s.acceptedPhaseCount !== null && s.totalPhaseCount !== null
+      ? `${s.acceptedPhaseCount} of ${s.totalPhaseCount} phases accepted`
+      : 'phase count not known';
+  return (
+    <>
+      <span className="ux-projline">{`Plan: ${s.planStatus ?? 'status not known'} · ${phases}`}</span>
+      <span className="ux-projline">
+        {s.activePhaseId !== null ? `Active phase: ${s.activePhaseId}` : 'No phase active'}
+      </span>
+      <span className="ux-projstatus">{livenessText(s)}</span>
+      <span className="ux-projwhy">{blockerText(s)}</span>
+      <span className="ux-projwhy">
+        {s.ownerActionRequired ? 'Waiting on your decision' : 'Nothing waiting on you'}
+      </span>
+      <span className="ux-projwhy">
+        {s.nextSafeAction !== null ? `Next: ${s.nextSafeAction}` : 'Next step not known'}
+      </span>
+    </>
+  );
 }
 
 function Row({
@@ -76,7 +152,7 @@ function Row({
       <span className="ux-projbody">
         <span className="ux-projhead">
           <span className="ux-projname">{row.projectName}</span>
-          {row.live && row.ownerActionRequired && (
+          {(row.live ? row.ownerActionRequired : row.summary?.ownerActionRequired === true) && (
             // Never colour alone: the dot carries a word beside it.
             <span className="ux-needsyou">
               <i style={{ background: dotColour('waiting') }} aria-hidden="true" />
@@ -101,12 +177,13 @@ function Row({
               <span className="ux-projproblem">{row.problemSummary}</span>
             )}
           </>
+        ) : row.summary !== null ? (
+          <DormantSummary summary={row.summary} />
         ) : (
           <span className="ux-projline">
             {/*
-              THE HONEST LINE. ProjectOS is pointed at one project at a time, so it does not know
-              this one's status without being pointed at it — and a list must not change what the
-              runtime is doing merely by being looked at.
+              THE HONEST LINE. No summary has arrived for this project, so ProjectOS does not know its
+              status — and a list must not change what the runtime is doing merely by being looked at.
             */}
             Open to see what is happening here
           </span>

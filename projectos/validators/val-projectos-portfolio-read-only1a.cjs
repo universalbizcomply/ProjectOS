@@ -30,6 +30,7 @@ const ROOT = path.resolve(__dirname, "..", "..");
 const HOST_REL = "projectos/control-center/sidecar/host.mjs";
 const MODEL_REL = "projectos/control-center/src/ux/projectsModel.ts";
 const SHARED_REL = "projectos/control-center/src/governed/projectInventory.ts";
+const SCREEN_REL = "projectos/control-center/src/ux/ProjectsScreen.tsx";
 
 function read(rel) {
   const abs = path.join(ROOT, ...rel.split("/"));
@@ -152,6 +153,23 @@ function run() {
     }
   }
 
+  // 7. THE SCREEN SHOWS THE SUMMARY — PROJECTOS-FOUNDATION-GAPS1A. The daemon's read and the model's
+  //    binding are worth nothing if the Projects screen drops them: selection is refused while
+  //    governed work runs, so during a run a project that is not selected is visible to the owner
+  //    ONLY through its summary. The screen once ignored it and printed one fixed line for every row.
+  //    The rule pins the summary being HANDED TO THE RENDER (`={row.summary}`), not merely mentioned:
+  //    a colour or a badge can read `row.summary` while the facts themselves go undisplayed.
+  const screen = read(SCREEN_REL);
+  if (screen === null) {
+    E(`${SCREEN_REL} is missing — it is where the owner sees the portfolio`);
+  } else if (!/=\{\s*row\.summary\s*\}/.test(code(screen))) {
+    E(
+      `rule 7 (screen-consumes-summary): ${SCREEN_REL} no longer renders row.summary — a project that ` +
+        "is not selected would show nothing but a fixed line, and during a governed run the owner could " +
+        "see nothing about it",
+    );
+  }
+
   return errors;
 }
 
@@ -165,4 +183,4 @@ if (require.main === module) {
   console.log("val-projectos-portfolio-read-only1a: PASS");
 }
 
-module.exports = { run, HOST_REL, MODEL_REL, SHARED_REL };
+module.exports = { run, HOST_REL, MODEL_REL, SHARED_REL, SCREEN_REL };

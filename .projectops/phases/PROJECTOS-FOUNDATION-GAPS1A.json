@@ -1,0 +1,22 @@
+{
+  "phaseId": "PROJECTOS-FOUNDATION-GAPS1A",
+  "project": "ProjectOS",
+  "objective": "Close the two foundation gaps the owner-ready reconciliation proved, and nothing else. Unit one renders the existing read-only portfolio summary for projects that are not selected, because project selection is refused while governed work runs and the owner otherwise cannot see any other project during a run. Unit two pins, by validator, the already accepted placement of the windows-client-admission Cargo feature and of the live IPC graph feature that reaches it, each new rule proven by a named mutation.",
+  "status": "implementing",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-09-28T20:05:19.663Z",
+      "note": "Gatekeeper APPROVED TO PROCEED on plan v1.7 (activation head f4dcfac); scope exactly the ratified material."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-09-28T20:05:20.126Z",
+      "note": "Implementation of unit one and unit two begins on projectos-foundation-gaps1a from f4dcfac; pre-commit stop."
+    }
+  ]
+}

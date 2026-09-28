@@ -19,6 +19,65 @@ const ROOT = path.resolve(__dirname, "..", "..");
 const CRATE = path.join(ROOT, "projectos", "host", "windows-local-ipc");
 const SRC = path.join(CRATE, "src");
 const FFI = "windows_ffi.rs"; // the ONLY file permitted unsafe + windows FFI
+// PROJECTOS-FOUNDATION-GAPS1A (unit two). The manifest scanner and feature graph live beside the
+// crate that DEFINES windows-client-admission; this validator owns the windows-local-ipc half.
+const featurePins = require("./val-windows-service-identity-proof-3kideb.cjs");
+
+/**
+ * Unit two, windows-local-ipc half.
+ *
+ * `windows-live-ipc` reaches `windows-client-admission` transitively (it enables the canonical
+ * client-admission route), so pinning client admission by name alone is not a pin: any crate that
+ * turned `windows-live-ipc` on would reach it without ever naming it. Exactly two crates are ratified
+ * to: the host service and the Control Center native crate. And this crate's own fixture graph must
+ * never reach client admission by any route.
+ */
+function liveIpcPinErrors() {
+  const P = featurePins;
+  const errors = [];
+  let graph;
+  let ipc;
+  try {
+    graph = P.cargoFeatureGraph();
+    ipc = P.soleManifest(graph, P.IPC_PKG);
+  } catch (e) {
+    return [`[fg-manifest-scan] ${e.message}`];
+  }
+  if (ipc.rel !== P.IPC_MANIFEST) {
+    errors.push(`[fg-manifest-scan] ${P.IPC_PKG} is declared by ${ipc.rel}, not ${P.IPC_MANIFEST}`);
+  }
+
+  // 1. THE FIXTURE GRAPH NEVER REACHES CLIENT ADMISSION, directly or through any other crate.
+  if (P.reachesFeature(graph, ipc, ["test-fixtures"], P.PROOF_PKG, P.CLIENT_ADMISSION)) {
+    errors.push(
+      `[fg-client-admission-ipc-fixtures] ${ipc.rel}: test-fixtures reaches ${P.CLIENT_ADMISSION} — ` +
+        "a fixture graph must never gain the production client-admission capability",
+    );
+  }
+
+  // 2. ONLY THE TWO RATIFIED CONSUMERS TURN THE LIVE IPC GRAPH ON — from any dependency table,
+  //    target-specific, dev or build included, under any renamed key, or through a feature entry.
+  const found = new Set();
+  for (const s of P.featureEnableSites(graph)) {
+    if (s.pkg !== P.IPC_PKG || !P.localFeatureClosure(ipc, s.features).local.has(P.LIVE_IPC)) continue;
+    if (P.LIVE_IPC_CONSUMERS.includes(s.rel)) found.add(s.rel);
+    else {
+      errors.push(
+        `[fg-live-ipc-consumers] ${s.rel} (${s.where}) enables ${P.LIVE_IPC}, which reaches ${P.CLIENT_ADMISSION}; only ` +
+          `${P.LIVE_IPC_CONSUMERS.join(" and ")} are ratified to`,
+      );
+    }
+  }
+  for (const rel of P.LIVE_IPC_CONSUMERS) {
+    if (!found.has(rel)) {
+      errors.push(
+        `[fg-manifest-scan] ratified consumer ${rel} no longer enables ${P.LIVE_IPC} — the pin expects exactly the two ` +
+          "ratified consumers; a scan that finds neither is vacuous",
+      );
+    }
+  }
+  return errors;
+}
 
 function read(p) {
   return fs.readFileSync(p, "utf8").replace(/^﻿/, "");
@@ -1287,6 +1346,9 @@ function run() {
   }
   if (!/pub\s+use\s+projectos_host_windows_service_identity_proof::\{[\s\S]*?ServiceInstanceToken,?[\s\S]*?\};/.test(lib))
     errors.push("the canonical instance identity is not re-exported from the owning crate");
+
+  // PROJECTOS-FOUNDATION-GAPS1A (unit two): who may turn the live IPC graph on.
+  errors.push(...liveIpcPinErrors());
 
   return errors;
 }

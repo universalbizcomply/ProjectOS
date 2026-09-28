@@ -96,6 +96,520 @@ const RAW_IDENTITY_TYPES = [
   { re: /:\s*HashMap<|:\s*BTreeMap</, why: "map field" },
 ];
 
+// =================================================================================================
+// PROJECTOS-FOUNDATION-GAPS1A (unit two) — WHERE `windows-client-admission`, AND THE LIVE IPC GRAPH
+// THAT REACHES IT, MAY BE ENABLED. Additive. Shared with val-windows-local-ipc-capability-b3, which
+// owns the windows-local-ipc half of the pin.
+//
+// The accepted placement (ratified at the host review path closure): this crate defines the
+// feature; exactly ONE edge enables it — windows-local-ipc's `windows-live-ipc` feature; and exactly
+// TWO crates enable `windows-live-ipc` — the host service and the Control Center native crate. Until
+// this phase that was held by comments alone, and `windows-live-ipc` was pinned from no consumer's
+// side: a one-line `features = ["windows-live-ipc"]` on any other crate's dependency would have
+// reached client admission transitively, past every check.
+//
+// A PIN THAT READS ONLY `[dependencies]` IS BLIND WHERE THE REAL EDGES LIVE. Both ratified consumers
+// enable the feature from `[target.'cfg(windows)'.dependencies]`. So the scan enumerates EVERY
+// tracked Cargo manifest (never a fixed list), reads every dependency table — plain, dev, build,
+// target-specific and workspace, inline or table form, dotted keys included — follows every feature
+// entry that enables a dependency feature (`dep/feat` and `dep?/feat`), resolves a renamed
+// dependency by its `package`, ignores the dependency's source (path, git or registry), strips TOML
+// comments outside strings, and decodes string escapes so an escaped name cannot hide. It FAILS
+// CLOSED: an unreadable manifest, a failed enumeration, or a scan that no longer finds the accepted
+// edge and consumers is an error, never a silent pass.
+// =================================================================================================
+const PROOF_PKG = "projectos-host-windows-service-identity-proof";
+const IPC_PKG = "projectos-host-windows-local-ipc";
+const CLIENT_ADMISSION = "windows-client-admission";
+const LIVE_IPC = "windows-live-ipc";
+const IPC_MANIFEST = "projectos/host/windows-local-ipc/Cargo.toml";
+const LIVE_IPC_CONSUMERS = ["projectos/host/service-host/Cargo.toml", "projectos/control-center/src-tauri/Cargo.toml"];
+const DEP_KINDS = new Set(["dependencies", "dev-dependencies", "build-dependencies", "dev_dependencies", "build_dependencies"]);
+
+/** Remove `#` comments that sit outside a string, keeping every newline. */
+function stripTomlCommentsOutsideStrings(text) {
+  let out = "";
+  let i = 0;
+  let delim = null;
+  while (i < text.length) {
+    if (delim === null) {
+      if (text.startsWith('"""', i) || text.startsWith("'''", i)) {
+        delim = text.slice(i, i + 3);
+        out += delim;
+        i += 3;
+      } else if (text[i] === '"' || text[i] === "'") {
+        delim = text[i];
+        out += text[i++];
+      } else if (text[i] === "#") {
+        while (i < text.length && text[i] !== "\n") i++;
+      } else {
+        out += text[i++];
+      }
+      continue;
+    }
+    if ((delim === '"' || delim === '"""') && text[i] === "\\") {
+      out += text.slice(i, i + 2);
+      i += 2;
+    } else if (text.startsWith(delim, i)) {
+      out += delim;
+      i += delim.length;
+      delim = null;
+    } else {
+      if (delim.length === 1 && text[i] === "\n") delim = null; // an unterminated one-line string ends here
+      out += text[i++];
+    }
+  }
+  return out;
+}
+
+/** A strict reader for the TOML subset a Cargo manifest uses. Throws on anything it cannot read. */
+function parseToml(src) {
+  let i = 0;
+  const fail = (m) => {
+    throw new Error(`${m} at offset ${i}`);
+  };
+  const ws = () => {
+    while (i < src.length && (src[i] === " " || src[i] === "\t")) i++;
+  };
+  const wsnl = () => {
+    while (i < src.length && /[ \t\r\n]/.test(src[i])) i++;
+  };
+  const ESC = { b: "\b", t: "\t", n: "\n", f: "\f", r: "\r", '"': '"', "\\": "\\" };
+  function basicEscape() {
+    const c = src[i + 1];
+    if (c in ESC) {
+      i += 2;
+      return ESC[c];
+    }
+    if (c === "u" || c === "U") {
+      const n = c === "u" ? 4 : 8;
+      const hex = src.slice(i + 2, i + 2 + n);
+      if (!new RegExp(`^[0-9A-Fa-f]{${n}}$`).test(hex)) fail("bad unicode escape");
+      i += 2 + n;
+      return String.fromCodePoint(parseInt(hex, 16));
+    }
+    fail("unknown escape");
+  }
+  function str() {
+    if (src.startsWith('"""', i) || src.startsWith("'''", i)) {
+      const d = src.slice(i, i + 3);
+      i += 3;
+      if (src[i] === "\r") i++;
+      if (src[i] === "\n") i++;
+      let out = "";
+      while (i < src.length && !src.startsWith(d, i)) {
+        if (d === '"""' && src[i] === "\\") {
+          if (/^\\[ \t]*\r?\n/.test(src.slice(i, i + 64))) {
+            i++;
+            wsnl();
+          } else out += basicEscape();
+        } else out += src[i++];
+      }
+      if (i >= src.length) fail("unterminated multi-line string");
+      i += 3;
+      return out;
+    }
+    const d = src[i++];
+    let out = "";
+    while (i < src.length && src[i] !== d) {
+      if (src[i] === "\n") fail("newline inside a string");
+      if (d === '"' && src[i] === "\\") out += basicEscape();
+      else out += src[i++];
+    }
+    if (i >= src.length) fail("unterminated string");
+    i++;
+    return out;
+  }
+  function keySeg() {
+    ws();
+    if (src[i] === '"' || src[i] === "'") return str();
+    const m = /^[A-Za-z0-9_-]+/.exec(src.slice(i, i + 256));
+    if (!m) fail("expected a key");
+    i += m[0].length;
+    return m[0];
+  }
+  function keyPath() {
+    const segs = [keySeg()];
+    ws();
+    while (src[i] === ".") {
+      i++;
+      segs.push(keySeg());
+      ws();
+    }
+    return segs;
+  }
+  function value() {
+    ws();
+    const c = src[i];
+    if (c === '"' || c === "'") return { t: "str", v: str() };
+    if (c === "[") {
+      i++;
+      const arr = [];
+      for (;;) {
+        wsnl();
+        if (src[i] === "]") {
+          i++;
+          break;
+        }
+        arr.push(value());
+        wsnl();
+        if (src[i] === ",") {
+          i++;
+          continue;
+        }
+        if (src[i] === "]") {
+          i++;
+          break;
+        }
+        fail("expected , or ] in an array");
+      }
+      return { t: "arr", v: arr };
+    }
+    if (c === "{") {
+      i++;
+      const entries = [];
+      for (;;) {
+        wsnl();
+        if (src[i] === "}") {
+          i++;
+          break;
+        }
+        const key = keyPath();
+        ws();
+        if (src[i] !== "=") fail("expected = in an inline table");
+        i++;
+        entries.push({ key, value: value() });
+        wsnl();
+        if (src[i] === ",") {
+          i++;
+          continue;
+        }
+        if (src[i] === "}") {
+          i++;
+          break;
+        }
+        fail("expected , or } in an inline table");
+      }
+      return { t: "tbl", v: entries };
+    }
+    const m = /^[^,\]}\s]+/.exec(src.slice(i, i + 256));
+    if (!m) fail("expected a value");
+    i += m[0].length;
+    if (m[0] === "true" || m[0] === "false") return { t: "bool", v: m[0] === "true" };
+    return { t: "raw", v: m[0] };
+  }
+  const tables = [];
+  let cur = { header: [], array: false, entries: [] };
+  tables.push(cur);
+  for (;;) {
+    wsnl();
+    if (i >= src.length) break;
+    if (src[i] === "[") {
+      const array = src[i + 1] === "[";
+      i += array ? 2 : 1;
+      const header = keyPath();
+      ws();
+      if (!src.startsWith(array ? "]]" : "]", i)) fail("unterminated table header");
+      i += array ? 2 : 1;
+      cur = { header, array, entries: [] };
+      tables.push(cur);
+    } else {
+      const key = keyPath();
+      ws();
+      if (src[i] !== "=") fail("expected =");
+      i++;
+      cur.entries.push({ key, value: value() });
+    }
+    ws();
+    if (i < src.length && src[i] !== "\n" && src[i] !== "\r") fail("unexpected text at the end of a line");
+  }
+  return tables;
+}
+
+function tomlStrings(v, what) {
+  if (v.t !== "arr" || v.v.some((x) => x.t !== "str")) throw new Error(`${what} is not an array of strings`);
+  return v.v.map((x) => x.v);
+}
+
+/** Where a full key path lands in a dependency table, or null. Source (path/git/registry) is ignored. */
+function locateDependency(full) {
+  if (DEP_KINDS.has(full[0]) && full.length >= 2) return { kind: full[0], name: full[1], field: full.slice(2) };
+  if (full[0] === "target" && full.length >= 4 && DEP_KINDS.has(full[2]))
+    return { kind: `target.${full[1]}.${full[2]}`, name: full[3], field: full.slice(4) };
+  if (full[0] === "workspace" && full[1] === "dependencies" && full.length >= 3)
+    return { kind: "workspace.dependencies", name: full[2], field: full.slice(3) };
+  return null;
+}
+
+/** One manifest's package name, feature table and every dependency declaration, in any table. */
+function manifestFacts(rel, text) {
+  const facts = { rel, pkg: null, features: new Map(), deps: [], usesWorkspace: false };
+  const deps = new Map();
+  for (const t of parseToml(stripTomlCommentsOutsideStrings(text))) {
+    if (t.array) continue;
+    if (t.header[0] === "workspace") facts.usesWorkspace = true;
+    for (const e of t.entries) {
+      const full = [...t.header, ...e.key];
+      if (full[0] === "workspace") facts.usesWorkspace = true;
+      if (full.length === 2 && full[0] === "package" && full[1] === "name" && e.value.t === "str") {
+        facts.pkg = e.value.v;
+        continue;
+      }
+      if (full[0] === "features") {
+        if (full.length !== 2) throw new Error(`${rel}: unreadable feature key ${full.join(".")}`);
+        facts.features.set(full[1], tomlStrings(e.value, `${rel} feature ${full[1]}`));
+        continue;
+      }
+      const loc = locateDependency(full);
+      if (loc === null) continue;
+      const id = `${loc.kind}\u0000${loc.name}`;
+      if (!deps.has(id)) deps.set(id, { kind: loc.kind, key: loc.name, fields: [] });
+      const d = deps.get(id);
+      if (loc.field.length > 0) d.fields.push({ key: loc.field, value: e.value });
+      else if (e.value.t === "str") d.fields.push({ key: ["version"], value: e.value });
+      else if (e.value.t === "tbl") d.fields.push(...e.value.v);
+      else throw new Error(`${rel}: dependency ${loc.name} has an unreadable value`);
+    }
+  }
+  for (const d of deps.values()) {
+    let pkg = d.key;
+    let features = [];
+    let defaultFeatures = true;
+    let localPath = null;
+    let inheritsWorkspace = false;
+    for (const f of d.fields) {
+      const k = f.key.join(".");
+      if (k === "package") {
+        if (f.value.t !== "str") throw new Error(`${rel}: dependency ${d.key} has a non-string package`);
+        pkg = f.value.v;
+      } else if (k === "features") {
+        features = tomlStrings(f.value, `${rel} dependency ${d.key} features`);
+      } else if (k === "default-features" || k === "default_features") {
+        if (f.value.t !== "bool") throw new Error(`${rel}: dependency ${d.key} has a non-boolean default-features`);
+        defaultFeatures = f.value.v;
+      } else if (k === "path") {
+        if (f.value.t !== "str") throw new Error(`${rel}: dependency ${d.key} has a non-string path`);
+        localPath = f.value.v;
+      } else if (k === "workspace") {
+        inheritsWorkspace = true;
+      }
+    }
+    facts.deps.push({ kind: d.kind, key: d.key, pkg, features, defaultFeatures, localPath, inheritsWorkspace });
+  }
+  return facts;
+}
+
+/**
+ * Refuse what the graph cannot vouch for, rather than walking past it.
+ *
+ * A path dependency on a crate whose manifest is not tracked would be a hop the feature walk cannot
+ * follow — an unstaged crate could carry the feature through it while every rule saw nothing — so
+ * every `path =` must land on a tracked manifest. Cargo workspace inheritance is not modelled (a
+ * member's `workspace = true` takes features the member never lists), so any workspace is refused
+ * until the scan is extended to follow it. None exists in this repository today.
+ */
+function assertGraphIsClosed(manifests, trackedRels) {
+  for (const m of manifests) {
+    if (m.usesWorkspace) {
+      throw new Error(
+        `${m.rel} declares a Cargo workspace — feature inheritance is not modelled, so the pin cannot vouch for ` +
+          "it; extend the scan before introducing one",
+      );
+    }
+    for (const d of m.deps) {
+      if (d.inheritsWorkspace) {
+        throw new Error(`${m.rel}: dependency ${d.key} inherits from a workspace — not modelled, so not vouched for`);
+      }
+      if (d.localPath === null) continue;
+      // Refused EXPLICITLY, not left to a string that merely fails to match: a POSIX-absolute,
+      // drive-letter or UNC path names a crate outside this repository, so nothing here can vouch
+      // for it. The comparison below is deliberately case-SENSITIVE: on a case-sensitive file
+      // system `../Foo` is a different, possibly untracked directory from a tracked `foo`, and a
+      // mismatch fails closed.
+      const posixPath = d.localPath.replace(/\\/g, "/");
+      if (posixPath.startsWith("/") || /^[A-Za-z]:/.test(posixPath)) {
+        throw new Error(
+          `${m.rel}: path dependency ${d.key} (${d.localPath}) is absolute — only a relative path to a tracked ` +
+            "manifest can be vouched for",
+        );
+      }
+      const target = path.posix.normalize(path.posix.join(path.posix.dirname(m.rel), posixPath, "Cargo.toml"));
+      if (!trackedRels.has(target)) {
+        throw new Error(
+          `${m.rel}: path dependency ${d.key} (${d.localPath}) resolves to ${target}, which is not a tracked ` +
+            "manifest — an unscanned crate could carry the feature past every rule",
+        );
+      }
+    }
+  }
+}
+
+/** Every tracked Cargo manifest, as it stands in the working tree. Throws rather than guessing. */
+function cargoFeatureGraph() {
+  const listed = execFileSync("git", ["ls-files", "-z", "--", "*Cargo.toml"], {
+    cwd: ROOT,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const rels = listed.split("\0").filter((r) => r !== "" && path.posix.basename(r) === "Cargo.toml");
+  if (rels.length === 0) throw new Error("git lists no tracked Cargo manifest");
+  const manifests = rels.map((rel) => {
+    const abs = path.join(ROOT, ...rel.split("/"));
+    if (!fs.existsSync(abs)) throw new Error(`tracked manifest ${rel} is missing from the working tree`);
+    try {
+      return manifestFacts(rel, read(abs));
+    } catch (e) {
+      throw new Error(`could not read ${rel}: ${e.message}`);
+    }
+  });
+  assertGraphIsClosed(manifests, new Set(rels));
+  const byPkg = new Map();
+  for (const m of manifests) {
+    const k = m.pkg === null ? `<no package> ${m.rel}` : m.pkg;
+    if (!byPkg.has(k)) byPkg.set(k, []);
+    byPkg.get(k).push(m);
+  }
+  return { manifests, byPkg };
+}
+
+/** The packages a dependency key names inside one manifest (a rename resolves through `package`). */
+function resolveDependencyKey(m, key) {
+  const pkgs = [...new Set(m.deps.filter((d) => d.key === key).map((d) => d.pkg))];
+  return pkgs.length > 0 ? pkgs : [key];
+}
+
+/** The local features a set of features turns on inside one crate, and the dependency features it asks for. */
+function localFeatureClosure(m, start) {
+  const local = new Set();
+  const external = [];
+  const stack = [...start];
+  while (stack.length > 0) {
+    const f = stack.pop();
+    if (local.has(f)) continue;
+    local.add(f);
+    for (const e of m.features.get(f) || []) {
+      if (e.startsWith("dep:")) continue;
+      const slash = e.indexOf("/");
+      if (slash === -1) stack.push(e);
+      else external.push({ depKey: e.slice(0, slash).replace(/\?$/, ""), feature: e.slice(slash + 1), via: f });
+    }
+  }
+  return { local, external };
+}
+
+/** Does turning on `start` in manifest `m` reach `targetFeature` of `targetPkg`, through any crate? */
+function reachesFeature(graph, m, start, targetPkg, targetFeature, seen = new Set()) {
+  const id = `${m.rel}\u0000${[...start].sort().join(",")}`;
+  if (seen.has(id)) return false;
+  seen.add(id);
+  const { local, external } = localFeatureClosure(m, start);
+  if (m.pkg === targetPkg && local.has(targetFeature)) return true;
+  for (const x of external) {
+    for (const pkg of resolveDependencyKey(m, x.depKey)) {
+      for (const dm of graph.byPkg.get(pkg) || []) {
+        if (reachesFeature(graph, dm, [x.feature], targetPkg, targetFeature, seen)) return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Every place any manifest turns on a feature of some package: each dependency declaration (its
+ * listed features, plus `default` unless default-features is false) and each feature-table entry of
+ * the form `dep/feat` or `dep?/feat`.
+ */
+function featureEnableSites(graph) {
+  const sites = [];
+  for (const m of graph.manifests) {
+    for (const d of m.deps) {
+      sites.push({
+        rel: m.rel,
+        where: `${d.kind} ${d.key}`,
+        localFeature: null,
+        pkg: d.pkg,
+        features: d.defaultFeatures ? [...d.features, "default"] : [...d.features],
+      });
+    }
+    for (const [f, entries] of m.features) {
+      for (const e of entries) {
+        if (e.startsWith("dep:")) continue;
+        const slash = e.indexOf("/");
+        if (slash === -1) continue;
+        for (const pkg of resolveDependencyKey(m, e.slice(0, slash).replace(/\?$/, ""))) {
+          sites.push({ rel: m.rel, where: `feature ${f}`, localFeature: f, pkg, features: [e.slice(slash + 1)] });
+        }
+      }
+    }
+  }
+  return sites;
+}
+
+/** The one tracked manifest declaring `pkg`, or an error naming why there is not exactly one. */
+function soleManifest(graph, pkg) {
+  const found = graph.byPkg.get(pkg) || [];
+  if (found.length !== 1) throw new Error(`expected exactly one tracked manifest for ${pkg}, found ${found.length}`);
+  return found[0];
+}
+
+/** Unit two, proof-crate half: default lists, the proof crate's fixture graph, and the one enable edge. */
+function clientAdmissionPinErrors() {
+  const errors = [];
+  let graph;
+  let proof;
+  try {
+    graph = cargoFeatureGraph();
+    proof = soleManifest(graph, PROOF_PKG);
+  } catch (e) {
+    return [`[fg-manifest-scan] ${e.message}`];
+  }
+  if (!proof.features.has(CLIENT_ADMISSION)) {
+    errors.push(`[fg-manifest-scan] ${proof.rel} no longer defines ${CLIENT_ADMISSION} — the pin has nothing to hold`);
+  }
+
+  // 1. NO DEFAULT FEATURE LIST REACHES IT, in any tracked crate, directly or through other crates.
+  for (const m of graph.manifests) {
+    if (reachesFeature(graph, m, ["default"], PROOF_PKG, CLIENT_ADMISSION)) {
+      errors.push(`[fg-client-admission-default] ${m.rel}: the default feature list reaches ${CLIENT_ADMISSION}`);
+    }
+  }
+
+  // 2. THE PROOF CRATE'S FIXTURE / CONSUMER-CONTRACT GRAPH NEVER REACHES IT.
+  if (reachesFeature(graph, proof, ["test-fixtures", "consumer-contract"], PROOF_PKG, CLIENT_ADMISSION)) {
+    errors.push(
+      `[fg-client-admission-proof-fixtures] ${proof.rel}: test-fixtures or consumer-contract reaches ${CLIENT_ADMISSION} — ` +
+        "a fixture graph must never gain the production client-admission capability",
+    );
+  }
+
+  // 3. EXACTLY ONE ENABLE EDGE: windows-local-ipc's `windows-live-ipc` feature. Any other site that
+  //    turns the feature on — a dependency declaration, a feature entry, or another feature of this
+  //    crate itself — is unauthorised.
+  let accepted = 0;
+  for (const s of featureEnableSites(graph)) {
+    if (s.pkg !== PROOF_PKG || !localFeatureClosure(proof, s.features).local.has(CLIENT_ADMISSION)) continue;
+    if (s.rel === IPC_MANIFEST && s.localFeature === LIVE_IPC) accepted++;
+    else {
+      errors.push(
+        `[fg-client-admission-enable-edge] ${s.rel} (${s.where}) enables ${CLIENT_ADMISSION}; the only accepted edge is ` +
+          `${IPC_MANIFEST} feature ${LIVE_IPC}`,
+      );
+    }
+  }
+  for (const f of proof.features.keys()) {
+    if (f !== CLIENT_ADMISSION && localFeatureClosure(proof, [f]).local.has(CLIENT_ADMISSION)) {
+      errors.push(`[fg-client-admission-enable-edge] ${proof.rel} feature ${f} implies ${CLIENT_ADMISSION}`);
+    }
+  }
+  if (accepted !== 1) {
+    errors.push(
+      `[fg-manifest-scan] the accepted edge (${IPC_MANIFEST} feature ${LIVE_IPC} -> ${CLIENT_ADMISSION}) was found ` +
+        `${accepted} time(s), expected exactly 1 — the scan is vacuous or the accepted placement moved`,
+    );
+  }
+  return errors;
+}
+
 function run() {
   const errors = [];
   if (!fs.existsSync(CRATE)) return ["service-identity-proof crate directory missing: " + CRATE];
@@ -1279,10 +1793,26 @@ function run() {
     }
   }
 
+  // PROJECTOS-FOUNDATION-GAPS1A (unit two): where windows-client-admission may be enabled.
+  errors.push(...clientAdmissionPinErrors());
+
   return errors;
 }
 
-module.exports = { run };
+module.exports = {
+  run,
+  cargoFeatureGraph,
+  soleManifest,
+  featureEnableSites,
+  localFeatureClosure,
+  reachesFeature,
+  PROOF_PKG,
+  IPC_PKG,
+  CLIENT_ADMISSION,
+  LIVE_IPC,
+  IPC_MANIFEST,
+  LIVE_IPC_CONSUMERS,
+};
 
 if (require.main === module) {
   const errs = run();
