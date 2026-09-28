@@ -41,7 +41,8 @@
     ".projectops/current-state-ef6f5cdbbcea85d9-25086397bd75.json",
     "docs/projectos-host-review-path-continuation-phases.json",
     ".projectops/plan-a45a693cb1a5f4b2-e9e72d69fc4a.json",
-    ".projectops/current-state-a45a693cb1a5f4b2-e9e72d69fc4a.json"
+    ".projectops/current-state-a45a693cb1a5f4b2-e9e72d69fc4a.json",
+    "docs/projectos-foundation-gaps-phases.json"
   ],
   "allowedActions": [
     "inspect-repository",
