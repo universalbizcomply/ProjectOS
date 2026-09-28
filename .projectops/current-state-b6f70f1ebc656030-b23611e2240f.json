@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "1.0.0",
+  "projectId": "projectos",
+  "activePlanId": "plan-b6f70f1ebc656030-b23611e2240f",
+  "activePlanVersion": "1.7",
+  "currentStatus": "PLAN READY",
+  "completionMethod": "phase-closure",
+  "acceptedPhaseCount": 0,
+  "totalPhaseCount": 1,
+  "completionPercentage": 0,
+  "completedPhases": [],
+  "activePhase": null,
+  "pendingPhases": [
+    "PROJECTOS-FOUNDATION-GAPS1A"
+  ],
+  "blockedPhases": [],
+  "deferredPhases": [],
+  "acceptedCarryForward": [],
+  "currentBranch": "projectos-foundation-gaps1a",
+  "currentHead": "f4feb975acf183cb8250fbacac3ad48c416c7cdc",
+  "currentRemoteHead": null,
+  "workingTreeStatus": "dirty",
+  "currentRisks": [],
+  "currentBlockers": [],
+  "lastEvidenceReference": "plan-approval decision PLANDEC-fdd08dbf6c67f575d5584ddc",
+  "nextRecommendedPhase": "PROJECTOS-FOUNDATION-GAPS1A",
+  "lastUpdated": "2026-09-28T14:22:15.335Z",
+  "updatedByRole": "gatekeeper"
+}

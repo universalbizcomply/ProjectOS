@@ -1,0 +1,230 @@
+{
+  "schemaVersion": "1.0.0",
+  "projectId": "projectos",
+  "projectName": "ProjectOS",
+  "programmeId": "projectos-autonomous-self-hosting",
+  "planId": "plan-b6f70f1ebc656030-b23611e2240f",
+  "planVersion": "1.7",
+  "planStatus": "PLAN READY",
+  "businessVision": "ProjectOS enters autonomy bootstrap only on a foundation whose owner-facing truths are visible and whose accepted host feature rules are mechanically pinned. Before any autonomy bootstrap source work begins, the owner can see every registered project's governed state from the Projects screen without selecting it, and the accepted placement of the host client-admission capability is enforced by validators rather than by comments.",
+  "definitionOfComplete": "One phase is complete: the existing read-only per-project summary is rendered for every project that is not selected, with unknown and unavailable states shown as such, and the accepted placement of the windows-client-admission Cargo feature, and of the live IPC graph feature that reaches it, is enforced by validator checks, each proven load-bearing by a named mutation. Nothing else changes: no new store, route, command, authority type, activation, Rust source or Cargo manifest.",
+  "approvedScope": [
+    "Rendering the existing per-project portfolio summary in the Projects screen rows for projects that are not selected, in the Control Center user interface only.",
+    "A focused Projects screen render test.",
+    "One added rule in the existing portfolio read-only validator that fails when the Projects screen stops consuming the row summary.",
+    "Added checks in the two existing host feature-graph validators that pin where the windows-client-admission Cargo feature, and the live IPC graph feature that reaches it, may be enabled.",
+    "An off-tree mutation battery proving each new validator rule is load-bearing, restoring every changed file byte for byte.",
+    "Evidence of the above for the gatekeeper and the owner."
+  ],
+  "excludedScope": [
+    "Any Rust source change and any Cargo manifest change.",
+    "Any new store, IPC route, command, message kind, authority type or capability.",
+    "Any change to the sidecar projection builder, the daemon client, the projects model semantics, the wire format or project selection.",
+    "Any production deployment, external send, payment, provider call, provider spend, credential use or credential change.",
+    "Live specialist activation, unattended host activation, host service start or stop, and starting autonomy bootstrap.",
+    "Push, merge, tag, rebase, force update and history rewrite, and phase closure other than through the owner closure gate.",
+    "Resetting, deleting, archiving, merging or reconciling the uncommitted residue in the primary repository checkout.",
+    "Deferred until an owner-approved release phase after autonomy bootstrap source changes settle: a Control Center release or installer build.",
+    "Deferred to an owner integration decision, which is a protected action: integration of this line of work with the main branch.",
+    "Deferred to the autonomy bootstrap plan and required before autonomy certification, because it needs a ratified amendment to the gate-decision evidence validator: a joined read-only provenance reader.",
+    "Deferred to the autonomy bootstrap plan and required before autonomy certification: a structured join of reviewer identity and model or provider identity across the execution, ledger and decision records.",
+    "Deferred until before any live workforce engine exists: an owner route for escalated contradictions, with ledger checkpointing under the event bound.",
+    "Deferred until before any live workforce engine exists: live engine execution outside the workforce store lock.",
+    "Deferred until before any workforce spend path exists: host-owned custody of the workforce call and cost ceiling.",
+    "Deferred until before the next specialist catalogue acquisition: detection of a cache location inside another worktree of the same repository.",
+    "Deferred to an owner-authorised tooling change outside this repository, and required before any specialist report is relied on as delivered: repair of the specialist report hand-back in the developer tool guard.",
+    "Deferred until the files carrying them are next changed: the stale no-production-mint comments.",
+    "Deferred until host composition cost reporting is next changed, and required before any live spend: the b15 wording defect, where host composition describes the admitted cost as what the provider billed.",
+    "Deferred until before host review path activation or its next change, whichever comes first: the retained host review residuals f5, the filter time-of-check to time-of-use gap, and f6, the envelope default.",
+    "Deferred until before host service activation: the packaged Git location pin.",
+    "Deferred to the owner statement required at this phase's closure: credential or token rotation where genuinely required.",
+    "Deferred until the sealed-window validator or the source it checks is next changed: the sealed-window validator correction, which keeps one known validate-all failure.",
+    "Deferred until before the next specialist catalogue acquisition: the acquisition link-check and read residual.",
+    "Deferred until file intake is next changed: widening the file intake executable denylist.",
+    "Deferred until the registered project count makes it material: reducing the portfolio heartbeat rebuild cost.",
+    "Deferred until the next state sync or the autonomy bootstrap plan: cleanup of stale state snapshot fields and the legacy current-state file."
+  ],
+  "successStandard": "An owner watching the Projects screen during a governed run sees each other project's plan state, phase progress, active phase, first blocker, owner-action need, next safe action and liveness exactly as the read-only projection reports them, and never a state the projection did not report. Any edit that places windows-client-admission in a default feature list or a fixture feature graph, enables it outside the accepted live IPC graph edge, or enables that live IPC graph from any crate other than its two ratified consumers fails a named validator rule.",
+  "repository": {
+    "repositoryPath": "C:/dev/ProjectOS",
+    "expectedRemote": "universalbizcomply/ProjectOS",
+    "protectedBranches": [
+      "main",
+      "projectos-v2-core"
+    ],
+    "baselineCommit": "f4feb975acf183cb8250fbacac3ad48c416c7cdc",
+    "planPersistenceCommit": null,
+    "planSourceBranch": "projectos-foundation-gaps1a"
+  },
+  "sourceDocuments": [
+    {
+      "documentPath": ".projectops/current-state-35316a7a7ad3acd6-36e79927c769.json",
+      "sourceDocumentType": "requirements",
+      "sourceDocumentChecksum": "sha256:e182f2967bdacc4d37dd5dc84c55205bb695bbe89e6bf72ab760afda71e35a9b",
+      "authoritative": false,
+      "superseded": false
+    },
+    {
+      "documentPath": "docs/projectos-foundation-gaps-phases.json",
+      "sourceDocumentType": "requirements",
+      "sourceDocumentChecksum": "sha256:893e9b4288fd2440cc1835cf42b2e7696bdc004b8f1918181c4b4e6209c7aac9",
+      "authoritative": true,
+      "superseded": false
+    }
+  ],
+  "phases": [
+    {
+      "phaseId": "PROJECTOS-FOUNDATION-GAPS1A",
+      "description": "Close the two foundation gaps the owner-ready reconciliation proved, and nothing else. Unit one renders the existing read-only portfolio summary for projects that are not selected, because project selection is refused while governed work runs and the owner otherwise cannot see any other project during a run. Unit two pins, by validator, the already accepted placement of the windows-client-admission Cargo feature and of the live IPC graph feature that reaches it, each new rule proven by a named mutation.",
+      "scope": "Unit one: the Projects screen component, a focused Projects screen test, and one added rule in the existing portfolio read-only validator. Unit two: the existing windows service identity proof validator, the existing windows local IPC capability validator, and an off-tree mutation battery. Evidence for both units.",
+      "dependsOn": [],
+      "acceptanceCriteria": [
+        "Unit one: a project that is not selected and has summary data renders its plan status, its accepted and total phase count, its active phase or none, its first blocker or no blockers, whether owner action is required, its next safe action, and its liveness.",
+        "Unit one: RUNNING liveness is shown as running.",
+        "Unit one: UNKNOWN liveness is shown as not known; the screen never shows idle, stopped or any liveness the projection did not report.",
+        "Unit one: an unavailable project shows the daemon-provided detail and never reads as healthy or as nothing to do.",
+        "Unit one: a row with no summary keeps the line: Open to see what is happening here.",
+        "Unit one: every summary field renders as plain text; no field is passed through dangerouslySetInnerHTML and no field is used to construct a link.",
+        "Unit one: rendering causes no project selection, no command, no new IPC, no network or provider call and no mutation; opening a project remains an explicit owner click.",
+        "Unit one: the existing portfolio read-only validator rules stay green.",
+        "Unit one: a new rule in the portfolio read-only validator fails when the Projects screen stops consuming the row summary.",
+        "Unit one: one named mutation that removes the summary consumption is killed by that named rule, and the mutated file is restored byte for byte.",
+        "Unit one: the relevant Control Center tests and the Control Center typecheck pass.",
+        "Unit two: a validator rule fails if windows-client-admission appears in any Cargo default feature list.",
+        "Unit two: a validator rule fails if windows-client-admission appears in the windows local IPC test-fixtures feature list.",
+        "Unit two: a validator rule fails if windows-client-admission enters the proof crate test-fixtures or consumer-contract feature graph.",
+        "Unit two: a validator rule fails if any tracked Cargo manifest in the repository enables windows-client-admission other than through the accepted windows local IPC live graph edge.",
+        "Unit two: a validator rule fails if any tracked Cargo manifest in the repository enables the windows local IPC live graph feature, windows-live-ipc, from any crate other than its two ratified consumers, projectos/host/service-host and projectos/control-center/src-tauri, because that feature reaches windows-client-admission transitively.",
+        "Unit two: the manifest scans enumerate every tracked Cargo manifest rather than a fixed list, read every dependency table including target-specific tables and every feature entry that enables a dependency feature, match a renamed dependency by its package name, and strip TOML comments before matching.",
+        "Unit two: at least six named mutations run: a default feature mutation, a windows local IPC fixture mutation, a proof crate fixture or consumer-contract mutation, an unauthorised client-admission enable-edge mutation, an unauthorised live graph consumer mutation written inside a target-specific dependency table, and a renamed-dependency alias mutation.",
+        "Unit two: a mutation counts as killed only when its named rule reports it.",
+        "Unit two: every mutated file is restored byte for byte, verified by digest.",
+        "Unit two: the unmutated validators pass.",
+        "Unit two: no Rust source and no Cargo manifest changes.",
+        "Unit two: no authority expansion; the change only adds refusing checks.",
+        "Both units: the required validators pass, validate-all shows no new failure beyond the two known at the baseline, validate-desktop-e2e and val-cd-b4-sealed-expected-window-facts1a, and the ECC CODE and ECC SECURITY reviews report no unresolved critical or high finding."
+      ],
+      "riskLevel": "medium",
+      "autonomyLevel": "gated-execution",
+      "requiredValidators": [
+        "val-projectos-portfolio-read-only1a",
+        "val-windows-service-identity-proof-3kideb",
+        "val-windows-local-ipc-capability-b3",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC CODE review",
+        "ECC SECURITY review"
+      ],
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "Commit, push, merge and phase closure remain owner-gated.",
+        "Implementation starts from the accepted clean baseline e7ccf6dd8e2806a2625e8ae02fe1654e21782af5 in a clean worktree, never from the primary repository checkout.",
+        "The windows-client-admission feature placement and the two live IPC graph consumers accepted at the previous host review closure are fixed: this phase pins them and does not move them.",
+        "Approving this phase declares one added rule in the portfolio read-only validator and added checks in the two feature-graph validators, all additive, and no amendment to any existing pinned invariant; an existing invariant that must change stops the phase for an owner ruling.",
+        "Any finding that would need a Rust source, Cargo manifest, sidecar, wire or authority change stops the phase for an owner ruling instead of widening its scope.",
+        "Before this phase closes, the owner states whether any credential or token rotation is outstanding; any rotation that is outstanding is scheduled before autonomy bootstrap source work begins."
+      ]
+    }
+  ],
+  "environments": [
+    {
+      "environmentId": "reference-development-pc-windows11-node24.14.1-rust1.96-base-70c1329",
+      "productionFreeze": true
+    }
+  ],
+  "providers": [],
+  "governance": {
+    "owner": "Murad",
+    "gatekeeper": "ChatGPT",
+    "implementer": "Claude Code",
+    "allowedActions": [
+      "inspect-repository",
+      "create-local-files",
+      "run-local-validation",
+      "produce-evidence-report"
+    ],
+    "forbiddenActions": [
+      "production-deploy",
+      "production-db-mutation",
+      "real-email-sms-whatsapp",
+      "payment-or-live-charge",
+      "force-push",
+      "use-openai-api",
+      "use-anthropic-api",
+      "provider-credential-access",
+      "store-real-secret",
+      "modify-projectos-v2-core",
+      "modify-v2-closure-records",
+      "modify-polygo"
+    ],
+    "ownerOnlyActions": [
+      "approve-plan",
+      "approve-plan-supersession",
+      "approve-material-scope-change",
+      "approve-commit",
+      "approve-push",
+      "authorise-production-deploy",
+      "authorise-database-mutation",
+      "authorise-external-send",
+      "authorise-payment",
+      "authorise-provider-access",
+      "authorise-installation",
+      "start-e2e",
+      "pause",
+      "resume"
+    ],
+    "closureAuthority": "ChatGPT",
+    "closureDelegation": {
+      "delegatedBy": "Murad",
+      "delegatedTo": "ChatGPT",
+      "delegationDate": "2026-08-17",
+      "delegatedScope": [
+        "phase-closure",
+        "programme-closure"
+      ],
+      "projectScope": "projectos",
+      "excludesProtectedActions": true,
+      "notes": "Recorded by owner Murad for programme 'projectos-autonomous-self-hosting' in PROJECTOS-AUTONOMOUS-SELF-HOSTING-CLOSURE-DELEGATION1A. Closure only: it is not authority to act, and it excludes every protected effect, which stays with the owner."
+    },
+    "noApiPolicy": true
+  },
+  "approval": {
+    "approvalStatus": "approved",
+    "approvedBy": "Murad",
+    "approvalDate": "2026-09-28T14:22:03.892Z",
+    "approvalEvidenceReference": "Plan-approval decision PLANDEC-fdd08dbf6c67f575d5584ddc by Murad, taken against draft b6f70f1ebc656030 with plan digest sha256:b23611e2240f34cda70adf5a40b697f50e77c4e3788666a14e4208eb0f71f774 at commit 4b2de06f5aa27e32a1c5ed2d85fe82611def99fe on branch projectos-foundation-gaps1a. The authority to take it is the owner's own: no plan-approval delegation applies to this project and programme, so approval never moved away from the recorded owner and the decision above is the owner's. ProjectOS re-ran discovery against the repository before writing this record and the recomputed plan digest still matched the approved one. MANUAL_GOVERNANCE_APPROVAL with tamperProof false — a human governance approval bound by the owner's commit gate, NOT a cryptographic one. Governance is carried forward unchanged from the project's active owner-approved plan; this approval created no new authority, changed no protected-action rule, and did not modify any existing plan record.",
+    "supersedesPlanVersion": "1.6",
+    "approvalBinding": "MANUAL_GOVERNANCE_APPROVAL",
+    "tamperProof": false,
+    "approvalAuthority": "owner",
+    "secureApprovalEvidence": null
+  },
+  "staleness": {
+    "lastVerifiedCommit": "f4feb975acf183cb8250fbacac3ad48c416c7cdc",
+    "lastVerifiedDate": "2026-09-28T14:22:15.335Z",
+    "stalenessStatus": "fresh",
+    "stalenessReasons": [],
+    "materialPlanInputs": [
+      {
+        "inputId": "plan-digest",
+        "fingerprint": "sha256:b23611e2240f34cda70adf5a40b697f50e77c4e3788666a14e4208eb0f71f774"
+      },
+      {
+        "inputId": ".projectops/current-state-35316a7a7ad3acd6-36e79927c769.json",
+        "fingerprint": "sha256:e182f2967bdacc4d37dd5dc84c55205bb695bbe89e6bf72ab760afda71e35a9b"
+      },
+      {
+        "inputId": "docs/projectos-foundation-gaps-phases.json",
+        "fingerprint": "sha256:893e9b4288fd2440cc1835cf42b2e7696bdc004b8f1918181c4b4e6209c7aac9"
+      }
+    ]
+  },
+  "security": {
+    "secretPolicy": "No raw secret values are stored in plan memory, current state, sessions, reports or prompts. Providers are referenced by name only. Redaction is required for any sensitive value.",
+    "rawSecretValuesForbidden": true,
+    "sensitiveDataForbidden": true,
+    "redactionRequired": true
+  }
+}

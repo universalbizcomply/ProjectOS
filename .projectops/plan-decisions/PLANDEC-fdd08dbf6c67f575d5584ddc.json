@@ -11,5 +11,6 @@
   "decidedBy": "Murad",
   "decidedAt": "2026-09-28T14:22:03.892Z",
   "note": "Owner Murad ratified plan v1.7 draft b6f70f1ebc656030 at material digest sha256:b23611e2240f34cda70adf5a40b697f50e77c4e3788666a14e4208eb0f71f774, accepting the four review-driven differences from the frozen scope. Activation chain and a normal fast-forward push of projectos-foundation-gaps1a authorised. The phase is not started and Autonomy Bootstrap is not started.",
-  "recordedBy": "projectos plan decide"
+  "recordedBy": "projectos plan decide",
+  "consumedAt": "2026-09-28T14:22:15.335Z"
 }
