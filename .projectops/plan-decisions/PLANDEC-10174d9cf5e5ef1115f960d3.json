@@ -11,5 +11,6 @@
   "decidedBy": "Murad",
   "decidedAt": "2026-10-19T13:33:23.644Z",
   "note": "Owner Murad explicitly approved, relayed 2026-10-19: plan draft fad4d5ff8d67abc8, material digest sha256:bbf6214dc32b251495cbc5fddab3c320f329b7f6eb2f4559637c364fec5ca861, starting baseline d47bfb4, activation branch projectos-autonomy-bootstrap1a, normal plan activation and fast-forward push, and PROJECTOS-BOOT-CONTINUE1A implementation through its pre-commit review gate. NOT authorised: ProjectOS phase closure, ProjectOSHost activation, credentials, signing, paid-provider calls or route r1 activation.",
-  "recordedBy": "projectos plan decide"
+  "recordedBy": "projectos plan decide",
+  "consumedAt": "2026-10-19T13:33:35.039Z"
 }
