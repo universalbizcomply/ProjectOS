@@ -44,7 +44,8 @@
     ".projectops/current-state-a45a693cb1a5f4b2-e9e72d69fc4a.json",
     "docs/projectos-foundation-gaps-phases.json",
     ".projectops/plan-01053932764c573b-68d21d6830c1.json",
-    ".projectops/current-state-01053932764c573b-68d21d6830c1.json"
+    ".projectops/current-state-01053932764c573b-68d21d6830c1.json",
+    "docs/projectos-autonomy-bootstrap-phases.json"
   ],
   "allowedActions": [
     "inspect-repository",
