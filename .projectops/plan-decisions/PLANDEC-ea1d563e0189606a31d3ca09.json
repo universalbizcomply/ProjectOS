@@ -11,5 +11,6 @@
   "decidedBy": "Murad",
   "decidedAt": "2026-10-25T15:21:37.787Z",
   "note": "Owner (Murad), 2026-10-25, verbatim: \"OPTION A CONFIRMED.\" and \"I give you full authority now\". On that grant, plan v1.9 (draft ad2d7af40741a67a, 3 phases: PROJECTOS-FINISH-WRITEPATHS1A, PROJECTOS-FINISH-MULTIPROJECT1A, PROJECTOS-FINISH-EXTERNAL-PROOF1A) is approved by the implementer recording the owner grant. No ChatGPT gatekeeper review of this plan was relayed; none is claimed. Not authorised by this decision: credential disclosure or rotation, production deployment, payments or live charges, Host service activation, paid provider calls, force push or history rewrite, and any change to the absolute owner-only actions. Owner rotation statement carried forward verbatim: \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\"",
-  "recordedBy": "projectos plan decide"
+  "recordedBy": "projectos plan decide",
+  "consumedAt": "2026-10-25T15:21:44.936Z"
 }

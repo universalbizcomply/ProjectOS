@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "objectiveId": "ad2d7af40741a67a",
+  "objective": "Finish ProjectOS on the narrow definition of done: derive phase write grants from a structured path list and judge work with validators taken from the approved commit, let closure work for any governed project with one owner commit per phase, and prove ProjectOS live by carrying one ordinary phase end to end on Dead Aisle and one on PolyGo, with the interactive gatekeeper relayed by the owner and every protected action kept with the owner.",
+  "authoritative": false,
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "c98299584062b0daa1395b189c3a9df79bfe8ec6",
+  "submittedAt": "2026-10-25T15:19:13.452Z",
+  "submittedBy": "owner",
+  "instructionShaped": false
+}
