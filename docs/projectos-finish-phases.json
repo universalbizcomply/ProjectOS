@@ -1,14 +1,14 @@
 {
   "projectId": "projectos",
   "businessVision": "ProjectOS delivers ordinary technical work on real projects end to end: Claude implements, the ChatGPT gatekeeper reviews through the owner's relay, and ProjectOS carries each approved phase through checks, review, commit, push and closure, with the owner making about one commit per phase and holding every protected action.",
-  "definitionOfComplete": "Three phases are complete: phase write grants come from a structured list of paths in the approved plan, with the judging validators and enforcement code run from the last approved commit; phase closure works for any governed project and the owner's work per phase is one closure commit and two relays; and ProjectOS has carried one ordinary phase end to end on Dead Aisle and one on PolyGo, with evidence. Host-attested unattended review, the signed installer, Forge and the Control Center redesign are deferred and are reopened only by an owner decision.",
-  "successStandard": "On Dead Aisle and on PolyGo, the owner states an objective, approves the plan, says continue, relays the gatekeeper's two answers per phase, and commits the closure decision; everything else between those acts is done by ProjectOS, truthfully recorded, with no protected action taken without the owner.",
+  "definitionOfComplete": "Three phases are complete: phase write grants come from a structured list of paths in the approved plan, with the judging validators run from the last approved commit; phase closure works for any governed project and the owner's work per phase is one closure commit and two relays; and ProjectOS has carried one ordinary phase end to end on a new governed project — the website of an SEO and social-media posting agency, in a local repository — with evidence. Dead Aisle and PolyGo are not part of this plan (owner decision of 2026-10-25). Host-attested unattended review, the signed installer, Forge and the Control Center redesign are deferred and are reopened only by an owner decision.",
+  "successStandard": "On the new agency project, the owner approves the plan, says continue, relays the gatekeeper's two answers, and commits the closure decision; everything else between those acts is done by ProjectOS, truthfully recorded, with no protected action taken without the owner.",
   "approvedScope": [
     "A structured per-phase list of write paths in the plan schema, the plan source format and the plan engine, from which the worker's write grant is derived exactly.",
     "Running a phase's required validators and the loop's enforcement code from the last approved commit, so work under review cannot alter what judges it.",
     "Generalising the closure eligibility gate from the project id 'projectos' to the governed project's own id.",
     "Folding the run's own records into the loop's technical-continuation commit, and committing generated closure-tail records as a technical action when the phase's owner gates leave commit and push delegated.",
-    "Live proofs: the disposable two-phase proof re-run with the reduced owner acts, then one ordinary phase on Dead Aisle and one on PolyGo through projectos continue, with evidence under docs/finish/.",
+    "Live proofs: the disposable two-phase proof re-run with the reduced owner acts, then one ordinary phase on a new local governed project — the website of an SEO and social-media posting agency — through projectos continue, with evidence under docs/finish/.",
     "Tests and evidence for those live proofs; enforcement-code fixes they expose go to a separate owner-gated amendment."
   ],
   "environments": [
@@ -24,7 +24,8 @@
     "Deferred by owner decision of 2026-10-25 (Option A): Host service activation, credential provisioning, signing, unattended or paid provider review, the signed installer, Programme C (Forge) and the Control Center redesign.",
     "Deferred: live specialist engines and workforce activation, and the carried workforce deferrals recorded in plan v1.8.",
     "Deferred to after ProjectOS completion by the owner's recorded statement: credential or token rotation where genuinely required.",
-    "Carried LOW items, each with its trigger: configuration argv forms beyond --allowedTools; hard links and device names beneath granted directories; process-tree termination on a check timeout."
+    "Carried LOW items, each with its trigger: configuration argv forms beyond --allowedTools; hard links and device names beneath granted directories; process-tree termination on a check timeout.",
+    "By owner decision of 2026-10-25: Dead Aisle and PolyGo as proof projects; publishing to any real social-media account, sending any email or message, buying or pointing a domain, deploying the website, and creating a GitHub repository for the new project. Installing any vendored toolkit into the owner's Claude Code configuration is also excluded."
   ],
   "phases": [
     {
@@ -140,15 +141,15 @@
     },
     {
       "phaseId": "PROJECTOS-FINISH-EXTERNAL-PROOF1A",
-      "title": "One ordinary phase delivered end to end on Dead Aisle and one on PolyGo",
-      "description": "Prove ProjectOS on real projects: one ordinary phase of an owner-chosen objective on Dead Aisle and one on PolyGo, each carried by projectos continue through implementation, checks, the relayed gatekeeper review, commit, push and closure, with the owner's acts counted and the results recorded.",
-      "scope": "Add evidence under docs/finish/ and new tests under projectos/agent/test/finish/. Dead Aisle and PolyGo work happens under each project's own approved plan in its own repository.",
+      "title": "One ordinary phase delivered end to end on a new governed project: an SEO and social-media agency website",
+      "description": "Prove ProjectOS on a real new project: create a local governed repository for an SEO and social-media posting agency, seeded — by owner decision of 2026-10-25 — with three MIT-licensed open-source toolkits vendored at pinned commits after a supply-chain review (zubair-trabzada/geo-seo-claude, katzca/autosocial, Jakeschincariol/instagram-agent-skill), with every posting path disabled, approve its first plan, and carry one ordinary phase — the agency's marketing website — through projectos continue: worker implementation within its writePaths, automated checks, the relayed gatekeeper review, technical commit and push to the local remote, closure preparation and the owner's closure commit, with the owner's acts counted and the results recorded.",
+      "scope": "Add evidence under docs/finish/ and new tests under projectos/agent/test/finish/. The agency project is created at C:/dev/SEOAgency as a local git repository with a local bare remote; its website work happens under that project's own approved plan in its own repository.",
       "writePaths": [
         "docs/finish/",
         "projectos/agent/test/finish/"
       ],
       "exclusions": [
-        "No production deployment, payment, external send or credential handling on either project.",
+        "No deployment, domain, GitHub repository, real social-media post, email or message for the agency project; the website ships nowhere, and no toolkit is given credentials, a session or a posting schedule.",
         "No change to the absolute owner-only actions on either project.",
         "No Rust source, Cargo manifest, Host, credential or provider change in ProjectOS.",
         "No change to grant, owner-gate, technical-continuation or closure enforcement code in ProjectOS; a live run that needs one is a separate owner-gated amendment.",
@@ -158,11 +159,11 @@
         "PROJECTOS-FINISH-MULTIPROJECT1A"
       ],
       "acceptanceCriteria": [
-        "Each project's automated checks run under ProjectOS on Windows, and each project's plan for the chosen objective is approved by its owner.",
-        "On each project, one ordinary phase runs through projectos continue end to end: worker implementation within its writePaths, checks, the relayed gatekeeper review, technical commit and push, closure preparation and the owner's closure commit.",
-        "The owner's acts per phase are counted and equal the target: one closure commit and two relays, plus plan approval; any excess is recorded with its cause.",
-        "Evidence under docs/finish/ records, for each project, the objective, the commits, the checks, the review decisions, the owner acts and every defect found, live results reported separately from synthetic tests.",
-        "Any ProjectOS defect a live run exposes is recorded with its cause; a fix outside this phase's paths is raised as a separate owner-gated amendment, and in-scope tests added for it are reviewed by ECC CODE and ECC SECURITY with no unresolved critical or high finding."
+        "The agency project exists at C:/dev/SEOAgency as a local git repository with a local bare remote, the three toolkits vendored at pinned commits with their licences and a supply-chain review recorded, every posting path disabled, ProjectOS governance installed, automated checks that run under ProjectOS on Windows, and a first plan approved by its owner.",
+        "One ordinary phase — the agency's marketing website — runs through projectos continue end to end: worker implementation within its writePaths, checks, the relayed gatekeeper review, technical commit and push, closure preparation and the owner's closure commit.",
+        "The owner's acts for the phase are counted and equal the target: one closure commit and two relays, plus plan approval; any excess is recorded with its cause.",
+        "Evidence under docs/finish/ records the objective, the commits, the checks, the review decisions, the owner acts and every defect found, live results reported separately from synthetic tests.",
+        "Any ProjectOS defect the live run exposes is recorded with its cause; a fix outside this phase's paths is raised as a separate owner-gated amendment, and in-scope tests added for it are reviewed by ECC CODE and ECC SECURITY with no unresolved critical or high finding."
       ],
       "riskLevel": "high",
       "autonomyLevel": "gated-execution",
