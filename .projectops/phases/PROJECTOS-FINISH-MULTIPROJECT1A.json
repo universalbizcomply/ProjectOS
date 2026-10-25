@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-FINISH-MULTIPROJECT1A",
   "project": "ProjectOS",
   "objective": "Let the closure eligibility gate judge any governed project by its own id, and reduce the owner's work per phase to the closure commit and the two gatekeeper relays: the loop's technical-continuation commit carries the run's own records, and generated closure-tail records are committed and pushed as a technical action when the phase's owner gates leave commit and push delegated.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-10-25T19:20:58.384Z",
       "note": "closure tail only - no implementation, no source. Owner-direct closure route under the owner's full-authority grant of 2026-10-25; no gatekeeper closure ruling obtained or claimed. Evidence .projectops/closure/PROJECTOS-FINISH-MULTIPROJECT1A.json at subject d662bb5."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-10-25T19:21:59.064Z",
+      "note": "closed by owner Murad, decision projectos:PROJECTOS-FINISH-MULTIPROJECT1A:owner-closure:d662bb50"
     }
   ]
 }
