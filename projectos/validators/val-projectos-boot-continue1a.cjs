@@ -29,6 +29,12 @@
  *   - "the owner gate is only for the work"            — and a reserved phase commits behind the owner
  *   - "the decision is a record like the others"       — and ProjectOS commits its own closure decision
  *
+ * PROJECTOS-FINISH-API-GATEKEEPER1A adds section (12):
+ *
+ *   - "the broker is just another transport"           — and a configured Host route is bypassed
+ *   - "the agent may as well resolve it"               — and the key enters the agent process
+ *   - "allowlist everything while we are here"         — and the credential pays for any project
+ *
  * Every rule names one file and one construct. Comments are stripped first, so prose describing a rule
  * can neither satisfy nor break it. Reads files; runs nothing, calls no provider, mutates nothing.
  */
@@ -57,6 +63,7 @@ const SCHEMA_REL = "projectos/schemas/project-plan.schema.json";
 const FINISH_PLAN_REL = "docs/projectos-finish-phases.json";
 const TECHNICAL_REL = "projectos/agent/src/loop/technicalContinuation.ts";
 const ELIGIBILITY_REL = "projectos/core/src/closureEligibility.ts";
+const ALLOWLIST_REL = "projectos/security/installation-project-allowlist.json";
 
 /** The proofs. A pinned shape whose behaviour nobody runs is a shape, not a protection. */
 const TESTS = {
@@ -105,6 +112,9 @@ const TESTS = {
     "an unreadable owner-gate list reserves every technical action",
   ],
   "projectos/core/test/closure-eligibility.test.ts": ["a governed project other than projectos satisfies G4-1", "a plan for another project, or an unknown project, refuses"],
+  // PROJECTOS-FINISH-API-GATEKEEPER1A.
+  "projectos/agent/test/hostReviewPath.e2e.test.ts": ["NO broker opt-in, nothing is composed", "the trusted BROKER is composed in the pre-hybrid shape", "refused before dispatch: nothing posted, no ledger", "reaches the broker exactly once", "refused as ambiguous"],
+  "projectos/agent/test/hybridClosureReconcile.test.ts": ["closure composes the trusted broker only on the committed opt-in with no Host route; reconcile composes none", "on the broker opt-in, a project the installation does not allowlist is refused before the closure request"],
 };
 
 function read(rel) {
@@ -551,6 +561,53 @@ function run() {
       /commitOwnRecordsFor/.test(fnBody(closureSrc, "closureRequest") || "") || /commitOwnRecordsFor/.test(fnBody(closureSrc, "closureResume") || "") ||
       !/if \(!results\.every\(\(r\) => r\.passed\)\) return written;\s*const tail = new Set/.test(prepareCommit)) {
     E("MP-6: a closure step other than prepare commits, or prepare commits a failing record");
+  }
+
+  // (12) THE GATEKEEPER ANSWERS WITHOUT A RELAY THROUGH THE TRUSTED BROKER — PROJECTOS-FINISH-API-GATEKEEPER1A.
+  // AG-1: the run composes the broker ONLY on the committed opt-in, in the pre-hybrid shape (no `mode`,
+  // which means Host-attested); otherwise `mode: 'unattended'` with the Host route or nothing. Both at
+  // once refuses. The agent's own resolver refuses by construction.
+  const compose = fnBody(run, "composeGatekeeper") || "";
+  if (!/const brokerRoute = brokerRouteOptedIn\(ctx\.sys, ctx\.root\);\s*if \(brokerRoute && hostReview !== undefined\) \{\s*return \{\s*ok: false,/.test(compose) ||
+      !/\.\.\.\(brokerRoute\s*\?\s*\{ broker: trustedBroker\(ctx\.sys, ctx\.root, governedProjectId\(ctx\)\) \}\s*:\s*\{ mode: 'unattended' as const, \.\.\.\(hostReview === undefined \? \{\} : \{ hostReview \}\) \}\),/.test(compose) ||
+      !/resolver: unprovisionedResolver\(/.test(compose)) {
+    E("AG-1: the run composes the broker without the committed opt-in, beside a Host route, in Host-attested mode, or with a resolver that can resolve a credential");
+  }
+  // AG-2: one broker composition — the trusted installation transport, asked about THIS project first.
+  const brokerFn = fnBody(run, "trustedBroker") || "";
+  if (!/transport: nodeBrokeredTransport\(sys, nodeProjectosRuntime\(\)\),/.test(brokerFn) ||
+      !/governedRoot: root,/.test(brokerFn) ||
+      !/installationAllows: \(\) => installationAllowsProject\(sys, nodeProjectosRuntime\(\), root, projectId\),/.test(brokerFn) ||
+      /process\.env|apiKey|Authorization|Bearer/i.test(brokerFn)) {
+    E("AG-2: the broker is not the trusted installation transport asked about this project first, or reads a credential itself");
+  }
+  // AG-6 (ECC SECURITY M2): the opt-in is the COMMITTED configuration AND the working copy, exactly.
+  const optIn = fnBody(run, "brokerRouteOptedIn") || "";
+  if (!/sys\.exec\('git', \['-C', root, 'show', 'HEAD:\.\/\.projectops\/gatekeeper\.json'\]\)/.test(optIn) ||
+      !/committed\.code === 0 &&\s*routeOf\(committed\.stdout\) === INSTALLATION_BROKER_ROUTE &&\s*routeOf\(sys\.readText\(join\(root, '\.projectops', 'gatekeeper\.json'\)\)\) === INSTALLATION_BROKER_ROUTE/.test(optIn) ||
+      !/export const INSTALLATION_BROKER_ROUTE = 'installation-broker';/.test(run)) {
+    E("AG-6: the broker route no longer needs the owner's committed opt-in in both the commit and the working copy");
+  }
+  // AG-3: closure uses the same opt-in and the same broker, never beside a Host route.
+  const closureSrc12 = files[CLOSURE_REL];
+  const closureDeps = fnBody(closureSrc12, "productionClosureDeps") || "";
+  if (!/\.\.\.\(args\.hostReview === undefined && brokerRouteOptedIn\(sys, root\)\s*\?\s*\{ broker: trustedBroker\(sys, root, args\.projectId\) \}\s*:\s*\{ mode: 'unattended' as const, \.\.\.\(args\.hostReview === undefined \? \{\} : \{ hostReview: args\.hostReview \}\) \}\),/.test(closureDeps) ||
+      !/resolver: unprovisionedResolver\(/.test(closureDeps) || /process\.env|apiKey|Bearer|nodeBrokeredTransport/i.test(closureDeps) ||
+      !/if \(hostClosureReview !== undefined && brokerRouteOptedIn\(sys, root\)\) \{\s*return fail\(2, \[/.test(closureSrc12)) {
+    E("AG-3: closure composes the broker without the opt-in, beside a Host route, in Host-attested mode, by its own transport, or with a resolver that can resolve a credential");
+  }
+  // AG-4: degraded-mode reconciliation composes no paid route of any kind.
+  if (/nodeBrokeredTransport|installationAllowsProject|trustedBroker|brokerRouteOptedIn|\bbroker\b/.test(files[RECONCILE_REL])) {
+    E("AG-4: degraded-mode reconciliation now composes a paid route");
+  }
+  // AG-5: the installation allowlist is exactly ProjectOS and the agency project.
+  try {
+    const allow = JSON.parse(read(ALLOWLIST_REL) || "{}");
+    const ids = (allow.projects || []).map((p) => `${p.projectId}@${p.repository}@${p.governedRoot}`).sort();
+    const want = ["projectos@github.com/universalbizcomply/ProjectOS@C:/dev/ProjectOS", "seo-agency@127.0.0.1:47900/SEOAgency-remote/seo-agency@C:/dev/SEOAgency"];
+    if (JSON.stringify(ids) !== JSON.stringify(want)) E(`AG-5: the installation allowlist is not exactly ProjectOS and the agency project (${ids.join(", ")})`);
+  } catch {
+    E("AG-5: the installation allowlist is not readable JSON");
   }
 
   // (9) PROVEN.

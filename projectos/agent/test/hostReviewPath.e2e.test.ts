@@ -17,6 +17,8 @@ import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { composeGatekeeper } from '../src/commands/run.js';
+import { runLoop } from '../src/loop/runner.js';
+import type { BrokeredCall } from '../src/loop/transports/brokeredHttpPort.js';
 import { closure, closureRequest } from '../src/commands/closure.js';
 import { reconcile } from '../src/commands/reconcile.js';
 import { readClosureWait } from '../src/closureWait.js';
@@ -247,6 +249,111 @@ describe('the Host route is composed ONLY when the COMMITTED configuration names
     const composed = composeGatekeeper({ sys, root: w.root }, { gateWaitMinutes: 0 });
     expect(composed.ok).toBe(false);
     expect(!composed.ok && composed.lines.join('\n')).toMatch(why);
+  });
+
+  /**
+   * PROJECTOS-FINISH-API-GATEKEEPER1A (owner decision of 2026-10-25, "Route 2 now"). The trusted installation
+   * broker answers ONLY on the owner's committed opt-in (`"route": "installation-broker"`), composed in the
+   * pre-hybrid shape (no `mode`), and the agent's own resolver still refuses by construction.
+   */
+  const brokerWorld = (sys: ReturnType<typeof slice.fixedClock>) => {
+    const base = slice.world('unattended', { gatekeeper: null });
+    // THE OWNER'S COMMITTED OPT-IN, with a thread binding naming this checkout.
+    writeFileSync(join(base.root, '.projectops', 'gatekeeper.json'), JSON.stringify({ ...slice.gatekeeperConfig('unattended', base.root), route: 'installation-broker' }, null, 2));
+    slice.git(base.root, 'add', '--all');
+    slice.git(base.root, 'commit', '--quiet', '-m', 'owner opts in to the installation broker');
+    slice.git(base.root, 'push', '--quiet', 'origin', `${slice.BRANCH}:${slice.BRANCH}`);
+    const w = { ...base, head: slice.git(base.root, 'rev-parse', 'HEAD').trim() };
+    let session = '';
+    const adapters = slice.worker(w.root, () => session);
+    session = slice.sessionFor(sys, w, adapters);
+    return { w, adapters };
+  };
+
+  it('with NO Host block and NO broker opt-in, nothing is composed and the turn waits (ECC SECURITY M2)', () => {
+    const sys = slice.fixedClock();
+    const { w } = slice.started(sys, 'unattended');
+    const composed = composeGatekeeper({ sys, root: w.root }, { gateWaitMinutes: 0 });
+    if (!composed.ok || composed.gatekeeper === undefined || composed.gatekeeper.mode === 'interactive') throw new Error('unattended composition expected');
+    expect(composed.gatekeeper.broker).toBeUndefined();
+    expect(composed.gatekeeper.hostReview).toBeUndefined();
+    expect(composed.gatekeeper.mode).toBe('unattended');
+  });
+
+  it('with the committed broker opt-in the trusted BROKER is composed in the pre-hybrid shape, and the agent can resolve no credential', () => {
+    const sys = slice.fixedClock();
+    const { w } = brokerWorld(sys);
+    const composed = composeGatekeeper({ sys, root: w.root }, { gateWaitMinutes: 0 });
+    if (!composed.ok || composed.gatekeeper === undefined || composed.gatekeeper.mode === 'interactive') throw new Error('unattended composition expected');
+    const gk = composed.gatekeeper;
+    expect(composed.mode).toBe('unattended');
+    expect(gk.mode).toBeUndefined();
+    expect(gk.hostReview).toBeUndefined();
+    expect(gk.broker?.governedRoot).toBe(w.root);
+    expect(typeof gk.broker?.transport.post).toBe('function');
+    const resolved = gk.resolver.resolve('OPENAI_GATEKEEPER_KEY');
+    expect(resolved.ok).toBe(false);
+  });
+
+  it('with the opt-in, a project NOT on the installation allowlist is refused before dispatch: nothing posted, no ledger', () => {
+    const sys = slice.fixedClock();
+    const { w, adapters } = brokerWorld(sys);
+    const run = slice.runOnce(sys, w, adapters);
+    expect(run.trace).toContain('does not authorise the governed project to spend its credential');
+    expect(existsSync(join(w.root, '.projectops', 'gatekeeper-ledger.json'))).toBe(false);
+  });
+
+  it('with the opt-in, an ALLOWLISTED project reaches the broker exactly once, bound to its project, phase and root; the agent resolver is never asked', () => {
+    const sys = slice.fixedClock();
+    const { w, adapters } = brokerWorld(sys);
+    const composed = composeGatekeeper({ sys, root: w.root }, { gateWaitMinutes: 0 });
+    if (!composed.ok || composed.gatekeeper === undefined || composed.gatekeeper.mode === 'interactive') throw new Error('unattended composition expected');
+    const base = composed.gatekeeper;
+    const posts: BrokeredCall[] = [];
+    let resolverAsked = 0;
+    const gatekeeper = {
+      ...base,
+      resolver: { resolve: (ref: string) => { resolverAsked += 1; return base.resolver.resolve(ref); } },
+      broker: {
+        ...base.broker!,
+        installationAllows: () => ({ allowed: true, reasons: [] }),
+        transport: { post: (call: BrokeredCall) => { posts.push(call); return { kind: 'transport-error' as const, detail: 'test transport: no provider' }; } },
+      },
+    };
+    const r = runLoop(sys, w.root, {
+      adapters,
+      expectedDecider: composed.expectedDecider,
+      gatekeeper,
+      invocation: { pid: 4242, ppid: 1717, argv: ['node', 'projectos.js', 'run', '--execute'], cwd: w.root },
+    });
+    expect(r.ok).toBe(true);
+    expect(posts).toHaveLength(1);
+    const call = posts[0]!;
+    expect(call.kind).toBe('gatekeeper');
+    expect(call.governedRoot).toBe(w.root);
+    if (call.kind === 'gatekeeper') expect(call.phaseId).toBe(slice.PHASE);
+    expect(call.credentialRef).toBe(composed.gatekeeper.transport?.credentialRef);
+    expect(call.body).not.toMatch(/sk-[A-Za-z0-9]/);
+    expect(resolverAsked).toBe(0);
+  });
+
+  it('a committed Host block AND the broker opt-in together are refused as ambiguous', () => {
+    const sys = slice.fixedClock();
+    const { w } = brokerWorld(sys);
+    withBlock(w.root, block, true);
+    const composed = composeGatekeeper({ sys, root: w.root }, { gateWaitMinutes: 0 });
+    expect(composed.ok).toBe(false);
+    expect(!composed.ok && composed.lines.join('\n')).toContain('GATEKEEPER_ROUTE_AMBIGUOUS');
+  });
+
+  it('with a COMMITTED Host block (no opt-in) the Host route is used and NO broker is composed', () => {
+    const sys = slice.fixedClock();
+    const { w } = slice.started(sys, 'unattended');
+    withBlock(w.root, block, true);
+    const composed = composeGatekeeper({ sys, root: w.root }, { gateWaitMinutes: 0 });
+    if (!composed.ok || composed.gatekeeper === undefined || composed.gatekeeper.mode === 'interactive') throw new Error('unattended composition expected');
+    expect(typeof composed.gatekeeper.hostReview?.review).toBe('function');
+    expect(composed.gatekeeper.broker).toBeUndefined();
   });
 
   it('an INTERACTIVE project never composes a Host route, whatever the file says', () => {

@@ -97,7 +97,7 @@ import { nodeInstallationStateDir } from '../nodeRuntimeRoot.js';
 import { readBrokerAnsweredState } from '../installation/brokerAnsweredState.js';
 import { resolveBoundGit } from '../system.js';
 import { phase as phaseCommand } from './phase.js';
-import { GATE_WAIT_INVALID, gateWaitMinutesFrom, run as runCommand } from './run.js';
+import { brokerRouteOptedIn, GATE_WAIT_INVALID, gateWaitMinutesFrom, run as runCommand, trustedBroker } from './run.js';
 import {
   closureRequestDigest,
   consumedDecisionIds as consumedDecisionIdsOf,
@@ -982,6 +982,12 @@ export function closureRequest(ctx: CommandContext, flags: Flags, makeDeps?: Mak
     const composedHost = composeHostReview(sys, root);
     if (composedHost.kind === 'refused') return fail(2, composedHost.lines);
     if (composedHost.kind === 'composed') hostClosureReview = composedHost.port;
+    if (hostClosureReview !== undefined && brokerRouteOptedIn(sys, root)) {
+      return fail(2, [
+        'REFUSED (GATEKEEPER_ROUTE_AMBIGUOUS): the committed configuration names both a ProjectOSHost review route and the',
+        '  installation broker. Keep exactly one. Nothing was asked and nothing was spent.',
+      ]);
+    }
   }
 
   const evidenceText = closureEvidenceText(
@@ -1145,10 +1151,11 @@ function closureWaitFrom(
  * INTERACTIVE: the same interactive port `projectos run` uses, pointed at the closure wait directory
  * (see `CLOSURE_INTERACTIVE_REL`). No transport, price or credential.
  *
- * UNATTENDED: the closure question goes to ProjectOSHost and nowhere else. This build has no agent-side
- * Host client, so no Host route is composed and an unattended closure WAITS — it never reaches the
- * pre-hybrid in-process broker call, which this composition no longer supplies. The accounting ports
- * stay, because a Host-attested closure is still a paid call the owner's ceiling must bound.
+ * UNATTENDED: the closure question goes to ProjectOSHost when the committed configuration names a Host
+ * route, or — only on the owner's committed opt-in (`brokerRouteOptedIn`, PROJECTOS-FINISH-API-
+ * GATEKEEPER1A) — to the trusted installation broker, which resolves the key in its own process. With
+ * neither, the closure WAITS. The accounting ports stay: either route is a paid call the owner's ceiling
+ * must bound.
  */
 function productionClosureDeps(args: ClosureCompositionArgs): ClosureTurnDeps | InteractiveClosureDeps {
   const { sys, root } = args;
@@ -1170,13 +1177,17 @@ function productionClosureDeps(args: ClosureCompositionArgs): ClosureTurnDeps | 
   }
   const config = args.config;
   return {
-    mode: 'unattended',
-    // THE HOST ROUTE, ONLY WHEN THE COMMITTED CONFIGURATION NAMES ONE. `closureCommand` has already
-    // refused a block that is present but broken, so what reaches here is `composed` or nothing.
-    ...(args.hostReview === undefined ? {} : { hostReview: args.hostReview }),
+    // THE TRUSTED INSTALLATION BROKER, ONLY ON THE OWNER'S COMMITTED OPT-IN — PROJECTOS-FINISH-API-
+    // GATEKEEPER1A: composed in the pre-hybrid shape (no `mode`, which means Host-attested); it admits the
+    // closure question under the phase's committed secrets-handling receipt and resolves the key inside
+    // itself. Otherwise the Host route, ONLY when the committed configuration names one (`closureRequest`
+    // has already refused a block that is present but broken, and both at once), or nothing — and it waits.
+    ...(args.hostReview === undefined && brokerRouteOptedIn(sys, root)
+      ? { broker: trustedBroker(sys, root, args.projectId) }
+      : { mode: 'unattended' as const, ...(args.hostReview === undefined ? {} : { hostReview: args.hostReview }) }),
     transport: config.transport,
     availability: { reachable: true },
-    // THE CREDENTIAL IS NOT RESOLVED IN THIS PROCESS. In unattended mode it is the Host's; the resolver
+    // THE CREDENTIAL IS NOT RESOLVED IN THIS PROCESS. It is the Host's or the broker's; the resolver
     // handed over refuses by construction.
     resolver: unprovisionedResolver('the closure authority credential is resolved on the Host side, never in the agent'),
     http: nodeHttpPort(),

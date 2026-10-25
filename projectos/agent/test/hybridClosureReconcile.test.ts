@@ -650,6 +650,23 @@ describe('UNATTENDED closure: Host-independent attestation, and nothing else', (
     expect(filesIn(w.root, CLOSURE_INTERACTIVE_REL)).toEqual([]);
   });
 
+  // PROJECTOS-FINISH-API-GATEKEEPER1A: on the committed broker opt-in the closure question goes to the
+  // trusted broker — and a project this installation does not allowlist is refused BEFORE any request.
+  it('on the broker opt-in, a project the installation does not allowlist is refused before the closure request: no spend, no decision', () => {
+    const w = world('unattended');
+    const path = join(w.root, '.projectops', 'gatekeeper.json');
+    writeFileSync(path, JSON.stringify({ ...JSON.parse(readFileSync(path, 'utf8')), route: 'installation-broker' }, null, 2));
+    commitAndPush(w.root, 'owner opts in to the installation broker');
+    startAndDeliverPhase(w);
+    const r = closureRequest(w.ctx, { id: PHASE, execute: true });
+    expect(r.code).toBe(2);
+    expect(text(r.lines)).toContain('does not authorise the governed project to spend its credential, so no closure request was made');
+    expect(text(r.lines)).not.toContain('no Host closure review route is composed');
+    expect(existsSync(join(w.root, ...LEDGER))).toBe(false);
+    expect(existsSync(join(w.root, '.projectops', 'closure', 'decisions', `${PHASE}.json`))).toBe(false);
+    expect(filesIn(w.root, CLOSURE_INTERACTIVE_REL)).toEqual([]);
+  });
+
   it('an unavailable Host fails closed', () => {
     const w = world('unattended');
     startAndDeliverPhase(w);
@@ -854,7 +871,17 @@ describe('reconcile: the same hybrid acquisition, one debt at a time', () => {
 describe('no pre-hybrid direct paid route remains in the closure or reconcile commands', () => {
   const source = (rel: string): string => readFileSync(new URL(rel, import.meta.url), 'utf8');
   it.each(['../src/commands/closure.ts', '../src/commands/reconcile.ts'])('%s composes no in-process provider route', (rel) => {
-    expect(source(rel)).not.toMatch(/nodeBrokeredTransport|submitClosureRequest|submitToOpenAi|installationAllowsProject/);
+    expect(source(rel)).not.toMatch(/submitClosureRequest|submitToOpenAi/);
+  });
+
+  // PROJECTOS-FINISH-API-GATEKEEPER1A (owner decision of 2026-10-25): closure may compose the TRUSTED
+  // INSTALLATION BROKER — a separate process that resolves the key in itself — when no Host route is
+  // configured. The degraded-mode reconciliation still composes no paid route of any kind.
+  it('closure composes the trusted broker only on the committed opt-in with no Host route; reconcile composes none', () => {
+    expect(source('../src/commands/reconcile.ts')).not.toMatch(/nodeBrokeredTransport|installationAllowsProject|trustedBroker|brokerRouteOptedIn|\bbroker\b/);
+    const closure = source('../src/commands/closure.ts');
+    expect(closure).toMatch(/\.\.\.\(args\.hostReview === undefined && brokerRouteOptedIn\(sys, root\)\s*\?\s*\{ broker: trustedBroker\(sys, root, args\.projectId\) \}/);
+    expect(closure).toContain("resolver: unprovisionedResolver('the closure authority credential is resolved on the Host side, never in the agent')");
   });
 
   it('the CLI passes no test seam to either command', () => {

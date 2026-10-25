@@ -11,7 +11,7 @@
  * Created in PROJECTOS-RECOVERY-AUTONOMOUS-LOOP1A.
  */
 import type { CommandContext, CommandResult } from '../context.js';
-import { ok, fail } from '../context.js';
+import { ok, fail, join } from '../context.js';
 import { type Flags, str, bool } from '../flags.js';
 import { runLoop, type RunResult } from '../loop/runner.js';
 import { continuationLines, continueProgramme, phaseAttemptOf } from '../loop/programmeContinuation.js';
@@ -47,10 +47,11 @@ import type { InteractiveGatekeeperDeps } from '../loop/interactiveGatekeeper.js
 import { nodeInteractivePort, resolveGatekeeperMode } from '../loop/gatekeeperHandoff.js';
 import { unprovisionedResolver } from '../loop/credentialResolver.js';
 import { nodeHttpPort } from '../loop/transports/nodeHttpPort.js';
+import { nodeBrokeredTransport } from '../loop/transports/brokeredHttpPort.js';
 import { readBrokerAnsweredState } from '../installation/brokerAnsweredState.js';
 import { nodeInstallationStateDir, nodeProjectosRuntime } from '../nodeRuntimeRoot.js';
-import { canonicalRepositoryIdentity } from '../installation/projectAllowlist.js';
-import { resolveBoundGit } from '../system.js';
+import { canonicalRepositoryIdentity, installationAllowsProject } from '../installation/projectAllowlist.js';
+import { resolveBoundGit, type System } from '../system.js';
 import { createLifecycleRecorder } from '../phaseProgress.js';
 // A CYCLE, AND A SAFE ONE: `closure.ts` imports `run` for the after-close carry, and this imports
 // `closureRequest` for the before-close hand-off. Both are only ever CALLED, never read at load time.
@@ -91,6 +92,48 @@ export function gateWaitMinutesFrom(flags: Flags): number | null {
 /** The refusal every such command gives for an unusable `--gate-wait-minutes`. */
 export const GATE_WAIT_INVALID = `REFUSED (GATE_WAIT_INVALID): --gate-wait-minutes takes a whole number from 0 to ${MAX_GATE_WAIT_MINUTES}.`;
 
+/** The committed `route` value that opts an unattended project in to the trusted installation broker. */
+export const INSTALLATION_BROKER_ROUTE = 'installation-broker';
+
+/**
+ * Has this project's owner OPTED IN to the trusted installation broker? — PROJECTOS-FINISH-API-GATEKEEPER1A
+ * (ECC SECURITY M2). Only when `.projectops/gatekeeper.json` says `"route": "installation-broker"` BOTH in
+ * the committed configuration and in the working copy. Without an explicit committed opt-in, the absence of
+ * a Host block never routes a paid call anywhere: deleting one line must not quietly downgrade a project
+ * from a Host-attested review to a same-user key. Never throws; anything unreadable is "not opted in".
+ */
+export function brokerRouteOptedIn(sys: System, root: string): boolean {
+  const routeOf = (text: string | null): unknown => {
+    if (text === null) return undefined;
+    try {
+      const parsed: unknown = JSON.parse(text);
+      return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>)['route'] : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  const committed = sys.exec('git', ['-C', root, 'show', 'HEAD:./.projectops/gatekeeper.json']);
+  return (
+    committed.code === 0 &&
+    routeOf(committed.stdout) === INSTALLATION_BROKER_ROUTE &&
+    routeOf(sys.readText(join(root, '.projectops', 'gatekeeper.json'))) === INSTALLATION_BROKER_ROUTE
+  );
+}
+
+/**
+ * The trusted installation broker for one governed project — the ONE composition both the loop and closure
+ * use: the transport, the governed root it is asked about, and the installation's committed allowlist asked
+ * on this side first, so a refusal is knowably a call that was never made. The broker resolves the key in
+ * its own process; nothing here reads a credential.
+ */
+export function trustedBroker(sys: System, root: string, projectId: string): NonNullable<GatekeeperTurnDeps['broker']> {
+  return {
+    transport: nodeBrokeredTransport(sys, nodeProjectosRuntime()),
+    governedRoot: root,
+    installationAllows: () => installationAllowsProject(sys, nodeProjectosRuntime(), root, projectId),
+  };
+}
+
 /** The gatekeeper a run is handed, or the refusal that stops it before anything starts. */
 export type GatekeeperComposition =
   | {
@@ -108,10 +151,10 @@ export type GatekeeperComposition =
  * configured project that declares no mode is refused rather than assigned one, and a working-copy edit
  * cannot switch it; see `gatekeeperHandoff.ts`.
  *
- * `hostReview` is the route to ProjectOSHost's attested review. `projectos run` supplies none, because
- * this build has no agent-side Host client: an unattended project therefore WAITS at its gate. It is a
- * parameter so that client plugs in here when it exists — and so the vertical-slice proof drives this
- * exact composition with a deterministic fake provider behind the port.
+ * `hostReview` is the route to ProjectOSHost's attested review, composed from the committed
+ * `hostReview` block (or supplied by a proof). Without one, an unattended project WAITS at its gate —
+ * unless its committed configuration opts in to the trusted installation broker (`brokerRouteOptedIn`),
+ * PROJECTOS-FINISH-API-GATEKEEPER1A.
  */
 export function composeGatekeeper(
   ctx: CommandContext,
@@ -169,7 +212,8 @@ export function composeGatekeeper(
     };
   }
 
-  // UNATTENDED: the configured provider is asked BY PROJECTOSHOST, which attests what it returned. A
+  // UNATTENDED: the configured provider is asked BY PROJECTOSHOST, which attests what it returned, or —
+  // when the owner's committed configuration opts in — by the trusted installation broker. A
   // configuration that is present but BROKEN is a refusal — running unreviewed because the reviewer was
   // misconfigured is the failure this whole loop exists to prevent.
   const gk = loadGatekeeperConfig(ctx.sys, ctx.root);
@@ -178,12 +222,23 @@ export function composeGatekeeper(
   }
   // THE HOST ROUTE, ONLY WHEN THE OWNER'S COMMITTED CONFIGURATION NAMES ONE. A caller-supplied port (the
   // proofs) wins; otherwise the production client is composed from the committed `hostReview` block, and
-  // with no such block NOTHING is composed — the turn then refuses before spend admission, as before.
+  // with no such block NOTHING is composed — the turn then refuses before spend admission — unless the
+  // committed configuration opts in to the trusted broker. Both at once is ambiguous and refused.
   let hostReview: HostReviewPort | undefined = opts.hostReview;
   if (hostReview === undefined) {
     const composedHost = composeHostReview(ctx.sys, ctx.root);
     if (composedHost.kind === 'refused') return { ok: false, lines: composedHost.lines };
     if (composedHost.kind === 'composed') hostReview = composedHost.port;
+  }
+  const brokerRoute = brokerRouteOptedIn(ctx.sys, ctx.root);
+  if (brokerRoute && hostReview !== undefined) {
+    return {
+      ok: false,
+      lines: [
+        'REFUSED (GATEKEEPER_ROUTE_AMBIGUOUS): the committed configuration names both a ProjectOSHost review route and the',
+        '  installation broker. Keep exactly one. Nothing was asked and nothing was spent.',
+      ],
+    };
   }
   const ledger = readLedger(ctx.sys, ctx.root);
   return {
@@ -191,14 +246,21 @@ export function composeGatekeeper(
     mode: 'unattended',
     expectedDecider: gk.config.expectedDecider,
     gatekeeper: {
-      mode: 'unattended',
-      // The in-process provider call is never made in this mode: with no Host route, the turn waits.
-      ...(hostReview === undefined ? {} : { hostReview }),
+      // THE TRUSTED INSTALLATION BROKER, ONLY ON THE OWNER'S COMMITTED OPT-IN — PROJECTOS-FINISH-API-
+      // GATEKEEPER1A (owner decision of 2026-10-25, "Route 2 now"). It is composed in the PRE-HYBRID shape:
+      // no `mode`, because `mode: 'unattended'` means Host-attested and the turn refuses that mode without a
+      // Host route. The broker checks the installation allowlist and this project's committed
+      // secrets-handling receipt, resolves the key inside itself and makes the call; evidence from it
+      // carries no Host provenance stamp, so it can never pass for a Host-attested answer. Otherwise the
+      // Host route when one is configured, or nothing — and the turn waits.
+      ...(brokerRoute
+        ? { broker: trustedBroker(ctx.sys, ctx.root, governedProjectId(ctx)) }
+        : { mode: 'unattended' as const, ...(hostReview === undefined ? {} : { hostReview }) }),
       transport: gk.config.transport,
       availability: { reachable: true },
       // THE CREDENTIAL IS NOT RESOLVED IN THIS PROCESS. The resolver handed over refuses by
-      // construction, so there is no in-process value even to leak: in unattended mode the credential is
-      // the Host's, and generated agent code running against an untrusted project never holds it.
+      // construction, so there is no in-process value even to leak: the credential is the Host's or the
+      // broker's, and generated agent code running against an untrusted project never holds it.
       resolver: unprovisionedResolver('the gatekeeper credential is resolved on the Host side, never in the agent'),
       http: nodeHttpPort(),
       modelPolicy: gk.config.modelPolicy,
@@ -320,8 +382,8 @@ export function run(ctx: CommandContext, flags: Flags): CommandResult {
     return fail(2, [GATE_WAIT_INVALID, '', 'Nothing was prepared and nothing was started.']);
   }
 
-  // WHICH GATEKEEPER, IN WHICH MODE — composed in one place, before anything starts. No Host route is
-  // supplied: this build has no agent-side ProjectOSHost client, so an unattended project waits.
+  // WHICH GATEKEEPER, IN WHICH MODE — composed in one place, before anything starts: the committed Host
+  // route, or the trusted installation broker on the owner's committed opt-in, or nothing — and it waits.
   const composed = composeGatekeeper(ctx, {
     gateWaitMinutes,
     supersedeStale: flags["supersede-stale-request"] === true,
