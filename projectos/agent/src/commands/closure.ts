@@ -49,6 +49,7 @@ import {
   validationRecordPath,
 } from '../closureGate.js';
 import { checksFor, configuredChecks, runChecks, type CheckResult } from '../loop/verification.js';
+import { withPinnedValidators } from '../loop/pinnedValidators.js';
 import { findingsPath, readFindings, type FindingsRecord } from '../loop/session.js';
 import { createHash } from 'node:crypto';
 import { blockingFindings } from '../loop/outcome.js';
@@ -659,16 +660,26 @@ export function closurePrepare(ctx: CommandContext, flags: Flags): CommandResult
   if (suites.problems.length > 0) {
     return fail(2, ['REFUSED (BAD_CHECK_CONFIG): the project declares a check that cannot be read; a dropped check would read as a passing one.', ...suites.problems.map((p) => `  - ${p}`)]);
   }
-  const specs = checksFor(sys, root, names('requiredValidators'), suites.checks);
-  if (specs.length === 0) {
-    return fail(2, ['REFUSED (NOTHING_TO_VALIDATE): the phase requires no validator and the project configures no check; a validation record of nothing proves nothing.']);
+  // THE VALIDATORS JUDGE FROM THE RUN'S BASE COMMIT, exactly as they did during the run: the subject
+  // carries the phase's own edits, which may include a validator it was granted.
+  const base = typeof run['baseHead'] === 'string' ? run['baseHead'] : '';
+  if (!/^[0-9a-f]{40}$/.test(base)) {
+    return fail(2, ['REFUSED (RUN_BASE_UNKNOWN): the run records no base commit, so its validators cannot be run from the commit the phase started at.']);
   }
-  const runCheckIds = Array.isArray(run['checks']) ? (run['checks'] as Record<string, unknown>[]).map((c) => String(c['id'])) : [];
-  const missing = runCheckIds.filter((c) => !specs.some((s) => s.id === c));
-  if (missing.length > 0) {
-    return fail(2, ['REFUSED (CHECK_SET_CHANGED): checks the run ran are no longer configured, so the subject would be judged on less.', ...missing.map((m) => `  ${m}`)]);
-  }
-  const results = runChecks(sys, root, specs);
+  const checked = withPinnedValidators(sys, root, base, (pin) => {
+    const specs = checksFor(sys, root, names('requiredValidators'), suites.checks, pin);
+    if (specs.length === 0) {
+      return fail(2, ['REFUSED (NOTHING_TO_VALIDATE): the phase requires no validator and the project configures no check; a validation record of nothing proves nothing.']);
+    }
+    const runCheckIds = Array.isArray(run['checks']) ? (run['checks'] as Record<string, unknown>[]).map((c) => String(c['id'])) : [];
+    const missing = runCheckIds.filter((c) => !specs.some((s) => s.id === c));
+    if (missing.length > 0) {
+      return fail(2, ['REFUSED (CHECK_SET_CHANGED): checks the run ran are no longer configured, so the subject would be judged on less.', ...missing.map((m) => `  ${m}`)]);
+    }
+    return runChecks(sys, root, specs);
+  });
+  if (!Array.isArray(checked)) return checked as CommandResult;
+  const results: readonly CheckResult[] = checked;
   // THE CHECKS MUST NOT HAVE MOVED THE TREE OR THE SUBJECT. A check that wrote into the checkout, or a
   // commit made while they ran, would make the record describe a tree that is not the subject.
   const after = gitFacts(sys, root);

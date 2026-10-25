@@ -778,6 +778,55 @@ describe('an authored proposal materialises into a schema-valid plan', () => {
     const readiness = engine.evaluatePlanReady(result.plan);
     if (!readiness.ready) throw new Error(`authored plan not ready: ${readiness.reasons.join('; ')}`);
   });
+
+  /**
+   * THE WRITE GRANT IS PROJECTED EXACTLY — PROJECTOS-FINISH-WRITEPATHS1A. A phase's `writePaths` reaches
+   * the activated plan as stated, schema-valid; an absent list stays absent; a list the runtime could
+   * not use as written is refused at approval rather than narrowed.
+   */
+  test('writePaths are projected exactly, absent stays absent, and a malformed list is refused', () => {
+    const root = tempProject();
+    expect(authored(root).ok).toBe(true);
+    const revalidated = revalidateAuthoredDraft(realSystem(root), root, loadDiscoveryEngine(), draftOf(root));
+    expect(revalidated.ok).toBe(true);
+    if (!revalidated.ok) return;
+    const withWritePaths = (writePaths: unknown) => {
+      const draft = revalidated.proposal.imported.draft as Record<string, unknown>;
+      const candidates = (draft['phaseCandidates'] as Record<string, unknown>[]).map((c) =>
+        writePaths === undefined ? c : { ...c, writePaths },
+      );
+      return materialisePlan({
+        proposal: { ...revalidated.proposal, imported: { ...revalidated.proposal.imported, draft: { ...draft, phaseCandidates: candidates } } },
+        config: { projectId: 'acme', projectName: 'Acme', repo: 'acme/app', localPath: root, protectedBranches: ['main'] },
+        activePlan: activePlanFixture(),
+        governanceSource: 'active-plan',
+        decision: DECISION_FIXTURE as never,
+        delegation: null,
+        closureDelegation: null,
+        planId: 'acme-govproof-plan',
+        programmeId: 'acme-govproof',
+        now: '2026-08-27T00:30:00.000Z',
+      });
+    };
+
+    const listed = withWritePaths(['src/app.ts', 'docs/notes/']);
+    expect(listed.ok).toBe(true);
+    if (!listed.ok) return;
+    const phase = (listed.plan['phases'] as Record<string, unknown>[])[0]!;
+    expect(phase['writePaths']).toEqual(['src/app.ts', 'docs/notes/']);
+    const { engine, schema } = loadGovernanceEngine();
+    expect(engine.validateAgainstSchema(listed.plan, schema)).toEqual([]);
+
+    const absent = withWritePaths(undefined);
+    expect(absent.ok).toBe(true);
+    if (absent.ok) expect('writePaths' in (absent.plan['phases'] as Record<string, unknown>[])[0]!).toBe(false);
+
+    for (const bad of ['src/app.ts', ['src/app.ts', ''], ['src/app.ts', 7], { a: 'b' }]) {
+      const refused = withWritePaths(bad);
+      expect(refused.ok, JSON.stringify(bad)).toBe(false);
+      if (!refused.ok) expect(refused.problems.join('; '), JSON.stringify(bad)).toContain('writePaths that is not a list of non-empty path strings');
+    }
+  });
 });
 
 /* ------------------------------------------------------------------------------------------------

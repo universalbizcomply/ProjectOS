@@ -1170,6 +1170,11 @@ function buildPhaseCandidates(sources) {
         purpose: typeof p.description === "string" && p.description.trim() !== "" ? p.description.trim() : "NEEDS OWNER DECISION",
         scope: typeof p.scope === "string" && p.scope.trim() !== "" ? p.scope.trim() : "NEEDS SOURCE",
         exclusions: strArr(p.exclusions),
+        // THE WRITE GRANT, AS DATA — PROJECTOS-FINISH-WRITEPATHS1A. Carried exactly as the source states
+        // it, and only when it states it: an absent list stays absent (the phase grants nothing beyond
+        // the worker-owned records), and a malformed one is carried for plan approval to refuse rather
+        // than filtered here into a narrower list nobody approved.
+        ...(p.writePaths === undefined ? {} : { writePaths: Array.isArray(p.writePaths) ? p.writePaths.slice() : p.writePaths }),
         dependencies: strArr(p.dependsOn),
         acceptanceCriteria: strArr(p.acceptanceCriteria),
         expectedValidators: strArr(p.requiredValidators),

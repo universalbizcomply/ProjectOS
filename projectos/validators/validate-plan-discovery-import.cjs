@@ -324,6 +324,28 @@ function run() {
         const done = eng.declaredCompletedPhases(arrC, new Set(["s.json", W]));
         if (done.has("D-P2A")) errors.push("(h2) a withdrawn phase must never appear as completed");
       }
+      // (w) THE WRITE GRANT IS DATA — PROJECTOS-FINISH-WRITEPATHS1A. A structured plan's `writePaths` reaches
+      // the phase candidate exactly as stated; an absent list stays absent; a malformed one is carried for
+      // plan approval to refuse, never filtered into a narrower list nobody approved.
+      {
+        const cfgP = JSON.stringify({ projectId: "done", planSources: ["p.json"] });
+        const withPhase = (extra) => JSON.stringify({ projectId: "done", definitionOfComplete: "x", phases: [{ phaseId: "W-P1A", description: "d", ...extra }] });
+        const cand = (extra) => {
+          const arr = [fp(".projectops/config.json", cfgP, ".json"), fp("p.json", withPhase(extra), ".json")];
+          const draft = eng.importFromSources(arr).draft;
+          return ((draft && draft.phaseCandidates) || []).find((c) => c.phaseId === "W-P1A") || null;
+        };
+        const listed = cand({ writePaths: ["src/a.ts", "docs/notes/"], scope: "Do not touch src/b.ts." });
+        if (!listed || JSON.stringify(listed.writePaths) !== JSON.stringify(["src/a.ts", "docs/notes/"])) {
+          errors.push("(w) a structured plan's writePaths must reach the phase candidate exactly as stated");
+        }
+        const absent = cand({ scope: "Edit src/a.ts." });
+        if (!absent || "writePaths" in absent) errors.push("(w) a phase with no writePaths must not gain one, least of all from its scope prose");
+        const malformed = cand({ writePaths: ["src/a.ts", 7] });
+        if (!malformed || !Array.isArray(malformed.writePaths) || malformed.writePaths.length !== 2) {
+          errors.push("(w) a malformed writePaths must be carried as stated for approval to refuse, not filtered narrower");
+        }
+      }
       // A DECLARED record is not retired by a word in its own prose. This repository's current-state
       // record describes which plan VERSIONS it supersedes, and the prose marker was retiring the
       // live record to history on the strength of that word.

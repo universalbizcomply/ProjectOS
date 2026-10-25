@@ -19,6 +19,7 @@ import { describe, it, expect } from 'vitest';
 import { claudeCodeCliAdapter, CLAUDE_CODE_CLI } from '../src/loop/adapters/claudeCodeCli.js';
 import { buildWorkerBrief } from '../src/loop/brief.js';
 import { requiredChecks, runChecks } from '../src/loop/verification.js';
+import type { ValidatorPin } from '../src/loop/pinnedValidators.js';
 import type { WorkerSession } from '../src/loop/workers.js';
 import type { GovernedContext } from '../src/governedContext.js';
 import type { RepositoryObservation } from '../src/loop/observation.js';
@@ -160,6 +161,8 @@ describe('the worker is placed in the governed repository', () => {
 
 describe('checks run in the governed repository', () => {
   const validator = `${GOVERNED}/projectos/validators/validate-all.cjs`;
+  /** The validators are pinned to the base commit (FINISH-WRITEPATHS1A); this pin holds validate-all. */
+  const PIN: ValidatorPin = { ok: true, commit: 'a'.repeat(40), loader: '/pin/pinned-loader.cjs', files: new Set(['projectos/validators/validate-all.cjs']), dir: '/pin' };
 
   it('D — a configured test and typecheck run with the governed root as cwd', () => {
     const sys = recordingSystem([validator]);
@@ -176,7 +179,7 @@ describe('checks run in the governed repository', () => {
         command: 'C:/Program Files/nodejs/node.exe',
         args: ['npm-cli.js', '--prefix', 'projectos/agent', 'run', 'typecheck:all'],
       },
-    ]);
+    ], PIN);
     runChecks(sys, GOVERNED, specs);
     expect(sys.calls).toHaveLength(3);
     for (const call of sys.calls) expect(call.options?.cwd).toBe(GOVERNED);
@@ -184,7 +187,7 @@ describe('checks run in the governed repository', () => {
 
   it('D — the plan’s own validators run there too', () => {
     const sys = recordingSystem([validator]);
-    runChecks(sys, GOVERNED, requiredChecks(sys, GOVERNED, brief()));
+    runChecks(sys, GOVERNED, requiredChecks(sys, GOVERNED, brief(), [], PIN));
     expect(sys.calls[0].options?.cwd).toBe(GOVERNED);
   });
 
@@ -192,7 +195,7 @@ describe('checks run in the governed repository', () => {
     const sys = recordingSystem();
     const specs = requiredChecks(sys, GOVERNED, brief(), [
       { id: 'core-tests', kind: 'test', command: 'C:/Program Files/nodejs/node.exe', args: ['--prefix', 'projectos/core', 'test'] },
-    ]);
+    ], PIN);
     runChecks(sys, GOVERNED, specs);
     const relative = sys.calls.find((c) => c.args.includes('projectos/core'));
     expect(relative?.options?.cwd).toBe(GOVERNED);
@@ -201,7 +204,7 @@ describe('checks run in the governed repository', () => {
 
   it('F — checks still scrub credentials', () => {
     const sys = recordingSystem([validator]);
-    runChecks(sys, GOVERNED, requiredChecks(sys, GOVERNED, brief()));
+    runChecks(sys, GOVERNED, requiredChecks(sys, GOVERNED, brief(), [], PIN));
     expect(sys.calls[0].options?.scrubCredentials).toBe(true);
   });
 });

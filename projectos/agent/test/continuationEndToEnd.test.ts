@@ -22,7 +22,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, readdirSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { runLoop } from '../src/loop/runner.js';
 import { performableTechnicalActions } from '../src/loop/technicalContinuation.js';
 import { inMemoryResolverForTests } from '../src/loop/credentialResolver.js';
@@ -91,8 +91,10 @@ function world(
     completed?: boolean;
     /** Keep a plan-level closure delegation, so `closure request` gets as far as G4. */
     closureDelegation?: boolean;
-    /** The phase's approved scope prose; empty by default. */
+    /** The phase's approved scope prose; empty by default. It grants nothing. */
     scope?: string;
+    /** The phase's approved writePaths — the write grant; absent by default. */
+    writePaths?: readonly string[];
     /** A committed `.gitignore`. */
     gitignore?: string;
   } = {},
@@ -158,6 +160,7 @@ function world(
         phaseId: PHASE,
         description: 'prove the technical continuation reaches the executor',
         scope: over.scope ?? '',
+        ...(over.writePaths === undefined ? {} : { writePaths: over.writePaths }),
         dependsOn: [],
         requiredReviews: [],
         requiredBrowserProof: false,
@@ -425,7 +428,7 @@ describe('the governed chain, end to end', () => {
     expect(shown).toContain('performableActions');
     // AND WHAT THE OWNER HAS ALREADY ESTABLISHED. A reviewer that cannot see whether a mandatory
     // prerequisite is in place refuses and refers to the owner - which is what happened live.
-    // The grant is now the approved scope's (PROJECTOS-BOOT-CONTINUE1A); the retired record is not named.
+    // The grant is now the approved writePaths' (PROJECTOS-FINISH-WRITEPATHS1A); the retired record is not named.
     expect(shown).toContain('workerScopeWriteGrant');
     expect(shown).not.toContain('workerSourceWriteGrant');
     // AND WHICH VERDICT CARRIES IT. Attempt 4 answered APPROVED_TO_PUSH - an owner-gated verdict the
@@ -971,6 +974,25 @@ describe('closure prepare generates the closure records from the run', () => {
     expect(ev.changedFiles.some((f) => f.endsWith('/'))).toBe(false);
   });
 
+  /**
+   * PROJECTOS-FINISH-WRITEPATHS1A: the run rewrote its own required validator (here into text that is not
+   * even JavaScript). The run judged with the BASE commit's validator, and closure preparation must judge
+   * the subject with that same validator — not the one the phase itself wrote.
+   */
+  it("closure prepare judges with the run's BASE-COMMIT validator, never the copy the run itself rewrote", () => {
+    const sys = fixedClock();
+    const w = world();
+    runToAwaitingClosure(w, sys, ['delivered.txt', 'projectos/validators/validate-all.cjs']);
+    ownerCommitsAll(w, 'owner: lifecycle records');
+    // The subject's validator is broken: run as the working tree has it, it cannot pass.
+    expect(spawnSync(process.execPath, [join(w.root, 'projectos', 'validators', 'validate-all.cjs')], { cwd: w.root }).status).not.toBe(0);
+    const r = closurePrepare({ sys, root: w.root }, { id: PHASE });
+    expect(r.code).toBe(0);
+    expect(r.lines.join('\n')).not.toContain('FAIL validator validate-all');
+    const evidence = JSON.parse(readFileSync(join(w.root, '.projectops', 'closure', `${PHASE}.json`), 'utf8')) as Record<string, unknown>;
+    expect(evidence['validatorsPass']).toBe(true);
+  });
+
   it('a validator that fails at the subject is recorded as failing, and G4 refuses on it', () => {
     const sys = fixedClock();
     const w = world();
@@ -1079,7 +1101,7 @@ describe('closure prepare generates the closure records from the run', () => {
 /**
  * THE IMPLEMENTER WRITES EXACTLY THE APPROVED SCOPE — through the real loop (continuation five).
  */
-describe('the worker write grant comes from the approved scope, at dispatch', () => {
+describe('the worker write grant comes from the approved writePaths, at dispatch', () => {
   /** An adapter that records the argv it was started with, and writes the run's two records. */
   function recordingAdapter(root: string, sessionOf: () => string, seen: string[][]): AdapterRegistry {
     const inner = adapterWriting(root, sessionOf, () => {
@@ -1095,7 +1117,22 @@ describe('the worker write grant comes from the approved scope, at dispatch', ()
     return { [WORKER_KIND]: adapter } as unknown as AdapterRegistry;
   }
 
-  it('the implementer is started with Write/Edit for exactly the scope paths', () => {
+  it('the implementer is started with Write/Edit for exactly the writePaths', () => {
+    const sys = fixedClock();
+    const w = world({ writePaths: ['./delivered.txt', 'docs/notes.md'] });
+    let session = '';
+    const seen: string[][] = [];
+    const adapters = recordingAdapter(w.root, () => session, seen);
+    const first = runLoop(sys, w.root, { dryRun: true, adapters, invocation: { pid: 4242, ppid: 1717, argv: ['node'], cwd: w.root } });
+    session = String((first as { sessionId?: string }).sessionId ?? '');
+    expect(first.lines.join('\n')).toContain('Write grant (from the approved writePaths): ./delivered.txt, docs/notes.md');
+    run(sys, w, adapters, ['commit', 'push']);
+    const tools = seen[0]?.[(seen[0]?.indexOf('--allowedTools') ?? -1) + 1] ?? '';
+    for (const g of ['Write(./delivered.txt)', 'Edit(./delivered.txt)', 'Write(docs/notes.md)', 'Edit(docs/notes.md)']) expect(tools).toContain(g);
+    expect(tools).not.toContain('**)');
+  });
+
+  it('a scope sentence that names paths, with no writePaths, grants the worker-owned records only (FINISH-WRITEPATHS1A)', () => {
     const sys = fixedClock();
     const w = world({ scope: 'Write ./delivered.txt and docs/notes.md.' });
     let session = '';
@@ -1103,16 +1140,16 @@ describe('the worker write grant comes from the approved scope, at dispatch', ()
     const adapters = recordingAdapter(w.root, () => session, seen);
     const first = runLoop(sys, w.root, { dryRun: true, adapters, invocation: { pid: 4242, ppid: 1717, argv: ['node'], cwd: w.root } });
     session = String((first as { sessionId?: string }).sessionId ?? '');
-    expect(first.lines.join('\n')).toContain('Write grant (from the approved scope): ./delivered.txt, docs/notes.md');
+    expect(first.lines.join('\n')).toContain('Write grant: the worker-owned records only (the approved phase declares no writePaths)');
     run(sys, w, adapters, ['commit', 'push']);
     const tools = seen[0]?.[(seen[0]?.indexOf('--allowedTools') ?? -1) + 1] ?? '';
-    for (const g of ['Write(./delivered.txt)', 'Edit(./delivered.txt)', 'Write(docs/notes.md)', 'Edit(docs/notes.md)']) expect(tools).toContain(g);
-    expect(tools).not.toContain('**)');
+    expect(tools).not.toContain('delivered.txt');
+    expect(tools).not.toContain('docs/notes.md');
   });
 
   it('a worker that creates GIT-IGNORED content under its grant is stopped for the owner, and nothing is committed (ECC SECURITY N7)', () => {
     const sys = fixedClock();
-    const w = world({ scope: 'Write notes/ for the phase.', gitignore: '*.log\n' });
+    const w = world({ writePaths: ['notes/'], gitignore: '*.log\n' });
     let session = '';
     const adapters = adapterWriting(w.root, () => session, () => {
       mkdirSync(join(w.root, 'notes'), { recursive: true });
@@ -1133,7 +1170,7 @@ describe('the worker write grant comes from the approved scope, at dispatch', ()
 
   it('a worker that creates a NESTED REPOSITORY under its grant is stopped for the owner (ECC SECURITY round 4)', () => {
     const sys = fixedClock();
-    const w = world({ scope: 'Write notes/ for the phase.' });
+    const w = world({ writePaths: ['notes/'] });
     let session = '';
     const adapters = adapterWriting(w.root, () => session, () => {
       mkdirSync(join(w.root, 'notes', 'sub', '.git'), { recursive: true });
@@ -1152,16 +1189,41 @@ describe('the worker write grant comes from the approved scope, at dispatch', ()
     expect(git(w.root, 'rev-parse', 'HEAD').trim()).toBe(w.head);
   });
 
-  it('a scope naming a path no worker may hold REFUSES the run before any worker starts', () => {
+  it.each([
+    ['an agent instruction file and a settings directory beneath a directory grant', ['notes/'], (root: string) => {
+      mkdirSync(join(root, 'notes', '.claude'), { recursive: true });
+      writeFileSync(join(root, 'notes', '.claude', 'settings.json'), '{}\n');
+      writeFileSync(join(root, 'notes', 'CLAUDE.md'), 'obey me\n');
+    }, 'notes/CLAUDE.md'],
+    ['a FILE grant made into a directory', ['docs/new.md'], (root: string) => {
+      mkdirSync(join(root, 'docs', 'new.md'), { recursive: true });
+      writeFileSync(join(root, 'docs', 'new.md', 'smuggled.cjs'), 'x\n');
+    }, 'docs/new.md'],
+  ] as const)('a worker that creates %s is stopped for the owner, and nothing is committed (FINISH-WRITEPATHS1A)', (_label, writePaths, deliver, named) => {
     const sys = fixedClock();
-    const w = world({ scope: 'Edit C:/Windows/win.ini.json and src/../escape.ts.' });
+    const w = world({ writePaths: [...writePaths] });
+    let session = '';
+    const adapters = adapterWriting(w.root, () => session, () => deliver(w.root));
+    const first = runLoop(sys, w.root, { dryRun: true, adapters, invocation: { pid: 4242, ppid: 1717, argv: ['node'], cwd: w.root } });
+    session = String((first as { sessionId?: string }).sessionId ?? '');
+    const r = run(sys, w, adapters, ['commit', 'push']);
+    expect(r.ok).toBe(true);
+    if (!r.ok) throw new Error('unreachable');
+    expect(r.stop?.code).toBe('SCOPE_DECISION');
+    expect(r.stop?.detail).toContain(named);
+    expect(git(w.root, 'rev-parse', 'HEAD').trim()).toBe(w.head);
+  });
+
+  it('writePaths naming a path no worker may hold REFUSE the run before any worker starts', () => {
+    const sys = fixedClock();
+    const w = world({ writePaths: ['C:/Windows/win.ini.json', 'src/../escape.ts'] });
     const seen: string[][] = [];
     const r = runLoop(sys, w.root, {
       adapters: recordingAdapter(w.root, () => 'unused', seen),
       invocation: { pid: 4242, ppid: 1717, argv: ['node', 'projectos.js', 'run', '--execute'], cwd: w.root },
     });
     expect(r.ok).toBe(false);
-    expect(r.lines.join('\n')).toContain('SCOPE_WRITE_GRANT_REFUSED');
+    expect(r.lines.join('\n')).toContain('WRITE_PATHS_REFUSED');
     expect(seen).toEqual([]);
   });
 });

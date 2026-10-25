@@ -71,6 +71,7 @@
           "phaseId": { "type": "string", "minLength": 1 },
           "description": { "type": "string", "minLength": 1 },
           "scope": { "type": "string" },
+          "writePaths": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "The repository paths the phase's implementer may write, one path per entry; the worker's write grant is exactly this list. Absent grants nothing beyond the worker-owned records." },
           "dependsOn": { "type": "array", "items": { "type": "string" } },
           "acceptanceCriteria": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
           "riskLevel": { "type": "string", "enum": ["low", "medium", "high", "critical"] },

@@ -15,6 +15,13 @@
  *   - "the scope grant can be a directory"            — and governance files ride along with it
  *   - "keep the source-grant record as a fallback"    — and there are two grant routes again
  *
+ * PROJECTOS-FINISH-WRITEPATHS1A adds section (10):
+ *
+ *   - "the scope sentence names the paths anyway"      — and prose is a grant route again
+ *   - "a bad entry can just be skipped"                — and a grant quietly differs from the list
+ *   - "the validator in the tree is the validator"     — and a worker grades its own work
+ *   - "pinning can be optional"                         — and one call site runs the tree's copy
+ *
  * Every rule names one file and one construct. Comments are stripped first, so prose describing a rule
  * can neither satisfy nor break it. Reads files; runs nothing, calls no provider, mutates nothing.
  */
@@ -36,6 +43,11 @@ const RUNNER_REL = "projectos/agent/src/loop/runner.ts";
 const CONFIG_REL = ".projectops/project-config.json";
 const RETIRED_GRANT_REL = ".projectops/authority/worker-source-grant.json";
 const RECONCILE_REL = "projectos/agent/src/commands/reconcile.ts";
+const PINNED_REL = "projectos/agent/src/loop/pinnedValidators.ts";
+const PLAN_APPROVAL_REL = "projectos/agent/src/planApproval.ts";
+const ENGINE_REL = "projectos/validators/plan-discovery-engine.cjs";
+const SCHEMA_REL = "projectos/schemas/project-plan.schema.json";
+const FINISH_PLAN_REL = "docs/projectos-finish-phases.json";
 
 /** The proofs. A pinned shape whose behaviour nobody runs is a shape, not a protection. */
 const TESTS = {
@@ -52,10 +64,26 @@ const TESTS = {
     "FINDINGS_NOT_BOUND",
     "GIT-IGNORED content under its grant",
     "NESTED REPOSITORY under its grant",
+    "with no writePaths, grants the worker-owned records only",
+    "BASE-COMMIT validator, never the copy the run itself rewrote",
+    "a FILE grant made into a directory",
   ],
   "projectos/agent/test/closureEndToEnd.test.ts": ["waits, boundedly, for the owner commit", "projectos continue routes on recorded state"],
-  "projectos/agent/test/loopToolGrants.test.ts": ["passes through a link", "differs in case", "the retired source grant", "the execution records directory", "a star glob", "also excludes", "git-ignored output", "the closure delegation", "governed files", "Hands off"],
+  "projectos/agent/test/loopToolGrants.test.ts": ["passes through a link", "differs in case", "the retired source grant", "the execution records directory", "a star glob", "a sentence as an entry", "git-ignored output", "the closure delegation", "governed files", "the list alone decides", "not a non-empty path string", "Every plan v1.9 phase carries writePaths", "an agent instruction file", "flags a hook or settings directory", "FILE grant the worker made into a directory"],
   "projectos/agent/test/loopRunner.test.ts": ["FIRST dispatch only"],
+  // PROJECTOS-FINISH-WRITEPATHS1A.
+  "projectos/agent/test/pinnedValidators.test.ts": [
+    "does NOT change the check result",
+    "the child a pinned validator spawns is pinned too",
+    "still judges the WORKER's tree",
+    "a validator the worker ADDED cannot judge the phase",
+    "outside the checkout and is removed afterwards",
+    "reached through a JUNCTION still judges from the base commit",
+    "leaves no directory behind",
+    "removes the pin even when the work it wraps throws",
+  ],
+  "projectos/agent/test/loopOutcome.test.ts": ["a validator absent from the base commit cannot judge the phase", "never run unpinned"],
+  "projectos/agent/test/planAuthoring.test.ts": ["writePaths are projected exactly, absent stays absent, and a malformed list is refused"],
 };
 
 function read(rel) {
@@ -119,7 +147,7 @@ function run() {
   const errors = [];
   const E = (m) => errors.push(m);
   const files = {};
-  for (const rel of [BRIEF_REL, CLOSURE_GATE_REL, VERIFICATION_REL, HANDOFF_REL, CONTINUATION_REL, RUN_REL, CLOSURE_REL, WORKERS_REL, RUNNER_REL, RECONCILE_REL]) {
+  for (const rel of [BRIEF_REL, CLOSURE_GATE_REL, VERIFICATION_REL, HANDOFF_REL, CONTINUATION_REL, RUN_REL, CLOSURE_REL, WORKERS_REL, RUNNER_REL, RECONCILE_REL, PINNED_REL, PLAN_APPROVAL_REL, ENGINE_REL]) {
     const raw = read(rel);
     if (raw === null) {
       E(`${rel} is missing`);
@@ -247,13 +275,13 @@ function run() {
   }
   if (!/MAX_OWNER_WAIT_MINUTES = 240;/.test(closure)) E("BC-7e: the owner-commit wait ceiling changed");
 
-  // (8) THE IMPLEMENTER'S GRANT IS THE APPROVED SCOPE, AND THE OLD ROUTE IS GONE.
+  // (8) THE IMPLEMENTER'S GRANT IS THE APPROVED writePaths, AND THE OLD ROUTES ARE GONE.
   const workers = files[WORKERS_REL];
   if (/WORKER_SOURCE_GRANTS|committedSourceGrants|worker-source-grant/.test(workers)) E("BC-8a: the retired source-grant route is back in the worker seam");
   if (!/export function toolGrantProblems\(args: readonly string\[\]\): readonly string\[\]/.test(workers)) {
     E("BC-8b: configuration may again be widened by a second grant source");
   }
-  const judge = fnBody(workers, "judgeScopePath") || "";
+  const judge = fnBody(workers, "judgeWritePath") || "";
   for (const [id, re, what] of [
     ["BC-8c", /rel\.startsWith\('\/'\) \|\| \/\^\[A-Za-z\]:\/\.test\(rel\)/, "absolute paths and drive letters"],
     ["BC-8d", /rel\.includes\(':'\)/, "alternate data streams"],
@@ -264,11 +292,10 @@ function run() {
     ["BC-8i", /if \(directory && FILE_ONLY_ROOTS\.some\(\(r\) => underOrEqual\(lower, r\) \|\| underOrEqual\(r, lower\)\)\) \{/, "directories that are, are inside, or contain governance roots"],
     ["BC-8j", /startsWith\(`\$\{absRoot\}\$\{sep\}`\)/, "paths that resolve outside the checkout"],
     ["BC-8q", /if \(!PATH_WORD\.test\(word\)\)/, "globs and characters outside the path alphabet"],
-    ["BC-8r", /if \(NEGATION\.test\(scope\)\)/, "paths in a scope that also excludes"],
     ["BC-8s", /if \(!rel\.includes\('\/'\) && !word\.startsWith\('\.\/'\) && !statedDirectory\) \{\s*return fail\(`is a bare filename/, "bare filenames that may match at any depth"],
     ["BC-8t", /PROJECTOPS_DECLARABLE\.some\(/, "runtime records under .projectops"],
   ]) {
-    if (!re.test(judge)) E(`${id}: the scope grant no longer refuses ${what}`);
+    if (!re.test(judge)) E(`${id}: the write grant no longer refuses ${what}`);
   }
   if (!/const PATH_WORD = \/\^\[A-Za-z0-9_\.\\-\/\\\\\]\+\$\/;/.test(workers)) {
     E("BC-8v: the path alphabet widened; a glob or lookalike can become part of a grant");
@@ -287,18 +314,22 @@ function run() {
   if (!/const inspected = inspectDirectory\(rel\);\s*if \(inspected === null\) return fail\(/.test(judge) || !/if \(inspected\.ignored\) \{\s*return fail\(/.test(judge) || !/if \(directory && inspected\.packageRoot\) \{\s*return fail\(/.test(judge)) {
     E("BC-8y: a directory grant can reach git-ignored output or a package root, or is granted when git cannot describe it");
   }
-  if (!/const judged = judgeScopePath\(root, word, scope, inspectDirectory, governed\);/.test(fnBody(workers, "scopeWriteGrants") || "")) {
-    E("BC-8z: the exclusion test no longer reads the WHOLE scope");
+  const grantFn = fnBody(workers, "writePathGrants") || "";
+  if (!/for \(const \[i, word\] of entries\.entries\(\)\) \{\s*if \(typeof word !== 'string' \|\| word === ''\) \{\s*problems\.push\(/.test(grantFn) ||
+      !/const judged = judgeWritePath\(root, word, inspectDirectory, governed\);/.test(grantFn)) {
+    E("BC-8z: a writePaths entry is no longer judged exactly as written, or a non-string entry is skipped instead of refused");
   }
   const declarable = (/const PROJECTOPS_DECLARABLE: readonly string\[\] = \[([\s\S]*?)\];/.exec(workers) || [])[1] || "";
   if (/execution|closure|validation|phases|gatekeeper-ledger|gatekeeper-decisions|gatekeeper-interactive|work\.v1|current-state/.test(declarable)) {
     E("BC-8u: a record the runtime writes is declarable by scope");
   }
   const runner = files[RUNNER_REL];
-  if (!/const scopeGrant = scopeWriteGrants\(root, phaseScopeText\(context\.plan, phaseId\), gitDirectoryInspector\(sys, root\), \[\s*\.\.\.\(memory\?\.planPath === undefined/.test(runner) ||
+  if (!/const declaredWritePaths = phaseWritePaths\(context\.plan, phaseId\);/.test(runner) ||
+      !/const writeGrant = writePathGrants\(root, declaredWritePaths\.entries, gitDirectoryInspector\(sys, root\), \[\s*\.\.\.\(memory\?\.planPath === undefined/.test(runner) ||
       !/\.\.\.\(memory\?\.currentStatePath === undefined \? \[\] : \[memory\.currentStatePath\]\)/.test(runner) ||
-      !/REFUSED \(SCOPE_WRITE_GRANT_REFUSED\)/.test(runner)) {
-    E("BC-8m: the runner no longer derives the grant from the approved scope, or no longer refuses on a bad one");
+      !/const grantProblems = \[\.\.\.declaredWritePaths\.problems, \.\.\.writeGrant\.problems\];\s*if \(grantProblems\.length > 0\) \{\s*return refused\(/.test(runner) ||
+      !/REFUSED \(WRITE_PATHS_REFUSED\)/.test(runner)) {
+    E("BC-8m: the runner no longer derives the grant from the approved writePaths, or no longer refuses on a bad list");
   }
   // N7: new git-ignored content under a grant ends the run for the owner.
   if (!/const ignoredBefore = gitIgnoredUnder\(sys, root, attemptGranted\);/.test(runner) ||
@@ -316,14 +347,14 @@ function run() {
   if (!/l\.startsWith\('\?\? '\) && path\.endsWith\('\/'\)/.test(hidden) || !/path\.split\('\/'\)\.some\(\(seg\) => \/\^\\\.git\/i\.test\(seg\)\)/.test(hidden)) {
     E("BC-8ad: a nested repository or a new .git* file under a grant is no longer hidden content");
   }
-  if (!/n\['’\]t\\b/.test(workers)) E("BC-8ae: a typographic apostrophe defeats the exclusion test");
+
   if (!/if \(directory && governed\.some\(\(g\) => underOrEqual\(/.test(judge)) E("BC-8af: a directory over a governed file is grantable");
   if (!/itself\.failure !== undefined/.test(fnBody(workers, "gitDirectoryInspector") || "")) {
     E("BC-8ag: a check-ignore that timed out or never started reads as 'not ignored'");
   }
-  if (!/const attemptGrants = \[\.\.\.\(scopeGrantSpent \? \[\] : scopeGrant\.grants\), \.\.\.correctionGrants\];\s*scopeGrantSpent = true;/.test(runner) ||
-      (runner.match(/scopeGrantSpent = /g) || []).length !== 2) {
-    E("BC-8n: a correction dispatch can carry the implementer's scope grant, or the first dispatch lost it");
+  if (!/const attemptGrants = \[\.\.\.\(writeGrantSpent \? \[\] : writeGrant\.grants\), \.\.\.correctionGrants\];\s*writeGrantSpent = true;/.test(runner) ||
+      (runner.match(/writeGrantSpent = /g) || []).length !== 2) {
+    E("BC-8n: a correction dispatch can carry the implementer's write grant, or the first dispatch lost it");
   }
   if (read(RETIRED_GRANT_REL) !== null) E(`BC-8o: the retired ${RETIRED_GRANT_REL} is present again`);
   // THE WORKER ARGS ONLY: the Speed benchmark CHECK legitimately names its own script.
@@ -335,6 +366,107 @@ function run() {
     E("BC-8p: the project configuration is not readable JSON");
   }
   if (/projectos\/speed|docs\/speed|validate-speed-/.test(workerArgs)) E("BC-8p: the worker configuration still carries the retired Speed grants");
+
+  // (10) WRITE GRANTS ARE DATA; VALIDATORS JUDGE FROM THE BASE COMMIT — PROJECTOS-FINISH-WRITEPATHS1A.
+  // FW-1: prose is no grant route. The negation list, the path-word parser and the scope reader are gone
+  // from the worker seam, and the list reader reads `writePaths` alone.
+  if (/\bNEGATION\b|scopePathWords|scopeWriteGrants|BARE_FILE/.test(workers)) E("FW-1a: a prose grant route (negation list, path-word parser or scope reader) is back in the worker seam");
+  const listFn = fnBody(workers, "phaseWritePaths") || "";
+  if (!/const raw = phase\?\.\['writePaths'\];/.test(listFn) || /scope/i.test(listFn) || /scope/i.test(grantFn)) {
+    E("FW-1b: the write grant reads something other than the phase's writePaths");
+  }
+  if (!/if \(!Array\.isArray\(raw\)\) return \{ entries: \[\], problems: \[`phase \$\{phaseId\} declares writePaths that is not a list`\] \};/.test(listFn)) {
+    E("FW-1c: a writePaths that is not a list reads as no paths instead of refusing");
+  }
+  if (/phaseScopeText\(context\.plan, phaseId\), gitDirectoryInspector/.test(runner)) E("FW-1d: the runner builds a grant from the scope text again");
+  // FW-2: every validator check is built from a pin, and there is no unpinned way to build one.
+  const checksFn = fnBody(verification, "checksFor") || "";
+  if (!/configured: readonly ConfiguredCheck\[\],\s*pin: ValidatorPin,\s*\): readonly CheckSpec\[\]/.test(checksFn)) E("FW-2a: checksFor no longer requires a validator pin");
+  if (!/args: \['--require', pin\.loader, script\],/.test(checksFn) || (checksFn.match(/args: \[script\]/g) || []).length !== 0) {
+    E("FW-2b: a validator check can run the working tree's copy instead of the pinned one");
+  }
+  if (!/if \(!pin\.ok\) \{[\s\S]{0,300}?unrunnable:/.test(checksFn) || !/if \(!pin\.files\.has\(`\$\{PINNED_VALIDATOR_ROOT\}\/\$\{name\}\.cjs`\)\) \{[\s\S]{0,400}?unrunnable:/.test(checksFn)) {
+    E("FW-2c: a validator absent from the base commit, or an unpinnable base, no longer makes the check unrunnable");
+  }
+  if (!/pin: ValidatorPin,\s*\): readonly CheckSpec\[\] \{\s*return checksFor\(sys, root, brief\.phase\.requiredValidators, configured, pin\);/.test(fnBody(verification, "requiredChecks") || "")) {
+    E("FW-2d: requiredChecks no longer passes its pin through");
+  }
+  // FW-3: both call sites pin — the run to the brief's base commit, closure preparation to the run's.
+  if (!/withPinnedValidators\(sys, root, String\(brief\.repository\.head\), \(pin\) =>\s*runChecks\(sys, root, requiredChecks\(sys, root, brief, suites\.checks, pin\)\),?\s*\)/.test(runner)) {
+    E("FW-3a: the loop's checks are no longer pinned to the brief's base commit");
+  }
+  const prepareFn = fnBody(files[CLOSURE_REL], "closurePrepare") || "";
+  if (!/const base = typeof run\['baseHead'\] === 'string' \? run\['baseHead'\] : '';\s*if \(!\/\^\[0-9a-f\]\{40\}\$\/\.test\(base\)\) \{\s*return fail\(2, \['REFUSED \(RUN_BASE_UNKNOWN\)/.test(prepareFn) ||
+      !/withPinnedValidators\(sys, root, base, \(pin\) => \{\s*const specs = checksFor\(sys, root, names\('requiredValidators'\), suites\.checks, pin\);/.test(prepareFn)) {
+    E("FW-3b: closure preparation no longer runs the validators from the run's base commit");
+  }
+  // FW-4: the pin itself — what is pinned, from where, and that it cannot leak into the checkout.
+  const pinned = files[PINNED_REL];
+  if (!/export const PINNED_VALIDATOR_ROOT = 'projectos\/validators';/.test(pinned) || !/const PINNED_CODE = \/\\\.\(\?:js\|cjs\|json\)\$\/i;/.test(pinned)) {
+    E("FW-4a: the pinned code set changed");
+  }
+  const pinFn = fnBody(pinned, "pinValidators") || "";
+  if (!/if \(!\/\^\[0-9a-f\]\{40\}\$\/\.test\(commit\)\) return fail\(/.test(pinFn) || !/mkdtempSync\(join\(tmpdir\(\), 'projectos-pinned-'\)\)/.test(pinFn)) {
+    E("FW-4b: the pin accepts a movable revision, or is written somewhere other than a fresh directory outside the checkout");
+  }
+  if (!/if \(blob\.code !== 0 \|\| blob\.failure !== undefined\) \{[\s\S]{0,200}?return fail\(/.test(pinFn)) E("FW-4c: a validator file git cannot show is skipped instead of failing the pin");
+  // The loader is a template whose own lines start with `const`, so it is sliced to the next export.
+  const loaderAt = pinned.indexOf("export function pinnedLoaderSource");
+  const loaderSrc = loaderAt < 0 ? "" : pinned.slice(loaderAt, pinned.indexOf("export function pinValidators", loaderAt));
+  if (!/Module\._extensions\[".js"\] = function/.test(loaderSrc) || !/Module\._extensions\[".json"\] = function/.test(loaderSrc) ||
+      !/process\.env\.NODE_OPTIONS = /.test(loaderSrc) || !/is not in the phase's base commit/.test(loaderSrc) ||
+      !/const p = pinnedPath\(filename\);\s*if \(p === null\) \{[\s\S]{0,240}?return js\(module, filename\);\s*\}\s*module\._compile\(fs\.readFileSync\(p, "utf8"\)/.test(loaderSrc) ||
+      !/const p = pinnedPath\(filename\);\s*if \(p === null\) return json\(module, filename\);\s*module\.exports = JSON\.parse\(fs\.readFileSync\(p, "utf8"\)/.test(loaderSrc)) {
+    E("FW-4d: the loader no longer compiles every pinned code file from the base commit, or no longer pins child processes");
+  }
+  // FW-4e (ECC SECURITY H1): a root reached through a junction or link still pins, and validator code the
+  // loader cannot place under the root — or an entry it did not pin — refuses instead of loading the tree's copy.
+  if (!/try \{ ROOTS\.push\(fs\.realpathSync\.native\(CFG\.root\)\); \} catch/.test(loaderSrc) ||
+      !/if \(rel === null\) \{\s*if \(\/\[\\\\\\\\\/\]projectos\[\\\\\\\\\/\]validators\[\\\\\\\\\/\]\/i\.test\(abs\)\) \{\s*throw new Error\(/.test(loaderSrc) ||
+      !/if \(p === null\) \{\s*if \(module\.id === "\."\) throw new Error\(/.test(loaderSrc)) {
+    E("FW-4e: a governed root reached through a junction, or an unpinnable validator entry, falls through to the working tree's copy");
+  }
+  if (!/for \(const ext of Object\.keys\(Module\._extensions\)\) \{\s*if \(ext === "\.js" \|\| ext === "\.json"\) continue;[\s\S]{0,400}?throw new Error\(/.test(loaderSrc)) {
+    E("FW-4f: validator code of another registered extension loads from the working tree instead of refusing");
+  }
+  if (!/\} catch \{\s*removeDir\(dir\);\s*return fail\('the pinned validators could not be written outside the checkout'\);/.test(pinFn)) {
+    E("FW-4g: a pin that cannot be written throws out of the run, or leaves its directory behind");
+  }
+  // FW-7 (ECC SECURITY M3, M4): what a worker creates beneath a grant is held to the entry rules.
+  const hiddenFn = fnBody(workers, "gitIgnoredUnder") || "";
+  if (!/\.some\(\(seg\) => NEVER_WRITABLE_SEGMENT\.test\(seg\)\) \|\|\s*AGENT_INSTRUCTION_FILE\.test\(/.test(hiddenFn)) {
+    E("FW-7a: a hook or settings directory or an agent instruction file created beneath a directory grant no longer stops the run");
+  }
+  if (!/if \(AGENT_INSTRUCTION_FILE\.test\(segments\[segments\.length - 1\] \?\? ''\)\) \{\s*return fail\(/.test(judge) ||
+      !/const AGENT_INSTRUCTION_FILE = \/\^\(\?:CLAUDE\|AGENTS\|GEMINI\)\(\?:\\\.local\)\?\\\.md\$\/i;/.test(workers)) {
+    E("FW-7b: an agent instruction file is grantable as a write path");
+  }
+  if (!/\.\.\.ignoredAfter\.filter\(\(p\) => !ignoredBefore\.includes\(p\)\), \.\.\.fileGrantsNotFiles\(root, argvGrants\(attemptWorker\.args\)\)\]/.test(runner) ||
+      !/if \(!lstatSync\(resolvePath\(root, .*\.isFile\(\)\) out\.push\(rel\);/.test(fnBody(workers, "fileGrantsNotFiles") || "")) {
+    E("FW-7c: a file grant the worker made into a directory no longer stops the run");
+  }
+  // FW-5: the plan carries writePaths exactly — engine, approval and schema.
+  if (!/\.\.\.\(p\.writePaths === undefined \? \{\} : \{ writePaths: Array\.isArray\(p\.writePaths\) \? p\.writePaths\.slice\(\) : p\.writePaths \}\),/.test(files[ENGINE_REL])) {
+    E("FW-5a: the plan engine no longer carries writePaths exactly as stated");
+  }
+  if (!/problems\.push\(`phase \$\{id\} declares writePaths that is not a list of non-empty path strings`\);/.test(files[PLAN_APPROVAL_REL])) {
+    E("FW-5b: plan approval accepts a writePaths list the runtime could not use as written");
+  }
+  try {
+    const schema = JSON.parse(read(SCHEMA_REL) || "{}");
+    const wp = (((schema.properties || {}).phases || {}).items || {}).properties || {};
+    if (!wp.writePaths || wp.writePaths.type !== "array" || (wp.writePaths.items || {}).minLength !== 1) E("FW-5c: the plan schema no longer types writePaths as a list of non-empty strings");
+  } catch {
+    E("FW-5c: the plan schema is not readable JSON");
+  }
+  // FW-6: the plan v1.9 phases themselves carry writePaths.
+  try {
+    const finish = JSON.parse(read(FINISH_PLAN_REL) || "{}");
+    const phases = Array.isArray(finish.phases) ? finish.phases : [];
+    if (phases.length === 0 || phases.some((p) => !Array.isArray(p.writePaths) || p.writePaths.length === 0)) E("FW-6: a plan v1.9 phase carries no writePaths");
+  } catch {
+    E("FW-6: the plan v1.9 source is not readable JSON");
+  }
 
   // (9) PROVEN.
   for (const [rel, needles] of Object.entries(TESTS)) {

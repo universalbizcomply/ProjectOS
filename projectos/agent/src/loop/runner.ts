@@ -38,15 +38,18 @@ import {
   resolveWorker,
   gitDirectoryInspector,
   argvGrants,
+  fileGrantsNotFiles,
   gitIgnoredUnder,
   grantedPaths,
-  scopeWriteGrants,
+  phaseWritePaths,
+  writePathGrants,
   type AdapterRegistry,
   type WorkerOutcome,
   type WorkerSession,
 } from './workers.js';
 import { BUILT_IN_ADAPTERS } from './adapters/claudeCodeCli.js';
 import { collectEvidence, configuredChecks, requiredChecks, runChecks, type CheckResult } from './verification.js';
+import { withPinnedValidators } from './pinnedValidators.js';
 import { runDoctor, doctorRefusalLines, type DoctorReport } from '../doctor.js';
 import {
   decideContinuation,
@@ -505,21 +508,24 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     return refused(['REFUSED (NO_AUTHORISED_WORKER): the loop has no worker it may start', ...resolution.problems.map((p) => `  - ${p}`)]);
   }
 
-  // WHAT THIS PHASE'S IMPLEMENTER MAY WRITE: exactly the approved scope's paths, judged against the real
-  // checkout before any worker exists. Any path that cannot be granted refuses the run — a grant that
-  // quietly lost a path is not the grant the owner approved. See `scopeWriteGrants`.
+  // WHAT THIS PHASE'S IMPLEMENTER MAY WRITE: exactly the approved phase's `writePaths`, judged against the
+  // real checkout before any worker exists. The scope sentence is prose and grants nothing. Any path that
+  // cannot be granted refuses the run — a grant that quietly lost a path is not the grant the owner
+  // approved. See `writePathGrants`.
   // THE PROJECT'S OWN GOVERNED FILES, as the configuration names them (repository-relative): never a grant.
   const memory = context.config.planMemory;
-  const scopeGrant = scopeWriteGrants(root, phaseScopeText(context.plan, phaseId), gitDirectoryInspector(sys, root), [
+  const declaredWritePaths = phaseWritePaths(context.plan, phaseId);
+  const writeGrant = writePathGrants(root, declaredWritePaths.entries, gitDirectoryInspector(sys, root), [
     ...(memory?.planPath === undefined ? [DEFAULT_PLAN_RELPATH] : [memory.planPath]),
     ...(memory?.currentStatePath === undefined ? [] : [memory.currentStatePath]),
     ...(((context.config as unknown as Record<string, unknown>)['planSources'] as readonly string[] | undefined) ?? []),
     '.projectops/project-config.json',
   ]);
-  if (scopeGrant.problems.length > 0) {
+  const grantProblems = [...declaredWritePaths.problems, ...writeGrant.problems];
+  if (grantProblems.length > 0) {
     return refused([
-      'REFUSED (SCOPE_WRITE_GRANT_REFUSED): the approved phase scope names a path no worker may be granted.',
-      ...scopeGrant.problems.map((p) => `  - ${p}`),
+      "REFUSED (WRITE_PATHS_REFUSED): the approved phase's writePaths name a path no worker may be granted.",
+      ...grantProblems.map((p) => `  - ${p}`),
     ]);
   }
 
@@ -599,9 +605,9 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     `${selection.kind === 'continue' ? 'Continuing' : 'Starting'} ${phaseId} on ${verification.observed.branch} at ${String(brief.repository.head).slice(0, 12)}`,
     `Worker: ${resolution.worker.workerId} (${resolution.worker.kind})`,
     `Brief:  ${briefFile}`,
-    scopeGrant.paths.length === 0
-      ? 'Write grant: the worker-owned records only (the approved scope names no path)'
-      : `Write grant (from the approved scope): ${scopeGrant.paths.join(', ')}`,
+    writeGrant.paths.length === 0
+      ? 'Write grant: the worker-owned records only (the approved phase declares no writePaths)'
+      : `Write grant (from the approved writePaths): ${writeGrant.paths.join(', ')}`,
   ];
 
   // THE WORKFORCE, SELECTED FROM THE SAME GOVERNED PHASE THE BRIEF WAS BUILT FROM. Nobody names an agent.
@@ -1277,13 +1283,13 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
         // the same read the loop already makes before it dispatches a worker, reported rather than
         // left for the reviewer to guess at.
         prerequisites: {
-          // THE WRITE GRANT THE IMPLEMENTER HELD, from the approved scope. The retired committed
-          // source-write record is no longer a grant route; see `scopeWriteGrants`.
+          // THE WRITE GRANT THE IMPLEMENTER HELD, from the approved writePaths. The retired committed
+          // source-write record and the scope sentence are no grant route; see `writePathGrants`.
           workerScopeWriteGrant: {
             workerId: resolution.worker.workerId,
-            paths: scopeGrant.paths,
+            paths: writeGrant.paths,
             detail:
-              'derived by the runtime from the active approved plan\'s scope for this phase; the worker may ' +
+              'derived by the runtime from the active approved plan\'s writePaths for this phase; the worker may ' +
               'write these paths and its own two records, and nothing else',
           },
         },
@@ -1627,7 +1633,7 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
   };
 
   // Spent at the first dispatch; see where the attempt's grants are composed.
-  let scopeGrantSpent = false;
+  let writeGrantSpent = false;
   for (;;) {
     // Rejoin whenever a handle exists. A handle from a PREVIOUS invocation only appears here when
     // the operator named that session with `--resume --session`; it is never inherited by
@@ -1644,12 +1650,12 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     // maximum, and they are only ever `Edit(path)`/`Write(path)`. Raised as CODE-GRANTS-NOT-REVALIDATED
     // by the live reviewer, which judged the design correct and the silence about it not.
     // THE FIRST DISPATCH OF AN INVOCATION IS THE IMPLEMENTER — a fresh start, or a `--resume` of an
-    // implementer that was interrupted — and carries the approved scope's grant, ONCE. Every later
+    // implementer that was interrupted — and carries the approved writePaths' grant, ONCE. Every later
     // dispatch is a correction, whichever path produced it (an ordinary retry or a reviewer-directed
     // amendment, which does not advance `attempts`), and keeps the rule it always had: it writes only what
     // `authoriseCorrection` released, never the scope paths that rule exists to keep it out of.
-    const attemptGrants = [...(scopeGrantSpent ? [] : scopeGrant.grants), ...correctionGrants];
-    scopeGrantSpent = true;
+    const attemptGrants = [...(writeGrantSpent ? [] : writeGrant.grants), ...correctionGrants];
+    writeGrantSpent = true;
     const attemptWorker =
       attemptGrants.length === 0
         ? resolution.worker
@@ -1723,15 +1729,21 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     // yet the checks still load them (a `node_modules` stub beside a test shadows the real package).
     // Work no review could see is not work this loop may carry, and it is not the reviewer's to wave
     // through: it is a scope decision, the owner's.
+    // FINISH-WRITEPATHS1A (ECC SECURITY M3, M4): the same scan refuses a hook or settings directory or an
+    // agent instruction file created beneath a directory grant, and a FILE grant that became a directory.
     const ignoredAfter = gitIgnoredUnder(sys, root, attemptGranted);
-    const createdIgnored = ignoredAfter === null ? null : ignoredAfter.filter((p) => !ignoredBefore.includes(p));
+    const createdIgnored =
+      ignoredAfter === null
+        ? null
+        : [...ignoredAfter.filter((p) => !ignoredBefore.includes(p)), ...fileGrantsNotFiles(root, argvGrants(attemptWorker.args))];
     if (createdIgnored === null || createdIgnored.length > 0) {
       stop = {
         code: 'SCOPE_DECISION',
         detail:
           createdIgnored === null
             ? 'git could not say what is ignored under the paths this attempt was granted, so work invisible to every review cannot be ruled out'
-            : `the worker created git-ignored content under its grant, invisible to every review and check: ${createdIgnored.join(', ')}`,
+            : 'the worker created content under its grant that no review can see or no worker may write (git-ignored, a nested ' +
+              `repository, a hook or settings directory, an agent instruction file, or a file grant made a directory): ${createdIgnored.join(', ')}`,
       };
       store.writeEvidence(sys, root, { ...collectEvidence(sys, root, { sessionId, brief, checks: [] }), invocationId: invocation.invocationId });
       break;
@@ -1774,7 +1786,10 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
       break;
     }
 
-    const checks: readonly CheckResult[] = runChecks(sys, root, requiredChecks(sys, root, brief, suites.checks));
+    // THE VALIDATORS JUDGE FROM THE BASE COMMIT the brief was bound to, never the worker's copy.
+    const checks: readonly CheckResult[] = withPinnedValidators(sys, root, String(brief.repository.head), (pin) =>
+      runChecks(sys, root, requiredChecks(sys, root, brief, suites.checks, pin)),
+    );
     for (const c of checks) lines.push(`  ${c.passed ? 'PASS' : 'FAIL'} ${c.kind} ${c.id}`);
     options.onWorkState?.({
       state: 'VALIDATING',

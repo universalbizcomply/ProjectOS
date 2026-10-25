@@ -22,6 +22,7 @@ import {
   type ReviewFinding,
 } from '../src/loop/outcome.js';
 import { buildWorkerBrief, type WorkerBrief } from '../src/loop/brief.js';
+import type { ValidatorPin } from '../src/loop/pinnedValidators.js';
 import type { GovernedContext } from '../src/governedContext.js';
 import type { RepositoryObservation } from '../src/loop/observation.js';
 import type { System, ExecResult } from '../src/system.js';
@@ -104,12 +105,21 @@ function fakeSystem(opts: SysOpts = {}) {
   return sys;
 }
 
+/** A pin as `pinValidators` returns it for a base commit holding validate-all. */
+const PIN: ValidatorPin = {
+  ok: true,
+  commit: 'a'.repeat(40),
+  loader: '/pin/pinned-loader.cjs',
+  files: new Set(['projectos/validators/validate-all.cjs']),
+  dir: '/pin',
+};
+
 describe('requiredChecks', () => {
   it('takes the validator list from the approved plan, not from the loop', () => {
     const sys = fakeSystem({ files: [`${ROOT}/projectos/validators/validate-all.cjs`] });
-    const checks = requiredChecks(sys, ROOT, brief());
+    const checks = requiredChecks(sys, ROOT, brief(), [], PIN);
     expect(checks.map((c) => c.id)).toEqual(brief().phase.requiredValidators);
-    expect(checks[0].args).toEqual([`${ROOT}/projectos/validators/validate-all.cjs`]);
+    expect(checks[0].args).toEqual(['--require', PIN.ok ? PIN.loader : '', `${ROOT}/projectos/validators/validate-all.cjs`]);
     expect(checks[0].unrunnable).toBeNull();
   });
 
@@ -117,13 +127,13 @@ describe('requiredChecks', () => {
     const sys = fakeSystem({ files: [`${ROOT}/projectos/validators/validate-all.cjs`] });
     const checks = requiredChecks(sys, ROOT, brief(), [
       { id: 'agent-tests', kind: 'test', command: 'C:/Program Files/nodejs/npm.cmd', args: ['test'] },
-    ]);
+    ], PIN);
     expect(checks.map((c) => `${c.kind}:${c.id}`)).toEqual(['validator:validate-all', 'test:agent-tests']);
   });
 
   it('a configured check with a bare command cannot run, and so has not passed', () => {
     const sys = fakeSystem({ files: [`${ROOT}/projectos/validators/validate-all.cjs`] });
-    const specs = requiredChecks(sys, ROOT, brief(), [{ id: 'agent-tests', kind: 'test', command: 'npm', args: ['test'] }]);
+    const specs = requiredChecks(sys, ROOT, brief(), [{ id: 'agent-tests', kind: 'test', command: 'npm', args: ['test'] }], PIN);
     const results = runChecks(sys, ROOT, specs);
     expect(results[1].passed).toBe(false);
     expect(results[1].output).toContain('not an absolute path');
@@ -142,7 +152,7 @@ describe('requiredChecks', () => {
       p['phaseId'] === PHASE ? { ...p, requiredValidators: ['../../../../tmp/payload'] } : p,
     );
     const sys = fakeSystem({ files: [] });
-    const specs = requiredChecks(sys, ROOT, brief(PHASE, { phases }));
+    const specs = requiredChecks(sys, ROOT, brief(PHASE, { phases }), [], PIN);
     expect(specs[0].unrunnable).toContain('not a plain validator name');
     const results = runChecks(sys, ROOT, specs);
     expect(results[0].passed).toBe(false);
@@ -155,14 +165,34 @@ describe('requiredChecks', () => {
       const phases = (realPlan()['phases'] as Record<string, unknown>[]).map((p) =>
         p['phaseId'] === PHASE ? { ...p, requiredValidators: [name] } : p,
       );
-      const specs = requiredChecks(sys, ROOT, brief(PHASE, { phases }));
+      const specs = requiredChecks(sys, ROOT, brief(PHASE, { phases }), [], PIN);
       expect(specs[0].unrunnable, name).toContain('not a plain validator name');
     }
   });
 
+  /**
+   * PROJECTOS-FINISH-WRITEPATHS1A: every validator runs from the phase's base commit. One the phase itself
+   * added, and every one when the base commit cannot be pinned, cannot run — and so has not passed.
+   */
+  it('a validator absent from the base commit cannot judge the phase, even when the working tree has it', () => {
+    const sys = fakeSystem({ files: [`${ROOT}/projectos/validators/validate-all.cjs`] });
+    const specs = requiredChecks(sys, ROOT, brief(), [], { ...PIN, files: new Set<string>() });
+    expect(specs[0].unrunnable).toContain("not in the phase's base commit");
+    expect(runChecks(sys, ROOT, specs)[0].passed).toBe(false);
+    expect(sys.calls).toHaveLength(0);
+  });
+
+  it('a base commit that could not be pinned leaves every validator unrunnable — never run unpinned', () => {
+    const sys = fakeSystem({ files: [`${ROOT}/projectos/validators/validate-all.cjs`] });
+    const specs = requiredChecks(sys, ROOT, brief(), [], { ok: false, commit: 'a'.repeat(40), problem: 'git could not list it' });
+    expect(specs[0].unrunnable).toContain("cannot be run from the phase's base commit: git could not list it");
+    expect(runChecks(sys, ROOT, specs)[0].passed).toBe(false);
+    expect(sys.calls).toHaveLength(0);
+  });
+
   it('a validator the plan names but the repository lacks FAILS — it is never a skip', () => {
     const sys = fakeSystem({ files: [] });
-    const results = runChecks(sys, ROOT, requiredChecks(sys, ROOT, brief()));
+    const results = runChecks(sys, ROOT, requiredChecks(sys, ROOT, brief(), [], PIN));
     expect(results.every((r) => !r.passed)).toBe(true);
     expect(results[0].output).toContain('does not exist');
     // Nothing was executed, so a missing validator cannot be mistaken for one that ran.
@@ -175,9 +205,9 @@ describe('runChecks', () => {
 
   it('passes on exit code 0 and runs the resolved script through an ABSOLUTE node', () => {
     const sys = fakeSystem({ files: [script], exec: () => ({ code: 0, stdout: '127 PASS', stderr: '' }) });
-    const results = runChecks(sys, ROOT, requiredChecks(sys, ROOT, brief()));
+    const results = runChecks(sys, ROOT, requiredChecks(sys, ROOT, brief(), [], PIN));
     expect(results[0].passed).toBe(true);
-    expect(sys.calls[0]).toEqual({ cmd: VALIDATOR_RUNNER, args: [script] });
+    expect(sys.calls[0]).toEqual({ cmd: VALIDATOR_RUNNER, args: ['--require', PIN.ok ? PIN.loader : '', script] });
   });
 
   /**
@@ -186,14 +216,14 @@ describe('runChecks', () => {
    */
   it('never spawns a bare command name to run a validator', () => {
     const sys = fakeSystem({ files: [script], exec: () => ({ code: 0, stdout: '', stderr: '' }) });
-    runChecks(sys, ROOT, requiredChecks(sys, ROOT, brief()));
+    runChecks(sys, ROOT, requiredChecks(sys, ROOT, brief(), [], PIN));
     expect(sys.calls[0].cmd).not.toBe('node');
     expect(/^([A-Za-z]:[\\/]|\/)/.test(sys.calls[0].cmd)).toBe(true);
   });
 
   it('fails on any non-zero exit and keeps the output', () => {
     const sys = fakeSystem({ files: [script], exec: () => ({ code: 1, stdout: 'FAIL x', stderr: 'boom' }) });
-    const results = runChecks(sys, ROOT, requiredChecks(sys, ROOT, brief()));
+    const results = runChecks(sys, ROOT, requiredChecks(sys, ROOT, brief(), [], PIN));
     expect(results[0].passed).toBe(false);
     expect(results[0].output).toContain('FAIL x');
     expect(results[0].output).toContain('boom');
@@ -204,7 +234,7 @@ describe('runChecks', () => {
       files: [script],
       exec: () => ({ code: 1, stdout: 'ANTHROPIC_API_KEY=sk-ant-live-abc123\nplain line', stderr: 'token: hunter2' }),
     });
-    const results = runChecks(sys, ROOT, requiredChecks(sys, ROOT, brief()));
+    const results = runChecks(sys, ROOT, requiredChecks(sys, ROOT, brief(), [], PIN));
     expect(results[0].output).not.toContain('sk-ant-live-abc123');
     expect(results[0].output).not.toContain('hunter2');
     expect(results[0].output).toContain('<redacted>');
@@ -220,7 +250,7 @@ describe('runChecks', () => {
       files: [script],
       exec: () => ({ code: 1, stdout: 'y'.repeat(MAX_OUTPUT_CHARS * 2), stderr: '' }),
     });
-    const results = runChecks(sys, ROOT, requiredChecks(sys, ROOT, brief()));
+    const results = runChecks(sys, ROOT, requiredChecks(sys, ROOT, brief(), [], PIN));
     expect(results[0].output.length).toBeLessThan(MAX_OUTPUT_CHARS + 200);
     expect(results[0].output).toContain('truncated');
   });

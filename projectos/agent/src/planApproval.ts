@@ -648,6 +648,15 @@ export function materialisePlan(input: MaterialiseInputs): MaterialiseResult {
     if (risk === null) problems.push(`phase ${id} does not state a risk level`);
     if (autonomy === null) problems.push(`phase ${id} does not state an autonomy level`);
     if (typeof proof !== 'boolean') problems.push(`phase ${id} does not state whether browser proof is required`);
+    // THE WRITE GRANT IS PROJECTED EXACTLY — PROJECTOS-FINISH-WRITEPATHS1A. It is bound by the approval
+    // digest like every other phase field, and a list that is not a list of non-empty strings is refused
+    // here, at approval, rather than narrowed into something the owner never saw. Whether each path may
+    // be granted depends on the checkout at run time, so the path rules themselves are judged at dispatch
+    // (`writePathGrants`), where a refused entry refuses the run.
+    const writePaths = c['writePaths'];
+    if (writePaths !== undefined && (!Array.isArray(writePaths) || writePaths.some((w) => typeof w !== 'string' || w === ''))) {
+      problems.push(`phase ${id} declares writePaths that is not a list of non-empty path strings`);
+    }
     // SCOPE IS PROJECTED. It was omitted, so every activated plan dropped the approved scope and the
     // only machine-readable record of what a phase may touch disappeared at the moment of approval.
     // Worse, the activated plan then SHADOWED its own source document in discovery - it declares the
@@ -660,6 +669,7 @@ export function materialisePlan(input: MaterialiseInputs): MaterialiseResult {
       phaseId: id,
       description: description ?? '',
       scope: scope ?? '',
+      ...(Array.isArray(writePaths) ? { writePaths: writePaths.filter((w): w is string => typeof w === 'string') } : {}),
       dependsOn: arrOfStrings(c['dependencies']),
       acceptanceCriteria: acceptance,
       riskLevel: risk ?? '',

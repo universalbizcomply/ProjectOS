@@ -727,12 +727,10 @@ function governed(over: { validatorFails?: boolean } = {}): Governed {
   delete (plan as { governance?: Record<string, unknown> }).governance?.['closureDelegation'];
 
   mkdirSync(join(root, 'projectos', 'validators'), { recursive: true });
-  writeFileSync(
-    join(root, 'projectos', 'validators', 'validate-all.cjs'),
-    over.validatorFails === true
-      ? 'console.log("validate-all: fixture FAIL"); process.exit(1);'
-      : 'console.log("validate-all: fixture PASS");',
-  );
+  // THE VALIDATOR JUDGES A FILE, it is not itself the switch: validators run from the phase's base
+  // commit (FINISH-WRITEPATHS1A), so editing the validator in the working tree changes nothing.
+  writeFileSync(join(root, 'projectos', 'validators', 'validate-all.cjs'), FIXTURE_VALIDATOR);
+  writeFileSync(join(root, 'check-state.txt'), over.validatorFails === true ? 'FAIL\n' : 'PASS\n');
   mkdirSync(join(root, '.projectops', 'gates'), { recursive: true });
   mkdirSync(join(root, '.projectops', 'phases'), { recursive: true });
   mkdirSync(join(root, 'state'), { recursive: true });
@@ -838,16 +836,23 @@ function invoke(root: string, sysOver: Partial<System> = {}): { stop: string | n
  * the one under test: here the receipt must remain valid and genuinely spendable at the subject the
  * run recovers, so that not spending it is a real refusal rather than an accident of staleness.
  */
+/** The committed fixture validator: it passes exactly when `check-state.txt` says PASS. */
+const FIXTURE_VALIDATOR = [
+  'const fs = require("fs");',
+  'const path = require("path");',
+  'const state = fs.readFileSync(path.join(__dirname, "..", "..", "check-state.txt"), "utf8").trim();',
+  'if (state !== "PASS") { console.log("validate-all: fixture FAIL"); process.exit(1); }',
+  'console.log("validate-all: fixture PASS");',
+].join("\n");
+
+/** Make the checked subject fail, without moving the repository on. */
 function breakTheValidator(root: string): void {
-  writeFileSync(
-    join(root, 'projectos', 'validators', 'validate-all.cjs'),
-    'console.log("validate-all: fixture FAIL"); process.exit(1);',
-  );
+  writeFileSync(join(root, 'check-state.txt'), 'FAIL\n');
 }
 
 /** ...and repair it, equally without moving the repository on. */
 function fixTheValidator(root: string): void {
-  writeFileSync(join(root, 'projectos', 'validators', 'validate-all.cjs'), 'console.log("validate-all: fixture PASS");');
+  writeFileSync(join(root, 'check-state.txt'), 'PASS\n');
 }
 
 /** The owner records their decision at the subject the run stopped on, and COMMITS it. */

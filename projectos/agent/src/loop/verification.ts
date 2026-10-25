@@ -24,6 +24,7 @@ import { join } from '../context.js';
 import { porcelainPaths } from './observation.js';
 import type { WorkerBrief } from './brief.js';
 import { effectsPath, findingsPath } from './session.js';
+import { PINNED_VALIDATOR_ROOT, type ValidatorPin } from './pinnedValidators.js';
 
 /**
  * The Node that runs a validator is THIS process's own executable, by absolute path.
@@ -110,9 +111,19 @@ function isAbsolutePath(p: string): boolean {
  * A plan may name a validator this repository does not have — a typo, a rename, one never written.
  * A config may name an executable that is not absolute. Both are recorded as `unrunnable` and FAIL
  * when run; neither is ever skipped.
+ *
+ * EVERY VALIDATOR RUNS FROM THE PHASE'S BASE COMMIT — PROJECTOS-FINISH-WRITEPATHS1A. The pin is not
+ * optional: there is no way to build a validator check that runs the working tree's copy. See
+ * `pinnedValidators.ts`.
  */
-export function requiredChecks(sys: System, root: string, brief: WorkerBrief, configured: readonly ConfiguredCheck[] = []): readonly CheckSpec[] {
-  return checksFor(sys, root, brief.phase.requiredValidators, configured);
+export function requiredChecks(
+  sys: System,
+  root: string,
+  brief: WorkerBrief,
+  configured: readonly ConfiguredCheck[],
+  pin: ValidatorPin,
+): readonly CheckSpec[] {
+  return checksFor(sys, root, brief.phase.requiredValidators, configured, pin);
 }
 
 /**
@@ -123,7 +134,8 @@ export function checksFor(
   sys: System,
   root: string,
   requiredValidators: readonly string[],
-  configured: readonly ConfiguredCheck[] = [],
+  configured: readonly ConfiguredCheck[],
+  pin: ValidatorPin,
 ): readonly CheckSpec[] {
   const validators: CheckSpec[] = requiredValidators.map((name) => {
     if (!SAFE_VALIDATOR_NAME.test(name)) {
@@ -138,11 +150,31 @@ export function checksFor(
       };
     }
     const script = validatorScript(root, name);
+    if (!pin.ok) {
+      return {
+        id: name,
+        kind: 'validator' as const,
+        command: VALIDATOR_RUNNER,
+        args: [],
+        unrunnable: `validator '${name}' cannot be run from the phase's base commit: ${pin.problem}`,
+      };
+    }
+    if (!pin.files.has(`${PINNED_VALIDATOR_ROOT}/${name}.cjs`)) {
+      return {
+        id: name,
+        kind: 'validator' as const,
+        command: VALIDATOR_RUNNER,
+        args: [],
+        unrunnable:
+          `the approved plan requires validator '${name}', which is not in the phase's base commit ${pin.commit.slice(0, 12)}; ` +
+          'a validator the phase itself added cannot judge that phase',
+      };
+    }
     return {
       id: name,
       kind: 'validator' as const,
       command: VALIDATOR_RUNNER,
-      args: [script],
+      args: ['--require', pin.loader, script],
       unrunnable: sys.exists(script)
         ? null
         : `the approved plan requires validator '${name}', which does not exist at ${script}`,

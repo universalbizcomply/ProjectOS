@@ -47,8 +47,8 @@ interface WorldOpts {
   readonly validatorExit?: number;
   /** What `git show HEAD:./.projectops/project-config.json` returns. Defaults to the working tree. */
   readonly committedConfig?: unknown;
-  /** The approved scope of the phase under test; the real plan's phase declares none. */
-  readonly scope?: string;
+  /** The approved writePaths of the phase under test; the real plan's phase declares none. */
+  readonly writePaths?: readonly string[];
 }
 
 /**
@@ -67,12 +67,12 @@ function world(opts: WorldOpts = {}) {
   const files: Record<string, string> = {
     [`${ROOT}/.projectops/project-config.json`]: JSON.stringify(config),
     [`${ROOT}/state/plan.json`]: JSON.stringify(
-      opts.scope === undefined
+      opts.writePaths === undefined
         ? realPlan()
         : {
             ...realPlan(),
             phases: (realPlan()['phases'] as Record<string, unknown>[]).map((p) =>
-              p['phaseId'] === PHASE ? { ...p, scope: opts.scope } : p,
+              p['phaseId'] === PHASE ? { ...p, writePaths: opts.writePaths } : p,
             ),
           },
     ),
@@ -106,10 +106,15 @@ function world(opts: WorldOpts = {}) {
       if (key.includes('rev-parse HEAD')) return { code: 0, stdout: `${HEAD}\n`, stderr: '' };
       if (key.includes('remote get-url origin')) return { code: 0, stdout: `${remote}\n`, stderr: '' };
       if (key.includes('status --porcelain')) return { code: 0, stdout: '', stderr: '' };
-      // The scope grant asks git whether a granted path is ignored (1 = not ignored) and what it tracks.
+      // The write grant asks git whether a granted path is ignored (1 = not ignored) and what it tracks.
       if (key.includes('check-ignore')) return { code: 1, stdout: '', stderr: '' };
       if (key.includes('ls-files')) return { code: 0, stdout: '', stderr: '' };
       if (key.includes('diff --name-only')) return { code: 0, stdout: 'src/x.ts\n', stderr: '' };
+      // The validators are pinned to the brief's base commit (FINISH-WRITEPATHS1A): git lists and shows them.
+      if (key.includes(`ls-tree -r -z --name-only ${HEAD} -- projectos/validators`)) {
+        return { code: 0, stdout: `projectos/validators/${VALIDATOR}.cjs\0`, stderr: '' };
+      }
+      if (key.includes(`show ${HEAD}:projectos/validators/`)) return { code: 0, stdout: '// pinned', stderr: '' };
       if (key.includes('diff --stat')) return { code: 0, stdout: ' 1 file changed\n', stderr: '' };
       // The loop spawns only what the owner COMMITTED, so it compares the working-tree `execution`
       // block with this. By default the two agree; a test can make them disagree.
@@ -1542,7 +1547,7 @@ describe('runLoop with an unattended gatekeeper', () => {
    * grant is spent at the first dispatch; every later dispatch holds only what the correction released.
    */
   it('the approved scope reaches the FIRST dispatch only — never a reviewer-directed correction', () => {
-    const sys = world({ validatorExit: 1, files: cleanFindings(SESSION), scope: 'Edit src/scoped.ts.' });
+    const sys = world({ validatorExit: 1, files: cleanFindings(SESSION), writePaths: ['src/scoped.ts'] });
     const argsSeen: string[][] = [];
     const { registry } = fakeAdapter();
     const inner = registry[WORKER_KIND] as WorkerAdapter;

@@ -31,7 +31,21 @@
       "phaseId": "PROJECTOS-FINISH-WRITEPATHS1A",
       "title": "Write grants from a structured path list; validators judged from the approved commit",
       "description": "Give every plan phase a structured list of write paths and derive the worker's write grant from that list exactly, retiring the reading of grants from scope prose; and run a phase's required validators and the loop's enforcement code from the last approved commit, so a phase whose paths name a validator or enforcement file cannot change what judges it.",
-      "scope": "Edit projectos/schemas/project-plan.schema.json, projectos/core/src/, projectos/core/test/, projectos/agent/src/planApproval.ts, projectos/agent/src/loop/workers.ts, projectos/agent/src/loop/runner.ts, projectos/agent/src/loop/verification.ts, projectos/agent/src/loop/brief.ts, projectos/agent/test/, projectos/validators/val-projectos-boot-continue1a.cjs and add evidence under docs/finish/.",
+      "scope": "Edit projectos/schemas/project-plan.schema.json, projectos/validators/plan-discovery-engine.cjs, projectos/validators/validate-plan-discovery-import.cjs, projectos/agent/src/planApproval.ts, projectos/agent/src/loop/workers.ts, projectos/agent/src/loop/runner.ts, projectos/agent/src/loop/verification.ts, projectos/agent/src/commands/closure.ts, projectos/agent/test/ and projectos/validators/val-projectos-boot-continue1a.cjs; add projectos/agent/src/loop/pinnedValidators.ts and evidence under docs/finish/.",
+      "writePaths": [
+        "projectos/schemas/project-plan.schema.json",
+        "projectos/validators/plan-discovery-engine.cjs",
+        "projectos/validators/validate-plan-discovery-import.cjs",
+        "projectos/agent/src/planApproval.ts",
+        "projectos/agent/src/loop/workers.ts",
+        "projectos/agent/src/loop/runner.ts",
+        "projectos/agent/src/loop/verification.ts",
+        "projectos/agent/src/loop/pinnedValidators.ts",
+        "projectos/agent/src/commands/closure.ts",
+        "projectos/agent/test/",
+        "projectos/validators/val-projectos-boot-continue1a.cjs",
+        "docs/finish/"
+      ],
       "exclusions": [
         "No change to the absolute owner-only actions or to the closure authority.",
         "No second grant route: the structured path list replaces prose reading, and configuration stays limited to the worker-owned records.",
@@ -72,6 +86,20 @@
       "title": "Closure for any governed project, and one owner commit per phase",
       "description": "Let the closure eligibility gate judge any governed project by its own id, and reduce the owner's work per phase to the closure commit and the two gatekeeper relays: the loop's technical-continuation commit carries the run's own records, and generated closure-tail records are committed and pushed as a technical action when the phase's owner gates leave commit and push delegated.",
       "scope": "Edit projectos/core/src/closureEligibility.ts, projectos/core/test/, projectos/agent/src/loop/runner.ts, projectos/agent/src/loop/technicalContinuation.ts, projectos/agent/src/commands/closure.ts, projectos/agent/src/commands/run.ts, projectos/agent/src/closureGate.ts, projectos/agent/test/, projectos/validators/val-projectos-boot-continue1a.cjs, projectos/validators/val-projectos-technical-continuation1a.cjs, projectos/validators/val-projectos-closure-transport1a.cjs and add evidence under docs/finish/.",
+      "writePaths": [
+        "projectos/core/src/closureEligibility.ts",
+        "projectos/core/test/",
+        "projectos/agent/src/loop/runner.ts",
+        "projectos/agent/src/loop/technicalContinuation.ts",
+        "projectos/agent/src/commands/closure.ts",
+        "projectos/agent/src/commands/run.ts",
+        "projectos/agent/src/closureGate.ts",
+        "projectos/agent/test/",
+        "projectos/validators/val-projectos-boot-continue1a.cjs",
+        "projectos/validators/val-projectos-technical-continuation1a.cjs",
+        "projectos/validators/val-projectos-closure-transport1a.cjs",
+        "docs/finish/"
+      ],
       "exclusions": [
         "No change to the absolute owner-only actions: the closure decision is still committed by the owner.",
         "No technical commit of anything other than the run's own records and closure-tail records, and none at all when the phase's owner gates reserve commit or push.",
@@ -115,6 +143,10 @@
       "title": "One ordinary phase delivered end to end on Dead Aisle and one on PolyGo",
       "description": "Prove ProjectOS on real projects: one ordinary phase of an owner-chosen objective on Dead Aisle and one on PolyGo, each carried by projectos continue through implementation, checks, the relayed gatekeeper review, commit, push and closure, with the owner's acts counted and the results recorded.",
       "scope": "Add evidence under docs/finish/ and new tests under projectos/agent/test/finish/. Dead Aisle and PolyGo work happens under each project's own approved plan in its own repository.",
+      "writePaths": [
+        "docs/finish/",
+        "projectos/agent/test/finish/"
+      ],
       "exclusions": [
         "No production deployment, payment, external send or credential handling on either project.",
         "No change to the absolute owner-only actions on either project.",

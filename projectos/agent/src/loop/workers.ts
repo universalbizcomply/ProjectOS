@@ -201,8 +201,8 @@ export const WORKER_OWNED_RECORD_GRANTS: readonly string[] = [
 ];
 
 /**
- * WHAT A PHASE'S IMPLEMENTER MAY WRITE: EXACTLY THE APPROVED PHASE SCOPE'S PATHS — PROJECTOS-BOOT-CONTINUE1A
- * (continuation five).
+ * WHAT A PHASE'S IMPLEMENTER MAY WRITE: EXACTLY THE APPROVED PHASE'S `writePaths` — PROJECTOS-BOOT-CONTINUE1A
+ * (continuation five), made structured by PROJECTOS-FINISH-WRITEPATHS1A.
  *
  * WHAT THIS REPLACES. A worker could write only its own records, plus a closed list of Speed-programme
  * paths released by a committed owner record (`.projectops/authority/worker-source-grant.json`). That
@@ -210,28 +210,30 @@ export const WORKER_OWNED_RECORD_GRANTS: readonly string[] = [
  * worker of a phase could not write the files the owner approved the phase to change. It is RETIRED —
  * the list, the record reader and the record — and nothing of it remains as a second grant route.
  *
- * WHERE THE GRANT COMES FROM NOW. The ACTIVE APPROVED PLAN's `scope` for the phase being run, read by
- * the runtime, never by the worker, and added to the implementer's argv at dispatch. The configuration
- * still may declare nothing wider than the worker-owned records above.
+ * WHERE THE GRANT COMES FROM NOW. The ACTIVE APPROVED PLAN's `writePaths` list for the phase being run,
+ * read by the runtime, never by the worker, and added to the implementer's argv at dispatch. A phase
+ * without the list grants nothing beyond the worker-owned records. The configuration still may declare
+ * nothing wider than those records.
  *
- * HOW PROSE BECOMES PATHS, AND WHY IT IS THIS STRICT. The scope is a sentence, and a sentence can say
- * where NOT to go. So the scope is split into whitespace-separated words, and a word is a path when it
- * carries a `/` or `\`. Any of these refuses the WHOLE run — a grant that quietly lost or widened a path
- * is not the grant the owner approved, and refusing is the cheap direction (the owner rewords the scope):
- *  - a path-shaped word with any character outside letters, digits, `_ . - / \` — a glob (`*`, `?`, `[`,
- *    `{`), a URL, a lookalike letter; splitting it instead once turned `dir/*.ts` into `dir/**`;
+ * WHY A LIST, NOT THE SCOPE. The grant used to be read out of the phase's `scope` sentence, and a
+ * sentence can say where NOT to go — so every scope carrying exclusion wording had to be refused against
+ * an open-ended list of negations, which is a denylist and never complete. The scope is now prose for
+ * people and nothing reads it for a grant: each list entry is exactly one path, judged on its own.
+ *
+ * HOW EACH ENTRY IS JUDGED, AND WHY IT IS THIS STRICT. Any of these refuses the WHOLE run — a grant that
+ * quietly lost or widened a path is not the grant the owner approved, and refusing is the cheap direction
+ * (the owner amends the list):
+ *  - an entry that is not a non-empty string;
+ *  - any character outside letters, digits, `_ . - / \` — a glob (`*`, `?`, `[`, `{`), a space, a URL, a
+ *    lookalike letter; widening it instead once turned `dir/*.ts` into `dir/**`;
  *  - a bare filename with no directory (`README.md`): a rule with no slash may match the same name at
  *    any depth, including inside the governance tree — write it as `./README.md`;
- *  - ANY exclusion wording anywhere in the scope (`not`, `n't`, `never`, `neither`/`nor`, `leave`,
- *    `unchanged`, `avoid`, `read-only`, `other than`, `but`…): such a scope names paths the owner meant
- *    to keep the worker OUT of, and prose cannot be split safely into what is granted and what is not.
- *    Exclusions belong in the phase's `exclusions` field, which grants nothing;
  *  - absolute paths, drive letters and any `:` (a Windows alternate data stream is a `:` too);
  *  - `.`, `..` and empty segments (a single leading `./` is allowed and removed), `~` (8.3 short names
  *    alias long ones) and segments ending in a dot or a space (Windows strips both, so `a.` IS `a`);
  *  - anything that resolves outside the governed root;
  *  - any existing component that is a symbolic link or junction;
- *  - any existing component whose on-disk case differs from the scope's;
+ *  - any existing component whose on-disk case differs from the entry's;
  *  - a segment, at ANY depth, that is `.git*`, `.claude`, `.husky` or `.vscode` — repository databases and
  *    hooks and settings that run outside every permission this grant is built from — or a Windows
  *    device name (`con`, `nul`, `aux`, `com1`…);
@@ -241,44 +243,44 @@ export const WORKER_OWNED_RECORD_GRANTS: readonly string[] = [
  *  - a closure record (`knowledge/reports/` and the other closure-tail paths): those are excluded from
  *    every "changed since the subject" judgement, so a worker able to write them could satisfy G4 unseen;
  *  - a DIRECTORY that is, is inside, or contains `.projectops`, `projectos/validators` or a closure-record
- *    root: those are writable only file by file, and only when the scope names the file itself;
+ *    root: those are writable only file by file, and only when the list names the file itself;
  *  - a DIRECTORY with anything git-ignored beneath it, or a package root (`package.json`, `Cargo.toml`)
  *    beneath it: ignored build output (`dist/`, `node_modules/`, `target/`) is executed by the runtime
  *    and invisible to every git-based check, so a directory grant over it would be unreviewable.
- * A path is a DIRECTORY only when the word ends in `/` or it already exists on disk as one.
+ * A path is a DIRECTORY only when the entry ends in `/` or it already exists on disk as one.
  */
 export const FILE_ONLY_ROOTS: readonly string[] = ['.projectops', 'projectos/validators', 'knowledge/reports'];
 
-/** Never writable by a worker, at any depth, whatever an approved scope names. Matched per segment. */
+/** Never writable by a worker, at any depth, whatever an approved list names. Matched per segment. */
 const NEVER_WRITABLE_SEGMENT = /^(?:\.git.*|\.claude|\.husky|\.vscode|con|prn|aux|nul|com\d|lpt\d)(?:\..*)?$/i;
 
 /**
- * The only `.projectops` FILES a scope may grant: governance the owner declares, never runtime records.
+ * Agent instruction files, matched on the final segment — FINISH-WRITEPATHS1A (ECC SECURITY M3). An agent
+ * reading the repository later loads these as instructions, so a worker able to plant one could steer the
+ * next worker or reviewer. Never a write path, and never created or changed under a directory grant.
+ */
+const AGENT_INSTRUCTION_FILE = /^(?:CLAUDE|AGENTS|GEMINI)(?:\.local)?\.md$/i;
+
+/**
+ * The only `.projectops` FILES a write path may grant: governance the owner declares, never runtime records.
  * Entries ending in `/` admit files beneath them; the others are exact.
  */
 const PROJECTOPS_DECLARABLE: readonly string[] = ['.projectops/proof/'];
 
-/** Wording that makes a scope an exclusion as well as a grant. Matched against the WHOLE scope. */
-const NEGATION =
-  /n['’]t\b|\b(?:not|cannot|never|no|none|neither|nor|except|excluding|exclude[sd]?|exclusive|outside|without|but|besides|leave|leaves|untouched|unchanged|avoid|forbidden|prohibited|read[- ]only|readonly|off[- ]limits|away|protect(?:s|ed)?|preserve[sd]?|instead|skip|ignore[sd]?|keep|keeps|remain|remains|stays?|frozen|freeze|refrain|hands[- ]off)\b|out[- ]of[- ]scope|other than|apart from|as[- ]is\b/i;
-
-/** The characters a path word may contain. Anything else refuses the run. */
+/** The characters a write path may contain. Anything else refuses the run. */
 const PATH_WORD = /^[A-Za-z0-9_.\-/\\]+$/;
 
-export interface ScopeWriteGrant {
+export interface PhaseWriteGrant {
   /** The `Write(...)`/`Edit(...)` grants, two per path. */
   readonly grants: readonly string[];
-  /** The normalised scope paths the grants cover; a directory ends in `/**`. */
+  /** The normalised write paths the grants cover; a directory ends in `/**`. */
   readonly paths: readonly string[];
-  /** Why the scope cannot become a grant. Non-empty refuses the run. */
+  /** Why the list cannot become a grant. Non-empty refuses the run. */
   readonly problems: readonly string[];
 }
 
-/** File extensions that make a slash-less word a bare filename, which is refused rather than granted. */
-const BARE_FILE = /^[A-Za-z0-9_.-]+\.(?:ts|tsx|js|cjs|mjs|json|md|txt|yml|yaml|toml|css|html|gd|tscn|tres|rs|py|sh|ps1|lock|xml|csv)$/i;
-
 /**
- * What git says about a path a scope would grant, or null when that cannot be established. `ignored` is
+ * What git says about a path a write path would grant, or null when that cannot be established. `ignored` is
  * true when the path itself is git-ignored or, for a directory, anything beneath it is; `packageRoot`
  * when a tracked `package.json` or `Cargo.toml` lies beneath it. Injected so the rule runs on the
  * runtime's own `System`; `null` refuses the grant.
@@ -308,7 +310,10 @@ export function gitDirectoryInspector(sys: System, root: string): DirectoryInspe
  *  - a git-ignored entry (`!!`) — invisible to the candidate, the diff, the clean-tree check and G4;
  *  - an untracked DIRECTORY entry even under `--untracked-files=all` (`?? dir/`) — a nested repository,
  *    whose contents git will not list;
- *  - any entry with a `.git*` segment — a new ignore rule, attribute or repository inside the grant.
+ *  - any entry with a `.git*` segment — a new ignore rule, attribute or repository inside the grant;
+ *  - any entry with a hook or settings segment (`.claude`, `.husky`, `.vscode`) or a device name, or that
+ *    is an agent instruction file — FINISH-WRITEPATHS1A (ECC SECURITY M3): a directory grant names only its
+ *    root, so what the entry rules refuse must also be refused when it appears beneath one.
  */
 export function gitIgnoredUnder(sys: System, root: string, paths: readonly string[]): readonly string[] | null {
   if (paths.length === 0) return [];
@@ -322,11 +327,34 @@ export function gitIgnoredUnder(sys: System, root: string, paths: readonly strin
       return (
         l.startsWith('!! ') ||
         (l.startsWith('?? ') && path.endsWith('/')) ||
-        path.split('/').some((seg) => /^\.git/i.test(seg))
+        path.split('/').some((seg) => /^\.git/i.test(seg)) ||
+        path.replace(/\/$/, '').split('/').some((seg) => NEVER_WRITABLE_SEGMENT.test(seg)) ||
+        AGENT_INSTRUCTION_FILE.test(path.replace(/\/$/, '').split('/').pop() ?? '')
       );
     })
     .map((l) => l.slice(3).trim())
     .sort();
+}
+
+/**
+ * The FILE grants among a worker's argv grants that are no longer a regular file (or absent) on disk —
+ * FINISH-WRITEPATHS1A (ECC SECURITY M4). A grant for a path that did not exist yet names a file, but a
+ * permission rule matching a path also matches everything beneath it, so a worker could make it a
+ * directory and fill it — past the rule that keeps directory grants away from governance and validator
+ * roots, and past the ignored-content inspection a directory grant gets. Globs (the worker's own records)
+ * and directory grants (`/**`) are not file grants. Never throws.
+ */
+export function fileGrantsNotFiles(root: string, grants: readonly string[]): readonly string[] {
+  const out: string[] = [];
+  for (const rel of grantedPaths(grants)) {
+    if (rel.includes('*') || grants.some((g) => g.endsWith(`(${rel}/**)`))) continue;
+    try {
+      if (!lstatSync(resolvePath(root, ...rel.replace(/^\.[/]/, '').split('/'))).isFile()) out.push(rel);
+    } catch {
+      // Absent: the worker did not create the file. That is not a breach.
+    }
+  }
+  return out.sort();
 }
 
 /** The `Write(...)`/`Edit(...)` grants on a worker's argv (its `--allowedTools` value). */
@@ -347,41 +375,20 @@ export function grantedPaths(grants: readonly string[]): readonly string[] {
   return [...out];
 }
 
-/** The path words a scope names, each with the sentence it sits in, in order. */
-export function scopePathWords(scope: string): readonly { readonly word: string; readonly sentence: string }[] {
-  const out: { word: string; sentence: string }[] = [];
-  // A sentence ends at `.`, `;`, `!` or `?` followed by whitespace or the end — not at the dots inside a path.
-  for (const sentence of scope.split(/[.;!?](?=\s|$)/)) {
-    for (const raw of sentence.split(/\s+/)) {
-      const word = raw.replace(/^[("'`[]+/, '').replace(/[)"'`\],:]+$/, '');
-      if (word === '') continue;
-      const pathLike = /[/\\]/.test(word) || BARE_FILE.test(word);
-      if (pathLike && !out.some((o) => o.word === word)) out.push({ word, sentence });
-    }
-  }
-  return out;
-}
-
 function underOrEqual(path: string, root: string): boolean {
   return path === root || path.startsWith(`${root}/`);
 }
 
-/** Why one scope path cannot be granted, or null — plus its normalised form and whether it is a directory. */
-function judgeScopePath(
+/** Why one write path cannot be granted, or null — plus its normalised form and whether it is a directory. */
+function judgeWritePath(
   root: string,
   word: string,
-  scope: string,
   inspectDirectory: DirectoryInspector,
   governed: readonly string[],
 ): { problem: string | null; rel: string; directory: boolean } {
-  const fail = (why: string) => ({ problem: `scope path '${word}' ${why}`, rel: word, directory: false });
+  const fail = (why: string) => ({ problem: `write path '${word}' ${why}`, rel: word, directory: false });
   if (!PATH_WORD.test(word)) {
-    return fail('contains a character outside letters, digits, "_ . - / \\"; a glob, URL or lookalike is not a path a grant can be built from');
-  }
-  if (NEGATION.test(scope)) {
-    return fail(
-      "sits in a scope that also excludes; a scope must name only what is granted — keep exclusions in the plan's excludedScope, and reword the scope by plan amendment",
-    );
+    return fail('contains a character outside letters, digits, "_ . - / \\"; a glob, space, URL or lookalike is not a path a grant can be built from');
   }
   const statedDirectory = /[/\\]$/.test(word);
   const rel = word.replace(/\\/g, '/').replace(/\/+$/, '').replace(/^\.\/(?=.)/, '');
@@ -389,7 +396,7 @@ function judgeScopePath(
   if (!rel.includes('/') && !word.startsWith('./') && !statedDirectory) {
     return fail(`is a bare filename; a rule with no directory may match that name at any depth — write it as './${rel}'`);
   }
-  if (rel.startsWith('/') || /^[A-Za-z]:/.test(rel)) return fail('is absolute; a scope names paths inside the governed checkout');
+  if (rel.startsWith('/') || /^[A-Za-z]:/.test(rel)) return fail('is absolute; a write path names a path inside the governed checkout');
   if (rel.includes(':')) return fail("contains ':', which names a drive or an alternate data stream");
   const segments = rel.split('/');
   for (const seg of segments) {
@@ -398,6 +405,9 @@ function judgeScopePath(
     if (/[. ]$/.test(seg)) return fail('has a segment ending in a dot or a space, which Windows strips');
   }
   const lower = rel.toLowerCase();
+  if (AGENT_INSTRUCTION_FILE.test(segments[segments.length - 1] ?? '')) {
+    return fail('is an agent instruction file, which a later worker or reviewer would load as instructions; the owner edits it');
+  }
   if (segments.some((seg) => NEVER_WRITABLE_SEGMENT.test(seg))) {
     return fail('names a git control file or database, a hook or settings directory, or a device name, which no worker writes');
   }
@@ -432,7 +442,7 @@ function judgeScopePath(
     } catch {
       return fail('could not be inspected');
     }
-    if (st.isSymbolicLink()) return fail('passes through a link, which would carry the grant somewhere the scope never named');
+    if (st.isSymbolicLink()) return fail('passes through a link, which would carry the grant somewhere the list never named');
     if (i === segments.length - 1) {
       if (statedDirectory && !st.isDirectory()) return fail('is written as a directory but is a file on disk');
       directory = st.isDirectory();
@@ -471,27 +481,46 @@ function judgeScopePath(
 }
 
 /**
- * The write grant for the phase being run, from its approved scope. See the note above for every rule.
- * An empty scope grants nothing beyond the worker-owned records — the safe direction.
+ * The approved plan's `writePaths` for a phase, as stated. Absent is an empty list — the phase grants
+ * nothing beyond the worker-owned records — and anything that is not a list is carried as a problem,
+ * never read as "no paths", so a malformed plan refuses instead of silently granting less than it says.
  */
-export function scopeWriteGrants(
+export function phaseWritePaths(plan: Readonly<Record<string, unknown>>, phaseId: string): { readonly entries: readonly unknown[]; readonly problems: readonly string[] } {
+  const phases = Array.isArray(plan['phases']) ? (plan['phases'] as unknown[]) : [];
+  const phase = phases.find((p) => typeof p === 'object' && p !== null && (p as Record<string, unknown>)['phaseId'] === phaseId) as
+    | Record<string, unknown>
+    | undefined;
+  const raw = phase?.['writePaths'];
+  if (raw === undefined) return { entries: [], problems: [] };
+  if (!Array.isArray(raw)) return { entries: [], problems: [`phase ${phaseId} declares writePaths that is not a list`] };
+  return { entries: raw, problems: [] };
+}
+
+/**
+ * The write grant for the phase being run, from its approved `writePaths`. See the note above for every
+ * rule. An empty list grants nothing beyond the worker-owned records — the safe direction.
+ */
+export function writePathGrants(
   root: string,
-  scope: string,
+  entries: readonly unknown[],
   inspectDirectory: DirectoryInspector = () => null,
   /**
    * The project's own governed files, by exact path: the declared plan, current state and configuration.
    * The current state is the completion ledger selection reads, so a worker able to write it could mark
-   * its own phase complete; none of them is ever a scope grant, wherever the project keeps them.
+   * its own phase complete; none of them is ever a write grant, wherever the project keeps them.
    */
   governed: readonly string[] = [],
-): ScopeWriteGrant {
+): PhaseWriteGrant {
   const grants: string[] = [];
   const paths: string[] = [];
   const problems: string[] = [];
-  // THE WHOLE SCOPE IS THE SENTENCE for the exclusion test: a negation in one sentence about a path
-  // listed in the next ("Do not touch the following:") must still refuse.
-  for (const { word } of scopePathWords(scope)) {
-    const judged = judgeScopePath(root, word, scope, inspectDirectory, governed);
+  // EACH ENTRY IS ONE PATH, used exactly as written: never split, trimmed or searched for path words.
+  for (const [i, word] of entries.entries()) {
+    if (typeof word !== 'string' || word === '') {
+      problems.push(`writePaths[${i}] is not a non-empty path string`);
+      continue;
+    }
+    const judged = judgeWritePath(root, word, inspectDirectory, governed);
     if (judged.problem !== null) {
       problems.push(judged.problem);
       continue;
@@ -545,7 +574,7 @@ export function toolGrantProblems(args: readonly string[]): readonly string[] {
       problems.push(
         `tool grant '${grant}' gives a worker write authority beyond the records it owns; ` +
           `permitted: ${WORKER_OWNED_RECORD_GRANTS.join(', ')}. A phase's source grant comes from its ` +
-          'approved scope at dispatch, never from configuration',
+          'approved writePaths at dispatch, never from configuration',
       );
     }
   }
