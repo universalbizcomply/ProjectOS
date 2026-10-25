@@ -114,12 +114,13 @@
       "phaseId": "PROJECTOS-FINISH-EXTERNAL-PROOF1A",
       "title": "One ordinary phase delivered end to end on Dead Aisle and one on PolyGo",
       "description": "Prove ProjectOS on real projects: one ordinary phase of an owner-chosen objective on Dead Aisle and one on PolyGo, each carried by projectos continue through implementation, checks, the relayed gatekeeper review, commit, push and closure, with the owner's acts counted and the results recorded.",
-      "scope": "Add evidence under docs/finish/ and tests under projectos/agent/test/. Dead Aisle and PolyGo work happens under each project's own approved plan in its own repository.",
+      "scope": "Add evidence under docs/finish/ and new tests under projectos/agent/test/finish/. Dead Aisle and PolyGo work happens under each project's own approved plan in its own repository.",
       "exclusions": [
         "No production deployment, payment, external send or credential handling on either project.",
         "No change to the absolute owner-only actions on either project.",
         "No Rust source, Cargo manifest, Host, credential or provider change in ProjectOS.",
-        "No change to grant, owner-gate, technical-continuation or closure enforcement code in ProjectOS; a live run that needs one is a separate owner-gated amendment."
+        "No change to grant, owner-gate, technical-continuation or closure enforcement code in ProjectOS; a live run that needs one is a separate owner-gated amendment.",
+        "No edit or deletion of any existing test; new tests go under projectos/agent/test/finish/ only."
       ],
       "dependsOn": [
         "PROJECTOS-FINISH-MULTIPROJECT1A"

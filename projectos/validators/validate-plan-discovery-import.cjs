@@ -297,21 +297,32 @@ function run() {
       // canonical config declares, retires — and only then. An undeclared or unsigned withdrawal, or a
       // plan nothing of which was delivered, stays current.
       {
+        const W = ".projectops/plan-withdrawals/w.json";
         const cfgW = (extra) => JSON.stringify({ projectId: "done", planMemory: { planPath: "p.json", currentStatePath: "s.json" }, planSources: extra });
-        const wd = (o) => JSON.stringify({ projectId: "done", ...o });
-        const base = (cfg, w, done) => [fp(".projectops/config.json", cfg, ".json"), fp("p.json", planJson(["D-P1A", "D-P2A"]), ".json"), fp("s.json", stateJson(done), ".json"), fp("w.json", w, ".json")];
-        if (roleOf(base(cfgW(["w.json"]), wd({ decidedBy: "Owner", withdrawnPhases: ["D-P2A"] }), ["D-P1A"]), "p.json") !== "HISTORICAL_EVIDENCE") {
-          errors.push("(h2) a plan whose only outstanding phase is withdrawn by a DECLARED owner record must retire");
-        }
-        if (roleOf(base(cfgJson, wd({ decidedBy: "Owner", withdrawnPhases: ["D-P2A"] }), ["D-P1A"]), "p.json") !== "CURRENT_PLANNING") {
-          errors.push("(h2) an UNDECLARED withdrawal record must not retire a plan");
-        }
-        if (roleOf(base(cfgW(["w.json"]), wd({ withdrawnPhases: ["D-P2A"] }), ["D-P1A"]), "p.json") !== "CURRENT_PLANNING") {
-          errors.push("(h2) a withdrawal with no decidedBy must not retire a plan");
-        }
-        if (roleOf(base(cfgW(["w.json"]), wd({ decidedBy: "Owner", withdrawnPhases: ["D-P1A", "D-P2A"] }), []), "p.json") !== "CURRENT_PLANNING") {
-          errors.push("(h2) a plan NOTHING of which was delivered must not retire by withdrawal alone");
-        }
+        const good = { schemaVersion: "1.0.0", withdrawalId: "W1", projectId: "done", decidedBy: "Owner", withdrawnPhases: ["D-P2A"], retiresPlans: ["p.json"] };
+        const wd = (o) => JSON.stringify({ ...good, ...o });
+        const plan = (ids, extra) => JSON.stringify({ projectId: "done", definitionOfComplete: "x", ...(extra || {}), phases: ids.map((id) => ({ phaseId: id, description: "d" })) });
+        const base = (cfg, w, done, opts) => [
+          fp(".projectops/config.json", cfg, ".json"),
+          fp("p.json", plan(["D-P1A", "D-P2A", ...((opts && opts.extraIds) || [])], opts && opts.planExtra), ".json"),
+          fp("s.json", stateJson(done), ".json"),
+          fp((opts && opts.wPath) || W, w, ".json"),
+        ];
+        const role = (arr) => roleOf(arr, "p.json");
+        if (role(base(cfgW([W]), wd({}), ["D-P1A"])) !== "HISTORICAL_EVIDENCE") errors.push("(h2) a plan whose only outstanding phase is withdrawn by a DECLARED, bound owner record must retire");
+        if (role(base(cfgJson, wd({}), ["D-P1A"])) !== "CURRENT_PLANNING") errors.push("(h2) an UNDECLARED withdrawal record must not retire a plan");
+        if (role(base(cfgW([W]), wd({ decidedBy: " " }), ["D-P1A"])) !== "CURRENT_PLANNING") errors.push("(h2) a withdrawal with a blank decidedBy must not retire a plan");
+        if (role(base(cfgW([W]), wd({ withdrawnPhases: ["D-P1A", "D-P2A"] }), [])) !== "CURRENT_PLANNING") errors.push("(h2) a plan NOTHING of which was delivered must not retire by withdrawal alone");
+        if (role(base(cfgW([W]), wd({ retiresPlans: ["other-plan.json"] }), ["D-P1A"])) !== "CURRENT_PLANNING") errors.push("(h2) a withdrawal bound to ANOTHER plan file must not retire this one, even sharing a phase id");
+        if (role(base(cfgW([W]), wd({ projectId: "elsewhere" }), ["D-P1A"])) !== "CURRENT_PLANNING") errors.push("(h2) a withdrawal for another project must not retire this plan");
+        if (role(base(cfgW([W]), wd({}), ["D-P1A"], { planExtra: { governance: { owner: "Someone Else" } } })) !== "CURRENT_PLANNING") errors.push("(h2) a withdrawal decided by someone other than the plan's owner must not retire it");
+        if (role(base(cfgW(["w.json"]), wd({}), ["D-P1A"], { wPath: "w.json" })) !== "CURRENT_PLANNING") errors.push("(h2) a withdrawal record outside .projectops/plan-withdrawals/ must not count");
+        if (role(base(cfgW([W]), wd({ withdrawalId: undefined }), ["D-P1A"])) !== "CURRENT_PLANNING") errors.push("(h2) a withdrawal without withdrawalId must not count");
+        if (role(base(cfgW([W]), wd({}), ["D-P1A"], { extraIds: ["D-P3A"] })) !== "CURRENT_PLANNING") errors.push("(h2) one complete, one withdrawn and one outstanding must stay current");
+        const arrC = base(cfgW([W]), wd({}), ["D-P1A"]);
+        eng.assignAuthorities(arrC, {});
+        const done = eng.declaredCompletedPhases(arrC, new Set(["s.json", W]));
+        if (done.has("D-P2A")) errors.push("(h2) a withdrawn phase must never appear as completed");
       }
       // A DECLARED record is not retired by a word in its own prose. This repository's current-state
       // record describes which plan VERSIONS it supersedes, and the prose marker was retiring the

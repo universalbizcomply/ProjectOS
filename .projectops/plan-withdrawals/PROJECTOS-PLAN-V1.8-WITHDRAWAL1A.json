@@ -4,6 +4,10 @@
   "projectId": "projectos",
   "planId": "plan-fad4d5ff8d67abc8-bbf6214dc32b",
   "planVersion": "1.8",
+  "retiresPlans": [
+    "docs/projectos-autonomy-bootstrap-phases.json",
+    ".projectops/plan-fad4d5ff8d67abc8-bbf6214dc32b.json"
+  ],
   "withdrawnPhases": [
     "PROJECTOS-BOOT-UNATTENDED1A",
     "PROJECTOS-BOOT-CERT1A"

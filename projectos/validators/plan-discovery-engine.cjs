@@ -551,18 +551,47 @@ function declaredCompletedPhases(sources, declared) {
  * a phase needs the same authority as declaring the plan — an undeclared file naming withdrawals is
  * ignored, exactly as an undeclared completion record is. A withdrawal only ever RETIRES a plan from
  * the current corpus; it is never completion evidence and never satisfies a dependency.
+ *
+ * BOUND, NOT GLOBAL. A record lives under `.projectops/plan-withdrawals/`, carries `schemaVersion`,
+ * `withdrawalId` and `projectId`, and names the exact plan files it retires in `retiresPlans`. It
+ * applies to those files only — so a later plan that reintroduces a withdrawn phase id is NOT retired
+ * by an old withdrawal — and only where the plan's projectId matches and, when the plan names its
+ * owner, `decidedBy` is that owner.
  */
-function declaredWithdrawnPhases(sources, declared) {
-  const withdrawn = new Set();
+const WITHDRAWAL_DIR = ".projectops/plan-withdrawals/";
+function declaredWithdrawals(sources, declared) {
+  const out = [];
   for (const s of sources) {
     if (s.included === false || s.ext !== ".json") continue;
-    if (!declared.has(s.normRelPath)) continue;
+    if (!declared.has(s.normRelPath) || !s.normRelPath.startsWith(WITHDRAWAL_DIR)) continue;
     let obj = null; try { obj = JSON.parse(stripBom(s.content || "")); } catch (_) { continue; }
-    if (!obj || typeof obj !== "object" || !Array.isArray(obj.withdrawnPhases)) continue;
+    if (!obj || typeof obj !== "object") continue;
+    if (typeof obj.schemaVersion !== "string" || typeof obj.withdrawalId !== "string" || obj.withdrawalId.trim() === "") continue;
+    if (typeof obj.projectId !== "string" || obj.projectId.trim() === "") continue;
     if (typeof obj.decidedBy !== "string" || obj.decidedBy.trim() === "") continue;
-    for (const id of obj.withdrawnPhases) if (typeof id === "string" && id.trim() !== "") withdrawn.add(id.trim());
+    if (!Array.isArray(obj.withdrawnPhases) || !Array.isArray(obj.retiresPlans)) continue;
+    const ids = new Set(obj.withdrawnPhases.filter((id) => typeof id === "string" && id.trim() !== "").map((id) => id.trim()));
+    const plans = new Set(obj.retiresPlans.filter((p) => typeof p === "string" && p.trim() !== "").map((p) => toPosix(p.trim()).toLowerCase()));
+    out.push({ ids, plans, projectId: obj.projectId.trim(), decidedBy: obj.decidedBy.trim() });
   }
-  return withdrawn;
+  return out;
+}
+
+/** The phase ids withdrawn FOR THIS plan source, under the binding rules above. */
+function withdrawnFor(src, withdrawals) {
+  const ids = new Set();
+  if (withdrawals.length === 0) return ids;
+  let doc = null; try { doc = JSON.parse(stripBom(src.content || "")); } catch (_) { doc = null; }
+  const planProject = doc && typeof doc.projectId === "string" ? doc.projectId.trim() : "";
+  const gov = doc && doc.governance && typeof doc.governance === "object" ? doc.governance : null;
+  const planOwner = gov && typeof gov.owner === "string" ? gov.owner.trim() : "";
+  for (const w of withdrawals) {
+    if (!w.plans.has(src.normRelPath)) continue;
+    if (planProject === "" || w.projectId !== planProject) continue;
+    if (planOwner !== "" && w.decidedBy !== planOwner) continue;
+    for (const id of w.ids) ids.add(id);
+  }
+  return ids;
 }
 
 /**
@@ -599,7 +628,7 @@ function assignPlanningRoles(sources, ctx) {
   const declared = origins.declared;
   const hasDeclaration = declared.size > 0;
   const completed = declaredCompletedPhases(sources, declared);
-  const withdrawn = declaredWithdrawnPhases(sources, declared);
+  const withdrawals = declaredWithdrawals(sources, declared);
   for (const s of sources) {
     // PROVENANCE, ALONGSIDE ROLE. `planningRole` says whether a source describes current delivery;
     // this says which side of an amendment it sits on. Kept separate so no existing role decision
@@ -644,7 +673,7 @@ function assignPlanningRoles(sources, ctx) {
     // A DELIVERED plan is history, however it reached the current corpus. Applied once, after the
     // chain, so every route into CURRENT_PLANNING is covered rather than the declared one only.
     if (role === "CURRENT_PLANNING") {
-      const delivered = deliveredPhaseCount(s, completed, withdrawn);
+      const delivered = deliveredPhaseCount(s, completed, withdrawnFor(s, withdrawals));
       if (delivered > 0) {
         role = "HISTORICAL_EVIDENCE";
         why = "a plan whose " + delivered + " phase(s) are ALL recorded complete, or withdrawn by a declared owner record, in this project's own declared records — the record of delivered work, not today's plan (was: " + why + ")";
@@ -1403,7 +1432,7 @@ module.exports = {
   extractHeadings, extractTitle, classifyPlanSource, classifyAuthority, assignAuthorities,
   isUntrustedInstruction, groupDuplicateSources, markCanonicalDuplicates,
   extractStructuredPlan, extractMarkdownPlan, extractPlanDocument, markdownSections,
-  declaredCompletedPhases, declaredWithdrawnPhases, deliveredPhaseCount,
+  declaredCompletedPhases, declaredWithdrawals, withdrawnFor, deliveredPhaseCount,
   extractClaims, detectPlanConflicts, reconcileRepositoryEvidence, selectAuthoritative,
   PLANNING_ROLES, PLANNING_TYPES, HISTORICAL_TYPES, declaredPlanningPaths, assignPlanningRoles, summarisePlanningCorpus,
   buildPlanDraft, buildPhaseCandidates, calculateImportStatus, validatePlanProvenance,
