@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "1.0.0",
+  "projectId": "projectos",
+  "activePlanId": "plan-5c01a3c0c8a200d2-143678a10e7a",
+  "activePlanVersion": "1.12",
+  "currentStatus": "PLAN READY",
+  "completionMethod": "phase-closure",
+  "acceptedPhaseCount": 2,
+  "totalPhaseCount": 4,
+  "completionPercentage": 50,
+  "completedPhases": [
+    "PROJECTOS-FINISH-WRITEPATHS1A",
+    "PROJECTOS-FINISH-MULTIPROJECT1A"
+  ],
+  "activePhase": null,
+  "pendingPhases": [
+    "PROJECTOS-FINISH-EXTERNAL-PROOF1A",
+    "PROJECTOS-FINISH-API-GATEKEEPER1A"
+  ],
+  "blockedPhases": [],
+  "deferredPhases": [],
+  "acceptedCarryForward": [],
+  "currentBranch": "projectos-autonomy-bootstrap1a",
+  "currentHead": "281a4ed171eba0e483eca8b1992dc28413fd9cde",
+  "currentRemoteHead": null,
+  "workingTreeStatus": "dirty",
+  "currentRisks": [],
+  "currentBlockers": [],
+  "lastEvidenceReference": "plan-approval decision PLANDEC-0a1857e372ad143671877b89",
+  "nextRecommendedPhase": "PROJECTOS-FINISH-EXTERNAL-PROOF1A",
+  "lastUpdated": "2026-10-25T20:43:51.852Z",
+  "updatedByRole": "implementer"
+}

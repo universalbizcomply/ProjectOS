@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "objectiveId": "dd3b2e1b625b0283",
+  "objective": "Amend plan v1.11 to add PROJECTOS-FINISH-API-GATEKEEPER1A: the ChatGPT gatekeeper answers without the owner's relay through the existing trusted installation broker, by owner decision of 2026-10-25; EXTERNAL-PROOF1A depends on it. No completed phase changes.",
+  "authoritative": false,
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "51aef183f893024aa55d885ff8832f6558f675ad",
+  "submittedAt": "2026-10-25T20:42:43.847Z",
+  "submittedBy": "owner",
+  "instructionShaped": false
+}
