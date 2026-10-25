@@ -741,6 +741,19 @@
       },
       "costMicroUsd": 18952,
       "at": "2026-09-05T05:33:10.474Z"
+    },
+    {
+      "requestId": "GKREQ-aa4769cd1fc23cf16d5a40d5",
+      "projectId": "projectos",
+      "phaseId": "run-to-completion-proof-phase-1",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "inputTokens": 0,
+        "outputTokens": 0
+      },
+      "costMicroUsd": 1333,
+      "unresolved": true,
+      "at": "2026-09-05T16:10:17.422Z"
     }
   ]
 }

@@ -105,6 +105,10 @@ fn base_manifest() -> TrustManifest {
         minimum_protocol_version: 1,
         signature_algorithm: TEST_ALGORITHM.into(),
         signing_key_id: TEST_KEY.into(),
+        // The base fixture stays a VERSION 1 manifest with no closure, so every existing proof in
+        // this file keeps testing exactly what it tested before. The closure proofs build on it
+        // explicitly rather than changing what "a valid manifest" means for the rest of the suite.
+        execution_closure: None,
         signature: String::new(),
     }
 }
@@ -702,4 +706,595 @@ fn an_unrecognised_artefact_format_fails_to_parse() {
 fn only_a_single_bundle_may_anchor_production() {
     assert!(DaemonArtefactFormat::SingleBundle.can_anchor_production());
     assert!(!DaemonArtefactFormat::LooseModules.can_anchor_production());
+}
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════════
+// THE GATEKEEPER EXECUTION CLOSURE — RUN-TO-COMPLETION HOST ATTESTATION.
+//
+// These prove the SECOND witness. The first — the committed-bytes reader that pulls the broker out
+// of the installation's git object store and executes exactly what it read — is untouched and stays
+// exactly as it was; nothing here replaces it, and nothing here would work if it were removed. What
+// is added is the question git cannot answer: were the committed bytes the ones an owner approved?
+// ═════════════════════════════════════════════════════════════════════════════════════════════════
+
+use super::manifest::{
+    CommittedArtefactManifest, ExecutionClosureManifest, EXECUTION_CLOSURE_MANIFEST_VERSION,
+};
+use super::{verify_execution_closure, CommittedClosureBytes};
+use projectos_packaged_runtime_contract as contract;
+
+/// Boxed mutations, aliased so the tables below stay readable and clippy stays quiet about the
+/// type. Each table exists because the SAME proof must hold for all three closure artefacts, and
+/// writing it out three times is how one of them silently stops being checked.
+type ClosureDigestMutation = Box<dyn Fn(&mut ExecutionClosureManifest, String)>;
+type ClosureMutation = Box<dyn Fn(&mut ExecutionClosureManifest)>;
+type ManifestMutation = Box<dyn Fn(&mut TrustManifest)>;
+
+const BROKER_BYTES: &[u8] = b"fake-committed-gatekeeper-transport-broker-source";
+const ALLOWLIST_BYTES: &[u8] = b"fake-committed-installation-project-allowlist";
+const ADAPTER_BYTES: &[u8] = b"fake-committed-windows-credential-store-adapter";
+
+fn committed(path: &str, bytes: &[u8]) -> CommittedArtefactManifest {
+    CommittedArtefactManifest {
+        repository_relative_path: path.to_string(),
+        sha256: sha256_hex(bytes),
+    }
+}
+
+/// A closure that matches the fixture bytes exactly.
+fn honest_closure() -> ExecutionClosureManifest {
+    ExecutionClosureManifest {
+        gatekeeper_broker: committed(contract::BROKER_REPOSITORY_RELATIVE_PATH, BROKER_BYTES),
+        installation_project_allowlist: committed(
+            contract::INSTALLATION_ALLOWLIST_REPOSITORY_RELATIVE_PATH,
+            ALLOWLIST_BYTES,
+        ),
+        credential_adapter: committed(
+            contract::CREDENTIAL_ADAPTER_REPOSITORY_RELATIVE_PATH,
+            ADAPTER_BYTES,
+        ),
+    }
+}
+
+/// A version 2 manifest carrying an honest closure, SIGNED by the deterministic test signer.
+///
+/// Signed by default because `verify_execution_closure` now establishes the owner signature over the
+/// whole subject before it compares a single digest — an unsigned fixture would fail every closure
+/// proof for the wrong reason and hide whatever the proof was actually about.
+fn v2_manifest() -> TrustManifest {
+    let mut m = unsigned_v2_manifest();
+    sign_test(&mut m);
+    m
+}
+
+/// The same manifest with its signature deliberately absent.
+fn unsigned_v2_manifest() -> TrustManifest {
+    let mut m = base_manifest();
+    m.manifest_version = EXECUTION_CLOSURE_MANIFEST_VERSION;
+    m.execution_closure = Some(honest_closure());
+    m
+}
+
+/// Re-sign after a mutation, so a closure proof fails on the thing it is testing rather than on the
+/// signature that mutation invalidated.
+fn resigned(mut m: TrustManifest) -> TrustManifest {
+    m.signature = String::new();
+    sign_test(&mut m);
+    m
+}
+
+/// The closure check under TEST policy with the deterministic test signer.
+fn closure_verdict(
+    m: &TrustManifest,
+    committed: &CommittedClosureBytes<'_>,
+) -> Result<(), IdentityError> {
+    verify_execution_closure(m, Policy::Test, &DeterministicTestVerifier, committed)
+}
+
+/// The committed bytes as a caller would have read them from the object store.
+fn all_committed() -> CommittedClosureBytes<'static> {
+    CommittedClosureBytes {
+        gatekeeper_broker: Some(BROKER_BYTES),
+        installation_project_allowlist: Some(ALLOWLIST_BYTES),
+        credential_adapter: Some(ADAPTER_BYTES),
+    }
+}
+
+#[test]
+fn the_honest_closure_is_trusted() {
+    assert_eq!(closure_verdict(&v2_manifest(), &all_committed()), Ok(()));
+}
+
+/// (1)(4)(7) THE COMMITTED BYTES CHANGED. Someone edited and committed a new broker, allowlist or
+/// adapter; git is perfectly happy — it is committed and it is clean — and the owner never approved
+/// it. This is the case the second witness exists for, so it is tested for each artefact separately.
+#[test]
+fn a_modified_committed_artefact_is_refused() {
+    let m = v2_manifest();
+    let cases: [(CommittedClosureBytes<'static>, IdentityError); 3] = [
+        (
+            CommittedClosureBytes {
+                gatekeeper_broker: Some(b"tampered"),
+                ..all_committed()
+            },
+            IdentityError::BrokerArtefactHashMismatch,
+        ),
+        (
+            CommittedClosureBytes {
+                installation_project_allowlist: Some(b"tampered"),
+                ..all_committed()
+            },
+            IdentityError::InstallationAllowlistHashMismatch,
+        ),
+        (
+            CommittedClosureBytes {
+                credential_adapter: Some(b"tampered"),
+                ..all_committed()
+            },
+            IdentityError::CredentialAdapterHashMismatch,
+        ),
+    ];
+    for (bytes, expected) in cases {
+        assert_eq!(closure_verdict(&m, &bytes), Err(expected));
+    }
+}
+
+/// (2)(5)(8) THE BYTES COULD NOT BE ESTABLISHED. Not a repository, no git, uncommitted, dirty tree —
+/// every one of those arrives here as `None`, and "I could not ask" must never read as "it is fine".
+/// Each artefact reports its own absence, so an operator is not sent to look at the wrong file.
+#[test]
+fn committed_bytes_that_could_not_be_established_are_refused() {
+    let m = v2_manifest();
+    let cases: [(CommittedClosureBytes<'static>, IdentityError); 3] = [
+        (
+            CommittedClosureBytes {
+                gatekeeper_broker: None,
+                ..all_committed()
+            },
+            IdentityError::BrokerArtefactNotReadable,
+        ),
+        (
+            CommittedClosureBytes {
+                installation_project_allowlist: None,
+                ..all_committed()
+            },
+            IdentityError::InstallationAllowlistNotReadable,
+        ),
+        (
+            CommittedClosureBytes {
+                credential_adapter: None,
+                ..all_committed()
+            },
+            IdentityError::CredentialAdapterNotReadable,
+        ),
+    ];
+    for (bytes, expected) in cases {
+        assert_eq!(closure_verdict(&m, &bytes), Err(expected));
+    }
+}
+
+/// (3)(6)(9) THE MANIFEST'S DIGEST IS WRONG. The mirror image of the case above: the committed bytes
+/// are the real ones and the manifest attests something else. It must fail from this side too —
+/// otherwise the check would only ever be as good as whoever generated the manifest.
+#[test]
+fn a_manifest_digest_that_does_not_match_the_committed_bytes_is_refused() {
+    let wrong = "0".repeat(64);
+    let mutations: [(ClosureDigestMutation, IdentityError); 3] = [
+        (
+            Box::new(|c, d| c.gatekeeper_broker.sha256 = d),
+            IdentityError::BrokerArtefactHashMismatch,
+        ),
+        (
+            Box::new(|c, d| c.installation_project_allowlist.sha256 = d),
+            IdentityError::InstallationAllowlistHashMismatch,
+        ),
+        (
+            Box::new(|c, d| c.credential_adapter.sha256 = d),
+            IdentityError::CredentialAdapterHashMismatch,
+        ),
+    ];
+    for (mutate, expected) in mutations {
+        let mut m = v2_manifest();
+        mutate(m.execution_closure.as_mut().unwrap(), wrong.clone());
+        // Re-signed, so the refusal below is the digest check rather than the signature the
+        // mutation just invalidated.
+        let m = resigned(m);
+        assert_eq!(closure_verdict(&m, &all_committed()), Err(expected));
+    }
+}
+
+/// (10) PATH SUBSTITUTION. A manifest that attests three harmless files would satisfy every digest
+/// check while the real broker, allowlist and adapter went entirely unbound. The expected paths come
+/// from the packaging contract, never from the manifest under test and never from a caller — so
+/// naming a different file is refused before any digest is even computed.
+#[test]
+fn a_manifest_naming_a_different_file_is_refused_before_any_digest_is_checked() {
+    let mutations: [(ClosureMutation, IdentityError); 3] = [
+        (
+            Box::new(|c| c.gatekeeper_broker.repository_relative_path = "docs/harmless.md".into()),
+            IdentityError::BrokerArtefactPathMismatch,
+        ),
+        (
+            Box::new(|c| {
+                c.installation_project_allowlist.repository_relative_path =
+                    "docs/harmless.md".into()
+            }),
+            IdentityError::InstallationAllowlistPathMismatch,
+        ),
+        (
+            Box::new(|c| c.credential_adapter.repository_relative_path = "docs/harmless.md".into()),
+            IdentityError::CredentialAdapterPathMismatch,
+        ),
+    ];
+    for (mutate, expected) in mutations {
+        let mut m = v2_manifest();
+        mutate(m.execution_closure.as_mut().unwrap());
+        // Re-signed, and the digests still match the real bytes, so ONLY the path check can be
+        // refusing here.
+        let m = resigned(m);
+        assert_eq!(closure_verdict(&m, &all_committed()), Err(expected));
+    }
+}
+
+/// A Windows-style spelling of the right file is still the wrong pathspec.
+///
+/// The path is handed to `git show HEAD:./<rel>`, which does not accept backslashes as separators,
+/// so accepting this here would attest a path the run-time reader can never resolve.
+#[test]
+fn a_backslash_spelling_of_the_declared_path_is_refused() {
+    let mut m = v2_manifest();
+    let backslashed = contract::BROKER_REPOSITORY_RELATIVE_PATH.replace('/', "\\");
+    m.execution_closure
+        .as_mut()
+        .unwrap()
+        .gatekeeper_broker
+        .repository_relative_path = backslashed;
+    let m = resigned(m);
+    assert_eq!(
+        closure_verdict(&m, &all_committed()),
+        Err(IdentityError::BrokerArtefactPathMismatch)
+    );
+}
+
+/// (11) A VERSION 1 MANIFEST CAN NEVER SATISFY THE CLOSURE. It is not broken and it is not being
+/// called untrustworthy — it simply never signed these bytes, and no amount of them matching would
+/// make its signature a statement about them.
+#[test]
+fn a_version_1_manifest_cannot_satisfy_the_execution_closure() {
+    // GENUINELY SIGNED, so the refusal below is unambiguously about the VERSION rather than about a
+    // missing signature. A perfectly valid, owner-signed v1 release still cannot authorise a
+    // provider call, because its signature was never a statement about the broker.
+    let mut m = base_manifest();
+    sign_test(&mut m);
+    assert_eq!(m.manifest_version, 1);
+    assert!(!m.signature.is_empty());
+    assert_eq!(
+        closure_verdict(&m, &all_committed()),
+        Err(IdentityError::ExecutionClosureManifestVersionTooLow)
+    );
+}
+
+/// A version 2 manifest without a closure is refused, and refused by BOTH gates.
+///
+/// `check_versions` catches it at parse time, and `verify_execution_closure` catches it again on its
+/// own — because a closure check whose safety depends on another function having been called first
+/// is a closure check with a bypass.
+#[test]
+fn a_version_2_manifest_without_a_closure_is_refused_twice_over() {
+    let mut m = v2_manifest();
+    m.execution_closure = None;
+    assert_eq!(
+        m.check_versions(),
+        Err(IdentityError::ExecutionClosureMissing)
+    );
+    assert_eq!(
+        closure_verdict(&m, &all_committed()),
+        Err(IdentityError::ExecutionClosureMissing)
+    );
+}
+
+/// A version 1 manifest carrying closure fields is refused.
+///
+/// THIS DIRECTION MATTERS JUST AS MUCH. At version 1 the canonical bytes omit the field, so such a
+/// document would carry closure digests that no signature covers — free for anyone to edit, and
+/// indistinguishable to the eye from a real attestation. Refusing the SHAPE is what stops decoration
+/// being mistaken for evidence.
+#[test]
+fn a_version_1_manifest_carrying_a_closure_is_refused() {
+    let mut m = base_manifest();
+    m.execution_closure = Some(honest_closure());
+    assert_eq!(
+        m.check_versions(),
+        Err(IdentityError::ExecutionClosureUnexpected)
+    );
+}
+
+/// V1 CANONICAL BYTES ARE UNCHANGED, so every signature ever made over a v1 manifest still verifies.
+///
+/// This is the whole reason the field is appended last and skipped when absent. If this fails, the
+/// meaning of every existing signature has changed — which is a decision to make deliberately, not a
+/// test to update.
+#[test]
+fn version_1_canonical_bytes_do_not_mention_the_execution_closure() {
+    let canonical = canonical::canonical_bytes(&base_manifest());
+    let text = String::from_utf8(canonical).expect("canonical bytes are JSON text");
+    assert!(!text.contains("executionClosure"));
+    assert!(text.ends_with("\"signingKeyId\":\"TEST-ONLY-key-1\"}"));
+}
+
+/// The v2 subject genuinely covers the closure, and covers every part of it.
+///
+/// Each mutation must move the bytes. A field that is in the struct but not in the canonical view
+/// would be attested in appearance only, and every one of the digest tests above would still pass.
+#[test]
+fn every_closure_field_changes_the_canonical_signing_subject() {
+    let base = canonical::canonical_bytes(&v2_manifest());
+    assert_ne!(
+        base,
+        canonical::canonical_bytes(&base_manifest()),
+        "a v2 subject must differ from the v1 subject"
+    );
+
+    let mutations: [ManifestMutation; 7] = [
+        Box::new(|m| {
+            m.execution_closure
+                .as_mut()
+                .unwrap()
+                .gatekeeper_broker
+                .sha256 = "1".repeat(64)
+        }),
+        Box::new(|m| {
+            m.execution_closure
+                .as_mut()
+                .unwrap()
+                .gatekeeper_broker
+                .repository_relative_path = "other/path.cjs".into()
+        }),
+        Box::new(|m| {
+            m.execution_closure
+                .as_mut()
+                .unwrap()
+                .installation_project_allowlist
+                .sha256 = "2".repeat(64)
+        }),
+        Box::new(|m| {
+            m.execution_closure
+                .as_mut()
+                .unwrap()
+                .installation_project_allowlist
+                .repository_relative_path = "other/allow.json".into()
+        }),
+        Box::new(|m| {
+            m.execution_closure
+                .as_mut()
+                .unwrap()
+                .credential_adapter
+                .sha256 = "3".repeat(64)
+        }),
+        Box::new(|m| {
+            m.execution_closure
+                .as_mut()
+                .unwrap()
+                .credential_adapter
+                .repository_relative_path = "other/adapter.ps1".into()
+        }),
+        // The runtime is part of the same signed subject and must remain so.
+        Box::new(|m| m.runtime.sha256 = "4".repeat(64)),
+    ];
+    for mutate in mutations {
+        let mut m = v2_manifest();
+        mutate(&mut m);
+        assert_ne!(
+            canonical::canonical_bytes(&m),
+            base,
+            "a change to signed closure material must change the signing subject"
+        );
+    }
+}
+
+/// Canonicalisation is deterministic: repeated generation over equal material is byte-identical, and
+/// source formatting collapses away because the subject is built from the parsed struct.
+#[test]
+fn the_v2_canonical_subject_is_deterministic() {
+    let a = canonical::canonical_bytes(&v2_manifest());
+    let b = canonical::canonical_bytes(&v2_manifest());
+    assert_eq!(a, b);
+
+    // Same manifest, deliberately pretty-printed JSON: whitespace and layout must not survive into
+    // the subject, or two honest builds of the same material would sign different bytes.
+    let mut m = v2_manifest();
+    m.signature = "ff".repeat(64);
+    let pretty = serde_json::to_string_pretty(&m).expect("the manifest serialises");
+    let reparsed = TrustManifest::parse(pretty.as_bytes()).expect("pretty JSON must parse");
+    assert_eq!(canonical::canonical_bytes(&reparsed), a);
+}
+
+/// (12)(13) AN UNSIGNED V2 MANIFEST ESTABLISHES NOTHING, and a signature does not survive an edit to
+/// the closure it covered. The second half is the point of putting the closure in the subject at
+/// all: change the attested broker digest after signing and the signature stops verifying.
+#[test]
+fn a_v2_manifest_must_be_signed_and_its_signature_covers_the_closure() {
+    let unsigned = unsigned_v2_manifest();
+    let out = evaluate(
+        &raw(&unsigned),
+        &test_ctx(&DeterministicTestVerifier),
+        &FakeFs::with_runtime_and_artefact(),
+    );
+    assert_eq!(out.failure, Some(IdentityError::ManifestSignatureRequired));
+
+    let signed = v2_manifest();
+    let ok = evaluate(
+        &raw(&signed),
+        &test_ctx(&DeterministicTestVerifier),
+        &FakeFs::with_runtime_and_artefact(),
+    );
+    assert_eq!(
+        ok.failure, None,
+        "an honestly signed v2 manifest must verify"
+    );
+    assert_eq!(ok.state, IdentityState::TestIdentityVerified);
+
+    // Now change the closure WITHOUT re-signing — exactly what an attacker who can edit the manifest
+    // but not hold the key would do.
+    let mut tampered = signed;
+    tampered
+        .execution_closure
+        .as_mut()
+        .unwrap()
+        .gatekeeper_broker
+        .sha256 = "9".repeat(64);
+    let out = evaluate(
+        &raw(&tampered),
+        &test_ctx(&DeterministicTestVerifier),
+        &FakeFs::with_runtime_and_artefact(),
+    );
+    assert_eq!(out.failure, Some(IdentityError::ManifestSignatureInvalid));
+}
+
+/// A v1 signature cannot be carried across onto v2 material.
+///
+/// Sign the v1 manifest, then present that signature on a manifest that claims v2 and attests a
+/// closure. It must fail: the bytes signed were the v1 subject, and they said nothing about a broker.
+#[test]
+fn a_version_1_signature_cannot_validate_version_2_material() {
+    let mut v1 = base_manifest();
+    sign_test(&mut v1);
+
+    let mut forged = v2_manifest();
+    forged.signature = v1.signature.clone();
+    let out = evaluate(
+        &raw(&forged),
+        &test_ctx(&DeterministicTestVerifier),
+        &FakeFs::with_runtime_and_artefact(),
+    );
+    assert_eq!(out.failure, Some(IdentityError::ManifestSignatureInvalid));
+}
+
+/// (15) THE EXISTING DAEMON AND RUNTIME VERIFICATION IS UNCHANGED under a v2 manifest: the closure is
+/// added ALONGSIDE those checks, never instead of them.
+#[test]
+fn v2_still_refuses_a_bad_runtime_and_a_bad_daemon() {
+    let mutations: [(ManifestMutation, IdentityError); 2] = [
+        (
+            Box::new(|m| m.runtime.sha256 = "5".repeat(64)),
+            IdentityError::RuntimeHashMismatch,
+        ),
+        (
+            Box::new(|m| m.daemon_artefact.sha256 = "6".repeat(64)),
+            IdentityError::DaemonArtefactHashMismatch,
+        ),
+    ];
+    for (mutate, expected) in mutations {
+        let mut m = v2_manifest();
+        mutate(&mut m);
+        sign_test(&mut m);
+        let out = evaluate(
+            &raw(&m),
+            &test_ctx(&DeterministicTestVerifier),
+            &FakeFs::with_runtime_and_artefact(),
+        );
+        assert_eq!(out.failure, Some(expected));
+    }
+}
+
+/// A manifest version above the supported maximum still fails closed, so a future v3 cannot be
+/// accepted by a build that does not understand what it signs.
+#[test]
+fn a_manifest_version_beyond_the_supported_maximum_is_refused() {
+    let mut m = v2_manifest();
+    m.manifest_version = EXECUTION_CLOSURE_MANIFEST_VERSION + 1;
+    assert_eq!(
+        m.check_versions(),
+        Err(IdentityError::ManifestVersionUnsupported)
+    );
+}
+
+/// THE CLOSURE CHECK ESTABLISHES THE OWNER SIGNATURE ITSELF — it does not trust a caller to have
+/// done it first.
+///
+/// Raised by the security review, and it is the difference between a control and a convention. A
+/// future integration that parsed a manifest and passed it straight to the closure check would,
+/// without this, let anyone who can commit write a manifest whose digests match their own committed
+/// bytes: every digest would agree and no signature would ever be consulted. Here the whole subject
+/// is proven signed before a single digest is compared.
+#[test]
+fn an_unsigned_manifest_can_never_satisfy_the_execution_closure() {
+    let unsigned = unsigned_v2_manifest();
+    assert!(unsigned.signature.is_empty());
+    assert_eq!(
+        closure_verdict(&unsigned, &all_committed()),
+        Err(IdentityError::ManifestSignatureRequired),
+        "the closure must refuse before it compares any digest"
+    );
+}
+
+/// And a manifest whose closure was edited after signing is refused BY THE SIGNATURE, not merely by
+/// the digest comparison — so the refusal holds even against an attacker who also controls the
+/// committed bytes and could make the digests agree.
+#[test]
+fn a_closure_edited_after_signing_is_refused_by_the_signature() {
+    let mut m = v2_manifest();
+    // The attacker commits their own broker AND writes its real digest into the manifest.
+    let theirs: &[u8] = b"a broker somebody else committed";
+    m.execution_closure
+        .as_mut()
+        .unwrap()
+        .gatekeeper_broker
+        .sha256 = sha256_hex(theirs);
+    let theirs_committed = CommittedClosureBytes {
+        gatekeeper_broker: Some(theirs),
+        ..all_committed()
+    };
+    // Every digest now agrees. Only the missing owner signature stands in the way — and it does.
+    assert_eq!(
+        closure_verdict(&m, &theirs_committed),
+        Err(IdentityError::ManifestSignatureInvalid)
+    );
+}
+
+/// Under PRODUCTION policy the deterministic TEST signer is refused, exactly as it is for identity
+/// evaluation. A test key must never authorise a real provider call.
+#[test]
+fn a_test_signer_cannot_authorise_the_execution_closure_in_production() {
+    let m = v2_manifest();
+    assert_eq!(
+        verify_execution_closure(
+            &m,
+            Policy::Production,
+            &DeterministicTestVerifier,
+            &all_committed()
+        ),
+        Err(IdentityError::TestSignerRejectedInProduction)
+    );
+}
+
+/// Equivalent-looking spellings of the declared path are refused too.
+///
+/// The comparison is exact against a compile-time constant, so none of these can pass today. They
+/// are pinned because a future "helpful" normalisation would silently widen what counts as the
+/// attested file, and `./x` and `x//y` do not name the same object to git either.
+#[test]
+fn equivalent_looking_path_spellings_are_still_refused() {
+    let declared = contract::BROKER_REPOSITORY_RELATIVE_PATH;
+    for spelling in [
+        format!("./{declared}"),
+        format!("{declared}/"),
+        declared.replace('/', "//"),
+        format!("/{declared}"),
+        format!(" {declared}"),
+        declared.to_uppercase(),
+    ] {
+        let mut m = v2_manifest();
+        m.execution_closure
+            .as_mut()
+            .unwrap()
+            .gatekeeper_broker
+            .repository_relative_path = spelling.clone();
+        let m = resigned(m);
+        assert_eq!(
+            closure_verdict(&m, &all_committed()),
+            Err(IdentityError::BrokerArtefactPathMismatch),
+            "{spelling} must not be accepted as the declared path"
+        );
+    }
 }

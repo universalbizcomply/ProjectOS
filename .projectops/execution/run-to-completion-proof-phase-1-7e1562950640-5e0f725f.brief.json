@@ -1,0 +1,94 @@
+{
+  "schemaVersion": "1.0.0",
+  "briefId": "run-to-completion-proof-phase-1@7e15629506406a99a3537a11a7a5d96db40f08a2",
+  "generatedAt": "2026-09-05T16:03:21.431Z",
+  "projectId": "projectos",
+  "projectName": "ProjectOS",
+  "repository": {
+    "root": "C:\\dev\\ProjectOS",
+    "remote": "universalbizcomply/ProjectOS",
+    "branch": "projectos-post-v3-selfhost-pilot1a",
+    "head": "7e15629506406a99a3537a11a7a5d96db40f08a2"
+  },
+  "plan": {
+    "path": "C:\\dev\\ProjectOS/.projectops/plan-6f94c56004a41ec5-53450234b376.json",
+    "planId": "plan-6f94c56004a41ec5-53450234b376",
+    "planVersion": "1.4"
+  },
+  "phase": {
+    "phaseId": "run-to-completion-proof-phase-1",
+    "description": "Write a deterministic durable proof artefact at docs/speed/run-to-completion-proof/phase-1.md containing the exact marker RUN-TO-COMPLETION-PROOF-MARKER-8f2c1d, so that a later phase can verify it was genuinely landed rather than merely recorded as done.",
+    "dependsOn": [],
+    "acceptanceCriteria": [
+      "docs/speed/run-to-completion-proof/phase-1.md exists and contains the exact marker RUN-TO-COMPLETION-PROOF-MARKER-8f2c1d.",
+      "No file outside docs/speed/run-to-completion-proof/ is created or modified by the worker.",
+      "The configured project checks run and validate-no-secrets passes.",
+      "No protected effect is performed or authorised."
+    ],
+    "riskLevel": "low",
+    "autonomyLevel": "local-safe",
+    "requiredValidators": [
+      "validate-no-secrets"
+    ],
+    "requiredReviews": [],
+    "requiredBrowserProof": false,
+    "requiredOwnerGates": []
+  },
+  "records": {
+    "briefPath": "C:\\dev\\ProjectOS/.projectops/execution/run-to-completion-proof-phase-1-7e1562950640-5e0f725f.brief.json",
+    "findingsPath": "C:\\dev\\ProjectOS/.projectops/execution/run-to-completion-proof-phase-1-7e1562950640-5e0f725f.findings.json",
+    "effectsPath": "C:\\dev\\ProjectOS/.projectops/execution/run-to-completion-proof-phase-1-7e1562950640-5e0f725f.effects.json",
+    "evidencePath": "C:\\dev\\ProjectOS/.projectops/execution/run-to-completion-proof-phase-1-7e1562950640-5e0f725f.evidence.json",
+    "effectsContract": {
+      "location": "top-level",
+      "valueType": "boolean",
+      "requiredFields": [
+        "productionTouched",
+        "deploymentOccurred",
+        "databaseMutationOccurred",
+        "externalSendOccurred",
+        "paymentOccurred",
+        "rawSecretStored"
+      ]
+    }
+  },
+  "verification": {
+    "runner": "projectos",
+    "checkIds": [
+      "core-tests",
+      "agent-tests",
+      "agent-typecheck",
+      "speed-benchmark"
+    ]
+  },
+  "boundaries": {
+    "forbiddenActions": [
+      "production-deploy",
+      "production-db-mutation",
+      "real-email-sms-whatsapp",
+      "payment-or-live-charge",
+      "force-push",
+      "use-anthropic-api",
+      "provider-credential-access",
+      "store-real-secret",
+      "modify-projectos-v2-core",
+      "modify-v2-closure-records",
+      "modify-polygo"
+    ],
+    "approvalGates": [
+      "commit",
+      "push",
+      "phase-closure",
+      "secrets-handling",
+      "production-deploy",
+      "production-db-mutation",
+      "real-email-sms-whatsapp",
+      "payment-or-live-charge"
+    ],
+    "protectedBranches": [
+      "main",
+      "projectos-v2-core"
+    ],
+    "productionFreeze": true
+  }
+}

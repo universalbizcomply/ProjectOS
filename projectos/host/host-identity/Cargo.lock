@@ -87,12 +87,17 @@ dependencies = [
 name = "projectos-host-identity"
 version = "0.0.0"
 dependencies = [
+ "projectos-packaged-runtime-contract",
  "projectos-windows-runtime-primitives",
  "serde",
  "serde_json",
  "sha2",
  "windows",
 ]
+
+[[package]]
+name = "projectos-packaged-runtime-contract"
+version = "0.0.0"
 
 [[package]]
 name = "projectos-windows-runtime-primitives"

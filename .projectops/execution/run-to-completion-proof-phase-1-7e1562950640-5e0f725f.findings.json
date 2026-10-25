@@ -1,0 +1,8 @@
+{
+  "reviews": [
+    "acceptance-criteria-satisfaction",
+    "boundary-compliance",
+    "no-protected-effects"
+  ],
+  "findings": []
+}

@@ -1,0 +1,43 @@
+{
+  "phaseId": "run-to-completion-proof-phase-1",
+  "project": "projectos",
+  "objective": "Write a deterministic durable proof artefact at docs/speed/run-to-completion-proof/phase-1.md containing the exact marker RUN-TO-COMPLETION-PROOF-MARKER-8f2c1d, so that a later phase can verify it was genuinely landed rather than merely recorded as done.",
+  "status": "awaiting_review",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-09-05T16:03:21.563Z",
+      "note": "recorded by the autonomous loop (WAITING_AI)"
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-09-05T16:03:21.563Z",
+      "note": "recorded by the autonomous loop (WAITING_AI)"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-09-05T16:10:16.872Z",
+      "note": "recorded by the autonomous loop (VALIDATING)"
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-09-05T16:10:17.068Z",
+      "note": "recorded by the autonomous loop (AWAITING_GATE)"
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-09-05T16:10:17.069Z",
+      "note": "recorded by the autonomous loop (AWAITING_GATE)"
+    }
+  ]
+}

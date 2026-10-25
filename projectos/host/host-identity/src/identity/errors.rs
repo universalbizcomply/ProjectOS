@@ -39,6 +39,44 @@ pub enum IdentityError {
     DevelopmentBuildNotTrusted,
     IdentityChangedAfterVerify,
     ProductionIdentityUnavailable,
+
+    // ── the gatekeeper EXECUTION CLOSURE ─────────────────────────────────────────────────────────
+    //
+    // ARTEFACT-SPECIFIC ON PURPOSE. Reusing `DaemonArtefactHashMismatch` for a broker or an
+    // allowlist would make the verifier name the wrong file in the one situation where knowing
+    // which file changed is the entire diagnosis — and an operator chasing a daemon that was never
+    // touched is an operator who does not find the allowlist that was.
+    /// A manifest below version 2 was offered for a host-attested gatekeeper execution. It is a
+    /// valid manifest of what it signed; it simply never signed the closure.
+    ExecutionClosureManifestVersionTooLow,
+    /// A manifest claiming version 2 or above carries no execution closure.
+    ExecutionClosureMissing,
+    /// A version 1 manifest carries closure fields. They would sit outside the canonical bytes and
+    /// so outside the signature — decoration that could be mistaken for attestation.
+    ExecutionClosureUnexpected,
+
+    /// The manifest names a broker path that is not the one the packaging contract declares.
+    BrokerArtefactPathMismatch,
+    /// The broker's committed bytes could not be established at all. "I could not ask" is not "it
+    /// is fine", so it fails closed and says which of the two it was.
+    BrokerArtefactNotReadable,
+    /// The broker's committed bytes are not the attested ones.
+    BrokerArtefactHashMismatch,
+
+    /// The manifest names an allowlist path that is not the declared one.
+    InstallationAllowlistPathMismatch,
+    /// The allowlist's committed bytes could not be established.
+    InstallationAllowlistNotReadable,
+    /// The allowlist's committed bytes are not the attested ones.
+    InstallationAllowlistHashMismatch,
+
+    /// The manifest names a credential-adapter path that is not the declared one.
+    CredentialAdapterPathMismatch,
+    /// The credential adapter's committed bytes could not be established.
+    CredentialAdapterNotReadable,
+    /// The credential adapter's committed bytes are not the attested ones.
+    CredentialAdapterHashMismatch,
+
     InternalErrorRedacted,
 }
 
@@ -93,6 +131,26 @@ impl IdentityError {
             }
             IdentityError::ProductionIdentityUnavailable => {
                 "Continue in read-only mode; production trust is unavailable in this environment."
+            }
+            IdentityError::ExecutionClosureManifestVersionTooLow
+            | IdentityError::ExecutionClosureMissing
+            | IdentityError::ExecutionClosureUnexpected => {
+                "Reinstall a release whose signed manifest covers the gatekeeper execution closure."
+            }
+            IdentityError::BrokerArtefactPathMismatch
+            | IdentityError::BrokerArtefactNotReadable
+            | IdentityError::BrokerArtefactHashMismatch => {
+                "The gatekeeper broker does not match the signed release; provider calls stay disabled."
+            }
+            IdentityError::InstallationAllowlistPathMismatch
+            | IdentityError::InstallationAllowlistNotReadable
+            | IdentityError::InstallationAllowlistHashMismatch => {
+                "The installation project allowlist does not match the signed release; provider calls stay disabled."
+            }
+            IdentityError::CredentialAdapterPathMismatch
+            | IdentityError::CredentialAdapterNotReadable
+            | IdentityError::CredentialAdapterHashMismatch => {
+                "The credential adapter does not match the signed release; provider calls stay disabled."
             }
             IdentityError::InternalErrorRedacted => {
                 "Restart ProjectOS; if it persists, reinstall from an approved release."

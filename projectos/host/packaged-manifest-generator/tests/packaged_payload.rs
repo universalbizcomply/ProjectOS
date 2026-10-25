@@ -83,9 +83,62 @@ fn real_payload() -> &'static PathBuf {
     })
 }
 
+/// Stand-in bytes for the three EXECUTION-CLOSURE artefacts.
+///
+/// Distinct on purpose: three files hashing to one digest would let a copy-paste in the generator
+/// attest the same artefact three times while every assertion still passed.
+const BROKER_SOURCE: &[u8] = b"// stand-in gatekeeper transport broker\n";
+const ALLOWLIST_SOURCE: &[u8] = b"{\"projects\":[]}\n";
+const ADAPTER_SOURCE: &[u8] = b"# stand-in windows credential store adapter\n";
+
+fn closure_source(rel: &str) -> &'static [u8] {
+    match rel {
+        r if r == contract::BROKER_REPOSITORY_RELATIVE_PATH => BROKER_SOURCE,
+        r if r == contract::INSTALLATION_ALLOWLIST_REPOSITORY_RELATIVE_PATH => ALLOWLIST_SOURCE,
+        _ => ADAPTER_SOURCE,
+    }
+}
+
+/// A synthetic ProjectOS INSTALLATION root carrying the three committed execution-closure artefacts.
+///
+/// SYNTHETIC, NOT THE REAL REPOSITORY, so these proofs stay hermetic and can express the negative
+/// cases — a missing broker, a directory where a file should be — without touching the real tree.
+/// The real repository gets its own proof further down, where reproducibility against the actual
+/// bytes is what is being established.
+fn fake_install_root() -> &'static PathBuf {
+    static ROOT: OnceLock<PathBuf> = OnceLock::new();
+    ROOT.get_or_init(|| {
+        let root = temp_root("install");
+        for rel in contract::EXECUTION_CLOSURE_REPOSITORY_PATHS {
+            let path = root.join(Path::new(rel));
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, closure_source(rel)).unwrap();
+        }
+        root
+    })
+}
+
+/// An installation root that is missing, or has replaced, exactly one closure artefact.
+fn install_root_without(name: &str, omit: &str, replace_with_dir: bool) -> PathBuf {
+    let root = temp_root(name);
+    for rel in contract::EXECUTION_CLOSURE_REPOSITORY_PATHS {
+        let path = root.join(Path::new(rel));
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        if rel == omit {
+            if replace_with_dir {
+                std::fs::create_dir_all(&path).unwrap();
+            }
+            continue;
+        }
+        std::fs::write(&path, closure_source(rel)).unwrap();
+    }
+    root
+}
+
 fn inputs(root: &Path) -> ManifestInputs<'_> {
     ManifestInputs {
         payload_root: root,
+        install_root: fake_install_root(),
         application_version: APP_VERSION,
         build_id: BUILD_ID,
         signing_key_id: KEY_ID,
@@ -454,6 +507,11 @@ fn the_canonical_signing_bytes_match_the_frozen_test_vector() {
         minimum_protocol_version: 1,
         signature_algorithm: "es256".into(),
         signing_key_id: "k".into(),
+        // THE VECTOR STAYS AT VERSION 1 WITH NO CLOSURE, and the bytes below are unchanged from
+        // before the execution closure existed. That is the point: it proves the v1 subject was not
+        // disturbed, so every signature already made over a v1 manifest still verifies and none of
+        // them silently starts covering a closure it never signed.
+        execution_closure: None,
         // Deliberately non-empty: the vector must prove the signature is EXCLUDED, not merely that
         // an empty string serialises to nothing much.
         signature: "ff".repeat(64),
@@ -856,4 +914,274 @@ fn a_payload_root_that_is_not_empty_is_refused() {
         }),
         Err(AssembleError::PayloadRootNotEmpty(_))
     ));
+}
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════════
+// THE EXECUTION CLOSURE — attested from the installation, never copied into the payload.
+// RUN-TO-COMPLETION HOST ATTESTATION.
+// ═════════════════════════════════════════════════════════════════════════════════════════════════
+
+/// The generated manifest is version 2 and describes the REAL bytes of all three closure artefacts.
+#[test]
+fn the_manifest_attests_the_installations_execution_closure() {
+    let generated = generate_unsigned_manifest(&inputs(real_payload())).expect("generation");
+    assert_eq!(
+        generated.manifest.manifest_version,
+        projectos_host_identity::EXECUTION_CLOSURE_MANIFEST_VERSION
+    );
+    let closure = generated
+        .manifest
+        .execution_closure
+        .as_ref()
+        .expect("a version 2 manifest carries a closure");
+
+    for (artefact, rel, bytes) in [
+        (
+            &closure.gatekeeper_broker,
+            contract::BROKER_REPOSITORY_RELATIVE_PATH,
+            BROKER_SOURCE,
+        ),
+        (
+            &closure.installation_project_allowlist,
+            contract::INSTALLATION_ALLOWLIST_REPOSITORY_RELATIVE_PATH,
+            ALLOWLIST_SOURCE,
+        ),
+        (
+            &closure.credential_adapter,
+            contract::CREDENTIAL_ADAPTER_REPOSITORY_RELATIVE_PATH,
+            ADAPTER_SOURCE,
+        ),
+    ] {
+        assert_eq!(artefact.repository_relative_path, rel);
+        assert_eq!(
+            artefact.sha256,
+            sha256_hex(bytes),
+            "{rel} must be described by the bytes actually on disk"
+        );
+    }
+}
+
+/// The declared paths are the CONTRACT'S spelling, not the host filesystem's.
+///
+/// They are handed to `git show HEAD:./<rel>` at run time and compared for equality by the verifier.
+/// A Windows-separator spelling produced by joining and re-deriving would compare unequal and name
+/// an object git cannot resolve — a refusal that would look like tampering.
+#[test]
+fn the_attested_paths_are_forward_slashed_contract_pathspecs() {
+    let generated = generate_unsigned_manifest(&inputs(real_payload())).expect("generation");
+    let closure = generated.manifest.execution_closure.as_ref().unwrap();
+    for artefact in [
+        &closure.gatekeeper_broker,
+        &closure.installation_project_allowlist,
+        &closure.credential_adapter,
+    ] {
+        assert!(
+            !artefact.repository_relative_path.contains('\\'),
+            "{} must stay a git pathspec",
+            artefact.repository_relative_path
+        );
+        assert!(contract::EXECUTION_CLOSURE_REPOSITORY_PATHS
+            .contains(&artefact.repository_relative_path.as_str()));
+    }
+}
+
+/// A missing closure artefact is refused, and refused BY NAME.
+///
+/// A generator that shrugged and emitted a manifest without one would produce a release whose
+/// signature covered two of the three inputs that decide whether the credential may be used.
+#[test]
+fn a_missing_execution_closure_artefact_is_refused() {
+    for (i, rel) in contract::EXECUTION_CLOSURE_REPOSITORY_PATHS
+        .iter()
+        .enumerate()
+    {
+        let root = install_root_without(&format!("missing-{i}"), rel, false);
+        let mut ins = inputs(real_payload());
+        ins.install_root = &root;
+        assert_eq!(
+            generate_unsigned_manifest(&ins).err(),
+            Some(GeneratorError::ExecutionClosureArtefactMissing(rel)),
+            "{rel} missing must be refused and named"
+        );
+    }
+}
+
+/// A DIRECTORY where a closure artefact should be is refused explicitly.
+///
+/// Refused as its own case rather than falling through to "missing", because the two have different
+/// causes and different fixes — and because a directory has no committed bytes to hash at all.
+#[test]
+fn a_directory_in_place_of_an_execution_closure_artefact_is_refused() {
+    for (i, rel) in contract::EXECUTION_CLOSURE_REPOSITORY_PATHS
+        .iter()
+        .enumerate()
+    {
+        let root = install_root_without(&format!("dir-{i}"), rel, true);
+        let mut ins = inputs(real_payload());
+        ins.install_root = &root;
+        assert_eq!(
+            generate_unsigned_manifest(&ins).err(),
+            Some(GeneratorError::ExecutionClosureArtefactNotSingleFile(rel)),
+            "{rel} as a directory must be refused and named"
+        );
+    }
+}
+
+/// ATTESTING IS NOT PACKAGING, and the payload proves it.
+///
+/// Nothing is copied. After generation the payload still holds exactly the four files it always
+/// held, and dependency closure still passes — so the manifest cannot be read as claiming the
+/// installation carries files it does not.
+#[test]
+fn the_execution_closure_is_not_copied_into_the_payload() {
+    let _ = generate_unsigned_manifest(&inputs(real_payload())).expect("generation");
+    let report = verify_closure(real_payload());
+    assert!(
+        report.is_closed(),
+        "attesting the closure must not add unattested payload files: {:?}",
+        report.findings
+    );
+    for rel in contract::EXECUTION_CLOSURE_REPOSITORY_PATHS {
+        assert!(
+            !real_payload().join(Path::new(rel)).exists(),
+            "{rel} must NOT have been copied into the payload"
+        );
+    }
+}
+
+/// END TO END: WHAT THE GENERATOR EMITS IS UNSIGNED, AND THE VERIFIER SAYS SO.
+///
+/// This is the join between the two halves of the change, and the answer is a refusal — which is the
+/// correct answer. `verify_execution_closure` establishes the owner signature over the whole subject
+/// before it compares any digest, and this generator deliberately never signs. So a freshly
+/// generated manifest cannot authorise a provider call no matter how perfectly its digests match:
+/// only an owner signing ceremony can turn this candidate into something that verifies.
+///
+/// The digest agreement itself is proven separately, above, against the bytes on disk.
+#[test]
+fn a_generated_manifest_is_unsigned_and_therefore_cannot_authorise_a_provider_call() {
+    use projectos_host_identity::{verify_execution_closure, CommittedClosureBytes};
+
+    let generated = generate_unsigned_manifest(&inputs(real_payload())).expect("generation");
+    assert!(
+        generated.manifest.signature.is_empty(),
+        "this generator must never emit a signature"
+    );
+    let honest = CommittedClosureBytes {
+        gatekeeper_broker: Some(BROKER_SOURCE),
+        installation_project_allowlist: Some(ALLOWLIST_SOURCE),
+        credential_adapter: Some(ADAPTER_SOURCE),
+    };
+    assert_eq!(
+        verify_execution_closure(
+            &generated.manifest,
+            Policy::Production,
+            &ProductionEs256Verifier::from_embedded(),
+            &honest
+        ),
+        Err(IdentityError::ManifestSignatureRequired),
+        "an unsigned candidate must be refused before any digest is consulted"
+    );
+}
+
+/// THE COMMITTED BLOB AND THE WORKING-TREE FILE ARE THE SAME BYTES for all three closure artefacts.
+///
+/// The generator hashes the working tree; the run-time reader hashes what `git show HEAD:./<rel>`
+/// returns. Those are equal here only because the repository sets `core.autocrlf=false` and declares
+/// no `.gitattributes` for these paths — an assumption the security review rightly refused to leave
+/// unguarded. If someone ever adds an attribute that rewrites these files on checkout, the two
+/// witnesses would disagree and every provider call would refuse for a reason nobody could
+/// reproduce. This is the guard, and it runs git in the TEST rather than in the packaging library,
+/// which must stay free of process lookup.
+#[test]
+fn the_committed_blob_matches_the_working_tree_for_every_closure_artefact() {
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
+    for rel in contract::EXECUTION_CLOSURE_REPOSITORY_PATHS {
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&repo)
+            .arg("cat-file")
+            .arg("blob")
+            .arg(format!("HEAD:{rel}"))
+            .output()
+            .unwrap_or_else(|e| {
+                panic!("git must be available to prove blob parity for {rel}: {e}")
+            });
+        assert!(
+            out.status.success(),
+            "{rel} must be committed at HEAD: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let on_disk = std::fs::read(repo.join(Path::new(rel)))
+            .unwrap_or_else(|e| panic!("{rel} must be readable: {e}"));
+        assert_eq!(
+            sha256_hex(&out.stdout),
+            sha256_hex(&on_disk),
+            "{rel}: the committed blob and the working-tree file must be the same bytes, or the              attested digest is not the digest the run-time reader will compute"
+        );
+    }
+}
+
+/// THE CONTRACT'S PATHS ARE REAL PATHS IN THIS REPOSITORY.
+///
+/// Every other proof here uses a synthetic installation, so all of them would keep passing if a
+/// contract path drifted away from where the artefact actually lives — and the first sign of it
+/// would be a packaging run that refused for a reason nobody could reproduce. This is the one check
+/// that looks at the real tree.
+#[test]
+fn the_execution_closure_paths_name_real_files_in_this_repository() {
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
+    for rel in contract::EXECUTION_CLOSURE_REPOSITORY_PATHS {
+        let path = repo.join(Path::new(rel));
+        assert!(
+            path.is_file(),
+            "the packaging contract names {rel}, which is not a file in this repository"
+        );
+    }
+}
+
+/// THE REAL, ALREADY-SIGNED VERSION 1 MANIFEST STILL CANONICALISES TO EXACTLY THE BYTES THAT WERE
+/// SIGNED.
+///
+/// Every other compatibility proof here uses fixtures built by this test, so all of them would keep
+/// passing if the v1 subject had shifted in a way only real material exposes. This one takes a real
+/// version 1 document carrying a real owner signature, parses it with TODAY'S struct, and re-derives
+/// the subject.
+///
+/// FROM A COMMITTED FIXTURE, NOT FROM `dist-payload`. It read the shipped payload directly at
+/// first, and that was a proof that only worked here: `dist-payload/` is gitignored build output,
+/// so on a fresh checkout the file is simply absent and the proof either fails for an unrelated
+/// reason or gets quietly relaxed into skipping. The bytes are committed beside this test — the same
+/// pattern the packaging contract uses for the upstream Node checksums — so the check runs OFFLINE
+/// and FOREVER, on any machine, without a build.
+///
+/// The fixture carries no secret. A manifest is public build metadata and a detached signature is
+/// verification data; neither is key material, and both ship inside the installer already.
+///
+/// If these ever differ, the owner's existing signature has stopped being a statement about the
+/// bytes it was made over. That is not a test to update.
+#[test]
+fn the_shipped_version_1_manifest_still_produces_its_original_signing_bytes() {
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    let raw = std::fs::read(fixtures.join("shipped-v1-trust-manifest.json"))
+        .expect("the committed v1 manifest fixture must be readable");
+    let original = std::fs::read(fixtures.join("shipped-v1-trust-manifest.canonical"))
+        .expect("the committed v1 canonical fixture must be readable");
+
+    let m = TrustManifest::parse(&raw).expect("the shipped manifest must still parse");
+    assert_eq!(m.manifest_version, 1, "the fixture is a version 1 manifest");
+    assert!(
+        m.execution_closure.is_none(),
+        "a version 1 manifest must carry no closure"
+    );
+    assert!(
+        !m.signature.is_empty(),
+        "this proof is only meaningful against a manifest that was really signed"
+    );
+
+    assert_eq!(
+        canonical_bytes(&m),
+        original,
+        "re-deriving the v1 subject must reproduce the bytes the owner key already signed"
+    );
 }

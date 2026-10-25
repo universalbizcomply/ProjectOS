@@ -72,8 +72,16 @@ pub use identity::{EvalContext, IdentityFs, RealFs};
 /// one implementation, and this is it.
 pub use identity::canonical::canonical_bytes;
 pub use identity::manifest::{
-    DaemonArtefactFormat, DaemonArtefactManifest, RuntimeManifest, TrustManifest,
+    CommittedArtefactManifest, DaemonArtefactFormat, DaemonArtefactManifest,
+    ExecutionClosureManifest, RuntimeManifest, TrustManifest, EXECUTION_CLOSURE_MANIFEST_VERSION,
 };
+
+/// RUN-TO-COMPLETION HOST ATTESTATION: the second integrity witness over a provider call.
+///
+/// `verify_execution_closure` is exported beside the manifest types because the two travel together
+/// — a consumer that can build a v2 manifest must be able to ask whether the committed bytes still
+/// match it, and a consumer that cannot ask would have a manifest field it is unable to enforce.
+pub use identity::{verify_execution_closure, CommittedClosureBytes};
 
 /// PROJECTOS-RECOVERY-INSTALLED-APP1A: the INDEPENDENT installation observation.
 ///

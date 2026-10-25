@@ -1,17 +1,17 @@
 {
   "schemaVersion": "1.0.0",
   "projectId": "projectos",
-  "phaseId": "readiness-evidence",
+  "phaseId": "run-to-completion-proof-phase-1",
   "state": "BLOCKED",
-  "sessionId": "readiness-evidence-466cc2e6dede-c15efb5c",
-  "attempt": 1,
-  "subjectCommit": "466cc2e6dede105d3168b2ddca832cc99a8dc31a",
-  "lastCompletedStep": "checks ran for attempt 2",
-  "lastStopCode": "REVIEW_OUTSTANDING",
-  "lastStopDetail": "the approved plan requires Owner review of readiness evidence and READY/NOT READY verdict for this phase and no finding record exists for them in this run; a review that did not happen has not passed",
+  "sessionId": "run-to-completion-proof-phase-1-7e1562950640-5e0f725f",
+  "attempt": 0,
+  "subjectCommit": "7e15629506406a99a3537a11a7a5d96db40f08a2",
+  "lastCompletedStep": "checks ran for attempt 1",
+  "lastStopCode": "CONTINUATION_READY",
+  "lastStopDetail": "every required check passed, every required review is recorded, and this phase reserves no part of the technical continuation to the owner; the completed work is ready for the reviewer's decision on whether the bounded technical continuation may happen",
   "evidenceSessionId": null,
   "gateDecisionId": null,
   "nextCandidateAction": null,
   "ownerRequired": true,
-  "updatedAt": "2026-09-05T05:33:19.734Z"
+  "updatedAt": "2026-09-05T16:10:18.308Z"
 }

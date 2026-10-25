@@ -39,9 +39,13 @@ fn arg(args: &[String], name: &str) -> Option<String> {
         .cloned()
 }
 
-const REQUIRED: [&str; 6] = [
+const REQUIRED: [&str; 7] = [
     "--daemon-bundle",
     "--out",
+    // THE INSTALLATION whose committed execution closure is attested. Required, never defaulted:
+    // a default would silently attest whichever repository the build happened to run in, and the
+    // resulting manifest would look exactly like a correct one.
+    "--install-root",
     "--application-version",
     "--build-id",
     "--signing-key-id",
@@ -62,6 +66,22 @@ fn usage() {
     );
     eprintln!("  --daemon-bundle   the single daemon artefact from `npm run build:daemon-bundle`");
     eprintln!("  --out             payload root to create; must not already contain anything");
+    eprintln!(
+        "  --install-root    the ProjectOS installation whose committed EXECUTION CLOSURE is"
+    );
+    eprintln!(
+        "                    attested. These artefacts are NOT copied into the payload — they"
+    );
+    eprintln!(
+        "                    stay where the broker's committed-bytes reader expects them, and"
+    );
+    eprintln!(
+        "                    the manifest records their digests so an owner signature can say"
+    );
+    eprintln!("                    the committed bytes are the approved ones:");
+    for rel in contract::EXECUTION_CLOSURE_REPOSITORY_PATHS {
+        eprintln!("                      {rel}");
+    }
     eprintln!();
     eprintln!(
         "  the application id is NOT an input: it is {}",
@@ -72,19 +92,69 @@ fn usage() {
     eprintln!("No signature is produced and no key is read. Installation is not performed.");
 }
 
-fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    let mut values = Vec::new();
-    for name in REQUIRED {
-        match arg(&args, name) {
-            Some(v) => values.push(v),
-            None => {
-                eprintln!("projectos-manifest-gen: missing {name}");
-                usage();
-                return ExitCode::from(2);
+/// Refuse to attest execution-closure bytes that are not the COMMITTED bytes.
+///
+/// THE GAP THIS CLOSES. The generator hashes the artefacts as they sit on disk, while the run-time
+/// reader hashes what `git show HEAD:./<rel>` returns. Those are the same bytes in a clean checkout —
+/// but an operator with an uncommitted local edit to the broker, the allowlist or the adapter would
+/// otherwise produce a manifest attesting bytes that were never committed at all, and an owner could
+/// be asked to sign a digest that corresponds to no commit. The verifier would later refuse it, with
+/// a mismatch nobody could explain.
+///
+/// IT LIVES IN THE BINARY, NOT THE LIBRARY. The packaging library is required to contain no
+/// `Command::new` and no environment lookup, and that invariant is asserted by its own tests: a
+/// packaged runtime is bound by the contract, never discovered. A build-time refusal is a different
+/// thing from a runtime trust decision, so it belongs on this side of that line.
+///
+/// IT FAILS CLOSED. If git cannot be run at all, the answer is "this could not be established",
+/// which is a refusal — never a pass. A `git` that is merely absent from PATH stops a packaging run,
+/// which is the correct outcome: nothing here can honestly attest committedness without it.
+fn execution_closure_is_committed_and_clean(install_root: &Path) -> Result<(), String> {
+    for rel in contract::EXECUTION_CLOSURE_REPOSITORY_PATHS {
+        let run = |args: &[&str]| -> Result<String, String> {
+            let out = std::process::Command::new("git")
+                .arg("-C")
+                .arg(install_root)
+                .args(args)
+                .output()
+                .map_err(|e| format!("git could not be run to check {rel}: {e}"))?;
+            if !out.status.success() {
+                return Err(format!(
+                    "git refused to answer for {rel}: {}",
+                    String::from_utf8_lossy(&out.stderr).trim()
+                ));
             }
+            Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+        };
+
+        if run(&["log", "-1", "--format=%H", "--", rel])?.is_empty() {
+            return Err(format!("{rel} is not committed at HEAD"));
+        }
+        if !run(&["diff", "--name-only", "HEAD", "--", rel])?.is_empty() {
+            return Err(format!(
+                "{rel} differs from HEAD in the working tree; commit it or restore it before \
+                 generating a manifest that attests it"
+            ));
         }
     }
+    Ok(())
+}
+
+fn main() -> ExitCode {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    for name in REQUIRED {
+        if arg(&args, name).is_none() {
+            eprintln!("projectos-manifest-gen: missing {name}");
+            usage();
+            return ExitCode::from(2);
+        }
+    }
+    // BY NAME, NOT BY POSITION. The values used to be pushed into a vector and read back as
+    // `values[2]`, which silently reassigns every later argument the moment a new one is added to
+    // `REQUIRED` — a build id would become an application version and the manifest would be wrong in
+    // a way nothing here could detect. Presence is proven above, so these lookups cannot be absent;
+    // an empty value still fails closed downstream, where blank required fields are refused.
+    let value = |name: &str| arg(&args, name).unwrap_or_default();
 
     // The runtime source DEFAULTS to the provenance the packaging contract recorded, so a fresh
     // checkout needs no hidden preparation and no machine-specific flag. An override exists because
@@ -94,8 +164,20 @@ fn main() -> ExitCode {
     let node_exe = arg(&args, "--node-exe")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(contract::PACKAGED_NODE_PROVENANCE));
-    let daemon_bundle = PathBuf::from(&values[0]);
-    let payload_root = PathBuf::from(&values[1]);
+    let daemon_bundle = PathBuf::from(value("--daemon-bundle"));
+    let payload_root = PathBuf::from(value("--out"));
+    let install_root = PathBuf::from(value("--install-root"));
+
+    // ---- 0. the execution closure must be committed AND clean -----------------------------------
+    //
+    // Checked FIRST, before 91 MB are copied: a run that cannot honestly attest the closure should
+    // not do any work at all, and the operator should hear the real reason immediately.
+    if let Err(why) = execution_closure_is_committed_and_clean(&install_root) {
+        eprintln!("projectos-manifest-gen: EXECUTION CLOSURE REFUSED — {why}");
+        eprintln!("The manifest would attest bytes the run-time committed-bytes reader will never");
+        eprintln!("see. No payload assembled, no manifest written.");
+        return ExitCode::FAILURE;
+    }
 
     // ---- 1. assemble ----------------------------------------------------------------------------
     let payload = match assemble_payload(&AssembleInputs {
@@ -140,10 +222,11 @@ fn main() -> ExitCode {
     // ---- 3. generate ----------------------------------------------------------------------------
     let generated = match generate_unsigned_manifest(&ManifestInputs {
         payload_root: &payload.root,
-        application_version: &values[2],
-        build_id: &values[3],
-        signing_key_id: &values[4],
-        generated_at: &values[5],
+        install_root: &install_root,
+        application_version: &value("--application-version"),
+        build_id: &value("--build-id"),
+        signing_key_id: &value("--signing-key-id"),
+        generated_at: &value("--generated-at"),
     }) {
         Ok(g) => g,
         Err(e) => {
@@ -192,6 +275,22 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
 
+    // The attested-but-not-packaged half, printed so a packager can see exactly what the owner will
+    // be asked to sign. Labelled `attested` rather than `packaged` on purpose: none of these files
+    // is in the payload, and a report that blurred the two would misdescribe the trust model.
+    if let Some(c) = generated.manifest.execution_closure.as_ref() {
+        println!("manifest ver  : {}", generated.manifest.manifest_version);
+        for a in [
+            &c.gatekeeper_broker,
+            &c.installation_project_allowlist,
+            &c.credential_adapter,
+        ] {
+            println!(
+                "attested      : {} {}",
+                a.repository_relative_path, a.sha256
+            );
+        }
+    }
     println!("manifest      : {}", manifest_path.display());
     println!("canonical     : {}", canonical_path.display());
     println!("signature     : ABSENT (unsigned) — production identity remains unavailable");

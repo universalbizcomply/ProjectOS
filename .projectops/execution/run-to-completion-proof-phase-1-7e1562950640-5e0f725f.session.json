@@ -1,0 +1,15 @@
+{
+  "startedAt": "2026-09-05T16:03:21.561Z",
+  "providerRef": "5e8306fe-838f-4f07-b59d-f381c600c23a",
+  "state": "started",
+  "exitCode": 0,
+  "corrections": 0,
+  "invocationId": "5e0f725fafcc778a",
+  "sessionId": "run-to-completion-proof-phase-1-7e1562950640-5e0f725f",
+  "workerId": "claude-local",
+  "kind": "claude-code-cli",
+  "phaseId": "run-to-completion-proof-phase-1",
+  "briefId": "run-to-completion-proof-phase-1@7e15629506406a99a3537a11a7a5d96db40f08a2",
+  "briefPath": "C:\\dev\\ProjectOS/.projectops/execution/run-to-completion-proof-phase-1-7e1562950640-5e0f725f.brief.json",
+  "timedOut": false
+}

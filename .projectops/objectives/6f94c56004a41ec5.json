@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "objectiveId": "6f94c56004a41ec5",
+  "objective": "Prove ProjectOS run-to-completion end to end with exactly two sequential proof-only phases under docs/speed/run-to-completion-proof/. Phase one writes phase-1.md carrying a deterministic marker. Phase two reads that landed artefact, verifies the marker, and writes phase-2.md recording its digest, failing if phase one output is absent or wrong. Proof-only documentation: no product source change, no production, no database, no deploy, no send, no payment, no signing, no secret, trust or authority change, no merge.",
+  "authoritative": false,
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-post-v3-selfhost-pilot1a",
+  "baseHead": "daa9c0059eedcd8ba43aa742e361df198a4414eb",
+  "submittedAt": "2026-09-05T15:48:46.906Z",
+  "submittedBy": "owner",
+  "instructionShaped": false
+}

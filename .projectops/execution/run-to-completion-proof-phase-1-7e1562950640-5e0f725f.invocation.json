@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "1.0.0",
+  "invocationId": "5e0f725fafcc778a",
+  "createdAt": "2026-09-05T16:03:21.430Z",
+  "projectId": "projectos",
+  "phaseId": "run-to-completion-proof-phase-1",
+  "sessionId": "run-to-completion-proof-phase-1-7e1562950640-5e0f725f",
+  "repository": {
+    "root": "C:\\dev\\ProjectOS",
+    "branch": "projectos-post-v3-selfhost-pilot1a",
+    "head": "7e15629506406a99a3537a11a7a5d96db40f08a2"
+  },
+  "executionMode": "live",
+  "process": {
+    "pid": 43768,
+    "ppid": 50544,
+    "argv": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\dev\\ProjectOS\\projectos\\agent\\bin\\projectos.js",
+      "run",
+      "--execute",
+      "--continue"
+    ],
+    "cwd": "C:\\dev\\ProjectOS"
+  },
+  "workerId": "claude-local",
+  "workerKind": "claude-code-cli",
+  "brief": {
+    "path": "C:\\dev\\ProjectOS/.projectops/execution/run-to-completion-proof-phase-1-7e1562950640-5e0f725f.brief.json",
+    "briefId": "run-to-completion-proof-phase-1@7e15629506406a99a3537a11a7a5d96db40f08a2",
+    "digest": "sha256:d41c42f1bc488d6c426155f286f027e8efd9f3889af7dbcb5b9df803af59cdab"
+  }
+}
