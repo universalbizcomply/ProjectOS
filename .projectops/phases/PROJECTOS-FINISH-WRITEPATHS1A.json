@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-FINISH-WRITEPATHS1A",
   "project": "ProjectOS",
   "objective": "Give every plan phase a structured list of write paths and derive the worker's write grant from that list exactly, retiring the reading of grants from scope prose; and run a phase's required validators and the loop's enforcement code from the last approved commit, so a phase whose paths name a validator or enforcement file cannot change what judges it.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-10-25T17:27:10.929Z",
       "note": "closure tail only - no implementation, no source. Owner-direct closure route under the owner's full-authority grant of 2026-10-25; no gatekeeper closure ruling obtained or claimed. Evidence .projectops/closure/PROJECTOS-FINISH-WRITEPATHS1A.json at subject 2078ef0."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-10-25T17:28:28.152Z",
+      "note": "closed by owner Murad, decision projectos:PROJECTOS-FINISH-WRITEPATHS1A:owner-closure:2078ef07"
     }
   ]
 }
