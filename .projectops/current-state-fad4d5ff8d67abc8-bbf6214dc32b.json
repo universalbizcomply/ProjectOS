@@ -3,13 +3,15 @@
   "projectId": "projectos",
   "activePlanId": "plan-fad4d5ff8d67abc8-bbf6214dc32b",
   "activePlanVersion": "1.8",
-  "currentStatus": "IN EXECUTION",
+  "currentStatus": "PLAN READY",
   "completionMethod": "phase-closure",
-  "acceptedPhaseCount": 0,
+  "acceptedPhaseCount": 1,
   "totalPhaseCount": 3,
-  "completionPercentage": 0,
-  "completedPhases": [],
-  "activePhase": "PROJECTOS-BOOT-CONTINUE1A",
+  "completionPercentage": 33.3,
+  "completedPhases": [
+    "PROJECTOS-BOOT-CONTINUE1A"
+  ],
+  "activePhase": null,
   "pendingPhases": [
     "PROJECTOS-BOOT-UNATTENDED1A",
     "PROJECTOS-BOOT-CERT1A"
@@ -18,13 +20,13 @@
   "deferredPhases": [],
   "acceptedCarryForward": [],
   "currentBranch": "projectos-autonomy-bootstrap1a",
-  "currentHead": "48de2784e3783006042366390043fd944fcff803",
+  "currentHead": "88600019a42afd87614ebdefcef122bc01f7d3aa",
   "currentRemoteHead": null,
   "workingTreeStatus": "dirty",
   "currentRisks": [],
   "currentBlockers": [],
   "lastEvidenceReference": "plan-approval decision PLANDEC-10174d9cf5e5ef1115f960d3",
-  "nextRecommendedPhase": "PROJECTOS-BOOT-CONTINUE1A",
-  "lastUpdated": "2026-10-25T11:37:05.727Z",
-  "updatedByRole": "implementer"
+  "nextRecommendedPhase": "PROJECTOS-BOOT-UNATTENDED1A",
+  "lastUpdated": "2026-10-25T11:37:35.098Z",
+  "updatedByRole": "owner"
 }

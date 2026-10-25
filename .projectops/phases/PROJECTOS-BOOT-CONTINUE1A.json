@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-BOOT-CONTINUE1A",
   "project": "ProjectOS",
   "objective": "Correct the two latent safety defects first, then let ProjectOS carry ordinary technical work from one approved phase to the next through the existing loop and closure machinery, and prove it live on a disposable governed project.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-10-25T11:37:05.616Z",
       "note": "closure tail only - no implementation, no source. Owner-direct closure route under the owner's full-authority grant of 2026-10-25; no gatekeeper closure ruling obtained or claimed. Evidence .projectops/closure/PROJECTOS-BOOT-CONTINUE1A.json at subject 48de2784e3783006042366390043fd944fcff803."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-10-25T11:37:35.011Z",
+      "note": "closed by owner Murad, decision projectos:PROJECTOS-BOOT-CONTINUE1A:owner-closure:48de2784"
     }
   ]
 }
