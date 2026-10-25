@@ -1,15 +1,16 @@
 {
   "projectId": "projectos",
   "businessVision": "ProjectOS delivers ordinary technical work on real projects end to end: Claude implements, the ChatGPT gatekeeper reviews through the owner's relay, and ProjectOS carries each approved phase through checks, review, commit, push and closure, with the owner making about one commit per phase and holding every protected action.",
-  "definitionOfComplete": "Three phases are complete: phase write grants come from a structured list of paths in the approved plan, with the judging validators run from the last approved commit; phase closure works for any governed project and the owner's work per phase is one closure commit and two relays; and ProjectOS has carried one ordinary phase end to end on a new governed project — the website of an SEO and social-media posting agency, in a local repository — with evidence. Dead Aisle and PolyGo are not part of this plan (owner decision of 2026-10-25). Host-attested unattended review, the signed installer, Forge and the Control Center redesign are deferred and are reopened only by an owner decision.",
-  "successStandard": "On the new agency project, the owner approves the plan, says continue, relays the gatekeeper's two answers, and commits the closure decision; everything else between those acts is done by ProjectOS, truthfully recorded, with no protected action taken without the owner.",
+  "definitionOfComplete": "Four phases are complete: phase write grants come from a structured list of paths in the approved plan, with the judging validators run from the last approved commit; phase closure works for any governed project and the owner's work per phase is one closure commit and two relays; the ChatGPT gatekeeper answers without the owner's relay through the trusted broker (owner decision of 2026-10-25); and ProjectOS has carried one ordinary phase end to end on a new governed project — the website of an SEO and social-media posting agency, in a local repository — with evidence. Dead Aisle and PolyGo are not part of this plan (owner decision of 2026-10-25). Host-attested unattended review, the signed installer, Forge and the Control Center redesign are deferred and are reopened only by an owner decision.",
+  "successStandard": "On the new agency project, the owner approves the plan, says continue and commits the closure decision; the ChatGPT gatekeeper answers through the trusted broker without a relay, and everything else between those acts is done by ProjectOS, truthfully recorded, with no protected action taken without the owner.",
   "approvedScope": [
     "A structured per-phase list of write paths in the plan schema, the plan source format and the plan engine, from which the worker's write grant is derived exactly.",
     "Running a phase's required validators and the loop's enforcement code from the last approved commit, so work under review cannot alter what judges it.",
     "Generalising the closure eligibility gate from the project id 'projectos' to the governed project's own id.",
     "Folding the run's own records into the loop's technical-continuation commit, and committing generated closure-tail records as a technical action when the phase's owner gates leave commit and push delegated.",
     "Live proofs: the disposable two-phase proof re-run with the reduced owner acts, then one ordinary phase on a new local governed project — the website of an SEO and social-media posting agency — through projectos continue, with evidence under docs/finish/.",
-    "Tests and evidence for those live proofs; enforcement-code fixes they expose go to a separate owner-gated amendment."
+    "Tests and evidence for those live proofs; enforcement-code fixes they expose go to a separate owner-gated amendment.",
+    "By owner decision of 2026-10-25 (\"Route 2 now\"): the ChatGPT gatekeeper answers without the owner's relay through the existing trusted installation broker, which resolves the OpenAI key inside itself from the installation's Windows credential store, only for an allowlisted project carrying its own committed secrets-handling receipt; the agent process never holds the key."
   ],
   "environments": [
     {
@@ -25,7 +26,8 @@
     "Deferred: live specialist engines and workforce activation, and the carried workforce deferrals recorded in plan v1.8.",
     "Deferred to after ProjectOS completion by the owner's recorded statement: credential or token rotation where genuinely required.",
     "Carried LOW items, each with its trigger: configuration argv forms beyond --allowedTools; hard links and device names beneath granted directories; process-tree termination on a check timeout.",
-    "By owner decision of 2026-10-25: Dead Aisle and PolyGo as proof projects; publishing to any real social-media account, sending any email or message, buying or pointing a domain, deploying the website, and creating a GitHub repository for the new project. Installing any vendored toolkit into the owner's Claude Code configuration is also excluded."
+    "By owner decision of 2026-10-25: Dead Aisle and PolyGo as proof projects; publishing to any real social-media account, sending any email or message, buying or pointing a domain, deploying the website, and creating a GitHub repository for the new project. Installing any vendored toolkit into the owner's Claude Code configuration is also excluded.",
+    "Claude creating, reading, printing, storing or relaying the OpenAI key: the owner stores it through the hidden credential prompt; the key never enters a file, command line, report or prompt."
   ],
   "phases": [
     {
@@ -140,9 +142,59 @@
       ]
     },
     {
+      "phaseId": "PROJECTOS-FINISH-API-GATEKEEPER1A",
+      "title": "ChatGPT reviews without the owner relay, through the trusted broker",
+      "description": "Restore the brokered OpenAI gatekeeper route for projects with no ProjectOSHost review route: the loop's review question and the closure question go to the trusted installation broker, which checks the installation allowlist and the project's committed secrets-handling receipt, resolves the key inside itself from the installation's Windows credential store and makes the call, so the agent process never holds the key; and allowlist the new agency project at its localhost git remote. By owner decision of 2026-10-25, as a temporary route while the ProjectOSHost credential custody (decision C5) is not yet activated.",
+      "scope": "Edit projectos/agent/src/commands/run.ts, projectos/agent/src/commands/closure.ts, projectos/agent/test/, projectos/validators/val-projectos-boot-continue1a.cjs and projectos/security/installation-project-allowlist.json; add evidence under docs/finish/.",
+      "writePaths": [
+        "projectos/agent/src/commands/run.ts",
+        "projectos/agent/src/commands/closure.ts",
+        "projectos/agent/test/",
+        "projectos/validators/val-projectos-boot-continue1a.cjs",
+        "projectos/security/installation-project-allowlist.json",
+        "docs/finish/"
+      ],
+      "exclusions": [
+        "No change to the trusted broker, the credential store adapter, the credential reference table or the credential resolver.",
+        "No change to the ProjectOSHost review route: a configured Host route is still preferred, and a configured but invalid one still refuses.",
+        "No change to the absolute owner-only actions; secrets-handling stays owner-only and its receipt is the owner's.",
+        "No Rust source, Cargo manifest or Host change."
+      ],
+      "dependsOn": [
+        "PROJECTOS-FINISH-MULTIPROJECT1A"
+      ],
+      "acceptanceCriteria": [
+        "With no ProjectOSHost review route configured, an unattended project's review and closure questions are composed with the trusted broker transport; with a Host route configured, the Host route is used; with one configured but invalid, the run refuses; in every case the agent's own credential resolver refuses by construction.",
+        "The installation allowlist authorises project seo-agency at its localhost git remote and governed root, and nothing else changes in it.",
+        "Tests prove the three compositions and that no key value reaches the agent process; each new rule is pinned by a validator and killed by a named mutation.",
+        "A live review question on the agency project is answered by the OpenAI gatekeeper through the broker with no owner relay, recorded with its cost against the budget hard stop.",
+        "Agent and core tests green, validate-all with no new failure beyond the two known, and the ECC CODE and ECC SECURITY reviews with no unresolved critical or high finding."
+      ],
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredValidators": [
+        "val-projectos-boot-continue1a",
+        "val-projectos-trust-boundary1a",
+        "val-projectos-gatekeeper-contract1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC CODE review",
+        "ECC SECURITY review"
+      ],
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ]
+    },
+    {
       "phaseId": "PROJECTOS-FINISH-EXTERNAL-PROOF1A",
       "title": "One ordinary phase delivered end to end on a new governed project: an SEO and social-media agency website",
-      "description": "Prove ProjectOS on a real new project: create a local governed repository for an SEO and social-media posting agency, seeded — by owner decision of 2026-10-25 — with three MIT-licensed open-source toolkits vendored at pinned commits after a supply-chain review (zubair-trabzada/geo-seo-claude, katzca/autosocial, Jakeschincariol/instagram-agent-skill), with every posting path disabled, approve its first plan, and carry one ordinary phase — the agency's marketing website — through projectos continue: worker implementation within its writePaths, automated checks, the relayed gatekeeper review, technical commit and push to the local remote, closure preparation and the owner's closure commit, with the owner's acts counted and the results recorded.",
+      "description": "Prove ProjectOS on a real new project: create a local governed repository for an SEO and social-media posting agency, seeded — by owner decision of 2026-10-25 — with three MIT-licensed open-source toolkits vendored at pinned commits after a supply-chain review (zubair-trabzada/geo-seo-claude, katzca/autosocial, Jakeschincariol/instagram-agent-skill), with every posting path disabled, approve its first plan, and carry one ordinary phase — the agency's marketing website — through projectos continue: worker implementation within its writePaths, automated checks, the gatekeeper review (answered through the trusted broker, no relay), technical commit and push to the local remote, closure preparation and the owner's closure commit, with the owner's acts counted and the results recorded.",
       "scope": "Add evidence under docs/finish/ and new tests under projectos/agent/test/finish/. The agency project is created at C:/dev/SEOAgency as a local git repository with a local bare remote; its website work happens under that project's own approved plan in its own repository.",
       "writePaths": [
         "docs/finish/",
@@ -156,12 +208,12 @@
         "No edit or deletion of any existing test; new tests go under projectos/agent/test/finish/ only."
       ],
       "dependsOn": [
-        "PROJECTOS-FINISH-MULTIPROJECT1A"
+        "PROJECTOS-FINISH-API-GATEKEEPER1A"
       ],
       "acceptanceCriteria": [
         "The agency project exists at C:/dev/SEOAgency as a local git repository with a local bare remote, the three toolkits vendored at pinned commits with their licences and a supply-chain review recorded, every posting path disabled, ProjectOS governance installed, automated checks that run under ProjectOS on Windows, and a first plan approved by its owner.",
-        "One ordinary phase — the agency's marketing website — runs through projectos continue end to end: worker implementation within its writePaths, checks, the relayed gatekeeper review, technical commit and push, closure preparation and the owner's closure commit.",
-        "The owner's acts for the phase are counted and equal the target: one closure commit and two relays, plus plan approval; any excess is recorded with its cause.",
+        "One ordinary phase — the agency's marketing website — runs through projectos continue end to end: worker implementation within its writePaths, checks, the gatekeeper review, technical commit and push, closure preparation and the owner's closure commit.",
+        "The owner's acts for the phase are counted: with the brokered gatekeeper answering, the target is plan approval and the closure commit, with no relay; any excess is recorded with its cause.",
         "Evidence under docs/finish/ records the objective, the commits, the checks, the review decisions, the owner acts and every defect found, live results reported separately from synthetic tests.",
         "Any ProjectOS defect the live run exposes is recorded with its cause; a fix outside this phase's paths is raised as a separate owner-gated amendment, and in-scope tests added for it are reviewed by ECC CODE and ECC SECURITY with no unresolved critical or high finding."
       ],
