@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "PLANDEC-4103522e5889694d40a9a3cf",
+  "decision": "approve",
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-run-to-completion-host-attestation1a",
+  "baseHead": "3fc27ee7767ef5b884a14be19542a27ee643ee4f",
+  "draftId": "01053932764c573b",
+  "planDigest": "sha256:68d21d6830c1e8318f3e9add5dfdd88f27428a6aa2ef66bb2957b6bd39a9a642",
+  "decidedBy": "Murad",
+  "decidedAt": "2026-09-19T17:18:45.375Z",
+  "note": "OWNER RATIFICATION - PROJECTOS PLAN v1.6 - Murad, 2026-09-19. Exact material sha256:68d21d6830c1e8318f3e9add5dfdd88f27428a6aa2ef66bb2957b6bd39a9a642, draft 01053932764c573b, plan source sha256 24c35306aea9122ed1d5f9797f1c34e25cb04c5672e6d7b0ddc4956abe03bb19. Three phases: PROJECTOS-HOST-REVIEW-PATH1A (carried unchanged; may not close independently; never selected for implementation while PATH1B is incomplete; after PATH1B acceptance only reconciled or closed against the same accepted cumulative candidate), PROJECTOS-HOST-REVIEW-PATH1B (no dependency), PROJECTOS-AGENT-WORKFORCE1A (depends on PATH1B). Ratified: the mechanical PATH1A/PATH1B phase-selection guard, pinned by the extended work-record authority validator, with no second phase-selection function; one persistent Project Leader per active governed project as operational leader, not governance authority; the complete governed specialist catalogue pinned at the ratified upstream commit ad9264e309bd5e5422c04784372d7841b1e5d604, 279 agents, 18 divisions, MIT, any mismatch fails closed; acquisition only by the one-time read-only quarantined route, executing no upstream script or imported agent. Imported agents cannot widen their own authority or override ProjectOS or owner gates. Scope authority only: no implementation started, no import, no workforce activation, no service start, no capability mint, no credential, no provider call, no spend.",
+  "recordedBy": "projectos plan decide",
+  "consumedAt": "2026-09-19T17:18:53.070Z"
+}

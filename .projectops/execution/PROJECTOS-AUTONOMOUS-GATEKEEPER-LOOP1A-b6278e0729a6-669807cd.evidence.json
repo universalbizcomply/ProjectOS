@@ -1,0 +1,37 @@
+{
+  "schemaVersion": "1.0.0",
+  "sessionId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A-b6278e0729a6-669807cd",
+  "phaseId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+  "briefId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A@b6278e0729a69472856981dc951cb6b50f6f3284",
+  "collectedAt": "2026-08-25T23:11:04.892Z",
+  "baseHead": "b6278e0729a69472856981dc951cb6b50f6f3284",
+  "currentHead": "b6278e0729a69472856981dc951cb6b50f6f3284",
+  "changedFiles": [
+    ".projectops/evidence/PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A.c11-degraded-continuation.json",
+    ".projectops/evidence/PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A.c11-degraded-gate.json",
+    ".projectops/evidence/PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A.c11-limb3-attempt.json",
+    ".projectops/evidence/PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A.c11-w2-f1-correction.json",
+    ".projectops/evidence/PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A.c11-w2-f6-correction.json",
+    ".projectops/evidence/PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A.c11-w2-f7-correction.json",
+    ".projectops/evidence/PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A.c11-witness2-activation.json",
+    ".projectops/evidence/PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A.c11-witness2-gkout.json",
+    ".projectops/evidence/PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A.c11-witness2-pregate.json",
+    ".projectops/evidence/PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A.c11-witness2-setup-prepared.json",
+    ".projectops/execution/PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A-7a518365e542-c59bd771.brief.json",
+    ".projectops/execution/PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A-7a518365e542-c59bd771.evidence.json",
+    ".projectops/execution/PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A-7a518365e542-c59bd771.invocation.json",
+    ".projectops/execution/PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A-7a518365e542-c59bd771.session.json",
+    ".projectops/execution/PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A-b6278e0729a6-669807cd.brief.json",
+    ".projectops/execution/PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A-b6278e0729a6-669807cd.invocation.json",
+    ".projectops/execution/PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A-b6278e0729a6-669807cd.session.json",
+    "Tunnel-Client/",
+    "selected-project.json"
+  ],
+  "diffStat": "",
+  "checks": [],
+  "requiredReviews": [
+    "code-review",
+    "security-review"
+  ],
+  "invocationId": "669807cd759c58a7"
+}

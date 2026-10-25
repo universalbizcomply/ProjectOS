@@ -1,0 +1,191 @@
+{
+  "schemaVersion": "1.0.0",
+  "recordId": "PROJECTOS-GATEKEEPER-LOOP1A-C15-PUBLIC-OAUTH-PROOF1A",
+  "projectId": "projectos",
+  "phaseId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+  "kind": "c15-public-oauth-proof",
+  "at": "2026-08-22T11:06:34.543Z",
+  "origin": "https://oauth-projectos.safw4n.com",
+  "edge": "Cloudflare Tunnel ProjectOS-C15-OAuth, one published application, to http://127.0.0.1:8788",
+  "publicSurface": {
+    "served": [
+      "/.well-known/oauth-protected-resource",
+      "/.well-known/oauth-protected-resource/mcp",
+      "/.well-known/oauth-authorization-server",
+      "/.well-known/oauth-authorization-server/mcp",
+      "/authorize",
+      "/authorize/approve",
+      "/token",
+      "/register"
+    ],
+    "refused": [
+      "/mcp",
+      "/",
+      "/healthz",
+      "/readyz",
+      "/admin",
+      "/.env",
+      "/../mcp",
+      "/api",
+      "/config",
+      "/metrics"
+    ],
+    "mcpExposed": false,
+    "privateBridgePortPublic": false
+  },
+  "steps": [
+    {
+      "step": "public authorization-server metadata answers over TLS",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": "issuer is exactly the public origin",
+      "ok": true,
+      "detail": "https://oauth-projectos.safw4n.com"
+    },
+    {
+      "step": "every advertised endpoint is on that origin and nowhere else",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": "PKCE S256 is required",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": "only the read scope is offered",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": "the path-suffixed authorization-server document answers",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": "protected-resource metadata answers",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": "it names this issuer as the authorization server for the MCP resource",
+      "ok": true,
+      "detail": "https://oauth-projectos.safw4n.com/mcp"
+    },
+    {
+      "step": "/authorize exists and refuses an incomplete request without redirecting",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": "an unapproved redirect_uri is refused, and nothing is sent to it",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": "an authorization request without PKCE is refused",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": "/token exists and refuses an unknown code",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": "/register cannot widen the redirect allowlist",
+      "ok": true,
+      "detail": "status 400"
+    },
+    {
+      "step": "nothing is served at /mcp",
+      "ok": true,
+      "detail": "status 404"
+    },
+    {
+      "step": "nothing is served at /",
+      "ok": true,
+      "detail": "status 404"
+    },
+    {
+      "step": "nothing is served at /healthz",
+      "ok": true,
+      "detail": "status 404"
+    },
+    {
+      "step": "nothing is served at /readyz",
+      "ok": true,
+      "detail": "status 404"
+    },
+    {
+      "step": "nothing is served at /admin",
+      "ok": true,
+      "detail": "status 404"
+    },
+    {
+      "step": "nothing is served at /.env",
+      "ok": true,
+      "detail": "status 404"
+    },
+    {
+      "step": "nothing is served at /../mcp",
+      "ok": true,
+      "detail": "status 404"
+    },
+    {
+      "step": "nothing is served at /api",
+      "ok": true,
+      "detail": "status 404"
+    },
+    {
+      "step": "nothing is served at /config",
+      "ok": true,
+      "detail": "status 404"
+    },
+    {
+      "step": "nothing is served at /metrics",
+      "ok": true,
+      "detail": "status 404"
+    },
+    {
+      "step": "MCP IS NOT EXPOSED PUBLICLY: a real JSON-RPC call to /mcp is refused",
+      "ok": true,
+      "detail": "status 404"
+    },
+    {
+      "step": "the ProjectOS bridge token appears in no public response",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": "the OAuth signing key appears in no public response",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": "the Cloudflare tunnel token appears in no public response",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": "no local filesystem path appears in any public response",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": "no loopback address appears in any public response",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": "the private bridge port is never named publicly",
+      "ok": true,
+      "detail": ""
+    }
+  ],
+  "failures": 0,
+  "secretsExposed": "NONE — the three credentials were read only to assert their absence from every response",
+  "notProven": "That ChatGPT completes discovery, authorization and a connector against this origin. That is the live step, and it needs the owner."
+}

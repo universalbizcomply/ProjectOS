@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "PLANDEC-ed43358710f336a092cab5d0",
+  "decision": "approve",
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-post-v3-selfhost-pilot1a",
+  "baseHead": "70c1329ead4d52de19c2affd0784d9ef44fc5a68",
+  "draftId": "67aabc6989dbc9e9",
+  "planDigest": "sha256:c38a9fee44663fa04777618d0e4aca1047260b9e884fec0ddde39c61238b7968",
+  "decidedBy": "Murad",
+  "decidedAt": "2026-09-04T08:23:13.257Z",
+  "recordedBy": "projectos plan decide",
+  "consumedAt": "2026-09-04T08:23:14.541Z"
+}

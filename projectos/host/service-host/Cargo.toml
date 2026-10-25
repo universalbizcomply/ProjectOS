@@ -1,0 +1,89 @@
+[package]
+name = "projectos-host-service-host"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "UNLICENSED"
+description = "CD-B4-PROJECTOSHOST-SERVICE-RUNTIME1A. The packaged ProjectOSHost.exe: a genuine Windows SCM-compatible service. It registers a service dispatcher and a control handler, publishes StartPending/Running/StopPending/Stopped, and runs an inert loop until the SCM asks it to stop. RUN-TO-COMPLETION HOST ATTESTATION 10H: before reporting Running it activates the Host's durable state through the ONE production route in windows-local-ipc - the trusted Host state root, a live protected-boundary verification, activation, then the durable delegation and replay stores - and stops with a service-specific error on any refusal. While running it serves only the read-only installed-host status. It writes no registry, opens no network socket, changes no ACL, provisions no key, creates no service and takes no path, argument or environment variable as an authority. Console mode holds no service status handle, so it can never publish an SCM state or impersonate an authoritative instance. Installing and starting the service remains the installer's job, gated behind InstallationEffectAuthority. Unsafe is confined to src/scm.rs."
+
+[lints.rust]
+# Unsafe is confined to src/scm.rs (the three Windows service calls); every unsafe op needs an explicit
+# inner block. The crate cannot `forbid` it because the SCM boundary genuinely requires it.
+unsafe_op_in_unsafe_fn = "deny"
+
+[[bin]]
+name = "ProjectOSHost"
+path = "src/main.rs"
+
+[dependencies]
+# The FROZEN installation effect authority. Reused so the artefact reports the same value the installer
+# composition gates on, rather than restating it.
+projectos-host-windows-service-installation-contract = { path = "../windows-service-installation-contract" }
+# The CLOSED status record + its canonical codec, and the existing named-pipe transport. The service
+# adds no protocol of its own.
+projectos-host-windows-local-ipc = { path = "../windows-local-ipc", features = [
+    "owner-approved-status-read",
+] }
+# The frozen identity READ boundary: the record type and `verify_record`. The service never writes.
+projectos-host-identity = { path = "../host-identity" }
+# Strict record parsing (the record type derives Deserialize with deny_unknown_fields).
+serde_json = "1"
+
+[target.'cfg(windows)'.dependencies]
+# Exactly the service surface this binary uses: the dispatcher, the control handler and status
+# reporting. No SCM management, registry, ACL, SID, pipe or network feature.
+windows = { version = "0.61.3", features = [
+    "Win32_Foundation",
+    "Win32_System_Services",
+] }
+# The trusted read-only ProgramData resolver, for locating the installed identity record.
+projectos-windows-runtime-primitives = { path = "../windows-runtime-primitives" }
+# The LIVE named-pipe backend, so the installed service can actually serve the status read.
+projectos-host-windows-local-ipc = { path = "../windows-local-ipc", features = [
+    "windows-live-ipc",
+    "owner-approved-status-read",
+] }
+
+# ---------------------------------------------------------------------------------------------
+# PROJECTOS-HOST-REVIEW-PATH1B §10 - THE TRUSTED STARTUP COMPOSITION.
+#
+# These four edges exist so the ONE production authority chain can be assembled in one place. Every
+# feature named is the NON-DEFAULT production route of its crate, and NONE of them is `test-fixtures`:
+# the installed service therefore ships no synthetic capability, no fixture grant, no synthetic SID or
+# descriptor constructor and no fixture verifier.
+# ---------------------------------------------------------------------------------------------
+
+# ROUTE A: the machine-wide authority acquisition. It takes no object name, no security descriptor,
+# no scope and no channel, and derives the service-runtime self proof from the per-service SID the SCM
+# injects - so there is no generic acquire for this binary to misuse.
+projectos-host-authority = { path = "../host-authority", features = [
+    "windows-authority-acquisition",
+] }
+# G2: the one-shot production clock authority and its mint of the clock-binding grant, plus the
+# provider-authority seam. The feature COMPILES the route; a ServiceRuntimeConfirmed guard is what
+# authorises it.
+projectos-host-core = { path = "../core", features = ["production-clock-binding"] }
+# G2: the live biased-monotonic tick source, acquired under the capability that same one-shot clock
+# authority gates. It mints no time; only the sealed core clock does.
+projectos-host-windows-clock = { path = "../windows-clock", features = [
+    "windows-live-clock",
+    "production-clock-observation",
+] }
+# 10/11: the Host OWN answer to a review request, and the attestation operation ports it composes.
+# This edge is what makes the route source-complete: without it the service would have the transport
+# chain and no way to call the composition the chain exists to reach.
+projectos-host-gatekeeper-review-composition = { path = "../gatekeeper-review-composition" }
+projectos-host-gatekeeper-attestation = { path = "../gatekeeper-attestation" }
+# G4: the host-SELF runtime observation and its installed-service projection, acquired under the SAME
+# confirmed service-runtime authority. It is evidence; only the sealed core verifier attests it.
+projectos-host-windows-runtime-observation = { path = "../windows-runtime-observation", features = [
+    "windows-live-runtime-observation",
+    "production-runtime-observation",
+] }
+
+# CRITERION 21 - the service-entry activation resolver's own inputs: the canonical installed-project
+# registry, the one repository reader, and the packaging contract's fixed payload paths.
+projectos-project-registry = { path = "../project-registry" }
+projectos-host-repository = { path = "../repository" }
+projectos-packaged-runtime-contract = { path = "../packaged-runtime-contract" }
+projectos-host-plan-durable-store = { path = "../plan-durable-store" }

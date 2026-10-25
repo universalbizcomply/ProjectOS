@@ -1,0 +1,94 @@
+{
+  "schemaVersion": "1.0.0",
+  "briefId": "validation-cache@204fda72feca455c76d0a078d2c4900d3704132c",
+  "generatedAt": "2026-09-04T10:55:05.705Z",
+  "projectId": "projectos",
+  "projectName": "ProjectOS",
+  "repository": {
+    "root": "C:\\dev\\ProjectOS",
+    "remote": "universalbizcomply/ProjectOS",
+    "branch": "projectos-post-v3-selfhost-pilot1a",
+    "head": "204fda72feca455c76d0a078d2c4900d3704132c"
+  },
+  "plan": {
+    "path": "C:\\dev\\ProjectOS/.projectops/plan-67aabc6989dbc9e9-c38a9fee4466.json",
+    "planId": "plan-67aabc6989dbc9e9-c38a9fee4466",
+    "planVersion": "1.3"
+  },
+  "phase": {
+    "phaseId": "validation-cache",
+    "description": "Deliver safe, local repository-scoped validation caching that accelerates routine validation without reducing correctness.",
+    "dependsOn": [],
+    "acceptanceCriteria": [
+      "Known unchanged and fully covered inputs may use a cache hit; known changed, unknown, corrupt, unreadable, version-mismatched, environment-mismatched, and probably-unrelated conditions run validation.",
+      "Unknown dependency coverage fails toward execution rather than a cache hit.",
+      "Deleting the cache can reduce performance but never validation correctness.",
+      "Warm unchanged validation is benchmarked at 2 seconds or less, proof/data-only validation at 5 seconds or less, and targeted ProjectOS source validation at 60 seconds or less where safely possible; environment details accompany results.",
+      "Full uncached validation remains authoritative and is not weakened or bypassed to achieve timing targets.",
+      "The configured project test suites run and the mechanically binding validator validate-no-secrets passes."
+    ],
+    "riskLevel": "high",
+    "autonomyLevel": "gated-execution",
+    "requiredValidators": [
+      "validate-no-secrets"
+    ],
+    "requiredReviews": [
+      "Security and privacy review of cache contents and redaction guarantees",
+      "Validation correctness review of dependency coverage, invalidation, and fail-toward-run behavior",
+      "Performance benchmark review"
+    ],
+    "requiredBrowserProof": false,
+    "requiredOwnerGates": [
+      "Execution may begin only after the owner-established restricted ProjectOS source-write prerequisite is effective.",
+      "No production deployment, database mutation, messaging, payment, credential creation or disclosure, force push, or merge."
+    ]
+  },
+  "records": {
+    "briefPath": "C:\\dev\\ProjectOS/.projectops/execution/validation-cache-204fda72feca-121e575a.brief.json",
+    "findingsPath": "C:\\dev\\ProjectOS/.projectops/execution/validation-cache-204fda72feca-121e575a.findings.json",
+    "effectsPath": "C:\\dev\\ProjectOS/.projectops/execution/validation-cache-204fda72feca-121e575a.effects.json",
+    "evidencePath": "C:\\dev\\ProjectOS/.projectops/execution/validation-cache-204fda72feca-121e575a.evidence.json",
+    "effectsContract": {
+      "location": "top-level",
+      "valueType": "boolean",
+      "requiredFields": [
+        "productionTouched",
+        "deploymentOccurred",
+        "databaseMutationOccurred",
+        "externalSendOccurred",
+        "paymentOccurred",
+        "rawSecretStored"
+      ]
+    }
+  },
+  "boundaries": {
+    "forbiddenActions": [
+      "production-deploy",
+      "production-db-mutation",
+      "real-email-sms-whatsapp",
+      "payment-or-live-charge",
+      "force-push",
+      "use-anthropic-api",
+      "provider-credential-access",
+      "store-real-secret",
+      "modify-projectos-v2-core",
+      "modify-v2-closure-records",
+      "modify-polygo"
+    ],
+    "approvalGates": [
+      "commit",
+      "push",
+      "phase-closure",
+      "secrets-handling",
+      "production-deploy",
+      "production-db-mutation",
+      "real-email-sms-whatsapp",
+      "payment-or-live-charge"
+    ],
+    "protectedBranches": [
+      "main",
+      "projectos-v2-core"
+    ],
+    "productionFreeze": true
+  }
+}

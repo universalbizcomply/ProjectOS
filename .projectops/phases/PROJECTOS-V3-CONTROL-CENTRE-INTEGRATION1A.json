@@ -1,0 +1,54 @@
+{
+  "phaseId": "PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A",
+  "project": "ProjectOS",
+  "objective": "Connect the owner Control Centre to the canonical @projectos/core + agent runtime so start, pause, gate and close are driven through it, with no third governance runtime.",
+  "status": "closed",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-08-09T03:12:54.231Z",
+      "note": "Phase created through the ProjectOS runtime itself: correct project, active approved plan v1.1, PLAN READY recomputed, phase membership authorised, dependency PROJECTOS-V3-PROVIDER-CONTEXT-GUARDS1A recorded complete."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-08-09T03:12:54.346Z",
+      "note": "Implementation begins: Control Centre -> existing Tauri IPC/sidecar -> canonical agent -> @projectos/core -> durable governed records."
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-08-09T11:57:05.671Z",
+      "note": "Governed write path exercised from the Control Centre command channel: UI verb to canonical agent to core to durable record."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-08-10T07:31:04.067Z"
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-08-10T07:32:29.923Z"
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-08-10T07:33:05.813Z"
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "advisor",
+      "at": "2026-08-10T12:09:34.159Z",
+      "note": "closed by ChatGPT under the projectos-scoped phase-closure delegation"
+    }
+  ]
+}

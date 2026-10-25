@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "1.0",
+  "profile": "readonly-reviewer",
+  "projectId": "REPLACE-PROJECT-ID",
+  "environment": "staging",
+  "sessionSlots": ["REPLACE-PROJECT-ID-1", "REPLACE-PROJECT-ID-2"],
+  "credentialReferences": ["ProjectOS/REPLACE-PROJECT-ID/staging/github/gh-token"],
+  "mcpServers": ["github"],
+  "notes": "Read-only review. Holds no writer lease, so any number of these may run against one checkout at the same time as a single writer."
+}

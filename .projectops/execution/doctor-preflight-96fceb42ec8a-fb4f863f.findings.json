@@ -1,0 +1,29 @@
+{
+  "reviews": [
+    "Governance review of mandatory versus advisory execution boundaries",
+    "Performance and failure-mode review"
+  ],
+  "findings": [
+    {
+      "id": "DOC-GOV-1",
+      "severity": "LOW",
+      "category": "governance-boundary",
+      "summary": "MANDATORY_CONTEXTS is a closed constant of exactly three entries and doctorIsMandatoryFor checks membership in that list, so no context can become mandatory by being added to a caller. All four enforcement sites in runner.ts (autonomous-execution, paid-gatekeeper-dispatch, technical-continuation, correction-retry) gate on safeToActAutonomously and refuse if false. DOCTOR_PREFLIGHT_FAILED routes to the owner with an empty verdict list so no reviewer can approve past a broken machine. Advisory contexts (browsing, read-only, preview) are structurally ungated. The boundary is correct.",
+      "resolved": true
+    },
+    {
+      "id": "DOC-PERF-1",
+      "severity": "LOW",
+      "category": "performance",
+      "summary": "Doctor runs five checks with a 10,000ms budget (DOCTOR_BUDGET_MS). Measured at 46ms against the budget. Each check reports its own ms cost. Git checks have a 4,000ms individual timeout. withinBudget is a structural field on the report. Well within the 10-second acceptance criterion.",
+      "resolved": true
+    },
+    {
+      "id": "DOC-FAIL-1",
+      "severity": "LOW",
+      "category": "failure-mode",
+      "summary": "Every failure mode traces to a documented past incident. The write-probe was removed after review (a probe surviving a crash would enter the reviewed candidate). Bare-name commands are no longer skipped in the check-runner gate. The regex escape bug was replaced with character comparison. The integration test in loopRunner.test.ts drives the real loop against broken git and asserts no worker starts. No residual failure-mode gap found.",
+      "resolved": true
+    }
+  ]
+}

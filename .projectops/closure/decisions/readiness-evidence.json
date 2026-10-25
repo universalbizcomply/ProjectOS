@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "projectos:readiness-evidence:owner-closure:d87bfcd0",
+  "phaseId": "readiness-evidence",
+  "projectId": "projectos",
+  "scope": "phase-closure",
+  "decidedBy": "Murad",
+  "decidedAt": "2026-09-11T21:34:00.000Z",
+  "evidenceSubjectHead": "d87bfcd0f10bac3ab118025e663e162d0e1c7b62",
+  "decision": "close",
+  "note": "APPROVE OWNER-DIRECT READINESS CLOSURE. I accept PROJECTOS readiness as READY at evidence subject d87bfcd0f10bac3ab118025e663e162d0e1c7b62. The earlier NOT READY verdict remains preserved as superseded history. The 11 September benchmark misses, current 139/142 validation state, and carry-forward items A, B and C remain explicitly disclosed and are not represented as passing current-head readiness. This approval authorises the bounded owner decision record, evidence/report persistence, transition to awaiting_closure, exact owner-decision commit and normal push, governed owner closure, and closure-tail persistence. It does not start Forge Programme C, Hybrid Phase 2, ProjectOSHost, provider spend, credentials, production, messaging, payments or database activity.",
+  "ownerAcceptedFindings": [],
+  "consumedAt": "2026-09-11T21:40:17.862Z"
+}

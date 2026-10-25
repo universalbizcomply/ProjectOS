@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "projectos/schemas/bridge/approval.schema.json",
+  "title": "ProjectOS Bridge Approval Request",
+  "description": "A request for an owner decision on a gated action. Gated => owner-only; prohibited => explicit override.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id", "project", "phase", "status", "created_at", "created_by", "worker",
+    "source", "version", "action", "gate", "risk", "gated", "prohibited", "decision_required"
+  ],
+  "properties": {
+    "id": { "type": "string", "description": "appr_<ulid>" },
+    "project": { "type": "string" },
+    "phase": { "type": "string" },
+    "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "created_by": { "type": "string", "enum": ["implementer", "advisor", "agent"] },
+    "worker": { "type": "string" },
+    "source": { "type": "string" },
+    "version": { "type": "string" },
+    "action": { "type": "string", "description": "human-readable action, no secrets" },
+    "gate": {
+      "type": "string",
+      "enum": ["productionDeployGate", "productionDbMutationGate", "realMessagingGate", "paymentGate", "secretsHandlingGate", "forcePushProhibition", "externalServiceGate", "closureAuthorityGate"]
+    },
+    "risk": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+    "gated": { "type": "boolean" },
+    "prohibited": { "type": "boolean" },
+    "recommendation": { "type": "string", "description": "advisor recommendation (owner still decides)" },
+    "related_files": { "type": "array", "items": { "type": "string" } },
+    "decision_required": { "type": "boolean" }
+  }
+}

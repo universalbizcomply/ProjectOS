@@ -1,0 +1,61 @@
+{
+  "reviews": ["code-review", "security-review"],
+  "findings": [
+    {
+      "id": "CR-001",
+      "severity": "MEDIUM",
+      "category": "dead-code",
+      "summary": "Rust fixed_system_path in environment.rs is defined pub(crate) but has no call site; the daemon environment block validator rejects PATH by name, so the function cannot be wired without a dedicated ProcessSpec field or bypass",
+      "resolved": false
+    },
+    {
+      "id": "CR-002",
+      "severity": "MEDIUM",
+      "category": "silent-failure",
+      "summary": "fixedSystemPath returns null when SystemRoot and windir are both absent, and the exec caller silently proceeds without PATH — the exact failure mode the feature was introduced to fix; ensureSystemPath: true should fail explicitly rather than silently degrade",
+      "resolved": false
+    },
+    {
+      "id": "SEC-001",
+      "severity": "MEDIUM",
+      "category": "input-validation",
+      "summary": "fixedSystemPath in system.ts does not validate that SystemRoot/windir is absolute and non-UNC before composing PATH entries; resolveBoundPowerShell in the same file applies isAbsolute and isUnc guards to the same variable — the inconsistency could produce a PATH containing a UNC or relative entry",
+      "resolved": false
+    },
+    {
+      "id": "CR-003",
+      "severity": "LOW",
+      "category": "coding-style",
+      "summary": "const env changed to let env introduces a reassignment pattern; a single-expression computation would eliminate the let and make the implicit scrub-when-ensureSystemPath-is-true visible",
+      "resolved": false
+    },
+    {
+      "id": "CR-004",
+      "severity": "LOW",
+      "category": "test-coverage",
+      "summary": "Neither fixedSystemPath (TypeScript) nor fixed_system_path (Rust) has a unit test; interesting cases include both vars absent, trailing slashes, and the correct separator",
+      "resolved": false
+    },
+    {
+      "id": "SEC-002",
+      "severity": "LOW",
+      "category": "test-coverage",
+      "summary": "Scrub-then-PATH ordering in exec is correct but untested; a future edit could silently reverse the order without breaking any existing test",
+      "resolved": false
+    },
+    {
+      "id": "SEC-003",
+      "severity": "LOW",
+      "category": "isolation",
+      "summary": "LOCALAPPDATA exposure to the daemon is architecturally justified, but no test mechanically asserts that the daemon child environment cannot reach the governed project directory through the state base path",
+      "resolved": false
+    },
+    {
+      "id": "SEC-004",
+      "severity": "LOW",
+      "category": "informational",
+      "summary": "SystemRoot as a PATH entry includes the Windows root directory which is user-accessible on some configurations; not exploitable on a standard Windows installation",
+      "resolved": true
+    }
+  ]
+}

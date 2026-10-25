@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "PROJECTOS-RECOVERY-EXTERNAL-PROJECT1A-CLOSURE-DECISION1A",
+  "phaseId": "PROJECTOS-RECOVERY-EXTERNAL-PROJECT1A",
+  "projectId": "projectos",
+  "scope": "phase-closure",
+  "decidedBy": "ChatGPT",
+  "decidedAt": "2026-08-17T01:27:00+01:00",
+  "evidenceSubjectHead": "d188ef795db3a4738fd247661b70ca7ad327876e",
+  "decision": "close",
+  "note": "ChatGPT, the recorded closure authority for programme projectos-operational-recovery under PROJECTOS-RECOVERY-CLOSURE-DELEGATION1A, decides to close PROJECTOS-RECOVERY-EXTERNAL-PROJECT1A. All 22 frozen Phase 6 acceptance criteria PASS, including the two closed on the corrected build: Criterion 2, the owner objective entered through the packaged interface, and Criterion 14, the owner-witnessed responsive proof at 1440, 768, 390x844 and 320x720. The phase proved the recovered system on Dead Aisle, a real external project, and found a genuine defect in doing so: the packaged daemon ran git in the runtime payload root, so every ambient git call failed closed as REPOSITORY_FACTS_UNAVAILABLE and blocked both plan.draft and plan.activate. The correction is d188ef7, four files, bounded to the gitBoundSystem seam plus the refusal rendering it exposed. It was re-signed with the existing identity projectos-signing-20260812 over subject 557e8d0756f7551200b1bc50c101a9974ec3e64b5213764a88fe607c82d617c0, rebuilt, reinstalled and witnessed live by the owner. Code review and security review, the two reviews this plan requires for this phase, are complete with 0 unresolved CRITICAL and 0 unresolved HIGH. A broad ECC campaign was waived by the gatekeeper as disproportionate for this final bounded correction and is not recorded as performed. The boundary-drift incident, in which two commits reached the real Dead Aisle worktree through a copied linked worktree and were fully reversed with nothing pushed, is dispositioned BOUNDARY DRIFT - RECOVERED, NON-BLOCKING - NO FURTHER ACTION, and its reflog evidence is preserved deliberately. Acceptance is limited to this phase closure and grants no production, deployment, external-send, payment or secret authority. Eight carry-forward items are recorded in the phase evidence report and none blocks this closure. decision PROJECTOS-RECOVERY-EXTERNAL-PROJECT1A-CLOSURE-DECISION1A",
+  "ownerAcceptedFindings": [],
+  "consumedAt": "2026-08-17T01:21:49.964Z"
+}

@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "PROJECTOS-AUTONOMOUS-SELF-HOSTING-PLAN-APPROVAL-DECISION1A",
+  "decision": "approve",
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-post-v3-selfhost-pilot1a",
+  "baseHead": "68823f77ad7059d82908d74a929d51ef2bc855e8",
+  "draftId": "35316a7a7ad3acd6",
+  "planDigest": "sha256:9bd4f01ed8c5b1fa31434ed48a7298509bacd94433b04bd76ff4957fe73bc9dc",
+  "decidedBy": "Murad",
+  "decidedAt": "2026-08-17T14:02:00+01:00",
+  "note": "DIRECT OWNER APPROVAL. Murad, the recorded owner of this project, approves the first plan of the NEW programme projectos-autonomous-self-hosting, whose single phase PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A closes the OpenAI/Claude governance loop so that the owner supplies an objective once and no longer carries prompts, reports or gate decisions between the two models. No plan-approval delegation is created or used: the recovery delegation PROJECTOS-RECOVERY-PLAN-APPROVAL-DELEGATION1A is scoped to programme projectos-operational-recovery and does not apply here, and declaring a different programme starts one, which is the owner's own act. Approval covers exactly the draft and plan digest named above, generated against the base commit named above. It authorises local, non-production governance infrastructure only. It does NOT authorise OpenAI API credential creation, billing activation, credit purchase or any API spend, Secure MCP Tunnel credential activation, production deployment, production database mutation, real email, SMS or messaging, payment or refund, credential or signing action, GUI or browser automation, force push or tags. Every one of those remains separately owner-gated, and the expected next owner gate is the OpenAI gatekeeper pilot commercial and credential approval. ProjectOS Operational Recovery stays CLOSED at 6/6 and is not reopened, renumbered or modified by this approval. Owner-screen fact recorded as phase evidence: ChatGPT Developer mode ENABLED and Enforce CSP in developer mode ENABLED, visually confirmed by Murad; that fact alone authorises no credential, tunnel connection or paid API use. Murad also accepted bootstrap repair commit 68823f77ad7059d82908d74a929d51ef2bc855e8, whose boundary is exactly planApproval.ts, commands/plan.ts and planApproval.test.ts, as establishing programme-scope enforcement and the owner-direct approval path this decision relies on."
+}

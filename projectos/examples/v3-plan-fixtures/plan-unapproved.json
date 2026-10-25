@@ -1,0 +1,147 @@
+{
+  "schemaVersion": "1.0.0",
+  "projectId": "demo-project",
+  "projectName": "Demo Project",
+  "programmeId": "demo-programme",
+  "planId": "demo-plan",
+  "planVersion": "1.0",
+  "planStatus": "AWAITING OWNER APPROVAL",
+  "businessVision": "Deliver the demo product to its definition of complete under owner governance.",
+  "definitionOfComplete": "All in-scope phases complete, validated, reviewed and evidenced; owner accepts closure.",
+  "approvedScope": [
+    "Core delivery phases"
+  ],
+  "excludedScope": [
+    "Anything requiring an external AI API"
+  ],
+  "successStandard": "Owner-supervised, evidenced, gated delivery with a complete audit trail.",
+  "repository": {
+    "repositoryPath": "C:/dev/demo",
+    "expectedRemote": "origin/main",
+    "protectedBranches": [
+      "main"
+    ],
+    "baselineCommit": "1111111111111111111111111111111111111111",
+    "planPersistenceCommit": null,
+    "planSourceBranch": "main"
+  },
+  "sourceDocuments": [
+    {
+      "documentPath": "docs/architecture/demo-master-plan.md",
+      "sourceDocumentType": "human-readable-plan",
+      "sourceDocumentChecksum": "sha256:abc123def456",
+      "authoritative": true,
+      "superseded": false
+    }
+  ],
+  "phases": [
+    {
+      "phaseId": "DEMO-P1",
+      "description": "First phase.",
+      "dependsOn": [],
+      "acceptanceCriteria": [
+        "done"
+      ],
+      "riskLevel": "low",
+      "autonomyLevel": "local-safe",
+      "requiredValidators": [
+        "validate-all"
+      ],
+      "requiredReviews": [
+        "code-review"
+      ],
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "phase-closure"
+      ]
+    },
+    {
+      "phaseId": "DEMO-P2",
+      "description": "Second phase.",
+      "dependsOn": [
+        "DEMO-P1"
+      ],
+      "acceptanceCriteria": [
+        "done"
+      ],
+      "riskLevel": "low",
+      "autonomyLevel": "local-safe",
+      "requiredValidators": [
+        "validate-all"
+      ],
+      "requiredReviews": [
+        "code-review"
+      ],
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "phase-closure"
+      ]
+    }
+  ],
+  "environments": [
+    {
+      "environmentId": "local",
+      "productionFreeze": true
+    }
+  ],
+  "providers": [
+    {
+      "providerRef": "provider:demo-host"
+    }
+  ],
+  "governance": {
+    "owner": "Murad",
+    "gatekeeper": "ChatGPT",
+    "implementer": "Claude Code",
+    "allowedActions": [
+      "create-local-files",
+      "run-local-validation"
+    ],
+    "forbiddenActions": [
+      "production-deploy",
+      "production-db-mutation",
+      "real-email-sms-whatsapp",
+      "payment-or-live-charge",
+      "force-push",
+      "use-openai-api",
+      "use-anthropic-api"
+    ],
+    "ownerOnlyActions": [
+      "approve-plan",
+      "approve-closure",
+      "commit",
+      "push"
+    ],
+    "closureAuthority": "Murad",
+    "noApiPolicy": true
+  },
+  "approval": {
+    "approvalStatus": "awaiting-owner-approval",
+    "approvedBy": "",
+    "approvalDate": "2026-07-11",
+    "approvalEvidenceReference": "",
+    "supersedesPlanVersion": null,
+    "approvalBinding": "MANUAL_GOVERNANCE_APPROVAL",
+    "tamperProof": false,
+    "approvalAuthority": "owner",
+    "secureApprovalEvidence": null
+  },
+  "staleness": {
+    "lastVerifiedCommit": "1111111111111111111111111111111111111111",
+    "lastVerifiedDate": "2026-07-11",
+    "stalenessStatus": "fresh",
+    "stalenessReasons": [],
+    "materialPlanInputs": [
+      {
+        "inputId": "human-readable-plan",
+        "fingerprint": "sha256:abc123def456"
+      }
+    ]
+  },
+  "security": {
+    "secretPolicy": "No raw secrets; providers referenced by name only.",
+    "rawSecretValuesForbidden": true,
+    "sensitiveDataForbidden": true,
+    "redactionRequired": true
+  }
+}

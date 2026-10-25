@@ -1,0 +1,33 @@
+[package]
+name = "projectos-shared-host-runtime"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "UNLICENSED"
+description = "PUBLIC CONTRACT-ONLY scaffold for the future canonical, headless ProjectOS host runtime. It freezes the runtime's public API SHAPE — lifecycle states and pure transition rules, a bounded redacted status, a typed redacted event model, sealed non-forgeable role types, and three separate authority contracts (control-center client / interactive fallback / installed service) — and NOTHING ELSE. It moves no identity/process/instance code, depends on no UI/adapter framework, launches no process, opens no IPC, creates no mutex or security descriptor, resolves no SID, and touches no service, registry, credential or network. Every operational method fails closed. The machine-wide cross-identity authority mechanism is DEFERRED to a later governed gate; no authoritative runtime handle can be produced here."
+
+# A pure, effect-free, adapter-independent contract crate. NO unsafe anywhere.
+[lints.rust]
+unsafe_code = "forbid"
+
+[features]
+# Forwarded to the canonical identity crate so a Control Center test build reproduces the accepted
+# TestFixture identity classification. Never enabled by default and never by a release build.
+test-fixtures = ["projectos-host-identity/test-fixtures"]
+
+[dependencies]
+# ZERO external runtime dependencies. The typed event receiver uses only std::sync::mpsc. Adding a
+# UI/adapter framework, the windows crate, a process, network, credential or serialization crate
+# would breach the safe-facade boundary of this crate.
+
+# WINDOWS-PACKAGED-HOST-TRUST-ENFORCEMENT3K-I-D-B: the effect-free host-authority typed contract.
+# This crate re-exports its safe contract facade only; the crate is dependency-free and forbids
+# unsafe, so nothing here breaks #![forbid(unsafe_code)]. No live authority acquisition is present.
+projectos-host-authority = { path = "../host-authority" }
+
+[target.'cfg(windows)'.dependencies]
+# WINDOWS-PACKAGED-HOST-TRUST-ENFORCEMENT3K-I-C-B: the canonical identity/publisher-trust
+# implementation. This crate consumes and re-exports only its SAFE facade (capture, safe projection,
+# hashing); the bounded unsafe FFI and internal serde_json stay confined inside that crate, so this
+# crate keeps #![forbid(unsafe_code)] and a serde_json-free source tree.
+projectos-host-identity = { path = "../host-identity" }

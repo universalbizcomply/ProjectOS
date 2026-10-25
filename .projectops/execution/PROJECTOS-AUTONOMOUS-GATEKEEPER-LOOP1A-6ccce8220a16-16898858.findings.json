@@ -1,0 +1,131 @@
+{
+  "reviews": ["code-review", "security-review"],
+  "findings": [
+    {
+      "id": "CODE-RUNNER-FILE-SIZE",
+      "severity": "MEDIUM",
+      "category": "code-quality",
+      "summary": "runner.ts is 961 lines, exceeding the 800-line guideline. The file is cohesive (one loop, one function, closely coupled helpers) so splitting risks fragmenting a safety-critical sequence, but the degraded continuation closure and reviewer answer handler could be extracted without breaking the ordering invariant.",
+      "resolved": false
+    },
+    {
+      "id": "CODE-DEGRADED-FILE-SIZE",
+      "severity": "MEDIUM",
+      "category": "code-quality",
+      "summary": "degradedMode.ts is 903 lines, exceeding the 800-line guideline. The authority-wrapper and work-subject helpers could move to a separate module without weakening the boundary, as they are pure functions over git state.",
+      "resolved": false
+    },
+    {
+      "id": "CODE-WORKITEM-CAST",
+      "severity": "LOW",
+      "category": "type-safety",
+      "summary": "degradedMode.ts:139 casts workItems from unknown[] to DegradedWorkItem[] without per-element validation. The store is either git-object-sourced or runtime-written so risk is low, but a corrupted element would produce an incorrect work count rather than a refusal.",
+      "resolved": false
+    },
+    {
+      "id": "SEC-CORR-EXTENSION-WHITELIST",
+      "severity": "LOW",
+      "category": "correction-boundary",
+      "summary": "correctionBoundary.ts:175 hardcodes a file extension whitelist (.ts/.js/.json/.md/.cjs/.mjs/.tsx). A correction targeting .yml, .sql, .css etc. is silently refused with 'the amendment named no path'. Already documented as CORR-EXTENSION-WHITELIST-INVISIBLE by the live reviewer.",
+      "resolved": false
+    },
+    {
+      "id": "SEC-PROMPT-INJECTION-EVIDENCE",
+      "severity": "MEDIUM",
+      "category": "prompt-injection",
+      "summary": "Evidence text from worker-written records (findings, effects, check output) is sent to the gatekeeper without an explicit anti-injection instruction in the system prompt. Schema validation (additionalProperties: false) and binding checks (projectId, phaseId, subjectCommit, requestDigest) limit damage, and bidi characters are stripped, but the system instruction does not tell the gatekeeper to treat evidence as untrusted data rather than instructions.",
+      "resolved": false
+    },
+    {
+      "id": "SEC-EVIDENCE-POISONING-BY-DESIGN",
+      "severity": "MEDIUM",
+      "category": "evidence-poisoning",
+      "summary": "The worker authors its own findings/effects records used as gatekeeper evidence. Digest binding prevents replay against different evidence, but cannot prevent a dishonest initial attestation. This is an architectural property of the design, not a code defect — no independent evidence path exists.",
+      "resolved": false
+    },
+    {
+      "id": "SEC-ABSOLUTE-PATHS-TO-API",
+      "severity": "MEDIUM",
+      "category": "data-minimisation",
+      "summary": "WorkerBrief includes absolute filesystem paths (repository.root, plan.path, record paths) that are sent to the OpenAI API in the evidence. On shared infrastructure this could reveal user names or deployment structure. Relative paths would suffice for worker instruction.",
+      "resolved": false
+    },
+    {
+      "id": "SEC-COST-ESTIMATE-IMPRECISE",
+      "severity": "LOW",
+      "category": "cost-runaway",
+      "summary": "gatekeeperTurn.ts uses ceil(evidenceText.length / 4) as token estimate, which can under-estimate by 20-50%. Single-call overage is bounded since the ledger records actual usage from outcome.usage, making cumulative spend accurate.",
+      "resolved": false
+    },
+    {
+      "id": "SEC-ZWJ-NOT-STRIPPED",
+      "severity": "LOW",
+      "category": "instruction-sanitisation",
+      "summary": "gatekeeperRouting.ts strips bidi/reordering characters from nextClaudeInstruction but not zero-width joiners (U+200D), zero-width non-joiners (U+200C), or soft hyphens (U+00AD). Minimal practical risk in governance context.",
+      "resolved": false
+    },
+    {
+      "id": "SEC-LOCK-TAKEOVER-NO-LEDGER",
+      "severity": "LOW",
+      "category": "audit-trail",
+      "summary": "ownership-lock.cjs acquire() with takeover: true displaces a stale worker. The guard (heartbeat stale AND process dead) is sound, but the takeover itself is recorded in the lock file only, not appended to the continuity ledger. Executor and worker-b call tryAppend separately.",
+      "resolved": false
+    },
+    {
+      "id": "SEC-CORRUPT-STORE-BYPASS",
+      "severity": "CRITICAL",
+      "category": "degraded-mode-escalation",
+      "summary": "A corrupt or truncated degraded-use store previously read as 'never used', allowing unbounded grant reuse. Fixed by the StoreRead discriminated union (absent vs corrupt vs ok) and unreadableDegradedStores check in authoriseDegradedContinuation.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-WORKING-TREE-OWNER",
+      "severity": "HIGH",
+      "category": "evidence-poisoning",
+      "summary": "The recorded owner was read from the working-tree plan file, which the implementer can rewrite, while the code claimed digest binding. Fixed by committedGovernanceOwner reading from git objects with committed+unmodified checks.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-MERGE-SMUGGLE",
+      "severity": "HIGH",
+      "category": "degraded-mode-escalation",
+      "summary": "A merge commit as authority wrapper could hide smuggled files in the dense combined diff. Fixed by authorityWrapper checking parent count via rev-list --parents and refusing non-single-parent commits.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-EMPTY-SUBJECT-COMMIT",
+      "severity": "HIGH",
+      "category": "subject-drift",
+      "summary": "An empty subject commit compared equal on both sides, making the binding vacuously true. Fixed by explicit empty-string refusal in correctionBoundary.ts:103-104 and decision id check at :106.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-STALE-DECISION-REUSE",
+      "severity": "HIGH",
+      "category": "stale-decision-replay",
+      "summary": "After a gatekeeper turn the previous lastInstruction and lastDecisionId were not cleared, allowing a subsequent stop to reuse a stale decision. Fixed by setting both to null after use in runner.ts:769-770.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-ABSOLUTE-PLAN-PATH",
+      "severity": "HIGH",
+      "category": "subject-drift",
+      "summary": "committedGovernanceOwner received an absolute path from the caller but treated it as repo-relative, causing git show to fail and degraded mode to refuse with a misleading error. Fixed by repoRelativeGitPath which accepts absolute paths inside the root and reduces them.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-NO-SELF-APPROVAL",
+      "severity": "CRITICAL",
+      "category": "self-approval",
+      "summary": "Claude cannot approve its own work: the gatekeeper is a separate OpenAI model, decisions are checked for expectedDecider, owner-only actions are structurally refused by the ALWAYS_OWNER_ONLY floor, and the correction worker has no Bash grant so it cannot run git.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-NO-CREDENTIAL-LEAKAGE",
+      "severity": "CRITICAL",
+      "category": "credential-leakage",
+      "summary": "Worker spawn uses scrubCredentials: true, the project forbids use-anthropic-api, and the credential resolver is injected rather than ambient. No credential-shaped value crosses the argv or environment boundary.",
+      "resolved": true
+    }
+  ]
+}

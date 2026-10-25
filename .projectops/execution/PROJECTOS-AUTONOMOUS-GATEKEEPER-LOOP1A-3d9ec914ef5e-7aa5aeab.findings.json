@@ -1,0 +1,64 @@
+{
+  "reviews": [
+    "code-review",
+    "security-review"
+  ],
+  "findings": [
+    {
+      "id": "CR-FIXTURE-ANSWER-INTENTIONAL",
+      "severity": "LOW",
+      "category": "correctness",
+      "summary": "correction-proof-fixture.json has expectedAnswer=41 (not 42), which is intentional for Criterion 10 proof — the test asserts 42 and will fail until a correction worker restores it",
+      "resolved": true
+    },
+    {
+      "id": "CR-DUPLICATE-COMMENT-LINE",
+      "severity": "LOW",
+      "category": "maintainability",
+      "summary": "closureGate.ts lines 147-148 contain a duplicated comment line ('could launder its own substantive changes into a closure tail — so the plan and the config are')",
+      "resolved": false
+    },
+    {
+      "id": "SEC-CORRECTION-GRANTS-SHAPE",
+      "severity": "LOW",
+      "category": "security",
+      "summary": "authoriseCorrection only emits Edit/Write grants — no Bash, Task or Agent — so the correction worker has no shell and git is structurally unreachable; verified by test assertion",
+      "resolved": true
+    },
+    {
+      "id": "SEC-EMPTY-SUBJECT-BINDING",
+      "severity": "HIGH",
+      "category": "security",
+      "summary": "Empty subject commit and empty decision id bindings were previously passing by equality ('' === ''); now explicitly refused in correctionBoundary.ts lines 103-107 with tests proving the refusal",
+      "resolved": true
+    },
+    {
+      "id": "SEC-STALE-DECISION-REUSE",
+      "severity": "HIGH",
+      "category": "security",
+      "summary": "lastInstruction and lastDecisionId are now cleared after use (runner.ts lines 622-624) preventing a subsequent stop from reusing a stale amendment instruction the reviewer never gave for it (CORR-STALE-DECISION-ID)",
+      "resolved": true
+    },
+    {
+      "id": "SEC-PATH-TRAVERSAL-REFUSED",
+      "severity": "MEDIUM",
+      "category": "security",
+      "summary": "correctionBoundary refuses paths containing '..', absolute paths starting with '/', and Windows drive letters; segment-based prefix matching prevents 'agent-secrets' matching 'agent' boundary — all tested",
+      "resolved": true
+    },
+    {
+      "id": "SEC-SESSION-RECORD-TRUST",
+      "severity": "MEDIUM",
+      "category": "security",
+      "summary": "Only the provider handle is taken from a session record on rejoin; briefPath and briefId are recomputed, preventing a worker that wrote its own session record from redirecting the next rejoin — tested in loopRunner.test.ts",
+      "resolved": true
+    },
+    {
+      "id": "CODE-SCOPE-PROJECTION",
+      "severity": "LOW",
+      "category": "design",
+      "summary": "Phase scope is now projected into the structured plan record during materialisation (planApproval.ts) and added to the plan schema, making the approved scope machine-readable rather than lost at activation",
+      "resolved": true
+    }
+  ]
+}

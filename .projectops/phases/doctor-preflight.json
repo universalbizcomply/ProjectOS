@@ -1,0 +1,57 @@
+{
+  "phaseId": "doctor-preflight",
+  "project": "projectos",
+  "objective": "Make Doctor a fast, reliable mandatory preflight for the specified autonomous and paid governed actions.",
+  "status": "closed",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-09-05T01:16:32.951Z",
+      "note": "recorded by the autonomous loop (WAITING_AI)"
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-09-05T01:16:32.952Z",
+      "note": "recorded by the autonomous loop (WAITING_AI)"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-09-05T01:25:23.172Z",
+      "note": "recorded by the autonomous loop (VALIDATING)"
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-09-05T01:29:16.603Z",
+      "note": "recorded by the autonomous loop (AWAITING_GATE)"
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-09-05T01:29:16.603Z",
+      "note": "recorded by the autonomous loop (AWAITING_GATE)"
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "advisor",
+      "at": "2026-09-05T02:08:55.494Z",
+      "note": "work complete; the loop recorded this and awaits the owner, after a recorded gate decision"
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "advisor",
+      "at": "2026-09-05T02:25:53.615Z",
+      "note": "closed by the closure transport on the owner-committed record — closed by ChatGPT under the projectos-scoped phase-closure delegation, decision closure:doctor-preflight:6c829a296269bcef"
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "schemaVersion": "1.0.0",
+  "phaseId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+  "attempt": "2",
+  "steps": [
+    {
+      "name": "baseline",
+      "detail": "projectos/agent/test/fixtures/correction-proof-fixture.json expectedAnswer = 42; the agent suite is green at this value."
+    },
+    {
+      "name": "controlled mutation",
+      "detail": "expectedAnswer 42 -> 41. Nothing else in the repository was touched."
+    },
+    {
+      "name": "runLoop",
+      "detail": "Continuing PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A on projectos-post-v3-selfhost-pilot1a at 3d9ec914ef5e\nWorker: claude-local (claude-code-cli)\nBrief:  c:/dev/ProjectOS/.projectops/execution/PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A-3d9ec914ef5e-7aa5aeab.brief.json\nInvocation: 7aa5aeabd6c5c70e (pid 14760, parent 11672)\nattempt 1: started claude-local; worker exited 0\n  PASS validator validate-all\n  PASS test core-tests\n  FAIL test agent-tests\n  PASS typecheck agent-typecheck\ngatekeeper request GKREQ-3333daa6bee30db24053eaf8 (correction-exhausted) for CORRECTION_EXHAUSTED\ntier strong -> model gpt-5.6-terra\nbudget OK: month 44641 micro-USD, this call ~11216\ngatekeeper answered; recorded 31285 micro-USD against GKREQ-3333daa6bee30db24053eaf8\n  STOPPED (CORRECTION_EXHAUSTED): 1 required check(s) failing: agent-tests — the worker holds no write authority over the failing target, so a further identical attempt cannot change it. 1 required check(s) failing: agent-tests; 1 unresolved finding(s) at MEDIUM or LOW: LOW CR-DUPLICATE-COMMENT-LINE\n  the gatekeeper referred this to the owner rather than deciding it\nSTOPPED (CORRECTION_EXHAUSTED): 1 required check(s) failing: agent-tests — the worker holds no write authority over the failing target, so a further identical attempt cannot change it. 1 required check(s) failing: agent-tests; 1 unresolved finding(s) at MEDIUM or LOW: LOW CR-DUPLICATE-COMMENT-LINE\nEvidence: c:/dev/ProjectOS/.projectops/execution/PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A-3d9ec914ef5e-7aa5aeab.evidence.json"
+    },
+    {
+      "name": "fixture after the loop",
+      "detail": "expectedAnswer = 41; corrected by the governed worker: false"
+    },
+    {
+      "name": "follow-up review NOT run",
+      "detail": "the loop produced no bounded correction, so there is no corrected state to review. Per the owner instruction of 2026-08-18 the chain stops here rather than asking a second question."
+    }
+  ],
+  "ledgerBefore": 6,
+  "ledgerAfter": null,
+  "loop": {
+    "ok": true,
+    "phaseId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+    "sessionId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A-3d9ec914ef5e-7aa5aeab",
+    "stop": {
+      "code": "CORRECTION_EXHAUSTED",
+      "detail": "1 required check(s) failing: agent-tests — the worker holds no write authority over the failing target, so a further identical attempt cannot change it. 1 required check(s) failing: agent-tests; 1 unresolved finding(s) at MEDIUM or LOW: LOW CR-DUPLICATE-COMMENT-LINE"
+    },
+    "attempts": 0
+  },
+  "correctedByWorker": false,
+  "error": "Error: CHAIN INCOMPLETE: no bounded correction was authorised or applied\n    at file:///C:/dev/ProjectOS/projectos/scripts/criterion10-live-proof.mjs:157:11\n    at ModuleJob.run (node:internal/modules/esm/module_job:430:25)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:661:26)\n    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)"
+}

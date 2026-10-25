@@ -1,0 +1,68 @@
+{
+  "schemaVersion": "1.0.0",
+  "recordId": "PROJECTOS-GATEKEEPER-LOOP1A-C15-REPLACEMENT-TUNNEL1A",
+  "projectId": "projectos",
+  "phaseId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+  "kind": "c15-replacement-tunnel",
+  "at": "2026-08-22T12:45:00.000Z",
+  "atLocal": "2026-08-22 13:45:00 Europe/London",
+  "outcome": "Replacement tunnel created under the correct principal and running. The association OpenAI refused for the old tunnel was accepted here without incident, because this principal owns both the organization and the workspace.",
+  "principal": {
+    "platformIdentityDomain": "googlemail.com",
+    "organization": "Personal (org-KNOBGPXmISLM1ISQhoyFHryK)",
+    "verifiedBeforeActing": true,
+    "note": "Confirmed on the Platform profile page before anything was created, rather than assumed."
+  },
+  "newTunnel": {
+    "id": "tunnel_6a8997326f108191a6f9bc9a0fce49c2",
+    "name": "ProjectOS C15 Plus MCP Tunnel",
+    "description": "Private ProjectOS C15 governance tunnel for ChatGPT",
+    "organizationIds": ["org-KNOBGPXmISLM1ISQhoyFHryK"],
+    "workspaceIds": ["481e8f6c-130f-4dc8-a07d-4a06a9bf74f5"],
+    "creationResponse": "HTTP 200",
+    "workspaceOfferedAsRecognisedOption": true,
+    "contrastWithOldTunnel": "For the old tunnel the same workspace was only offered as an unverified 'Use exact ID' entry and the write was refused 403 tunnel_principal_association_unver…. Here it appeared as a recognised option and was accepted immediately — the difference between claiming a workspace and owning one."
+  },
+  "oldTunnel": {
+    "id": "tunnel_6a88d18f2794819185e13479385c88b2",
+    "action": "RETAINED, UNTOUCHED",
+    "organization": "a different Personal organization (org-SfUnvPhUrVL0NX6ryUCyA7eQ)",
+    "note": "It is not visible from the new organization at all, which is itself confirmation the two are separate. It remains available as rollback and as evidence."
+  },
+  "runtimeKey": {
+    "created": true,
+    "name": "ProjectOS C15 tunnel-client runtime",
+    "project": "Default project",
+    "permissions": "Tunnels: Read + Use. Every other scope: None.",
+    "manageGranted": false,
+    "noteOnGranularity": "The Tunnels scope offers exactly two levels, Read and Use. There is no Manage option on an API key at all, so over-granting was not possible. Tunnel creation authority stays with the authenticated operator session, which is where it belongs.",
+    "storage": "installation state directory, outside every repository",
+    "valueReported": "NEVER"
+  },
+  "doctor": {
+    "result": "ok",
+    "notableChecks": {
+      "tunnel_id": "tunnel_6a8997326f108191a6f9bc9a0fce49c2",
+      "mcp_target": "http://127.0.0.1:8787/mcp",
+      "oauth_metadata": "HTTP 200 from https://oauth-projectos.safw4n.com/.well-known/oauth-protected-resource/mcp"
+    },
+    "firstRunFailure": "health_listener could not bind 127.0.0.1:8080 because the old runtime still held it. Only that one process was stopped; the bridge, the authorization server and cloudflared were left running."
+  },
+  "runtimeAfterStart": {
+    "healthz": "live",
+    "readyz": "ready",
+    "tunnelIdInMetadata": "tunnel_6a8997326f108191a6f9bc9a0fce49c2",
+    "mcpServerUrl": "http://127.0.0.1:8787/mcp"
+  },
+  "boundariesRechecked": {
+    "publicAuthorizationServerMetadata": 200,
+    "publicMcp": 404,
+    "privateBridgeUnauthenticated": 401,
+    "cloudflareChanged": false,
+    "dnsChanged": false
+  },
+  "notYetDone": "ChatGPT connector creation and the OAuth live flow. The ChatGPT session is signed out; the Plus account must be signed in before the replacement tunnel can be selected.",
+  "secretsExposed": "NONE — the runtime key was moved clipboard-to-file without being printed; the bridge token was read only to build a child process environment.",
+  "productionTouched": false,
+  "c15Status": "NOT ACCEPTED / NOT CLOSED"
+}

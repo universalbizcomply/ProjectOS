@@ -1,0 +1,34 @@
+{
+  "schemaVersion": "1.0.0",
+  "recordKind": "gatekeeper-decision-evidence",
+  "decisionId": "GKDEC-GKREQ-74eb8d8df62c046470abcc84",
+  "projectId": "projectos",
+  "phaseId": "validation-cache",
+  "subjectCommit": "204fda72feca455c76d0a078d2c4900d3704132c",
+  "requestDigest": "sha256:eccd8c7274fd04543ca826e7f01aedaa6f7ef8a7919524833e86f3cfa4a2250c",
+  "decision": "AWAITING_OWNER",
+  "reason": "The phase is blocked by unresolved HIGH F3-BENCHMARK-NOT-EXECUTED. The <=2-second acceptance criterion requires a live benchmark, but Node execution was not approved in this session; the stop record also says validate-no-secrets and configured test suites were not executed, which conflicts with the listed passing checks. Two unresolved MEDIUM findings additionally require changes outside the effective restricted worker grant (.gitignore and validate-all.cjs). The 211-path candidate contains numerous paths outside that grant, so its provenance cannot be accepted for delegated continuation.",
+  "allowedActions": [
+    "run-owner-authorized-non-production-benchmark",
+    "run-fresh-non-mutating-validation-and-tests",
+    "inspect-committed-grant-and-candidate-provenance",
+    "prepare-owner-remediation-and-scope-brief",
+    "preserve-evidence"
+  ],
+  "forbiddenActions": [
+    "commit",
+    "push",
+    "merge",
+    "force-push",
+    "phase-closure",
+    "secrets-handling",
+    "payment-or-live-charge",
+    "deploy",
+    "database-mutation",
+    "external-message",
+    "unscoped-source-edits"
+  ],
+  "ownerApprovalRequired": true,
+  "decidedBy": "ChatGPT",
+  "decidedAt": "2026-09-04T13:47:59.000Z"
+}

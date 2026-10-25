@@ -1,0 +1,103 @@
+{
+  "schemaVersion": "1.0.0",
+  "sessionId": "sess_fixture_stop",
+  "projectId": "fixture-project",
+  "phaseId": "FIXTURE-PHASE1A",
+  "repositoryRoot": "C:\\fixture\\repo",
+  "branch": "fixture-branch",
+  "createdAt": "2026-08-10T15:00:00.000Z",
+  "events": [
+    {
+      "seq": 1,
+      "type": "worker-a-checkpoint",
+      "at": "2026-08-10T15:01:00.000Z",
+      "author": "worker",
+      "actor": {
+        "module": "worker-runtime",
+        "workerId": "worker-a-fixture",
+        "pid": 4101,
+        "parentPid": null
+      },
+      "detail": {
+        "checkpointId": "cp-fixture-1",
+        "head": "1111111111111111111111111111111111111111",
+        "branch": "fixture-branch",
+        "planVersion": "1.3",
+        "phaseId": "FIXTURE-PHASE1A",
+        "nextActionKind": "record-continuation-note",
+        "boundary": "capacity"
+      }
+    },
+    {
+      "seq": 2,
+      "type": "worker-a-release",
+      "at": "2026-08-10T15:02:00.000Z",
+      "author": "worker",
+      "actor": {
+        "module": "worker-runtime",
+        "workerId": "worker-a-fixture",
+        "pid": 4101,
+        "parentPid": null
+      },
+      "detail": {
+        "released": true,
+        "reason": "capacity"
+      }
+    },
+    {
+      "seq": 3,
+      "type": "worker-a-post-release-write-refused",
+      "at": "2026-08-10T15:03:00.000Z",
+      "author": "worker",
+      "actor": {
+        "module": "worker-runtime",
+        "workerId": "worker-a-fixture",
+        "pid": 4101,
+        "parentPid": null
+      },
+      "detail": {
+        "attempted": "governed write after release",
+        "refusal": "ownership-lock: refused — worker-a-fixture released ownership of this checkout and may no longer write"
+      }
+    },
+    {
+      "seq": 4,
+      "type": "continuation-permit",
+      "at": "2026-08-10T15:04:00.000Z",
+      "author": "executor",
+      "actor": {
+        "module": "zero-relay-executor",
+        "workerId": null,
+        "pid": 4202,
+        "parentPid": null
+      },
+      "detail": {
+        "decision": "permitted",
+        "launchSpecDecision": "READY_TO_LAUNCH",
+        "head": "1111111111111111111111111111111111111111",
+        "branch": "fixture-branch",
+        "workingTreeClean": true,
+        "ownerControlState": "running",
+        "ownerControlSource": "absent (no owner intervention recorded)",
+        "nextActionKind": "record-continuation-note"
+      }
+    },
+    {
+      "seq": 5,
+      "type": "owner-control-honoured",
+      "at": "2026-08-10T15:05:00.000Z",
+      "author": "executor",
+      "actor": {
+        "module": "zero-relay-executor",
+        "workerId": null,
+        "pid": 4202,
+        "parentPid": null
+      },
+      "detail": {
+        "state": "stopped",
+        "reason": "the owner has stopped this project",
+        "at": "immediately before spawn"
+      }
+    }
+  ]
+}

@@ -1,0 +1,181 @@
+{
+  "schemaVersion": "1.0.0",
+  "recordId": "PROJECTOS-GATEKEEPER-LOOP1A-C17-F1-CORRECTION1A",
+  "projectId": "projectos",
+  "programmeId": "projectos-autonomous-self-hosting",
+  "phaseId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+  "kind": "criterion-correction",
+  "criterion": "C17",
+  "findingId": "C17-F1",
+  "at": "2026-08-22T14:45:00.000Z",
+  "atLocal": "2026-08-22 15:45:00 Europe/London",
+  "recordedBy": "Claude (implementer), under bounded correction authority granted for C17-F1 only.",
+  "preFixReviewRecord": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A.c17-review.json — retained unchanged. The finding is not being written out of history.",
+  "originalFinding": {
+    "class": "cost runaway",
+    "severity": "HIGH",
+    "reachable": true,
+    "whatWasWrong": "The gatekeeper cost ledger was crash-safe (temp file plus atomic rename) but had no mutual exclusion. run.ts read the ledger once at process start and evaluated the budget against that snapshot. Two concurrent `projectos run --execute` processes — or a run alongside `reconcile --execute` — could each conclude they were under hardStopAtMicroUsd and each make a real billed call. The losing rename also silently erased a paid entry, so the month read low and admitted yet more spending.",
+    "contradictedInvariant": "gatekeeperCostLedger.ts:57 — 'The month's hard stop. Reaching it refuses further calls; it does not merely warn.'",
+    "precedent": "degradedLedger.ts:294-302 documents this exact defect class being found in the 2026-08-21 review and fixed there by moving the ceiling check inside the lock. That fix had never been applied to the cost ledger."
+  },
+  "correction": {
+    "invariant": "The budget admission decision and the record of it happen inside ONE exclusive-lock acquisition, before any billable call. A refused admission writes nothing.",
+    "howItWorks": "admitGatekeeperSpend takes an OS-level exclusive lock (createExclusive, O_CREAT|O_EXCL / CREATE_NEW), re-reads the ledger FRESH inside the lock, totals it, asks authoriseRequestSpend, and — only if allowed — writes a provisional entry carrying the ESTIMATE before releasing. A second process therefore sees the first call's cost already counted and is refused by the same hard stop. settleGatekeeperSpend then REPLACES that entry with the true cost.",
+    "whyReplacementNotAppend": "dedupeEntries keeps the FIRST entry per requestId, so appending the truth beside the estimate would leave the estimate standing and silently discard the real figure.",
+    "whyNotJustLockTheAppend": "Locking only the final write would leave both processes passing the budget check beforehand and both paying — the explicit failure the ruling warned against.",
+    "filesChanged": [
+      "projectos/agent/src/loop/gatekeeperConfig.ts — underCostLedgerLock, admitGatekeeperSpend, settleGatekeeperSpend; appendLedger refactored onto a shared writeLedger so both paths reuse the same crash-safe write",
+      "projectos/agent/src/loop/gatekeeperTurn.ts — uses deps.admitSpend instead of the start-of-process snapshot when supplied",
+      "projectos/agent/src/loop/reconciliation.ts — same at its spend site; a reconcile alongside a run is one of the concurrent pairs",
+      "projectos/agent/src/commands/run.ts — supplies admitSpend; the post-call callback now settles instead of appending",
+      "projectos/agent/src/commands/reconcile.ts — same",
+      "projectos/agent/test/gatekeeperSpendAdmission.test.ts — the regression proof (new)"
+    ],
+    "scopeHeld": "Only C17-F1. Nothing else was changed: not C17-F2, the owner-only floor, reconciliation subject re-derivation, argv redaction, the latent HTML pattern, or the retained OAuth infrastructure."
+  },
+  "regressionProof": {
+    "testFile": "projectos/agent/test/gatekeeperSpendAdmission.test.ts",
+    "testCount": 9,
+    "result": "9/9 pass",
+    "realApiSpend": "NONE — the provider is a counter, not a network client",
+    "testA_concurrentLedgerIntegrity": {
+      "result": "PASS",
+      "proves": "Two completed paid calls both survive, each exactly once, each at its TRUE cost rather than the estimate. Settlement replaces rather than hides. A call that never happened leaves nothing behind."
+    },
+    "testB_hardStopConcurrency": {
+      "result": "PASS",
+      "setup": "Budget 1000 micro-USD with 600 already spent, so exactly one 400 call fits.",
+      "interleaving": "BOTH admissions are attempted before either settles — the precise interleaving that used to let both through, since each read a ledger showing only 600 spent.",
+      "admitted": 1,
+      "providerCallsObserved": 1,
+      "refusalReason": "names the hard stop",
+      "finalLedgerTotal": 1000,
+      "lostEntries": 0
+    },
+    "alsoProven": [
+      "a requestId already in the ledger is refused, so a restart cannot pay twice",
+      "a held lock refuses rather than proceeding unserialised, and writes nothing",
+      "the lock is released so ordinary sequential work still proceeds",
+      "single-process behaviour preserved: a call inside budget is still admitted, and one that alone crosses the hard stop is still refused and leaves no reservation"
+    ],
+    "mutationTesting": [
+      {
+        "mutation": "admission authorises but does NOT reserve (the pre-fix hole)",
+        "result": "2 tests fail — caught"
+      },
+      {
+        "mutation": "lock contention never detected (no serialisation)",
+        "result": "1 test fails — caught"
+      },
+      {
+        "baselineRestored": "9/9 pass"
+      }
+    ]
+  },
+  "regression": {
+    "typecheckErrors": 0,
+    "build": "clean",
+    "testFiles": 34,
+    "tests": "1044/1044 pass",
+    "previousTotal": 1035,
+    "delta": "+9, the new proofs"
+  },
+  "postFixEcc": {
+    "scope": "the correction only",
+    "critical": 0,
+    "high": 0,
+    "coreDefect": "CLOSED — mutual exclusion is a real cross-process OS primitive, not an in-process mutex; the ledger is re-read inside the lock and never from the process-start snapshot; no path reaches submitToOpenAi before admission; the lock is confined to the two ledger functions and serialises no unrelated work; the broker's independent 200-calls-per-phase ceiling is byte-identical and untouched; no other authority path was altered.",
+    "residuals": [
+      {
+        "severity": "MEDIUM",
+        "reachable": true,
+        "status": "CARRY-FORWARD — not fixed, per the scope freeze",
+        "summary": "settleGatekeeperSpend no-ops on lock contention, and a process death between the call and settlement has the same effect: the provisional ESTIMATE remains in the ledger permanently. The call is never absent — its requestId entry survives, so replay guards still see it — but the recorded cost is the estimate, not the truth.",
+        "sharpenedByTheReviewer": "I had assumed this always errs toward over-counting, which is the safe direction. The reviewer showed that is not guaranteed: the estimate assumes a fixed 800 output tokens and no max_output_tokens is sent to the API, so a longer reply makes the estimate LOWER than true cost, and retaining it under-counts. That correction to my own reasoning is recorded rather than quietly dropped.",
+        "whyNotFixedNow": "It is MEDIUM, and the ruling froze scope to C17-F1 and forbade turning C17 into another hardening programme."
+      },
+      {
+        "severity": "LOW-MEDIUM",
+        "reachable": false,
+        "status": "CARRY-FORWARD",
+        "summary": "admitSpend is an optional dependency with a silent fallback to the pre-fix snapshot check. Both production entry points supply it today — verified in run.ts and reconcile.ts, and takeGatekeeperTurn's only caller spreads the deps through intact — so it is not a live hole. But no test pins that wiring, so a future edit dropping the argument would silently reopen C17-F1 with nothing failing.",
+        "whyNotFixedNow": "Not currently reachable, and the scope freeze forbids optional hardening. Flagged explicitly because it is a regression risk in the very correction being accepted."
+      }
+    ]
+  },
+  "implementerSelfReview": {
+    "verdict": "PASS with recorded residuals",
+    "canTwoProcessesStillPassConcurrently": "No — authorisation is computed from state read inside the lock, and the reservation is written before the lock is released.",
+    "isTheCheckFromFreshStateUnderExclusion": "Yes — readLedger is called inside underCostLedgerLock, never the process-start snapshot.",
+    "canAProviderCallPrecedeAdmission": "No — the spend decision returns an owner action before submitToOpenAi is reached, in both the turn and the reconciliation paths.",
+    "canACrashLeaveAPermanentLockOrEraseCost": "A crash can leave the lock, which fails closed: later admissions refuse with a message naming the file to remove, and a .leaked marker is written if release fails. Cost is never erased; at worst the estimate stands in place of the truth.",
+    "canAPaidCallBeAbsentFromAccounting": "No. It can be recorded at estimate rather than actual — see the MEDIUM residual — but the entry itself always exists.",
+    "doesItSerialiseUnrelatedWork": "No — the lock is taken only by the two ledger functions.",
+    "isTheBrokerCeilingIntact": "Yes — MAX_CALLS_PER_PHASE = 200 unchanged, that file has no diff.",
+    "didItAffectAnyOtherAuthorityPath": "No — the diff is confined to five source files plus the new test; decisions, grants, receipts, reconciliation debt and credential release are untouched.",
+    "disagreementWithEcc": "None on the core defect. I accepted the reviewer's correction to my own claim that the settlement residual always errs safely — it does not, and the record says so."
+  },
+  "criterion17Rescored": {
+    "namedClassesCovered": "15 of 15",
+    "unresolvedCritical": 0,
+    "unresolvedHigh": 0,
+    "carryForward": [
+      "C17-F2 — gatekeeper config read uncommitted (MEDIUM, gatekeeper-ruled carry-forward)",
+      "C17-F3 — owner-only floor not applied on the ordinary turn path (MEDIUM)",
+      "C17-F4 — reconciliation subject re-derivation (MEDIUM, needs owner cooperation)",
+      "C17-F5 — argv redaction by flag name (LOW, not reachable)",
+      "C17-F6 — latent HTML interpolation pattern (LOW, verified not a current vulnerability)",
+      "C17-F7 — settlement no-op on contention retains the estimate (MEDIUM, new)",
+      "C17-F8 — admitSpend optional with silent fallback, wiring unpinned by tests (LOW-MEDIUM, not reachable)",
+      "retained redundant OAuth infrastructure — parallel token path (MEDIUM), removed by the existing retirement plan"
+    ],
+    "recommendation": "ACCEPT C17. All fifteen named attack classes are covered, and unresolved CRITICAL and HIGH are both zero against the plan's own bar. Every remaining item is MEDIUM or LOW and explicitly carried forward."
+  },
+  "hygiene": {
+    "trackedModifications": 5,
+    "newTestFile": 1,
+    "staging": "empty",
+    "commit": false,
+    "push": false,
+    "productionTouched": false,
+    "databaseMutation": false,
+    "externalSendsOrPayments": false,
+    "realApiSpendForProof": false,
+    "secretsExposed": "NONE"
+  },
+  "decisionRequested": "SETTLED — C17 was accepted and closed by the gatekeeper. This record now states that ruling; the implementer neither accepted nor closed it.",
+  "gatekeeperRuling": {
+    "criterion": "C17",
+    "status": "ACCEPTED / CLOSED",
+    "decidedBy": "ChatGPT delegated technical gatekeeper",
+    "atLocal": "2026-08-22 15:57 Europe/London",
+    "programmeAcceptance": {
+      "accepted": 13,
+      "total": 17,
+      "percentage": "76.5%"
+    },
+    "parentPhase": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+    "parentPhaseStatus": "OPEN",
+    "nextTarget": "C11",
+    "acceptedBasis": [
+      "15 of 15 named attack classes covered",
+      "unresolved CRITICAL 0",
+      "unresolved HIGH 0",
+      "131/131 validators PASS",
+      "1044/1044 tests PASS",
+      "typecheck clean, build clean",
+      "9/9 C17-F1 regression proofs",
+      "2/2 mutations caught",
+      "secret scan clean"
+    ],
+    "c17f1": "FIXED / CLOSED",
+    "carryForwardRulings": {
+      "C17-F2": "MEDIUM — carry-forward",
+      "C17-F7": "MEDIUM — carry-forward. The cost settlement fallback may retain an under-estimate when actual output exceeds the fixed estimate and final settlement is lost. This does NOT recreate the fixed concurrent budget-admission HIGH.",
+      "C17-F8": "LOW-MEDIUM — carry-forward. admitSpend remains optional with a fallback to legacy behaviour, but both current production call sites supply it. A future-regression hazard, not a current active HIGH.",
+      "others": "All previously recorded MEDIUM/LOW findings remain carry-forward, unchanged."
+    },
+    "notFixedUnderThisAuthority": "None of the carry-forward items were touched."
+  }
+}

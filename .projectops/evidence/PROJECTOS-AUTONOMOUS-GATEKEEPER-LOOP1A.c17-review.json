@@ -1,0 +1,150 @@
+{
+  "schemaVersion": "1.0.0",
+  "recordId": "PROJECTOS-GATEKEEPER-LOOP1A-C17-REVIEW1A",
+  "projectId": "projectos",
+  "programmeId": "projectos-autonomous-self-hosting",
+  "phaseId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+  "kind": "criterion-review",
+  "criterion": "C17",
+  "at": "2026-08-22T14:20:00.000Z",
+  "atLocal": "2026-08-22 15:20:00 Europe/London",
+  "recordedBy": "Claude (implementer). This record requests a decision; it does not take one.",
+
+  "criterionTextVerbatim": "Reviews cover prompt injection across the model boundary and across the owner interface, evidence poisoning, cross-project leakage, stale decision replay, subject drift, credential leakage, model escalation abuse, cost runaway, duplicate calls after restart, self-approval, override replay, degraded-mode escalation, reconciliation bypass and any direct gatekeeper-to-Claude bypass, with unresolved CRITICAL and HIGH at zero",
+  "criterionSource": "phases[0].acceptanceCriteria[16] of the active approved plan, read byte-for-byte",
+  "activePlanId": "plan-35316a7a7ad3acd6-36e79927c769",
+  "activePlanDigest": "sha256:36e79927c769bc21b7c12dc37fe7ff98ee8d5a8efc113858c36b8fa1ef19a550",
+  "planApproval": "Murad, PROJECTOS-AUTONOMOUS-SELF-HOSTING-PLAN-APPROVAL-DECISION1E, 2026-08-18T23:15:00+01:00",
+  "criteriaCount": 17,
+
+  "passBarNote": "The criterion says 'unresolved CRITICAL and HIGH at zero'. It does NOT say 'reachable HIGH'. The prompt driving this review stated the looser bar; the plan is the frozen authority and is stricter, so this review is scored against the plan.",
+
+  "baseline": {
+    "subjectCommit": "c4989ebb0bec38b7c960cc002e5cafa6244bcf80",
+    "whatItWas": "Seven-lens code and security review of the whole boundary: 60 findings, 9 confirmed by two-lens adversarial verification, 42 over the cap triaged rather than dropped. Every CRITICAL and HIGH corrected in code. Unresolved CRITICAL = 0, unresolved HIGH = 0.",
+    "selfDeclaredLimitation": "Its own scope note: 'the seven-lens battery ran at c4989eb. The live transport, credential resolver, HTTP port, loop wiring, plan-discovery correction and activation-identity correction all post-date it and have not been through that same battery. If the bridge is built it will need one too.'",
+    "matrixGapEntry": "'Reviews predate the live code | 17 | Re-review of transport, resolver, port, wiring, discovery and activation identity'"
+  },
+  "currentHead": "adce2598358b5bf0b05e2541145d20e2cc02e677",
+  "deltaReviewed": "c4989eb..adce259 — 181 files changed, 27849 insertions, 109 deletions. Security-sensitive scope: gatekeeper transport and broker, credential resolver, installation allowlist and durable degraded ledger, degraded mode and grants, reconciliation, closure gate, plan approval, owner gate receipts, loop runner/workers/brief/adapters/correction boundary, MCP bridge, MCP listener, OAuth surface, C15 runtime launchers.",
+
+  "liveConfigurationReviewed": {
+    "acceptedPath": "ChatGPT personal Plus workspace -> associated OpenAI Secure MCP Tunnel -> tunnel-client -> private 127.0.0.1:8787/mcp -> ProjectOS bridge -> governed read operations",
+    "connectorModel": "owner-controlled private tunnel + service-token authentication",
+    "notDescribedAs": "unauthenticated"
+  },
+
+  "attackClassMatrix": {
+    "note": "The active plan names the classes. This matrix follows the plan, not a generic list.",
+    "coverage": "15 of 15",
+    "classes": [
+      { "class": "prompt injection across the model boundary", "lens": "A", "result": "DEFENDED", "mechanism": "strict json_schema response format with additionalProperties false; closed verdict vocabulary so an invented word cannot approve; four bindings (project, phase, subjectCommit, requestDigest) the model is never shown; per-stop applicable-verdict sets; owner-gated verdicts never appear as applicable and so cannot self-execute" },
+      { "class": "prompt injection across the owner interface", "lens": "A", "result": "DEFENDED", "mechanism": "bridge matches operations by exact name against a closed list with no intent parsing; every argument must match ^[A-Za-z0-9_.:-]{1,128}$, rejecting free text, traversal, option shapes and prototype keys; tool schemas carry additionalProperties false and no free-text property; initialize deliberately omits instructions" },
+      { "class": "evidence poisoning", "lens": "A", "result": "DEFENDED", "mechanism": "brief provenance walk requires every string to appear verbatim in the approved plan, config or observed repo state; receipts and grants read via git show HEAD:./<rel> after committed-and-clean checks, never the working tree; ledger written temp-then-rename so a torn write cannot read as nothing spent; a reconciliation decisionId with no matching ledger entry is refused as uncorroborated" },
+      { "class": "cross-project leakage", "lens": "C", "result": "HOLDS", "mechanism": "every durable ledger row bound to installRoot + repository + projectId and refused on disagreement; canonical repository identity re-derived from origin independently by both agent and broker; thread isolation checked across the whole binding set" },
+      { "class": "stale decision replay", "lens": "C", "result": "HOLDS", "mechanism": "consumedAt on the record, a consumed-id set seeded from durable state each run, and a durable askedWorkIds guard keyed on the work item rather than the request wording" },
+      { "class": "subject drift", "lens": "C", "result": "HOLDS", "residual": "MEDIUM — reconciliation re-derives the wrapper subject from git log at reconcile time; a second owner commit to the same grant path could shift it. Requires owner cooperation, not implementer-reachable." },
+      { "class": "credential leakage", "lens": "B", "result": "SOUND", "mechanism": "credential never enters the agent process on the live path; broker source proven byte-identical to committed HEAD then executed from stdin, closing verify-then-spawn TOCTOU; request pinned by SHA-256 into the executed source; no credential in argv anywhere; env allowlists on every child spawn", "residual": "LOW — argv redaction matches flag names rather than value shapes; not currently reachable as no CLI flag carries a credential" },
+      { "class": "model escalation abuse", "lens": "B", "result": "SOUND IN EFFECT", "residual": "MEDIUM — the ALWAYS_OWNER_ONLY floor is enforced on the degraded path but not on the ordinary gatekeeper-turn path. No live capability escalation follows: correction workers only ever receive Edit(path)/Write(path), never Bash, so commit and push are structurally unreachable." },
+      { "class": "cost runaway", "lens": "B", "result": "DEFECTIVE", "findingId": "C17-F1", "severity": "HIGH", "reachable": true },
+      { "class": "duplicate calls after restart", "lens": "B", "result": "SOUND", "mechanism": "deterministic requestId from project, phase, subject, ask and evidence digest; consumed ids seeded from the persisted ledger at process start rather than an empty per-process array; broker asked/answered state machine with a single bounded honest retry" },
+      { "class": "self-approval", "lens": "C", "result": "DISPUTED", "findingId": "C17-F2", "severityLensC": "HIGH", "severityImplementerAfterVerification": "MEDIUM" },
+      { "class": "override replay", "lens": "C", "result": "HOLDS", "mechanism": "consumedAt stamped at the single write site for plan-approval and closure decisions; closure spent on the decision record so phase new --force cannot resurrect it; degraded ledger settle and allocate are read-check-write inside one lock acquisition" },
+      { "class": "degraded-mode escalation", "lens": "C", "result": "HOLDS", "mechanism": "ceiling and ordinal decided inside the same createExclusive lock that records consumption; durable and mirror spend counts combined by max so deleting the mirror cannot refund a grant; an unreadable durable ledger is a hard refusal, never nothing-spent" },
+      { "class": "reconciliation bypass", "lens": "C", "result": "HOLDS", "mechanism": "installation ledger authoritative and a project mirror can raise but never clear a refusal; discharge requires a real external APPROVED_TO_PROCEED under RECONCILIATION_ASK; reconcilable count bound to the owner's committed grant ceiling; discharge refused when decisionId does not equal the one the ask received" },
+      { "class": "direct gatekeeper-to-Claude bypass", "lens": "B", "result": "SOUND", "mechanism": "model free text can only narrow a pre-approved path allowlist (the subset rule); grants issued are exclusively Edit(path)/Write(path); no Bash, Task or Agent grant is ever emitted, so no reply can reach a shell, commit or push" }
+    ]
+  },
+
+  "findings": [
+    {
+      "id": "C17-F1",
+      "class": "cost runaway",
+      "severity": "HIGH",
+      "reachable": true,
+      "status": "UNRESOLVED — blocks C17",
+      "files": ["projectos/agent/src/loop/gatekeeperConfig.ts:214-240 (appendLedger)", "projectos/agent/src/commands/run.ts:120, 207-210", "projectos/agent/src/commands/reconcile.ts:184", "projectos/core/src/gatekeeperCostLedger.ts:245-265"],
+      "whyExistingGuardsFail": "appendLedger is crash-safe (temp file plus atomic rename, closing GK-SEC-001) but performs a read-modify-write with NO mutual exclusion. run.ts reads the ledger once at process start and evaluates authoriseRequestSpend against that snapshot. createExclusive appears in exactly three places in the agent — commands/mcp.ts, installation/degradedLedger.ts, mcp/bridge.ts — and none is the cost ledger. No pid, session or run lock exists on run --execute.",
+      "failureScenario": "Two concurrent `projectos run --execute` (or a run alongside `reconcile --execute`) each read the same ledger, each conclude they are under hardStopAtMicroUsd, and each make a real billed OpenAI call. Separately, the losing rename silently erases a paid-call entry, so every later budget check under-reports true spend permanently.",
+      "contradictsOwnInvariant": "gatekeeperCostLedger.ts:57 — 'The month's hard stop. Reaching it refuses further calls; it does not merely warn.'",
+      "precedentInThisCodebase": "degradedLedger.ts:294-302 documents this exact defect class being found in the 2026-08-21 review and fixed there by moving the ceiling check inside the lock: 'two concurrent runs both read \"0 spent, 1 allowed\" and both spent the last item of a one-item grant'. That fix was never applied to the gatekeeper cost ledger.",
+      "fairBound": "The broker's per-phase call ceiling of 200 IS correctly atomic — reserveSpend checks inside its lock before the credential is touched. Spend is therefore bounded by call count, not unbounded. It remains HIGH because the dollar hard stop is the control documented to refuse, and under concurrency it does not.",
+      "smallestCredibleCorrection": "Take the same createExclusive lock in appendLedger and evaluate the budget inside it, mirroring allocateConsumption.",
+      "regressionTestsRequired": ["two concurrent appends must not lose an entry", "a second process must be refused once the hard stop is reached"],
+      "implemented": false,
+      "reasonNotImplemented": "Section 10 of the review instruction: stop before implementation and return the finding for the gatekeeper to decide."
+    },
+    {
+      "id": "C17-F2",
+      "class": "self-approval / independent oversight",
+      "severityLensC": "HIGH",
+      "severityImplementerAfterVerification": "MEDIUM",
+      "status": "DISPUTED — severity is the gatekeeper's call, not the implementer's",
+      "files": ["projectos/agent/src/loop/gatekeeperConfig.ts:102-198 (loadGatekeeperConfig)", "projectos/agent/src/loop/transports/openaiResponses.ts:378", "projectos/core/src/gatekeeperDecision.ts:256-264"],
+      "theClaim": "loadGatekeeperConfig reads .projectops/gatekeeper.json with a plain working-tree read and no committed-and-clean check, unlike every other authority artifact. transport.decidedBy and transport.model come from that file. The decision record's decidedBy is stamped from config, then compared against expectedDecider read from the committed delegation. Because the committed delegate name is public, an implementer could copy it into the uncommitted config, so the check compares a value against its own copy.",
+      "whatIVerified": "The claim about the read is correct: the config is read from the working tree with no git check, while committedDelegatedDecider reads .projectops/authority/closure-delegation.json via git show HEAD:./ — the asymmetry is real and deliberate (GK-SEC-004), and the check is weaker than the codebase's own pattern.",
+      "whyIAssessItLowerThanLensC": "The trusted broker PINS the endpoint: OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses', and its header states it takes no URL, no headers, no install root and no command from its caller. The implementer therefore cannot redirect the transport to a server it controls, and cannot manufacture a verdict: every decision still requires a real OpenAI call whose credential is released only under the committed installation allowlist plus the committed secrets-handling receipt. What is actually lost is owner control over WHICH model reviews, and the independent attestation of the decider label — not the ability to self-approve.",
+      "currentState": ".projectops/gatekeeper.json is tracked and the working tree is clean, so the file in use currently equals its committed form. The gap is that nothing verifies this.",
+      "disagreementRecordedNotResolved": "Lens C scored HIGH; after verifying the endpoint pin I assess MEDIUM. I am the party this control is meant to constrain, so I am explicitly not the right party to downgrade it. If the gatekeeper rules HIGH, it blocks C17 alongside C17-F1.",
+      "candidateCorrection": "Read .projectops/gatekeeper.json — or at minimum transport.model, transport.decidedBy and commercialApproval — from the committed tree the same way every other authority record is read.",
+      "implemented": false
+    },
+    {
+      "id": "C17-F3",
+      "class": "model escalation abuse",
+      "severity": "MEDIUM",
+      "status": "CARRY-FORWARD",
+      "summary": "The ALWAYS_OWNER_ONLY floor (commit, push, phase-closure, secrets-handling, payment-or-live-charge) is applied on the degraded-mode path but not on the ordinary gatekeeper-turn path, which checks allowedActions only against what the plan phase declared. No live capability follows, since correction workers only ever receive Edit/Write and never Bash, and credential release is separately gated. This is a record-versus-runtime fidelity gap, not a privilege escalation."
+    },
+    {
+      "id": "C17-F4",
+      "class": "subject drift",
+      "severity": "MEDIUM",
+      "status": "CARRY-FORWARD",
+      "summary": "Reconciliation re-derives the grant wrapper's subject from git log at reconcile time; if the same grant path were committed a second time after the original spend, the subject bound into the reconciliation could differ from the commit the degraded work actually happened at. Requires a second owner commit to that path, so it is not implementer-reachable."
+    },
+    {
+      "id": "C17-F5",
+      "class": "credential leakage",
+      "severity": "LOW",
+      "status": "CARRY-FORWARD",
+      "summary": "redactArgv matches flag NAMES rather than value shapes, unlike credentialResolver's LOOKS_LIKE_A_SECRET which scans values. Not currently reachable: no CLI flag accepts a credential. Worth aligning if the CLI ever grows one."
+    },
+    {
+      "id": "C17-F6",
+      "class": "not in the named list",
+      "severity": "LOW",
+      "status": "CARRY-FORWARD — verified NOT a current vulnerability",
+      "summary": "Lens A flagged unescaped interpolation of error code and description into the public OAuth error pages (authServer.ts:214,235). I traced every fail() site in oauth.ts: all codes and descriptions are fixed string literals, the only interpolation being the BRIDGE_SCOPE constant. No caller-supplied data reaches those pages, so this is a false positive for reflected XSS. It remains a latent pattern if a caller-derived description is ever added."
+    }
+  ],
+
+  "eccResult": { "critical": 0, "high": 1, "highDisputed": 1, "reachableHigh": 1, "medium": 3, "low": 2, "lensCount": 3, "lenses": ["injection, evidence and provenance", "credential, escalation, cost, restart and bypass", "governance authority"] },
+
+  "implementerSelfReview": {
+    "verdict": "CONCERNS",
+    "independentlyVerifiedRatherThanRelayed": [
+      "C17-F1 confirmed by reading appendLedger, run.ts and the createExclusive census directly — not accepted on the lens's word.",
+      "C17-F2 partially rebutted by finding the pinned broker endpoint, which the lens noted but scored past.",
+      "C17-F6 rebutted outright by tracing every fail() description to a literal.",
+      "8787 cannot become non-loopback: listen() takes the constant BRIDGE_BIND_HOST; PROJECTOS_BRIDGE_HOST can only refuse startup, never widen the bind. Confirmed live: loopback only, no inbound firewall rule.",
+      "No Auth at the ChatGPT layer is not no authentication: calls carry the installation bridge bearer credential injected by tunnel-client; unauthenticated and wrong-token both return 401 live.",
+      "Retained public OAuth origin returns 404 on /mcp, /v1/mcp, /, /healthz, /admin, /.env and to a real JSON-RPC POST."
+    ],
+    "residualConcernRaisedByImplementer": "The running bridge is in split mode, so it still advertises WWW-Authenticate pointing at the public issuer and would accept a token minted by the retained public authorization server. That is a live parallel authority path. It is bounded by a 48-bit PIN that never leaves the local terminal and is spent on a wrong guess, so abuse is infeasible — but it is redundant reachable surface that the already-written retirement plan removes. Recorded as MEDIUM carry-forward, not a blocker."
+  },
+
+  "retainedRedundantInfrastructure": {
+    "assessedOnly": true,
+    "retirementPerformed": false,
+    "components": ["oauth-projectos.safw4n.com", "Cloudflare tunnel ProjectOS-C15-OAuth", "local OAuth authorization service on 127.0.0.1:8788", "local OAuth signing material", "old OpenAI tunnel tunnel_6a88d18f2794819185e13479385c88b2"],
+    "currentReachableRisk": "No CRITICAL. No HIGH. The public origin exposes no MCP and no bridge authority — every probed path returns 404, and the authorization-server process has no MCP route and no path to the bridge. One MEDIUM: the parallel OAuth token path described in the self-review above.",
+    "conclusion": "Retirement remains an existing carry-forward, unchanged by this review."
+  },
+
+  "liveSafetyChecks": { "openaiTunnelReadyz": "ready", "openaiTunnelHealthz": "live", "bridgeUnauthenticated": 401, "bridgeWrongToken": 401, "publicMcp": 404, "bridgeBinding": "127.0.0.1 only, no inbound firewall rule", "toolsList": "7 tools, unchanged", "protectedActionsInvoked": "none", "stateMutated": false },
+
+  "hygiene": { "sourceChanged": false, "trackedModifications": 0, "staging": "empty", "untracked": ["Tunnel-Client/ (vendor, excluded)", "this record"], "reviewAgentTreeDrift": "none — working tree byte-identical to the pre-review snapshot", "secretsExposed": "NONE", "productionTouched": false, "databaseMutation": false, "externalSendsOrPayments": false, "commit": false, "push": false },
+
+  "decisionRequested": "DO NOT ACCEPT C17 at this time. Coverage of all 15 named classes is complete and unresolved CRITICAL is zero, but C17-F1 is a confirmed reachable HIGH in a named class (cost runaway), and the criterion requires unresolved CRITICAL and HIGH at zero. C17-F2's severity is disputed and is the gatekeeper's to settle. No correction has been implemented; both await a ruling."
+}

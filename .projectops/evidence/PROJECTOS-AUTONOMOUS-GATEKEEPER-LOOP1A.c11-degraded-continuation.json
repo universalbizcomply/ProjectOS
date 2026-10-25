@@ -1,0 +1,106 @@
+{
+  "schemaVersion": "1.0.0",
+  "recordId": "PROJECTOS-GATEKEEPER-LOOP1A-C11-DEGRADED-CONTINUATION1A",
+  "projectId": "projectos",
+  "programmeId": "projectos-autonomous-self-hosting",
+  "phaseId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+  "kind": "criterion-progress",
+  "criterion": "C11",
+  "status": "LIMBS 1 AND 2 PROVEN — LIMB 3 CANNOT COMPLETE FOR THIS WITNESS",
+  "at": "2026-08-23T12:20:00.000Z",
+  "atLocal": "2026-08-23 13:20:00 Europe/London",
+  "recordedBy": "Claude (implementer). Nothing here claims owner provenance.",
+
+  "ownerDecision": {
+    "words": "ACCEPT ONE-USE BOUNDED DEGRADED RISK, GKOUT-edefc563fba96122a0ea30f8, GRANT PROJECTOS-DEGRADED-WITNESS2-GRANT1B, MAX WORK ITEMS 1, SCOPE implement, PROTECTED ACTIONS NONE",
+    "decidedBy": "Murad",
+    "recordedAt": "2026-08-23T12:09:00.000Z",
+    "grantCommit": "f80d6eb28ff26a3a41c103c5e5ac2475a6b0f4de",
+    "parent": "907b9a2957162088d9b83b7417668a392cde2f81",
+    "cleanWrapper": "The commit changes the grant record and nothing else, so the work it authorises is still its parent — which is what lets the subject commit stay the work the owner reviewed rather than the commit that authorised it.",
+    "fieldsChangedAfterTheDecision": ["grantedAt", "provenance"],
+    "bindingsUnchanged": "grantId, projectId, phaseId, subjectCommit, unavailabilityId, ownerChoice, grantedBy, grantedScope, maxWorkItems and the exclusions are byte-identical to what was put in front of the owner. Verified field by field."
+  },
+
+  "limb1_gatekeeperUnavailableOwnerDecision": {
+    "proven": true,
+    "condition": "The loop stopped at WORKER_REFUSED and the installation's committed credential allowlist does not authorise this project, so no request was made and no provider was contacted.",
+    "sabotage": "NONE",
+    "unavailabilityId": "GKOUT-edefc563fba96122a0ea30f8",
+    "ownerChoicesOffered": ["WAIT FOR OPENAI", "ACCEPT RISK & CONTINUE WITH CLAUDE SELF-REVIEW", "STOP WORK"],
+    "ownerChose": "ACCEPT RISK & CONTINUE WITH CLAUDE SELF-REVIEW"
+  },
+
+  "limb2_degradedBoundedContinuation": {
+    "proven": true,
+    "outageMatched": "The loop recognised the authority commit as a wrapper — 'authority commit f80d6eb over work 907b9a2' — and derived the same outage the grant names.",
+    "workId": "GKWORK-1c6690305e3c24ea",
+    "authorised": "degraded mode AUTHORISED 'implement' as GKWORK-1c6690305e3c24ea (0 work item(s) left after this)",
+    "consumptionBeforeWork": "The consumption was persisted and read back before the work item was reached; the runtime's own ordering guarantees it, and the durable record carries the same timestamp as the project record.",
+    "durableRecord": {
+      "path": "%LOCALAPPDATA%/ProjectOS/installation-state/degraded-consumption.json",
+      "outsideTheProject": true,
+      "whyThatMatters": "Witness 1's consumption was recorded project-locally and died with the project. This record survives the project being deleted, which is the whole reason witness 2 exists.",
+      "contents": "one consumption: installRoot C:/dev/ProjectOS, project projectos-degraded-witness2a, repository witness.invalid/projectos-witness/degraded-witness2a, phase PROJECTOS-DEGRADED-WITNESS2A, grant PROJECTOS-DEGRADED-WITNESS2-GRANT1B, subject 907b9a29…, outage GKOUT-edefc563…, work GKWORK-1c6690305e3c24ea, consumedAt 2026-08-23T12:10:05.808Z"
+    },
+    "debtRecorded": "the next major gate cannot proceed as normal while degraded-mode work is unreconciled — 1 item awaits reconciliation",
+    "replayRefused": {
+      "proven": true,
+      "how": "The same run made a second attempt under the same grant. It was refused: 'grant PROJECTOS-DEGRADED-WITNESS2-GRANT1B was already used and cannot be replayed onto further work'. ONE MEANS ONE, demonstrated rather than asserted.",
+      "secondWorkItemCreated": false
+    },
+    "protectedActions": "NONE — scope was 'implement' and nothing else was reachable."
+  },
+
+  "limb3_returnToGatekeeperReconciliation": {
+    "proven": false,
+    "attempted": true,
+    "whatWasProven": [
+      "The canonical route runs and binds correctly: 'every check passed; asking would send request GKREQ-fabdf74e13b02e5d460510df about 907b9a2' — project, phase, work id, grant, subject and owner all checked.",
+      "The dry run sent nothing, spent nothing and wrote nothing.",
+      "The real attempt refused as UNAVAILABLE, reported that the request was never sent and nothing was spent, and left the debt standing.",
+      "Mismatched bindings are refused, each naming the exact mismatch: a work id the grant does not record (NOT_OUTSTANDING), a phase the use record is not for (NO_SUCH_GRANT), and a grant with no use record and no installation spend (NO_SUCH_GRANT).",
+      "The debt was never discharged by any of them."
+    ],
+    "whyItCannotComplete": "Reconciliation needs the gatekeeper's actual verdict, and this witness can never obtain one: it exists outside the installation's committed credential allowlist, which is precisely the boundary that produced the unavailability in the first place. A witness built to be unreachable cannot also be reachable. Completing this limb requires the installation to authorise the witness — an installation-side governance change that would also spend real money — and that is an owner and gatekeeper decision, not an implementer's.",
+    "notFaked": "No verdict was manufactured, no reconciliation record was written, and the debt stands outstanding exactly as the runtime reports it."
+  },
+
+  "correctionsMadeToReachThisPoint": {
+    "f8OnTheReconcileRoute": "The reconcile route had the same classification defect the loop had, and the same ordering problem: it never forwarded the installation policy to the transport, never released its reservation, and asked the policy only after admission — so admission refused first and the classification was never reached. All three were corrected to match the loop, which is what turned a permanently stuck SPEND_REFUSED into an honest UNAVAILABLE that reports nothing was sent.",
+    "residual": "The reconcile reservation of 8405 micro-USD is RETAINED rather than released, because releasing requires the installation's answered-record to say the request was never answered and that record does not exist on this installation. That is the F7 fail-safe behaving as specified: it keeps a charge that may be wrong rather than erasing one that may be real. It blocks nothing, because the policy is now checked before admission."
+  },
+
+  "stateOfPlay": {
+    "grantIssued": true,
+    "grantCommitted": true,
+    "grantConsumed": true,
+    "workItemsPerformed": 1,
+    "maxWorkItems": 1,
+    "replayRefused": true,
+    "debtOutstanding": true,
+    "reconciliationSettled": false,
+    "mismatchedBindingsRefused": true,
+    "providerCalls": 0,
+    "realSpend": "nil",
+    "protectedActions": "NONE",
+    "projectosCommit": false,
+    "projectosPush": false,
+    "witnessPushed": false,
+    "productionTouched": false,
+    "credentialsChanged": false,
+    "infrastructureChanged": false,
+    "secretsExposed": false
+  },
+
+  "verification": {
+    "agentTests": "1103 passed / 1103, 37 files",
+    "coreTests": "585 passed / 585, 22 files",
+    "validators": "131 registered, 131 PASS, 0 FAIL — run after the reconcile-route correction",
+    "typecheck": "clean, src and tests",
+    "build": "clean",
+    "secretScan": "0 secret-shaped strings in the diff"
+  },
+
+  "recommendation": "DO NOT ACCEPT C11 YET. Limbs 1 and 2 are proven end to end, durably, with replay and mismatched bindings refused. Limb 3 is attempted and correctly refused, but cannot complete while the witness sits outside the installation allowlist — the same boundary that makes limb 1 real. The gatekeeper should decide whether to authorise the witness for one reconciliation call, which would spend real money and is an installation-side change, or to accept limb 3 as proven by the parent project's own reconciliation route instead."
+}

@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "1.0.0",
+  "projectId": "demo-project",
+  "activePlanId": "demo-plan",
+  "activePlanVersion": "1.0",
+  "currentStatus": "IN EXECUTION",
+  "completionMethod": "accepted-phase-ratio (temporary): acceptedPhaseCount / totalPhaseCount",
+  "acceptedPhaseCount": 1,
+  "totalPhaseCount": 2,
+  "completionPercentage": 50,
+  "completedPhases": [
+    "DEMO-P1"
+  ],
+  "activePhase": "DEMO-P2",
+  "pendingPhases": [],
+  "blockedPhases": [],
+  "deferredPhases": [],
+  "acceptedCarryForward": [],
+  "currentBranch": "main",
+  "currentHead": "2222222222222222222222222222222222222222",
+  "currentRemoteHead": "2222222222222222222222222222222222222222",
+  "workingTreeStatus": "clean",
+  "currentRisks": [],
+  "currentBlockers": [],
+  "lastEvidenceReference": "knowledge/reports/demo.md",
+  "nextRecommendedPhase": null,
+  "lastUpdated": "2026-07-11",
+  "updatedByRole": "implementer"
+}

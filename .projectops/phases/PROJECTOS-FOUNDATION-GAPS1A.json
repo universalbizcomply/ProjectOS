@@ -1,0 +1,57 @@
+{
+  "phaseId": "PROJECTOS-FOUNDATION-GAPS1A",
+  "project": "ProjectOS",
+  "objective": "Close the two foundation gaps the owner-ready reconciliation proved, and nothing else. Unit one renders the existing read-only portfolio summary for projects that are not selected, because project selection is refused while governed work runs and the owner otherwise cannot see any other project during a run. Unit two pins, by validator, the already accepted placement of the windows-client-admission Cargo feature and of the live IPC graph feature that reaches it, each new rule proven by a named mutation.",
+  "status": "closed",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-09-28T20:05:19.663Z",
+      "note": "Gatekeeper APPROVED TO PROCEED on plan v1.7 (activation head f4dcfac); scope exactly the ratified material."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-09-28T20:05:20.126Z",
+      "note": "Implementation of unit one and unit two begins on projectos-foundation-gaps1a from f4dcfac; pre-commit stop."
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-09-28T22:52:06.503Z",
+      "note": "Candidate commit 624ad21 (parent f4dcfac), 8 reviewed paths, 0 Rust, 0 Cargo.toml, committed blobs byte-identical to the reviewed manifest. Gatekeeper APPROVED TO COMMIT. Validation run on these bytes: Control Center 890/890, focused ProjectsScreen tests 12/12, typecheck clean, required validators PASS."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-09-28T22:52:06.966Z",
+      "note": "Evidence docs/speed/foundation-gaps1a-evidence.md at 624ad21: 14/14 named mutations killed by their own rule, 2/2 negative controls clean, byte-for-byte restore verified (off-tree battery); validate-all 143/145, only validate-desktop-e2e and val-cd-b4-sealed-expected-window-facts1a, unchanged; ECC CODE APPROVE, ECC SECURITY APPROVE; open CRITICAL 0, HIGH 0, MEDIUM 0. Not pushed. Closure not requested; owner credential/token rotation statement still due before closure."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-09-28T23:34:20.015Z",
+      "note": "closure tail only - no implementation, no source. Reviews complete at subject 624ad21: Claude self-review; ECC CODE WARN then APPROVE; ECC SECURITY APPROVE, WARN, then APPROVE; three MEDIUMs fixed (unstaged path crate, workspace inheritance, absolute paths); 0 open CRITICAL, HIGH or MEDIUM. Pushed and remote-verified (f4dcfac..624ad21, 0/0, diff empty)."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-09-28T23:34:20.765Z",
+      "note": "closure tail only - no implementation, no source. Gatekeeper ACCEPTED FOR CLOSURE at subject 624ad21a33299a716106493c6acdfe437d4c9db2; closes owner-direct by Murad. Owner statement, verbatim: \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\" No production, provider, spend, credential, live specialist or Autonomy Bootstrap activity."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-09-28T23:37:12.252Z",
+      "note": "closed by owner Murad, decision projectos:PROJECTOS-FOUNDATION-GAPS1A:owner-closure:624ad21a"
+    }
+  ]
+}

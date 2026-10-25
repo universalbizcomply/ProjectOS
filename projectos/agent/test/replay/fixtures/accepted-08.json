@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "1.0.0",
+  "recordKind": "gatekeeper-decision-evidence",
+  "decisionId": "GKDEC-REPLAY-11",
+  "projectId": "projectos",
+  "phaseId": "validation-cache",
+  "subjectCommit": "6f4b16c85b25c69afb4c71195431ecc48f1c0386",
+  "requestDigest": "sha256:df716fe9e690c4e5237d6337564194646e91731850e4e06957ed8c2bd6ae914c",
+  "decision": "AWAITING_OWNER",
+  "allowedActions": [
+    "preserve-passing-check-and-review-evidence",
+    "inspect-candidate-cache-residue",
+    "prepare-owner-risk-and-remediation-brief",
+    "run-non-mutating-verification",
+    "record-owner-decision-when-provided"
+  ],
+  "forbiddenActions": [
+    "commit",
+    "push",
+    "merge",
+    "force-push",
+    "phase-closure",
+    "secrets-handling",
+    "payment-or-live-charge",
+    "deploy",
+    "database-mutation",
+    "external-message",
+    "unscoped-source-edits",
+    "autonomous-risk-acceptance"
+  ],
+  "ownerApprovalRequired": true,
+  "decidedBy": "ChatGPT",
+  "decidedAt": "2026-01-01T00:00:00.000Z",
+  "reason": "Replay fixture: the provider prose is not carried, only its presence."
+}

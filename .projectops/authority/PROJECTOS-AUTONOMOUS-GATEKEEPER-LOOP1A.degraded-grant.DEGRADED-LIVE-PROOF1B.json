@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "1.0.0",
+  "grantId": "DEGRADED-LIVE-PROOF1B",
+  "projectId": "projectos",
+  "phaseId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+  "subjectCommit": "c8c802a1d718b835b24a2c6a41d9b306544e9b3f",
+  "unavailabilityId": "GKOUT-390e74d14b9eb6cb77c352a6",
+  "ownerChoice": "ACCEPT RISK & CONTINUE WITH CLAUDE SELF-REVIEW",
+  "grantedBy": "Murad",
+  "grantedAt": "2026-08-20T14:28:00+01:00",
+  "reason": "Murad explicitly accepts the elevated risk of exactly one local degraded-mode implement work item against subject c8c802a1d718b835b24a2c6a41d9b306544e9b3f while the gatekeeper is unavailable with cause CREDENTIAL_UNAVAILABLE. Murad acknowledges unresolved HIGH H1 in the gatekeeper amendment path. This grant does not authorise protected actions, push, production, database mutation, external sends, payments, credential changes, destructive actions, reconciliation or closure.",
+  "grantedScope": [
+    "implement"
+  ],
+  "maxWorkItems": 1
+}

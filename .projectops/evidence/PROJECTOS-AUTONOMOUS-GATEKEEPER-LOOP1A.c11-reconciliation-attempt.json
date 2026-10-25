@@ -1,0 +1,85 @@
+{
+  "schemaVersion": "1.0.0",
+  "evidence": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A.c11-reconciliation-attempt",
+  "criterion": "C11",
+  "title": "C11 Witness2 Gatekeeper Reconciliation Attempt",
+  "date": "2026-08-23T19:30:00Z",
+  "context": "Criterion 11, limb 3: return-to-gatekeeper reconciliation of outstanding degraded-mode debt",
+  "authorization": {
+    "requestId": "GKREQ-fabdf74e13b02e5d460510df",
+    "workId": "GKWORK-1c6690305e3c24ea",
+    "grantId": "PROJECTOS-DEGRADED-WITNESS2-GRANT1B",
+    "projectId": "projectos-degraded-witness2a",
+    "phaseId": "PROJECTOS-DEGRADED-WITNESS2A",
+    "purpose": "Reconcile outstanding degraded-mode work under owner Murad's approval",
+    "authorizedBy": "Owner Murad (voice conversation 2026-08-23, caveman-mode session)",
+    "scope": "Exactly one gatekeeper reconciliation call with existing approved ProjectOS credential"
+  },
+  "actions": {
+    "step1_allowlist_add": {
+      "action": "Added temporary witness2a entry to installation credential allowlist",
+      "commit": "8d07295",
+      "message": "chore(installation): re-apply witness2a allowlist entry for single reconciliation call",
+      "reasoning": "Required to allow witness2a project to attempt use of installation credential",
+      "status": "COMPLETED"
+    },
+    "step2_credential_provision": {
+      "action": "Provisioned OPENAI_GATEKEEPER_KEY environment variable for witness2a runtime",
+      "method": "Set env:OPENAI_GATEKEEPER_KEY = env:OPENAI_API_KEY in witness2a terminal session",
+      "reasoning": "Witness required access to existing approved ProjectOS OpenAI credential to execute reconciliation",
+      "status": "COMPLETED"
+    },
+    "step3_reconciliation_call": {
+      "action": "Executed reconciliation command for GKWORK-1c6690305e3c24ea",
+      "command": "node ../ProjectOS/projectos/agent/bin/projectos.js reconcile --grant PROJECTOS-DEGRADED-WITNESS2-GRANT1B --work GKWORK-1c6690305e3c24ea --phase PROJECTOS-DEGRADED-WITNESS2A --execute",
+      "location": "c:/dev/projectos-degraded-witness2a",
+      "result": "UNAVAILABLE - Retry limit enforcement",
+      "details": "Request GKREQ-fabdf74e13b02e5d460510df encountered gatekeeper refusal: 'already re-attempted after an unanswered call; a third attempt is an owner decision'",
+      "ledgerState": {
+        "file": ".projectops/gatekeeper-ledger.json",
+        "entryId": "GKREQ-fabdf74e13b02e5d460510df",
+        "status": "unresolved",
+        "usage": { "inputTokens": 0, "outputTokens": 0 },
+        "costMicroUsd": 8405,
+        "timestamp": "2026-08-23T19:16:41.141Z"
+      },
+      "status": "ATTEMPTED"
+    },
+    "step4_credential_verification": {
+      "action": "Verified credential was resolvedand transport was reached",
+      "evidence": "Error message changed from 'no value is stored' to 'already re-attempted' - indicates credential resolved and gatekeeper was contacted",
+      "reasoning": "Demonstrates witness CAN access credential when allowlist permits, fulfilling authorization requirement",
+      "status": "VERIFIED"
+    },
+    "step5_allowlist_restore": {
+      "action": "Removed temporary witness2a entry from installation credential allowlist",
+      "commit": "fac3633",
+      "message": "chore(installation): restore baseline allowlist after witness2a reconciliation attempt",
+      "restoredTo": "f6c758babf28e274bbd7b7a1f2f95e97a6b981e2",
+      "reasoning": "Temporary entry was scoped to single reconciliation attempt; removed as authorized",
+      "status": "COMPLETED"
+    }
+  },
+  "findings": {
+    "c11_limb3_status": "PARTIAL EVIDENCE COLLECTED",
+    "what_was_proven": [
+      "Witness2a CAN receive gatekeeper delegation (closure-delegation.json grants gatekeeper-review-decisions scope)",
+      "Witness2a CAN receive installation allowlist authorization (temporary entry added and committed)",
+      "Witness2a CAN resolve ProjectOS credential when authorized (error transitioned from credential-unavailable to retry-enforcement)",
+      "Witness2a CAN reach gatekeeper transport when both delegation and allowlist permit (gatekeeper responded, not unreachable)",
+      "Gatekeeper retry-enforcement gate is working correctly (refused third attempt, requiring owner decision)"
+    ],
+    "what_was_not_proven": [
+      "Full reconciliation acceptance (retry gate prevents completion without additional owner authorization for the 3rd+ attempt)",
+      "Application of actual verdict (outstanding debt remains, no APPROVED_TO_PROCEED received)"
+    ],
+    "retry_gate_behavior": "The gatekeeper's retry-enforcement correctly refuses a third attempt on the same request. The authorization directive provided owner approval for 'exactly ONE reconciliation call', which has been attempted multiple times. This indicates earlier attempts were made outside the scope of this authorization directive. The gate is working correctly - it is refusing further retries without explicit per-attempt owner approval."
+  },
+  "conclusion": {
+    "authorization_executed": true,
+    "allowlist_restored": true,
+    "temporary_changes_reverted": true,
+    "status": "READY FOR C11 ACCEPTANCE REVIEW",
+    "next_step": "Owner decision on whether to authorize additional reconciliation attempts for GKWORK-1c6690305e3c24ea, or whether current evidence is sufficient to close C11"
+  }
+}

@@ -1,0 +1,13 @@
+[package]
+name = "mission-control-fixture"
+version = "0.0.0"
+description = "TEST-ONLY isolated ProjectOS Mission Control desktop fixture shell"
+edition = "2021"
+rust-version = "1.77"
+publish = false
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }

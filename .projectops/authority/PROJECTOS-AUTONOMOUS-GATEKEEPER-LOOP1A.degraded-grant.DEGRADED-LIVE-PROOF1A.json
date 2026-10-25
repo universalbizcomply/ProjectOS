@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "1.0.0",
+  "grantId": "DEGRADED-LIVE-PROOF1A",
+  "projectId": "projectos",
+  "phaseId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+  "subjectCommit": "d45911cfe6f4701c3edb36e6d180371c88c1095a",
+  "unavailabilityId": "GKOUT-4ebaec5e437da56f87bfad61",
+  "ownerChoice": "ACCEPT RISK & CONTINUE WITH CLAUDE SELF-REVIEW",
+  "grantedBy": "Murad",
+  "grantedAt": "2026-08-20T01:25:00+01:00",
+  "reason": "Murad explicitly accepts the elevated risk of exactly one local degraded-mode implement work item while the gatekeeper is unavailable, solely to live-prove ProjectOS degraded-mode durability, bounded execution and mandatory reconciliation. No protected action is authorised.",
+  "grantedScope": [
+    "implement"
+  ],
+  "maxWorkItems": 1
+}

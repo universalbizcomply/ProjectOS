@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "1.0.0",
+  "invocationId": "526449f4b151631e",
+  "createdAt": "2026-08-18T12:01:46.689Z",
+  "projectId": "projectos",
+  "phaseId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+  "sessionId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A-3d9ec914ef5e-526449f4",
+  "repository": {
+    "root": "c:/dev/ProjectOS",
+    "branch": "projectos-post-v3-selfhost-pilot1a",
+    "head": "3d9ec914ef5e69fbc069e76dbb5e9a1b2f734568"
+  },
+  "executionMode": "live",
+  "process": {
+    "pid": 43904,
+    "ppid": 39544,
+    "argv": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\dev\\ProjectOS\\projectos\\scripts\\criterion10-live-proof.mjs"
+    ],
+    "cwd": "C:\\dev\\ProjectOS"
+  },
+  "workerId": "claude-local",
+  "workerKind": "claude-code-cli",
+  "brief": {
+    "path": "c:/dev/ProjectOS/.projectops/execution/PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A-3d9ec914ef5e-526449f4.brief.json",
+    "briefId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A@3d9ec914ef5e69fbc069e76dbb5e9a1b2f734568",
+    "digest": "sha256:17e6e8fa33fcc98a0115d21f97994a5a5100211b6802a0060ceb288d9b21250b"
+  }
+}

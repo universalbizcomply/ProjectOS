@@ -1,0 +1,93 @@
+{
+  "schemaVersion": "1.0.0",
+  "briefId": "PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A@ecfd4052f6425f86d23c27a46ea6328efbdf364d",
+  "generatedAt": "2026-09-03T12:00:02.704Z",
+  "projectId": "projectos",
+  "projectName": "ProjectOS",
+  "repository": {
+    "root": "C:\\dev\\ProjectOS",
+    "remote": "universalbizcomply/ProjectOS",
+    "branch": "projectos-post-v3-selfhost-pilot1a",
+    "head": "ecfd4052f6425f86d23c27a46ea6328efbdf364d"
+  },
+  "plan": {
+    "path": "C:\\dev\\ProjectOS/.projectops/plan-98675c78dc8b3175-786d909d1ccb.json",
+    "planId": "plan-98675c78dc8b3175-786d909d1ccb",
+    "planVersion": "1.1"
+  },
+  "phase": {
+    "phaseId": "PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A",
+    "description": "Prove that ProjectOS can carry one bounded change to itself from objective to pushed result without the owner relaying anything between Claude and the gatekeeper.",
+    "dependsOn": [
+      "PROJECTOS-OWNER-ESCALATION-WAIT1A",
+      "PROJECTOS-SESSION-RECOVERY1A"
+    ],
+    "acceptanceCriteria": [
+      "One bounded change to ProjectOS itself is carried from objective to pushed result with the owner performing zero relay between the reviewer and the implementer",
+      "Every protected action encountered stops for the owner rather than proceeding",
+      "The run's account of what it did matches what the repository shows"
+    ],
+    "riskLevel": "high",
+    "autonomyLevel": "gated-execution",
+    "requiredValidators": [
+      "validate-all"
+    ],
+    "requiredReviews": [
+      "code-review",
+      "security-review"
+    ],
+    "requiredBrowserProof": false,
+    "requiredOwnerGates": [
+      "secrets-handling",
+      "payment-or-live-charge"
+    ]
+  },
+  "records": {
+    "briefPath": "C:\\dev\\ProjectOS/.projectops/execution/PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A-ecfd4052f642-2908a227.brief.json",
+    "findingsPath": "C:\\dev\\ProjectOS/.projectops/execution/PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A-ecfd4052f642-2908a227.findings.json",
+    "effectsPath": "C:\\dev\\ProjectOS/.projectops/execution/PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A-ecfd4052f642-2908a227.effects.json",
+    "evidencePath": "C:\\dev\\ProjectOS/.projectops/execution/PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A-ecfd4052f642-2908a227.evidence.json",
+    "effectsContract": {
+      "location": "top-level",
+      "valueType": "boolean",
+      "requiredFields": [
+        "productionTouched",
+        "deploymentOccurred",
+        "databaseMutationOccurred",
+        "externalSendOccurred",
+        "paymentOccurred",
+        "rawSecretStored"
+      ]
+    }
+  },
+  "boundaries": {
+    "forbiddenActions": [
+      "production-deploy",
+      "production-db-mutation",
+      "real-email-sms-whatsapp",
+      "payment-or-live-charge",
+      "force-push",
+      "use-anthropic-api",
+      "provider-credential-access",
+      "store-real-secret",
+      "modify-projectos-v2-core",
+      "modify-v2-closure-records",
+      "modify-polygo"
+    ],
+    "approvalGates": [
+      "commit",
+      "push",
+      "phase-closure",
+      "secrets-handling",
+      "production-deploy",
+      "production-db-mutation",
+      "real-email-sms-whatsapp",
+      "payment-or-live-charge"
+    ],
+    "protectedBranches": [
+      "main",
+      "projectos-v2-core"
+    ],
+    "productionFreeze": true
+  }
+}

@@ -1,0 +1,47 @@
+[package]
+name = "projectos-host-core"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Service-private trust and operation contracts for the future ProjectOS Host Service: observations, service-validated facts, operation state, a construction-restricted execution permit, approval/credential/storage interfaces, and a fail-closed authority reducer. Pure logic — NO I/O, NO Windows APIs, NO IPC, NO serialization of authority state, NO real security boundary."
+license = "UNLICENSED"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[features]
+# Test-only synthetic approved-plan fixtures for integration tests. Non-default; a live graph never
+# enables it, so the fixture approval path can never reach production authority.
+test-fixtures = []
+# PROJECTOS-HOST-REVIEW-PATH1B G2. COMPILES the production clock-binding route (the one-shot
+# service-runtime clock authority and its mint of `ProductionClockBindingGrant`). NON-DEFAULT, and
+# enabled by the service-host composition alone.
+#
+# IT MINTS NOTHING BY ITSELF. With this feature on and no `ConfirmedAuthorityGuard` in
+# `ServiceRuntimeConfirmed` state there is still no authority, no grant, no clock and no
+# `VerifiedAuthorityTime` — the feature decides only whether the route exists. It does NOT imply
+# `test-fixtures`, so it never pulls the fixture grant into a production graph.
+production-clock-binding = []
+
+[dependencies]
+projectos-trust-contract = { path = "../contract" }
+thiserror = "1"
+# SHA-256 for the collision-resistant, domain-separated, schema-versioned PhaseDefinitionDigest
+# (CD-B4-PROTECTED-PLAN-STORE-SHA256-AUTHORITY1A, Option A). Same version already used by
+# host-identity / windows-durable-protected-store; default features only; used ONLY for that digest.
+sha2 = "0.10"
+# CD-B4-PRODUCTION-CAPABILITY-ACQUISITION-SEAM1A. The cold-start provider-authority seam is rooted in the
+# machine-wide existence token, so core needs to name `ConfirmedAuthorityGuard`. STRICTLY ONE-WAY: this
+# crate depends on host-authority, never the reverse (host-authority remains dependency-free, so no cycle
+# is possible). DEFAULT FEATURES ONLY — host-authority's default graph pulls no `windows` crate and no
+# handle primitive, so core stays windows-free and `unsafe_code = "forbid"` is unaffected.
+projectos-host-authority = { path = "../host-authority" }
+
+[dev-dependencies]
+# Core's OWN tests need a confirmed authority to drive the seam. `effect-witness-fixtures` is
+# host-authority's PURE contract-fixture feature: no dependency, no Windows API, no machine effect, and
+# (unlike `test-fixtures`) it leaves AuthorityGuard in its sealed, handle-free shape. Dev-only, so the
+# fixture confirmation route is absent from core's default/release graph.
+projectos-host-authority = { path = "../host-authority", features = [
+    "effect-witness-fixtures",
+] }

@@ -1,0 +1,52 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "projectos/schemas/source-discovery-manifest.schema.json",
+  "title": "ProjectOS Source-Discovery Manifest",
+  "description": "Deterministic inventory of candidate plan/project-control documents discovered under a verified repository root, plus safety skips. Content bodies are held in memory during import but are NOT required in the persisted manifest. Created in PROJECTOS-V3-PLAN-DISCOVERY-IMPORT1A.",
+  "type": "object",
+  "required": ["schemaVersion", "root", "limits", "sources", "skipped", "truncated"],
+  "properties": {
+    "schemaVersion": { "type": "string" },
+    "root": { "type": "string" },
+    "limits": {
+      "type": "object",
+      "required": ["maxFileBytes", "maxFiles", "maxDepth"],
+      "properties": {
+        "maxFileBytes": { "type": "integer", "minimum": 1 },
+        "maxFiles": { "type": "integer", "minimum": 1 },
+        "maxDepth": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["relPath", "normRelPath", "ext", "size", "checksum", "normChecksum", "structKey", "type", "authority", "secretScan", "included", "exclusionReason"],
+        "properties": {
+          "relPath": { "type": "string" },
+          "normRelPath": { "type": "string" },
+          "ext": { "type": "string" },
+          "size": { "type": "integer", "minimum": 0 },
+          "checksum": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+          "normChecksum": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+          "structKey": { "type": "string" },
+          "title": { "type": ["string", "null"] },
+          "type": { "type": "string" },
+          "authority": { "type": "string", "enum": ["AUTHORITATIVE", "CURRENT_SUPPORTING", "HISTORICAL", "SUPERSEDED", "DUPLICATE", "CONFLICTING", "UNVERIFIED", "EXCLUDED"] },
+          "secretScan": { "type": "string" },
+          "included": { "type": "boolean" },
+          "exclusionReason": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "skipped": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "reason"],
+        "properties": { "path": { "type": "string" }, "reason": { "type": "string" } }
+      }
+    },
+    "truncated": { "type": "boolean" }
+  }
+}

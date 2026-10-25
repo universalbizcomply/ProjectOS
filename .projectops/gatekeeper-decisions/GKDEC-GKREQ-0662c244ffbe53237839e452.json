@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "1.0.0",
+  "recordKind": "gatekeeper-decision-evidence",
+  "decisionId": "GKDEC-GKREQ-0662c244ffbe53237839e452",
+  "projectId": "projectos",
+  "phaseId": "PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A",
+  "subjectCommit": "2d16aff34b78b682103d2659e36069cdab53f465",
+  "requestDigest": "sha256:ff541f59c5f6675c9e6fdb65b8909963f8e45a6f185971e82f5a46afa5be39fd",
+  "decision": "AWAITING_OWNER",
+  "reason": "The worker refused before executing reviews, checks, or producing an effects attestation because the SessionEnd hook could not find node. No verification evidence exists for the bound Pilot1A subject, so progression cannot be approved. Repairing the local hook runtime/PATH is owner-controlled environment intervention.",
+  "allowedActions": [
+    "preserve-worker-refusal-evidence",
+    "inspect-non-secret-hook-runtime-configuration",
+    "prepare-owner-environment-remediation-brief",
+    "record-owner-decision-when-provided"
+  ],
+  "forbiddenActions": [
+    "commit",
+    "push",
+    "phase-closure",
+    "secrets-handling",
+    "payment-or-live-charge",
+    "deploy",
+    "database-mutation",
+    "external-message",
+    "source-edits",
+    "repeated-worker-retries-without-environment-repair"
+  ],
+  "ownerApprovalRequired": true,
+  "decidedBy": "ChatGPT",
+  "decidedAt": "2026-09-03T16:30:34.000Z"
+}

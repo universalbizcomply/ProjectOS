@@ -1,0 +1,272 @@
+{
+  "schemaVersion": "1.0.0",
+  "sessionId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A-a12c5aff5e89-ea30b416",
+  "projectId": "projectos",
+  "phaseId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+  "subjectCommit": "a12c5aff5e89360a20415f34a9c200a763c79294",
+  "reviewedAt": "2026-08-23T22:03:00.000Z",
+  "reviews": [
+    "code-review",
+    "security-review"
+  ],
+  "filesReviewed": [
+    "projectos/core/src/gatekeeperTransport.ts",
+    "projectos/core/src/gatekeeperBridge.ts",
+    "projectos/core/src/gatekeeperThread.ts",
+    "projectos/core/src/gatekeeperDecision.ts",
+    "projectos/core/src/gatekeeperDegradedMode.ts",
+    "projectos/core/src/gatekeeperCostLedger.ts",
+    "projectos/core/src/gatekeeperModelPolicy.ts",
+    "projectos/agent/src/loop/gatekeeperTurn.ts",
+    "projectos/agent/src/loop/gatekeeperRouting.ts",
+    "projectos/agent/src/loop/gatekeeperConfig.ts",
+    "projectos/agent/src/loop/credentialResolver.ts",
+    "projectos/agent/src/loop/reconciliation.ts",
+    "projectos/agent/src/loop/correctionBoundary.ts",
+    "projectos/agent/src/loop/transports/openaiResponses.ts",
+    "projectos/agent/src/loop/transports/brokeredHttpPort.ts"
+  ],
+  "attackClassesCovered": [
+    "prompt-injection-model-boundary",
+    "prompt-injection-owner-interface",
+    "evidence-poisoning",
+    "cross-project-leakage",
+    "stale-decision-replay",
+    "subject-drift",
+    "credential-leakage",
+    "model-escalation-abuse",
+    "cost-runaway",
+    "duplicate-calls-after-restart",
+    "self-approval",
+    "override-replay",
+    "degraded-mode-escalation",
+    "reconciliation-bypass",
+    "direct-gatekeeper-to-claude-bypass"
+  ],
+  "findings": [
+    {
+      "id": "SEC-001",
+      "severity": "HIGH",
+      "category": "security",
+      "summary": "safeExcerpt() in openaiResponses.ts does not strip Unicode bidi reordering characters before the ch >= ' ' filter, unlike every other sanitiser in the codebase; provider-controlled error text reaching governance records or owner-visible output can carry bidi overrides.",
+      "resolved": false
+    },
+    {
+      "id": "SEC-002",
+      "severity": "MEDIUM",
+      "category": "security",
+      "summary": "nextClaudeInstruction from the gatekeeper is carried into the worker prompt with only truncation and character-level filtering; no independent semantic validation is applied, but the risk is acknowledged, documented, and bounded by the 2000-character hard limit.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-003",
+      "severity": "HIGH",
+      "category": "security",
+      "summary": "rehearsalOnly flag is refused on any non-rehearsal transport kind; the inverse (rehearsal transport without the flag) is also refused — both directions structurally enforced.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-004",
+      "severity": "CRITICAL",
+      "category": "security",
+      "summary": "decidedBy field now derives from config.decidedBy (transport configuration), independent of expectedDecider (committed delegation record); circular self-validation closed.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-005",
+      "severity": "HIGH",
+      "category": "security",
+      "summary": "Cross-project thread leakage prevented by set-level isolation checks in gatekeeperThread.ts with consistent normalisation on both sides of the comparison.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-006",
+      "severity": "HIGH",
+      "category": "security",
+      "summary": "Stale decision replay prevented by four independent bindings (projectId, phaseId, subjectCommit, requestDigest) plus consumedAt field and alreadyConsumedDecisionIds set from the ledger.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-007",
+      "severity": "HIGH",
+      "category": "security",
+      "summary": "Self-approval blocked by isImplementerName() checks on decidedBy in decisions and grantedBy in degraded grants; isModelName() also refuses gatekeeper/GPT/ChatGPT/OpenAI identities.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-008",
+      "severity": "CRITICAL",
+      "category": "security",
+      "summary": "Cost runaway TOCTOU race closed by serialised admitSpend admission lock: ledger read, budget evaluation, and provisional entry write all occur inside one exclusive file-lock acquisition.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-009",
+      "severity": "HIGH",
+      "category": "security",
+      "summary": "Duplicate gatekeeper calls after restart prevented by deterministic request ID derivation (SHA-256 over projectId, phaseId, subjectCommit, ask, evidenceDigest) plus ledger deduplication.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-010",
+      "severity": "HIGH",
+      "category": "security",
+      "summary": "Degraded-mode escalation refused: any grantedScope entry in ownerOnlyActions causes rejection; empty scope refused; grant must be read from committed tree.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-011",
+      "severity": "HIGH",
+      "category": "security",
+      "summary": "Reconciliation bypass prevented: a work item is only cleared when a ReconciliationRecord has decisionAccepted === true, ask === RECONCILIATION_ASK, and a non-null decisionId; ALREADY_ASKED keyed on durable installation ledger.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-012",
+      "severity": "HIGH",
+      "category": "security",
+      "summary": "Override replay prevented by unavailabilityId binding in checkDegradedModeGrant plus alreadyConsumedGrantIds set and consumedAt field.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-013",
+      "severity": "CRITICAL",
+      "category": "security",
+      "summary": "Direct gatekeeper-to-Claude bypass prevented: STOP_ROUTES excludes APPROVED_TO_PROCEED from all stops that require review existence; owner-gated verdicts absent from every stop's applicableVerdicts.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-014",
+      "severity": "HIGH",
+      "category": "security",
+      "summary": "Model escalation abuse prevented: selectTier() defaults to 'strong' for any unrecognised ask; only explicitly listed routine asks receive the routine tier.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-015",
+      "severity": "HIGH",
+      "category": "security",
+      "summary": "Credential leakage prevented structurally: CredentialResolver.resolve() returns a use(fn) callback; secret never assigned outside the callback; brokered transport never invokes the resolver.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-016",
+      "severity": "HIGH",
+      "category": "security",
+      "summary": "Evidence poisoning prevented: projectId, phaseId, subjectCommit and requestDigest are stamped from runtime-controlled request fields, never from model reply.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-017",
+      "severity": "MEDIUM",
+      "category": "security",
+      "summary": "Subject drift via empty commit string closed: authoriseCorrection() explicitly refuses correction where either subjectCommit is empty on either side of the binding check.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-018",
+      "severity": "HIGH",
+      "category": "security",
+      "summary": "Missing or NaN budget policy fields now cause BUDGET_STOPPED rather than acting as no limit; policyProblems() validates both hardStopAtMicroUsd and warnAtMicroUsd.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-019",
+      "severity": "HIGH",
+      "category": "security",
+      "summary": "Budget raise authority now requires both decision ID match and scope === gatekeeper-budget-raise; a plan-approval or other owner decision cannot satisfy the check.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-020",
+      "severity": "HIGH",
+      "category": "security",
+      "summary": "Delegation identity check now runs full checkClosureDelegationRecord validation with requiredScope; programmeId must also match between working-tree and committed config.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-021",
+      "severity": "HIGH",
+      "category": "security",
+      "summary": "Broker execute-then-verify race closed: verified bytes are passed as stdin to node -e rather than re-read from disk at execution time.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-022",
+      "severity": "HIGH",
+      "category": "security",
+      "summary": "Broker environment allowlist prevents NODE_OPTIONS, NODE_PATH and GIT_* inheritance; env constructed from scratch using only PASSED_ENV.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-023",
+      "severity": "HIGH",
+      "category": "security",
+      "summary": "Bridge provenance denylist is applied case-insensitively over attacker-chosen key names; prevents DecidedBy or DECIDEDBY bypassing a case-exact check.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-024",
+      "severity": "MEDIUM",
+      "category": "security",
+      "summary": "Bridge denylist applied over both top-level request fields and request.arguments keys, closing the path where a provenance field could be placed inside the arguments object.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-025",
+      "severity": "HIGH",
+      "category": "security",
+      "summary": "Bridge argument values restricted to IDENTIFIER regex /^[A-Za-z0-9_.:-]{1,128}$/; free-text prose refused at the bridge boundary, closing natural-language-to-instruction channel.",
+      "resolved": true
+    },
+    {
+      "id": "CODE-001",
+      "severity": "MEDIUM",
+      "category": "code-quality",
+      "summary": "pathsNamedIn() extension whitelist is invisible to callers; a correction for an unlisted extension is refused with no indication why. Behaviour is documented and intentional.",
+      "resolved": true
+    },
+    {
+      "id": "CODE-002",
+      "severity": "LOW",
+      "category": "code-quality",
+      "summary": "appendLedger() comment says 'appends' but implementation rewrites the full file atomically via temp-file-rename; comment is slightly misleading about mechanism but implementation is correct.",
+      "resolved": true
+    },
+    {
+      "id": "CODE-003",
+      "severity": "LOW",
+      "category": "code-quality",
+      "summary": "GKDEC- prefix convention is duplicated between gatekeeperConfig.ts and openaiResponses.ts without a shared constant; silent breakage if either changes independently.",
+      "resolved": false
+    },
+    {
+      "id": "CODE-004",
+      "severity": "MEDIUM",
+      "category": "code-quality",
+      "summary": "Default answered callback in admitGatekeeperSpend returns 'unknown', which conservatively refuses retries; callers unaware of the default will get permanent refusals. Behaviour is intentional and documented.",
+      "resolved": true
+    }
+  ],
+  "summary": {
+    "total": 29,
+    "bySeverity": {
+      "CRITICAL": 3,
+      "HIGH": 18,
+      "MEDIUM": 5,
+      "LOW": 3
+    },
+    "unresolvedBySeverity": {
+      "CRITICAL": 0,
+      "HIGH": 1,
+      "MEDIUM": 0,
+      "LOW": 1
+    },
+    "unresolvedCritical": 0,
+    "unresolvedHigh": 1,
+    "carryForwardFromPreviousRun": [
+      "SEC-CHECK-OUTPUT-PROVENANCE",
+      "SEC-PERCENT-ENCODED-PATHS"
+    ]
+  }
+}

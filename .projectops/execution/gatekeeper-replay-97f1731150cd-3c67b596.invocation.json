@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "1.0.0",
+  "invocationId": "3c67b596f7617ad9",
+  "createdAt": "2026-09-05T03:16:02.071Z",
+  "projectId": "projectos",
+  "phaseId": "gatekeeper-replay",
+  "sessionId": "gatekeeper-replay-97f1731150cd-3c67b596",
+  "repository": {
+    "root": "C:\\dev\\ProjectOS",
+    "branch": "projectos-post-v3-selfhost-pilot1a",
+    "head": "97f1731150cd234c4cf9b95cf858a8056762e43b"
+  },
+  "executionMode": "live",
+  "process": {
+    "pid": 41084,
+    "ppid": 10004,
+    "argv": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\dev\\ProjectOS\\projectos\\agent\\bin\\projectos.js",
+      "run",
+      "--execute"
+    ],
+    "cwd": "C:\\dev\\ProjectOS"
+  },
+  "workerId": "claude-local",
+  "workerKind": "claude-code-cli",
+  "brief": {
+    "path": "C:\\dev\\ProjectOS/.projectops/execution/gatekeeper-replay-97f1731150cd-3c67b596.brief.json",
+    "briefId": "gatekeeper-replay@97f1731150cd234c4cf9b95cf858a8056762e43b",
+    "digest": "sha256:bc23c264078d0153eec2d880da1057736812151fce278d0e40bafd863d32b2ee"
+  }
+}

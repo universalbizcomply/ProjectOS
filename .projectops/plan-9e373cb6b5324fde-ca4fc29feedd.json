@@ -1,0 +1,299 @@
+{
+  "schemaVersion": "1.0.0",
+  "projectId": "projectos",
+  "projectName": "ProjectOS",
+  "programmeId": "projectos-autonomous-self-hosting",
+  "planId": "plan-9e373cb6b5324fde-ca4fc29feedd",
+  "planVersion": "1.2",
+  "planStatus": "PLAN READY",
+  "businessVision": "Make routine governed ProjectOS changes complete in seconds or minutes, rather than tens of minutes, through safe incremental validation, content-addressed caching, fast Doctor preflight, and no-cost gatekeeper contract replay—without weakening full validation or existing owner gates. This readiness work is bounded to the prerequisite reliability and performance improvements before any Forge autonomy proof or Forge Programme C resumption.",
+  "definitionOfComplete": "The proposed workstream is complete when ProjectOS has a fail-closed incremental-validation and content-addressed-cache path; a fast ProjectOS Doctor preflight; and free gatekeeper contract replay tests. Each capability is covered by automated validation demonstrating that unchanged safe dependencies may reuse cached results, uncertain dependency safety prevents reuse and triggers full validation, full validation remains available and authoritative, and existing owner gates are preserved. Measured representative routine governed-change workflows demonstrate materially faster execution consistent with the seconds/minutes target, with benchmark conditions and results recorded for owner review.",
+  "approvedScope": [
+    "Inventory the current validation pipeline, dependency inputs, result artifacts, owner-gate enforcement points, and existing performance bottlenecks relevant to governed changes.",
+    "Design and implement safe incremental validation using explicit dependency fingerprints and content-addressed result caching.",
+    "Ensure cache keys incorporate all validation-relevant source, configuration, policy, tool/version, fixture, and declared dependency inputs required for safe reuse.",
+    "Fail closed: bypass/reject cache reuse and execute full validation when dependency completeness, fingerprint integrity, compatibility, or safety cannot be established.",
+    "Retain full validation as an available, authoritative path and add equivalence/regression coverage comparing incremental and full outcomes for eligible changes.",
+    "Implement a fast ProjectOS Doctor preflight that checks local prerequisites, configuration integrity, validation/cache readiness, and actionable blockers without altering governance decisions.",
+    "Add free/offline gatekeeper contract replay tests using deterministic fixtures/recordings or local test doubles, without paid provider calls.",
+    "Benchmark representative routine governed-change workflows before and after the improvements, recording methodology, environment, cache state, and results.",
+    "Verify that existing owner gates and approval requirements remain enforced across cached, incremental, Doctor, replay, and full-validation paths."
+  ],
+  "excludedScope": [
+    "Starting, executing, approving, or closing the Forge autonomy proof.",
+    "Resuming, implementing, or authorizing Forge Programme C work; this plan only supplies readiness evidence for a later owner decision.",
+    "Changing, removing, bypassing, or delegating existing owner gates or approval requirements.",
+    "Weakening, deleting, or replacing full validation with incremental validation.",
+    "Broad ProjectOS V3 programmes, Control Centre integration, remote publishing, installation, credential routing, IPC/kernel work, or unrelated reliability initiatives described in context documents.",
+    "Introducing paid AI/provider calls to gatekeeper contract replay tests.",
+    "Production deployment or production-data migration unless separately approved after implementation evidence is reviewed."
+  ],
+  "successStandard": "Safety takes precedence over speed: cache reuse occurs only when content identity and dependency safety can be established; unknown, incomplete, stale, invalid, or incompatible dependency state fails closed to full validation or a blocking result. Existing governance/owner-gate semantics remain unchanged. Full validation behavior and coverage are not reduced. Doctor produces a deterministic, actionable preflight result quickly enough to be useful before governed changes. Contract replay tests run without paid/external model calls and detect behavioral regressions at the gatekeeper boundary. Performance claims are reproducible from documented representative fixtures and baselines.",
+  "repository": {
+    "repositoryPath": "C:/dev/ProjectOS",
+    "expectedRemote": "universalbizcomply/ProjectOS",
+    "protectedBranches": [
+      "main",
+      "projectos-v2-core"
+    ],
+    "baselineCommit": "007d5b192748bb297c2d6af046a4ced58c5bffb6",
+    "planPersistenceCommit": null,
+    "planSourceBranch": "projectos-post-v3-selfhost-pilot1a"
+  },
+  "sourceDocuments": [
+    {
+      "documentPath": ".projectops/objectives/9e373cb6b5324fde.json",
+      "sourceDocumentType": "requirements",
+      "sourceDocumentChecksum": "sha256:fb63dc32bd7c657ee90e23e46a28660593afb8449a33ecedf5cdd55f01997abe",
+      "authoritative": true,
+      "superseded": false
+    }
+  ],
+  "phases": [
+    {
+      "phaseId": "validation-cache",
+      "description": "Establish safe, fail-closed incremental validation and content-addressed caching while retaining authoritative full validation.",
+      "scope": "Map validation dependencies and owner-gate touchpoints; define cache eligibility and complete cache-key/fingerprint inputs; implement content-addressed storage and incremental reuse only for demonstrably safe validators; route unknown or unsafe dependency state to full validation or a blocking failure; preserve full-validation execution; add correctness, tamper/staleness, invalidation, and equivalence tests.",
+      "dependsOn": [],
+      "acceptanceCriteria": [
+        "Every cacheable validation result is keyed by content fingerprints covering all identified validation-relevant inputs, declared dependencies, applicable policy/configuration, and validator/tool compatibility information.",
+        "A missing, unverifiable, incomplete, stale, corrupted, incompatible, or dependency-unsafe cache state never yields a reused pass; it fails closed to full validation or a blocking result.",
+        "Automated tests demonstrate invalidation when each material cache-key input changes and demonstrate that unknown dependency safety cannot produce a cache hit.",
+        "For an approved representative corpus of eligible changes, incremental and full validation yield equivalent governance/validation outcomes.",
+        "Full validation remains invocable and authoritative, with no removed checks or reduced gate enforcement.",
+        "Tests demonstrate that existing owner gates remain required and cannot be satisfied, bypassed, or altered merely through cache reuse.",
+        "Implementation and tests record cache eligibility exclusions for validators or gates whose dependency safety cannot be proven."
+      ],
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredValidators": [
+        "targeted unit and integration tests for fingerprinting, cache addressing, invalidation, corruption handling, and fail-closed behavior",
+        "incremental-versus-full validation equivalence suite on representative fixtures",
+        "existing full validation suite",
+        "owner-gate preservation regression tests",
+        "static analysis, formatting, and repository-required checks"
+      ],
+      "requiredReviews": [
+        "maintainer/architecture review of dependency model and cache-key completeness",
+        "security/reliability review of cache integrity, invalidation, and fail-closed handling",
+        "governance review confirming owner-gate semantics are unchanged"
+      ],
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "Owner approval is required before any production cache sharing, production rollout, or change to mandatory command workflows.",
+        "Any validator or gate without demonstrable dependency-safe cache eligibility remains full-validation-only.",
+        "Existing owner gates remain in force and are not delegated, bypassed, or satisfied by this proposed work."
+      ]
+    },
+    {
+      "phaseId": "doctor-preflight",
+      "description": "Provide a fast, deterministic ProjectOS Doctor preflight that exposes readiness and blockers before governed changes without changing governance authority.",
+      "scope": "Define Doctor checks from the validated pipeline and cache model; implement a fast read-only diagnostic for prerequisites, configuration/policy consistency, tool compatibility, validation/cache readiness, and actionable remediation; add deterministic output and failure-mode tests; measure execution time in approved environments.",
+      "dependsOn": [
+        "validation-cache"
+      ],
+      "acceptanceCriteria": [
+        "Doctor runs without modifying governed source, cache authority, approval state, or owner-gate decisions.",
+        "Doctor deterministically reports pass, warning, and blocking conditions with actionable diagnostics for missing prerequisites, incompatible configuration/tooling, invalid cache readiness, and unavailable required validation paths.",
+        "Doctor treats unknown safety or integrity conditions as a warning/blocker rather than representing the environment as safely ready.",
+        "Automated tests cover healthy, misconfigured, incompatible, missing-prerequisite, and unknown-safety conditions.",
+        "Doctor performance is measured against the owner-approved representative environment and target, with method and results recorded.",
+        "Doctor output does not claim that a governed change is approved or that owner gates have been satisfied."
+      ],
+      "riskLevel": "medium",
+      "autonomyLevel": "local-safe",
+      "requiredValidators": [
+        "Doctor unit and integration tests",
+        "deterministic-output and error-path tests",
+        "read-only/no-governance-mutation verification",
+        "timing benchmark in approved environment",
+        "existing repository-required checks"
+      ],
+      "requiredReviews": [
+        "maintainer review of diagnostic coverage and CLI/API ergonomics",
+        "governance review of status language and non-authoritative behavior"
+      ],
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "Owner confirmation is required before making Doctor mandatory for any governed-change path.",
+        "Doctor remains advisory/preflight-only unless an owner separately authorizes a workflow policy change."
+      ]
+    },
+    {
+      "phaseId": "gatekeeper-replay",
+      "description": "Add deterministic, free gatekeeper contract replay coverage to catch contract regressions without external paid model calls.",
+      "scope": "Identify gatekeeper contract interfaces and approved deterministic fixtures; implement replay harnesses using local fixtures, recordings, or test doubles; cover expected accepts, rejects, owner-gate-required outcomes, malformed/unsupported inputs, and cache/full-validation boundary outcomes; prohibit paid/external provider calls in replay execution.",
+      "dependsOn": [
+        "validation-cache"
+      ],
+      "acceptanceCriteria": [
+        "Replay tests execute deterministically without paid AI/provider calls, network dependency where avoidable, or mutation of approval/owner-gate state.",
+        "The replay suite covers the approved gatekeeper contract corpus, including successful validation, rejection/blocking, owner-gate-required, malformed/unsupported, and fail-closed unknown-safety cases.",
+        "Tests detect material changes to gatekeeper decision/result contract, including preservation of required owner-gate outcomes.",
+        "Fixtures contain no unapproved sensitive production data; source, redaction, and retention status are documented.",
+        "Replay execution is integrated into the appropriate local/CI validation path without weakening or replacing full validation.",
+        "The suite runs successfully in the approved isolated test environment and has a recorded execution-time baseline."
+      ],
+      "riskLevel": "medium",
+      "autonomyLevel": "local-safe",
+      "requiredValidators": [
+        "offline deterministic replay suite",
+        "fixture schema/contract validation",
+        "network/provider-call prevention check where supported",
+        "existing gatekeeper and full-validation regression suites",
+        "repository-required checks"
+      ],
+      "requiredReviews": [
+        "maintainer review of replay harness and fixture coverage",
+        "governance review confirming contract expectations and owner-gate-required outcomes",
+        "security/privacy review of replay fixture provenance and redaction"
+      ],
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "Owner approval is required for any use of recordings derived from production or sensitive workflows.",
+        "Replay tests must not simulate approval as authority or alter existing owner-gate semantics."
+      ]
+    },
+    {
+      "phaseId": "readiness-evidence",
+      "description": "Validate end-to-end safety, performance, and governance preservation and prepare evidence for a later owner decision on Forge-proof readiness.",
+      "scope": "Run the approved representative governed-change corpus under cold and warm cache conditions, compare incremental and full-validation outcomes, run Doctor and gatekeeper replay suites, verify gate preservation, document limits/exclusions, and assemble reproducible readiness evidence. This phase does not start Forge work.",
+      "dependsOn": [
+        "doctor-preflight",
+        "gatekeeper-replay"
+      ],
+      "acceptanceCriteria": [
+        "Documented benchmarks show results for cold and warm cache scenarios, full validation, Doctor preflight, and gatekeeper replay using the owner-approved corpus and environment.",
+        "All tested eligible incremental outcomes match authoritative full-validation outcomes, and unsafe/unknown cases demonstrably fail closed.",
+        "Evidence confirms full validation remains available and that existing owner gates remain enforced in all tested paths.",
+        "The recorded routine governed-change performance result is evaluated against the owner-approved seconds/minutes target; any shortfall or scenario exclusion is explicitly reported.",
+        "Evidence includes commands, revisions, fixtures, environment details, cache state, raw/summary results, known limitations, and rollback/disable path for caching.",
+        "The output is explicitly framed as evidence for owner review, not authorization to start Forge autonomy proof or resume Forge Programme C."
+      ],
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredValidators": [
+        "end-to-end representative governed-change benchmark suite",
+        "cold/warm cache and full-validation comparison",
+        "Doctor preflight suite",
+        "offline gatekeeper replay suite",
+        "owner-gate preservation regression tests",
+        "repository-required checks"
+      ],
+      "requiredReviews": [
+        "maintainer sign-off on reproducibility and technical evidence",
+        "security/reliability sign-off on fail-closed cache behavior",
+        "governance/owner review of preserved gates and readiness claim"
+      ],
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "Owner review is required to evaluate readiness evidence against the agreed performance target.",
+        "A separate owner decision is required before beginning the Forge autonomy proof or resuming Forge Programme C.",
+        "No phase in this proposal authorizes production rollout or changes to owner-gate authority."
+      ]
+    }
+  ],
+  "environments": [
+    {
+      "environmentId": "local-development-and-test",
+      "productionFreeze": false
+    },
+    {
+      "environmentId": "isolated-ci-validation",
+      "productionFreeze": false
+    },
+    {
+      "environmentId": "production",
+      "productionFreeze": true
+    }
+  ],
+  "providers": [],
+  "governance": {
+    "owner": "Murad",
+    "gatekeeper": "ChatGPT",
+    "implementer": "Claude Code",
+    "allowedActions": [
+      "inspect-repository",
+      "create-local-files",
+      "run-local-validation",
+      "produce-evidence-report"
+    ],
+    "forbiddenActions": [
+      "production-deploy",
+      "production-db-mutation",
+      "real-email-sms-whatsapp",
+      "payment-or-live-charge",
+      "force-push",
+      "use-openai-api",
+      "use-anthropic-api",
+      "provider-credential-access",
+      "store-real-secret",
+      "modify-projectos-v2-core",
+      "modify-v2-closure-records",
+      "modify-polygo"
+    ],
+    "ownerOnlyActions": [
+      "approve-plan",
+      "approve-plan-supersession",
+      "approve-material-scope-change",
+      "approve-commit",
+      "approve-push",
+      "authorise-production-deploy",
+      "authorise-database-mutation",
+      "authorise-external-send",
+      "authorise-payment",
+      "authorise-provider-access",
+      "authorise-installation",
+      "start-e2e",
+      "pause",
+      "resume"
+    ],
+    "closureAuthority": "ChatGPT",
+    "closureDelegation": {
+      "delegatedBy": "Murad",
+      "delegatedTo": "ChatGPT",
+      "delegationDate": "2026-08-17",
+      "delegatedScope": [
+        "phase-closure",
+        "programme-closure"
+      ],
+      "projectScope": "projectos",
+      "excludesProtectedActions": true,
+      "notes": "Recorded by owner Murad for programme 'projectos-autonomous-self-hosting' in PROJECTOS-AUTONOMOUS-SELF-HOSTING-CLOSURE-DELEGATION1A. Closure only: it is not authority to act, and it excludes every protected effect, which stays with the owner."
+    },
+    "noApiPolicy": true
+  },
+  "approval": {
+    "approvalStatus": "approved",
+    "approvedBy": "Murad",
+    "approvalDate": "2026-09-03T22:24:29.622Z",
+    "approvalEvidenceReference": "Plan-approval decision PLANDEC-2060599a60e0b4a6425f7b3d by Murad, taken against draft 9e373cb6b5324fde with plan digest sha256:ca4fc29feedde4edcfaa39c8d4a26eca604fa1e745deca68cf1436edb0f81360 at commit 26ee0c96b2bbd84d4e94d40dfcfaa07780000d34 on branch projectos-post-v3-selfhost-pilot1a. The authority to take it is the owner's own: no plan-approval delegation applies to this project and programme, so approval never moved away from the recorded owner and the decision above is the owner's. ProjectOS re-ran discovery against the repository before writing this record and the recomputed plan digest still matched the approved one. MANUAL_GOVERNANCE_APPROVAL with tamperProof false — a human governance approval bound by the owner's commit gate, NOT a cryptographic one. Governance is carried forward unchanged from the project's active owner-approved plan; this approval created no new authority, changed no protected-action rule, and did not modify any existing plan record.",
+    "supersedesPlanVersion": "1.1",
+    "approvalBinding": "MANUAL_GOVERNANCE_APPROVAL",
+    "tamperProof": false,
+    "approvalAuthority": "owner",
+    "secureApprovalEvidence": null
+  },
+  "staleness": {
+    "lastVerifiedCommit": "007d5b192748bb297c2d6af046a4ced58c5bffb6",
+    "lastVerifiedDate": "2026-09-03T22:24:31.885Z",
+    "stalenessStatus": "fresh",
+    "stalenessReasons": [],
+    "materialPlanInputs": [
+      {
+        "inputId": "plan-digest",
+        "fingerprint": "sha256:ca4fc29feedde4edcfaa39c8d4a26eca604fa1e745deca68cf1436edb0f81360"
+      },
+      {
+        "inputId": ".projectops/objectives/9e373cb6b5324fde.json",
+        "fingerprint": "sha256:fb63dc32bd7c657ee90e23e46a28660593afb8449a33ecedf5cdd55f01997abe"
+      }
+    ]
+  },
+  "security": {
+    "secretPolicy": "No raw secret values are stored in plan memory, current state, sessions, reports or prompts. Providers are referenced by name only. Redaction is required for any sensitive value.",
+    "rawSecretValuesForbidden": true,
+    "sensitiveDataForbidden": true,
+    "redactionRequired": true
+  }
+}

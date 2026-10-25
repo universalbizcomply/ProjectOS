@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "projectos/schemas/bridge/decision.schema.json",
+  "title": "ProjectOS Bridge Decision",
+  "description": "The outcome of a review/approval. ChatGPT produces a review recommendation; the owner produces the binding decision.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id", "project", "phase", "status", "created_at", "created_by", "worker",
+    "source", "version", "decision", "decidedBy", "decision_required"
+  ],
+  "properties": {
+    "id": { "type": "string", "description": "dec_<ulid>" },
+    "project": { "type": "string" },
+    "phase": { "type": "string" },
+    "status": { "type": "string", "enum": ["recommended", "final"] },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "created_by": { "type": "string", "enum": ["advisor", "owner"] },
+    "worker": { "type": "string" },
+    "source": { "type": "string" },
+    "version": { "type": "string" },
+    "approvalRef": { "type": "string", "description": "id of the approval-request this answers, if any" },
+    "decision": { "type": "string", "enum": ["approved", "changes_requested", "rejected"] },
+    "decidedBy": { "type": "string", "enum": ["advisor", "owner"], "description": "'owner' for a binding decision; 'advisor' is a recommendation only" },
+    "override": { "type": "boolean", "description": "required to approve a prohibited action (owner only)" },
+    "closureRecommendation": { "type": "string", "enum": ["close", "keep-open", "block", "not-applicable"] },
+    "findings": { "type": "array", "items": { "type": "string" } },
+    "note": { "type": "string" },
+    "related_files": { "type": "array", "items": { "type": "string" } },
+    "decision_required": { "type": "boolean" }
+  }
+}

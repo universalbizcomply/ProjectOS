@@ -1,0 +1,57 @@
+{
+  "phaseId": "PROJECTOS-SESSION-RECOVERY1A",
+  "project": "projectos",
+  "objective": "Let ProjectOS establish the truth about an interrupted run from the repository and its own records, so a crash leaves a question it can answer rather than a state nobody can trust: a resume must describe the run it claims to continue, a refused resume must not damage the record it failed to recover, and what the last run left behind must be reported rather than silently overwritten.",
+  "status": "closed",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-09-02T18:42:09.978Z",
+      "note": "B8 lifecycle: implemented, validated and reviewed at source commit 8187aef313e1ebeffc7891685f5baec80a328753"
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-09-02T18:42:10.259Z",
+      "note": "B8 lifecycle: implemented, validated and reviewed at source commit 8187aef313e1ebeffc7891685f5baec80a328753"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-09-02T18:42:10.554Z",
+      "note": "B8 lifecycle: implemented, validated and reviewed at source commit 8187aef313e1ebeffc7891685f5baec80a328753"
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-09-02T18:42:10.856Z",
+      "note": "B8 lifecycle: implemented, validated and reviewed at source commit 8187aef313e1ebeffc7891685f5baec80a328753"
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-09-02T18:42:11.161Z",
+      "note": "B8 lifecycle: implemented, validated and reviewed at source commit 8187aef313e1ebeffc7891685f5baec80a328753"
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-09-02T18:42:11.471Z",
+      "note": "B8 lifecycle: implemented, validated and reviewed at source commit 8187aef313e1ebeffc7891685f5baec80a328753"
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "advisor",
+      "at": "2026-09-02T18:58:50.730Z",
+      "note": "ACCEPTED FOR CLOSURE by ChatGPT at subject 8187aef313e1ebeffc7891685f5baec80a328753, consuming decision PROJECTOS-SESSION-RECOVERY1A-CLOSURE-DECISION1A. G4 reported all 17 predicates satisfied. — closed by ChatGPT under the projectos-scoped phase-closure delegation, decision PROJECTOS-SESSION-RECOVERY1A-CLOSURE-DECISION1A"
+    }
+  ]
+}

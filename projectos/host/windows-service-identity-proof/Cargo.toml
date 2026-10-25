@@ -1,0 +1,108 @@
+[package]
+name = "projectos-host-windows-service-identity-proof"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "UNLICENSED"
+description = "EFFECT-FREE service-identity proof CONTRACT for the future ProjectOSHost VirtualServiceAccount live proof (WINDOWS-PACKAGED-HOST-TRUST-ENFORCEMENT3K-I-D-E-B). Models REDACTED service-identity evidence with no capacity to carry a raw username, service-account name, machine name, SID, token, session identifier, credential, ACL or diagnostic string: token-user identity, per-service-SID group membership and service-SID-TYPE configuration are SEPARATE typed facts; integrity level is a NON-AUTHORISING observation; authority evidence reuses the canonical no-trust AuthorityTokenOutcome/AuthorityPeerState (an existing token is never trusted ownership); release-before-acquire is evidenced only through the canonical AuthorityHandoverState; peer (typed IPC) and SCM corroboration are BOTH mandatory; residue must be Zero. A live proof can be Confirmed only when every required fact is positively established, and any False/Invalid/Unavailable/Indeterminate/contradictory fact fails closed with an exact typed refusal. Calls NO Windows API, resolves NO SID, queries NO SCM, inspects NO token, installs/starts NO service, creates NO authority object, mutates NO ProgramData/ACL/registry, and handles NO credential. Execution readiness stays false; installation stays NotAuthorised."
+
+[lints.rust]
+# The typed contract itself is FFI-free. The ONLY unsafe in this crate is the OS-derived
+# service-instance observation, which must live here because this crate is the canonical owner of the
+# opaque ServiceInstanceToken: a sibling crate that could supply a raw process ID and creation time
+# could forge the identity. Unsafe is therefore DENIED crate-wide and re-allowed ONLY in the private
+# src/instance_ffi.rs module (enforced by val-windows-service-identity-proof-3kideb.cjs).
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+
+[features]
+# THREE SEPARATE CONCERNS, deliberately not one feature: conflating contract visibility with live
+# Windows observation is what made the binding unreachable to its intended consumer. Default features
+# are empty, so the default build stays the effect-free contract and calls no Windows API.
+#
+# FORGERY RESISTANCE IS NOT THE FEATURE FLAG. Advancing an attempt requires an
+# `ServiceInstanceObservation::Observed(ServiceInstanceToken)`, and `ServiceInstanceToken` has NO
+# public constructor in ANY graph, so a default or live-only consumer can submit only closed refusals.
+#
+# A. DEPENDENT CONSUMER CONTRACT: makes the attempt typestate nameable and drivable by a dependent
+# crate. Pure types and portable logic only — no windows dependency, no Win32 call, no synthetic
+# identity, no execution authority.
+consumer-contract = []
+# B. LIVE WINDOWS OBSERVATION: the real OS-derived observation FFI (named-pipe peer + SCM service). It
+# implies the consumer contract because a live observation is only usable through an attempt. It grants
+# NO runtime authority: no sealed LiveInstanceObservationCapability is constructible under this or any
+# other non-fixture feature, so no live observation is reachable.
+windows-live-instance-observation = [
+    "consumer-contract",
+    "dep:windows",
+    "dep:projectos-windows-runtime-primitives",
+]
+# C. SYNTHETIC TEST FIXTURES: compile-only synthetic observations so a dependent's fake backends can
+# drive an attempt to Match with no Windows call. Explicit, non-default, and NEVER implied by A or B,
+# so a default or live-only consumer cannot reach it. No machine effect, no raw process identity.
+test-fixtures = ["consumer-contract"]
+# D. PRODUCTION CLIENT ADMISSION (PROJECTOS-HOST-REVIEW-PATH1B, ROUTE 1). The installed product is the
+# REVERSE of the B3 proof direction: ProjectOSHost is the pipe SERVER and the governed Agent is the
+# CLIENT, so a canonical attempt about the Host's own client can never be a service-instance Match.
+# This feature compiles the SEPARATE client-admission attempt that judges the kernel-captured client
+# token against the EXACT enrolled configured-owner SID.
+#
+# IT IS THE NARROWEST CAPABILITY SURFACE FOR ITS OWN LIVE OBSERVATION, AND NOTHING MORE. It grants no
+# SCM mutation, no protected-operation authority and no generic identity observation, and it still
+# cannot produce a `LiveInstanceObservationCapability`, so the B3 service-instance route stays
+# unreachable in every build exactly as before.
+#
+# It activates the canonical owner source rather than introducing a second one: host-identity's
+# `canonical_record` is the SAME record that already supplies the configured-owner principal for the
+# production ProjectOSHost pipe DACL. Optional + feature-gated, so the DEFAULT build remains the
+# effect-free contract with host-authority as its only dependency.
+windows-client-admission = [
+    "windows-live-instance-observation",
+    "dep:projectos-host-identity",
+]
+
+[dependencies]
+# Reuses the canonical no-trust authority contract types (AuthorityTokenOutcome, AuthorityPeerState,
+# AuthorityHandoverState, ConfirmedPeer). host-authority's DEFAULT build is zero-dependency and
+# effect-free, so this crate pulls NO windows/SCM/handle/credential dependency.
+projectos-host-authority = { path = "../host-authority" }
+# THE CANONICAL OWNER SOURCE, for the production client-admission route ONLY (feature
+# `windows-client-admission`). This is NOT a second owner authority: `canonical_record` is the same
+# digest-bound installation record whose `OwnerEnrolment` already supplies the exact configured-owner
+# principal for the production ProjectOSHost pipe DACL, through
+# `host-authority::security::configured_owner_sid_string()`. Reusing it is what keeps ONE enrolled
+# owner on the machine; resolving an owner any other way here would be the second authority the
+# gatekeeper ruling forbids.
+#
+# NO CYCLE: host-identity depends on serde/sha2/windows-runtime-primitives/packaged-runtime-contract
+# and on nothing in this direction.
+projectos-host-identity = { path = "../host-identity", optional = true }
+
+[target.'cfg(windows)'.dependencies]
+# Minimum instance-observation and peer-identity surface only. Optional + feature-gated: linked ONLY
+# under `windows-live-instance-observation`, so the default build pulls no windows dependency.
+#
+# `Win32_Security` was added by PROJECTOSHOST-IPC-KERNEL-PEER-CAPTURE1A under explicit gatekeeper
+# authority. The crate now performs BOUNDED READ-ONLY process and token identity capture: the process is
+# opened for `PROCESS_QUERY_LIMITED_INFORMATION` alone and the impersonated client token is opened for
+# `TOKEN_QUERY` alone, to read the token user, session and integrity label. It resolves NO SID to a
+# name, and performs NO registry, ACL, credential, provider or network work. No token is created,
+# duplicated, assigned or retained, and no privilege is enabled. Every entry point still demands the
+# sealed, unconstructible `LiveInstanceObservationCapability`, so no build can reach the capture.
+windows = { version = "0.61.3", optional = true, features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_Pipes",
+    "Win32_System_Services",
+    "Win32_System_Threading",
+] }
+# The canonical handle RAII primitive, so the temporary process handle closes deterministically on
+# every path instead of this crate growing a second handle implementation.
+projectos-windows-runtime-primitives = { path = "../windows-runtime-primitives", optional = true }
+
+[dev-dependencies]
+# TEST-ONLY. The canonical record's own fixture constructor, so the client-admission owner-source
+# proofs build a record through the REAL writer contract and verify it through the REAL
+# `verify_record` rather than hand-making a `VerifiedCanonicalInstallation`. Dev-only: no shipped
+# build gains the fixture surface.
+projectos-host-identity = { path = "../host-identity", features = ["test-fixtures"] }

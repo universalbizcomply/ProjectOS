@@ -1,0 +1,264 @@
+{
+  "schemaVersion": 1,
+  "policyVersion": "1",
+  "defaultTaskType": "bug-fix",
+  "taskTypes": {
+    "bug-fix": {
+      "roles": [
+        "minimal-change-engineer"
+      ],
+      "supportingRoles": [
+        "test-automation-engineer"
+      ],
+      "maxTeam": 3
+    },
+    "security-sensitive-change": {
+      "roles": [
+        "application-security-engineer"
+      ],
+      "supportingRoles": [
+        "test-automation-engineer"
+      ],
+      "maxTeam": 4
+    },
+    "ui-change": {
+      "roles": [
+        "frontend-developer"
+      ],
+      "supportingRoles": [
+        "test-automation-engineer"
+      ],
+      "maxTeam": 3
+    },
+    "multi-system-feature": {
+      "roles": [
+        "software-architect",
+        "backend-architect"
+      ],
+      "supportingRoles": [
+        "test-automation-engineer"
+      ],
+      "maxTeam": 4
+    }
+  },
+  "factRoles": {
+    "security": [
+      "application-security-engineer"
+    ],
+    "data": [
+      "database-reliability-engineer"
+    ],
+    "payment": [
+      "payments-billing-engineer"
+    ],
+    "production": [
+      "devops-automator"
+    ],
+    "credential": [
+      "secrets-credential-hygiene-engineer"
+    ],
+    "communication": [
+      "content-creator"
+    ],
+    "auth": [
+      "identity-access-engineer"
+    ],
+    "ui": [
+      "frontend-developer"
+    ],
+    "accessibility": [
+      "accessibility-auditor"
+    ],
+    "multi-system": [
+      "software-architect"
+    ]
+  },
+  "pathFacts": [
+    {
+      "pattern": "**/security/**",
+      "facts": [
+        "security"
+      ]
+    },
+    {
+      "pattern": "projectos/host/**",
+      "facts": [
+        "security"
+      ]
+    },
+    {
+      "pattern": "**/credentials/**",
+      "facts": [
+        "credential",
+        "security"
+      ]
+    },
+    {
+      "pattern": "**/*credential*",
+      "facts": [
+        "credential"
+      ]
+    },
+    {
+      "pattern": "**/auth/**",
+      "facts": [
+        "auth"
+      ]
+    },
+    {
+      "pattern": "**/payments/**",
+      "facts": [
+        "payment"
+      ]
+    },
+    {
+      "pattern": "**/billing/**",
+      "facts": [
+        "payment"
+      ]
+    },
+    {
+      "pattern": "**/*payment*",
+      "facts": [
+        "payment"
+      ]
+    },
+    {
+      "pattern": "**/migrations/**",
+      "facts": [
+        "data"
+      ]
+    },
+    {
+      "pattern": "**/*.sql",
+      "facts": [
+        "data"
+      ]
+    },
+    {
+      "pattern": ".github/workflows/**",
+      "facts": [
+        "production"
+      ]
+    },
+    {
+      "pattern": "**/deploy/**",
+      "facts": [
+        "production"
+      ]
+    },
+    {
+      "pattern": "vercel.json",
+      "facts": [
+        "production"
+      ]
+    },
+    {
+      "pattern": "netlify.toml",
+      "facts": [
+        "production"
+      ]
+    },
+    {
+      "pattern": "**/Dockerfile",
+      "facts": [
+        "production"
+      ]
+    },
+    {
+      "pattern": "**/messaging/**",
+      "facts": [
+        "communication"
+      ]
+    },
+    {
+      "pattern": "**/email/**",
+      "facts": [
+        "communication"
+      ]
+    },
+    {
+      "pattern": "**/*.tsx",
+      "facts": [
+        "ui"
+      ]
+    },
+    {
+      "pattern": "**/*.css",
+      "facts": [
+        "ui"
+      ]
+    },
+    {
+      "pattern": "**/components/**",
+      "facts": [
+        "ui"
+      ]
+    }
+  ],
+  "taskTypeByFacts": [
+    {
+      "anyOf": [
+        "security",
+        "auth",
+        "credential",
+        "payment"
+      ],
+      "taskType": "security-sensitive-change"
+    },
+    {
+      "anyOf": [
+        "ui",
+        "accessibility"
+      ],
+      "taskType": "ui-change"
+    },
+    {
+      "anyOf": [
+        "multi-system"
+      ],
+      "taskType": "multi-system-feature"
+    }
+  ],
+  "independentReview": {
+    "requiredAtRisk": [
+      "high",
+      "critical"
+    ],
+    "requiredForFacts": [
+      "security",
+      "data",
+      "payment",
+      "production",
+      "credential",
+      "communication",
+      "auth"
+    ],
+    "reviewers": {
+      "security": [
+        "security-architect"
+      ],
+      "auth": [
+        "security-architect"
+      ],
+      "credential": [
+        "security-architect"
+      ],
+      "payment": [
+        "security-architect"
+      ],
+      "production": [
+        "sre-site-reliability-engineer"
+      ],
+      "ui": [
+        "ui-finish-gate-reviewer"
+      ],
+      "accessibility": [
+        "ui-finish-gate-reviewer"
+      ],
+      "default": [
+        "reality-checker"
+      ]
+    }
+  }
+}

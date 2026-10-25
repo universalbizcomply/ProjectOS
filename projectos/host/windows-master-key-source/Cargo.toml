@@ -1,0 +1,19 @@
+[package]
+name = "projectos-host-windows-master-key-source"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Production Windows master-key MATERIAL SOURCE for the future ProjectOS Host Service. Implements the accepted projectos-host-windows-crypto-adapter MasterKeyMaterialSource by generating exactly one fresh 32-byte candidate via the Windows system-preferred CNG RNG (BCryptGenRandom + BCRYPT_USE_SYSTEM_PREFERRED_RNG), yielded ONLY through the accepted closure-scoped borrow and zeroised on every exit path. NO deterministic/pseudo/caller/env/config fallback, NO retry, NO owned-byte return, NO DPAPI/persistence/lifecycle/handle/authority, NO service/IPC/registry/filesystem/credential. Candidate generation ONLY: it does not protect, persist, register, or activate a real service master key. No secure-erasure or credential-custody claim."
+license = "UNLICENSED"
+
+[lints.rust]
+# CLOSEOUT1B: the CSPRNG call moved to the authority-free leaf primitive, so this crate now contains no
+# unsafe at all and the previous module-scoped allowance is gone. `forbid` makes that structural.
+unsafe_code = "forbid"
+
+[dependencies]
+projectos-host-windows-crypto-adapter = { path = "../windows-crypto-adapter" }
+# THE single system-preferred CSPRNG primitive. An authority-free leaf: it grants no key, credential,
+# identity, host or process capability, so depending on it adds no authority to this crate.
+projectos-windows-runtime-primitives = { path = "../windows-runtime-primitives" }
+zeroize = "1"

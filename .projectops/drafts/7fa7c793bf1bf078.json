@@ -1,0 +1,303 @@
+{
+  "schemaVersion": "1.0.0",
+  "objectiveId": "7fa7c793bf1bf078",
+  "authoritative": false,
+  "origin": "authored",
+  "planDigest": "sha256:8508722e381983bb5bcd3bb1202789a53e365fe73be0aef0e8ec14fb7a3933ed",
+  "planStatus": "PLAN DRAFTED",
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "HEAD",
+  "baseHead": "86c15d22a2b5142e4d874b301cb701365bf1eb89",
+  "generatedAt": "2026-08-28T23:36:17.381Z",
+  "generatedBy": "projectos-runtime",
+  "draft": {
+    "projectIdCandidate": "projectos",
+    "businessVision": "Provide a single, read-only Project Summary projection for a selected ProjectOS project so an owner can quickly understand current status, current plan, next safe action, risks, and carry-forward items without creating a parallel workflow, authority model, or source of truth.",
+    "definitionOfComplete": "A future implementation is specified, reviewed, and validated through governed phases: the existing authoritative data sources and derivation rules are documented; a read-only projection contract and UI behavior are defined; the projection is implemented only behind owner gates; and automated plus browser-based evidence demonstrates that it accurately renders permitted existing data without mutations or side effects. This proposal itself performs none of that implementation.",
+    "successStandard": "For any supported selected project, the summary presents traceable, current values for all five requested areas from existing ProjectOS records; each displayed value can be mapped to its authoritative source and refresh behavior; unavailable or conflicting source data is represented explicitly rather than invented; the view offers no action that changes workflow state or authority; and validation confirms no database mutation, deployment, messaging, payment, credential change, or other external side effect occurs.",
+    "approvedScopeCandidates": [
+      "Inventory the existing ProjectOS sources, schemas, selectors, and status/plan/risk/carry-forward representations relevant to a selected project's summary.",
+      "Define a canonical read model that derives the five requested summary areas from existing authoritative data only.",
+      "Define conflict, missing-data, stale-data, and access-denied presentation rules without creating replacement records or remediation workflows.",
+      "Design and, subject to later approval, implement a read-only selected-project summary interface within the existing ProjectOS surface.",
+      "Add source-to-field traceability, automated tests, and browser evidence for the projection's read-only behavior.",
+      "Document operational boundaries, including the prohibition on using the summary as a decision authority, workflow editor, or approval mechanism."
+    ],
+    "excludedScopeCandidates": [
+      "Executing this proposed plan or implementing the Project Summary during planning.",
+      "Deploying software or changing production configuration.",
+      "Mutating databases, migrations, backfills, caches, or source records.",
+      "Sending messages, notifications, webhooks, or emails.",
+      "Making payments or changing credentials, secrets, permissions, or identity configuration.",
+      "Creating a new workflow, task queue, approval process, authority model, or independent project-status record.",
+      "Editing plans, risks, carry-forward items, or next-action state from the summary.",
+      "Importing, extending, or executing programmes described only in the supplied context documents, including Control Centre, recovery, gatekeeper, reliability-hardening, dashboard-auth, plugins, or Forge workstreams.",
+      "Synthesizing status or recommendations from non-authoritative sources when authoritative ProjectOS data is absent or contradictory."
+    ],
+    "environmentCandidates": [
+      {
+        "environmentId": "repository-local-analysis",
+        "productionFreeze": true
+      },
+      {
+        "environmentId": "non-production-existing-projectos-test-surface",
+        "productionFreeze": true
+      }
+    ],
+    "phaseCandidates": [
+      {
+        "phaseId": "PSUM-01-authoritative-source-and-read-model-discovery",
+        "purpose": "Establish a governed, evidence-backed source map and read-model contract for the selected-project summary without changing application or project data.",
+        "scope": "Inspect existing ProjectOS schemas, repositories, UI/query paths, and representative non-production or fixture data where available. Identify the authoritative record, selector, ownership boundary, freshness characteristic, and precedence rule for each requested summary area. Define read-only derivation rules and explicit representations for absent, stale, inaccessible, and conflicting data. Produce a source-to-field traceability matrix and a no-side-effects design boundary.",
+        "acceptanceCriteria": [
+          "Every proposed summary field has a named existing authoritative source or is explicitly marked unsupported; no field is populated by inferred replacement data.",
+          "The contract identifies precedence and conflict behavior for status, current plan, next safe action, risks, and carry-forward items.",
+          "The contract demonstrates that the proposed projection performs reads only and does not become an authority, workflow, or system of record.",
+          "Data-access, redaction, and selected-project scoping assumptions are documented with unresolved items escalated to the owner.",
+          "No source, schema, database, credential, configuration, or deployment artifact is modified during this phase."
+        ],
+        "dependencies": [],
+        "riskLevel": "medium",
+        "autonomyLevel": "read-only",
+        "expectedValidators": [
+          "Repository/schema inspection",
+          "Source-to-field traceability review",
+          "Read-only boundary review"
+        ],
+        "requiredReviews": [
+          "Product owner review",
+          "ProjectOS architecture/data-ownership review",
+          "Security/access-control review"
+        ],
+        "requiredBrowserProof": false,
+        "ownerGates": [
+          "Owner approval of the source map, supported field set, and derivation/precedence contract before design or implementation proceeds."
+        ]
+      },
+      {
+        "phaseId": "PSUM-02-read-only-projection-design",
+        "purpose": "Translate the approved read-model contract into an implementation-ready, accessible selected-project summary design with no editable or authoritative behavior.",
+        "scope": "Specify information architecture, component behavior, loading/error/empty/conflict states, source attribution or drill-through approach where appropriate, redaction behavior, and accessibility expectations. Define the minimal existing query integration required to render the projection. Create an implementation and test specification that expressly excludes mutation controls and external side effects.",
+        "acceptanceCriteria": [
+          "The design presents current status, current plan, next safe action, risks, and carry-forward items within one selected-project context.",
+          "Every displayed section maps to the approved source map; the design contains no independent state-editing, approval, dispatch, or workflow control.",
+          "Empty, inaccessible, stale, and conflicting source outcomes are visibly distinguishable and do not silently fabricate a result.",
+          "The implementation specification identifies automated test cases for selection scoping, field derivation, redaction, error handling, and no-mutation behavior.",
+          "The design confirms no new database table, persisted duplicate read store, new authority, deployment activity, messaging, payment, or credential change is required."
+        ],
+        "dependencies": [
+          "PSUM-01-authoritative-source-and-read-model-discovery"
+        ],
+        "riskLevel": "medium",
+        "autonomyLevel": "read-only",
+        "expectedValidators": [
+          "Design review against approved source map",
+          "Accessibility review",
+          "Read-only interaction review"
+        ],
+        "requiredReviews": [
+          "Product owner review",
+          "ProjectOS UX review",
+          "Architecture/data-ownership review"
+        ],
+        "requiredBrowserProof": false,
+        "ownerGates": [
+          "Owner approval of the projection design and implementation specification before any source-code change is authorized."
+        ]
+      },
+      {
+        "phaseId": "PSUM-03-gated-read-only-implementation",
+        "purpose": "Implement the approved Project Summary projection solely as a derived, read-only view in the approved existing ProjectOS surface.",
+        "scope": "Under explicit future authorization, add the minimum UI and read/query integration needed to render the approved design. Reuse established selected-project context, authorization, and source access patterns. Add focused automated tests and source traceability documentation. Do not add write endpoints, mutation actions, a new workflow, or a persisted duplicate system of record.",
+        "acceptanceCriteria": [
+          "The implemented view renders only for the selected project and shows the five approved summary areas using approved existing sources.",
+          "The implementation has no controls or code paths that mutate project data, plan state, risk state, carry-forward records, credentials, payments, messages, or workflow authority.",
+          "Automated tests verify source derivation, project isolation, missing/conflicting-data behavior, redaction, and read-only interaction behavior.",
+          "Code review confirms that any aggregation is ephemeral or otherwise non-authoritative and that no duplicate workflow or independent status store was introduced.",
+          "No deployment, production-data mutation, messaging, payment, or credential operation is performed as part of implementation."
+        ],
+        "dependencies": [
+          "PSUM-02-read-only-projection-design"
+        ],
+        "riskLevel": "high",
+        "autonomyLevel": "gated-execution",
+        "expectedValidators": [
+          "Unit and integration test suite",
+          "Static/code review for write-path absence",
+          "Architecture conformance review"
+        ],
+        "requiredReviews": [
+          "Product owner approval to begin",
+          "Maintainer code review",
+          "Security/access-control review",
+          "ProjectOS architecture/data-ownership review"
+        ],
+        "requiredBrowserProof": false,
+        "ownerGates": [
+          "Explicit owner authorization for implementation after reviewing the approved design.",
+          "Owner confirmation that the selected target is non-production unless a separately governed production decision is made."
+        ]
+      },
+      {
+        "phaseId": "PSUM-04-validation-and-owner-review-evidence",
+        "purpose": "Demonstrate that the completed projection is accurate, selected-project scoped, accessible, and operationally read-only before any release decision is considered.",
+        "scope": "Execute approved automated validation and browser-based walkthroughs in the authorized non-production environment using representative existing or fixture projects. Capture evidence for normal, missing, conflicting, inaccessible, and no-next-safe-action cases. Verify network and interaction behavior does not invoke prohibited side effects. Prepare findings for owner review; do not deploy or close the workstream.",
+        "acceptanceCriteria": [
+          "Browser evidence shows a selected project displaying the approved five areas and changing context correctly when a different project is selected.",
+          "Evidence covers at least one unavailable/empty or conflicting source condition and shows transparent, non-fabricated handling.",
+          "Automated validation passes for derivation, scoping, redaction, and no-mutation behavior.",
+          "Review confirms no write requests, database mutations, messages, payments, credential changes, or workflow/authority changes occurred during validation.",
+          "An owner-review packet links rendered fields and observed states back to the approved source map and identifies any remaining limitations or unsupported source conditions."
+        ],
+        "dependencies": [
+          "PSUM-03-gated-read-only-implementation"
+        ],
+        "riskLevel": "medium",
+        "autonomyLevel": "gated-execution",
+        "expectedValidators": [
+          "Automated test suite",
+          "Browser-based functional and accessibility checks",
+          "Network/side-effect inspection",
+          "Owner evidence review"
+        ],
+        "requiredReviews": [
+          "Product owner review",
+          "QA review",
+          "Security/access-control review",
+          "Architecture/data-ownership sign-off"
+        ],
+        "requiredBrowserProof": true,
+        "ownerGates": [
+          "Explicit owner authorization to run validation in the designated non-production environment.",
+          "A separate owner release decision would be required for any deployment; deployment is not proposed by this workstream."
+        ]
+      }
+    ],
+    "unresolvedUnknowns": [
+      "Which existing ProjectOS records and selectors are authoritative for each of: current status, current plan, next safe action, risks, and carry-forward items.",
+      "Whether an existing selected-project context, API, query boundary, and UI host can supply all required data without adding a new service or persisted read model.",
+      "The canonical meaning and precedence rules for 'next safe action,' especially where plans, gates, blockers, or carry-forward records disagree.",
+      "The access-control and redaction rules for summary fields, including whether all candidate source data is visible to every intended viewer.",
+      "The expected freshness/refresh behavior and how stale, unavailable, partial, or conflicting data should be disclosed.",
+      "The supported project lifecycle states and whether archived, closed, imported, or malformed projects require explicit handling.",
+      "Whether the future projection must support desktop, web, or both existing ProjectOS presentation surfaces."
+    ],
+    "ownerDecisionsRequired": [
+      "Approve the authoritative source map and precedence rules before any implementation is authorized.",
+      "Approve the intended presentation surface and the audience/access model for the summary.",
+      "Approve the product definition of 'next safe action' and the required behavior when no safe action can be derived.",
+      "Approve whether the projection may introduce a non-persistent aggregation/query adapter, provided it neither becomes a system of record nor alters source data.",
+      "Approve the proposed field set, redaction behavior, and treatment of missing, stale, and conflicting data before build work.",
+      "Authorize each future gated-execution phase separately; this proposal grants no such authorization."
+    ],
+    "provenance": [
+      {
+        "field": "businessVision",
+        "sourcePath": ".projectops/objectives/7fa7c793bf1bf078.json",
+        "sourceChecksum": "sha256:d5f705076e9ce53a2f501e1dd7c87bc7bdd19b71f3c22d1ae1c458c6f9332055",
+        "derivation": "objective-led-authoring"
+      },
+      {
+        "field": "definitionOfComplete",
+        "sourcePath": ".projectops/objectives/7fa7c793bf1bf078.json",
+        "sourceChecksum": "sha256:d5f705076e9ce53a2f501e1dd7c87bc7bdd19b71f3c22d1ae1c458c6f9332055",
+        "derivation": "objective-led-authoring"
+      },
+      {
+        "field": "successStandard",
+        "sourcePath": ".projectops/objectives/7fa7c793bf1bf078.json",
+        "sourceChecksum": "sha256:d5f705076e9ce53a2f501e1dd7c87bc7bdd19b71f3c22d1ae1c458c6f9332055",
+        "derivation": "objective-led-authoring"
+      },
+      {
+        "field": "approvedScopeCandidates",
+        "sourcePath": ".projectops/objectives/7fa7c793bf1bf078.json",
+        "sourceChecksum": "sha256:d5f705076e9ce53a2f501e1dd7c87bc7bdd19b71f3c22d1ae1c458c6f9332055",
+        "derivation": "objective-led-authoring"
+      },
+      {
+        "field": "excludedScopeCandidates",
+        "sourcePath": ".projectops/objectives/7fa7c793bf1bf078.json",
+        "sourceChecksum": "sha256:d5f705076e9ce53a2f501e1dd7c87bc7bdd19b71f3c22d1ae1c458c6f9332055",
+        "derivation": "objective-led-authoring"
+      },
+      {
+        "field": "environmentCandidates",
+        "sourcePath": ".projectops/objectives/7fa7c793bf1bf078.json",
+        "sourceChecksum": "sha256:d5f705076e9ce53a2f501e1dd7c87bc7bdd19b71f3c22d1ae1c458c6f9332055",
+        "derivation": "objective-led-authoring"
+      },
+      {
+        "field": "phaseCandidates",
+        "sourcePath": ".projectops/objectives/7fa7c793bf1bf078.json",
+        "sourceChecksum": "sha256:d5f705076e9ce53a2f501e1dd7c87bc7bdd19b71f3c22d1ae1c458c6f9332055",
+        "derivation": "objective-led-authoring"
+      }
+    ],
+    "conflicts": []
+  },
+  "conflicts": [],
+  "duplicates": [],
+  "provenanceErrors": [],
+  "discovery": {
+    "rootScanned": "C:\\dev\\ProjectOS",
+    "sourcesConsidered": 714,
+    "sourcesSkipped": 11864,
+    "truncated": false,
+    "instructionShapedSources": [
+      ".projectops/closure/decisions/PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A.json",
+      ".projectops/closure/decisions/PROJECTOS-RECOVERY-EXTERNAL-PROJECT1A.json",
+      ".projectops/closure/PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A-CORRECTION1A.md",
+      ".projectops/evidence/PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A.c11-acceptance-recommendation.json",
+      ".projectops/evidence/PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A.c15-final-channel-proof.json",
+      ".projectops/evidence/PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A.c17-review.json",
+      ".projectops/execution/PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A-d45911cfe6f4-2726181c.findings.json",
+      "docs/architecture/projectos-safety-gates.md",
+      "docs/architecture/projectos-tauri-ipc-plugin-guide.md",
+      "docs/architecture/projectos-v3-master-plan.md",
+      "docs/architecture/projectos-v3.1-crosswalk.md",
+      "knowledge/ProjectOS Reports Index.md",
+      "knowledge/reports/2026-06-30_ProjectOS_PROJECTOPS-CI-GOVERNANCE1A_AWAITING-REVIEW.md",
+      "knowledge/reports/2026-06-30_ProjectOS_PROJECTOS-DASHBOARD-PRIVATE-HOSTING1A_AWAITING-REVIEW.md",
+      "knowledge/reports/2026-07-08_ProjectOS_PROJECTOS-CORE1A_AWAITING-REVIEW.md",
+      "knowledge/reports/2026-07-09_ProjectOS_PROJECTOS-APPROVALS1A_AWAITING-REVIEW.md",
+      "knowledge/reports/2026-07-09_ProjectOS_PROJECTOS-LOCAL-AGENT1A_AWAITING-REVIEW.md",
+      "knowledge/reports/2026-07-09_ProjectOS_PROJECTOS-PHASE-RUNTIME1A_AWAITING-REVIEW.md",
+      "knowledge/reports/2026-07-09_ProjectOS_PROJECTOS-TAURI-IPC-OWNER-VISUAL-PROOF1A_AWAITING-REVIEW.md",
+      "knowledge/reports/2026-07-12_ProjectOS_PROJECTOS-FORGE-REAL-E2E-ACTIVATION1B-HARDEN1A_REVIEW-BUNDLE.md",
+      "knowledge/reports/2026-07-12_ProjectOS_PROJECTOS-FORGE-REAL-E2E-ACTIVATION1B_AWAITING-REVIEW.md",
+      "knowledge/reports/2026-07-12_ProjectOS_PROJECTOS-FORGE-REAL-E2E-ACTIVATION1B_REVIEW-BUNDLE.md",
+      "knowledge/reports/2026-07-12_ProjectOS_PROJECTOS-FORGE-SECURE-DEPLOY1A_AWAITING-REVIEW.md",
+      "knowledge/reports/2026-07-12_ProjectOS_PROJECTOS-V3-LOCAL-SECRET-BROKER1A_AWAITING-REVIEW.md",
+      "knowledge/reports/2026-07-12_ProjectOS_PROJECTOS-V3-PLAN-DISCOVERY-IMPORT1A_AWAITING-REVIEW.md",
+      "knowledge/reports/2026-07-13_ProjectOS_PROJECTOS-FORGE-REAL-E2E-ACTIVATION1B-HARDEN1B_REVIEW-BUNDLE.md",
+      "knowledge/reports/2026-07-13_ProjectOS_PROJECTOS-FORGE-REAL-E2E-ACTIVATION1B-HARDEN1C_REVIEW-BUNDLE.md",
+      "knowledge/reports/2026-07-13_ProjectOS_PROJECTOS-FORGE-REAL-E2E-ACTIVATION1B-HARDEN1D_REVIEW-BUNDLE.md",
+      "knowledge/reports/2026-07-13_ProjectOS_PROJECTOS-POST-PUSH-AUTHORITATIVE-STATE-ALIGN1A_AWAITING-REVIEW.md",
+      "knowledge/reports/2026-08-04_ProjectOS_PROJECTOS-V3-DESKTOP-AUTH-RECOVERY-PROOF1A_CLOSED.md",
+      "knowledge/reports/2026-08-08_ProjectOS_PROJECTOS-V3-FINAL-RUNTIME-E2E1A_CLOSED.md",
+      "knowledge/reports/PROJECTOS-V3-CONTINUOUS-LOCAL-COMPLETION-CHECKPOINT.md",
+      "projectos/examples/demo-ci-governance-policy.json",
+      "projectos/examples/v3-import-fixtures/proj-context-only/EVIL.md",
+      "projectos/templates/bridge/decision.template.md",
+      "projectos/templates/ci-governance-policy.template.json"
+    ]
+  },
+  "planningCorpus": {
+    "totalDiscovered": 714,
+    "counts": {
+      "CONTEXT_ONLY": 714
+    },
+    "currentPlanningSources": []
+  },
+  "ownerDecisionsRequired": [
+    "Approve the authoritative source map and precedence rules before any implementation is authorized.",
+    "Approve the intended presentation surface and the audience/access model for the summary.",
+    "Approve the product definition of 'next safe action' and the required behavior when no safe action can be derived.",
+    "Approve whether the projection may introduce a non-persistent aggregation/query adapter, provided it neither becomes a system of record nor alters source data.",
+    "Approve the proposed field set, redaction behavior, and treatment of missing, stale, and conflicting data before build work.",
+    "Authorize each future gated-execution phase separately; this proposal grants no such authorization."
+  ],
+  "nextStep": "This is a PROPOSAL. It authorises nothing. An owner must approve it before any phase may start."
+}

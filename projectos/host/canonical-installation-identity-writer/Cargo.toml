@@ -1,0 +1,33 @@
+[package]
+name = "projectos-host-canonical-installation-identity-writer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "UNLICENSED"
+description = "CD-B4-INSTALLER-CANONICAL-IDENTITY-RECORD-WRITER1A. The INSTALLER-ONLY canonical installation identity record writer: validated inputs, installation-ID contract, strict canonical V1 JSON codec, and a fixture-backed atomic writer that never overwrites, repairs or regenerates an existing record. Runtime crates must NOT depend on this crate — host-identity remains the read/verify boundary."
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[features]
+default = []
+# Fixture-only target construction and a deterministic installation-ID source. Non-default: a release
+# graph exposes no write route at all.
+fixture-writer = []
+# The PRODUCTION installation-ID source (Windows system-preferred CSPRNG). Compiled only under this
+# feature and NEVER invoked during tests or validation. It delegates to the single canonical primitive
+# in the authority-free runtime-primitives leaf rather than introducing another random vocabulary.
+installer-windows = ["dep:projectos-windows-runtime-primitives"]
+
+[dependencies]
+# The CLOSED canonical identity contract: record type, digest, product/service/relative-path constants.
+# Reused, never duplicated.
+projectos-host-identity = { path = "../host-identity" }
+# Strict V1 JSON parsing. Canonical output is produced by this crate, not by serde field order.
+serde_json = "1"
+
+[target.'cfg(windows)'.dependencies]
+# THE system-preferred CSPRNG primitive, for the production installation-ID source only. Optional, so
+# the default graph links it not at all. It is an authority-free leaf: no host-core, no host-authority,
+# no owner-presence, no provider-authority, no persistence and no master-key capability comes with it.
+projectos-windows-runtime-primitives = { path = "../windows-runtime-primitives", optional = true }

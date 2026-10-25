@@ -1,0 +1,15 @@
+{
+  "startedAt": "2026-09-03T22:24:37.056Z",
+  "providerRef": "4a6585f4-66d1-4d48-bbbf-3c57083e5c9e",
+  "state": "started",
+  "exitCode": 0,
+  "corrections": 0,
+  "invocationId": "5d9e3ba3095e13d2",
+  "sessionId": "validation-cache-007d5b192748-5d9e3ba3",
+  "workerId": "claude-local",
+  "kind": "claude-code-cli",
+  "phaseId": "validation-cache",
+  "briefId": "validation-cache@007d5b192748bb297c2d6af046a4ced58c5bffb6",
+  "briefPath": "C:\\dev\\ProjectOS/.projectops/execution/validation-cache-007d5b192748-5d9e3ba3.brief.json",
+  "timedOut": false
+}

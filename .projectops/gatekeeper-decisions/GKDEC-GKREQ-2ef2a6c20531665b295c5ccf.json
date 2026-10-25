@@ -1,0 +1,34 @@
+{
+  "schemaVersion": "1.0.0",
+  "recordKind": "gatekeeper-decision-evidence",
+  "decisionId": "GKDEC-GKREQ-2ef2a6c20531665b295c5ccf",
+  "projectId": "projectos",
+  "phaseId": "validation-cache",
+  "subjectCommit": "8043ca6daad5ca1b11c3d950c3feb7729a17e822",
+  "requestDigest": "sha256:125110be18c5041c259f3a3d625746b02b9f50bce151103f9b20bcee07cf038b",
+  "decision": "AWAITING_OWNER",
+  "reason": "The phase is blocked by unresolved HIGH F3-BENCHMARK-NOT-EXECUTED. A live measurement is required to prove the <=2-second benchmark criterion, but Node execution was denied in this session; validate-no-secrets and the cache-specific validator were likewise not executed. Two unresolved MEDIUM findings require .gitignore and validate-all.cjs changes outside the effective worker grant. The candidate also includes runner.ts and additional unlisted paths outside that grant, so provenance is not sufficient for technical continuation.",
+  "allowedActions": [
+    "run-owner-authorized-non-production-benchmark",
+    "run-owner-authorized-non-mutating-validation",
+    "inspect-candidate-and-grant-provenance",
+    "prepare-owner-remediation-brief",
+    "preserve-evidence"
+  ],
+  "forbiddenActions": [
+    "commit",
+    "push",
+    "merge",
+    "force-push",
+    "phase-closure",
+    "secrets-handling",
+    "payment-or-live-charge",
+    "deploy",
+    "database-mutation",
+    "external-message",
+    "unscoped-source-edits"
+  ],
+  "ownerApprovalRequired": true,
+  "decidedBy": "ChatGPT",
+  "decidedAt": "2026-09-04T14:05:44.000Z"
+}

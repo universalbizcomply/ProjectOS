@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "1.0.0",
+  "invocationId": "c15efb5cc8256bd1",
+  "createdAt": "2026-09-05T04:59:35.216Z",
+  "projectId": "projectos",
+  "phaseId": "readiness-evidence",
+  "sessionId": "readiness-evidence-466cc2e6dede-c15efb5c",
+  "repository": {
+    "root": "C:\\dev\\ProjectOS",
+    "branch": "projectos-post-v3-selfhost-pilot1a",
+    "head": "466cc2e6dede105d3168b2ddca832cc99a8dc31a"
+  },
+  "executionMode": "live",
+  "process": {
+    "pid": 6288,
+    "ppid": 35792,
+    "argv": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\dev\\ProjectOS\\projectos\\agent\\bin\\projectos.js",
+      "run",
+      "--execute"
+    ],
+    "cwd": "C:\\dev\\ProjectOS"
+  },
+  "workerId": "claude-local",
+  "workerKind": "claude-code-cli",
+  "brief": {
+    "path": "C:\\dev\\ProjectOS/.projectops/execution/readiness-evidence-466cc2e6dede-c15efb5c.brief.json",
+    "briefId": "readiness-evidence@466cc2e6dede105d3168b2ddca832cc99a8dc31a",
+    "digest": "sha256:598a71857bab991a81ac0ed550e641fce6cadf29949801ce48c1dfa5307fa099"
+  }
+}

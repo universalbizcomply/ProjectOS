@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://projectos.local/schemas/session-profile.schema.json",
+  "title": "ProjectOS Session Profile",
+  "description": "A per-project session profile written to .projectops/sessions/<profile>.json. It selects one of the built-in capability profiles and pins the environment and slot naming for this project. It never contains a credential value; credentials appear as references only, and the built-in profile remains the authority on what may be loaded.",
+  "type": "object",
+  "required": ["schemaVersion", "profile", "projectId", "environment"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "type": "string", "const": "1.0" },
+    "profile": { "type": "string", "enum": ["readonly-reviewer", "staging-writer", "proof-runner", "production-readonly", "production-operation"] },
+    "projectId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" },
+    "environment": { "type": "string", "enum": ["development", "staging", "production"] },
+    "sessionSlots": {
+      "type": "array",
+      "uniqueItems": true,
+      "description": "Slot names this profile may occupy, e.g. polygo-1. A slot is a label for one concurrent session, not a permission.",
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,40}$" }
+    },
+    "credentialReferences": {
+      "type": "array",
+      "uniqueItems": true,
+      "description": "References the session expects to be present. Advisory: the built-in profile's allowlist decides what is actually projected.",
+      "items": { "type": "string", "pattern": "^ProjectOS(/[A-Za-z0-9][A-Za-z0-9._-]{0,63}){4}$" }
+    },
+    "mcpServers": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,39}$" }
+    },
+    "notes": { "type": "string", "maxLength": 400 }
+  }
+}

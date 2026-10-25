@@ -1,0 +1,86 @@
+{
+  "reviews": [
+    "Security and privacy review of cache contents and redaction guarantees",
+    "Validation correctness review of dependency coverage, invalidation, and fail-toward-run behavior",
+    "Performance benchmark review"
+  ],
+  "findings": [
+    {
+      "id": "VCACHE-SEC-01",
+      "severity": "LOW",
+      "category": "security",
+      "summary": "RESOLVED. .projectops/validation-cache/ is now gitignored at commit f9f6942. Cache entries are disposable local state and will no longer appear in git status or be accidentally committed. Previous finding from run 7ec1ef74 is closed.",
+      "resolved": true
+    },
+    {
+      "id": "VCACHE-SEC-02",
+      "severity": "LOW",
+      "category": "security",
+      "summary": "Cache entry schema is correctly minimal: schemaVersion, validator, key (64-char hex SHA-256), passed (boolean), errorCount (integer), createdAt, lastUsedAt. buildEntry produces only these fields. validate-speed-validation-cache.cjs checks against JWT, sk_live_, sk_test_, sk-proj-, sk-ant-, ghp_, AKIA patterns. No file contents, credentials, or provider data stored. PASS.",
+      "resolved": true
+    },
+    {
+      "id": "VCACHE-SEC-03",
+      "severity": "LOW",
+      "category": "security",
+      "summary": "hashDirectory excludes node_modules, .git, target, and validation-cache. No raw file contents stored — only SHA-256 hashes. input-map.cjs paths are relative and validated against absolute/parent-traversal by the correctness validator. PASS.",
+      "resolved": true
+    },
+    {
+      "id": "VCACHE-CORRECT-01",
+      "severity": "LOW",
+      "category": "correctness",
+      "summary": "Fail-toward-run behavior verified: computeCacheKey returns coverage='none' for empty inputPaths, coverage='partial' for missing/unreadable inputs, null for unreadable source or lib. checkValidatorCache returns null for null keyResult, non-full coverage, wrong validator name, key mismatch, expired entries, NaN age. readEntry returns null for non-JSON, wrong schemaVersion, missing required fields. Every ambiguous condition runs the validator. PASS.",
+      "resolved": true
+    },
+    {
+      "id": "VCACHE-CORRECT-02",
+      "severity": "LOW",
+      "category": "correctness",
+      "summary": "Deletion safety verified: clear() uses fs.rmSync with recursive+force. cached-runner.cjs falls through to running each validator on any cache miss. validate-all.cjs is unchanged and remains the authoritative full runner. The cached runner is documented as an alternative, not a replacement. PASS.",
+      "resolved": true
+    },
+    {
+      "id": "VCACHE-CORRECT-03",
+      "severity": "LOW",
+      "category": "correctness",
+      "summary": "Module registry sync: validate-speed-validation-cache.cjs mechanically extracts MODULES arrays from both validate-all.cjs and cached-runner.cjs and compares element-by-element. Any mismatch fails the validator. Both lists are 115 entries, identical. PASS.",
+      "resolved": true
+    },
+    {
+      "id": "VCACHE-CORRECT-04",
+      "severity": "LOW",
+      "category": "correctness",
+      "summary": "Input map coverage: every key in the input map is checked against the validate-all module set; unknown entries fail. Paths validated as relative with no parent traversal. Validators NOT in the input map get coverage='none' and always run (fail-toward-run for unknown dependency coverage). PASS.",
+      "resolved": true
+    },
+    {
+      "id": "VCACHE-CORRECT-05",
+      "severity": "LOW",
+      "category": "correctness",
+      "summary": "Suite-level fast path requires clean git tree AND matching HEAD + environment key AND non-expired entry AND correct result count AND every expected module present. gitState filters cache directory changes from cleanliness check to prevent self-defeating cycle. Full uncached validation (validate-all.cjs) is not weakened. PASS.",
+      "resolved": true
+    },
+    {
+      "id": "VCACHE-PERF-01",
+      "severity": "LOW",
+      "category": "performance",
+      "summary": "Benchmark ran and passed in this session (evidence check 'speed-benchmark', exitCode 0, at 2026-09-04T14:36:29.721Z). Suite cache check 85ms (target <=2000ms PASS). Full cached run: all 141 modules PASS. Environment: win32/x64, Node v24.14.1, Windows_NT 10.0.26200, 13th Gen Intel i5-13420H, 12 cores, 15.7 GB RAM. PASS.",
+      "resolved": true
+    },
+    {
+      "id": "VCACHE-PERF-02",
+      "severity": "LOW",
+      "category": "performance",
+      "summary": "Lifecycle management: 1GB cap with LRU eviction, 7-day unused-entry expiry, maintenance runs after each cached-runner invocation. Entry sizes ~280 bytes; at 141 validators total cache well under 100KB. PASS.",
+      "resolved": true
+    },
+    {
+      "id": "VCACHE-RUN-01",
+      "severity": "MEDIUM",
+      "category": "execution",
+      "summary": "RESOLVED by evidence: the loop's configured checks ran all validators for this session (validation-cache-f9f69428a737-4a4dd30f). validate-no-secrets passed (exitCode 0, at 2026-09-04T14:34:43.077Z), core-tests 682 passed, agent-tests passed, agent-typecheck passed, speed-benchmark passed (exitCode 0, suite cache check 85ms). The worker could not run them directly due to tool-permission denial, but the loop is the authoritative execution path and the evidence record proves all checks passed.",
+      "resolved": true
+    }
+  ]
+}

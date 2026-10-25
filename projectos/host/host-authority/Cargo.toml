@@ -1,0 +1,108 @@
+[package]
+name = "projectos-host-authority"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "UNLICENSED"
+description = "Machine-wide, cross-identity ProjectOS host authority (WINDOWS-PACKAGED-HOST-TRUST-ENFORCEMENT3K-I-D-C). Freezes the authority scope/key contract (no user, service-name, SID, path or caller string in the key) and implements the first SYNTHETIC Windows existence-token authority: an atomic named-mutex create-or-open used only as an EXCLUSIVITY token (never owned, never waited on — released solely by handle close), the MachineWideAuthoritySecurityV1 descriptor (SYNCHRONIZE + READ_CONTROL detection rights only, plus an OWNER_RIGHTS ACE suppressing the owner's implicit WRITE_DAC), a read-only DACL inspector, and a read-only ProjectOSHost service-SID resolution attempt. An existing token is NEVER trusted ownership (corroboration deferred). The synthetic proofs use TEST-ONLY object names that can never be the production authority name; the production name is derived but never acquired in this phase. No SCM query, no service install/start, no IPC, no process launch, no credential/signing access."
+
+[lints.rust]
+# The FFI modules require unsafe; every unsafe operation must sit in an explicit unsafe block, and
+# unsafe is confined to the named Windows files (token.rs / security.rs / service_principal.rs),
+# enforced by the windows-boundary validator. The pure files (model.rs / key.rs) contain no unsafe.
+unsafe_op_in_unsafe_fn = "deny"
+
+[features]
+default = []
+# EXPLICIT, NON-DEFAULT fixture graph for the OPAQUE EFFECT-WITNESS CONTRACT. Deliberately separate
+# from `test-fixtures`, which pulls the windows dependency and the pipe-security runtime: this one is
+# pure contract types with NO dependency, NO Windows API and NO machine effect. It only lets tests
+# build SYNTHETIC witnesses, which are marked as such internally so a future live producer can refuse
+# them.
+effect-witness-fixtures = []
+
+# NON-DEFAULT, Windows-only INTERNAL current-process elevation OBSERVATION engine. Enables ONLY the
+# already-declared optional Windows binding and the canonical handle-RAII primitive — no new dependency
+# and no new `windows` feature (TokenElevation/TokenElevationType live in the Win32_Security module that
+# `test-fixtures` already turns on). It exposes NO public surface, mints NO witness, and its real
+# backend is compiled but never executed this phase. It is deliberately INCOMPATIBLE with
+# `effect-witness-fixtures` (a real observer and a synthetic witness minter must not share a build);
+# `src/lib.rs` enforces that with a `compile_error!`, so `--all-features` is intentionally unsupported.
+windows-elevation-observation = ["dep:windows", "dep:projectos-windows-runtime-primitives"]
+
+# NARROW, non-fixture RUNTIME feature: makes ONLY the accepted opaque ProjectOSHost pipe-security runtime
+# contract available to normal Windows library code (fixed service-principal resolution, the opaque
+# ProjectOsHostPipeSecurity descriptor + its borrowed lease, the status/refusal model). It compiles NO
+# synthetic SID/descriptor constructor, no authority/existence/key fixtures and no synthetic proof
+# harness. Opt-in; never enabled by default; must NOT depend on test-fixtures.
+# PROJECTOSHOST-IPC-NON-ELEVATED-PIPE-ACCESS1A: additionally activates the ALREADY-DECLARED
+# host-identity dependency so the production pipe descriptor can consume the enrolled configured-owner
+# SID from the CLOSED canonical installation record (fail closed when absent). No new dependency.
+windows-pipe-security-runtime = [
+    "dep:windows",
+    "dep:projectos-windows-runtime-primitives",
+    "dep:projectos-host-identity",
+]
+
+# NARROW, NON-FIXTURE Windows feature for the host-authority OBSERVER
+# (CD-B4-PRODUCTION-HOST-AUTHORITY-WIN32-OBSERVER1A). It compiles the live session/console/station
+# observation and the canonical-identity check that feed the committed acquisition policy. It acquires
+# NO token, constructs NO ConfirmedAuthorityGuard, and has no caller in this phase — compiling it is not
+# authority to run it. Pulls host-identity for the CLOSED canonical installation identity contract; no
+# cycle, because host-identity no longer depends on the activation plan.
+windows-host-authority-observer = [
+    "dep:windows",
+    "dep:projectos-host-identity",
+]
+
+# PROJECTOS-HOST-REVIEW-PATH1B (ROUTE A). The PRODUCTION machine-wide authority acquisition.
+#
+# Before this, the existence-token acquisition and the authority object-name derivation were compiled
+# ONLY under `test-fixtures`, so a release build could not acquire authority at all — which made the
+# whole production session route (ConfirmedAuthorityGuard -> ProviderAuthorityLease ->
+# ProductionIpcSessionVerifier -> BoundIpcSession) unreachable and `compose_protected_operation`
+# uncallable. This feature ships that ALREADY-AUDITED machinery. NO logic changed; only its cfg.
+#
+# It is enabled ONLY by the trusted service-host production graph.
+#
+# IT DELIBERATELY DOES NOT ENABLE `test-fixtures`, and therefore ships NONE of the synthetic surface:
+# no `windows_proof` module, no synthetic SID/descriptor constructors, no test object-name route, no
+# fixture minting and no test-only authority shortcut. It compiles exactly the production name
+# derivation, the existence-token create-or-open, and the guard that owns the real handle.
+windows-authority-acquisition = [
+    "windows-pipe-security-runtime",
+    "dep:windows",
+    "dep:projectos-windows-runtime-primitives",
+    "dep:projectos-host-identity",
+]
+
+# TEST-ONLY synthetic authority surface. Present only under this feature; never in a default/release
+# build. INCLUDES the runtime feature (so the opaque runtime contract is available) and additionally
+# compiles the synthetic descriptor/SID constructors, the `windows_proof` module, the existence-token
+# and key fixtures and the Windows integration tests. The `dep:*` entries are retained explicitly for
+# the canonical handle primitive + windows crate used by those fixtures.
+test-fixtures = [
+    "windows-pipe-security-runtime",
+    "dep:windows",
+    "dep:projectos-windows-runtime-primitives",
+]
+
+[target.'cfg(windows)'.dependencies]
+# Windows named-object + security-descriptor + read-only SID resolution. Optional: linked ONLY under
+# the `test-fixtures` feature. Minimum feature set only.
+windows = { version = "0.61.3", optional = true, features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_System_Threading",
+    "Win32_System_RemoteDesktop",
+    "Win32_System_StationsAndDesktops",
+] }
+# Canonical owned-handle RAII boundary. The synthetic authority adopts every Win32 handle through this
+# crate's `handles::adopt` and inspects it through `handles::win32` — host-authority defines NO handle
+# wrapper, no Drop and no direct FromRawHandle. Optional: linked ONLY under the test-fixtures feature.
+projectos-windows-runtime-primitives = { path = "../windows-runtime-primitives", optional = true }
+# The closed canonical installation identity contract. Optional: linked ONLY under
+# `windows-host-authority-observer` and `windows-pipe-security-runtime` (configured-owner
+# consumption for the production pipe descriptor), so the default graph gains nothing.
+projectos-host-identity = { path = "../host-identity", optional = true }

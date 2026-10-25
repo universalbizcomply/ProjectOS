@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "CLDEC-6ab855053a9d8da971338f35",
+  "phaseId": "PROJECTOS-HYBRID-CLOSURE-RECONCILE-ROUTING1A",
+  "projectId": "projectos",
+  "scope": "phase-closure",
+  "decidedBy": "ChatGPT",
+  "decidedAt": "2026-09-11T23:30:44.000Z",
+  "evidenceSubjectHead": "dac794c3c404d0c5daafd93f20fcf269c53e2d5b",
+  "decision": "close",
+  "note": "Close approved. The historical implementation 9b6da53123c7f4b17df30e0d1639da29f60686e8 is correctly reconciled through the approved v1.4 lifecycle. All three phase-required validators pass at both the historical implementation and the bound G4 subject; required core tests, agent tests and typecheck evidence are sufficient; accepted reviews have 0 unresolved CRITICAL/HIGH; no protected effects occurred. Aggregate validate-all failures, benchmark misses, the fixture LOW and two historical SECURITY LOWs remain explicitly disclosed carry-forward and are not represented as passing.",
+  "ownerAcceptedFindings": [],
+  "requestDigest": "sha256:aacd56a9757370f2fc28d23b8a00bc89e2804b78517fa0a231d99919e0cdd87a",
+  "consumedAt": "2026-09-11T23:42:56.787Z"
+}

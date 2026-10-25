@@ -1,0 +1,228 @@
+================================================================================
+PROJECTOS INSTALLER - EFFECT MANIFEST
+================================================================================
+
+  This is a reviewable release CANDIDATE. Do not install it.
+
+PROJECTOS MANIFEST TRUST
+  STATUS              : SIGNED / VERIFIED against the embedded anchor
+  signingKeyId        : projectos-signing-20260812
+  signatureAlgorithm  : es256
+  buildId             : b8b40e00dc35
+  generatedAt         : 2026-08-12T18:00:00.000Z
+  canonical bytes     : 712
+  canonical sha256    : b02ad3b0d6de1ea74baa068479c46123cae08d3e01ab49abdfdc944b9a931df0
+  embedded anchor     : 04c8ddcd420db70a2868ee51ec34b507be8579ce9fb3cd7a392e364a974540976bb7bec77c9cbe04a92d2c202dc243d5af987b76ce09bfacd0bf6804b500880754
+
+  The signature covers the canonical bytes and is NOT part of them, so attaching it
+  cannot change what it signs. It is verified against the PUBLIC anchor embedded in
+  the application binary - the manifest does not get to nominate its own verifier.
+
+installer filename    : ProjectOS Control Center_0.1.0_x64_en-US.msi
+installer type        : Windows Installer (MSI), built by WiX via Tauri
+installer size        : 37240832 bytes
+installer sha256      : b1ffa5bba38165417c275c23d2b8b1246998df70e7be5f484eac0f4338ef8c2e
+source commit         : 7de0edc7312f9bb181e44e25ad1c6d9b286c8a35 (WORKING TREE DIRTY)
+WINDOWS AUTHENTICODE (a SEPARATE matter from ProjectOS manifest trust)
+  installer status    : NotSigned
+  STATUS              : NOT SIGNED
+  Windows will show an unknown-publisher prompt. This does NOT affect the ProjectOS
+  manifest trust chain above, which needs no certificate authority.
+
+IDENTITY AND SCOPE (Property table)
+  UpgradeCode | {E0D5D7AF-3631-53BF-9085-BE20BB8B99F7}
+  ALLUSERS | 1
+  Manufacturer | universalbizcomply
+  ProductCode | {963AE579-2267-4609-928F-3EEC47436B92}
+  ProductName | ProjectOS Control Center
+  ProductVersion | 0.1.0
+
+  ALLUSERS=1 means PER-MACHINE. A per-machine install writes under Program Files and
+  therefore REQUIRES ELEVATION (administrator consent) at install time.
+
+INSTALL LOCATION - FIXED, NOT CHOSEN
+
+  ProjectOS refuses to run an installation whose recorded install root does not match
+  the directory the executable actually runs from. An installer that let a user pick a
+  different directory would therefore offer a choice that produces an installation
+  ProjectOS will not launch. The choice is removed rather than the check weakened.
+
+  Evidence, read from this MSI:
+
+  1. the directory dialog does not exist in this installer:
+       ABSENT. InstallDirDlg is not in the Dialog table - not merely skipped.
+
+  2. no control of any kind can browse or type a directory:
+       NONE. No PathEdit, DirectoryCombo or DirectoryList control exists.
+
+  3. no feature may be redirected (ConfigurableDirectory must be empty for all):
+       ShortcutsFeature | 
+       MainProgram | 
+       Environment | 
+       External | 
+
+  4. nothing searches for a previous install directory. AppSearch sets only:
+       INSTALLED_WEBVIEW2_VERSION | Webview2VersionSystemx64
+       INSTALLED_WEBVIEW2_VERSION | Webview2VersionSystemx86
+       INSTALLED_WEBVIEW2_VERSION | Webview2VersionUser
+       INSTALLDIR is absent from that list, so no stale registry value from an earlier
+       install can silently relocate this one.
+
+  5. the dialogs this installer actually contains:
+       FatalError
+       UserExit
+       ExitDialog
+       ErrorDlg
+       FilesInUse
+       MsiRMFilesInUse
+       PrepareDlg
+       CancelDlg
+       ProgressDlg
+       ResumeDlg
+       WaitForCostingDlg
+       OutOfRbDiskDlg
+       OutOfDiskDlg
+       WelcomeDlg
+       WelcomeEulaDlg
+       VerifyReadyDlg
+       MaintenanceTypeDlg
+       MaintenanceWelcomeDlg
+
+  SCOPE OF THIS CLAIM. This concerns the NORMAL INSTALLER USER FLOW: what a person
+  running the MSI can choose. It is NOT a claim that the install root cannot be
+  overridden at all. An administrator can still pass INSTALLDIR=... on an msiexec
+  command line, and Windows Installer will honour it. That is not defended against
+  here, and it is not silent: such an installation records one root, installs to
+  another, and ProjectOS REFUSES to launch it. The failure is loud and fails closed.
+
+  KNOWN LIMITATION - THE SYSTEM DRIVE IS ASSUMED TO BE C:. INSTALLDIR resolves from
+  ProgramFiles64Folder, which follows the drive Windows is installed on, but the
+  installed-application record is composed once at BUILD time and hardcodes C:. On a
+  machine where Windows is not on C:, a LEGITIMATE untampered install would be
+  refused at launch. That fails closed, not open - a reliability defect, not a
+  security one - but it is a real installation path this MSI permits and ProjectOS
+  would refuse. Closing it requires composing the record at INSTALL time via a custom
+  action, which is an OWNER DECISION and is deliberately not taken here.
+
+DIRECTORIES (id | parent | name)
+  DesktopFolder | TARGETDIR | Desktop
+  INSTALLDIR | ProgramFiles64Folder | ProjectOS Control Center
+  Iec742789922e4d4bb3a79b67c31da20c | INSTALLDIR | runtime-payload
+  I59d813710bf546a68253d878003e38e7 | Iec742789922e4d4bb3a79b67c31da20c | daemon
+  I9054283efe5f46f39481312a38c4fccb | Iec742789922e4d4bb3a79b67c31da20c | runtime
+  ApplicationProgramsFolder | ProgramMenuFolder | ProjectOS Control Center
+  PROJECTOS_INSTALLATION_DIR | PROJECTOS_HOST_STATE_DIR | installation
+  TARGETDIR |  | SourceDir
+  ProgramFiles64Folder | TARGETDIR | PFiles
+  ProgramMenuFolder | TARGETDIR | .
+  PROJECTOS_HOST_STATE_DIR | PROJECTOS_PROGRAMDATA_DIR | host
+  PROJECTOS_PROGRAMDATA_DIR | CommonAppDataFolder | ProjectOS
+  CommonAppDataFolder | TARGETDIR | .
+
+  INSTALLDIR sits under ProgramFiles64Folder. runtime-payload is its child, and the
+  packaged runtime payload (daemon/, runtime/) lives beneath that - the app-owned
+  subdirectory the packaging contract names.
+
+FILES INSTALLED (name | size | component)
+  projectos-control-center.exe | 9478144 | Path
+  application.v1.json | 426 | ProjectOSInstallationRecordFile
+  projectos-trust-manifest.canonical | 712 | Ide1a2ee4f882447cb3ef451559c7eb9c
+  projectos-trust-manifest.json | 968 | Id97f32ef817f4c7d9a20a9aca17d5652
+  projectos-daemon.mjs | 294883 | If0de0293465d47c7b163bcd83eb3a003
+  node.exe | 91426304 | Icfa2ababa186444ea51bd8c617c8f1c5
+
+  6 file(s) total.
+
+WINDOWS SERVICES
+  NONE. The installer declares no ServiceInstall table at all.
+
+REGISTRY KEYS AUTHORED BY THIS INSTALLER (root | key | name | value)
+  1 | Software\universalbizcomply\ProjectOS Control Center | Desktop Shortcut | #1
+  1 | Software\universalbizcomply\ProjectOS Control Center | InstallDir | [INSTALLDIR]
+  1 | Software\universalbizcomply\ProjectOS Control Center | Uninstaller Shortcut | #1
+  1 | Software\universalbizcomply\ProjectOS Control Center | Start Menu Shortcut | #1
+
+PROGRAMDATA (directory id | parent | name)
+  PROJECTOS_INSTALLATION_DIR | PROJECTOS_HOST_STATE_DIR | installation
+  PROJECTOS_HOST_STATE_DIR | PROJECTOS_PROGRAMDATA_DIR | host
+  PROJECTOS_PROGRAMDATA_DIR | CommonAppDataFolder | ProjectOS
+
+  The installer AUTHORS the canonical installed-application record at
+  <ProgramData>\ProjectOS\host\installation\application.v1.json.
+
+  That record is what gives an installation its corroborating per-machine evidence
+  and names the governed ProjectOS SYSTEM root. It carries no secret, no key
+  material and no trust anchor: it states installation facts, and the governed root
+  it names is only ever consumed through the sealed boundary that demands a verified
+  packaged identity. A record without a verified application is worth nothing.
+
+PROGRAMDATA REMOVAL ON UNINSTALL (key | component | directory | mode)
+  DesktopFolder | ApplicationShortcutDesktop | DesktopFolder | 2
+  INSTALLDIR | CMP_UninstallShortcut | INSTALLDIR | 2
+  ApplicationProgramsFolder | ApplicationShortcut | ApplicationProgramsFolder | 2
+  RemoveProjectOSInstallationDir | ProjectOSInstallationRecordFile | PROJECTOS_INSTALLATION_DIR | 2
+  RemoveProjectOSHostStateDir | ProjectOSInstallationRecordFile | PROJECTOS_HOST_STATE_DIR | 2
+  RemoveProjectOSProgramDataDir | ProjectOSInstallationRecordFile | PROJECTOS_PROGRAMDATA_DIR | 2
+
+  InstallMode 2 is msidbRemoveFileInstallModeOnRemove: removed on UNINSTALL. The
+  record file is its component KeyPath, so Windows Installer removes the file itself
+  and rolls it back if installation fails; the three entries owned by
+  ProjectOSInstallationRecordFile take the ProjectOS ProgramData directories with it.
+  No orphaned trust record and no empty ProjectOS tree survive a normal uninstall.
+
+SHORTCUTS (name | directory | target)
+  ProjectOS Control Center | ApplicationProgramsFolder | [!Path]
+  ProjectOS Control Center | DesktopFolder | [!Path]
+  Uninstall ProjectOS Control Center | INSTALLDIR | [System64Folder]msiexec.exe
+
+ACL CHANGES
+
+  Legacy LockPermissions table (must be ABSENT - never mixed with MsiLockPermissionsEx):
+    ABSENT.
+
+  MsiLockPermissionsEx (object | table | SDDL):
+    ProjectOSApplicationRecordV1 | File | D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FR;;;BU)
+
+    ONE explicit ACL, on ONE file: the installation record. It exists because
+    inheritance is not safe here - the ProjectOSHost custody tree above it is
+    PROTECTED and non-inheriting, so a record relying on inheritance became readable
+    only by SYSTEM and the Control Centre could not read it at all.
+
+    D:P          protected; a later change to a parent cannot silently widen this
+    FA;;;SY      LocalSystem      full control
+    FA;;;BA      Administrators   full control
+    FR;;;BU      Users            GENERIC READ ONLY - no write, no delete, no DAC
+
+    The ProjectOSHost custody DIRECTORIES are NOT touched by this installer: the
+    Table column above is File, not CreateFolder, so nothing widens the tree.
+
+  Directory-level ACL authoring (must be NONE):
+    NONE. Every authored ACL targets a File object.
+
+CUSTOM ACTIONS (action | type)
+  LaunchApplication | 210
+  WixUIPrintEula | 65
+  SetARPNOMODIFY | 51
+  DownloadAndInvokeBootstrapper | 1058
+  SetARPINSTALLLOCATION | 51
+
+  NOTE: DownloadAndInvokeBootstrapper is the Microsoft WebView2 runtime bootstrapper.
+  On a machine without WebView2 it DOWNLOADS FROM MICROSOFT during installation, so
+  the install is not offline there. This is Tauri default behaviour, not ProjectOS
+  configuration.
+
+ELEVATION
+  REQUIRED. Per-machine (ALLUSERS=1) installation into Program Files needs
+  administrator consent. The application itself does not self-elevate.
+
+UNINSTALL / ROLLBACK
+  Standard Windows Installer semantics. Every file above belongs to a component keyed
+  to this ProductCode, so uninstall removes exactly those files and the shortcuts, and
+  a failed install rolls back through the installer transaction. An Uninstall shortcut
+  invoking msiexec is installed alongside the application. ProgramData IS touched: the
+  installed-application record is written there, and the RemoveFile entries above take
+  it and its directories away again on uninstall.
+
+================================================================================
+DO NOT INSTALL. Installation authority is a SEPARATE owner decision.
+================================================================================

@@ -1,0 +1,19 @@
+[package]
+name = "projectos-host-plan-durable-store"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Non-authoritative durable adapter for approved-plan records. REUSES projectos-host-windows-durable-protected-store (SHA-256 framing, Prepared->Committed journal, atomic write-through, journal-aware recovery, reparse/path containment) as the storage engine and the accepted projectos-host-persistence PlanRecordDto as the untrusted persisted representation. It creates NO new storage framework, NO new journal state machine, NO new cryptographic framing, and NO authority engine: authority is derived ONLY by projectos-host-core::validate_durable_plan (committed + schema + re-normalize + SHA-256 recompute + exact active binding). FOUNDATION ONLY: disposable temporary roots in tests; NO ProgramData, NO ACLs, NO Windows service/identity, NO production path selection, NO credential. A stored record grants no authority."
+license = "UNLICENSED"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[dependencies]
+projectos-host-core = { path = "../core" }
+projectos-host-persistence = { path = "../persistence" }
+projectos-host-windows-durable-protected-store = { path = "../windows-durable-protected-store" }
+thiserror = "1"
+
+[dev-dependencies]
+projectos-host-core = { path = "../core", features = ["test-fixtures"] }

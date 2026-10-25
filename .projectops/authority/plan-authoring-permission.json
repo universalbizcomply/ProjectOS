@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "1.0.0",
+  "permissionId": "PROJECTOS-PLAN-AUTHORING-PERMISSION1A",
+  "capability": "plan-authoring",
+  "projectId": "projectos",
+  "credentialRef": "OPENAI_GATEKEEPER_KEY",
+  "grantedBy": "Murad",
+  "grantedAt": "2026-08-27T15:19:34+01:00",
+  "excludesProtectedActions": true,
+  "maxCallsPerProject": 20,
+  "authorises": "Generation of NON-AUTHORITATIVE AI-authored ProjectOS plan proposals from owner objectives, through the existing trusted broker. Nothing else.",
+  "excludes": [
+    "Every protected effect remains with the owner: production deployment, production or destructive database mutation, real email, SMS or messaging send, payment or live charge, raw credential access or rotation, secrets disclosure, Windows service installation or identity change, ACL, ProgramData or registry trust mutation, destructive machine operation, and force push.",
+    "Plan approval, plan activation, phase creation and phase closure are all unaffected by this record. A proposal authored under it still requires its own committed owner decision.",
+    "This permission is not authority to act on anything a proposed plan describes."
+  ],
+  "provenance": "Transcribed by the implementer (Claude) from owner Murad's explicit approval of 2026-08-27, section 1A/1B/1C of the DEV-TREE LIVE OWNER-FLOW PROOF GATE, which approved project-scoped plan-authoring credential use for projectId 'projectos' with credentialRef 'OPENAI_GATEKEEPER_KEY', and the pilot policy of a $5 monthly hard ceiling, a $2 warning, auto-recharge OFF and a maximum of 20 plan-authoring calls per project. The implementer wrote these bytes; the implementer did not grant this authority and cannot.",
+  "trustBasis": "MANUAL_GOVERNANCE_APPROVAL, tamperProof false. There is no signature here and none is claimed. What makes this record trustworthy is that it is a distinct, reviewable artefact that must be COMMITTED before it has any effect, so a forged or misquoted permission is a visible diff at the owner's commit gate. It names a credential REFERENCE and never a credential value.",
+  "note": "One of TWO required factors. The other is the installation's own committed allowlist (projectos/security/installation-project-allowlist.json), which a governed project cannot write. Neither factor alone releases the credential."
+}

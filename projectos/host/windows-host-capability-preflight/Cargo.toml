@@ -1,0 +1,33 @@
+[package]
+name = "projectos-host-windows-capability-preflight"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "READ-ONLY Windows host capability and service-name PREFLIGHT for the future ProjectOS Host Service. Collects a semantic Windows client profile (version/build/edition class), opens the Service Control Manager with CONNECT+ENUMERATE rights ONLY, enumerates existing service names solely to detect collisions with bounded ProjectOS candidates, validates those candidates, and classifies every activation prerequisite as ProvenSupported / ProvenUnsupported / Indeterminate / DeferredUntilApprovedEffect / NotApplicable. It NEVER creates, configures, starts, stops or deletes a service, never requests a mutation-capable access mask, never writes the registry, never touches ProgramData, never changes an ACL, never touches credentials/DPAPI/CNG, and never launches a shell, PowerShell, sc.exe or net.exe. It does NOT prove virtual-service-account runtime behaviour, does NOT resolve a service SID, does NOT install anything, and does NOT make the host production-ready — those require a separately approved controlled installation phase."
+license = "UNLICENSED"
+
+[lints.rust]
+# Unsafe is confined to src/windows.rs (allowed at its module declaration); the rest denies it.
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+
+[dependencies]
+# CONSUMES the accepted frozen activation plan for consistency checking. It is never duplicated,
+# never mutated, and no second identity decision or service-name authority is created here.
+projectos-host-windows-activation-plan = { path = "../windows-host-activation-plan" }
+thiserror = "1"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    # OpenSCManagerW / EnumServicesStatusExW / CloseServiceHandle — READ-ONLY rights only.
+    "Win32_System_Services",
+    # GetProductInfo / GetNativeSystemInfo / OSVERSIONINFOEXW.
+    "Win32_System_SystemInformation",
+    # GetModuleHandleW / GetProcAddress, to resolve RtlGetVersion without a version shim.
+    "Win32_System_LibraryLoader",
+] }
+
+# TEST-ONLY: `GetProcessHandleCount` for deterministic handle-lifecycle evidence.
+[target.'cfg(windows)'.dev-dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Threading"] }

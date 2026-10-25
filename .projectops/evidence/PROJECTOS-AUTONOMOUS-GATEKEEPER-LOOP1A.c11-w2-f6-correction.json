@@ -1,0 +1,91 @@
+{
+  "schemaVersion": "1.0.0",
+  "recordId": "PROJECTOS-GATEKEEPER-LOOP1A-C11-W2-F6-CORRECTION1A",
+  "projectId": "projectos",
+  "programmeId": "projectos-autonomous-self-hosting",
+  "phaseId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+  "kind": "security-correction",
+  "finding": "C11-W2-F6",
+  "severity": "HIGH",
+  "status": "CORRECTED — BUT BLOCKED: THE REVIEW OF THE CORRECTION FOUND A FURTHER HIGH",
+  "at": "2026-08-23T01:55:00.000Z",
+  "atLocal": "2026-08-23 02:55:00 Europe/London",
+  "recordedBy": "Claude (implementer). Nothing here claims owner provenance.",
+  "authority": "Gatekeeper ruling C11-W2-F6 MINIMAL CORRECTION — fix only the reservation that survives a call that was never made.",
+
+  "theDefect": "Admission writes a provisional ledger entry before the gatekeeper call, so the ceiling is decided inside one lock against a fresh read (C17-F1). Nothing closed that entry when the call produced no answer. The next run re-derived the same request id, found it in the ledger, and refused it as already asked — on a path that returns no owner choices and no unavailability cause. One failed transport therefore made that exact question permanently unaskable and withdrew the owner's ACCEPT RISK option.",
+
+  "theCorrection": {
+    "invariant": "A reservation is marked unresolved AT THE MOMENT ADMISSION WRITES IT, in the same atomic write. Settlement replaces the entry wholesale with the real call, which clears the mark. Admission refuses a prior entry only when it is not marked, and replaces a marked one rather than appending, so a retained estimate is never counted twice.",
+    "release": "A cause that proves nothing was dispatched releases the reservation, so no phantom charge remains. Any other cause writes nothing at all — the mark is already there — which is what makes a failure at that moment harmless.",
+    "consumedDecisionIds": "An unresolved reservation no longer contributes a consumed decision id. A decision id is consumed by a decision, not by an attempt to obtain one.",
+    "filesChanged": [
+      "projectos/core/src/gatekeeperCostLedger.ts",
+      "projectos/agent/src/loop/gatekeeperConfig.ts",
+      "projectos/agent/src/loop/gatekeeperTurn.ts",
+      "projectos/agent/src/commands/run.ts"
+    ],
+    "testsAdded": "projectos/agent/test/gatekeeperSpendRelease.test.ts — 10 tests"
+  },
+
+  "myFirstAttemptWasWrong": {
+    "whatIDid": "I marked the reservation from a step that ran AFTER the transport returned.",
+    "whyItFailed": "Anything that stopped the process reaching that step — a crash, a kill, a timeout, or losing the ledger lock, which this module's own notes call an everyday Windows occurrence — left a bare reservation behind and reproduced the exact defect the fix existed to close. The fix contained the bug it was fixing.",
+    "foundBy": "ECC security review of my own correction, which returned CRITICAL 0 and HIGH 3. All three had that one root cause.",
+    "thirdFinding": "The third was one I would not have found: consumedDecisionIds treated a reservation as a consumed decision, so on the retry the fix exists to enable, the fresh and paid-for answer would have come back and been refused as an already-acted-on replay.",
+    "correctedBy": "Marking at birth. Recovery must not depend on a step that can fail."
+  },
+
+  "blockingFinding": {
+    "id": "C11-W2-F7",
+    "severity": "HIGH",
+    "ratedBy": "ECC security review of the hardened F6, which reproduced it against the real production functions rather than describing it.",
+    "title": "A completed call whose settlement lost the lock becomes re-askable",
+    "detail": "settleGatekeeperSpend silently does nothing when it cannot acquire the ledger lock, and its caller does not check. Before F6 that was merely a stuck-forever entry, which failed in the safe direction. After F6 the retry gate trusts the unresolved mark, and that mark cannot distinguish 'never answered' from 'answered, and only the durable record of that fact was lost'. So a question that already received a real decision — one the loop may already have acted on — can be asked again: a genuine double charge the ledger never shows, and a second verdict that may differ from the first.",
+    "whyIAmNotFixingItHere": "Two rounds of correction on this path have each introduced a new HIGH. The instruction is to return when a CRITICAL or HIGH remains, and that rule exists for exactly this situation. Continuing to iterate autonomously on a security-critical accounting path, after my own fix twice needed correcting, is not a decision I should take alone.",
+    "whatWouldActuallyFixIt": "The 'answered' fact needs to be durable independently of the ledger write, and it already is: the transport broker calls markAnswered before it hands the reply back, writing to the installation spend record outside the governed project. F6's retry gate should consult that fact rather than inferring it from the absence of a settlement. That is a real design change across the broker boundary, not a minimal edit, and it needs a decision rather than an improvisation.",
+    "interimSafety": "Nothing is committed and nothing is deployed. The defect is reachable only in the combination of a completed call and a lost settlement lock; it is not reachable at all while this correction sits uncommitted."
+  },
+
+  "carryForwardNotFixed": [
+    "MEDIUM — the release branch is unreachable through the production broker wiring: every broker-side failure maps to PROVIDER_UNAVAILABLE, which is retained rather than released, so pre-dispatch phantom reservations accumulate against the budget with no cleanup path.",
+    "MEDIUM — the reconcile route shares admission but was never wired to the close-out, so a reconcile reservation that definitely never dispatched is never released.",
+    "LOW — degradedMode.ts builds its own decision-id set without the unresolved filter; not currently exploitable, because a reconciliation is only accepted after settlement has replaced the reservation, but it is a second copy of the same rule.",
+    "MEDIUM (from the earlier round) — writeLedger can throw from the close-out path, which the call site does not catch.",
+    "LOW (from the earlier round) — the cause parameter is a plain string rather than the closed cause vocabulary."
+  ],
+
+  "verification": {
+    "agentTests": "1089 passed / 1089, 36 files",
+    "coreTests": "585 passed / 585, 22 files",
+    "validators": "131 registered, 131 PASS, 0 FAIL",
+    "typecheck": "clean, src and tests",
+    "build": "clean, core and agent",
+    "mutations": "5 against the F6 logic, all 5 caught — never release, always release, unresolved still bars the question, a settled call may be released, re-admission appends instead of replacing",
+    "ecc": {
+      "firstPass": { "critical": 0, "high": 3, "medium": 1, "low": 2 },
+      "afterHardening": { "critical": 0, "high": 1, "medium": 2, "low": 1 }
+    },
+    "threeOriginalHighsClosed": "Verified by the re-review against the code, not against my description: the mark is written in the same atomic write as the reservation, the retain path performs no write so a lost lock strands nothing, and consumedDecisionIds filters unresolved entries while never omitting a genuinely settled one."
+  },
+
+  "stateOfPlay": {
+    "f6Fixed": true,
+    "f7Open": true,
+    "c11Resumed": false,
+    "freshGkoutDerived": false,
+    "degradedGrantIssued": false,
+    "degradedWork": false,
+    "debtCreated": false,
+    "projectosCommit": false,
+    "projectosPush": false,
+    "productionTouched": false,
+    "credentialsChanged": false,
+    "infrastructureChanged": false,
+    "secretsExposed": false
+  },
+
+  "witnessLedgerNote": "The witness's existing reservation was written before this correction, so it carries no mark and is still barred. It was NOT deleted and NOT edited. Closing it out properly is part of resuming C11, and it should be done by the runtime's own release path once F7 is settled — not by hand, and not by removing evidence to obtain a preferred runtime state.",
+
+  "recommendation": "DO NOT ACCEPT C11, and do not commit. C11-W2-F6 is fixed and proven, but the review of that fix found C11-W2-F7 at HIGH. The gatekeeper should rule on how the 'answered' fact should be made authoritative — the broker already records it durably — before the retry gate is trusted in a committed build."
+}

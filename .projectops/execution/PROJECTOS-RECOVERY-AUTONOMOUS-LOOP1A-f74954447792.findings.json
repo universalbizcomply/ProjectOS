@@ -1,0 +1,103 @@
+{
+  "reviews": ["code-review", "security-review"],
+  "findings": [
+    {
+      "id": "CR-1",
+      "severity": "LOW",
+      "category": "maintainability",
+      "summary": "isAbsolutePath helper duplicated between workers.ts:100 and verification.ts:77 with identical bodies; comments note the duplication is deliberate to avoid coupling the modules",
+      "resolved": true
+    },
+    {
+      "id": "CR-2",
+      "severity": "LOW",
+      "category": "readability",
+      "summary": "runLoop in runner.ts is ~190 lines; the sequential gate structure justifies the length (splitting would obscure the safety ordering), but exceeds the 50-line guideline",
+      "resolved": true
+    },
+    {
+      "id": "CR-3",
+      "severity": "MEDIUM",
+      "category": "correctness",
+      "summary": "readSession treated a malformed session record as absent rather than as a problem, letting a corrupted record bypass the worker-identity refusal; fixed in commit d8638f7 with a test at loopRunner.test.ts:429",
+      "resolved": true
+    },
+    {
+      "id": "CR-4",
+      "severity": "MEDIUM",
+      "category": "correctness",
+      "summary": "The first live run stopped because the loop demanded an effects attestation and a findings record but nothing in the brief told the worker to write them; fixed in commit 934f9ce by adding the RECORDS_CLAUSE to the pointer instruction",
+      "resolved": true
+    },
+    {
+      "id": "CR-5",
+      "severity": "MEDIUM",
+      "category": "correctness",
+      "summary": "An earlier grant of .projectops/execution/** gave the worker write authority over its own brief, session and evidence records; narrowed to exactly the four patterns in WORKER_OWNED_RECORD_GRANTS and enforced by toolGrantProblems at load time",
+      "resolved": true
+    },
+    {
+      "id": "CR-6",
+      "severity": "MEDIUM",
+      "category": "correctness",
+      "summary": "readSession in session.ts validates sessionId, workerId, kind, phaseId but casts without validating state, corrections, providerRef, briefPath, startedAt; runner.ts never consumes state/corrections/briefPath from the existing record (all recomputed at lines 189, 195-196, 219) so the unvalidated fields do not reach a decision, but the cast surface could grow",
+      "resolved": true
+    },
+    {
+      "id": "CR-7",
+      "severity": "LOW",
+      "category": "readability",
+      "summary": "describeWorkerOutcome in runner.ts:68 returns { refusal, line } where refusal serves as both a stop-detail string and a nullability sentinel for whether the worker produced usable output; minor conflation of concerns, consumed in only one place",
+      "resolved": true
+    },
+    {
+      "id": "CR-8",
+      "severity": "LOW",
+      "category": "correctness",
+      "summary": "toolGrantProblems uses a case-insensitive regex WRITE_GRANT to detect write grants but compares against WORKER_OWNED_RECORD_GRANTS with case-sensitive includes(); a config using write(...) instead of Write(...) would be spuriously refused — this fails safe (refusal, not bypass)",
+      "resolved": true
+    },
+    {
+      "id": "SR-1",
+      "severity": "LOW",
+      "category": "security",
+      "summary": "CREDENTIAL_IN_OUTPUT regex in verification.ts:188 matches variable-name patterns (KEY, TOKEN, SECRET etc.) but would miss a standalone bearer token passed as a raw header value in check output; accepted risk since evidence records are local and commit-gated",
+      "resolved": true
+    },
+    {
+      "id": "SR-2",
+      "severity": "LOW",
+      "category": "security",
+      "summary": "readSession in session.ts casts the full parsed object as WorkerSession without validating briefPath; runner.ts:195 explicitly recomputes briefPath from the loop and never reads it back, and loopRunner.test.ts:390 proves the recomputation — the cast is safe as written",
+      "resolved": true
+    },
+    {
+      "id": "SR-3",
+      "severity": "LOW",
+      "category": "security",
+      "summary": "toolGrantProblems only checks --allowedTools and --allowed-tools flag names; the Claude Code CLI's actual flag is --allowedTools and no alternate spelling exists — the check covers the real surface",
+      "resolved": true
+    },
+    {
+      "id": "SR-4",
+      "severity": "LOW",
+      "category": "security",
+      "summary": "sessionIdFor builds the id as phaseId-head[0:12]; theoretical collision between distinct phase IDs is astronomically unlikely given the 12-char commit prefix and the fact phase IDs come from the owner-approved plan",
+      "resolved": true
+    },
+    {
+      "id": "SR-5",
+      "severity": "LOW",
+      "category": "security",
+      "summary": "describeWorkerOutcome in runner.ts:70 appends the last stderr line to CLI output unredacted; scrubCredentials scrubs the spawned process ENV (not its output), but these lines are transient CLI output, not durable evidence — evidence records use redact() separately",
+      "resolved": true
+    },
+    {
+      "id": "SR-6",
+      "severity": "LOW",
+      "category": "security",
+      "summary": "The symlink-within-root escape for resolveWithinRoot is documented in governedContext.ts:105; defence-in-depth only since planting the symlink requires local write access to the repository",
+      "resolved": true
+    }
+  ]
+}

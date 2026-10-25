@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "1.0.0",
+  "invocationId": "17ebdb04e376e5a7",
+  "createdAt": "2026-08-25T23:51:02.342Z",
+  "projectId": "projectos",
+  "phaseId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+  "sessionId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A-d235d80be3eb-17ebdb04",
+  "repository": {
+    "root": "C:\\dev\\ProjectOS",
+    "branch": "projectos-post-v3-selfhost-pilot1a",
+    "head": "d235d80be3ebe14d99a652acdfbc984ec9018a07"
+  },
+  "executionMode": "live",
+  "process": {
+    "pid": 10628,
+    "ppid": 36360,
+    "argv": [
+      "C:\\Program Files\\ProjectOS Control Center\\runtime-payload\\runtime\\node.exe",
+      "C:\\dev\\ProjectOS\\projectos\\agent\\bin\\projectos.js",
+      "run",
+      "--execute"
+    ],
+    "cwd": "C:\\dev\\ProjectOS"
+  },
+  "workerId": "claude-local",
+  "workerKind": "claude-code-cli",
+  "brief": {
+    "path": "C:\\dev\\ProjectOS/.projectops/execution/PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A-d235d80be3eb-17ebdb04.brief.json",
+    "briefId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A@d235d80be3ebe14d99a652acdfbc984ec9018a07",
+    "digest": "sha256:aace824fd9a7d9882d739edb1ff85fb623be4daa76ed4a0590d07c82ea810bce"
+  }
+}

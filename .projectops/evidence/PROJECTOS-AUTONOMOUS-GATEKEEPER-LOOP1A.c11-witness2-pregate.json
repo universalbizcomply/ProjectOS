@@ -1,0 +1,119 @@
+{
+  "schemaVersion": "1.0.0",
+  "recordId": "PROJECTOS-GATEKEEPER-LOOP1A-C11-WITNESS2-PREGATE1A",
+  "projectId": "projectos",
+  "programmeId": "projectos-autonomous-self-hosting",
+  "phaseId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+  "kind": "criterion-progress",
+  "criterion": "C11",
+  "status": "IN PROGRESS — BLOCKED BEFORE THE EXPECTED OWNER GATE",
+  "at": "2026-08-22T16:20:00.000Z",
+  "atLocal": "2026-08-22 17:20:00 Europe/London",
+  "recordedBy": "Claude (implementer). Nothing here claims owner provenance.",
+
+  "criterionTextVerbatim": "One gatekeeper-unavailable owner decision, one degraded-mode bounded continuation and one return-to-gatekeeper reconciliation are each proven",
+  "activePlanId": "plan-35316a7a7ad3acd6-36e79927c769",
+  "activePlanDigest": "sha256:36e79927c769bc21b7c12dc37fe7ff98ee8d5a8efc113858c36b8fa1ef19a550",
+  "projectosHead": "78f00c0c7a60a3aa36302e06810f61e9dd4205db",
+
+  "witness1Disposition": {
+    "reused": false,
+    "retried": false,
+    "rewritten": false,
+    "unavailablePath": "Two committed owner grants exist for the ProjectOS project itself — DEGRADED-LIVE-PROOF1A (subject d45911cf, GKOUT-4ebaec5e437da56f87bfad61) and 1B (subject c8c802a1, GKOUT-390e74d14b9eb6cb77c352a6), each grantedBy Murad, scope implement, maxWorkItems 1, protected actions excluded.",
+    "grantConsumed": "UNEVIDENCED. The durable installation ledger degraded-consumption.json is ABSENT on this machine, so no consumption record exists for either grant.",
+    "degradedWork": "NO CANONICAL RECORD",
+    "debt": "NO CANONICAL RECORD",
+    "reconciliationVerdict": "AMENDMENT_REQUIRED (GKWORK-b8d77cc39efa081e / GKREQ-fdb2dc990b7df0e177add77a) — recorded only in a narrative report, not in any ledger or evidence record.",
+    "whyTheRecordIsGone": "The reconcile route landed at 01a0a97; the durable installation ledger landed later at b2c031f. Witness1 therefore recorded its consumption project-locally, and the projectos-degraded-witness1a project no longer exists on disk. The durable ledger exists precisely so this could not happen — it simply arrived after the event it would have protected.",
+    "finalDisposition": "Preserved as NEGATIVE / HISTORICAL evidence only."
+  },
+
+  "remainingGap": "Limbs 2 and 3 of Criterion 11 — the degraded-mode bounded continuation and the return-to-gatekeeper reconciliation — are not proven by any durable canonical record. Limb 1 is proven.",
+
+  "liveStateChecked": {
+    "durableDegradedLedger": "ABSENT",
+    "workerStatusViaBridge": "no degraded-mode debt blocks governed work",
+    "interpretation": "That line is true because NOTHING IS RECORDED, not because anything settled. Reporting it as a green signal without this qualification would be misleading."
+  },
+
+  "witness2": {
+    "required": true,
+    "created": true,
+    "preserved": true,
+    "projectId": "projectos-degraded-witness2a",
+    "location": "C:/dev/projectos-degraded-witness2a",
+    "locationClass": "outside the ProjectOS repository; disposable, synthetic, non-production",
+    "subjectCommit": "f18705a008627946ea286decc9ea2e3854062b71",
+    "branch": "master",
+    "origin": "https://witness.invalid/projectos-witness/degraded-witness2a.git — deliberately unreachable and never pushed; present only because canonical repository identity is derived from origin",
+    "canonicalRepositoryIdentity": "projectos-witness/degraded-witness2a",
+    "productionFreeze": "ON",
+    "credentialsCopiedIn": "NONE",
+    "gatekeeperConfig": "written with a credential REFERENCE only (OPENAI_GATEKEEPER_KEY); no credential value exists in the witness and none was copied",
+    "programmeId": "projectos-degraded-witness2"
+  },
+
+  "unavailabilityAttempt": {
+    "attempted": true,
+    "sabotage": "NONE. No credential was revoked, corrupted or deleted; no key removed; no billing disabled; no service stopped; no network broken. The real gatekeeper is untouched and still healthy.",
+    "resultClassification": "NOT REACHED",
+    "actualGkoutId": null,
+    "whyNotReached": "The loop refused earlier, at configuration load, with: REFUSED (GATEKEEPER_MISCONFIGURED) — 'no committed delegation for programme projectos-degraded-witness2 names a decider; a review decision has no authority behind it until the owner has committed one'. The transport is never attempted, so no unavailability is classified and no GKOUT identity is derived.",
+    "secondRouteAlsoBlocked": "projectos reconcile refuses even earlier with REFUSED (NO_PLAN) — governed phase work requires an owner-approved plan."
+  },
+
+  "whyThisIsCorrectBehaviourNotADefect": "This is GK-SEC-004 working as designed. The committed delegation is read from git and is scoped to BOTH projectId 'projectos' AND programme 'projectos-autonomous-self-hosting'; its own text states it cannot be read as authority in any other project or programme. A fresh witness therefore has no decider, and nothing in the runtime will invent one. Deliberately reusing the ProjectOS programme or project id to borrow that authority would be precisely the cross-project leakage the design forbids, and was not done.",
+
+  "ownerGatedPrerequisitesDiscovered": [
+    "An owner-approved PLAN for the witness project. Plan approval is owner-gated and no plan-approval delegation exists for this programme.",
+    "A COMMITTED gatekeeper delegation at .projectops/authority/closure-delegation.json with programmeScope 'projectos-degraded-witness2' and delegatedTo naming a decider. Delegation is the owner delegating TO ChatGPT; ChatGPT cannot delegate authority to itself.",
+    "Only after those two can the runtime attempt the transport, classify unavailability and derive the GKOUT identity that the degraded grant must bind to.",
+    "Then the one-use degraded grant itself — the gate that was anticipated."
+  ],
+  "consequence": "The anticipated single owner gate is in fact preceded by two further owner-gated prerequisites. That materially changes the cost and shape of witness2, and it is a governance-design decision rather than an implementation choice, so it returns to the gatekeeper rather than being resolved by the implementer.",
+
+  "proposedGrantNotIssued": {
+    "issued": false,
+    "reason": "Its required bindings cannot exist yet. A valid grant must bind to a runtime-derived unavailabilityId, and no unavailability has been classified. Proposing a grant with an invented GKOUT id would be fabricating exactly what this criterion exists to prove.",
+    "shapeItWouldTake": {
+      "projectId": "projectos-degraded-witness2a",
+      "phaseId": "(to be derived from the witness plan once approved)",
+      "subjectCommit": "f18705a008627946ea286decc9ea2e3854062b71",
+      "unavailabilityId": "PENDING — must be the runtime-derived GKOUT- value",
+      "grantedScope": ["implement"],
+      "maxWorkItems": 1,
+      "protectedActionsExcluded": [
+        "production deployment", "production or destructive database mutation", "real email", "SMS", "WhatsApp",
+        "payments", "refunds", "live charges", "credential creation or rotation", "signing changes",
+        "destructive actions", "scope expansion", "force push", "tag", "main-branch push", "unrelated project work"
+      ]
+    }
+  },
+
+  "securityChecksAtThisPoint": {
+    "oldGrantsReusable": "NO — 1A and 1B bind to projectId 'projectos' and to subject commits d45911cf and c8c802a1, neither of which is the witness or today's HEAD. They cannot authorise witness2 work on any reading.",
+    "witness1AuthorityApplied": "NO",
+    "crossProjectUse": "REFUSED by design — the delegation is project- and programme-scoped, and the runtime demonstrated the refusal rather than it being asserted here.",
+    "scopeWidening": "Not possible from caller text; scope is an enumerated set and the grant is a committed artefact.",
+    "credentialLeakage": "NONE — no credential value exists in the witness."
+  },
+
+  "stateOfPlay": {
+    "degradedWorkPerformed": false,
+    "grantIssued": false,
+    "grantConsumed": false,
+    "reconciliationPerformed": false,
+    "apiCalls": 0,
+    "cost": "nil",
+    "sourceChanged": false,
+    "productionTouched": false,
+    "protectedActions": "NONE",
+    "commit": false,
+    "push": false
+  },
+
+  "automationGap": "The ProjectOS Control Centre cannot currently execute an owner approval, and the MCP bridge is read-only — it exposes seven read operations plus stop-work and cannot initiate a gatekeeper review or carry an owner decision. So this record is available through the canonical evidence channel for the gatekeeper to read, but the decision itself still has to be taken outside the product. That is a product/autonomy gap, recorded honestly, and not a reason to fabricate a decision.",
+
+  "recommendation": "DO NOT ACCEPT C11. Return to the gatekeeper for a ruling on how witness2 should obtain its decider authority, or whether a different route to limbs 2 and 3 is preferred."
+}

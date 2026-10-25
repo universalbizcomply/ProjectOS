@@ -1,0 +1,24 @@
+[package]
+name = "projectos-windows-runtime-primitives"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "UNLICENSED"
+description = "Minimal Windows-only LOW-LEVEL primitives shared by ProjectOS host identity and process code: the canonical owned-handle RAII wrapper (bounded Win32 handle adoption + borrow, deterministic close-on-drop) and the build-derived application-mode CLASSIFIER (AppMode / detect_app_mode). It owns NO policy: no process supervision, launch authority, daemon/host/instance authority, identity/publisher/Authenticode policy, IPC, Windows service operation, ProgramData, ACL, SID lookup, credential, GCM, PAT, GitHub, signing or deployment. AppMode classifies only; it grants nothing. unsafe is confined to the handle module."
+
+# unsafe is REQUIRED by the handle primitive only and must stay explicit inside unsafe fns.
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+# The Win32 handle primitive needs Foundation (HANDLE / INVALID_HANDLE_VALUE); the system-random
+# primitive needs Security_Cryptography (BCryptGenRandom + BCRYPT_USE_SYSTEM_PREFERRED_RNG). Exact
+# version carried over from the Control Center, which already locks this crate — adding a feature to an
+# already-present dependency introduces NO new package into any lockfile. No SCM, pipe, registry, ACL
+# or network feature. AppMode is platform-independent and needs no dependency.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61.3", features = [
+    "Win32_Foundation",
+    "Win32_Security_Cryptography",
+    "Win32_UI_Shell",
+    "Win32_System_Com",
+] }

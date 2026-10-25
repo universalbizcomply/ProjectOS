@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "objectiveId": "ef6f5cdbbcea85d9",
+  "objective": "Minimal amendment: admit PROJECTOS-HYBRID-GATEKEEPER-ROUTING1A and PROJECTOS-HYBRID-CLOSURE-RECONCILE-ROUTING1A as lifecycle reconciliation phases for already-landed work, carrying the active v1.3 plan unchanged.",
+  "authoritative": false,
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-run-to-completion-host-attestation1a",
+  "baseHead": "9b6da53123c7f4b17df30e0d1639da29f60686e8",
+  "submittedAt": "2026-09-11T12:28:54.322Z",
+  "submittedBy": "owner",
+  "instructionShaped": false
+}

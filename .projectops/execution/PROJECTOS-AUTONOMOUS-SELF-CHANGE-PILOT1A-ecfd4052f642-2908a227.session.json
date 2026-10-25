@@ -1,0 +1,15 @@
+{
+  "startedAt": "2026-09-03T12:00:02.734Z",
+  "providerRef": "54087825-fa54-448a-8d5a-2de90dff49b7",
+  "state": "started",
+  "exitCode": 0,
+  "corrections": 0,
+  "invocationId": "2908a2272369c88c",
+  "sessionId": "PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A-ecfd4052f642-2908a227",
+  "workerId": "claude-local",
+  "kind": "claude-code-cli",
+  "phaseId": "PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A",
+  "briefId": "PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A@ecfd4052f6425f86d23c27a46ea6328efbdf364d",
+  "briefPath": "C:\\dev\\ProjectOS/.projectops/execution/PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A-ecfd4052f642-2908a227.brief.json",
+  "timedOut": false
+}

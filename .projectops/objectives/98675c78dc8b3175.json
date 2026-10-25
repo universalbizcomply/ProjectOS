@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "objectiveId": "98675c78dc8b3175",
+  "objective": "Programme B autonomy bootstrap: add the B6 automatic technical continuation phase and the B7, B8 and B9 phases that follow it, and reconcile ordinary commit, push and phase-closure routing with the owner-approved technical-continuation and closure delegations.",
+  "authoritative": false,
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-post-v3-selfhost-pilot1a",
+  "baseHead": "d587469761cc12bb1ad768eee2dc81b4172a485f",
+  "submittedAt": "2026-09-01T19:34:05.059Z",
+  "submittedBy": "owner",
+  "instructionShaped": false
+}

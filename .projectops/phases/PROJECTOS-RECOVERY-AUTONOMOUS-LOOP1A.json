@@ -1,0 +1,57 @@
+{
+  "phaseId": "PROJECTOS-RECOVERY-AUTONOMOUS-LOOP1A",
+  "project": "projectos",
+  "objective": "After an approved PLAN READY plan, let ProjectOS run ordinary phases end to end with the governed Claude worker and without manual prompt relay.",
+  "status": "closed",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-08-11T22:08:26.424Z",
+      "note": "Phase 4 engineering, live worker proof and subject-bound validation at 4bb7c9c"
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-08-11T22:08:26.695Z",
+      "note": "Phase 4 engineering, live worker proof and subject-bound validation at 4bb7c9c"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-08-11T22:08:26.992Z",
+      "note": "Phase 4 engineering, live worker proof and subject-bound validation at 4bb7c9c"
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-08-11T22:08:27.351Z",
+      "note": "Phase 4 engineering, live worker proof and subject-bound validation at 4bb7c9c"
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-08-11T22:08:27.663Z",
+      "note": "Phase 4 engineering, live worker proof and subject-bound validation at 4bb7c9c"
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-08-11T22:08:27.984Z",
+      "note": "Phase 4 engineering, live worker proof and subject-bound validation at 4bb7c9c"
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "advisor",
+      "at": "2026-08-12T08:33:40.317Z",
+      "note": "closed by ChatGPT under the projectos-scoped phase-closure delegation, decision PROJECTOS-RECOVERY-AUTONOMOUS-LOOP1A-CLOSURE-DECISION1A"
+    }
+  ]
+}

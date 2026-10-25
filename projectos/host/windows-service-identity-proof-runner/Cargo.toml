@@ -1,0 +1,27 @@
+[package]
+name = "projectos-host-windows-service-identity-proof-runner"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "UNLICENSED"
+description = "EFFECT-FREE proof-runner CONTRACT that orchestrates the future ProjectOSHost service-identity live proof (WINDOWS-PACKAGED-HOST-TRUST-ENFORCEMENT3K-I-D-E-C-CAPABILITY-B1). Freezes the fixed closed proof-stage sequence, the reuse of the canonical AuthorityHandoverState (no second handover machine), the mandatory dual IPC + SCM corroboration, service self-observation as the token-evidence source, the one-correction-cycle maximum, the always-required rollback (on pass or failure), the zero-residue confirmation requirement, and the exact stop/refusal reasons. Confirmation delegates to the accepted redacted service-identity evidence classifier: an existing token is never trusted, release-before-acquire is required, and any missing/invalid/indeterminate required fact fails closed. It executes NO Windows operation, launches NO process, creates NO service/pipe/authority-object, and provides NO general orchestration interface. #![forbid(unsafe_code)], no windows dependency, execution readiness false, no [[bin]] target."
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[features]
+# EXPLICIT, NON-DEFAULT fixture graph. It enables ONLY the sibling fixture features so the runner can
+# exercise the real facade orchestration in memory. It adds no dependency, enables no live feature and
+# creates no capability of its own: real live capability production stays absent and owner-gated.
+test-fixtures = [
+    "projectos-host-windows-service-identity-proof/test-fixtures",
+    "projectos-host-windows-service-control/test-fixtures",
+    "projectos-host-windows-local-ipc/test-fixtures",
+]
+
+[dependencies]
+# Orchestrates the two capability contracts + the redacted evidence classifier. All three default
+# builds are windows-free, so this runner contract pulls NO windows/SCM/pipe/handle dependency.
+projectos-host-windows-service-control = { path = "../windows-service-control" }
+projectos-host-windows-local-ipc = { path = "../windows-local-ipc" }
+projectos-host-windows-service-identity-proof = { path = "../windows-service-identity-proof" }

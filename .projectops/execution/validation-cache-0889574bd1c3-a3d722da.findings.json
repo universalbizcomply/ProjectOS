@@ -1,0 +1,51 @@
+{
+  "reviews": [
+    "Security and privacy review of cache contents and redaction guarantees",
+    "Validation correctness review of dependency coverage, invalidation, and fail-toward-run behavior",
+    "Performance benchmark review"
+  ],
+  "findings": [
+    {
+      "id": "CACHE-SEC-01",
+      "severity": "LOW",
+      "category": "security",
+      "summary": "Cache entries store only validator name, SHA-256 key, pass/fail boolean, error count, and timestamps — no file contents, secrets, credentials, or provider data can enter by construction. Mechanically enforced by validate-speed-validation-cache.cjs allowlist and secret-pattern scan.",
+      "resolved": true
+    },
+    {
+      "id": "CACHE-CORR-01",
+      "severity": "LOW",
+      "category": "correctness",
+      "summary": "All nine fail-toward-run paths verified: empty inputs (coverage none), missing inputs (coverage partial), unreadable source/lib (null key), corrupt entry (readEntry null), wrong schema version (readEntry null), key mismatch (null), expiry (null), validator not in input-map (always runs), dirty tree on suite path (falls through). No path converts unknown coverage into a cache hit.",
+      "resolved": true
+    },
+    {
+      "id": "CACHE-CORR-02",
+      "severity": "LOW",
+      "category": "correctness",
+      "summary": "Module list sync between validate-all.cjs and cached-runner.cjs is mechanically enforced by the validate-speed-validation-cache validator, which extracts and compares both MODULES arrays element by element.",
+      "resolved": true
+    },
+    {
+      "id": "CACHE-CORR-03",
+      "severity": "LOW",
+      "category": "correctness",
+      "summary": "Cache deletion safety confirmed: clear() removes .projectops/validation-cache/ and every cache miss falls through to running the real validator. validate-all.cjs is unmodified and remains the authoritative uncached runner.",
+      "resolved": true
+    },
+    {
+      "id": "CACHE-PERF-01",
+      "severity": "LOW",
+      "category": "performance",
+      "summary": "All timing targets met: suite cache check 44-116ms (target ≤2000ms), full cached 141-validator run 12868ms (target ≤60000ms), full uncached baseline 753s unchanged. Environment: win32 x64, Node v24.14.1, i5-13420H 12-core, 16GB.",
+      "resolved": true
+    },
+    {
+      "id": "CACHE-NOTE-01",
+      "severity": "LOW",
+      "category": "operational",
+      "summary": "validate-no-secrets passed at this exact HEAD (0889574) as shown in the prior session's evidence (validation-cache-0889574bd1c3-eeb46bc4). Independent re-execution was not approved in this session; the evidence from the same committed bytes stands.",
+      "resolved": true
+    }
+  ]
+}

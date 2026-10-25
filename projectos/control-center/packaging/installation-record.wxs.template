@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  PROJECTOS-RECOVERY-INSTALLED-APP1A - the installer-owned installation record component.
+
+  An ADDITIVE WiX fragment, referenced from tauri.conf.json through wix.fragmentPaths and
+  wix.componentGroupRefs. Tauri's own generated main.wxs is untouched: there is no template
+  override, no second installer, no custom action, no service and no privileged helper. One MSI.
+
+  WHAT IT INSTALLS. Exactly one file, at the one canonical path the runtime reads:
+
+      <ProgramData>\ProjectOS\host\installation\application.v1.json
+
+  CommonAppDataFolder is the Windows Installer property for ProgramData, so the location comes from
+  the platform rather than from an environment variable - which matches the runtime, where the same
+  directory is resolved through SHGetKnownFolderPath and never through %ProgramData%.
+
+  THE CONTENT IS NOT AUTHORED HERE. The record's JSON is emitted by `projectos-install-record`,
+  which builds it from the canonical InstalledApplicationRecordV1 model, computes the digest with
+  the same function the reader uses, and verifies the result with the real reader before writing.
+  Hand-writing that JSON in XML would be a second copy of a versioned, digest-bound schema, kept in
+  step by nothing but attention.
+
+  UNINSTALL OWNS IT. The file is the component's KeyPath, so Windows Installer removes it when the
+  product is uninstalled and rolls it back if installation fails. The three RemoveFolder entries
+  take the directories with it, so no orphaned trust record and no empty ProjectOS tree survive an
+  uninstall. Nothing here is permanent-by-default.
+
+  WHAT IT GRANTS, STATED EXACTLY. The record carries installation facts only: no secret, no key
+  material, no trust anchor, no signature algorithm and no project selection. A record without a
+  verified application is worth nothing, because the governed root it names is only ever consumed
+  through the sealed boundary that demands a VerifiedPackagedIdentity.
+
+  It is not, however, true that this component grants nothing at all - it used to say so, and that
+  stopped being accurate when the file below was given an explicit ACL. Normal users receive READ
+  ONLY on this one file, because the installed Control Centre runs as a normal user and must read
+  it. They receive no write, modify, delete or ownership rights, and the surrounding ProjectOSHost
+  custody directories are unchanged. Read access to a corroborating fact is not a trust grant, and
+  this comment should not be read as claiming more or less than that.
+
+  This file is a TEMPLATE. `@RECORD_SOURCE@` is replaced with the absolute path of the generated
+  record by packaging/build-release-payload.mjs. The generated .wxs is build output; this template
+  is the reviewable source.
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Fragment>
+    <!-- ProgramData\ProjectOS\host\installation - the same segments the runtime's canonical path
+         is built from, so there is one path vocabulary rather than two. -->
+    <DirectoryRef Id="TARGETDIR">
+      <Directory Id="CommonAppDataFolder">
+        <Directory Id="PROJECTOS_PROGRAMDATA_DIR" Name="ProjectOS">
+          <Directory Id="PROJECTOS_HOST_STATE_DIR" Name="host">
+            <Directory Id="PROJECTOS_INSTALLATION_DIR" Name="installation" />
+          </Directory>
+        </Directory>
+      </Directory>
+    </DirectoryRef>
+
+    <ComponentGroup Id="ProjectOSInstallationRecord">
+      <Component Id="ProjectOSInstallationRecordFile"
+                 Guid="{6F3C1B84-2E5A-4E31-9E2F-7C1A9D0B4F52}"
+                 Directory="PROJECTOS_INSTALLATION_DIR"
+                 Win64="yes">
+        <File Id="ProjectOSApplicationRecordV1"
+              Name="application.v1.json"
+              Source="@RECORD_SOURCE@"
+              KeyPath="yes">
+          <!-- THE RECORD MUST BE READABLE BY THE APPLICATION THAT READS IT.
+               ================================================================================
+               Authored because relying on inheritance FAILED IN PRACTICE. The first real
+               installation put this file under a ProgramData tree the ProjectOSHost custody work
+               had already hardened: owner NT SERVICE\ProjectOSHost, inheritance PROTECTED,
+               non-inheriting ACEs. This component authored no ACL, so the file inherited NOTHING
+               and ended up readable only by SYSTEM and msiserver - unreadable even to an elevated
+               administrator, and therefore unreadable to the Control Centre. Installation
+               evidence became Unavailable and packaged identity could not complete. Fail-closed,
+               correctly, but the product did not work.
+
+               THE FIX IS THIS ONE FILE, NOT THE TREE. The surrounding ProjectOSHost custody
+               directories are deliberately NOT touched: no directory-wide relaxation, no change
+               of ownership, no weakening of the host's own identity.v1.json. A file-specific
+               descriptor is the narrowest thing that solves the problem.
+
+                 D:P                 protected - inherits nothing, so a future change to a parent
+                                     cannot silently widen or narrow this file
+                 (A;;FA;;;SY)        LocalSystem       full control
+                 (A;;FA;;;BA)        Administrators    full control
+                 (A;;FR;;;BU)        Users             GENERIC READ ONLY
+
+               USERS GET READ, AND NOTHING ELSE. No write, append, modify, delete, WRITE_DAC or
+               WRITE_OWNER; no Everyone and no Authenticated Users entry at all. A normal user can
+               read this record and cannot alter it, which matters because a user-writable record
+               would be a self-signed claim about the installation rather than evidence about it.
+
+               WHAT READ ACCESS DOES NOT GRANT. The record still carries no secret, no key
+               material, no trust anchor, no signature algorithm and no project selection - only
+               installation facts. It CORROBORATES; it cannot mint trust. The governed root it
+               names is reachable only through the sealed boundary that demands a
+               VerifiedPackagedIdentity, which comes from the owner-signed manifest verified
+               against the anchor compiled into the application. Being able to read this file buys
+               a reader exactly nothing it did not already have.
+
+               Core WiX PermissionEx, which emits the standard MsiLockPermissionsEx table. NOT
+               util:PermissionEx - that is the custom-action-based SecureObjects element, and this
+               installer authors no custom action. Requires Windows Installer 5.0, which is why
+               the package declares InstallerVersion 500. -->
+          <PermissionEx Sddl="D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FR;;;BU)" />
+        </File>
+
+        <!-- Take the directories back on uninstall, innermost first. Without these the empty
+             ProjectOS tree would remain in ProgramData after the product is gone. -->
+        <RemoveFolder Id="RemoveProjectOSInstallationDir"
+                      Directory="PROJECTOS_INSTALLATION_DIR"
+                      On="uninstall" />
+        <RemoveFolder Id="RemoveProjectOSHostStateDir"
+                      Directory="PROJECTOS_HOST_STATE_DIR"
+                      On="uninstall" />
+        <RemoveFolder Id="RemoveProjectOSProgramDataDir"
+                      Directory="PROJECTOS_PROGRAMDATA_DIR"
+                      On="uninstall" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+</Wix>

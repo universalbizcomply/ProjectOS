@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "projectos:gatekeeper-replay:closure:484f14e3",
+  "phaseId": "gatekeeper-replay",
+  "projectId": "projectos",
+  "scope": "phase-closure",
+  "decidedBy": "ChatGPT",
+  "decidedAt": "2026-09-05T04:55:00Z",
+  "evidenceSubjectHead": "484f14e39343681763a21ed76a4752fb8ede08df",
+  "decision": "close",
+  "note": "Close at subject 484f14e39343681763a21ed76a4752fb8ede08df. The supplied G4 evidence marks the phase eligible with all G4-1 through G4-17 satisfied: the phase is awaiting_closure in the active ready plan; required validator and configured checks passed; required reviews are complete; no unresolved CRITICAL or HIGH findings exist; no headed proof is required; no protected effect occurred; the implementation head is remotely reconciled and the working tree is clean; closure delegation is valid; and the subject is an ancestor of the implementation head with no substantive changes since it. The closure evidence explicitly records headedProofPass=false only because the approved plan does not require browser proof. Notes identify non-blocking carry-forward matters, including provider-cost under-reservation and pre-existing unrelated validator escape defects, but no owner acceptance of a residual HIGH finding is evidenced or recorded here.",
+  "ownerAcceptedFindings": [],
+  "requestDigest": "sha256:c83cc96b68443c572b81c6d4c17251eccfce74e1c997a54d004d687772ae887f",
+  "consumedAt": "2026-09-05T03:51:35.281Z"
+}

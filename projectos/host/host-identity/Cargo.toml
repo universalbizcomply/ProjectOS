@@ -1,0 +1,41 @@
+[package]
+name = "projectos-host-identity"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "UNLICENSED"
+description = "Canonical ProjectOS host identity, Authenticode and publisher-trust implementation, relocated unchanged from the Control Center (WINDOWS-PACKAGED-HOST-TRUST-ENFORCEMENT3K-I-C-B). Owns running-executable identity, executable canonicalisation and hashing, installation-root classification, trust-manifest parsing with canonical JSON, Authenticode evidence collection, publisher-policy evaluation (production policy is EMPTY and fail-closed — approved publishers: 0), composite identity classification and fail-closed trust outcomes. CLASSIFICATION ONLY: it mints no trust, approves no publisher, signs nothing, accesses no signing key or credential, launches no process, binds no IPC, acquires no authority and manages no service. Bounded Windows FFI (WinVerifyTrust / handle-based running-executable identity) is confined to two files; serde_json stays internal to this crate and never reaches the shared runtime's typed event/status API."
+
+# The relocated identity implementation performs bounded, SAFETY-documented Windows FFI, so this
+# crate cannot forbid unsafe outright; instead every unsafe operation inside an unsafe fn must be an
+# explicit documented block. Unsafe exists ONLY in src/identity/authenticode.rs and
+# src/identity/running_executable.rs.
+[features]
+# Closed identity test-fixture surface consumed by the relocated integration tests. Never enabled by
+# default and never by a release/packaged build.
+test-fixtures = []
+
+[dependencies]
+# Exact versions already locked by the Control Center identity implementation — no upgrades.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+# Canonical low-level primitives (owned-handle RAII + build-derived AppMode). Same direction as the
+# accepted architecture: host-identity -> windows-runtime-primitives -> windows.
+projectos-windows-runtime-primitives = { path = "../windows-runtime-primitives" }
+# THE packaging contract, for the execution-closure paths the verifier must not take from a caller
+# or from the manifest under test. A leaf crate with no dependencies of its own, so this adds no
+# third-party surface; the generator already depends on both, so the edge is not a new direction.
+projectos-packaged-runtime-contract = { path = "../packaged-runtime-contract" }
+
+[target.'cfg(windows)'.dependencies]
+# Exact identity feature slice already used by the relocated implementation (WinVerifyTrust +
+# signer-extraction structs + handle-based running-executable identity). No broader mask.
+windows = { version = "0.61.3", features = [
+  "Win32_Foundation",
+  "Win32_Security_WinTrust",
+  "Win32_Security_Cryptography",
+  "Win32_Security_Cryptography_Catalog",
+  "Win32_Security_Cryptography_Sip",
+  "Win32_Storage_FileSystem",
+] }

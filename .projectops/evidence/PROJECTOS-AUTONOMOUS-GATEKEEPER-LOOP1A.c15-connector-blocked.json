@@ -1,0 +1,47 @@
+{
+  "schemaVersion": "1.0.0",
+  "recordId": "PROJECTOS-GATEKEEPER-LOOP1A-C15-CONNECTOR-BLOCKED1A",
+  "projectId": "projectos",
+  "phaseId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+  "kind": "c15-connector-attempt-blocked",
+  "at": "2026-08-22T12:05:00.000Z",
+  "atLocal": "2026-08-22 13:05:00 Europe/London",
+  "outcome": "BLOCKED — OpenAI REFUSED the workspace re-association at the API. Option A is not executable by the owner; it requires OpenAI Support.",
+  "failureClass": "OPENAI PLATFORM REFUSAL — cross-principal workspace/organization association cannot be self-verified",
+  "theRefusal": {
+    "request": "POST https://api.openai.com/v1/tunnels/tunnel_6a88d18f2794819185e13479385c88b2",
+    "status": 403,
+    "errorType": "invalid_request_error",
+    "errorCode": "tunnel_principal_association_unver… (captured truncated at 300 bytes)",
+    "message": "We couldn't automatically verify the association between these workspaces and organizations. Contact Support to review the association before creating this tunnel.",
+    "howObtained": "The dashboard reported NOTHING — no toast, no inline error, no visible text. Two earlier save attempts appeared to succeed and silently did not persist. The refusal was only recovered by instrumenting window.fetch and reading the API response directly."
+  },
+  "whyItIsRefused": "The tunnel belongs to the Personal organization of one identity, and the target ChatGPT workspace 481e8f6c-130f-4dc8-a07d-4a06a9bf74f5 belongs to a different identity. OpenAI will not let a principal bind a tunnel to a workspace it cannot automatically verify it controls. This is a deliberate platform safeguard, not a bug and not a misconfiguration on our side.",
+  "stateAfterAttempt": {
+    "tunnelChanged": false,
+    "tunnelId": "tunnel_6a88d18f2794819185e13479385c88b2",
+    "tunnelName": "ProjectOS C15 ChatGPT MCP Tunnel",
+    "description": "Private ProjectOS C15 governance tunnel for ChatGPT",
+    "organization": "Personal",
+    "targetChatGptWorkspace": "ac29a67c-47b8-472c-bb1b-7a0a0d5543d9",
+    "tunnelCount": 1,
+    "verifiedByReReadingTheList": true
+  },
+  "runtimeUnaffected": {
+    "openaiHealthz": "live",
+    "openaiReadyz": "ready",
+    "publicAuthorizationServerMetadata": 200,
+    "publicMcp": 404,
+    "privateBridgeUnauthenticated": 401
+  },
+  "optionsNowRemaining": [
+    "B — upgrade the gmail.com account (workspace ac29a67c..., which the tunnel already targets) to a plan that permits app creation and developer mode. Requires no OpenAI Support, no association change, and no new tunnel. Paid, and an owner decision.",
+    "E — contact OpenAI Support to review and approve the cross-principal association, as the error itself instructs. Slow, external, outcome not in our control.",
+    "D — a replacement tunnel created under the principal that owns the Plus workspace. Currently forbidden, and would need a fresh gatekeeper decision."
+  ],
+  "optionARuledOut": "Option A as authorised is not executable. The refusal is server-side and absolute; no amount of UI work changes it, and working around it would mean acting on a principal boundary OpenAI deliberately enforces.",
+  "changesMade": "NONE — the save was rejected by the server, so the tunnel is byte-for-byte as it was. No new tunnel, no permission, role, membership or ownership change, no Cloudflare or DNS change, no service restart, no commit, no push.",
+  "secretsExposed": "NONE",
+  "productionTouched": false,
+  "c15Status": "NOT ACCEPTED / NOT CLOSED"
+}

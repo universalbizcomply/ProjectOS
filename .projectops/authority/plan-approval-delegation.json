@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "1.0.0",
+  "delegationId": "PROJECTOS-RECOVERY-PLAN-APPROVAL-DELEGATION1A",
+  "projectId": "projectos",
+  "delegatedBy": "Murad",
+  "delegatedTo": "ChatGPT",
+  "delegatedScope": [
+    "plan-approval"
+  ],
+  "delegationDate": "2026-08-11",
+  "excludesProtectedActions": true,
+  "programmeScope": "projectos-operational-recovery",
+  "provenance": "Transcribed by the implementer (Claude) from owner Murad's operational-recovery directive of 2026-08-11, which states: 'Murad has now explicitly delegated to ChatGPT authority for this operational recovery programme to review and accept the generated recovery plan', and 'Murad does NOT need to separately approve ordinary technical recovery work.' The implementer wrote these bytes; the implementer did not grant this authority and cannot.",
+  "trustBasis": "MANUAL_GOVERNANCE_APPROVAL, tamperProof false. There is no signature here and none is claimed. What makes this record trustworthy is that it is a distinct, reviewable artefact that must be COMMITTED before it has any effect, so a forged or misquoted delegation is a visible diff at the owner's commit and push gate. If the owner did not say this, the owner can see that it says so and reject it.",
+  "excludes": [
+    "Every protected effect remains with the owner: production deployment, production or destructive database mutation, real email, SMS or messaging send, payment or live charge, raw credential access or rotation, secrets disclosure, Windows service installation or identity change, ACL, ProgramData or registry trust mutation, destructive machine operation, and force push.",
+    "Material commercial or scope change remains with the owner.",
+    "This delegation carries plan approval only. It is not closure authority, which is recorded separately, and it is not authority to act."
+  ],
+  "notes": "Scoped to projectId 'projectos'. It cannot be read as authority in any other project, and it grants the implementer nothing: the implementer can neither approve a plan nor decide on its own behalf under it."
+}

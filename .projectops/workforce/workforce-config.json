@@ -1,0 +1,586 @@
+{
+  "schemaVersion": 1,
+  "configVersion": "1",
+  "catalogue": {
+    "upstream": "https://github.com/msitarzewski/agency-agents",
+    "commit": "ad9264e309bd5e5422c04784372d7841b1e5d604",
+    "expectedAgents": 279,
+    "expectedDivisions": 18,
+    "licence": "MIT",
+    "cacheLocation": {
+      "baseEnv": "LOCALAPPDATA",
+      "relative": "ProjectOS/third-party/specialist-catalogue"
+    }
+  },
+  "leader": {
+    "leaseBoundMs": 1800000,
+    "modelPreference": "policy:leader",
+    "maxProposalItems": 12,
+    "costClass": "standard"
+  },
+  "panels": {
+    "maxRounds": 2,
+    "maxCostUnits": 8,
+    "maxContextBytes": 32768
+  },
+  "bounds": {
+    "maxTeamSize": 4,
+    "maxParallel": 2,
+    "maxContextBytes": 65536,
+    "maxCostClass": "standard",
+    "maxLatencyMs": 120000,
+    "maxCriticality": "high"
+  },
+  "ceilings": {
+    "maxCallsPerExecution": 40,
+    "maxCostUnitsPerExecution": 80,
+    "costUnits": {
+      "low": 1,
+      "standard": 2,
+      "high": 4
+    }
+  },
+  "retries": {
+    "maxAttemptsPerTask": 2
+  },
+  "projection": {
+    "maxEvents": 5000
+  },
+  "roles": {
+    "minimal-change-engineer": {
+      "capabilities": [
+        "minimal-diff-design",
+        "scope-control"
+      ],
+      "applicablePhaseTypes": [
+        "bug-fix"
+      ],
+      "tools": [
+        "read-repository",
+        "search-repository",
+        "draft-proposal"
+      ],
+      "readScopes": [
+        "**"
+      ],
+      "writeScopes": [],
+      "requiredInputs": [
+        "objective"
+      ],
+      "evidenceRequirements": [
+        "findings-with-subjects",
+        "evidence-references"
+      ],
+      "costClass": "standard",
+      "modelPreference": "policy:specialist-standard",
+      "parallelSafe": true,
+      "implementation": true,
+      "review": false,
+      "riskTier": "standard"
+    },
+    "test-automation-engineer": {
+      "capabilities": [
+        "test-design",
+        "sandbox-test-execution"
+      ],
+      "applicablePhaseTypes": [
+        "bug-fix",
+        "ui-change",
+        "multi-system-feature",
+        "security-sensitive-change"
+      ],
+      "tools": [
+        "read-repository",
+        "search-repository",
+        "draft-proposal",
+        "run-sandbox-tests"
+      ],
+      "readScopes": [
+        "**"
+      ],
+      "writeScopes": [],
+      "requiredInputs": [
+        "objective"
+      ],
+      "evidenceRequirements": [
+        "findings-with-subjects",
+        "evidence-references"
+      ],
+      "costClass": "standard",
+      "modelPreference": "policy:specialist-standard",
+      "parallelSafe": true,
+      "implementation": true,
+      "review": false,
+      "riskTier": "standard"
+    },
+    "frontend-developer": {
+      "capabilities": [
+        "ui-implementation-design"
+      ],
+      "applicablePhaseTypes": [
+        "ui-change",
+        "multi-system-feature"
+      ],
+      "tools": [
+        "read-repository",
+        "search-repository",
+        "draft-proposal"
+      ],
+      "readScopes": [
+        "**"
+      ],
+      "writeScopes": [],
+      "requiredInputs": [
+        "objective"
+      ],
+      "evidenceRequirements": [
+        "findings-with-subjects",
+        "evidence-references"
+      ],
+      "costClass": "standard",
+      "modelPreference": "policy:specialist-standard",
+      "parallelSafe": true,
+      "implementation": true,
+      "review": false,
+      "riskTier": "standard"
+    },
+    "backend-architect": {
+      "capabilities": [
+        "service-design",
+        "api-design"
+      ],
+      "applicablePhaseTypes": [
+        "multi-system-feature"
+      ],
+      "tools": [
+        "read-repository",
+        "search-repository",
+        "draft-proposal"
+      ],
+      "readScopes": [
+        "**"
+      ],
+      "writeScopes": [],
+      "requiredInputs": [
+        "objective"
+      ],
+      "evidenceRequirements": [
+        "findings-with-subjects",
+        "evidence-references"
+      ],
+      "costClass": "standard",
+      "modelPreference": "policy:specialist-standard",
+      "parallelSafe": true,
+      "implementation": true,
+      "review": false,
+      "riskTier": "standard"
+    },
+    "content-creator": {
+      "capabilities": [
+        "draft-copy"
+      ],
+      "applicablePhaseTypes": [
+        "ui-change",
+        "multi-system-feature"
+      ],
+      "tools": [
+        "read-repository",
+        "search-repository",
+        "draft-proposal"
+      ],
+      "readScopes": [
+        "**"
+      ],
+      "writeScopes": [],
+      "requiredInputs": [
+        "objective"
+      ],
+      "evidenceRequirements": [
+        "findings-with-subjects",
+        "evidence-references"
+      ],
+      "costClass": "standard",
+      "modelPreference": "policy:specialist-standard",
+      "parallelSafe": true,
+      "implementation": true,
+      "review": false,
+      "riskTier": "standard"
+    },
+    "accessibility-auditor": {
+      "capabilities": [
+        "accessibility-review"
+      ],
+      "applicablePhaseTypes": [
+        "ui-change"
+      ],
+      "tools": [
+        "read-repository",
+        "search-repository",
+        "draft-proposal"
+      ],
+      "readScopes": [
+        "**"
+      ],
+      "writeScopes": [],
+      "requiredInputs": [
+        "objective"
+      ],
+      "evidenceRequirements": [
+        "findings-with-subjects",
+        "evidence-references"
+      ],
+      "costClass": "standard",
+      "modelPreference": "policy:specialist-standard",
+      "parallelSafe": true,
+      "implementation": true,
+      "review": false,
+      "riskTier": "standard"
+    },
+    "ui-finish-gate-reviewer": {
+      "capabilities": [
+        "ui-review"
+      ],
+      "applicablePhaseTypes": [
+        "ui-change"
+      ],
+      "tools": [
+        "read-repository",
+        "search-repository",
+        "draft-proposal"
+      ],
+      "readScopes": [
+        "**"
+      ],
+      "writeScopes": [],
+      "requiredInputs": [
+        "objective"
+      ],
+      "evidenceRequirements": [
+        "findings-with-subjects",
+        "evidence-references"
+      ],
+      "costClass": "standard",
+      "modelPreference": "policy:specialist-standard",
+      "parallelSafe": true,
+      "implementation": false,
+      "review": true,
+      "riskTier": "standard"
+    },
+    "software-architect": {
+      "capabilities": [
+        "architecture-design",
+        "decomposition"
+      ],
+      "applicablePhaseTypes": [
+        "multi-system-feature"
+      ],
+      "tools": [
+        "read-repository",
+        "search-repository",
+        "draft-proposal"
+      ],
+      "readScopes": [
+        "**"
+      ],
+      "writeScopes": [],
+      "requiredInputs": [
+        "objective"
+      ],
+      "evidenceRequirements": [
+        "findings-with-subjects",
+        "evidence-references"
+      ],
+      "costClass": "standard",
+      "modelPreference": "policy:specialist-high",
+      "parallelSafe": true,
+      "implementation": true,
+      "review": false,
+      "riskTier": "high"
+    },
+    "application-security-engineer": {
+      "capabilities": [
+        "threat-modelling",
+        "secure-code-review"
+      ],
+      "applicablePhaseTypes": [
+        "security-sensitive-change"
+      ],
+      "tools": [
+        "read-repository",
+        "search-repository",
+        "draft-proposal"
+      ],
+      "readScopes": [
+        "**"
+      ],
+      "writeScopes": [],
+      "requiredInputs": [
+        "objective"
+      ],
+      "evidenceRequirements": [
+        "findings-with-subjects",
+        "evidence-references"
+      ],
+      "costClass": "standard",
+      "modelPreference": "policy:specialist-high",
+      "parallelSafe": true,
+      "implementation": true,
+      "review": false,
+      "riskTier": "high"
+    },
+    "identity-access-engineer": {
+      "capabilities": [
+        "authentication-design",
+        "authorisation-review"
+      ],
+      "applicablePhaseTypes": [
+        "security-sensitive-change"
+      ],
+      "tools": [
+        "read-repository",
+        "search-repository",
+        "draft-proposal"
+      ],
+      "readScopes": [
+        "**"
+      ],
+      "writeScopes": [],
+      "requiredInputs": [
+        "objective"
+      ],
+      "evidenceRequirements": [
+        "findings-with-subjects",
+        "evidence-references"
+      ],
+      "costClass": "standard",
+      "modelPreference": "policy:specialist-high",
+      "parallelSafe": true,
+      "implementation": true,
+      "review": false,
+      "riskTier": "high"
+    },
+    "secrets-credential-hygiene-engineer": {
+      "capabilities": [
+        "credential-hygiene-review"
+      ],
+      "applicablePhaseTypes": [
+        "security-sensitive-change"
+      ],
+      "tools": [
+        "read-repository",
+        "search-repository",
+        "draft-proposal"
+      ],
+      "readScopes": [
+        "**"
+      ],
+      "writeScopes": [],
+      "requiredInputs": [
+        "objective"
+      ],
+      "evidenceRequirements": [
+        "findings-with-subjects",
+        "evidence-references"
+      ],
+      "costClass": "standard",
+      "modelPreference": "policy:specialist-high",
+      "parallelSafe": true,
+      "implementation": true,
+      "review": false,
+      "riskTier": "high"
+    },
+    "database-reliability-engineer": {
+      "capabilities": [
+        "schema-review",
+        "migration-design",
+        "inspect-propose-test"
+      ],
+      "applicablePhaseTypes": [
+        "multi-system-feature",
+        "bug-fix"
+      ],
+      "tools": [
+        "read-repository",
+        "search-repository",
+        "draft-proposal",
+        "run-sandbox-tests"
+      ],
+      "readScopes": [
+        "**"
+      ],
+      "writeScopes": [],
+      "requiredInputs": [
+        "objective"
+      ],
+      "evidenceRequirements": [
+        "findings-with-subjects",
+        "evidence-references"
+      ],
+      "costClass": "standard",
+      "modelPreference": "policy:specialist-high",
+      "parallelSafe": true,
+      "implementation": true,
+      "review": false,
+      "riskTier": "high"
+    },
+    "payments-billing-engineer": {
+      "capabilities": [
+        "payment-flow-design",
+        "payment-test-design"
+      ],
+      "applicablePhaseTypes": [
+        "multi-system-feature",
+        "security-sensitive-change"
+      ],
+      "tools": [
+        "read-repository",
+        "search-repository",
+        "draft-proposal",
+        "run-sandbox-tests"
+      ],
+      "readScopes": [
+        "**"
+      ],
+      "writeScopes": [],
+      "requiredInputs": [
+        "objective"
+      ],
+      "evidenceRequirements": [
+        "findings-with-subjects",
+        "evidence-references"
+      ],
+      "costClass": "standard",
+      "modelPreference": "policy:specialist-high",
+      "parallelSafe": true,
+      "implementation": true,
+      "review": false,
+      "riskTier": "high"
+    },
+    "devops-automator": {
+      "capabilities": [
+        "release-preparation",
+        "pipeline-test"
+      ],
+      "applicablePhaseTypes": [
+        "multi-system-feature"
+      ],
+      "tools": [
+        "read-repository",
+        "search-repository",
+        "draft-proposal",
+        "run-sandbox-tests"
+      ],
+      "readScopes": [
+        "**"
+      ],
+      "writeScopes": [],
+      "requiredInputs": [
+        "objective"
+      ],
+      "evidenceRequirements": [
+        "findings-with-subjects",
+        "evidence-references"
+      ],
+      "costClass": "standard",
+      "modelPreference": "policy:specialist-high",
+      "parallelSafe": false,
+      "implementation": true,
+      "review": false,
+      "riskTier": "high"
+    },
+    "security-architect": {
+      "capabilities": [
+        "security-architecture-review"
+      ],
+      "applicablePhaseTypes": [
+        "security-sensitive-change",
+        "multi-system-feature"
+      ],
+      "tools": [
+        "read-repository",
+        "search-repository",
+        "draft-proposal"
+      ],
+      "readScopes": [
+        "**"
+      ],
+      "writeScopes": [],
+      "requiredInputs": [
+        "objective"
+      ],
+      "evidenceRequirements": [
+        "findings-with-subjects",
+        "evidence-references"
+      ],
+      "costClass": "standard",
+      "modelPreference": "policy:specialist-high",
+      "parallelSafe": true,
+      "implementation": false,
+      "review": true,
+      "riskTier": "high"
+    },
+    "sre-site-reliability-engineer": {
+      "capabilities": [
+        "release-readiness-review"
+      ],
+      "applicablePhaseTypes": [
+        "multi-system-feature"
+      ],
+      "tools": [
+        "read-repository",
+        "search-repository",
+        "draft-proposal"
+      ],
+      "readScopes": [
+        "**"
+      ],
+      "writeScopes": [],
+      "requiredInputs": [
+        "objective"
+      ],
+      "evidenceRequirements": [
+        "findings-with-subjects",
+        "evidence-references"
+      ],
+      "costClass": "standard",
+      "modelPreference": "policy:specialist-high",
+      "parallelSafe": true,
+      "implementation": false,
+      "review": true,
+      "riskTier": "high"
+    },
+    "reality-checker": {
+      "capabilities": [
+        "evidence-challenge"
+      ],
+      "applicablePhaseTypes": [
+        "bug-fix",
+        "security-sensitive-change",
+        "ui-change",
+        "multi-system-feature"
+      ],
+      "tools": [
+        "read-repository",
+        "search-repository",
+        "draft-proposal"
+      ],
+      "readScopes": [
+        "**"
+      ],
+      "writeScopes": [],
+      "requiredInputs": [
+        "objective"
+      ],
+      "evidenceRequirements": [
+        "findings-with-subjects",
+        "evidence-references"
+      ],
+      "costClass": "standard",
+      "modelPreference": "policy:specialist-high",
+      "parallelSafe": true,
+      "implementation": false,
+      "review": true,
+      "riskTier": "high"
+    }
+  }
+}

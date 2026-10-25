@@ -1,0 +1,198 @@
+[package]
+name = "projectos-host-windows-local-ipc"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "UNLICENSED"
+description = "EFFECT-FREE local-IPC transport CONTRACT for the future ProjectOSHost service-identity proof (WINDOWS-PACKAGED-HOST-TRUST-ENFORCEMENT3K-I-D-E-C-CAPABILITY-B1). Freezes the closed shape a later, separately-approved named-pipe transport must obey: local-only (remote clients refused), first-instance required, a bounded protocol version, a single-use per-run nonce with replay refusal, stale-endpoint refusal, a PROTECTED allowlist security policy (expected service SID + LocalSystem + Builtin Administrators only; broad principals receive no allow ACE and no explicit deny ACE is required), and a closed IPC evidence payload that carries only the redacted service-identity proof evidence, authority result, peer-role, corroboration, readiness, typed refusal, shutdown and residue classifications. It has NO arbitrary pipe-name string, NO arbitrary byte payload, NO free-form metadata, NO arbitrary diagnostics, and cannot represent any raw username, SID, machine name, session or credential. The transport itself creates NO pipe, binds NO endpoint and opens NO handle outside the feature-gated windows_ffi.rs. Since the owner-anchor edge to projectos-host-identity, a Windows target pulls the windows crate transitively even by default, and verifying a durable owner programme delegation makes one bounded BCrypt ECDSA-P256 call inside that crate - so this is no longer a no-windows-dependency build, and the Authenticode/WinVerifyTrust surface that edge also links is never reached. unsafe is denied crate-wide and re-allowed only in windows_ffi.rs; execution readiness false."
+
+[lints.rust]
+# The live named-pipe FFI requires unsafe; it is DENIED crate-wide and re-allowed ONLY in the private
+# windows_ffi module (enforced by val-windows-local-ipc-capability-b3.cjs). Every unsafe op sits in an
+# explicit block with a SAFETY invariant.
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+
+[features]
+# Compiles the live Windows named-pipe backend FFI and pulls host-authority's opaque, service-SID-backed
+# pipe-security descriptor via the NON-fixture `windows-pipe-security-runtime` feature (never
+# test-fixtures). It does NOT grant runtime authority: no sealed LiveIpcOperationCapability is
+# constructible, so no live pipe operation is reachable. Default features are empty — the default build
+# stays the effect-free contract + safe adapter.
+windows-live-ipc = [
+    "dep:windows",
+    "projectos-host-authority/windows-pipe-security-runtime",
+    # The pipe-peer instance observation lives in the canonical identity-proof crate, so this crate
+    # never assembles a service-instance identity from raw parts of its own.
+    "projectos-host-windows-service-identity-proof/windows-live-instance-observation",
+    # PROJECTOS-HOST-REVIEW-PATH1B. The canonical PRODUCTION CLIENT-ADMISSION route. The installed
+    # Host is the pipe SERVER and the governed Agent is the CLIENT, so admitting that client is a
+    # different proposition from the B3 service-instance binding and has its own canonical attempt.
+    # Enabled HERE and nowhere else: the live IPC graph is the trusted production composition, and no
+    # default, fixture or consumer-contract graph gains the client-admission capability.
+    "projectos-host-windows-service-identity-proof/windows-client-admission",
+]
+# The OWNER-APPROVED, READ-ONLY installed-host status read. Non-default. It is the only feature under
+# which a LiveIpcOperationCapability can be produced, and even then only by consuming an explicit
+# one-session owner approval transcribed from the exact phrase. It authorises the status read and
+# nothing else: no shutdown, no service control, no write, no other message kind.
+owner-approved-status-read = []
+# EXPLICIT, NON-DEFAULT fixture graph. It proves the dependent-consumer API shape without any pipe or
+# Win32 activity: it does NOT imply windows-live-ipc and adds no DIRECT windows edge of its own (see
+# the transitive note below the windows dependency). It supplies
+# fixture-only capability acquisition and a fixture handshake runner that drives the REAL verification
+# order; real live capability production stays absent and owner-gated.
+test-fixtures = [
+    "projectos-host-windows-service-identity-proof/test-fixtures",
+    # Level-2 end-to-end proof needs the core fixture verifier + fixture clock-binding grant. This is the
+    # ONLY place core fixtures are enabled; the live graph never enables it, so a production build never
+    # gains core fixture authority.
+    "projectos-host-core/test-fixtures",
+    # RUN-TO-COMPLETION HOST ATTESTATION §10A. The Host composition needs an ATTESTED INSTALLATION
+    # PROGRAMME to compose anything, and the only production route to one is a manifest signed with
+    # the owner's private key - which ProjectOS does not hold and must never hold. host-identity's
+    # fixture graph supplies the sealed value so the composition can be proven; it mints no owner
+    # authority, exposes no signing counterpart, and the live graph never enables it.
+    "projectos-host-identity/test-fixtures",
+    # PROJECTOS-HOST-REVIEW-PATH1A. Steps 1-3 of the review operation verify the installed manifest
+    # against the embedded production owner anchor, and no owner has signed a version 2 manifest - so
+    # the only way to PROVE the sealed seam end to end is the attestation crate's fixture entry to
+    # steps 4-8. The live graph never enables it; the production seam still begins with the signature.
+    "projectos-host-gatekeeper-attestation/test-fixtures",
+]
+
+[dependencies]
+# The core owns the IpcPeerObservation / ConfirmedHandshakeEvidence evidence types and the sealed
+# ProductionIpcSessionVerifier. This crate's same-connection evidence bundle projects into those core
+# types (CD-B4-PRODUCTION-IPC-PROVIDER1A). core is pure logic — windows-free and forbid(unsafe) — so this
+# path dependency pulls NO windows/unsafe surface; default features only (no core fixture authority).
+projectos-host-core = { path = "../core" }
+# Reuses the accepted redacted service-identity evidence + canonical no-trust peer/authority types
+# (via the proof-contract crate's re-exports). Windows-free by default.
+projectos-host-windows-service-identity-proof = { path = "../windows-service-identity-proof" }
+# The canonical OPAQUE ProjectOSHost pipe-security contract. The portable status/policy types are used
+# by default; the opaque descriptor + borrowed lease arrive under `windows-live-ipc`. This crate NEVER
+# resolves a SID or builds an ACL/SDDL of its own.
+projectos-host-authority = { path = "../host-authority" }
+# THE OWNER TRUST ANCHOR, for its EXISTING verification facade only
+# (`verify_against_embedded_anchor`). Authorised by the RUN-TO-COMPLETION HOST ATTESTATION —
+# COMMITTED-BYTE CHECKPOINT + AUTHORITY REACHABILITY gate for the durable owner programme
+# delegation, so that ONE anchor and ONE signature implementation serve both the packaged trust
+# manifest and this record. There is no signing counterpart anywhere in that crate and none is
+# wanted: ProjectOS never holds the owner's private key.
+projectos-host-identity = { path = "../host-identity" }
+# RUN-TO-COMPLETION HOST ATTESTATION - HOST-RESOLVED BINDING AUTHORITY. ONE exact algorithm for the
+# canonical Host binding digest over the facts the Host resolved for a request: SHA-256, the same
+# crate and version core / host-identity already use, so this adds no new crate to the lock graph.
+# Default features only. It is used for that ONE digest - there is no pluggable algorithm and no
+# generic hashing surface here. (host-identity's raw-bytes helper is not exported; only its hex
+# rendering is, and hashing to text and back on a trust path is the conversion that helper itself
+# warns against.)
+sha2 = "0.10"
+# RUN-TO-COMPLETION HOST ATTESTATION §10B - THE DURABLE DELEGATION LIFECYCLE STORE.
+#
+# The sealed `DurableDelegationStateStore` can only be implemented inside this crate, so the real
+# restart-safe store has to live here - and it must NOT be a second persistence framework. These two
+# edges are the accepted ones ProjectOS already reviewed: `projectos-host-persistence` supplies the
+# strict bounded DTO family that is persisted, and `projectos-host-windows-durable-protected-store`
+# supplies every filesystem mechanic (single-writer OS lock, reparse-hardened bounded layout, SHA-256
+# framing, the Prepared->Committed/Aborted journal, MoveFileExW write-through replacement,
+# journal-aware recovery, monotonic revisions, optimistic expected-revision replacement).
+#
+# THE TRANSITIVE COST, recorded rather than discovered later: the durable-store crate confines
+# `unsafe` to its own `windows_fs.rs` and really does call Win32 (LockFileEx / MoveFileExW /
+# FlushFileBuffers) when a store is opened or written. THIS crate adds no `unsafe` and no Windows
+# call of its own outside the feature-gated `windows_ffi.rs`, which the capability scan still
+# enforces. Neither edge adds a network, process, registry, SCM, ACL-builder, credential or signing
+# surface.
+projectos-host-persistence = { path = "../persistence" }
+projectos-host-windows-durable-protected-store = { path = "../windows-durable-protected-store" }
+# RUN-TO-COMPLETION HOST ATTESTATION 10D - THE CANONICAL BUDGET LEDGER TRANSACTION.
+#
+# The sealed `CanonicalBudgetLedger` can only be implemented INSIDE this crate (its sealing
+# supertrait is private to the composition module), so the production adapter has no other home. What
+# that adapter must NOT be is a second ledger, and the way to keep it from becoming one is to put the
+# transaction - take the canonical `.projectops/gatekeeper-ledger.lock`, read
+# `.projectops/gatekeeper-ledger.json` fresh, apply the canonical policy, write the canonical entry -
+# in one small crate that does nothing else, and prove it against the REAL compiled TypeScript
+# implementation. That crate is this edge.
+#
+# THE TRANSITIVE COST, recorded rather than discovered later: it links `serde`/`serde_json`, which
+# `projectos-host-persistence` already puts in this crate's lock graph, and `std::fs`. It adds no
+# `unsafe`, no Windows call, no network, no process, no registry, no SCM, no ACL builder, no
+# credential and no signing surface; the capability scan below is unchanged and still enforces that
+# for THIS crate's own sources.
+projectos-host-gatekeeper-ledger = { path = "../gatekeeper-ledger" }
+# RUN-TO-COMPLETION HOST ATTESTATION 10E - THE TRUSTED HOST ROOTS.
+#
+# The three root capabilities this crate owns - HostOwnedDelegationStateRoot (10B),
+# HostOwnedRequestReplayRoot (10C) and HostOwnedGatekeeperProjectRoot (10D) - each shipped with NO
+# production mint, because resolving a real root is installation composition and fabricating one
+# here would have been inventing installation truth. This edge is that composition, and it is a
+# separate crate rather than more code in this one for two reasons: the resolution needs the
+# approved Known Folder resolver, the accepted handle-owned custody primitive and the canonical
+# installed-project registry, none of which belong in an IPC transport; and the three root types
+# have private fields, so their production constructors have to live HERE and take an already-sealed
+# value from THERE.
+#
+# WHAT THIS EDGE DOES NOT GRANT. The value those constructors require is an ACTIVATED root, and the
+# production mint of the boundary acceptance that produces one is deliberately absent until the
+# ProgramData ACL boundary is accepted. So this edge adds the wiring and changes nothing a default
+# build can reach: the stores still fail closed, for the same reason, one level further along.
+#
+# THE TRANSITIVE COST, recorded rather than discovered later. The new crate pulls
+# `projectos-project-registry` (which links `serde`/`serde_json`, already in this crate's lock graph
+# through `projectos-host-persistence`), `projectos-host-windows-root-custody` (`windows-sys` with
+# Win32_Foundation / Win32_Storage_FileSystem / Win32_Security, for a read-only CreateFileW +
+# GetFileInformationByHandleEx + GetFinalPathNameByHandleW handle open) and, on Windows,
+# `projectos-windows-runtime-primitives` (the `windows` crate with Win32_UI_Shell / Win32_System_Com,
+# for one read-only SHGetKnownFolderPath call). `projectos-host-identity` is already a dependency and
+# is reused, not added. It adds NO `unsafe` and NO Windows call to THIS crate's own sources, and NO
+# network, process launch, registry, SCM, ACL builder, credential or signing surface anywhere - the
+# capability scan below is extended to the new crate and enforces exactly that, as it does for the
+# canonical ledger crate.
+#
+# PROPOSED, 10E - AWAITING RATIFICATION AT THE 10E GATE, exactly as the 10D ledger edge was.
+projectos-host-trusted-roots = { path = "../trusted-roots" }
+# AMENDMENT 2, PROJECTOS-HOST-REVIEW-PATH1A (owner-ratified with plan v1.5). EXACTLY ONE EDGE, for ONE
+# reason: the sealed `GatekeeperReviewExecution` seam can only be implemented inside this crate, and
+# its one shipped implementation must DRIVE the existing ordered review operation rather than restate
+# it. Pure logic over injected ports: no file, pipe, process, credential or Windows call of its own.
+projectos-host-gatekeeper-attestation = { path = "../gatekeeper-attestation" }
+
+[target.'cfg(windows)'.dependencies]
+# Minimum named-pipe surface only. Optional + feature-gated: this crate's DIRECT edge to `windows` is
+# linked ONLY under `windows-live-ipc`. No SCM / token / SID-lookup / registry / process / network
+# feature.
+#
+# TRANSITIVE, AND NO LONGER ZERO. Since `projectos-host-identity` joined the dependencies for the
+# owner anchor, a Windows target pulls `windows` transitively even with default features.
+#
+# AND IT IS NOT MERELY LINKED. `verify_against_embedded_anchor` is the one item used from that
+# crate, and on Windows it really does call Win32: a bounded BCrypt chain
+# (`BCryptOpenAlgorithmProvider` / `BCryptImportKeyPair` / `BCryptVerifySignature`) to check one
+# ECDSA-P256 signature over fixed-length inputs. Saying "nothing here calls it" would have been the
+# comfortable wording and it would have been false. What IS true, and is the property worth stating:
+# the WinVerifyTrust/Authenticode surface that edge also links is never reached from this crate, no
+# `unsafe` and no Windows call is added to THIS crate's own sources outside the feature-gated
+# `windows_ffi.rs`, and the signature check runs only when a delegation is actually verified.
+windows = { version = "0.61.3", optional = true, features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_Pipes",
+    "Win32_System_IO",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Threading",
+] }
+
+[dev-dependencies]
+# The cross-language vector proof reads `projectos/contracts/host-review-path-vectors.v1.json`. Dev-only:
+# it is in no consumer's graph, and the closed runtime dependency list above is unchanged.
+serde_json = "1"
+# TEST GRAPH ONLY. Enabling the trusted-roots fixture feature here - rather than from this crate's
+# own `test-fixtures` feature - keeps it out of every graph a consumer can select: a dev-dependency
+# is not part of the published dependency graph at all. It supplies the fixture installation anchor,
+# the fixture registry document and the fixture boundary acceptance, so the three production root
+# constructors can be exercised end to end against disposable directories without a live ProgramData
+# directory, an installed project, or an accepted ACL boundary.
+projectos-host-trusted-roots = { path = "../trusted-roots", features = ["test-fixtures"] }

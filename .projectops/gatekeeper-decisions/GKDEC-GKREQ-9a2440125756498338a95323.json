@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "1.0.0",
+  "recordKind": "gatekeeper-decision-evidence",
+  "decisionId": "GKDEC-GKREQ-9a2440125756498338a95323",
+  "projectId": "projectos",
+  "phaseId": "validation-cache",
+  "subjectCommit": "7ec1ef74a1541f71b6210da31a68f3c49383843b",
+  "requestDigest": "sha256:0ad8cce56f618cf8e3118cbd07cfcfa48a2f5b5dfb2af13e8375d819e2e81c75",
+  "decision": "AWAITING_OWNER",
+  "reason": "All required checks, including the live speed benchmark, pass and no CRITICAL/HIGH findings remain. However, MEDIUM VCACHE-SEC-01 remains unresolved after the correction budget was exhausted: disposable validation-cache entries appear in git status because .projectops/validation-cache/ is not ignored. The required .gitignore change is outside the effective restricted worker grant, so its disposition requires owner action or explicit owner acceptance.",
+  "allowedActions": [
+    "preserve-passing-check-and-review-evidence",
+    "inspect-candidate-cache-residue",
+    "prepare-owner-risk-and-remediation-brief",
+    "run-non-mutating-verification",
+    "record-owner-decision-when-provided"
+  ],
+  "forbiddenActions": [
+    "commit",
+    "push",
+    "merge",
+    "force-push",
+    "phase-closure",
+    "secrets-handling",
+    "payment-or-live-charge",
+    "deploy",
+    "database-mutation",
+    "external-message",
+    "unscoped-source-edits",
+    "autonomous-risk-acceptance"
+  ],
+  "ownerApprovalRequired": true,
+  "decidedBy": "ChatGPT",
+  "decidedAt": "2026-09-04T14:28:03.000Z"
+}

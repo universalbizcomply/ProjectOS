@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "1.0.0",
+  "sessionId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A-b9619f7cc845-7216e3dd",
+  "projectId": "projectos",
+  "phaseId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+  "subjectCommit": "b9619f7cc84528597c293c426c7b56d545415637",
+  "attestedAt": "2026-08-18T04:15:00+01:00",
+  "productionTouched": false,
+  "deploymentOccurred": false,
+  "databaseMutationOccurred": false,
+  "externalSendOccurred": false,
+  "paymentOccurred": false,
+  "rawSecretStored": false
+}

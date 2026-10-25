@@ -1,0 +1,201 @@
+{
+  "schemaVersion": "1.0.0",
+  "projectId": "projectos",
+  "projectName": "ProjectOS",
+  "programmeId": "projectos-autonomous-self-hosting",
+  "planId": "projectos-autonomous-self-hosting-plan",
+  "planVersion": "1.0",
+  "planStatus": "PLAN READY",
+  "businessVision": "ProjectOS coordinates OpenAI governance and Claude implementation by itself, so the owner sets direction and approves protected actions instead of carrying messages between two models.",
+  "definitionOfComplete": "one objective entered once by the owner runs through gatekeeper decision, Claude implementation, evidence return, gatekeeper review and a bounded correction, plus a proven gatekeeper-unavailable owner choice, degraded-mode continuation, reconciliation, restart and multi-project isolation, with the owner performing no copy or paste between OpenAI and Claude and unresolved CRITICAL and HIGH findings at zero.",
+  "approvedScope": [
+    "A supported unattended OpenAI gatekeeper transport, behind a transport abstraction so no single",
+    "Machine-readable gatekeeper decisions on a closed decision vocabulary, bound to project, phase,",
+    "A per-project governance thread/state binding, keyed on an opaque provider identifier held in",
+    "An API cost ledger: per-request estimate, per-phase total, per-project total, monthly total,",
+    "Fail-safe behaviour when the gatekeeper is unavailable, presenting the owner with an explicit",
+    "An owner-risk degraded mode that is explicit, durable, auditable, bound to project, phase, subject",
+    "Reconciliation review when the gatekeeper returns after degraded-mode work.",
+    "Reuse of the existing worker loop, invocation provenance, evidence records, project registry,",
+    "A SMALL private owner interface: a minimal ProjectOS MCP bridge reachable from ChatGPT over the"
+  ],
+  "excludedScope": [
+    "No paid API activation, credential creation, billing setup or credit purchase. Those are a separate",
+    "No GUI, browser, mouse, keyboard or window automation, and no scraping of any chat interface.",
+    "No production deployment, database mutation, real email, SMS or WhatsApp, payment or refund.",
+    "No new orchestration framework, no second ProjectOS, no Forge rebuild, no Control Centre redesign,",
+    "No large ChatGPT application, no public plugin submission or distribution, and no owner-interface",
+    "No plan-approval delegation is created during this bootstrap; the owner approves this plan",
+    "No local model substituted for the OpenAI governance layer. A local model may rehearse transport"
+  ],
+  "successStandard": "the owner can say \"continue ProjectOS\" and the system safely advances the work on its own, stopping only at genuine owner-protected gates.",
+  "repository": {
+    "repositoryPath": "C:/dev/ProjectOS",
+    "expectedRemote": "universalbizcomply/ProjectOS",
+    "protectedBranches": [
+      "main",
+      "projectos-v2-core"
+    ],
+    "baselineCommit": "0a38e6ecd3d32a399cb30cb52c509da4c479c5ee",
+    "planPersistenceCommit": null,
+    "planSourceBranch": "projectos-post-v3-selfhost-pilot1a"
+  },
+  "sourceDocuments": [
+    {
+      "documentPath": ".projectops/project-config.json",
+      "sourceDocumentType": "requirements",
+      "sourceDocumentChecksum": "sha256:831a739f1824d2f01dca295b434d652734c7fe8f483d62a463738f479580376a",
+      "authoritative": false,
+      "superseded": false
+    },
+    {
+      "documentPath": "docs/projectos-autonomous-self-hosting-plan.md",
+      "sourceDocumentType": "human-readable-plan",
+      "sourceDocumentChecksum": "sha256:be541773c21513ebf0d42d8c30e0183bd76cffaecd5d045837750e823d7e2496",
+      "authoritative": true,
+      "superseded": false
+    }
+  ],
+  "phases": [
+    {
+      "phaseId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+      "description": "Let ProjectOS coordinate OpenAI governance and Claude implementation by itself, so the owner supplies an objective once and never again carries a prompt, report or gate decision between them.",
+      "dependsOn": [],
+      "acceptanceCriteria": [
+        "A supported unattended OpenAI transport is implemented behind an abstraction, and unattended operation never depends on a browser window, a desktop app window, a focused tab or a conversation name",
+        "The gatekeeper is structurally read-only: it reviews, reasons and decides, and it cannot modify source, commit, push, deploy, mutate a database, transmit an external message, make a payment, or reach credential material",
+        "Gatekeeper decisions are machine-readable on a closed vocabulary and bind projectId, phaseId, subject commit and request digest; ProjectOS refuses a decision that mismatches any of them, is unknown, is schema-invalid, is stale or replayed, arrives for another project, or asserts an owner-only authority",
+        "The cost model is derived from measured ProjectOS artefact sizes rather than guessed, and a per-request estimate, per-phase total, per-project total and monthly total are recorded and visible to the owner",
+        "A configurable budget with a warning threshold and a hard stop exists, and no paid API activation, credential creation or purchase happens without a separate owner commercial approval",
+        "When the gatekeeper is unavailable for any reason the run FAILS SAFE and presents the owner an explicit choice; Claude never becomes its own approver and there is no silent fallback between transports",
+        "Owner-risk degraded mode is explicit, durable, auditable, project-bound, phase-bound, subject-bound, decision-bound, scoped and non-replayable, and it cannot authorise any owner-only protected action; commit and push require their own explicit grant",
+        "When the gatekeeper returns, a reconciliation review of the degraded-mode work is prepared and the next major gate does not proceed as normal until it is complete",
+        "One ordinary end-to-end cycle is proven live: objective in, gatekeeper decision, Claude work, evidence back, gatekeeper review, next bounded action, with the owner performing zero OpenAI-to-Claude copy or paste",
+        "One automatic bounded correction cycle is proven, driven by a real validator failure and a gatekeeper correction decision rather than by a human",
+        "One gatekeeper-unavailable owner decision, one degraded-mode bounded continuation and one return-to-gatekeeper reconciliation are each proven",
+        "Restart and resume are proven mid-objective without duplicating a decision, a Claude run, a commit or a cost entry",
+        "Multi-project isolation is proven: distinct project ids, repository roots, thread bindings and worker bindings, with deliberately mismatched bindings refused and no cross-project leakage of prompt, evidence, decision, session or repository facts",
+        "Whether ChatGPT Developer mode and the Secure MCP Tunnel are available on the owner's own account is established as a fact from the owner's screen before the bridge is built, and recorded; the phase does not claim a capability it has not seen",
+        "If they are available, a small private ProjectOS MCP bridge is proven from ChatGPT over the outbound-only tunnel with no public listener and no exposure of the local address, reusing existing ProjectOS contracts, and the owner interface keeps working when the primary gatekeeper transport is unavailable",
+        "Every bridge operation passes through ProjectOS authority, so the bridge cannot deploy, mutate a database, run an arbitrary command, transmit an external message, make a payment, reach credential material or sign anything however a conversation phrases the request, and a refusal is recorded rather than silently dropped",
+        "Reviews cover prompt injection across the model boundary and across the owner interface, evidence poisoning, cross-project leakage, stale decision replay, subject drift, credential leakage, model escalation abuse, cost runaway, duplicate calls after restart, self-approval, override replay, degraded-mode escalation, reconciliation bypass and any direct gatekeeper-to-Claude bypass, with unresolved CRITICAL and HIGH at zero"
+      ],
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredValidators": [
+        "validate-all"
+      ],
+      "requiredReviews": [
+        "code-review",
+        "security-review"
+      ],
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "phase-closure",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ]
+    }
+  ],
+  "environments": [
+    {
+      "environmentId": "local",
+      "productionFreeze": true
+    }
+  ],
+  "providers": [],
+  "governance": {
+    "owner": "Murad",
+    "gatekeeper": "ChatGPT",
+    "implementer": "Claude Code",
+    "allowedActions": [
+      "inspect-repository",
+      "create-local-files",
+      "run-local-validation",
+      "produce-evidence-report"
+    ],
+    "forbiddenActions": [
+      "production-deploy",
+      "production-db-mutation",
+      "real-email-sms-whatsapp",
+      "payment-or-live-charge",
+      "force-push",
+      "use-openai-api",
+      "use-anthropic-api",
+      "provider-credential-access",
+      "store-real-secret",
+      "modify-projectos-v2-core",
+      "modify-v2-closure-records",
+      "modify-polygo"
+    ],
+    "ownerOnlyActions": [
+      "approve-plan",
+      "approve-plan-supersession",
+      "approve-material-scope-change",
+      "approve-commit",
+      "approve-push",
+      "authorise-production-deploy",
+      "authorise-database-mutation",
+      "authorise-external-send",
+      "authorise-payment",
+      "authorise-provider-access",
+      "authorise-installation",
+      "start-e2e",
+      "pause",
+      "resume"
+    ],
+    "closureAuthority": "ChatGPT",
+    "closureDelegation": {
+      "delegatedBy": "Murad",
+      "delegatedTo": "ChatGPT",
+      "delegationDate": "2026-08-17",
+      "delegatedScope": [
+        "phase-closure",
+        "programme-closure"
+      ],
+      "projectScope": "projectos",
+      "excludesProtectedActions": true,
+      "notes": "Recorded by owner Murad for programme 'projectos-autonomous-self-hosting' in PROJECTOS-AUTONOMOUS-SELF-HOSTING-CLOSURE-DELEGATION1A. Closure only: it is not authority to act, and it excludes every protected effect, which stays with the owner."
+    },
+    "noApiPolicy": true
+  },
+  "approval": {
+    "approvalStatus": "approved",
+    "approvedBy": "Murad",
+    "approvalDate": "2026-08-17T14:18:00+01:00",
+    "approvalEvidenceReference": "Plan-approval decision PROJECTOS-AUTONOMOUS-SELF-HOSTING-PLAN-APPROVAL-DECISION1B by Murad, taken against draft 35316a7a7ad3acd6 with plan digest sha256:8e06658918193b7408401299b58495ac01117073a60315f3cf250a3282a86eaf at commit 538f7f02833aa4721303bbc2739d081066565bfe on branch projectos-post-v3-selfhost-pilot1a. The authority to take it is the owner's own: no plan-approval delegation applies to this project and programme, so approval never moved away from the recorded owner and the decision above is the owner's. ProjectOS re-ran discovery against the repository before writing this record and the recomputed plan digest still matched the approved one. MANUAL_GOVERNANCE_APPROVAL with tamperProof false — a human governance approval bound by the owner's commit gate, NOT a cryptographic one. Governance is carried forward unchanged from the project's active owner-approved plan; this approval created no new authority, changed no protected-action rule, and did not modify any existing plan record.",
+    "supersedesPlanVersion": null,
+    "approvalBinding": "MANUAL_GOVERNANCE_APPROVAL",
+    "tamperProof": false,
+    "approvalAuthority": "owner",
+    "secureApprovalEvidence": null
+  },
+  "staleness": {
+    "lastVerifiedCommit": "0a38e6ecd3d32a399cb30cb52c509da4c479c5ee",
+    "lastVerifiedDate": "2026-08-17T13:20:00.612Z",
+    "stalenessStatus": "fresh",
+    "stalenessReasons": [],
+    "materialPlanInputs": [
+      {
+        "inputId": "plan-digest",
+        "fingerprint": "sha256:8e06658918193b7408401299b58495ac01117073a60315f3cf250a3282a86eaf"
+      },
+      {
+        "inputId": ".projectops/project-config.json",
+        "fingerprint": "sha256:831a739f1824d2f01dca295b434d652734c7fe8f483d62a463738f479580376a"
+      },
+      {
+        "inputId": "docs/projectos-autonomous-self-hosting-plan.md",
+        "fingerprint": "sha256:be541773c21513ebf0d42d8c30e0183bd76cffaecd5d045837750e823d7e2496"
+      }
+    ]
+  },
+  "security": {
+    "secretPolicy": "No raw secret values are stored in plan memory, current state, sessions, reports or prompts. Providers are referenced by name only. Redaction is required for any sensitive value.",
+    "rawSecretValuesForbidden": true,
+    "sensitiveDataForbidden": true,
+    "redactionRequired": true
+  }
+}

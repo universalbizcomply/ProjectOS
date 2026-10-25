@@ -1,0 +1,113 @@
+{
+  "phaseId": "PROJECTOS-HOST-REVIEW-PATH1A",
+  "project": "ProjectOS",
+  "objective": "Implement the complete agent-to-host unattended review path in production code and leave it dormant: the agent-side review ports and local transport, the host-side review facades and operation dispatch, the execution rung that drives the existing host gatekeeper-review operation through an injected independent-review seam, the host decision and attestation serialisation, and one canonical bounded out-of-band representation bound to the existing fixed-width authority frames, proven by a cross-language codec agreement and one isolated round-trip over the real transport, with no service start, no live authority, no provider call and no spend.",
+  "status": "closed",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-09-12T15:08:27.955Z",
+      "note": "implementation begins against active Plan v1.5 plan-a45a693cb1a5f4b2-e9e72d69fc4a, material sha256:e9e72d69fc4a3eb8022e19d2b3ef8a477abf9e8cbbb084da6c503c510daaedf9, starting head 20fe0722528af748504baf9c094818c003a95ef7"
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-09-12T15:08:28.328Z",
+      "note": "building the complete dormant agent-to-host review path: agent ports and local transport, host review facades and dispatch, sealed execution seam and its one in-crate implementation, decision construction, attestation serialisation, and the two ratified validator amendments"
+    },
+    {
+      "from": "implementing",
+      "to": "rolled_back",
+      "by": "implementer",
+      "at": "2026-09-12T15:13:22.791Z",
+      "note": "STOPPED under plan section 22 before any source change: the approved architecture has no canonical derivation by which the AGENT can compute the wire binding_digest. evaluate_protected_operation step 4 (operation_contract.rs:1449-1452) requires request.binding_digest() to equal facts.expected_binding_digest(), which is sha256 over project, repository, plan, plan_digest, phase, candidate_digest, operation, model_policy, credential_ref. Seven of those nine are opaque 32-byte values the Host resolves through ports whose production adapters do not exist, and no identifier-to-digest or committed-candidate-to-digest rule exists anywhere in the host tree (only the four domain tags host-request-binding, host-request-replay, owner-programme-delegation, programme-identity; the composition tests use fixture constants 0x11, 0x22 and so on). The agent side has no binding_digest notion at all. A transport that can only agree with fixture digests would be a dead production route, so closing this needs a THIRD ratified contract addition beyond amendments 1 and 2. No runtime source was changed, nothing was committed."
+    },
+    {
+      "from": "rolled_back",
+      "to": "draft",
+      "by": "implementer",
+      "at": "2026-09-12T15:38:30.567Z",
+      "note": "Owner ratified the committed-candidate digest contract: sha256(one versioned ProjectOS committed-candidate domain + u32 big-endian schema version 1 + 40 validated lowercase ASCII hex commit OID bytes); no tree id, no working-tree substitute, no generic identifier hashing, binding_digest and the fixed IPC frame unchanged. Recorded here rather than in a new governance file. Implementation did NOT resume: plan section 8 stop condition fired during pre-implementation verification. OwnerProgrammeDelegation documents project, repository, plan, allowed_phases, model_policy and credential_ref as DIGESTS OF IDENTIFIERS (operation_contract.rs:647-665: 'Digest of the project id', 'Digest of the canonical repository identity', 'Digest of the exact plan id', 'Digests of the phase ids'). No rule for hashing an identifier into those 32 bytes exists anywhere in the tree; every test uses constants. The section 7 preferred route is also the wrong digest kind: host-core phase_definition_digest hashes 19 normalized-definition fields, so a facts.phase built from it could never satisfy the step 5 membership test against a digest of the phase id. Six of the nine binding-subject inputs therefore have no Host-side derivation, and supplying one is the identifier convention section 8 forbids inventing. No source changed."
+    },
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-09-12T15:49:54.707Z",
+      "note": "gatekeeper final source-truth ruling: phase = phase_identity_digest(phase_id) and plan = plan_identity_digest(plan_ref) under the existing projectos.programme-identity.v1 domain via NEW TYPED helpers only (identity_digest stays private, no caller-selectable field tag); plan_digest = the already-validated ApprovedPlanBinding phase-definition digest bytes via the narrowest read-only accessor; NO PlanRecordDto field and NO PLAN_RECORD_SCHEMA bump; committed-candidate contract unchanged"
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-09-12T15:49:55.029Z",
+      "note": "implementing the complete dormant agent-to-host review path against Plan v1.5"
+    },
+    {
+      "from": "implementing",
+      "to": "rolled_back",
+      "by": "implementer",
+      "at": "2026-09-19T17:44:55.471Z",
+      "note": "STOOD DOWN, NOT REVERTED. Owner/gatekeeper ruling 2026-09-19 on active Plan v1.6 plan-01053932764c573b-68d21d6830c1: PATH1A must not be implemented standalone; its 76-path candidate (manifest sha256 5d5d35ff761efca9edc3435f465d614f30f27cfa2c4bc556e56f193a986b448f, proven byte-identical after branch reconciliation onto 87f734e and worktree relocation) is inherited unchanged by PROJECTOS-HOST-REVIEW-PATH1B. No source was rolled back. This transition only takes the record out of flight so exactly one phase is active; PATH1A reconciliation and closure remain an owner decision against the accepted cumulative PATH1B candidate."
+    },
+    {
+      "from": "rolled_back",
+      "to": "draft",
+      "by": "implementer",
+      "at": "2026-09-19T19:30:10.103Z",
+      "note": "GATEKEEPER RULING 2026-09-20: the earlier implementing -> rolled_back transition meant STOOD DOWN, and is corrected here because nothing was rolled back. PATH1A implementation was stood down in favour of PROJECTOS-HOST-REVIEW-PATH1B. No source or candidate bytes were reverted. PATH1A remains pending only for later reconciliation and closure, by owner decision, after PATH1B is accepted, against the same accepted cumulative candidate."
+    },
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-09-27T00:58:21.957Z",
+      "note": "reconciliation only — no implementation, no source. Governed reconciliation and closure against the accepted cumulative candidate 6f9bd06c443c44e5a33af80c85ea94e44c3bc80d, after PROJECTOS-HOST-REVIEW-PATH1B closed (PATH1B criterion 30, owner gate 13); owner-authorised O2 (2026-09-27)"
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-09-27T00:58:22.495Z",
+      "note": "reconciliation only — no implementation, no source. No implementation is performed; this transition exists only because the core lifecycle has no reconciliation shortcut. All PATH1A code landed in 1a4e56e and is carried through c30362e"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-09-27T00:58:23.076Z",
+      "note": "reconciliation only — no implementation, no source. All 7 PATH1A-required validators PASS in the validate-all record bound to 6f9bd06 (.projectops/validation/6f9bd06c443c44e5a33af80c85ea94e44c3bc80d.json)"
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-09-27T00:58:23.532Z",
+      "note": "reconciliation only — no implementation, no source. Reconciliation: 28 SATISFIED, 3 SUPERSEDED in part by ratified PATH1B rules (C9, C28, C29), 0 N/A, 0 BLOCKED; gatekeeper ACCEPTED the reconciliation (G1)"
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-09-27T00:58:23.862Z",
+      "note": "reconciliation only — no implementation, no source. Reviews: the Claude self-review, ECC CODE and ECC SECURITY reviews over the cumulative ancestry containing all PATH1A code; independent reality-checker challenge of the reconciliation, 15/15 findings verified and accepted"
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-09-27T00:58:24.266Z",
+      "note": "reconciliation only — no implementation, no source. Closure evidence and reconciliation report written at subject 6f9bd06; closes owner-direct by Murad; O1-A/O1-B confirmed; B2/B5 pins are mandatory carry-forward"
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-09-27T00:59:03.130Z",
+      "note": "closed by owner Murad, decision projectos:PROJECTOS-HOST-REVIEW-PATH1A:owner-closure:6f9bd06c"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "PROJECTOS-GATEKEEPER-LOOP1A-PAYMENT-GATE-RECEIPT1A",
+  "projectId": "projectos",
+  "phaseId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+  "gateName": "payment-or-live-charge",
+  "gateInstanceId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A:payment-or-live-charge@09650590ca2ed5c1f2c3b8372927a0037959cc62",
+  "evidenceSubjectHead": "09650590ca2ed5c1f2c3b8372927a0037959cc62",
+  "ownerChoice": "APPROVE",
+  "decidedBy": "Murad",
+  "decidedAt": "2026-08-17T21:05:00+01:00",
+  "scope": "owner-gate-only",
+  "note": "Owner approves the OpenAI gatekeeper pilot at the lower-cost level: USD $5 initial prepaid credit, auto-recharge OFF, USD $2 project warning threshold, USD $5 project hard monthly limit, and no automatic limit increase. Any increase above this pilot budget requires a new owner decision. Model policy is a simple two tier with no dynamic routing: GPT-5.6 Luna for routine, evidence and correction work; GPT-5.6 Terra for security, architecture, closure and genuine ambiguity. GPT-5.6 Sol is not part of the default pilot route. This approves the commercial LIMITS only. It does not instruct the implementer to create, print, read or expose credential material, and it does not authorise any charge beyond those limits. The account, the billing and the key are established by the owner at the owner's own screens; the implementer stops at that interaction. Credential material never enters ChatGPT, Claude, a prompt, a report or repository text, and ProjectOS configuration holds only a credential reference.",
+  "provenance": "Transcribed by the implementer (Claude) from owner Murad's commercial ruling of 2026-08-17, which was given in full and is reproduced in docs/projectos-gatekeeper-pilot-commercial-proposal.md section 0. The implementer wrote these bytes; the implementer did not grant this authority and cannot.",
+  "trustBasis": "MANUAL_GOVERNANCE_APPROVAL, tamperProof false. There is no signature here and none is claimed. What makes this record checkable is that ProjectOS reads it from the git object store rather than the working tree, and it has no effect until it is COMMITTED — so a receipt the owner did not authorise is a visible diff at the owner's own commit gate. That is the same guarantee every other authority record in this project rests on, and this record claims no more than that."
+}

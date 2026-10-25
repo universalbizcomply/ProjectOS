@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "objectiveId": "fad4d5ff8d67abc8",
+  "objective": "Let ProjectOS execute ordinary technical delivery autonomously across approved phases, with Claude implementing and the ChatGPT gatekeeper reviewing, while the owner keeps explicit control of every protected action: correct the prose owner-gate and protected-effects defects first, add safe cross-phase continuation through the existing loop and closure machinery behind one continue entry point, complete the host-attested reviewer route under the owner's explicit ruling, and certify it with a display-only joined provenance reader, introducing no second orchestrator, decision store, work queue or execution engine.",
+  "authoritative": false,
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "d65718942b588dbe76724beaf978e320e3ae9f96",
+  "submittedAt": "2026-10-19T13:33:04.756Z",
+  "submittedBy": "owner",
+  "instructionShaped": false
+}

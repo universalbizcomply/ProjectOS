@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "PROJECTOS-SELF-CHANGE-PILOT1A-PAYMENT-GATE-RECEIPT1A",
+  "projectId": "projectos",
+  "phaseId": "PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A",
+  "gateName": "payment-or-live-charge",
+  "gateInstanceId": "PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A:payment-or-live-charge@0b2091e36416b2552b86032e3fba2d409f537c49",
+  "evidenceSubjectHead": "0b2091e36416b2552b86032e3fba2d409f537c49",
+  "ownerChoice": "APPROVE",
+  "decidedBy": "Murad",
+  "decidedAt": "2026-09-03T10:04:00+01:00",
+  "scope": "owner-gate-only",
+  "note": "Owner approves the metered OpenAI gatekeeper API usage that the B9 phase PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A requires, within the EXISTING approved ProjectOS pilot limits and no others: USD $2 warning threshold, USD $5 hard monthly limit, auto-recharge OFF, and no automatic limit increase. No new credit purchase is approved. No billing change is approved. No higher limit is approved; any increase above this pilot budget remains a new owner decision. This commercial approval is for governed ProjectOS gatekeeper API usage only. It does NOT approve product payments, refunds, live charges, or any other payment action, and it instructs the implementer to create, print, read or expose no credential material of any kind. The account, the billing and the key remain established by the owner at the owner's own screens.",
+  "provenance": "Transcribed by the implementer (Claude) from owner Murad's explicit 'APPROVE B9' decision, conveyed through the ChatGPT governance gate of 2026-09-03, which restated the commercial scope reproduced above and confirmed it as the existing approved pilot budget rather than a new one. The implementer wrote these bytes; the implementer did not grant this authority and cannot.",
+  "trustBasis": "MANUAL_GOVERNANCE_APPROVAL, tamperProof false. There is no signature here and none is claimed. What makes this record checkable is that ProjectOS reads it from the git object store rather than the working tree and it has no effect until it is COMMITTED, so a receipt the owner did not authorise is a visible diff at the owner's own commit gate. The limits themselves are enforced independently of this record by the committed budget policy in .projectops/gatekeeper.json, which authoriseRequestSpend checks against the cost ledger before any call is made."
+}

@@ -1,0 +1,88 @@
+{
+  "schemaVersion": "1.0.0",
+  "sessionId": "projectos-v3-final-e2e-closure1a-session-1",
+  "projectId": "projectos",
+  "planId": "projectos-v3-master-plan",
+  "planVersion": "1.3",
+  "phaseId": "PROJECTOS-V3-FINAL-E2E-CLOSURE1A",
+  "executionMode": "local-safe",
+  "autonomyLevel": "local-safe",
+  "repositoryPath": "C:/dev/ProjectOS",
+  "branch": "projectos-v3",
+  "startingHead": "8997ec9a5d95e239d48e4357fac0237de9713b23",
+  "currentHead": "b25f161f8bee9c4ae97b981c3922c28f15a71472",
+  "filesInspected": [
+    "projectos/control-center/src/owner/ownerSnapshot.ts",
+    "projectos/control-center/src/owner/governedChain.ts",
+    "projectos/control-center/src/daemon/ipcCommands.ts",
+    "projectos/control-center/sidecar/host.mjs",
+    "projectos/control-center/src-tauri/src/app.rs",
+    "projectos/control-center/src-tauri/src/process/lifecycle.rs",
+    "projectos/bridge/daemon/src/constants.ts",
+    "projectos/bridge/daemon/src/types.ts"
+  ],
+  "filesChanged": [
+    "projectos/core/src/closureAuthority.ts",
+    "projectos/core/src/phase.ts",
+    "projectos/core/src/index.ts",
+    "projectos/core/test/closure-authority.test.ts",
+    "projectos/agent/src/commands/phase.ts",
+    "projectos/agent/test/commands.test.ts",
+    "projectos/control-center/src/governed/governedCommands.ts",
+    "projectos/control-center/src/governed/governedClient.ts",
+    "projectos/control-center/src/governed/governedProjection.ts",
+    "projectos/control-center/src/owner/GovernedActions.tsx",
+    "projectos/control-center/src/owner/OwnerControlPlane.tsx",
+    "projectos/control-center/src/styles.css",
+    "projectos/control-center/sidecar/host.mjs",
+    "projectos/control-center/src-tauri/src/app.rs",
+    "projectos/control-center/src-tauri/src/process/lifecycle.rs",
+    "projectos/control-center/test/governedCommands.test.ts",
+    "projectos/control-center/test/governedProjection.test.ts",
+    "projectos/validators/val-projectos-v3-active-phase-consistency1a.cjs",
+    "projectos/validators/validate-all.cjs",
+    "projectos/state/projectos-v3.current-state.json",
+    "projectos/state/versions/projectos-v3.plan.v1.2-candidate.json",
+    ".projectops/phases/PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A.json"
+  ],
+  "commandsRun": [
+    "projectos phase advance --to validating (driven THROUGH the governed write path, not the CLI)",
+    "cargo check (src-tauri) — clean",
+    "vitest run (core 150, agent 77, control-center 208)",
+    "npm run build / build:sidecar",
+    "node sidecar/host.mjs driven over its real stdin/stdout protocol (live write-path proof)"
+  ],
+  "validatorResults": [
+    "validate-all: 124 / 124 PASS, exit 0, on the tree carrying the Git capability"
+  ],
+  "testResults": [
+    "Phase 17 started through the canonical runtime; dependency gate proven in both directions"
+  ],
+  "browserResults": [],
+  "ECCResults": [
+    "code-review APPROVE on the bootstrap; not yet re-run on the Phase-12 slice"
+  ],
+  "securityResults": [
+    "security-review: 1 CRITICAL (argv flag injection destroying an owner closure) FIXED by removing the argv round trip; 1 HIGH (self-asserted owner role reachable from the webview) FIXED by per-verb role restriction; MEDIUM verb-agnostic argument allowlist FIXED. Recorded and NOT fixed here: the Tauri command moves the pre-existing 'role is a self-asserted string' limitation from 'requires local shell access' to 'requires code execution in the renderer' — a materially larger surface for the same unauthenticated claim, flagged for owner awareness and Phase 17."
+  ],
+  "codeReviewResults": [
+    "code-review: 0 CRITICAL, 2 HIGH both FIXED (renderer could claim owner role; delegated closures invisible to dependency satisfaction), 1 MEDIUM FIXED (grant not bound to a phase), 2 LOW noted."
+  ],
+  "databaseReviewResults": [
+    "not-applicable: no database touched"
+  ],
+  "currentAction": "ProjectOS V3 CLOSED. Phase 18 closed through the trusted finalisation path, consuming committed gatekeeper decision GK-PROJECTOS-V3-FINAL-CLOSURE-20260810T2302Z exactly once. Programme 19/19, 100%, derived.",
+  "blockedReason": "",
+  "nextSafeAction": "None within ProjectOS V3 — the numbered programme is closed and must not be reopened. Any further work is a NEW ProjectOS-managed project or work package, started under its own owner-approved plan.",
+  "decisionRequired": "",
+  "productionTouched": false,
+  "deploymentOccurred": false,
+  "databaseMutationOccurred": false,
+  "externalSendOccurred": false,
+  "paymentOccurred": false,
+  "secretCapabilityUsed": false,
+  "rawSecretStored": false,
+  "createdAt": "2026-08-09T03:12:54Z",
+  "updatedAt": "2026-08-10T23:10:00Z",
+  "sessionStatus": "complete"
+}

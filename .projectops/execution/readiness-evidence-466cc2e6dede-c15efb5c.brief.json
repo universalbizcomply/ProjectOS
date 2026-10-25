@@ -1,0 +1,95 @@
+{
+  "schemaVersion": "1.0.0",
+  "briefId": "readiness-evidence@466cc2e6dede105d3168b2ddca832cc99a8dc31a",
+  "generatedAt": "2026-09-05T04:59:35.217Z",
+  "projectId": "projectos",
+  "projectName": "ProjectOS",
+  "repository": {
+    "root": "C:\\dev\\ProjectOS",
+    "remote": "universalbizcomply/ProjectOS",
+    "branch": "projectos-post-v3-selfhost-pilot1a",
+    "head": "466cc2e6dede105d3168b2ddca832cc99a8dc31a"
+  },
+  "plan": {
+    "path": "C:\\dev\\ProjectOS/.projectops/plan-67aabc6989dbc9e9-c38a9fee4466.json",
+    "planId": "plan-67aabc6989dbc9e9-c38a9fee4466",
+    "planVersion": "1.3"
+  },
+  "phase": {
+    "phaseId": "readiness-evidence",
+    "description": "Produce the bounded benchmark and evidence needed to determine Forge autonomy-proof readiness, without initiating further hardening or Forge Programme C.",
+    "dependsOn": [
+      "gatekeeper-replay"
+    ],
+    "acceptanceCriteria": [
+      "Benchmark evidence records the Windows 11, Node 24.14.1, Rust 1.96 reference environment and measured outcomes for all specified timing targets.",
+      "Evidence demonstrates that full uncached validation remains authoritative and that cache failure, deletion, corruption, unknown coverage, and relevant mismatch conditions fail toward running validation.",
+      "Evidence confirms Doctor mandatory and advisory boundaries and gatekeeper replay zero-provider-spend behavior.",
+      "A single explicit READY or NOT READY verdict is produced for the Forge autonomy proof, with supporting benchmark and validation evidence.",
+      "The configured project test suites run and the mechanically binding validator validate-all passes.",
+      "The verdict does not automatically start Forge Programme C or authorise any protected action."
+    ],
+    "riskLevel": "medium",
+    "autonomyLevel": "gated-execution",
+    "requiredValidators": [
+      "validate-all"
+    ],
+    "requiredReviews": [
+      "Owner review of readiness evidence and READY/NOT READY verdict",
+      "Independent validation and benchmark evidence review"
+    ],
+    "requiredBrowserProof": false,
+    "requiredOwnerGates": [
+      "Forge Programme C requires a separate owner programme-transition decision after this phase.",
+      "No production deployment, database mutation, messaging, payment, credential creation or disclosure, force push, or merge."
+    ]
+  },
+  "records": {
+    "briefPath": "C:\\dev\\ProjectOS/.projectops/execution/readiness-evidence-466cc2e6dede-c15efb5c.brief.json",
+    "findingsPath": "C:\\dev\\ProjectOS/.projectops/execution/readiness-evidence-466cc2e6dede-c15efb5c.findings.json",
+    "effectsPath": "C:\\dev\\ProjectOS/.projectops/execution/readiness-evidence-466cc2e6dede-c15efb5c.effects.json",
+    "evidencePath": "C:\\dev\\ProjectOS/.projectops/execution/readiness-evidence-466cc2e6dede-c15efb5c.evidence.json",
+    "effectsContract": {
+      "location": "top-level",
+      "valueType": "boolean",
+      "requiredFields": [
+        "productionTouched",
+        "deploymentOccurred",
+        "databaseMutationOccurred",
+        "externalSendOccurred",
+        "paymentOccurred",
+        "rawSecretStored"
+      ]
+    }
+  },
+  "boundaries": {
+    "forbiddenActions": [
+      "production-deploy",
+      "production-db-mutation",
+      "real-email-sms-whatsapp",
+      "payment-or-live-charge",
+      "force-push",
+      "use-anthropic-api",
+      "provider-credential-access",
+      "store-real-secret",
+      "modify-projectos-v2-core",
+      "modify-v2-closure-records",
+      "modify-polygo"
+    ],
+    "approvalGates": [
+      "commit",
+      "push",
+      "phase-closure",
+      "secrets-handling",
+      "production-deploy",
+      "production-db-mutation",
+      "real-email-sms-whatsapp",
+      "payment-or-live-charge"
+    ],
+    "protectedBranches": [
+      "main",
+      "projectos-v2-core"
+    ],
+    "productionFreeze": true
+  }
+}

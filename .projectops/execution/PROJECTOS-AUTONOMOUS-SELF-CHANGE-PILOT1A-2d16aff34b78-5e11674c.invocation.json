@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "1.0.0",
+  "invocationId": "5e11674c21d7d895",
+  "createdAt": "2026-09-03T16:30:20.734Z",
+  "projectId": "projectos",
+  "phaseId": "PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A",
+  "sessionId": "PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A-2d16aff34b78-5e11674c",
+  "repository": {
+    "root": "C:\\dev\\ProjectOS",
+    "branch": "projectos-post-v3-selfhost-pilot1a",
+    "head": "2d16aff34b78b682103d2659e36069cdab53f465"
+  },
+  "executionMode": "live",
+  "process": {
+    "pid": 42120,
+    "ppid": 10496,
+    "argv": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\dev\\ProjectOS\\projectos\\agent\\bin\\projectos.js",
+      "run",
+      "--execute"
+    ],
+    "cwd": "C:\\dev\\ProjectOS"
+  },
+  "workerId": "claude-local",
+  "workerKind": "claude-code-cli",
+  "brief": {
+    "path": "C:\\dev\\ProjectOS/.projectops/execution/PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A-2d16aff34b78-5e11674c.brief.json",
+    "briefId": "PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A@2d16aff34b78b682103d2659e36069cdab53f465",
+    "digest": "sha256:8cb453fbc2d27fdcb39bd3622dfc82c067c149630e998dc410c3d18353559585"
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "1.0.0",
+  "recordKind": "gatekeeper-decision-evidence",
+  "decisionId": "GKDEC-GKREQ-2221113ffed95a730dbf97e5",
+  "projectId": "projectos",
+  "phaseId": "doctor-preflight",
+  "subjectCommit": "96fceb42ec8acf252901a8cd7ff8a1890dd49caf",
+  "requestDigest": "sha256:0bd5d6bd9fa7649bf657b9824b37115151aa128149286db8b045a9e72e81df4d",
+  "decision": "APPROVED_TO_PROCEED",
+  "reason": "Mandatory Doctor preflight passed: all required checks passed, the Doctor reviews are recorded with all findings resolved, the measured Doctor runtime was within budget, and effects are attested absent. The phase explicitly delegates the bounded technical continuation actions of commit and push, subject to independent runtime checks and existing owner gates.",
+  "allowedActions": [
+    "commit",
+    "push"
+  ],
+  "forbiddenActions": [
+    "merge",
+    "force-push",
+    "phase-closure",
+    "secrets-handling",
+    "payment-or-live-charge",
+    "deploy",
+    "database-mutation",
+    "external-message",
+    "credential-creation",
+    "credential-disclosure",
+    "broaden-scope",
+    "unrelated-file-changes"
+  ],
+  "ownerApprovalRequired": false,
+  "decidedBy": "ChatGPT",
+  "decidedAt": "2026-09-05T02:08:39.000Z"
+}

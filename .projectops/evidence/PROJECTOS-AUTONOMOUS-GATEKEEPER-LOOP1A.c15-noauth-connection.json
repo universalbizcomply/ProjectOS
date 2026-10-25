@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "1.0.0",
+  "recordId": "PROJECTOS-GATEKEEPER-LOOP1A-C15-NOAUTH-CONNECTION1A",
+  "projectId": "projectos",
+  "phaseId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+  "kind": "c15-noauth-connection",
+  "at": "2026-08-22T13:12:00.000Z",
+  "atLocal": "2026-08-22 14:12:00 Europe/London",
+  "ownerAction": "The owner created the ChatGPT connector by selecting Authentication = No Auth, bypassing the OAuth configuration entirely. This was the owner's own act, not an implementer action.",
+  "whatIsNowProven": {
+    "mcpChannelLive": true,
+    "evidence": "tunnel-client dispatcher forwarded commands to the MCP server at 14:11:23-14:11:25 with rpc_request_id values openai-mcp-discover, 1 and 0, plus an acknowledged notification.",
+    "bridgeAcceptedThem": "No new entries in bridge-refusals.jsonl since 2026-08-22T00:29 — the calls were accepted, not refused.",
+    "meaning": "ChatGPT reaches the private ProjectOS bridge through the OpenAI tunnel, and the bridge answers. The transport, the tunnel, the replacement tunnel association and the runtime key all work."
+  },
+  "whatIsNOTProven": {
+    "oauthBoundary": "NOT EXERCISED AT ALL. No authorization page, no PIN, no code, no token exchange, no audience check.",
+    "ownerConsentGate": "NOT IN THE PATH. The approval PIN is the mechanism by which the owner consents to a connector; under No Auth nothing ever asks for it.",
+    "criterion15AsSpecified": "NOT PROVEN. C15 is about an owner-approved OAuth boundary, and this connection demonstrates the transport beneath it rather than the boundary itself."
+  },
+  "whatActuallyAuthenticatedTheCalls": {
+    "mechanism": "The static installation bridge token, injected by tunnel-client via --mcp.extra-headers 'Authorization: env:PROJECTOS_BRIDGE_AUTH'.",
+    "notOauth": true,
+    "consequence": "Under No Auth, ChatGPT itself presents no credential. Anything able to send commands down this tunnel reaches the bridge holding full bridge authority, with no per-connector consent step.",
+    "previouslyFlagged": "This is exactly the observability gap reported earlier: the bridge accepts either credential class and no safe diagnostic distinguishes them. Here that ambiguity is the whole point — a working connector under No Auth could easily be mistaken for a successful OAuth proof."
+  },
+  "boundingFactorsStillIntact": [
+    "The bridge exposes exactly seven read operations plus stop-work; the refusal log shows 'deploy' rejected with the full permitted list.",
+    "It is bound to project projectos and refuses any other project id.",
+    "It refuses free-text arguments, so nothing written in a conversation can become an instruction.",
+    "It refuses owner impersonation via a decidedBy argument.",
+    "8787 remains loopback-only; public /mcp remains 404; the tunnel is owner-owned and requires the runtime key."
+  ],
+  "residualRisk": "Real but bounded. The exposure is read-only governed state plus stop-work, reachable by whoever controls the ChatGPT connector on the Plus workspace, without an owner approval step. It is not a path to mutation, credentials, the filesystem or arbitrary commands.",
+  "recommendation": "Treat this as proof of the MCP channel, not of C15. If the OAuth boundary is wanted, Option S remains the route; if the gatekeeper accepts a token-authenticated channel instead, that is a change to what C15 means and is the gatekeeper's ruling to make, not the implementer's.",
+  "implementerActions": "NONE — no source change, no tunnel change, no Cloudflare or DNS change, no commit, no push. The connector was created by the owner.",
+  "secretsExposed": "NONE",
+  "c15Status": "NOT ACCEPTED / NOT CLOSED"
+}

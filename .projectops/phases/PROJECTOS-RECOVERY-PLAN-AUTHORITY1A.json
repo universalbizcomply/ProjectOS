@@ -1,0 +1,57 @@
+{
+  "phaseId": "PROJECTOS-RECOVERY-PLAN-AUTHORITY1A",
+  "project": "ProjectOS",
+  "objective": "Let a specific generated draft — and nothing else — become an approved post-V3 plan with execution authority.",
+  "status": "closed",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-08-11T12:50:51.158Z",
+      "note": "Exact plan approval: delivered at 0da42ca, 648c770, f537909, f04a13c and 851dd0d; PROVEN LIVE by activating the recovery plan at 4c49a92"
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-08-11T12:50:51.384Z",
+      "note": "Exact plan approval: delivered at 0da42ca, 648c770, f537909, f04a13c and 851dd0d; PROVEN LIVE by activating the recovery plan at 4c49a92"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-08-11T12:50:51.591Z",
+      "note": "Exact plan approval: delivered at 0da42ca, 648c770, f537909, f04a13c and 851dd0d; PROVEN LIVE by activating the recovery plan at 4c49a92"
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-08-11T12:50:51.805Z",
+      "note": "Exact plan approval: delivered at 0da42ca, 648c770, f537909, f04a13c and 851dd0d; PROVEN LIVE by activating the recovery plan at 4c49a92"
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-08-11T12:50:52.094Z",
+      "note": "Exact plan approval: delivered at 0da42ca, 648c770, f537909, f04a13c and 851dd0d; PROVEN LIVE by activating the recovery plan at 4c49a92"
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-08-11T12:50:52.317Z",
+      "note": "Exact plan approval: delivered at 0da42ca, 648c770, f537909, f04a13c and 851dd0d; PROVEN LIVE by activating the recovery plan at 4c49a92"
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "advisor",
+      "at": "2026-08-11T14:49:16.897Z",
+      "note": "closed by ChatGPT under the projectos-scoped phase-closure delegation, decision PROJECTOS-RECOVERY-PLAN-AUTHORITY1A-CLOSURE-DECISION1A"
+    }
+  ]
+}

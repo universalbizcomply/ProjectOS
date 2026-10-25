@@ -1,0 +1,36 @@
+{
+  "reviews": [
+    "Security/privacy review of fixture derivation and redaction",
+    "Gatekeeper contract and zero-provider-spend review"
+  ],
+  "findings": [
+    {
+      "id": "F1-FIXTURE-DEDUP-SHAPE-KEY-COMPLETENESS",
+      "severity": "MEDIUM",
+      "category": "correctness",
+      "summary": "deriveFixtures.mjs deduplicates by a shape key that includes 7 discriminants. If the checker gains a new field that changes its outcome (beyond the 7 already keyed), two records the contract now treats differently could collapse into one fixture and the difference would never be captured. RESOLVED: added a correspondence table in deriveFixtures.mjs (lines 143-168) that maps each shape-key entry to the checker branch it covers, documents the 8 fields NOT keyed (and why: uniform after normalisation), and states the maintenance rule: if the checker gains a new discriminating field, add it to the shape key.",
+      "resolved": true
+    },
+    {
+      "id": "F2-REDACTION-VERIFIED-CLEAN",
+      "severity": "LOW",
+      "category": "security",
+      "summary": "All 12 fixtures verified: reason and nextClaudeInstruction carry fixed synthetic text, commit/digest/id/timestamps are deterministic synthetic values, no prompt/response/messages keys, no credential patterns matched, each under 4000 bytes. Source decisions confirmed to carry real provider prose that is absent from fixtures. The derivation uses a closed allowlist of CONTRACT_FIELDS rather than a denylist, so unlisted fields are structurally excluded.",
+      "resolved": true
+    },
+    {
+      "id": "F3-ZERO-SPEND-STRUCTURAL",
+      "severity": "LOW",
+      "category": "security",
+      "summary": "Zero provider spend is a structural property: the test file imports exactly vitest, node:fs, node:path, node:url, and @projectos/core. No transport, HTTP client, credential, or broker module is reachable. The import allowlist test (line 476-484) self-verifies this property and would fail if any new import were added.",
+      "resolved": true
+    },
+    {
+      "id": "F4-OWNER-FLOOR-IMPORTED-NOT-RETYPED",
+      "severity": "LOW",
+      "category": "correctness",
+      "summary": "The owner-only action floor is imported as ALWAYS_OWNER_ONLY from @projectos/core, not retyped in the test. The prior version used a private list that omitted commit and push, leaving the most critical property untested. The imported floor is pinned by a containment assertion (line 282) so removing an action fails the test.",
+      "resolved": true
+    }
+  ]
+}

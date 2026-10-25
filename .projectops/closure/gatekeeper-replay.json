@@ -1,0 +1,25 @@
+{
+  "phaseId": "gatekeeper-replay",
+  "evidenceSubjectHead": "484f14e39343681763a21ed76a4752fb8ede08df",
+  "validatorsPass": true,
+  "checksPass": true,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "unresolvedCritical": 0,
+  "unresolvedHighIds": [],
+  "headedProofPass": false,
+  "establishedAt": "2026-09-05T04:50:00.000Z",
+  "notes": [
+    "Authored under the owner's standing authorisation of 2026-09-05 to record closure evidence, given after the assistant stopped to ask on validation-cache. Every field is transcribed from a record a governed step produced; none is asserted on the assistant's judgement.",
+    "validatorsPass: .projectops/validation/484f14e39343681763a21ed76a4752fb8ede08df.json records subjectHead 484f14e3, workingTreeCleanAtRunStart true, registeredModuleCount 141, aggregatePassed true, and zero results with passed other than true. The validator this phase requires, validate-no-secrets, is present in that record and passed.",
+    "checksPass: the run that landed bc212aa recorded PASS for all five configured checks - validate-no-secrets, core-tests, agent-tests, agent-typecheck and speed-benchmark - on BOTH worker attempts, before and after the loop's own correction.",
+    "reviewsComplete: the worker recorded both reviews this phase requires - security/privacy review of fixture derivation and redaction, and gatekeeper contract and zero-provider-spend review - in .projectops/execution/gatekeeper-replay-97f1731150cd-fceeaf81.findings.json.",
+    "unresolved counts: that findings record lists four findings, all resolved. Zero unresolved CRITICAL, zero unresolved HIGH. The one MEDIUM (F1-FIXTURE-DEDUP-SHAPE-KEY-COMPLETENESS) was raised on attempt 1 and resolved by the loop's own correction on attempt 2, with no owner involvement.",
+    "headedProofPass is false because no headed proof was run. This phase does not require one (requiredBrowserProof is false in the approved plan), and recording a proof that never happened would be the exact failure this record exists to prevent.",
+    "Separately from the worker's own reviews, two ECC reviews were run before the governed run. Security returned 0 CRITICAL and 0 HIGH. Code review returned 3 HIGH, all blocking, all fixed before landing: the owner-only floor under test was a list the suite invented rather than ALWAYS_OWNER_ONLY, and omitted commit and push - so the property that a gatekeeper may recommend a protected action and may never grant one had no coverage, and two committed fixtures granting commit and push passed unremarked; the continuation branch had no coverage because every captured decision is AWAITING_OWNER; and six checker rules were deletable with the suite green.",
+    "Found while fixing and also corrected: the fixture secret scan could never match anything, because the backslash-b in its pattern had been mangled into a literal 0x08 byte. A scan that cannot fire reports a clean result, which is worse than having none.",
+    "An eleven-mutation harness against the built checker caught 11 of 11, and surfaced a twelfth gap that nothing covered - dropping the conditional half of enforcedOwnerOnlyActions removes commit and push from the floor even with no delegation - which is now asserted directly.",
+    "The first governed run stopped EFFECTS_NOT_ATTESTED. The worker was permission-blocked, not idle: its allowlist grants Write/Edit on six path patterns and no shell access, so it declined to write findings it could not verify. No configuration was widened in response; the retry's worker wrote both records under the same allowlist, as the workers for validation-cache and doctor-preflight had.",
+    "Carry-forward, none blocking: the provider cost estimator under-reserved by 8.4x and 13.8x on this phase's two calls, materially worse than the ~33% the standing carry-forward records; the stopped run spent 229,095 micro-USD on a paid review of a stop code that is mechanically decidable for nothing; and two tracked validators (val-projectos-worker-lifecycle-bounded1a.cjs:255, val-cd-b4-elevated-installer-composition1a.cjs:338) carry the same mangled-escape defect and report PASS on conditions they never evaluate. The last is excluded from this candidate deliberately - pre-existing and unrelated to this phase's subject - and is fixed as a separate change immediately after closure. Neither is the validator this phase requires."
+  ]
+}

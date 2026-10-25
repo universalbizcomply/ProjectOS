@@ -1,0 +1,14 @@
+[package]
+name = "projectos-host-store"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Synthetic, in-memory, transactional protected-state store model over the accepted persistence DTO contracts. Proves in-process atomicity, service-owned monotonic revisions, stale-write refusal, explicit rollback, and zero live authority from stored data. NO durable filesystem persistence, NO encryption, NO Windows API, NO service, NO IPC, NO credential custody, NO provider execution. Behavioural reference model only."
+license = "UNLICENSED"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[dependencies]
+projectos-host-persistence = { path = "../persistence" }
+thiserror = "1"

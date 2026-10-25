@@ -1,0 +1,57 @@
+{
+  "phaseId": "readiness-evidence",
+  "project": "projectos",
+  "objective": "Produce the bounded benchmark and evidence needed to determine Forge autonomy-proof readiness, without initiating further hardening or Forge Programme C.",
+  "status": "closed",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-09-05T04:42:02.776Z",
+      "note": "recorded by the autonomous loop (WAITING_AI)"
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-09-05T04:42:02.776Z",
+      "note": "recorded by the autonomous loop (WAITING_AI)"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-09-05T04:58:29.284Z",
+      "note": "recorded by the autonomous loop (VALIDATING)"
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-09-05T04:58:29.474Z",
+      "note": "recorded by the autonomous loop (AWAITING_GATE)"
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-09-05T04:58:29.475Z",
+      "note": "recorded by the autonomous loop (AWAITING_GATE)"
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-09-11T21:38:27.784Z",
+      "note": "owner-direct closure approved by Murad 2026-09-11: READY accepted at evidence subject d87bfcd; NOT READY (466cc2e, measured ff4190c) kept as superseded history; closure evidence .projectops/closure/readiness-evidence.json; not a G4 closure, G4-17 not satisfied and not claimed (current head validate-all 139/142); 2026-09-11 benchmark misses and carry-forward A/B/C disclosed, not passing"
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-09-11T21:40:17.860Z",
+      "note": "owner-direct closure by Murad: PROJECTOS readiness READY at evidence subject d87bfcd; NOT READY kept as superseded history; not a G4 closure (G4-17 not satisfied, current head validate-all 139/142); 2026-09-11 benchmark misses and carry-forward A/B/C disclosed, not passing; starts no Forge Programme C — closed by owner Murad, decision projectos:readiness-evidence:owner-closure:d87bfcd0"
+    }
+  ]
+}

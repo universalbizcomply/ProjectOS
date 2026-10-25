@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "1.0.0",
+  "projectId": "projectos",
+  "activePlanId": "plan-98675c78dc8b3175-786d909d1ccb",
+  "activePlanVersion": "1.1",
+  "currentStatus": "COMPLETE",
+  "completionMethod": "phase-closure",
+  "acceptedPhaseCount": 5,
+  "totalPhaseCount": 5,
+  "completionPercentage": 100,
+  "completedPhases": [
+    "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+    "PROJECTOS-AUTOMATIC-TECHNICAL-CONTINUATION1A",
+    "PROJECTOS-OWNER-ESCALATION-WAIT1A",
+    "PROJECTOS-SESSION-RECOVERY1A",
+    "PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A"
+  ],
+  "activePhase": null,
+  "pendingPhases": [],
+  "blockedPhases": [],
+  "deferredPhases": [],
+  "acceptedCarryForward": [],
+  "currentBranch": "projectos-post-v3-selfhost-pilot1a",
+  "currentHead": "4544daf71f3dd90832a7403360e33122141aaf83",
+  "currentRemoteHead": null,
+  "workingTreeStatus": "dirty",
+  "currentRisks": [],
+  "currentBlockers": [],
+  "lastEvidenceReference": "plan-approval decision PLANDEC-163d1235080f1f8fdf580aa3",
+  "nextRecommendedPhase": null,
+  "lastUpdated": "2026-09-03T20:12:18.479Z",
+  "updatedByRole": "implementer"
+}

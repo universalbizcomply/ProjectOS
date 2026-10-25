@@ -5,6 +5,8 @@ node_modules/
 .DS_Store
 dist/
 build/
+target/
+.vercel/
 coverage/
 .temp/
 tmp/
@@ -12,3 +14,43 @@ secret*
 *token*
 *.key
 *.pem
+# Bridge daemon runtime cache. Written by the sidecar's BridgeDaemon whenever the Control Centre
+# runs against this repository (first observed during PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A).
+# Generated state, never governance evidence — the governed records live in .projectops/phases/.
+.projectops/bridge/
+# Generated draft proposals. A draft is regenerable output bound to a HEAD that moves, and against
+# this repository one run produced 4.7MB of conflict detail. The owner's OBJECTIVE record — the
+# durable intent — is tracked; the derived draft body is not.
+.projectops/drafts/
+
+# Local machine configuration for the bridge daemon: absolute watch roots, machine-specific.
+# The desktop E2E run generates it; it must never be committed.
+projectos/control-center/bridge.config.json
+
+# Zero-relay continuity: TRANSIENT runtime state only. The ledger, the checkpoint and the
+# continuation record ARE evidence and are tracked; these three are not. The ownership lock holds a
+# live pid and is meaningless in another checkout, the owner control file is a standing local
+# instruction rather than a record of what happened, and the brief is an input the supervisor
+# regenerates on every run. Committing them would be residue that a later handoff has to reconcile.
+.projectops/continuity/ownership.lock.json
+.projectops/continuity/owner-control.json
+.projectops/continuity/*.brief.json
+
+# Which project the desktop Control Centre currently has selected. Local runtime state written by
+# the app on this machine -- not a governance record, and not the same on any two installs.
+/selected-project.json
+
+# The closure WAIT record: which decision bytes were presented to the owner, in THIS checkout.
+# Transient and local, exactly like the continuity brief above. It is a NARROWING record — losing it
+# makes `closure resume` refuse, never proceed — so it is never authority and never evidence.
+#
+# AND IT MUST NOT BE TRACKED, for a mechanical reason. G4-13 requires a clean working tree at the
+# closure decision point. A wait written between the ask and the owner's commit would sit untracked
+# in `git status --porcelain`, so the record that the phase is waiting for closure would itself
+# refuse that closure. The DECISION it points at is tracked, committed by the owner, and is the thing
+# that actually counts.
+.projectops/closure/waits/
+
+# Disposable local validation cache. Deleting it costs speed, never correctness, so it is
+# rebuildable state and not governance evidence - it must never enter the history.
+.projectops/validation-cache/

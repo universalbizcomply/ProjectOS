@@ -1,0 +1,47 @@
+{
+  "reviews": ["code-review", "security-review"],
+  "findings": [
+    {
+      "id": "GK-F-012",
+      "severity": "LOW",
+      "category": "temp-file-race",
+      "summary": "resolveMsvc writes a batch file to %LOCALAPPDATA%\\Temp before executing it via cmd.exe. A local attacker with write access to the same temp directory could swap the file between writeFileSync and spawnSync. Mitigated by PID+hash naming (collision requires same PID and same VS root hash), the sub-millisecond window between write and spawn, and the fact that user-temp write access already implies full user-level compromise. The file is deleted in a finally block.",
+      "resolved": true
+    },
+    {
+      "id": "GK-F-013",
+      "severity": "LOW",
+      "category": "code-quality",
+      "summary": "INCLUDE, LIB and LIBPATH from vcvars64.bat output are passed through to the cargo child environment without the per-entry isAbsolute/isUnc/isInside gate applied to PATH directories. These are compiler search paths from a Microsoft-signed batch file, not executable resolution paths, so the threat model differs. The governed-checkout guard on PATH entries prevents executable substitution; INCLUDE/LIB influence header and library search order but cannot cause execution of governed-checkout code.",
+      "resolved": true
+    },
+    {
+      "id": "GK-F-014",
+      "severity": "LOW",
+      "category": "code-quality",
+      "summary": "MSVC_CACHE is a module-level singleton initialised on first call and never invalidated. A VS install or uninstall mid-process would not be reflected. For the validator use case (single short-lived process) this is correct; the cache prevents redundant vswhere+vcvars invocations across multiple fixture builds in one validate-all run.",
+      "resolved": true
+    },
+    {
+      "id": "GK-CF-009",
+      "severity": "MEDIUM",
+      "category": "code-quality",
+      "summary": "CARRY-FORWARD from GK-F-009: nonNegative() in gatekeeperCostLedger.ts uses n > 0, rejecting zero alongside negatives. For cachedInputMicroUsdPerMillion where zero is a plausible rate meaning 'cached input is free', the function contract is subtly wrong. Currently harmless (0 * tokens = 0 either way). Not touched by this commit.",
+      "resolved": false
+    },
+    {
+      "id": "GK-CF-010",
+      "severity": "MEDIUM",
+      "category": "code-quality",
+      "summary": "CARRY-FORWARD from GK-F-010: Five byte-identical copies of text(v: unknown), three copies of isImplementerName and two copies of isModelName across gatekeeper modules. A security fix to one would silently not apply to others. Not touched by this commit.",
+      "resolved": false
+    },
+    {
+      "id": "GK-CF-011",
+      "severity": "LOW",
+      "category": "credential-leakage",
+      "summary": "CARRY-FORWARD from GK-F-011: inMemoryResolverForTests is exported from the production source file credentialResolver.ts rather than a test-only utility. No production call site found. Not touched by this commit.",
+      "resolved": false
+    }
+  ]
+}

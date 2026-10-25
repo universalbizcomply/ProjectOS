@@ -1,0 +1,163 @@
+{
+  "projectId": "projectos",
+  "businessVision": "ProjectOS executes ordinary technical delivery on its own: Claude implements, the ChatGPT gatekeeper reviews, and ProjectOS carries the work from one approved phase to the next, while the owner keeps explicit control of every protected action. The owner says continue once, and the work advances until a genuine owner-protected gate, without the owner carrying messages between the two models.",
+  "definitionOfComplete": "Three phases are complete: the safety corrections and cross-phase continuation are built and proven live on a disposable project; the unattended host-attested reviewer is either activated and proven live under the owner's explicit ruling, or closed as blocked by that ruling; and a display-only joined provenance reader answers who executed, who reviewed, which gatekeeper decided, the decision, the evidence, the commit, the branch, the model, the time and the next action for a live autonomous run. No second orchestrator, decision store, work queue or execution engine is introduced.",
+  "successStandard": "The owner can say continue ProjectOS and the system safely advances ordinary technical work across approved phases on its own, stopping only at owner-protected actions, with every stop, decision and effect recorded truthfully and no protected action taken on an ambiguous gate.",
+  "approvedScope": [
+    "Correcting the prose owner-gate handling so an ambiguous or unrecognised protected action fails closed.",
+    "Binding the protected-effects closure predicate to authoritative run-specific evidence the worker cannot rewrite.",
+    "Bounded timeouts for configured checks, and governed recovery from a stale interactive gatekeeper request.",
+    "Cross-phase continuation through the existing run loop, phase selection, closure transport and work record, behind one projectos continue entry point.",
+    "Automatic generation of closure evidence from the run's own records, with the closure decision itself left to its existing authority.",
+    "A worker write grant derived from the approved phase scope, enforced against path escapes.",
+    "The remaining code inputs of the existing host-attested reviewer route, and a written owner activation runbook.",
+    "A display-only joined provenance reader under a narrowly scoped, ratified amendment to the gate-decision evidence validator.",
+    "Live proofs on a disposable governed project and on one small ProjectOS phase, with evidence."
+  ],
+  "environments": [
+    {
+      "environmentId": "reference-development-pc-windows11-node24.14.1-rust1.96-base-70c1329",
+      "productionFreeze": true
+    }
+  ],
+  "excludedScope": [
+    "A second orchestrator, decision store, work queue, execution engine or gatekeeper.",
+    "Any change to the absolute owner-only actions: phase closure by the owner, secrets handling and payment or live charge stay exactly as they are; nothing here widens what the implementer may do on its own.",
+    "Production deployment, external send, payment, refund, production database mutation and credential disclosure.",
+    "Host service installation or start, credential provisioning, manifest or delegation signing, and any paid provider call, except by the owner under a specific ruling recorded before the action.",
+    "Live specialist engines and workforce activation.",
+    "Integration with the main branch, a release or installer build, and the uncommitted residue in the primary repository checkout.",
+    "Deferred until before any live workforce engine exists: the escalated-contradiction owner route with ledger checkpointing, live engine execution outside the workforce store lock, and host custody of the workforce cost ceiling.",
+    "Deferred until before the next specialist catalogue acquisition: cache-in-worktree detection and the acquisition link-check residual.",
+    "Deferred to an owner-authorised tooling change outside this repository: the specialist report hand-back repair.",
+    "Deferred until the owner decides it: drop or implement the dead fast-forward integration action.",
+    "Deferred to after ProjectOS completion by the owner's recorded statement: credential or token rotation where genuinely required.",
+    "Deferred until file intake is next changed: widening the file intake executable denylist; deferred until project count makes it material: the portfolio heartbeat cost."
+  ],
+  "phases": [
+    {
+      "phaseId": "PROJECTOS-BOOT-CONTINUE1A",
+      "title": "Safe continuation across approved phases",
+      "description": "Correct the two latent safety defects first, then let ProjectOS carry ordinary technical work from one approved phase to the next through the existing loop and closure machinery, and prove it live on a disposable governed project.",
+      "scope": "Safety: projectos/agent/src/loop/outcome.ts, projectos/agent/src/loop/brief.ts, projectos/agent/src/closureGate.ts, projectos/agent/src/loop/verification.ts, projectos/agent/src/loop/interactiveGatekeeper.ts. Continuation: projectos/agent/src/loop/programmeContinuation.ts, projectos/agent/src/loop/runner.ts, projectos/agent/src/commands/run.ts, projectos/agent/src/commands/closure.ts, projectos/agent/src/cli.ts, projectos/agent/src/loop/workers.ts, projectos/agent/src/phaseProgress.ts. Their tests under projectos/agent/test, the validators that pin these modules, and evidence under docs/speed.",
+      "exclusions": [
+        "No second orchestrator, queue, store or engine; each step reuses the existing command.",
+        "No change to the absolute owner-only actions or to the closure authority.",
+        "No Rust source, Cargo manifest, Host, credential or provider change.",
+        "No paid provider call; the live proof uses the interactive gatekeeper."
+      ],
+      "dependsOn": [],
+      "acceptanceCriteria": [
+        "Safety one: an owner gate that names commit, push, merge, closure or any other protected action in prose is treated as reserving that action; a gate the runtime cannot classify reserves every delegable technical action; a test through run() shows no commit and no push under the technical-continuation delegation for such a phase; each new rule is killed by a named mutation.",
+        "Safety two: the protected-effects closure predicate reads the current phase's own run-specific effects and execution records, refuses an effects record the worker could have rewritten after the reviewed subject, and fails closed when the evidence is absent; killed by named mutations.",
+        "Safety three: every configured check runs under a bounded, recorded timeout, and a timeout is a governed stop, never a pass.",
+        "Safety four: a stale interactive gatekeeper request left by a dead run is recognised and superseded through a governed command, never by deleting files by hand, and a decision is still accepted only for a question the current run wrote.",
+        "Continuation one: run with continue carries a selection stop as a result, not a refusal: a phase awaiting closure hands to the closure request, a finished programme ends complete, and every other stop ends with its true reason; proven by tests through run(), not a fake phase runner.",
+        "Continuation two: one projectos continue entry point routes on the phase's recorded lifecycle state to the existing command for that state: implement, ask the gatekeeper, prepare closure, wait for the persisted closure decision, resume, and select the next phase; it introduces no authority of its own.",
+        "Continuation three: closure evidence, the validation record and the report row are generated from the run's own records; the closure decision itself stays with its existing authority.",
+        "Continuation four: after a closure request, continue waits, bounded and resumable, for a valid persisted closure decision and only then resumes; elapsed time never approves anything.",
+        "Continuation five: the worker's write grant for a phase is exactly the approved phase scope's paths, resolved and contained after normalisation so that dot segments, absolute paths, drive letters, links and case tricks are refused; governance, validator and authority files are writable only when the approved scope declares them; the stale source grant is retired; validator-pinned.",
+        "Proof: after the safety criteria pass, a disposable two-phase governed project runs projectos continue end to end with the interactive gatekeeper: execution, review, approval, closure, automatic selection and execution of the second phase, one restart and recovery mid-run, and a finished programme; every owner act and relay is counted; synthetic tests are reported separately from the live run.",
+        "Required: agent and core tests green, validate-all with no new failure beyond the two known, and the ECC CODE and ECC SECURITY reviews with no unresolved critical or high finding."
+      ],
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredValidators": [
+        "val-projectos-work-record-not-authority1a",
+        "val-projectos-live-gate-owner-floor1a",
+        "val-projectos-closure-transport1a",
+        "val-projectos-technical-continuation1a",
+        "validate-current-project-state",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC CODE review",
+        "ECC SECURITY review"
+      ],
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ]
+    },
+    {
+      "phaseId": "PROJECTOS-BOOT-UNATTENDED1A",
+      "title": "Automatic gatekeeper review through the host-attested route",
+      "description": "Finish the remaining code inputs of the existing host-attested reviewer route and, only under the owner's explicit ruling, activate it so the gatekeeper's technical review reaches ProjectOS without the owner relaying it.",
+      "scope": "Code inputs: the approved-plan record generator for the host, the delegation describe and attach tool beside the existing manifest signing tool, the packaged Git in the release payload and its location pin, the filter time-of-check correction, the envelope default correction, the admitted-cost wording, and the stale host-client comments; their tests and validators. An owner activation runbook. A live attested review and the re-run of the two-phase proof.",
+      "exclusions": [
+        "No host start, credential provisioning, signing or paid provider call before the owner's ruling on route r1 is recorded.",
+        "No reviewer other than the existing host-attested route; no reinstated in-agent reviewer.",
+        "No change to the absolute owner-only actions."
+      ],
+      "dependsOn": ["PROJECTOS-BOOT-CONTINUE1A"],
+      "acceptanceCriteria": [
+        "The owner's ruling on route r1 is recorded before any activation step; if the owner declines, this phase closes as blocked with the ruling recorded, and the interactive gatekeeper remains the end state.",
+        "Every code input is tested and validator-pinned, and the host activation runbook lists each owner act, its order, its exact command and its cost.",
+        "Each activation act is performed by the owner, not the implementer: signing, host install and start, credential provisioning, the committed unattended mode and the per-phase secrets-handling receipt.",
+        "One live host-attested review produces an attestation bound to project, phase, subject commit and request digest, and a forged, replayed or foreign attestation is proven refused.",
+        "The two-phase proof is re-run with zero relay between the gatekeeper and Claude, with spend recorded in the ledger and within the budget.",
+        "The ECC CODE and ECC SECURITY reviews report no unresolved critical or high finding."
+      ],
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredValidators": [
+        "val-projectos-host-review-path1a",
+        "val-projectos-host-review-path1b",
+        "val-windows-service-identity-proof-3kideb",
+        "val-windows-local-ipc-capability-b3",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC CODE review",
+        "ECC SECURITY review"
+      ],
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ]
+    },
+    {
+      "phaseId": "PROJECTOS-BOOT-CERT1A",
+      "title": "Autonomy certification with joined provenance",
+      "description": "Add the display-only joined provenance reader under a narrowly scoped, ratified contract amendment, and certify one live autonomous delivery of a small ProjectOS phase with accurate execution and decision provenance.",
+      "scope": "A read-only provenance view over the existing execution, ledger, gatekeeper-decision, closure and phase records; the narrowly scoped amendment to the gate-decision evidence validator; tests; one live projectos continue run over one small ProjectOS phase; certification evidence.",
+      "exclusions": [
+        "The reader returns text only and feeds no gate, grant or continuation.",
+        "No new store; the reader joins existing records by their existing keys."
+      ],
+      "dependsOn": ["PROJECTOS-BOOT-CONTINUE1A"],
+      "acceptanceCriteria": [
+        "The reader answers, for a phase or run, who executed, who reviewed, which gatekeeper decided, the decision, the evidence digest, the commit, the branch, the model or provider, the time and the next authorised action, or says not recorded.",
+        "The validator amendment admits exactly this display-only reader, and a mutation that makes it return a value a gate could branch on is killed.",
+        "This phase runs after the owner's ruling on route r1 is recorded, so the certified run uses whichever gatekeeper route that ruling leaves in force.",
+        "One live projectos continue run delivers a small ProjectOS phase autonomously to its closure request, and its provenance is answered from records and matches the repository.",
+        "The ECC CODE and ECC SECURITY reviews report no unresolved critical or high finding."
+      ],
+      "riskLevel": "medium",
+      "autonomyLevel": "gated-execution",
+      "requiredValidators": [
+        "val-projectos-gate-decision-evidence1a",
+        "val-projectos-work-record-not-authority1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC CODE review",
+        "ECC SECURITY review"
+      ],
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "secrets-handling",
+        "payment-or-live-charge"
+      ]
+    }
+  ]
+}

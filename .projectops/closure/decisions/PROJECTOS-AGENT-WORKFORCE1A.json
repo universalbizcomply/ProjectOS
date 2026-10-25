@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "projectos:PROJECTOS-AGENT-WORKFORCE1A:owner-closure:8f7c326d",
+  "phaseId": "PROJECTOS-AGENT-WORKFORCE1A",
+  "projectId": "projectos",
+  "scope": "phase-closure",
+  "decidedBy": "Murad",
+  "decidedAt": "2026-09-27T23:04:00.000Z",
+  "evidenceSubjectHead": "8f7c326d8643ba1fb478c8265c422538d2f34e83",
+  "decision": "close",
+  "note": "OWNER-DIRECT CLOSURE (Murad) of PROJECTOS-AGENT-WORKFORCE1A, the third and last phase of plan v1.6, under the gatekeeper's ACCEPTED FOR CLOSURE decision, bound to evidence subject 8f7c326d8643ba1fb478c8265c422538d2f34e83 (69fb141 -> 5d68070 -> 8f7c326, pushed and remote-verified). ACCEPTED PROOF: remote HEAD = local HEAD; owner-run catalogue acquisition PASS at ad9264e309bd5e5422c04784372d7841b1e5d604 with 279 agents, 18 divisions, MIT, catalogue digest 56ad321263748be61c4255f4af70d041381fffacd73eef027db6ea6f2c9be2ba; the developer tool's agent directory unchanged; no upstream code executed; no provider or model call; no live specialist activation; agent tests 2341/2341; workforce tests 159/159; typecheck PASS; workforce validator PASS; mutation battery 90/90; ECC CODE APPROVE; ECC SECURITY APPROVE; 0 unresolved CRITICAL, 0 unresolved HIGH. The Agency round-2 rechecks were not delivered (the specialist wrapper cannot hand reports back through the current harness); accepted as a NON-BLOCKING TOOLING LIMITATION. MANDATORY BEFORE LIVE SPECIALIST EXECUTION OR AUTONOMY-BOOTSTRAP CERTIFICATION, not done here and not reopening this phase: B2 windows-client-admission non-default; B5 outside the ipc test-fixtures graph; both mutation-proven; an owner-governed route for escalated contradictions plus ledger checkpointing; ProjectOS-assembled prompts framing every external or free-text input; live engines outside the store lock; Host custody of the call/cost ceiling before spend; detect a --cache inside another worktree; repair the agency-specialist report hand-back. Also retained: stale no-production-mint comments; B15 admitted-cost wording; F5/F6; the packaged-Git pin; credential/token rotation where genuinely required; the sealed-window validator correction; the acquisition link-check/read LOW residual. decidedAt is the relay time of the owner's approval. The authority to run `phase advance --id PROJECTOS-AGENT-WORKFORCE1A --to closed --as owner` for this closure only was given by Murad and is not reusable. Authorises nothing beyond this closure tail and its normal fast-forward push: Autonomy Bootstrap is not started; no production, provider, spend, credential, messaging, payment or database activity; no live specialist execution.",
+  "ownerAcceptedFindings": [],
+  "consumedAt": "2026-09-27T23:08:25.929Z"
+}

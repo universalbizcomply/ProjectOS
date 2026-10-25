@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "objectiveId": "9e373cb6b5324fde",
+  "objective": "Make ProjectOS fast and reliable enough for real AI-builder use before starting the Forge autonomy proof. Implement safe incremental validation and content-addressed caching first, then a fast ProjectOS Doctor preflight and free gatekeeper contract replay tests. Preserve all existing owner gates, fail closed whenever cache dependency safety is unknown, and do not weaken full validation. The goal is routine governed changes in seconds/minutes instead of tens of minutes, after which Forge Programme C can resume.",
+  "authoritative": false,
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-post-v3-selfhost-pilot1a",
+  "baseHead": "26ee0c96b2bbd84d4e94d40dfcfaa07780000d34",
+  "submittedAt": "2026-09-03T22:21:21.098Z",
+  "submittedBy": "owner",
+  "instructionShaped": false
+}

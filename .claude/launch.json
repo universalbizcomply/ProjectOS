@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "control-center",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "projectos/control-center"],
+      "port": 5178
+    },
+    {
+      "name": "control-center-preview",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "preview", "--prefix", "projectos/control-center", "--", "--port", "4173", "--strictPort"],
+      "port": 4173
+    }
+  ]
+}

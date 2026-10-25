@@ -1,0 +1,120 @@
+{
+  "reviews": [
+    "code-review",
+    "security-review"
+  ],
+  "findings": [
+    {
+      "id": "SEC-001",
+      "severity": "LOW",
+      "category": "prompt-injection",
+      "summary": "Evidence text is embedded in the user message to the reviewer model, not in system instructions; system prompt is a static template with bounded field interpolation only. No injection path found from check output or evidence content into system instructions.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-002",
+      "severity": "LOW",
+      "category": "evidence-poisoning",
+      "summary": "Evidence digest (sha256) binds request to specific evidence at gatekeeperTurn.ts; collectEvidence reads from git object store deterministically, not from caller input. Changed evidence changes request ID, preventing poisoned evidence from matching an earlier decision.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-003",
+      "severity": "LOW",
+      "category": "cross-project-leakage",
+      "summary": "projectId bound in request at brief.ts; checkThreadBinding validates project isolation before transport; requestId includes projectId; decision checked against projectId in checkGatekeeperDecision.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-004",
+      "severity": "LOW",
+      "category": "stale-decision-replay",
+      "summary": "requestId deterministically derived from content (projectId, phaseId, subjectCommit, ask, evidenceDigest). consumedDecisionIds tracked in ledger; replay refused by checkGatekeeperDecision. Degraded grants derive outage identity from hashed tuple.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-005",
+      "severity": "LOW",
+      "category": "credential-leakage",
+      "summary": "Credential resolved inside callback scope only (openaiResponses.ts); never assigned to outliving variable, never interpolated into body or log. Refusals quote status codes and bounded body excerpts (max 300 chars), never headers. checkTransportDescriptor refuses key-shaped material in config.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-006",
+      "severity": "LOW",
+      "category": "self-approval",
+      "summary": "expectedDecider from approved plan enforced in checkGatekeeperDecision; reviewer identity verified independently of decision content. System instruction tells reviewer it is structurally read-only. No path exists for Claude to approve its own work.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-007",
+      "severity": "LOW",
+      "category": "cost-runaway",
+      "summary": "Budget check at gatekeeperTurn.ts BEFORE call via estimateCostMicroUsd using actual evidenceText length. authoriseRequestSpend checks against monthly and per-call limits. No retry loop; transport failure becomes unavailable, not retried.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-008",
+      "severity": "LOW",
+      "category": "degraded-mode-escalation",
+      "summary": "degradedModeGrants.ts verifies grant is committed via git object store (git show HEAD:path), not working tree. ALWAYS_OWNER_ONLY floor enforces commit, push, phase-closure, secrets-handling, payment never delegable. Grant scope is closed enum.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-009",
+      "severity": "LOW",
+      "category": "subject-drift",
+      "summary": "Work subject derived from grant commit, not HEAD (runner.ts). requestId includes subjectCommit; decision binding checked against it. Degraded outage identity includes subjectCommit hash.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-010",
+      "severity": "LOW",
+      "category": "model-escalation-abuse",
+      "summary": "modelForAsk and selectTier derive model from governed configuration; reviewer cannot influence model selection. Transport descriptor checked by checkTransportDescriptor before use.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-011",
+      "severity": "LOW",
+      "category": "duplicate-calls-after-restart",
+      "summary": "Durable ledger at .projectops/gatekeeper-ledger.json persists across process restarts. Deterministic request ID means restarted run re-derives same ID, finds it in ledger, does not pay twice.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-012",
+      "severity": "LOW",
+      "category": "override-replay",
+      "summary": "Degraded grants consumed via consumedGrantIds; grant reuse refused. Decision replay refused via consumedDecisionIds in ledger. Both checked before action.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-013",
+      "severity": "LOW",
+      "category": "reconciliation-bypass",
+      "summary": "reconciliationState tracks outstanding degraded work; degradedWorkRemaining prevents normal gate progression until reconciliation is complete.",
+      "resolved": true
+    },
+    {
+      "id": "SEC-014",
+      "severity": "LOW",
+      "category": "gatekeeper-to-claude-bypass",
+      "summary": "No direct communication path exists between gatekeeper and Claude worker. All routing goes through gatekeeperRouting.ts with exhaustive stop-code mapping; no default fallthrough. Transport produces candidate record only; applyVerdictToStop requires checked record.",
+      "resolved": true
+    },
+    {
+      "id": "CQ-001",
+      "severity": "LOW",
+      "category": "code-quality",
+      "summary": "Module headers thoroughly document safety arguments and invariants. Clear separation of concerns across 20+ files. Immutable patterns used consistently. Correction boundary enforces direction-of-authority (reviewer narrows, never expands). No mutation of shared state observed.",
+      "resolved": true
+    },
+    {
+      "id": "CQ-002",
+      "severity": "MEDIUM",
+      "category": "code-quality",
+      "summary": "degradedMode.ts is 46K (largest file in the loop). Approaching the 800-line guideline. Functions remain focused but the file could benefit from extraction if it grows further.",
+      "resolved": true
+    }
+  ]
+}

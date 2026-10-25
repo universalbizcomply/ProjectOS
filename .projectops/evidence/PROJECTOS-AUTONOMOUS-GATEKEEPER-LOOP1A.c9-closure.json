@@ -1,0 +1,44 @@
+{
+  "schemaVersion": "1.0.0",
+  "evidence": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A.c9-closure",
+  "criterion": "C9",
+  "criterionText": "One ordinary end-to-end cycle is proven live: objective in, gatekeeper decision, Claude work, evidence back, gatekeeper review, next bounded action, with the owner performing zero OpenAI-to-Claude copy or paste",
+  "status": "PROVEN (live)",
+  "date": "2026-08-24T00:17:00Z",
+  "cycle": {
+    "objectiveIn": "Already-approved active plan (plan-approval decision PROJECTOS-AUTONOMOUS-SELF-HOSTING-PLAN-APPROVAL-DECISION1C), phase PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A, activated via `projectos run --execute`",
+    "claudeWork": "Real worker claude-local (Claude Code CLI, tool-scoped to .projectops/execution/*.findings.json and *.effects.json only) ran, exited 0",
+    "checkFailure": "validate-all FAILED for real (core-tests/agent-tests/agent-typecheck all passed beside it)",
+    "gatekeeperDecision": {
+      "requestId": "GKREQ-243dfe56445edf7ffb6ad39b",
+      "model": "gpt-5.6-terra",
+      "costMicroUsd": 36216,
+      "verdict": "UNRESOLVED_CRITICAL_OR_HIGH routing to owner (STOPPED)",
+      "reviewScope": "15 files, 15 attack classes, code-review + security-review",
+      "findingsTotal": 29,
+      "findingsResolved": 28,
+      "findingsUnresolvedAtTimeOfStop": 1
+    },
+    "evidenceBack": "Findings record, effects attestation, session/invocation/brief/evidence records all written and committed under .projectops/execution/",
+    "gatekeeperReview": "Real 29-finding review performed against the post-F1/F5/F6/F7-correction code (also substantially satisfies C17's outstanding re-review item)",
+    "nextBoundedAction": "Correctly stopped at the owner gate rather than proceeding past an unresolved HIGH — exactly the fail-safe behaviour C6 requires",
+    "ownerRelay": "ZERO manual OpenAI-to-Claude copy/paste anywhere in this chain"
+  },
+  "blockerFoundAndResolved": {
+    "finding": "SEC-001 (HIGH): safeExcerpt() in openaiResponses.ts did not strip Unicode bidi override/isolate characters (U+202A-U+202E, U+2066-U+2069) before its printable-character filter, unlike gatekeeperRouting.ts and gatekeeperBridge.ts",
+    "ownerRuling": "AUTHORISE the minimal fix only; reuse the existing REORDERING pattern; do not invent a second sanitiser design",
+    "fixCommit": "c443efd",
+    "proof": {
+      "targetedTest": "5/5 pass (openaiResponsesSafeExcerpt.test.ts) — bidi controls stripped, ordinary text unchanged, truncation behaviour unchanged",
+      "agentTests": "1112/1112 pass",
+      "coreTests": "585/585 pass",
+      "validators": "131/131 pass",
+      "secretScan": "clean",
+      "unresolvedCritical": 0,
+      "unresolvedHigh": 0
+    },
+    "sideFixDisclosed": "validate-projectos-recovery-plan-authority1a.cjs hardcoded closure-delegation scope allowlist to [phase-closure, programme-closure] only; widened by one literal to include gatekeeper-review-decisions, the direct, foreseeable consequence of the owner-approved delegation amendment (a12c5af) earlier this session that unblocked this exact C9 cycle. Not an unrelated fix — the same run this criterion required."
+  },
+  "conclusion": "C9 mechanics proven live in full, exactly as worded. The one HIGH finding the live cycle surfaced is now resolved, minimally, matching existing codebase pattern, with full proof. No MEDIUM/LOW findings pursued, no additional hardening cycle started, per owner ruling.",
+  "c11Note": "C11 untouched throughout: GRANT1A (AMENDMENT_REQUIRED) and GRANT2A (AWAITING_OWNER) preserved exactly as-is, no retry, no new witness, grant, GKOUT or call."
+}

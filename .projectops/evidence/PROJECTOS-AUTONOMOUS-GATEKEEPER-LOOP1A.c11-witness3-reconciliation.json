@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "1.0.0",
+  "evidence": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A.c11-witness3-reconciliation",
+  "criterion": "C11",
+  "title": "C11 Witness3 Fresh Reconciliation Attempt",
+  "date": "2026-08-23T21:35:00Z",
+  "context": "Criterion 11, limb 3: return-to-gatekeeper reconciliation, fresh witness with zero retry history, corrected runtime",
+  "witness3": {
+    "project": "projectos-degraded-witness3a",
+    "programme": "projectos-degraded-witness3",
+    "phase": "PROJECTOS-DEGRADED-WITNESS3A",
+    "gkout": "GKOUT-0fc94ef221aa4b5b0734f58d",
+    "stopCode": "WORKER_REFUSED",
+    "materialCause": "TRANSPORT_NOT_APPROVED",
+    "grant": "PROJECTOS-DEGRADED-WITNESS3-GRANT1A",
+    "workId": "GKWORK-9f964bf843f9a840",
+    "reconciliationRequestId": "GKREQ-efacc940e81a177e283e20cc"
+  },
+  "limb1_gatekeeper_unavailable": {
+    "status": "PROVEN",
+    "detail": "Run stopped WORKER_REFUSED; installation allowlist correctly refused credential release for unauthorised project; zero sabotage, purely governance boundary"
+  },
+  "limb2_degraded_continuation": {
+    "status": "PROVEN",
+    "detail": "Grant PROJECTOS-DEGRADED-WITNESS3-GRANT1A consumed durably on first attempt (GKWORK-9f964bf843f9a840 authorised); SAME run's second internal retry attempt correctly REFUSED replay ('grant was already used and cannot be replayed onto further work'). Both consumption and replay-refusal proven in one execution."
+  },
+  "limb3_reconciliation": {
+    "status": "ATTEMPTED — CREDENTIAL_UNAVAILABLE",
+    "detail": "Fresh request GKREQ-efacc940e81a177e283e20cc (zero prior history — first attempt against this exact request id). Both required factors were present: temporary installation allowlist entry (committed) and project secrets-handling receipt (committed). Call was NOT blocked by retry gate. Windows Credential Manager target 'ProjectOS/projectos/development/openai/gatekeeper-api-key' was confirmed present via `cmdkey /list`, but the committed credential adapter's read returned an empty value. Broker refused with 'no value is stored under this credential reference' before any network dispatch — definitively NOT billed.",
+    "rootCause": "CREDENTIAL_UNAVAILABLE — vault entry exists but adapter retrieval returns empty. This is outside the authorised scope of this escalation (credential creation/rotation explicitly not authorised)."
+  },
+  "verdict": {
+    "actualGatekeeperVerdict": "NONE — call never dispatched to provider (CREDENTIAL_UNAVAILABLE, pre-dispatch)",
+    "debtState": "OUTSTANDING",
+    "reconciliationSettled": false,
+    "providerCallsThisEscalation": 0,
+    "actualCost": "$0.00 — no dispatch occurred"
+  },
+  "actions_taken": {
+    "allowlist_applied": "commit bd6a8bb",
+    "allowlist_restored": "commit 6af8a44",
+    "secrets_handling_receipt": "commit a5cc488",
+    "credential_check": "read-only cmdkey /list confirmation only; no credential created, rotated, or modified"
+  },
+  "conclusion": "Limb 3 could not be completed in this escalation. The blocker is a genuine, pre-existing credential-retrieval fault in the installation's Windows Credential Manager adapter — the vault entry exists but returns empty — not a retry-gate refusal, not sabotage, and not something introduced by this session. Fixing it requires either repairing/re-provisioning the vault entry (credential rotation, explicitly NOT authorised in this escalation) or a separate owner-authorised diagnostic pass. No further reconciliation attempts were made, per authorization scope."
+}

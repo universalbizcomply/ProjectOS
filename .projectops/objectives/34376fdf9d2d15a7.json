@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "objectiveId": "34376fdf9d2d15a7",
+  "objective": "Programme C, third submission (earlier answers were refused by ProjectOS: one cut short by the provider, one whose phase dependencies were not phase ids). ﻿Programme C - Forge autonomous delivery proof. Forge is ProjectOS's local-first app generator: the deterministic engines in projectos/forge/*.cjs (blueprint, scaffold, provisioner, generation loop, verify harness, env snapshot, secure deploy gate, integration playbooks and an offline end-to-end run; all nine validate-forge-* validators pass at HEAD) plus a Forge console in the Control Center that today shows only synthetic demonstration runs and is not connected to those engines or to the governed runtime. Using the certified Programme B autonomy loop (governed worker, configured checks, live ChatGPT gatekeeper, technical continuation, owner wait and closure transport), plan the smallest sequence of bounded phases that proves ProjectOS can autonomously deliver real Forge outcomes end to end, in this order of increasing authority: first a phase that needs no new authority - add Forge's offline end-to-end run as a configured execution check and have the loop carry one bounded proof record from objective to pushed evidence; then the owner decisions later phases need, stated as explicit owner gates - whether and how to widen the governed worker's write grant to Forge source (today it may write only .projectops/execution/*.findings.json, .projectops/execution/*.effects.json and .projectops/proof/*.json) and whether the Forge console should be wired to the real engines; then one bounded real Forge implementation change made by the worker under that widened grant and reviewed by the gatekeeper; then closure. Constraints: Forge generation must never call a metered AI API (owner directive); ProjectOS's own gatekeeper calls stay within the existing 5 dollar monthly ceiling; no production deployment, database mutation, messaging, payment, credential creation or disclosure, force push or merge; every phase must name its checks, its evidence and its protected-action map, and every phase that needs an owner decision must say exactly which one.",
+  "authoritative": false,
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-post-v3-selfhost-pilot1a",
+  "baseHead": "66552f852aebc80e1486ab320c0d2631e6504cea",
+  "submittedAt": "2026-09-03T21:44:27.678Z",
+  "submittedBy": "owner",
+  "instructionShaped": false
+}

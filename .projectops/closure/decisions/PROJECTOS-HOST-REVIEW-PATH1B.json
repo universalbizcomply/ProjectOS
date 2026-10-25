@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "projectos:PROJECTOS-HOST-REVIEW-PATH1B:delegated-closure:6f9bd06c",
+  "phaseId": "PROJECTOS-HOST-REVIEW-PATH1B",
+  "projectId": "projectos",
+  "scope": "phase-closure",
+  "decidedBy": "ChatGPT",
+  "decidedAt": "2026-09-26T11:41:00.000Z",
+  "evidenceSubjectHead": "6f9bd06c443c44e5a33af80c85ea94e44c3bc80d",
+  "decision": "close",
+  "note": "GATEKEEPER DECISION (ChatGPT, under the plan's closureDelegation; relayed by owner Murad): PROJECTOS-HOST-REVIEW-PATH1B CLOSED, accepted cumulative pushed boundary 6f9bd06c443c44e5a33af80c85ea94e44c3bc80d on baseline 87f734e9f95ec9173074ebae693a06a2650473fb. G2 (2026-09-26, relayed 20:40Z) authorised recording this governed delegated decision; ROUTE R1 (2026-09-27, relayed 00:37Z) kept the delegated basis authoritative, authorised one intermediate normal push to satisfy G4-12, and ruled for THIS PATH1B closure only that speed-benchmark is NOT a required G4-6 check, so checksPass rests on core-tests, agent-tests and agent-typecheck. decidedAt is the relay time of the gatekeeper's CLOSED decision, transcribed; this file was written by the implementer from that decision and passes the owner commit gate. Owner table rows 1-15 and the per-crossing validator amendment were ratified 2026-09-26; O1-A and O1-B confirmed 2026-09-27. 0 unresolved CRITICAL / 0 unresolved HIGH. Carried forward, not represented as done: B2 non-default pin and B5 fixture-graph pin for windows-client-admission (mutation-proven, required before autonomy-bootstrap certification or unattended authority activation, or earlier if that feature graph changes), stale 'no production mint' comments, the B15 admitted-cost doc wording, F5 filter TOCTOU, F6 envelope default, packaged-git location pin, exposed-token rotation. No production, provider, spend or credential activity.",
+  "ownerAcceptedFindings": [],
+  "consumedAt": "2026-09-27T00:58:08.378Z"
+}

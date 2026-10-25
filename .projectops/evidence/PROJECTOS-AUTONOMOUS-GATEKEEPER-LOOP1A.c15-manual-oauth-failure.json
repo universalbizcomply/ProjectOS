@@ -1,0 +1,65 @@
+{
+  "schemaVersion": "1.0.0",
+  "recordId": "PROJECTOS-GATEKEEPER-LOOP1A-C15-MANUAL-OAUTH-FAILURE1A",
+  "projectId": "projectos",
+  "phaseId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+  "kind": "c15-manual-oauth-failure",
+  "at": "2026-08-22T13:25:00.000Z",
+  "atLocal": "2026-08-22 14:25:00 Europe/London",
+  "outcome": "Option M FAILED. The Advanced OAuth values were accepted by the form but are not used by the validation that blocks connector creation.",
+  "failureClass": "M1 — Advanced values accepted by the UI, but the validation path does not consult them",
+  "configurationEntered": {
+    "name": "ProjectOS",
+    "tunnel": "tunnel_6a8997326f108191a6f9bc9a0fce49c2",
+    "authentication": "OAuth",
+    "clientSetupMethod": "DCR — selected automatically by the UI once the registration URL was supplied; it had previously been shown as Unavailable",
+    "tokenEndpointAuthMethod": "none",
+    "oauthAuthorizationServerBase": "https://oauth-projectos.safw4n.com",
+    "oauthAuthorizationUrl": "https://oauth-projectos.safw4n.com/authorize",
+    "oauthTokenUrl": "https://oauth-projectos.safw4n.com/token",
+    "oauthRegistrationUrl": "https://oauth-projectos.safw4n.com/register",
+    "oauthResource": "https://oauth-projectos.safw4n.com/mcp",
+    "resourceDeliberatelyUnchanged": true,
+    "clientIdOrSecretEntered": false,
+    "unrelatedAdvancedFieldsTouched": false
+  },
+  "exactErrorText": "OAuth authorization server metadata must advertise PKCE support with code_challenge_methods_supported containing S256.",
+  "errorEnvelope": {
+    "request": "GET https://chatgpt.com/backend-api/aip/connectors/mcp",
+    "status": 400,
+    "type": "apps_sdk_error",
+    "errorCode": "app_validation",
+    "reproduced": "twice, identically"
+  },
+  "whyThisIsNotOurDefect": {
+    "ourPublishedMetadata": {
+      "url": "https://oauth-projectos.safw4n.com/.well-known/oauth-authorization-server",
+      "status": 200,
+      "code_challenge_methods_supported": ["S256"],
+      "issuer": "https://oauth-projectos.safw4n.com",
+      "note": "Fetched from the public internet at the moment of failure. It advertises exactly what the error says is missing."
+    },
+    "decisiveObservation": "The failing request is a BARE GET with no query parameters. The manually entered Advanced OAuth values are not transmitted to the validation step at all, so the validator cannot have been judging our authorization server. It is judging metadata obtained — or not obtained — from the tunnel resource chain, which 404s on our bridge.",
+    "botChallengeRuledOut": "Cloudflare returns clean application/json HTTP 200 for non-browser user agents (tested with a python-requests UA and an OpenAI-style UA), so an edge challenge page is not the cause."
+  },
+  "consequence": "Option M cannot preserve the current resource/audience contract, and cannot succeed by configuration alone. Manual OAuth entry does not substitute for the protected-resource discovery that ChatGPT performs against the tunnel-derived resource identifier.",
+  "unchangedThroughout": {
+    "projectosSourceModified": false,
+    "tunnelChanged": false,
+    "tunnelWorkspaceAssociation": "unchanged",
+    "runtimeKeyPermissions": "unchanged",
+    "cloudflareChanged": false,
+    "dnsChanged": false,
+    "publicAuthorizationServerMetadata": 200,
+    "publicMcp": 404,
+    "privateBridgeUnauthenticated": 401,
+    "openaiReadyz": "ready"
+  },
+  "whatOptionSWouldHaveToDo": [
+    "Serve protected-resource metadata at the path derived from the tunnel resource identifier, i.e. /.well-known/oauth-protected-resource/v1/mcp/<tunnel-id>, which currently 404s.",
+    "Return a resource value matching the identifier ChatGPT actually used, and accept that same value as the token audience — otherwise discovery succeeds and the audience check then refuses the token."
+  ],
+  "secretsExposed": "NONE — no client secret was entered, no token or code was captured, and the approval PIN was never requested because the flow never reached the approval page.",
+  "productionTouched": false,
+  "c15Status": "NOT ACCEPTED / NOT CLOSED"
+}

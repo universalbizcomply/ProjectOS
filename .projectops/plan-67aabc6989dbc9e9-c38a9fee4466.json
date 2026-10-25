@@ -1,0 +1,263 @@
+{
+  "schemaVersion": "1.0.0",
+  "projectId": "projectos",
+  "projectName": "ProjectOS",
+  "programmeId": "projectos-autonomous-self-hosting",
+  "planId": "plan-67aabc6989dbc9e9-c38a9fee4466",
+  "planVersion": "1.3",
+  "planStatus": "PLAN READY",
+  "businessVision": "Establish a Speed and Reliability Foundation for governed ProjectOS work so routine safe changes complete in seconds or minutes on the reference development machine, while preserving authoritative full uncached validation and every existing owner gate.",
+  "definitionOfComplete": "All four ordered phases have delivered the specified local validation cache, mandatory Doctor preflight, offline gatekeeper replay capability, and bounded readiness benchmark/evidence with a READY or NOT READY verdict for the Forge autonomy proof. Full uncached validation remains authoritative; protected actions and the separate Forge Programme C transition remain owner-controlled.",
+  "approvedScope": [
+    "Implement cache version one for governed ProjectOS validation: local and repository-scoped, disposable and rebuildable, capped at 1 GB per governed repository, 7-day unused-entry expiry, LRU cleanup over budget, content/integrity hashing, and no secrets, credentials, raw provider prompts, or provider responses.",
+    "Implement conservative cache invalidation and key coverage for validator source, helpers and transitive code, declared and observed inputs, relevant configuration, schema, runtime version, and platform contract; known changed, unknown, corrupt, unreadable, version-mismatched, environment-mismatched, and probably-unrelated conditions run validation.",
+    "Implement Doctor preflight and enforce it before autonomous governed execution, paid gatekeeper dispatch, and automatic technical commit or push continuation; retain advisory-only behavior for Control Center browsing, read-only inspection, and local preview.",
+    "Create redacted, normalised minimum-contract gatekeeper replay fixtures derived from accepted interactions, including the four committed B9 decision records, plus synthetic adversarial cases; replay must have zero provider spend.",
+    "Produce only the bounded Forge autonomy readiness benchmark, evidence, and READY or NOT READY verdict; record reference-machine environment details and preserve full uncached validation as authoritative.",
+    "ProjectOS source, tests, and documentation under projectos, within the owner-established restricted source-write grant."
+  ],
+  "excludedScope": [
+    "Any write to .projectops authority, plan, decision, ledger, credential, or other protected governance records.",
+    "Secrets, credential creation or disclosure, raw provider prompts or unnecessary full provider responses.",
+    "Shared developer cache, shared CI cache, or cache designs beyond local repository-scoped version one.",
+    "Weakening, replacing, or skipping authoritative full uncached validation to meet performance targets.",
+    "Production deployment, database mutation, messaging, payment, force push, merge, or automatic Forge Programme C commencement.",
+    "A broader Forge hardening programme or a programme-transition decision; that decision remains separate and owner-taken.",
+    "Work described by the supplied planning-context documents unless directly necessary for this bounded objective."
+  ],
+  "successStandard": "On the recorded reference environment (Windows 11 development PC, Node 24.14.1, Rust 1.96, repository at the approved execution base), warm unchanged validation is at most 2 seconds, proof/data-only validation at most 5 seconds, targeted ProjectOS source validation at most 60 seconds where safely possible, Doctor at most 10 seconds, and gatekeeper replay at most 2 seconds with zero provider spend. Timing results are benchmarked with environment details, and no cache condition can skip validation unless dependencies are known unchanged and fully covered.",
+  "repository": {
+    "repositoryPath": "C:/dev/ProjectOS",
+    "expectedRemote": "universalbizcomply/ProjectOS",
+    "protectedBranches": [
+      "main",
+      "projectos-v2-core"
+    ],
+    "baselineCommit": "abc4dce99c764523cd67577fd288b6f401c97c3c",
+    "planPersistenceCommit": null,
+    "planSourceBranch": "projectos-post-v3-selfhost-pilot1a"
+  },
+  "sourceDocuments": [
+    {
+      "documentPath": ".projectops/objectives/67aabc6989dbc9e9.json",
+      "sourceDocumentType": "requirements",
+      "sourceDocumentChecksum": "sha256:9c1db583634c60b2ec44a53952d763951a9aff3dcafc57951d4629b82c09ad22",
+      "authoritative": true,
+      "superseded": false
+    }
+  ],
+  "phases": [
+    {
+      "phaseId": "validation-cache",
+      "description": "Deliver safe, local repository-scoped validation caching that accelerates routine validation without reducing correctness.",
+      "scope": "Implement cache version one only within permitted ProjectOS source, tests, and documentation. Ensure cache entries are disposable, rebuildable, bounded to 1 GB per governed repository, expired after 7 days unused, cleaned by LRU when over budget, integrity- and content-hashed, and free of secrets, credentials, raw provider prompts, and responses. Implement fail-toward-run dependency rules and cache-key coverage for validator code, helpers/transitive code, declared and observed inputs, relevant configuration, schema/runtime versions, and platform contract.",
+      "dependsOn": [],
+      "acceptanceCriteria": [
+        "Known unchanged and fully covered inputs may use a cache hit; known changed, unknown, corrupt, unreadable, version-mismatched, environment-mismatched, and probably-unrelated conditions run validation.",
+        "Unknown dependency coverage fails toward execution rather than a cache hit.",
+        "Deleting the cache can reduce performance but never validation correctness.",
+        "Warm unchanged validation is benchmarked at 2 seconds or less, proof/data-only validation at 5 seconds or less, and targeted ProjectOS source validation at 60 seconds or less where safely possible; environment details accompany results.",
+        "Full uncached validation remains authoritative and is not weakened or bypassed to achieve timing targets.",
+        "The configured project test suites run and the mechanically binding validator validate-no-secrets passes."
+      ],
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredValidators": [
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Security and privacy review of cache contents and redaction guarantees",
+        "Validation correctness review of dependency coverage, invalidation, and fail-toward-run behavior",
+        "Performance benchmark review"
+      ],
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "Execution may begin only after the owner-established restricted ProjectOS source-write prerequisite is effective.",
+        "No production deployment, database mutation, messaging, payment, credential creation or disclosure, force push, or merge."
+      ]
+    },
+    {
+      "phaseId": "doctor-preflight",
+      "description": "Make Doctor a fast, reliable mandatory preflight for the specified autonomous and paid governed actions.",
+      "scope": "Implement and integrate Doctor preflight within permitted ProjectOS source, tests, and documentation. Require successful Doctor preflight before autonomous governed execution, paid gatekeeper dispatch, and automatic technical commit or push continuation. Keep it advisory-only for Control Center browsing, read-only inspection, and local preview.",
+      "dependsOn": [
+        "validation-cache"
+      ],
+      "acceptanceCriteria": [
+        "Doctor completes in 10 seconds or less on the recorded reference environment.",
+        "Autonomous governed execution, paid gatekeeper dispatch, and automatic technical commit or push continuation are blocked or withheld when mandatory Doctor preflight does not pass.",
+        "Control Center browsing, read-only inspection, and local preview remain advisory-only Doctor contexts.",
+        "The configured project test suites run and the mechanically binding validator validate-no-secrets passes.",
+        "No protected action is performed or authorised by the implementation."
+      ],
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredValidators": [
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Governance review of mandatory versus advisory execution boundaries",
+        "Performance and failure-mode review"
+      ],
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "No production deployment, database mutation, messaging, payment, credential creation or disclosure, force push, or merge.",
+        "Any automatic technical commit or push continuation remains subject to successful mandatory Doctor preflight and existing owner gates."
+      ]
+    },
+    {
+      "phaseId": "gatekeeper-replay",
+      "description": "Provide fast, privacy-safe offline replay of accepted gatekeeper contracts for reliable governed testing without provider spend.",
+      "scope": "Add redacted, normalised, minimum-contract replay fixtures derived from accepted gatekeeper interactions, especially the four committed B9 decision records, together with synthetic adversarial cases. Implement replay so it exercises required contract behavior without credentials, raw provider prompts, unnecessary full provider responses, secret-shaped material, or provider calls.",
+      "dependsOn": [
+        "doctor-preflight"
+      ],
+      "acceptanceCriteria": [
+        "Replay completes in 2 seconds or less on the recorded reference environment with zero provider spend.",
+        "Fixtures contain only minimum redacted and normalised contract data needed for replay, including coverage derived from the four committed B9 decision records and synthetic adversarial cases.",
+        "Replay neither requires nor exposes credentials, secrets, raw provider prompts, or unnecessary full provider responses.",
+        "The configured project test suites run and the mechanically binding validator validate-no-secrets passes.",
+        "Paid gatekeeper dispatch remains subject to mandatory Doctor preflight and existing owner gates."
+      ],
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredValidators": [
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Security/privacy review of fixture derivation and redaction",
+        "Gatekeeper contract and zero-provider-spend review"
+      ],
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "No production deployment, database mutation, messaging, payment, credential creation or disclosure, force push, or merge.",
+        "Any paid gatekeeper dispatch remains owner-gated and requires mandatory Doctor preflight."
+      ]
+    },
+    {
+      "phaseId": "readiness-evidence",
+      "description": "Produce the bounded benchmark and evidence needed to determine Forge autonomy-proof readiness, without initiating further hardening or Forge Programme C.",
+      "scope": "Run and record the required performance benchmarks and evidence across the delivered foundation on the reference environment, then issue a READY or NOT READY verdict solely for the Forge autonomy proof. Do not undertake another hardening programme or start Forge Programme C.",
+      "dependsOn": [
+        "gatekeeper-replay"
+      ],
+      "acceptanceCriteria": [
+        "Benchmark evidence records the Windows 11, Node 24.14.1, Rust 1.96 reference environment and measured outcomes for all specified timing targets.",
+        "Evidence demonstrates that full uncached validation remains authoritative and that cache failure, deletion, corruption, unknown coverage, and relevant mismatch conditions fail toward running validation.",
+        "Evidence confirms Doctor mandatory and advisory boundaries and gatekeeper replay zero-provider-spend behavior.",
+        "A single explicit READY or NOT READY verdict is produced for the Forge autonomy proof, with supporting benchmark and validation evidence.",
+        "The configured project test suites run and the mechanically binding validator validate-all passes.",
+        "The verdict does not automatically start Forge Programme C or authorise any protected action."
+      ],
+      "riskLevel": "medium",
+      "autonomyLevel": "gated-execution",
+      "requiredValidators": [
+        "validate-all"
+      ],
+      "requiredReviews": [
+        "Owner review of readiness evidence and READY/NOT READY verdict",
+        "Independent validation and benchmark evidence review"
+      ],
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "Forge Programme C requires a separate owner programme-transition decision after this phase.",
+        "No production deployment, database mutation, messaging, payment, credential creation or disclosure, force push, or merge."
+      ]
+    }
+  ],
+  "environments": [
+    {
+      "environmentId": "reference-development-pc-windows11-node24.14.1-rust1.96-base-70c1329",
+      "productionFreeze": false
+    }
+  ],
+  "providers": [],
+  "governance": {
+    "owner": "Murad",
+    "gatekeeper": "ChatGPT",
+    "implementer": "Claude Code",
+    "allowedActions": [
+      "inspect-repository",
+      "create-local-files",
+      "run-local-validation",
+      "produce-evidence-report"
+    ],
+    "forbiddenActions": [
+      "production-deploy",
+      "production-db-mutation",
+      "real-email-sms-whatsapp",
+      "payment-or-live-charge",
+      "force-push",
+      "use-openai-api",
+      "use-anthropic-api",
+      "provider-credential-access",
+      "store-real-secret",
+      "modify-projectos-v2-core",
+      "modify-v2-closure-records",
+      "modify-polygo"
+    ],
+    "ownerOnlyActions": [
+      "approve-plan",
+      "approve-plan-supersession",
+      "approve-material-scope-change",
+      "approve-commit",
+      "approve-push",
+      "authorise-production-deploy",
+      "authorise-database-mutation",
+      "authorise-external-send",
+      "authorise-payment",
+      "authorise-provider-access",
+      "authorise-installation",
+      "start-e2e",
+      "pause",
+      "resume"
+    ],
+    "closureAuthority": "ChatGPT",
+    "closureDelegation": {
+      "delegatedBy": "Murad",
+      "delegatedTo": "ChatGPT",
+      "delegationDate": "2026-08-17",
+      "delegatedScope": [
+        "phase-closure",
+        "programme-closure"
+      ],
+      "projectScope": "projectos",
+      "excludesProtectedActions": true,
+      "notes": "Recorded by owner Murad for programme 'projectos-autonomous-self-hosting' in PROJECTOS-AUTONOMOUS-SELF-HOSTING-CLOSURE-DELEGATION1A. Closure only: it is not authority to act, and it excludes every protected effect, which stays with the owner."
+    },
+    "noApiPolicy": true
+  },
+  "approval": {
+    "approvalStatus": "approved",
+    "approvedBy": "Murad",
+    "approvalDate": "2026-09-04T08:23:13.257Z",
+    "approvalEvidenceReference": "Plan-approval decision PLANDEC-ed43358710f336a092cab5d0 by Murad, taken against draft 67aabc6989dbc9e9 with plan digest sha256:c38a9fee44663fa04777618d0e4aca1047260b9e884fec0ddde39c61238b7968 at commit 70c1329ead4d52de19c2affd0784d9ef44fc5a68 on branch projectos-post-v3-selfhost-pilot1a. The authority to take it is the owner's own: no plan-approval delegation applies to this project and programme, so approval never moved away from the recorded owner and the decision above is the owner's. ProjectOS re-ran discovery against the repository before writing this record and the recomputed plan digest still matched the approved one. MANUAL_GOVERNANCE_APPROVAL with tamperProof false — a human governance approval bound by the owner's commit gate, NOT a cryptographic one. Governance is carried forward unchanged from the project's active owner-approved plan; this approval created no new authority, changed no protected-action rule, and did not modify any existing plan record.",
+    "supersedesPlanVersion": "1.2",
+    "approvalBinding": "MANUAL_GOVERNANCE_APPROVAL",
+    "tamperProof": false,
+    "approvalAuthority": "owner",
+    "secureApprovalEvidence": null
+  },
+  "staleness": {
+    "lastVerifiedCommit": "abc4dce99c764523cd67577fd288b6f401c97c3c",
+    "lastVerifiedDate": "2026-09-04T08:23:14.541Z",
+    "stalenessStatus": "fresh",
+    "stalenessReasons": [],
+    "materialPlanInputs": [
+      {
+        "inputId": "plan-digest",
+        "fingerprint": "sha256:c38a9fee44663fa04777618d0e4aca1047260b9e884fec0ddde39c61238b7968"
+      },
+      {
+        "inputId": ".projectops/objectives/67aabc6989dbc9e9.json",
+        "fingerprint": "sha256:9c1db583634c60b2ec44a53952d763951a9aff3dcafc57951d4629b82c09ad22"
+      }
+    ]
+  },
+  "security": {
+    "secretPolicy": "No raw secret values are stored in plan memory, current state, sessions, reports or prompts. Providers are referenced by name only. Redaction is required for any sensitive value.",
+    "rawSecretValuesForbidden": true,
+    "sensitiveDataForbidden": true,
+    "redactionRequired": true
+  }
+}

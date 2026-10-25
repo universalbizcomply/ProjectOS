@@ -53,6 +53,22 @@
     "evidenceRequirements": { "type": "array", "items": { "type": "string" } },
     "installStatus": { "type": "string", "enum": ["not-installed", "planned", "installed", "deferred"] },
 
+    "planMemory": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "OPTIONAL. Where this project's governed plan memory lives, when it is NOT at the default `.projectops/plan.json`. Omitting it keeps the default, so every existing installation is unaffected. Paths are project-root-relative; absolute, drive-qualified and traversing paths are refused at load time so a config can never point governance at a file outside its own project.",
+      "properties": {
+        "planPath": { "type": "string", "minLength": 1, "description": "Root-relative path to the approved plan record. Default: .projectops/plan.json" },
+        "currentStatePath": { "type": "string", "minLength": 1, "description": "Root-relative path to the project's current-state record. When present, its completedPhases are an accepted source of phase-dependency evidence alongside durable phase records." }
+      }
+    },
+
+    "planSources": {
+      "type": "array",
+      "description": "OPTIONAL. Further root-relative documents this project declares as CURRENT PLANNING material, beyond planMemory. Plan discovery uses the declaration to decide which documents may shape a proposed plan. Declaring a document confers no authority: it cannot approve anything, cannot make itself or another document authoritative, and does not change what governs execution.",
+      "items": { "type": "string", "minLength": 1 }
+    },
+
     "reviewAgents": {
       "type": "array",
       "description": "Named review providers (e.g. ECC agents). Configuration only — ProjectOS does not auto-run them.",
@@ -128,6 +144,67 @@
       "type": "object",
       "description": "Maps review category -> evidence pack section heading.",
       "additionalProperties": { "type": "string" }
+    },
+
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workers"],
+      "description": "OPTIONAL. The workers this project authorises the execution loop to start. Omitting it means the loop has no authorised worker and refuses to start one, which is the safe default for every existing installation. Adding a worker is a change HERE, not a change to the loop.",
+      "properties": {
+        "defaultWorkerId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Which authorised worker the loop uses when none is named. Must be one of the workers below."
+        },
+        "checks": {
+          "type": "array",
+          "description": "OPTIONAL. Test, typecheck and lint commands the execution loop runs alongside the validators the plan requires. Validators come from the approved plan and are not configurable here; these are the project's own suites, which no plan can name.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "kind", "command"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "kind": { "type": "string", "enum": ["test", "typecheck", "lint"] },
+              "command": {
+                "type": "string",
+                "minLength": 1,
+                "description": "ABSOLUTE path to the executable, for the same reason worker commands are absolute."
+              },
+              "args": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        },
+        "workers": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["workerId", "kind", "command"],
+            "properties": {
+              "workerId": { "type": "string", "minLength": 1 },
+              "kind": {
+                "type": "string",
+                "enum": ["claude-code-cli"],
+                "description": "The adapter that knows how to start this worker. A new kind is a new adapter; a new worker of an existing kind is configuration only."
+              },
+              "command": {
+                "type": "string",
+                "minLength": 1,
+                "description": "ABSOLUTE path to the worker executable. A bare name is refused at load time: on Windows an unqualified name resolves against the governed checkout before PATH, so a planted executable in the repository could become the worker."
+              },
+              "args": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Fixed arguments the adapter prepends. Identifiers and paths only — this is not an instruction channel; the worker's instructions come from the durable brief."
+              },
+              "notes": { "type": "string" }
+            }
+          }
+        }
+      }
     }
   }
 }

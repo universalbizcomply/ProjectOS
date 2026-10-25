@@ -1,0 +1,15 @@
+[package]
+name = "projectos-host-windows-crypto-adapter"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Windows DPAPI master-key protection BACKEND BRIDGE for the future ProjectOS Host Service. Implements the accepted projectos-host-crypto MasterKeyProtectionBackend SPI by delegating material protection to projectos-host-windows-protection machine-scope DPAPI, behind a bounded injected MasterKeyMaterialSource. NO direct Windows FFI, NO unsafe, NO production key generator, NO OS RNG, NO real service master key, NO real credential, NO persisted blob, NO filesystem/registry, NO service/IPC/ACL. The crypto-owned wrapper retains ALL handle and lifecycle authority. DPAPI machine scope is ONE primitive: NO service-identity, administrator-resistance, secure-erasure, or credential-custody claim. Synthetic material + live owner-machine probe are TEST-ONLY and never in release."
+license = "UNLICENSED"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[dependencies]
+projectos-host-crypto = { path = "../crypto" }
+projectos-host-windows-protection = { path = "../windows-protection" }
+thiserror = "1"

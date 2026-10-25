@@ -1,0 +1,137 @@
+{
+  "schemaVersion": "1.0.0",
+  "recordId": "PROJECTOS-GATEKEEPER-LOOP1A-C11-WITNESS2-ACTIVATION1A",
+  "projectId": "projectos",
+  "programmeId": "projectos-autonomous-self-hosting",
+  "phaseId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+  "kind": "criterion-progress",
+  "criterion": "C11",
+  "status": "STOPPED AT A GOVERNANCE BOUNDARY — GATE 2 ACTIVATED AND PROVEN, GATE 1 NOT ACTIVATABLE AS APPROVED",
+  "at": "2026-08-22T17:53:33.000Z",
+  "atLocal": "2026-08-22 18:53:33 Europe/London",
+  "recordedBy": "Claude (implementer). Nothing here claims owner provenance.",
+
+  "ownerApprovals": {
+    "approval1_plan": {
+      "recorded": true,
+      "committed": true,
+      "consumed": false,
+      "path": ".projectops/plan-decisions/PROJECTOS-DEGRADED-WITNESS2-PLAN-APPROVAL-DECISION1A.json (witness)",
+      "decidedBy": "Murad",
+      "draftId": "5175661b6a184dbd",
+      "planDigest": "sha256:e360027ee99a84ac8f5c92891689ffd7457b851cf87683ae3eb58a1daf4e42a6",
+      "boundTo": "project projectos-degraded-witness2a, repository projectos-witness/degraded-witness2a, branch master, commit 9302d6a2e92506e3fe6a331ee87ada109c3ff063",
+      "outcome": "The decision is durable and unspent. It could not be exercised — see findings 1 and 2 — and it is NOT superseded by anything the implementer decided; it is superseded by a plan-document correction that the owner must now approve afresh."
+    },
+    "approval2_delegation": {
+      "recorded": true,
+      "committed": true,
+      "active": true,
+      "delegationId": "PROJECTOS-DEGRADED-WITNESS2-GATEKEEPER-DELEGATION1A",
+      "delegatedTo": "ChatGPT",
+      "programmeScope": "projectos-degraded-witness2",
+      "delegatedScope": ["gatekeeper-review-decisions"],
+      "fieldsChangedAfterTheOwnerDecision": ["delegationDate", "provenance", "trustBasis"],
+      "whyThoseChanged": "delegationDate read 'PENDING OWNER DECISION' and the two prose fields said the delegation was not yet granted. Committing text that contradicts the decision it records would be worse than editing it. Every binding field is byte-identical to what the owner was shown: delegationId, projectId, programmeScope, delegatedBy, delegatedTo, delegatedScope, excludes and excludesProtectedActions. Verified field-by-field, not asserted.",
+      "provenLive": "committedDelegatedDecider(sys, witnessRoot, 'projectos-degraded-witness2') now returns \"ChatGPT\", read from the git object store. The same call for programme 'projectos-autonomous-self-hosting' returns null, so the delegation does not leak across programmes. The earlier GATEKEEPER_MISCONFIGURED refusal for 'no committed delegation names a decider' is resolved."
+    }
+  },
+
+  "witnessCommit": {
+    "commit": "10273687f3877d76cf41fac16265cfa0fa5b8757",
+    "parent": "9302d6a2e92506e3fe6a331ee87ada109c3ff063",
+    "repository": "C:/dev/projectos-degraded-witness2a",
+    "pushed": false,
+    "paths": [
+      ".projectops/authority/plan-genesis.json",
+      ".projectops/authority/closure-delegation.json",
+      ".projectops/plan-decisions/PROJECTOS-DEGRADED-WITNESS2-PLAN-APPROVAL-DECISION1A.json",
+      ".projectops/drafts/5175661b6a184dbd.json",
+      ".projectops/objectives/5175661b6a184dbd.json"
+    ],
+    "genesisWhy": "A first plan has no predecessor to read the owner from, so ProjectOS requires a committed genesis record naming the owner before any first approval. It grants nothing and delegates nothing. Its governance snapshot mirrors the ProjectOS parent, including the forbidden-action floor and noApiPolicy, so bootstrapping the witness does not bootstrap it past the safety rules. This is a mandatory canonical plan-activation artefact, not an invention.",
+    "secretScan": "Two files matched a keyword scan: plan-genesis.json on the policy word 'store-real-secret' and the draft on the gate name 'secrets-handling'. Both are policy vocabulary. No credential value is present anywhere in the commit.",
+    "projectosRepositoryCommits": 0,
+    "pushesAnywhere": 0
+  },
+
+  "findings": [
+    {
+      "id": "C11-W2-F1",
+      "severity": "HIGH",
+      "title": "The gatekeeper's decider is read from a record the gatekeeper path never validates",
+      "detail": "committedDelegatedDecider in projectos/agent/src/loop/gatekeeperConfig.ts reads .projectops/authority/closure-delegation.json from the git object store and accepts it on two checks only: programmeScope equals the configured programme, and delegatedTo is a non-empty string. It does not check the schema version, the delegating owner, the delegated scope, or whether the delegate is the implementer. checkClosureDelegationRecord in planApproval.ts checks all of those — but only on the plan-approval path.",
+      "evidence": "The witness delegation carries delegatedScope ['gatekeeper-review-decisions']. Plan approval refuses it outright: 'closure delegation carries a scope it may not grant'. The gatekeeper decider resolver accepts the same committed bytes and returns 'ChatGPT'. Both were run against the same commit, 10273687.",
+      "consequence": "A delegation that the plan-approval validator would reject can still decide who takes gatekeeper review decisions. The check is also order-dependent rather than invariant: approve the plan first and commit the delegation afterwards, and the closure validator never sees it at all.",
+      "notFixedBecause": "It is a correction to ProjectOS core source, which this authority explicitly forbids and which is a stop condition.",
+      "discoveredBy": "The witness. This is the isolation the witness exists to exercise finding something real in the parent."
+    },
+    {
+      "id": "C11-W2-F2",
+      "severity": "GOVERNANCE — OWNER DECISION",
+      "title": "There is no way to delegate gatekeeper review without also delegating closure",
+      "detail": "The only grantable delegation scopes are CLOSURE_SCOPES = ['phase-closure', 'programme-closure'] (planApproval.ts). The gatekeeper decider is derived from that same closure-delegation record. So a delegation that both names a gatekeeper decider AND survives plan approval must carry a closure scope — which is broader than what the owner approved for this witness.",
+      "provenBy": "In a disposable clone, changing delegatedScope to ['phase-closure'] changed the refusal from DELEGATION_INVALID to PLAN_INCOMPLETE, and with the plan document corrected the same clone activated the plan cleanly. The clones were deleted; nothing they produced is authority.",
+      "whyNotResolvedByTheImplementer": "Widening the approved scope from 'gatekeeper review decisions' to 'phase closure' is an owner decision, not an implementation choice. The alternative — separating the two scopes in ProjectOS core — is a source change this authority forbids."
+    },
+    {
+      "id": "C11-W2-F3",
+      "severity": "BLOCKING — RE-APPROVAL REQUIRED",
+      "title": "The approved plan material cannot be activated: PLAN_INCOMPLETE",
+      "detail": "approvePlan refused with 'the plan document declares no excluded scope' and 'the plan document declares no environments'. The plan document HAS both sections, written as prose. The discovery engine reads bullets under those headings and deliberately does not infer scope from prose — 'Prose scope is not inferred: an absent list stays absent' (plan-discovery-engine.cjs). The engine is right and the document was deficient.",
+      "correctionPrepared": "The witness plan document now carries a bullet list under Excluded scope (9 items) and under Environments ('development — production freeze: yes'). No other section changed.",
+      "consequence": "excludedScopeCandidates and environmentCandidates are part of planMaterial, so they are inside the digest. Correcting the document necessarily changes the digest, and the owner's approval does not transfer to altered content.",
+      "newDraft": {
+        "draftId": "cf47d9f41b534ce1",
+        "planDigest": "sha256:39f0227c3a452571629a3825b9267fa4f775f8b0373a878663930d0b813e2272",
+        "baseHead": "10273687f3877d76cf41fac16265cfa0fa5b8757",
+        "phaseId": "PROJECTOS-DEGRADED-WITNESS2A",
+        "acceptanceCriteria": 8,
+        "acceptanceCriteriaIdenticalToApprovedSet": true,
+        "ownerGates": ["commit", "push", "phase-closure", "secrets-handling", "payment-or-live-charge"],
+        "confidence": "high",
+        "conflicts": 0,
+        "unknowns": "none",
+        "provenanceErrors": 0,
+        "committed": false,
+        "authoritative": false
+      }
+    }
+  ],
+
+  "whatWasNotDone": {
+    "gatekeeperPathRun": false,
+    "unavailabilityClassification": "NOT REACHED — `projectos run --dry-run` refuses earlier with REFUSED (NO_PLAN). Governed phase work requires an approved plan, and the plan could not be approved.",
+    "gkoutId": null,
+    "gkoutInvented": false,
+    "degradedGrantPrepared": false,
+    "degradedGrantIssued": false,
+    "degradedWork": false,
+    "debtCreated": false,
+    "reconciliation": false,
+    "apiCalls": 0,
+    "cost": "nil",
+    "sabotage": "NONE. No credential revoked, edited, corrupted, renamed or deleted; no service stopped; no network, DNS or tunnel touched; the real ProjectOS gatekeeper configuration is unchanged.",
+    "orderingWorkaroundAvailableButRefused": "Finding C11-W2-F1 means the plan could have been approved by first reverting the delegation commit, approving, then re-committing the delegation. That is working around the gate rather than fixing the defect, so it was not done."
+  },
+
+  "stateOfPlay": {
+    "gate1PlanApproved": "DECISION COMMITTED, NOT EXERCISED",
+    "gate1PlanAuthoritative": false,
+    "gate2DelegationCommitted": true,
+    "gate2DelegationActive": true,
+    "gate3GrantPrepared": false,
+    "witnessCommits": 1,
+    "witnessPushed": false,
+    "projectosSourceChanged": false,
+    "projectosCommit": false,
+    "projectosPush": false,
+    "productionTouched": false,
+    "secretsExposed": false,
+    "protectedActions": "NONE"
+  },
+
+  "controlCentreGap": "Unchanged and carried forward. The Control Centre can display state but cannot execute an owner approval, and the MCP bridge is read-only. Both of today's decisions had to be taken outside the product, and the two now required must be too. Governance was not weakened to compensate.",
+
+  "recommendation": "DO NOT ACCEPT C11. Two owner decisions are required and neither is the degraded-risk gate: re-approve the corrected plan digest, and rule on how the witness may hold a gatekeeper decider given that ProjectOS cannot presently grant that scope without also granting closure. Finding C11-W2-F1 is a real defect in ProjectOS core and should be scheduled on its own merits, independently of this witness."
+}

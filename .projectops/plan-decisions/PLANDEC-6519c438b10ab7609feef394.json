@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "PLANDEC-6519c438b10ab7609feef394",
+  "decision": "approve",
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-run-to-completion-host-attestation1a",
+  "baseHead": "e9468ed3abc10bd3ea0a9d5ca0cd30b7bf619506",
+  "draftId": "b893595595bcb8b8",
+  "planDigest": "sha256:106426de9e4c7962a66a517f4cfc2fc410b7873171c52951426abf57a37665fb",
+  "decidedBy": "Murad",
+  "decidedAt": "2026-09-12T12:51:29.447Z",
+  "note": "APPROVE PROJECTOS PLAN v1.5 - Murad, 2026-09-12. One phase PROJECTOS-HOST-REVIEW-PATH1A, the complete dormant agent-to-host review path, superseding v1.4. Ratifies two declared validator amendments as scope authority only: O6h exactly one shipped execution-evidence mint reachable only from run_authorised_review holding the authority and the sealed execution seam; and one dependency edge to projectos-host-gatekeeper-attestation under the same capability scan as its sibling edges. No implementation, no service start, no live capability, no store-permission change, no delegation, no credential, no provider call, no spend.",
+  "recordedBy": "projectos plan decide"
+}

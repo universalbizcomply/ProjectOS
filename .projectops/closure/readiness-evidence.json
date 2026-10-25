@@ -1,0 +1,55 @@
+{
+  "phaseId": "readiness-evidence",
+  "evidenceSubjectHead": "d87bfcd0f10bac3ab118025e663e162d0e1c7b62",
+  "closureBasis": "owner",
+  "g4Evaluated": false,
+  "verdict": "READY",
+  "verdictScope": "Forge autonomy-proof readiness only",
+  "supersededVerdict": {
+    "verdict": "NOT READY",
+    "measuredAt": "ff4190c872ef272a6794f1e4392370959bad1c78",
+    "recordedAt": "466cc2e6dede105d3168b2ddca832cc99a8dc31a"
+  },
+  "validatorsPass": null,
+  "checksPass": null,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "unresolvedCritical": 0,
+  "unresolvedHighIds": [],
+  "headedProofPass": null,
+  "protectedEffects": "NONE",
+  "currentHeadValidation": {
+    "head": "108914b32e0f2555e1fbb02bd52fe94c6146a9ca",
+    "validateAllAggregatePassed": false,
+    "registeredModuleCount": 142,
+    "passing": 139,
+    "failing": [
+      "validate-desktop-e2e",
+      "validate-host-identity-boundary",
+      "val-cd-b4-sealed-expected-window-facts1a"
+    ]
+  },
+  "laterBenchmarkCarryForward": {
+    "measuredAt": "7e734c922c5d3d75eb5fac2ec727aac9e14ac059",
+    "measuredOn": "2026-09-11",
+    "dataOnlyMedianMs": 7058,
+    "dataOnlyTargetMs": 5000,
+    "gatekeeperReplayMedianMs": 2261,
+    "gatekeeperReplayTargetMs": 2000,
+    "passed": false
+  },
+  "establishedAt": "2026-09-11T21:37:30.000Z",
+  "notes": [
+    "THIS RECORD CLOSES NOTHING. It is the evidence the owner's closure decision is bound to. No code in this repository writes this file; the convention follows the earlier closure evidence records. Every figure is transcribed from a committed record, a committed document, or a command run on 2026-09-11; none is asserted on the assistant's judgement.",
+    "OWNER-DIRECT CLOSURE, NOT A G4 CLOSURE. Murad approved owner-direct closure on 2026-09-11 (21:34Z). `phase advance --to closed --as owner` does not evaluate the G4 gate (projectos/agent/src/commands/phase.ts, g4 is evaluated only for --delegated); it requires a committed owner decision bound to this record's evidenceSubjectHead. G4-17 is NOT satisfied and is not claimed: the plan requires the aggregate validate-all, and no subject-bound validator-run record shows it passing at any subject a G4 closure could use today.",
+    "TWO VERDICTS, KEPT IN ORDER. The phase's own evidence (docs/speed/readiness-evidence.md, commit 466cc2e, measured on a clean tree at ff4190c) returned NOT READY: the benchmark judged 2 of 5 standards and its scorer never judged anything. The owner accepted that verdict and ordered three bounded remediations, which landed at d87bfcd (docs/speed/readiness-remediation.md; not a phase). Measured there on a clean tree, all five standards were met and the verdict became READY, recorded as accepted by the ChatGPT gate on 2026-09-05 in f59b5d7 (prose only; no governed decision record exists for that acceptance). The owner now accepts READY at d87bfcd. NOT READY stays in the record as superseded history.",
+    "THE FIVE STANDARDS AT THE SUBJECT d87bfcd (clean tree, median of 3, every sample recorded): warm unchanged 70 ms (65/75/70) vs <=2,000; proof/data-only 4,425 ms (4,391/4,425/5,340; ONE SAMPLE OVER TARGET) vs <=5,000; targeted source 54,041 ms (55,257/53,135/54,041) vs <=60,000; Doctor 208 ms (226/200/208) vs <=10,000; gatekeeper replay 1,194 ms (7,635/1,194/1,158; first sample is cold vitest loading) vs <=2,000 with the provider ledger unchanged. Benchmark exit 0.",
+    "validatorsPass is null, not true. At d87bfcd the documents record validate-all uncached 141/141 PASS and the cached runner 141 PASS / 0 FAIL, but no .projectops/validation/<subject>.json record exists for d87bfcd, 466cc2e or ff4190c. The only subject-bound record showing the aggregate passing (484f14e, 141/141) belongs to gatekeeper-replay and predates this phase's work.",
+    "checksPass is null, not true. At d87bfcd the documents record agent 1923/1923, core 682/682, typechecks clean and scorer 52/52. The machine-recorded check run for this phase (.projectops/execution/readiness-evidence-466cc2e6dede-c15efb5c.evidence.json, at 466cc2e) shows validate-all, core-tests, agent-tests, agent-typecheck and speed-benchmark all passed. Neither is a subject-bound record at d87bfcd.",
+    "CURRENT HEAD IS NOT REPRESENTED AS PASSING. At 108914b the aggregate validate-all FAILS, 139/142. That figure is derived from the subject-bound record at dac794c (138/142) plus the four failing modules re-run individually at 108914b on 2026-09-11: val-projectos-v3-active-phase-consistency1a now PASSES (the hybrid phase closed); validate-desktop-e2e FAILS (no projectos/control-center/dist/assets build); validate-host-identity-boundary FAILS (installation_programme.rs is not in the approved 21-file inventory; GitHub-route findings in it and in tests.rs); val-cd-b4-sealed-expected-window-facts1a FAILS (public fn session_digest in ipc_session.rs). A full validate-all was not run at 108914b.",
+    "LATER BENCHMARK MISSES, DISCLOSED AND NOT SUBSTITUTED. On 2026-09-11, during PROJECTOS-HYBRID-GATEKEEPER-ROUTING1A at 7e734c9 on a heavily shared machine, the speed-benchmark missed dataOnly (median 7,058 ms: 7,549/7,058/5,886) and gatekeeperReplay (median 2,261 ms: 2,173/2,261/2,838); warm 55 ms, targeted 54,771 ms and Doctor 346 ms were met. That is a different subject from d87bfcd (162 non-docs paths changed since; 2 lines of speed code) and a contaminated environment. It is not current-head readiness evidence, and it is not represented as passing.",
+    "reviewsComplete: both required reviews. (1) Independent validation and benchmark evidence review: 7 findings, all resolved (.projectops/execution/readiness-evidence-466cc2e6dede-c15efb5c.findings.json); ChatGPT GKDEC-GKREQ-ca1337d60e14564c13d6a839 recorded the evidence and technical checks complete with all findings resolved; for the d87bfcd remediation, ECC code review 0 CRITICAL / 0 HIGH / 0 MEDIUM / 0 LOW APPROVE and security review 0 CRITICAL / 0 HIGH with one MEDIUM fixed (recorded in docs/speed/readiness-remediation.md; no machine-readable review artifact). (2) Owner review of the evidence and verdict: Murad, 2026-09-11, accepting READY at d87bfcd.",
+    "CARRY-FORWARD, NOT RESOLVED. A: data-only margin, 4,425/5,000 ms with one sample at 5,340 ms. B: targeted-source margin, 54,041/60,000 ms, val-projectos-credential-router-adversarial1a is about 40 s of it. C: provider cost estimator under-reserved actual billed usage by about 8.4x and 13.8x; a REQUIRED gate on Run-to-Completion. Also: the three baseline validator FAILs above, and the 2026-09-11 benchmark misses.",
+    "PROTECTED EFFECTS: NONE. .projectops/execution/readiness-evidence-466cc2e6dede-c15efb5c.effects.json records every protected effect false. This closure starts nothing: not Forge Programme C (which needs a separate owner programme-transition decision), not Hybrid Phase 2, not ProjectOSHost. No provider call, spend, credential, production, messaging, payment or database activity, force push or merge."
+  ]
+}

@@ -1,0 +1,271 @@
+/**
+ * DaemonClient — the Control Center's read-only window onto the Bridge Daemon.
+ *
+ * It owns no authoritative state: it subscribes to a transport, mirrors snapshots/events into
+ * the store (redacted), keeps a heartbeat to detect silent drops, and reconnects with backoff.
+ * The UI binds to `store` + the providers; it never talks to the daemon directly.
+ */
+import { ConnectionManager, DaemonConnection, Heartbeat, ReconnectManager } from './connection.js';
+import { EventStream, HealthStream } from './eventStream.js';
+import {
+  DaemonHealthProvider,
+  NotificationProvider,
+  PhaseStatusProvider,
+  WorkerStatusProvider,
+} from './providers.js';
+import { LiveStore } from './store.js';
+import { StatusSynchroniser } from './synchroniser.js';
+import type { DaemonTransport, Scheduler } from './ports.js';
+import { GOVERNED_RUN_LINE_LIMIT, type ConnectionState, type TransportMessage } from './types.js';
+
+export interface DaemonClientOptions {
+  readonly heartbeatMs?: number;
+  readonly livenessTimeoutMs?: number;
+  readonly eventBufferSize?: number;
+}
+
+const DEFAULT_HEARTBEAT_MS = 5_000;
+const DEFAULT_LIVENESS_MS = 12_000;
+
+export class DaemonClient {
+  readonly #transport: DaemonTransport;
+  readonly #scheduler: Scheduler;
+  readonly store = new LiveStore();
+  readonly #sync = new StatusSynchroniser();
+  readonly #events: EventStream;
+  readonly #healthStream = new HealthStream();
+  readonly #conn = new ConnectionManager(this.store);
+  readonly #reconnect: ReconnectManager;
+  readonly #heartbeat: Heartbeat;
+  readonly #connection = new DaemonConnection();
+
+  readonly health: DaemonHealthProvider;
+  readonly workers: WorkerStatusProvider;
+  readonly phases: PhaseStatusProvider;
+  readonly notifications: NotificationProvider;
+
+  readonly #heartbeatMs: number;
+  readonly #livenessMs: number;
+  #unsub: (() => void) | null = null;
+  #paused = false;
+  #started = false;
+
+  constructor(transport: DaemonTransport, scheduler: Scheduler, opts: DaemonClientOptions = {}) {
+    this.#transport = transport;
+    this.#scheduler = scheduler;
+    this.#events = new EventStream(opts.eventBufferSize);
+    this.#reconnect = new ReconnectManager(scheduler);
+    this.#heartbeatMs = opts.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
+    this.#livenessMs = opts.livenessTimeoutMs ?? DEFAULT_LIVENESS_MS;
+    this.#heartbeat = new Heartbeat(scheduler, this.#heartbeatMs);
+    this.health = new DaemonHealthProvider(this.store);
+    this.workers = new WorkerStatusProvider(this.store);
+    this.phases = new PhaseStatusProvider(this.store);
+    this.notifications = new NotificationProvider(this.store);
+  }
+
+  /** Connect, subscribe, and begin the heartbeat. Idempotent. */
+  start(): void {
+    if (this.#started) return;
+    this.#started = true;
+    this.#unsub = this.#transport.onMessage((m) => this.#handle(m));
+    this.#conn.connecting(0);
+    this.#transport.connect();
+    this.#heartbeat.start(() => this.#beat());
+  }
+
+  stop(): void {
+    this.#started = false;
+    this.#heartbeat.stop();
+    this.#reconnect.cancel();
+    if (this.#unsub) {
+      this.#unsub();
+      this.#unsub = null;
+    }
+    this.#transport.disconnect();
+    this.#conn.disconnected(0);
+  }
+
+  #handle(message: TransportMessage): void {
+    if (message.kind === 'closed') {
+      this.#down();
+      return;
+    }
+    this.#connection.markMessage(this.#scheduler.now());
+    switch (message.kind) {
+      case 'lifecycle':
+        // The host's authoritative worker lifecycle. Receiving it proves the native IPC is alive,
+        // so the reconnect ladder resets — but the connection is NOT marked `connected`: that
+        // still means "mirroring live daemon data", which only a snapshot establishes.
+        this.store.update({ lifecycle: message.lifecycle });
+        this.#reconnect.reset();
+        break;
+      case 'snapshot':
+        this.#sync.applySnapshot(this.store, message.snapshot);
+        this.#healthStream.set(message.snapshot.health);
+        this.#conn.connected();
+        this.#reconnect.reset();
+        break;
+      case 'event':
+        this.#sync.applyEvent(this.store, this.#events, message.event, this.#paused);
+        break;
+      case 'notification':
+        this.#sync.applyNotification(this.store, message.notification);
+        break;
+      case 'health':
+        this.#healthStream.set(message.health);
+        this.store.update({ health: message.health });
+        break;
+      case 'governed':
+        // Canonical governed state. Stored verbatim — the UI renders what the runtime reported and
+        // never recomputes authority for itself.
+        this.store.update({ governed: message.state });
+        this.#reconnect.reset();
+        break;
+      case 'governed-portfolio':
+        // EVERY registered project, reduced to a row, built by the daemon from its own pure
+        // governed-state builder — one call per registered root, no project selected to produce it.
+        // Stored verbatim: what each project's state is remains the daemon's answer, not this
+        // renderer's.
+        this.store.update({ portfolio: message.portfolio });
+        this.#reconnect.reset();
+        break;
+      case 'governed-projects':
+        // The installed-project inventory and the current selection. Stored verbatim for the same
+        // reason: which projects exist is the installed host's answer, not the renderer's.
+        this.store.update({ governedProjects: message.inventory });
+        this.#reconnect.reset();
+        break;
+      case 'run-started':
+        // BOUND TO ITS ROOT. The daemon has always sent it; this client used to discard it, which
+        // was safe only while live state belonged to the selected project alone. A portfolio row
+        // must never show one project's worker as another's.
+        this.store.update({
+          governedRun: {
+            root: message.root ?? null,
+            active: true,
+            phaseId: message.phaseId,
+            resumed: message.resumed,
+            startedAt: new Date().toISOString(),
+            lastExitCode: null,
+            lines: [],
+          },
+        });
+        break;
+      case 'run-snapshot': {
+        // A SNAPSHOT CORRECTS LIVENESS; IT NEVER INVENTS HISTORY. The output lines are an event
+        // stream, and a client that missed them cannot be given them here — so a snapshot for the
+        // run already being followed keeps the lines it has, and one for a run this client never
+        // saw start begins with none. It is the only way a reloaded window learns work is running.
+        const current = this.store.getState().governedRun;
+        const sameProject = current.root === message.root;
+        // NOTHING TO SAY. A snapshot that repeats what the store already holds must not replace it:
+        // these arrive with every governed emission, and a fresh object each time re-renders every
+        // subscriber on a heartbeat for no reason.
+        if (sameProject && current.active === message.active) break;
+        this.store.update({
+          governedRun: {
+            root: message.root,
+            active: message.active,
+            phaseId: message.phaseId ?? (sameProject ? current.phaseId : null),
+            resumed: sameProject ? current.resumed : false,
+            startedAt: message.startedAt ?? (sameProject ? current.startedAt : null),
+            // ANOTHER PROJECT'S RUN NEVER INHERITS THIS ONE'S ENDING. Held only for the same root and
+            // only while nothing new is running; otherwise a finished run's exit code would be
+            // reported on a project that has never run anything - the exact cross-project
+            // attribution this message exists to prevent.
+            lastExitCode: message.active || !sameProject ? null : current.lastExitCode,
+            lines: sameProject ? current.lines : [],
+          },
+        });
+        break;
+      }
+      case 'run-output': {
+        const current = this.store.getState().governedRun;
+        // Bounded so a long-running review cannot grow the store without limit; only the most
+        // recent lines matter for a live panel, and the full record is already durable on disk
+        // (this is a live tail, not the evidence).
+        const lines = [...current.lines, { stream: message.stream, line: message.line }].slice(
+          -GOVERNED_RUN_LINE_LIMIT,
+        );
+        this.store.update({ governedRun: { ...current, lines } });
+        break;
+      }
+      case 'run-finished':
+        this.store.update({
+          governedRun: {
+            ...this.store.getState().governedRun,
+            // The root of the run that FINISHED, so a stale root cannot outlive its run.
+            root: message.root ?? this.store.getState().governedRun.root,
+            active: false,
+            lastExitCode: message.exitCode,
+          },
+        });
+        // The loop's writes (session, evidence, ledger, phase records) are on disk by the time this
+        // fires; the sidecar also emits a fresh `governed` state right after, so nothing further is
+        // needed here beyond clearing the active flag.
+        break;
+    }
+  }
+
+  #beat(): void {
+    if (!this.#connection.isAlive(this.#scheduler.now(), this.#livenessMs)) {
+      this.#down();
+      return;
+    }
+    // Command lock: before the host reports the worker ready there is no daemon to answer, and a
+    // refused snapshot would otherwise be misread as a dropped connection. The host's own
+    // lifecycle poll keeps liveness fresh meanwhile. Transports with no lifecycle (in-process,
+    // null) are unaffected.
+    if (!this.#snapshotPermitted()) return;
+    this.#transport.requestSnapshot();
+  }
+
+  /** Whether the host's lifecycle currently permits a read-only snapshot request. */
+  #snapshotPermitted(): boolean {
+    const lifecycle = this.store.getState().lifecycle;
+    return lifecycle === null || lifecycle.readOnlyAvailable;
+  }
+
+  #down(): void {
+    this.#conn.disconnected(this.#reconnect.attempt);
+    // Governed state is a LIVE claim, so it must not outlive the connection that produced it.
+    // Without this the last projection stayed in the store after the runtime died and the owner
+    // surface went on reporting "Live · Canonical runtime state" against a runtime that no longer
+    // existed — the precise dishonesty this surface is supposed to make impossible.
+    this.store.update({
+      governed: {
+        connected: false,
+        reason: 'RUNTIME_STOPPED',
+        detail:
+          'The ProjectOS runtime stopped responding, so this is no longer live state. Restart ProjectOS to reconnect.',
+      },
+    });
+    this.#reconnect.schedule(() => this.#reconnect_attempt());
+  }
+
+  #reconnect_attempt(): void {
+    this.#conn.connecting(this.#reconnect.attempt);
+    this.#transport.disconnect();
+    this.#transport.connect();
+  }
+
+  /** Pause/resume the event viewer (buffer keeps filling; visible list freezes). */
+  setPaused(paused: boolean): void {
+    this.#paused = paused;
+    if (!paused) this.store.update({ events: this.#events.snapshot() });
+  }
+
+  get paused(): boolean {
+    return this.#paused;
+  }
+  get eventStream(): EventStream {
+    return this.#events;
+  }
+  get healthStream(): HealthStream {
+    return this.#healthStream;
+  }
+  get connectionState(): ConnectionState {
+    return this.#conn.state;
+  }
+}

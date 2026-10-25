@@ -1,0 +1,21 @@
+[package]
+name = "projectos-host-windows-protection"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Bounded Windows DPAPI machine-scope capability + safety proof for the future ProjectOS Host Service. Safe wrappers around CryptProtectData/CryptUnprotectData with EXACT CRYPTPROTECT_LOCAL_MACHINE | CRYPTPROTECT_UI_FORBIDDEN flags, sealed zeroising buffers, exactly-once LocalFree, fieldless errors, and one gated owner-machine SYNTHETIC-canary round-trip. Capability PROOF only: NO real credential, NO service master key, NO persisted blob, NO filesystem/registry, NO service/IPC/ACL, NO service-identity/administrator/secure-erasure/credential-custody claim. Machine-scope DPAPI is ONE primitive; service account + filesystem ACL + service-owned state remain mandatory."
+license = "UNLICENSED"
+
+[lints.rust]
+# Real Windows FFI needs `unsafe`; require an explicit inner `unsafe` for every unsafe op.
+unsafe_op_in_unsafe_fn = "deny"
+
+[dependencies]
+thiserror = "1"
+zeroize = { version = "1", features = ["zeroize_derive"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Security_Cryptography",
+    "Win32_Foundation",
+] }

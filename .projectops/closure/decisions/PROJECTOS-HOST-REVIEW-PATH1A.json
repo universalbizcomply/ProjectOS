@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "projectos:PROJECTOS-HOST-REVIEW-PATH1A:owner-closure:6f9bd06c",
+  "phaseId": "PROJECTOS-HOST-REVIEW-PATH1A",
+  "projectId": "projectos",
+  "scope": "phase-closure",
+  "decidedBy": "Murad",
+  "decidedAt": "2026-09-27T00:11:00.000Z",
+  "evidenceSubjectHead": "6f9bd06c443c44e5a33af80c85ea94e44c3bc80d",
+  "decision": "close",
+  "note": "OWNER-DIRECT CLOSURE (Murad), as PATH1B criterion 30 and owner gate 13 require: PROJECTOS-HOST-REVIEW-PATH1A is closed by the owner only after PROJECTOS-HOST-REVIEW-PATH1B, against the same accepted cumulative candidate, evidence subject 6f9bd06c443c44e5a33af80c85ea94e44c3bc80d. RECONCILED, NO NEW IMPLEMENTATION: 28 criteria SATISFIED by the accepted cumulative candidate, 3 SUPERSEDED in part by ratified PATH1B rules (criterion 9 attestation revision 2; criterion 28 one ratified dependency edge; criterion 29 two unattended vertical-slice assertions and hook isolation on every ProjectOS git call), 0 NOT APPLICABLE, 0 BLOCKED; the gatekeeper ACCEPTED the reconciliation (G1, 2026-09-26). O1-A CONFIRMED: the P1 production review-capability mint with its governed-review transport route and V5 scope companions; minting requires the sealed VerifiedOwnerProgrammeDelegation; no provider or spend authority. O1-B CONFIRMED: the windows-client-admission feature edge, the client-admission route, its two production constructors and the second mint of the existing VerifiedPeerAdmission; no new principal, authority type or IPC/session model. MANDATORY CARRY-FORWARD, not done here: pin windows-client-admission as non-default (B2) and out of the ipc test-fixtures graph (B5), mutation-proven, before autonomy-bootstrap certification or unattended authority activation, or earlier if that feature graph changes; stale 'no production mint' comments; the B15 admitted-cost wording. decidedAt is the relay time of the owner's approval (O1/O2/O3, 2026-09-27); ROUTE R1 was confirmed at 00:37Z. The one-time authority to run `phase advance --id PROJECTOS-HOST-REVIEW-PATH1A --to closed --as owner` for this closure only was given by Murad and is not reusable. Authorises nothing beyond this closure tail and its normal fast-forward push: PROJECTOS-AGENT-WORKFORCE1A is not started; no production, provider, spend, credential, messaging, payment or database activity.",
+  "ownerAcceptedFindings": [],
+  "consumedAt": "2026-09-27T00:59:03.131Z"
+}

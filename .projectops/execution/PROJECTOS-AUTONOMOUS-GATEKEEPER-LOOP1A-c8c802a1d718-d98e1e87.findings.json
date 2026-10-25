@@ -1,0 +1,89 @@
+{
+  "reviews": ["code-review", "security-review"],
+  "findings": [
+    {
+      "id": "H1",
+      "severity": "HIGH",
+      "category": "prompt-injection",
+      "summary": "nextClaudeInstruction from gatekeeper model flows into pathsNamedIn without untrusted-source labelling; path extraction regex matches all tokens regardless of narrative context — the approved-maximum gate is the real defense but the design trusts model output more than strictly necessary at this step",
+      "resolved": false
+    },
+    {
+      "id": "M1-code",
+      "severity": "MEDIUM",
+      "category": "code-quality",
+      "summary": "Duplicate JSDoc block on degradedContinuation in runner.ts lines 469-485; first block contradicts the second and the code — delete the superseded block",
+      "resolved": false
+    },
+    {
+      "id": "M2-code",
+      "severity": "MEDIUM",
+      "category": "correctness",
+      "summary": "readCommittedGrant uses HEAD:<rel> without ./ prefix in degradedModeGrants.ts line 121, while committedGovernanceOwner in the same file documents that HEAD:./<rel> is required for sub-directory checkouts — one-character fix",
+      "resolved": false
+    },
+    {
+      "id": "M3-code",
+      "severity": "MEDIUM",
+      "category": "consistency",
+      "summary": "unreadableDegradedStores in degradedMode.ts reads directly from disk via parseStore(sys.readText(...)) while readAllDegradedStores routes through readDegradedStoreDetailed which reads from git for committed files — inconsistent read paths, denial-of-self only",
+      "resolved": false
+    },
+    {
+      "id": "M1-sec",
+      "severity": "MEDIUM",
+      "category": "display-injection",
+      "summary": "safeExcerpt in openaiResponses.ts filters control chars but passes Unicode bidirectional overrides (U+202E etc) and zero-width characters that could visually obscure content in operator-facing log output",
+      "resolved": false
+    },
+    {
+      "id": "M2-sec",
+      "severity": "MEDIUM",
+      "category": "data-residency",
+      "summary": "store:true in OpenAI Responses API body persists evidence content (check output up to 4000 chars, findings, effects) on OpenAI servers unconditionally — no opt-out mechanism per call",
+      "resolved": false
+    },
+    {
+      "id": "M3-sec",
+      "severity": "MEDIUM",
+      "category": "correctness",
+      "summary": "consumeDegradedGrant at degradedMode.ts line 489 uses lenient readDegradedStore (returns null on corrupt) for read-back before appending work item — corrupt store resets ordinal to 1, potentially causing colliding ordinal that defeats exhaustion check",
+      "resolved": false
+    },
+    {
+      "id": "M4-sec",
+      "severity": "MEDIUM",
+      "category": "trust-boundary",
+      "summary": "correctionMaximumPaths is caller-supplied in RunOptions with no committed-plan verification inside runLoop — if CLI derives from working-tree plan rather than committed plan, boundary is wrong",
+      "resolved": false
+    },
+    {
+      "id": "L1-code",
+      "severity": "LOW",
+      "category": "portability",
+      "summary": "appendLedger in gatekeeperConfig.ts uses cmd /c move for atomic rename — Windows-only, silent failure on other platforms; project is currently Windows-only but System abstraction is portable",
+      "resolved": false
+    },
+    {
+      "id": "L2-code",
+      "severity": "LOW",
+      "category": "documentation",
+      "summary": "pathsNamedIn extension whitelist (.ts .tsx .js .cjs .mjs .json .md) in correctionBoundary.ts is invisible at call sites in runner.ts — a .yaml correction instruction would be refused with misleading 'no path named' message",
+      "resolved": false
+    },
+    {
+      "id": "L1-sec",
+      "severity": "LOW",
+      "category": "correctness",
+      "summary": "pathsNamedIn regex only matches forward-slash paths; Windows backslash paths in gatekeeper instructions would fail to extract, causing unnecessary correction refusal (fails closed, safe)",
+      "resolved": false
+    },
+    {
+      "id": "L2-sec",
+      "severity": "LOW",
+      "category": "cost-control",
+      "summary": "Budget estimate uses fixed 800-token output assumption in gatekeeperTurn.ts line 281; actual response may exceed estimate — per-call enforcement is approximate though monthly ledger uses actuals",
+      "resolved": false
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "1.0.0",
+  "recordKind": "gatekeeper-decision-evidence",
+  "decisionId": "GKDEC-GKREQ-6486c27e70710c933425423b",
+  "projectId": "projectos",
+  "phaseId": "PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A",
+  "subjectCommit": "d429fea9f5b88ce068f3cc418087434f9492f0fe",
+  "requestDigest": "sha256:fb99dd4ff27208ecf0430c5145de91583347bf19b1d91f18e49305865a4c0333",
+  "decision": "APPROVED_TO_PROCEED",
+  "reason": "All required checks passed, both required reviews are recorded, the only finding is resolved, and the candidate is available with the expected subject-bound execution records. The phase explicitly permits delegated technical continuation, with secrets-handling and payment-or-live-charge remaining owner-gated.",
+  "allowedActions": [
+    "commit",
+    "push",
+    "ff-only-integration"
+  ],
+  "forbiddenActions": [
+    "phase-closure",
+    "secrets-handling",
+    "payment-or-live-charge",
+    "deploy",
+    "database-mutation",
+    "external-message",
+    "broaden-scope",
+    "non-fast-forward-integration",
+    "unrelated-file-changes"
+  ],
+  "ownerApprovalRequired": false,
+  "decidedBy": "ChatGPT",
+  "decidedAt": "2026-09-03T19:53:12.000Z"
+}

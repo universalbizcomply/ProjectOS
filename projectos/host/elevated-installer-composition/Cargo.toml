@@ -1,0 +1,93 @@
+[package]
+name = "projectos-host-elevated-installer-composition"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "UNLICENSED"
+description = "CD-B4-ELEVATED-INSTALLER-IDENTITY-COMPOSITION1A. The sealed ELEVATED-INSTALLER composition boundary: it evaluates the installation preconditions, derives the sealed production InstallerTarget from the approved ProgramData anchor, and produces a READ-ONLY installation plan whose ordering places the canonical identity record before any service step. It performs NO installation effect: no Known Folder resolution, no ProgramData or Program Files write, no directory creation under production roots, no ACL, registry or SCM mutation, no service install or start, no elevation request, no production RNG. Runtime, Tauri and renderer crates must NOT depend on this crate."
+
+# THE MANUAL ADMINISTRATOR REGISTRATION COMMAND. `required-features` is the packaging boundary: a
+# default build does not produce this binary at all, so a shipped artefact cannot contain it. It
+# self-elevates nothing and launches nothing — an administrator runs it in a terminal they opened.
+[[bin]]
+name = "projectos-register-project"
+path = "src/bin/projectos-register-project.rs"
+required-features = ["registry-publish-effect"]
+
+# THE BOUNDED ELEVATED REGISTRATION HELPER, launched by the Control Centre through a real Windows UAC
+# prompt (PROJECTOS-PRODUCT-COMPLETION1A §11). Same packaging boundary as above: a default build does
+# not produce it. It performs ONE operation, accepts no destination and no command, and spawns
+# nothing — see the binary's own documentation for why it is separate from the terminal command
+# rather than a flag on it.
+[[bin]]
+name = "projectos-register-project-elevated"
+path = "src/bin/projectos-register-project-elevated.rs"
+required-features = ["registry-publish-effect"]
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[features]
+default = []
+# Fixture-only planning and execution against a disposable owned root. Non-default: a release graph can
+# construct no anchor, no target and no write authorisation at all.
+fixture-composition = [
+    "projectos-host-canonical-installation-identity-writer/fixture-writer",
+    # PROJECTOS-PHASE6-SECTION-C: the fixture publication runs the SAME sequence production runs, so
+    # it needs the same replacement primitive. It still resolves no Known Folder and derives no
+    # production destination — the fixture supplies a disposable one.
+    "dep:projectos-windows-runtime-primitives",
+    "dep:projectos-host-protected-file-primitives",
+]
+# The PRODUCTION dry run: read-only Known Folder resolution plus artefact evidence, stopping at the
+# frozen effect-authority gate. Non-default, and it authorises nothing — the gate still refuses.
+installer-dry-run = [
+    "projectos-host-canonical-installation-identity-writer/installer-windows",
+    "dep:projectos-windows-runtime-primitives",
+]
+
+# THE OWNER-APPROVED INSTALLED-PROJECT REGISTRY PUBLICATION. Non-default and additive: it turns on the
+# approved ProgramData anchor resolution and the elevation/replacement primitives. Without it this
+# crate can derive no destination and perform no publication at all.
+registry-publish-effect = [
+    "projectos-host-canonical-installation-identity-writer/installer-windows",
+    "dep:projectos-windows-runtime-primitives",
+    "dep:projectos-host-protected-file-primitives",
+]
+
+# THE OWNER-APPROVED INSTALLATION EFFECT. Non-default and additive: it turns on the writer's installer
+# route and the SCM adapter's owner-approval route. Without it this crate performs no effect at all.
+installer-effect = [
+    "installer-dry-run",
+    "projectos-host-canonical-installation-identity-writer/installer-windows",
+    "projectos-host-windows-service-control/owner-approved-installation",
+]
+
+[dependencies]
+# PROJECTOS-PHASE6-SECTION-C. THE installed-project registry contract: schema, validation and the pure
+# registration planner. Reused so the elevated side revalidates with the SAME rules the unelevated
+# planner used, rather than a second copy of them that could drift into being more permissive.
+projectos-project-registry = { path = "../project-registry" }
+# The two Windows primitives the publication needs: the process-token elevation question, and the only
+# replacement primitive that preserves a destination's own security descriptor. Optional, so the
+# default graph links neither.
+projectos-host-protected-file-primitives = { path = "../protected-file-primitives", optional = true }
+# SHA-256 for the staleness digest. Same version already used across this dependency graph.
+sha2 = "0.10"
+# The CLOSED canonical identity writer and record contract. Reused, never duplicated.
+projectos-host-canonical-installation-identity-writer = { path = "../canonical-installation-identity-writer" }
+projectos-host-identity = { path = "../host-identity" }
+# The frozen activation ordering, ACL composition and service-identity contracts.
+projectos-host-windows-activation-plan = { path = "../windows-host-activation-plan" }
+projectos-host-windows-acl-policy = { path = "../windows-acl-policy" }
+# The frozen service-installation contract: pre-effect check ordering and effect authority.
+projectos-host-windows-service-installation-contract = { path = "../windows-service-installation-contract" }
+# The bounded SCM lifecycle adapter. It owns every Windows service call; this crate makes none.
+projectos-host-windows-service-control = { path = "../windows-service-control" }
+# Root custody. Used to REQUIRE a custody plan; never opened against a production root.
+projectos-host-windows-root-custody = { path = "../windows-root-custody" }
+
+[target.'cfg(windows)'.dependencies]
+# The trusted READ-ONLY Known Folder resolvers, used only to prove an artefact is outside a production
+# root. Optional, so the default graph links no resolver at all.
+projectos-windows-runtime-primitives = { path = "../windows-runtime-primitives", optional = true }

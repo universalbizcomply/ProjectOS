@@ -1,0 +1,25 @@
+{
+  "phaseId": "PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A",
+  "evidenceSubjectHead": "7e65fe5a313e8bc9e6cfacd275dbe08905039368",
+  "validatorsPass": true,
+  "checksPass": true,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "headedProofPass": true,
+  "responsiveProofPass": true,
+  "protectedEffects": "NONE",
+  "establishedAt": "2026-08-10 13:06:13",
+  "notes": [
+    "Evidence subject 7e65fe5 is pushed and reconciled 0/0 with origin/projectos-v3; only closure-tail metadata changes after it.",
+    "validate-all 124/124 PASS exit 0. core 178, agent 77, control-centre 231. cargo check clean on the default and webdriver-e2e graphs; the WebDriver plugin is absent from the default graph. Frontend and sidecar builds clean. secrets, reporter and plan validators PASS. git diff --check clean.",
+    "Headed proof: the genuine ProjectOS Tauri desktop application driven through its own embedded WebDriver server on 127.0.0.1, owned by the app process, with no external driver and the bundled tauri.localhost frontend. T1 PASS.",
+    "Governed write path: Phase 12 was walked validating -> evidence -> awaiting_review -> awaiting_closure by REAL clicks in the Control Centre, each transition confirmed in the durable record written by @projectos/core. T7/T15 PASS.",
+    "Refusal honesty: clicking Close at awaiting_closure surfaced the runtime's exact G4 refusal (9 unmet predicates) and nothing closed. T10/T11/T14 PASS.",
+    "Disconnect honesty: killing the app's own daemon child made the surface stop claiming Live and report RUNTIME_STOPPED with the owner's next safe action. Restarting recovered plan v1.2, recomputed PLAN READY and reloaded Phase 12 at awaiting_closure with history intact. T12/T13 PASS.",
+    "T16/T17 are PASS WITH DISCLOSED PROPORTIONAL EVIDENCE: one genuine native Windows-input traversal of the real window with a visible focus indicator on every control, plus a repeatable headed-browser proof using real keyboard input (traversal with indicators, and Enter running the real handler). Repeatable native foreground acquisition from a background worker is a Windows harness limitation carried to Phase 17, not a ProjectOS defect.",
+    "Responsive: the real 9-predicate refusal text measured in the real styled element at 1440/768/390/320 \u2014 no horizontal overflow at any width, wrapping to 4/6/12/16 lines, not clipped, 44px touch targets at 768 and below, recovery text visible, zero console errors. Native minWidth 900 unchanged.",
+    "Review: no innerHTML or dangerouslySetInnerHTML in the renderer, so runtime refusal text is an escaped React text node; the governed request carries no role and no identity; G4 source is byte-unchanged since the accepted c127380.",
+    "GIT CAPABILITY (the final blocker, fixed at 7e65fe5): the daemon runs with no PATH by design, so it could not execute git and every fact the gate derives failed closed - it refused a phase whose tree was in fact clean. The HOST now resolves ONE absolute git.exe under the same guards as the Node runtime and passes only that path in PROJECTOS_GIT_EXE; PATH remains absent from the daemon environment and no caller can supply the binding. The sidecar rebinds exactly the `git` command and fails closed with no PATH fallback. Proven LIVE: the closure refusal moved from 9 unmet predicates to 3 to 1, and the remaining one is the correct one - stale evidence after substantive change - which the runtime could only compute by successfully running rev-parse, status, rev-list, merge-base and diff.",
+    "Proportional revalidation after the Git change: T1 PASS and the full governed matrix PASS (T2-T15, T18, T19, T21) against the rebuilt application. Unaffected accepted evidence - responsive, keyboard, disconnect/reconnect - is carried forward."
+  ]
+}

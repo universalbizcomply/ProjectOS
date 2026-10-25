@@ -1,0 +1,52 @@
+{
+  "schemaVersion": "1.0.0",
+  "recordId": "PROJECTOS-GATEKEEPER-LOOP1A-C15-OAUTH-DISCOVERY-FAILURE1A",
+  "projectId": "projectos",
+  "phaseId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+  "kind": "c15-oauth-discovery-failure",
+  "at": "2026-08-22T13:05:00.000Z",
+  "atLocal": "2026-08-22 14:05:00 Europe/London",
+  "outcome": "The tunnel is visible and selectable. OAuth discovery then failed — and for the first time the cause is OURS, not an OpenAI account or association matter.",
+  "failureClass": "A — OAuth discovery",
+  "resolvedBlockers": {
+    "tunnelVisible": true,
+    "workspace": "481e8f6c-130f-4dc8-a07d-4a06a9bf74f5",
+    "tunnelsEndpoint": "HTTP 200 listing exactly tunnel_6a8997326f108191a6f9bc9a0fce49c2",
+    "note": "Every account/association blocker is now behind us. The replacement tunnel appears in the picker and was selected."
+  },
+  "exactErrorText": "Error fetching OAuth configuration — MCP server https://tunnel-service.gateway.unified-0.internal.api.openai.org/v1/mcp/tunnel_6a8997326f108191a6f9bc9a0fce49c2 does not implement OAuth",
+  "whatThisReveals": "ChatGPT does not discover against the loopback path the tunnel-client probes. It resolves the tunnel to an OpenAI-internal gateway URL and performs RFC 9728 discovery against THAT resource identifier. The gateway host is not publicly resolvable, so this runs inside OpenAI's backend and reaches our bridge through the tunnel.",
+  "theMismatch": {
+    "chatgptResourceIdentifier": "https://tunnel-service.gateway.unified-0.internal.api.openai.org/v1/mcp/tunnel_6a8997326f108191a6f9bc9a0fce49c2",
+    "prmdPathChatgptWouldRequest": "/.well-known/oauth-protected-resource/v1/mcp/tunnel_6a8997326f108191a6f9bc9a0fce49c2",
+    "probeResults": {
+      "/.well-known/oauth-protected-resource": 200,
+      "/.well-known/oauth-protected-resource/mcp": 200,
+      "/.well-known/oauth-protected-resource/v1/mcp/tunnel_6a8997326f108191a6f9bc9a0fce49c2": 404,
+      "/v1/mcp/tunnel_6a8997326f108191a6f9bc9a0fce49c2": 404
+    },
+    "twoDistinctProblems": [
+      "PATH — OAUTH_ROUTES is an exact-match allowlist of two protected-resource paths. The path derived from the tunnel resource URL is not among them and 404s.",
+      "IDENTITY — our metadata declares resource = https://oauth-projectos.safw4n.com/mcp, while ChatGPT's resource identifier is the gateway URL. RFC 9728 expects the returned resource to match the identifier the client used, and our token audience check compares against the same value. Serving the path alone would not be sufficient."
+    ]
+  },
+  "notCausedBy": "Cloudflare, DNS, the public authorization server, the bridge's authentication, the replacement tunnel, the runtime key, or workspace association. All of those verified healthy at the moment of failure.",
+  "remedyOptionsNotExecuted": [
+    "MANUAL OAUTH ENTRY — the Advanced OAuth settings panel exposes oauthAuthorizationUrl, oauthTokenUrl, oauthRegistrationUrl, oauthAuthorizationServerBase and oauthResource. Filling these bypasses PRMD discovery entirely and needs NO source change. Cheapest test of whether everything downstream works.",
+    "SOURCE CHANGE — serve protected-resource metadata for the tunnel-derived path, and make the declared resource and accepted token audience match the identifier ChatGPT actually uses. Requires modifying ProjectOS source, which is not authorised."
+  ],
+  "stateAtFailure": {
+    "connectorCreated": false,
+    "publicAuthorizationServerMetadata": 200,
+    "publicMcp": 404,
+    "privateBridgeUnauthenticated": 401,
+    "openaiHealthz": "live",
+    "openaiReadyz": "ready",
+    "oldTunnelUntouched": true,
+    "cloudflareChanged": false,
+    "dnsChanged": false
+  },
+  "secretsExposed": "NONE",
+  "productionTouched": false,
+  "c15Status": "NOT ACCEPTED / NOT CLOSED"
+}

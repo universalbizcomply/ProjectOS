@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "PROJECTOS-RECOVERY-PLANNING-BRAIN1A-CLOSURE-DECISION1A",
+  "phaseId": "PROJECTOS-RECOVERY-PLANNING-BRAIN1A",
+  "projectId": "projectos",
+  "scope": "phase-closure",
+  "decidedBy": "ChatGPT",
+  "decidedAt": "2026-08-11T13:43:00+01:00",
+  "evidenceSubjectHead": "6ff32ee5cbd2fa7ff18e396f5f1fd501baa3f257",
+  "decision": "close",
+  "note": "ACCEPTED FOR CLOSURE. Planning-brain recovery acceptance criteria are satisfied. The planning corpus and trust-oracle defects were corrected at source, the activated recovery plan remains proportional at six phases with zero planning conflicts or unknowns, the subsequently discovered current-state truth defect was corrected and mutation-proven, and the fixed evidence subject has a clean-tree subject-bound validate-all result of 127/127 PASS with validate-plan-discovery-import PASS. No unresolved CRITICAL/HIGH finding or protected effect is accepted. Closed ProjectOS V3 records remain unchanged.",
+  "consumedAt": "2026-08-11T12:50:01.636Z"
+}

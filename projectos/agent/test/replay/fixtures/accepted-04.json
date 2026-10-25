@@ -1,0 +1,34 @@
+{
+  "schemaVersion": "1.0.0",
+  "recordKind": "gatekeeper-decision-evidence",
+  "decisionId": "GKDEC-REPLAY-06",
+  "projectId": "projectos",
+  "phaseId": "PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A",
+  "subjectCommit": "79723b07fe12f02defb03ac87a8c7d5faafc13e5",
+  "requestDigest": "sha256:b2f9e8b57b14491b6dfb6bdd8b6fdd65ac4754c5e02cc8ba222fb4719974f9a1",
+  "decision": "AWAITING_OWNER",
+  "allowedActions": [
+    "inspect-and-preserve-test-remote-and-git-failure-evidence",
+    "inspect-non-secret-repository-and-test-fixture-state",
+    "prepare-owner-decision-brief",
+    "design-non-mutating-remediation-proposal",
+    "record-owner-decision-when-provided"
+  ],
+  "forbiddenActions": [
+    "commit",
+    "push",
+    "phase-closure",
+    "secrets-handling",
+    "payment-or-live-charge",
+    "deploy",
+    "database-mutation",
+    "external-message",
+    "autonomous-risk-acceptance",
+    "unscoped-source-edits",
+    "repeated-correction-attempts-without-effective-write-scope"
+  ],
+  "ownerApprovalRequired": true,
+  "decidedBy": "ChatGPT",
+  "decidedAt": "2026-01-01T00:00:00.000Z",
+  "reason": "Replay fixture: the provider prose is not carried, only its presence."
+}

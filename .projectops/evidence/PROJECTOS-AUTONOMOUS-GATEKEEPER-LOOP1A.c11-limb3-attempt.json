@@ -1,0 +1,83 @@
+{
+  "schemaVersion": "1.0.0",
+  "recordId": "PROJECTOS-GATEKEEPER-LOOP1A-C11-LIMB3-ATTEMPT1A",
+  "projectId": "projectos",
+  "programmeId": "projectos-autonomous-self-hosting",
+  "phaseId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+  "kind": "criterion-progress",
+  "criterion": "C11",
+  "status": "LIMBS 1 AND 2 PROVEN — LIMB 3 ATTEMPTED WITH THE OWNER'S ONE CALL, NOT SETTLED",
+  "at": "2026-08-23T15:20:00.000Z",
+  "atLocal": "2026-08-23 16:20:00 Europe/London",
+  "recordedBy": "Claude (implementer). Nothing here claims owner provenance.",
+  "authority": "Owner ruling APPROVE C11 WITNESS2 ONE-CALL RECONCILIATION ACCESS, and gatekeeper ruling C11 STALE RESERVATION FINAL FIX — Option A.",
+
+  "theCorrection": {
+    "id": "C11-W2-F9",
+    "rule": "A reservation may be released by the attempt that is refusing it before any dispatch is possible. That attempt knows nothing was sent, so the installation's answered-record adds nothing there.",
+    "whatItDoesNotChange": "The cross-attempt rule is untouched. A RETRY of an unresolved reservation is still permitted only when the installation's record positively says the question went unanswered; answered refuses, unknown refuses.",
+    "whatItWillNeverDo": "It never touches an entry carrying recorded usage. A call that happened is not this function's to erase, in any circumstance.",
+    "residualStated": "If a project were de-authorised AFTER a real call was dispatched but before its settlement landed, this would release that reservation and the month would lose an estimate for spend that may really have occurred. It costs an estimate rather than a governance decision, and the alternative — a phantom charge that can never be cleared and a question that can never be asked again — is what actually blocked this witness twice.",
+    "alsoFixed": "A rehearsal (`--dry-run`) reserved its estimate and never released it, so the next real attempt refused it as unaskable. That is how the first one-call authorisation was lost. The rehearsal now releases what it reserved.",
+    "proofs": [
+      "1 — a pre-dispatch refusal releases its own zero-usage reservation with no broker record present",
+      "2 — a cross-attempt unknown answered-state still refuses a retry",
+      "3 — an answered call is still refused",
+      "4 — a settled call carrying real usage is never released"
+    ],
+    "verification": "agent 1107/1107 across 37 files; core 585/585; validators 131 registered, 131 PASS, 0 FAIL; typecheck and build clean"
+  },
+
+  "theOneCall": {
+    "authorisedBy": "Murad, for exactly one reconciliation call for GKWORK-1c6690305e3c24ea, reconciliation only",
+    "bothFactorsRecorded": {
+      "projectSide": "the owner's committed secrets-handling receipt for the phase, witness commit 79b8f3a",
+      "installationSide": "the temporary allowlist entry, ProjectOS commit 34cf7ce"
+    },
+    "preflight": "every check passed; asking would send request GKREQ-fabdf74e13b02e5d460510df about 907b9a2, estimated ~8405 micro-USD",
+    "made": true,
+    "reachedTheGatekeeper": false,
+    "outcome": "NOT RECONCILED (UNAVAILABLE) — the gatekeeper transport failed: no value is stored under this credential reference.",
+    "whatThatMeans": "The call reached the installation's transport broker, which refused at credential resolution: the machine's vault holds no value under the reference the witness configuration names. No provider was contacted and nothing was spent. Storing a value under that reference is credential provisioning, which the same authorisation explicitly excluded, so it was not done.",
+    "retried": false,
+    "verdictObtained": false,
+    "verdictApplied": "NONE — there is no verdict. Nothing was written to the reconciliation record, and the debt stands.",
+    "noVerdictShopping": "The call was made once. It was not repeated, and no second route was tried to obtain a different answer."
+  },
+
+  "allowlistRestored": {
+    "priorBlob": "f6c758babf28e274bbd7b7a1f2f95e97a6b981e2",
+    "currentBlob": "f6c758babf28e274bbd7b7a1f2f95e97a6b981e2",
+    "identical": true,
+    "projectsNow": ["projectos"],
+    "restoreCommit": "c8692ef",
+    "note": "The entry was added, withdrawn once to let the runtime clear a rehearsal reservation, re-applied for the call, and removed afterwards. Every intermediate state is a commit in the installation's own history, and the file now matches its prior bytes exactly."
+  },
+
+  "c11Status": {
+    "limb1_gatekeeperUnavailableOwnerDecision": "PROVEN — a genuine unavailability produced by the governance boundary with no sabotage, a runtime-derived outage identity GKOUT-edefc563fba96122a0ea30f8, the owner's three choices offered, and the owner's decision taken and committed.",
+    "limb2_degradedBoundedContinuation": "PROVEN — one bounded work item GKWORK-1c6690305e3c24ea under a committed one-use grant, consumption recorded durably OUTSIDE the project before the work, debt recorded and blocking the next gate, and replay refused live in the same run.",
+    "limb3_returnToGatekeeperReconciliation": "NOT PROVEN. The canonical route was exercised end to end and every binding check passed. Mismatched bindings are refused, each naming the exact mismatch. But no gatekeeper verdict exists, because the credential the witness names has no value in this installation's vault — so the debt could not be settled by a verdict that was never obtained."
+  },
+
+  "whatWouldCompleteLimb3": "A value stored under the credential reference the witness configuration names, which is credential provisioning and needs its own owner authority; or accepting limb 3 as provable only on the parent project's route, where the credential does resolve and the reconciliation path has already been exercised.",
+
+  "stateOfPlay": {
+    "gatekeeperVerdictObtained": false,
+    "debtOutstanding": true,
+    "reconciliationSettled": false,
+    "providerCalls": 0,
+    "realSpend": "nil — the one ledger entry is a zero-usage reservation for the request that was never sent",
+    "newDegradedWork": false,
+    "extraCalls": false,
+    "productionTouched": false,
+    "credentialsChanged": false,
+    "allowlistRestored": true,
+    "projectosSourceCommitted": false,
+    "projectosPushed": false,
+    "witnessPushed": false,
+    "secretsExposed": false
+  },
+
+  "recommendation": "DO NOT ACCEPT C11 in full. Limbs 1 and 2 are proven end to end and durably, with replay and mismatched bindings refused. Limb 3 is exercised but unsettled: the route works and refuses correctly, and the only thing missing is a reachable reviewer. The gatekeeper should decide whether to authorise credential provisioning for one witness call, or to accept limb 3 on the parent project's route and record C11 accordingly."
+}

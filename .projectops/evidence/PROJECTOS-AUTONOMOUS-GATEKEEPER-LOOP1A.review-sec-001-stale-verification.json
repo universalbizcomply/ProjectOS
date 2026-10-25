@@ -1,0 +1,40 @@
+{
+  "schemaVersion": "1.0.0",
+  "evidence": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A.review-sec-001-stale-verification",
+  "finding": "REVIEW-SEC-001",
+  "aliasedFindingId": "C11-W2-F5",
+  "verdict": "STALE / FALSE POSITIVE — not current",
+  "date": "2026-08-24T15:45:00Z",
+  "claimUnderTest": "The 2026-08-23 worker review claimed approvePlan's owner and project-identity anchors remain working-tree-sourced, and that the C11-W2-F1b correction explicitly left the plan-approval boundary open (out of scope).",
+  "verification": {
+    "method": "Direct read of current source, not evidence-file prose, per owner instruction to verify the live code path rather than trust old evidence or review wording.",
+    "ownerIdentityResolution": {
+      "location": "projectos/agent/src/planApproval.ts:1142, calling resolveRecordedOwner(sys, root, config, proposal.projectId, 'committed')",
+      "finding": "Called with planTrust='committed'. Inside resolveRecordedOwner (line 920-1054): when an active plan is declared, the working-tree declaration is cross-checked against the COMMITTED declaration and refused on mismatch (NO_ACTIVE_PLAN); the actual plan bytes used to extract governance.owner are then read via readCommittedJson, never from the working tree. When no plan is declared (genesis/first-plan case), eligibility itself is checked against the COMMITTED project-config, and the owner is read from the COMMITTED genesis record only. The function's own comment at line 962 self-labels this block '// C11-W2-F5. WHICH PLAN IS THE TRUST ANCHOR IS ITSELF A TRUSTED FACT.'"
+    },
+    "projectIdResolution": {
+      "location": "projectos/agent/src/planApproval.ts:1128-1141",
+      "finding": "trustedProjectId is read via readCommittedJson(sys, root, PROJECT_CONFIG_REL) — committed bytes only. Compared against proposal.projectId (the working-tree candidate); any established project (one with a committed project-config.json) that disagrees is refused with PROJECT_IDENTITY_MISMATCH before resolveRecordedOwner is even called."
+    },
+    "planMemoryPlanPathResolution": {
+      "location": "projectos/agent/src/planApproval.ts:970-989 (inside resolveRecordedOwner)",
+      "finding": "The working-tree declared path is read only to select a branch; under planTrust='committed' it is cross-validated against the COMMITTED project-config's own planMemory.planPath declaration, and any disagreement is refused (NO_ACTIVE_PLAN) before the path is used to read plan content — and that content read is itself from the committed tree (readCommittedJson), never the working copy."
+    },
+    "callSiteAudit": {
+      "method": "grep for every call site of resolveRecordedOwner across the agent source tree",
+      "result": "Exactly two call sites exist in production code: planApproval.ts:1142 and loop/gatekeeperConfig.ts:135. Both pass 'committed'. No call site passes 'working-tree'. No regression path exists."
+    },
+    "existingAdversarialTests": {
+      "location": "projectos/agent/test/planApproval.test.ts:1992, describe('C11-W2-F5 — trust anchors come from the commit gate')",
+      "tests": [
+        "A — a working-tree owner forgery is refused; the committed owner decides",
+        "A2 — re-pointing the declared active plan in the working copy alone is refused",
+        "B — a working-tree projectId forgery is refused (PROJECT_IDENTITY_MISMATCH)",
+        "C — the candidate plan itself stays uncommitted, and still approves (positive case)"
+      ],
+      "ranJustNow": "npx vitest run test/planApproval.test.ts -t \"C11-W2-F5\" — 6/6 pass against current source, 2026-08-24T15:40:24Z"
+    }
+  },
+  "conclusion": "The current, live approvePlan code path anchors owner identity, project identity, and plan-path selection to COMMITTED state, refusing any working-tree-only redefinition of any of the three — and this is directly, adversarially tested with 6 passing tests exercising exactly the attack REVIEW-SEC-001 describes. The finding text (both the original c11-w2-f1-correction.json prose and today's re-surfaced REVIEW-SEC-001) describes a PRE-fix state; the fix itself exists in current code, is self-labelled 'C11-W2-F5' in its own comment, and is proven by name in the test suite. REVIEW-SEC-001 is recorded as STALE / NOT CURRENT. No source modified.",
+  "action": "None — per owner ruling Outcome B: do not modify source, continue immediately to C12."
+}

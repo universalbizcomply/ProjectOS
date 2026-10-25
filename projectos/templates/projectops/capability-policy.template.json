@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "1.0",
+  "projectId": "REPLACE-PROJECT-ID",
+  "productionFrozen": true,
+  "permittedProfiles": ["readonly-reviewer", "staging-writer", "proof-runner", "production-readonly"],
+  "operationClassCredentials": [
+    "db-password",
+    "service-role-key",
+    "production-deploy-token",
+    "real-send-credential",
+    "payment-credential"
+  ],
+  "ownerPermitRequired": ["vercel-production-deploy", "supabase-production-migration"],
+  "refusedOperations": ["force-push", "mutate-production-db", "send-external", "process-payment"],
+  "mcp": {
+    "allowedServers": ["github", "supabase", "vercel"],
+    "productionServersDisabled": true
+  },
+  "writeLease": {
+    "onePerCheckout": true,
+    "ttlMinutes": 15
+  }
+}

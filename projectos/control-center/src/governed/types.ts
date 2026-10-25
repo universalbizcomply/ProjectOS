@@ -1,0 +1,395 @@
+/**
+ * Governed projection — the shape of REAL canonical ProjectOS state as the owner surface sees it.
+ *
+ * This is deliberately NOT the bridge daemon's model. The bridge daemon carries its own twelve-stage
+ * `PhaseStage` spine persisted under `.projectops/bridge/`; `@projectos/core` carries the
+ * nine-status governed lifecycle persisted to `.projectops/phases/<id>.json`. Only the second is the
+ * governance authority, so the owner surface reads that one. Routing owner control through the
+ * daemon's model would make it a third governance runtime, which crosswalk §5c forbids.
+ *
+ * Created in PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A.
+ */
+
+/** The nine `@projectos/core` phase statuses, plus the absence of a record. */
+export type GovernedPhaseStatus =
+  | 'not-started'
+  | 'draft'
+  | 'prompted'
+  | 'implementing'
+  | 'validating'
+  | 'evidence'
+  | 'awaiting_review'
+  | 'awaiting_closure'
+  | 'closed'
+  | 'closed_as_blocked'
+  | 'rolled_back';
+
+export interface GovernedTransition {
+  readonly from: string;
+  readonly to: string;
+  readonly by: string;
+  readonly at: string;
+  readonly note?: string;
+}
+
+export interface GovernedPhaseView {
+  readonly phaseId: string;
+  readonly description: string;
+  readonly status: GovernedPhaseStatus;
+  readonly dependsOn: readonly string[];
+  /** Dependencies not yet recorded complete. Empty means the phase may be started. */
+  readonly unmetDependencies: readonly string[];
+  /** True when the phase is in the approved plan AND its dependencies are satisfied. */
+  readonly startable: boolean;
+  readonly requiredOwnerGates: readonly string[];
+  readonly requiredBrowserProof: boolean;
+  /**
+   * WHAT THE APPROVED PLAN PROMISES FOR THIS STEP. All four were already recorded in the plan and
+   * none of them reached the owner: the surface could show that a step existed but never what it had
+   * to satisfy to be finished. They are the plan's own words, shown as written.
+   */
+  readonly acceptanceCriteria: readonly string[];
+  readonly requiredValidators: readonly string[];
+  readonly requiredReviews: readonly string[];
+  readonly riskLevel: string;
+  readonly autonomyLevel: string;
+  readonly history: readonly GovernedTransition[];
+  /** Recorded complete by the programme record even though the runtime never drove it. */
+  readonly closedByRecord: boolean;
+}
+
+export interface GovernedPlanView {
+  readonly planId: string;
+  readonly planVersion: string;
+  /** The status the record CLAIMS. Never used to decide anything — shown beside `ready`. */
+  readonly declaredStatus: string;
+  /** Recomputed by the real engine, never read from the record. */
+  readonly ready: boolean;
+  readonly unmetReasons: readonly string[];
+  readonly planPath: string;
+  readonly supersedes: string | null;
+}
+
+export interface GovernedProgrammeView {
+  readonly acceptedPhaseCount: number;
+  readonly totalPhaseCount: number;
+  readonly completionPercentage: number;
+  readonly completedPhases: readonly string[];
+  readonly pendingPhases: readonly string[];
+}
+
+export interface GovernedDelegationView {
+  readonly delegatedBy: string;
+  readonly delegatedTo: string;
+  readonly delegatedScope: readonly string[];
+  readonly projectScope: string;
+  readonly excludesProtectedActions: boolean;
+}
+
+export interface GovernedAuthorityView {
+  readonly owner: string;
+  readonly gatekeeper: string;
+  readonly implementer: string;
+  readonly closureAuthority: string;
+  readonly closureDelegation: GovernedDelegationView | null;
+  readonly ownerOnlyActions: readonly string[];
+}
+
+/**
+ * The gatekeeper's own spend, read from the SAME cost ledger `projectos run` writes to and
+ * enforces against. Never inferred or estimated — every number here is a pure re-summarisation of
+ * ledger entries the runtime already wrote, using the runtime's own `summariseLedger`/
+ * `evaluateBudget` functions, so this can never disagree with what actually decides a call.
+ */
+export interface GovernedGatekeeperView {
+  /** Whether `.projectops/gatekeeper.json` exists and declares `enabled: true`. */
+  readonly configured: boolean;
+  /** `null` when no budget is configured — never rendered as $0. */
+  readonly budget: {
+    readonly status: 'OK' | 'WARNING' | 'STOPPED';
+    readonly spentThisMonthMicroUsd: number;
+    readonly remainingMicroUsd: number;
+    readonly warnAtMicroUsd: number;
+    readonly hardStopAtMicroUsd: number;
+  } | null;
+  readonly spentThisPhaseMicroUsd: number;
+  readonly spentThisProjectMicroUsd: number;
+  readonly callCount: number;
+  /** The most recent ledger entry, however it resolved. `null` means never contacted. */
+  readonly lastCall: { readonly requestId: string; readonly model: string; readonly at: string; readonly costMicroUsd: number } | null;
+}
+
+/**
+ * One PENDING approval request, read straight from `.projectops/approvals/<id>.json` — the same
+ * canonical record `projectos approve request/decide` reads and writes. Only pending requests are
+ * ever included; a decided one is history, not an inbox item.
+ */
+export interface GovernedApprovalView {
+  readonly id: string;
+  readonly action: string;
+  readonly gated: boolean;
+  readonly prohibited: boolean;
+  readonly risk: string;
+  readonly requestedBy: string;
+  readonly requestedAt: string;
+}
+
+/**
+ * A draft plan proposal, matched against any decision found for it — read straight from
+ * `.projectops/drafts/<id>.json` and `.projectops/plan-decisions/<id>.json`. `decisionState` is a
+ * DISPLAY signal only: whether the matching decision, if any, is committed and still usable is
+ * re-checked for real by the governed `plan.activate` verb itself, which is the only thing that
+ * can actually act on it. This view exists so the owner does not have to already know a draft id
+ * and a decision id to type into a box before they can even see a plan exists.
+ */
+export interface GovernedPlanDraftView {
+  readonly draftId: string;
+  readonly planStatus: string;
+  readonly generatedAt: string;
+  readonly decisionState: 'none' | 'approved' | 'refused' | 'consumed';
+  readonly decisionId: string | null;
+  /**
+   * Which operation produced this proposal: 'authored' from the owner's objective, or 'import' from
+   * repository discovery. Read as 'import' when absent, which is what every record written before
+   * objective-led authoring existed was.
+   *
+   * DISPLAY ONLY, like every other field here. The runtime binds origin into the plan digest and
+   * decides the revalidation route from the persisted record; nothing a renderer shows can change it.
+   */
+  readonly origin?: 'import' | 'authored';
+  /**
+   * WHAT THE PROPOSAL SAYS, so the owner can read it before deciding on it.
+   *
+   * The Plans screen used to show two proposals as "Proposed plan · Written from your objective" and
+   * nothing else, and the detail view said only "its steps are created when you approve it" — the
+   * owner was asked to approve a plan they could not read, and could not tell two proposals apart.
+   * These three fields are lifted from the draft record the sidecar already reads in full: the
+   * plan's own vision, its phase candidates and the decisions it says the owner must take. DISPLAY
+   * ONLY and BOUNDED (the projection truncates): nothing shown here is authority, and the runtime
+   * still decides on the persisted record, never on this view.
+   */
+  readonly summary?: string;
+  readonly steps?: readonly { readonly id: string; readonly purpose: string; readonly risk: string }[];
+  readonly ownerDecisions?: readonly string[];
+}
+
+/**
+ * One worker execution session, read straight from `.projectops/execution/<id>.session.json` — the
+ * exact record `projectos run --resume --session <id>` looks up. Exists so the owner can see which
+ * sessions a phase has and pick one to resume, instead of already knowing a session id to type in.
+ */
+export interface GovernedSessionView {
+  readonly sessionId: string;
+  readonly phaseId: string;
+  readonly workerId: string;
+  readonly kind: string;
+  readonly startedAt: string;
+  readonly state: 'started' | 'rejoined' | 'exited' | string;
+  readonly exitCode: number | null;
+}
+
+/**
+ * ONE external connection a project may need, as the owner surface sees it.
+ *
+ * NEVER carries a credential value, and structurally cannot: it is built from `credentials status`,
+ * which is metadata-only — reference, presence, risk class and a non-reversible fingerprint are the
+ * entire value-derived surface the credential router will emit. `fingerprint` is a salted-domain
+ * SHA-256 truncation and is safe to display; it is included so an owner can tell two credentials
+ * apart without ever seeing either.
+ */
+export interface GovernedConnectionView {
+  readonly provider: string;
+  readonly environment: string;
+  readonly credential: string;
+  /** `ProjectOS/<project>/<environment>/<provider>/<credential>` — a NAME, never a secret. */
+  readonly reference: string;
+  /** `session` may be projected into a worker environment; `operation` is owner-gated per use. */
+  readonly risk: string;
+  readonly status: 'STORED' | 'MISSING' | 'EXPIRED' | 'UNMANAGED';
+  /** Non-reversible short digest, or null when ProjectOS has no metadata for this credential. */
+  readonly fingerprint: string | null;
+  readonly expiresAt: string | null;
+}
+
+/**
+ * Whether ProjectOS could establish the connection picture at all.
+ *
+ * `unavailable` is deliberately distinct from "no connections": an installation that cannot reach
+ * the credential router knows nothing about this project's credentials, and saying "none
+ * configured" would be a claim it has not earned.
+ */
+export interface GovernedConnectionsView {
+  readonly available: boolean;
+  /** Why the picture could not be built. Empty when `available`. */
+  readonly detail: string;
+  readonly connections: readonly GovernedConnectionView[];
+}
+
+export interface GovernedSafetyView {
+  readonly productionFreeze: boolean;
+  readonly forbiddenActions: readonly string[];
+  readonly approvalGates: readonly string[];
+}
+
+export interface GovernedRepositoryView {
+  readonly repo: string;
+  readonly localPath: string;
+  readonly branch: string | null;
+  readonly head: string | null;
+  readonly protectedBranches: readonly string[];
+  readonly onProtectedBranch: boolean;
+}
+
+/** A connected projection of real governed state. */
+/**
+ * WHERE THE AUTONOMOUS LOOP STOPPED, AND WHETHER IT IS WAITING FOR THE OWNER.
+ *
+ * Read straight from `.projectops/work.v1.json`, the durable checkpoint the loop writes at every
+ * step. Until this view existed the checkpoint had writers and no reader on the owner surface: a run
+ * that stopped BLOCKED with `ownerRequired: true` showed the owner an Overview that said "Ready" and
+ * offered "Start something new". Display only — the loop still decides from the record, and nothing
+ * here grants or resumes anything. Absent when the project has no checkpoint yet.
+ */
+export interface GovernedWorkView {
+  readonly phaseId: string;
+  /** The loop's own state word — EXECUTING, BLOCKED, WAITING_OWNER, COMPLETE … Shown through `plainStop`. */
+  readonly state: string;
+  readonly stopCode: string | null;
+  /** The loop's own words for why it stopped, bounded. Technical; shown behind the plain sentence. */
+  readonly stopDetail: string | null;
+  readonly ownerRequired: boolean;
+  readonly sessionId: string | null;
+  readonly updatedAt: string;
+}
+
+/** One check the loop ran, exactly as it recorded it. */
+export interface GovernedCheckView {
+  readonly id: string;
+  /** `validator`, `test`, `typecheck` — the loop's own word for what kind of check this was. */
+  readonly kind: string;
+  readonly passed: boolean;
+  readonly at: string;
+}
+
+/** One thing the worker reported about its own work. */
+export interface GovernedFindingView {
+  readonly id: string;
+  readonly severity: string;
+  readonly summary: string;
+  readonly resolved: boolean;
+}
+
+/**
+ * WHAT THE LAST RUN OF A STEP ACTUALLY PROVED — read from the execution records the loop writes.
+ *
+ * Kept separate from the plan's promises above: one says what must be true, the other says what was
+ * observed. Showing them together is what lets a step's requirements be ticked off honestly, and
+ * keeping them apart is what stops a promise being mistaken for a result.
+ */
+export interface GovernedEvidenceView {
+  readonly phaseId: string;
+  readonly sessionId: string;
+  readonly collectedAt: string;
+  readonly checks: readonly GovernedCheckView[];
+  /** Reviews the worker recorded as done. Names, matched against the plan's required list. */
+  readonly reviewsRecorded: readonly string[];
+  readonly findings: readonly GovernedFindingView[];
+  readonly changedFileCount: number;
+}
+
+export interface GovernedProjection {
+  readonly connected: true;
+  /** The execution evidence for the most recent run, when there is one. */
+  readonly evidence?: GovernedEvidenceView | null;
+  /** The loop's durable checkpoint, when one exists. See `GovernedWorkView`. */
+  readonly work?: GovernedWorkView | null;
+  readonly projectId: string;
+  readonly projectName: string;
+  readonly repository: GovernedRepositoryView;
+  readonly plan: GovernedPlanView;
+  readonly programme: GovernedProgrammeView;
+  readonly phases: readonly GovernedPhaseView[];
+  readonly activePhase: GovernedPhaseView | null;
+  readonly nextStartablePhase: GovernedPhaseView | null;
+  readonly authority: GovernedAuthorityView;
+  readonly gatekeeperStatus: GovernedGatekeeperView;
+  /** Every PENDING approval request — the one central inbox, not scattered across surfaces. */
+  readonly pendingApprovals: readonly GovernedApprovalView[];
+  /** Every drafted plan proposal, newest first, matched against any decision recorded for it. */
+  readonly planDrafts: readonly GovernedPlanDraftView[];
+  /** Every worker execution session on record for this project, newest first. */
+  readonly sessions: readonly GovernedSessionView[];
+  /** External connections this project's credentials describe. Metadata only — never a value. */
+  readonly connections: GovernedConnectionsView;
+  readonly safety: GovernedSafetyView;
+  readonly blockers: readonly string[];
+  readonly risks: readonly string[];
+  readonly nextSafeAction: string;
+  /** Millisecond timestamp supplied by the producer — never generated inside the pure projection. */
+  readonly observedAt: string;
+}
+
+/**
+ * The honest alternative to a projection. The browser preview has no filesystem and no runtime, so
+ * it renders THIS rather than a synthetic snapshot dressed up as live state.
+ */
+export interface GovernedUnavailable {
+  readonly connected: false;
+  readonly reason: GovernedUnavailableReason;
+  readonly detail: string;
+}
+
+export type GovernedUnavailableReason =
+  | 'NO_RUNTIME'
+  | 'RUNTIME_STARTING'
+  | 'RUNTIME_STOPPED'
+  | 'REFUSED';
+
+export type GovernedState = GovernedProjection | GovernedUnavailable;
+
+/**
+ * The wire discriminant. Governed state travels as an ordinary transport message on the existing
+ * `daemon://message` channel rather than through a parallel protocol, so the encode/parse pair, the
+ * client dispatch and the store stay single-sourced.
+ */
+export const GOVERNED_MESSAGE_KIND = 'governed';
+
+export interface GovernedStateMessage {
+  readonly kind: typeof GOVERNED_MESSAGE_KIND;
+  readonly state: GovernedState;
+}
+
+export function isGovernedStateMessage(value: unknown): value is GovernedStateMessage {
+  if (typeof value !== 'object' || value === null) return false;
+  const rec = value as Record<string, unknown>;
+  if (rec['kind'] !== GOVERNED_MESSAGE_KIND) return false;
+  const state = rec['state'];
+  return typeof state === 'object' && state !== null && 'connected' in state;
+}
+
+/**
+ * ONE installed project the owner may select. Non-secret, non-authoritative: it says what a project
+ * is called and where it lives, and grants nothing.
+ */
+export interface GovernedProjectSummary {
+  readonly projectId: string;
+  readonly projectName: string;
+  readonly repositoryRoot: string;
+  /** The repository identity from the project's own configuration (`owner/name`, or `none`). */
+  readonly repository: string;
+}
+
+/**
+ * The installed-project inventory as the daemon reports it.
+ *
+ * `registryStatus` is the closed token the Rust host produced when it read the protected registry —
+ * `ok`, `missing`, `malformed`, `invalid`, `unreadable`, `anchor-unresolved` — or `null` in a
+ * development run, where there is no installed host and therefore no registry to read.
+ */
+export interface GovernedProjectsInventory {
+  readonly projects: readonly GovernedProjectSummary[];
+  readonly registryStatus: string | null;
+  /** How many supplied roots did not survive validation. A number, never a path. */
+  readonly refusedCount: number;
+  readonly selectedProjectId: string | null;
+}

@@ -1,0 +1,75 @@
+{
+  "reviews": ["code-review", "security-review"],
+  "findings": [
+    {
+      "id": "CR-1",
+      "severity": "MEDIUM",
+      "category": "code-quality",
+      "summary": "runLoop in runner.ts is 188 lines, exceeding the 50-line guidance; justified in comments because the ordering of the nine pre-spawn checks IS the safety argument and splitting it would fragment that reasoning across modules",
+      "resolved": true
+    },
+    {
+      "id": "CR-2",
+      "severity": "MEDIUM",
+      "category": "code-quality",
+      "summary": "isAbsolutePath helper duplicated in workers.ts:99 and verification.ts:77; verification.ts comment says 'Duplicated deliberately — see workers.ts' to keep each module self-contained without a shared util that couples them",
+      "resolved": true
+    },
+    {
+      "id": "CR-3",
+      "severity": "MEDIUM",
+      "category": "code-quality",
+      "summary": "readSession in session.ts returns null on JSON parse failure, same as absent record — contradicts module's own 'malformed is not empty' principle applied to readFindings/readEffects; actual behaviour is safe (fresh start, not crash) but inconsistent with stated design",
+      "resolved": true
+    },
+    {
+      "id": "CR-4",
+      "severity": "MEDIUM",
+      "category": "code-quality",
+      "summary": "briefProvenanceProblems substring check in brief.ts:236 has false-positive window for short strings — a short invented value like 'true' would match the serialised plan/config and pass undetected; mitigated because the builder takes no free-text arguments so only a code change could introduce one",
+      "resolved": true
+    },
+    {
+      "id": "CR-5",
+      "severity": "LOW",
+      "category": "code-quality",
+      "summary": "Misplaced JSDoc in brief.ts:104-111 — orphaned comment block for buildWorkerBrief is attached to BriefRecordPaths interface instead; cosmetic",
+      "resolved": true
+    },
+    {
+      "id": "CR-6",
+      "severity": "LOW",
+      "category": "code-quality",
+      "summary": "Test files use readFileSync to read real config and plan fixtures from the repository, coupling tests to filesystem layout; deliberate per comments — a hand-rolled plan literal would drift from the shipped schema",
+      "resolved": true
+    },
+    {
+      "id": "SR-1",
+      "severity": "MEDIUM",
+      "category": "security",
+      "summary": "CREDENTIAL_SHAPED regex in workers.ts is a heuristic that may miss non-standard credential argument names; acceptable as defense-in-depth alongside the forbidden-action policy and scrubCredentials exec option",
+      "resolved": true
+    },
+    {
+      "id": "SR-2",
+      "severity": "LOW",
+      "category": "security",
+      "summary": "CREDENTIAL_IN_OUTPUT redaction in verification.ts is best-effort and would not catch base64-encoded tokens or JWTs; acceptable because the evidence record is owner-visible at the commit gate and redaction is a courtesy layer",
+      "resolved": true
+    },
+    {
+      "id": "SR-3",
+      "severity": "LOW",
+      "category": "security",
+      "summary": "workerId and command strings from committed config are echoed to CLI output lines in runner.ts:160-164 without credential scrubbing; mitigated because these values pass through the committed-config gate (owner already reviewed them) and the credential-shaped arg check catches the args array",
+      "resolved": true
+    },
+    {
+      "id": "SR-4",
+      "severity": "LOW",
+      "category": "security",
+      "summary": "The manual-governance attestation model (tamperProof: false) relies on the owner commit gate as backstop; documented explicitly in outcome.ts and claudeCodeCli.ts — not a vulnerability, a stated property of the governance model",
+      "resolved": true
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "PROJECTOS-GATEKEEPER-LOOP1A-COMMIT-GATE-RECEIPT1A",
+  "projectId": "projectos",
+  "phaseId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+  "gateName": "commit",
+  "gateInstanceId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A:commit@09650590ca2ed5c1f2c3b8372927a0037959cc62",
+  "evidenceSubjectHead": "09650590ca2ed5c1f2c3b8372927a0037959cc62",
+  "ownerChoice": "APPROVE",
+  "decidedBy": "Murad",
+  "decidedAt": "2026-08-17T21:05:00+01:00",
+  "scope": "owner-gate-only",
+  "note": "Owner approves committing the PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A change boundary. Conditions as met at the time of writing: code review and security review were run as a seven-lens adversarial review of the complete change boundary, producing 60 raw findings; 9 survived two-lens adversarial verification and 42 exceeded the verification cap and were triaged rather than dropped. Every CRITICAL and HIGH was corrected in code, not dispositioned. Remaining MEDIUM items are either corrected or carry an explicit disposition in the phase report. Validation: core 579/579, agent 492/492, control-centre 354/354, validate-all 130/130, 122 contract mutations killed, 12/12 validator drift cases caught, git diff --check clean. No API credential was created, read or exposed, and no protected effect occurred.",
+  "provenance": "Transcribed by the implementer (Claude) from owner Murad's ruling of 2026-08-17, which granted commit and push authority for this phase conditionally: \"IF AND ONLY IF code review complete, security review complete, unresolved CRITICAL = 0, unresolved HIGH = 0, required corrections complete, validation green, exact intended phase boundary confirmed, no API credential or protected effect occurred.\" The implementer wrote these bytes; the implementer did not grant this authority and cannot.",
+  "trustBasis": "MANUAL_GOVERNANCE_APPROVAL, tamperProof false. No signature here and none claimed. ProjectOS reads this record from the git object store rather than the working tree, and it has no effect until it is COMMITTED — so a receipt the owner did not authorise is a visible diff at the owner's own commit gate. That is the same guarantee every other authority record in this project rests on, and this record claims no more."
+}

@@ -1,0 +1,149 @@
+{
+  "schemaVersion": "1.0.0",
+  "projectContext": "acme-app",
+  "status": "AWAITING OWNER APPROVAL",
+  "duplicates": [],
+  "conflicts": [],
+  "draft": {
+    "schemaVersion": "1.0.0",
+    "authoritativeSource": ".projectops/plan.json",
+    "sourceInventory": [
+      ".projectops/plan.json",
+      "docs/execution-plan.md",
+      "docs/master-plan.md",
+      "README.md"
+    ],
+    "provenance": [
+      {
+        "field": "projectId",
+        "value": "acme-app",
+        "sourcePath": ".projectops/plan.json",
+        "sourceChecksum": "sha256:e2973956c3d808e7f40010812180a3d63b0dff606568229bbcd3f96b5a350612",
+        "locator": "regex:projectId",
+        "sourceAuthority": "AUTHORITATIVE",
+        "extractionMethod": "regex",
+        "confidence": "high",
+        "competingSources": [],
+        "conflictRef": null,
+        "manualReviewRequired": false
+      },
+      {
+        "field": "businessVision",
+        "value": "Deliver the Acme app to production under owner governance.",
+        "sourcePath": "docs/master-plan.md",
+        "sourceChecksum": "sha256:fe1514925fc256a4958636dc7fec8a275d141f2b3ecbdd987a4524526ae4dcf6",
+        "locator": "regex:businessVision",
+        "sourceAuthority": "CURRENT_SUPPORTING",
+        "extractionMethod": "regex",
+        "confidence": "medium",
+        "competingSources": [],
+        "conflictRef": null,
+        "manualReviewRequired": false
+      },
+      {
+        "field": "definitionOfComplete",
+        "value": "All phases delivered, validated, evidenced and owner-accepted.",
+        "sourcePath": "docs/execution-plan.md",
+        "sourceChecksum": "sha256:b54c5e953adbf97821aa1abb38d2c4abe1a57269299fcf9ff7a4a0a58d5c5c6d",
+        "locator": "regex:definitionOfComplete",
+        "sourceAuthority": "CURRENT_SUPPORTING",
+        "extractionMethod": "regex",
+        "confidence": "medium",
+        "competingSources": [],
+        "conflictRef": null,
+        "manualReviewRequired": false
+      }
+    ],
+    "phaseCandidates": [
+      {
+        "phaseId": "ACME-P1A",
+        "title": "ACME-P1A",
+        "purpose": "NEEDS OWNER DECISION",
+        "scope": "NEEDS SOURCE",
+        "exclusions": [],
+        "dependencies": [],
+        "acceptanceCriteria": [],
+        "expectedValidators": [],
+        "requiredReviews": [],
+        "ownerGates": [
+          "phase-closure"
+        ],
+        "sourceReferences": [
+          "docs/execution-plan.md"
+        ],
+        "confidence": "low",
+        "unresolvedQuestions": [
+          "acceptance criteria not sourced"
+        ]
+      },
+      {
+        "phaseId": "ACME-P1A",
+        "title": "ACME-P1A",
+        "purpose": "NEEDS OWNER DECISION",
+        "scope": "NEEDS SOURCE",
+        "exclusions": [],
+        "dependencies": [],
+        "acceptanceCriteria": [],
+        "expectedValidators": [],
+        "requiredReviews": [],
+        "ownerGates": [
+          "phase-closure"
+        ],
+        "sourceReferences": [
+          "docs/master-plan.md"
+        ],
+        "confidence": "low",
+        "unresolvedQuestions": [
+          "acceptance criteria not sourced"
+        ]
+      },
+      {
+        "phaseId": "ACME-P2A",
+        "title": "ACME-P2A",
+        "purpose": "NEEDS OWNER DECISION",
+        "scope": "NEEDS SOURCE",
+        "exclusions": [],
+        "dependencies": [],
+        "acceptanceCriteria": [],
+        "expectedValidators": [],
+        "requiredReviews": [],
+        "ownerGates": [
+          "phase-closure"
+        ],
+        "sourceReferences": [
+          "docs/execution-plan.md"
+        ],
+        "confidence": "low",
+        "unresolvedQuestions": [
+          "acceptance criteria not sourced"
+        ]
+      },
+      {
+        "phaseId": "ACME-P2A",
+        "title": "ACME-P2A",
+        "purpose": "NEEDS OWNER DECISION",
+        "scope": "NEEDS SOURCE",
+        "exclusions": [],
+        "dependencies": [],
+        "acceptanceCriteria": [],
+        "expectedValidators": [],
+        "requiredReviews": [],
+        "ownerGates": [
+          "phase-closure"
+        ],
+        "sourceReferences": [
+          "docs/master-plan.md"
+        ],
+        "confidence": "low",
+        "unresolvedQuestions": [
+          "acceptance criteria not sourced"
+        ]
+      }
+    ],
+    "unresolvedUnknowns": [],
+    "ownerDecisionsRequired": [],
+    "importConfidence": "medium"
+  },
+  "ownerApprovalRequired": true,
+  "planReadyGranted": false
+}

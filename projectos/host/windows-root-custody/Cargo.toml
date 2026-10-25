@@ -1,0 +1,34 @@
+[package]
+name = "projectos-host-windows-root-custody"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Handle-owned Windows filesystem ROOT CUSTODY foundation for the future ProjectOS Host Service. Opens one explicitly supplied absolute trusted directory, retains an owned Windows directory handle (RAII), refuses symlinks/junctions/other reparse points, captures stable handle-derived filesystem identity (volume serial + 128-bit file id), and revalidates that both the held object AND the original pathname still resolve to that identity — detecting replacement, redirection and drift. FOUNDATION ONLY: synthetic temporary roots in tests; NO ProgramData, NO ACLs, NO service identity/installation, NO IPC, NO registry, NO credentials, NO DPAPI/CNG. It does NOT claim complete race-free child-path custody, administrator resistance, or production filesystem custody."
+license = "UNLICENSED"
+
+[lints.rust]
+# Unsafe is confined to src/windows.rs (allowed at its module declaration) for the minimal Win32
+# directory-handle/identity primitives; the rest of the crate denies it.
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+
+[dependencies]
+# Reuses the ACCEPTED strict local-root syntax rule (drive-rooted absolute, no traversal/UNC/device/ADS)
+# instead of duplicating it; this crate adds the real handle-based filesystem checks that validator
+# explicitly defers.
+projectos-host-persistence = { path = "../persistence" }
+thiserror = "1"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+    # Required only because `CreateFileW`'s signature references `SECURITY_ATTRIBUTES`; a null pointer
+    # (documented default) is always passed — no security descriptor is constructed or applied.
+    "Win32_Security",
+] }
+
+# TEST-ONLY: `GetProcessHandleCount` for deterministic handle-lifecycle evidence. A dev-dependency, so
+# it is not part of the production dependency set.
+[target.'cfg(windows)'.dev-dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Threading"] }

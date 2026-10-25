@@ -1,0 +1,84 @@
+{
+  "schemaVersion": "1.0.0",
+  "sessionId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A-b9619f7cc845-7216e3dd",
+  "projectId": "projectos",
+  "phaseId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+  "subjectCommit": "b9619f7cc84528597c293c426c7b56d545415637",
+  "reviewedAt": "2026-08-18T04:15:00+01:00",
+  "reviews": [
+    "code-review",
+    "security-review"
+  ],
+  "findings": [
+    {
+      "id": "GK-SEC-001",
+      "severity": "HIGH",
+      "category": "data-integrity",
+      "summary": "Ledger appendLedger() uses read-then-write without atomic rename; a crash between read and write loses the entry, breaking budget accounting and enabling double-billing on restart.",
+      "resolved": false
+    },
+    {
+      "id": "GK-SEC-002",
+      "severity": "MEDIUM",
+      "category": "prompt-injection",
+      "summary": "safeExcerpt and instruction sanitiser (gatekeeperRouting.ts:207) filter ch >= ' ' which allows Unicode bidi overrides U+202A-U+202E. BLOCKED: write permission denied on projectos/agent/src/.",
+      "resolved": false
+    },
+    {
+      "id": "GK-SEC-003",
+      "severity": "MEDIUM",
+      "category": "authorization-bypass",
+      "summary": "ownerSecretsGateApproved() missing receipt['phaseId'] === phaseId cross-check. BLOCKED: write permission denied on run.ts.",
+      "resolved": false
+    },
+    {
+      "id": "GK-SEC-004",
+      "severity": "MEDIUM",
+      "category": "trust-attribution",
+      "summary": "decidedBy hardcoded 'ChatGPT' in openaiResponses.ts:302. Should source from config. BLOCKED: write permission denied.",
+      "resolved": false
+    },
+    {
+      "id": "GK-SEC-005",
+      "severity": "MEDIUM",
+      "category": "verification-gap",
+      "summary": "receiptIsCommitted() missing git diff --cached check for staged modifications. BLOCKED: write permission denied on ownerGateReceipts.ts.",
+      "resolved": false
+    },
+    {
+      "id": "GK-CODE-001",
+      "severity": "LOW",
+      "category": "type-safety",
+      "summary": "run.ts:121 let gatekeeper needs type annotation GatekeeperTurnDeps | undefined. BLOCKED: write permission denied.",
+      "resolved": false
+    },
+    {
+      "id": "GK-CODE-002",
+      "severity": "LOW",
+      "category": "budget-accuracy",
+      "summary": "buildResponsesBody missing max_output_tokens:800 to cap actual output. BLOCKED: write permission denied.",
+      "resolved": false
+    },
+    {
+      "id": "GK-CODE-003",
+      "severity": "LOW",
+      "category": "input-sanitization",
+      "summary": "safeExcerpt and gatekeeperRouting.ts:208 filter allows bidi overrides. BLOCKED: write permission denied.",
+      "resolved": false
+    },
+    {
+      "id": "GK-TYPECHECK-001",
+      "severity": "MEDIUM",
+      "category": "type-error",
+      "summary": "credentialResolver.test.ts:168 exactOptionalPropertyTypes — options? → options: {...} | undefined. BLOCKED: write permission denied.",
+      "resolved": false
+    },
+    {
+      "id": "GK-TYPECHECK-002",
+      "severity": "MEDIUM",
+      "category": "type-error",
+      "summary": "gatekeeperRehearsalCycle.test.ts:54 credentialRef: undefined → omit property. BLOCKED: write permission denied.",
+      "resolved": false
+    }
+  ]
+}

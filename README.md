@@ -104,3 +104,23 @@ files inside `C:\dev\ProjectOS`.
 - No GitHub Actions / CI.
 - No deploy wrappers, no DB tooling, no send/payment tooling.
 - No production, security-risk, payment, real-send or closure decisions (owner-gated).
+
+## ProjectOS V2 (branch `projectos-v2-core`, AWAITING-REVIEW)
+
+V2 turns the framework into a working operating system. On the `projectos-v2-core` branch
+(not yet merged/pushed — owner-gated):
+
+- **`projectos/core`** — pure TypeScript kernel (`@projectos/core`): phase/task state
+  machines, role permissions, risk classifier over the 8 safety gates, approval engine,
+  event log, config validator, git discovery, plugin registry, worker model, orchestration.
+- **`projectos/agent`** — the `projectos` CLI (`@projectos/agent`) over the kernel:
+  `status · init · install · validate · prompt · report · phase · approve · plan · plugins · close`.
+  Owner-only closure/approval enforced; runs governed phases persisted under `.projectops/`.
+- **`projectos/vscode`** — VS Code extension bridging to the CLI.
+
+Build (fresh clone): `npm install && npm run build` in `projectos/core`, then `projectos/agent`.
+Test: `npm test` in each (core 53 / agent 44, ~99% coverage). See
+`knowledge/reports/2026-07-09_ProjectOS_PROJECTOS-V2-COMPLETION_AWAITING-REVIEW.md` for the roll-up.
+
+Still owner-gated: Control Center (Tauri — needs Rust toolchain), Cloud Dashboard V2
+(Supabase + Vercel), and pushing this branch to origin.

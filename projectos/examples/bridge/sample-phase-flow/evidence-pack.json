@@ -1,0 +1,31 @@
+{
+  "id": "evid_01JSAMPLE0001",
+  "project": "acme-shop",
+  "phase": "LOGIN1A",
+  "status": "ready",
+  "created_at": "2026-07-09T09:07:10.000Z",
+  "created_by": "implementer",
+  "worker": "claude-code",
+  "source": "vscode",
+  "version": "1.0.0",
+  "branch": "phase/LOGIN1A",
+  "head": "not committed",
+  "filesChanged": ["src/components/Login.tsx", "src/auth/login.ts"],
+  "validators": [
+    { "name": "typecheck", "result": "pass" },
+    { "name": "unit-tests", "result": "pass" },
+    { "name": "no-secrets-scan", "result": "pass" }
+  ],
+  "confirmations": {
+    "secretsUsed": false,
+    "productionTouched": false,
+    "externalSends": false,
+    "payments": false,
+    "forcePush": false
+  },
+  "assets": ["assets/login-screen.png"],
+  "risks": ["No rate limiting on the login form."],
+  "carryForward": ["Add login rate limiting"],
+  "related_files": ["report.json"],
+  "decision_required": true
+}

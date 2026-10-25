@@ -1,0 +1,29 @@
+{
+  "phaseId": "PROJECTOS-V3-RELIABILITY-HARDENING1A",
+  "evidenceSubjectHead": "2b362eb1281eee10a4d1bc8f0f1a5984e96e3d12",
+  "validatorsPass": true,
+  "checksPass": true,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "headedProofPass": false,
+  "protectedEffects": "NONE",
+  "establishedAt": "2026-08-10 18:05:00",
+  "notes": [
+    "Evidence subject 2b362eb1281eee10a4d1bc8f0f1a5984e96e3d12 is pushed and reconciled 0/0 with origin/projectos-v3; only closure-tail metadata changes after it.",
+    "validate-all: 126 registered modules, 126 PASS, 0 FAIL, exit 0 — and for the first time in this repository that claim is not a hand-typed boolean. The run wrote .projectops/validation/2b362eb1281eee10a4d1bc8f0f1a5984e96e3d12.json from a clean tree at this exact subject, listing every module by name with its result plus the aggregate command, and G4-17 compares the plan's requiredValidators against it BY NAME. validate-all (aggregate), validate-reliability-hardening and validate-zero-relay-continuity are all recorded passing there.",
+    "THE GATE ALREADY REFUSED THIS CLOSURE ONCE, at subject 7b98497, with G4-17 naming validate-all as a plan-required validator not recorded as passing — because the record listed only the registered modules and the plan requires the aggregate command. That was a real gap in the mechanism, not a paperwork problem, and it was fixed by naming the aggregate separately rather than by weakening the predicate or editing the record. The refusal is the strongest evidence that this gate is not decorative.",
+    "core 191/191, agent 96/96, typecheck clean, git diff --check clean, no raw secret.",
+    "PLAN v1.3 ACTIVE. Owner approval bound to the canonical committed git blob of the candidate, sha256 4d35bc34b5740aacc98c9350221603cc2dc611081dd53581024da98ce1e497f1, re-verified with git cat-file before binding — not to a working-tree hash, which core.autocrlf would change on any fresh clone. Activation proof 28/28 recomputed from the real plan engine.",
+    "PRIMARY ACCEPTANCE — LIVE ZERO-RELAY CONTINUITY, run by the committed harness projectos/worker/zero-relay-proof.cjs: supervisor pid 3524, Worker A pid 33992 which EXITED before anything replaced it, Worker B pid 42340 whose parentPid is 3524. Worker B received identifiers only, independently re-derived repository root, branch, head, plan version and phase membership and matched them field by field with zero mismatches, then performed the one stored continuation and updated durable state. No prompt was pasted by anyone.",
+    "Ownership is proven by a RECORDED REFUSAL, not by silence: Worker A attempted one more governed write after releasing and was refused. A worker that merely stopped is indistinguishable from one that was prevented, and only one of those is a guarantee.",
+    "The protected-action boundary is proven by an ATTEMPT: Worker B asked the continuation gate to deploy-production in memory and was refused. It cannot be evidenced by never trying.",
+    "Owner authority is proven in a SECOND ledger, because a completed handoff cannot show a stop being obeyed — if the stop is honoured the continuation does not happen. The owner stopped the project between the permit and the spawn, the executor's last check caught it and started nothing.",
+    "FAILURE MATRIX 26/26 against a real disposable git repository with real child processes: the 21 cases the directive names, plus five added from review findings, including six GENUINELY CONCURRENT processes racing for one lock where exactly one may win.",
+    "REVIEW: 1 CRITICAL and 2 HIGH, all FIXED, each with a matrix case so the fix cannot regress. CRITICAL — git was spawned by BARE NAME in the worker, validator and CLI paths; on Windows that resolves against the current directory before PATH, and the current directory is the governed checkout, so a planted git.exe could have answered 'clean' to the closure gate and decided whether its own phase may close. Now bound to one absolute executable with no bare-name fallback. HIGH — lock acquisition was read-then-write and now ends in an exclusive create. HIGH — a governed refusal escaped a finally block as an uncaught stack trace. Two MEDIUM and one LOW also fixed. 0 unresolved CRITICAL, 0 unresolved HIGH.",
+    "G4-17 IS THE MECHANISM THIS PHASE ADDED, and it gates this very closure: before it, evaluateG4 read one field off the plan phase and the plan's requiredValidators were read by nothing at all. 6/6 mutations killed, V1-V12 including the full subset lattice of a three-name requirement.",
+    "R17 carry-forwards reconciled against CURRENT source, not against the notes that raised them: R17-2 CLOSED (the approval loop was not governed-context-gated, so an approval could be minted and decided in a checkout whose plan is for another project), R17-7 pattern closed, the rest carried forward with reasons in docs/architecture/projectos-v3-phase17-r17-carryforward-reconciliation.md.",
+    "Also fixed: `phase new` could persist \"objective\": \"<objective>\" — the CLI's own default, which no schema, validator or G4 predicate ever read. The Phase-17 record was repaired through a bounded governed command, never hand-edited.",
+    "headedProofPass is false and the plan does not require a browser proof for this phase (requiredBrowserProof false). Nothing here claims a headed run; the Control Centre surface was not changed by this phase.",
+    "Protected effects: NONE. No production, deployment, database mutation, external send, payment, credential access or installation. The only writes outside source and evidence were inside .projectops/continuity/."
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "1.0.0",
+  "recordKind": "gatekeeper-decision-evidence",
+  "decisionId": "GKDEC-GKREQ-6e21415a4bdd9b134de751fb",
+  "projectId": "projectos",
+  "phaseId": "validation-cache",
+  "subjectCommit": "204fda72feca455c76d0a078d2c4900d3704132c",
+  "requestDigest": "sha256:6e8c617587c58cf7582087781fed125b92620d828d0b5dac6b4df043f1cf884e",
+  "decision": "AWAITING_OWNER",
+  "reason": "The restricted source-write prerequisite is now evidenced as effective, but progression remains blocked by a failing required agent-tests check. The claimed passing status is supported only by prior/static evidence after Node execution was permission-blocked, not by a current mechanical run. In addition, the 187-path candidate includes projectos/agent/src/loop/runner.ts and projectos/agent/src/loop/technicalContinuation.ts, which are outside the effective worker source-write grant; their provenance and authorization must be reconciled before continuation.",
+  "allowedActions": [
+    "inspect-and-preserve-current-test-evidence",
+    "run-non-mutating-agent-test-verification",
+    "inspect-committed-grant-and-candidate-path-provenance",
+    "prepare-owner-scope-reconciliation-brief",
+    "record-owner-decision-when-provided"
+  ],
+  "forbiddenActions": [
+    "commit",
+    "push",
+    "ff-only-integration",
+    "merge",
+    "force-push",
+    "phase-closure",
+    "secrets-handling",
+    "payment-or-live-charge",
+    "deploy",
+    "database-mutation",
+    "external-message",
+    "unscoped-source-edits"
+  ],
+  "ownerApprovalRequired": true,
+  "decidedBy": "ChatGPT",
+  "decidedAt": "2026-09-04T11:11:59.000Z"
+}

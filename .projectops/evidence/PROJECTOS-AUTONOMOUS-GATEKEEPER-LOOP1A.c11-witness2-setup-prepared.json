@@ -1,0 +1,102 @@
+{
+  "schemaVersion": "1.0.0",
+  "recordId": "PROJECTOS-GATEKEEPER-LOOP1A-C11-WITNESS2-SETUP-PREPARED1A",
+  "projectId": "projectos",
+  "programmeId": "projectos-autonomous-self-hosting",
+  "phaseId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+  "kind": "criterion-progress",
+  "criterion": "C11",
+  "status": "AWAITING OWNER — GATES 1 AND 2 PREPARED, NEITHER GRANTED",
+  "at": "2026-08-22T16:40:00.000Z",
+  "atLocal": "2026-08-22 17:40:00 Europe/London",
+  "recordedBy": "Claude (implementer). Nothing here claims owner provenance, and nothing here has authority.",
+  "supersedesNothing": "The earlier record c11-witness2-pregate.json is retained; it documents why the route was blocked and is not rewritten.",
+
+  "route": "Route A, per gatekeeper ruling: fresh isolated witness, project and programme authority boundary preserved. Route B (reusing ProjectOS identity to inherit delegation) was rejected and was not attempted.",
+
+  "witness2": {
+    "projectId": "projectos-degraded-witness2a",
+    "programmeId": "projectos-degraded-witness2",
+    "location": "C:/dev/projectos-degraded-witness2a",
+    "locationClass": "outside the ProjectOS repository; synthetic, disposable, non-production",
+    "currentHead": "9302d6a2e92506e3fe6a331ee87ada109c3ff063",
+    "origin": "https://witness.invalid/projectos-witness/degraded-witness2a.git — deliberately unreachable, never pushed",
+    "canonicalRepositoryIdentity": "projectos-witness/degraded-witness2a",
+    "productionFreeze": "ON",
+    "credentialsCopiedIn": "NONE",
+    "preserved": true
+  },
+
+  "gate1_witnessPlan": {
+    "status": "PREPARED — AWAITING OWNER APPROVAL",
+    "objectiveId": "5175661b6a184dbd",
+    "draftId": "5175661b6a184dbd",
+    "planDigest": "sha256:e360027ee99a84ac8f5c92891689ffd7457b851cf87683ae3eb58a1daf4e42a6",
+    "planStatus": "AWAITING OWNER APPROVAL",
+    "authoritative": false,
+    "baseHead": "9302d6a2e92506e3fe6a331ee87ada109c3ff063",
+    "phaseId": "PROJECTOS-DEGRADED-WITNESS2A",
+    "phaseConfidence": "high",
+    "unresolvedQuestions": [],
+    "unknowns": "none",
+    "conflicts": 0,
+    "provenanceErrors": 0,
+    "acceptanceCriteriaCount": 8,
+    "ownerGates": ["commit", "push", "phase-closure", "secrets-handling", "payment-or-live-charge"],
+    "requiredValidators": ["validate-all"],
+    "requiredReviews": ["security-review"],
+    "productScope": "NONE — the plan proves Criterion 11 and nothing else",
+    "protectedActions": "NONE authorised anywhere in it",
+    "howItWasProduced": "Through the canonical route: an objective was submitted and ProjectOS generated the draft from a self-declaring plan document. The document had to state a definition of complete and carry a Phases heading before ProjectOS would read its phase details at all — a deliberate guard against manufacturing phases out of design prose."
+  },
+
+  "gate2_witnessDelegation": {
+    "status": "PREPARED — NOT GRANTED, DELIBERATELY UNCOMMITTED",
+    "path": ".projectops/authority/closure-delegation.json (in the witness project)",
+    "delegationId": "PROJECTOS-DEGRADED-WITNESS2-GATEKEEPER-DELEGATION1A",
+    "projectId": "projectos-degraded-witness2a",
+    "programmeScope": "projectos-degraded-witness2",
+    "delegatedTo": "ChatGPT",
+    "delegatedScope": ["gatekeeper-review-decisions"],
+    "delegationDate": "PENDING OWNER DECISION",
+    "excludesProtectedActions": true,
+    "explicitlyExcluded": [
+      "owner risk acceptance — the degraded grant remains a separate owner decision",
+      "plan approval",
+      "every protected effect",
+      "any authority in another project or programme",
+      "any authority for the implementer"
+    ],
+    "proofItIsInert": "git show HEAD:./.projectops/authority/closure-delegation.json returns 'exists on disk, but not in HEAD'. ProjectOS reads the delegation from the git object store, so an uncommitted file has no effect. The runtime was re-run and still refuses with GATEKEEPER_MISCONFIGURED — verified, not asserted.",
+    "whyItCannotBeBorrowed": "The ProjectOS closure delegation is scoped to projectId 'projectos' AND programme 'projectos-autonomous-self-hosting', and its own text states it cannot be read as authority in any other project or programme. Preserving that isolation is the point; borrowing it would weaken exactly what ProjectOS is meant to prove."
+  },
+
+  "gate3_degradedGrant": {
+    "status": "NOT PREPARED — CANNOT BE",
+    "reason": "A valid grant must bind to a runtime-derived unavailability identity. No unavailability has been classified, because the runtime refuses before attempting the transport while Gate 2 is ungranted. Inventing a GKOUT value would fabricate precisely what this criterion exists to prove."
+  },
+
+  "sequenceIntegrity": "Gates must occur in order: plan approval, then committed delegation, then a runtime-derived GKOUT, then the one-use degraded grant. Nothing was reordered and no step was simulated.",
+
+  "noSabotage": "No credential was revoked, corrupted or deleted; no key removed; no billing disabled; no service stopped; no network path broken. The real gatekeeper, tunnels and credentials are untouched. The unavailability, when it comes, will arise from the witness being outside the installation credential allowlist and holding no committed secrets-handling receipt.",
+
+  "stateOfPlay": {
+    "planApproved": false,
+    "delegationGranted": false,
+    "grantIssued": false,
+    "grantConsumed": false,
+    "degradedWorkPerformed": false,
+    "reconciliationPerformed": false,
+    "apiCalls": 0,
+    "cost": "nil",
+    "projectosSourceChanged": false,
+    "projectosCommit": false,
+    "projectosPush": false,
+    "productionTouched": false,
+    "protectedActions": "NONE"
+  },
+
+  "controlCentreGap": "The Control Centre can display state but cannot presently execute an owner approval, and the MCP bridge is read-only — it exposes seven read operations plus stop-work and can neither write an owner decision nor initiate a gatekeeper review. So this evidence is readable through the canonical channel, but both approvals must still be taken outside the product. Carried forward as a mandatory Control Centre requirement: every OWNER ACTION REQUIRED that ProjectOS raises should eventually be actionable in the Control Centre with APPROVE, REJECT and REVIEW EVIDENCE. Governance was not weakened to compensate for the missing interface.",
+
+  "recommendation": "Owner decides Gates 1 and 2. On genuine approval of both, the implementer continues autonomously to the runtime-derived GKOUT and then stops once more, at the degraded-risk decision."
+}

@@ -1,0 +1,232 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "projectos/schemas/project-plan.schema.json",
+  "title": "ProjectOS Project Plan (plan-memory record)",
+  "description": "Versioned machine-readable representation of an owner-approved project delivery plan. Source-of-truth hierarchy level 2. The human-readable plan document is authoritative (level 1). Created in PROJECTOS-V3-MASTER-PLAN-MEMORY1A.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "projectId", "projectName", "programmeId", "planId", "planVersion", "planStatus",
+    "businessVision", "definitionOfComplete", "approvedScope", "excludedScope", "successStandard",
+    "repository", "sourceDocuments", "phases", "environments", "providers",
+    "governance", "approval", "staleness", "security"
+  ],
+  "properties": {
+    "schemaVersion": { "type": "string" },
+    "projectId": { "type": "string", "minLength": 1 },
+    "projectName": { "type": "string", "minLength": 1 },
+    "programmeId": { "type": "string", "minLength": 1 },
+    "planId": { "type": "string", "minLength": 1 },
+    "planVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+$" },
+    "planStatus": {
+      "type": "string",
+      "enum": ["NO PLAN", "PLAN DISCOVERED", "PLAN CONFLICT", "PLAN DRAFTED", "AWAITING OWNER APPROVAL", "PLAN READY", "PLAN STALE", "PLAN BLOCKED"]
+    },
+
+    "businessVision": { "type": "string", "minLength": 1 },
+    "definitionOfComplete": { "type": "string", "minLength": 1 },
+    "approvedScope": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "excludedScope": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "successStandard": { "type": "string", "minLength": 1 },
+
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repositoryPath", "expectedRemote", "protectedBranches", "baselineCommit", "planPersistenceCommit", "planSourceBranch"],
+      "properties": {
+        "repositoryPath": { "type": "string", "minLength": 1 },
+        "expectedRemote": { "type": "string", "minLength": 1 },
+        "protectedBranches": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "baselineCommit": { "type": "string", "pattern": "^[0-9a-f]{40}$", "description": "Repository state the plan was created from. Does NOT itself contain the plan document." },
+        "planPersistenceCommit": { "type": ["string", "null"], "pattern": "^[0-9a-f]{40}$", "description": "Commit that persists the plan. null before commit; a 40-hex commit after. Never fabricated in advance." },
+        "planSourceBranch": { "type": "string", "minLength": 1 }
+      }
+    },
+
+    "sourceDocuments": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["documentPath", "sourceDocumentType", "sourceDocumentChecksum", "authoritative", "superseded"],
+        "properties": {
+          "documentPath": { "type": "string", "minLength": 1 },
+          "sourceDocumentType": { "type": "string", "enum": ["human-readable-plan", "requirements", "architecture", "risk-register", "evidence-matrix", "external-brief"] },
+          "sourceDocumentChecksum": { "type": "string", "minLength": 8, "description": "Deterministic identifier (e.g. sha256:<hex>) of the source document content." },
+          "authoritative": { "type": "boolean" },
+          "superseded": { "type": "boolean" }
+        }
+      }
+    },
+
+    "phases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["phaseId", "description", "dependsOn", "acceptanceCriteria", "riskLevel", "autonomyLevel", "requiredValidators", "requiredReviews", "requiredBrowserProof", "requiredOwnerGates"],
+        "properties": {
+          "phaseId": { "type": "string", "minLength": 1 },
+          "description": { "type": "string", "minLength": 1 },
+          "scope": { "type": "string" },
+          "dependsOn": { "type": "array", "items": { "type": "string" } },
+          "acceptanceCriteria": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+          "riskLevel": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+          "autonomyLevel": { "type": "string", "enum": ["read-only", "local-safe", "gated-execution"] },
+          "requiredValidators": { "type": "array", "items": { "type": "string" } },
+          "requiredReviews": { "type": "array", "items": { "type": "string" } },
+          "requiredBrowserProof": { "type": "boolean" },
+          "requiredOwnerGates": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+
+    "environments": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["environmentId", "productionFreeze"],
+        "properties": {
+          "environmentId": { "type": "string", "minLength": 1 },
+          "productionFreeze": { "type": "boolean" }
+        }
+      }
+    },
+
+    "providers": {
+      "type": "array",
+      "description": "Provider reference names only; raw credentials forbidden. Legitimately empty when a project has no applicable configured provider — do not invent a provider identity to satisfy the schema.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["providerRef"],
+        "properties": {
+          "providerRef": { "type": "string", "pattern": "^provider:[a-z0-9-]+$" }
+        }
+      }
+    },
+
+    "governance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["owner", "gatekeeper", "implementer", "allowedActions", "forbiddenActions", "ownerOnlyActions", "closureAuthority", "noApiPolicy"],
+      "properties": {
+        "owner": { "type": "string", "minLength": 1 },
+        "gatekeeper": { "type": "string", "minLength": 1 },
+        "implementer": { "type": "string", "minLength": 1 },
+        "allowedActions": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "forbiddenActions": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "ownerOnlyActions": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "closureAuthority": { "type": "string", "minLength": 1 },
+        "closureDelegation": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "OPTIONAL. Present only when the owner has explicitly delegated phase/programme closure for THIS project. Absent means closureAuthority is held directly and nothing is delegated — so no existing plan changes meaning. projectScope pins the delegation to one projectId so it can never leak to another project, and excludesProtectedActions records that protected actions stay with the owner.",
+          "required": ["delegatedBy", "delegatedTo", "delegationDate", "delegatedScope", "projectScope", "excludesProtectedActions"],
+          "properties": {
+            "delegatedBy": { "type": "string", "minLength": 1, "description": "The owner who granted the delegation. Never the implementer." },
+            "delegatedTo": { "type": "string", "minLength": 1, "description": "Who may close. Never the implementer." },
+            "delegationDate": { "type": "string", "minLength": 1 },
+            "delegatedScope": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string", "enum": ["phase-closure", "programme-closure"] },
+              "description": "Closure only. Protected actions are not delegable through this field."
+            },
+            "projectScope": { "type": "string", "minLength": 1, "description": "The projectId this delegation applies to. Must equal the plan's projectId." },
+            "excludesProtectedActions": { "type": "boolean", "const": true, "description": "Must be true: closure delegation never carries protected-action authority." },
+            "notes": { "type": "string" }
+          }
+        },
+        "noApiPolicy": { "type": "boolean" }
+      }
+    },
+
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["approvalStatus", "approvedBy", "approvalDate", "approvalEvidenceReference", "supersedesPlanVersion", "approvalBinding", "tamperProof", "approvalAuthority", "secureApprovalEvidence"],
+      "properties": {
+        "approvalStatus": { "type": "string", "enum": ["not-approved", "awaiting-owner-approval", "approved"] },
+        "approvedBy": { "type": "string", "description": "Owner identity. Must not be the implementer (Claude)." },
+        "approvalDate": { "type": "string" },
+        "approvalEvidenceReference": { "type": "string" },
+        "supersedesPlanVersion": { "type": ["string", "null"] },
+        "approvalBinding": { "type": "string", "enum": ["MANUAL_GOVERNANCE_APPROVAL", "SECURE_OWNER_APPROVAL"], "description": "How owner approval is bound. MANUAL relies on human governance + commit gate; SECURE requires secure evidence fields." },
+        "tamperProof": { "type": "boolean", "description": "Whether the approval is cryptographically tamper-proof. Must be false until secure binding is implemented — no overclaim." },
+        "approvalAuthority": { "type": "string", "enum": ["owner", "gatekeeper", "implementer"], "description": "Whose authority the approval represents. Only 'owner' is valid for PLAN READY." },
+        "approvalDelegation": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "OPTIONAL, and REQUIRED whenever approvedBy is not the recorded owner. Records that the owner delegated plan approval to a named person for this project, so that 'approvalAuthority: owner' with a different approvedBy is a checkable statement rather than a claim. Absent means the owner approved directly, so no existing plan changes meaning.",
+          "required": ["delegatedBy", "delegatedTo", "delegationDate", "delegatedScope", "projectScope", "excludesProtectedActions"],
+          "properties": {
+            "delegatedBy": { "type": "string", "minLength": 1, "description": "The owner who granted the delegation. Must be the plan's governance.owner, and never the implementer." },
+            "delegatedTo": { "type": "string", "minLength": 1, "description": "Who may approve a plan for this project. Never the implementer." },
+            "delegationDate": { "type": "string", "minLength": 1 },
+            "delegatedScope": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string", "enum": ["plan-approval"] },
+              "description": "Plan approval only. Protected actions and closure are not delegable through this field."
+            },
+            "projectScope": { "type": "string", "minLength": 1, "description": "The projectId this delegation applies to. Must equal the plan's projectId." },
+            "excludesProtectedActions": { "type": "boolean", "const": true },
+            "notes": { "type": "string" }
+          }
+        },
+        "secureApprovalEvidence": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "description": "Present only for SECURE_OWNER_APPROVAL. Reference identifiers ONLY — never a real signature, credential or token.",
+          "properties": {
+            "signatureRef": { "type": "string" },
+            "identityRef": { "type": "string" }
+          }
+        }
+      }
+    },
+
+    "staleness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lastVerifiedCommit", "lastVerifiedDate", "stalenessStatus", "stalenessReasons", "materialPlanInputs"],
+      "properties": {
+        "lastVerifiedCommit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "lastVerifiedDate": { "type": "string" },
+        "stalenessStatus": { "type": "string", "enum": ["fresh", "stale"] },
+        "stalenessReasons": { "type": "array", "items": { "type": "string" } },
+        "materialPlanInputs": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Fingerprints of the inputs whose material change stales the plan.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["inputId", "fingerprint"],
+            "properties": {
+              "inputId": { "type": "string", "minLength": 1 },
+              "fingerprint": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+
+    "security": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["secretPolicy", "rawSecretValuesForbidden", "sensitiveDataForbidden", "redactionRequired"],
+      "properties": {
+        "secretPolicy": { "type": "string", "minLength": 1 },
+        "rawSecretValuesForbidden": { "type": "boolean", "const": true },
+        "sensitiveDataForbidden": { "type": "boolean", "const": true },
+        "redactionRequired": { "type": "boolean", "const": true }
+      }
+    }
+  }
+}

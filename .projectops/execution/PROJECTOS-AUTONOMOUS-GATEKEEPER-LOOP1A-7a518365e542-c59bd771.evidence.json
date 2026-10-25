@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "1.0.0",
+  "sessionId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A-7a518365e542-c59bd771",
+  "phaseId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A",
+  "briefId": "PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A@7a518365e5426f13c0b1ce088562464b9e9288de",
+  "collectedAt": "2026-08-25T22:40:35.749Z",
+  "baseHead": "7a518365e5426f13c0b1ce088562464b9e9288de",
+  "currentHead": "7a518365e5426f13c0b1ce088562464b9e9288de",
+  "changedFiles": [
+    ".projectops/evidence/PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A.c11-degraded-continuation.json",
+    ".projectops/evidence/PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A.c11-degraded-gate.json",
+    ".projectops/evidence/PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A.c11-limb3-attempt.json",
+    ".projectops/evidence/PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A.c11-w2-f1-correction.json",
+    ".projectops/evidence/PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A.c11-w2-f6-correction.json",
+    ".projectops/evidence/PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A.c11-w2-f7-correction.json",
+    ".projectops/evidence/PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A.c11-witness2-activation.json",
+    ".projectops/evidence/PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A.c11-witness2-gkout.json",
+    ".projectops/evidence/PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A.c11-witness2-pregate.json",
+    ".projectops/evidence/PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A.c11-witness2-setup-prepared.json",
+    ".projectops/execution/PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A-7a518365e542-c59bd771.brief.json",
+    ".projectops/execution/PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A-7a518365e542-c59bd771.invocation.json",
+    ".projectops/execution/PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A-7a518365e542-c59bd771.session.json",
+    "Tunnel-Client/",
+    "selected-project.json"
+  ],
+  "diffStat": "",
+  "checks": [],
+  "requiredReviews": [
+    "code-review",
+    "security-review"
+  ],
+  "invocationId": "c59bd7714e7cf1af"
+}

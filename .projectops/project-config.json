@@ -1,0 +1,159 @@
+{
+  "projectId": "projectos",
+  "projectName": "ProjectOS",
+  "projectType": "delivery-os",
+  "owner": "Murad",
+  "repo": "universalbizcomply/ProjectOS",
+  "localPath": "C:/dev/ProjectOS",
+  "environments": {},
+  "protectedBranches": [
+    "main",
+    "projectos-v2-core"
+  ],
+  "productionFreeze": true,
+  "planMemory": {
+    "planPath": ".projectops/plan-fad4d5ff8d67abc8-bbf6214dc32b.json",
+    "currentStatePath": ".projectops/current-state-fad4d5ff8d67abc8-bbf6214dc32b.json"
+  },
+  "planSources": [
+    "docs/projectos-autonomous-self-hosting-plan.md",
+    "docs/operational-recovery-plan.md",
+    "projectos/state/projectos-v3.plan.json",
+    "projectos/state/projectos-v3.current-state.json",
+    "projectos/state/projectos-recovery.plan.json",
+    "projectos/state/projectos-recovery.current-state.json",
+    "projectos/state/projectos-autonomous-self-hosting.current-state.json",
+    ".projectops/plan.json",
+    ".projectops/current-state.json",
+    ".projectops/plan-35316a7a7ad3acd6.json",
+    ".projectops/current-state-35316a7a7ad3acd6.json",
+    ".projectops/plan-35316a7a7ad3acd6-36e79927c769.json",
+    ".projectops/current-state-35316a7a7ad3acd6-36e79927c769.json",
+    ".projectops/plan-98675c78dc8b3175-786d909d1ccb.json",
+    ".projectops/current-state-98675c78dc8b3175-786d909d1ccb.json",
+    ".projectops/plan-9e373cb6b5324fde-ca4fc29feedd.json",
+    ".projectops/current-state-9e373cb6b5324fde-ca4fc29feedd.json",
+    "docs/projectos-hybrid-lifecycle-phases.json",
+    ".projectops/plan-67aabc6989dbc9e9-c38a9fee4466.json",
+    ".projectops/current-state-67aabc6989dbc9e9-c38a9fee4466.json",
+    "docs/projectos-host-review-path-phases.json",
+    ".projectops/plan-ef6f5cdbbcea85d9-25086397bd75.json",
+    ".projectops/current-state-ef6f5cdbbcea85d9-25086397bd75.json",
+    "docs/projectos-host-review-path-continuation-phases.json",
+    ".projectops/plan-a45a693cb1a5f4b2-e9e72d69fc4a.json",
+    ".projectops/current-state-a45a693cb1a5f4b2-e9e72d69fc4a.json",
+    "docs/projectos-foundation-gaps-phases.json",
+    ".projectops/plan-01053932764c573b-68d21d6830c1.json",
+    ".projectops/current-state-01053932764c573b-68d21d6830c1.json",
+    "docs/projectos-autonomy-bootstrap-phases.json",
+    ".projectops/plan-b6f70f1ebc656030-b23611e2240f.json",
+    ".projectops/current-state-b6f70f1ebc656030-b23611e2240f.json"
+  ],
+  "allowedActions": [
+    "inspect-repository",
+    "create-local-files",
+    "run-local-validation",
+    "produce-evidence-report",
+    "use-openai-gatekeeper-api"
+  ],
+  "forbiddenActions": [
+    "production-deploy",
+    "production-db-mutation",
+    "real-email-sms-whatsapp",
+    "payment-or-live-charge",
+    "force-push",
+    "use-anthropic-api",
+    "provider-credential-access",
+    "store-real-secret",
+    "modify-projectos-v2-core",
+    "modify-v2-closure-records",
+    "modify-polygo"
+  ],
+  "approvalGates": [
+    "commit",
+    "push",
+    "phase-closure",
+    "secrets-handling",
+    "production-deploy",
+    "production-db-mutation",
+    "real-email-sms-whatsapp",
+    "payment-or-live-charge"
+  ],
+  "secretsPolicy": {
+    "allowSecretsInRepo": false,
+    "redactionRequired": true,
+    "notes": "No raw secret values are stored in plan memory, current state, sessions, reports or prompts. Providers are referenced by name only. Redaction is required for any sensitive value."
+  },
+  "execution": {
+    "checks": [
+      {
+        "id": "core-tests",
+        "kind": "test",
+        "command": "C:/Program Files/nodejs/node.exe",
+        "args": [
+          "C:/Program Files/nodejs/node_modules/npm/bin/npm-cli.js",
+          "--prefix",
+          "projectos/core",
+          "test"
+        ]
+      },
+      {
+        "id": "agent-tests",
+        "kind": "test",
+        "command": "C:/Program Files/nodejs/node.exe",
+        "args": [
+          "C:/Program Files/nodejs/node_modules/npm/bin/npm-cli.js",
+          "--prefix",
+          "projectos/agent",
+          "test"
+        ]
+      },
+      {
+        "id": "agent-typecheck",
+        "kind": "typecheck",
+        "command": "C:/Program Files/nodejs/node.exe",
+        "args": [
+          "C:/Program Files/nodejs/node_modules/npm/bin/npm-cli.js",
+          "--prefix",
+          "projectos/agent",
+          "run",
+          "typecheck:all"
+        ]
+      },
+      {
+        "id": "speed-benchmark",
+        "kind": "test",
+        "command": "C:/Program Files/nodejs/node.exe",
+        "args": [
+          "projectos/speed/benchmark.cjs"
+        ]
+      }
+    ],
+    "defaultWorkerId": "claude-local",
+    "workers": [
+      {
+        "workerId": "claude-local",
+        "kind": "claude-code-cli",
+        "command": "C:/Users/murad/.local/bin/claude.exe",
+        "args": [
+          "--allowedTools",
+          "Write(.projectops/execution/*.findings.json),Edit(.projectops/execution/*.findings.json),Write(.projectops/execution/*.effects.json),Edit(.projectops/execution/*.effects.json),Write(.projectops/proof/*.json),Edit(.projectops/proof/*.json)",
+          "--setting-sources",
+          "project"
+        ],
+        "notes": "The owner's local Claude Code CLI. Absolute by requirement: a bare name would resolve against the governed checkout before PATH. No credential is passed and no Anthropic API is called — use-anthropic-api remains a forbidden action. The allowlist grants exactly the two records the WORKER owns: its findings and its effects attestation. It deliberately does NOT cover *.brief.json, *.session.json or *.evidence.json — those are ProjectOS's, and a worker able to rewrite the brief it was judged against, or the evidence collected about it, could launder its own run. An earlier grant of .projectops/execution/** was too broad and was narrowed here; `workers.ts` refuses any grant that is not exactly one of the six patterns it enumerates, so a future config cannot widen it silently. The two proof-surface grants were activated for PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A: `.projectops/proof/*.json` holds no product code, plan, authority record or configuration, and it is the surface that phase's bounded change is made on. `--setting-sources project` was added after PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A attempt 2: the governed worker loaded the owner's USER-level Claude Code settings, and a user-installed plugin's SessionEnd hook (`node .../session-end-cleanup.mjs`, from the vercel plugin) failed inside Claude Code's own hook shell with `node: command not found`, which made claude.exe exit 1 and the loop read a finished worker as WORKER_REFUSED - a paid gatekeeper call about the owner's plugin list. Restricting the worker to PROJECT settings means nothing the owner installs for their own interactive sessions - plugins, hooks, MCP servers - executes inside a governed run unless it is committed in this repository, which is also the narrower trust boundary. Proven through the adapter's exact exec path: exit 1 with the hook error without the flag, exit 0 with it."
+      }
+    ]
+  },
+  "validators": [
+    "projectos/validators/validate-all.cjs"
+  ],
+  "evidenceRequirements": [
+    "evidence-pack",
+    "validator-results",
+    "scope-confirmation",
+    "reports-index:knowledge/ProjectOS Reports Index.md",
+    "phase-reports:knowledge/reports/"
+  ],
+  "installStatus": "installed"
+}

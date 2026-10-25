@@ -1,0 +1,1592 @@
+/**
+ * Discharging degraded-mode debt, proven against a real git repository and a fake provider.
+ *
+ * NOTHING HERE IS A REAL GRANT OR A REAL CALL. The fixtures live in a temporary directory committed
+ * to a throwaway repository, the credential is a literal test string, and the HTTP port is injected —
+ * no network is opened and no key on this machine is read. `grantedBy` names the owner only to
+ * exercise the contract's comparisons.
+ *
+ * WHAT THESE PROVE, in the order the safety argument runs: a debt can only be cleared by a real
+ * decision, bound to this exact work, over the exact bytes the owner approved; every other path
+ * leaves the debt standing; nothing is paid for that could not be recorded; and once cleared, the
+ * same review cannot be spent twice.
+ */
+import { describe, it, expect, afterEach } from 'vitest';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync, readdirSync, renameSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import type { System } from '../src/system.js';
+import {
+  reconcileDegradedWork,
+  RECONCILIATION_ACCEPTED_VERDICT,
+  type ReconciliationDeps,
+} from '../src/loop/reconciliation.js';
+import { degradedStoreRelPath, readDegradedStore } from '../src/loop/degradedMode.js';
+import { degradedGrantRelPath } from '../src/loop/degradedModeGrants.js';
+import { inMemoryResolverForTests, unprovisionedResolver } from '../src/loop/credentialResolver.js';
+import type { HttpPort, HttpResponse } from '../src/loop/transports/openaiResponses.js';
+import { GATEKEEPER_INTERACTIVE_REL, nodeInteractivePort } from '../src/loop/gatekeeperHandoff.js';
+import {
+  GATEKEEPER_DECISION_SCHEMA_VERSION,
+  HOST_VERDICT_FOR,
+  type HostReviewPort,
+  DEGRADED_MODE_CHOICE,
+  DEGRADED_MODE_SCHEMA_VERSION,
+  RECONCILIATION_ASK,
+  gateBlockedByReconciliation,
+  reconciliationState,
+  type BudgetPolicy,
+  type GovernanceThreadBinding,
+  type LedgerEntry,
+  type RateCard,
+} from '@projectos/core';
+
+const PROJECT = 'projectos';
+const PHASE = 'PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A';
+const GRANT = 'DEGRADED-RECONCILE-FIXTURE1A';
+const WORK = 'GKWORK-000000000000fixture'.replace('fixture', 'aaaa');
+const OUTAGE = 'GKOUT-c1869b6abf8e873aa88abb8c';
+const REF = 'PROJECTOS_GATEKEEPER_OPENAI_KEY';
+const SECRET = 'sk-test-not-a-real-key-000000000000';
+const OWNER_ONLY = ['commit', 'push', 'phase-closure', 'secrets-handling', 'payment-or-live-charge'];
+const OWNER = 'Murad';
+const THREAD: GovernanceThreadBinding = {
+  schemaVersion: '1.0.0',
+  projectId: PROJECT,
+  repositoryRoot: '',
+  providerThreadId: 'resp_7f3a9c2e5b81d40a',
+  transportId: 'openai-primary',
+  createdAt: '2026-08-18T02:41:00+01:00',
+};
+
+const BUDGET: BudgetPolicy = { warnAtMicroUsd: 2_000_000, hardStopAtMicroUsd: 5_000_000 };
+
+const RATE: RateCard = {
+  model: 'gpt-5.6-terra',
+  inputMicroUsdPerMillion: 1_250_000,
+  cachedInputMicroUsdPerMillion: 125_000,
+  outputMicroUsdPerMillion: 10_000_000,
+};
+
+const stateDirs: string[] = [];
+let currentDurable: { stateDir: string; installRoot: string; repository: string } | null = null;
+/**
+ * The installation's durable record, per test, OUTSIDE the fixture project.
+ *
+ * A discharge updates this first and the project mirror second, so a test that put it inside `root`
+ * would be proving nothing about the record that outlives the project.
+ */
+function durableBinding(): { stateDir: string; installRoot: string; repository: string } {
+  if (currentDurable === null) {
+    const stateDir = mkdtempSync(join(tmpdir(), 'projectos-install-state-'));
+    stateDirs.push(stateDir);
+    currentDurable = { stateDir, installRoot: '/install/ProjectOS', repository: 'github.com/local/fixture' };
+  }
+  return currentDurable;
+}
+
+const roots: string[] = [];
+afterEach(() => {
+  currentDurable = null;
+  for (const d of stateDirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  for (const r of roots.splice(0)) rmSync(r, { recursive: true, force: true });
+});
+
+interface World {
+  readonly root: string;
+  readonly sys: System;
+  /** The reviewed baseline: the parent of the authority commit. */
+  readonly subject: string;
+  readonly grantCommit: string;
+  readonly git: (...args: string[]) => string;
+}
+
+function nodeLikeSystem(root: string): System {
+  return {
+    now: () => '2026-08-20T16:00:00.000Z',
+    readText: (p: string) => (existsSync(p) ? readFileSync(p, 'utf8') : null),
+    writeText: (p: string, c: string) => {
+      mkdirSync(join(p, '..'), { recursive: true });
+      writeFileSync(p, c);
+    },
+    exists: (p: string) => existsSync(p),
+    listDir: (p: string) => (existsSync(p) ? readdirSync(p) : []),
+    createExclusive: (p: string, c: string) => {
+      try {
+        if (existsSync(p)) return false;
+        mkdirSync(join(p, '..'), { recursive: true });
+        writeFileSync(p, c, { flag: 'wx' });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    removeFile: (p: string) => {
+      try {
+        rmSync(p, { force: true });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    renameFile: (from: string, to: string) => {
+      try {
+        renameSync(from, to);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    exec: (command: string, args: readonly string[]) => {
+      try {
+        return { code: 0, stdout: execFileSync(command, [...args], { encoding: 'utf8' }), stderr: '' };
+      } catch (e: unknown) {
+        const err = e as { status?: number; stdout?: string; stderr?: string };
+        return { code: err.status ?? 1, stdout: err.stdout ?? '', stderr: err.stderr ?? '' };
+      }
+    },
+    env: () => undefined,
+  } as unknown as System;
+}
+
+/**
+ * A repository shaped exactly like a real degraded-mode aftermath: a reviewed baseline, a grant-only
+ * authority commit on top of it, and an uncommitted use record naming one unreconciled work item.
+ */
+function world(
+  over: { commitGrant?: boolean; store?: unknown | null; grant?: Record<string, unknown> } = {},
+): World {
+  const root = mkdtempSync(join(tmpdir(), 'projectos-reconcile-'));
+  roots.push(root);
+  const git = (...args: string[]) => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8' });
+  git('init', '-q');
+  git('config', 'user.email', 'test@example.invalid');
+  git('config', 'user.name', 'Test');
+  git('config', 'commit.gpgsign', 'false');
+  mkdirSync(join(root, '.projectops', 'authority'), { recursive: true });
+  mkdirSync(join(root, '.projectops', 'execution'), { recursive: true });
+  writeFileSync(join(root, 'README.md'), 'fixture\n');
+  git('add', '-A');
+  git('commit', '-q', '-m', 'reviewed baseline');
+  const subject = git('rev-parse', 'HEAD').trim();
+
+  const grantRel = degradedGrantRelPath(PHASE, GRANT) as string;
+  writeFileSync(
+    join(root, ...grantRel.split('/')),
+    `${JSON.stringify(
+      {
+        schemaVersion: DEGRADED_MODE_SCHEMA_VERSION,
+        grantId: GRANT,
+        projectId: PROJECT,
+        phaseId: PHASE,
+        unavailabilityId: OUTAGE,
+        ownerChoice: DEGRADED_MODE_CHOICE,
+        grantedBy: OWNER,
+        grantedAt: '2026-08-20T15:00:00.000Z',
+        reason: 'fixture',
+        grantedScope: ['implement'],
+        maxWorkItems: 1,
+        ...(over.grant ?? {}),
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  let grantCommit = '';
+  if (over.commitGrant !== false) {
+    git('add', '--', grantRel);
+    git('commit', '-q', '-m', 'authority: degraded grant');
+    grantCommit = git('rev-parse', 'HEAD').trim();
+  }
+
+  const store =
+    over.store === undefined
+      ? {
+          schemaVersion: '1.0.0',
+          grantId: GRANT,
+          unavailabilityId: OUTAGE,
+          projectId: PROJECT,
+          phaseId: PHASE,
+          consumedAt: '2026-08-20T15:18:56.178Z',
+          maxWorkItems: 1,
+          workItems: [
+            { workId: WORK, grantId: GRANT, phaseId: PHASE, summary: 'implement', at: '2026-08-20T15:18:56.178Z' },
+          ],
+          reconciliations: [],
+        }
+      : over.store;
+  if (store !== null) {
+    writeFileSync(
+      join(root, ...(degradedStoreRelPath(GRANT) as string).split('/')),
+      typeof store === 'string' ? store : `${JSON.stringify(store, null, 2)}\n`,
+    );
+  }
+
+  // THE INSTALLATION'S RECORD OF THE SAME SPEND, outside the project. Real consumption writes both:
+  // the durable entry first, the project mirror second. A discharge is refused unless the
+  // installation has a record of the work it would discharge, so the fixture must have one too.
+  const durable = durableBinding();
+  const items =
+    store !== null && typeof store !== 'string' && Array.isArray((store as Record<string, unknown>)['workItems'])
+      ? ((store as Record<string, unknown>)['workItems'] as Array<Record<string, unknown>>)
+      : [];
+  writeFileSync(
+    join(durable.stateDir, 'degraded-consumption.json'),
+    `${JSON.stringify(
+      {
+        schemaVersion: '1.0.0',
+        consumptions: items.map((w) => ({
+          schemaVersion: '1.0.0',
+          installRoot: durable.installRoot,
+          projectId: PROJECT,
+          repository: durable.repository,
+          phaseId: PHASE,
+          grantId: GRANT,
+          subjectCommit: subject,
+          unavailabilityId: OUTAGE,
+          workId: String(w['workId']),
+          summary: String(w['summary'] ?? ''),
+          consumedAt: '2026-08-20T15:18:56.178Z',
+        })),
+        reconciliations: [],
+      },
+      null,
+      2,
+    )}
+`,
+  );
+
+  return { root, sys: nodeLikeSystem(root), subject, grantCommit, git };
+}
+
+function fakeHttp(reply: HttpResponse): { http: HttpPort; sent: Array<{ headers: Record<string, string>; body: string }> } {
+  const sent: Array<{ headers: Record<string, string>; body: string }> = [];
+  return { sent, http: { post: (req) => (sent.push({ headers: { ...req.headers }, body: req.body }), reply) } };
+}
+
+/**
+ * A reply that is internally consistent for the verdict it carries.
+ *
+ * `checkGatekeeperDecision` refuses a continuation verdict with no instruction and an owner-gated
+ * verdict that claims no owner approval is needed, so a fixture that ignored either would prove the
+ * wrong refusal — DECISION_REFUSED where the test means to exercise the verdict itself.
+ */
+const CONTINUES = ['APPROVED_TO_PROCEED', 'AMENDMENT_REQUIRED'];
+const OWNER_GATED = ['APPROVED_TO_COMMIT', 'APPROVED_TO_PUSH', 'APPROVED_FOR_CLOSURE'];
+
+function verdict(decision: string, over: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    decision,
+    reason: 'the degraded work matches what the grant authorised',
+    nextClaudeInstruction: CONTINUES.includes(decision)
+      ? 'The debt is discharged; resume normal service at the next gate.'
+      : null,
+    allowedActions: ['implement'],
+    forbiddenActions: [...OWNER_ONLY],
+    ownerApprovalRequired: OWNER_GATED.includes(decision),
+    risks: [],
+    carryForward: [],
+    ...over,
+  };
+}
+
+function okReply(decision: Record<string, unknown>): HttpResponse {
+  return {
+    kind: 'response',
+    status: 200,
+    body: JSON.stringify({
+      id: 'resp_reconcile_0001',
+      created_at: '2026-08-20T16:00:05+01:00',
+      output: [{ content: [{ type: 'output_text', text: JSON.stringify(decision) }] }],
+      usage: { input_tokens: 4_000, input_tokens_details: { cached_tokens: 1_000 }, output_tokens: 300 },
+    }),
+  };
+}
+
+/** Deps bound to one world, because the thread binding names that world's checkout. */
+function deps(root: string, over: Partial<ReconciliationDeps> = {}): ReconciliationDeps {
+  return {
+    transport: { model: 'gpt-5.6-terra', credentialRef: REF, transportId: 'openai-primary' },
+    resolver: inMemoryResolverForTests(REF, SECRET),
+    http: fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT))).http,
+    rate: RATE,
+    budget: BUDGET,
+    ledger: [],
+    threadBinding: { ...THREAD, repositoryRoot: root },
+    repositoryRoot: root,
+    decidedBy: 'ChatGPT',
+    consumedDecisionIds: [],
+    recordSpend: () => undefined,
+    ...over,
+  };
+}
+
+/** Deps that remember what was charged, for the tests that care that the call was paid for. */
+function spendingDeps(root: string, over: Partial<ReconciliationDeps> = {}): {
+  deps: ReconciliationDeps;
+  charged: LedgerEntry[];
+} {
+  const charged: LedgerEntry[] = [];
+  return { charged, deps: deps(root, { recordSpend: (e) => charged.push(e), ...over }) };
+}
+
+function input(over: Record<string, unknown> = {}) {
+  return {
+    projectId: PROJECT,
+    phaseId: PHASE,
+    grantId: GRANT,
+    workId: WORK,
+    expectedDecider: 'ChatGPT',
+    ownerOnlyActions: OWNER_ONLY,
+    recordedOwner: OWNER,
+    durable: durableBinding(),
+    at: '2026-08-20T16:00:00.000Z',
+    ...over,
+  } as Parameters<typeof reconcileDegradedWork>[2];
+}
+
+describe('a debt that is not this one is never discharged', () => {
+  it('refuses when the grant has no use record at all', () => {
+    const w = world({ store: null });
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { http: fake.http }));
+    expect(r.kind).toBe('NO_SUCH_GRANT');
+    expect(fake.sent).toEqual([]);
+  });
+
+  it('refuses an unreadable use record rather than reading it as "never used"', () => {
+    const w = world({ store: '{ this is not json' });
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { http: fake.http }));
+    expect(r.kind).toBe('NO_SUCH_GRANT');
+    expect(fake.sent).toEqual([]);
+  });
+
+  it('refuses a record belonging to another project', () => {
+    const w = world();
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+    const r = reconcileDegradedWork(w.sys, w.root, input({ projectId: 'polygo' }), deps(w.root, { http: fake.http }));
+    expect(r.kind).toBe('NO_SUCH_GRANT');
+    expect(r.reasons.join(' ')).toContain("not 'polygo'");
+    expect(fake.sent).toEqual([]);
+  });
+
+  it('refuses a record belonging to another phase', () => {
+    const w = world();
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+    const r = reconcileDegradedWork(w.sys, w.root, input({ phaseId: 'SOME-OTHER-PHASE1A' }), deps(w.root, { http: fake.http }));
+    expect(r.kind).toBe('NO_SUCH_GRANT');
+    expect(fake.sent).toEqual([]);
+  });
+
+  it('refuses a work id this grant never recorded', () => {
+    const w = world();
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+    const r = reconcileDegradedWork(w.sys, w.root, input({ workId: 'GKWORK-deadbeefdeadbeef' }), deps(w.root, { http: fake.http }));
+    expect(r.kind).toBe('NOT_OUTSTANDING');
+    expect(r.reasons.join(' ')).toContain('records no work item');
+    expect(fake.sent).toEqual([]);
+  });
+
+  it('refuses work that is already reconciled, without asking again', () => {
+    const w = world({
+      store: {
+        schemaVersion: '1.0.0',
+        grantId: GRANT,
+        unavailabilityId: OUTAGE,
+        projectId: PROJECT,
+        phaseId: PHASE,
+        consumedAt: '2026-08-20T15:18:56.178Z',
+        maxWorkItems: 1,
+        workItems: [{ workId: WORK, grantId: GRANT, phaseId: PHASE, summary: 'implement', at: '2026-08-20T15:18:56.178Z' }],
+        reconciliations: [
+          { workId: WORK, decisionId: 'GKDEC-GKREQ-earlier', ask: RECONCILIATION_ASK, decisionAccepted: true },
+        ],
+      },
+    });
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { http: fake.http }));
+    expect(r.kind).toBe('NOT_OUTSTANDING');
+    expect(r.reasons.join(' ')).toContain('already reconciled');
+    expect(fake.sent).toEqual([]);
+  });
+});
+
+describe('the question is bound to the bytes the owner approved', () => {
+  it('asks about the authority commit\'s parent, not the outage id and not HEAD', () => {
+    const w = world();
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+    reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { http: fake.http }));
+    const body = fake.sent[0]?.body ?? '';
+    expect(body).toContain(w.subject);
+    expect(body).not.toContain(`subject: ${OUTAGE}`);
+    expect(w.subject).not.toBe(w.grantCommit);
+  });
+
+  it('refuses when the grant is not committed, so nothing bounds what may be reconciled', () => {
+    const w = world({ commitGrant: false });
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { http: fake.http }));
+    expect(r.kind).toBe('NO_SUCH_GRANT');
+    expect(r.reasons.join(' ')).toContain('uncommitted grant is not an owner decision');
+    expect(fake.sent).toEqual([]);
+  });
+
+  it('refuses when the authority commit carried anything besides the grant', () => {
+    const w = world({ commitGrant: false });
+    // The grant AND a source file in one commit: approving the baseline would also approve what rode
+    // in with it, which is the smuggling case `authorityWrapper` exists to catch.
+    writeFileSync(join(w.root, 'smuggled.ts'), 'export const x = 1;' + String.fromCharCode(10));
+    // Scoped, so the untracked use record is not swept in too — that would refuse for a different reason.
+    w.git('add', '--', degradedGrantRelPath(PHASE, GRANT) as string, 'smuggled.ts');
+    w.git('commit', '-q', '-m', 'authority: grant (and a passenger)');
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { http: fake.http }));
+    expect(r.kind).toBe('NO_SUBJECT');
+    expect(r.reasons.join(' ')).toContain('and nothing else');
+    expect(fake.sent).toEqual([]);
+  });
+
+  it('still reviews the same baseline after history has moved on, because a review comes later', () => {
+    const w = world();
+    writeFileSync(join(w.root, 'unrelated.txt'), 'later work\n');
+    // Only the unrelated file: `-A` would sweep the untracked use record into the commit too, and the
+    // refusal under test would then be the committed-record one rather than the moved-history one.
+    w.git('add', '--', 'unrelated.txt');
+    w.git('commit', '-q', '-m', 'later');
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { http: fake.http }));
+    expect(r.kind).toBe('RECONCILED');
+    // The question is still about the grant's parent, not about the new HEAD.
+    expect(fake.sent[0]?.body ?? '').toContain(w.subject);
+    expect(w.git('rev-parse', 'HEAD').trim()).not.toBe(w.subject);
+  });
+
+  it('shows the reviewer the recorded work item and nothing the caller composed', () => {
+    const w = world();
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+    reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { http: fake.http }));
+    const body = fake.sent[0]?.body ?? '';
+    expect(body).toContain(WORK);
+    expect(body).toContain(GRANT);
+    expect(body).toContain(OUTAGE);
+    expect(body).toContain(RECONCILIATION_ASK);
+  });
+
+  it('derives the same request after a restart, so the answer still fits the question', () => {
+    const w = world();
+    const a = fakeHttp(okReply(verdict('AWAITING_OWNER')));
+    const b = fakeHttp(okReply(verdict('AWAITING_OWNER')));
+    const first = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { http: a.http }));
+    const second = reconcileDegradedWork(nodeLikeSystem(w.root), w.root, input(), deps(w.root, { http: b.http }));
+    expect(first.requestId).toBe(second.requestId);
+    expect(first.requestId).not.toBeNull();
+  });
+});
+
+describe('nothing is paid for that could not be recorded', () => {
+  it('refuses before calling when the use record is already committed', () => {
+    const w = world();
+    w.git('add', '--', degradedStoreRelPath(GRANT) as string);
+    w.git('commit', '-q', '-m', 'evidence: degraded use record');
+    const before = readFileSync(join(w.root, ...(degradedStoreRelPath(GRANT) as string).split('/')), 'utf8');
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { http: fake.http }));
+
+    expect(r.kind).toBe('NOT_RECORDABLE');
+    expect(fake.sent).toEqual([]);
+    expect(r.ledgerEntry).toBeNull();
+    expect(readFileSync(join(w.root, ...(degradedStoreRelPath(GRANT) as string).split('/')), 'utf8')).toBe(before);
+    expect(w.git('status', '--porcelain').trim()).toBe('');
+  });
+
+  it('leaves the debt standing when the record cannot actually be written', () => {
+    const w = world();
+    const blind: System = { ...w.sys, writeText: () => undefined };
+    const r = reconcileDegradedWork(blind, w.root, input(), deps(w.root));
+    expect(r.kind).toBe('PERSIST_FAILED');
+    expect(r.ledgerEntry).not.toBeNull();
+    expect(r.outstandingAfter).toEqual([WORK]);
+    expect(readDegradedStore(w.sys, w.root, GRANT)?.reconciliations).toEqual([]);
+  });
+});
+
+describe('an unusable answer never clears anything', () => {
+  it('reports the reviewer unreachable and spends nothing when the network fails', () => {
+    const w = world();
+    const r = reconcileDegradedWork(
+      w.sys,
+      w.root,
+      input(),
+      deps(w.root, { http: fakeHttp({ kind: 'transport-error', detail: 'ECONNRESET' }).http }),
+    );
+    expect(r.kind).toBe('UNAVAILABLE');
+    expect(r.ledgerEntry).toBeNull();
+    expect(r.outstandingAfter).toEqual([WORK]);
+  });
+
+  it('refuses a reply that is not a structured decision', () => {
+    const w = world();
+    const r = reconcileDegradedWork(
+      w.sys,
+      w.root,
+      input(),
+      deps(w.root, { http: fakeHttp({ kind: 'response', status: 200, body: 'not json at all' }).http }),
+    );
+    expect(r.kind).toBe('UNAVAILABLE');
+    expect(readDegradedStore(w.sys, w.root, GRANT)?.reconciliations).toEqual([]);
+  });
+
+  it('never reaches the provider without a credential, and does not fall back', () => {
+    const w = world();
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { resolver: unprovisionedResolver('not provisioned in this fixture'), http: fake.http }));
+    expect(r.kind).toBe('UNAVAILABLE');
+    expect(fake.sent).toEqual([]);
+  });
+
+  it.each(['AMENDMENT_REQUIRED', 'AWAITING_OWNER', 'DO_NOT_PROCEED', 'APPROVED_TO_COMMIT'])(
+    'leaves the debt standing on %s, having paid for the answer',
+    (v) => {
+      const w = world();
+      const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { http: fakeHttp(okReply(verdict(v))).http }));
+      expect(r.kind).toBe('NOT_ACCEPTED');
+      expect(r.verdict).toBe(v);
+      expect(r.ledgerEntry?.costMicroUsd).toBeGreaterThan(0);
+      expect(r.outstandingAfter).toEqual([WORK]);
+      expect(readDegradedStore(w.sys, w.root, GRANT)?.reconciliations).toEqual([]);
+    },
+  );
+
+  it('refuses a decision taken by someone other than the recorded gatekeeper', () => {
+    const w = world();
+    const r = reconcileDegradedWork(
+      w.sys,
+      w.root,
+      input(),
+      deps(w.root, { decidedBy: 'Claude', http: fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT))).http }),
+    );
+    expect(r.kind).toBe('DECISION_REFUSED');
+    expect(r.reasons.join(' ')).toContain("not the recorded gatekeeper 'ChatGPT'");
+    expect(readDegradedStore(w.sys, w.root, GRANT)?.reconciliations).toEqual([]);
+  });
+
+  it('refuses a decision that grants itself an owner-only action', () => {
+    const w = world();
+    const reply = okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT, { allowedActions: ['implement', 'push'] }));
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { http: fakeHttp(reply).http }));
+    expect(r.kind).toBe('DECISION_REFUSED');
+    expect(r.ledgerEntry).not.toBeNull();
+    expect(readDegradedStore(w.sys, w.root, GRANT)?.reconciliations).toEqual([]);
+  });
+
+  it('refuses a decision id that has already been acted on', () => {
+    const w = world();
+    const probe = reconcileDegradedWork(
+      w.sys,
+      w.root,
+      input(),
+      deps(w.root, { http: fakeHttp(okReply(verdict('AWAITING_OWNER'))).http }),
+    );
+    const already = String(probe.decisionId);
+    // The SAME repository: a different one would derive a different request, and so a different
+    // decision id, and the replay guard would never be the thing under test.
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+    const { deps: d, charged } = spendingDeps(w.root, { consumedDecisionIds: [already], http: fake.http });
+    const r = reconcileDegradedWork(w.sys, w.root, input(), d);
+
+    expect(r.kind).toBe('ALREADY_ASKED');
+    // The point of asking first: the old order paid for the call and THEN refused the answer as a
+    // replay, so an operator could burn budget indefinitely on a question already answered.
+    expect(fake.sent).toEqual([]);
+    expect(charged).toEqual([]);
+    expect(r.reasons.join(' ')).toContain('already put work item');
+  });
+});
+
+describe('the one path that does discharge a debt', () => {
+  it('records the accepted decision, clears the item, and unblocks the gate', () => {
+    const w = world();
+    const before = readDegradedStore(w.sys, w.root, GRANT);
+    expect(gateBlockedByReconciliation(reconciliationState(before?.workItems ?? [], []))).not.toEqual([]);
+
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root));
+
+    expect(r.kind).toBe('RECONCILED');
+    expect(r.verdict).toBe(RECONCILIATION_ACCEPTED_VERDICT);
+    expect(r.outstandingAfter).toEqual([]);
+    expect(r.ledgerEntry?.costMicroUsd).toBeGreaterThan(0);
+
+    const after = readDegradedStore(w.sys, w.root, GRANT);
+    expect(after?.reconciliations).toEqual([
+      { workId: WORK, decisionId: r.decisionId, ask: RECONCILIATION_ASK, decisionAccepted: true },
+    ]);
+    expect(after?.workItems).toEqual(before?.workItems);
+    expect(after?.consumedAt).toBe(before?.consumedAt);
+    expect(
+      gateBlockedByReconciliation(reconciliationState(after?.workItems ?? [], after?.reconciliations ?? [])),
+    ).toEqual([]);
+  });
+
+  it('cannot be spent twice: the second attempt asks nothing and changes nothing', () => {
+    const w = world();
+    reconcileDegradedWork(w.sys, w.root, input(), deps(w.root));
+    const afterFirst = readFileSync(join(w.root, ...(degradedStoreRelPath(GRANT) as string).split('/')), 'utf8');
+
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+    const second = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { http: fake.http }));
+
+    expect(second.kind).toBe('NOT_OUTSTANDING');
+    expect(fake.sent).toEqual([]);
+    expect(second.ledgerEntry).toBeNull();
+    expect(readFileSync(join(w.root, ...(degradedStoreRelPath(GRANT) as string).split('/')), 'utf8')).toBe(afterFirst);
+  });
+
+  it('does not grant the work any authority it did not already have', () => {
+    const w = world();
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root));
+    const stored = readDegradedStore(w.sys, w.root, GRANT);
+    expect(r.kind).toBe('RECONCILED');
+    // A reconciliation reviews history; it never extends the grant or adds work to it.
+    expect(stored?.maxWorkItems).toBe(1);
+    expect(stored?.workItems).toHaveLength(1);
+  });
+});
+
+describe('a discharge must name a spend this installation made', () => {
+  it('refuses when the installation has no record of the work, however complete the project looks', () => {
+    // FOUND BY MUTATION TESTING. Every fixture seeded both records, so removing the check that ties a
+    // discharge to a real spend failed nothing. This is the case that matters: a project-local record
+    // describing work the installation never funded.
+    const w = world();
+    writeFileSync(
+      join(durableBinding().stateDir, 'degraded-consumption.json'),
+      JSON.stringify({ schemaVersion: '1.0.0', consumptions: [], reconciliations: [] }),
+    );
+
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root));
+
+    expect(r.kind).toBe('PERSIST_FAILED');
+    expect(r.reasons.join(' ')).toContain('no record of work item');
+    // The project mirror is untouched: nothing was discharged anywhere.
+    expect(readDegradedStore(w.sys, w.root, GRANT)?.reconciliations).toEqual([]);
+  });
+});
+
+describe('the credential boundary', () => {
+  it('sends the key in a header and never puts it in an outcome', () => {
+    const w = world();
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { http: fake.http }));
+    expect(fake.sent[0]?.headers['Authorization']).toContain(SECRET);
+    expect(fake.sent[0]?.body).not.toContain(SECRET);
+    expect(JSON.stringify(r)).not.toContain('sk-test');
+    expect(readFileSync(join(w.root, ...(degradedStoreRelPath(GRANT) as string).split('/')), 'utf8')).not.toContain('sk-test');
+  });
+});
+
+describe('what the owner granted is what may be reconciled', () => {
+  it('refuses a use record listing more work than the owner authorised', () => {
+    const w = world({
+      store: {
+        schemaVersion: '1.0.0',
+        grantId: GRANT,
+        unavailabilityId: OUTAGE,
+        projectId: PROJECT,
+        phaseId: PHASE,
+        consumedAt: '2026-08-20T15:18:56.178Z',
+        maxWorkItems: 2,
+        workItems: [
+          { workId: WORK, grantId: GRANT, phaseId: PHASE, summary: 'implement', at: '2026-08-20T15:18:56.178Z' },
+          {
+            workId: 'GKWORK-invented00000001',
+            grantId: GRANT,
+            phaseId: PHASE,
+            summary: 'invented',
+            at: '2026-08-20T15:19:00.000Z',
+          },
+        ],
+        reconciliations: [],
+      },
+    });
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { http: fake.http }));
+    expect(r.kind).toBe('NO_SUCH_GRANT');
+    expect(r.reasons.join(' ')).toContain('bounded at 1');
+    expect(fake.sent).toEqual([]);
+  });
+
+  it('refuses a use record answering a different outage than the grant was given for', () => {
+    const w = world({ grant: { unavailabilityId: 'GKOUT-000000000000000000000000' } });
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { http: fake.http }));
+    expect(r.kind).toBe('NO_SUCH_GRANT');
+    expect(r.reasons.join(' ')).toContain('risk accepted for one outage is not risk accepted for another');
+    expect(fake.sent).toEqual([]);
+  });
+
+  it('refuses a grant granted by someone other than the recorded owner', () => {
+    const w = world({ grant: { grantedBy: 'Claude' } });
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { http: fake.http }));
+    expect(r.kind).toBe('NO_SUCH_GRANT');
+    expect(r.reasons.join(' ')).toContain('not the recorded owner');
+    expect(fake.sent).toEqual([]);
+  });
+
+  it('refuses a use record whose inner grant id disagrees with the file it lives in', () => {
+    const w = world({
+      store: {
+        schemaVersion: '1.0.0',
+        grantId: 'SOME-OTHER-GRANT1A',
+        unavailabilityId: OUTAGE,
+        projectId: PROJECT,
+        phaseId: PHASE,
+        consumedAt: '2026-08-20T15:18:56.178Z',
+        maxWorkItems: 1,
+        workItems: [
+          { workId: WORK, grantId: GRANT, phaseId: PHASE, summary: 'implement', at: '2026-08-20T15:18:56.178Z' },
+        ],
+        reconciliations: [],
+      },
+    });
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { http: fake.http }));
+    expect(r.kind).toBe('NO_SUCH_GRANT');
+    expect(r.reasons.join(' ')).toContain("names grant 'SOME-OTHER-GRANT1A'");
+    expect(fake.sent).toEqual([]);
+  });
+
+  it('refuses an unsafe grant id without touching the network', () => {
+    const w = world();
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+    const r = reconcileDegradedWork(
+      w.sys,
+      w.root,
+      input({ grantId: '../../escape' }),
+      deps(w.root, { http: fake.http }),
+    );
+    expect(r.kind).toBe('NO_SUCH_GRANT');
+    expect(fake.sent).toEqual([]);
+  });
+
+  it('refuses a record that was committed and then edited in the working tree', () => {
+    const w = world();
+    const rel = degradedStoreRelPath(GRANT) as string;
+    w.git('add', '--', rel);
+    w.git('commit', '-q', '-m', 'evidence: use record');
+    writeFileSync(join(w.root, ...rel.split('/')), JSON.stringify({ grantId: GRANT, consumedAt: 'edited' }));
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { http: fake.http }));
+    expect(r.kind).toBe('NO_SUCH_GRANT');
+    expect(r.reasons.join(' ')).toContain('that is not evidence there is none');
+    expect(fake.sent).toEqual([]);
+  });
+});
+
+describe('one item of several', () => {
+  const TWO = {
+    schemaVersion: '1.0.0',
+    grantId: GRANT,
+    unavailabilityId: OUTAGE,
+    projectId: PROJECT,
+    phaseId: PHASE,
+    consumedAt: '2026-08-20T15:18:56.178Z',
+    maxWorkItems: 2,
+    workItems: [
+      { workId: WORK, grantId: GRANT, phaseId: PHASE, summary: 'first', at: '2026-08-20T15:18:56.178Z' },
+      {
+        workId: 'GKWORK-secondsecond0002',
+        grantId: GRANT,
+        phaseId: PHASE,
+        summary: 'second',
+        at: '2026-08-20T15:19:00.000Z',
+      },
+    ],
+    reconciliations: [],
+  };
+
+  it('clears the named item and leaves the other one owing', () => {
+    const w = world({ store: TWO, grant: { maxWorkItems: 2 } });
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root));
+
+    expect(r.kind).toBe('RECONCILED');
+    expect(r.outstandingAfter).toEqual(['GKWORK-secondsecond0002']);
+    const after = readDegradedStore(w.sys, w.root, GRANT);
+    expect(after?.workItems).toHaveLength(2);
+    expect(after?.reconciliations.map((x) => x.workId)).toEqual([WORK]);
+    expect(
+      gateBlockedByReconciliation(reconciliationState(after?.workItems ?? [], after?.reconciliations ?? [])),
+    ).not.toEqual([]);
+  });
+
+  it('keeps the earlier reconciliation when the second is recorded', () => {
+    const w = world({ store: TWO, grant: { maxWorkItems: 2 } });
+    reconcileDegradedWork(w.sys, w.root, input(), deps(w.root));
+    const second = reconcileDegradedWork(
+      w.sys,
+      w.root,
+      input({ workId: 'GKWORK-secondsecond0002' }),
+      deps(w.root),
+    );
+
+    expect(second.kind).toBe('RECONCILED');
+    expect(second.outstandingAfter).toEqual([]);
+    const after = readDegradedStore(w.sys, w.root, GRANT);
+    expect(after?.reconciliations.map((x) => x.workId)).toEqual([WORK, 'GKWORK-secondsecond0002']);
+  });
+
+  it('does not lose a work item that appeared while the reviewer was thinking', () => {
+    const w = world();
+    const rel = degradedStoreRelPath(GRANT) as string;
+    const storePath = join(w.root, ...rel.split('/'));
+    // The provider "takes a while", and a degraded run appends a second item in that window.
+    const racingHttp: HttpPort = {
+      post: () => {
+        const now = JSON.parse(readFileSync(storePath, 'utf8')) as Record<string, unknown>;
+        (now['workItems'] as unknown[]).push({
+          workId: 'GKWORK-appearedlater01',
+          grantId: GRANT,
+          phaseId: PHASE,
+          summary: 'later',
+          at: '2026-08-20T16:00:01.000Z',
+        });
+        writeFileSync(storePath, JSON.stringify({ ...now, maxWorkItems: 2 }, null, 2));
+        return okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT));
+      },
+    };
+
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { http: racingHttp }));
+
+    expect(r.kind).toBe('RECONCILED');
+    const after = readDegradedStore(w.sys, w.root, GRANT);
+    // The pre-call snapshot knew one item. Writing it back would have deleted the second — and with it
+    // the record that unreviewed work had happened.
+    expect(after?.workItems.map((x) => x.workId)).toEqual([WORK, 'GKWORK-appearedlater01']);
+    expect(after?.reconciliations.map((x) => x.workId)).toEqual([WORK]);
+  });
+});
+
+describe('what it costs and what it never does', () => {
+  it('refuses before calling when the month is already at the hard stop', () => {
+    const w = world();
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+    const spent = [
+      {
+        schemaVersion: '1.0.0',
+        requestId: 'GKREQ-earlier',
+        projectId: PROJECT,
+        phaseId: PHASE,
+        at: '2026-08-02T10:00:00.000Z',
+        model: RATE.model,
+        usage: { inputTokens: 1, cachedInputTokens: 0, outputTokens: 1 },
+        costMicroUsd: 5_000_000,
+      },
+    ] as unknown as readonly LedgerEntry[];
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { http: fake.http, ledger: spent }));
+    expect(r.kind).toBe('SPEND_REFUSED');
+    expect(fake.sent).toEqual([]);
+  });
+
+  it('refuses before calling when the thread belongs to another checkout', () => {
+    const w = world();
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+    const r = reconcileDegradedWork(
+      w.sys,
+      w.root,
+      input(),
+      deps(w.root, { http: fake.http, threadBinding: { ...THREAD, repositoryRoot: 'C:/somewhere/else' } }),
+    );
+    expect(r.kind).toBe('NO_SUCH_GRANT');
+    expect(r.reasons.join(' ')).toContain('different checkout is a different world');
+    expect(fake.sent).toEqual([]);
+  });
+
+  it('checks everything and asks nothing when only preparing', () => {
+    const w = world();
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+    const { deps: d, charged } = spendingDeps(w.root, { http: fake.http });
+    const r = reconcileDegradedWork(w.sys, w.root, input({ prepareOnly: true }), d);
+
+    expect(r.kind).toBe('PREPARED');
+    expect(r.requestId).not.toBeNull();
+    expect(fake.sent).toEqual([]);
+    expect(charged).toEqual([]);
+    expect(readDegradedStore(w.sys, w.root, GRANT)?.reconciliations).toEqual([]);
+  });
+
+  it('records the spend the moment the call returns, before anything durable is written', () => {
+    const w = world();
+    const { deps: d, charged } = spendingDeps(w.root, {
+      http: fakeHttp(okReply(verdict('DO_NOT_PROCEED'))).http,
+    });
+    const r = reconcileDegradedWork(w.sys, w.root, input(), d);
+
+    expect(r.kind).toBe('NOT_ACCEPTED');
+    expect(charged).toHaveLength(1);
+    expect(charged[0]?.costMicroUsd).toBeGreaterThan(0);
+  });
+
+  it('says a call may have been billed when the provider answered unusably', () => {
+    const w = world();
+    const r = reconcileDegradedWork(
+      w.sys,
+      w.root,
+      input(),
+      deps(w.root, { http: fakeHttp({ kind: 'response', status: 200, body: 'not json at all' }).http }),
+    );
+    expect(r.kind).toBe('UNAVAILABLE');
+    // A 200 was delivered. Claiming "nothing was spent" here would be a comfortable untruth.
+    expect(r.definitelyNotSent).toBe(false);
+  });
+
+  it('knows nothing was sent when the credential never resolved', () => {
+    const w = world();
+    const r = reconcileDegradedWork(
+      w.sys,
+      w.root,
+      input(),
+      deps(w.root, { resolver: unprovisionedResolver('not provisioned in this fixture') }),
+    );
+    expect(r.kind).toBe('UNAVAILABLE');
+    expect(r.definitelyNotSent).toBe(true);
+  });
+
+  it('commits nothing, and touches only the use record', () => {
+    const w = world();
+    const head = w.git('rev-parse', 'HEAD').trim();
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root));
+
+    expect(r.kind).toBe('RECONCILED');
+    expect(w.git('rev-parse', 'HEAD').trim()).toBe(head);
+    const dirty = w
+      .git('status', '--porcelain', '--untracked-files=all')
+      .trim()
+      .split(String.fromCharCode(10))
+      .filter((l) => l !== '');
+    expect(dirty).toEqual([`?? ${degradedStoreRelPath(GRANT) as string}`]);
+  });
+
+  it('leaves no temporary file behind', () => {
+    const w = world();
+    reconcileDegradedWork(w.sys, w.root, input(), deps(w.root));
+    const tmp = `${degradedStoreRelPath(GRANT) as string}.tmp`;
+    expect(existsSync(join(w.root, ...tmp.split('/')))).toBe(false);
+  });
+});
+
+describe('the guards the first mutation run found unpinned', () => {
+  it('names the RECORD as the thing bound to the wrong phase, not the grant', () => {
+    // The wrong-phase test used to assert only the outcome kind, and the grant check produces the
+    // same kind — so deleting the record's own phase binding changed nothing any test could see.
+    const w = world();
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+    const r = reconcileDegradedWork(
+      w.sys,
+      w.root,
+      input({ phaseId: 'SOME-OTHER-PHASE1A' }),
+      deps(w.root, { http: fake.http }),
+    );
+    expect(r.kind).toBe('NO_SUCH_GRANT');
+    expect(r.reasons.join(' ')).toContain(`the use record is for phase '${PHASE}', not 'SOME-OTHER-PHASE1A'`);
+    expect(fake.sent).toEqual([]);
+  });
+
+  it('does not write over a record the owner committed WHILE the reviewer was thinking', () => {
+    const w = world();
+    const rel = degradedStoreRelPath(GRANT) as string;
+    // The owner commits the use record during the call — the window the pre-call check cannot cover.
+    const committingHttp: HttpPort = {
+      post: () => {
+        w.git('add', '--', rel);
+        w.git('commit', '-q', '-m', 'evidence: use record, committed mid-call');
+        return okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT));
+      },
+    };
+    const { deps: d, charged } = spendingDeps(w.root, { http: committingHttp });
+
+    const r = reconcileDegradedWork(w.sys, w.root, input(), d);
+
+    expect(r.kind).toBe('PERSIST_FAILED');
+    // The call happened, so it is paid for; the debt stands.
+    expect(charged).toHaveLength(1);
+    expect(r.outstandingAfter).toEqual([WORK]);
+    // AND THE RECORD IS INTACT. Writing anyway would leave the tree at odds with the committed
+    // evidence, which every later read treats as tampering — taking the debt with it.
+    expect(w.git('status', '--porcelain', '--untracked-files=all', '--', rel).trim()).toBe('');
+    const after = readDegradedStore(w.sys, w.root, GRANT);
+    expect(after).not.toBeNull();
+    expect(after?.reconciliations).toEqual([]);
+  });
+
+  it('leaves the debt standing when the record cannot be moved into place', () => {
+    // The temporary file is written and the rename fails — a full volume, a lock, an antivirus hold.
+    // Before the move was checked, the outcome was RECONCILED while the real record was untouched.
+    const w = world();
+    const stuck: System = { ...w.sys, renameFile: () => false };
+    const { deps: d, charged } = spendingDeps(w.root, {});
+
+    const r = reconcileDegradedWork(stuck, w.root, input(), d);
+
+    expect(r.kind).toBe('PERSIST_FAILED');
+    expect(r.reasons.join(' ')).toContain('atomically');
+    expect(charged).toHaveLength(1);
+    expect(readDegradedStore(w.sys, w.root, GRANT)?.reconciliations).toEqual([]);
+  });
+
+  it('catches a write that lands but loses what it was supposed to record', () => {
+    // The blind-write test no longer reaches the read-back: a missing temporary file fails the rename
+    // first. This one writes successfully and drops the reconciliation, which only the read-back sees.
+    const w = world();
+    const lossy: System = {
+      ...w.sys,
+      writeText: (p: string, c: string) => {
+        const parsed = JSON.parse(c) as Record<string, unknown>;
+        w.sys.writeText(p, JSON.stringify({ ...parsed, reconciliations: [] }, null, 2));
+      },
+    };
+
+    const r = reconcileDegradedWork(lossy, w.root, input(), deps(w.root));
+
+    expect(r.kind).toBe('PERSIST_FAILED');
+    // The INSTALLATION ledger is written first now, so its read-back is what catches this. Either
+    // record noticing is the property; which one speaks first is the ordering, and the ordering is
+    // deliberate — the authoritative record goes first.
+    expect(r.reasons.join(' ')).toContain('could not be read back after writing');
+    expect(readDegradedStore(w.sys, w.root, GRANT)?.reconciliations).toEqual([]);
+  });
+});
+
+describe("the reviewer's own words reach the owner", () => {
+  it('reports the reason and the instruction when the verdict leaves the debt standing', () => {
+    // THE FIRST REAL CALL RETURNED AMENDMENT_REQUIRED AND SAID WHY, and the owner saw only the verdict.
+    // A refusal the owner cannot read is a refusal the owner cannot answer.
+    const w = world();
+    const reply = okReply(
+      verdict('AMENDMENT_REQUIRED', {
+        reason: 'the work item summary does not say which validator was failing',
+        nextClaudeInstruction: 'Record the failing check in the work item, then ask again.',
+      }),
+    );
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { http: fakeHttp(reply).http }));
+
+    expect(r.kind).toBe('NOT_ACCEPTED');
+    expect(r.reviewerReason).toBe('the work item summary does not say which validator was failing');
+    expect(r.reviewerInstruction).toBe('Record the failing check in the work item, then ask again.');
+  });
+
+  it('carries no reviewer words when there was no reviewer', () => {
+    const w = world();
+    const r = reconcileDegradedWork(
+      w.sys,
+      w.root,
+      input(),
+      deps(w.root, { http: fakeHttp({ kind: 'transport-error', detail: 'ECONNRESET' }).http }),
+    );
+    expect(r.kind).toBe('UNAVAILABLE');
+    expect(r.reviewerReason).toBeNull();
+    expect(r.reviewerInstruction).toBeNull();
+  });
+});
+
+/**
+ * §7 — THE MIRROR IS DELETABLE BY DESIGN, SO THE DISCHARGE CANNOT DEPEND ON IT.
+ *
+ * The installation ledger exists precisely because `rm .projectops/execution/degraded-use.*.json`
+ * used to erase a spend. It survived that — and then the only mechanism that could clear the debt it
+ * kept still insisted on the deleted file, so the debt became permanent and every gate stayed shut.
+ */
+describe('the mirror can be gone and the debt still discharged', () => {
+  const mirrorPath = (root: string): string => join(root, ...(degradedStoreRelPath(GRANT) as string).split('/'));
+  const dropMirror = (root: string): void => rmSync(mirrorPath(root), { force: true });
+  const ledger = (): {
+    consumptions: Array<Record<string, unknown>>;
+    reconciliations: Array<Record<string, unknown>>;
+  } =>
+    JSON.parse(readFileSync(join(durableBinding().stateDir, 'degraded-consumption.json'), 'utf8')) as {
+      consumptions: Array<Record<string, unknown>>;
+      reconciliations: Array<Record<string, unknown>>;
+    };
+  const writeLedger = (next: unknown): void =>
+    writeFileSync(join(durableBinding().stateDir, 'degraded-consumption.json'), JSON.stringify(next));
+
+  it('rebuilds the work from the installation ledger and discharges it', () => {
+    const w = world();
+    dropMirror(w.root);
+    expect(existsSync(mirrorPath(w.root))).toBe(false);
+
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root));
+
+    expect(r.kind).toBe('RECONCILED');
+    expect(r.verdict).toBe(RECONCILIATION_ACCEPTED_VERDICT);
+    expect(r.outstandingAfter).toEqual([]);
+    expect(r.reasons.join(' ')).toContain('absent');
+    expect(ledger().reconciliations).toHaveLength(1);
+    expect(ledger().reconciliations[0]?.['workId']).toBe(WORK);
+  });
+
+  it('does not recreate a project record for work this checkout has no other trace of', () => {
+    const w = world();
+    dropMirror(w.root);
+    expect(reconcileDegradedWork(w.sys, w.root, input(), deps(w.root)).kind).toBe('RECONCILED');
+    expect(existsSync(mirrorPath(w.root))).toBe(false);
+  });
+
+  it('cannot be spent twice through the ledger either', () => {
+    const w = world();
+    dropMirror(w.root);
+    expect(reconcileDegradedWork(w.sys, w.root, input(), deps(w.root)).kind).toBe('RECONCILED');
+
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+    const second = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { http: fake.http }));
+
+    expect(second.kind).toBe('NOT_OUTSTANDING');
+    expect(fake.sent).toEqual([]);
+    expect(ledger().reconciliations).toHaveLength(1);
+  });
+
+  it('refuses when neither the mirror nor the installation records the grant', () => {
+    const w = world();
+    dropMirror(w.root);
+    writeLedger({ schemaVersion: '1.0.0', consumptions: [], reconciliations: [] });
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { http: fake.http }));
+
+    expect(r.kind).toBe('NO_SUCH_GRANT');
+    expect(fake.sent).toEqual([]);
+  });
+
+  it('still refuses an UNREADABLE mirror rather than falling back to the ledger', () => {
+    // ABSENT IS A FACT; CORRUPT IS A QUESTION. A file that will not parse may say anything, and
+    // reading past it to a record that agrees with the caller is how a tampered mirror gets ignored.
+    const w = world({ store: '{ not json' });
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { http: fake.http }));
+
+    expect(r.kind).toBe('NO_SUCH_GRANT');
+    expect(fake.sent).toEqual([]);
+  });
+
+  it('refuses when the installation ledger cannot be read at all', () => {
+    const w = world();
+    dropMirror(w.root);
+    writeFileSync(join(durableBinding().stateDir, 'degraded-consumption.json'), '{ truncated');
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { http: fake.http }));
+
+    expect(r.kind).toBe('NO_SUCH_GRANT');
+    expect(fake.sent).toEqual([]);
+  });
+
+  it('refuses the second ask after the mirror is deleted, however the question is worded', () => {
+    // THE DEFECT THIS PINS SHUT. The request id is derived from a digest of the evidence TEXT, and the
+    // ledger-backed wording differs from the mirror-backed one — so before this fix, deleting the
+    // mirror after an unwelcome verdict produced a DIFFERENT request id, the `ALREADY_ASKED` guard
+    // could not fire, and the identical question was put again. Verdict shopping, by `rm`.
+    const w = world();
+    const a = fakeHttp(okReply(verdict('AWAITING_OWNER')));
+    const first = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { http: a.http }));
+    expect(first.kind).toBe('NOT_ACCEPTED');
+    expect(a.sent[0]?.body ?? '').toContain('writable by the implementer');
+
+    dropMirror(w.root);
+    const b = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+    const { deps: d, charged } = spendingDeps(w.root, { http: b.http });
+    const second = reconcileDegradedWork(w.sys, w.root, input(), d);
+
+    expect(second.kind).toBe('ALREADY_ASKED');
+    expect(b.sent).toEqual([]);
+    expect(charged).toEqual([]);
+    expect(second.reasons.join(' ')).toContain('deleting the project record');
+    // And the debt still stands: a refused ask discharges nothing.
+    expect(ledger().reconciliations).toEqual([]);
+  });
+
+  it('tells the reviewer honestly which record the question was built from', () => {
+    const w = world();
+    dropMirror(w.root);
+    const fake = fakeHttp(okReply(verdict('AWAITING_OWNER')));
+    reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { http: fake.http }));
+
+    const body = fake.sent[0]?.body ?? '';
+    expect(body).toContain('durable ledger');
+    expect(body).toContain(WORK);
+    expect(body).toContain(OUTAGE);
+    // AND THE OWNER'S REAL CEILING, not the rebuild's "no claimed ceiling" sentinel. A reviewer asked
+    // whether unreviewed work may be accepted was being shown a bound of -1.
+    //
+    // ASSERTED POSITIVELY. `not.toContain('-1')` looked stronger and was worse: the request id is a
+    // hex digest that changes every run, so roughly one run in sixteen contained "-1" for reasons
+    // that had nothing to do with the ceiling. A test that fails at random teaches people to re-run.
+    // The evidence is JSON-escaped inside the request body, so the quote is escaped too.
+    expect(body).toContain('maxWorkItems\\": 1');
+  });
+
+  it('keeps the mirror-backed question byte-stable, so an answered question stays answered', () => {
+    // THE WORDING IS HASHED. `ALREADY_ASKED` refuses a repeat by request id, so rephrasing the
+    // mirror-backed evidence would make every already-answered question look new.
+    const w = world();
+    const fake = fakeHttp(okReply(verdict('AWAITING_OWNER')));
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { http: fake.http }));
+
+    expect(fake.sent[0]?.body ?? '').toContain(
+      'working tree, not yet committed — written by the runtime, but writable by the implementer, ' +
+        'so treat the summary as a claim rather than as proof',
+    );
+    expect(r.requestId).not.toBeNull();
+  });
+
+  it('will not summarise a grant the ledger records against two different outages', () => {
+    const w = world();
+    dropMirror(w.root);
+    const raw = ledger();
+    const first = raw.consumptions[0] as Record<string, unknown>;
+    raw.consumptions.push({ ...first, workId: `${WORK}2`, unavailabilityId: 'GKOUT-0000000000000000000000ff' });
+    writeLedger(raw);
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { http: fake.http }));
+
+    expect(r.kind).toBe('NO_SUCH_GRANT');
+    expect(r.reasons.join(' ')).toContain('more than one outage');
+    expect(fake.sent).toEqual([]);
+  });
+
+  it('does not read another installation spends as work it may discharge', () => {
+    const w = world();
+    dropMirror(w.root);
+    const raw = ledger();
+    raw.consumptions = raw.consumptions.map((c) => ({ ...c, installRoot: '/some/other/ProjectOS' }));
+    writeLedger(raw);
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { http: fake.http }));
+
+    expect(r.kind).toBe('NO_SUCH_GRANT');
+    expect(fake.sent).toEqual([]);
+  });
+});
+
+/**
+ * The rest of the 2026-08-21 adversarial review, each finding pinned by the case that would fail.
+ */
+describe('what the installation ledger may and may not be made to say', () => {
+  const mirrorPath = (root: string): string => join(root, ...(degradedStoreRelPath(GRANT) as string).split('/'));
+  const ledgerPath = (): string => join(durableBinding().stateDir, 'degraded-consumption.json');
+  const ledger = (): {
+    consumptions: Array<Record<string, unknown>>;
+    reconciliations: Array<Record<string, unknown>>;
+    asks?: Array<Record<string, unknown>>;
+  } =>
+    JSON.parse(readFileSync(ledgerPath(), 'utf8')) as {
+      consumptions: Array<Record<string, unknown>>;
+      reconciliations: Array<Record<string, unknown>>;
+      asks?: Array<Record<string, unknown>>;
+    };
+  const writeLedger = (next: unknown): void => writeFileSync(ledgerPath(), JSON.stringify(next));
+
+  it('discharges work the ledger holds but the mirror has forgotten', () => {
+    // THE STATE THIS FIXES WAS UNREACHABLE-BY-ANY-COMMAND. Delete the mirror after one spend, spend
+    // again, and the mirror comes back holding only the SECOND item. The first was then durable-only:
+    // the gate refused on it forever while this command, seeing a mirror that exists, replied "grant
+    // records no work item" — the two messages flatly contradicting each other.
+    const w = world();
+    const other = `${WORK}-second`;
+    writeFileSync(
+      mirrorPath(w.root),
+      JSON.stringify({
+        schemaVersion: '1.0.0',
+        grantId: GRANT,
+        unavailabilityId: OUTAGE,
+        projectId: PROJECT,
+        phaseId: PHASE,
+        consumedAt: '2026-08-20T15:18:56.178Z',
+        maxWorkItems: 1,
+        workItems: [{ workId: other, grantId: GRANT, phaseId: PHASE, summary: 'later', at: '2026-08-20T15:18:56.178Z' }],
+        reconciliations: [],
+      }),
+    );
+
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root));
+
+    expect(r.kind).toBe('RECONCILED');
+    expect(r.reasons.join(' ')).toContain('does not record work item');
+    expect(ledger().reconciliations).toHaveLength(1);
+  });
+
+  it('still names the work item when neither record has ever heard of it', () => {
+    // The ledger having nothing is an ABSENCE, not a refusal, so the mirror is still allowed to give
+    // the more useful answer rather than being shouted down with "no such grant".
+    const w = world();
+    const r = reconcileDegradedWork(w.sys, w.root, input({ workId: 'GKWORK-000000000000ffff' }), deps(w.root));
+    expect(r.kind).toBe('NOT_OUTSTANDING');
+    expect(r.reasons.join(' ')).toContain('records no work item');
+  });
+
+  it('refuses when the ledger records this grant under another installation', () => {
+    // NOT "no debt to discharge". Dropping the row and reporting an absence is the shape both earlier
+    // bypasses had; the gate refuses on exactly this state, and these two must not disagree.
+    const w = world();
+    rmSync(mirrorPath(w.root), { force: true });
+    const raw = ledger();
+    raw.consumptions = raw.consumptions.map((c) => ({ ...c, installRoot: '/some/other/ProjectOS' }));
+    writeLedger(raw);
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { http: fake.http }));
+
+    expect(r.kind).toBe('NO_SUCH_GRANT');
+    // NAMED BY THE REBUILD ITSELF, not by the ledger read that happens later. Both refuse this state,
+    // and asserting on the shared phrase let the rebuild's own check be deleted without failing.
+    expect(r.reasons.join(' ')).toContain(`records grant '${GRANT}'`);
+    expect(r.reasons.join(' ')).toContain('second copy of the installation');
+    expect(fake.sent).toEqual([]);
+  });
+
+  it('refuses a legacy ledger row rather than crashing on its missing bindings', () => {
+    // `parse` validates no field, so a row written by an earlier build carries no installRoot. Reading
+    // it blindly turned a refusal into an unhandled TypeError — no outcome at all, and a debt whose
+    // only remedy died with a stack trace.
+    const w = world();
+    rmSync(mirrorPath(w.root), { force: true });
+    const raw = ledger();
+    raw.consumptions = raw.consumptions.map((c) => {
+      const copy = { ...c };
+      delete copy['installRoot'];
+      delete copy['repository'];
+      return copy;
+    });
+    writeLedger(raw);
+
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root));
+
+    expect(r.kind).toBe('NO_SUCH_GRANT');
+    expect(typeof r.reasons.join(' ')).toBe('string');
+  });
+
+  it('records the question durably the moment the call returns', () => {
+    const w = world();
+    const first = reconcileDegradedWork(
+      w.sys,
+      w.root,
+      input(),
+      deps(w.root, { http: fakeHttp(okReply(verdict('AWAITING_OWNER'))).http }),
+    );
+
+    expect(first.kind).toBe('NOT_ACCEPTED');
+    const asks = ledger().asks ?? [];
+    expect(asks).toHaveLength(1);
+    expect(asks[0]?.['workId']).toBe(WORK);
+    expect(asks[0]?.['verdict']).toBe('AWAITING_OWNER');
+    expect(asks[0]?.['decisionId']).toBe(first.decisionId);
+  });
+
+  it('discharges nothing when the question and its answer cannot be written together', () => {
+    // ONE LOCK, ONE OUTCOME. The ask and the discharge are written in a single acquisition, so a
+    // failure leaves NEITHER — which is what makes a retry safe. Previously they were two writes, and
+    // a failure between them recorded the question as asked while discarding the accepted answer,
+    // making the debt permanently undischargeable.
+    const w = world();
+    const blind: System = {
+      ...w.sys,
+      // Drop only the write that carries a non-empty asks array, so the fixture's own rows still land.
+      writeText: (p: string, c: string) => {
+        if (p.includes('degraded-consumption') && c.includes('"requestId"')) return;
+        w.sys.writeText(p, c);
+      },
+    };
+    const { deps: d, charged } = spendingDeps(w.root);
+
+    const r = reconcileDegradedWork(blind, w.root, input(), d);
+
+    expect(r.kind).toBe('PERSIST_FAILED');
+    expect(charged).toHaveLength(1);
+    const after = ledger();
+    expect(after.reconciliations).toEqual([]);
+    // AND THE QUESTION IS NOT RECORDED EITHER, so the operator can try again rather than being told
+    // the work has already been asked about and may never be asked about again.
+    expect(after.asks ?? []).toEqual([]);
+  });
+});
+
+/* ------------------------------------------------------------------------------------------------
+ * A DEBT IS NOT DISCHARGED ON A DECISION NOTHING RECORDED —
+ * PROJECTOS-EXECUTION-DECISION-PROVENANCE-FIX1A.
+ *
+ * Reconciliation is the second path that accepts a checked gatekeeper decision, so it carries the
+ * same rule as the governance turn: durable provenance is a PRECONDITION of acting, not a courtesy
+ * afterwards. A reconciliation applied on a decision ProjectOS cannot later account for is exactly
+ * the untraceable step the provenance contract exists to prevent.
+ * --------------------------------------------------------------------------------------------- */
+describe('reconciliation records the decision before it acts on it', () => {
+  it('A: a recorded decision discharges the debt, and the evidence carries the four bindings', () => {
+    const w = world();
+    const kept: Record<string, unknown>[] = [];
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+    const r = reconcileDegradedWork(
+      w.sys,
+      w.root,
+      input(),
+      deps(w.root, {
+        http: fake.http,
+        recordDecisionEvidence: ((record: Record<string, unknown>) => {
+          kept.push(record);
+          return 'written';
+        }) as never,
+      }),
+    );
+
+    expect(r.kind).toBe('RECONCILED');
+    expect(kept).toHaveLength(1);
+    expect(kept[0]!['subjectCommit']).toBe(w.subject);
+    expect(kept[0]!['requestDigest']).toBeDefined();
+    expect(kept[0]!['decision']).toBe(RECONCILIATION_ACCEPTED_VERDICT);
+  });
+
+  it('B: byte-identical evidence already recorded still discharges the debt', () => {
+    const w = world();
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+    const r = reconcileDegradedWork(
+      w.sys,
+      w.root,
+      input(),
+      deps(w.root, { http: fake.http, recordDecisionEvidence: (() => 'already-recorded') as never }),
+    );
+    expect(r.kind).toBe('RECONCILED');
+  });
+
+  it('C: a decision that could not be recorded leaves the debt standing', () => {
+    const w = world();
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+    const r = reconcileDegradedWork(
+      w.sys,
+      w.root,
+      input(),
+      deps(w.root, {
+        http: fake.http,
+        recordDecisionEvidence: (() => 'refused: evidence could not be written') as never,
+      }),
+    );
+
+    expect(r.kind).toBe('PERSIST_FAILED');
+    expect(r.reasons.join(' ')).toContain('NOT applied');
+    // The reviewer really answered and the call was really billed; that stays true.
+    expect(fake.sent).toHaveLength(1);
+  });
+
+  it('D: contradictory stored evidence leaves the debt standing rather than choosing an answer', () => {
+    const w = world();
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+    const r = reconcileDegradedWork(
+      w.sys,
+      w.root,
+      input(),
+      deps(w.root, {
+        http: fake.http,
+        recordDecisionEvidence: (() => 'conflict: different decision evidence already recorded') as never,
+      }),
+    );
+
+    expect(r.kind).toBe('PERSIST_FAILED');
+    expect(r.reasons.join(' ')).toContain('conflict');
+  });
+
+  it('a refused decision is never recorded as an accepted one', () => {
+    // The checker refuses first, so nothing reaches the evidence port at all.
+    const kept: Record<string, unknown>[] = [];
+    const w = world();
+    const fake = fakeHttp(okReply({ ...verdict(RECONCILIATION_ACCEPTED_VERDICT), decision: 'NOT_A_VERDICT' }));
+    const r = reconcileDegradedWork(
+      w.sys,
+      w.root,
+      input(),
+      deps(w.root, {
+        http: fake.http,
+        recordDecisionEvidence: ((record: Record<string, unknown>) => {
+          kept.push(record);
+          return 'written';
+        }) as never,
+      }),
+    );
+
+    expect(r.kind).not.toBe('RECONCILED');
+    expect(kept).toHaveLength(0);
+  });
+});
+
+describe('hybrid routing: each route refuses what its own route must refuse, and the debt stands', () => {
+  it('UNATTENDED: an attestation that vouches for a different answer discharges nothing, and the provider is never called', () => {
+    const w = world();
+    const fake = fakeHttp(okReply(verdict(RECONCILIATION_ACCEPTED_VERDICT)));
+    const host: HostReviewPort = {
+      review(call) {
+        return {
+          kind: 'attested',
+          record: {
+            ...verdict(RECONCILIATION_ACCEPTED_VERDICT),
+            schemaVersion: GATEKEEPER_DECISION_SCHEMA_VERSION,
+            decisionId: `GKDEC-${call.request.requestId}`,
+            projectId: PROJECT,
+            phaseId: PHASE,
+            subjectCommit: call.request.subjectCommit,
+            requestDigest: call.requestDigest,
+            decidedBy: 'ChatGPT',
+            decidedAt: '2026-08-20T16:00:05Z',
+          },
+          attestation: {
+            schemaVersion: 1,
+            attestationId: 'e'.repeat(64),
+            requestCorrelation: call.correlation,
+            providerResponseId: 'resp_host',
+            provider: 'fake-independent-provider',
+            model: 'fake-model',
+            // The attestation says the provider asked for changes; the record says proceed.
+            verdict: HOST_VERDICT_FOR.AMENDMENT_REQUIRED,
+            allowedActions: ['implement'],
+            ownerApprovalRequired: false,
+            costMicroUsd: 1_000,
+            attestedAtEpochS: 1_788_000_000,
+          },
+          usage: { inputTokens: 1_000, cachedInputTokens: 0, outputTokens: 100 },
+        };
+      },
+    };
+    const r = reconcileDegradedWork(w.sys, w.root, input(), deps(w.root, { http: fake.http, mode: 'unattended', hostReview: host }));
+    expect(r.kind).toBe('DECISION_REFUSED');
+    expect(r.reasons.join(' ')).toContain('which does not match the decision');
+    expect(fake.sent).toHaveLength(0);
+    expect(r.outstandingAfter).toEqual([WORK]);
+  });
+
+  it('INTERACTIVE: a relayed decision claiming Host provenance is refused and never spent', () => {
+    const w = world();
+    const dir = join(w.root, ...GATEKEEPER_INTERACTIVE_REL.split('/'));
+    const port = nodeInteractivePort(w.sys, w.root, {
+      waitMs: 60_000,
+      pollMs: 1_000,
+      sleep: () => {
+        const id = (readdirSync(dir).find((f) => f.endsWith('.request.json')) as string).slice(0, -'.request.json'.length);
+        const handoff = JSON.parse(readFileSync(join(dir, `${id}.request.json`), 'utf8')) as { decisionTemplate: Record<string, unknown> };
+        writeFileSync(
+          join(dir, `${id}.decision.json`),
+          JSON.stringify({
+            ...handoff.decisionTemplate,
+            ...verdict(RECONCILIATION_ACCEPTED_VERDICT),
+            decidedAt: '2026-08-20T16:00:05Z',
+            hostAttestation: { attestationId: 'e'.repeat(64) },
+          }),
+        );
+      },
+    });
+    const r = reconcileDegradedWork(w.sys, w.root, input(), { mode: 'interactive', interactive: port, consumedDecisionIds: [] });
+    expect(r.kind).toBe('DECISION_REFUSED');
+    expect(r.reasons.join(' ')).toContain("carries 'hostAttestation'");
+    expect(readdirSync(dir).some((f) => f.endsWith('.consumed.json'))).toBe(false);
+    expect(r.outstandingAfter).toEqual([WORK]);
+  });
+});

@@ -1,0 +1,143 @@
+[package]
+name = "projectos-control-center"
+version = "0.1.0"
+description = "ProjectOS Control Center desktop shell"
+edition = "2021"
+rust-version = "1.77"
+# Explicit: the Control Centre binary is authoritative. Without this, adding the fixture target would
+# make `cargo run` ambiguous.
+default-run = "projectos-control-center"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[features]
+# Enables the synthetic-child test fixture target ONLY. Never enabled by default, never enabled by
+# Tauri, and not referenced by any production code path — so an ordinary `cargo build [--release]`
+# and every Tauri bundle physically cannot contain the fixture binary.
+# 3K-I-C-B: forwarded through the shared runtime to the canonical identity crate so a test-fixtures
+# build reproduces the accepted TestFixture identity classification exactly as before the relocation.
+test-fixtures = ["projectos-shared-host-runtime/test-fixtures"]
+# PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A: enables the EMBEDDED WebDriver server used by the
+# genuine desktop proof, and nothing else. The raw `tauri-driver` route and the WDIO external
+# provider both failed to establish a session against this binary; the embedded provider is the
+# supported route that remains.
+#
+# The Cargo feature IS the security boundary, exactly as `test-fixtures` is for the fixture target.
+# `optional = true` means the crate is absent from the default resolved graph, so an ordinary
+# `cargo build [--release]` and every Tauri bundle physically cannot contain the WebDriver server —
+# not merely "does not start it". Presence in Cargo.lock is NOT presence in the build.
+#
+# Deliberately minimal: this pulls in ONLY the embedded W3C server. The far more powerful
+# `tauri-plugin-wdio` — which adds arbitrary JavaScript execution, Tauri-command mocking and invoke
+# interception — is NOT enabled, because no acceptance criterion has been shown to require it. That
+# plugin would be able to fake the very governed chain the proof exists to demonstrate.
+webdriver-e2e = ["dep:tauri-plugin-wdio-webdriver"]
+
+[[bin]]
+# The authoritative ProjectOS Control Centre executable. `default-run` names it explicitly so that
+# `cargo run` stays unambiguous once the fixture target exists.
+name = "projectos-control-center"
+path = "src/main.rs"
+
+[[bin]]
+# TEST-ONLY synthetic child for WINDOWS-PROCESS-CREATION1A lifecycle proofs.
+# `required-features` is the packaging boundary: without `test-fixtures` Cargo does not build this
+# target at all, so it cannot be produced by a release build nor bundled. The argv token inside it is
+# only accidental-execution protection and is NOT what keeps it out of production.
+name = "projectos-test-child"
+path = "src/bin/projectos_test_child.rs"
+required-features = ["test-fixtures"]
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+# TEST-ONLY. Reachable only through the `webdriver-e2e` feature above; `optional = true` keeps it out
+# of the default and release graphs entirely. Official WebdriverIO crate (webdriverio/desktop-mobile),
+# MIT. Serves a localhost W3C WebDriver endpoint inside the app so no external driver is required.
+tauri-plugin-wdio-webdriver = { version = "1.3", optional = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# PACKAGED-SIDECAR-IDENTITY1A: SHA-256 for pinned-runtime and daemon-artefact identity.
+sha2 = "0.10"
+# WINDOWS-PACKAGED-HOST-TRUST-ENFORCEMENT3K-I-C-A: canonical low-level Win32 handle RAII + build-mode
+# classifier, extracted so identity and process code share one implementation (no duplicate handles,
+# no identity->process coupling). Path dependency; no new external package enters the graph beyond the
+# already-locked `windows` crate this consumes.
+projectos-windows-runtime-primitives = { path = "../../host/windows-runtime-primitives" }
+# WINDOWS-PACKAGED-HOST-TRUST-ENFORCEMENT3K-I-C-B: the canonical identity/publisher-trust
+# implementation now lives in projectos-host-identity and is consumed here ONLY through the shared
+# runtime's safe facade (capture_startup_identity / IdentityStatusView / sha256_hex). No identity
+# implementation remains in this crate.
+projectos-shared-host-runtime = { path = "../../host/shared-host-runtime" }
+# CD-B4-CONTROL-CENTRE-WINDOW-OBSERVATION-BRIDGE1A: the inert Windows owner-verification adapter, consumed
+# ONLY to build UNTRUSTED window observations and to name the sealed verifier / opaque binding types. The
+# adapter's default graph mints nothing; this crate cannot construct the verifier or a binding.
+projectos-host-windows-owner-verification = { path = "../../host/windows-owner-verification" }
+# PROJECTOS-RECOVERY-INSTALLED-APP1A: THE packaging contract — which Node runtime a packaged
+# installation carries and where the payload puts things. Constants only: no code, no dependencies,
+# no key material. It is a dependency so this crate's packaged expectations and the packaging tool's
+# output derive from ONE declaration; two literals describing one fact drift, and the day they do, a
+# correctly assembled payload is refused by the application that assembled it.
+projectos-packaged-runtime-contract = { path = "../../host/packaged-runtime-contract" }
+# PROJECTOS-PHASE6-SECTION-C: THE installed-project registry. The one route by which this application
+# learns which projects it may govern, read from the protected ProgramData installation directory and
+# validated against the repositories it names. It is a dependency rather than a second local reader so
+# there is ONE schema, ONE set of refusals and ONE path vocabulary; the crate resolves ProgramData
+# through the same Known Folder primitive already in this graph and takes no caller-supplied path.
+projectos-project-registry = { path = "../../host/project-registry" }
+
+# WINDOWS-PROCESS-CREATION1A: atomic job-bound child creation. Already present in Cargo.lock
+# (transitive via tauri) — this only promotes it to a direct dependency and enables the minimum
+# features actually invoked. Job Objects have no std equivalent.
+[target.'cfg(windows)'.dependencies]
+# CD-B4-PROJECTOSHOST-FUNCTIONAL-PILOT1A: the EXISTING local named-pipe transport, consumed only for
+# the read-only installed-host status read. `owner-approved-status-read` is the owner-approved,
+# single-scope capability route; it authorises the status read and nothing else — no service control,
+# no write, no other message kind. No new protocol, pipe or crate is introduced by this dependency.
+projectos-host-windows-local-ipc = { path = "../../host/windows-local-ipc", features = [
+  "windows-live-ipc",
+  "owner-approved-status-read",
+] }
+# WINDOWS-HOST-SINGLE-INSTANCE1A adds two features to this SAME already-locked crate — no new
+# package enters the build graph. `Win32_Security_Authorization` supplies the SDDL/SID-string
+# conversions used to build the instance object's explicit DACL; `Win32_UI_WindowsAndMessaging`
+# supplies `MessageBoxW`, which is required because release builds use the Windows subsystem and
+# therefore have no console — without it a duplicate launch would exit silently.
+windows = { version = "0.61.3", features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_Security_Authorization",
+  # PACKAGED-RUNTIME-IDENTITY2B adds three features to this SAME already-locked crate — no new
+  # package enters the build graph. `Win32_Security_WinTrust` supplies WinVerifyTrust + the
+  # WTHelper* same-verification-state signer accessors; `Win32_Security_Cryptography` supplies the
+  # CERT_CONTEXT/CRYPT_PROVIDER structs the signer public key is read from; `Win32_Storage_FileSystem`
+  # supplies the handle-based running-executable identity (CreateFileW, GetFinalPathNameByHandleW,
+  # GetFileInformationByHandle). Verification of the Control Centre executable only; no daemon,
+  # provider, approval, or protected authority is enabled by these.
+  "Win32_Security_WinTrust",
+  "Win32_Security_Cryptography",
+  # The WTHelper* same-verification-state signer accessors are feature-gated on these two.
+  "Win32_Security_Cryptography_Catalog",
+  "Win32_Security_Cryptography_Sip",
+  "Win32_Storage_FileSystem",
+  "Win32_System_JobObjects",
+  "Win32_System_Threading",
+  "Win32_System_Pipes",
+  "Win32_UI_WindowsAndMessaging",
+  # PROJECTOS-PRODUCT-COMPLETION1A §11: ShellExecuteExW with the `runas` verb — the ONLY route by
+  # which this host raises a real Windows UAC prompt. It launches one fixed, bounded helper binary
+  # beside this executable and nothing else; see src/register_project.rs.
+  "Win32_UI_Shell",
+  # REQUIRED BY `SHELLEXECUTEINFOW` ITSELF, not by anything this crate calls directly: the struct
+  # carries an `hkeyClass: HKEY`, so both it and `ShellExecuteExW` are gated on this feature. The
+  # build previously succeeded WITHOUT declaring it purely because `tao` (transitive via tauri→wry)
+  # enables it on the same already-locked `windows` package and Cargo unifies features. Depending on
+  # another crate's feature selection for our own compilation is a build that breaks the day that
+  # crate changes, so it is declared here.
+  "Win32_System_Registry",
+  # `ShellExecuteExW` delegates to COM shell extensions and requires an initialised apartment. It
+  # happened to work while the command ran on tao's already-initialised main thread; the command is
+  # now async (it must not block the event loop), so the worker thread initialises COM itself.
+  "Win32_System_Com",
+] }

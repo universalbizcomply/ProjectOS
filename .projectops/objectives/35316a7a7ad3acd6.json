@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "objectiveId": "35316a7a7ad3acd6",
+  "objective": "Enable ProjectOS to autonomously coordinate OpenAI governance and Claude implementation so that the owner supplies an objective once and no longer carries prompts, reports or gate decisions between them, by adding a supported unattended OpenAI gatekeeper transport, machine-readable gatekeeper decisions bound to project and phase and subject commit and request digest, an API cost ledger with an owner-approved budget and hard-stop policy, a fail-safe owner-risk degraded mode that can never grant protected authority, reconciliation when the gatekeeper returns, and a small private owner interface reachable from ChatGPT over the OpenAI Secure MCP Tunnel where that is available on the owner account, all local and non-production with no paid API activation, no credential creation and no GUI automation.",
+  "authoritative": false,
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-post-v3-selfhost-pilot1a",
+  "baseHead": "3d9ec914ef5e69fbc069e76dbb5e9a1b2f734568",
+  "submittedAt": "2026-08-18T21:21:21.161Z",
+  "submittedBy": "owner",
+  "instructionShaped": false
+}

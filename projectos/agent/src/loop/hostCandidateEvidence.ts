@@ -1,0 +1,244 @@
+/**
+ * THE AGENT'S OWN READING OF THE CANDIDATE — so it can refuse an attestation over any other evidence.
+ *
+ * PROJECTOS-HOST-REVIEW-PATH1B. The Host shows a reviewer the complete difference between the approved
+ * baseline commit and the candidate commit and binds that evidence's digest into its attestation. The
+ * agent has the same two commits, so it derives the same changed-path set here, with its OWN git, and
+ * recomputes the digest BEFORE anything is asked. `readHostResponseRecord` then refuses an attestation
+ * whose digest differs: an approval of evidence the agent cannot reproduce is an approval of something
+ * other than this candidate.
+ *
+ * IT IS A CHECK, NEVER AN INPUT TO THE HOST. Nothing computed here is sent. The Host derives its own
+ * evidence from its own reader and never sees the agent's; agreement is two independent readings of one
+ * repository arriving at one digest.
+ *
+ * BUFFERS, NOT STRINGS. `System.exec` returns decoded text, which would corrupt a binary blob and with it
+ * the content digest. The production source therefore spawns git itself and keeps every byte as read.
+ *
+ * THE SAME SPELLING THE HOST USES: endpoint trees, rename detection off, full-length identities, and
+ * replacement objects disabled, so both sides read the difference the same way.
+ */
+import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import {
+  candidateEvidenceDigest,
+  MAX_ANCESTRY_STEPS,
+  type AncestryEvidenceEntry,
+  type AncestryEvidenceStep,
+  type CandidateEvidenceEntry,
+  type EvidenceChange,
+} from '@projectos/core';
+
+/** The agent's recomputed evidence digest, or why it could not be established. */
+export type CandidateEvidenceSource = (
+  baselineCommit: string,
+  candidateCommit: string,
+) => { readonly digest: string } | { readonly problems: readonly string[] };
+
+/** One committed-object read: raw bytes on success, `null` on any failure. Injectable for proofs. */
+export type GitBytes = (args: readonly string[]) => Buffer | null;
+
+// 40 HEX EXACTLY, BY RATIFIED CONTRACT — deliberately narrower than the Rust reader's own id type.
+// The committed-candidate rule accepts only 40 lower hex (`projectos.committed-candidate.v1`), so a
+// SHA-256 object-format repository fails CLOSED on both sides; this pairing is SHA-1-only by design.
+const COMMIT = /^[0-9a-f]{40}$/;
+const STATUS: Readonly<Record<string, EvidenceChange>> = { A: 'added', D: 'deleted', M: 'modified', T: 'type-changed' };
+/** Matches the Host reader's per-object bound; a larger object is refused, never shortened. */
+const MAX_GIT_OUTPUT = 1_048_576;
+
+/**
+ * Parse `diff-tree -r --raw -z` output. ANYTHING NOT FULLY UNDERSTOOD IS A REFUSAL: a record skipped
+ * here is a changed path missing from the digest, which would then disagree with the Host for a reason
+ * nobody could see.
+ */
+export function parseRawTreeDifference(
+  raw: Buffer,
+): { readonly entries: readonly Omit<CandidateEvidenceEntry, 'contents'>[] } | { readonly problems: readonly string[] } {
+  if (raw.length === 0) return { entries: [] };
+  if (raw[raw.length - 1] !== 0) return { problems: ['the tree difference does not end in a record terminator'] };
+  const fields = raw.subarray(0, raw.length - 1).toString('latin1').split('\0');
+  if (fields.length % 2 !== 0) return { problems: ['the tree difference is not a whole number of records'] };
+  const entries: Omit<CandidateEvidenceEntry, 'contents'>[] = [];
+  for (let i = 0; i < fields.length; i += 2) {
+    const meta = /^:([0-7]{6}) ([0-7]{6}) ([0-9a-f]{40}) ([0-9a-f]{40}) ([ADMT])$/.exec(fields[i]!);
+    const path = fields[i + 1]!;
+    if (meta === null) return { problems: ['a tree-difference record is not in the expected raw form'] };
+    entries.push({
+      change: STATUS[meta[5]!]!,
+      path,
+      oldMode: parseInt(meta[1]!, 8),
+      newMode: parseInt(meta[2]!, 8),
+      oldId: meta[3]!,
+      newId: meta[4]!,
+    });
+  }
+  return { entries };
+}
+
+/** The evidence source over any committed-object reader. */
+export function candidateEvidenceSource(git: GitBytes): CandidateEvidenceSource {
+  return (baselineCommit, candidateCommit) => {
+    if (!COMMIT.test(baselineCommit) || !COMMIT.test(candidateCommit)) {
+      return { problems: ['the baseline and the candidate must each be an exact 40-character commit id'] };
+    }
+    // THE BASELINE MUST BE AN ANCESTOR, exactly as the Host requires: the difference between two
+    // unrelated trees is not a change to what the owner approved.
+    if (git(['merge-base', '--is-ancestor', baselineCommit, candidateCommit]) === null) {
+      return { problems: ['the approved baseline is not an ancestor of the candidate in this repository'] };
+    }
+    const raw = git(['diff-tree', '-r', '--raw', '-z', '--no-abbrev', '--no-renames', '--no-ext-diff', '--end-of-options', baselineCommit, candidateCommit]);
+    if (raw === null) return { problems: ['the difference between the baseline and the candidate could not be read'] };
+    const parsed = parseRawTreeDifference(raw);
+    if ('problems' in parsed) return parsed;
+
+    const entries: CandidateEvidenceEntry[] = [];
+    for (const e of parsed.entries) {
+      if (e.newMode === 0) {
+        entries.push({ ...e, contents: null });
+        continue;
+      }
+      // Read only what the digest will accept a description of; an unsupported kind is refused by the
+      // digest itself, so there is nothing to read for it.
+      const readable = e.newMode === 0o100644 || e.newMode === 0o100755 || e.newMode === 0o120000;
+      const contents = readable ? git(['cat-file', 'blob', '--end-of-options', `${candidateCommit}:${e.path}`]) : Buffer.alloc(0);
+      if (contents === null) return { problems: [`the committed contents of '${e.path}' could not be read within the evidence bound`] };
+      // THE BYTES MUST BE THE OBJECT THEY ARE NAMED AS (AppSec F1, premise proven on this git:
+      // `cat-file` serves a substituted loose object under the original id with exit 0). The evidence
+      // names `newId` and shows `contents`; without this line those are two independent claims, and a
+      // crafted object store could have the reviewer judge bytes that are not the commit's true tree.
+      // Git's own object id IS the hash of the bytes, so the check is exact and free of new trust.
+      if (readable && gitBlobId(contents) !== e.newId) {
+        return {
+          problems: [
+            `the committed contents of '${e.path}' do not hash to their own object id - the object store is not telling the truth about this candidate`,
+          ],
+        };
+      }
+      entries.push({ ...e, contents });
+    }
+    // F2: THE EXACT ORDERED PUSH BOUNDARY, derived with the agent's OWN git exactly as the Host
+    // derives it - the strict linear enumeration, each step's own changes, and the BYTES of any step
+    // result that does not survive to the candidate. The digest equality below is then an agreement
+    // about the whole pushed history, not only about the endpoint trees.
+    const ancestry = deriveAncestry(git, baselineCommit, candidateCommit, entries);
+    if ('problems' in ancestry) return ancestry;
+
+    const computed = candidateEvidenceDigest({ baselineCommit, candidateCommit, entries, ancestry: ancestry.steps });
+    return computed.digest === null ? { problems: computed.problems } : { digest: computed.digest };
+  };
+}
+
+/** The strict linear enumeration and per-step evidence, mirroring the Host's reader rules. */
+function deriveAncestry(
+  git: GitBytes,
+  baselineCommit: string,
+  candidateCommit: string,
+  finalEntries: readonly CandidateEvidenceEntry[],
+): { readonly steps: AncestryEvidenceStep[] } | { readonly problems: readonly string[] } {
+  const raw = git(['rev-list', '--reverse', '--parents', '--end-of-options', `${baselineCommit}..${candidateCommit}`]);
+  if (raw === null) return { problems: ['the ordered ancestry between the baseline and the candidate could not be read'] };
+  const malformed = { problems: ['the ancestry between the baseline and the candidate is not one linear chain'] } as const;
+  const lines = raw.toString('latin1').split('\n').map((l) => l.trim()).filter((l) => l !== '');
+  if (lines.length > MAX_ANCESTRY_STEPS) return malformed;
+  const chain: { commit: string; parent: string }[] = [];
+  for (const line of lines) {
+    const fields = line.split(' ');
+    if (fields.length !== 2 || !COMMIT.test(fields[0]!) || !COMMIT.test(fields[1]!)) return malformed;
+    const expected = chain.length === 0 ? baselineCommit : chain[chain.length - 1]!.commit;
+    if (fields[1] !== expected) return malformed;
+    chain.push({ commit: fields[0]!, parent: fields[1]! });
+  }
+  if (chain.length === 0 ? baselineCommit !== candidateCommit : chain[chain.length - 1]!.commit !== candidateCommit) {
+    return malformed;
+  }
+
+  const finalIdByPath = new Map(finalEntries.map((e) => [e.path, e.newId]));
+  const steps: AncestryEvidenceStep[] = [];
+  for (const [index, link] of chain.entries()) {
+    const rawStep = git(['diff-tree', '-r', '--raw', '-z', '--no-abbrev', '--no-renames', '--no-ext-diff', '--end-of-options', link.parent, link.commit]);
+    if (rawStep === null) return { problems: [`the changes of ancestry commit ${link.commit} could not be read`] };
+    const parsed = parseRawTreeDifference(rawStep);
+    if ('problems' in parsed) return parsed;
+    const entries: AncestryEvidenceEntry[] = [];
+    for (const e of parsed.entries) {
+      // SURVIVES iff the endpoint difference records this very object for this very path; the last
+      // step IS the candidate. Anything else is bytes a push publishes that the tip no longer holds:
+      // read AT THE STEP, and verified against the step's own object id (AppSec F1, on history too).
+      const survives = index === chain.length - 1 || e.newMode === 0 || finalIdByPath.get(e.path) === e.newId;
+      let vanishedContents: Buffer | null = null;
+      if (!survives) {
+        const readable = e.newMode === 0o100644 || e.newMode === 0o100755 || e.newMode === 0o120000;
+        if (readable) {
+          const bytes = git(['cat-file', 'blob', '--end-of-options', `${link.commit}:${e.path}`]);
+          if (bytes === null) return { problems: [`the vanished contents of '${e.path}' at ${link.commit} could not be read`] };
+          if (gitBlobId(bytes) !== e.newId) {
+            return {
+              problems: [
+                `the vanished contents of '${e.path}' do not hash to their own object id - the object store is not telling the truth about this history`,
+              ],
+            };
+          }
+          vanishedContents = bytes;
+        }
+      }
+      entries.push({ ...e, vanishedContents });
+    }
+    steps.push({ commit: link.commit, parent: link.parent, entries });
+  }
+  return { steps };
+}
+
+/** The git object id of `bytes` as a blob: SHA-1 over `blob <len>\0` + bytes (this pairing is SHA-1-only). */
+export function gitBlobId(bytes: Buffer): string {
+  return createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
+}
+
+/**
+ * The production reader: the bound git executable, in the governed root, no shell, bounded output and
+ * time, replacement objects and grafts disabled, and no pager or prompt.
+ *
+ * THE ENVIRONMENT IS AN ALLOWLIST, NOT AN INHERITANCE (ECC security, HIGH). This is the agent's
+ * INDEPENDENT reading — the one check that lets it refuse an attestation over other evidence — and it
+ * used to spread `process.env`, so an ambient `GIT_DIR`, `GIT_OBJECT_DIRECTORY`,
+ * `GIT_ALTERNATE_OBJECT_DIRECTORIES` or `GIT_CONFIG_PARAMETERS` could silently repoint WHICH repository
+ * answers, while every sibling git call in the same candidate was already allowlisted. Now nothing
+ * `GIT_*` is inherited at all; system and user configuration are the null device; and the hook
+ * directory resolves beneath it, matching `system.ts` and the Host's own runner.
+ */
+export function nodeGitBytes(gitExe: string, root: string): GitBytes {
+  const NULL_DEVICE = process.platform === 'win32' ? 'NUL' : '/dev/null';
+  return (args) => {
+    const kept: NodeJS.ProcessEnv = {};
+    for (const name of ['SystemRoot', 'SystemDrive', 'windir', 'TEMP', 'TMP', 'PATH']) {
+      const value = process.env[name];
+      if (typeof value === 'string') kept[name] = value;
+    }
+    const result = spawnSync(gitExe, [...args], {
+      cwd: root,
+      encoding: 'buffer',
+      maxBuffer: MAX_GIT_OUTPUT,
+      timeout: 15_000,
+      windowsHide: true,
+      shell: false,
+      env: {
+        ...kept,
+        GIT_CONFIG_NOSYSTEM: '1',
+        GIT_CONFIG_SYSTEM: NULL_DEVICE,
+        GIT_CONFIG_GLOBAL: NULL_DEVICE,
+        GIT_ATTR_NOSYSTEM: '1',
+        GIT_NO_REPLACE_OBJECTS: '1',
+        GIT_GRAFT_FILE: NULL_DEVICE,
+        GIT_TERMINAL_PROMPT: '0',
+        GIT_OPTIONAL_LOCKS: '0',
+        GIT_PAGER: 'cat',
+        GIT_NO_LAZY_FETCH: '1',
+        LC_ALL: 'C',
+        GIT_CONFIG_COUNT: '1',
+        GIT_CONFIG_KEY_0: 'core.hooksPath',
+        GIT_CONFIG_VALUE_0: NULL_DEVICE,
+      },
+    });
+    if (result.error !== undefined || result.status !== 0) return null;
+    return result.stdout;
+  };
+}
