@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "objectiveId": "d25390255b7d784e",
+  "objective": "Amend plan v1.10 so PROJECTOS-FINISH-EXTERNAL-PROOF1A proves ProjectOS on one ordinary phase of a new local governed project — the website of an SEO and social-media posting agency seeded with three vendored MIT toolkits, posting disabled — instead of Dead Aisle and PolyGo, by owner decision of 2026-10-25. No other phase changes.",
+  "authoritative": false,
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "f7eb86b212bb1e957b25a5fbb6a963e439748345",
+  "submittedAt": "2026-10-25T20:00:39.427Z",
+  "submittedBy": "owner",
+  "instructionShaped": false
+}
