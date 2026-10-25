@@ -1,0 +1,148 @@
+{
+  "projectId": "projectos",
+  "businessVision": "ProjectOS delivers ordinary technical work on real projects end to end: Claude implements, the ChatGPT gatekeeper reviews through the owner's relay, and ProjectOS carries each approved phase through checks, review, commit, push and closure, with the owner making about one commit per phase and holding every protected action.",
+  "definitionOfComplete": "Three phases are complete: phase write grants come from a structured list of paths in the approved plan, with the judging validators and enforcement code run from the last approved commit; phase closure works for any governed project and the owner's work per phase is one closure commit and two relays; and ProjectOS has carried one ordinary phase end to end on Dead Aisle and one on PolyGo, with evidence. Host-attested unattended review, the signed installer, Forge and the Control Center redesign are deferred and are reopened only by an owner decision.",
+  "successStandard": "On Dead Aisle and on PolyGo, the owner states an objective, approves the plan, says continue, relays the gatekeeper's two answers per phase, and commits the closure decision; everything else between those acts is done by ProjectOS, truthfully recorded, with no protected action taken without the owner.",
+  "approvedScope": [
+    "A structured per-phase list of write paths in the plan schema, the plan source format and the plan engine, from which the worker's write grant is derived exactly.",
+    "Running a phase's required validators and the loop's enforcement code from the last approved commit, so work under review cannot alter what judges it.",
+    "Generalising the closure eligibility gate from the project id 'projectos' to the governed project's own id.",
+    "Folding the run's own records into the loop's technical-continuation commit, and committing generated closure-tail records as a technical action when the phase's owner gates leave commit and push delegated.",
+    "Live proofs: the disposable two-phase proof re-run with the reduced owner acts, then one ordinary phase on Dead Aisle and one on PolyGo through projectos continue, with evidence under docs/finish/.",
+    "Fixes in ProjectOS that those live proofs show are needed, within the paths each phase lists."
+  ],
+  "environments": [
+    {
+      "environmentId": "reference-development-pc-windows11-node24.14.1-rust1.96-base-70c1329",
+      "productionFreeze": true
+    }
+  ],
+  "excludedScope": [
+    "A second orchestrator, decision store, work queue, execution engine or gatekeeper.",
+    "Any change to the absolute owner-only actions: phase closure by the owner, secrets handling and payment or live charge stay exactly as they are.",
+    "Production deployment, external send, payment, refund, production database mutation and credential disclosure or rotation.",
+    "Deferred by owner decision of 2026-10-25 (Option A): Host service activation, credential provisioning, signing, unattended or paid provider review, the signed installer, Programme C (Forge) and the Control Center redesign.",
+    "Deferred: live specialist engines and workforce activation, and the carried workforce deferrals recorded in plan v1.8.",
+    "Deferred to after ProjectOS completion by the owner's recorded statement: credential or token rotation where genuinely required.",
+    "Carried LOW items, each with its trigger: configuration argv forms beyond --allowedTools; hard links and device names beneath granted directories; process-tree termination on a check timeout."
+  ],
+  "phases": [
+    {
+      "phaseId": "PROJECTOS-FINISH-WRITEPATHS1A",
+      "title": "Write grants from a structured path list; validators judged from the approved commit",
+      "description": "Give every plan phase a structured list of write paths and derive the worker's write grant from that list exactly, retiring the reading of grants from scope prose; and run a phase's required validators and the loop's enforcement code from the last approved commit, so a phase whose paths name a validator or enforcement file cannot change what judges it.",
+      "scope": "Edit projectos/schemas/project-plan.schema.json, projectos/core/src/, projectos/core/test/, projectos/agent/src/planApproval.ts, projectos/agent/src/loop/workers.ts, projectos/agent/src/loop/runner.ts, projectos/agent/src/loop/verification.ts, projectos/agent/src/loop/brief.ts, projectos/agent/test/, projectos/validators/val-projectos-boot-continue1a.cjs and add evidence under docs/finish/.",
+      "exclusions": [
+        "No change to the absolute owner-only actions or to the closure authority.",
+        "No second grant route: the structured path list replaces prose reading, and configuration stays limited to the worker-owned records.",
+        "No Rust source, Cargo manifest, Host, credential or provider change."
+      ],
+      "dependsOn": [],
+      "acceptanceCriteria": [
+        "Every plan phase can carry a structured writePaths list; the plan schema, the plan source format and the plan engine accept it, and a phase without it grants only the worker-owned records.",
+        "The worker's write grant equals writePaths exactly, after the existing normalisation and containment rules; scope prose is read by no grant code path, and the exclusion-word list is retired.",
+        "A phase's required validators and the loop's enforcement code run from the phase's base commit, and a test proves a worker edit to a validator or enforcement file under its grant does not change the check result.",
+        "Each new rule is pinned by a validator and killed by a named mutation, and the plan v1.9 phases themselves carry writePaths.",
+        "Agent and core tests green, validate-all with no new failure beyond the two known, and the ECC CODE and ECC SECURITY reviews with no unresolved critical or high finding."
+      ],
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredValidators": [
+        "val-projectos-boot-continue1a",
+        "val-projectos-work-record-not-authority1a",
+        "val-projectos-live-gate-owner-floor1a",
+        "validate-current-project-state",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC CODE review",
+        "ECC SECURITY review"
+      ],
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "secrets-handling",
+        "payment-or-live-charge"
+      ]
+    },
+    {
+      "phaseId": "PROJECTOS-FINISH-MULTIPROJECT1A",
+      "title": "Closure for any governed project, and one owner commit per phase",
+      "description": "Let the closure eligibility gate judge any governed project by its own id, and reduce the owner's work per phase to the closure commit and the two gatekeeper relays: the loop's technical-continuation commit carries the run's own records, and generated closure-tail records are committed and pushed as a technical action when the phase's owner gates leave commit and push delegated.",
+      "scope": "Edit projectos/core/src/closureEligibility.ts, projectos/core/test/, projectos/agent/src/loop/runner.ts, projectos/agent/src/loop/technicalContinuation.ts, projectos/agent/src/commands/closure.ts, projectos/agent/src/commands/run.ts, projectos/agent/src/closureGate.ts, projectos/agent/test/, projectos/validators/val-projectos-boot-continue1a.cjs, projectos/validators/val-projectos-technical-continuation1a.cjs, projectos/validators/val-projectos-closure-transport1a.cjs and add evidence under docs/finish/.",
+      "exclusions": [
+        "No change to the absolute owner-only actions: the closure decision is still committed by the owner.",
+        "No technical commit of anything other than the run's own records and closure-tail records, and none at all when the phase's owner gates reserve commit or push.",
+        "No Rust source, Cargo manifest, Host, credential or provider change."
+      ],
+      "dependsOn": [
+        "PROJECTOS-FINISH-WRITEPATHS1A"
+      ],
+      "acceptanceCriteria": [
+        "G4-1 is satisfied by the governed project's own id, proven by a closure of a project whose id is other than 'projectos', and a closure of a project whose plan and configuration ids disagree is refused.",
+        "After an approved technical continuation the tree holds no uncommitted run record, proven through run().",
+        "closure prepare commits and pushes exactly its three closure-tail records when commit and push are delegated, refuses to commit any other path, and only generates them when either gate is reserved.",
+        "The disposable two-phase live proof is re-run with the interactive gatekeeper and shows per phase: two relays and one owner commit, with a restart recovered.",
+        "Each new rule is pinned by a validator and killed by a named mutation; agent and core tests green; validate-all with no new failure beyond the two known; ECC CODE and ECC SECURITY reviews with no unresolved critical or high finding."
+      ],
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredValidators": [
+        "val-projectos-boot-continue1a",
+        "val-projectos-technical-continuation1a",
+        "val-projectos-closure-transport1a",
+        "val-projectos-live-gate-owner-floor1a",
+        "validate-current-project-state",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC CODE review",
+        "ECC SECURITY review"
+      ],
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "secrets-handling",
+        "payment-or-live-charge"
+      ]
+    },
+    {
+      "phaseId": "PROJECTOS-FINISH-EXTERNAL-PROOF1A",
+      "title": "One ordinary phase delivered end to end on Dead Aisle and one on PolyGo",
+      "description": "Prove ProjectOS on real projects: one ordinary phase of an owner-chosen objective on Dead Aisle and one on PolyGo, each carried by projectos continue through implementation, checks, the relayed gatekeeper review, commit, push and closure, with the owner's acts counted and the results recorded.",
+      "scope": "Add evidence under docs/finish/ and fix ProjectOS where the live runs require it, in projectos/agent/src/, projectos/agent/test/ and projectos/validators/val-projectos-boot-continue1a.cjs. Dead Aisle and PolyGo work happens under each project's own approved plan in its own repository.",
+      "exclusions": [
+        "No production deployment, payment, external send or credential handling on either project.",
+        "No change to the absolute owner-only actions on either project.",
+        "No Rust source, Cargo manifest, Host, credential or provider change in ProjectOS."
+      ],
+      "dependsOn": [
+        "PROJECTOS-FINISH-MULTIPROJECT1A"
+      ],
+      "acceptanceCriteria": [
+        "Each project's automated checks run under ProjectOS on Windows, and each project's plan for the chosen objective is approved by its owner.",
+        "On each project, one ordinary phase runs through projectos continue end to end: worker implementation within its writePaths, checks, the relayed gatekeeper review, technical commit and push, closure preparation and the owner's closure commit.",
+        "The owner's acts per phase are counted and equal the target: one closure commit and two relays, plus plan approval; any excess is recorded with its cause.",
+        "Evidence under docs/finish/ records, for each project, the objective, the commits, the checks, the review decisions, the owner acts and every defect found, live results reported separately from synthetic tests.",
+        "ProjectOS fixes made for the live runs are tested, validator-pinned where they add a rule, and reviewed by ECC CODE and ECC SECURITY with no unresolved critical or high finding."
+      ],
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredValidators": [
+        "val-projectos-boot-continue1a",
+        "validate-current-project-state",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC CODE review",
+        "ECC SECURITY review"
+      ],
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "secrets-handling",
+        "payment-or-live-charge"
+      ]
+    }
+  ]
+}
