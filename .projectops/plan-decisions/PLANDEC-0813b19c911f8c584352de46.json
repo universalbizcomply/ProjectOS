@@ -11,5 +11,6 @@
   "decidedBy": "Murad",
   "decidedAt": "2026-10-25T17:24:43.290Z",
   "note": "Owner (Murad), 2026-10-25, verbatim: \"OPTION A CONFIRMED.\" and \"I give you full authority now\". On that grant, this amendment of plan v1.9 (draft 0b32a3adb9da9521) is approved by the implementer recording the owner grant. It changes only what the approved plan carries from its source: every phase gains its structured writePaths, and PROJECTOS-FINISH-WRITEPATHS1A carries its corrected scope (the plan engine, pinnedValidators.ts and closure.ts it needed). No phase, criterion, validator, review or owner gate changes. No ChatGPT gatekeeper review of this amendment was relayed; none is claimed. Not authorised: credential disclosure or rotation, production deployment, payments or live charges, Host service activation, paid provider calls, force push or history rewrite, and any change to the absolute owner-only actions. Owner rotation statement carried forward verbatim: \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\"",
-  "recordedBy": "projectos plan decide"
+  "recordedBy": "projectos plan decide",
+  "consumedAt": "2026-10-25T17:24:51.884Z"
 }

@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "objectiveId": "0b32a3adb9da9521",
+  "objective": "Amend plan v1.9 so the approved plan carries what its source now states: every phase's structured writePaths, and PROJECTOS-FINISH-WRITEPATHS1A's corrected scope naming the files that phase changed. No phase is added, removed or reordered, and no criterion, validator, review or owner gate changes.",
+  "authoritative": false,
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "2078ef072e3d82cbaf3f17d4ae3ef9ace9eddd54",
+  "submittedAt": "2026-10-25T17:24:23.352Z",
+  "submittedBy": "owner",
+  "instructionShaped": false
+}
