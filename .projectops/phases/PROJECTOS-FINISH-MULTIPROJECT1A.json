@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-FINISH-MULTIPROJECT1A",
+  "project": "ProjectOS",
+  "objective": "Let the closure eligibility gate judge any governed project by its own id, and reduce the owner's work per phase to the closure commit and the two gatekeeper relays: the loop's technical-continuation commit carries the run's own records, and generated closure-tail records are committed and pushed as a technical action when the phase's owner gates leave commit and push delegated.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-10-25T19:20:56.581Z",
+      "note": "Owner-approved plan v1.10 (PLANDEC-0813b19c, activation 78cb353); implemented by Claude (lead) directly on the owner's grant of 2026-10-25, not dispatched to a governed worker. The phase record is created after the implementation commit; the transitions below record the work already done, in order."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-10-25T19:20:56.934Z",
+      "note": "Implementation on projectos-autonomy-bootstrap1a from 4c4e0e0: G4-1 for any governed project; ProjectOS commits its own run and closure records under the delegation."
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-10-25T19:20:57.244Z",
+      "note": "Candidate committed d662bb5 (12 paths; every blob byte-identical to the reviewed off-tree manifest candidate-r2). At the subject: agent 2508/2508, core 766/766, typecheck:all clean; validate-all 145/147 (known: validate-desktop-e2e, val-cd-b4-sealed-expected-window-facts1a). The six required validators PASS at the subject and pinned to the base 4c4e0e0 (val-projectos-closure-transport1a is library-only: its run() returns 0 errors)."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-10-25T19:20:57.579Z",
+      "note": "Evidence: 17 named mutations killed by the named rule, 11 also by a test (C:/dev/ProjectOS-candidate-backups/finish-multiproject1a/tools); live disposable two-phase proof on project id disposable-proof: 2 phases closed, 4 relays, 2 owner commits (one per phase), 1 restart recovered, remote 0/0; docs/finish/PROJECTOS-FINISH-MULTIPROJECT1A.md."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-10-25T19:20:57.947Z",
+      "note": "closure tail only - no implementation, no source. Reviews complete at subject d662bb5: Claude self-review; ECC CODE (1 HIGH) and ECC SECURITY (1 HIGH) both fixed in one fix round, no CRITICAL/HIGH open."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-10-25T19:20:58.384Z",
+      "note": "closure tail only - no implementation, no source. Owner-direct closure route under the owner's full-authority grant of 2026-10-25; no gatekeeper closure ruling obtained or claimed. Evidence .projectops/closure/PROJECTOS-FINISH-MULTIPROJECT1A.json at subject d662bb5."
+    }
+  ]
+}
