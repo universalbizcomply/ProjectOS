@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "PLANDEC-0a1857e372ad143671877b89",
+  "decision": "approve",
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "be013f31b27ea1636b16aa6a3e63731e024f2ffc",
+  "draftId": "5c01a3c0c8a200d2",
+  "planDigest": "sha256:143678a10e7a7610a0865b72cd61343c4c47f1619a20dd50eb25ecd636d2a00e",
+  "decidedBy": "Murad",
+  "decidedAt": "2026-10-25T20:43:49.436Z",
+  "note": "Owner (Murad), 2026-10-25, verbatim: \"I give you full authority now\"; then, on the gatekeeper, \"Hey, use this key for now. Once it's proven and no issues, then I will revoke. Until this project is completed this key stays\" and \"Route 2 now\". On those words this amendment of plan v1.11 (draft 5c01a3c0c8a200d2) is approved by the implementer recording them: it adds PROJECTOS-FINISH-API-GATEKEEPER1A (the ChatGPT gatekeeper answers through the existing trusted installation broker, no owner relay, as a temporary route while the ProjectOSHost credential custody of decision C5 is not activated); EXTERNAL-PROOF1A runs after it. Supersedes the unactivated decision PLANDEC-cfbcff0f9bd19956eba4f743, whose draft carried a forward dependency and was refused. The OpenAI key is stored by the owner through the hidden credential prompt; Claude never creates, reads, prints, stores or relays it. No gatekeeper review of this amendment was relayed; none is claimed. Not authorised: credential disclosure, production deployment, payments beyond the gatekeeper budget hard stop, real social posts, email or messages, Host activation, force push or history rewrite. Owner rotation statement carried forward verbatim: \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\"",
+  "recordedBy": "projectos plan decide"
+}
