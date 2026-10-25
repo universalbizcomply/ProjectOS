@@ -194,7 +194,7 @@
     {
       "phaseId": "PROJECTOS-FINISH-EXTERNAL-PROOF1A",
       "title": "One ordinary phase delivered end to end on a new governed project: an SEO and social-media agency website",
-      "description": "Prove ProjectOS on a real new project: create a local governed repository for an SEO and social-media posting agency, seeded — by owner decision of 2026-10-25 — with three MIT-licensed open-source toolkits vendored at pinned commits after a supply-chain review (zubair-trabzada/geo-seo-claude, katzca/autosocial, Jakeschincariol/instagram-agent-skill), with every posting path disabled, approve its first plan, and carry one ordinary phase — the agency's marketing website — through projectos continue: worker implementation within its writePaths, automated checks, the gatekeeper review (answered through the trusted broker, no relay), technical commit and push to the local remote, closure preparation and the owner's closure commit, with the owner's acts counted and the results recorded.",
+      "description": "Prove ProjectOS on a real new project: create a local governed repository for an SEO and social-media posting agency, seeded — by owner decision of 2026-10-25 — with three MIT-licensed open-source toolkits vendored at pinned commits after a supply-chain review (zubair-trabzada/geo-seo-claude, katzca/autosocial, Jakeschincariol/instagram-agent-skill), with every posting path disabled, approve its first plan, and carry one ordinary phase — the agency's marketing website — through projectos continue: worker implementation within its writePaths, automated checks, the gatekeeper review (answered through the trusted broker, no relay), technical commit and push to the local remote, closure preparation and the owner's closure commit, with the owner's acts counted and the results recorded. It runs after PROJECTOS-FINISH-API-GATEKEEPER1A has landed, so the review is answered without a relay.",
       "scope": "Add evidence under docs/finish/ and new tests under projectos/agent/test/finish/. The agency project is created at C:/dev/SEOAgency as a local git repository with a local bare remote; its website work happens under that project's own approved plan in its own repository.",
       "writePaths": [
         "docs/finish/",
@@ -208,7 +208,7 @@
         "No edit or deletion of any existing test; new tests go under projectos/agent/test/finish/ only."
       ],
       "dependsOn": [
-        "PROJECTOS-FINISH-API-GATEKEEPER1A"
+        "PROJECTOS-FINISH-MULTIPROJECT1A"
       ],
       "acceptanceCriteria": [
         "The agency project exists at C:/dev/SEOAgency as a local git repository with a local bare remote, the three toolkits vendored at pinned commits with their licences and a supply-chain review recorded, every posting path disabled, ProjectOS governance installed, automated checks that run under ProjectOS on Windows, and a first plan approved by its owner.",
