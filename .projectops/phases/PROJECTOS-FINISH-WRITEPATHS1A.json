@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-FINISH-WRITEPATHS1A",
+  "project": "ProjectOS",
+  "objective": "Give every plan phase a structured list of write paths and derive the worker's write grant from that list exactly, retiring the reading of grants from scope prose; and run a phase's required validators and the loop's enforcement code from the last approved commit, so a phase whose paths name a validator or enforcement file cannot change what judges it.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-10-25T17:27:09.199Z",
+      "note": "Owner-approved plan v1.9 (PLANDEC-ea1d563e, activation aabdf9c), amended as v1.10 (PLANDEC-0813b19c, activation 78cb353) to carry writePaths; implemented by Claude (lead) directly on the owner's grant of 2026-10-25, not dispatched to a governed worker. The phase record is created after the implementation commit; the transitions below record the work already done, in order."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-10-25T17:27:09.691Z",
+      "note": "Implementation on projectos-autonomy-bootstrap1a from aabdf9c: structured writePaths grant, base-commit validator pin, after-attempt scan of directory and new-file grants."
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-10-25T17:27:09.982Z",
+      "note": "Candidate committed 2078ef0 (20 paths; every blob byte-identical to the reviewed off-tree manifest candidate-r2). Validation at the subject: agent 2496/2496, core 765/765, typecheck:all clean; validate-all 145/147 (known: validate-desktop-e2e, val-cd-b4-sealed-expected-window-facts1a); the five required validators PASS at the subject's own bytes. Run as the loop runs them, pinned to the base aabdf9c through the built runtime, four PASS and val-projectos-boot-continue1a FAILS (BC-8c etc.: the base copy asserts the retired prose-grant shapes) — by design, which is why this phase closes by the owner route (docs/finish evidence)."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-10-25T17:27:10.272Z",
+      "note": "Evidence: 25 named mutations killed by the named rule, 17 also by a behavioural test (C:/dev/ProjectOS-candidate-backups/finish-writepaths1a/tools/mutation_battery.cjs); docs/finish/PROJECTOS-FINISH-WRITEPATHS1A.md. No live run claimed for this phase."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-10-25T17:27:10.586Z",
+      "note": "closure tail only - no implementation, no source. Reviews complete at subject 2078ef0: Claude self-review; ECC CODE APPROVE (0 CRITICAL/HIGH); ECC SECURITY 1 HIGH (junction root fell back to the working tree) fixed in one fix round, no CRITICAL/HIGH open."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-10-25T17:27:10.929Z",
+      "note": "closure tail only - no implementation, no source. Owner-direct closure route under the owner's full-authority grant of 2026-10-25; no gatekeeper closure ruling obtained or claimed. Evidence .projectops/closure/PROJECTOS-FINISH-WRITEPATHS1A.json at subject 2078ef0."
+    }
+  ]
+}
