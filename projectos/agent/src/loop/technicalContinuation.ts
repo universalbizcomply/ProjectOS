@@ -4,7 +4,13 @@
  * THIS IS THE EXECUTOR, AND IT DECIDES NOTHING. `authoriseTechnicalContinuation` in core decides, on
  * facts this module gathers from git and from committed records. What is here is the small, closed
  * set of things ProjectOS is physically able to do, plus the checks that can only be made at the
- * moment of doing them.
+ * moment of doing them. The one other mutation it carries — committing ProjectOS's OWN records
+ * (`commitOwnRecords`, PROJECTOS-FINISH-MULTIPROJECT1A) — decides nothing either: it applies the same
+ * owner-only rule over an exact, caller-fixed set of record paths, and is described where it is defined.
+ *
+ * EVERY COMMIT THIS MODULE MAKES IS AUTHORED `ProjectOS implementer`, never the checkout's identity: an
+ * implementer-shaped identity is refused outright by the owner-commit check (`closureWait.ts`), so a
+ * closure decision ProjectOS committed — by any route — can never pass for the owner's.
  *
  * WHY A SWITCH AND NOT A COMMAND. The obvious shape for this — a decision naming a command and a
  * runtime running it — is the shape that ends with a model choosing `--force`. There is no parameter
@@ -38,6 +44,9 @@
  */
 import type { System } from '../system.js';
 import { computeCandidateIdentity, describeCandidateDrift } from './candidateIdentity.js';
+import { classifyOwnerGates } from './brief.js';
+import { resolveTechnicalDelegation } from './gatekeeperConfig.js';
+import type { GovernedContext } from '../governedContext.js';
 import {
   TECHNICAL_ACTIONS,
   TECHNICAL_CONTINUATION_SCOPE,
@@ -136,12 +145,15 @@ export function refusesUnderCurrentPlan(
   return enforcedOwnerOnlyActions(phaseOwnerGates, condition).map(String).includes(String(action));
 }
 
+/** The identity every ProjectOS commit carries: never the owner's, and refused as the owner's. */
+const PROJECTOS_COMMIT_IDENTITY: readonly string[] = ['-c', 'user.name=ProjectOS implementer', '-c', 'user.email=projectos-implementer@projectos.invalid'];
+
 /**
  * Perform exactly the technical continuation that is authorised, or refuse and do nothing.
  *
- * Every refusal path leaves the checkout exactly as it found it. The only mutating commands this
+ * Every refusal path leaves the checkout exactly as it found it. The only work-mutating commands this
  * module can issue are the three in the switch, and each is reached only past the full conjunction
- * plus a second candidate re-derivation.
+ * plus a second candidate re-derivation. (`commitOwnRecords` commits records, never work.)
  */
 export function runTechnicalContinuation(sys: System, request: ContinuationRequest): ContinuationOutcome {
   const { context } = request;
@@ -337,7 +349,7 @@ function doCommit(
     `Reviewed candidate ${candidate.digest}.\n` +
     `Base ${request.decision.subjectCommit}.\n`;
 
-  const committed = sys.exec('git', ['-C', root, 'commit', '-m', message, '--', ...paths]);
+  const committed = sys.exec('git', [...PROJECTOS_COMMIT_IDENTITY, '-C', root, 'commit', '-m', message, '--', ...paths]);
   if (committed.code !== 0) {
     // PUT THE INDEX BACK, FOR THESE PATHS ONLY. `add` succeeded or the commit could not have been
     // attempted, so a failure here leaves the candidate staged and the next ordinary commit would
@@ -492,6 +504,155 @@ function doFastForward(
 /** The scope a technical continuation requires, re-exported so a caller need not reach into core. */
 export { TECHNICAL_CONTINUATION_SCOPE };
 
+/* ---------------------------------------------------------------------------------------------- *
+ * ProjectOS's own records — PROJECTOS-FINISH-MULTIPROJECT1A.
+ * ---------------------------------------------------------------------------------------------- */
+
+/**
+ * The owner gates a plan phase declares, classified exactly as the brief classifies them. A list that
+ * cannot be read is carried as prose, which reserves every technical action — never read as "no gates".
+ */
+export function ownerGatesOfPlanPhase(raw: unknown): readonly string[] {
+  if (raw === undefined) return classifyOwnerGates([]);
+  const read = Array.isArray(raw) ? raw.filter((g): g is string => typeof g === 'string') : [];
+  const malformed = !Array.isArray(raw) || read.length !== raw.length;
+  return classifyOwnerGates(malformed ? [...read, 'the declared owner gates could not be read'] : read);
+}
+
+export type OwnRecordsKind = 'run-records' | 'closure-tail';
+
+export interface OwnRecordsCommitRequest {
+  readonly root: string;
+  readonly phaseId: string;
+  readonly kind: OwnRecordsKind;
+  readonly expectedBranch: string;
+  readonly expectedRemote: string;
+  /** Whether one dirty path is a record this commit may carry. Decided by the caller's fixed list. */
+  readonly isOwnRecord: (path: string) => boolean;
+  readonly delegation: TechnicalDelegationState;
+  /** The phase's declared owner gates, classified. The constitutional floor is added here. */
+  readonly phaseOwnerGates: readonly string[];
+}
+
+export type OwnRecordsOutcome =
+  /** The phase or the constitution keeps commit or push with the owner: nothing was attempted. */
+  | { readonly kind: 'RESERVED'; readonly reasons: readonly string[] }
+  /** Nothing is dirty: there is nothing to commit. */
+  | { readonly kind: 'NOTHING' }
+  | { readonly kind: 'REFUSED'; readonly reasons: readonly string[]; readonly nothingAttempted: boolean }
+  | { readonly kind: 'DONE'; readonly head: string; readonly paths: readonly string[]; readonly lines: readonly string[] };
+
+/**
+ * COMMIT AND PUSH PROJECTOS'S OWN RECORDS — the run's records after an approved technical continuation,
+ * or the three closure-tail records `closure prepare` generates — and nothing else, ever.
+ *
+ * WHY IT EXISTS. After the loop's technical-continuation commit the run still writes its own records
+ * (the phase record, the work record, the gate decision), and `closure prepare` writes three more.
+ * Each set needed an owner commit and push that reviewed nothing: the records describe the run, they
+ * are not the work. Under a delegation that already lets ProjectOS commit and push the reviewed work,
+ * committing its own records is the same authority over less.
+ *
+ * WHAT IT WILL NOT DO. Commit anything when the phase's owner gates — or the constitutional floor, with
+ * no proven technical delegation — reserve `commit` or `push` (then it does nothing and says so).
+ * Commit when ANY dirty path is not one of the caller's records (it refuses, nothing attempted). Carry a
+ * commit that is not already on the remote: HEAD must equal its upstream before, so the push carries
+ * exactly this records commit. Commit the CLOSURE DECISION: no caller's list names it, because that
+ * decision is valid only once the owner commits it (`checkClosureDecision`), and a decision ProjectOS
+ * committed itself would satisfy that check while destroying the property it exists for.
+ *
+ * Every argument is a literal or a value derived from git and governed context, as in the rest of this
+ * module; there is no `--force`, no `--all` and no refspec from outside.
+ */
+export function commitOwnRecords(sys: System, request: OwnRecordsCommitRequest): OwnRecordsOutcome {
+  const { root, expectedBranch, expectedRemote } = request;
+  const ownerOnly = enforcedOwnerOnlyActions(request.phaseOwnerGates, technicalDelegationCondition(request.delegation)).map(String);
+  const reserved = ['commit', 'push'].filter((a) => ownerOnly.includes(a));
+  if (reserved.length > 0) {
+    return { kind: 'RESERVED', reasons: [`${reserved.join(' and ')} stay with the owner for ${request.phaseId}, so ProjectOS commits none of its records`] };
+  }
+  const refuseNow = (reasons: readonly string[]): OwnRecordsOutcome => ({ kind: 'REFUSED', reasons, nothingAttempted: true });
+
+  const branch = git(sys, root, ['rev-parse', '--abbrev-ref', 'HEAD']);
+  const head = git(sys, root, ['rev-parse', 'HEAD']);
+  if (!branch.ok || !head.ok || !/^[0-9a-f]{40}$/.test(head.out)) return refuseNow(['the checkout would not say what branch it is on or where HEAD is']);
+  if (branch.out !== expectedBranch) return refuseNow([`the checkout is on '${branch.out}', not '${expectedBranch}'`]);
+
+  const status = sys.exec('git', ['-C', root, 'status', '--porcelain', '--untracked-files=all']);
+  if (status.code !== 0 || status.failure !== undefined) return refuseNow(['git could not say what is uncommitted']);
+  const lines = status.stdout.split(/\r?\n/).filter((l) => l.length > 3);
+  // A RENAME OR A QUOTED PATH IS NOT ONE OF OUR RECORDS: the runtime writes plain files in place.
+  const odd = lines.filter((l) => l.includes(' -> ') || l.slice(3).startsWith('"'));
+  if (odd.length > 0) return refuseNow(['the uncommitted changes include a rename or an unusual path name, which no ProjectOS record is', ...odd.map((l) => `  ${l}`)]);
+  const dirty = lines.map((l) => l.slice(3).trim());
+  if (dirty.length === 0) return { kind: 'NOTHING' };
+  // A DIRECTORY ENTRY (`?? dir/`) IS NEVER A RECORD: it is a nested repository git will not list.
+  const foreign = dirty.filter((p) => p.endsWith('/') || !request.isOwnRecord(p));
+  if (foreign.length > 0) {
+    return refuseNow([`the checkout holds uncommitted changes that are not ${request.kind === 'run-records' ? "the run's own records" : 'the closure records'}, so ProjectOS commits nothing`, ...foreign.map((p) => `  ${p}`)]);
+  }
+
+  // THE REMOTE ALREADY HAS EVERYTHING BUT THESE RECORDS: not behind, and not ahead. The remote ref is
+  // named in full, so a local branch or tag of the same short name cannot stand in for it.
+  const upstream = `refs/remotes/${expectedRemote}/${expectedBranch}`;
+  const fetched = git(sys, root, ['fetch', '--quiet', expectedRemote]);
+  if (!fetched.ok) return refuseNow([`the remote '${expectedRemote}' could not be reached`]);
+  const counts = git(sys, root, ['rev-list', '--left-right', '--count', `HEAD...${upstream}`]);
+  const m = /^(\d+)\s+(\d+)$/.exec(counts.out);
+  if (!counts.ok || m === null) return refuseNow([`the relationship between HEAD and '${upstream}' could not be established`]);
+  if (m[1] !== '0' || m[2] !== '0') {
+    return refuseNow([`HEAD is ${m[1]} ahead and ${m[2]} behind '${upstream}'; ProjectOS commits its records only on a pushed, reconciled head`]);
+  }
+
+  // LITERAL PATHSPECS: a record path is a file name, never a pattern git would expand.
+  const staged = sys.exec('git', ['--literal-pathspecs', '-C', root, 'add', '--', ...dirty]);
+  if (staged.code !== 0) {
+    sys.exec('git', ['--literal-pathspecs', '-C', root, 'reset', '--quiet', '--', ...dirty]);
+    return { kind: 'REFUSED', reasons: [`the records could not be staged, and the index was restored: ${(staged.stderr || '').trim().slice(0, 400)}`], nothingAttempted: false };
+  }
+  const message =
+    `chore(${request.phaseId}): ${request.kind === 'run-records' ? "the run's own records" : 'closure records'}\n\n` +
+    'Committed by ProjectOS under the technical delegation: records it wrote, not work.\n' +
+    `Base ${head.out}.\n`;
+  const committed = sys.exec('git', [...PROJECTOS_COMMIT_IDENTITY, '--literal-pathspecs', '-C', root, 'commit', '-m', message, '--', ...dirty]);
+  if (committed.code !== 0) {
+    sys.exec('git', ['--literal-pathspecs', '-C', root, 'reset', '--quiet', '--', ...dirty]);
+    return {
+      kind: 'REFUSED',
+      reasons: ['the records could not be committed, and the index was restored for those paths', ((committed.stderr || '').trim() || committed.stdout.trim()).slice(0, 400)],
+      nothingAttempted: false,
+    };
+  }
+  const after = git(sys, root, ['rev-parse', 'HEAD']);
+  if (!after.ok || !/^[0-9a-f]{40}$/.test(after.out)) return { kind: 'REFUSED', reasons: ['the repository would not say what it committed'], nothingAttempted: false };
+  // THE PUSH CARRIES EXACTLY THIS COMMIT: its parent is the head that was checked against the remote.
+  const parent = git(sys, root, ['rev-parse', 'HEAD~1']);
+  if (!parent.ok || parent.out !== head.out) {
+    return { kind: 'REFUSED', reasons: [`committed locally as ${after.out.slice(0, 7)}, NOT pushed: its parent is not the head that was checked against the remote`], nothingAttempted: false };
+  }
+  const pushed = sys.exec('git', ['-C', root, 'push', expectedRemote, `${expectedBranch}:${expectedBranch}`]);
+  if (pushed.code !== 0) {
+    return {
+      kind: 'REFUSED',
+      reasons: [
+        `committed locally as ${after.out.slice(0, 7)}, NOT pushed: the ordinary push was rejected, and nothing was forced`,
+        ((pushed.stderr || '').trim() || pushed.stdout.trim()).slice(0, 400),
+        `push it with \`git push ${expectedRemote} ${expectedBranch}\`, then run \`projectos continue\``,
+      ],
+      nothingAttempted: false,
+    };
+  }
+  const remote = git(sys, root, ['rev-parse', upstream]);
+  if (!remote.ok || remote.out !== after.out) {
+    return { kind: 'REFUSED', reasons: [`the push reported success but '${upstream}' is not at ${after.out.slice(0, 7)}`], nothingAttempted: false };
+  }
+  return {
+    kind: 'DONE',
+    head: after.out,
+    paths: dirty,
+    lines: [`committed and pushed ${dirty.length} ${request.kind === 'run-records' ? 'run record(s)' : 'closure record(s)'} as ${after.out.slice(0, 7)}; local = ${upstream}`],
+  };
+}
+
 /**
  * THE ACTIONS THIS RUNTIME CAN ACTUALLY PERFORM RIGHT NOW.
  *
@@ -511,4 +672,38 @@ export function performableTechnicalActions(
   return configured
     ? TECHNICAL_ACTIONS
     : TECHNICAL_ACTIONS.filter((a) => a !== 'ff-only-integration');
+}
+
+/**
+ * The governed way to commit ProjectOS's own records: every parameter derived here from the approved
+ * plan, the committed delegation and git — the branch the plan names, the phase's declared owner gates,
+ * the delegation for the plan's programme — and only the record classifier from the caller.
+ */
+export function commitOwnRecordsFor(
+  sys: System,
+  root: string,
+  context: GovernedContext,
+  phaseId: string,
+  kind: OwnRecordsKind,
+  isOwnRecord: (path: string) => boolean,
+): OwnRecordsOutcome {
+  const phases = Array.isArray(context.plan['phases']) ? (context.plan['phases'] as unknown[]) : [];
+  const phase = phases.find((ph) => typeof ph === 'object' && ph !== null && (ph as Record<string, unknown>)['phaseId'] === phaseId) as
+    | Record<string, unknown>
+    | undefined;
+  if (phase === undefined) return { kind: 'REFUSED', reasons: [`${phaseId} is not a phase of the active approved plan`], nothingAttempted: true };
+  const repository = (context.plan['repository'] as Record<string, unknown> | undefined) ?? {};
+  const expectedBranch = typeof repository['planSourceBranch'] === 'string' ? repository['planSourceBranch'] : '';
+  if (expectedBranch === '') return { kind: 'REFUSED', reasons: ['the approved plan names no branch for this work'], nothingAttempted: true };
+  const programme = typeof context.plan['programmeId'] === 'string' ? (context.plan['programmeId'] as string).trim() : '';
+  return commitOwnRecords(sys, {
+    root,
+    phaseId,
+    kind,
+    expectedBranch,
+    expectedRemote: 'origin',
+    isOwnRecord,
+    delegation: resolveTechnicalDelegation(sys, root, programme),
+    phaseOwnerGates: ownerGatesOfPlanPhase(phase['requiredOwnerGates']),
+  });
 }

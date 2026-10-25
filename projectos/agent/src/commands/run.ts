@@ -54,7 +54,11 @@ import { resolveBoundGit } from '../system.js';
 import { createLifecycleRecorder } from '../phaseProgress.js';
 // A CYCLE, AND A SAFE ONE: `closure.ts` imports `run` for the after-close carry, and this imports
 // `closureRequest` for the before-close hand-off. Both are only ever CALLED, never read at load time.
-import { closurePrepare, closureRequest, closureResume, type OwnerCommitWaitPorts } from './closure.js';
+import { closurePrepare, closureRequest, closureResume, ownRecordsLines, type OwnerCommitWaitPorts } from './closure.js';
+import { commitOwnRecordsFor } from '../loop/technicalContinuation.js';
+import { GATEKEEPER_DECISIONS_REL, GATEKEEPER_LEDGER_REL, GATEKEEPER_THREAD_REL } from '../loop/gatekeeperConfig.js';
+import { GATEKEEPER_INTERACTIVE_REL, INTERACTIVE_RECORD_FILENAME } from '../loop/gatekeeperHandoff.js';
+import { WORK_RECORD_REL } from '../loop/workRecord.js';
 
 /** The governed project's declared id, from its own configuration. Empty when there is none. */
 function governedProjectId(ctx: CommandContext): string {
@@ -438,7 +442,7 @@ export function run(ctx: CommandContext, flags: Flags): CommandResult {
    * request. The snapshot only feeds the reported status, so a second phase cannot spend against a
    * first phase's stale view of the money.
    */
-  const runOnePhase = (): RunResult => runLoop(ctx.sys, ctx.root, {
+  const runLoopOnce = (): RunResult => runLoop(ctx.sys, ctx.root, {
     onWorkState,
     workforce: true,
     ...(worker === '' ? {} : { workerId: worker }),
@@ -462,6 +466,26 @@ export function run(ctx: CommandContext, flags: Flags): CommandResult {
           },
         }),
   });
+
+  /**
+   * ONE PHASE, AND THEN THE RUN'S OWN RECORDS — PROJECTOS-FINISH-MULTIPROJECT1A.
+   *
+   * After an approved technical continuation the run still writes its records (the phase record, the
+   * work record, the gate decision, the run's execution records, the governed current state). They
+   * describe the run, not the work, and used to wait for an owner commit that reviewed nothing. When the
+   * phase leaves commit and push delegated they are committed and pushed here, as ProjectOS's own — and
+   * only AFTER AN APPROVED TECHNICAL CONTINUATION: the run ended with no stop, was not degraded, and its
+   * own commit moved HEAD. A stopped, refused or degraded run, a dry run, or an owner-gated phase leaves
+   * the tree exactly as it was (ECC SECURITY H1, ECC CODE M1).
+   */
+  const runOnePhase = (): RunResult => {
+    const headBefore = ctx.sys.exec('git', ['-C', ctx.root, 'rev-parse', 'HEAD']).stdout.trim();
+    const result = runLoopOnce();
+    if (!result.ok || dryRun || result.stop !== null || result.degraded !== undefined) return result;
+    const headAfter = ctx.sys.exec('git', ['-C', ctx.root, 'rev-parse', 'HEAD']).stdout.trim();
+    if (!/^[0-9a-f]{40}$/.test(headAfter) || headAfter === headBefore) return result;
+    return foldRunRecords(ctx, result);
+  };
 
   /**
    * ONE PHASE, OR THE PROGRAMME — and the difference is a flag the owner sets when starting it.
@@ -498,6 +522,38 @@ export function run(ctx: CommandContext, flags: Flags): CommandResult {
   // A stop is a governed outcome, not an error: the loop did its job and the next move is someone
   // else's. Only a refusal to run at all is a non-zero exit.
   return ok([...result.lines, ...lifecycleLines]);
+}
+
+/**
+ * The run's records ProjectOS may commit as its own, by the EXACT shapes their writers produce
+ * (ECC SECURITY H1): the runner's execution records `<session>.(brief|session|evidence|invocation).json`,
+ * the gate decision record, the interactive question and answer, the work record, the thread pointer, the
+ * spend ledger, this phase's record and the governed current state. NEVER the worker's own findings or
+ * effects attestation (worker-written bytes, committed only inside a reviewed candidate), a degraded-use
+ * record (the owner's commit, by its own rule), a directory, or anything else under those folders.
+ */
+export function isFoldableRunRecord(path: string, phaseId: string, stateTail: readonly string[]): boolean {
+  const p = path.replace(/\\/g, '/');
+  if (p.includes('..') || p.endsWith('/')) return false;
+  const inFlat = (dir: string, name: RegExp): boolean => p.startsWith(`${dir}/`) && name.test(p.slice(dir.length + 1));
+  return (
+    inFlat('.projectops/execution', /^[A-Za-z0-9_.-]{1,200}\.(?:brief|session|evidence|invocation)\.json$/) ||
+    inFlat(GATEKEEPER_DECISIONS_REL, /^[A-Za-z0-9_-]{4,128}\.json$/) ||
+    inFlat(GATEKEEPER_INTERACTIVE_REL, INTERACTIVE_RECORD_FILENAME) ||
+    [WORK_RECORD_REL, GATEKEEPER_THREAD_REL, GATEKEEPER_LEDGER_REL, `.projectops/phases/${phaseId}.json`, ...stateTail].includes(p)
+  );
+}
+
+/**
+ * The run's own records, committed and pushed as ProjectOS's own when the phase leaves commit and push
+ * delegated — see `runOnePhase` for WHEN, and `isFoldableRunRecord` for WHICH. Nothing else, ever.
+ */
+export function foldRunRecords(ctx: CommandContext, result: Extract<RunResult, { ok: true }>): RunResult {
+  const gc = loadGovernedContext(ctx.sys, ctx.root);
+  if (!gc.ok) return { ...result, lines: [...result.lines, '', "the run's own records: not committed — no governed context could be loaded"] };
+  const stateTail = programmeStateTailPaths(gc.context);
+  const outcome = commitOwnRecordsFor(ctx.sys, ctx.root, gc.context, result.phaseId, 'run-records', (p) => isFoldableRunRecord(p, result.phaseId, stateTail));
+  return { ...result, lines: [...result.lines, '', ...ownRecordsLines(outcome, 'run-records')] };
 }
 
 /**

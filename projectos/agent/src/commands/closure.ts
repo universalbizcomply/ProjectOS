@@ -50,6 +50,7 @@ import {
 } from '../closureGate.js';
 import { checksFor, configuredChecks, runChecks, type CheckResult } from '../loop/verification.js';
 import { withPinnedValidators } from '../loop/pinnedValidators.js';
+import { commitOwnRecordsFor, type OwnRecordsKind, type OwnRecordsOutcome } from '../loop/technicalContinuation.js';
 import { findingsPath, readFindings, type FindingsRecord } from '../loop/session.js';
 import { createHash } from 'node:crypto';
 import { blockingFindings } from '../loop/outcome.js';
@@ -621,8 +622,10 @@ function boundRun(
  * WHAT IT WRITES. Three closure-tail files, and nothing else: `.projectops/closure/<phase>.json`,
  * `.projectops/validation/<subject>.json` and `knowledge/reports/<phase>-closure-evidence.md`.
  *
- * WHAT IT DOES NOT DO. It commits nothing, pushes nothing, asks nobody and decides nothing: the
- * closure decision stays with its existing authority, and G4 re-derives every fact again at request.
+ * WHAT IT DOES NOT DO. It asks nobody and decides nothing: the closure decision stays with its existing
+ * authority, and G4 re-derives every fact again at request. It commits and pushes only its three records,
+ * only when every check passed and the phase leaves commit and push delegated (PROJECTOS-FINISH-
+ * MULTIPROJECT1A) — otherwise it commits nothing, pushes nothing, and the owner commits them as before.
  * The review claim stays the WORKER's, and is labelled so; binding it to the run is what is added.
  */
 export function closurePrepare(ctx: CommandContext, flags: Flags): CommandResult {
@@ -687,7 +690,32 @@ export function closurePrepare(ctx: CommandContext, flags: Flags): CommandResult
   if (after.head !== subject || !after.reconciled) {
     return fail(2, ['REFUSED (SUBJECT_MOVED): HEAD or its upstream moved while the checks ran, so they did not run against one subject.']);
   }
-  return writePreparedRecords(sys, root, id, subject, results, names('requiredReviews'), recorded, run);
+  const written = writePreparedRecords(sys, root, id, subject, results, names('requiredReviews'), recorded, run);
+  // THE THREE RECORDS, COMMITTED BY PROJECTOS WHEN THE PHASE LEAVES COMMIT AND PUSH DELEGATED —
+  // PROJECTOS-FINISH-MULTIPROJECT1A. Exactly these three paths and nothing else; when either gate is the
+  // owner's, they are only generated and the owner commits them, as before. The closure DECISION is never
+  // among them: it counts only once the owner commits it.
+  // A FAILING RECORD IS LEFT FOR THE OWNER: it is truthful, but committing it on every retry would add a
+  // commit per attempt for a phase G4 will refuse anyway.
+  if (!results.every((r) => r.passed)) return written;
+  const tail = new Set([`.projectops/validation/${subject}.json`, `.projectops/closure/${id}.json`, closureReportRelPath(id)]);
+  const committed = commitOwnRecordsFor(sys, root, gc.context, id, 'closure-tail', (p) => tail.has(p));
+  return { code: written.code, lines: [...written.lines, '', ...ownRecordsLines(committed, 'closure-tail')] };
+}
+
+/** What happened to ProjectOS's own records, said plainly. */
+export function ownRecordsLines(outcome: OwnRecordsOutcome, kind: OwnRecordsKind): readonly string[] {
+  const what = kind === 'run-records' ? "the run's own records" : 'the three closure records';
+  switch (outcome.kind) {
+    case 'DONE':
+      return outcome.lines;
+    case 'NOTHING':
+      return [`${what}: nothing uncommitted`];
+    case 'RESERVED':
+      return [`${what}: left for the owner to commit and push — ${outcome.reasons.join('; ')}`];
+    case 'REFUSED':
+      return [`${what}: ${outcome.nothingAttempted ? 'NOT committed by ProjectOS (nothing attempted)' : 'NOT completed by ProjectOS'}:`, ...outcome.reasons.map((r) => `  ${r}`)];
+  }
 }
 
 /** Write the three records from facts already established, and say what was written. */
@@ -749,13 +777,13 @@ function writePreparedRecords(
     `  reviews (worker-attested): ${evidence.reviewsComplete ? 'complete' : `missing ${required.filter((r) => !recorded.reviews.includes(r)).join(', ')}`}`,
     `  unresolved CRITICAL/HIGH: ${evidence.unresolvedCriticalOrHigh}`,
     '',
-    'generated (closure-tail records; nothing was committed and nobody was asked):',
+    'generated (closure-tail records; nobody was asked):',
     `  .projectops/validation/${subject}.json`,
     `  .projectops/closure/${id}.json`,
     `  ${reportRel}`,
     '',
     allPassed
-      ? 'Commit exactly these three files and push; then `projectos continue` asks the closure authority.'
+      ? 'Unless ProjectOS committed them below, commit exactly these three files and push; then `projectos continue` asks the closure authority.'
       : 'A check failed at the subject, so G4 will refuse this closure; the records say so truthfully.',
     ...(unattested.length === 0
       ? []

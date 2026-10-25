@@ -44,7 +44,7 @@ import { writeCleanRunEvidence } from './runEvidence.js';
 
 export const GIT = resolveBoundGit(process.env) as string;
 export const PHASE = 'HYBRID-CLOSURE-RECONCILE1A';
-// G4-1 applies to this governed project id, so the fixture must BE that project (see closureEndToEnd).
+// The fixture keeps the 'projectos' id (see closureEndToEnd); G4-1 accepts any governed project.
 export const PROJECT = 'projectos';
 export const OWNER = 'Murad';
 export const DELEGATE = 'ChatGPT';

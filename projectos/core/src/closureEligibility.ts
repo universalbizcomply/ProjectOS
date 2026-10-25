@@ -177,7 +177,13 @@ export const G4_PREDICATE_COUNT = 17;
  * repository, the runtime or a durable evidence record — never from the closure request.
  */
 export interface G4Facts {
-  /** G4-1 the project actually being governed, and the plan's own project. */
+  /**
+   * G4-1 the project actually being governed, and the plan's own project. ANY governed project —
+   * PROJECTOS-FINISH-MULTIPROJECT1A: the gate used to apply to the id 'projectos' alone, so no other
+   * project's phase could ever close through it. What it requires is that the two ids are known and
+   * agree: a plan that names a different project from the configuration governing the checkout is
+   * the wrong plan for this repository, and that refuses.
+   */
   readonly governedProjectId: string;
   readonly planProjectId: string;
   /** G4-2 the active plan version, and readiness RECOMPUTED by the engine — not the stored string. */
@@ -333,8 +339,8 @@ export function evaluateClosureEligibility(facts: G4Facts): G4Verdict {
 
   check(
     'G4-1',
-    facts.governedProjectId === 'projectos' && facts.planProjectId === facts.governedProjectId,
-    `the ProjectOS G4 gate applies only to project 'projectos'; governed='${facts.governedProjectId}', plan='${facts.planProjectId}'`,
+    facts.governedProjectId.trim() !== '' && facts.planProjectId === facts.governedProjectId,
+    `the governed project and the active plan's project must both be known and the same; governed='${facts.governedProjectId}', plan='${facts.planProjectId}'`,
   );
   check(
     'G4-2',

@@ -32,7 +32,7 @@ import { APPROVED_PILOT_POLICY, GATEKEEPER_DECISION_SCHEMA_VERSION } from '@proj
 import type { AdapterRegistry, WorkerAdapter } from '../src/loop/workers.js';
 import { TECHNICAL_ACTIONS } from '@projectos/core';
 import type { System } from '../src/system.js';
-import { run as runCommand, continueCommand } from '../src/commands/run.js';
+import { run as runCommand, continueCommand, foldRunRecords } from '../src/commands/run.js';
 import { closurePrepare } from '../src/commands/closure.js';
 import { evaluateG4 } from '../src/closureGate.js';
 import { continueProgramme, phaseAttemptOf } from '../src/loop/programmeContinuation.js';
@@ -917,7 +917,7 @@ describe('closure prepare generates the closure records from the run', () => {
     expect(r.lines.join('\n')).toContain('WAITING_OWNER_PUSH');
   });
 
-  it('generates evidence, validation record and report that G4 accepts once committed', () => {
+  it('generates evidence, validation record and report, ProjectOS commits and pushes EXACTLY those three, and G4 accepts', () => {
     const sys = fixedClock();
     const w = world();
     runToAwaitingClosure(w, sys);
@@ -934,16 +934,14 @@ describe('closure prepare generates the closure records from the run', () => {
     expect(validation['subjectHead']).toBe(subject);
     expect(validation['workingTreeCleanAtRunStart']).toBe(true);
     expect(readFileSync(join(w.root, 'knowledge', 'reports', `${PHASE}-closure-evidence.md`), 'utf8')).toContain(subject);
-    // Generated, NOT committed: the three files are the only dirty paths, and all are closure tail.
-    const dirty = git(w.root, 'status', '--porcelain', '--untracked-files=all')
-      .trim()
-      .split(/\r?\n/)
-      .map((l) => l.slice(3).trim());
-    expect(dirty.sort()).toEqual(
-      [`.projectops/closure/${PHASE}.json`, `.projectops/validation/${subject}.json`, `knowledge/reports/${PHASE}-closure-evidence.md`].sort(),
-    );
-
-    ownerCommitsAll(w, 'owner: commit the generated closure records');
+    // COMMITTED AND PUSHED BY PROJECTOS, EXACTLY THESE THREE, as one commit on the subject
+    // (PROJECTOS-FINISH-MULTIPROJECT1A): the phase leaves commit and push delegated.
+    const three = [`.projectops/closure/${PHASE}.json`, `.projectops/validation/${subject}.json`, `knowledge/reports/${PHASE}-closure-evidence.md`].sort();
+    expect(git(w.root, 'status', '--porcelain', '--untracked-files=all').trim()).toBe('');
+    expect(git(w.root, 'show', '--name-only', '--format=', 'HEAD').trim().split(/\r?\n/).sort()).toEqual(three);
+    expect(git(w.root, 'rev-parse', 'HEAD~1').trim()).toBe(subject);
+    expect(git(w.root, 'rev-parse', `origin/${BRANCH}`).trim()).toBe(git(w.root, 'rev-parse', 'HEAD').trim());
+    expect(r.lines.join('\n')).toContain('committed and pushed 3 closure record(s)');
     const gc = loadGovernedContext(sys, w.root);
     if (!gc.ok) throw new Error('no context');
     const g4 = evaluateG4(sys, w.root, gc.context, PHASE, 'awaiting_closure', { ready: true, reasons: [] }, true, false);
@@ -952,10 +950,10 @@ describe('closure prepare generates the closure records from the run', () => {
     expect(g4.facts.evidenceReportPresent).toBe(true);
     expect(g4.facts.protectedEffectOccurred).toBe(false);
     expect(g4.facts.substantiveChangesSinceSubject).toEqual([]);
-    // EVERY EVIDENCE PREDICATE IS MET BY THE GENERATED RECORDS. The one unmet predicate is G4-1, which
-    // scopes this gate to the project id 'projectos' and this fixture is 'e2e' — a project-scope rule,
-    // not an evidence one, and asserted here by name so the day it changes is visible.
-    expect(g4.verdict.unmet.map((u) => u.code)).toEqual(['G4-1']);
+    // EVERY PREDICATE IS MET BY THE GENERATED RECORDS, for a project whose id is NOT 'projectos'
+    // (PROJECTOS-FINISH-MULTIPROJECT1A): G4-1 now judges the governed project by its own id.
+    expect(g4.verdict.unmet.map((u) => u.code)).toEqual([]);
+    expect(g4.verdict.eligible).toBe(true);
   });
 
   it('work written into a NEW directory is the run\'s own: prepare binds it file by file, never as a collapsed dir/', () => {
@@ -993,6 +991,70 @@ describe('closure prepare generates the closure records from the run', () => {
     expect(evidence['validatorsPass']).toBe(true);
   });
 
+  it('without a proven technical delegation, closure prepare only GENERATES the three records and the owner commits them', () => {
+    const sys = fixedClock();
+    const w = world();
+    runToAwaitingClosure(w, sys);
+    ownerCommitsAll(w, 'owner: lifecycle');
+    const subject = git(w.root, 'rev-parse', 'HEAD').trim();
+    // THE COMMITTED DELEGATION, AS PREPARE READS IT, CARRIES NO TECHNICAL SCOPE. Changing the file itself
+    // would put a change the run did not make on the subject (SUBJECT_NOT_FROM_RUN), so only the read
+    // of the committed record is answered differently.
+    const withoutTechnical: System = {
+      ...sys,
+      exec: (cmd, args, options) => {
+        const shown = sys.exec(cmd, args, options);
+        if (!args.includes('show') || !args.some((a) => a.includes('closure-delegation.json')) || shown.code !== 0) return shown;
+        const d = JSON.parse(shown.stdout) as { delegatedScope: string[] };
+        return { ...shown, stdout: JSON.stringify({ ...d, delegatedScope: d.delegatedScope.filter((s) => s !== 'technical-continuation') }) };
+      },
+    };
+    const r = closurePrepare({ sys: withoutTechnical, root: w.root }, { id: PHASE });
+    expect(r.code).toBe(0);
+    expect(r.lines.join('\n')).toContain('left for the owner to commit and push');
+    expect(git(w.root, 'rev-parse', 'HEAD').trim()).toBe(subject);
+    const dirty = git(w.root, 'status', '--porcelain', '--untracked-files=all').trim().split(/\r?\n/).map((l) => l.slice(3).trim());
+    expect(dirty.sort()).toEqual(
+      [`.projectops/closure/${PHASE}.json`, `.projectops/validation/${subject}.json`, `knowledge/reports/${PHASE}-closure-evidence.md`].sort(),
+    );
+  });
+
+  it("after an approved technical continuation the run's own records are committed and pushed, and the tree holds none", () => {
+    const sys = fixedClock();
+    const w = world();
+    let session = '';
+    const adapters = adapterWriting(w.root, () => session, () => writeFileSync(join(w.root, 'delivered.txt'), 'the work\n'));
+    const first = runLoop(sys, w.root, { dryRun: true, adapters, invocation: { pid: 4242, ppid: 1717, argv: ['node'], cwd: w.root } });
+    session = String((first as { sessionId?: string }).sessionId ?? '');
+    const gc = loadGovernedContext(sys, w.root);
+    if (!gc.ok) throw new Error('fixture has no governed context');
+    const recorder = createLifecycleRecorder(sys, w.root, gc.context, 'e2e');
+    const result = runLoop(sys, w.root, {
+      adapters,
+      expectedDecider: DELEGATE,
+      gatekeeper: gatekeeperDeps(w.root, ['commit', 'push']) as never,
+      onWorkState: (p) => recorder.record(p),
+      invocation: { pid: 4242, ppid: 1717, argv: ['node', 'projectos.js', 'run', '--execute'], cwd: w.root },
+    });
+    git(w.root, 'branch', `--set-upstream-to=origin/${BRANCH}`);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('unreachable');
+    const continuation = git(w.root, 'rev-parse', 'HEAD').trim();
+    expect(git(w.root, 'status', '--porcelain', '--untracked-files=all').trim()).not.toBe('');
+    // THE SAME STEP `run` TAKES after the loop (see runOnePhase), on the loop's own result.
+    const folded = foldRunRecords({ sys, root: w.root }, result);
+    expect(folded.lines.join('\n')).toContain('run record(s)');
+    expect(git(w.root, 'status', '--porcelain', '--untracked-files=all').trim()).toBe('');
+    expect(git(w.root, 'rev-parse', 'HEAD~1').trim()).toBe(continuation);
+    const committed = git(w.root, 'show', '--name-only', '--format=', 'HEAD').trim().split(/\r?\n/);
+    expect(committed).toContain(`.projectops/phases/${PHASE}.json`);
+    expect(committed.every((p) => p.startsWith('.projectops/'))).toBe(true);
+    expect(committed.some((p) => p.startsWith('.projectops/closure/decisions/'))).toBe(false);
+    expect(git(w.root, 'rev-parse', `origin/${BRANCH}`).trim()).toBe(git(w.root, 'rev-parse', 'HEAD').trim());
+    // And the next step is closure preparation on a clean, pushed tree — no owner commit in between.
+    expect(closurePrepare({ sys, root: w.root }, { id: PHASE }).lines.join('\n')).toContain(`closure prepared for ${PHASE}`);
+  });
+
   it('a validator that fails at the subject is recorded as failing, and G4 refuses on it', () => {
     const sys = fixedClock();
     const w = world();
@@ -1009,7 +1071,9 @@ describe('closure prepare generates the closure records from the run', () => {
     expect(r.lines.join('\n')).toContain('FAIL validator validate-all');
     const evidence = JSON.parse(readFileSync(join(w.root, '.projectops', 'closure', `${PHASE}.json`), 'utf8')) as Record<string, unknown>;
     expect(evidence['validatorsPass']).toBe(false);
-    ownerCommitsAll(w, 'owner: commit the generated closure records');
+    // A FAILING RECORD IS NOT COMMITTED BY PROJECTOS (MULTIPROJECT1A fix round): it is left for the owner.
+    expect(r.lines.join('\n')).not.toContain('committed and pushed');
+    expect(git(w.root, 'status', '--porcelain', '--untracked-files=all').trim().split(/\r?\n/)).toHaveLength(3);
     const gc = loadGovernedContext(sys, w.root);
     if (!gc.ok) throw new Error('no context');
     expect(evaluateG4(sys, w.root, gc.context, PHASE, 'awaiting_closure', { ready: true, reasons: [] }, true, false).verdict.eligible).toBe(false);
@@ -1092,7 +1156,6 @@ describe('closure prepare generates the closure records from the run', () => {
     const text = r.lines.join('\n');
     expect(text).toContain(`closure-prepare → projectos closure prepare --id ${PHASE}`);
     expect(text).toContain(`closure prepared for ${PHASE}`);
-    ownerCommitsAll(w, 'owner: closure records');
     const next = continueCommand({ sys, root: w.root }, { 'dry-run': true });
     expect(next.lines.join('\n')).toContain(`closure-request → projectos closure request --id ${PHASE} --execute`);
   });

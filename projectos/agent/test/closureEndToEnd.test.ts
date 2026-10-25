@@ -49,8 +49,8 @@ import { writeCleanRunEvidence } from './support/runEvidence.js';
 
 const GIT = resolveBoundGit(process.env) as string;
 const PHASE = 'E2E-CLOSURE-TRANSPORT1A';
-// G4-1 hardcodes the governed project id this gate applies to, so the fixture must BE that project.
-// Renaming it would prove a different repository's closure, not this one's.
+// G4-1 judges the governed project by its own id (PROJECTOS-FINISH-MULTIPROJECT1A); this fixture keeps
+// 'projectos' because its delegation and records are this repository's shape.
 const PROJECT = 'projectos';
 const OWNER = 'Murad';
 const DELEGATE = 'ChatGPT';

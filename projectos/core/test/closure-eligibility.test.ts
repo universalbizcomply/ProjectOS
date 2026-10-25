@@ -215,9 +215,18 @@ describe('each G4 predicate refuses on its own', () => {
     expect(unmetCodes({ reviewsComplete: null })).toContain('G4-9');
   });
 
-  it('C6 wrong project', () => {
-    expect(unmetCodes({ governedProjectId: 'polygo', planProjectId: 'polygo' })).toContain('G4-1');
+  // PROJECTOS-FINISH-MULTIPROJECT1A: ANY governed project may close through the gate; the plan must be
+  // that project's, and both ids must be known.
+  it('C6 wrong project: a plan for another project, or an unknown project, refuses', () => {
     expect(unmetCodes({ planProjectId: 'polygo' })).toContain('G4-1');
+    expect(unmetCodes({ governedProjectId: 'polygo', planProjectId: 'dead-aisle' })).toContain('G4-1');
+    expect(unmetCodes({ governedProjectId: '', planProjectId: '' })).toContain('G4-1');
+    expect(unmetCodes({ governedProjectId: '  ', planProjectId: '  ' })).toContain('G4-1');
+  });
+
+  it('C6b a governed project other than projectos satisfies G4-1 when its plan is its own', () => {
+    expect(unmetCodes({ governedProjectId: 'polygo', planProjectId: 'polygo' })).not.toContain('G4-1');
+    expect(unmetCodes({ governedProjectId: 'dead-aisle', planProjectId: 'dead-aisle' })).not.toContain('G4-1');
   });
 
   it('C7 the plan is not READY', () => {

@@ -22,6 +22,13 @@
  *   - "the validator in the tree is the validator"     — and a worker grades its own work
  *   - "pinning can be optional"                         — and one call site runs the tree's copy
  *
+ * PROJECTOS-FINISH-MULTIPROJECT1A adds section (11):
+ *
+ *   - "closure is for projectos"                       — and no other project's phase can ever close
+ *   - "while we are committing, take the rest too"     — and unreviewed work rides a records commit
+ *   - "the owner gate is only for the work"            — and a reserved phase commits behind the owner
+ *   - "the decision is a record like the others"       — and ProjectOS commits its own closure decision
+ *
  * Every rule names one file and one construct. Comments are stripped first, so prose describing a rule
  * can neither satisfy nor break it. Reads files; runs nothing, calls no provider, mutates nothing.
  */
@@ -48,6 +55,8 @@ const PLAN_APPROVAL_REL = "projectos/agent/src/planApproval.ts";
 const ENGINE_REL = "projectos/validators/plan-discovery-engine.cjs";
 const SCHEMA_REL = "projectos/schemas/project-plan.schema.json";
 const FINISH_PLAN_REL = "docs/projectos-finish-phases.json";
+const TECHNICAL_REL = "projectos/agent/src/loop/technicalContinuation.ts";
+const ELIGIBILITY_REL = "projectos/core/src/closureEligibility.ts";
 
 /** The proofs. A pinned shape whose behaviour nobody runs is a shape, not a protection. */
 const TESTS = {
@@ -67,6 +76,9 @@ const TESTS = {
     "with no writePaths, grants the worker-owned records only",
     "BASE-COMMIT validator, never the copy the run itself rewrote",
     "a FILE grant made into a directory",
+    "ProjectOS commits and pushes EXACTLY those three, and G4 accepts",
+    "without a proven technical delegation, closure prepare only GENERATES the three records",
+    "the run's own records are committed and pushed, and the tree holds none",
   ],
   "projectos/agent/test/closureEndToEnd.test.ts": ["waits, boundedly, for the owner commit", "projectos continue routes on recorded state"],
   "projectos/agent/test/loopToolGrants.test.ts": ["passes through a link", "differs in case", "the retired source grant", "the execution records directory", "a star glob", "a sentence as an entry", "git-ignored output", "the closure delegation", "governed files", "the list alone decides", "not a non-empty path string", "Every plan v1.9 phase carries writePaths", "an agent instruction file", "flags a hook or settings directory", "FILE grant the worker made into a directory"],
@@ -84,6 +96,15 @@ const TESTS = {
   ],
   "projectos/agent/test/loopOutcome.test.ts": ["a validator absent from the base commit cannot judge the phase", "never run unpinned"],
   "projectos/agent/test/planAuthoring.test.ts": ["writePaths are projected exactly, absent stays absent, and a malformed list is refused"],
+  // PROJECTOS-FINISH-MULTIPROJECT1A.
+  "projectos/agent/test/ownRecordsCommit.test.ts": [
+    "commits and pushes EXACTLY the records",
+    "when any uncommitted path is not one of the records",
+    "when the phase reserves commit or push, or when no technical delegation is proven",
+    "a head the remote does not already hold",
+    "an unreadable owner-gate list reserves every technical action",
+  ],
+  "projectos/core/test/closure-eligibility.test.ts": ["a governed project other than projectos satisfies G4-1", "a plan for another project, or an unknown project, refuses"],
 };
 
 function read(rel) {
@@ -147,7 +168,7 @@ function run() {
   const errors = [];
   const E = (m) => errors.push(m);
   const files = {};
-  for (const rel of [BRIEF_REL, CLOSURE_GATE_REL, VERIFICATION_REL, HANDOFF_REL, CONTINUATION_REL, RUN_REL, CLOSURE_REL, WORKERS_REL, RUNNER_REL, RECONCILE_REL, PINNED_REL, PLAN_APPROVAL_REL, ENGINE_REL]) {
+  for (const rel of [BRIEF_REL, CLOSURE_GATE_REL, VERIFICATION_REL, HANDOFF_REL, CONTINUATION_REL, RUN_REL, CLOSURE_REL, WORKERS_REL, RUNNER_REL, RECONCILE_REL, PINNED_REL, PLAN_APPROVAL_REL, ENGINE_REL, TECHNICAL_REL, ELIGIBILITY_REL]) {
     const raw = read(rel);
     if (raw === null) {
       E(`${rel} is missing`);
@@ -466,6 +487,70 @@ function run() {
     if (phases.length === 0 || phases.some((p) => !Array.isArray(p.writePaths) || p.writePaths.length === 0)) E("FW-6: a plan v1.9 phase carries no writePaths");
   } catch {
     E("FW-6: the plan v1.9 source is not readable JSON");
+  }
+
+  // (11) CLOSURE FOR ANY GOVERNED PROJECT; ONE OWNER COMMIT PER PHASE — PROJECTOS-FINISH-MULTIPROJECT1A.
+  const eligibility = files[ELIGIBILITY_REL];
+  if (!/check\(\s*'G4-1',\s*facts\.governedProjectId\.trim\(\) !== '' && facts\.planProjectId === facts\.governedProjectId,/.test(eligibility) ||
+      /=== 'projectos'/.test(eligibility)) {
+    E("MP-1: G4-1 no longer judges the governed project by its own id, or is scoped to one project again");
+  }
+  const technical = files[TECHNICAL_REL];
+  const ownFn = fnBody(technical, "commitOwnRecords") || "";
+  if (!/const ownerOnly = enforcedOwnerOnlyActions\(request\.phaseOwnerGates, technicalDelegationCondition\(request\.delegation\)\)/.test(ownFn) ||
+      !/const reserved = \['commit', 'push'\]\.filter\(\(a\) => ownerOnly\.includes\(a\)\);\s*if \(reserved\.length > 0\) \{\s*return \{ kind: 'RESERVED'/.test(ownFn)) {
+    E("MP-2a: ProjectOS commits its records when the phase or the constitutional floor reserves commit or push");
+  }
+  const foreignAt = ownFn.search(/const foreign = dirty\.filter\(\(p\) => p\.endsWith\('\/'\) \|\| !request\.isOwnRecord\(p\)\);\s*if \(foreign\.length > 0\) \{\s*return refuseNow\(/);
+  const addAt = ownFn.indexOf("'add'");
+  if (foreignAt < 0 || addAt < 0 || foreignAt > addAt) E("MP-2b: a records commit can carry a path that is not one of the caller's records");
+  const aheadAt = ownFn.search(/if \(m\[1\] !== '0' \|\| m\[2\] !== '0'\) \{/);
+  if (aheadAt < 0 || addAt < 0 || aheadAt > addAt) E("MP-2c: a records commit can be made on a head the remote does not already hold");
+  if (!/const parent = git\(sys, root, \['rev-parse', 'HEAD~1'\]\);\s*if \(!parent\.ok \|\| parent\.out !== head\.out\) \{/.test(ownFn) ||
+      !/const upstream = `refs\/remotes\/\$\{expectedRemote\}\/\$\{expectedBranch\}`;/.test(ownFn)) {
+    E("MP-2f: the records push can carry a commit other than the records commit, or reads a shadowable remote ref");
+  }
+  if (!/p\.endsWith\('\/'\) \|\| !request\.isOwnRecord\(p\)/.test(ownFn) || (ownFn.match(/'--literal-pathspecs'/g) || []).length < 3) {
+    E("MP-2g: a directory entry can be a record, or a record path is read as a pathspec pattern");
+  }
+  // MP-7 (ECC SECURITY M1): every ProjectOS commit carries the implementer identity the owner check refuses.
+  if (!/const PROJECTOS_COMMIT_IDENTITY: readonly string\[\] = \['-c', 'user\.name=ProjectOS implementer', '-c', 'user\.email=projectos-implementer@projectos\.invalid'\];/.test(technical) ||
+      (technical.match(/\.\.\.PROJECTOS_COMMIT_IDENTITY, /g) || []).length !== 2 ||
+      (technical.match(/'commit', '-m'/g) || []).length !== 2) {
+    E("MP-7: a ProjectOS commit can carry the checkout's (owner's) identity");
+  }
+  if (/--all|--force|-A'|'\.'/.test(ownFn) || !/\['--literal-pathspecs', '-C', root, 'add', '--', \.\.\.dirty\]/.test(ownFn) ||
+      !/\[\.\.\.PROJECTOS_COMMIT_IDENTITY, '--literal-pathspecs', '-C', root, 'commit', '-m', message, '--', \.\.\.dirty\]/.test(ownFn)) {
+    E("MP-2d: the records commit stages or commits anything but the exact record paths");
+  }
+  if (!/return classifyOwnerGates\(malformed \? \[\.\.\.read, 'the declared owner gates could not be read'\] : read\);/.test(fnBody(technical, "ownerGatesOfPlanPhase") || "")) {
+    E("MP-2e: an unreadable owner-gate list no longer reserves every technical action");
+  }
+  const prepareCommit = fnBody(files[CLOSURE_REL], "closurePrepare") || "";
+  if (!/const tail = new Set\(\[`\.projectops\/validation\/\$\{subject\}\.json`, `\.projectops\/closure\/\$\{id\}\.json`, closureReportRelPath\(id\)\]\);\s*const committed = commitOwnRecordsFor\(sys, root, gc\.context, id, 'closure-tail', \(p\) => tail\.has\(p\)\);/.test(prepareCommit)) {
+    E("MP-3: closure prepare commits something other than exactly its three closure-tail records");
+  }
+  const run = files[RUN_REL];
+  // MP-4 (ECC SECURITY H1, ECC CODE M1): the fold runs only after an approved technical continuation —
+  // no stop, not degraded, HEAD moved — and carries only the writers' own record shapes.
+  if (!/if \(!result\.ok \|\| dryRun \|\| result\.stop !== null \|\| result\.degraded !== undefined\) return result;/.test(run) ||
+      !/if \(!\/\^\[0-9a-f\]\{40\}\$\/\.test\(headAfter\) \|\| headAfter === headBefore\) return result;\s*return foldRunRecords\(ctx, result\);/.test(run) ||
+      !/commitOwnRecordsFor\(ctx\.sys, ctx\.root, gc\.context, result\.phaseId, 'run-records', \(p\) => isFoldableRunRecord\(p, result\.phaseId, stateTail\)\)/.test(fnBody(run, "foldRunRecords") || "")) {
+    E("MP-4: the run's records are folded after a stopped, degraded or commit-less run, or by a classifier other than the exact record shapes");
+  }
+  // MP-5: the fold classifier admits neither worker-written bytes nor any closure or authority record.
+  const foldable = fnBody(run, "isFoldableRunRecord") || "";
+  if (foldable === "" || /findings|effects|degraded|closure|decision|gates|authority/i.test(foldable.replace(/GATEKEEPER_DECISIONS_REL/g, "")) ||
+      !foldable.includes("inFlat('.projectops/execution', /^[A-Za-z0-9_.-]{1,200}\\.(?:brief|session|evidence|invocation)\\.json$/)") ||
+      !/if \(p\.includes\('\.\.'\) \|\| p\.endsWith\('\/'\)\) return false;/.test(foldable)) {
+    E("MP-5: the fold classifier admits worker-written findings or effects, a degraded-use record, a closure or authority record, or a directory");
+  }
+  // MP-6: only closure PREPARE commits, and only when every check passed; request and resume never commit.
+  const closureSrc = files[CLOSURE_REL];
+  if ((closureSrc.match(/commitOwnRecordsFor\(/g) || []).length !== 1 ||
+      /commitOwnRecordsFor/.test(fnBody(closureSrc, "closureRequest") || "") || /commitOwnRecordsFor/.test(fnBody(closureSrc, "closureResume") || "") ||
+      !/if \(!results\.every\(\(r\) => r\.passed\)\) return written;\s*const tail = new Set/.test(prepareCommit)) {
+    E("MP-6: a closure step other than prepare commits, or prepare commits a failing record");
   }
 
   // (9) PROVEN.
