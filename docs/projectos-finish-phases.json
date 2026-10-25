@@ -165,7 +165,7 @@
       ],
       "acceptanceCriteria": [
         "With no ProjectOSHost review route configured, an unattended project's review and closure questions are composed with the trusted broker transport; with a Host route configured, the Host route is used; with one configured but invalid, the run refuses; in every case the agent's own credential resolver refuses by construction.",
-        "The installation allowlist authorises project seo-agency at its localhost git remote and governed root, and nothing else changes in it.",
+        "The installation allowlist authorises project seo-agency at its localhost git address and its governed root, and nothing else changes in it.",
         "Tests prove the three compositions and that no key value reaches the agent process; each new rule is pinned by a validator and killed by a named mutation.",
         "A live review question on the agency project is answered by the OpenAI gatekeeper through the broker with no owner relay, recorded with its cost against the budget hard stop.",
         "Agent and core tests green, validate-all with no new failure beyond the two known, and the ECC CODE and ECC SECURITY reviews with no unresolved critical or high finding."
