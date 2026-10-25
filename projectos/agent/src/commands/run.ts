@@ -16,7 +16,10 @@ import { type Flags, str, bool } from '../flags.js';
 import { runLoop, type RunResult } from '../loop/runner.js';
 import { continuationLines, continueProgramme, phaseAttemptOf } from '../loop/programmeContinuation.js';
 import { isDegradedOperation, DEGRADED_OPERATIONS } from '../loop/degradedMode.js';
-import { loadGovernedContext } from '../governedContext.js';
+import { loadGovernedContext, refusalLines, type GovernedContext } from '../governedContext.js';
+import { selectNextPhase, selectionStopLines } from '../loop/selection.js';
+import { readClosureWait } from '../closureWait.js';
+import { changesSince, closureEvidencePath, gitFacts, programmeStateTailPaths, validationRecordPath } from '../closureGate.js';
 import {
   loadGatekeeperConfig,
   readLedger,
@@ -49,6 +52,9 @@ import { nodeInstallationStateDir, nodeProjectosRuntime } from '../nodeRuntimeRo
 import { canonicalRepositoryIdentity } from '../installation/projectAllowlist.js';
 import { resolveBoundGit } from '../system.js';
 import { createLifecycleRecorder } from '../phaseProgress.js';
+// A CYCLE, AND A SAFE ONE: `closure.ts` imports `run` for the after-close carry, and this imports
+// `closureRequest` for the before-close hand-off. Both are only ever CALLED, never read at load time.
+import { closurePrepare, closureRequest, closureResume, type OwnerCommitWaitPorts } from './closure.js';
 
 /** The governed project's declared id, from its own configuration. Empty when there is none. */
 function governedProjectId(ctx: CommandContext): string {
@@ -107,6 +113,8 @@ export function composeGatekeeper(
   ctx: CommandContext,
   opts: {
     readonly gateWaitMinutes: number;
+    /** `--supersede-stale-request`: archive a stale interactive question and ask afresh. */
+    readonly supersedeStale?: boolean;
     readonly hostReview?: HostReviewPort;
     readonly announce?: (where: { readonly request: string; readonly decision: string }) => void;
   },
@@ -148,6 +156,7 @@ export function composeGatekeeper(
         mode: 'interactive',
         interactive: nodeInteractivePort(ctx.sys, ctx.root, {
           waitMs: opts.gateWaitMinutes * 60_000,
+          ...(opts.supersedeStale === true ? { supersedeStale: true } : {}),
           ...(opts.announce === undefined ? {} : { onWaiting: opts.announce }),
         }),
         consumedDecisionIds: [],
@@ -311,6 +320,7 @@ export function run(ctx: CommandContext, flags: Flags): CommandResult {
   // supplied: this build has no agent-side ProjectOSHost client, so an unattended project waits.
   const composed = composeGatekeeper(ctx, {
     gateWaitMinutes,
+    supersedeStale: flags["supersede-stale-request"] === true,
     // A waiting run returns nothing until it ends, so where to answer is said the moment it starts.
     announce: (where) =>
       process.stderr.write(
@@ -477,7 +487,9 @@ export function run(ctx: CommandContext, flags: Flags): CommandResult {
     const continued = continueProgramme({ runPhase: () => phaseAttemptOf(runOnePhase()) });
     const report = [...continued.lines, ...continuationLines(continued), ...lifecycleLinesNow()];
     // REFUSED is the one continuation end that is not a governed outcome: nothing ran at all.
-    return continued.end === 'REFUSED' ? fail(1, report) : ok(report);
+    if (continued.end === 'REFUSED') return fail(1, report);
+    if (continued.end !== 'AWAITING_CLOSURE' || continued.closurePhaseId === null) return ok(report);
+    return handToClosure(ctx, flags, continued.closurePhaseId, dryRun, report);
   }
 
   const result = runOnePhase();
@@ -486,4 +498,212 @@ export function run(ctx: CommandContext, flags: Flags): CommandResult {
   // A stop is a governed outcome, not an error: the loop did its job and the next move is someone
   // else's. Only a refusal to run at all is a non-zero exit.
   return ok([...result.lines, ...lifecycleLines]);
+}
+
+/**
+ * A FINISHED PHASE GOES TO THE EXISTING CLOSURE ROUTE — PROJECTOS-BOOT-CONTINUE1A.
+ *
+ * THE SAME ROUTING `projectos continue` uses (`closureRouteFor`), so the two entry points cannot
+ * disagree about which closure step comes next: prepare the records, ask the closure authority, or
+ * resume on the owner's commit. Each is the existing command, called as the owner would type it;
+ * nothing here closes a phase, asserts an identity or supplies a decision, and `phase-closure` stays in
+ * `ABSOLUTE_OWNER_ONLY`. A dry run names the step and runs nothing.
+ *
+ * ITS EXIT CODE IS THE RESULT. The hand-off is this invocation's last act, so a closure step that
+ * refused is reported as itself.
+ */
+function handToClosure(
+  ctx: CommandContext,
+  flags: Flags,
+  phaseId: string,
+  dryRun: boolean,
+  report: readonly string[],
+): CommandResult {
+  const route = closureRouteFor(ctx, phaseId);
+  const command = continueRouteCommand(route);
+  if (dryRun) {
+    return ok([...report, '', `dry run: the closure route was not asked; the next step is \`${command}\``]);
+  }
+  const handed = dispatchContinueRoute(ctx, flags, route, {});
+  return {
+    code: handed.code,
+    lines: [...report, '', `handing phase ${phaseId} to the existing closure route (${command})`, ...handed.lines],
+  };
+}
+
+/**
+ * `projectos continue` — ONE ENTRY POINT that carries the approved programme from wherever it stands.
+ * PROJECTOS-BOOT-CONTINUE1A (continuation two).
+ *
+ * WHAT WAS MISSING. Moving a programme on needed the operator to know which command applied now:
+ * `run` for a phase with work left, `closure prepare`, `closure request` or `closure resume` for a
+ * finished one, and nothing for a finished plan. Choosing wrongly cost a run or a refusal, and the
+ * choice was made by reading records by hand.
+ *
+ * IT IS A ROUTER AND NOTHING ELSE. It asks `selectNextPhase` — the one selection authority — git, and
+ * the phase's closure records, and calls the EXISTING command for that state with the caller's own
+ * waits. It writes nothing itself, holds no queue, decides no closure and grants nothing: every gate the
+ * routed command applies still applies, and `phase-closure` stays in `ABSOLUTE_OWNER_ONLY`.
+ *
+ *   phase with work left (draft … awaiting_review)    →  run --execute --continue
+ *   awaiting_closure, closure records not generated    →  closure prepare --id <phase>
+ *   awaiting_closure, records generated and committed  →  closure request --id <phase> --execute
+ *   awaiting_closure, decision presented to the owner  →  closure resume --id <phase> --continue
+ *   plan finished                                      →  nothing; reported complete
+ *   any other stop                                     →  nothing; reported with its true reason
+ *
+ * `--execute` IS REQUIRED for the same reason `run` requires it. `--dry-run` names the route; for a
+ * phase with work left it is a real `run --dry-run`.
+ */
+type ContinueRoute =
+  | { readonly kind: 'run' }
+  | { readonly kind: 'closure-prepare' | 'closure-request' | 'closure-resume'; readonly phaseId: string }
+  | { readonly kind: 'complete'; readonly lines: readonly string[] }
+  | { readonly kind: 'stopped'; readonly lines: readonly string[] }
+  | { readonly kind: 'refused'; readonly lines: readonly string[] }
+  | { readonly kind: 'defect'; readonly lines: readonly string[] };
+
+/** The waits and recovery choices a routed command may receive — never an identity or an authority. */
+const CONTINUE_FORWARDED_FLAGS = ['gate-wait-minutes', 'owner-wait-minutes', 'supersede-stale-request', 'worker'] as const;
+
+function continueForwarded(flags: Flags, base: Record<string, string | boolean>): Record<string, string | boolean> {
+  const out: Record<string, string | boolean> = { ...base };
+  for (const key of CONTINUE_FORWARDED_FLAGS) {
+    const v = flags[key];
+    if (v !== undefined && v !== '') out[key] = v;
+  }
+  return out;
+}
+
+/**
+ * Are this phase's closure records CURRENT and PASSING, so the next step is to ask the closure authority?
+ *
+ * Existence is not enough: records prepared at an older subject, or prepared truthfully as failing, would
+ * send every later `continue` to a request G4 refuses for ever. So the records must pass, their subject
+ * must be an ancestor of HEAD, and nothing but closure-tail records may have changed since it. Anything
+ * else routes back to `closure prepare`, which re-establishes them from the run at the current subject.
+ */
+function closurePrepared(ctx: CommandContext, context: GovernedContext, phaseId: string): boolean {
+  if (!gitFacts(ctx.sys, ctx.root).clean) return false;
+  const text = ctx.sys.readText(closureEvidencePath(ctx.root, phaseId));
+  if (text === null) return false;
+  let evidence: Record<string, unknown>;
+  try {
+    evidence = JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    return false;
+  }
+  const subject = evidence['evidenceSubjectHead'];
+  if (typeof subject !== 'string' || !/^[0-9a-f]{40}$/.test(subject)) return false;
+  if (!ctx.sys.exists(validationRecordPath(ctx.root, subject))) return false;
+  if (evidence['validatorsPass'] !== true || evidence['checksPass'] !== true) return false;
+  const since = changesSince(ctx.sys, ctx.root, subject, programmeStateTailPaths(context));
+  return since.isAncestor && since.substantive.length === 0;
+}
+
+/** Where the programme stands. Reads only. */
+function continueRouteFor(ctx: CommandContext): ContinueRoute {
+  const gc = loadGovernedContext(ctx.sys, ctx.root);
+  if (!gc.ok) return { kind: 'refused', lines: refusalLines(gc) };
+  const selection = selectNextPhase(ctx.sys, ctx.root, gc.context);
+  if (selection.kind !== 'stop') return { kind: 'run' };
+  const reason = selection.reason;
+  if (reason.code === 'PROGRAMME_COMPLETE') return { kind: 'complete', lines: selectionStopLines(reason) };
+  if (reason.code === 'OWNER_DECISION_REQUIRED' && reason.phaseStatus === 'awaiting_closure' && reason.phaseId !== undefined) {
+    return closureRouteFor(ctx, reason.phaseId);
+  }
+  // AN OWNER'S STOP IS A RESULT (exit 0); A DEFECT IS A REFUSAL (exit 1) — the same split `run --continue`
+  // makes, so an unattended caller reads the same answer from either entry point.
+  const ownersStop = reason.code === 'OWNER_DECISION_REQUIRED' || reason.code === 'PHASE_BLOCKED';
+  const lines = [...selectionStopLines(reason), 'projectos continue routes to nothing past a stop: it is either the owner\'s decision or a defect'];
+  return ownersStop ? { kind: 'stopped', lines } : { kind: 'defect', lines };
+}
+
+/** Which closure step a phase awaiting closure is at: prepare, request or resume. Reads only. */
+function closureRouteFor(ctx: CommandContext, phaseId: string): ContinueRoute {
+  const waitRead = readClosureWait(ctx.sys, ctx.root, phaseId);
+  if (!waitRead.ok) return { kind: 'refused', lines: [`REFUSED (CLOSURE_WAIT_UNREADABLE): ${waitRead.problem}`] };
+  if (waitRead.value !== null && waitRead.value.state === 'WAITING_OWNER') return { kind: 'closure-resume', phaseId };
+  const gc = loadGovernedContext(ctx.sys, ctx.root);
+  if (!gc.ok) return { kind: 'refused', lines: refusalLines(gc) };
+  return closurePrepared(ctx, gc.context, phaseId) ? { kind: 'closure-request', phaseId } : { kind: 'closure-prepare', phaseId };
+}
+
+/** Run the existing command a route names, with the caller's waits and nothing else. */
+function dispatchContinueRoute(
+  ctx: CommandContext,
+  flags: Flags,
+  route: ContinueRoute,
+  ownerWait: OwnerCommitWaitPorts,
+): CommandResult {
+  switch (route.kind) {
+    case 'run':
+      return run(ctx, continueForwarded(flags, { execute: true, continue: true }));
+    case 'closure-prepare':
+      return closurePrepare(ctx, { id: route.phaseId });
+    case 'closure-request':
+      return closureRequest(ctx, continueForwarded(flags, { id: route.phaseId, execute: true }));
+    case 'closure-resume':
+      return closureResume(ctx, continueForwarded(flags, { id: route.phaseId, continue: true }), ownerWait);
+    case 'refused':
+      return fail(2, route.lines);
+    case 'defect':
+      return fail(1, route.lines);
+    default:
+      return ok(route.lines);
+  }
+}
+
+function continueRouteCommand(route: ContinueRoute): string {
+  switch (route.kind) {
+    case 'run':
+      return 'projectos run --execute --continue';
+    case 'closure-prepare':
+      return `projectos closure prepare --id ${route.phaseId}`;
+    case 'closure-request':
+      return `projectos closure request --id ${route.phaseId} --execute`;
+    case 'closure-resume':
+      return `projectos closure resume --id ${route.phaseId} --continue`;
+    default:
+      return '(nothing to run)';
+  }
+}
+
+export function continueCommand(ctx: CommandContext, flags: Flags, ownerWait: OwnerCommitWaitPorts = {}): CommandResult {
+  const dryRun = bool(flags, 'dry-run');
+  const execute = bool(flags, 'execute');
+  if (dryRun === execute) {
+    return fail(2, [
+      dryRun
+        ? 'REFUSED (CONFLICTING_INTENT): --dry-run and --execute cannot both be given.'
+        : 'REFUSED (NO_EXECUTION_INTENT): `continue` routes to a command that may start a worker or ask a closure question.',
+      '  - `projectos continue --dry-run`  say where the programme stands and what would run, run nothing',
+      '  - `projectos continue --execute`  run it',
+      '',
+      'Nothing was started and nothing was asked.',
+    ]);
+  }
+  if (resolveBoundGit() === null) {
+    return fail(2, [
+      'REFUSED (GIT_UNAVAILABLE): ProjectOS has no bound Git executable, so where the programme stands cannot be established.',
+      '  - bind one with PROJECTOS_GIT_EXE, or install Git so it is on PATH',
+    ]);
+  }
+
+  const route = continueRouteFor(ctx);
+  const header = `projectos continue: ${route.kind} → ${continueRouteCommand(route)}`;
+  if (route.kind === 'refused') return fail(2, [header, ...route.lines]);
+  if (route.kind === 'defect') return fail(1, [header, ...route.lines]);
+  if (route.kind === 'complete' || route.kind === 'stopped') return ok([header, ...route.lines]);
+
+  if (dryRun) {
+    if (route.kind === 'run') {
+      const r = run(ctx, continueForwarded(flags, { 'dry-run': true, continue: true }));
+      return { code: r.code, lines: [header, ...r.lines] };
+    }
+    return ok([header, '', `dry run: nothing was run; the next step is \`${continueRouteCommand(route)}\``]);
+  }
+
+  const routed = dispatchContinueRoute(ctx, flags, route, ownerWait);
+  return { code: routed.code, lines: [header, ...routed.lines] };
 }

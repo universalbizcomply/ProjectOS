@@ -12,8 +12,11 @@
  *
  * Created in PROJECTOS-V3-CONTROL-CENTRE-INTEGRATION1A.
  */
+import { createHash } from 'node:crypto';
 import type { System } from './system.js';
 import { join, projectopsDir } from './context.js';
+import { PROTECTED_EFFECT_FIELDS } from './loop/outcome.js';
+import { effectsPath, isSafeSessionId, sessionPath } from './loop/session.js';
 import { DEFAULT_PLAN_RELPATH, type GovernedContext } from './governedContext.js';
 import type { G4Facts, G4Verdict, ClosureDecisionRecord } from '@projectos/core';
 import {
@@ -180,7 +183,7 @@ const CONFIG_RELPATH = '.projectops/project-config.json';
 /** Where a programme's state record may live. A nominated path outside these is not a state record. */
 const STATE_DIRS = ['projectos/state/', '.projectops/'] as const;
 
-function changesSince(
+export function changesSince(
   sys: System,
   root: string,
   subject: string,
@@ -201,7 +204,7 @@ function changesSince(
 }
 
 /** `git` facts, computed live. Any failure is reported as NOT reconciled — never assumed clean. */
-function gitFacts(sys: System, root: string): {
+export function gitFacts(sys: System, root: string): {
   head: string | null;
   reconciled: boolean;
   clean: boolean;
@@ -222,20 +225,88 @@ function evidenceReportPresent(sys: System, root: string, phaseId: string): bool
   return sys.listDir(dir).some((f) => f.includes(phaseId) && f.endsWith('.md'));
 }
 
-/** Whether any protected effect was recorded for the active session. */
-function protectedEffectOccurred(sys: System, context: GovernedContext, root: string): boolean {
-  const statePath = context.currentStatePath;
-  if (statePath === null) return false;
-  const session = readJson(sys, join(root, 'projectos', 'state', 'projectos-v3.session.json'));
-  if (session === null) return false;
-  return (
-    session['productionTouched'] === true ||
-    session['deploymentOccurred'] === true ||
-    session['databaseMutationOccurred'] === true ||
-    session['externalSendOccurred'] === true ||
-    session['paymentOccurred'] === true ||
-    session['rawSecretStored'] === true
-  );
+/**
+ * Every RUNNER-written execution evidence record for this phase, oldest first.
+ *
+ * A record counts only when it is BOUND to a run the runner started: its file is named after its own
+ * `sessionId`, that id is a safe record name, and the runner's session record for that id exists and
+ * names the same phase. A worker cannot write either record, so a planted `*.evidence.json` — under a
+ * name of its choosing, with a far-future `collectedAt` — is not a run and is ignored here, rather than
+ * becoming "the latest run" that a predicate then believes.
+ */
+export function phaseRunEvidence(sys: System, root: string, phaseId: string): readonly Record<string, unknown>[] {
+  const dir = join(projectopsDir(root), 'execution');
+  const runs: Record<string, unknown>[] = [];
+  for (const name of sys.listDir(dir)) {
+    if (!name.endsWith('.evidence.json')) continue;
+    const e = readJson(sys, join(dir, name));
+    if (e === null || e['phaseId'] !== phaseId) continue;
+    const sessionId = e['sessionId'];
+    if (typeof e['collectedAt'] !== 'string' || typeof sessionId !== 'string' || !isSafeSessionId(sessionId)) continue;
+    if (name !== `${sessionId}.evidence.json`) continue;
+    const session = readJson(sys, sessionPath(root, sessionId));
+    if (session === null || session['phaseId'] !== phaseId || session['sessionId'] !== sessionId) continue;
+    runs.push(e);
+  }
+  return runs.sort((x, y) => String(x['collectedAt']).localeCompare(String(y['collectedAt'])));
+}
+
+/** The phase's latest bound run evidence, or null. See `phaseRunEvidence` for what counts as a run. */
+export function latestRunEvidence(sys: System, root: string, phaseId: string): Record<string, unknown> | null {
+  const runs = phaseRunEvidence(sys, root, phaseId);
+  return runs.length === 0 ? null : (runs[runs.length - 1] as Record<string, unknown>);
+}
+
+/** Did this one run attest, verifiably, that no protected effect occurred? Never throws. */
+function runAttestedNoEffect(sys: System, root: string, run: Record<string, unknown>): boolean {
+  const recorded = run['effectsSha256'];
+  if (typeof recorded !== 'string' || !/^[0-9a-f]{64}$/.test(recorded)) return false;
+  const text = sys.readText(effectsPath(root, String(run['sessionId'])));
+  if (text === null) return false;
+  if (createHash('sha256').update(text, 'utf8').digest('hex') !== recorded) return false;
+  let effects: unknown;
+  try {
+    effects = JSON.parse(text);
+  } catch {
+    return false;
+  }
+  if (effects === null || typeof effects !== 'object' || Array.isArray(effects)) return false;
+  return PROTECTED_EFFECT_FIELDS.every((field) => (effects as Record<string, unknown>)[field] === false);
+}
+
+/** The session ids of this phase's bound runs that did not verifiably attest no effect. Never throws. */
+export function unattestedRuns(sys: System, root: string, phaseId: string): readonly string[] {
+  try {
+    return phaseRunEvidence(sys, root, phaseId)
+      .filter((run) => !runAttestedNoEffect(sys, root, run))
+      .map((run) => String(run['sessionId']));
+  } catch {
+    return ['(the runs of this phase could not be read)'];
+  }
+}
+
+/**
+ * Whether a protected effect occurred — or cannot be ruled out — for this phase's governed runs.
+ *
+ * PROJECTOS-BOOT-CONTINUE1A (G4-11). This used to read a fixed session file from the V3 programme,
+ * never this programme's own run, and answered "no effect" whenever that file was absent: it failed
+ * OPEN. It now reads the phase's own runs, and FAILS CLOSED:
+ *  - at least one bound runner-written run must exist (see `phaseRunEvidence`);
+ *  - EVERY run of the phase must have recorded the sha256 of the worker's effects attestation as the
+ *    runner collected it, the attestation on disk must still hash to that value, and every protected
+ *    effect field must be exactly `false`. One run that attested a payment is not hidden by a later
+ *    run's clean attestation, and a rewrite after collection is refused rather than believed;
+ *  - missing, malformed, unbound, non-false or not established all answer "occurred", because "I could
+ *    not tell" is not "nothing happened".
+ */
+export function protectedEffectOccurred(sys: System, root: string, phaseId: string): boolean {
+  try {
+    const runs = phaseRunEvidence(sys, root, phaseId);
+    if (runs.length === 0) return true;
+    return !runs.every((run) => runAttestedNoEffect(sys, root, run));
+  } catch {
+    return true;
+  }
 }
 
 interface PlanPhase {
@@ -417,7 +488,7 @@ export function evaluateG4(
     unresolvedHighIds,
     ownerAcceptedHighIds: acceptance.acceptedHighIds,
     acceptanceProblems: acceptance.problems,
-    protectedEffectOccurred: protectedEffectOccurred(sys, context, root),
+    protectedEffectOccurred: protectedEffectOccurred(sys, root, phaseId),
     implementationHead: git.head,
     remoteReconciled: git.reconciled,
     workingTreeClean: git.clean,

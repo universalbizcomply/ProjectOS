@@ -303,7 +303,9 @@ describe('takeInteractiveTurn', () => {
     const r = takeInteractiveTurn(input(), deps);
     expect(r.action.kind).toBe('owner');
     expect(JSON.stringify(r.action)).toContain('cannot establish that it wrote it');
-    expect(JSON.stringify(r.action)).toContain('to ask again: remove');
+    // PROJECTOS-BOOT-CONTINUE1A: the way out is the governed flag, never deleting files by hand.
+    expect(JSON.stringify(r.action)).toContain('--supersede-stale-request');
+    expect(JSON.stringify(r.action)).toContain('never delete them by hand');
     expect(calls).toEqual(['publish']);
     expect(r.checkedDecision).toBeNull();
   });

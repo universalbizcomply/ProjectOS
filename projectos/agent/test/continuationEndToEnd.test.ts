@@ -19,7 +19,7 @@
  * Created in PROJECTOS-AUTOMATIC-TECHNICAL-CONTINUATION1A.
  */
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, readdirSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -32,6 +32,12 @@ import { APPROVED_PILOT_POLICY, GATEKEEPER_DECISION_SCHEMA_VERSION } from '@proj
 import type { AdapterRegistry, WorkerAdapter } from '../src/loop/workers.js';
 import { TECHNICAL_ACTIONS } from '@projectos/core';
 import type { System } from '../src/system.js';
+import { run as runCommand, continueCommand } from '../src/commands/run.js';
+import { closurePrepare } from '../src/commands/closure.js';
+import { evaluateG4 } from '../src/closureGate.js';
+import { continueProgramme, phaseAttemptOf } from '../src/loop/programmeContinuation.js';
+import { createLifecycleRecorder } from '../src/phaseProgress.js';
+import { loadGovernedContext } from '../src/governedContext.js';
 
 const GIT = resolveBoundGit(process.env) as string;
 const REF = 'PROJECTOS_GATEKEEPER_OPENAI_KEY';
@@ -76,7 +82,21 @@ interface World {
  * Everything the runtime reads through git — the config, the delegation — is COMMITTED, because that
  * is the only form in which either counts.
  */
-function world(over: { ownerGates?: readonly string[] } = {}): World {
+function world(
+  over: {
+    ownerGates?: readonly string[];
+    /** The phase record's status at the start, for the selection-stop proofs. */
+    phaseStatus?: string;
+    /** Record the phase as complete in the declared current state. */
+    completed?: boolean;
+    /** Keep a plan-level closure delegation, so `closure request` gets as far as G4. */
+    closureDelegation?: boolean;
+    /** The phase's approved scope prose; empty by default. */
+    scope?: string;
+    /** A committed `.gitignore`. */
+    gitignore?: string;
+  } = {},
+): World {
   const origin = mkdtempSync(join(tmpdir(), 'projectos-e2e-origin-'));
   const root = mkdtempSync(join(tmpdir(), 'projectos-e2e-work-'));
   made.push(origin, root);
@@ -137,7 +157,7 @@ function world(over: { ownerGates?: readonly string[] } = {}): World {
         ...((realPlan['phases'] as Record<string, unknown>[])[0] as Record<string, unknown>),
         phaseId: PHASE,
         description: 'prove the technical continuation reaches the executor',
-        scope: '',
+        scope: over.scope ?? '',
         dependsOn: [],
         requiredReviews: [],
         requiredBrowserProof: false,
@@ -156,6 +176,16 @@ function world(over: { ownerGates?: readonly string[] } = {}): World {
     },
   } as Record<string, unknown>;
   delete (plan as { governance?: Record<string, unknown> }).governance?.['closureDelegation'];
+  if (over.closureDelegation === true) {
+    (plan['governance'] as Record<string, unknown>)['closureDelegation'] = {
+      delegatedBy: OWNER,
+      delegatedTo: DELEGATE,
+      delegationDate: '2026-09-01',
+      delegatedScope: ['phase-closure', 'programme-closure'],
+      projectScope: 'e2e',
+      excludesProtectedActions: true,
+    };
+  }
 
   const delegation = {
     schemaVersion: '1.0.0',
@@ -183,12 +213,33 @@ function world(over: { ownerGates?: readonly string[] } = {}): World {
   writeFileSync(join(root, '.projectops', 'project-config.json'), JSON.stringify(config, null, 2));
   writeFileSync(join(root, '.projectops', 'authority', 'closure-delegation.json'), JSON.stringify(delegation, null, 2));
   writeFileSync(join(root, 'state', 'plan.json'), JSON.stringify(plan, null, 2));
-  writeFileSync(join(root, 'state', 'current.json'), JSON.stringify({ completedPhases: [], activePhase: PHASE }, null, 2));
+  writeFileSync(
+    join(root, 'state', 'current.json'),
+    JSON.stringify(
+      over.completed === true ? { completedPhases: [PHASE], activePhase: null } : { completedPhases: [], activePhase: PHASE },
+      null,
+      2,
+    ),
+  );
   writeFileSync(
     join(root, '.projectops', 'phases', `${PHASE}.json`),
-    JSON.stringify({ schemaVersion: '1.0.0', phaseId: PHASE, status: 'implementing', objective: 'prove the chain', history: [] }, null, 2),
+    JSON.stringify(
+      {
+        schemaVersion: '1.0.0',
+        phaseId: PHASE,
+        // A READABLE record only when a status is asked for: the default fixture has always been an
+        // unreadable record the loop starts afresh, and the proofs above depend on that.
+        ...(over.phaseStatus === undefined ? {} : { project: 'e2e' }),
+        status: over.phaseStatus ?? 'implementing',
+        objective: 'prove the chain',
+        history: [],
+      },
+      null,
+      2,
+    ),
   );
 
+  if (over.gitignore !== undefined) writeFileSync(join(root, '.gitignore'), over.gitignore);
   git(root, 'add', '--all');
   git(root, 'commit', '--quiet', '-m', 'governed fixture');
   git(root, 'remote', 'add', 'origin', origin);
@@ -374,7 +425,9 @@ describe('the governed chain, end to end', () => {
     expect(shown).toContain('performableActions');
     // AND WHAT THE OWNER HAS ALREADY ESTABLISHED. A reviewer that cannot see whether a mandatory
     // prerequisite is in place refuses and refers to the owner - which is what happened live.
-    expect(shown).toContain('workerSourceWriteGrant');
+    // The grant is now the approved scope's (PROJECTOS-BOOT-CONTINUE1A); the retired record is not named.
+    expect(shown).toContain('workerScopeWriteGrant');
+    expect(shown).not.toContain('workerSourceWriteGrant');
     // AND WHICH VERDICT CARRIES IT. Attempt 4 answered APPROVED_TO_PUSH - an owner-gated verdict the
     // contract refuses without ownerApprovalRequired - because nothing said a delegated continuation
     // travels as APPROVED_TO_PROCEED.
@@ -391,6 +444,37 @@ describe('the governed chain, end to end', () => {
     expect(git(w.root, 'rev-list', '--count', `origin/${BRANCH}..HEAD`).trim()).toBe('0');
     expect(git(w.root, 'rev-list', '--count', `HEAD..origin/${BRANCH}`).trim()).toBe('0');
   });
+
+  // PROJECTOS-BOOT-CONTINUE1A. A plan that reserves commit and push in PROSE must get the same
+  // protection as one that names the tokens: the delegation and an approving reviewer are both in
+  // place, and still nothing is committed or pushed.
+  for (const [label, prose] of [
+    ['named actions', 'Commit, push, merge and phase closure remain owner-gated.'],
+    ['an unclassifiable reservation', 'Implementation stays inside a clean worktree, never the primary checkout.'],
+  ] as const) {
+    it(`NEGATIVE (prose owner gate: ${label}): no commit and no push under the delegation`, () => {
+      const sys = fixedClock();
+      const w = world({ ownerGates: [prose] });
+      let session = '';
+      const adapters = adapterWriting(w.root, () => session, () => {
+        writeFileSync(join(w.root, 'delivered.txt'), 'the work\n');
+      });
+      const first = runLoop(sys, w.root, { dryRun: true, adapters, invocation: { pid: 4242, ppid: 1717, argv: ['node'], cwd: w.root } });
+      expect(first.ok).toBe(true);
+      session = String((first as { sessionId?: string }).sessionId ?? '');
+
+      const r = run(sys, w, adapters, ['commit', 'push']);
+      expect(r.ok).toBe(true);
+      if (!r.ok) throw new Error('unreachable');
+      // Stopped for the owner, not completed.
+      expect(r.stop).not.toBeNull();
+
+      // THE REPOSITORY IS THE PROOF: nothing committed, nothing pushed.
+      expect(git(w.root, 'rev-parse', 'HEAD').trim()).toBe(w.head);
+      expect(git(w.root, 'rev-parse', `origin/${BRANCH}`).trim()).toBe(w.head);
+      expect(git(w.root, 'status', '--porcelain').trim()).not.toBe('');
+    });
+  }
 
   it('NEGATIVE (drift): a candidate changed after the decision commits nothing', () => {
     const sys = fixedClock();
@@ -619,5 +703,465 @@ describe('the review boundary holds in both directions', () => {
     });
     expect(states.length).toBeGreaterThan(0);
     expect(states).not.toContain('AWAITING_GATE');
+  });
+});
+
+/**
+ * CROSS-PHASE CONTINUATION ENDS ON SELECTION'S ANSWER, NOT A REFUSAL — PROJECTOS-BOOT-CONTINUE1A (G1).
+ *
+ * THE DEFECT. A phase that `run --continue` carried to completion moved to `awaiting_closure`, and
+ * the very next pass asked selection, got OWNER_DECISION_REQUIRED, and `mayContinueAfter` read the
+ * runner's `ok: false` as "the run refused to start" — so the SUCCESS case ended REFUSED, exit 1, and
+ * the programme was handed back as though the environment were broken. These go through the real
+ * loop and the real `run` command, not a fake `runPhase`.
+ */
+describe('cross-phase continuation carries selection stops as results', () => {
+  it('REAL LOOP, TWO PASSES: a completed phase ends AWAITING_CLOSURE, never REFUSED', () => {
+    const sys = fixedClock();
+    const w = world();
+    let session = '';
+    const adapters = adapterWriting(w.root, () => session, () => {
+      writeFileSync(join(w.root, 'delivered.txt'), 'the work\n');
+    });
+    const first = runLoop(sys, w.root, { dryRun: true, adapters, invocation: { pid: 4242, ppid: 1717, argv: ['node'], cwd: w.root } });
+    session = String((first as { sessionId?: string }).sessionId ?? '');
+
+    // THE LIFECYCLE RECORDER `run` WIRES, wired the same way — it is what moves the phase record to
+    // awaiting_closure, and without it the second pass would not see the state it must answer to.
+    const gc = loadGovernedContext(sys, w.root);
+    if (!gc.ok) throw new Error('fixture has no governed context');
+    const recorder = createLifecycleRecorder(sys, w.root, gc.context, 'e2e');
+    const states: string[] = [];
+    const runPhase = () =>
+      phaseAttemptOf(
+        runLoop(sys, w.root, {
+          adapters,
+          expectedDecider: DELEGATE,
+          gatekeeper: gatekeeperDeps(w.root, ['commit', 'push']) as never,
+          onWorkState: (p) => {
+            states.push(p.state);
+            recorder.record(p);
+          },
+          invocation: { pid: 4242, ppid: 1717, argv: ['node', 'projectos.js', 'run', '--execute', '--continue'], cwd: w.root },
+        }),
+      );
+    const r = continueProgramme({ runPhase });
+
+    expect(states).toContain('COMPLETE');
+    expect(r.phasesRun).toEqual([PHASE]);
+    expect(r.end).toBe('AWAITING_CLOSURE');
+    expect(r.closurePhaseId).toBe(PHASE);
+    // Nothing here closed it: the record says awaiting_closure, and the owner-only floor still holds.
+    const record = JSON.parse(readFileSync(join(w.root, '.projectops', 'phases', `${PHASE}.json`), 'utf8')) as { status: string };
+    expect(record.status).toBe('awaiting_closure');
+  });
+
+  it('run --execute --continue at awaiting_closure HANDS OFF to the existing closure route, which decides', () => {
+    const w = world({ phaseStatus: 'awaiting_closure' });
+    const r = runCommand({ sys: fixedClock(), root: w.root }, { execute: true, continue: true, 'gate-wait-minutes': '0' });
+    const text = r.lines.join('\n');
+    expect(text).toContain('Programme continuation ended: AWAITING_CLOSURE');
+    expect(text).not.toContain('Programme continuation ended: REFUSED');
+    // THE SAME ROUTING `projectos continue` uses: nothing is prepared yet, so the first step is prepare.
+    expect(text).toContain(`handing phase ${PHASE} to the existing closure route (projectos closure prepare --id ${PHASE})`);
+    // THE EXISTING STEP ANSWERED, in its own words: this fixture's head has no upstream, so it is not
+    // yet the subject a closure judges.
+    expect(text).toContain('SUBJECT_NOT_PUSHED');
+    expect(r.code).toBe(2);
+    // AND CLOSED NOTHING, WROTE NOTHING.
+    const record = JSON.parse(readFileSync(join(w.root, '.projectops', 'phases', `${PHASE}.json`), 'utf8')) as { status: string };
+    expect(record.status).toBe('awaiting_closure');
+    expect(git(w.root, 'rev-parse', 'HEAD').trim()).toBe(w.head);
+    expect(git(w.root, 'status', '--porcelain').trim()).toBe('');
+  });
+
+  it('once the closure records are generated and committed, the hand-off reaches G4, which refuses unready work and asks nobody', () => {
+    const w = world({ phaseStatus: 'awaiting_closure', closureDelegation: true });
+    mkdirSync(join(w.root, '.projectops', 'closure'), { recursive: true });
+    mkdirSync(join(w.root, '.projectops', 'validation'), { recursive: true });
+    writeFileSync(
+      join(w.root, '.projectops', 'closure', `${PHASE}.json`),
+      JSON.stringify({ phaseId: PHASE, evidenceSubjectHead: w.head, validatorsPass: true, checksPass: true }),
+    );
+    writeFileSync(join(w.root, '.projectops', 'validation', `${w.head}.json`), JSON.stringify({ schemaVersion: '1.1.0', subjectHead: w.head }));
+    git(w.root, 'add', '--all');
+    git(w.root, 'commit', '--quiet', '-m', 'closure records');
+    const r = runCommand({ sys: fixedClock(), root: w.root }, { execute: true, continue: true, 'gate-wait-minutes': '0' });
+    const text = r.lines.join('\n');
+    expect(text).toContain(`handing phase ${PHASE} to the existing closure route (projectos closure request --id ${PHASE} --execute)`);
+    expect(text).toContain('The closure authority is not asked about work that is not yet closable');
+    expect(r.code).toBe(2);
+  });
+
+  it('FAILING closure records route back to closure prepare, never to a request G4 would refuse for ever', () => {
+    const w = world({ phaseStatus: 'awaiting_closure', closureDelegation: true });
+    mkdirSync(join(w.root, '.projectops', 'closure'), { recursive: true });
+    mkdirSync(join(w.root, '.projectops', 'validation'), { recursive: true });
+    writeFileSync(
+      join(w.root, '.projectops', 'closure', `${PHASE}.json`),
+      JSON.stringify({ phaseId: PHASE, evidenceSubjectHead: w.head, validatorsPass: false, checksPass: true }),
+    );
+    writeFileSync(join(w.root, '.projectops', 'validation', `${w.head}.json`), JSON.stringify({ schemaVersion: '1.1.0', subjectHead: w.head }));
+    git(w.root, 'add', '--all');
+    git(w.root, 'commit', '--quiet', '-m', 'closure records, recorded truthfully as failing');
+    const r = runCommand({ sys: fixedClock(), root: w.root }, { 'dry-run': true, continue: true });
+    expect(r.lines.join('\n')).toContain(`projectos closure prepare --id ${PHASE}`);
+    expect(r.lines.join('\n')).not.toContain('projectos closure request');
+  });
+
+  it('a dry run names the next closure step and runs nothing', () => {
+    const w = world({ phaseStatus: 'awaiting_closure' });
+    const r = runCommand({ sys: fixedClock(), root: w.root }, { 'dry-run': true, continue: true });
+    const text = r.lines.join('\n');
+    expect(r.code).toBe(0);
+    expect(text).toContain(`projectos closure prepare --id ${PHASE}`);
+    expect(text).not.toContain('SUBJECT_NOT_PUSHED');
+    expect(git(w.root, 'status', '--porcelain').trim()).toBe('');
+  });
+
+  it('a finished plan ends PROGRAMME_COMPLETE, exit 0', () => {
+    const w = world({ phaseStatus: 'closed', completed: true });
+    const r = runCommand({ sys: fixedClock(), root: w.root }, { execute: true, continue: true });
+    expect(r.lines.join('\n')).toContain('Programme continuation ended: PROGRAMME_COMPLETE');
+    expect(r.code).toBe(0);
+  });
+
+  it('rolled_back is the owner\'s: STOPPED with its true reason, and NOT handed to closure', () => {
+    const w = world({ phaseStatus: 'rolled_back' });
+    const r = runCommand({ sys: fixedClock(), root: w.root }, { execute: true, continue: true });
+    const text = r.lines.join('\n');
+    expect(text).toContain('Programme continuation ended: STOPPED');
+    expect(text).toContain('OWNER_DECISION_REQUIRED');
+    expect(text).not.toContain('closure route');
+    expect(r.code).toBe(0);
+  });
+
+  it('projectos continue exits NON-ZERO on a defect stop, and 0 on an owner stop (ECC CODE round 2 MED-7)', () => {
+    // `closed` without being recorded complete is a record that disagrees with the plan: a defect.
+    const defect = world({ phaseStatus: 'closed' });
+    const d = continueCommand({ sys: fixedClock(), root: defect.root }, { execute: true });
+    expect(d.lines.join('\n')).toContain('RECORD_DISAGREES_WITH_PLAN');
+    expect(d.code).toBe(1);
+    const owners = world({ phaseStatus: 'rolled_back' });
+    expect(continueCommand({ sys: fixedClock(), root: owners.root }, { execute: true }).code).toBe(0);
+  });
+
+  it('a phase closed as blocked is STOPPED as PHASE_BLOCKED, not stepped over', () => {
+    const w = world({ phaseStatus: 'closed_as_blocked' });
+    const r = runCommand({ sys: fixedClock(), root: w.root }, { execute: true, continue: true });
+    const text = r.lines.join('\n');
+    expect(text).toContain('Programme continuation ended: STOPPED');
+    expect(text).toContain('PHASE_BLOCKED');
+  });
+});
+
+/**
+ * CLOSURE EVIDENCE IS GENERATED FROM THE RUN'S OWN RECORDS — PROJECTOS-BOOT-CONTINUE1A (continuation three).
+ *
+ * A real loop run carries the phase to `awaiting_closure`; `closure prepare` then re-runs the phase's
+ * checks at the clean, pushed subject and writes the three closure-tail records. G4 is asked of the
+ * repository afterwards, not of the preparation's account of itself.
+ */
+describe('closure prepare generates the closure records from the run', () => {
+  function runToAwaitingClosure(w: World, sys: System, deliver: readonly string[] = ['delivered.txt']): void {
+    let session = '';
+    const adapters = adapterWriting(w.root, () => session, () => {
+      for (const rel of deliver) {
+        mkdirSync(join(w.root, ...rel.split('/').slice(0, -1)), { recursive: true });
+        writeFileSync(join(w.root, ...rel.split('/')), 'the work\n');
+      }
+    });
+    const first = runLoop(sys, w.root, { dryRun: true, adapters, invocation: { pid: 4242, ppid: 1717, argv: ['node'], cwd: w.root } });
+    session = String((first as { sessionId?: string }).sessionId ?? '');
+    const gc = loadGovernedContext(sys, w.root);
+    if (!gc.ok) throw new Error('fixture has no governed context');
+    const recorder = createLifecycleRecorder(sys, w.root, gc.context, 'e2e');
+    runLoop(sys, w.root, {
+      adapters,
+      expectedDecider: DELEGATE,
+      gatekeeper: gatekeeperDeps(w.root, ['commit', 'push']) as never,
+      onWorkState: (p) => recorder.record(p),
+      invocation: { pid: 4242, ppid: 1717, argv: ['node', 'projectos.js', 'run', '--execute'], cwd: w.root },
+    });
+    git(w.root, 'branch', `--set-upstream-to=origin/${BRANCH}`);
+  }
+  function ownerCommitsAll(w: World, message: string): void {
+    git(w.root, 'add', '--all');
+    git(w.root, 'commit', '--quiet', '-m', message);
+    git(w.root, 'push', '--quiet', 'origin', `${BRANCH}:${BRANCH}`);
+  }
+
+  it('while the run\'s own records are uncommitted it WAITS ON THE OWNER (exit 0), naming exactly them, and writes nothing', () => {
+    const sys = fixedClock();
+    const w = world();
+    runToAwaitingClosure(w, sys);
+    const before = git(w.root, 'status', '--porcelain', '--untracked-files=all');
+    const r = closurePrepare({ sys, root: w.root }, { id: PHASE });
+    expect(r.code).toBe(0);
+    expect(r.lines.join('\n')).toContain('WAITING_OWNER_COMMIT (RUN_RECORDS_UNCOMMITTED)');
+    expect(r.lines.join('\n')).toContain(`.projectops/phases/${PHASE}.json`);
+    expect(git(w.root, 'status', '--porcelain', '--untracked-files=all')).toBe(before);
+  });
+
+  it('a committed but unpushed head WAITS for the owner\'s push (exit 0)', () => {
+    const sys = fixedClock();
+    const w = world();
+    runToAwaitingClosure(w, sys);
+    git(w.root, 'add', '--all');
+    git(w.root, 'commit', '--quiet', '-m', 'owner: lifecycle, not pushed');
+    const r = closurePrepare({ sys, root: w.root }, { id: PHASE });
+    expect(r.code).toBe(0);
+    expect(r.lines.join('\n')).toContain('WAITING_OWNER_PUSH');
+  });
+
+  it('generates evidence, validation record and report that G4 accepts once committed', () => {
+    const sys = fixedClock();
+    const w = world();
+    runToAwaitingClosure(w, sys);
+    ownerCommitsAll(w, 'owner: commit the lifecycle records');
+    const subject = git(w.root, 'rev-parse', 'HEAD').trim();
+
+    const r = closurePrepare({ sys, root: w.root }, { id: PHASE });
+    expect(r.code).toBe(0);
+    const evidence = JSON.parse(readFileSync(join(w.root, '.projectops', 'closure', `${PHASE}.json`), 'utf8')) as Record<string, unknown>;
+    expect(evidence['evidenceSubjectHead']).toBe(subject);
+    expect(evidence['validatorsPass']).toBe(true);
+    expect(evidence['unresolvedCriticalOrHigh']).toBe(0);
+    const validation = JSON.parse(readFileSync(join(w.root, '.projectops', 'validation', `${subject}.json`), 'utf8')) as Record<string, unknown>;
+    expect(validation['subjectHead']).toBe(subject);
+    expect(validation['workingTreeCleanAtRunStart']).toBe(true);
+    expect(readFileSync(join(w.root, 'knowledge', 'reports', `${PHASE}-closure-evidence.md`), 'utf8')).toContain(subject);
+    // Generated, NOT committed: the three files are the only dirty paths, and all are closure tail.
+    const dirty = git(w.root, 'status', '--porcelain', '--untracked-files=all')
+      .trim()
+      .split(/\r?\n/)
+      .map((l) => l.slice(3).trim());
+    expect(dirty.sort()).toEqual(
+      [`.projectops/closure/${PHASE}.json`, `.projectops/validation/${subject}.json`, `knowledge/reports/${PHASE}-closure-evidence.md`].sort(),
+    );
+
+    ownerCommitsAll(w, 'owner: commit the generated closure records');
+    const gc = loadGovernedContext(sys, w.root);
+    if (!gc.ok) throw new Error('no context');
+    const g4 = evaluateG4(sys, w.root, gc.context, PHASE, 'awaiting_closure', { ready: true, reasons: [] }, true, false);
+    expect(g4.facts.validationRecordProblems).toEqual([]);
+    expect(g4.facts.passingValidatorNames).toContain('validate-all');
+    expect(g4.facts.evidenceReportPresent).toBe(true);
+    expect(g4.facts.protectedEffectOccurred).toBe(false);
+    expect(g4.facts.substantiveChangesSinceSubject).toEqual([]);
+    // EVERY EVIDENCE PREDICATE IS MET BY THE GENERATED RECORDS. The one unmet predicate is G4-1, which
+    // scopes this gate to the project id 'projectos' and this fixture is 'e2e' — a project-scope rule,
+    // not an evidence one, and asserted here by name so the day it changes is visible.
+    expect(g4.verdict.unmet.map((u) => u.code)).toEqual(['G4-1']);
+  });
+
+  it('work written into a NEW directory is the run\'s own: prepare binds it file by file, never as a collapsed dir/', () => {
+    // FOUND LIVE: the run recorded `notes/` for a new untracked directory, and the subject binding then
+    // refused `notes/phase-one.md` as a change the run did not make.
+    const sys = fixedClock();
+    const w = world();
+    runToAwaitingClosure(w, sys, ['notes/phase-one.md']);
+    ownerCommitsAll(w, 'owner: lifecycle records');
+    const r = closurePrepare({ sys, root: w.root }, { id: PHASE });
+    expect(r.lines.join('\n')).not.toContain('SUBJECT_NOT_FROM_RUN');
+    expect(r.code).toBe(0);
+    const exec = join(w.root, '.projectops', 'execution');
+    const ev = JSON.parse(readFileSync(join(exec, readdirSync(exec).find((f) => f.endsWith('.evidence.json')) as string), 'utf8')) as { changedFiles: string[] };
+    expect(ev.changedFiles).toContain('notes/phase-one.md');
+    expect(ev.changedFiles.some((f) => f.endsWith('/'))).toBe(false);
+  });
+
+  it('a validator that fails at the subject is recorded as failing, and G4 refuses on it', () => {
+    const sys = fixedClock();
+    const w = world();
+    // A validator whose answer depends on an IGNORED file: it passes during the run and fails at the
+    // subject, with no committed change between the two — the honest shape of "fails at the subject".
+    writeFileSync(join(w.root, 'projectos', 'validators', 'validate-all.cjs'), 'if (require("fs").existsSync(".flaky")) process.exit(1); console.log("PASS");');
+    writeFileSync(join(w.root, '.gitignore'), '.flaky\n');
+    ownerCommitsAll(w, 'owner: a validator with an environmental dependency');
+    runToAwaitingClosure(w, sys);
+    ownerCommitsAll(w, 'owner: lifecycle records');
+    writeFileSync(join(w.root, '.flaky'), '');
+    const r = closurePrepare({ sys, root: w.root }, { id: PHASE });
+    expect(r.code).toBe(0);
+    expect(r.lines.join('\n')).toContain('FAIL validator validate-all');
+    const evidence = JSON.parse(readFileSync(join(w.root, '.projectops', 'closure', `${PHASE}.json`), 'utf8')) as Record<string, unknown>;
+    expect(evidence['validatorsPass']).toBe(false);
+    ownerCommitsAll(w, 'owner: commit the generated closure records');
+    const gc = loadGovernedContext(sys, w.root);
+    if (!gc.ok) throw new Error('no context');
+    expect(evaluateG4(sys, w.root, gc.context, PHASE, 'awaiting_closure', { ready: true, reasons: [] }, true, false).verdict.eligible).toBe(false);
+  });
+
+  it('REFUSES a subject carrying changes the run did not make — a check config or validator edited after the run', () => {
+    const sys = fixedClock();
+    const w = world();
+    runToAwaitingClosure(w, sys);
+    // ECC CODE HIGH-1: a committed config edit after the run that would drop a check, or a validator
+    // weakened after it, must not ride on the run's review.
+    writeFileSync(join(w.root, 'projectos', 'validators', 'validate-all.cjs'), 'console.log("weakened PASS");');
+    ownerCommitsAll(w, 'owner: lifecycle records, and a validator changed outside the run');
+    const r = closurePrepare({ sys, root: w.root }, { id: PHASE });
+    expect(r.code).toBe(2);
+    expect(r.lines.join('\n')).toContain('SUBJECT_NOT_FROM_RUN');
+    expect(r.lines.join('\n')).toContain('projectos/validators/validate-all.cjs');
+    expect(existsSync(join(w.root, '.projectops', 'closure', `${PHASE}.json`))).toBe(false);
+  });
+
+  it('REFUSES findings edited after the run was judged (a HIGH marked resolved, a review claimed)', () => {
+    const sys = fixedClock();
+    const w = world();
+    runToAwaitingClosure(w, sys);
+    const exec = join(w.root, '.projectops', 'execution');
+    const findings = readdirSync(exec).find((f) => f.endsWith('.findings.json')) as string;
+    writeFileSync(join(exec, findings), JSON.stringify({ reviews: ['ECC SECURITY review'], findings: [] }));
+    ownerCommitsAll(w, 'owner: lifecycle records, with findings rewritten after the run');
+    const r = closurePrepare({ sys, root: w.root }, { id: PHASE });
+    expect(r.code).toBe(2);
+    expect(r.lines.join('\n')).toContain('FINDINGS_NOT_BOUND');
+  });
+
+  it('says at prepare time that an unattested earlier run makes G4-11 refuse, and names it (ECC round 2 N4)', () => {
+    const sys = fixedClock();
+    const w = world();
+    runToAwaitingClosure(w, sys);
+    // An earlier run of the same phase that ended without an attestation (a timed-out worker).
+    const exec = join(w.root, '.projectops', 'execution');
+    writeFileSync(join(exec, 'aborted-run.session.json'), JSON.stringify({ sessionId: 'aborted-run', phaseId: PHASE }));
+    writeFileSync(
+      join(exec, 'aborted-run.evidence.json'),
+      JSON.stringify({ sessionId: 'aborted-run', phaseId: PHASE, collectedAt: '2000-01-01T00:00:00Z', effectsSha256: null }),
+    );
+    ownerCommitsAll(w, 'owner: lifecycle records');
+    const r = closurePrepare({ sys, root: w.root }, { id: PHASE });
+    expect(r.code).toBe(0);
+    const text = r.lines.join('\n');
+    expect(text).toContain('G4-11 NOT ESTABLISHED');
+    expect(text).toContain('aborted-run');
+    expect(text).toContain('owner closure route');
+  });
+
+  it('refuses over uncommitted work that is not a closure record', () => {
+    const sys = fixedClock();
+    const w = world();
+    runToAwaitingClosure(w, sys);
+    ownerCommitsAll(w, 'owner: lifecycle');
+    writeFileSync(join(w.root, 'unreviewed.txt'), 'x\n');
+    const r = closurePrepare({ sys, root: w.root }, { id: PHASE });
+    expect(r.code).toBe(2);
+    expect(r.lines.join('\n')).toContain('TREE_NOT_CLEAN');
+    expect(r.lines.join('\n')).toContain('unreviewed.txt');
+  });
+
+  it('refuses a phase that is not awaiting closure, and writes nothing', () => {
+    const w = world();
+    const r = closurePrepare({ sys: fixedClock(), root: w.root }, { id: PHASE });
+    expect(r.code).toBe(2);
+    expect(r.lines.join('\n')).toContain('REFUSED');
+    expect(git(w.root, 'status', '--porcelain').trim()).toBe('');
+  });
+
+  it('projectos continue routes a finished, unprepared phase to closure prepare, then to the request', () => {
+    const sys = fixedClock();
+    const w = world();
+    runToAwaitingClosure(w, sys);
+    ownerCommitsAll(w, 'owner: lifecycle');
+    const r = continueCommand({ sys, root: w.root }, { execute: true });
+    const text = r.lines.join('\n');
+    expect(text).toContain(`closure-prepare → projectos closure prepare --id ${PHASE}`);
+    expect(text).toContain(`closure prepared for ${PHASE}`);
+    ownerCommitsAll(w, 'owner: closure records');
+    const next = continueCommand({ sys, root: w.root }, { 'dry-run': true });
+    expect(next.lines.join('\n')).toContain(`closure-request → projectos closure request --id ${PHASE} --execute`);
+  });
+});
+
+/**
+ * THE IMPLEMENTER WRITES EXACTLY THE APPROVED SCOPE — through the real loop (continuation five).
+ */
+describe('the worker write grant comes from the approved scope, at dispatch', () => {
+  /** An adapter that records the argv it was started with, and writes the run's two records. */
+  function recordingAdapter(root: string, sessionOf: () => string, seen: string[][]): AdapterRegistry {
+    const inner = adapterWriting(root, sessionOf, () => {
+      writeFileSync(join(root, 'delivered.txt'), 'the work\n');
+    })[WORKER_KIND] as WorkerAdapter;
+    const adapter: WorkerAdapter = {
+      ...inner,
+      start: (sys, worker, brief, briefPath) => {
+        seen.push([...worker.args]);
+        return inner.start(sys, worker, brief, briefPath);
+      },
+    };
+    return { [WORKER_KIND]: adapter } as unknown as AdapterRegistry;
+  }
+
+  it('the implementer is started with Write/Edit for exactly the scope paths', () => {
+    const sys = fixedClock();
+    const w = world({ scope: 'Write ./delivered.txt and docs/notes.md.' });
+    let session = '';
+    const seen: string[][] = [];
+    const adapters = recordingAdapter(w.root, () => session, seen);
+    const first = runLoop(sys, w.root, { dryRun: true, adapters, invocation: { pid: 4242, ppid: 1717, argv: ['node'], cwd: w.root } });
+    session = String((first as { sessionId?: string }).sessionId ?? '');
+    expect(first.lines.join('\n')).toContain('Write grant (from the approved scope): ./delivered.txt, docs/notes.md');
+    run(sys, w, adapters, ['commit', 'push']);
+    const tools = seen[0]?.[(seen[0]?.indexOf('--allowedTools') ?? -1) + 1] ?? '';
+    for (const g of ['Write(./delivered.txt)', 'Edit(./delivered.txt)', 'Write(docs/notes.md)', 'Edit(docs/notes.md)']) expect(tools).toContain(g);
+    expect(tools).not.toContain('**)');
+  });
+
+  it('a worker that creates GIT-IGNORED content under its grant is stopped for the owner, and nothing is committed (ECC SECURITY N7)', () => {
+    const sys = fixedClock();
+    const w = world({ scope: 'Write notes/ for the phase.', gitignore: '*.log\n' });
+    let session = '';
+    const adapters = adapterWriting(w.root, () => session, () => {
+      mkdirSync(join(w.root, 'notes'), { recursive: true });
+      writeFileSync(join(w.root, 'notes', 'a.md'), 'the work\n');
+      // Invisible to the candidate, the diff, the clean-tree check and G4 — yet a check could load it.
+      writeFileSync(join(w.root, 'notes', 'shadow.log'), 'unreviewable\n');
+    });
+    const first = runLoop(sys, w.root, { dryRun: true, adapters, invocation: { pid: 4242, ppid: 1717, argv: ['node'], cwd: w.root } });
+    session = String((first as { sessionId?: string }).sessionId ?? '');
+    const r = run(sys, w, adapters, ['commit', 'push']);
+    expect(r.ok).toBe(true);
+    if (!r.ok) throw new Error('unreachable');
+    expect(r.stop?.code).toBe('SCOPE_DECISION');
+    expect(r.stop?.detail).toContain('notes/shadow.log');
+    expect(git(w.root, 'rev-parse', 'HEAD').trim()).toBe(w.head);
+    expect(git(w.root, 'rev-parse', `origin/${BRANCH}`).trim()).toBe(w.head);
+  });
+
+  it('a worker that creates a NESTED REPOSITORY under its grant is stopped for the owner (ECC SECURITY round 4)', () => {
+    const sys = fixedClock();
+    const w = world({ scope: 'Write notes/ for the phase.' });
+    let session = '';
+    const adapters = adapterWriting(w.root, () => session, () => {
+      mkdirSync(join(w.root, 'notes', 'sub', '.git'), { recursive: true });
+      writeFileSync(join(w.root, 'notes', 'sub', '.git', 'HEAD'), 'ref: refs/heads/main\n');
+      mkdirSync(join(w.root, 'notes', 'sub', '.git', 'objects'), { recursive: true });
+      mkdirSync(join(w.root, 'notes', 'sub', '.git', 'refs'), { recursive: true });
+      writeFileSync(join(w.root, 'notes', 'sub', 'hidden.md'), 'git will not list this\n');
+    });
+    const first = runLoop(sys, w.root, { dryRun: true, adapters, invocation: { pid: 4242, ppid: 1717, argv: ['node'], cwd: w.root } });
+    session = String((first as { sessionId?: string }).sessionId ?? '');
+    const r = run(sys, w, adapters, ['commit', 'push']);
+    expect(r.ok).toBe(true);
+    if (!r.ok) throw new Error('unreachable');
+    expect(r.stop?.code).toBe('SCOPE_DECISION');
+    expect(r.stop?.detail).toContain('notes/sub');
+    expect(git(w.root, 'rev-parse', 'HEAD').trim()).toBe(w.head);
+  });
+
+  it('a scope naming a path no worker may hold REFUSES the run before any worker starts', () => {
+    const sys = fixedClock();
+    const w = world({ scope: 'Edit C:/Windows/win.ini.json and src/../escape.ts.' });
+    const seen: string[][] = [];
+    const r = runLoop(sys, w.root, {
+      adapters: recordingAdapter(w.root, () => 'unused', seen),
+      invocation: { pid: 4242, ppid: 1717, argv: ['node', 'projectos.js', 'run', '--execute'], cwd: w.root },
+    });
+    expect(r.ok).toBe(false);
+    expect(r.lines.join('\n')).toContain('SCOPE_WRITE_GRANT_REFUSED');
+    expect(seen).toEqual([]);
   });
 });

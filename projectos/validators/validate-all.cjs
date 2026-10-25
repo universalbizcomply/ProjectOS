@@ -116,7 +116,9 @@ const MODULES = [
   "val-host-store-custody-10i",
   "val-projectos-host-review-path1a",
   "val-projectos-host-review-path1b",
-  "val-projectos-agent-workforce1a"
+  "val-projectos-agent-workforce1a",
+  // PROJECTOS-BOOT-CONTINUE1A — safe continuation across approved phases.
+  "val-projectos-boot-continue1a"
 ];
 const scratch = require("./lib/scratch.cjs");
 const validationRecord = require("./lib/validation-record.cjs");

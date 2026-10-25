@@ -42,7 +42,17 @@ import {
   decisionIsCommitted,
   evaluateG4,
   g4RefusalLines,
+  gitFacts,
+  latestRunEvidence,
+  programmeStateTailPaths,
+  unattestedRuns,
+  validationRecordPath,
 } from '../closureGate.js';
+import { checksFor, configuredChecks, runChecks, type CheckResult } from '../loop/verification.js';
+import { findingsPath, readFindings, type FindingsRecord } from '../loop/session.js';
+import { createHash } from 'node:crypto';
+import { blockingFindings } from '../loop/outcome.js';
+import { isClosureTailPath } from '@projectos/core';
 import {
   CLOSURE_WAIT_SCHEMA_VERSION,
   closureDecisionSha256,
@@ -73,9 +83,12 @@ import {
   releaseUndispatchedReservation,
   settleUnansweredGatekeeperSpend,
   settleGatekeeperSpend,
+  GATEKEEPER_DECISIONS_REL,
+  GATEKEEPER_THREAD_REL,
   type GatekeeperConfig,
 } from '../loop/gatekeeperConfig.js';
-import { CLOSURE_INTERACTIVE_REL, nodeInteractivePort, resolveGatekeeperMode } from '../loop/gatekeeperHandoff.js';
+import { CLOSURE_INTERACTIVE_REL, GATEKEEPER_INTERACTIVE_REL, nodeInteractivePort, resolveGatekeeperMode } from '../loop/gatekeeperHandoff.js';
+import { WORK_RECORD_REL } from '../loop/workRecord.js';
 import { unprovisionedResolver } from '../loop/credentialResolver.js';
 import { nodeHttpPort } from '../loop/transports/nodeHttpPort.js';
 import { nodeInstallationStateDir } from '../nodeRuntimeRoot.js';
@@ -94,6 +107,8 @@ import type { System } from '../system.js';
 export function closure(ctx: CommandContext, flags: Flags, positionals: readonly string[]): CommandResult {
   const sub = positionals[0] ?? 'status';
   switch (sub) {
+    case 'prepare':
+      return closurePrepare(ctx, flags);
     case 'request':
       return closureRequest(ctx, flags);
     case 'resume':
@@ -101,7 +116,7 @@ export function closure(ctx: CommandContext, flags: Flags, positionals: readonly
     case 'status':
       return closureStatus(ctx, flags);
     default:
-      return fail(1, [`Unknown 'closure' subcommand: ${sub}`, 'Use: closure request|resume|status']);
+      return fail(1, [`Unknown 'closure' subcommand: ${sub}`, 'Use: closure prepare|request|resume|status']);
   }
 }
 
@@ -206,7 +221,9 @@ function closureEvidenceText(
 function ownerAskLines(wait: ClosureWaitRecord): readonly string[] {
   const others = wait.bundle.filter((b) => b.path !== wait.decisionPath);
   return [
-    'WAITING_OWNER — Murad must commit the closure bundle.',
+    // THE PLAN'S OWNER, NOT A NAME IN SOURCE: `resume` accepts only a commit under the plan owner's
+    // identity, so the ask names whoever that is rather than one particular person.
+    'WAITING_OWNER — the plan owner must commit the closure bundle.',
     '',
     `  project:  ${wait.projectId}`,
     `  phase:    ${wait.phaseId}`,
@@ -273,6 +290,8 @@ export type ClosureCompositionArgs = {
   readonly consumedDecisionIds: readonly string[];
   /** How long an interactive question holds its gate open for the answer. */
   readonly gateWaitMs: number;
+  /** `--supersede-stale-request`: archive a stale interactive question and ask afresh. */
+  readonly supersedeStale?: boolean;
 } & (
   | { readonly mode: 'interactive'; readonly config: null }
   | {
@@ -445,6 +464,327 @@ export function buildClosureBundle(
  * thing the owner is asked to commit without a ruling behind it, so the list is a literal.
  */
 const ALSO_IN_BUNDLE: readonly string[] = ['.projectops/gatekeeper-ledger.json'];
+
+/** The name the preparation gives its own all-checks result in the validation record. Not a module. */
+export const PREPARED_AGGREGATE_NAME = 'projectos-closure-prepare-checks';
+
+/** Where the generated report lives. Named with the phase id so the G4 report predicate finds it. */
+export function closureReportRelPath(phaseId: string): string {
+  return `knowledge/reports/${phaseId}-closure-evidence.md`;
+}
+
+/**
+ * Records the LOOP itself writes after its own technical-continuation commit — the gate decision, the
+ * interactive question and answer, the work record, the run's own execution records. They describe the
+ * run; they are not the work. Uncommitted, they mean "waiting on the owner's commit", not "unreviewed work".
+ */
+// Named through their OWNING modules' constants: each store has one module that may address it.
+const RUN_RECORD_PREFIXES: readonly string[] = [
+  '.projectops/execution/',
+  `${GATEKEEPER_DECISIONS_REL}/`,
+  `${GATEKEEPER_INTERACTIVE_REL}/`,
+];
+// The thread pointer is written by a paid gatekeeper turn after evidence collection; it is a run record.
+const RUN_RECORD_FILES: readonly string[] = [WORK_RECORD_REL, GATEKEEPER_THREAD_REL];
+
+function isRunRecordPath(path: string): boolean {
+  const p = path.replace(/\\/g, '/');
+  return !p.includes('..') && (RUN_RECORD_FILES.includes(p) || RUN_RECORD_PREFIXES.some((x) => p.startsWith(x) && p.length > x.length));
+}
+
+/** A worker-written string, made safe to put in a JSON record, a prompt and a markdown table. */
+function inert(value: string): string {
+  return value.replace(/[^A-Za-z0-9 _.:()\-]/g, '_').slice(0, 120);
+}
+
+function sha256(text: string): string {
+  return createHash('sha256').update(text, 'utf8').digest('hex');
+}
+
+/** Porcelain paths, rename-aware enough for a refusal message and for classification. */
+function dirtyPaths(sys: System, root: string): readonly string[] {
+  return sys
+    .exec('git', ['-C', root, 'status', '--porcelain', '--untracked-files=all'])
+    .stdout.split(/\r?\n/)
+    .map((l) => l.slice(3).trim().replace(/^"|"$/g, ''))
+    .map((l) => (l.includes(' -> ') ? (l.split(' -> ').pop() as string) : l))
+    .filter((l) => l !== '');
+}
+
+/** How far HEAD is ahead of and behind its upstream, or null when there is no upstream to compare. */
+function aheadBehind(sys: System, root: string): { ahead: number; behind: number } | null {
+  const r = sys.exec('git', ['-C', root, 'rev-list', '--left-right', '--count', 'HEAD...@{upstream}']);
+  const m = /^(\d+)\s+(\d+)$/.exec(r.stdout.trim());
+  return r.code !== 0 || m === null ? null : { ahead: Number(m[1]), behind: Number(m[2]) };
+}
+
+/**
+ * Is the tree ready to prepare closure on? `null` when it is; otherwise the answer to give. A tree
+ * whose only changes are records the run wrote is WAITING ON THE OWNER (exit 0, with the exact commit
+ * to make); anything else is unreviewed work and refuses.
+ */
+function preparationTreeAnswer(sys: System, root: string, context: GovernedContext): CommandResult | null {
+  const git = gitFacts(sys, root);
+  if (!git.clean) {
+    const dirty = dirtyPaths(sys, root);
+    const tail = programmeStateTailPaths(context);
+    const substantive = dirty.filter((d) => !isClosureTailPath(d, tail) && !isRunRecordPath(d));
+    if (substantive.length > 0) {
+      return fail(2, [
+        'REFUSED (TREE_NOT_CLEAN): the checkout has uncommitted changes that are not run or closure records; closure is not prepared over unreviewed work.',
+        ...substantive.map((d) => `  ${d}`),
+      ]);
+    }
+    return ok([
+      'WAITING_OWNER_COMMIT (RUN_RECORDS_UNCOMMITTED): the run left its own records uncommitted. They describe the',
+      '  run and are not the work, but the checks must run on a clean, pushed tree. Commit exactly these and push:',
+      ...dirty.map((d) => `  ${d}`),
+      '  then run `projectos continue`.',
+    ]);
+  }
+  const counts = aheadBehind(sys, root);
+  if (git.head !== null && counts !== null && counts.ahead > 0 && counts.behind === 0) {
+    return ok([`WAITING_OWNER_PUSH: HEAD is ${counts.ahead} commit(s) ahead of its upstream; push, then run \`projectos continue\`.`]);
+  }
+  if (git.head === null || !git.reconciled) {
+    return fail(2, ['REFUSED (SUBJECT_NOT_PUSHED): HEAD is not reconciled with its upstream, so it is not yet the subject a closure judges.']);
+  }
+  return null;
+}
+
+/**
+ * The run this closure is prepared from, bound to the subject — or the refusal. Every fact closure
+ * evidence is built from must trace to a run the RUNNER recorded:
+ *  - the run is bound to a runner session (see `latestRunEvidence`);
+ *  - its findings still hash to what the runner collected, so a finding cannot be marked resolved, or a
+ *    review claimed, after the run was judged;
+ *  - every substantive change from the run's base to the subject is a file the run itself changed: work
+ *    committed outside the run does not ride on its review.
+ */
+function boundRun(
+  sys: System,
+  root: string,
+  context: GovernedContext,
+  id: string,
+  subject: string,
+): { ok: true; run: Record<string, unknown>; findings: FindingsRecord } | { ok: false; result: CommandResult } {
+  const refuse = (lines: readonly string[]) => ({ ok: false as const, result: fail(2, lines) });
+  const run = latestRunEvidence(sys, root, id);
+  if (run === null) return refuse([`REFUSED (NO_RUN_EVIDENCE): no runner-recorded run exists for ${id}; there is no run to prepare closure from.`]);
+  const sessionId = String(run['sessionId']);
+  const base = typeof run['baseHead'] === 'string' ? run['baseHead'] : '';
+  if (!/^[0-9a-f]{40}$/.test(base) || sys.exec('git', ['-C', root, 'merge-base', '--is-ancestor', base, subject]).code !== 0) {
+    return refuse([`REFUSED (RUN_NOT_ON_SUBJECT): the run's base commit is not an ancestor of ${subject.slice(0, 7)}, so that run did not produce this subject.`]);
+  }
+  const recordedFindings = run['findingsSha256'];
+  const findingsText = sys.readText(findingsPath(root, sessionId));
+  if (recordedFindings === undefined || (findingsText === null ? recordedFindings !== null : sha256(findingsText) !== recordedFindings)) {
+    return refuse([
+      'REFUSED (FINDINGS_NOT_BOUND): the findings record is not the one the runner collected for this run, or the run',
+      '  recorded no digest for it; findings changed after a run was judged are not closure evidence.',
+    ]);
+  }
+  const findings = readFindings(sys, root, sessionId);
+  if (!findings.ok) return refuse([`REFUSED (FINDINGS_UNREADABLE): ${findings.problem}`]);
+  const changed = new Set(Array.isArray(run['changedFiles']) ? (run['changedFiles'] as unknown[]).map(String) : []);
+  const tail = programmeStateTailPaths(context);
+  const since = sys.exec('git', ['-C', root, 'diff', '--name-only', `${base}..${subject}`]);
+  if (since.code !== 0) return refuse(['REFUSED (SUBJECT_UNREADABLE): the changes from the run base to the subject could not be listed.']);
+  const foreign = since.stdout
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l !== '' && !isClosureTailPath(l, tail) && !isRunRecordPath(l) && !changed.has(l));
+  if (foreign.length > 0) {
+    return refuse([
+      `REFUSED (SUBJECT_NOT_FROM_RUN): the subject carries changes the run did not make, so the run's review does not cover them.`,
+      ...foreign.map((f) => `  ${f}`),
+    ]);
+  }
+  return { ok: true, run, findings: findings.value };
+}
+
+/**
+ * STEP 0.5 — PREPARE CLOSURE: generate the closure evidence, the validation record and the report row
+ * from the run's own records — PROJECTOS-BOOT-CONTINUE1A (continuation three).
+ *
+ * WHAT IT READS. The phase's latest RUNNER-recorded run, bound to the subject (see `boundRun`), the
+ * findings that run recorded, the approved plan's requirements for the phase, and git. Nothing is taken
+ * from a caller.
+ *
+ * WHAT IT RUNS. The phase's own check set — the plan's required validators and the configured suites —
+ * once more, at the PUSHED subject on a CLEAN tree. The run's checks ran against the candidate before
+ * it was committed, on a tree that was by definition not clean; recording those as a clean-tree run
+ * would be false. Every check the run recorded must still be configured, and a configuration problem
+ * refuses rather than silently dropping a check — a dropped check would read as a passing one.
+ *
+ * WHAT IT WRITES. Three closure-tail files, and nothing else: `.projectops/closure/<phase>.json`,
+ * `.projectops/validation/<subject>.json` and `knowledge/reports/<phase>-closure-evidence.md`.
+ *
+ * WHAT IT DOES NOT DO. It commits nothing, pushes nothing, asks nobody and decides nothing: the
+ * closure decision stays with its existing authority, and G4 re-derives every fact again at request.
+ * The review claim stays the WORKER's, and is labelled so; binding it to the run is what is added.
+ */
+export function closurePrepare(ctx: CommandContext, flags: Flags): CommandResult {
+  const { sys, root } = ctx;
+  const id = str(flags, 'id');
+  if (id === '') return fail(1, ['`closure prepare` requires --id <PHASE-ID>']);
+  if (!isSafeClosurePhaseId(id)) {
+    return fail(1, [`REFUSED (UNSAFE_PHASE_ID): '${id}' does not make a safe governed record name.`]);
+  }
+  if (resolveBoundGit() === null) {
+    return fail(2, ['REFUSED (GIT_UNAVAILABLE): ProjectOS has no bound Git executable, so the subject cannot be established.']);
+  }
+  const gc = loadGovernedContext(sys, root);
+  if (!gc.ok) return fail(2, refusalLines(gc));
+  const current = loadPhase(sys, root, id);
+  if (current === null) return fail(2, missingPhaseLines(sys, root, gc.context, id));
+  if (current.status !== 'awaiting_closure') {
+    return fail(2, [`REFUSED (NOT_AWAITING_CLOSURE): ${id} is ${current.status}; closure is prepared only for a phase whose work is finished.`]);
+  }
+  const treeAnswer = preparationTreeAnswer(sys, root, gc.context);
+  if (treeAnswer !== null) return treeAnswer;
+  const subject = gitFacts(sys, root).head as string;
+
+  const bound = boundRun(sys, root, gc.context, id, subject);
+  if (!bound.ok) return bound.result;
+  const { run, findings: recorded } = bound;
+
+  const planPhase = (Array.isArray(gc.context.plan['phases']) ? (gc.context.plan['phases'] as Record<string, unknown>[]) : [])
+    .find((ph) => ph['phaseId'] === id);
+  if (planPhase === undefined) return fail(2, [`REFUSED (PHASE_NOT_IN_PLAN): ${id} is not a phase of the active approved plan.`]);
+  const names = (key: string): readonly string[] =>
+    Array.isArray(planPhase[key]) ? (planPhase[key] as unknown[]).filter((v): v is string => typeof v === 'string' && v !== '') : [];
+
+  const suites = configuredChecks(gc.context.config as unknown as Record<string, unknown>);
+  if (suites.problems.length > 0) {
+    return fail(2, ['REFUSED (BAD_CHECK_CONFIG): the project declares a check that cannot be read; a dropped check would read as a passing one.', ...suites.problems.map((p) => `  - ${p}`)]);
+  }
+  const specs = checksFor(sys, root, names('requiredValidators'), suites.checks);
+  if (specs.length === 0) {
+    return fail(2, ['REFUSED (NOTHING_TO_VALIDATE): the phase requires no validator and the project configures no check; a validation record of nothing proves nothing.']);
+  }
+  const runCheckIds = Array.isArray(run['checks']) ? (run['checks'] as Record<string, unknown>[]).map((c) => String(c['id'])) : [];
+  const missing = runCheckIds.filter((c) => !specs.some((s) => s.id === c));
+  if (missing.length > 0) {
+    return fail(2, ['REFUSED (CHECK_SET_CHANGED): checks the run ran are no longer configured, so the subject would be judged on less.', ...missing.map((m) => `  ${m}`)]);
+  }
+  const results = runChecks(sys, root, specs);
+  // THE CHECKS MUST NOT HAVE MOVED THE TREE OR THE SUBJECT. A check that wrote into the checkout, or a
+  // commit made while they ran, would make the record describe a tree that is not the subject.
+  const after = gitFacts(sys, root);
+  if (!after.clean) return fail(2, ['REFUSED (CHECKS_DIRTIED_TREE): running the checks changed the checkout, so no clean-tree record can be written.']);
+  if (after.head !== subject || !after.reconciled) {
+    return fail(2, ['REFUSED (SUBJECT_MOVED): HEAD or its upstream moved while the checks ran, so they did not run against one subject.']);
+  }
+  return writePreparedRecords(sys, root, id, subject, results, names('requiredReviews'), recorded, run);
+}
+
+/** Write the three records from facts already established, and say what was written. */
+function writePreparedRecords(
+  sys: System,
+  root: string,
+  id: string,
+  subject: string,
+  results: readonly CheckResult[],
+  required: readonly string[],
+  recorded: FindingsRecord,
+  run: Record<string, unknown>,
+): CommandResult {
+  const at = sys.now();
+  const validators = results.filter((r) => r.kind === 'validator');
+  const others = results.filter((r) => r.kind !== 'validator');
+  const allPassed = results.every((r) => r.passed);
+  const validation = {
+    schemaVersion: '1.1.0',
+    subjectHead: subject,
+    workingTreeCleanAtRunStart: true,
+    generatedBy: 'projectos closure prepare',
+    generatedAt: at,
+    registeredModuleCount: results.length,
+    results: results.map((r: CheckResult) => ({ name: r.id, kind: r.kind, passed: r.passed, exitCode: r.exitCode, timedOut: r.timedOut === true })),
+    aggregate: { name: PREPARED_AGGREGATE_NAME, passed: allPassed },
+    aggregatePassed: allPassed,
+  };
+  const reviews = recorded.reviews.map(inert);
+  const unresolved = blockingFindings(recorded.findings);
+  const evidence = {
+    schemaVersion: '1.0.0',
+    phaseId: id,
+    evidenceSubjectHead: subject,
+    validatorsPass: validators.every((r) => r.passed),
+    checksPass: others.every((r) => r.passed),
+    reviewsComplete: required.every((r) => recorded.reviews.includes(r)),
+    reviewsSource: 'worker-attested: the findings record the run wrote, bound to the run by the runner-recorded findingsSha256',
+    unresolvedCriticalOrHigh: unresolved.length,
+    unresolvedCritical: unresolved.filter((f) => f.severity === 'CRITICAL').length,
+    unresolvedHighIds: unresolved.filter((f) => f.severity === 'HIGH').map((f) => inert(f.id)),
+    headedProofPass: null,
+    generatedBy: 'projectos closure prepare',
+    generatedAt: at,
+    generatedFrom: { sessionId: String(run['sessionId']), runBaseHead: String(run['baseHead']), validationRecord: `.projectops/validation/${subject}.json` },
+  };
+
+  sys.writeText(validationRecordPath(root, subject), `${JSON.stringify(validation, null, 2)}\n`);
+  sys.writeText(closureEvidencePath(root, id), `${JSON.stringify(evidence, null, 2)}\n`);
+  const reportRel = closureReportRelPath(id);
+  sys.writeText(join(root, ...reportRel.split('/')), closureReportText(id, subject, evidence, results, required, reviews));
+  // SAID NOW, NOT AT THE REQUEST: a run that did not verifiably attest makes G4-11 refuse this phase on
+  // the delegated route, and the owner route is then the way to close it.
+  const unattested = unattestedRuns(sys, root, id);
+
+  return ok([
+    `closure prepared for ${id} at subject ${subject}`,
+    ...results.map((r) => `  ${r.passed ? 'PASS' : 'FAIL'} ${r.kind} ${r.id}${r.timedOut === true ? ' (timed out)' : ''}`),
+    `  reviews (worker-attested): ${evidence.reviewsComplete ? 'complete' : `missing ${required.filter((r) => !recorded.reviews.includes(r)).join(', ')}`}`,
+    `  unresolved CRITICAL/HIGH: ${evidence.unresolvedCriticalOrHigh}`,
+    '',
+    'generated (closure-tail records; nothing was committed and nobody was asked):',
+    `  .projectops/validation/${subject}.json`,
+    `  .projectops/closure/${id}.json`,
+    `  ${reportRel}`,
+    '',
+    allPassed
+      ? 'Commit exactly these three files and push; then `projectos continue` asks the closure authority.'
+      : 'A check failed at the subject, so G4 will refuse this closure; the records say so truthfully.',
+    ...(unattested.length === 0
+      ? []
+      : [
+          '',
+          `NOTE (G4-11 NOT ESTABLISHED): ${unattested.length} run(s) of ${id} did not verifiably attest that no protected effect occurred:`,
+          ...unattested.map((s) => `  ${s}`),
+          '  G4-11 refuses the delegated closure while any run is unestablished — not because an effect was recorded,',
+          '  but because none can be ruled out. The owner closure route decides such a phase.',
+        ]),
+  ]);
+}
+
+/** The report row, rendered from the records just written. Deterministic apart from the run facts. */
+function closureReportText(
+  phaseId: string,
+  subject: string,
+  evidence: Record<string, unknown>,
+  results: readonly CheckResult[],
+  required: readonly string[],
+  recorded: readonly string[],
+): string {
+  return [
+    `# ${phaseId} — closure evidence`,
+    '',
+    'Generated by `projectos closure prepare` from the run\'s own records. It decides nothing; the',
+    'closure decision stays with its existing authority.',
+    '',
+    `- Subject: \`${subject}\``,
+    `- Validators pass: ${String(evidence['validatorsPass'])}`,
+    `- Checks pass: ${String(evidence['checksPass'])}`,
+    `- Reviews required: ${required.length === 0 ? 'none' : required.join(', ')}; recorded by the worker (worker-attested): ${recorded.length === 0 ? 'none' : recorded.join(', ')}`,
+    `- Unresolved CRITICAL/HIGH: ${String(evidence['unresolvedCriticalOrHigh'])}`,
+    '',
+    '| Check | Kind | Result |',
+    '| --- | --- | --- |',
+    ...results.map((r) => `| ${r.id} | ${r.kind} | ${r.passed ? 'pass' : r.timedOut === true ? 'timed out' : 'fail'} |`),
+    '',
+  ].join('\n');
+}
 
 /**
  * STEP 1 — ask the closure authority, and stop at the owner.
@@ -631,6 +971,7 @@ export function closureRequest(ctx: CommandContext, flags: Flags, makeDeps?: Mak
     // record had been put in front of a person.
     consumedDecisionIds: consumedDecisionIdsOf(current.history),
     gateWaitMs: gateWaitMinutes * 60_000,
+    supersedeStale: flags["supersede-stale-request"] === true,
   };
   const deps = (makeDeps ?? productionClosureDeps)(
     config === null
@@ -778,6 +1119,7 @@ function productionClosureDeps(args: ClosureCompositionArgs): ClosureTurnDeps | 
       interactive: nodeInteractivePort(sys, root, {
         dir: CLOSURE_INTERACTIVE_REL,
         waitMs: args.gateWaitMs,
+        ...(args.supersedeStale === true ? { supersedeStale: true } : {}),
         // A waiting request returns nothing until it ends, so where to answer is said as it starts.
         onWaiting: (where) =>
           process.stderr.write(
@@ -844,15 +1186,67 @@ function productionClosureDeps(args: ClosureCompositionArgs): ClosureTurnDeps | 
   };
 }
 
+/** The longest `closure resume` will wait for the owner's commit in one invocation. */
+const MAX_OWNER_WAIT_MINUTES = 240;
+/** How often a waiting resume looks at the repository again. Git reads only; nothing is spent. */
+const OWNER_COMMIT_POLL_MS = 15_000;
+
+export const OWNER_WAIT_INVALID =
+  `REFUSED (OWNER_WAIT_INVALID): --owner-wait-minutes takes a whole number from 0 to ${MAX_OWNER_WAIT_MINUTES}.`;
+
+/** `--owner-wait-minutes`, default 0 (look once), or null when it is not a whole number in range. */
+export function ownerWaitMinutesFrom(flags: Flags): number | null {
+  const raw = str(flags, 'owner-wait-minutes');
+  const minutes = raw === '' ? 0 : Number(raw);
+  return Number.isInteger(minutes) && minutes >= 0 && minutes <= MAX_OWNER_WAIT_MINUTES ? minutes : null;
+}
+
+/** The pause between looks. A port so a proof can make the owner commit DURING the wait. */
+export interface OwnerCommitWaitPorts {
+  readonly sleep?: (ms: number) => void;
+  readonly pollMs?: number;
+}
+
+function blockFor(ms: number): void {
+  if (ms > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/**
+ * WAIT FOR THE OWNER'S COMMIT, BOUNDED — PROJECTOS-BOOT-CONTINUE1A (G5).
+ *
+ * The same observation `resume` always made, asked again until it holds or the bound runs out. It
+ * waits only for a commit whose bytes match what was presented; it accepts nothing else sooner, and
+ * the decision is still re-judged by `phase advance` after it. A bound counted in polls, not wall
+ * time, so the wait ends however the clock behaves. RESUMABLE: the wait record stays on disk, so a
+ * later `closure resume` (or `projectos continue`) picks up exactly here.
+ */
+function awaitOwnerCommit<T extends { readonly committed: boolean; readonly matchesPresented: boolean }>(
+  observe: () => T,
+  minutes: number,
+  ports: OwnerCommitWaitPorts,
+): T {
+  const pollMs = ports.pollMs ?? OWNER_COMMIT_POLL_MS;
+  const sleep = ports.sleep ?? blockFor;
+  let observed = observe();
+  const polls = Math.ceil((minutes * 60_000) / pollMs);
+  for (let i = 0; i < polls && !(observed.committed && observed.matchesPresented); i += 1) {
+    sleep(pollMs);
+    observed = observe();
+  }
+  return observed;
+}
+
 /**
  * STEP 2 — observe the owner's commit, then hand the closure to the existing path.
  *
  * MAKES NO PROVIDER CALL AND SPENDS NOTHING. Everything it needs is in the repository.
  */
-function closureResume(ctx: CommandContext, flags: Flags): CommandResult {
+export function closureResume(ctx: CommandContext, flags: Flags, ownerWait: OwnerCommitWaitPorts = {}): CommandResult {
   const { sys, root } = ctx;
   const id = str(flags, 'id');
   if (id === '') return fail(1, ['`closure resume` requires --id <PHASE-ID>']);
+  const ownerWaitMinutes = ownerWaitMinutesFrom(flags);
+  if (ownerWaitMinutes === null) return fail(2, [OWNER_WAIT_INVALID]);
 
   // THE PHASE ID MUST BE A SAFE NAME BEFORE ANY PATH IS BUILT FROM IT.
   //
@@ -888,7 +1282,11 @@ function closureResume(ctx: CommandContext, flags: Flags): CommandResult {
   // THE OWNER'S COMMIT, OBSERVED FROM THE REPOSITORY AND NOWHERE ELSE.
   // THE OWNER IS THE PLAN'S, never the wait's and never a caller's — the same source `authoriseClosure`
   // reads and the same rule every other identity in this programme is judged by.
-  const observed = observeOwnerCommit(sys, root, waiting, planOwner(gc.context.plan));
+  const observed = awaitOwnerCommit(
+    () => observeOwnerCommit(sys, root, waiting, planOwner(gc.context.plan)),
+    ownerWaitMinutes,
+    ownerWait,
+  );
   if (!observed.committed || !observed.matchesPresented) {
     return fail(2, [
       `REFUSED (AWAITING_OWNER_COMMIT): ${id} is still waiting on the owner.`,
@@ -968,7 +1366,14 @@ function closureResume(ctx: CommandContext, flags: Flags): CommandResult {
    * a caller that wants to close without starting anything simply omits `--continue`.
    */
   if (!bool(flags, 'continue')) return ok([...lines, ...advanced.lines]);
-  const carried = runCommand(ctx, { execute: true, continue: true });
+  // THE SAME WAIT AND RECOVERY CHOICES THE CALLER MADE, and nothing else: no authority travels here.
+  const forwarded: Record<string, string | boolean> = { execute: true, continue: true };
+  const gateWait = str(flags, 'gate-wait-minutes');
+  if (gateWait !== '') forwarded['gate-wait-minutes'] = gateWait;
+  if (flags['supersede-stale-request'] === true) forwarded['supersede-stale-request'] = true;
+  const worker = str(flags, 'worker');
+  if (worker !== '') forwarded['worker'] = worker;
+  const carried = runCommand(ctx, forwarded);
 
   /**
    * THE CLOSE SUCCEEDED, SO THIS COMMAND SUCCEEDED — whatever the follow-on run did.

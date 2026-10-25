@@ -16,7 +16,7 @@ import {
 } from '../src/loop/programmeContinuation.js';
 
 function attempt(over: Partial<PhaseAttempt> = {}): PhaseAttempt {
-  return { phaseId: 'phase-1', stopCode: null, stopDetail: null, ok: true, lines: [], ...over };
+  return { phaseId: 'phase-1', stopCode: null, stopDetail: null, ok: true, lines: [], selectionStop: null, ...over };
 }
 
 /** A runner that returns the given attempts in order, then keeps returning the last one. */
@@ -68,6 +68,71 @@ describe('the rule, on its own', () => {
     expect(v.continue).toBe(false);
     expect(v.end).toBe('STOPPED');
     expect(v.reasons.join(' ')).toContain(stopCode);
+  });
+
+  describe('a selection stop is a result, not a refusal (PROJECTOS-BOOT-CONTINUE1A)', () => {
+    const refusedBySelection = (selectionStop: PhaseAttempt['selectionStop']): PhaseAttempt =>
+      attempt({ ok: false, phaseId: null, selectionStop });
+
+    it('awaiting_closure ends AWAITING_CLOSURE and names the phase to hand to the closure route', () => {
+      const v = mayContinueAfter(
+        refusedBySelection({ code: 'OWNER_DECISION_REQUIRED', detail: 'd', phaseId: 'phase-1', phaseStatus: 'awaiting_closure' }),
+        'phase-1',
+      );
+      expect(v.continue).toBe(false);
+      expect(v.end).toBe('AWAITING_CLOSURE');
+      expect(v.closurePhaseId).toBe('phase-1');
+    });
+
+    it('PROGRAMME_COMPLETE from selection ends complete, not REFUSED', () => {
+      const v = mayContinueAfter(refusedBySelection({ code: 'PROGRAMME_COMPLETE', detail: 'all done' }), 'phase-2');
+      expect(v.continue).toBe(false);
+      expect(v.end).toBe('PROGRAMME_COMPLETE');
+      expect(v.reasons).toEqual(['all done']);
+    });
+
+    it('rolled_back shares OWNER_DECISION_REQUIRED but is NOT handed to closure', () => {
+      const v = mayContinueAfter(
+        refusedBySelection({ code: 'OWNER_DECISION_REQUIRED', detail: 'rolled', phaseId: 'phase-1', phaseStatus: 'rolled_back' }),
+        null,
+      );
+      expect(v.end).toBe('STOPPED');
+      expect(v.closurePhaseId).toBeUndefined();
+    });
+
+    it('awaiting_closure without a phase id is not handed anywhere', () => {
+      const v = mayContinueAfter(refusedBySelection({ code: 'OWNER_DECISION_REQUIRED', detail: 'd', phaseStatus: 'awaiting_closure' }), null);
+      expect(v.end).toBe('STOPPED');
+    });
+
+    it.each([
+      ['PHASE_BLOCKED', 'STOPPED'],
+      ['DEPENDENCY_NOT_SATISFIED', 'REFUSED'],
+      ['PHASE_NOT_AUTHORISED', 'REFUSED'],
+      ['RECORD_DISAGREES_WITH_PLAN', 'REFUSED'],
+      ['UNSAFE_PHASE_ID', 'REFUSED'],
+      ['NO_PHASES', 'REFUSED'],
+    ])(
+      'every other selection stop (%s) ends %s — an owner stop STOPPED, a defect REFUSED — with its true reason',
+      (code, end) => {
+        const v = mayContinueAfter(refusedBySelection({ code, detail: `why ${code}` }), null);
+        expect(v.continue).toBe(false);
+        expect(v.end).toBe(end);
+        expect(v.reasons.join(' ')).toContain(code);
+        expect(v.reasons.join(' ')).toContain(`why ${code}`);
+      },
+    );
+
+    it('the driver ends AWAITING_CLOSURE after carrying a phase to completion', () => {
+      const runner = runnerOf([
+        attempt({ phaseId: 'phase-1' }),
+        refusedBySelection({ code: 'OWNER_DECISION_REQUIRED', detail: 'd', phaseId: 'phase-1', phaseStatus: 'awaiting_closure' }),
+      ]);
+      const r = continueProgramme({ runPhase: runner.runPhase });
+      expect(r.end).toBe('AWAITING_CLOSURE');
+      expect(r.closurePhaseId).toBe('phase-1');
+      expect(r.phasesRun).toEqual(['phase-1']);
+    });
   });
 
   it('ends as NO_PROGRESS when the same phase comes back unchanged', () => {

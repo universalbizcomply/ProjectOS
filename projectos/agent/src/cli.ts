@@ -18,7 +18,7 @@ import { approve } from './commands/approve.js';
 import { plan } from './commands/plan.js';
 import { plugins } from './commands/plugins.js';
 import { install } from './commands/install.js';
-import { run as runPhase } from './commands/run.js';
+import { run as runPhase, continueCommand } from './commands/run.js';
 import { reconcile } from './commands/reconcile.js';
 import { mcp } from './commands/mcp.js';
 import { workforce } from './commands/workforce.js';
@@ -75,6 +75,7 @@ export const HELP: readonly string[] = [
   '  approve <request|decide|show|list>  Request/decide approvals (owner-gated)',
   '  plan [draft|drafts|show]     Execution plan; or submit an objective and generate a DRAFT',
   '  run [--worker <id>] [--dry-run]  Advance the approved plan by one phase with the governed worker',
+  '  continue --execute|--dry-run  Carry the programme from where it stands: run, closure request or closure resume',
   '  reconcile --grant <ID> --work <ID> --dry-run|--execute  Discharge one degraded work item’s review debt',
   '  mcp status                   Whether the private owner bridge can run, and what it exposes',
   '  workforce <roster|team|check-update|acquire|evaluate>  Inspect the governed specialist workforce',
@@ -98,6 +99,8 @@ export function run(ctx: CommandContext, argv: readonly string[]): CommandResult
       return runPhase(ctx, flags);
     case 'reconcile':
       return reconcile(ctx, flags);
+    case 'continue':
+      return continueCommand(ctx, flags);
     case 'mcp':
       return mcp(ctx, flags, positionals);
     case 'workforce':

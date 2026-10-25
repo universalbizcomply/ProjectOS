@@ -19,10 +19,12 @@
  *
  * Created in PROJECTOS-RECOVERY-AUTONOMOUS-LOOP1A.
  */
+import { lstatSync, readdirSync } from 'node:fs';
+import { resolve as resolvePath, sep } from 'node:path';
 import type { System } from '../system.js';
 import type { GovernedContext } from '../governedContext.js';
-import { readCommittedJson } from '../planApproval.js';
 import type { WorkerBrief } from './brief.js';
+import { isClosureTailPath } from '@projectos/core';
 
 /** A worker the project's config authorises. */
 export interface AuthorisedWorker {
@@ -199,82 +201,309 @@ export const WORKER_OWNED_RECORD_GRANTS: readonly string[] = [
 ];
 
 /**
- * SOURCE THE OWNER MAY LET A WORKER WRITE — a second closed list, honoured only under a committed grant.
+ * WHAT A PHASE'S IMPLEMENTER MAY WRITE: EXACTLY THE APPROVED PHASE SCOPE'S PATHS — PROJECTOS-BOOT-CONTINUE1A
+ * (continuation five).
  *
- * WHY IT EXISTS. The Speed and Reliability programme is work ON ProjectOS. Its first phase stopped
- * BLOCKED within minutes: the worker could write only its own records, so a failing check it was
- * asked to fix was one it had no authority to touch (CORRECTION_EXHAUSTED, "the worker holds no
- * write authority over the failing target"). The owner then decided, explicitly, to let the worker
- * write ProjectOS source for that programme — temporarily, and only where the programme works.
+ * WHAT THIS REPLACES. A worker could write only its own records, plus a closed list of Speed-programme
+ * paths released by a committed owner record (`.projectops/authority/worker-source-grant.json`). That
+ * record was temporary, its programme is closed, and it never matched what an ordinary phase needs: the
+ * worker of a phase could not write the files the owner approved the phase to change. It is RETIRED —
+ * the list, the record reader and the record — and nothing of it remains as a second grant route.
  *
- * TWO FACTORS, LIKE PLAN AUTHORING. An entry below is NOT a grant. It becomes one only when the
- * project's COMMITTED `.projectops/authority/worker-source-grant.json` names the identical string.
- * The list bounds what an owner can ever grant through that record; the record says what this owner
- * did grant. Either alone releases nothing, and the record is read from the object store, so a
- * widening that was never committed is refused however the working tree looks.
+ * WHERE THE GRANT COMES FROM NOW. The ACTIVE APPROVED PLAN's `scope` for the phase being run, read by
+ * the runtime, never by the worker, and added to the implementer's argv at dispatch. The configuration
+ * still may declare nothing wider than the worker-owned records above.
  *
- * WHAT IS NOT HERE, on purpose - and a security review of the first draft is why the list is this
- * narrow. `projectos/validators/**` was refused because validators run from the WORKING TREE with no
- * build step, so a worker could weaken the very check that judges it before any commit; `projectos/
- * agent/**`, `projectos/core/**` and `projectos/control-center/**` were refused because they hold the
- * code that enforces this grant, the gatekeeper budget, the permissions and the governed verb set.
- * Nor is `.projectops/**` here beyond the two worker-owned record grants (authority, plan, decision,
- * closure, gate, ledger, evidence, credential records), nor `projectos/security`, `host`,
- * `credentials`, `session-router`, `forge`, the Tauri shell, packaging, or the repository root.
- * Every entry names a place that did not exist before the programme, or a filename prefix nothing
- * existing carries. A path not on this list cannot be granted by any record, and commit, push and
- * closure stay gated exactly as before - this widens what may be WRITTEN in the working tree, not
- * what may be committed.
+ * HOW PROSE BECOMES PATHS, AND WHY IT IS THIS STRICT. The scope is a sentence, and a sentence can say
+ * where NOT to go. So the scope is split into whitespace-separated words, and a word is a path when it
+ * carries a `/` or `\`. Any of these refuses the WHOLE run — a grant that quietly lost or widened a path
+ * is not the grant the owner approved, and refusing is the cheap direction (the owner rewords the scope):
+ *  - a path-shaped word with any character outside letters, digits, `_ . - / \` — a glob (`*`, `?`, `[`,
+ *    `{`), a URL, a lookalike letter; splitting it instead once turned `dir/*.ts` into `dir/**`;
+ *  - a bare filename with no directory (`README.md`): a rule with no slash may match the same name at
+ *    any depth, including inside the governance tree — write it as `./README.md`;
+ *  - ANY exclusion wording anywhere in the scope (`not`, `n't`, `never`, `neither`/`nor`, `leave`,
+ *    `unchanged`, `avoid`, `read-only`, `other than`, `but`…): such a scope names paths the owner meant
+ *    to keep the worker OUT of, and prose cannot be split safely into what is granted and what is not.
+ *    Exclusions belong in the phase's `exclusions` field, which grants nothing;
+ *  - absolute paths, drive letters and any `:` (a Windows alternate data stream is a `:` too);
+ *  - `.`, `..` and empty segments (a single leading `./` is allowed and removed), `~` (8.3 short names
+ *    alias long ones) and segments ending in a dot or a space (Windows strips both, so `a.` IS `a`);
+ *  - anything that resolves outside the governed root;
+ *  - any existing component that is a symbolic link or junction;
+ *  - any existing component whose on-disk case differs from the scope's;
+ *  - a segment, at ANY depth, that is `.git*`, `.claude`, `.husky` or `.vscode` — repository databases and
+ *    hooks and settings that run outside every permission this grant is built from — or a Windows
+ *    device name (`con`, `nul`, `aux`, `com1`…);
+ *  - under `.projectops`, anything but a file under `.projectops/proof/`: the other governance files are
+ *    the trust roots themselves (delegations, the gatekeeper's spend ceilings, the worker's own argv),
+ *    and the runtime's records are the evidence that judges the worker — the owner edits those;
+ *  - a closure record (`knowledge/reports/` and the other closure-tail paths): those are excluded from
+ *    every "changed since the subject" judgement, so a worker able to write them could satisfy G4 unseen;
+ *  - a DIRECTORY that is, is inside, or contains `.projectops`, `projectos/validators` or a closure-record
+ *    root: those are writable only file by file, and only when the scope names the file itself;
+ *  - a DIRECTORY with anything git-ignored beneath it, or a package root (`package.json`, `Cargo.toml`)
+ *    beneath it: ignored build output (`dist/`, `node_modules/`, `target/`) is executed by the runtime
+ *    and invisible to every git-based check, so a directory grant over it would be unreviewable.
+ * A path is a DIRECTORY only when the word ends in `/` or it already exists on disk as one.
  */
-export const WORKER_SOURCE_GRANTS: readonly string[] = [
-  // The programme's own home. New code lives here; nothing that already exists does.
-  'Write(projectos/speed/**)',
-  'Edit(projectos/speed/**)',
-  // New validators only, by prefix. Existing validators run from the working tree with no build step
-  // between a write and the next check, so not one of them is writable - least of all the ones that
-  // police this boundary.
-  'Write(projectos/validators/validate-speed-*.cjs)',
-  'Edit(projectos/validators/validate-speed-*.cjs)',
-  // Replay tests and their redacted fixtures, in a directory of their own. The rest of the agent
-  // package - the loop, this file, the gatekeeper, the permissions and the tests that pin them - is not.
-  'Write(projectos/agent/test/replay/**)',
-  'Edit(projectos/agent/test/replay/**)',
-  'Write(docs/speed/**)',
-  'Edit(docs/speed/**)',
-];
+export const FILE_ONLY_ROOTS: readonly string[] = ['.projectops', 'projectos/validators', 'knowledge/reports'];
 
-/** The committed owner record that turns entries of `WORKER_SOURCE_GRANTS` into grants. */
-export const WORKER_SOURCE_GRANT_REL = '.projectops/authority/worker-source-grant.json';
+/** Never writable by a worker, at any depth, whatever an approved scope names. Matched per segment. */
+const NEVER_WRITABLE_SEGMENT = /^(?:\.git.*|\.claude|\.husky|\.vscode|con|prn|aux|nul|com\d|lpt\d)(?:\..*)?$/i;
 
-/** How the committed record is reached: the repository, so the object store can be consulted. */
-export interface GrantSource {
-  readonly sys: System;
-  readonly root: string;
+/**
+ * The only `.projectops` FILES a scope may grant: governance the owner declares, never runtime records.
+ * Entries ending in `/` admit files beneath them; the others are exact.
+ */
+const PROJECTOPS_DECLARABLE: readonly string[] = ['.projectops/proof/'];
+
+/** Wording that makes a scope an exclusion as well as a grant. Matched against the WHOLE scope. */
+const NEGATION =
+  /n['’]t\b|\b(?:not|cannot|never|no|none|neither|nor|except|excluding|exclude[sd]?|exclusive|outside|without|but|besides|leave|leaves|untouched|unchanged|avoid|forbidden|prohibited|read[- ]only|readonly|off[- ]limits|away|protect(?:s|ed)?|preserve[sd]?|instead|skip|ignore[sd]?|keep|keeps|remain|remains|stays?|frozen|freeze|refrain|hands[- ]off)\b|out[- ]of[- ]scope|other than|apart from|as[- ]is\b/i;
+
+/** The characters a path word may contain. Anything else refuses the run. */
+const PATH_WORD = /^[A-Za-z0-9_.\-/\\]+$/;
+
+export interface ScopeWriteGrant {
+  /** The `Write(...)`/`Edit(...)` grants, two per path. */
+  readonly grants: readonly string[];
+  /** The normalised scope paths the grants cover; a directory ends in `/**`. */
+  readonly paths: readonly string[];
+  /** Why the scope cannot become a grant. Non-empty refuses the run. */
+  readonly problems: readonly string[];
+}
+
+/** File extensions that make a slash-less word a bare filename, which is refused rather than granted. */
+const BARE_FILE = /^[A-Za-z0-9_.-]+\.(?:ts|tsx|js|cjs|mjs|json|md|txt|yml|yaml|toml|css|html|gd|tscn|tres|rs|py|sh|ps1|lock|xml|csv)$/i;
+
+/**
+ * What git says about a path a scope would grant, or null when that cannot be established. `ignored` is
+ * true when the path itself is git-ignored or, for a directory, anything beneath it is; `packageRoot`
+ * when a tracked `package.json` or `Cargo.toml` lies beneath it. Injected so the rule runs on the
+ * runtime's own `System`; `null` refuses the grant.
+ */
+export type DirectoryInspector = (rel: string) => { readonly ignored: boolean; readonly packageRoot: boolean } | null;
+
+/** The production inspector, from git. */
+export function gitDirectoryInspector(sys: System, root: string): DirectoryInspector {
+  return (rel) => {
+    const beneath = gitIgnoredUnder(sys, root, [rel]);
+    // `check-ignore` answers for a path that does not exist yet, which `status` cannot: 0 = ignored,
+    // 1 = not ignored, anything else = git could not say.
+    const itself = sys.exec('git', ['-C', root, 'check-ignore', '-q', '--no-index', '--', rel]);
+    const tracked = sys.exec('git', ['-C', root, 'ls-files', '--', rel]);
+    // A check that timed out or never started reports a code too; it is not an answer.
+    if (beneath === null || itself.failure !== undefined || (itself.code !== 0 && itself.code !== 1) || tracked.code !== 0) return null;
+    return {
+      ignored: beneath.length > 0 || itself.code === 0,
+      packageRoot: tracked.stdout.split(/\r?\n/).some((l) => /(?:^|\/)(?:package\.json|Cargo\.toml)$/.test(l.trim())),
+    };
+  };
 }
 
 /**
- * The source grants this project's owner has COMMITTED, intersected with the closed list above.
- *
- * Empty when there is no record, when it is not committed, when it names another project or worker,
- * or when its entries are not on the list. Never throws: an unreadable record is no grant, which is
- * the fail-closed answer. Read from `HEAD`, not the working tree - the same rule every other
- * authority record in this repository follows.
+ * Every entry at or beneath these paths that git-based checks cannot see into, or null when git cannot
+ * say. The loop takes this before and after each worker attempt; anything new is work no review could see:
+ *  - a git-ignored entry (`!!`) — invisible to the candidate, the diff, the clean-tree check and G4;
+ *  - an untracked DIRECTORY entry even under `--untracked-files=all` (`?? dir/`) — a nested repository,
+ *    whose contents git will not list;
+ *  - any entry with a `.git*` segment — a new ignore rule, attribute or repository inside the grant.
  */
-export function committedSourceGrants(source: GrantSource, projectId: string, workerId: string): readonly string[] {
-  let record: Record<string, unknown> | null;
-  try {
-    record = readCommittedJson(source.sys, source.root, WORKER_SOURCE_GRANT_REL);
-  } catch {
-    return [];
+export function gitIgnoredUnder(sys: System, root: string, paths: readonly string[]): readonly string[] | null {
+  if (paths.length === 0) return [];
+  const r = sys.exec('git', ['-C', root, 'status', '--porcelain', '--ignored', '--untracked-files=all', '--', ...paths]);
+  if (r.code !== 0 || r.failure !== undefined) return null;
+  return r.stdout
+    .split(/\r?\n/)
+    .filter((l) => l.length > 3)
+    .filter((l) => {
+      const path = l.slice(3).trim().replace(/^"|"$/g, '');
+      return (
+        l.startsWith('!! ') ||
+        (l.startsWith('?? ') && path.endsWith('/')) ||
+        path.split('/').some((seg) => /^\.git/i.test(seg))
+      );
+    })
+    .map((l) => l.slice(3).trim())
+    .sort();
+}
+
+/** The `Write(...)`/`Edit(...)` grants on a worker's argv (its `--allowedTools` value). */
+export function argvGrants(args: readonly string[]): readonly string[] {
+  const i = args.findIndex((a) => a === '--allowedTools' || a === '--allowed-tools');
+  const value = i >= 0 ? args[i + 1] : undefined;
+  return value === undefined ? [] : value.split(',').map((g) => g.trim()).filter((g) => g !== '');
+}
+
+/** The repository paths a set of `Write(...)`/`Edit(...)` grants covers, as git pathspecs. */
+export function grantedPaths(grants: readonly string[]): readonly string[] {
+  const out = new Set<string>();
+  for (const g of grants) {
+    const m = /^(?:Write|Edit)\((.+)\)$/.exec(g);
+    if (m === null || m[1] === undefined) continue;
+    out.add(m[1].replace(/^\.\//, '').replace(/\/\*\*$/, ''));
   }
-  if (record === null) return [];
-  if (record['capability'] !== 'worker-source-write') return [];
-  if (record['projectId'] !== projectId) return [];
-  // The worker is NAMED, or nothing is granted. A record that forgot to say which worker would
-  // otherwise grant source to every worker the project declares - the quiet widening this refuses.
-  if (typeof record['workerId'] !== 'string' || record['workerId'] !== workerId) return [];
-  const listed = Array.isArray(record['grants']) ? record['grants'].filter((g): g is string => typeof g === 'string') : [];
-  return listed.filter((g) => WORKER_SOURCE_GRANTS.includes(g));
+  return [...out];
+}
+
+/** The path words a scope names, each with the sentence it sits in, in order. */
+export function scopePathWords(scope: string): readonly { readonly word: string; readonly sentence: string }[] {
+  const out: { word: string; sentence: string }[] = [];
+  // A sentence ends at `.`, `;`, `!` or `?` followed by whitespace or the end — not at the dots inside a path.
+  for (const sentence of scope.split(/[.;!?](?=\s|$)/)) {
+    for (const raw of sentence.split(/\s+/)) {
+      const word = raw.replace(/^[("'`[]+/, '').replace(/[)"'`\],:]+$/, '');
+      if (word === '') continue;
+      const pathLike = /[/\\]/.test(word) || BARE_FILE.test(word);
+      if (pathLike && !out.some((o) => o.word === word)) out.push({ word, sentence });
+    }
+  }
+  return out;
+}
+
+function underOrEqual(path: string, root: string): boolean {
+  return path === root || path.startsWith(`${root}/`);
+}
+
+/** Why one scope path cannot be granted, or null — plus its normalised form and whether it is a directory. */
+function judgeScopePath(
+  root: string,
+  word: string,
+  scope: string,
+  inspectDirectory: DirectoryInspector,
+  governed: readonly string[],
+): { problem: string | null; rel: string; directory: boolean } {
+  const fail = (why: string) => ({ problem: `scope path '${word}' ${why}`, rel: word, directory: false });
+  if (!PATH_WORD.test(word)) {
+    return fail('contains a character outside letters, digits, "_ . - / \\"; a glob, URL or lookalike is not a path a grant can be built from');
+  }
+  if (NEGATION.test(scope)) {
+    return fail(
+      "sits in a scope that also excludes; a scope must name only what is granted — keep exclusions in the plan's excludedScope, and reword the scope by plan amendment",
+    );
+  }
+  const statedDirectory = /[/\\]$/.test(word);
+  const rel = word.replace(/\\/g, '/').replace(/\/+$/, '').replace(/^\.\/(?=.)/, '');
+  if (rel === '') return fail('is empty');
+  if (!rel.includes('/') && !word.startsWith('./') && !statedDirectory) {
+    return fail(`is a bare filename; a rule with no directory may match that name at any depth — write it as './${rel}'`);
+  }
+  if (rel.startsWith('/') || /^[A-Za-z]:/.test(rel)) return fail('is absolute; a scope names paths inside the governed checkout');
+  if (rel.includes(':')) return fail("contains ':', which names a drive or an alternate data stream");
+  const segments = rel.split('/');
+  for (const seg of segments) {
+    if (seg === '' || seg === '.' || seg === '..') return fail('contains an empty, "." or ".." segment');
+    if (seg.includes('~')) return fail("contains '~', which can alias another name on this filesystem");
+    if (/[. ]$/.test(seg)) return fail('has a segment ending in a dot or a space, which Windows strips');
+  }
+  const lower = rel.toLowerCase();
+  if (segments.some((seg) => NEVER_WRITABLE_SEGMENT.test(seg))) {
+    return fail('names a git control file or database, a hook or settings directory, or a device name, which no worker writes');
+  }
+  if (isClosureTailPath(rel, governed)) {
+    return fail("is a closure record or the plan's own governed state, which every \"changed since the subject\" judgement ignores");
+  }
+
+  const absRoot = resolvePath(root);
+  const target = resolvePath(absRoot, ...segments);
+  if (target !== absRoot && !target.startsWith(`${absRoot}${sep}`)) return fail('resolves outside the governed checkout');
+
+  // WALK THE EXISTING PREFIX: no link, and the exact on-disk case, at every component.
+  let dir = absRoot;
+  let directory = statedDirectory;
+  for (const [i, seg] of segments.entries()) {
+    let names: string[];
+    try {
+      names = readdirSync(dir);
+    } catch {
+      break; // The rest does not exist yet: a new path, created inside a contained existing parent.
+    }
+    if (!names.includes(seg)) {
+      if (names.some((n) => n.toLowerCase() === seg.toLowerCase())) {
+        return fail(`differs in case from '${names.find((n) => n.toLowerCase() === seg.toLowerCase())}' on disk`);
+      }
+      break;
+    }
+    const here = resolvePath(dir, seg);
+    let st;
+    try {
+      st = lstatSync(here);
+    } catch {
+      return fail('could not be inspected');
+    }
+    if (st.isSymbolicLink()) return fail('passes through a link, which would carry the grant somewhere the scope never named');
+    if (i === segments.length - 1) {
+      if (statedDirectory && !st.isDirectory()) return fail('is written as a directory but is a file on disk');
+      directory = st.isDirectory();
+    }
+    dir = here;
+  }
+  if (directory && FILE_ONLY_ROOTS.some((r) => underOrEqual(lower, r) || underOrEqual(r, lower))) {
+    return fail('is a directory that is, is inside, or contains governance, validator or workflow files; name each file instead');
+  }
+  if (underOrEqual(lower, '.projectops')) {
+    const declarable = PROJECTOPS_DECLARABLE.some((d) => (d.endsWith('/') ? lower.startsWith(d) : lower === d));
+    if (!declarable) {
+      return fail('is a governance trust root or a record the runtime writes; a worker able to write it could widen its own authority or forge the evidence that judges it');
+    }
+  }
+  // EVERY GRANT IS INSPECTED. A directory over ignored output or a package root, and a FILE that is
+  // itself ignored, would be work no git-based check — review, candidate, clean tree, G4 — could see.
+  const inspected = inspectDirectory(rel);
+  if (inspected === null) return fail('could not be checked against git, so whether it is ignored cannot be established');
+  if (inspected.ignored) {
+    return fail(
+      directory
+        ? 'is a directory with git-ignored content beneath it (build output the runtime may execute); name each file instead'
+        : 'is a git-ignored path, invisible to every review and check',
+    );
+  }
+  // A DIRECTORY OVER A GOVERNED FILE grants it as a side effect, wherever the project keeps it.
+  if (directory && governed.some((g) => underOrEqual(g.replace(/\\/g, '/').toLowerCase(), lower))) {
+    return fail("is a directory that contains the plan's own governed state; name each file instead");
+  }
+  if (directory && inspected.packageRoot) {
+    return fail('is a directory containing a package root, whose build output is executed and git-ignored; name each file instead');
+  }
+  if (PROJECTOS_OWNED_RECORD_SUFFIXES.some((x) => lower.endsWith(x))) return fail("is one of ProjectOS's own run records");
+  return { problem: null, rel, directory };
+}
+
+/**
+ * The write grant for the phase being run, from its approved scope. See the note above for every rule.
+ * An empty scope grants nothing beyond the worker-owned records — the safe direction.
+ */
+export function scopeWriteGrants(
+  root: string,
+  scope: string,
+  inspectDirectory: DirectoryInspector = () => null,
+  /**
+   * The project's own governed files, by exact path: the declared plan, current state and configuration.
+   * The current state is the completion ledger selection reads, so a worker able to write it could mark
+   * its own phase complete; none of them is ever a scope grant, wherever the project keeps them.
+   */
+  governed: readonly string[] = [],
+): ScopeWriteGrant {
+  const grants: string[] = [];
+  const paths: string[] = [];
+  const problems: string[] = [];
+  // THE WHOLE SCOPE IS THE SENTENCE for the exclusion test: a negation in one sentence about a path
+  // listed in the next ("Do not touch the following:") must still refuse.
+  for (const { word } of scopePathWords(scope)) {
+    const judged = judgeScopePath(root, word, scope, inspectDirectory, governed);
+    if (judged.problem !== null) {
+      problems.push(judged.problem);
+      continue;
+    }
+    // A FILE AT THE ROOT IS ANCHORED (`./name`), so the rule cannot match the same name deeper down.
+    const anchored = judged.rel.includes('/') ? judged.rel : `./${judged.rel}`;
+    const pattern = judged.directory ? `${judged.rel}/**` : anchored;
+    if (paths.includes(pattern)) continue;
+    paths.push(pattern);
+    grants.push(`Write(${pattern})`, `Edit(${pattern})`);
+  }
+  return { grants, paths, problems };
 }
 
 /** ProjectOS's own records. A worker is never granted authority over these. */
@@ -301,11 +530,8 @@ const WRITE_CAPABLE_GRANT = /^(Write|Edit|MultiEdit|NotebookEdit|Bash|Task|Agent
  * Only WRITE-CAPABLE grants are policed. A worker reading widely is how it does its job; a worker
  * writing outside the two records it owns is how a run stops being trustworthy.
  */
-export function toolGrantProblems(args: readonly string[], sourceGrants: readonly string[] = []): readonly string[] {
+export function toolGrantProblems(args: readonly string[]): readonly string[] {
   const problems: string[] = [];
-  // Only entries of the closed list count, whatever the caller passed - a record cannot smuggle a
-  // grant the list does not know.
-  const permittedSource = sourceGrants.filter((g) => WORKER_SOURCE_GRANTS.includes(g));
   for (const [i, arg] of args.entries()) {
     if (arg !== '--allowedTools' && arg !== '--allowed-tools') continue;
     const value = args[i + 1];
@@ -315,20 +541,18 @@ export function toolGrantProblems(args: readonly string[], sourceGrants: readonl
     }
     for (const grant of value.split(',').map((g) => g.trim()).filter((g) => g.length > 0)) {
       if (!WRITE_CAPABLE_GRANT.test(grant)) continue;
-      if (WORKER_OWNED_RECORD_GRANTS.includes(grant) || permittedSource.includes(grant)) continue;
-      const wanted = WORKER_SOURCE_GRANTS.includes(grant);
+      if (WORKER_OWNED_RECORD_GRANTS.includes(grant)) continue;
       problems.push(
-        wanted
-          ? `tool grant '${grant}' writes ProjectOS source, which needs a committed owner grant in ${WORKER_SOURCE_GRANT_REL} naming it; none was found`
-          : `tool grant '${grant}' gives a worker write authority beyond the records it owns; ` +
-              `permitted: ${WORKER_OWNED_RECORD_GRANTS.join(', ')}`,
+        `tool grant '${grant}' gives a worker write authority beyond the records it owns; ` +
+          `permitted: ${WORKER_OWNED_RECORD_GRANTS.join(', ')}. A phase's source grant comes from its ` +
+          'approved scope at dispatch, never from configuration',
       );
     }
   }
   return problems;
 }
 
-function readWorkers(context: GovernedContext, source?: GrantSource): {
+function readWorkers(context: GovernedContext): {
   readonly workers: readonly AuthorisedWorker[];
   readonly defaultWorkerId: string | null;
   readonly problems: readonly string[];
@@ -380,10 +604,7 @@ function readWorkers(context: GovernedContext, source?: GrantSource): {
         problems.push(`worker '${label}' passes a credential-shaped argument; the loop does not hand credentials to a worker`);
       }
     }
-    // The committed owner grant, if any, for THIS worker - read from the object store, never trusted
-    // from the working tree. Without a repository to read it from there is no grant.
-    const sourceGrants = source === undefined || workerId === '' ? [] : committedSourceGrants(source, context.projectId, workerId);
-    for (const p of toolGrantProblems(args, sourceGrants)) problems.push(`worker '${label}': ${p}`);
+    for (const p of toolGrantProblems(args)) problems.push(`worker '${label}': ${p}`);
 
     // A DECLARED BOUND IS CHECKED, AND AN UNDECLARED ONE IS THE DEFAULT — never "unbounded". The
     // absent case and the nonsense case are different: saying nothing accepts the default, while
@@ -455,10 +676,10 @@ export function committedExecutionProblems(sys: System, root: string, context: G
 const CONFIG_RELPATH = '.projectops/project-config.json';
 
 /** The authorised workers, or the reasons the configuration cannot be used. Never throws. */
-export function authorisedWorkers(context: GovernedContext, source?: GrantSource):
+export function authorisedWorkers(context: GovernedContext):
   | { readonly ok: true; readonly workers: readonly AuthorisedWorker[]; readonly defaultWorkerId: string | null }
   | { readonly ok: false; readonly problems: readonly string[] } {
-  const r = readWorkers(context, source);
+  const r = readWorkers(context);
   if (r.problems.length > 0) return { ok: false, problems: r.problems };
   return { ok: true, workers: r.workers, defaultWorkerId: r.defaultWorkerId };
 }
@@ -474,9 +695,8 @@ export function resolveWorker(
   context: GovernedContext,
   registry: AdapterRegistry,
   requested?: string,
-  source?: GrantSource,
 ): WorkerResolution {
-  const loaded = authorisedWorkers(context, source);
+  const loaded = authorisedWorkers(context);
   if (!loaded.ok) return loaded;
 
   let worker: AuthorisedWorker | undefined;

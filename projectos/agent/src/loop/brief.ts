@@ -17,10 +17,71 @@
  *
  * Created in PROJECTOS-RECOVERY-AUTONOMOUS-LOOP1A.
  */
+import { ABSOLUTE_OWNER_ONLY, CONDITIONALLY_DELEGABLE_TECHNICAL, TECHNICAL_ACTIONS } from '@projectos/core';
 import type { GovernedContext } from '../governedContext.js';
 import type { RepositoryObservation } from './observation.js';
 import { PROTECTED_EFFECT_FIELDS } from './outcome.js';
 import { configuredChecks } from './verification.js';
+
+/**
+ * THE OWNER GATES, AS THE RUNTIME CAN ENFORCE THEM — PROJECTOS-BOOT-CONTINUE1A.
+ *
+ * Every consumer of a phase's owner gates — the owner stop, the receipts, the gatekeeper turn, the
+ * technical continuation — compares them against exact action tokens. A plan that wrote its gates as
+ * prose ("Commit, push, merge and phase closure remain owner-gated.") matched none of them, so under a
+ * technical-continuation delegation the loop would have committed and pushed for a phase whose own
+ * words reserved both. The plan said owner-gated; the runtime enforced nothing.
+ *
+ * So the gates are classified once, here, where every consumer gets them:
+ *  - a known token (an absolute owner-only action, a delegable one, or a technical action) is kept;
+ *  - prose is read for the protected actions it names, each becoming its token;
+ *  - FAIL CLOSED: an owner-named token the runtime does not know, prose naming no action it can map,
+ *    or prose naming a protected action that has no token (deployment, production, sends, data)
+ *    reserves EVERY delegable technical action. An unrecognised reservation is never read as none.
+ */
+const KNOWN_GATE_TOKENS: readonly string[] = [
+  ...ABSOLUTE_OWNER_ONLY,
+  ...CONDITIONALLY_DELEGABLE_TECHNICAL,
+  ...TECHNICAL_ACTIONS,
+];
+const GATE_TOKEN_SHAPE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const PROSE_ACTION_TOKENS: readonly (readonly [RegExp, string])[] = [
+  [/\bcommit/i, 'commit'],
+  [/\bpush/i, 'push'],
+  [/\b(?:merg|integrat|fast-forward)/i, 'ff-only-integration'],
+  [/\bclos(?:e|es|ed|ing|ure)\b/i, 'phase-closure'],
+  [/\b(?:secret|credential|token|api key)/i, 'secrets-handling'],
+  [/\b(?:pay|charge|refund|billing)/i, 'payment-or-live-charge'],
+];
+
+export function classifyOwnerGates(declared: readonly string[]): readonly string[] {
+  const gates = new Set<string>();
+  let reserveEveryTechnicalAction = false;
+  for (const raw of declared) {
+    const gate = raw.trim();
+    if (gate === '') continue;
+    if (KNOWN_GATE_TOKENS.includes(gate)) {
+      gates.add(gate);
+      continue;
+    }
+    if (GATE_TOKEN_SHAPE.test(gate)) {
+      // An owner-named gate the runtime cannot classify. It is kept, so its receipt can still be
+      // answered by name, and it reserves every technical action rather than none.
+      gates.add(gate);
+      reserveEveryTechnicalAction = true;
+      continue;
+    }
+    // PROSE NAMES WHAT IT NAMES, AND RESERVES EVERYTHING DELEGABLE. The actions it maps to are kept by
+    // name, and every technical action is reserved as well: a synonym list can never be complete
+    // ("landing on main", "the pull request", "check-in"), so prose is never read as narrower than all.
+    for (const [pattern, token] of PROSE_ACTION_TOKENS) {
+      if (pattern.test(gate)) gates.add(token);
+    }
+    reserveEveryTechnicalAction = true;
+  }
+  if (reserveEveryTechnicalAction) for (const action of TECHNICAL_ACTIONS) gates.add(action);
+  return [...gates];
+}
 
 export const BRIEF_SCHEMA_VERSION = '1.0.0';
 
@@ -151,6 +212,17 @@ function strings(v: unknown): readonly string[] {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
 }
 
+/**
+ * The phase's declared owner gates, read so that a MALFORMED declaration reserves everything rather than
+ * nothing: a gate list that is present but not an array of strings is not "no gates".
+ */
+function declaredOwnerGates(v: unknown): readonly string[] {
+  if (v === undefined) return [];
+  const read = strings(v);
+  const malformed = !Array.isArray(v) || read.length !== v.length;
+  return malformed ? [...read, 'the declared owner gates could not be read'] : read;
+}
+
 function planPhaseRecord(context: GovernedContext, phaseId: string): Record<string, unknown> | null {
   const phases = context.plan['phases'];
   if (!Array.isArray(phases)) return null;
@@ -230,7 +302,7 @@ export function buildWorkerBrief(
       requiredValidators: strings(phase['requiredValidators']),
       requiredReviews: strings(phase['requiredReviews']),
       requiredBrowserProof: phase['requiredBrowserProof'] === true,
-      requiredOwnerGates: strings(phase['requiredOwnerGates']),
+      requiredOwnerGates: classifyOwnerGates(declaredOwnerGates(phase['requiredOwnerGates'])),
     },
     records: { ...records, effectsContract: EFFECTS_CONTRACT },
     verification: {
@@ -311,6 +383,10 @@ export function briefProvenanceProblems(
     // config nor the checkout. Skipped by exact PATH, so `brief.verification.checkIds` — which IS
     // copied from the config — is still walked.
     if (path === 'brief.verification.runner') return;
+    // The third: the owner gates are CLASSIFIED, so a derived token need not appear in the plan's own
+    // words. `ownerGateDerivationProblems` re-derives them from the plan and requires exact equality,
+    // which is stricter than "appears somewhere". Skipped by exact PATH.
+    if (path === 'brief.phase.requiredOwnerGates') return;
     if (typeof value === 'string') {
       if (isExempt(key)) return;
       if (value.length > 0 && !sources.includes(JSON.stringify(value).slice(1, -1))) {
@@ -327,7 +403,28 @@ export function briefProvenanceProblems(
     }
   };
   walk(brief, 'brief', 'brief');
-  return [...problems, ...effectsContractProblems(brief), ...verificationContractProblems(brief)];
+  return [
+    ...problems,
+    ...effectsContractProblems(brief),
+    ...verificationContractProblems(brief),
+    ...ownerGateDerivationProblems(brief, context),
+  ];
+}
+
+/**
+ * The owner gates are EXACTLY the classification of the approved plan's own gates, or the brief is
+ * refused — the pin that replaces the provenance walk for `brief.phase.requiredOwnerGates`.
+ */
+function ownerGateDerivationProblems(brief: WorkerBrief, context: GovernedContext): readonly string[] {
+  const phase = planPhaseRecord(context, brief.phase.phaseId);
+  if (phase === null) return [`brief.phase.requiredOwnerGates: phase ${brief.phase.phaseId} is not in the approved plan`];
+  const expected = classifyOwnerGates(declaredOwnerGates(phase['requiredOwnerGates']));
+  return JSON.stringify(expected) === JSON.stringify(brief.phase.requiredOwnerGates)
+    ? []
+    : [
+        'brief.phase.requiredOwnerGates is not the classification of the approved plan\'s owner gates: ' +
+          `expected ${JSON.stringify(expected)}, carried ${JSON.stringify(brief.phase.requiredOwnerGates)}`,
+      ];
 }
 
 /**

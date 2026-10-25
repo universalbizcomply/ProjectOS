@@ -152,6 +152,8 @@ export function reconcile(ctx: CommandContext, flags: Flags, seams: ReconcileSea
   // WHICH GATEKEEPER, IN WHICH MODE — the one composition `projectos run` uses, from the committed mode.
   const composed = composeGatekeeper(ctx, {
     gateWaitMinutes,
+    // The recovery the shared stale-question refusal names, honoured here as in `run` and `closure`.
+    supersedeStale: flags['supersede-stale-request'] === true,
     ...(seams.hostReview === undefined ? {} : { hostReview: seams.hostReview }),
     announce: (where) =>
       process.stderr.write(

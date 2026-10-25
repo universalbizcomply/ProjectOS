@@ -49,6 +49,13 @@ export type SelectionStopCode =
 export interface SelectionStop {
   readonly code: SelectionStopCode;
   readonly detail: string;
+  /**
+   * The phase whose DURABLE RECORD stopped selection, and the status it records — present only for a
+   * record-based stop. Carried so continuation can tell `awaiting_closure` (hand to the closure
+   * route) from `rolled_back` (the owner's), which share a code, without parsing the detail prose.
+   */
+  readonly phaseId?: string;
+  readonly phaseStatus?: PhaseStatus;
 }
 
 export type PhaseSelection =
@@ -169,10 +176,15 @@ export function selectNextPhase(sys: System, root: string, context: GovernedCont
   if (record !== null) {
     const stopCode = STOPS_AT[record.status];
     if (stopCode !== undefined) {
-      return stop(
-        stopCode,
-        `phase '${next.phaseId}' is ${record.status}; that is not a state the loop may move it from`,
-      );
+      return {
+        kind: 'stop',
+        reason: {
+          code: stopCode,
+          detail: `phase '${next.phaseId}' is ${record.status}; that is not a state the loop may move it from`,
+          phaseId: next.phaseId,
+          phaseStatus: record.status,
+        },
+      };
     }
     if (!LOOP_MAY_CONTINUE.has(record.status)) {
       // `closed` without the phase appearing complete means the record and the completion sources

@@ -17,11 +17,13 @@
  *
  * Created in PROJECTOS-RECOVERY-AUTONOMOUS-LOOP1A.
  */
+import { createHash } from 'node:crypto';
 import { execPath } from 'node:process';
 import type { System } from '../system.js';
 import { join } from '../context.js';
 import { porcelainPaths } from './observation.js';
 import type { WorkerBrief } from './brief.js';
+import { effectsPath, findingsPath } from './session.js';
 
 /**
  * The Node that runs a validator is THIS process's own executable, by absolute path.
@@ -47,6 +49,8 @@ export interface CheckSpec {
   readonly args: readonly string[];
   /** Why this check cannot run, when it cannot. A check that cannot run has not passed. */
   readonly unrunnable: string | null;
+  /** How long the check may run before it is stopped. Defaults to `DEFAULT_CHECK_TIMEOUT_MS`. */
+  readonly timeoutMs?: number;
 }
 
 export interface CheckResult {
@@ -56,7 +60,23 @@ export interface CheckResult {
   readonly exitCode: number;
   readonly output: string;
   readonly at: string;
+  /** The bound the check ran under — recorded, so a stopped check is never mistaken for a slow pass. */
+  readonly timeoutMs?: number;
+  /** True when the check was stopped at its bound. A check that did not finish has not passed. */
+  readonly timedOut?: boolean;
 }
+
+/**
+ * EVERY CHECK IS BOUNDED — PROJECTOS-BOOT-CONTINUE1A.
+ *
+ * A configured check used to run with no limit at all, so one hung test suite held a governed run
+ * open for ever and nothing downstream could happen. Every check now runs under a bound: the default
+ * matches the worker's own, and a project may declare a longer one per check (`timeoutMinutes`, up to
+ * the maximum) for a genuinely slow suite. A check stopped at its bound FAILS, with that said in its
+ * output, and flows into the same governed stop as any other failing check.
+ */
+export const DEFAULT_CHECK_TIMEOUT_MS = 90 * 60_000;
+export const MAX_CHECK_TIMEOUT_MINUTES = 240;
 
 /**
  * A validator name that is safe to turn into a path.
@@ -92,7 +112,20 @@ function isAbsolutePath(p: string): boolean {
  * when run; neither is ever skipped.
  */
 export function requiredChecks(sys: System, root: string, brief: WorkerBrief, configured: readonly ConfiguredCheck[] = []): readonly CheckSpec[] {
-  const validators: CheckSpec[] = brief.phase.requiredValidators.map((name) => {
+  return checksFor(sys, root, brief.phase.requiredValidators, configured);
+}
+
+/**
+ * The same check set from the plan phase's validator names directly — for closure preparation, which
+ * re-runs exactly what the run ran, at the pushed subject, with no brief in hand.
+ */
+export function checksFor(
+  sys: System,
+  root: string,
+  requiredValidators: readonly string[],
+  configured: readonly ConfiguredCheck[] = [],
+): readonly CheckSpec[] {
+  const validators: CheckSpec[] = requiredValidators.map((name) => {
     if (!SAFE_VALIDATOR_NAME.test(name)) {
       return {
         id: name,
@@ -121,6 +154,7 @@ export function requiredChecks(sys: System, root: string, brief: WorkerBrief, co
     kind: c.kind,
     command: c.command,
     args: c.args,
+    ...(c.timeoutMs === undefined ? {} : { timeoutMs: c.timeoutMs }),
     unrunnable: isAbsolutePath(c.command)
       ? null
       : `check '${c.id}' declares command '${c.command}', which is not an absolute path; ` +
@@ -136,6 +170,8 @@ export interface ConfiguredCheck {
   readonly kind: Exclude<CheckKind, 'validator'>;
   readonly command: string;
   readonly args: readonly string[];
+  /** From `timeoutMinutes`, when the project declares one. */
+  readonly timeoutMs?: number;
 }
 
 const CONFIGURED_KINDS: ReadonlySet<string> = new Set(['test', 'typecheck', 'lint']);
@@ -168,11 +204,20 @@ export function configuredChecks(config: Record<string, unknown>): {
       problems.push(`execution.checks[${i}] needs an id, a kind of test|typecheck|lint, and a command`);
       continue;
     }
+    const minutes = e['timeoutMinutes'];
+    if (
+      minutes !== undefined &&
+      (typeof minutes !== 'number' || !Number.isInteger(minutes) || minutes < 1 || minutes > MAX_CHECK_TIMEOUT_MINUTES)
+    ) {
+      problems.push(`execution.checks[${i}].timeoutMinutes must be a whole number from 1 to ${MAX_CHECK_TIMEOUT_MINUTES}`);
+      continue;
+    }
     checks.push({
       id,
       kind: kind as ConfiguredCheck['kind'],
       command,
       args: Array.isArray(e['args']) ? e['args'].filter((a): a is string => typeof a === 'string') : [],
+      ...(typeof minutes === 'number' ? { timeoutMs: minutes * 60_000 } : {}),
     });
   }
   return { checks, problems };
@@ -218,18 +263,26 @@ export function runCheck(sys: System, root: string, spec: CheckSpec): CheckResul
   // anything was broken, but because npm could not find the operating system: run directly, the same
   // checks pass. Same fixed, derived path the worker gets; ProjectOS still resolves every executable
   // it launches absolutely.
+  const timeoutMs = spec.timeoutMs ?? DEFAULT_CHECK_TIMEOUT_MS;
   const r = sys.exec(spec.command, [...spec.args], {
     scrubCredentials: true,
     cwd: root,
     ensureSystemPath: true,
+    timeoutMs,
   });
+  const timedOut = r.failure === 'timeout';
   return {
     id: spec.id,
     kind: spec.kind,
-    passed: r.code === 0,
+    passed: r.code === 0 && !timedOut,
     exitCode: r.code,
-    output: trimOutput(r.stdout, r.stderr),
+    output: timedOut
+      ? `the check did not finish within ${Math.round(timeoutMs / 60_000)} minute(s) and was stopped; a check that did not ` +
+        `finish has not passed.\n${trimOutput(r.stdout, r.stderr)}`
+      : trimOutput(r.stdout, r.stderr),
     at: sys.now(),
+    timeoutMs,
+    ...(timedOut ? { timedOut: true } : {}),
   };
 }
 
@@ -261,6 +314,21 @@ export interface ExecutionEvidence {
   readonly checks: readonly CheckResult[];
   /** Reviews the plan requires. Listed, never claimed — see the module note. */
   readonly requiredReviews: readonly string[];
+  /**
+   * The sha256 of the worker's effects attestation AS THE RUNNER COLLECTED IT, or null when there was
+   * none to read — PROJECTOS-BOOT-CONTINUE1A. The worker may write its attestation; it cannot write
+   * this record. So a later rewrite of the attestation is detectable, and the protected-effects closure
+   * predicate reads the attestation only when it still hashes to this value. Absent on evidence
+   * collected before this field existed, which that predicate treats as not established.
+   */
+  readonly effectsSha256?: string | null;
+  /**
+   * The sha256 of the worker's findings record AS THE RUNNER COLLECTED IT, or null when there was none —
+   * PROJECTOS-BOOT-CONTINUE1A. Closure preparation turns the findings into closure facts; it believes
+   * them only while they still hash to this value, so a HIGH finding cannot be marked resolved after
+   * the run was judged.
+   */
+  readonly findingsSha256?: string | null;
 }
 
 export const EVIDENCE_SCHEMA_VERSION = '1.0.0';
@@ -297,11 +365,15 @@ export function collectEvidence(
   const committed = gitLines(sys, root, ['diff', '--name-only', `${base}..HEAD`]);
   // The SAME parser the observation uses. Two copies would let "what is dirty" and "what changed"
   // drift apart while both claim to describe one checkout.
-  const status = sys.exec('git', ['-C', root, 'status', '--porcelain']);
+  // EVERY FILE, never a collapsed directory: a new untracked directory is otherwise listed as `dir/`,
+  // and closure preparation binds the subject to exactly the files the run changed.
+  const status = sys.exec('git', ['-C', root, 'status', '--porcelain', '--untracked-files=all']);
   const uncommitted = status.code === 0 ? porcelainPaths(status.stdout) : [];
   const changedFiles = [...new Set([...committed, ...uncommitted])].sort();
 
   const stat = sys.exec('git', ['-C', root, 'diff', '--stat', base]);
+  const effectsText = sys.readText(effectsPath(root, input.sessionId));
+  const findingsText = sys.readText(findingsPath(root, input.sessionId));
   return {
     schemaVersion: EVIDENCE_SCHEMA_VERSION,
     sessionId: input.sessionId,
@@ -314,5 +386,7 @@ export function collectEvidence(
     diffStat: stat.code === 0 ? stat.stdout.trim() : '<the diff since the brief’s commit could not be read>',
     checks: input.checks,
     requiredReviews: input.brief.phase.requiredReviews,
+    effectsSha256: effectsText === null ? null : createHash('sha256').update(effectsText, 'utf8').digest('hex'),
+    findingsSha256: findingsText === null ? null : createHash('sha256').update(findingsText, 'utf8').digest('hex'),
   };
 }

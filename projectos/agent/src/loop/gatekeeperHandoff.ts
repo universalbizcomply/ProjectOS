@@ -163,6 +163,14 @@ export function nodeInteractivePort(
     readonly onWaiting?: (where: { readonly request: string; readonly decision: string }) => void;
     /** Which of the two fixed locations. A closed choice, never a caller-supplied path. */
     readonly dir?: typeof GATEKEEPER_INTERACTIVE_REL | typeof CLOSURE_INTERACTIVE_REL;
+    /**
+     * Supersede a STALE question rather than refusing on it — PROJECTOS-BOOT-CONTINUE1A. Set only by
+     * an explicit `--supersede-stale-request`. A question (and any answer beside it) left by a run that
+     * is no longer waiting is ARCHIVED under `superseded/` with a record of why, never deleted, and the
+     * question is then written afresh by THIS run, so only an answer saved after this run asked can
+     * apply. A question whose answer was already acted on is never superseded.
+     */
+    readonly supersedeStale?: boolean;
   } = {},
 ): InteractiveDecisionPort {
   const rel = opts.dir ?? GATEKEEPER_INTERACTIVE_REL;
@@ -176,6 +184,33 @@ export function nodeInteractivePort(
     request: `${rel}/${requestId}.request.json`,
     decision: `${rel}/${requestId}.decision.json`,
   });
+  /** Archive a stale question and any answer beside it, with a record; refuse an already-acted-on one. */
+  const supersede = (requestId: string): 'superseded' | string => {
+    const request = pathOf(requestId, 'request');
+    const decision = pathOf(requestId, 'decision');
+    const consumed = pathOf(requestId, 'consumed');
+    if (request === null || decision === null || consumed === null) {
+      return 'refused: the request id cannot safely become a record name';
+    }
+    if (sys.exists(consumed)) {
+      return 'refused: this question was already answered and acted on; it cannot be superseded or answered again';
+    }
+    const stamp = sys.now().replace(/[^0-9A-Za-z]/g, '-');
+    const archive = join(dir, 'superseded');
+    const moved: string[] = [];
+    for (const [from, kind] of [[request, 'request'], [decision, 'decision']] as const) {
+      if (!sys.exists(from)) continue;
+      const to = join(archive, `${requestId}.${stamp}.${kind}.json`);
+      if (sys.readText(join(archive, '.keep')) === null) sys.writeText(join(archive, '.keep'), '');
+      if (!sys.renameFile(from, to)) return `refused: the stale ${kind} could not be archived, so nothing was superseded`;
+      moved.push(`${kind} -> superseded/${requestId}.${stamp}.${kind}.json`);
+    }
+    sys.writeText(
+      join(archive, `${requestId}.${stamp}.supersession.json`),
+      `${JSON.stringify({ requestId, supersededAt: sys.now(), reason: 'stale question left by a run that is no longer waiting', moved }, null, 2)}\n`,
+    );
+    return 'superseded';
+  };
 
   return {
     locations,
@@ -184,6 +219,10 @@ export function nodeInteractivePort(
       const answer = pathOf(handoff.requestId, 'decision');
       if (path === null || answer === null) return 'refused: the request id cannot safely become a record name';
       const content = `${JSON.stringify(handoff, null, 2)}\n`;
+      if (opts.supersedeStale === true && (sys.exists(path) || sys.exists(answer))) {
+        const superseded = supersede(handoff.requestId);
+        if (superseded !== 'superseded') return superseded;
+      }
       // AN ANSWER THAT PREDATES ITS QUESTION WAS NOT GIVEN IN ANSWER TO IT. The answer file is outside
       // the reviewed candidate, so anything that ran before the gate — the worker included — could
       // otherwise plant one under a predictable name. Refused, and left untouched for the owner to see.

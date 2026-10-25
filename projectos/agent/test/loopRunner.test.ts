@@ -47,6 +47,8 @@ interface WorldOpts {
   readonly validatorExit?: number;
   /** What `git show HEAD:./.projectops/project-config.json` returns. Defaults to the working tree. */
   readonly committedConfig?: unknown;
+  /** The approved scope of the phase under test; the real plan's phase declares none. */
+  readonly scope?: string;
 }
 
 /**
@@ -64,7 +66,16 @@ function world(opts: WorldOpts = {}) {
   };
   const files: Record<string, string> = {
     [`${ROOT}/.projectops/project-config.json`]: JSON.stringify(config),
-    [`${ROOT}/state/plan.json`]: JSON.stringify(realPlan()),
+    [`${ROOT}/state/plan.json`]: JSON.stringify(
+      opts.scope === undefined
+        ? realPlan()
+        : {
+            ...realPlan(),
+            phases: (realPlan()['phases'] as Record<string, unknown>[]).map((p) =>
+              p['phaseId'] === PHASE ? { ...p, scope: opts.scope } : p,
+            ),
+          },
+    ),
     [`${ROOT}/state/current.json`]: JSON.stringify({ completedPhases: [] }),
     [`${ROOT}/projectos/validators/${VALIDATOR}.cjs`]: '// present',
     ...(opts.files ?? {}),
@@ -95,6 +106,9 @@ function world(opts: WorldOpts = {}) {
       if (key.includes('rev-parse HEAD')) return { code: 0, stdout: `${HEAD}\n`, stderr: '' };
       if (key.includes('remote get-url origin')) return { code: 0, stdout: `${remote}\n`, stderr: '' };
       if (key.includes('status --porcelain')) return { code: 0, stdout: '', stderr: '' };
+      // The scope grant asks git whether a granted path is ignored (1 = not ignored) and what it tracks.
+      if (key.includes('check-ignore')) return { code: 1, stdout: '', stderr: '' };
+      if (key.includes('ls-files')) return { code: 0, stdout: '', stderr: '' };
       if (key.includes('diff --name-only')) return { code: 0, stdout: 'src/x.ts\n', stderr: '' };
       if (key.includes('diff --stat')) return { code: 0, stdout: ' 1 file changed\n', stderr: '' };
       // The loop spawns only what the owner COMMITTED, so it compares the working-tree `execution`
@@ -1520,6 +1534,44 @@ describe('runLoop with an unattended gatekeeper', () => {
     if (unguided >= 0) expect(guided).toBeLessThan(unguided);
     // The worker was started once and rejoined for the correction - not three times first.
     expect(calls.slice(0, 2)).toEqual(['start', 'rejoin']);
+  });
+
+  /**
+   * ECC CODE round 2 NEW-1: a REVIEWER-DIRECTED correction does not advance `attempts`, so a scope grant
+   * keyed on `attempts === 0` reached the correction worker and voided the correction boundary. The
+   * grant is spent at the first dispatch; every later dispatch holds only what the correction released.
+   */
+  it('the approved scope reaches the FIRST dispatch only — never a reviewer-directed correction', () => {
+    const sys = world({ validatorExit: 1, files: cleanFindings(SESSION), scope: 'Edit src/scoped.ts.' });
+    const argsSeen: string[][] = [];
+    const { registry } = fakeAdapter();
+    const inner = registry[WORKER_KIND] as WorkerAdapter;
+    const recording: AdapterRegistry = {
+      [WORKER_KIND]: {
+        ...inner,
+        start: (s, worker, brief, path) => {
+          argsSeen.push([...worker.args]);
+          return inner.start(s, worker, brief, path);
+        },
+        rejoin: (s, worker, session, brief) => {
+          argsSeen.push([...worker.args]);
+          return inner.rejoin(s, worker, session, brief);
+        },
+      },
+    };
+    const r = runLoop(sys, ROOT, {
+      adapters: recording,
+      expectedDecider: 'ChatGPT',
+      correctionMaximumPaths: [FIXTURE],
+      gatekeeper: gatekeeper({ status: 200, body: decisionBody('AMENDMENT_REQUIRED', `Restore ${FIXTURE}.`) }),
+    });
+    expect(r.ok).toBe(true);
+    expect(argsSeen.length).toBeGreaterThanOrEqual(2);
+    expect(argsSeen[0]?.join(' ')).toContain('Write(src/scoped.ts)');
+    for (const later of argsSeen.slice(1)) {
+      expect(later.join(' ')).not.toContain('src/scoped.ts');
+    }
+    expect(argsSeen[1]?.join(' ')).toContain(`Write(${FIXTURE})`);
   });
 
   it('does NOT consult when the reviewer would only be asked to widen the boundary', () => {

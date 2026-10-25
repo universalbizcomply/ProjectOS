@@ -9,6 +9,7 @@
  * These tests drive `phase(...)` itself, not the authority module, because the incident was a CLI
  * invocation and the property that matters is what happens when someone runs that command.
  */
+import { createHash } from 'node:crypto';
 import { describe, it, expect } from 'vitest';
 import { phase } from '../src/commands/phase.js';
 import { configPath } from '../src/context.js';
@@ -19,6 +20,14 @@ const PLAN_REL = 'projectos/state/projectos-v3.plan.json';
 const STATE_REL = 'projectos/state/projectos-v3.current-state.json';
 const PHASE = 'PROJECTOS-V3-FINAL-E2E-CLOSURE1A';
 const SUBJECT = 'a'.repeat(40);
+const CLEAN_EFFECTS = JSON.stringify({
+  productionTouched: false,
+  deploymentOccurred: false,
+  databaseMutationOccurred: false,
+  externalSendOccurred: false,
+  paymentOccurred: false,
+  rawSecretStored: false,
+});
 
 function repoFile(rel: string): string {
   const fs = require('node:fs') as typeof import('node:fs');
@@ -82,7 +91,17 @@ function eligibleCheckout(files: Record<string, string> = {}): System & { writes
       results: [{ name: 'validate-reliability-hardening', passed: true, errorCount: 0 }],
     }),
     [`${ROOT}/knowledge/reports/2026-08-10_${PHASE}_AWAITING-CLOSURE.md`]: '# evidence',
-    [`${ROOT}/projectos/state/projectos-v3.session.json`]: JSON.stringify({ productionTouched: false }),
+    // PROJECTOS-BOOT-CONTINUE1A: the protected-effects predicate reads the phase's own RUNNER evidence,
+    // which records the sha256 of the worker's attestation as collected; the attestation must still match.
+    [`${ROOT}/.projectops/execution/${PHASE}-fixture.evidence.json`]: JSON.stringify({
+      phaseId: PHASE,
+      sessionId: `${PHASE}-fixture`,
+      collectedAt: '2026-08-10T19:00:00.000Z',
+      effectsSha256: createHash('sha256').update(CLEAN_EFFECTS, 'utf8').digest('hex'),
+    }),
+    [`${ROOT}/.projectops/execution/${PHASE}-fixture.effects.json`]: CLEAN_EFFECTS,
+    // The runner's session record, which binds that evidence to a run the runner started.
+    [`${ROOT}/.projectops/execution/${PHASE}-fixture.session.json`]: JSON.stringify({ sessionId: `${PHASE}-fixture`, phaseId: PHASE }),
     ...files,
   };
   const writes: string[] = [];

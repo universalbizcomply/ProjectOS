@@ -25,6 +25,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { closure, closureRequest, type MakeClosureDeps } from '../src/commands/closure.js';
+import { closureResume } from '../src/commands/closure.js';
+import { continueCommand } from '../src/commands/run.js';
 import { phase as phaseCommand } from '../src/commands/phase.js';
 import { nodeSystem, resolveBoundGit } from '../src/system.js';
 import { normaliseRemote } from '../src/loop/observation.js';
@@ -43,6 +45,7 @@ import {
 } from '@projectos/core';
 import type { CommandContext } from '../src/context.js';
 import type { System } from '../src/system.js';
+import { writeCleanRunEvidence } from './support/runEvidence.js';
 
 const GIT = resolveBoundGit(process.env) as string;
 const PHASE = 'E2E-CLOSURE-TRANSPORT1A';
@@ -238,6 +241,7 @@ function world(): World {
     ),
   );
   writeFileSync(join(root, 'knowledge', 'reports', `2026-09-02_${PHASE}_CLOSURE-EVIDENCE.md`), '# closure evidence\n');
+  writeCleanRunEvidence(root, PHASE);
   // ONLY the wait record is ignored — see .gitignore in the real project, and G4-13. The LEDGER is
   // deliberately tracked here, because whether the paid call's cost lands in the tree (and therefore
   // in the owner's ask) is one of the things this file exists to prove.
@@ -571,6 +575,128 @@ describe('the synthetic Route-A chain', () => {
     const advanced = phaseCommand(w.ctx, { id: PHASE, to: 'closed', delegated: true }, ['advance']);
     expect(advanced.code).toBe(0);
     expect(phaseStatus(w.root)).toBe('closed');
+  });
+});
+
+/**
+ * A BOUNDED, RESUMABLE WAIT FOR THE OWNER'S COMMIT, THEN RESUME — PROJECTOS-BOOT-CONTINUE1A (G5).
+ *
+ * The wait accepts exactly what an immediate resume would: a commit of the presented bytes. It is
+ * counted in polls so it ends whatever the clock does, and the wait record survives it, so a later
+ * resume picks up where this one stopped.
+ */
+describe('closure resume waits, boundedly, for the owner commit', () => {
+  it('the owner commits DURING the wait, and the phase closes through the existing path', () => {
+    const w = world();
+    closureRequest(w.ctx, { id: PHASE, execute: true }, fixtureDeps([]));
+    let polls = 0;
+    const resumed = closureResume(w.ctx, { id: PHASE, 'owner-wait-minutes': '1' }, {
+      pollMs: 10_000,
+      sleep: () => {
+        polls += 1;
+        if (polls === 2) ownerCommits(w.root);
+      },
+    });
+    expect(resumed.code).toBe(0);
+    expect(polls).toBe(2);
+    expect(phaseStatus(w.root)).toBe('closed');
+  });
+
+  it('an owner who never commits ends the wait at its bound, closes nothing, and stays resumable', () => {
+    const w = world();
+    closureRequest(w.ctx, { id: PHASE, execute: true }, fixtureDeps([]));
+    let polls = 0;
+    const resumed = closureResume(w.ctx, { id: PHASE, 'owner-wait-minutes': '1' }, {
+      pollMs: 20_000,
+      sleep: () => {
+        polls += 1;
+      },
+    });
+    expect(resumed.code).not.toBe(0);
+    expect(resumed.lines.join('\n')).toContain('AWAITING_OWNER_COMMIT');
+    expect(polls).toBe(3);
+    expect(phaseStatus(w.root)).toBe('awaiting_closure');
+    // RESUMABLE: the wait is still outstanding, and a later resume after the commit closes it.
+    const read = readClosureWait(w.ctx.sys, w.root, PHASE);
+    expect(read.ok && read.value?.state).toBe('WAITING_OWNER');
+    ownerCommits(w.root);
+    expect(closureResume(w.ctx, { id: PHASE }).code).toBe(0);
+    expect(phaseStatus(w.root)).toBe('closed');
+  });
+
+  it('a wait that accepts a WRONG commit sooner does not exist: a different decision still refuses', () => {
+    const w = world();
+    closureRequest(w.ctx, { id: PHASE, execute: true }, fixtureDeps([]));
+    const decisionPath = join(w.root, '.projectops', 'closure', 'decisions', `${PHASE}.json`);
+    writeFileSync(decisionPath, readFileSync(decisionPath, 'utf8').replace('"close"', '"close" '));
+    let polls = 0;
+    const resumed = closureResume(w.ctx, { id: PHASE, 'owner-wait-minutes': '1' }, {
+      pollMs: 30_000,
+      sleep: () => {
+        polls += 1;
+        if (polls === 1) ownerCommits(w.root);
+      },
+    });
+    expect(resumed.code).not.toBe(0);
+    expect(phaseStatus(w.root)).toBe('awaiting_closure');
+  });
+
+  it.each(['241', '-1', '1.5', 'soon'])('refuses --owner-wait-minutes %s before reading anything', (bad) => {
+    const w = world();
+    const r = closureResume(w.ctx, { id: PHASE, 'owner-wait-minutes': bad });
+    expect(r.code).toBe(2);
+    expect(r.lines.join('\n')).toContain('OWNER_WAIT_INVALID');
+  });
+});
+
+/**
+ * ONE ENTRY POINT — PROJECTOS-BOOT-CONTINUE1A (G2). `projectos continue` routes on the phase's
+ * recorded state to the existing command and adds nothing of its own.
+ */
+describe('projectos continue routes on recorded state to the existing commands', () => {
+  it('refuses without --execute or --dry-run, and with both', () => {
+    const w = world();
+    expect(continueCommand(w.ctx, {}).lines.join('\n')).toContain('NO_EXECUTION_INTENT');
+    expect(continueCommand(w.ctx, { execute: true, 'dry-run': true }).lines.join('\n')).toContain('CONFLICTING_INTENT');
+  });
+
+  it('awaiting_closure with no question yet: a dry run names `closure request` and asks nothing', () => {
+    const w = world();
+    const r = continueCommand(w.ctx, { 'dry-run': true });
+    expect(r.code).toBe(0);
+    expect(r.lines.join('\n')).toContain(`closure-request → projectos closure request --id ${PHASE} --execute`);
+    const waitRead = readClosureWait(w.ctx.sys, w.root, PHASE);
+    expect(waitRead.ok && waitRead.value).toBe(null);
+  });
+
+  it('a decision presented to the owner routes to `closure resume`, waits for the commit, then closes', () => {
+    const w = world();
+    closureRequest(w.ctx, { id: PHASE, execute: true }, fixtureDeps([]));
+    let polls = 0;
+    const r = continueCommand(w.ctx, { execute: true, 'owner-wait-minutes': '1' }, {
+      pollMs: 30_000,
+      sleep: () => {
+        polls += 1;
+        if (polls === 1) ownerCommits(w.root);
+      },
+    });
+    const text = r.lines.join('\n');
+    expect(text).toContain(`closure-resume → projectos closure resume --id ${PHASE} --continue`);
+    expect(phaseStatus(w.root)).toBe('closed');
+    // AND THEN HANDED TO `run`, the one continuation authority. This fixture commits no review
+    // delegation, so that run refuses in its own words — and the closure still stands.
+    expect(text).toContain('carrying the approved programme forward from the same continuation authority');
+    expect(text).toContain('the closure stands');
+  });
+
+  it('a closed plan routes to nothing and reports complete', () => {
+    const w = world();
+    closureRequest(w.ctx, { id: PHASE, execute: true }, fixtureDeps([]));
+    ownerCommits(w.root);
+    expect(closureResume(w.ctx, { id: PHASE }).code).toBe(0);
+    const r = continueCommand(w.ctx, { execute: true });
+    expect(r.code).toBe(0);
+    expect(r.lines.join('\n')).toContain('projectos continue: complete');
   });
 });
 

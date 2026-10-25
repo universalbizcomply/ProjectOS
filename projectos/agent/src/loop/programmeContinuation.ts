@@ -57,6 +57,17 @@ export interface PhaseAttempt {
   readonly stopDetail: string | null;
   /** False when the run refused to start at all — a broken environment, not a governed outcome. */
   readonly ok: boolean;
+  /**
+   * Why SELECTION declined to start a phase, or null. A run that did not start because the plan is
+   * finished, or because the next phase sits where only the owner or the closure route may move it,
+   * is a governed answer — distinct from a broken environment, though both arrive as `ok: false`.
+   */
+  readonly selectionStop: {
+    readonly code: string;
+    readonly detail: string;
+    readonly phaseId?: string;
+    readonly phaseStatus?: string;
+  } | null;
   /** Every line the attempt produced, carried through so the caller reports one narrative. */
   readonly lines: readonly string[];
 }
@@ -64,6 +75,11 @@ export interface PhaseAttempt {
 export type ContinuationEnd =
   /** The plan has no phase left to work on. The only end that means "finished". */
   | 'PROGRAMME_COMPLETE'
+  /**
+   * The next phase has finished its work and sits at `awaiting_closure`. The programme is handed to
+   * the EXISTING closure route; nothing here closes anything, and the owner-only floor still holds.
+   */
+  | 'AWAITING_CLOSURE'
   /** A phase run ended on a stop — the owner's, or a defect. Named in `reasons`. */
   | 'STOPPED'
   /** A pass left the selected phase where it was; running it again would repeat it. */
@@ -79,6 +95,8 @@ export interface ContinuationResult {
   readonly phasesRun: readonly string[];
   readonly reasons: readonly string[];
   readonly lines: readonly string[];
+  /** The phase to hand to the closure route — set only when `end` is `AWAITING_CLOSURE`. */
+  readonly closurePhaseId: string | null;
 }
 
 /**
@@ -91,7 +109,48 @@ export function mayContinueAfter(attempt: PhaseAttempt, previousPhaseId: string 
   readonly continue: boolean;
   readonly end: ContinuationEnd | null;
   readonly reasons: readonly string[];
+  readonly closurePhaseId?: string;
 } {
+  // SELECTION'S ANSWER IS A RESULT, NOT A REFUSAL. Before this, a programme whose phase had just
+  // reached `awaiting_closure` ended REFUSED (exit 1) on the very next pass — the success case read as
+  // a broken environment. Each selection stop now ends the programme with its true reason; none of
+  // them continues, so the termination argument above is unchanged.
+  const sel = attempt.selectionStop;
+  if (sel !== null) {
+    if (sel.code === 'PROGRAMME_COMPLETE') {
+      return { continue: false, end: 'PROGRAMME_COMPLETE', reasons: [sel.detail] };
+    }
+    if (
+      sel.code === 'OWNER_DECISION_REQUIRED' &&
+      sel.phaseStatus === 'awaiting_closure' &&
+      typeof sel.phaseId === 'string' &&
+      sel.phaseId !== ''
+    ) {
+      return {
+        continue: false,
+        end: 'AWAITING_CLOSURE',
+        closurePhaseId: sel.phaseId,
+        reasons: [
+          `phase '${sel.phaseId}' has finished its work and is awaiting closure`,
+          'closure is never continued through: it goes to the existing closure route, and the owner-only floor still decides it',
+        ],
+      };
+    }
+    // THE OWNER'S STOPS END STOPPED; A DEFECT ENDS REFUSED. `rolled_back` and a blocked phase are decisions
+    // somebody made, and stopping there is the loop doing its job. An empty plan, an unsafe id, a record
+    // that disagrees with the plan or an unmet dependency is a defect, and an unattended caller must be
+    // able to tell it apart from an owner stop by the exit code alone — as plain `run` always could.
+    const ownersStop = sel.code === 'OWNER_DECISION_REQUIRED' || sel.code === 'PHASE_BLOCKED';
+    return {
+      continue: false,
+      end: ownersStop ? 'STOPPED' : 'REFUSED',
+      reasons: [
+        `selection stopped: ${sel.code}`,
+        sel.detail,
+        'the programme does not continue past a stop; it is either the owner\'s decision or a defect',
+      ],
+    };
+  }
   if (!attempt.ok) {
     return {
       continue: false,
@@ -165,7 +224,13 @@ export function continueProgramme(deps: ContinuationDeps): ContinuationResult {
 
     const verdict = mayContinueAfter(attempt, previousPhaseId);
     if (!verdict.continue) {
-      return { end: verdict.end ?? 'STOPPED', phasesRun, reasons: verdict.reasons, lines };
+      return {
+        end: verdict.end ?? 'STOPPED',
+        phasesRun,
+        reasons: verdict.reasons,
+        lines,
+        closurePhaseId: verdict.closurePhaseId ?? null,
+      };
     }
     previousPhaseId = attempt.phaseId;
   }
@@ -178,6 +243,7 @@ export function continueProgramme(deps: ContinuationDeps): ContinuationResult {
         'finished; the programme is handed back rather than continued indefinitely',
     ],
     lines,
+    closurePhaseId: null,
   };
 }
 
@@ -193,8 +259,10 @@ export function phaseAttemptOf(result: {
   readonly lines: readonly string[];
   readonly phaseId?: string;
   readonly stop?: { readonly code: string; readonly detail: string } | null;
+  readonly selectionStop?: PhaseAttempt['selectionStop'] | undefined;
 }): PhaseAttempt {
   return {
+    selectionStop: result.selectionStop ?? null,
     ok: result.ok === true,
     lines: result.lines ?? [],
     phaseId: typeof result.phaseId === 'string' && result.phaseId !== '' ? result.phaseId : null,

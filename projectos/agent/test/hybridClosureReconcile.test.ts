@@ -53,6 +53,7 @@ import { nodeSystem, resolveBoundGit } from '../src/system.js';
 import { normaliseRemote } from '../src/loop/observation.js';
 import type { CommandContext } from '../src/context.js';
 import type { System } from '../src/system.js';
+import { writeCleanRunEvidence } from './support/runEvidence.js';
 
 const GIT = resolveBoundGit(process.env) as string;
 const PHASE = 'HYBRID-CLOSURE-RECONCILE1A';
@@ -231,6 +232,7 @@ function world(mode: Mode): World {
   writeFileSync(join(root, 'state', 'plan.json'), JSON.stringify(plan, null, 2));
   writeFileSync(join(root, 'state', 'current.json'), JSON.stringify({ completedPhases: [], activePhase: PHASE }, null, 2));
   writeFileSync(join(root, 'knowledge', 'reports', `2026-09-10_${PHASE}_CLOSURE-EVIDENCE.md`), '# closure evidence\n');
+  writeCleanRunEvidence(root, PHASE);
   // The real project ignores the closure wait directory for G4-13's reason; so does the fixture.
   writeFileSync(join(root, '.gitignore'), '.projectops/closure/waits/\n');
 

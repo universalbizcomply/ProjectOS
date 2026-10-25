@@ -321,7 +321,8 @@ export function awaitInteractiveAnswer(
     return stop('pre-existing', [
       'a request for this exact question already existed before this run asked it, and ProjectOS cannot ' +
         'establish that it wrote it — an answer planted beside it would look genuine — so no answer to it is accepted',
-      `  to ask again: remove ${where.request} and any ${where.decision}, then run again`,
+      `  to ask again: run again with --supersede-stale-request, which archives ${where.request} and any ` +
+        `${where.decision} under superseded/ and asks afresh; never delete them by hand`,
     ]);
   }
   const read = port.awaitDecision(question.requestId);
