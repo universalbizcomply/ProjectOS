@@ -9,7 +9,7 @@
     "Generalising the closure eligibility gate from the project id 'projectos' to the governed project's own id.",
     "Folding the run's own records into the loop's technical-continuation commit, and committing generated closure-tail records as a technical action when the phase's owner gates leave commit and push delegated.",
     "Live proofs: the disposable two-phase proof re-run with the reduced owner acts, then one ordinary phase on Dead Aisle and one on PolyGo through projectos continue, with evidence under docs/finish/.",
-    "Fixes in ProjectOS that those live proofs show are needed, within the paths each phase lists."
+    "Tests and evidence for those live proofs; enforcement-code fixes they expose go to a separate owner-gated amendment."
   ],
   "environments": [
     {
@@ -61,6 +61,8 @@
       ],
       "requiredBrowserProof": false,
       "requiredOwnerGates": [
+        "commit",
+        "push",
         "secrets-handling",
         "payment-or-live-charge"
       ]
@@ -102,6 +104,8 @@
       ],
       "requiredBrowserProof": false,
       "requiredOwnerGates": [
+        "commit",
+        "push",
         "secrets-handling",
         "payment-or-live-charge"
       ]
@@ -110,11 +114,12 @@
       "phaseId": "PROJECTOS-FINISH-EXTERNAL-PROOF1A",
       "title": "One ordinary phase delivered end to end on Dead Aisle and one on PolyGo",
       "description": "Prove ProjectOS on real projects: one ordinary phase of an owner-chosen objective on Dead Aisle and one on PolyGo, each carried by projectos continue through implementation, checks, the relayed gatekeeper review, commit, push and closure, with the owner's acts counted and the results recorded.",
-      "scope": "Add evidence under docs/finish/ and fix ProjectOS where the live runs require it, in projectos/agent/src/, projectos/agent/test/ and projectos/validators/val-projectos-boot-continue1a.cjs. Dead Aisle and PolyGo work happens under each project's own approved plan in its own repository.",
+      "scope": "Add evidence under docs/finish/ and tests under projectos/agent/test/. Dead Aisle and PolyGo work happens under each project's own approved plan in its own repository.",
       "exclusions": [
         "No production deployment, payment, external send or credential handling on either project.",
         "No change to the absolute owner-only actions on either project.",
-        "No Rust source, Cargo manifest, Host, credential or provider change in ProjectOS."
+        "No Rust source, Cargo manifest, Host, credential or provider change in ProjectOS.",
+        "No change to grant, owner-gate, technical-continuation or closure enforcement code in ProjectOS; a live run that needs one is a separate owner-gated amendment."
       ],
       "dependsOn": [
         "PROJECTOS-FINISH-MULTIPROJECT1A"
@@ -124,7 +129,7 @@
         "On each project, one ordinary phase runs through projectos continue end to end: worker implementation within its writePaths, checks, the relayed gatekeeper review, technical commit and push, closure preparation and the owner's closure commit.",
         "The owner's acts per phase are counted and equal the target: one closure commit and two relays, plus plan approval; any excess is recorded with its cause.",
         "Evidence under docs/finish/ records, for each project, the objective, the commits, the checks, the review decisions, the owner acts and every defect found, live results reported separately from synthetic tests.",
-        "ProjectOS fixes made for the live runs are tested, validator-pinned where they add a rule, and reviewed by ECC CODE and ECC SECURITY with no unresolved critical or high finding."
+        "Any ProjectOS defect a live run exposes is recorded with its cause; a fix outside this phase's paths is raised as a separate owner-gated amendment, and in-scope tests added for it are reviewed by ECC CODE and ECC SECURITY with no unresolved critical or high finding."
       ],
       "riskLevel": "high",
       "autonomyLevel": "gated-execution",

@@ -293,6 +293,26 @@ function run() {
         const arr = [fp(".projectops/config.json", cfgJson, ".json"), fp("p.json", planJson(["D-P1A", "D-P2A"]), ".json"), fp("s.json", stateJson(["D-P1A"]), ".json")];
         if (roleOf(arr, "p.json") !== "CURRENT_PLANNING") errors.push("(h) a plan with an outstanding phase must remain CURRENT_PLANNING");
       }
+      // (h2) OWNER WITHDRAWAL. A plan whose outstanding phases the owner WITHDREW, by a record the
+      // canonical config declares, retires — and only then. An undeclared or unsigned withdrawal, or a
+      // plan nothing of which was delivered, stays current.
+      {
+        const cfgW = (extra) => JSON.stringify({ projectId: "done", planMemory: { planPath: "p.json", currentStatePath: "s.json" }, planSources: extra });
+        const wd = (o) => JSON.stringify({ projectId: "done", ...o });
+        const base = (cfg, w, done) => [fp(".projectops/config.json", cfg, ".json"), fp("p.json", planJson(["D-P1A", "D-P2A"]), ".json"), fp("s.json", stateJson(done), ".json"), fp("w.json", w, ".json")];
+        if (roleOf(base(cfgW(["w.json"]), wd({ decidedBy: "Owner", withdrawnPhases: ["D-P2A"] }), ["D-P1A"]), "p.json") !== "HISTORICAL_EVIDENCE") {
+          errors.push("(h2) a plan whose only outstanding phase is withdrawn by a DECLARED owner record must retire");
+        }
+        if (roleOf(base(cfgJson, wd({ decidedBy: "Owner", withdrawnPhases: ["D-P2A"] }), ["D-P1A"]), "p.json") !== "CURRENT_PLANNING") {
+          errors.push("(h2) an UNDECLARED withdrawal record must not retire a plan");
+        }
+        if (roleOf(base(cfgW(["w.json"]), wd({ withdrawnPhases: ["D-P2A"] }), ["D-P1A"]), "p.json") !== "CURRENT_PLANNING") {
+          errors.push("(h2) a withdrawal with no decidedBy must not retire a plan");
+        }
+        if (roleOf(base(cfgW(["w.json"]), wd({ decidedBy: "Owner", withdrawnPhases: ["D-P1A", "D-P2A"] }), []), "p.json") !== "CURRENT_PLANNING") {
+          errors.push("(h2) a plan NOTHING of which was delivered must not retire by withdrawal alone");
+        }
+      }
       // A DECLARED record is not retired by a word in its own prose. This repository's current-state
       // record describes which plan VERSIONS it supersedes, and the prose marker was retiring the
       // live record to history on the strength of that word.

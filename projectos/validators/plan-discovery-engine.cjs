@@ -540,8 +540,34 @@ function declaredCompletedPhases(sources, declared) {
 }
 
 /**
- * How many phases a declared plan has, when EVERY one of them is already recorded complete; 0
- * otherwise.
+ * Phase ids the OWNER has withdrawn from the plan, from declared JSON records only.
+ *
+ * WHY THIS EXISTS. A plan retires to history only on complete evidence, so a plan with an approved
+ * phase the owner has decided not to do — deferred by an owner ruling — could never retire: every
+ * later draft proposed the withdrawn phase back, ahead of the new work. A withdrawal is that ruling
+ * recorded: an object with a non-empty `decidedBy` and a `withdrawnPhases` array of ids.
+ *
+ * THE SAME TRUST RULE AS COMPLETION. Only a record the canonical config DECLARES counts, so withdrawing
+ * a phase needs the same authority as declaring the plan — an undeclared file naming withdrawals is
+ * ignored, exactly as an undeclared completion record is. A withdrawal only ever RETIRES a plan from
+ * the current corpus; it is never completion evidence and never satisfies a dependency.
+ */
+function declaredWithdrawnPhases(sources, declared) {
+  const withdrawn = new Set();
+  for (const s of sources) {
+    if (s.included === false || s.ext !== ".json") continue;
+    if (!declared.has(s.normRelPath)) continue;
+    let obj = null; try { obj = JSON.parse(stripBom(s.content || "")); } catch (_) { continue; }
+    if (!obj || typeof obj !== "object" || !Array.isArray(obj.withdrawnPhases)) continue;
+    if (typeof obj.decidedBy !== "string" || obj.decidedBy.trim() === "") continue;
+    for (const id of obj.withdrawnPhases) if (typeof id === "string" && id.trim() !== "") withdrawn.add(id.trim());
+  }
+  return withdrawn;
+}
+
+/**
+ * How many phases a declared plan has, when EVERY one of them is already recorded complete or
+ * withdrawn by a declared owner record (and at least one is complete); 0 otherwise.
  *
  * A plan all of whose phases are delivered is not a claim about what we are building now — it is the
  * record of what was built. ProjectOS's own V3 plan is the live case: nineteen phases, nineteen
@@ -553,12 +579,15 @@ function declaredCompletedPhases(sources, declared) {
  * phases is not judged at all, and a phase whose id is missing counts as not complete — so the rule
  * can only retire a plan on complete evidence, never on partial evidence.
  */
-function deliveredPhaseCount(src, completed) {
+function deliveredPhaseCount(src, completed, withdrawn = new Set()) {
   const sp = extractPlanDocument(src);
   if (sp === null || sp.phases.length === 0) return 0;
   const ids = sp.phases.map((p) => (typeof p.phaseId === "string" ? p.phaseId.trim() : "")).filter((x) => x !== "");
   if (ids.length !== sp.phases.length) return 0;
-  return ids.every((id) => completed.has(id)) ? ids.length : 0;
+  // A plan retires only when something in it was DELIVERED: an entirely withdrawn plan is not
+  // history, it is a plan nobody did, and retiring it would be a silent deletion.
+  if (!ids.some((id) => completed.has(id))) return 0;
+  return ids.every((id) => completed.has(id) || withdrawn.has(id)) ? ids.length : 0;
 }
 
 /**
@@ -570,6 +599,7 @@ function assignPlanningRoles(sources, ctx) {
   const declared = origins.declared;
   const hasDeclaration = declared.size > 0;
   const completed = declaredCompletedPhases(sources, declared);
+  const withdrawn = declaredWithdrawnPhases(sources, declared);
   for (const s of sources) {
     // PROVENANCE, ALONGSIDE ROLE. `planningRole` says whether a source describes current delivery;
     // this says which side of an amendment it sits on. Kept separate so no existing role decision
@@ -614,10 +644,10 @@ function assignPlanningRoles(sources, ctx) {
     // A DELIVERED plan is history, however it reached the current corpus. Applied once, after the
     // chain, so every route into CURRENT_PLANNING is covered rather than the declared one only.
     if (role === "CURRENT_PLANNING") {
-      const delivered = deliveredPhaseCount(s, completed);
+      const delivered = deliveredPhaseCount(s, completed, withdrawn);
       if (delivered > 0) {
         role = "HISTORICAL_EVIDENCE";
-        why = "a plan whose " + delivered + " phase(s) are ALL recorded complete by this project's own declared current-state — the record of delivered work, not today's plan (was: " + why + ")";
+        why = "a plan whose " + delivered + " phase(s) are ALL recorded complete, or withdrawn by a declared owner record, in this project's own declared records — the record of delivered work, not today's plan (was: " + why + ")";
       }
     }
     s.planningRole = role;
@@ -1373,7 +1403,7 @@ module.exports = {
   extractHeadings, extractTitle, classifyPlanSource, classifyAuthority, assignAuthorities,
   isUntrustedInstruction, groupDuplicateSources, markCanonicalDuplicates,
   extractStructuredPlan, extractMarkdownPlan, extractPlanDocument, markdownSections,
-  declaredCompletedPhases, deliveredPhaseCount,
+  declaredCompletedPhases, declaredWithdrawnPhases, deliveredPhaseCount,
   extractClaims, detectPlanConflicts, reconcileRepositoryEvidence, selectAuthoritative,
   PLANNING_ROLES, PLANNING_TYPES, HISTORICAL_TYPES, declaredPlanningPaths, assignPlanningRoles, summarisePlanningCorpus,
   buildPlanDraft, buildPhaseCandidates, calculateImportStatus, validatePlanProvenance,

@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "1.0.0",
+  "withdrawalId": "PROJECTOS-PLAN-V1.8-WITHDRAWAL1A",
+  "projectId": "projectos",
+  "planId": "plan-fad4d5ff8d67abc8-bbf6214dc32b",
+  "planVersion": "1.8",
+  "withdrawnPhases": [
+    "PROJECTOS-BOOT-UNATTENDED1A",
+    "PROJECTOS-BOOT-CERT1A"
+  ],
+  "decidedBy": "Murad",
+  "decidedAt": "2026-10-25T11:32:00.000Z",
+  "reason": "Owner decision of 2026-10-25: Option A — keep the interactive ChatGPT gatekeeper relayed by the owner — and finish ProjectOS on a narrow definition of done (ordinary phases end to end on Dead Aisle and PolyGo). PROJECTOS-BOOT-UNATTENDED1A: plan v1.8's own approved criterion provides that if the owner declines route r1, the interactive gatekeeper remains the end state; Option A is that decision. PROJECTOS-BOOT-CERT1A: deferred with the rest of the certification work by the same narrow-done decision. Both are withdrawn, not completed: neither is claimed as delivered, neither satisfies any dependency, and either may be reintroduced by a later owner-approved plan.",
+  "ownerWords": [
+    "OPTION A CONFIRMED.",
+    "I give you full authority now"
+  ],
+  "recordedBy": "Claude (implementer), on the owner's grant; the owner's words are quoted verbatim and no other authority is claimed."
+}

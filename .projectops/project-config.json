@@ -48,6 +48,7 @@
     "docs/projectos-autonomy-bootstrap-phases.json",
     ".projectops/plan-b6f70f1ebc656030-b23611e2240f.json",
     ".projectops/current-state-b6f70f1ebc656030-b23611e2240f.json",
+    ".projectops/plan-withdrawals/PROJECTOS-PLAN-V1.8-WITHDRAWAL1A.json",
     "docs/projectos-finish-phases.json"
   ],
   "allowedActions": [
