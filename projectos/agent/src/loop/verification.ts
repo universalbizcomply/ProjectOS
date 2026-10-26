@@ -90,6 +90,9 @@ export const MAX_CHECK_TIMEOUT_MINUTES = 240;
  */
 const SAFE_VALIDATOR_NAME = /^[A-Za-z0-9_-]{1,80}$/;
 
+/** The id suffix that marks a validator check as the phase's own copy rather than the pinned base copy. */
+export const PHASE_COPY_SUFFIX = '@phase-copy';
+
 function validatorScript(root: string, name: string): string {
   return join(root, 'projectos', 'validators', `${name}.cjs`);
 }
@@ -124,6 +127,74 @@ export function requiredChecks(
   pin: ValidatorPin,
 ): readonly CheckSpec[] {
   return checksFor(sys, root, brief.phase.requiredValidators, configured, pin);
+}
+
+/**
+ * The PHASE'S OWN COPY of each required validator its approved write paths cover — PROJECTOS-FINISH-
+ * CONTINUE-INTEGRITY1A (EXTERNAL-PROOF2A D8).
+ *
+ * WHY. Every validator runs from the base commit, so a phase cannot weaken what judges it. The other side
+ * of that rule was found live: a phase whose job was to CHANGE its own required validator was judged only
+ * by the old copy, so the new code, with real gaps, passed every gate and was closed. When the grant covers
+ * a required validator, its phase copy is therefore run as well, against the subject, with its own id.
+ * It is ADDED, never substituted: the pinned base copy still runs and must still pass, so the phase copy
+ * can only add a failure, never remove one.
+ *
+ * `paths` are the phase's repository-relative write paths. Only an EXACT file entry covers a validator: the
+ * write-grant rule refuses any directory over `projectos/validators/` (`workers.ts`), so a directory entry
+ * could never be the grant that let the phase change it.
+ */
+export function phaseCopyChecks(sys: System, root: string, requiredValidators: readonly string[], paths: readonly string[]): readonly CheckSpec[] {
+  const covered = (rel: string): boolean => paths.some((p) => p.replace(/\\/g, '/').replace(/^\.[/]/, '') === rel);
+  return requiredValidators
+    .filter((name) => SAFE_VALIDATOR_NAME.test(name) && covered(`projectos/validators/${name}.cjs`))
+    .map((name) => {
+      const script = validatorScript(root, name);
+      return {
+        id: `${name}${PHASE_COPY_SUFFIX}`,
+        kind: 'validator' as const,
+        command: VALIDATOR_RUNNER,
+        args: [script],
+        unrunnable: sys.exists(script) ? null : `the phase's own copy of validator '${name}' is missing, so the check it was granted cannot judge it`,
+        timeoutMs: PHASE_COPY_TIMEOUT_MS,
+      };
+    });
+}
+
+/** The phase copy is worker-written code run before any review, so its bound is short. */
+export const PHASE_COPY_TIMEOUT_MS = 10 * 60_000;
+
+/** The largest checkout picture the phase-copy guard reads; anything larger fails the copy, closed. */
+export const PHASE_COPY_PICTURE_MAX_BYTES = 256 * 1024 * 1024;
+
+/**
+ * Run the phase copies, each failing if it changed the checkout — ECC SECURITY against this phase.
+ *
+ * A phase copy is the worker's own code, run before any reviewer sees it. Running it must leave the
+ * checkout exactly as it found it, ignored and untracked files included: otherwise it could leave state
+ * that a later attempt, or a pinned base check, then loads. The checkout is compared before and after
+ * each copy, and any difference fails that copy, with the reason in its output.
+ */
+export function runPhaseCopyChecks(sys: System, root: string, specs: readonly CheckSpec[]): readonly CheckResult[] {
+  // A FULL PICTURE ON A REAL CHECKOUT IS LARGE: ignored build output alone ran to megabytes here, past the
+  // spawn default, and an overflow reads as "git could not say" — failing every copy (ECC SECURITY round 2).
+  const picture = (): string | null => {
+    const s = sys.exec('git', ['-C', root, '--no-optional-locks', 'status', '--porcelain', '--ignored', '--untracked-files=all'], {
+      maxOutputBytes: PHASE_COPY_PICTURE_MAX_BYTES,
+    });
+    return s.code === 0 ? s.stdout : null;
+  };
+  return specs.map((spec) => {
+    const before = picture();
+    const result = runCheck(sys, root, spec);
+    const after = picture();
+    if (before !== null && after !== null && before === after) return result;
+    return {
+      ...result,
+      passed: false,
+      output: `${result.output}\n[ProjectOS] the phase's own validator copy changed the checkout while it ran (or git could not say), so it fails: a check must leave the tree as it found it.`.slice(-MAX_OUTPUT_CHARS),
+    };
+  });
 }
 
 /**

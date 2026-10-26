@@ -48,7 +48,7 @@ import {
   type WorkerSession,
 } from './workers.js';
 import { BUILT_IN_ADAPTERS } from './adapters/claudeCodeCli.js';
-import { collectEvidence, configuredChecks, requiredChecks, runChecks, type CheckResult } from './verification.js';
+import { collectEvidence, configuredChecks, phaseCopyChecks, requiredChecks, runChecks, runPhaseCopyChecks, type CheckResult } from './verification.js';
 import { withPinnedValidators } from './pinnedValidators.js';
 import { runDoctor, doctorRefusalLines, type DoctorReport } from '../doctor.js';
 import {
@@ -1786,10 +1786,12 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
       break;
     }
 
-    // THE VALIDATORS JUDGE FROM THE BASE COMMIT the brief was bound to, never the worker's copy.
-    const checks: readonly CheckResult[] = withPinnedValidators(sys, root, String(brief.repository.head), (pin) =>
-      runChecks(sys, root, requiredChecks(sys, root, brief, suites.checks, pin)),
-    );
+    // THE VALIDATORS JUDGE FROM THE BASE COMMIT the brief was bound to — and, for a required validator the
+    // phase was granted, from the phase's own copy as well, both required to pass (`phaseCopyChecks`).
+    const checks: readonly CheckResult[] = withPinnedValidators(sys, root, String(brief.repository.head), (pin) => [
+      ...runChecks(sys, root, requiredChecks(sys, root, brief, suites.checks, pin)),
+      ...runPhaseCopyChecks(sys, root, phaseCopyChecks(sys, root, brief.phase.requiredValidators, writeGrant.paths)),
+    ]);
     for (const c of checks) lines.push(`  ${c.passed ? 'PASS' : 'FAIL'} ${c.kind} ${c.id}`);
     options.onWorkState?.({
       state: 'VALIDATING',

@@ -623,7 +623,8 @@ export function foldRunRecords(ctx: CommandContext, result: Extract<RunResult, {
  *
  * THE SAME ROUTING `projectos continue` uses (`closureRouteFor`), so the two entry points cannot
  * disagree about which closure step comes next: prepare the records, ask the closure authority, or
- * resume on the owner's commit. Each is the existing command, called as the owner would type it;
+ * resume on the owner's commit — and a preparation that commits its records carries on into the request in
+ * the same call. Each is the existing command, called as the owner would type it;
  * nothing here closes a phase, asserts an identity or supplies a decision, and `phase-closure` stays in
  * `ABSOLUTE_OWNER_ONLY`. A dry run names the step and runs nothing.
  *
@@ -640,7 +641,7 @@ function handToClosure(
   const route = closureRouteFor(ctx, phaseId);
   const command = continueRouteCommand(route);
   if (dryRun) {
-    return ok([...report, '', `dry run: the closure route was not asked; the next step is \`${command}\``]);
+    return ok([...report, '', `dry run: the closure route was not asked; the next step is \`${command}\`${carriesOn(route)}`]);
   }
   const handed = dispatchContinueRoute(ctx, flags, route, {});
   return {
@@ -664,7 +665,9 @@ function handToClosure(
  * routed command applies still applies, and `phase-closure` stays in `ABSOLUTE_OWNER_ONLY`.
  *
  *   phase with work left (draft … awaiting_review)    →  run --execute --continue
- *   awaiting_closure, closure records not generated    →  closure prepare --id <phase>
+ *   awaiting_closure, closure records not generated    →  closure prepare --id <phase>, and — when that
+ *                                                         commits its records — closure request in the
+ *                                                         same call (PROJECTOS-FINISH-CONTINUE-INTEGRITY1A)
  *   awaiting_closure, records generated and committed  →  closure request --id <phase> --execute
  *   awaiting_closure, decision presented to the owner  →  closure resume --id <phase> --continue
  *   plan finished                                      →  nothing; reported complete
@@ -757,8 +760,21 @@ function dispatchContinueRoute(
   switch (route.kind) {
     case 'run':
       return run(ctx, continueForwarded(flags, { execute: true, continue: true }));
-    case 'closure-prepare':
-      return closurePrepare(ctx, { id: route.phaseId });
+    case 'closure-prepare': {
+      // ONE CONTINUE REACHES THE CLOSURE QUESTION — PROJECTOS-FINISH-CONTINUE-INTEGRITY1A (EXTERNAL-PROOF2A
+      // D7). Preparation used to end the call even when it had committed its records, so the closure
+      // question waited for a second `continue` that nothing in the records needed. Route ONCE more, from
+      // the records as they now stand: only a preparation whose records are committed moves the route on to
+      // the request, and a failure, or records left for the owner to commit, stops exactly as before.
+      const prepared = closurePrepare(ctx, { id: route.phaseId });
+      if (prepared.code !== 0) return prepared;
+      const next = closureRouteFor(ctx, route.phaseId);
+      // A RE-ROUTE THAT REFUSES IS SAID, not dropped: the preparation stands, and why nothing followed is shown.
+      if (next.kind === 'refused') return { code: prepared.code, lines: [...prepared.lines, '', ...next.lines] };
+      if (next.kind !== 'closure-request') return prepared;
+      const asked = closureRequest(ctx, continueForwarded(flags, { id: next.phaseId, execute: true }));
+      return { code: asked.code, lines: [...prepared.lines, '', `carrying on: ${continueRouteCommand(next)}`, ...asked.lines] };
+    }
     case 'closure-request':
       return closureRequest(ctx, continueForwarded(flags, { id: route.phaseId, execute: true }));
     case 'closure-resume':
@@ -770,6 +786,11 @@ function dispatchContinueRoute(
     default:
       return ok(route.lines);
   }
+}
+
+/** What a dry run adds for a preparation, which now carries on into the request once its records are committed. */
+function carriesOn(route: ContinueRoute): string {
+  return route.kind === 'closure-prepare' ? ', and the closure request after it once its records are committed' : '';
 }
 
 function continueRouteCommand(route: ContinueRoute): string {
@@ -819,7 +840,7 @@ export function continueCommand(ctx: CommandContext, flags: Flags, ownerWait: Ow
       const r = run(ctx, continueForwarded(flags, { 'dry-run': true, continue: true }));
       return { code: r.code, lines: [header, ...r.lines] };
     }
-    return ok([header, '', `dry run: nothing was run; the next step is \`${continueRouteCommand(route)}\``]);
+    return ok([header, '', `dry run: nothing was run; the next step is \`${continueRouteCommand(route)}\`${carriesOn(route)}`]);
   }
 
   const routed = dispatchContinueRoute(ctx, flags, route, ownerWait);

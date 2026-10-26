@@ -121,6 +121,9 @@ const TESTS = {
   // PROJECTOS-FINISH-API-GATEKEEPER1A.
   "projectos/agent/test/hostReviewPath.e2e.test.ts": ["NO broker opt-in, nothing is composed", "the trusted BROKER is composed in the pre-hybrid shape", "refused before dispatch: nothing posted, no ledger", "reaches the broker exactly once", "refused as ambiguous"],
   "projectos/agent/test/hybridClosureReconcile.test.ts": ["closure composes the trusted broker only on the committed opt-in with no Host route; reconcile composes none", "on the broker opt-in, a project the installation does not allowlist is refused before the closure request", "ProjectOS commits the decision, the phase closes and the close is persisted", "an INTERACTIVE answer is never committed by ProjectOS, grant or not", "without the grant the owner commit is required exactly as before, and a ProjectOS-identity commit is refused", "a delegation ProjectOS committed itself grants nothing", "a wait whose provenance was stripped is not an answer produced in the call", "with the grant but no technical delegation, nothing is committed"],
+  // PROJECTOS-FINISH-CONTINUE-INTEGRITY1A.
+  "projectos/agent/test/continueIntegrity.test.ts": ["is added for a required validator the write paths name exactly", "is NOT added when the write paths do not cover the validator", "never turns an unsafe validator name into a path", "a phase copy that changes the checkout while it runs FAILS", "reads the checkout picture with a buffer large enough for a real checkout"],
+  "projectos/agent/test/continuationEndToEnd.test.ts": ["one continue carries on from a preparation that committed its records", "a preparation that only GENERATES its records (no technical delegation) stops there", "that BREAKS it fails on the phase copy", "CHANGES it and keeps it passing runs BOTH copies, in the run and in closure preparation"],
   // PROJECTOS-FINISH-ZERO-TOUCH-CLOSURE1A.
   "projectos/agent/test/zeroTouchClosure.test.ts": ["with the grant, commits and pushes exactly the closure decision", "without the grant — absent, refused or judged invalid — commits nothing", "the grant never lifts a reserved commit or push", "with the grant, every other implementer-shaped or foreign identity is still refused"],
   "projectos/agent/test/closureTurn.test.ts": ["an invented decision time", "the request actually sent names the time of the question"],
@@ -433,12 +436,13 @@ function run() {
     E("FW-2d: requiredChecks no longer passes its pin through");
   }
   // FW-3: both call sites pin — the run to the brief's base commit, closure preparation to the run's.
-  if (!/withPinnedValidators\(sys, root, String\(brief\.repository\.head\), \(pin\) =>\s*runChecks\(sys, root, requiredChecks\(sys, root, brief, suites\.checks, pin\)\),?\s*\)/.test(runner)) {
+  // (PROJECTOS-FINISH-CONTINUE-INTEGRITY1A adds the phase copy beside the pinned checks; CI-3 pins that.)
+  if (!/withPinnedValidators\(sys, root, String\(brief\.repository\.head\), \(pin\) => \[\s*\.\.\.runChecks\(sys, root, requiredChecks\(sys, root, brief, suites\.checks, pin\)\),/.test(runner)) {
     E("FW-3a: the loop's checks are no longer pinned to the brief's base commit");
   }
   const prepareFn = fnBody(files[CLOSURE_REL], "closurePrepare") || "";
   if (!/const base = typeof run\['baseHead'\] === 'string' \? run\['baseHead'\] : '';\s*if \(!\/\^\[0-9a-f\]\{40\}\$\/\.test\(base\)\) \{\s*return fail\(2, \['REFUSED \(RUN_BASE_UNKNOWN\)/.test(prepareFn) ||
-      !/withPinnedValidators\(sys, root, base, \(pin\) => \{\s*const specs = checksFor\(sys, root, names\('requiredValidators'\), suites\.checks, pin\);/.test(prepareFn)) {
+      !/withPinnedValidators\(sys, root, base, \(pin\) => \{[\s\S]{0,400}?const pinnedSpecs = checksFor\(sys, root, names\('requiredValidators'\), suites\.checks, pin\);/.test(prepareFn)) {
     E("FW-3b: closure preparation no longer runs the validators from the run's base commit");
   }
   // FW-4: the pin itself — what is pinned, from where, and that it cannot leak into the checkout.
@@ -706,6 +710,42 @@ function run() {
       !/checkClosureResponse\(record, closureExpectations\(input, request, deps\.consumedDecisionIds, true\)\)/.test(fnBody(turn13, "takeClosureTurn") || "") ||
       !/checkClosureResponse\(record, closureExpectations\(input, request, deps\.consumedDecisionIds, false\)\)/.test(fnBody(turn13, "takeInteractiveClosureTurn") || "")) {
     E("ZT-5: the closure turn no longer gives the decision-time window, or marks the wrong route as answered in the call");
+  }
+
+  // (14) ONE CONTINUE REACHES CLOSED; A PHASE CANNOT GRADE ITS OWN NEW CHECK WITH THE OLD ONE —
+  // PROJECTOS-FINISH-CONTINUE-INTEGRITY1A.
+  // CI-1 (D7): a preparation that committed its records carries on into the request, once; a failed
+  // preparation, or records left uncommitted, stops as before.
+  const dispatch14 = fnBody(files[RUN_REL], "dispatchContinueRoute") || "";
+  if (!/const prepared = closurePrepare\(ctx, \{ id: route\.phaseId \}\);\s*if \(prepared\.code !== 0\) return prepared;\s*const next = closureRouteFor\(ctx, route\.phaseId\);\s*if \(next\.kind === 'refused'\) return \{ code: prepared\.code, lines: \[\.\.\.prepared\.lines, '', \.\.\.next\.lines\] \};\s*if \(next\.kind !== 'closure-request'\) return prepared;\s*const asked = closureRequest\(ctx, continueForwarded\(flags, \{ id: next\.phaseId, execute: true \}\)\);/.test(dispatch14) ||
+      // "Committed" is what the route's own clean-tree requirement means (ECC SECURITY round 1, L2).
+      !/return closurePrepared\(ctx, gc\.context, phaseId\) \? \{ kind: 'closure-request', phaseId \} : \{ kind: 'closure-prepare', phaseId \};/.test(files[RUN_REL])) {
+    E("CI-1: continue no longer carries a committed preparation into the closure request, or carries one that failed or was not committed");
+  }
+  // CI-2 (D8): the phase copy is selected only for a SAFE required validator name its write paths cover,
+  // and runs the subject's file without the pin loader, under its own id.
+  const phaseCopy = fnBody(files[VERIFICATION_REL], "phaseCopyChecks") || "";
+  if (!/\.filter\(\(name\) => SAFE_VALIDATOR_NAME\.test\(name\) && covered\(`projectos\/validators\/\$\{name\}\.cjs`\)\)/.test(phaseCopy) ||
+      !/id: `\$\{name\}\$\{PHASE_COPY_SUFFIX\}`,/.test(phaseCopy) ||
+      !/args: \[script\],/.test(phaseCopy) || /--require/.test(phaseCopy) ||
+      // The pinned node runner and a short bound (ECC SECURITY round 1, M1 and M2); an exact-file match only.
+      !/command: VALIDATOR_RUNNER,/.test(phaseCopy) || !/timeoutMs: PHASE_COPY_TIMEOUT_MS,/.test(phaseCopy) ||
+      !phaseCopy.includes("const covered = (rel: string): boolean => paths.some((p) => p.replace(/\\\\/g, '/').replace(/^\\.[/]/, '') === rel);") ||
+      !/export const PHASE_COPY_SUFFIX = '@phase-copy';/.test(files[VERIFICATION_REL]) ||
+      !/export const PHASE_COPY_TIMEOUT_MS = 10 \* 60_000;/.test(files[VERIFICATION_REL])) {
+    E("CI-2: the phase copy of a granted validator is selected wrongly, run with the pin, unbounded, by another runner, or reported under the base copy's id");
+  }
+  // CI-3 (D8): it is ADDED to the pinned checks, in the run and in closure preparation alike, through the
+  // runner that fails a copy which changed the checkout (ECC SECURITY round 1, M1).
+  const copyRunner = fnBody(files[VERIFICATION_REL], "runPhaseCopyChecks") || "";
+  if (!/\.\.\.runPhaseCopyChecks\(sys, root, phaseCopyChecks\(sys, root, brief\.phase\.requiredValidators, writeGrant\.paths\)\),/.test(files[RUNNER_REL]) ||
+      !/const writePaths = phaseWritePaths\(gc\.context\.plan, id\)\.entries\.filter\(\(p\): p is string => typeof p === 'string'\);/.test(fnBody(files[CLOSURE_REL], "closurePrepare") || "") ||
+      !/const copySpecs = phaseCopyChecks\(sys, root, names\('requiredValidators'\), writePaths\);/.test(fnBody(files[CLOSURE_REL], "closurePrepare") || "") ||
+      !/return \[\.\.\.runChecks\(sys, root, pinnedSpecs\), \.\.\.runPhaseCopyChecks\(sys, root, copySpecs\)\];/.test(fnBody(files[CLOSURE_REL], "closurePrepare") || "") ||
+      !/'status', '--porcelain', '--ignored', '--untracked-files=all'\], \{\s*maxOutputBytes: PHASE_COPY_PICTURE_MAX_BYTES,\s*\}\)/.test(copyRunner) ||
+      !/export const PHASE_COPY_PICTURE_MAX_BYTES = 256 \* 1024 \* 1024;/.test(files[VERIFICATION_REL]) ||
+      !/if \(before !== null && after !== null && before === after\) return result;\s*return \{\s*\.\.\.result,\s*passed: false,/.test(copyRunner)) {
+    E("CI-3: the phase copy is not added to the pinned checks in both the run and closure preparation, or a copy that changed the checkout can pass");
   }
 
   // (9) PROVEN.

@@ -48,7 +48,8 @@ import {
   unattestedRuns,
   validationRecordPath,
 } from '../closureGate.js';
-import { checksFor, configuredChecks, runChecks, type CheckResult } from '../loop/verification.js';
+import { checksFor, configuredChecks, phaseCopyChecks, runChecks, runPhaseCopyChecks, type CheckResult } from '../loop/verification.js';
+import { phaseWritePaths } from '../loop/workers.js';
 import { withPinnedValidators } from '../loop/pinnedValidators.js';
 import {
   commitOwnRecordsFor,
@@ -677,7 +678,12 @@ export function closurePrepare(ctx: CommandContext, flags: Flags): CommandResult
     return fail(2, ['REFUSED (RUN_BASE_UNKNOWN): the run records no base commit, so its validators cannot be run from the commit the phase started at.']);
   }
   const checked = withPinnedValidators(sys, root, base, (pin) => {
-    const specs = checksFor(sys, root, names('requiredValidators'), suites.checks, pin);
+    // THE SAME SET THE RUN RAN: the pinned base copies, plus the phase's own copy of any required validator
+    // its approved write paths cover (`phaseCopyChecks`, PROJECTOS-FINISH-CONTINUE-INTEGRITY1A).
+    const writePaths = phaseWritePaths(gc.context.plan, id).entries.filter((p): p is string => typeof p === 'string');
+    const pinnedSpecs = checksFor(sys, root, names('requiredValidators'), suites.checks, pin);
+    const copySpecs = phaseCopyChecks(sys, root, names('requiredValidators'), writePaths);
+    const specs = [...pinnedSpecs, ...copySpecs];
     if (specs.length === 0) {
       return fail(2, ['REFUSED (NOTHING_TO_VALIDATE): the phase requires no validator and the project configures no check; a validation record of nothing proves nothing.']);
     }
@@ -686,7 +692,7 @@ export function closurePrepare(ctx: CommandContext, flags: Flags): CommandResult
     if (missing.length > 0) {
       return fail(2, ['REFUSED (CHECK_SET_CHANGED): checks the run ran are no longer configured, so the subject would be judged on less.', ...missing.map((m) => `  ${m}`)]);
     }
-    return runChecks(sys, root, specs);
+    return [...runChecks(sys, root, pinnedSpecs), ...runPhaseCopyChecks(sys, root, copySpecs)];
   });
   if (!Array.isArray(checked)) return checked as CommandResult;
   const results: readonly CheckResult[] = checked;

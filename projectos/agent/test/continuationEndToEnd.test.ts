@@ -866,12 +866,17 @@ describe('cross-phase continuation carries selection stops as results', () => {
  * repository afterwards, not of the preparation's account of itself.
  */
 describe('closure prepare generates the closure records from the run', () => {
-  function runToAwaitingClosure(w: World, sys: System, deliver: readonly string[] = ['delivered.txt']): void {
+  function runToAwaitingClosure(
+    w: World,
+    sys: System,
+    deliver: readonly string[] = ['delivered.txt'],
+    content: Readonly<Record<string, string>> = {},
+  ): void {
     let session = '';
     const adapters = adapterWriting(w.root, () => session, () => {
       for (const rel of deliver) {
         mkdirSync(join(w.root, ...rel.split('/').slice(0, -1)), { recursive: true });
-        writeFileSync(join(w.root, ...rel.split('/')), 'the work\n');
+        writeFileSync(join(w.root, ...rel.split('/')), content[rel] ?? 'the work\n');
       }
     });
     const first = runLoop(sys, w.root, { dryRun: true, adapters, invocation: { pid: 4242, ppid: 1717, argv: ['node'], cwd: w.root } });
@@ -1158,6 +1163,90 @@ describe('closure prepare generates the closure records from the run', () => {
     expect(text).toContain(`closure prepared for ${PHASE}`);
     const next = continueCommand({ sys, root: w.root }, { 'dry-run': true });
     expect(next.lines.join('\n')).toContain(`closure-request → projectos closure request --id ${PHASE} --execute`);
+  });
+  // PROJECTOS-FINISH-CONTINUE-INTEGRITY1A (EXTERNAL-PROOF2A D7): one continue carries a phase through a
+  // preparation that committed its records into the closure question, instead of stopping there.
+  it('one continue carries on from a preparation that committed its records into the closure request', () => {
+    const sys = fixedClock();
+    const w = world({ closureDelegation: true });
+    runToAwaitingClosure(w, sys);
+    ownerCommitsAll(w, 'owner: lifecycle');
+    // The fixture has no gatekeeper configuration, so the request is interactive; it must not hold the gate.
+    const r = continueCommand({ sys, root: w.root }, { execute: true, 'gate-wait-minutes': '0' });
+    const text = r.lines.join('\n');
+    expect(text).toContain(`closure prepared for ${PHASE}`);
+    expect(text).toContain('committed and pushed 3 closure record(s)');
+    expect(text).toContain(`carrying on: projectos closure request --id ${PHASE} --execute`);
+    // AND THE REQUEST ACTUALLY RAN: the closure question was formed and put to the (interactive) authority.
+    expect(text).toContain(`interactive closure request`);
+    expect(text).toContain(`for ${PHASE}`);
+  });
+
+  it('a preparation that only GENERATES its records (no technical delegation) stops there, as before', () => {
+    const sys = fixedClock();
+    const w = world({ closureDelegation: true });
+    runToAwaitingClosure(w, sys);
+    ownerCommitsAll(w, 'owner: lifecycle');
+    // The committed delegation, as prepare reads it, carries no technical scope; see the test above that
+    // proves prepare then only generates.
+    const withoutTechnical: System = {
+      ...sys,
+      exec: (cmd, args, options) => {
+        const shown = sys.exec(cmd, args, options);
+        if (!args.includes('show') || !args.some((a) => a.includes('closure-delegation.json')) || shown.code !== 0) return shown;
+        const d = JSON.parse(shown.stdout) as { delegatedScope: string[] };
+        return { ...shown, stdout: JSON.stringify({ ...d, delegatedScope: d.delegatedScope.filter((s) => s !== 'technical-continuation') }) };
+      },
+    };
+    const r = continueCommand({ sys: withoutTechnical, root: w.root }, { execute: true, 'gate-wait-minutes': '0' });
+    const text = r.lines.join('\n');
+    expect(text).toContain(`closure prepared for ${PHASE}`);
+    expect(text).not.toContain('carrying on:');
+  });
+
+  // PROJECTOS-FINISH-CONTINUE-INTEGRITY1A (EXTERNAL-PROOF2A D8): a phase granted its own required validator
+  // is judged by its new copy as well as the base copy.
+  it('a phase granted its own required validator that BREAKS it fails on the phase copy, though the base copy passes', () => {
+    const sys = fixedClock();
+    const w = world({ writePaths: ['./delivered.txt', 'projectos/validators/validate-all.cjs'] });
+    let session = '';
+    const adapters = adapterWriting(w.root, () => session, () => {
+      writeFileSync(join(w.root, 'delivered.txt'), 'the work\n');
+      writeFileSync(join(w.root, 'projectos', 'validators', 'validate-all.cjs'), 'process.exit(3);\n');
+    });
+    const first = runLoop(sys, w.root, { dryRun: true, adapters, invocation: { pid: 4242, ppid: 1717, argv: ['node'], cwd: w.root } });
+    session = String((first as { sessionId?: string }).sessionId ?? '');
+    const r = runLoop(sys, w.root, {
+      adapters,
+      expectedDecider: DELEGATE,
+      gatekeeper: gatekeeperDeps(w.root, ['commit', 'push']) as never,
+      invocation: { pid: 4242, ppid: 1717, argv: ['node', 'projectos.js', 'run', '--execute'], cwd: w.root },
+    });
+    const text = r.lines.join('\n');
+    expect(text).toContain('PASS validator validate-all');
+    expect(text).toContain('FAIL validator validate-all@phase-copy');
+    // NOTHING WAS COMMITTED: the run stopped on the failing check, with HEAD where it started.
+    expect(r.ok).toBe(true);
+    if (!r.ok) throw new Error('unreachable');
+    expect(r.stop).not.toBeNull();
+    expect(git(w.root, 'rev-parse', 'HEAD').trim()).toBe(w.head);
+  });
+
+  it('a phase granted its own required validator that CHANGES it and keeps it passing runs BOTH copies, in the run and in closure preparation', () => {
+    const sys = fixedClock();
+    const w = world({ writePaths: ['./delivered.txt', 'projectos/validators/validate-all.cjs'] });
+    runToAwaitingClosure(w, sys, ['delivered.txt', 'projectos/validators/validate-all.cjs'], {
+      'projectos/validators/validate-all.cjs': 'console.log("validate-all: the phase\'s hardened copy PASS");\n',
+    });
+    const exec = join(w.root, '.projectops', 'execution');
+    const ev = JSON.parse(readFileSync(join(exec, readdirSync(exec).find((f) => f.endsWith('.evidence.json')) as string), 'utf8')) as { checks: { id: string; passed: boolean }[] };
+    // The phase changed its validator: both the base copy and the phase's own copy ran, and both passed.
+    expect(ev.checks.map((c) => `${c.id}:${c.passed}`).sort()).toEqual(['validate-all:true', 'validate-all@phase-copy:true']);
+    expect(readFileSync(join(w.root, 'projectos', 'validators', 'validate-all.cjs'), 'utf8')).toContain('hardened copy');
+    ownerCommitsAll(w, 'owner: lifecycle');
+    const prepared = closurePrepare({ sys, root: w.root }, { id: PHASE });
+    expect(prepared.code, prepared.lines.join('\n')).toBe(0);
+    expect(prepared.lines.join('\n')).toContain('PASS validator validate-all@phase-copy');
   });
 });
 
