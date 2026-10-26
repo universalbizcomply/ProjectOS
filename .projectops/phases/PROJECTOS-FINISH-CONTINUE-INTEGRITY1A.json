@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-FINISH-CONTINUE-INTEGRITY1A",
   "project": "ProjectOS",
   "objective": "Two defects found live by EXTERNAL-PROOF2A. D7: when `projectos continue` hands a finished phase to closure preparation and preparation commits its records, it routes once more and asks the closure question in the same call, instead of stopping. D8: when a phase's approved write grant covers one of its own required validators, the checks run that validator twice — the base copy, pinned as now, and the phase's own copy against the subject — and both must pass, in the run's checks and in closure preparation alike.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-10-26T10:55:52.460Z",
       "note": "No unresolved CRITICAL or HIGH; carried items in docs/finish/PROJECTOS-FINISH-CONTINUE-INTEGRITY1A.md."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-10-26T10:55:56.608Z",
+      "note": "closed by owner Murad, decision projectos:PROJECTOS-FINISH-CONTINUE-INTEGRITY1A:owner-closure:e4afff6b"
     }
   ]
 }
