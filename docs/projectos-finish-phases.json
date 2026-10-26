@@ -1,7 +1,7 @@
 {
   "projectId": "projectos",
   "businessVision": "ProjectOS delivers ordinary technical work on real projects end to end: Claude implements, the ChatGPT gatekeeper reviews through the trusted broker without the owner's relay, and ProjectOS carries each approved phase through checks, review, commit, push and closure; where the owner has delegated the closure commit to ProjectOS, a phase closes with no owner act at all, and the owner holds every protected action.",
-  "definitionOfComplete": "Six phases are complete: phase write grants come from a structured list of paths in the approved plan, with the judging validators run from the last approved commit; phase closure works for any governed project; the ChatGPT gatekeeper answers without the owner's relay through the trusted broker (owner decision of 2026-10-25); ProjectOS has carried one ordinary phase end to end on a new governed project, the website of an SEO and social-media posting agency, with evidence; a project whose owner grants the closure-decision-commit scope has its delegate's closure decision committed by ProjectOS itself, with a model-invented decision time refused; and a second agency phase has closed end to end with no owner act. Dead Aisle and PolyGo are not part of this plan (owner decision of 2026-10-25). Host-attested unattended review, the signed installer, Forge and the Control Center redesign are deferred and are reopened only by an owner decision.",
+  "definitionOfComplete": "Eight phases are complete: one `projectos continue` carries a phase from work to closed, a phase that changes its own required validator is judged by that new copy as well as the base copy, and a third agency phase proves both with no owner act; and before them: phase write grants come from a structured list of paths in the approved plan, with the judging validators run from the last approved commit; phase closure works for any governed project; the ChatGPT gatekeeper answers without the owner's relay through the trusted broker (owner decision of 2026-10-25); ProjectOS has carried one ordinary phase end to end on a new governed project, the website of an SEO and social-media posting agency, with evidence; a project whose owner grants the closure-decision-commit scope has its delegate's closure decision committed by ProjectOS itself, with a model-invented decision time refused; and a second agency phase has closed end to end with no owner act. Dead Aisle and PolyGo are not part of this plan (owner decision of 2026-10-25). Host-attested unattended review, the signed installer, Forge and the Control Center redesign are deferred and are reopened only by an owner decision.",
   "successStandard": "On the agency project, once the owner has granted the closure-decision-commit scope, a phase runs from continue to closed with no owner act: the ChatGPT gatekeeper answers through the trusted broker, ChatGPT decides closure, and ProjectOS commits that decision and the records around it, truthfully recorded, with no protected action taken without the owner.",
   "approvedScope": [
     "A structured per-phase list of write paths in the plan schema, the plan source format and the plan engine, from which the worker's write grant is derived exactly.",
@@ -13,7 +13,10 @@
     "By owner decision of 2026-10-25 (\"Route 2 now\"): the ChatGPT gatekeeper answers without the owner's relay through the existing trusted installation broker, which resolves the OpenAI key inside itself from the installation's Windows credential store, only for an allowlisted project carrying its own committed secrets-handling receipt; the agent process never holds the key.",
     "By owner decision of 2026-10-26 (\"I have given you full authority\", in answer to the proposal to remove the owner's closure commit for delegated projects): a new owner-granted delegation scope, closure-decision-commit. When a project's committed closure delegation carries it and the phase leaves commit and push delegated, ProjectOS commits and pushes the delegate's closure decision and its spend ledger entry under the ProjectOS implementer identity, closes through the existing delegated phase advance, and commits the records that persist the close. A project without the scope keeps the owner's closure commit unchanged.",
     "Refusing a closure answer whose decidedAt is not a valid timestamp inside the window of the question it answers.",
-    "A second agency phase, carried end to end under the new scope, as the live proof."
+    "A second agency phase, carried end to end under the new scope, as the live proof.",
+    "One `projectos continue` carries a phase through closure preparation into the closure question, instead of stopping after preparation (EXTERNAL-PROOF2A D7).",
+    "A phase whose write grant covers one of its own required validators is judged by the phase's copy of that validator as well as the base copy, both required to pass (EXTERNAL-PROOF2A D8).",
+    "A third agency phase, fixing the gaps in its site validator, carried with one continue and no owner act, as the live proof."
   ],
   "environments": [
     {
@@ -318,6 +321,94 @@
         "One ordinary agency phase runs through projectos continue from start to closed, with the closure decision and the persisted close committed by ProjectOS and no owner act for the phase.",
         "Evidence under docs/finish/ records the commits, checks, review and closure decisions, the spend, the owner acts (target zero) and every defect found, live results reported separately from synthetic tests.",
         "Any ProjectOS defect the live run exposes is recorded with its cause, and a fix outside this phase's paths is raised as a separate owner-gated amendment."
+      ],
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredValidators": [
+        "val-projectos-boot-continue1a",
+        "validate-current-project-state",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC CODE review",
+        "ECC SECURITY review"
+      ],
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "secrets-handling",
+        "payment-or-live-charge"
+      ]
+    },
+    {
+      "phaseId": "PROJECTOS-FINISH-CONTINUE-INTEGRITY1A",
+      "title": "One continue reaches closed; a phase cannot grade its own new check with the old one",
+      "description": "Two defects found live by EXTERNAL-PROOF2A. D7: when `projectos continue` hands a finished phase to closure preparation and preparation commits its records, it routes once more and asks the closure question in the same call, instead of stopping. D8: when a phase's approved write grant covers one of its own required validators, the checks run that validator twice — the base copy, pinned as now, and the phase's own copy against the subject — and both must pass, in the run's checks and in closure preparation alike.",
+      "scope": "Edit projectos/agent/src/commands/run.ts, projectos/agent/src/loop/verification.ts, projectos/agent/src/loop/runner.ts, projectos/agent/src/commands/closure.ts, projectos/agent/test/ and projectos/validators/val-projectos-boot-continue1a.cjs; add evidence under docs/finish/.",
+      "writePaths": [
+        "projectos/agent/src/commands/run.ts",
+        "projectos/agent/src/loop/verification.ts",
+        "projectos/agent/src/loop/runner.ts",
+        "projectos/agent/src/commands/closure.ts",
+        "projectos/agent/test/",
+        "projectos/validators/val-projectos-boot-continue1a.cjs",
+        "docs/finish/"
+      ],
+      "exclusions": [
+        "No change to who may decide or commit closure, to the closure-decision-commit grant, or to the absolute owner-only actions.",
+        "The extra closure step happens only after a successful preparation that committed its records, and at most once per call.",
+        "The base copy of every required validator still runs pinned; the phase copy is added, never substituted.",
+        "No Rust source, Cargo manifest, Host, credential or provider change."
+      ],
+      "dependsOn": [
+        "PROJECTOS-FINISH-EXTERNAL-PROOF2A"
+      ],
+      "acceptanceCriteria": [
+        "A continue that runs a closure preparation which commits its records goes on to ask the closure question in the same call; a preparation that only generates its records, or fails, stops as before.",
+        "A phase whose write grant covers a required validator runs both copies, reported separately, and fails if either fails; a phase whose grant does not cover it runs only the pinned copy, as before; closure preparation runs the same set as the run.",
+        "Each new rule is pinned by a validator and killed by a named mutation; agent and core tests green; validate-all with no new failure beyond the two known; the ECC CODE and ECC SECURITY reviews with no unresolved critical or high finding."
+      ],
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredValidators": [
+        "val-projectos-boot-continue1a",
+        "val-projectos-closure-transport1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC CODE review",
+        "ECC SECURITY review"
+      ],
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ]
+    },
+    {
+      "phaseId": "PROJECTOS-FINISH-EXTERNAL-PROOF3A",
+      "title": "A third agency phase closes with one continue and no owner act, judged by its own new check",
+      "description": "On the SEO and social-media agency project, approve the agency's next plan and carry one ordinary phase — closing the gaps the reviews found in its site validator (unquoted attributes, JSON-LD script src, per-script JSON, base href, targeted fixtures, an explicit fixtures-only root override, temp cleanup) — from a single `projectos continue` to closed, with the phase's new validator copy judged alongside the base copy, the closure decision and the persisted close committed by ProjectOS, the owner's acts counted and every defect recorded.",
+      "scope": "Add evidence under docs/finish/ and new tests under projectos/agent/test/finish/. The agency phase happens under that project's own approved plan in its own repository.",
+      "writePaths": [
+        "docs/finish/",
+        "projectos/agent/test/finish/"
+      ],
+      "exclusions": [
+        "No deployment, domain, GitHub repository, real social-media post, email or message for the agency project.",
+        "No change to grant, owner-gate, technical-continuation or closure enforcement code in ProjectOS; a live run that needs one is a separate owner-gated amendment.",
+        "No Rust source, Cargo manifest, Host, credential or provider change in ProjectOS."
+      ],
+      "dependsOn": [
+        "PROJECTOS-FINISH-CONTINUE-INTEGRITY1A"
+      ],
+      "acceptanceCriteria": [
+        "The agency's next plan is approved and its phase carries the validator fixes with explicit file write paths.",
+        "One `projectos continue` carries the phase from start to closed, with the phase copy of the validator judged as well as the base copy, and no owner act for the phase.",
+        "Evidence under docs/finish/ records the commits, checks, review and closure decisions, the spend, the owner acts and every defect found, live results reported separately from synthetic tests."
       ],
       "riskLevel": "high",
       "autonomyLevel": "gated-execution",
