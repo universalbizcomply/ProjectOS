@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-FINISH-EXTERNAL-PROOF1A",
+  "project": "ProjectOS",
+  "objective": "Prove ProjectOS on a real new project: create a local governed repository for an SEO and social-media posting agency, seeded — by owner decision of 2026-10-25 — with three MIT-licensed open-source toolkits vendored at pinned commits after a supply-chain review (zubair-trabzada/geo-seo-claude, katzca/autosocial, Jakeschincariol/instagram-agent-skill), with every posting path disabled, approve its first plan, and carry one ordinary phase — the agency's marketing website — through projectos continue: worker implementation within its writePaths, automated checks, the gatekeeper review (answered through the trusted broker, no relay), technical commit and push to the local remote, closure preparation and the owner's closure commit, with the owner's acts counted and the results recorded. It runs after PROJECTOS-FINISH-API-GATEKEEPER1A has landed, so the review is answered without a relay.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-10-26T06:35:25.957Z",
+      "note": "Owner-approved plan v1.12 (activation 96d5e64). The agency project was chosen by the owner on 2026-10-25 (\"No Dead Aisle, instead, I want you to create a SEO, Social Media Posting agency,\"); Claude (lead) set it up on the owner's grant \"I give you full authority now\". The phase record is created after the evidence commit; the transitions below record the work already done, in order."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-10-26T06:35:26.349Z",
+      "note": "Agency repo C:/dev/SEOAgency created and governed (31a1171..b3990d4): three MIT toolkits vendored at pinned commits after a supply-chain review, autosocial inert, validate-site check, first plan approved by the owner (PLANDEC a1e9038, genesis 380ab72)."
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-10-26T06:35:26.750Z",
+      "note": "Live run at ProjectOS 7d1343e: SEO-AGENCY-WEBSITE1A through projectos continue: worker within site/, validate-site PASS, review GKREQ-a4d090c3c1a82185f8b3b11a approved through the broker, technical commit 7d627d7, run records d1710c7, closure records 48a0d1b, closure CLREQ-0b3a4b17e03c65e3b73788ed close, owner commit 357e92a, closed. 0 relays, 6728 micro-USD."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-10-26T06:35:27.173Z",
+      "note": "Evidence bf341eb (docs/finish/PROJECTOS-FINISH-EXTERNAL-PROOF1A.md): owner acts 2 target plus 2 one-time excess with causes; defects D1-D6 recorded for separate owner-gated amendments. Required validators val-projectos-boot-continue1a, validate-current-project-state, validate-no-secrets PASS."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-10-26T06:35:27.548Z",
+      "note": "ECC CODE round 1: 1 HIGH (owner-act count), 5 MEDIUM; ECC SECURITY round 1: 2 MEDIUM; one fix round; round 2 both approve, 0 CRITICAL, 0 HIGH."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-10-26T06:35:27.952Z",
+      "note": "Reviews complete; no unresolved CRITICAL or HIGH; D6 (MEDIUM) and the other items carried as owner-gated amendments with triggers."
+    }
+  ]
+}
