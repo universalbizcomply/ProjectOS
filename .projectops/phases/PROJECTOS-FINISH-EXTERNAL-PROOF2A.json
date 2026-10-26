@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-FINISH-EXTERNAL-PROOF2A",
   "project": "ProjectOS",
   "objective": "On the SEO and social-media agency project, record the owner's grant of the closure-decision-commit scope in the agency's committed closure delegation, approve the agency's next plan, and carry one ordinary phase, hardening the agency's site check, through projectos continue to closed: worker, checks, the gatekeeper review through the trusted broker, technical commit and push, closure preparation, the ChatGPT closure decision committed by ProjectOS, and the persisted close, with the owner's acts counted and every defect recorded.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-10-26T09:03:15.902Z",
       "note": "No unresolved CRITICAL or HIGH; carried items in docs/finish/PROJECTOS-FINISH-EXTERNAL-PROOF2A.md."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-10-26T09:03:20.905Z",
+      "note": "closed by owner Murad, decision projectos:PROJECTOS-FINISH-EXTERNAL-PROOF2A:owner-closure:4a0a4456"
     }
   ]
 }
