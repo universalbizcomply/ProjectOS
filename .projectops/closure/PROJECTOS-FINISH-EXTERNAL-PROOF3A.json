@@ -1,0 +1,25 @@
+{
+  "phaseId": "PROJECTOS-FINISH-EXTERNAL-PROOF3A",
+  "evidenceSubjectHead": "6787981016f40cd33e9ee60d0508b74739f42124",
+  "baselineCommit": "1a812b8d325c58add5cd035d87689f164ad6165f",
+  "validatorsPass": true,
+  "checksPass": true,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "unresolvedCritical": 0,
+  "unresolvedHighIds": [],
+  "headedProofPass": null,
+  "protectedEffects": "NONE",
+  "establishedAt": "2026-10-26T11:02:26.362Z",
+  "notes": [
+    "THIS RECORD CLOSES NOTHING. Closure evidence for PROJECTOS-FINISH-EXTERNAL-PROOF3A, phase 8 of 8 of plan v1.15, closed owner-direct under the owner's general grant of full authority (see the decision record). NO gatekeeper closure ruling was obtained for THIS phase and none is claimed. No code writes this file; the convention follows PROJECTOS-FOUNDATION-GAPS1A.",
+    "SUBJECT. 6787981 — one docs commit on 1a812b8 adding docs/finish/PROJECTOS-FINISH-EXTERNAL-PROOF3A.md (inside writePaths docs/finish/); 0 source, test, Rust or Cargo change. Pushed by a normal fast-forward.",
+    "validatorsPass: val-projectos-boot-continue1a, validate-current-project-state and validate-no-secrets PASS at the subject.",
+    "checksPass: agency at dde2ead — validate-site PASS in both copies (base and phase copy) in the run and in prepare; fixtures 17/17 (lead-run after the close, not a gate); three bypass probes refused; tree clean; work = origin/work. No ProjectOS code changed.",
+    "LIVE RESULT: agency SEO-AGENCY-SITE-CHECK2A at ProjectOS e4afff6, ONE continue --execute: worker; PASS validate-site and validate-site@phase-copy; review GKREQ-ee540a3bb068645b9f6e3ea1 (437 micro-USD); technical commit 6847c53, run records 4f3e55b, closure records db485a9 (all ProjectOS); carried on in the same call; closure CLREQ-ffd510383096aa37c082cf1b (5566 micro-USD) decided close, decidedAt 2026-10-26T10:53:21.900Z; decision committed by ProjectOS e38f318; closed; close persisted dde2ead. Zero owner acts for the phase. Setup lead-authored under the owner's name (disclosed).",
+    "reviewsComplete: ECC CODE APPROVE once corrected (0/0/4 MEDIUM/2 LOW: agency criteria gaps, a trailer misstatement — corrected). ECC SECURITY WARNING (0 CRITICAL, 2 HIGH, 3 MEDIUM, 3 LOW): the HIGHs and MEDIUMs are residual bypasses in the agency's validator, i.e. the agency phase closed with its own criteria not fully met (D11, disclosed; the fix is an agency follow-up phase with independent review). Both confirmed the ProjectOS mechanics: one invocation, both validator copies judged, the closure chain exact, no secret. No machine-readable review artifact is claimed.",
+    "unresolved: zero CRITICAL; the two HIGH are in the AGENCY's product code, not ProjectOS, and are disclosed as D11 with its fix route (agency follow-up phase). Carried: the awaiting-closure stop wording; receipt write time; post-close commit message wording; D3, D5, D9; key rotation at ProjectOS completion; signed authority commits (owner decision).",
+    "protectedEffects NONE beyond the owner-authorised provider spend of 6003 micro-USD on the agency phase: no deployment, domain, GitHub repository, social post, email, message, payment, database, service, ACL, registry, force push or merge commit.",
+    "OWNER STATEMENT on credential and token rotation, carried forward verbatim from 2026-09-28 (not newly given): \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\""
+  ]
+}
