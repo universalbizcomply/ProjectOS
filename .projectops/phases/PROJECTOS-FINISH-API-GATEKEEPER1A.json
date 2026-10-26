@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-FINISH-API-GATEKEEPER1A",
+  "project": "ProjectOS",
+  "objective": "Restore the brokered OpenAI gatekeeper route for projects with no ProjectOSHost review route: the loop's review question and the closure question go to the trusted installation broker, which checks the installation allowlist and the project's committed secrets-handling receipt, resolves the key inside itself from the installation's Windows credential store and makes the call, so the agent process never holds the key; and allowlist the new agency project at its localhost git remote. By owner decision of 2026-10-25, as a temporary route while the ProjectOSHost credential custody (decision C5) is not yet activated.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-10-26T06:20:03.936Z",
+      "note": "Owner-approved plan v1.12 (activation 96d5e64); implemented by Claude (lead) directly on the owner's grant of 2026-10-25 and the owner's route decision \"Route 2 now\", not dispatched to a governed worker. The phase record is created after the implementation commit; the transitions below record the work already done, in order."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-10-26T06:20:04.356Z",
+      "note": "Implementation on projectos-autonomy-bootstrap1a from 96d5e64: the trusted installation broker on the owner's committed opt-in, in run and closure; seo-agency allowlisted."
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-10-26T06:20:04.765Z",
+      "note": "Candidate committed 7d1343e (7 paths, matching off-tree snapshot candidate-r3 plus the evidence doc). At the subject: agent 2516/2516, core 766/766, typecheck:all and core tsc clean; validate-all 145/147 (known: validate-desktop-e2e, val-cd-b4-sealed-expected-window-facts1a); the four required validators PASS."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-10-26T06:20:05.167Z",
+      "note": "Evidence: 10/10 named mutations killed by the named rule, 7/10 also by a test (C:/dev/ProjectOS-candidate-backups/finish-api-gatekeeper1a). Live proof 7bd9528: agency phase SEO-AGENCY-WEBSITE1A reviewed by ChatGPT through the broker (GKREQ-a4d090c3c1a82185f8b3b11a, 419 micro-USD) and closed (CLREQ-0b3a4b17e03c65e3b73788ed, 6309 micro-USD), no owner relay."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-10-26T06:20:05.588Z",
+      "note": "ECC CODE round 1 HIGH (broker unreachable under mode unattended) and ECC SECURITY M2 (no explicit opt-in) fixed in one round; round 2 both approve with 0 CRITICAL, 0 HIGH; the closure behavioural test both requested is added."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-10-26T06:20:05.992Z",
+      "note": "Reviews complete; no unresolved CRITICAL or HIGH; carried items listed in docs/finish/PROJECTOS-FINISH-API-GATEKEEPER1A.md."
+    }
+  ]
+}
