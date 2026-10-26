@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-FINISH-CONTINUE-INTEGRITY1A",
+  "project": "ProjectOS",
+  "objective": "Two defects found live by EXTERNAL-PROOF2A. D7: when `projectos continue` hands a finished phase to closure preparation and preparation commits its records, it routes once more and asks the closure question in the same call, instead of stopping. D8: when a phase's approved write grant covers one of its own required validators, the checks run that validator twice — the base copy, pinned as now, and the phase's own copy against the subject — and both must pass, in the run's checks and in closure preparation alike.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-10-26T10:55:50.640Z",
+      "note": "Owner-approved plan v1.15 (f2a987b). Owner, 2026-10-26, verbatim: \"I have given you full authority\" and \"What is next? Why aren't you clear of what's next?\". The phase record is created after the implementation commit."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-10-26T10:55:51.005Z",
+      "note": "Implementation on projectos-autonomy-bootstrap1a from f2a987b: D7 continue carries a committed preparation into the request; D8 phase copy of a granted required validator, bounded and checkout-guarded."
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-10-26T10:55:51.411Z",
+      "note": "Candidate committed e4afff6 (8 paths). agent 2544/2544, core 772/772, typecheck:all clean; validate-all 145/147 (known 2); required validators PASS."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-10-26T10:55:51.770Z",
+      "note": "Evidence: 12 named mutations killed by their named rule, 11 also by a test. Live: agency SEO-AGENCY-SITE-CHECK2A closed from one continue (agency e38f318, dde2ead)."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-10-26T10:55:52.101Z",
+      "note": "ECC CODE approve (3 MEDIUM fixed); ECC SECURITY approve after round-2 HIGH fixed; round 3 approve."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-10-26T10:55:52.460Z",
+      "note": "No unresolved CRITICAL or HIGH; carried items in docs/finish/PROJECTOS-FINISH-CONTINUE-INTEGRITY1A.md."
+    }
+  ]
+}
