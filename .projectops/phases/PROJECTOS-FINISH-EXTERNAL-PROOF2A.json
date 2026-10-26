@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-FINISH-EXTERNAL-PROOF2A",
+  "project": "ProjectOS",
+  "objective": "On the SEO and social-media agency project, record the owner's grant of the closure-decision-commit scope in the agency's committed closure delegation, approve the agency's next plan, and carry one ordinary phase, hardening the agency's site check, through projectos continue to closed: worker, checks, the gatekeeper review through the trusted broker, technical commit and push, closure preparation, the ChatGPT closure decision committed by ProjectOS, and the persisted close, with the owner's acts counted and every defect recorded.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-10-26T09:03:13.651Z",
+      "note": "Owner-approved plan v1.13 (43c0a0d), amended by v1.14 (de6dd61). Owner, 2026-10-26, verbatim: \"I have given you full authority\". The phase record is created after the evidence commit."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-10-26T09:03:14.060Z",
+      "note": "Agency setup: closure-decision-commit grant (a4817b0, owner identity), plan v1.1 and v1.2, receipt f1d6ba4 — lead-authored on the standing owner message, disclosed."
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-10-26T09:03:14.414Z",
+      "note": "Live run at ProjectOS 83957e6: SEO-AGENCY-SITE-CHECK1A from continue to closed, decision committed by ProjectOS 5905d30, close persisted 1deb10c; zero owner acts; 6655 micro-USD."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-10-26T09:03:14.882Z",
+      "note": "Evidence 4a0a445: owner acts zero for the phase; setup disclosed; defects D7-D10; the three required validators PASS."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-10-26T09:03:15.376Z",
+      "note": "ECC CODE approve (4 MEDIUM), ECC SECURITY approve with warnings (6 MEDIUM); all disclosed or recorded."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-10-26T09:03:15.902Z",
+      "note": "No unresolved CRITICAL or HIGH; carried items in docs/finish/PROJECTOS-FINISH-EXTERNAL-PROOF2A.md."
+    }
+  ]
+}
