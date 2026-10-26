@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "PLANDEC-f31660754f7cde7b2780357b",
+  "decision": "approve",
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "a8486f4673ddae598d5f6f332368ff74d6454d1a",
+  "draftId": "7327e99e85028d90",
+  "planDigest": "sha256:83fc7b2a34a2bb4fcef3ff5dd6cfd0dd15cf74a881647c2f6117af7a48674074",
+  "decidedBy": "Murad",
+  "decidedAt": "2026-10-26T07:23:52.545Z",
+  "note": "Owner (Murad), 2026-10-26, verbatim: \"I have given you full authority\" (approving plan v1.13). This v1.14 amendment only widens PROJECTOS-FINISH-ZERO-TOUCH-CLOSURE1A by one path, the closure prompt, to fix an ECC CODE review HIGH inside the approved objective, and narrows the grant to in-call answers. Recorded by the implementer (Claude); the implementer grants nothing by writing it.",
+  "recordedBy": "projectos plan decide"
+}
