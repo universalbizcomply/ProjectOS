@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "projectos:PROJECTOS-FINISH-EXTERNAL-PROOF2A:owner-closure:4a0a4456",
+  "phaseId": "PROJECTOS-FINISH-EXTERNAL-PROOF2A",
+  "projectId": "projectos",
+  "scope": "phase-closure",
+  "decidedBy": "Murad",
+  "decidedAt": "2026-10-26T06:40:00.000Z",
+  "evidenceSubjectHead": "4a0a4456b3c734cabee46b2020c97a685406f9ea",
+  "decision": "close",
+  "note": "OWNER-DIRECT CLOSURE of PROJECTOS-FINISH-EXTERNAL-PROOF2A, phase 6 of 6 of plan v1.13 (amended by v1.14), bound to evidence subject 4a0a4456b3c734cabee46b2020c97a685406f9ea. AUTHORITY: the owner's own words, verbatim, given 2026-10-26, approving plan v1.13: \"I have given you full authority\"; and 2026-10-25: \"I give you full authority now\". On 2026-10-26 the owner also asked, verbatim, \"Why have you been waiting on me?\" about closures inside the grant. The implementer (Claude) carried out this closure on that grant and recorded it here; no gatekeeper closure ruling was obtained for this phase and none is claimed. ACCEPTED PROOF: the agency phase SEO-AGENCY-SITE-CHECK1A ran from continue to closed with zero owner acts (decision committed by ProjectOS 5905d30, close persisted 1deb10c), 6655 micro-USD; the lead-authored setup and defects D7-D10 disclosed; the three required validators PASS; ECC CODE approve and ECC SECURITY approve with warnings, 0 unresolved CRITICAL, 0 HIGH. OWNER STATEMENT on rotation, carried forward verbatim from 2026-09-28: \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\" Carried forward: the items in the closure evidence and docs/finish/PROJECTOS-FINISH-EXTERNAL-PROOF2A.md. decidedAt is the time of the owner's grant. Authorises nothing beyond this closure tail and its normal fast-forward push: no production, further provider spend, credential, messaging, payment, database or live specialist activity.",
+  "ownerAcceptedFindings": []
+}
