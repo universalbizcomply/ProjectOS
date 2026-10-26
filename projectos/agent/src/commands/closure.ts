@@ -50,7 +50,13 @@ import {
 } from '../closureGate.js';
 import { checksFor, configuredChecks, runChecks, type CheckResult } from '../loop/verification.js';
 import { withPinnedValidators } from '../loop/pinnedValidators.js';
-import { commitOwnRecordsFor, type OwnRecordsKind, type OwnRecordsOutcome } from '../loop/technicalContinuation.js';
+import {
+  commitOwnRecordsFor,
+  PROJECTOS_COMMIT_EMAIL,
+  PROJECTOS_COMMIT_NAME,
+  type OwnRecordsKind,
+  type OwnRecordsOutcome,
+} from '../loop/technicalContinuation.js';
 import { findingsPath, readFindings, type FindingsRecord } from '../loop/session.js';
 import { createHash } from 'node:crypto';
 import { blockingFindings } from '../loop/outcome.js';
@@ -87,6 +93,7 @@ import {
   settleGatekeeperSpend,
   GATEKEEPER_DECISIONS_REL,
   GATEKEEPER_THREAD_REL,
+  resolveClosureCommitDelegation,
   type GatekeeperConfig,
 } from '../loop/gatekeeperConfig.js';
 import { CLOSURE_INTERACTIVE_REL, GATEKEEPER_INTERACTIVE_REL, nodeInteractivePort, resolveGatekeeperMode } from '../loop/gatekeeperHandoff.js';
@@ -703,9 +710,20 @@ export function closurePrepare(ctx: CommandContext, flags: Flags): CommandResult
   return { code: written.code, lines: [...written.lines, '', ...ownRecordsLines(committed, 'closure-tail')] };
 }
 
+/** How each kind of ProjectOS's own records is named to the person reading the outcome. */
+const OWN_RECORDS_WHAT: Readonly<Record<OwnRecordsKind, string>> = {
+  'run-records': "the run's own records",
+  'closure-tail': 'the three closure records',
+  'closure-decision': 'the closure decision',
+  'post-close': 'the records that persist the close',
+};
+
+/** Where a project without a declared state path keeps its governed state; `phase advance` writes it on close. */
+const DEFAULT_STATE_REL = '.projectops/current-state.json';
+
 /** What happened to ProjectOS's own records, said plainly. */
 export function ownRecordsLines(outcome: OwnRecordsOutcome, kind: OwnRecordsKind): readonly string[] {
-  const what = kind === 'run-records' ? "the run's own records" : 'the three closure records';
+  const what = OWN_RECORDS_WHAT[kind];
   switch (outcome.kind) {
     case 'DONE':
       return outcome.lines;
@@ -1108,7 +1126,43 @@ export function closureRequest(ctx: CommandContext, flags: Flags, makeDeps?: Mak
     ]);
   }
 
-  return ok([...trace, '', ...ownerAskLines(wait)]);
+  // ZERO-TOUCH CLOSURE — PROJECTOS-FINISH-ZERO-TOUCH-CLOSURE1A. Where the owner has granted
+  // `closure-decision-commit` in the committed delegation, ProjectOS commits and pushes exactly the
+  // presented bundle itself and resumes at once; `closureResume` then checks that commit exactly as it
+  // checks the owner's. Without the grant, or when a gate keeps commit or push, the owner is asked as
+  // before, and a commit that could not be made leaves the same ask standing.
+  // ONLY AN ANSWER PRODUCED IN THIS CALL (ECC SECURITY C1 against this phase). An interactive answer is a
+  // file anything able to write the checkout can place while the question waits, and the owner's commit
+  // is its only anchor — so under the grant it is still the owner's to commit. The broker and Host routes
+  // answer inside this process's call, and those alone are committed by ProjectOS.
+  if (modeResolution.mode !== 'unattended' || !closureCommitGrant(sys, root, gc.context).granted) {
+    return ok([...trace, '', ...ownerAskLines(wait)]);
+  }
+  const bundlePaths = new Set(bundle.entries.map((b) => b.path));
+  const committed = commitOwnRecordsFor(sys, root, gc.context, id, 'closure-decision', (p) => bundlePaths.has(p));
+  if (committed.kind !== 'DONE') {
+    return ok([...trace, '', ...ownRecordsLines(committed, 'closure-decision'), '', ...ownerAskLines(wait)]);
+  }
+  const resumed = closureResume(ctx, resumeFlagsFrom(flags, id));
+  return { code: resumed.code, lines: [...trace, '', ...committed.lines, ...resumed.lines] };
+}
+
+/** The owner's `closure-decision-commit` grant for this project's programme, from the committed delegation. */
+function closureCommitGrant(sys: System, root: string, context: GovernedContext): { readonly granted: boolean } {
+  const programme = typeof context.plan['programmeId'] === 'string' ? (context.plan['programmeId'] as string).trim() : '';
+  return resolveClosureCommitDelegation(sys, root, programme);
+}
+
+/** What a request forwards to the resume it runs itself: the phase and the caller's continuation choices, nothing else. */
+function resumeFlagsFrom(flags: Flags, id: string): Flags {
+  const forwarded: Record<string, string | boolean> = { id };
+  if (bool(flags, 'continue')) forwarded['continue'] = true;
+  const gateWait = str(flags, 'gate-wait-minutes');
+  if (gateWait !== '') forwarded['gate-wait-minutes'] = gateWait;
+  if (flags['supersede-stale-request'] === true) forwarded['supersede-stale-request'] = true;
+  const worker = str(flags, 'worker');
+  if (worker !== '') forwarded['worker'] = worker;
+  return forwarded;
 }
 
 /** The wait, built from the request and the decision so it cannot describe anything else. */
@@ -1332,8 +1386,21 @@ export function closureResume(ctx: CommandContext, flags: Flags, ownerWait: Owne
   // THE OWNER'S COMMIT, OBSERVED FROM THE REPOSITORY AND NOWHERE ELSE.
   // THE OWNER IS THE PLAN'S, never the wait's and never a caller's — the same source `authoriseClosure`
   // reads and the same rule every other identity in this programme is judged by.
+  // UNDER THE OWNER'S `closure-decision-commit` GRANT, AND ONLY THEN, the ProjectOS commit identity —
+  // exactly that name and email — may stand in for the owner's. Everything else below is unchanged.
+  // And only for an answer produced in the call, ALLOWLISTED rather than "not interactive" (ECC SECURITY C1,
+  // round 2 M1): the committed mode is unattended, and the wait is either Host-attested or — the broker route
+  // stamps no provenance — carries none on a project whose committed configuration opts in to the broker.
+  // An interactive answer stays the owner's to commit whatever the grant says.
+  const grant = closureCommitGrant(sys, root, gc.context);
+  const committedMode = resolveGatekeeperMode(sys, root);
+  const answeredInCall =
+    committedMode.ok &&
+    committedMode.mode === 'unattended' &&
+    (waiting.provenance === 'HostIndependentProviderAttestation' || (waiting.provenance === undefined && brokerRouteOptedIn(sys, root)));
+  const delegatedCommitter = grant.granted && answeredInCall ? { name: PROJECTOS_COMMIT_NAME, email: PROJECTOS_COMMIT_EMAIL } : null;
   const observed = awaitOwnerCommit(
-    () => observeOwnerCommit(sys, root, waiting, planOwner(gc.context.plan)),
+    () => observeOwnerCommit(sys, root, waiting, planOwner(gc.context.plan), delegatedCommitter),
     ownerWaitMinutes,
     ownerWait,
   );
@@ -1363,8 +1430,10 @@ export function closureResume(ctx: CommandContext, flags: Flags, ownerWait: Owne
     ]);
   }
 
+  // WHO MADE THE COMMIT THAT WAS ACCEPTED, said truthfully in the output and in the durable history.
+  const committedUnderGrant = delegatedCommitter !== null && observed.committedBy === `${PROJECTOS_COMMIT_NAME} <${PROJECTOS_COMMIT_EMAIL}>`;
   const lines = [
-    `the owner committed the closure bundle, and every file in it is byte-identical to what was presented`,
+    `${committedUnderGrant ? "ProjectOS committed the closure bundle under the owner's closure-decision-commit grant" : 'the owner committed the closure bundle'}, and every file in it is byte-identical to what was presented`,
     ...observed.bundle.map((b) => `  ${b.path}  ${b.committedSha256}`),
     // REPORTED, ALWAYS. The identity was checked against the plan's owner; saying which identity it
     // was is what lets a person notice a checkout configured as somebody it is not.
@@ -1390,13 +1459,21 @@ export function closureResume(ctx: CommandContext, flags: Flags, ownerWait: Owne
       id,
       to: 'closed',
       delegated: true,
-      note: `closed by the closure transport on the owner-committed record (${waiting.provenance ?? 'provenance unrecorded'})`,
+      note: `closed by the closure transport on the ${committedUnderGrant ? "record ProjectOS committed under the owner's closure-decision-commit grant" : 'owner-committed record'} (${waiting.provenance ?? 'provenance unrecorded'})`,
     },
     ['advance'],
   );
   if (advanced.code !== 0) return { code: advanced.code, lines: [...lines, ...advanced.lines] };
 
   resolveClosureWait(sys, root, waiting, sys.now());
+
+  // AND THE CLOSE IS PERSISTED, under the same grant. The closed phase record, the governed state and the
+  // decision's `consumedAt` stamp are the records `phase advance` just wrote; without the grant they stay
+  // for the owner, as before (the decision is the owner's file then).
+  const tail = new Set([closureDecisionRelPath(id), `.projectops/phases/${id}.json`, DEFAULT_STATE_REL, ...programmeStateTailPaths(gc.context)]);
+  const persisted = grant.granted
+    ? ownRecordsLines(commitOwnRecordsFor(sys, root, gc.context, id, 'post-close', (p) => tail.has(p)), 'post-close')
+    : [];
 
   /**
    * AND THEN THE PROGRAMME CARRIES ON — through the SAME authority `run` uses, never a second one.
@@ -1415,7 +1492,7 @@ export function closureResume(ctx: CommandContext, flags: Flags, ownerWait: Owne
    * `--execute` is set because a closure that carries the programme is by definition starting work;
    * a caller that wants to close without starting anything simply omits `--continue`.
    */
-  if (!bool(flags, 'continue')) return ok([...lines, ...advanced.lines]);
+  if (!bool(flags, 'continue')) return ok([...lines, ...advanced.lines, ...persisted]);
   // THE SAME WAIT AND RECOVERY CHOICES THE CALLER MADE, and nothing else: no authority travels here.
   const forwarded: Record<string, string | boolean> = { execute: true, continue: true };
   const gateWait = str(flags, 'gate-wait-minutes');
@@ -1440,6 +1517,7 @@ export function closureResume(ctx: CommandContext, flags: Flags, ownerWait: Owne
   return ok([
     ...lines,
     ...advanced.lines,
+    ...persisted,
     '',
     `phase ${id} closed; carrying the approved programme forward from the same continuation authority`,
     ...carried.lines,

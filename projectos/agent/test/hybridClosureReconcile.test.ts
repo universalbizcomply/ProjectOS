@@ -890,3 +890,164 @@ describe('no pre-hybrid direct paid route remains in the closure or reconcile co
     expect(cli).toContain('return closure(ctx, flags, positionals);');
   });
 });
+
+/**
+ * ZERO-TOUCH CLOSURE — PROJECTOS-FINISH-ZERO-TOUCH-CLOSURE1A. The owner granted `closure-decision-commit`
+ * in the committed delegation, so ProjectOS commits an answer produced in the call (here, the Host route)
+ * itself and the phase closes with no owner act. An interactive answer, a delegation ProjectOS committed,
+ * or a missing technical delegation all leave the owner's commit required.
+ */
+describe('ZERO-TOUCH closure: the owner granted closure-decision-commit', () => {
+  /**
+   * The worlds above, with three differences only:
+   *   - the delegation carries the scopes under test (and `technical-continuation`, which commit and push
+   *     need), committed under the OWNER's identity unless `delegationBy` says otherwise;
+   *   - the governed state lives under `.projectops/`, where real projects keep it and where ProjectOS
+   *     persists a close (`programmeStateTailPaths`);
+   *   - `origin` IS the bare remote, because ProjectOS pushes its own records to `origin`. Its fetch URL is
+   *     still READ as the parseable one, through a test shim, because the installation identity
+   *     (`canonicalRepositoryIdentity`) refuses a local path for a reason that has nothing to do with closure.
+   */
+  function zeroTouchWorld(mode: Mode, extraScopes: readonly string[], delegationBy: 'owner' | 'projectos' = 'owner'): World {
+    const w = world(mode);
+    const path = join(w.root, '.projectops', 'authority', 'closure-delegation.json');
+    const d = JSON.parse(readFileSync(path, 'utf8')) as { delegatedScope: string[] };
+    writeFileSync(path, JSON.stringify({ ...d, delegatedScope: [...d.delegatedScope, ...extraScopes] }, null, 2));
+    const configPath = join(w.root, '.projectops', 'project-config.json');
+    const config = JSON.parse(readFileSync(configPath, 'utf8')) as { planMemory: Record<string, string> };
+    writeFileSync(configPath, JSON.stringify({ ...config, planMemory: { ...config.planMemory, currentStatePath: '.projectops/current-state.json' } }, null, 2));
+    git(w.root, 'mv', 'state/current.json', '.projectops/current-state.json');
+    git(w.root, 'add', '--all');
+    if (delegationBy === 'projectos') {
+      git(w.root, '-c', 'user.name=ProjectOS implementer', '-c', 'user.email=projectos-implementer@projectos.invalid', 'commit', '--quiet', '-m', 'ProjectOS: delegation scopes');
+    } else {
+      git(w.root, 'commit', '--quiet', '-m', 'owner: delegation scopes');
+    }
+    git(w.root, 'push', '--quiet', PUSH_REMOTE, `${BRANCH}:${BRANCH}`);
+    git(w.root, 'remote', 'set-url', 'origin', git(w.root, 'remote', 'get-url', PUSH_REMOTE).trim());
+    git(w.root, 'fetch', '--quiet', 'origin');
+    git(w.root, 'branch', `--set-upstream-to=origin/${BRANCH}`, BRANCH);
+    const base = w.ctx.sys;
+    const sys: System = {
+      ...base,
+      exec: (cmd, args, options) => {
+        const r = base.exec(cmd, args, options);
+        return args.includes('get-url') && args.includes('origin') ? { ...r, stdout: `${ORIGIN_URL}\n` } : r;
+      },
+    };
+    return { root: w.root, ctx: { sys, root: w.root } as CommandContext };
+  }
+
+  function deliver(w: World): void {
+    startAndDeliverPhase(w);
+    git(w.root, 'fetch', '--quiet', 'origin');
+  }
+
+  /** Commit what the ask names under the ProjectOS identity, as an impersonating process would. */
+  function projectosCommits(root: string): void {
+    git(root, 'add', '--', '.projectops');
+    git(root, '-c', 'user.name=ProjectOS implementer', '-c', 'user.email=projectos-implementer@projectos.invalid', 'commit', '--quiet', '-m', 'ProjectOS: closure decision');
+    git(root, 'push', '--quiet', 'origin', `${BRANCH}:${BRANCH}`);
+  }
+
+  const ALL = ['technical-continuation', 'closure-decision-commit'];
+  const PROJECTOS_ID = 'ProjectOS implementer <projectos-implementer@projectos.invalid>';
+
+  it('ProjectOS commits the decision, the phase closes and the close is persisted — no owner act', () => {
+    const w = zeroTouchWorld('unattended', ALL);
+    deliver(w);
+    const host = fakeHost();
+    const r = closureRequest(w.ctx, { id: PHASE, execute: true }, hostClosureDeps(host));
+    expect(r.code, text(r.lines)).toBe(0);
+    expect(host.closureCalls).toHaveLength(1);
+    // The bundle is the decision and the ledger entry the paid call produced.
+    expect(text(r.lines)).toContain('committed and pushed 2 closure decision file(s)');
+    expect(text(r.lines)).toContain("ProjectOS committed the closure bundle under the owner's closure-decision-commit grant");
+    expect(text(r.lines)).toContain(`committed by ${PROJECTOS_ID}`);
+    expect(text(r.lines)).toContain('post-close record(s)');
+    expect(text(r.lines)).not.toContain('THE ACTION REQUESTED');
+    const record = phaseRecord(w.root);
+    expect(record.status).toBe('closed');
+    expect((record.history[record.history.length - 1] as { note: string }).note).toContain("committed under the owner's closure-decision-commit grant");
+    // THE TREE IS CLEAN AND THE REMOTE HOLDS IT ALL: nothing is left for the owner.
+    expect(git(w.root, 'status', '--porcelain', '-uall').trim()).toBe('');
+    expect(git(w.root, 'rev-parse', 'HEAD').trim()).toBe(git(w.root, 'rev-parse', `origin/${BRANCH}`).trim());
+    // Two ProjectOS commits: exactly the bundle, then the records that persist the close.
+    const decisionRel = `.projectops/closure/decisions/${PHASE}.json`;
+    expect(git(w.root, 'show', '--name-only', '--format=', 'HEAD~1').trim().split(/\r?\n/).sort()).toEqual([`.projectops/${LEDGER.slice(1).join('/')}`, decisionRel].sort());
+    expect(git(w.root, 'show', '--name-only', '--format=', 'HEAD').trim().split(/\r?\n/)).toContain(`.projectops/phases/${PHASE}.json`);
+    for (const rev of ['HEAD', 'HEAD~1']) expect(git(w.root, 'log', '-1', '--format=%an <%ae>', rev).trim()).toBe(PROJECTOS_ID);
+    // The decision is still the delegate's, and it was spent by the close.
+    const decision = JSON.parse(readFileSync(join(w.root, decisionRel), 'utf8')) as { decidedBy: string; consumedAt?: string };
+    expect(decision.decidedBy).toBe(DELEGATE);
+    expect(typeof decision.consumedAt).toBe('string');
+  });
+
+  it('an INTERACTIVE answer is never committed by ProjectOS, grant or not: the owner is asked (ECC SECURITY C1)', () => {
+    const w = zeroTouchWorld('interactive', ALL);
+    deliver(w);
+    const r = closureRequest(w.ctx, { id: PHASE, execute: true }, answeringClosureDeps({}, { n: 0 }));
+    expect(r.code, text(r.lines)).toBe(0);
+    expect(text(r.lines)).toContain('WAITING_OWNER');
+    expect(text(r.lines)).not.toContain('closure decision file(s)');
+    expect(phaseRecord(w.root).status).toBe('awaiting_closure');
+    // AND AN IMPERSONATED PROJECTOS COMMIT OF IT IS REFUSED AT RESUME: the wait says it was interactive.
+    projectosCommits(w.root);
+    const resumed = closure(w.ctx, { id: PHASE }, ['resume']);
+    expect(resumed.code).not.toBe(0);
+    expect(text(resumed.lines)).toContain('which is the implementer');
+    expect(phaseRecord(w.root).status).toBe('awaiting_closure');
+  });
+
+  it('without the grant the owner commit is required exactly as before, and a ProjectOS-identity commit is refused', () => {
+    const w = zeroTouchWorld('unattended', ['technical-continuation']);
+    deliver(w);
+    const r = closureRequest(w.ctx, { id: PHASE, execute: true }, hostClosureDeps(fakeHost()));
+    expect(r.code, text(r.lines)).toBe(0);
+    expect(text(r.lines)).toContain('WAITING_OWNER');
+    expect(text(r.lines)).not.toContain('closure decision file(s)');
+    expect(phaseRecord(w.root).status).toBe('awaiting_closure');
+    projectosCommits(w.root);
+    const resumed = closure(w.ctx, { id: PHASE }, ['resume']);
+    expect(resumed.code).not.toBe(0);
+    expect(text(resumed.lines)).toContain('which is the implementer');
+    expect(phaseRecord(w.root).status).toBe('awaiting_closure');
+  });
+
+  it('a delegation ProjectOS committed itself grants nothing: the owner is asked (ECC SECURITY H1)', () => {
+    const w = zeroTouchWorld('unattended', ALL, 'projectos');
+    deliver(w);
+    const r = closureRequest(w.ctx, { id: PHASE, execute: true }, hostClosureDeps(fakeHost()));
+    expect(r.code, text(r.lines)).toBe(0);
+    expect(text(r.lines)).toContain('WAITING_OWNER');
+    expect(text(r.lines)).not.toContain('closure decision file(s)');
+    expect(phaseRecord(w.root).status).toBe('awaiting_closure');
+  });
+
+  it('under the grant, a wait whose provenance was stripped is not an answer produced in the call: a ProjectOS commit is refused (ECC SECURITY round 2)', () => {
+    // No technical delegation, so the request leaves the bundle for a commit; the grant itself holds.
+    const w = zeroTouchWorld('unattended', ['closure-decision-commit']);
+    deliver(w);
+    expect(closureRequest(w.ctx, { id: PHASE, execute: true }, hostClosureDeps(fakeHost())).code).toBe(0);
+    const waitPath = join(w.root, '.projectops', 'closure', 'waits', `${PHASE}.json`);
+    const wait = JSON.parse(readFileSync(waitPath, 'utf8')) as Record<string, unknown>;
+    expect(wait['provenance']).toBe('HostIndependentProviderAttestation');
+    delete wait['provenance'];
+    writeFileSync(waitPath, JSON.stringify(wait, null, 2));
+    projectosCommits(w.root);
+    const resumed = closure(w.ctx, { id: PHASE }, ['resume']);
+    expect(resumed.code).not.toBe(0);
+    expect(text(resumed.lines)).toContain('which is the implementer');
+    expect(phaseRecord(w.root).status).toBe('awaiting_closure');
+  });
+
+  it('with the grant but no technical delegation, nothing is committed and the owner is asked, with the reason', () => {
+    const w = zeroTouchWorld('unattended', ['closure-decision-commit']);
+    deliver(w);
+    const r = closureRequest(w.ctx, { id: PHASE, execute: true }, hostClosureDeps(fakeHost()));
+    expect(r.code, text(r.lines)).toBe(0);
+    expect(text(r.lines)).toContain('the closure decision: left for the owner to commit and push');
+    expect(text(r.lines)).toContain('WAITING_OWNER');
+    expect(phaseRecord(w.root).status).toBe('awaiting_closure');
+  });
+});

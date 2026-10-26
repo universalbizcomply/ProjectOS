@@ -74,16 +74,35 @@ export const GATEKEEPER_REVIEW_SCOPE = 'gatekeeper-review-decisions';
  */
 export const TECHNICAL_CONTINUATION_SCOPE = 'technical-continuation';
 
+/**
+ * The owner's grant that lets ProjectOS COMMIT its closure delegate's decision — PROJECTOS-FINISH-
+ * ZERO-TOUCH-CLOSURE1A, by the owner's decision of 2026-10-26 ("I have given you full authority").
+ *
+ * WHAT IT CHANGES, AND ONLY THAT. Without it the delegate's closure decision counts only once the
+ * OWNER commits it: the owner's commit is the authenticity anchor of the closure route. With it, for
+ * this project and programme, the owner has said in a committed record that the anchor may be
+ * ProjectOS's own commit of exactly the presented bytes. Every other check stands: the delegate is
+ * still the plan's, the decision is still judged by G4 and the closure checks, and the bytes are still
+ * bound to what was presented.
+ *
+ * WHAT IT DELIBERATELY CANNOT DO. Like `technical-continuation`, it is not a `ClosureScope`, so it can
+ * never be passed as `ClosureAuthorityInput.scope`: on its own it closes nothing, decides nothing and
+ * names no decider. It grants no protected effect, and the implementer still cannot decide closure.
+ */
+export const CLOSURE_DECISION_COMMIT_SCOPE = 'closure-decision-commit';
+
 /** Every scope an owner may put in a delegation record. One vocabulary, one place. */
 export type DelegableScope =
   | ClosureScope
   | typeof GATEKEEPER_REVIEW_SCOPE
-  | typeof TECHNICAL_CONTINUATION_SCOPE;
+  | typeof TECHNICAL_CONTINUATION_SCOPE
+  | typeof CLOSURE_DECISION_COMMIT_SCOPE;
 
 export const DELEGABLE_SCOPES: readonly DelegableScope[] = [
   ...CLOSURE_SCOPES,
   GATEKEEPER_REVIEW_SCOPE,
   TECHNICAL_CONTINUATION_SCOPE,
+  CLOSURE_DECISION_COMMIT_SCOPE,
 ];
 
 /** The `governance.closureDelegation` record, as recorded in an approved plan. */

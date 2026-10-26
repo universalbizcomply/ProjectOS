@@ -103,7 +103,7 @@ export const CLOSURE_DECISION_JSON_SCHEMA = {
  * its declared binding is refused before a credential is reached. Changing their shape breaks that
  * check closed, which is the safe direction and is asserted in the tests.
  */
-export function closureSystemInstruction(request: ClosureRequest): string {
+export function closureSystemInstruction(request: ClosureRequest, askedAt?: string): string {
   return [
     'You are the ProjectOS CLOSURE AUTHORITY for this project, acting under the closure delegation',
     'recorded in its approved plan. You are being asked one question: should this phase be CLOSED at',
@@ -146,14 +146,20 @@ export function closureSystemInstruction(request: ClosureRequest): string {
     `  evidenceSubjectHead must be "${request.subjectHead}"`,
     `  requestDigest must be "${closureRequestDigest(request)}"`,
     '  decisionId is yours to choose: 8-128 characters of A-Z a-z 0-9 _ . : -',
-    '  decidedAt is an ISO-8601 timestamp',
+    // THE TIME OF THE QUESTION, SAID TO THE AUTHORITY — PROJECTOS-FINISH-ZERO-TOUCH-CLOSURE1A. A model cannot
+    // know the time, and a live answer invented one twenty months early. `checkClosureResponse` now refuses
+    // a decidedAt outside the window of the question, so the authority is told the window it must meet.
+    askedAt === undefined
+      ? '  decidedAt is a full ISO-8601 instant with a zone, for example 2026-10-26T07:30:00Z'
+      : `  decidedAt is a full ISO-8601 instant with a zone, at or just after ${askedAt}, the time this question was asked`,
     '  note explains the decision; an unexplained closure decision is refused as unreviewable',
     '  ownerAcceptedFindings must be an empty list — accepting a residual HIGH finding is the owner\'s',
     '    authority and you may not record one on the owner\'s behalf',
     '',
-    'YOUR ANSWER DOES NOT CLOSE ANYTHING BY ITSELF. It is written to a record which the OWNER must then',
-    'commit before it counts. Decide as though nothing else will check the work, because after you',
-    'only the owner does.',
+    'YOUR ANSWER DOES NOT CLOSE ANYTHING BY ITSELF. It is written to a record that counts only once it is',
+    'committed — by the owner, or by ProjectOS where the owner has delegated that commit — and the closure',
+    'gate then judges it again. Decide as though nothing else will check the work: where the commit is',
+    'delegated, no person reads your answer before the phase closes.',
   ].join('\n');
 }
 
@@ -163,6 +169,8 @@ export interface ClosureTransportConfig {
   /** The provider thread this project's governance lives in, when one has been established. */
   readonly previousResponseId?: string | null;
   readonly timeoutMs?: number;
+  /** When the question was asked, told to the authority so its decidedAt can meet the window. */
+  readonly askedAt?: string;
   /** The trusted installation-side transport, when one is composed. See `submitToOpenAi`. */
   readonly broker?: {
     readonly transport: BrokeredTransport;
@@ -198,7 +206,7 @@ export function buildClosureResponsesBody(
 ): string {
   const body: Record<string, unknown> = {
     model: config.model,
-    instructions: closureSystemInstruction(request),
+    instructions: closureSystemInstruction(request, config.askedAt),
     input: [
       {
         role: 'user',

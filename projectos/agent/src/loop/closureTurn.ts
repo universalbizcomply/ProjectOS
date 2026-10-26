@@ -251,8 +251,12 @@ function closureExpectations(
   input: ClosureTurnInput,
   request: ClosureRequest,
   consumedDecisionIds: readonly string[],
+  answeredInCall: boolean,
 ): ClosureResponseExpectations {
   return {
+    // WHEN IT WAS ASKED, so an answer cannot carry a decision time it could not have — PROJECTOS-FINISH-
+    // ZERO-TOUCH-CLOSURE1A. `answeredInCall` is true only where the answer is produced inside this turn.
+    decidedAtWindow: { askedAt: input.at, answeredInCall },
     projectId: input.projectId,
     phaseId: input.phaseId,
     scope: PHASE_CLOSURE_SCOPE,
@@ -422,6 +426,7 @@ export function takeClosureTurn(input: ClosureTurnInput, deps: ClosureTurnDeps):
     model,
     credentialRef: transport.credentialRef ?? '',
     previousResponseId: continuation.previousResponseId,
+    askedAt: input.at,
   });
   const carried = carriedContextTokens({
     continuesStoredConversation: continuation.previousResponseId !== null,
@@ -499,6 +504,8 @@ export function takeClosureTurn(input: ClosureTurnInput, deps: ClosureTurnDeps):
             credentialRef: transport.credentialRef ?? '',
             // The same value the reservation was priced against; see the ruling above.
             previousResponseId: continuation.previousResponseId,
+            // The same question time the priced body told the authority (PROJECTOS-FINISH-ZERO-TOUCH-CLOSURE1A).
+            askedAt: input.at,
             ...(deps.broker === undefined
               ? {}
               : {
@@ -552,7 +559,7 @@ export function takeClosureTurn(input: ClosureTurnInput, deps: ClosureTurnDeps):
 
   // 6. CHECK THE ANSWER BEFORE ANYTHING IS WRITTEN.
   const record: ClosureResponseRecord = outcome.record;
-  const checked = checkClosureResponse(record, closureExpectations(input, request, deps.consumedDecisionIds));
+  const checked = checkClosureResponse(record, closureExpectations(input, request, deps.consumedDecisionIds, true));
   // UNATTENDED: the Host's attestation must vouch for THIS answer, or the answer is not written.
   const attestationProblems =
     deps.mode === 'unattended' ? checkHostClosureAttestation(attestation, { requestId: request.requestId, record }) : [];
@@ -734,7 +741,7 @@ export function takeInteractiveClosureTurn(input: ClosureTurnInput, deps: Intera
     ...(record.decisionId === decisionId
       ? []
       : [`the supplied closure answer is ${JSON.stringify(record.decisionId)}, but this question's decision is '${decisionId}'`]),
-    ...checkClosureResponse(record, closureExpectations(input, request, deps.consumedDecisionIds)),
+    ...checkClosureResponse(record, closureExpectations(input, request, deps.consumedDecisionIds, false)),
   ];
   const answered = typeof record.decision === 'string' ? record.decision : null;
   if (problems.length > 0) {

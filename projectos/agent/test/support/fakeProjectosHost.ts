@@ -227,7 +227,9 @@ export function fakeProjectosHost(options: FakeHostOptions): FakeHost {
         forbiddenActions: ['production-deploy'],
         ownerApprovalRequired,
         decidedBy: options.decidedBy ?? 'ChatGPT',
-        decidedAt: '2026-09-19T00:00:00Z',
+        // One minute after the question its worlds ask: a closure answer's decidedAt must fall in the
+        // window of its question (PROJECTOS-FINISH-ZERO-TOUCH-CLOSURE1A).
+        decidedAt: '2026-09-10T20:01:00Z',
       },
       attestation: {
         schemaVersion: behaviour === 'attestation-revision-1' ? 1 : 2,

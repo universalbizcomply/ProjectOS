@@ -32,6 +32,7 @@ import {
   authoriseClosure,
   GATEKEEPER_REVIEW_SCOPE,
   TECHNICAL_CONTINUATION_SCOPE,
+  CLOSURE_DECISION_COMMIT_SCOPE,
   CLOSURE_SCOPES,
   DELEGABLE_SCOPES,
 } from '@projectos/core';
@@ -524,8 +525,9 @@ describe('C11-W2-F1 — the facts a delegation is judged against must have passe
   test('J the non-closure scopes are not closure scopes, and DELEGABLE_SCOPES is exactly the union', () => {
     expect(CLOSURE_SCOPES).not.toContain(GATEKEEPER_REVIEW_SCOPE);
     expect(CLOSURE_SCOPES).not.toContain(TECHNICAL_CONTINUATION_SCOPE);
+    expect(CLOSURE_SCOPES).not.toContain(CLOSURE_DECISION_COMMIT_SCOPE);
     expect([...DELEGABLE_SCOPES].sort()).toEqual(
-      [...CLOSURE_SCOPES, GATEKEEPER_REVIEW_SCOPE, TECHNICAL_CONTINUATION_SCOPE].sort(),
+      [...CLOSURE_SCOPES, GATEKEEPER_REVIEW_SCOPE, TECHNICAL_CONTINUATION_SCOPE, CLOSURE_DECISION_COMMIT_SCOPE].sort(),
     );
   });
 

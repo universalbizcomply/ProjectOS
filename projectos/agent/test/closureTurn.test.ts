@@ -295,6 +295,9 @@ describe('an answer that does not pass its checks writes nothing', () => {
     ['another subject', { evidenceSubjectHead: 'a'.repeat(40) }, 'an answer about other bytes is stale'],
     ['another question', { requestDigest: `sha256:${'1'.repeat(64)}` }, 'an answer to a different question'],
     ['another decider', { decidedBy: 'Someone Else' }, 'is not the plan\'s closure authority'],
+    // PROJECTOS-FINISH-ZERO-TOUCH-CLOSURE1A: the time the live agency closure answer carried, twenty months
+    // before its question. An answer produced in this call cannot predate the question it answers.
+    ['an invented decision time', { decidedAt: '2025-02-15T00:00:00Z' }, 'before this question was asked'],
   ];
   for (const [name, over, fragment] of cases) {
     it(`refuses ${name}`, () => {
@@ -326,6 +329,18 @@ describe('DO_NOT_CLOSE and AWAITING_OWNER close nothing', () => {
       expect(result.answered).toBe(decision);
     });
   }
+});
+
+// PROJECTOS-FINISH-ZERO-TOUCH-CLOSURE1A: a model cannot know the time, so the question carries it.
+describe('the closure question tells the authority when it was asked', () => {
+  it('the request actually sent names the time of the question and the form decidedAt must take', () => {
+    const d = deps();
+    takeClosureTurn(input(), d.deps);
+    expect(d.sent).toHaveLength(1);
+    const body = JSON.parse(d.sent[0] as string) as { instructions: string };
+    expect(body.instructions).toContain(`at or just after ${input().at}, the time this question was asked`);
+    expect(body.instructions).toContain('full ISO-8601 instant with a zone');
+  });
 });
 
 describe('the request body binds what the trusted broker will check', () => {

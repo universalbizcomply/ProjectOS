@@ -45,7 +45,7 @@
 import type { System } from '../system.js';
 import { computeCandidateIdentity, describeCandidateDrift } from './candidateIdentity.js';
 import { classifyOwnerGates } from './brief.js';
-import { resolveTechnicalDelegation } from './gatekeeperConfig.js';
+import { resolveClosureCommitDelegation, resolveTechnicalDelegation } from './gatekeeperConfig.js';
 import type { GovernedContext } from '../governedContext.js';
 import {
   TECHNICAL_ACTIONS,
@@ -146,7 +146,10 @@ export function refusesUnderCurrentPlan(
 }
 
 /** The identity every ProjectOS commit carries: never the owner's, and refused as the owner's. */
-const PROJECTOS_COMMIT_IDENTITY: readonly string[] = ['-c', 'user.name=ProjectOS implementer', '-c', 'user.email=projectos-implementer@projectos.invalid'];
+/** The identity every ProjectOS commit carries. The owner-commit check refuses it unless the owner granted `closure-decision-commit`. */
+export const PROJECTOS_COMMIT_NAME = 'ProjectOS implementer';
+export const PROJECTOS_COMMIT_EMAIL = 'projectos-implementer@projectos.invalid';
+const PROJECTOS_COMMIT_IDENTITY: readonly string[] = ['-c', `user.name=${PROJECTOS_COMMIT_NAME}`, '-c', `user.email=${PROJECTOS_COMMIT_EMAIL}`];
 
 /**
  * Perform exactly the technical continuation that is authorised, or refuse and do nothing.
@@ -519,7 +522,22 @@ export function ownerGatesOfPlanPhase(raw: unknown): readonly string[] {
   return classifyOwnerGates(malformed ? [...read, 'the declared owner gates could not be read'] : read);
 }
 
-export type OwnRecordsKind = 'run-records' | 'closure-tail';
+/**
+ * `closure-decision` (the delegate's decision and its ledger entry) and `post-close` (the records that
+ * persist a close) exist only under the owner's `closure-decision-commit` grant — PROJECTOS-FINISH-
+ * ZERO-TOUCH-CLOSURE1A.
+ */
+export type OwnRecordsKind = 'run-records' | 'closure-tail' | 'closure-decision' | 'post-close';
+
+/** The kinds that carry a closure decision, and so need the owner's grant on top of commit and push. */
+const CLOSURE_COMMIT_KINDS: readonly OwnRecordsKind[] = ['closure-decision', 'post-close'];
+
+const KIND_LABEL: Readonly<Record<OwnRecordsKind, { readonly subject: string; readonly counted: string; readonly refusal: string }>> = {
+  'run-records': { subject: "the run's own records", counted: 'run record(s)', refusal: "the run's own records" },
+  'closure-tail': { subject: 'closure records', counted: 'closure record(s)', refusal: 'the closure records' },
+  'closure-decision': { subject: 'the closure decision', counted: 'closure decision file(s)', refusal: 'the closure bundle' },
+  'post-close': { subject: 'persist the close', counted: 'post-close record(s)', refusal: 'the records that persist the close' },
+};
 
 export interface OwnRecordsCommitRequest {
   readonly root: string;
@@ -532,6 +550,8 @@ export interface OwnRecordsCommitRequest {
   readonly delegation: TechnicalDelegationState;
   /** The phase's declared owner gates, classified. The constitutional floor is added here. */
   readonly phaseOwnerGates: readonly string[];
+  /** The owner's `closure-decision-commit` grant, judged from the committed delegation. Required for the closure kinds. */
+  readonly closureCommit?: { readonly granted: boolean; readonly problems: readonly string[] };
 }
 
 export type OwnRecordsOutcome =
@@ -556,9 +576,11 @@ export type OwnRecordsOutcome =
  * no proven technical delegation — reserve `commit` or `push` (then it does nothing and says so).
  * Commit when ANY dirty path is not one of the caller's records (it refuses, nothing attempted). Carry a
  * commit that is not already on the remote: HEAD must equal its upstream before, so the push carries
- * exactly this records commit. Commit the CLOSURE DECISION: no caller's list names it, because that
- * decision is valid only once the owner commits it (`checkClosureDecision`), and a decision ProjectOS
- * committed itself would satisfy that check while destroying the property it exists for.
+ * exactly this records commit. Commit the CLOSURE DECISION without the owner's grant: a decision is
+ * valid only once the owner commits it (`checkClosureDecision`), and a decision ProjectOS committed
+ * itself would satisfy that check while destroying the property it exists for — unless the owner has
+ * granted `closure-decision-commit` in the committed delegation, which is the `closure-decision` and
+ * `post-close` kinds and nothing else (PROJECTOS-FINISH-ZERO-TOUCH-CLOSURE1A).
  *
  * Every argument is a literal or a value derived from git and governed context, as in the rest of this
  * module; there is no `--force`, no `--all` and no refspec from outside.
@@ -570,6 +592,18 @@ export function commitOwnRecords(sys: System, request: OwnRecordsCommitRequest):
   if (reserved.length > 0) {
     return { kind: 'RESERVED', reasons: [`${reserved.join(' and ')} stay with the owner for ${request.phaseId}, so ProjectOS commits none of its records`] };
   }
+  // A CLOSURE DECISION NEEDS THE OWNER'S OWN GRANT on top of commit and push: without it the decision
+  // counts only once the owner commits it, and ProjectOS committing it would destroy that property.
+  if (CLOSURE_COMMIT_KINDS.includes(request.kind) && request.closureCommit?.granted !== true) {
+    return {
+      kind: 'RESERVED',
+      reasons: [
+        `this project's committed delegation does not grant 'closure-decision-commit', so the closure decision for ${request.phaseId} stays the owner's to commit`,
+        ...(request.closureCommit?.problems ?? []).map((p) => `  ${p}`),
+      ],
+    };
+  }
+  const label = KIND_LABEL[request.kind];
   const refuseNow = (reasons: readonly string[]): OwnRecordsOutcome => ({ kind: 'REFUSED', reasons, nothingAttempted: true });
 
   const branch = git(sys, root, ['rev-parse', '--abbrev-ref', 'HEAD']);
@@ -588,7 +622,7 @@ export function commitOwnRecords(sys: System, request: OwnRecordsCommitRequest):
   // A DIRECTORY ENTRY (`?? dir/`) IS NEVER A RECORD: it is a nested repository git will not list.
   const foreign = dirty.filter((p) => p.endsWith('/') || !request.isOwnRecord(p));
   if (foreign.length > 0) {
-    return refuseNow([`the checkout holds uncommitted changes that are not ${request.kind === 'run-records' ? "the run's own records" : 'the closure records'}, so ProjectOS commits nothing`, ...foreign.map((p) => `  ${p}`)]);
+    return refuseNow([`the checkout holds uncommitted changes that are not ${label.refusal}, so ProjectOS commits nothing`, ...foreign.map((p) => `  ${p}`)]);
   }
 
   // THE REMOTE ALREADY HAS EVERYTHING BUT THESE RECORDS: not behind, and not ahead. The remote ref is
@@ -610,8 +644,10 @@ export function commitOwnRecords(sys: System, request: OwnRecordsCommitRequest):
     return { kind: 'REFUSED', reasons: [`the records could not be staged, and the index was restored: ${(staged.stderr || '').trim().slice(0, 400)}`], nothingAttempted: false };
   }
   const message =
-    `chore(${request.phaseId}): ${request.kind === 'run-records' ? "the run's own records" : 'closure records'}\n\n` +
-    'Committed by ProjectOS under the technical delegation: records it wrote, not work.\n' +
+    `chore(${request.phaseId}): ${label.subject}\n\n` +
+    (CLOSURE_COMMIT_KINDS.includes(request.kind)
+      ? "Committed by ProjectOS under the owner's closure-decision-commit grant: the closure delegate's decision\nand the records around it, byte for byte as written; ProjectOS decided nothing.\n"
+      : 'Committed by ProjectOS under the technical delegation: records it wrote, not work.\n') +
     `Base ${head.out}.\n`;
   const committed = sys.exec('git', [...PROJECTOS_COMMIT_IDENTITY, '--literal-pathspecs', '-C', root, 'commit', '-m', message, '--', ...dirty]);
   if (committed.code !== 0) {
@@ -649,7 +685,7 @@ export function commitOwnRecords(sys: System, request: OwnRecordsCommitRequest):
     kind: 'DONE',
     head: after.out,
     paths: dirty,
-    lines: [`committed and pushed ${dirty.length} ${request.kind === 'run-records' ? 'run record(s)' : 'closure record(s)'} as ${after.out.slice(0, 7)}; local = ${upstream}`],
+    lines: [`committed and pushed ${dirty.length} ${label.counted} as ${after.out.slice(0, 7)}; local = ${upstream}`],
   };
 }
 
@@ -705,5 +741,6 @@ export function commitOwnRecordsFor(
     isOwnRecord,
     delegation: resolveTechnicalDelegation(sys, root, programme),
     phaseOwnerGates: ownerGatesOfPlanPhase(phase['requiredOwnerGates']),
+    ...(CLOSURE_COMMIT_KINDS.includes(kind) ? { closureCommit: resolveClosureCommitDelegation(sys, root, programme) } : {}),
   });
 }

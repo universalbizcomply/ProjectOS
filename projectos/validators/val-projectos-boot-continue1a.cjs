@@ -64,6 +64,12 @@ const FINISH_PLAN_REL = "docs/projectos-finish-phases.json";
 const TECHNICAL_REL = "projectos/agent/src/loop/technicalContinuation.ts";
 const ELIGIBILITY_REL = "projectos/core/src/closureEligibility.ts";
 const ALLOWLIST_REL = "projectos/security/installation-project-allowlist.json";
+const CORE_AUTHORITY_REL = "projectos/core/src/closureAuthority.ts";
+const CORE_TRANSPORT_REL = "projectos/core/src/closureTransport.ts";
+const CLOSURE_WAIT_REL = "projectos/agent/src/closureWait.ts";
+const CLOSURE_TURN_REL = "projectos/agent/src/loop/closureTurn.ts";
+const GK_CONFIG_REL = "projectos/agent/src/loop/gatekeeperConfig.ts";
+const CLOSURE_RESPONSES_REL = "projectos/agent/src/loop/transports/closureResponses.ts";
 
 /** The proofs. A pinned shape whose behaviour nobody runs is a shape, not a protection. */
 const TESTS = {
@@ -114,7 +120,11 @@ const TESTS = {
   "projectos/core/test/closure-eligibility.test.ts": ["a governed project other than projectos satisfies G4-1", "a plan for another project, or an unknown project, refuses"],
   // PROJECTOS-FINISH-API-GATEKEEPER1A.
   "projectos/agent/test/hostReviewPath.e2e.test.ts": ["NO broker opt-in, nothing is composed", "the trusted BROKER is composed in the pre-hybrid shape", "refused before dispatch: nothing posted, no ledger", "reaches the broker exactly once", "refused as ambiguous"],
-  "projectos/agent/test/hybridClosureReconcile.test.ts": ["closure composes the trusted broker only on the committed opt-in with no Host route; reconcile composes none", "on the broker opt-in, a project the installation does not allowlist is refused before the closure request"],
+  "projectos/agent/test/hybridClosureReconcile.test.ts": ["closure composes the trusted broker only on the committed opt-in with no Host route; reconcile composes none", "on the broker opt-in, a project the installation does not allowlist is refused before the closure request", "ProjectOS commits the decision, the phase closes and the close is persisted", "an INTERACTIVE answer is never committed by ProjectOS, grant or not", "without the grant the owner commit is required exactly as before, and a ProjectOS-identity commit is refused", "a delegation ProjectOS committed itself grants nothing", "a wait whose provenance was stripped is not an answer produced in the call", "with the grant but no technical delegation, nothing is committed"],
+  // PROJECTOS-FINISH-ZERO-TOUCH-CLOSURE1A.
+  "projectos/agent/test/zeroTouchClosure.test.ts": ["with the grant, commits and pushes exactly the closure decision", "without the grant — absent, refused or judged invalid — commits nothing", "the grant never lifts a reserved commit or push", "with the grant, every other implementer-shaped or foreign identity is still refused"],
+  "projectos/agent/test/closureTurn.test.ts": ["an invented decision time", "the request actually sent names the time of the question"],
+  "projectos/core/test/closure-transport.test.ts": ["refuses the invented time the live agency closure carried", "an interactive answer saved while an earlier run waited has no lower bound"],
 };
 
 function read(rel) {
@@ -524,7 +534,10 @@ function run() {
     E("MP-2g: a directory entry can be a record, or a record path is read as a pathspec pattern");
   }
   // MP-7 (ECC SECURITY M1): every ProjectOS commit carries the implementer identity the owner check refuses.
-  if (!/const PROJECTOS_COMMIT_IDENTITY: readonly string\[\] = \['-c', 'user\.name=ProjectOS implementer', '-c', 'user\.email=projectos-implementer@projectos\.invalid'\];/.test(technical) ||
+  // The identity is named once; PROJECTOS-FINISH-ZERO-TOUCH-CLOSURE1A exports it for the grant's exact match.
+  if (!/export const PROJECTOS_COMMIT_NAME = 'ProjectOS implementer';/.test(technical) ||
+      !/export const PROJECTOS_COMMIT_EMAIL = 'projectos-implementer@projectos\.invalid';/.test(technical) ||
+      !/const PROJECTOS_COMMIT_IDENTITY: readonly string\[\] = \['-c', `user\.name=\$\{PROJECTOS_COMMIT_NAME\}`, '-c', `user\.email=\$\{PROJECTOS_COMMIT_EMAIL\}`\];/.test(technical) ||
       (technical.match(/\.\.\.PROJECTOS_COMMIT_IDENTITY, /g) || []).length !== 2 ||
       (technical.match(/'commit', '-m'/g) || []).length !== 2) {
     E("MP-7: a ProjectOS commit can carry the checkout's (owner's) identity");
@@ -555,10 +568,14 @@ function run() {
       !/if \(p\.includes\('\.\.'\) \|\| p\.endsWith\('\/'\)\) return false;/.test(foldable)) {
     E("MP-5: the fold classifier admits worker-written findings or effects, a degraded-use record, a closure or authority record, or a directory");
   }
-  // MP-6: only closure PREPARE commits, and only when every check passed; request and resume never commit.
+  // MP-6: closure PREPARE commits only its closure-tail records, and only when every check passed. Request and
+  // resume commit only the grant-gated kinds (ZT-2) — request the closure decision, resume the persisted close
+  // (PROJECTOS-FINISH-ZERO-TOUCH-CLOSURE1A); without the owner's grant both commit nothing.
   const closureSrc = files[CLOSURE_REL];
-  if ((closureSrc.match(/commitOwnRecordsFor\(/g) || []).length !== 1 ||
-      /commitOwnRecordsFor/.test(fnBody(closureSrc, "closureRequest") || "") || /commitOwnRecordsFor/.test(fnBody(closureSrc, "closureResume") || "") ||
+  const kindsIn = (fn) => ((fnBody(closureSrc, fn) || "").match(/commitOwnRecordsFor\([^)]*?'[a-z-]+'/g) || []).map((m) => m.slice(m.lastIndexOf("'", m.length - 2) + 1, -1));
+  if ((closureSrc.match(/commitOwnRecordsFor\(/g) || []).length !== 3 ||
+      JSON.stringify(kindsIn("closureRequest")) !== JSON.stringify(["closure-decision"]) ||
+      JSON.stringify(kindsIn("closureResume")) !== JSON.stringify(["post-close"]) ||
       !/if \(!results\.every\(\(r\) => r\.passed\)\) return written;\s*const tail = new Set/.test(prepareCommit)) {
     E("MP-6: a closure step other than prepare commits, or prepare commits a failing record");
   }
@@ -608,6 +625,87 @@ function run() {
     if (JSON.stringify(ids) !== JSON.stringify(want)) E(`AG-5: the installation allowlist is not exactly ProjectOS and the agency project (${ids.join(", ")})`);
   } catch {
     E("AG-5: the installation allowlist is not readable JSON");
+  }
+
+  // (13) ZERO-TOUCH CLOSURE — PROJECTOS-FINISH-ZERO-TOUCH-CLOSURE1A.
+  const zt = {};
+  for (const rel of [CORE_AUTHORITY_REL, CORE_TRANSPORT_REL, CLOSURE_WAIT_REL, CLOSURE_TURN_REL, GK_CONFIG_REL]) {
+    const raw = read(rel);
+    zt[rel] = raw === null ? "" : code(raw.replace(/\r\n/g, "\n"));
+    if (raw === null) E(`ZT: ${rel} is missing`);
+  }
+  // ZT-1: the owner's grant is a delegable scope that is NOT a closure scope, so on its own it closes nothing.
+  const authority = zt[CORE_AUTHORITY_REL];
+  const closureScopes = /export const CLOSURE_SCOPES[^;]*;/.exec(authority);
+  if (!/export const CLOSURE_DECISION_COMMIT_SCOPE = 'closure-decision-commit';/.test(authority) ||
+      !/DELEGABLE_SCOPES: readonly DelegableScope\[\] = \[[^\]]*CLOSURE_DECISION_COMMIT_SCOPE,?\s*\]/.test(authority) ||
+      closureScopes === null || /closure-decision-commit|CLOSURE_DECISION_COMMIT_SCOPE/.test(closureScopes[0])) {
+    E("ZT-1: closure-decision-commit is not a delegable scope outside the closure scopes");
+  }
+  // ZT-2: the closure kinds are committed only with the grant, on top of commit and push, and the grant
+  // is read only for those kinds, from the committed delegation by the one reader.
+  const technical13 = files[TECHNICAL_REL];
+  const ownRecords = fnBody(technical13, "commitOwnRecords") || "";
+  const reservedAt = ownRecords.indexOf("if (reserved.length > 0)");
+  const grantAt = ownRecords.indexOf("if (CLOSURE_COMMIT_KINDS.includes(request.kind) && request.closureCommit?.granted !== true) {");
+  if (reservedAt < 0 || grantAt < reservedAt || !/const CLOSURE_COMMIT_KINDS: readonly OwnRecordsKind\[\] = \['closure-decision', 'post-close'\];/.test(technical13) ||
+      !/closureCommit\?\.granted !== true\) \{\s*return \{\s*kind: 'RESERVED',/.test(ownRecords) ||
+      !/\.\.\.\(CLOSURE_COMMIT_KINDS\.includes\(kind\) \? \{ closureCommit: resolveClosureCommitDelegation\(sys, root, programme\) \} : \{\}\),/.test(fnBody(technical13, "commitOwnRecordsFor") || "")) {
+    E("ZT-2: ProjectOS can commit a closure decision without the owner's grant, or before the commit and push reservation");
+  }
+  // ...and counts only when the OWNER made the last commit to the delegation (ECC SECURITY H1): judged by
+  // the owner-commit rule with no exception passed, so a delegation ProjectOS committed grants nothing.
+  const zeroTouchGrantFn = fnBody(zt[GK_CONFIG_REL], "resolveClosureCommitDelegation") || "";
+  if (!/const judged = resolveDelegatedDecider\(sys, root, programmeId, CLOSURE_DECISION_COMMIT_SCOPE\);\s*if \(!judged\.ok\) return \{ granted: false, problems: judged\.problems \};/.test(zeroTouchGrantFn) ||
+      !/const authored = ownerCommitIdentityProblems\(commitIdentityOf\(sys, root, CLOSURE_DELEGATION_REL\), owner, null\);\s*if \(authored\.length > 0\) \{\s*return \{\s*granted: false,/.test(zeroTouchGrantFn) ||
+      !/const CLOSURE_DELEGATION_REL = '\.projectops\/authority\/closure-delegation\.json';/.test(zt[GK_CONFIG_REL])) {
+    E("ZT-2: the grant is not judged from the committed delegation by the one reader, or counts without the owner's own commit of it");
+  }
+  // ZT-3: the one non-owner identity the commit check accepts is exactly the one passed, name AND email,
+  // and only when passed; every other implementer-shaped identity is still refused after it.
+  const identityFn = fnBody(zt[CLOSURE_WAIT_REL], "ownerCommitIdentityProblems") || "";
+  const exceptionAt = identityFn.indexOf("if (delegatedCommitter !== null && identity.name === delegatedCommitter.name && identity.email === delegatedCommitter.email) {");
+  const implementerAt = identityFn.indexOf("if (isImplementerName(identity.name) || isImplementerName(identity.email)) {");
+  if (exceptionAt < 0 || implementerAt < exceptionAt || !/delegatedCommitter: DelegatedCommitter \| null = null,/.test(identityFn)) {
+    E("ZT-3: the owner-commit check accepts a non-owner identity other than exactly the granted ProjectOS one");
+  }
+  // ZT-4: closure passes that identity only under the grant and never for an interactive wait; ProjectOS
+  // self-commits only an UNATTENDED answer (ECC SECURITY C1), and only the presented bundle and the exact
+  // post-close records (ECC SECURITY M2: the two path sets are pinned whole).
+  const closure13 = files[CLOSURE_REL];
+  const resume13 = fnBody(closure13, "closureResume") || "";
+  const request13 = fnBody(closure13, "closureRequest") || "";
+  if (!/const answeredInCall =\s*committedMode\.ok &&\s*committedMode\.mode === 'unattended' &&\s*\(waiting\.provenance === 'HostIndependentProviderAttestation' \|\| \(waiting\.provenance === undefined && brokerRouteOptedIn\(sys, root\)\)\);/.test(resume13) ||
+      !/const committedMode = resolveGatekeeperMode\(sys, root\);/.test(resume13) ||
+      !/const delegatedCommitter = grant\.granted && answeredInCall \? \{ name: PROJECTOS_COMMIT_NAME, email: PROJECTOS_COMMIT_EMAIL \} : null;/.test(resume13) ||
+      !/observeOwnerCommit\(sys, root, waiting, planOwner\(gc\.context\.plan\), delegatedCommitter\)/.test(resume13) ||
+      !/const tail = new Set\(\[closureDecisionRelPath\(id\), `\.projectops\/phases\/\$\{id\}\.json`, DEFAULT_STATE_REL, \.\.\.programmeStateTailPaths\(gc\.context\)\]\);/.test(resume13) ||
+      !/const persisted = grant\.granted\s*\?\s*ownRecordsLines\(commitOwnRecordsFor\(sys, root, gc\.context, id, 'post-close', \(p\) => tail\.has\(p\)\), 'post-close'\)/.test(resume13) ||
+      !/if \(modeResolution\.mode !== 'unattended' \|\| !closureCommitGrant\(sys, root, gc\.context\)\.granted\) \{\s*return ok\(\[\.\.\.trace, '', \.\.\.ownerAskLines\(wait\)\]\);/.test(request13) ||
+      !/const bundlePaths = new Set\(bundle\.entries\.map\(\(b\) => b\.path\)\);/.test(request13) ||
+      !/commitOwnRecordsFor\(sys, root, gc\.context, id, 'closure-decision', \(p\) => bundlePaths\.has\(p\)\)/.test(request13) ||
+      !/const DEFAULT_STATE_REL = '\.projectops\/current-state\.json';/.test(closure13)) {
+    E("ZT-4: closure commits or accepts a ProjectOS closure commit without the owner's grant, for an interactive answer, or beyond the presented bundle and the post-close records");
+  }
+  // ZT-6: the closure prompt tells the authority the time of the question, in the priced and the sent body alike.
+  const responses13 = read(CLOSURE_RESPONSES_REL);
+  const respCode = responses13 === null ? "" : code(responses13.replace(/\r\n/g, "\n"));
+  if (!/instructions: closureSystemInstruction\(request, config\.askedAt\),/.test(respCode) ||
+      !/at or just after \$\{askedAt\}, the time this question was asked/.test(respCode) ||
+      ((zt[CLOSURE_TURN_REL].match(/^\s*askedAt: input\.at,$/gm) || []).length !== 2)) {
+    E("ZT-6: the closure prompt no longer tells the authority when the question was asked, or the priced and sent bodies differ");
+  }
+  // ZT-5: a closure answer's decidedAt is judged against the window of its question, and an answer
+  // produced in the call is held to the lower bound.
+  if (!/const when = decidedAtProblem\(decidedAt, expect\.decidedAtWindow\);/.test(fnBody(zt[CORE_TRANSPORT_REL], "checkClosureResponse") || "") ||
+      !/if \(window\.answeredInCall && decided < asked - DECIDED_AT_SKEW_MS\) \{/.test(zt[CORE_TRANSPORT_REL])) {
+    E("ZT-5: a closure answer's decidedAt is no longer judged against the window of its question");
+  }
+  const turn13 = zt[CLOSURE_TURN_REL];
+  if (!/decidedAtWindow: \{ askedAt: input\.at, answeredInCall \},/.test(turn13) ||
+      !/checkClosureResponse\(record, closureExpectations\(input, request, deps\.consumedDecisionIds, true\)\)/.test(fnBody(turn13, "takeClosureTurn") || "") ||
+      !/checkClosureResponse\(record, closureExpectations\(input, request, deps\.consumedDecisionIds, false\)\)/.test(fnBody(turn13, "takeInteractiveClosureTurn") || "")) {
+    E("ZT-5: the closure turn no longer gives the decision-time window, or marks the wrong route as answered in the call");
   }
 
   // (9) PROVEN.

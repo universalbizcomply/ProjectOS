@@ -314,7 +314,9 @@ function replyFor(root: string, over: Record<string, unknown> = {}): string {
     phaseId: PHASE,
     scope: PHASE_CLOSURE_SCOPE,
     decidedBy: DELEGATE,
-    decidedAt: '2026-09-02T22:01:00+01:00',
+    // One minute after the question (NOW). It read +01:00 — an hour BEFORE the question — which the
+    // decision-time window now refuses (PROJECTOS-FINISH-ZERO-TOUCH-CLOSURE1A).
+    decidedAt: '2026-09-02T22:01:00Z',
     evidenceSubjectHead: evidence.evidenceSubjectHead,
     requestDigest: '<filled by the caller>',
     note: 'accepted for closure on the fixture evidence',

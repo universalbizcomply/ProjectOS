@@ -391,6 +391,15 @@ export interface OwnerCommitObservation {
 }
 
 /**
+ * The one non-owner identity whose commit may stand in for the owner's, passed only when the owner has
+ * granted `closure-decision-commit` — PROJECTOS-FINISH-ZERO-TOUCH-CLOSURE1A.
+ */
+export interface DelegatedCommitter {
+  readonly name: string;
+  readonly email: string;
+}
+
+/**
  * Names that can never be the owner committing.
  *
  * THE SAME PREDICATE `closureDecision.ts` APPLIES TO A DECIDER, applied to a committer. It is a
@@ -430,9 +439,17 @@ function isImplementerName(name: string): boolean {
 export function ownerCommitIdentityProblems(
   identity: { readonly name: string; readonly email: string } | null,
   expectedOwner: string,
+  delegatedCommitter: DelegatedCommitter | null = null,
 ): readonly string[] {
   if (identity === null) {
     return ['git would not say who committed the closure decision, and an unattributable commit is not the owner\'s'];
+  }
+  // THE ONE EXCEPTION, AND ONLY WHERE THE OWNER GRANTED IT — PROJECTOS-FINISH-ZERO-TOUCH-CLOSURE1A. With
+  // `closure-decision-commit` in the committed delegation, the caller passes exactly the ProjectOS commit
+  // identity, and only a commit made under exactly that name AND email stands in for the owner's. Any
+  // other implementer-shaped identity is still refused below, grant or no grant.
+  if (delegatedCommitter !== null && identity.name === delegatedCommitter.name && identity.email === delegatedCommitter.email) {
+    return [];
   }
   if (expectedOwner.trim() === '') {
     return ['the active approved plan records no owner, so no commit can be shown to be the owner\'s'];
@@ -472,9 +489,10 @@ export function observeOwnerCommit(
   root: string,
   wait: ClosureWaitRecord,
   expectedOwner: string,
+  delegatedCommitter: DelegatedCommitter | null = null,
 ): OwnerCommitObservation {
   const rel = closureDecisionRelPath(wait.phaseId);
-  const identity = committerOf(sys, root, rel);
+  const identity = commitIdentityOf(sys, root, rel);
   const committedBy = identity === null ? null : `${identity.name} <${identity.email}>`;
 
   // EVERY ENTRY, FROM THE GIT OBJECT. Reading the working tree would digest bytes git never saw, and
@@ -528,7 +546,8 @@ export function observeOwnerCommit(
   // would happen. Bounding everything introduced since the ask to the bundle closes that, and it is
   // the only check that can: the bundle is a set of files, and this is the set of files that moved.
   const bounding = allMatch ? introducedBeyondBundle(sys, root, wait) : [];
-  const identityProblems = allMatch && bounding.length === 0 ? ownerCommitIdentityProblems(identity, expectedOwner) : [];
+  const identityProblems =
+    allMatch && bounding.length === 0 ? ownerCommitIdentityProblems(identity, expectedOwner, delegatedCommitter) : [];
 
   return {
     committed,
@@ -591,7 +610,7 @@ function introducedBeyondBundle(sys: System, root: string, wait: ClosureWaitReco
  * the value is parsed and discarded, and no byte of it is written to disk. The lesson recorded in
  * `gatekeeperDecision.ts` is about NUL inside COMMITTED SOURCE, which turns the file binary to git.
  */
-function committerOf(sys: System, root: string, rel: string): { name: string; email: string } | null {
+export function commitIdentityOf(sys: System, root: string, rel: string): { name: string; email: string } | null {
   const shown = sys.exec('git', ['-C', root, 'log', '-1', '--format=%an%x00%ae%x00%cn%x00%ce', '--', rel]);
   if (shown.code !== 0) return null;
   const parts = shown.stdout.trim().split(String.fromCharCode(0));

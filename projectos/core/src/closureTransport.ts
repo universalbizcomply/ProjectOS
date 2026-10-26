@@ -202,6 +202,58 @@ export interface ClosureResponseExpectations {
   readonly owner: string;
   /** Ids the closure evidence records as unresolved HIGH at this subject. */
   readonly unresolvedHighIds: readonly string[];
+  /**
+   * When the question was asked, and whether its answer was produced inside that same call —
+   * PROJECTOS-FINISH-ZERO-TOUCH-CLOSURE1A. Absent: `decidedAt` is held to the timestamp form only.
+   */
+  readonly decidedAtWindow?: DecidedAtWindow;
+}
+
+/**
+ * The window a closure answer's `decidedAt` must fall in.
+ *
+ * WHY. `decidedAt` is the one authority field the answer writes freely, and nothing read it: a live
+ * closure decision on the agency project recorded `2025-02-15T00:00:00Z`, twenty months before the
+ * question, and was committed and closed on. No gate rests on the time, so the authority impact was
+ * nil — but the audit trail said something false, and the owner committed it without noticing.
+ *
+ * THE BOUNDS. An answer can never be decided later than the longest a question may wait plus a skew.
+ * An answer produced INSIDE the call (`answeredInCall`: the broker or Host route) can never be decided
+ * before the question was asked, less the skew. An interactive answer may have been saved while an
+ * earlier run waited and be picked up by a later one, so it has no lower bound beyond its form.
+ */
+export interface DecidedAtWindow {
+  /** ISO timestamp of the turn that asked. */
+  readonly askedAt: string;
+  readonly answeredInCall: boolean;
+}
+
+/** Clock skew tolerated either side of the window. */
+const DECIDED_AT_SKEW_MS = 10 * 60_000;
+/**
+ * The latest an answer may be decided after its question: the longest gate wait any command allows
+ * (240 minutes, `MAX_GATE_WAIT_MINUTES` in the agent) plus the skew.
+ */
+const DECIDED_AT_LATEST_MS = 240 * 60_000 + DECIDED_AT_SKEW_MS;
+/** A full ISO-8601 instant: date, time and an explicit zone. A date alone is not a decision time. */
+const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:\d{2})$/;
+
+/** Why this `decidedAt` cannot be the time of an answer to this question, or null. Pure. */
+export function decidedAtProblem(decidedAt: string, window: DecidedAtWindow | undefined): string | null {
+  const decided = ISO_INSTANT.test(decidedAt) ? Date.parse(decidedAt) : Number.NaN;
+  if (!Number.isFinite(decided)) {
+    return `closure response decidedAt ${JSON.stringify(decidedAt)} is not a full ISO-8601 instant with a zone`;
+  }
+  if (window === undefined) return null;
+  const asked = Date.parse(window.askedAt);
+  if (!Number.isFinite(asked)) return 'the time this closure question was asked is not known, so its answer\'s decidedAt cannot be judged';
+  if (decided > asked + DECIDED_AT_LATEST_MS) {
+    return `closure response decidedAt ${decidedAt} is later than any answer to a question asked at ${window.askedAt} could be`;
+  }
+  if (window.answeredInCall && decided < asked - DECIDED_AT_SKEW_MS) {
+    return `closure response decidedAt ${decidedAt} is before this question was asked (${window.askedAt}); an answer produced in this call cannot predate it`;
+  }
+  return null;
 }
 
 function text(v: unknown): string | null {
@@ -395,7 +447,13 @@ export function checkClosureResponse(
     e.push('closure response was decided by the implementer — the implementer can never close its own work');
   }
 
-  if (text(record.decidedAt) === null) e.push('closure response records no decidedAt');
+  const decidedAt = text(record.decidedAt);
+  if (decidedAt === null) {
+    e.push('closure response records no decidedAt');
+  } else {
+    const when = decidedAtProblem(decidedAt, expect.decidedAtWindow);
+    if (when !== null) e.push(when);
+  }
   if (text(record.note) === null) {
     e.push('closure response records no note — an unexplained closure decision is not reviewable');
   }

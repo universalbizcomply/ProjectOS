@@ -28,6 +28,7 @@ import {
   BUDGET_RAISE_SCOPE,
   GATEKEEPER_REVIEW_SCOPE,
   TECHNICAL_CONTINUATION_SCOPE,
+  CLOSURE_DECISION_COMMIT_SCOPE,
   GATEKEEPER_DECISION_SCHEMA_VERSION,
   type BudgetPolicy,
   type DecisionProvenanceStamp,
@@ -42,6 +43,7 @@ import {
 } from '@projectos/core';
 import type { System } from '../system.js';
 import type { BrokerAnsweredState } from '../installation/brokerAnsweredState.js';
+import { commitIdentityOf, ownerCommitIdentityProblems } from '../closureWait.js';
 // The canonical delegation validator and the canonical owner resolution — imported rather than
 // re-implemented, because a second opinion about either is the defect this file was corrected for.
 import {
@@ -317,6 +319,53 @@ export function resolveTechnicalDelegation(
   }
   return { problems: [], carriesTechnicalScope: true, delegatedTo: judged.decider };
 }
+
+/** Whether the owner has let ProjectOS commit this project's closure decision, and if not, why not. */
+export interface ClosureCommitDelegationState {
+  readonly granted: boolean;
+  readonly problems: readonly string[];
+}
+
+/**
+ * The committed delegation, judged for the owner's `closure-decision-commit` grant — PROJECTOS-FINISH-
+ * ZERO-TOUCH-CLOSURE1A.
+ *
+ * THE SAME READER AND THE SAME CHECKER AS EVERY OTHER SCOPE: the committed record only, its project and
+ * owner derived from committed configuration, never from the record being judged. A record that is
+ * invalid for any reason grants nothing, so the owner's closure commit stays required.
+ */
+export function resolveClosureCommitDelegation(sys: System, root: string, programmeId: string): ClosureCommitDelegationState {
+  const judged = resolveDelegatedDecider(sys, root, programmeId, CLOSURE_DECISION_COMMIT_SCOPE);
+  if (!judged.ok) return { granted: false, problems: judged.problems };
+  // AND THE OWNER MADE IT (ECC SECURITY H1 against this phase). ProjectOS itself commits reviewed
+  // candidates and its own records, so a delegation that ProjectOS committed — an implementer edit riding
+  // a reviewed technical commit — would be ProjectOS granting itself the anchor it is meant to stand in
+  // for. The grant counts only when the LAST commit that touched the record was made under the owner's
+  // identity, by the same rule the owner's closure commit is judged by, with no exception passed.
+  // `judged.ok` has already established the committed configuration, its project and its owner.
+  const config = readCommittedJson(sys, root, PROJECT_CONFIG_REL) ?? {};
+  const projectId = typeof config['projectId'] === 'string' ? (config['projectId'] as string).trim() : '';
+  let owner = '';
+  try {
+    const owned = resolveRecordedOwner(sys, root, config, projectId, 'committed');
+    if (owned.ok) owner = owned.recordedOwner;
+  } catch {
+    owner = '';
+  }
+  const authored = ownerCommitIdentityProblems(commitIdentityOf(sys, root, CLOSURE_DELEGATION_REL), owner, null);
+  if (authored.length > 0) {
+    return {
+      granted: false,
+      problems: [
+        `the committed ${CLOSURE_DELEGATION_REL} carries 'closure-decision-commit', but its last change is not the owner's commit, so it grants nothing`,
+        ...authored,
+      ],
+    };
+  }
+  return { granted: true, problems: [] };
+}
+
+const CLOSURE_DELEGATION_REL = '.projectops/authority/closure-delegation.json';
 
 /** The scopes the COMMITTED delegation carries, or `[]` when it cannot be read. Never the working tree. */
 function committedScopes(sys: System, root: string): readonly string[] {

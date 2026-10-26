@@ -21,6 +21,7 @@ import {
   STRONG_TIER_ASKS,
   checkClosureDecision,
   checkClosureResponse,
+  decidedAtProblem,
   closureDecisionRecordFrom,
   closureEvidenceDigest,
   closureRequestDigest,
@@ -358,5 +359,46 @@ describe('the free text a human is asked to read', () => {
     expect(
       checkClosureResponse(response({ decisionId: `GOOD${ZWSP}-DECISION1A` }), expectations()).join(' '),
     ).toContain('decisionId');
+  });
+});
+
+// PROJECTOS-FINISH-ZERO-TOUCH-CLOSURE1A: a live closure answer on the agency project recorded
+// decidedAt 2025-02-15T00:00:00Z, twenty months before its question, and nothing refused it.
+describe('the decision time must be a time this answer could have been given', () => {
+  const ASKED = '2026-10-25T22:28:05Z';
+  const inCall = { askedAt: ASKED, answeredInCall: true };
+  const interactive = { askedAt: ASKED, answeredInCall: false };
+
+  it('refuses the invented time the live agency closure carried, for an answer produced in the call', () => {
+    expect(decidedAtProblem('2025-02-15T00:00:00Z', inCall)).toContain('before this question was asked');
+    expect(
+      checkClosureResponse(response({ decidedAt: '2025-02-15T00:00:00Z' }), expectations({ decidedAtWindow: inCall })).join(' '),
+    ).toContain('before this question was asked');
+  });
+
+  it('accepts a time inside the window, either side of the question within the skew', () => {
+    for (const t of ['2026-10-25T22:28:12Z', '2026-10-25T22:20:00Z', '2026-10-25T23:28:12+01:00', '2026-10-26T02:00:00Z']) {
+      expect(decidedAtProblem(t, inCall), t).toBeNull();
+    }
+  });
+
+  it('refuses a time later than the longest a question may wait, in both routes', () => {
+    for (const window of [inCall, interactive]) {
+      expect(decidedAtProblem('2026-10-26T03:00:00Z', window)).toContain('later than any answer');
+    }
+  });
+
+  it('an interactive answer saved while an earlier run waited has no lower bound beyond its form', () => {
+    expect(decidedAtProblem('2026-10-25T12:00:00Z', interactive)).toBeNull();
+  });
+
+  it('refuses anything that is not a full instant with a zone, with or without a window', () => {
+    for (const t of ['2026-10-25', '2026-10-25T22:28:12', 'yesterday', '2026-13-45T99:99:99Z']) {
+      expect(decidedAtProblem(t, undefined), t).toContain('not a full ISO-8601 instant');
+    }
+  });
+
+  it('an unknown question time judges nothing as valid', () => {
+    expect(decidedAtProblem('2026-10-25T22:28:12Z', { askedAt: 'not a time', answeredInCall: true })).toContain('is not known');
   });
 });
