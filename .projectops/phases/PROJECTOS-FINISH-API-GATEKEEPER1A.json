@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-FINISH-API-GATEKEEPER1A",
   "project": "ProjectOS",
   "objective": "Restore the brokered OpenAI gatekeeper route for projects with no ProjectOSHost review route: the loop's review question and the closure question go to the trusted installation broker, which checks the installation allowlist and the project's committed secrets-handling receipt, resolves the key inside itself from the installation's Windows credential store and makes the call, so the agent process never holds the key; and allowlist the new agency project at its localhost git remote. By owner decision of 2026-10-25, as a temporary route while the ProjectOSHost credential custody (decision C5) is not yet activated.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-10-26T06:20:05.992Z",
       "note": "Reviews complete; no unresolved CRITICAL or HIGH; carried items listed in docs/finish/PROJECTOS-FINISH-API-GATEKEEPER1A.md."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-10-26T06:22:11.405Z",
+      "note": "closed by owner Murad, decision projectos:PROJECTOS-FINISH-API-GATEKEEPER1A:owner-closure:7bd95280"
     }
   ]
 }
