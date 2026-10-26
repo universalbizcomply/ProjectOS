@@ -1,0 +1,25 @@
+{
+  "phaseId": "PROJECTOS-FINISH-CONTINUE-INTEGRITY1A",
+  "evidenceSubjectHead": "e4afff6bd157b9492e63c0f685db1695b8fd5da1",
+  "baselineCommit": "f2a987b538645c354aa897e4eda3dc2f59b1eaa7",
+  "validatorsPass": true,
+  "checksPass": true,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "unresolvedCritical": 0,
+  "unresolvedHighIds": [],
+  "headedProofPass": null,
+  "protectedEffects": "NONE",
+  "establishedAt": "2026-10-26T10:55:52.915Z",
+  "notes": [
+    "THIS RECORD CLOSES NOTHING. Closure evidence for PROJECTOS-FINISH-CONTINUE-INTEGRITY1A, phase 7 of 8 of plan v1.15, closed owner-direct under the owner's general grant of full authority (see the decision record). NO gatekeeper closure ruling was obtained for THIS phase and none is claimed. No code writes this file; the convention follows PROJECTOS-FOUNDATION-GAPS1A.",
+    "SUBJECT. e4afff6 on projectos-autonomy-bootstrap1a: one commit on f2a987b (plan v1.15 activation), 8 paths (run.ts, verification.ts, runner.ts, closure.ts, two agent test files, the validator, the evidence doc); 0 Rust, 0 Cargo manifest. Source blobs match off-tree snapshot candidate-r3 plus the evidence doc. Pushed by a normal fast-forward and fast-forwarded to main.",
+    "validatorsPass: the required validators val-projectos-boot-continue1a (section (14) CI-1..CI-3), val-projectos-closure-transport1a (run(): 0 errors) and validate-no-secrets PASS; validate-all 147 registered, 145 PASS, 2 FAIL — the accepted historical non-passes validate-desktop-e2e and val-cd-b4-sealed-expected-window-facts1a; the aggregate is NOT claimed as passing.",
+    "checksPass: agent vitest 2544/2544 (96 files), core 772/772, agent typecheck:all exit 0. Non-vacuity: 12 named mutations (C:/dev/ProjectOS-candidate-backups/finish-continue-integrity1a/tools), each killed by its named rule, 11 also by a behavioural test; every file restored byte for byte.",
+    "reviewsComplete: Claude self-review, ECC CODE, ECC SECURITY. ECC CODE APPROVE (0/0/3 MEDIUM/4 LOW: weak assertions, stale route docs; all fixed). ECC SECURITY round 1 approve with warnings (2 MEDIUM: unsandboxed phase copy with no tree guard; unpinned runner — fixed with a 10-minute bound, a before/after git status comparison and pins); round 2 found one HIGH (the checkout picture overflowed the 1 MiB spawn default on this repository, failing every copy closed) — fixed with --no-optional-locks and a 256 MiB buffer, a test, a pin and mutation C12; round 3 APPROVE, 0 CRITICAL, 0 HIGH, 0 MEDIUM, 3 LOW carried. No machine-readable review artifact is claimed; this note is the transcription.",
+    "LIVE PROOF (reported in EXTERNAL-PROOF3A): agency SEO-AGENCY-SITE-CHECK2A at ProjectOS e4afff6 ran from ONE continue to closed — PASS validate-site and validate-site@phase-copy in the run and in prepare; 'carrying on: projectos closure request' in the same call; decision committed by ProjectOS (agency e38f318), close persisted (dde2ead).",
+    "unresolved: zero CRITICAL, zero HIGH. Carried in docs/finish/PROJECTOS-FINISH-CONTINUE-INTEGRITY1A.md: path-only checkout picture; the clean-tree condition inside closurePrepared not pinned on its own; a validator reached only through another validator judged by its base copy; run --continue --execute can now reach the paid closure question in one call.",
+    "protectedEffects NONE: no production, credential disclosure, messaging, payment, database, service, ACL, registry, force push or merge commit.",
+    "OWNER STATEMENT on credential and token rotation, carried forward verbatim from 2026-09-28 (not newly given): \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\""
+  ]
+}
