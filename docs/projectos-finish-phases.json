@@ -241,8 +241,8 @@
     {
       "phaseId": "PROJECTOS-FINISH-ZERO-TOUCH-CLOSURE1A",
       "title": "ProjectOS commits a delegated closure decision itself, and refuses an invented decision time",
-      "description": "Add the owner-granted delegation scope closure-decision-commit. When a governed project's committed closure delegation carries it and the phase's owner gates leave commit and push delegated, closure request commits and pushes exactly the closure bundle (the delegate's decision and the spend ledger) under the ProjectOS implementer identity, closure resume accepts exactly that identity for that project instead of the owner's, the phase closes through the existing delegated phase advance, and the records that persist the close are committed and pushed by ProjectOS. A project without the scope keeps the owner's closure commit. A closure answer whose decidedAt is not a valid timestamp inside the window of the question it answers is refused.",
-      "scope": "Edit projectos/core/src/closureAuthority.ts, projectos/core/src/closureTransport.ts, projectos/core/src/index.ts, projectos/core/test/, projectos/agent/src/commands/closure.ts, projectos/agent/src/closureWait.ts, projectos/agent/src/loop/closureTurn.ts, projectos/agent/src/loop/gatekeeperConfig.ts, projectos/agent/src/loop/technicalContinuation.ts, projectos/agent/src/planApproval.ts, projectos/agent/test/ and projectos/validators/val-projectos-boot-continue1a.cjs; add evidence under docs/finish/.",
+      "description": "Add the owner-granted delegation scope closure-decision-commit. When a governed project's committed closure delegation carries it and the phase's owner gates leave commit and push delegated, closure request commits and pushes exactly the closure bundle (the delegate's decision and the spend ledger) under the ProjectOS implementer identity, closure resume accepts exactly that identity for that project instead of the owner's, the phase closes through the existing delegated phase advance, and the records that persist the close are committed and pushed by ProjectOS. A project without the scope keeps the owner's closure commit. A closure answer whose decidedAt is not a valid timestamp inside the window of the question it answers is refused. The closure prompt tells the authority the time of the question and the form decidedAt must take, and only an answer produced inside the call (the trusted broker or the Host route), never an interactive answer file, is committed by ProjectOS under the grant.",
+      "scope": "Edit projectos/core/src/closureAuthority.ts, projectos/core/src/closureTransport.ts, projectos/core/src/index.ts, projectos/core/test/, projectos/agent/src/commands/closure.ts, projectos/agent/src/closureWait.ts, projectos/agent/src/loop/closureTurn.ts, projectos/agent/src/loop/transports/closureResponses.ts, projectos/agent/src/loop/gatekeeperConfig.ts, projectos/agent/src/loop/technicalContinuation.ts, projectos/agent/src/planApproval.ts, projectos/agent/test/ and projectos/validators/val-projectos-boot-continue1a.cjs; add evidence under docs/finish/.",
       "writePaths": [
         "projectos/core/src/closureAuthority.ts",
         "projectos/core/src/closureTransport.ts",
@@ -251,6 +251,7 @@
         "projectos/agent/src/commands/closure.ts",
         "projectos/agent/src/closureWait.ts",
         "projectos/agent/src/loop/closureTurn.ts",
+        "projectos/agent/src/loop/transports/closureResponses.ts",
         "projectos/agent/src/loop/gatekeeperConfig.ts",
         "projectos/agent/src/loop/technicalContinuation.ts",
         "projectos/agent/src/planApproval.ts",
