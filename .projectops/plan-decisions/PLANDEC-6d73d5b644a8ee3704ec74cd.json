@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "PLANDEC-6d73d5b644a8ee3704ec74cd",
+  "decision": "approve",
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "b7ffbdd94f3c45708a955a2c659037f71796d192",
+  "draftId": "f291febef5bc1625",
+  "planDigest": "sha256:52ee408cea180fb3fbd6400eb3afbb8991dff431083a9f1798bc0b623a5dead0",
+  "decidedBy": "Murad",
+  "decidedAt": "2026-10-26T06:45:29.297Z",
+  "note": "Owner (Murad), 2026-10-26, verbatim, in answer to the proposal of plan v1.13 (ProjectOS commits a delegated closure decision itself under the owner-granted closure-decision-commit scope; refuse an invented closure decision time; a second agency phase closing with no owner act): \"I have given you full authority\". Earlier grant, 2026-10-25, verbatim: \"I give you full authority now\". Recorded by the implementer (Claude) on those words; the implementer grants nothing by writing it.",
+  "recordedBy": "projectos plan decide"
+}
