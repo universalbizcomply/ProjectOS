@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "objectiveId": "f291febef5bc1625",
+  "objective": "Plan v1.13: ProjectOS commits a delegated closure decision itself where the owner grants the closure-decision-commit scope, refuses an invented closure decision time, and proves a second agency phase closing with no owner act.",
+  "authoritative": false,
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "b7ffbdd94f3c45708a955a2c659037f71796d192",
+  "submittedAt": "2026-10-26T06:45:18.361Z",
+  "submittedBy": "owner",
+  "instructionShaped": false
+}

@@ -11,5 +11,6 @@
   "decidedBy": "Murad",
   "decidedAt": "2026-10-26T06:45:29.297Z",
   "note": "Owner (Murad), 2026-10-26, verbatim, in answer to the proposal of plan v1.13 (ProjectOS commits a delegated closure decision itself under the owner-granted closure-decision-commit scope; refuse an invented closure decision time; a second agency phase closing with no owner act): \"I have given you full authority\". Earlier grant, 2026-10-25, verbatim: \"I give you full authority now\". Recorded by the implementer (Claude) on those words; the implementer grants nothing by writing it.",
-  "recordedBy": "projectos plan decide"
+  "recordedBy": "projectos plan decide",
+  "consumedAt": "2026-10-26T06:45:37.027Z"
 }
