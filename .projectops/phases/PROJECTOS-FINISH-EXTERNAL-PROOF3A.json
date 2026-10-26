@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-FINISH-EXTERNAL-PROOF3A",
   "project": "ProjectOS",
   "objective": "On the SEO and social-media agency project, approve the agency's next plan and carry one ordinary phase — closing the gaps the reviews found in its site validator (unquoted attributes, JSON-LD script src, per-script JSON, base href, targeted fixtures, an explicit fixtures-only root override, temp cleanup) — from a single `projectos continue` to closed, with the phase's new validator copy judged alongside the base copy, the closure decision and the persisted close committed by ProjectOS, the owner's acts counted and every defect recorded.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-10-26T11:02:25.962Z",
       "note": "No unresolved CRITICAL or HIGH in ProjectOS; carried items in docs/finish/PROJECTOS-FINISH-EXTERNAL-PROOF3A.md."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-10-26T11:02:30.162Z",
+      "note": "closed by owner Murad, decision projectos:PROJECTOS-FINISH-EXTERNAL-PROOF3A:owner-closure:67879810"
     }
   ]
 }
