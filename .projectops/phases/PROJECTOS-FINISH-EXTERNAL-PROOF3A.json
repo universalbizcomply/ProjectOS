@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-FINISH-EXTERNAL-PROOF3A",
+  "project": "ProjectOS",
+  "objective": "On the SEO and social-media agency project, approve the agency's next plan and carry one ordinary phase — closing the gaps the reviews found in its site validator (unquoted attributes, JSON-LD script src, per-script JSON, base href, targeted fixtures, an explicit fixtures-only root override, temp cleanup) — from a single `projectos continue` to closed, with the phase's new validator copy judged alongside the base copy, the closure decision and the persisted close committed by ProjectOS, the owner's acts counted and every defect recorded.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-10-26T11:02:24.347Z",
+      "note": "Owner-approved plan v1.15 (f2a987b). Owner, 2026-10-26, verbatim: \"I have given you full authority\" and \"What is next? Why aren't you clear of what's next?\". The phase record is created after the evidence commit."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-10-26T11:02:24.673Z",
+      "note": "Agency setup: plan v1.3 (623585a, 3e41b24, be91bc0) and receipt d304a2a, lead-authored under the owner's name, disclosed."
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-10-26T11:02:24.978Z",
+      "note": "Live run at ProjectOS e4afff6: SEO-AGENCY-SITE-CHECK2A from ONE continue to closed; both validator copies PASS; decision committed by ProjectOS e38f318, close persisted dde2ead; zero owner acts; 6003 micro-USD."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-10-26T11:02:25.313Z",
+      "note": "Evidence 6787981: owner acts zero; one invocation; D11 disclosed (agency criteria not fully met under a self-review-only plan); the three required validators PASS."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-10-26T11:02:25.640Z",
+      "note": "ECC CODE approve once corrected; ECC SECURITY warning on the agency validator (2 HIGH), disclosed as D11 with an agency follow-up phase as its fix."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-10-26T11:02:25.962Z",
+      "note": "No unresolved CRITICAL or HIGH in ProjectOS; carried items in docs/finish/PROJECTOS-FINISH-EXTERNAL-PROOF3A.md."
+    }
+  ]
+}
