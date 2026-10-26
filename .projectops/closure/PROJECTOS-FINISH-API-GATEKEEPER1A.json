@@ -1,0 +1,25 @@
+{
+  "phaseId": "PROJECTOS-FINISH-API-GATEKEEPER1A",
+  "evidenceSubjectHead": "7bd95280f6a325e6a75769ca89501fbc40829279",
+  "baselineCommit": "96d5e645a4da0cee0ece1cf38f1e78e20cab00de",
+  "validatorsPass": true,
+  "checksPass": true,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "unresolvedCritical": 0,
+  "unresolvedHighIds": [],
+  "headedProofPass": null,
+  "protectedEffects": "NONE",
+  "establishedAt": "2026-10-26T06:21:35.473Z",
+  "notes": [
+    "THIS RECORD CLOSES NOTHING. Closure evidence for PROJECTOS-FINISH-API-GATEKEEPER1A, phase 3 of plan v1.12, closed owner-direct under the owner's general grant of full authority (see the decision record). NO gatekeeper closure ruling was obtained for THIS phase and none is claimed. `phase advance --as owner` does not evaluate G4. No code writes this file; the convention follows PROJECTOS-FOUNDATION-GAPS1A. Implemented by Claude (lead) directly, not dispatched to a governed worker; the phase record was created after the implementation commit and walked one transition per command.",
+    "SUBJECT. 7bd95280f6a325e6a75769ca89501fbc40829279 on projectos-autonomy-bootstrap1a: two commits on 96d5e64 — 7d1343e (implementation, 7 paths: run.ts, closure.ts, two agent test files, the installation allowlist, val-projectos-boot-continue1a, the evidence doc; 0 Rust, 0 Cargo manifest; the broker, credential store adapter, reference table and resolver unchanged) and 7bd9528 (evidence doc: live proof). Source blobs match the off-tree snapshot candidate-r3. Pushed by normal fast-forwards, also fast-forwarded to main.",
+    "validatorsPass: the four validators the plan requires — val-projectos-boot-continue1a, val-projectos-trust-boundary1a, val-projectos-gatekeeper-contract1a, validate-no-secrets — PASS at the subject. validate-all: 147 registered, 145 PASS, 2 FAIL; the aggregate is NOT claimed as passing; the two FAILs are the accepted historical non-passes, unchanged: validate-desktop-e2e and val-cd-b4-sealed-expected-window-facts1a.",
+    "checksPass: agent vitest 2516/2516 (94 files), core vitest 766/766, agent typecheck:all exit 0, core tsc exit 0. Non-vacuity: off-tree named mutation battery (C:/dev/ProjectOS-candidate-backups/finish-api-gatekeeper1a/tools), 10 mutations, each killed by its own named rule in val-projectos-boot-continue1a section (12) AG-1..AG-6, 7 also by a behavioural test; every file restored byte for byte and re-hashed.",
+    "reviewsComplete: the plan requires Claude self-review, ECC CODE review and ECC SECURITY review. Round 1 — ECC CODE: 1 HIGH (H1: the broker was composed with mode unattended, so the turn refused before reaching it) and MEDIUM M1-M4; ECC SECURITY: M1 (same as H1), M2 (no explicit opt-in: removing a Host block downgraded the route), M3/M4 (project-side cap only; the pasted key stays — owner decisions), LOWs. One fix round: pre-hybrid shape, committed opt-in in commit and working copy, GATEKEEPER_ROUTE_AMBIGUOUS, one shared trustedBroker, behavioural tests, validator AG-1..AG-6. Round 2 — ECC CODE: APPROVE, 0 CRITICAL, 0 HIGH, 1 MEDIUM, 6 LOW; ECC SECURITY: no CRITICAL or HIGH. The closure behavioural test both requested was added (mutation A10 killed by it). No machine-readable review artifact is claimed; this note is the transcription.",
+    "LIVE PROOF (reported separately from the synthetic tests): agency project seo-agency (C:/dev/SEOAgency, localhost-only git remote), installation HEAD 7d1343e. The owner stored the OpenAI key at the hidden credential prompt (fingerprint 20f9cbfe22c5); Claude never saw it. projectos continue --execute: real worker, validate-site PASS, review GKREQ-a4d090c3c1a82185f8b3b11a (gpt-5.6-luna) approved continuation through the broker, 419 micro-USD recorded; closure question CLREQ-0b3a4b17e03c65e3b73788ed (gpt-5.6-terra) decided close, 6309 micro-USD; the owner committed the decision (agency 357e92a) and closure resume closed SEO-AGENCY-WEBSITE1A under the agency delegation. No owner relay. Total 6728 micro-USD of the $5 hard stop.",
+    "OWNER STATEMENT on credential and token rotation, carried forward verbatim from 2026-09-28 (not newly given): \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\"",
+    "unresolved: zero CRITICAL, zero HIGH. Carried forward, each with its trigger, in docs/finish/PROJECTOS-FINISH-API-GATEKEEPER1A.md: provider-side spend cap (owner action); broker provenance class; implicit route discriminator; closure test with Host block plus opt-in; closure funding text; broker error-body redaction; agency forbidden-actions wording; stale comments outside this phase; the seo-agency allowlist entry is temporary.",
+    "protectedEffects NONE beyond the owner-authorised: provider spend of 6728 micro-USD under the owner's \"Route 2 now\" decision and the agency phase's committed secrets-handling receipt; no production, credential disclosure, messaging, payment, database, service, ACL, registry, force push or merge commit."
+  ]
+}
