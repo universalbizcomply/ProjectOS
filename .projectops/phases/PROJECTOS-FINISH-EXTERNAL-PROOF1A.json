@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-FINISH-EXTERNAL-PROOF1A",
   "project": "ProjectOS",
   "objective": "Prove ProjectOS on a real new project: create a local governed repository for an SEO and social-media posting agency, seeded — by owner decision of 2026-10-25 — with three MIT-licensed open-source toolkits vendored at pinned commits after a supply-chain review (zubair-trabzada/geo-seo-claude, katzca/autosocial, Jakeschincariol/instagram-agent-skill), with every posting path disabled, approve its first plan, and carry one ordinary phase — the agency's marketing website — through projectos continue: worker implementation within its writePaths, automated checks, the gatekeeper review (answered through the trusted broker, no relay), technical commit and push to the local remote, closure preparation and the owner's closure commit, with the owner's acts counted and the results recorded. It runs after PROJECTOS-FINISH-API-GATEKEEPER1A has landed, so the review is answered without a relay.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-10-26T06:35:27.952Z",
       "note": "Reviews complete; no unresolved CRITICAL or HIGH; D6 (MEDIUM) and the other items carried as owner-gated amendments with triggers."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-10-26T06:36:35.373Z",
+      "note": "closed by owner Murad, decision projectos:PROJECTOS-FINISH-EXTERNAL-PROOF1A:owner-closure:bf341ebc"
     }
   ]
 }
