@@ -1,0 +1,25 @@
+{
+  "phaseId": "PROJECTOS-FINISH-EXTERNAL-PROOF1A",
+  "evidenceSubjectHead": "bf341ebca28cbee228b50e6b58247e2a4d13b97e",
+  "baselineCommit": "8bf95dd5da70a0686bd07b664527d737b6405dfa",
+  "validatorsPass": true,
+  "checksPass": true,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "unresolvedCritical": 0,
+  "unresolvedHighIds": [],
+  "headedProofPass": null,
+  "protectedEffects": "NONE",
+  "establishedAt": "2026-10-26T06:36:04.532Z",
+  "notes": [
+    "THIS RECORD CLOSES NOTHING. Closure evidence for PROJECTOS-FINISH-EXTERNAL-PROOF1A, phase 4 of 4 of plan v1.12, closed owner-direct under the owner's general grant of full authority (see the decision record). NO gatekeeper closure ruling was obtained for THIS phase and none is claimed (the agency phase it reports on was closed by ChatGPT, separately). No code writes this file; the convention follows PROJECTOS-FOUNDATION-GAPS1A.",
+    "SUBJECT. bf341ebca28cbee228b50e6b58247e2a4d13b97e on projectos-autonomy-bootstrap1a: one docs commit on 8bf95dd adding docs/finish/PROJECTOS-FINISH-EXTERNAL-PROOF1A.md (inside the phase writePaths docs/finish/); 0 source, test, Rust or Cargo change. Pushed by a normal fast-forward.",
+    "validatorsPass: the three validators the plan requires — val-projectos-boot-continue1a, validate-current-project-state, validate-no-secrets — PASS at the subject.",
+    "checksPass: the agency check validate-site PASS (1 page) at agency cdf6085; its off-tree fixture harness 13/13 (C:/dev/ProjectOS-candidate-backups/finish-external-proof1a/test-validate-site.cjs). No ProjectOS code changed, so the agent and core suites are as at 8bf95dd.",
+    "reviewsComplete: Claude self-review, ECC CODE and ECC SECURITY. Round 1 — ECC CODE: WARNING, 0 CRITICAL, 1 HIGH (owner-act count omitted the secrets-handling approval and route decision), 5 MEDIUM, 4 LOW; ECC SECURITY: approve with conditions, 0 CRITICAL, 0 HIGH, 2 MEDIUM (agency governance forbids the API use; owner acts not provable from the repo), 6 LOW. One fix round in the document plus an operational fix on the agency remote (denyNonFastForwards, denyDeletes, README path 1f9dda2). Round 2 — ECC CODE: APPROVE, 0 CRITICAL, 0 HIGH; ECC SECURITY: conditions met, approve, 0 CRITICAL, 0 HIGH. No machine-readable review artifact is claimed; this note is the transcription.",
+    "LIVE RESULT (the subject of this phase): agency C:/dev/SEOAgency, project seo-agency, SEO-AGENCY-WEBSITE1A carried through projectos continue at ProjectOS 7d1343e — worker within site/, validate-site PASS, review GKREQ-a4d090c3c1a82185f8b3b11a approved through the trusted broker (419 micro-USD), technical commit 7d627d7, run records d1710c7, closure records 48a0d1b, closure CLREQ-0b3a4b17e03c65e3b73788ed decided close (6309 micro-USD), owner closure commit 357e92a typed by the owner, closed under the agency delegation. 0 relays. Owner acts: 2 target (plan approval, closure commit) plus 2 one-time excess (route and credential decision; key storage), each with its cause.",
+    "OWNER STATEMENT on credential and token rotation, carried forward verbatim from 2026-09-28 (not newly given): \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\"",
+    "unresolved: zero CRITICAL, zero HIGH. Carried as separate owner-gated amendments, in docs/finish/PROJECTOS-FINISH-EXTERNAL-PROOF1A.md: D6 MEDIUM agency governance forbids the provider API use the brokered route made; D2 MEDIUM post-close records; D1 LOW model-authored closure decidedAt accepted unchecked; D3 LOW receipt scope prose only; D4 LOW no plain local bare remote; D5 LOW dry-run leaves briefs; plus key rotation, provider cap, temporary allowlist entry, provenance class, validate-site hardening, toolkit entry points, git server.",
+    "protectedEffects NONE beyond the owner-authorised provider spend of 6728 micro-USD on the agency phase: no deployment, domain, GitHub repository, real social-media post, email, message, payment, database, service, ACL, registry, force push or merge commit."
+  ]
+}
