@@ -1,0 +1,25 @@
+{
+  "phaseId": "PROJECTOS-FINISH-EXTERNAL-PROOF2A",
+  "evidenceSubjectHead": "4a0a4456b3c734cabee46b2020c97a685406f9ea",
+  "baselineCommit": "c36717c7ab640c842bec3903c9f8666887db0bd2",
+  "validatorsPass": true,
+  "checksPass": true,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "unresolvedCritical": 0,
+  "unresolvedHighIds": [],
+  "headedProofPass": null,
+  "protectedEffects": "NONE",
+  "establishedAt": "2026-10-26T09:03:16.778Z",
+  "notes": [
+    "THIS RECORD CLOSES NOTHING. Closure evidence for PROJECTOS-FINISH-EXTERNAL-PROOF2A, phase 6 of 6 of plan v1.13 (amended by v1.14), closed owner-direct under the owner's general grant of full authority (see the decision record). NO gatekeeper closure ruling was obtained for THIS phase and none is claimed. No code writes this file; the convention follows PROJECTOS-FOUNDATION-GAPS1A.",
+    "SUBJECT. 4a0a445 on projectos-autonomy-bootstrap1a: one docs commit on c36717c adding docs/finish/PROJECTOS-FINISH-EXTERNAL-PROOF2A.md (inside writePaths docs/finish/); 0 source, test, Rust or Cargo change. Pushed by a normal fast-forward.",
+    "validatorsPass: val-projectos-boot-continue1a, validate-current-project-state and validate-no-secrets PASS at the subject.",
+    "checksPass: agency at 1deb10c — validate-site PASS (hardened, run by the lead after the close; the gate ran the base copy, D8); validate-site.fixtures 13/13 (lead-run after the close); tree clean; work = origin/work. No ProjectOS code changed, so the agent and core suites are as at 83957e6.",
+    "LIVE RESULT: agency SEO-AGENCY-SITE-CHECK1A at ProjectOS 83957e6 — worker within two named files; review GKREQ-2c7e45189aed9b3ad6c91a74 (gpt-5.6-luna, 409 micro-USD) through the broker; technical commit 5c3bcc9, run records 2b45b80, closure records 11395d2 (all ProjectOS); closure CLREQ-0a70a20aee63a2aa7fe9f927 (gpt-5.6-terra, 6246 micro-USD) decided close, decidedAt 2026-10-26T08:35:33Z; the decision and ledger committed by ProjectOS under the owner's grant (5905d30); closed; close persisted by ProjectOS (1deb10c). Zero owner acts for the phase; two continue invocations (D7). Setup (grant, plan v1.1/v1.2, receipt) lead-authored under the owner's name on one standing message, disclosed.",
+    "reviewsComplete: ECC CODE APPROVE (0/0/4 MEDIUM/5 LOW: owner-act wording, hardened validator never gated, rule gaps, untargeted fixtures); ECC SECURITY approve with warnings (0/0/6 MEDIUM/4 LOW: unquoted-attribute bypass, VALIDATE_SITE_ROOT override, provenance inferred, owner-identity trust root, open key exposure, self-attested review). All disclosed in the document or recorded as defects and carry-forwards with fix routes; no code changed; the disclosure round was not re-reviewed. No machine-readable review artifact is claimed.",
+    "unresolved: zero CRITICAL, zero HIGH. Carried in docs/finish/PROJECTOS-FINISH-EXTERNAL-PROOF2A.md: D8 MEDIUM (validator never gated; rule gaps) — agency follow-up phase plus a ProjectOS amendment; D7 MEDIUM (continue stops after prepare) — run.ts amendment; D9, D10, D3, D6, D5 LOW; key rotation trigger; signed commits on authority paths (owner decision).",
+    "protectedEffects NONE beyond the owner-authorised provider spend of 6655 micro-USD on the agency phase: no deployment, domain, GitHub repository, social post, email, message, payment, database, service, ACL, registry, force push or merge commit.",
+    "OWNER STATEMENT on credential and token rotation, carried forward verbatim from 2026-09-28 (not newly given): \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\""
+  ]
+}
