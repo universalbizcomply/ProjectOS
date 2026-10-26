@@ -11,5 +11,6 @@
   "decidedBy": "Murad",
   "decidedAt": "2026-10-26T09:31:27.347Z",
   "note": "Owner (Murad), 2026-10-26, verbatim: \"I have given you full authority\", and in answer to the v1.14 completion report, verbatim: \"What is next? Why aren't you clear of what's next?\" — directing the implementer to proceed with the next step itself. This v1.15 fixes two defects the live proof found (D7, D8) and adds the agency proof; it widens no authority. Recorded by the implementer (Claude); the implementer grants nothing by writing it.",
-  "recordedBy": "projectos plan decide"
+  "recordedBy": "projectos plan decide",
+  "consumedAt": "2026-10-26T09:31:29.364Z"
 }

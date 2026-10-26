@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "objectiveId": "2aaafbc8388797b8",
+  "objective": "Plan v1.15: one continue carries a phase to closed, a phase that changes its own required validator is judged by its new copy as well, and a third agency phase proves both with no owner act.",
+  "authoritative": false,
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "22656cfede9f2933d1ee283f02e381a12897c1f4",
+  "submittedAt": "2026-10-26T09:31:13.759Z",
+  "submittedBy": "owner",
+  "instructionShaped": false
+}
