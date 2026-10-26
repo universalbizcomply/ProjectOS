@@ -1,0 +1,427 @@
+{
+  "schemaVersion": "1.0.0",
+  "projectId": "projectos",
+  "projectName": "ProjectOS",
+  "programmeId": "projectos-autonomous-self-hosting",
+  "planId": "plan-7327e99e85028d90-83fc7b2a34a2",
+  "planVersion": "1.14",
+  "planStatus": "PLAN READY",
+  "businessVision": "ProjectOS delivers ordinary technical work on real projects end to end: Claude implements, the ChatGPT gatekeeper reviews through the trusted broker without the owner's relay, and ProjectOS carries each approved phase through checks, review, commit, push and closure; where the owner has delegated the closure commit to ProjectOS, a phase closes with no owner act at all, and the owner holds every protected action.",
+  "definitionOfComplete": "Six phases are complete: phase write grants come from a structured list of paths in the approved plan, with the judging validators run from the last approved commit; phase closure works for any governed project; the ChatGPT gatekeeper answers without the owner's relay through the trusted broker (owner decision of 2026-10-25); ProjectOS has carried one ordinary phase end to end on a new governed project, the website of an SEO and social-media posting agency, with evidence; a project whose owner grants the closure-decision-commit scope has its delegate's closure decision committed by ProjectOS itself, with a model-invented decision time refused; and a second agency phase has closed end to end with no owner act. Dead Aisle and PolyGo are not part of this plan (owner decision of 2026-10-25). Host-attested unattended review, the signed installer, Forge and the Control Center redesign are deferred and are reopened only by an owner decision.",
+  "approvedScope": [
+    "A structured per-phase list of write paths in the plan schema, the plan source format and the plan engine, from which the worker's write grant is derived exactly.",
+    "Running a phase's required validators and the loop's enforcement code from the last approved commit, so work under review cannot alter what judges it.",
+    "Generalising the closure eligibility gate from the project id 'projectos' to the governed project's own id.",
+    "Folding the run's own records into the loop's technical-continuation commit, and committing generated closure-tail records as a technical action when the phase's owner gates leave commit and push delegated.",
+    "Live proofs: the disposable two-phase proof re-run with the reduced owner acts, then one ordinary phase on a new local governed project — the website of an SEO and social-media posting agency — through projectos continue, with evidence under docs/finish/.",
+    "Tests and evidence for those live proofs; enforcement-code fixes they expose go to a separate owner-gated amendment.",
+    "By owner decision of 2026-10-25 (\"Route 2 now\"): the ChatGPT gatekeeper answers without the owner's relay through the existing trusted installation broker, which resolves the OpenAI key inside itself from the installation's Windows credential store, only for an allowlisted project carrying its own committed secrets-handling receipt; the agent process never holds the key.",
+    "By owner decision of 2026-10-26 (\"I have given you full authority\", in answer to the proposal to remove the owner's closure commit for delegated projects): a new owner-granted delegation scope, closure-decision-commit. When a project's committed closure delegation carries it and the phase leaves commit and push delegated, ProjectOS commits and pushes the delegate's closure decision and its spend ledger entry under the ProjectOS implementer identity, closes through the existing delegated phase advance, and commits the records that persist the close. A project without the scope keeps the owner's closure commit unchanged.",
+    "Refusing a closure answer whose decidedAt is not a valid timestamp inside the window of the question it answers.",
+    "A second agency phase, carried end to end under the new scope, as the live proof."
+  ],
+  "excludedScope": [
+    "A second orchestrator, decision store, work queue, execution engine or gatekeeper.",
+    "Any change to the absolute owner-only actions: secrets handling and payment or live charge stay exactly as they are, and phase closure by the owner stays the default; the closure commit passes to ProjectOS only on a project whose owner has granted the closure-decision-commit scope in its committed delegation.",
+    "Production deployment, external send, payment, refund, production database mutation and credential disclosure or rotation.",
+    "Deferred by owner decision of 2026-10-25 (Option A): Host service activation, credential provisioning, signing, unattended or paid provider review, the signed installer, Programme C (Forge) and the Control Center redesign.",
+    "Deferred: live specialist engines and workforce activation, and the carried workforce deferrals recorded in plan v1.8.",
+    "Deferred to after ProjectOS completion by the owner's recorded statement: credential or token rotation where genuinely required.",
+    "Carried LOW items, each with its trigger: configuration argv forms beyond --allowedTools; hard links and device names beneath granted directories; process-tree termination on a check timeout.",
+    "By owner decision of 2026-10-25: Dead Aisle and PolyGo as proof projects; publishing to any real social-media account, sending any email or message, buying or pointing a domain, deploying the website, and creating a GitHub repository for the new project. Installing any vendored toolkit into the owner's Claude Code configuration is also excluded.",
+    "Claude creating, reading, printing, storing or relaying the OpenAI key: the owner stores it through the hidden credential prompt; the key never enters a file, command line, report or prompt."
+  ],
+  "successStandard": "On the agency project, once the owner has granted the closure-decision-commit scope, a phase runs from continue to closed with no owner act: the ChatGPT gatekeeper answers through the trusted broker, ChatGPT decides closure, and ProjectOS commits that decision and the records around it, truthfully recorded, with no protected action taken without the owner.",
+  "repository": {
+    "repositoryPath": "C:/dev/ProjectOS",
+    "expectedRemote": "universalbizcomply/ProjectOS",
+    "protectedBranches": [
+      "main",
+      "projectos-v2-core"
+    ],
+    "baselineCommit": "6d160087eba3ed7389a91c9e6b15b7a66fd87c32",
+    "planPersistenceCommit": null,
+    "planSourceBranch": "projectos-autonomy-bootstrap1a"
+  },
+  "sourceDocuments": [
+    {
+      "documentPath": ".projectops/current-state-01053932764c573b-68d21d6830c1.json",
+      "sourceDocumentType": "requirements",
+      "sourceDocumentChecksum": "sha256:f84cf525f5c5b9b541c09cd31e5f2923977719b8c64fafd71cc83942b36fe695",
+      "authoritative": false,
+      "superseded": false
+    },
+    {
+      "documentPath": "docs/projectos-finish-phases.json",
+      "sourceDocumentType": "requirements",
+      "sourceDocumentChecksum": "sha256:28ed061586ffc3323821ceab3ceea611a04a341c7b3d15de9a5ba20c944b4e5d",
+      "authoritative": true,
+      "superseded": false
+    }
+  ],
+  "phases": [
+    {
+      "phaseId": "PROJECTOS-FINISH-WRITEPATHS1A",
+      "description": "Give every plan phase a structured list of write paths and derive the worker's write grant from that list exactly, retiring the reading of grants from scope prose; and run a phase's required validators and the loop's enforcement code from the last approved commit, so a phase whose paths name a validator or enforcement file cannot change what judges it.",
+      "scope": "Edit projectos/schemas/project-plan.schema.json, projectos/validators/plan-discovery-engine.cjs, projectos/validators/validate-plan-discovery-import.cjs, projectos/agent/src/planApproval.ts, projectos/agent/src/loop/workers.ts, projectos/agent/src/loop/runner.ts, projectos/agent/src/loop/verification.ts, projectos/agent/src/commands/closure.ts, projectos/agent/test/ and projectos/validators/val-projectos-boot-continue1a.cjs; add projectos/agent/src/loop/pinnedValidators.ts and evidence under docs/finish/.",
+      "writePaths": [
+        "projectos/schemas/project-plan.schema.json",
+        "projectos/validators/plan-discovery-engine.cjs",
+        "projectos/validators/validate-plan-discovery-import.cjs",
+        "projectos/agent/src/planApproval.ts",
+        "projectos/agent/src/loop/workers.ts",
+        "projectos/agent/src/loop/runner.ts",
+        "projectos/agent/src/loop/verification.ts",
+        "projectos/agent/src/loop/pinnedValidators.ts",
+        "projectos/agent/src/commands/closure.ts",
+        "projectos/agent/test/",
+        "projectos/validators/val-projectos-boot-continue1a.cjs",
+        "docs/finish/"
+      ],
+      "dependsOn": [],
+      "acceptanceCriteria": [
+        "Every plan phase can carry a structured writePaths list; the plan schema, the plan source format and the plan engine accept it, and a phase without it grants only the worker-owned records.",
+        "The worker's write grant equals writePaths exactly, after the existing normalisation and containment rules; scope prose is read by no grant code path, and the exclusion-word list is retired.",
+        "A phase's required validators and the loop's enforcement code run from the phase's base commit, and a test proves a worker edit to a validator or enforcement file under its grant does not change the check result.",
+        "Each new rule is pinned by a validator and killed by a named mutation, and the plan v1.9 phases themselves carry writePaths.",
+        "Agent and core tests green, validate-all with no new failure beyond the two known, and the ECC CODE and ECC SECURITY reviews with no unresolved critical or high finding."
+      ],
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredValidators": [
+        "val-projectos-boot-continue1a",
+        "val-projectos-work-record-not-authority1a",
+        "val-projectos-live-gate-owner-floor1a",
+        "validate-current-project-state",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC CODE review",
+        "ECC SECURITY review"
+      ],
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ]
+    },
+    {
+      "phaseId": "PROJECTOS-FINISH-MULTIPROJECT1A",
+      "description": "Let the closure eligibility gate judge any governed project by its own id, and reduce the owner's work per phase to the closure commit and the two gatekeeper relays: the loop's technical-continuation commit carries the run's own records, and generated closure-tail records are committed and pushed as a technical action when the phase's owner gates leave commit and push delegated.",
+      "scope": "Edit projectos/core/src/closureEligibility.ts, projectos/core/test/, projectos/agent/src/loop/runner.ts, projectos/agent/src/loop/technicalContinuation.ts, projectos/agent/src/commands/closure.ts, projectos/agent/src/commands/run.ts, projectos/agent/src/closureGate.ts, projectos/agent/test/, projectos/validators/val-projectos-boot-continue1a.cjs, projectos/validators/val-projectos-technical-continuation1a.cjs, projectos/validators/val-projectos-closure-transport1a.cjs and add evidence under docs/finish/.",
+      "writePaths": [
+        "projectos/core/src/closureEligibility.ts",
+        "projectos/core/test/",
+        "projectos/agent/src/loop/runner.ts",
+        "projectos/agent/src/loop/technicalContinuation.ts",
+        "projectos/agent/src/commands/closure.ts",
+        "projectos/agent/src/commands/run.ts",
+        "projectos/agent/src/closureGate.ts",
+        "projectos/agent/test/",
+        "projectos/validators/val-projectos-boot-continue1a.cjs",
+        "projectos/validators/val-projectos-technical-continuation1a.cjs",
+        "projectos/validators/val-projectos-closure-transport1a.cjs",
+        "docs/finish/"
+      ],
+      "dependsOn": [
+        "PROJECTOS-FINISH-WRITEPATHS1A"
+      ],
+      "acceptanceCriteria": [
+        "G4-1 is satisfied by the governed project's own id, proven by a closure of a project whose id is other than 'projectos', and a closure of a project whose plan and configuration ids disagree is refused.",
+        "After an approved technical continuation the tree holds no uncommitted run record, proven through run().",
+        "closure prepare commits and pushes exactly its three closure-tail records when commit and push are delegated, refuses to commit any other path, and only generates them when either gate is reserved.",
+        "The disposable two-phase live proof is re-run with the interactive gatekeeper and shows per phase: two relays and one owner commit, with a restart recovered.",
+        "Each new rule is pinned by a validator and killed by a named mutation; agent and core tests green; validate-all with no new failure beyond the two known; ECC CODE and ECC SECURITY reviews with no unresolved critical or high finding."
+      ],
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredValidators": [
+        "val-projectos-boot-continue1a",
+        "val-projectos-technical-continuation1a",
+        "val-projectos-closure-transport1a",
+        "val-projectos-live-gate-owner-floor1a",
+        "validate-current-project-state",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC CODE review",
+        "ECC SECURITY review"
+      ],
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ]
+    },
+    {
+      "phaseId": "PROJECTOS-FINISH-API-GATEKEEPER1A",
+      "description": "Restore the brokered OpenAI gatekeeper route for projects with no ProjectOSHost review route: the loop's review question and the closure question go to the trusted installation broker, which checks the installation allowlist and the project's committed secrets-handling receipt, resolves the key inside itself from the installation's Windows credential store and makes the call, so the agent process never holds the key; and allowlist the new agency project at its localhost git remote. By owner decision of 2026-10-25, as a temporary route while the ProjectOSHost credential custody (decision C5) is not yet activated.",
+      "scope": "Edit projectos/agent/src/commands/run.ts, projectos/agent/src/commands/closure.ts, projectos/agent/test/, projectos/validators/val-projectos-boot-continue1a.cjs and projectos/security/installation-project-allowlist.json; add evidence under docs/finish/.",
+      "writePaths": [
+        "projectos/agent/src/commands/run.ts",
+        "projectos/agent/src/commands/closure.ts",
+        "projectos/agent/test/",
+        "projectos/validators/val-projectos-boot-continue1a.cjs",
+        "projectos/security/installation-project-allowlist.json",
+        "docs/finish/"
+      ],
+      "dependsOn": [
+        "PROJECTOS-FINISH-MULTIPROJECT1A"
+      ],
+      "acceptanceCriteria": [
+        "With no ProjectOSHost review route configured, an unattended project's review and closure questions are composed with the trusted broker transport; with a Host route configured, the Host route is used; with one configured but invalid, the run refuses; in every case the agent's own credential resolver refuses by construction.",
+        "The installation allowlist authorises project seo-agency at its localhost git address and its governed root, and nothing else changes in it.",
+        "Tests prove the three compositions and that no key value reaches the agent process; each new rule is pinned by a validator and killed by a named mutation.",
+        "A live review question on the agency project is answered by the OpenAI gatekeeper through the broker with no owner relay, recorded with its cost against the budget hard stop.",
+        "Agent and core tests green, validate-all with no new failure beyond the two known, and the ECC CODE and ECC SECURITY reviews with no unresolved critical or high finding."
+      ],
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredValidators": [
+        "val-projectos-boot-continue1a",
+        "val-projectos-trust-boundary1a",
+        "val-projectos-gatekeeper-contract1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC CODE review",
+        "ECC SECURITY review"
+      ],
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ]
+    },
+    {
+      "phaseId": "PROJECTOS-FINISH-EXTERNAL-PROOF1A",
+      "description": "Prove ProjectOS on a real new project: create a local governed repository for an SEO and social-media posting agency, seeded — by owner decision of 2026-10-25 — with three MIT-licensed open-source toolkits vendored at pinned commits after a supply-chain review (zubair-trabzada/geo-seo-claude, katzca/autosocial, Jakeschincariol/instagram-agent-skill), with every posting path disabled, approve its first plan, and carry one ordinary phase — the agency's marketing website — through projectos continue: worker implementation within its writePaths, automated checks, the gatekeeper review (answered through the trusted broker, no relay), technical commit and push to the local remote, closure preparation and the owner's closure commit, with the owner's acts counted and the results recorded. It runs after PROJECTOS-FINISH-API-GATEKEEPER1A has landed, so the review is answered without a relay.",
+      "scope": "Add evidence under docs/finish/ and new tests under projectos/agent/test/finish/. The agency project is created at C:/dev/SEOAgency as a local git repository with a local bare remote; its website work happens under that project's own approved plan in its own repository.",
+      "writePaths": [
+        "docs/finish/",
+        "projectos/agent/test/finish/"
+      ],
+      "dependsOn": [
+        "PROJECTOS-FINISH-MULTIPROJECT1A"
+      ],
+      "acceptanceCriteria": [
+        "The agency project exists at C:/dev/SEOAgency as a local git repository with a local bare remote, the three toolkits vendored at pinned commits with their licences and a supply-chain review recorded, every posting path disabled, ProjectOS governance installed, automated checks that run under ProjectOS on Windows, and a first plan approved by its owner.",
+        "One ordinary phase — the agency's marketing website — runs through projectos continue end to end: worker implementation within its writePaths, checks, the gatekeeper review, technical commit and push, closure preparation and the owner's closure commit.",
+        "The owner's acts for the phase are counted: with the brokered gatekeeper answering, the target is plan approval and the closure commit, with no relay; any excess is recorded with its cause.",
+        "Evidence under docs/finish/ records the objective, the commits, the checks, the review decisions, the owner acts and every defect found, live results reported separately from synthetic tests.",
+        "Any ProjectOS defect the live run exposes is recorded with its cause; a fix outside this phase's paths is raised as a separate owner-gated amendment, and in-scope tests added for it are reviewed by ECC CODE and ECC SECURITY with no unresolved critical or high finding."
+      ],
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredValidators": [
+        "val-projectos-boot-continue1a",
+        "validate-current-project-state",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC CODE review",
+        "ECC SECURITY review"
+      ],
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "secrets-handling",
+        "payment-or-live-charge"
+      ]
+    },
+    {
+      "phaseId": "PROJECTOS-FINISH-ZERO-TOUCH-CLOSURE1A",
+      "description": "Add the owner-granted delegation scope closure-decision-commit. When a governed project's committed closure delegation carries it and the phase's owner gates leave commit and push delegated, closure request commits and pushes exactly the closure bundle (the delegate's decision and the spend ledger) under the ProjectOS implementer identity, closure resume accepts exactly that identity for that project instead of the owner's, the phase closes through the existing delegated phase advance, and the records that persist the close are committed and pushed by ProjectOS. A project without the scope keeps the owner's closure commit. A closure answer whose decidedAt is not a valid timestamp inside the window of the question it answers is refused. The closure prompt tells the authority the time of the question and the form decidedAt must take, and only an answer produced inside the call (the trusted broker or the Host route), never an interactive answer file, is committed by ProjectOS under the grant.",
+      "scope": "Edit projectos/core/src/closureAuthority.ts, projectos/core/src/closureTransport.ts, projectos/core/src/index.ts, projectos/core/test/, projectos/agent/src/commands/closure.ts, projectos/agent/src/closureWait.ts, projectos/agent/src/loop/closureTurn.ts, projectos/agent/src/loop/transports/closureResponses.ts, projectos/agent/src/loop/gatekeeperConfig.ts, projectos/agent/src/loop/technicalContinuation.ts, projectos/agent/src/planApproval.ts, projectos/agent/test/ and projectos/validators/val-projectos-boot-continue1a.cjs; add evidence under docs/finish/.",
+      "writePaths": [
+        "projectos/core/src/closureAuthority.ts",
+        "projectos/core/src/closureTransport.ts",
+        "projectos/core/src/index.ts",
+        "projectos/core/test/",
+        "projectos/agent/src/commands/closure.ts",
+        "projectos/agent/src/closureWait.ts",
+        "projectos/agent/src/loop/closureTurn.ts",
+        "projectos/agent/src/loop/transports/closureResponses.ts",
+        "projectos/agent/src/loop/gatekeeperConfig.ts",
+        "projectos/agent/src/loop/technicalContinuation.ts",
+        "projectos/agent/src/planApproval.ts",
+        "projectos/agent/test/",
+        "projectos/validators/val-projectos-boot-continue1a.cjs",
+        "docs/finish/"
+      ],
+      "dependsOn": [
+        "PROJECTOS-FINISH-EXTERNAL-PROOF1A"
+      ],
+      "acceptanceCriteria": [
+        "closure-decision-commit is a delegable scope that closes nothing by itself, judged by the same checker and committed-record reader as every other scope.",
+        "With the scope granted and commit and push delegated, closure request commits and pushes exactly the closure bundle as the ProjectOS implementer and the phase closes with no owner act; the post-close records are committed and pushed; with the scope absent or either gate reserved, the owner commit is required exactly as before.",
+        "Closure resume accepts the ProjectOS implementer identity only for a project carrying the scope, and still refuses any other implementer-shaped identity, any byte mismatch and any path beyond the bundle.",
+        "A closure answer whose decidedAt is not a valid timestamp inside the window of its question is refused, and the existing answer path is otherwise unchanged.",
+        "Each new rule is pinned by a validator and killed by a named mutation; agent and core tests green; validate-all with no new failure beyond the two known; the ECC CODE and ECC SECURITY reviews with no unresolved critical or high finding."
+      ],
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredValidators": [
+        "val-projectos-boot-continue1a",
+        "val-projectos-closure-transport1a",
+        "val-projectos-live-gate-owner-floor1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC CODE review",
+        "ECC SECURITY review"
+      ],
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ]
+    },
+    {
+      "phaseId": "PROJECTOS-FINISH-EXTERNAL-PROOF2A",
+      "description": "On the SEO and social-media agency project, record the owner's grant of the closure-decision-commit scope in the agency's committed closure delegation, approve the agency's next plan, and carry one ordinary phase, hardening the agency's site check, through projectos continue to closed: worker, checks, the gatekeeper review through the trusted broker, technical commit and push, closure preparation, the ChatGPT closure decision committed by ProjectOS, and the persisted close, with the owner's acts counted and every defect recorded.",
+      "scope": "Add evidence under docs/finish/ and new tests under projectos/agent/test/finish/. The agency phase happens under that project's own approved plan in its own repository.",
+      "writePaths": [
+        "docs/finish/",
+        "projectos/agent/test/finish/"
+      ],
+      "dependsOn": [
+        "PROJECTOS-FINISH-ZERO-TOUCH-CLOSURE1A"
+      ],
+      "acceptanceCriteria": [
+        "The agency's committed closure delegation carries the owner's closure-decision-commit grant, quoted verbatim, and its next plan is approved.",
+        "One ordinary agency phase runs through projectos continue from start to closed, with the closure decision and the persisted close committed by ProjectOS and no owner act for the phase.",
+        "Evidence under docs/finish/ records the commits, checks, review and closure decisions, the spend, the owner acts (target zero) and every defect found, live results reported separately from synthetic tests.",
+        "Any ProjectOS defect the live run exposes is recorded with its cause, and a fix outside this phase's paths is raised as a separate owner-gated amendment."
+      ],
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredValidators": [
+        "val-projectos-boot-continue1a",
+        "validate-current-project-state",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC CODE review",
+        "ECC SECURITY review"
+      ],
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "secrets-handling",
+        "payment-or-live-charge"
+      ]
+    }
+  ],
+  "environments": [
+    {
+      "environmentId": "reference-development-pc-windows11-node24.14.1-rust1.96-base-70c1329",
+      "productionFreeze": true
+    }
+  ],
+  "providers": [],
+  "governance": {
+    "owner": "Murad",
+    "gatekeeper": "ChatGPT",
+    "implementer": "Claude Code",
+    "allowedActions": [
+      "inspect-repository",
+      "create-local-files",
+      "run-local-validation",
+      "produce-evidence-report"
+    ],
+    "forbiddenActions": [
+      "production-deploy",
+      "production-db-mutation",
+      "real-email-sms-whatsapp",
+      "payment-or-live-charge",
+      "force-push",
+      "use-openai-api",
+      "use-anthropic-api",
+      "provider-credential-access",
+      "store-real-secret",
+      "modify-projectos-v2-core",
+      "modify-v2-closure-records",
+      "modify-polygo"
+    ],
+    "ownerOnlyActions": [
+      "approve-plan",
+      "approve-plan-supersession",
+      "approve-material-scope-change",
+      "approve-commit",
+      "approve-push",
+      "authorise-production-deploy",
+      "authorise-database-mutation",
+      "authorise-external-send",
+      "authorise-payment",
+      "authorise-provider-access",
+      "authorise-installation",
+      "start-e2e",
+      "pause",
+      "resume"
+    ],
+    "closureAuthority": "ChatGPT",
+    "closureDelegation": {
+      "delegatedBy": "Murad",
+      "delegatedTo": "ChatGPT",
+      "delegationDate": "2026-08-17",
+      "delegatedScope": [
+        "phase-closure",
+        "programme-closure"
+      ],
+      "projectScope": "projectos",
+      "excludesProtectedActions": true,
+      "notes": "Recorded by owner Murad for programme 'projectos-autonomous-self-hosting' in PROJECTOS-AUTONOMOUS-SELF-HOSTING-CLOSURE-DELEGATION1A. Closure only: it is not authority to act, and it excludes every protected effect, which stays with the owner."
+    },
+    "noApiPolicy": true
+  },
+  "approval": {
+    "approvalStatus": "approved",
+    "approvedBy": "Murad",
+    "approvalDate": "2026-10-26T07:23:52.545Z",
+    "approvalEvidenceReference": "Plan-approval decision PLANDEC-f31660754f7cde7b2780357b by Murad, taken against draft 7327e99e85028d90 with plan digest sha256:83fc7b2a34a2bb4fcef3ff5dd6cfd0dd15cf74a881647c2f6117af7a48674074 at commit a8486f4673ddae598d5f6f332368ff74d6454d1a on branch projectos-autonomy-bootstrap1a. The authority to take it is the owner's own: no plan-approval delegation applies to this project and programme, so approval never moved away from the recorded owner and the decision above is the owner's. ProjectOS re-ran discovery against the repository before writing this record and the recomputed plan digest still matched the approved one. MANUAL_GOVERNANCE_APPROVAL with tamperProof false — a human governance approval bound by the owner's commit gate, NOT a cryptographic one. Governance is carried forward unchanged from the project's active owner-approved plan; this approval created no new authority, changed no protected-action rule, and did not modify any existing plan record.",
+    "supersedesPlanVersion": "1.13",
+    "approvalBinding": "MANUAL_GOVERNANCE_APPROVAL",
+    "tamperProof": false,
+    "approvalAuthority": "owner",
+    "secureApprovalEvidence": null
+  },
+  "staleness": {
+    "lastVerifiedCommit": "6d160087eba3ed7389a91c9e6b15b7a66fd87c32",
+    "lastVerifiedDate": "2026-10-26T07:24:00.654Z",
+    "stalenessStatus": "fresh",
+    "stalenessReasons": [],
+    "materialPlanInputs": [
+      {
+        "inputId": "plan-digest",
+        "fingerprint": "sha256:83fc7b2a34a2bb4fcef3ff5dd6cfd0dd15cf74a881647c2f6117af7a48674074"
+      },
+      {
+        "inputId": ".projectops/current-state-01053932764c573b-68d21d6830c1.json",
+        "fingerprint": "sha256:f84cf525f5c5b9b541c09cd31e5f2923977719b8c64fafd71cc83942b36fe695"
+      },
+      {
+        "inputId": "docs/projectos-finish-phases.json",
+        "fingerprint": "sha256:28ed061586ffc3323821ceab3ceea611a04a341c7b3d15de9a5ba20c944b4e5d"
+      }
+    ]
+  },
+  "security": {
+    "secretPolicy": "No raw secret values are stored in plan memory, current state, sessions, reports or prompts. Providers are referenced by name only. Redaction is required for any sensitive value.",
+    "rawSecretValuesForbidden": true,
+    "sensitiveDataForbidden": true,
+    "redactionRequired": true
+  }
+}

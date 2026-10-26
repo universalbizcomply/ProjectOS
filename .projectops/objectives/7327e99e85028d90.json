@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "objectiveId": "7327e99e85028d90",
+  "objective": "Plan v1.14: amend PROJECTOS-FINISH-ZERO-TOUCH-CLOSURE1A so it may edit the closure prompt (closureResponses.ts) to tell the authority the question time, and commit only in-call answers under the grant — ECC CODE review findings.",
+  "authoritative": false,
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "a8486f4673ddae598d5f6f332368ff74d6454d1a",
+  "submittedAt": "2026-10-26T07:23:41.297Z",
+  "submittedBy": "owner",
+  "instructionShaped": false
+}
