@@ -11,5 +11,6 @@
   "decidedBy": "Murad",
   "decidedAt": "2026-10-28T22:52:06.214Z",
   "note": "Owner (Murad) approved the completion delta (docs/changes/delta_spec.md, plan file gleaming-wobbling-crayon.md) in Plan Mode on 2026-10-28; the approval was given through the plan-approval control, with no further words. Earlier grants, verbatim: \"I give you full authority now\" (2026-10-25) and \"I have given you full authority\" (2026-10-26). Recorded by the implementer (Claude); the implementer grants nothing by writing it.",
-  "recordedBy": "projectos plan decide"
+  "recordedBy": "projectos plan decide",
+  "consumedAt": "2026-10-28T22:52:08.529Z"
 }

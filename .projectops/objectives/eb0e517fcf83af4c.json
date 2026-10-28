@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "objectiveId": "eb0e517fcf83af4c",
+  "objective": "Plan v1.16: close out ProjectOS on the definition of done — retire the temporary seo-agency allowlist entry, disable the agency gatekeeper, record completion.",
+  "authoritative": false,
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "1514366301ff4139e3bf96c6a97587eee5173902",
+  "submittedAt": "2026-10-28T22:52:02.249Z",
+  "submittedBy": "owner",
+  "instructionShaped": false
+}
