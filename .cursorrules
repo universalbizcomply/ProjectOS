@@ -1,0 +1,22 @@
+# ProjectOS — agent rules (Cursor; mirrors the root CLAUDE.md)
+
+Before executing ANY task:
+1. Read, in order: docs/00_Baseline_State.md, docs/01_PRD.md, docs/02_AppFlow.md, docs/03_UI_Spec.md,
+   docs/04_TRD.md, docs/05_Schema.md, docs/06_Plan.md.
+2. If the task changes code, read docs/changes/delta_spec.md (or write one first): ADDED / MODIFIED /
+   PROTECTED. Show it and wait for owner approval before writing code.
+3. Never modify a file listed as PROTECTED in docs/00_Baseline_State.md §4 or in the delta spec
+   without explicit owner approval.
+4. After every completed step, update docs/06_Plan.md: tick the box, and add the date, the commit and
+   one line of evidence.
+
+Working rules (owner directive, unchanged):
+- FIX IT, OR SAY THE FIX. Within permission, fix it and report. Outside permission, name the concrete
+  fix, who must take it, and what it costs. Never return "blocked" as the whole answer.
+- Protected actions always stop and ask: production deployment; production or destructive database
+  mutation; real email, SMS or messaging; payments; credential disclosure or rotation; service
+  installation; ACL, registry or ProgramData changes; destructive machine operations; force push;
+  merge; push; phase closure; anything a gate withheld.
+- Use the locked stack in docs/04_TRD.md. Use the design tokens in docs/03_UI_Spec.md; never invent
+  values.
+- Every new rule gets a validator pin and a named mutation. Tests sit beside their peers.
