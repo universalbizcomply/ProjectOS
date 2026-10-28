@@ -73,9 +73,11 @@ Postgres holds tenant operational data only, and never authority.
 
 - [x] 0.1 Plan v1.16 (PROJECTOS-COMPLETION1A) drafted, decided and activated. 2026-10-28, `3448395`,
       PLANDEC-af4f9b82af55880c783a5ee5.
-- [ ] 0.2 **[APPROVED: delta]** Retire the temporary `seo-agency` entry from
+- [x] 0.2 **[APPROVED: delta]** Retire the temporary `seo-agency` entry from
       `projectos/security/installation-project-allowlist.json` and update validator AG-5 to match. A
-      V4 tenant must be granted explicitly; it must not be a leftover proof entry.
+      V4 tenant must be granted explicitly; it must not be a leftover proof entry. 2026-10-28,
+      `737bccc`: AG-5 FAIL before the pin edit, PASS after; the reader refuses `seo-agency`; ECC
+      SECURITY APPROVE; suites 2544/772 unchanged.
 - [ ] 0.3 **[OWNER]** Key decision, which V4 now decouples from "completion". Either:
       - revoke the pasted key, store a new one through the hidden prompt and set a provider-side
         spend cap; **or**
@@ -120,7 +122,14 @@ architecture ADR goes to `software-architect`.
 - **Exit proof:** one Develop phase closes from one `continue`, where the reviewer's provider differs
   from the implementer's, and a deliberately low cap is shown to refuse a call.
 
-**Parallel [SPIKE]s (start now, $0):**
+**Parallel [SPIKE]s: DONE 2026-10-28, `60aab03` (`docs/adr/ADR-S1..S4`):**
+- S1 Hermes: REFERENCE.
+- S2 OpenClaw: REFERENCE.
+- S3 SCIP + `cargo metadata`: ADAPTER, never authority, with a tree-sitter fallback. A live Windows
+  probe is still needed.
+- S4 LiveKit: ADAPTER, for Stage 8 only.
+
+**Original spike list ($0):**
 - S1 Hermes Agent: memory and skills as an adapter versus native.
 - S2 OpenClaw: gateway and device nodes as an adapter only.
 - S3 Code intelligence (symbols and dependency graph) for the Develop context manager.
