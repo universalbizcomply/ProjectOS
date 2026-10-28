@@ -70,3 +70,32 @@ Secondary persona: **an AI implementer** (Claude Code), which must find unambigu
   decision.
 - Any relational database for ProjectOS's own governance state. Its state is git-versioned JSON. The
   two SQL schemas are optional satellites (cloud Control Center data, watchdog).
+
+## V4 — target direction (owner, 27 October 2026; a proposal, not an implementation approval)
+
+Source: `docs/vision/ProjectOS_V4_Target_Architecture.png`.
+
+**Principle:** one platform, four product domains, one governed execution system, and strictly
+separated customer data and permissions.
+
+**The four domains:**
+- **Personal:** life, productivity, devices.
+- **Develop:** autonomous software delivery. This is today's product.
+- **Business:** operations, AI employees, customers.
+- **Phone:** voice, telephony, mobile.
+
+**Shared layers:** access (web, desktop, mobile, voice, API), intelligence and orchestration,
+governance and security, execution, and data and memory. Multi-tenancy, privacy, monitoring, billing,
+reliability and security by design cut across all of them.
+
+**Rules carried from V3 into V4:**
+- Intelligence decides *what*; authority decides *what is permitted*. AI confidence is never
+  permission.
+- Real sends and payments stay owner-gated. A delegated-authority model for routine business work
+  needs its own governance design and approval.
+- Providers are replaceable workers bound to roles. An implementer never manufactures the
+  gatekeeper's decision.
+- Tenant and domain boundaries are enforced by the application and the database, not by
+  instructions to the AI.
+- The non-goals above still hold for today's build. `06_Plan.md` says the stage at which each one
+  is revisited.

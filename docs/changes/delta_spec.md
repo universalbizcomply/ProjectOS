@@ -1,7 +1,8 @@
 # Delta Specification — PROJECTOS-COMPLETION1A ("complete")
 
-**Status:** PROPOSED. Awaiting owner approval in Plan Mode. Nothing below is applied until the owner
-approves.
+**Status:** APPROVED by the owner in Plan Mode on 2026-10-28. Plan v1.16 was activated at
+`3448395`. Under the V4 re-sequencing (`06_Plan.md` Stage 0), the key revocation is decoupled from
+completion. The agency gatekeeper is disabled only if the key is revoked with no replacement.
 
 **Goal:** close ProjectOS on the definition of done the owner set (plan v1.15 complete, `2baff14`):
 - retire the temporary pieces created for the live proofs;
