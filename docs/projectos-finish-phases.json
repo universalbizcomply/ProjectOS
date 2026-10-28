@@ -17,7 +17,8 @@
     "One `projectos continue` carries a phase through closure preparation into the closure question, instead of stopping after preparation (EXTERNAL-PROOF2A D7).",
     "A phase whose write grant covers one of its own required validators is judged by the phase's copy of that validator as well as the base copy, both required to pass (EXTERNAL-PROOF2A D8).",
     "A third agency phase, fixing the gaps in its site validator, carried with one continue and no owner act, as the live proof.",
-    "By the owner's approval of the completion delta in Plan Mode (2026-10-28): retire the temporary seo-agency installation allowlist entry, update its validator pin, disable the agency gatekeeper, and record ProjectOS's completion."
+    "By the owner's approval of the completion delta in Plan Mode (2026-10-28): retire the temporary seo-agency installation allowlist entry, update its validator pin, disable the agency gatekeeper, and record ProjectOS's completion.",
+    "Proposed for owner approval (plan v1.17, V4 Stage 1): kernel hardening per docs/06_Plan.md Stage 1. D11 is owner-approved as written in 06_Plan 1.1 (\"D11 approved as written in 06_Plan 1.1\", 2026-10-28); the rest of v1.17 awaits plan decide."
   ],
   "environments": [
     {
@@ -470,6 +471,296 @@
         "push",
         "secrets-handling",
         "payment-or-live-charge"
+      ]
+    },
+    {
+      "riskLevel": "low",
+      "autonomyLevel": "gated-execution",
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ],
+      "phaseId": "PROJECTOS-KERNEL-CONTRACT1A",
+      "title": "Kernel contract ADR: task envelope and permission classes",
+      "description": "Write the domain-neutral kernel contract every V4 domain will use: the task envelope {principal, tenant, domain, project, environment, actionClass, scope, expiry, idempotencyKey} and the six permission classes (read-only, local reversible, technical gate, business operation, protected, prohibited), each mapped onto the gates ProjectOS has today. Records which existing records already carry each field and which are new. Docs only.",
+      "scope": "Add docs/adr/ADR-K1-kernel-contract.md and update docs/04_TRD.md and docs/06_Plan.md.",
+      "writePaths": [
+        "docs/adr/",
+        "docs/04_TRD.md",
+        "docs/06_Plan.md",
+        "docs/finish/"
+      ],
+      "exclusions": [
+        "No source, validator, schema or record change."
+      ],
+      "dependsOn": [
+        "PROJECTOS-COMPLETION1A"
+      ],
+      "acceptanceCriteria": [
+        "Every envelope field names its source of truth and whether it exists today.",
+        "Every permission class maps to an existing gate or names the gap; real sends and payments stay protected.",
+        "An independent architecture review (Agency software-architect via the governed route) with its findings resolved or recorded."
+      ],
+      "requiredValidators": [
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "Agency software-architect review"
+      ]
+    },
+    {
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ],
+      "phaseId": "PROJECTOS-KERNEL-ROLE-REVIEW1A",
+      "title": "D11: role-separated independent review inside the loop",
+      "description": "Owner-approved as written in docs/06_Plan.md 1.1 (2026-10-28). The implementer, reviewer and gatekeeper roles are bound to different providers or agents. An implementer can never author a reviewer or gatekeeper decision. The reviewer verdict is recorded before the gatekeeper is asked, and a plan whose only review is a worker self-review cannot close.",
+      "scope": "Edit the loop verification, outcome, brief and runner paths, the workforce review module and plan approval checks; add tests and one validator pinning the rules.",
+      "writePaths": [
+        "projectos/agent/src/loop/",
+        "projectos/agent/src/workforce/",
+        "projectos/agent/src/planApproval.ts",
+        "projectos/agent/test/",
+        "projectos/validators/val-projectos-kernel-role-review1a.cjs",
+        "docs/finish/",
+        "docs/06_Plan.md"
+      ],
+      "exclusions": [
+        "No change to closure authority, ownerOnlyActions, the broker, credentials or the Host.",
+        "No relaxation of any owner gate."
+      ],
+      "dependsOn": [
+        "PROJECTOS-KERNEL-CONTRACT1A"
+      ],
+      "acceptanceCriteria": [
+        "A phase whose recorded reviewer is the implementer, or is missing, cannot reach awaiting_closure; tested.",
+        "The reviewer verdict is a record written before the gatekeeper request and bound to the candidate commit.",
+        "A plan declaring only a worker self-review is refused at plan decide or at closure; tested.",
+        "Every new rule has a validator pin and a named mutation killed by that rule."
+      ],
+      "requiredValidators": [
+        "val-projectos-kernel-role-review1a",
+        "val-projectos-boot-continue1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC CODE review",
+        "ECC SECURITY review"
+      ]
+    },
+    {
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ],
+      "phaseId": "PROJECTOS-KERNEL-COST-CAP1A",
+      "title": "Hard spend cap: refuse the provider call before it is made",
+      "description": "Replace the budget reservation (measured 21.9x under real spend) with a hard per-phase and per-day bound that refuses a gatekeeper or worker provider call before it is sent when the projected or recorded spend would exceed the cap. The refusal names the cap and the ledger total.",
+      "scope": "Edit the gatekeeper cost ledger, the gatekeeper and closure turns and their config; add tests and a validator.",
+      "writePaths": [
+        "projectos/core/src/gatekeeperCostLedger.ts",
+        "projectos/core/test/",
+        "projectos/agent/src/loop/gatekeeperTurn.ts",
+        "projectos/agent/src/loop/closureTurn.ts",
+        "projectos/agent/src/loop/gatekeeperConfig.ts",
+        "projectos/agent/test/",
+        "projectos/validators/val-projectos-kernel-cost-cap1a.cjs",
+        "docs/finish/",
+        "docs/06_Plan.md"
+      ],
+      "exclusions": [
+        "No change to the broker, credentials, pricing data sources or any owner gate."
+      ],
+      "dependsOn": [
+        "PROJECTOS-KERNEL-ROLE-REVIEW1A"
+      ],
+      "acceptanceCriteria": [
+        "A call whose cap would be exceeded is refused before any network request; tested with a counting transport.",
+        "The cap is read from committed configuration only, and a missing cap is a refusal, not unlimited.",
+        "Validator pin and named mutations."
+      ],
+      "requiredValidators": [
+        "val-projectos-kernel-cost-cap1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC SECURITY review"
+      ]
+    },
+    {
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ],
+      "phaseId": "PROJECTOS-KERNEL-PLATFORM-STOP1A",
+      "title": "Platform-wide emergency stop",
+      "description": "One owner command halts every loop, suspends technical delegations and refuses new operations until the owner lifts it. It reuses the per-operation emergency stop in core/src/execution/controller.ts and says honestly that it cannot undo sends or payments already made.",
+      "scope": "Add the stop command and the loop/run entry checks; add tests and a validator.",
+      "writePaths": [
+        "projectos/agent/src/commands/stop.ts",
+        "projectos/agent/src/cli.ts",
+        "projectos/agent/src/loop/runner.ts",
+        "projectos/agent/test/",
+        "projectos/validators/val-projectos-kernel-platform-stop1a.cjs",
+        "docs/finish/",
+        "docs/06_Plan.md"
+      ],
+      "exclusions": [
+        "No change to closure authority or the Host service."
+      ],
+      "dependsOn": [
+        "PROJECTOS-KERNEL-COST-CAP1A"
+      ],
+      "acceptanceCriteria": [
+        "With the stop set, continue, run and closure carry-on all refuse before any worker or provider call; tested.",
+        "Only the owner can lift the stop; tested.",
+        "The command output states that completed external effects are not reversed."
+      ],
+      "requiredValidators": [
+        "val-projectos-kernel-platform-stop1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC SECURITY review"
+      ]
+    },
+    {
+      "riskLevel": "medium",
+      "autonomyLevel": "gated-execution",
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ],
+      "phaseId": "PROJECTOS-KERNEL-TRUTH1A",
+      "title": "Truth fixes batch (D3, D5, D9, stop wording, clean-tree pin)",
+      "description": "Small truthfulness fixes carried from v1.15: the run loop STOPPED wording when closure carries on; the broker as a positive provenance class with its response id (D9); continue --dry-run writes no execution briefs (D5); machine-readable receipt scope and removal of the hard-coded line (D3); pin the clean-tree condition inside closurePrepared on its own.",
+      "scope": "Edit the named loop and receipt modules; add tests and extend the boot-continue validator.",
+      "writePaths": [
+        "projectos/agent/src/loop/",
+        "projectos/agent/src/commands/run.ts",
+        "projectos/agent/test/",
+        "projectos/validators/val-projectos-boot-continue1a.cjs",
+        "docs/finish/",
+        "docs/06_Plan.md"
+      ],
+      "exclusions": [
+        "No behaviour change beyond the five named items."
+      ],
+      "dependsOn": [
+        "PROJECTOS-KERNEL-PLATFORM-STOP1A"
+      ],
+      "acceptanceCriteria": [
+        "Each of the five items has a test and a validator rule with a named mutation."
+      ],
+      "requiredValidators": [
+        "val-projectos-boot-continue1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC CODE review"
+      ]
+    },
+    {
+      "riskLevel": "low",
+      "autonomyLevel": "gated-execution",
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ],
+      "phaseId": "PROJECTOS-KERNEL-HYGIENE1A",
+      "title": "Validator registry and toolchain pins",
+      "description": "Register or retire the six unregistered validators (baseline 5.3); add an engines field (Node 24) and rust-toolchain.toml (1.96.1) matching the locked stack in docs/04_TRD.md.",
+      "scope": "Edit validate-all registration, package manifests and add the toolchain file.",
+      "writePaths": [
+        "projectos/validators/",
+        "package.json",
+        "projectos/agent/package.json",
+        "projectos/core/package.json",
+        "rust-toolchain.toml",
+        "docs/finish/",
+        "docs/06_Plan.md"
+      ],
+      "exclusions": [
+        "No validator rule weakened; retiring a validator needs a recorded reason."
+      ],
+      "dependsOn": [
+        "PROJECTOS-KERNEL-TRUTH1A"
+      ],
+      "acceptanceCriteria": [
+        "validate-all lists every validator in the tree or names why it is retired; no new failure."
+      ],
+      "requiredValidators": [
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review"
+      ]
+    },
+    {
+      "riskLevel": "medium",
+      "autonomyLevel": "gated-execution",
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ],
+      "phaseId": "PROJECTOS-KERNEL-EXIT-PROOF1A",
+      "title": "Stage 1 exit proof: cross-provider review and a refusing cap, live",
+      "description": "One governed Develop phase closes from one continue where the reviewer provider differs from the implementer provider, and a deliberately low cap is shown to refuse a provider call. Evidence only.",
+      "scope": "Add the evidence record under docs/finish/.",
+      "writePaths": [
+        "docs/finish/",
+        "docs/06_Plan.md"
+      ],
+      "exclusions": [
+        "No source change. Provider spend only under the owner-approved cap."
+      ],
+      "dependsOn": [
+        "PROJECTOS-KERNEL-HYGIENE1A"
+      ],
+      "acceptanceCriteria": [
+        "Recorded reviewer provider differs from the implementer provider for the proof phase.",
+        "A cap refusal is recorded before any network call.",
+        "Zero owner acts for the proof phase beyond the gates the plan names."
+      ],
+      "requiredValidators": [
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC SECURITY review"
       ]
     }
   ]

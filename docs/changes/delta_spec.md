@@ -1,86 +1,76 @@
-# Delta Specification — PROJECTOS-COMPLETION1A ("complete")
+# Delta Specification — plan v1.17, V4 Stage 1: kernel hardening
 
-**Status:** APPROVED by the owner in Plan Mode on 2026-10-28. Plan v1.16 was activated at
-`3448395`. Under the V4 re-sequencing (`06_Plan.md` Stage 0), the key revocation is decoupled from
-completion. The agency gatekeeper is disabled only if the key is revoked with no replacement.
+**Status:** PROPOSED. D11 (phase PROJECTOS-KERNEL-ROLE-REVIEW1A) is owner-approved as written in
+`docs/06_Plan.md` 1.1: "D11 approved as written in 06_Plan 1.1" (2026-10-28). The rest of plan v1.17
+needs `plan decide`. **No code is written until v1.17 is decided and activated.**
 
-**Goal:** close ProjectOS on the definition of done the owner set (plan v1.15 complete, `2baff14`):
-- retire the temporary pieces created for the live proofs;
-- disable spending once the key is revoked;
-- record the completion.
+The previous delta (PROJECTOS-COMPLETION1A, approved and closed) is archived at
+`docs/changes/archive/delta_spec_PROJECTOS-COMPLETION1A.md`.
 
-There are **no new features** and no change to how ProjectOS governs.
+**Goal:** make the kernel safe to share across V4 domains. That means:
+- review separated by role;
+- a hard spend cap;
+- a platform-wide stop;
+- the kernel contract;
+- the small truth and hygiene fixes.
 
-## Zone 1 — ADDED (new files)
+It ends with one live exit proof. There are no new domains, and no owner gate is relaxed.
 
-| File | Purpose |
-|---|---|
-| `docs/00_Baseline_State.md` … `docs/06_Plan.md` | Context architecture (already written; docs only) |
-| `docs/changes/delta_spec.md` | This file |
-| `.cursorrules` | Mirrors the CLAUDE.md agent rules for Cursor (already written) |
-| Root `CLAUDE.md` (local; excluded from git by `.git/info/exclude`) | "Context architecture" section appended, as you instructed. The existing "FIX IT, OR SAY THE FIX" text is unchanged word for word. Already done. |
-| `docs/finish/PROJECTOS-COMPLETION1A.md` | Completion record: what was delivered, the owner acts, the carry-forwards, and the owner's completion words quoted verbatim |
-| Plan v1.16 records | A one-phase plan, PROJECTOS-COMPLETION1A (source, PLANDEC, activation), with writePaths limited to the MODIFIED files below |
-| Closure records for PROJECTOS-COMPLETION1A | Phase record, closure evidence, report, index row, owner-direct decision. Only after the owner says ProjectOS is complete |
+## Zone 1 — ADDED
 
-**No new tables, components or runtime modules.**
-
-## Zone 2 — MODIFIED (minimal, exact)
-
-| File | Change | Why |
+| File | Phase | Purpose |
 |---|---|---|
-| `projectos/security/installation-project-allowlist.json` | Remove the `seo-agency` entry, which is marked TEMPORARY. `projectos` is unchanged. | The entry's own note says remove it when the agency proof is retired. Once the key is revoked, the broker cannot spend for the agency anyway. |
-| `projectos/validators/val-projectos-boot-continue1a.cjs` | AG-5 only: the expected allowlist becomes exactly `projectos`. | Keeps the pin truthful after the removal |
-| `C:\dev\SEOAgency\.projectops\gatekeeper.json` (agency repo) | `"enabled": false`. The route and transport stay recorded. | No paid call can be attempted without a stored key. Re-enabling is a one-line owner decision. |
-| `knowledge/ProjectOS Reports Index.md` | One completion row | Record |
+| `docs/adr/ADR-K1-kernel-contract.md` | KERNEL-CONTRACT1A | The task envelope and the six permission classes mapped onto today's gates |
+| `projectos/validators/val-projectos-kernel-role-review1a.cjs` | KERNEL-ROLE-REVIEW1A | Pins the D11 rules |
+| `projectos/validators/val-projectos-kernel-cost-cap1a.cjs` | KERNEL-COST-CAP1A | Pins the cap rules |
+| `projectos/validators/val-projectos-kernel-platform-stop1a.cjs` | KERNEL-PLATFORM-STOP1A | Pins the stop rules |
+| `projectos/agent/src/commands/stop.ts` | KERNEL-PLATFORM-STOP1A | The owner stop and lift command |
+| `rust-toolchain.toml` (repo root) | KERNEL-HYGIENE1A | Pins rustc 1.96.1 |
+| Tests under `projectos/agent/test/` and `projectos/core/test/` | each code phase | Behavioural tests beside their peers |
+| `docs/finish/<phase>.md` and closure records | each phase | Evidence |
 
-**Order (dependencies):**
-1. The owner revokes the key and deletes the stored credential.
-2. Allowlist and AG-5 change, in one commit.
-3. The agency gatekeeper is disabled.
-4. The completion record is written.
-5. Owner-direct closure, on the owner's word "complete".
+## Zone 2 — MODIFIED (these are PROTECTED in `00_Baseline_State.md` §4; deciding v1.17 approves them)
 
-## Zone 3 — PROTECTED (DO NOT TOUCH)
+| File(s) | Phase | Why |
+|---|---|---|
+| `projectos/agent/src/loop/` (`verification.ts`, `outcome.ts`, `brief.ts`, `runner.ts`, `gatekeeperTurn.ts`, `closureTurn.ts`, `gatekeeperConfig.ts`, `ownerGateReceipts.ts`) | ROLE-REVIEW, COST-CAP, PLATFORM-STOP, TRUTH | Record the reviewer before the gatekeeper; refuse calls over the cap; check the stop at entry; apply the truth fixes |
+| `projectos/agent/src/workforce/`, `projectos/agent/src/planApproval.ts` | ROLE-REVIEW | Refuse a plan whose only review is a self-review; bind roles to providers |
+| `projectos/core/src/gatekeeperCostLedger.ts` | COST-CAP | Make the cap a bound, not a reservation |
+| `projectos/agent/src/cli.ts`, `projectos/agent/src/commands/run.ts` | PLATFORM-STOP, TRUTH | Wire the stop command; fix the dry-run briefs |
+| `projectos/validators/val-projectos-boot-continue1a.cjs` | TRUTH | Add pins for the five truth fixes |
+| `projectos/validators/` (registration only), `package.json` ×3 | HYGIENE | Register validators; add `engines` |
+| `docs/04_TRD.md`, `docs/06_Plan.md` | CONTRACT, all | Record the contract; tick the plan |
 
-The full list is in `docs/00_Baseline_State.md` §4. In particular:
-- **Closure and authority:** `projectos/core/src/closureAuthority.ts`, `closureEligibility.ts`,
+## Zone 3 — PROTECTED (do not touch in v1.17)
+
+- **Closure authority:** `projectos/core/src/closureAuthority.ts`, `closureEligibility.ts`,
   `closureDecision.ts`, `closureTransport.ts`, `ownerOnlyActions.ts`, `permissions.ts`, `phase.ts`;
-  `projectos/agent/src/closureGate.ts`, `closureWait.ts`, `commands/closure.ts`, `commands/phase.ts`,
-  `commands/run.ts`.
-- **Loop and judges:** `projectos/agent/src/loop/**` (workers, pinned validators, verification,
-  gatekeeper config, technical continuation, transports).
-- **Broker and credentials:** `projectos/security/gatekeeper-transport-broker.cjs`,
-  `trust-boundary.json`, `broker.cjs`, `redaction.cjs`; `projectos/credentials/**`;
-  `projectos/scripts/projectos-credential-router.cjs`.
-- **Governance engines and plans:** `projectos/agent/src/planApproval.ts`, `planDecision.ts`,
-  `governanceEngines.ts`; `projectos/validators/plan-*-engine.cjs`; `projectos/schemas/**`.
-- **Validators:** every validator except the AG-5 lines named above.
-- **Rust host:** all of `projectos/host/**`.
-- **Control Center:** all of `projectos/control-center/**`, including the Supabase SQL. The RLS
-  weakness is recorded and needs its own owner decision.
-- **Watchdog SQL:** `projectos/watchdog/**`.
-- **Authority records:** every existing record under `.projectops/` (authority, gates, plan decisions,
-  closure decisions, plans, phases, gatekeeper.json, project-config.json), apart from the new
-  completion records in Zone 1.
-- **Agency repo:** everything except `.projectops/gatekeeper.json` (`site/`, `vendor/`, validators,
-  plans, records).
+  `projectos/agent/src/closureGate.ts`, `closureWait.ts`, `commands/closure.ts`,
+  `commands/phase.ts`.
+- **Broker and credentials:** `projectos/security/**` (including the allowlist just narrowed),
+  `projectos/credentials/**`, `projectos/scripts/projectos-credential-router.cjs`.
+- **Governance engines and schemas:** `planDecision.ts`, `governanceEngines.ts`,
+  `projectos/validators/plan-*-engine.cjs`, `projectos/schemas/**`.
+- **Elsewhere:**
+  - `projectos/host/**`, `projectos/control-center/**` (including the Supabase SQL, which is
+    Stage 2), `projectos/watchdog/**`.
+  - Every existing `.projectops/` authority record.
+  - The agency repo. Stage 1.8 runs under the agency's own plan.
 
-## Impact analysis
+## Owner acts this plan needs
+1. **`plan decide` for v1.17.** D11 is already approved; the rest is not.
+2. **The key.** The current key, or a new one with a provider-side spend cap, must be stored for the
+   exit proof's provider calls.
+3. **A second provider** for the reviewer role in the exit proof, for example Codex. Its credential
+   or login is the owner's to store (`secrets-handling`).
+4. **Signed authority commits** (Stage 1.7). This is an owner decision and not a v1.17 phase.
 
-- **Behaviour change:** after this, the broker refuses any `seo-agency` request (not allowlisted), and
-  the agency gatekeeper is disabled. ProjectOS's own governance is unchanged. ProjectOS itself uses
-  the interactive gatekeeper and is unaffected.
-- **Risk:** low. Two data lines and one validator assertion; no runtime logic. Reversible by restoring
-  one allowlist entry and one boolean.
-- **Checks:** `val-projectos-boot-continue1a` (with AG-5 updated), `validate-no-secrets`, agent and
-  core suites (no code change, so they are expected unchanged), validate-all (no new failure beyond
-  the two known).
-- **Reviews:** the ECC SECURITY review of the allowlist change, as an independent reviewer for a
-  security-boundary edit.
-
-## Owner actions this delta needs (not done by Claude)
-
-1. Revoke the OpenAI key (platform.openai.com → API keys).
-2. Run `npm run credentials -- delete --ref ProjectOS/projectos/development/openai/gatekeeper-api-key`.
-3. Say "complete". That word authorises the owner-direct closure of PROJECTOS-COMPLETION1A.
+## Impact and risk
+- **Risk is high.** v1.17 edits the loop, which is protected code. Mitigations:
+  - one rule per validator pin, each with named mutations;
+  - an ECC SECURITY review on every code phase;
+  - an ECC CODE review where the plan names it;
+  - the Agency `software-architect` review for the contract ADR.
+- **Behaviour change.** Plans with only a worker self-review stop closing. Provider calls over the cap
+  are refused. The owner can halt everything with one command.
+- **Reversibility.** Each phase is its own commit series, reverted per phase.
