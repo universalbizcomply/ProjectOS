@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-COMPLETION1A",
   "project": "ProjectOS",
   "objective": "Retire the temporary pieces created for the live proofs and record completion: remove the seo-agency entry (marked temporary) from the installation project allowlist and update the validator pin AG-5 to match, disable the agency project's gatekeeper until a new key is stored, and write the completion record. No feature and no change to how ProjectOS governs.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-10-28T23:07:55.562Z",
       "note": "closure tail only - no implementation, no source. Owner-direct closure route on the owner's words of 2026-10-28; no gatekeeper closure ruling obtained or claimed. Evidence .projectops/closure/PROJECTOS-COMPLETION1A.json at subject ec652ee."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-10-28T23:28:50.791Z",
+      "note": "Owner-direct closure on the owner's words of 2026-10-28 (\"then complete\"; \"Proceed: finish Stage 0 (0.2 allowlist + AG-5, completion record) ...\"), decision projectos:PROJECTOS-COMPLETION1A:owner-closure:ec652eef. No gatekeeper closure ruling claimed. — closed by owner Murad, decision projectos:PROJECTOS-COMPLETION1A:owner-closure:ec652eef"
     }
   ]
 }
