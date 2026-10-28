@@ -1,0 +1,24 @@
+{
+  "phaseId": "PROJECTOS-COMPLETION1A",
+  "evidenceSubjectHead": "ec652eef954904d5dee77e4721261ed29d32ced6",
+  "baselineCommit": "34483958f97dc85462fd19c12e91611d850bf977",
+  "validatorsPass": true,
+  "checksPass": true,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "unresolvedCritical": 0,
+  "unresolvedHighIds": [],
+  "headedProofPass": null,
+  "protectedEffects": "NONE",
+  "establishedAt": "2026-10-28T23:28:37.043Z",
+  "notes": [
+    "THIS RECORD CLOSES NOTHING. Closure evidence for PROJECTOS-COMPLETION1A, phase 9 of 9 of plan v1.16, closed owner-direct under the owner's general grant of full authority (see the decision record). NO gatekeeper closure ruling was obtained for THIS phase and none is claimed. No code writes this file; the convention follows PROJECTOS-FOUNDATION-GAPS1A.",
+    "SUBJECT. ec652ee — the completion record docs/finish/PROJECTOS-COMPLETION1A.md and docs/06_Plan.md ticks, on top of the one implementation commit 737bccc (allowlist + AG-5). The ADR commit 60aab03 (docs/adr/, V4 spikes) sits between them and is outside this phase's writePaths; it is plan documentation, not phase work, and is disclosed here.",
+    "validatorsPass: val-projectos-boot-continue1a and validate-no-secrets PASS at 737bccc and at the subject. AG-5 FAILED before the pin edit (shown), PASS after.",
+    "checksPass: agent 2544/2544, core 772/772 at 737bccc (unchanged; no code changed). installationAllowsProject (built dist) against the committed bytes: seo-agency allowed=false, projectos allowed=true. validate-all at 01a43e2: 147 registered, 145 PASS, 2 FAIL — the two known (validate-desktop-e2e: no Control Centre production bundle; val-cd-b4-sealed-expected-window-facts1a: public session_digest getter); no new failure.",
+    "reviewsComplete: Claude self-review; ECC SECURITY APPROVE (0 CRITICAL, 0 HIGH, 0 MEDIUM; 4 LOW non-actionable). The reviewer mutation-tested AG-5 in a scratch copy outside the tree; git status was clean afterwards.",
+    "unresolved: zero CRITICAL/HIGH. Not done by design: Stage 0.4 (agency gatekeeper disable) applies only if the key is revoked with no replacement; the owner returned the key choice unresolved ('Key: [revoke + new capped key | keep until Stage 1]'). Carried: everything in docs/06_Plan.md V4 Stages 1-8.",
+    "protectedEffects NONE: no provider spend, deployment, credential, message, payment, database, service, ACL, registry, force push or merge commit.",
+    "OWNER STATEMENT on credential and token rotation, carried forward verbatim from 2026-09-28 (not newly given): \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\""
+  ]
+}
