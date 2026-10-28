@@ -621,12 +621,13 @@ function run() {
   if (/nodeBrokeredTransport|installationAllowsProject|trustedBroker|brokerRouteOptedIn|\bbroker\b/.test(files[RECONCILE_REL])) {
     E("AG-4: degraded-mode reconciliation now composes a paid route");
   }
-  // AG-5: the installation allowlist is exactly ProjectOS and the agency project.
+  // AG-5: the installation allowlist is exactly ProjectOS (the temporary agency entry was retired by
+  // PROJECTOS-COMPLETION1A; a future tenant is granted explicitly, never left over from a proof).
   try {
     const allow = JSON.parse(read(ALLOWLIST_REL) || "{}");
     const ids = (allow.projects || []).map((p) => `${p.projectId}@${p.repository}@${p.governedRoot}`).sort();
-    const want = ["projectos@github.com/universalbizcomply/ProjectOS@C:/dev/ProjectOS", "seo-agency@127.0.0.1:47900/SEOAgency-remote/seo-agency@C:/dev/SEOAgency"];
-    if (JSON.stringify(ids) !== JSON.stringify(want)) E(`AG-5: the installation allowlist is not exactly ProjectOS and the agency project (${ids.join(", ")})`);
+    const want = ["projectos@github.com/universalbizcomply/ProjectOS@C:/dev/ProjectOS"];
+    if (JSON.stringify(ids) !== JSON.stringify(want)) E(`AG-5: the installation allowlist is not exactly ProjectOS (${ids.join(", ")})`);
   } catch {
     E("AG-5: the installation allowlist is not readable JSON");
   }

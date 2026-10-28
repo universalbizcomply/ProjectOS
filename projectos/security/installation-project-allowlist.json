@@ -12,12 +12,6 @@
       "repository": "github.com/universalbizcomply/ProjectOS",
       "note": "ProjectOS governing itself. Derived from `git remote get-url origin` in C:\\dev\\ProjectOS and canonicalised with the same parseRemoteUrl rule discovery and the observation check use. The governedRoot is part of the identity: origin lives in .git/config, which a project can rewrite, so a copy of this repository at any other path is a different project however it describes itself.",
       "governedRoot": "C:/dev/ProjectOS"
-    },
-    {
-      "projectId": "seo-agency",
-      "repository": "127.0.0.1:47900/SEOAgency-remote/seo-agency",
-      "note": "The SEO and Social Agency project, added by OWNER decision of 2026-10-25 (\"Route 2 now\"; \"use this key for now ... Until this project is completed this key stays\"), recorded by the implementer (Claude) under PROJECTOS-FINISH-API-GATEKEEPER1A. Unlike the first entry it rests on an owner decision, not the delegated gatekeeper ruling. Its origin is a localhost-only git server (127.0.0.1:47900) serving a local bare repository, derived with the same parseRemoteUrl rule. TEMPORARY: remove this entry when the owner revokes the key at the end of the project.",
-      "governedRoot": "C:/dev/SEOAgency"
     }
   ]
 }
