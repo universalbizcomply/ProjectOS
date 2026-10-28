@@ -1,7 +1,7 @@
 {
   "projectId": "projectos",
   "businessVision": "ProjectOS delivers ordinary technical work on real projects end to end: Claude implements, the ChatGPT gatekeeper reviews through the trusted broker without the owner's relay, and ProjectOS carries each approved phase through checks, review, commit, push and closure; where the owner has delegated the closure commit to ProjectOS, a phase closes with no owner act at all, and the owner holds every protected action.",
-  "definitionOfComplete": "Eight phases are complete: one `projectos continue` carries a phase from work to closed, a phase that changes its own required validator is judged by that new copy as well as the base copy, and a third agency phase proves both with no owner act; and before them: phase write grants come from a structured list of paths in the approved plan, with the judging validators run from the last approved commit; phase closure works for any governed project; the ChatGPT gatekeeper answers without the owner's relay through the trusted broker (owner decision of 2026-10-25); ProjectOS has carried one ordinary phase end to end on a new governed project, the website of an SEO and social-media posting agency, with evidence; a project whose owner grants the closure-decision-commit scope has its delegate's closure decision committed by ProjectOS itself, with a model-invented decision time refused; and a second agency phase has closed end to end with no owner act. Dead Aisle and PolyGo are not part of this plan (owner decision of 2026-10-25). Host-attested unattended review, the signed installer, Forge and the Control Center redesign are deferred and are reopened only by an owner decision.",
+  "definitionOfComplete": "Nine phases are complete: the temporary pieces created for the live proofs are retired and spending is disabled once the key is revoked (PROJECTOS-COMPLETION1A); and before it: one `projectos continue` carries a phase from work to closed, a phase that changes its own required validator is judged by that new copy as well as the base copy, and a third agency phase proves both with no owner act; and before them: phase write grants come from a structured list of paths in the approved plan, with the judging validators run from the last approved commit; phase closure works for any governed project; the ChatGPT gatekeeper answers without the owner's relay through the trusted broker (owner decision of 2026-10-25); ProjectOS has carried one ordinary phase end to end on a new governed project, the website of an SEO and social-media posting agency, with evidence; a project whose owner grants the closure-decision-commit scope has its delegate's closure decision committed by ProjectOS itself, with a model-invented decision time refused; and a second agency phase has closed end to end with no owner act. Dead Aisle and PolyGo are not part of this plan (owner decision of 2026-10-25). Host-attested unattended review, the signed installer, Forge and the Control Center redesign are deferred and are reopened only by an owner decision.",
   "successStandard": "On the agency project, once the owner has granted the closure-decision-commit scope, a phase runs from continue to closed with no owner act: the ChatGPT gatekeeper answers through the trusted broker, ChatGPT decides closure, and ProjectOS commits that decision and the records around it, truthfully recorded, with no protected action taken without the owner.",
   "approvedScope": [
     "A structured per-phase list of write paths in the plan schema, the plan source format and the plan engine, from which the worker's write grant is derived exactly.",
@@ -16,7 +16,8 @@
     "A second agency phase, carried end to end under the new scope, as the live proof.",
     "One `projectos continue` carries a phase through closure preparation into the closure question, instead of stopping after preparation (EXTERNAL-PROOF2A D7).",
     "A phase whose write grant covers one of its own required validators is judged by the phase's copy of that validator as well as the base copy, both required to pass (EXTERNAL-PROOF2A D8).",
-    "A third agency phase, fixing the gaps in its site validator, carried with one continue and no owner act, as the live proof."
+    "A third agency phase, fixing the gaps in its site validator, carried with one continue and no owner act, as the live proof.",
+    "By the owner's approval of the completion delta in Plan Mode (2026-10-28): retire the temporary seo-agency installation allowlist entry, update its validator pin, disable the agency gatekeeper, and record ProjectOS's completion."
   ],
   "environments": [
     {
@@ -424,6 +425,49 @@
       ],
       "requiredBrowserProof": false,
       "requiredOwnerGates": [
+        "secrets-handling",
+        "payment-or-live-charge"
+      ]
+    },
+    {
+      "phaseId": "PROJECTOS-COMPLETION1A",
+      "title": "Close out ProjectOS on the definition of done",
+      "description": "Retire the temporary pieces created for the live proofs and record completion: remove the seo-agency entry (marked temporary) from the installation project allowlist and update the validator pin AG-5 to match, disable the agency project's gatekeeper until a new key is stored, and write the completion record. No feature and no change to how ProjectOS governs.",
+      "scope": "Edit projectos/security/installation-project-allowlist.json, projectos/validators/val-projectos-boot-continue1a.cjs (AG-5 only) and docs/06_Plan.md; add the completion record under docs/finish/.",
+      "writePaths": [
+        "projectos/security/installation-project-allowlist.json",
+        "projectos/validators/val-projectos-boot-continue1a.cjs",
+        "docs/06_Plan.md",
+        "docs/finish/"
+      ],
+      "exclusions": [
+        "No change to closure, authority, loop, broker, credential, governance-engine, host, control-center or watchdog code.",
+        "No change to any validator rule other than the AG-5 expected allowlist.",
+        "Key revocation and credential deletion are the owner's acts; ProjectOS does not perform them."
+      ],
+      "dependsOn": [
+        "PROJECTOS-FINISH-EXTERNAL-PROOF3A"
+      ],
+      "acceptanceCriteria": [
+        "The installation allowlist holds exactly the projectos entry, the AG-5 pin requires exactly that, and the broker allowlist refuses seo-agency.",
+        "The agency's committed gatekeeper.json is enabled: false.",
+        "The completion record lists what was delivered, the owner acts, the carry-forwards and the owner's completion words verbatim.",
+        "val-projectos-boot-continue1a and validate-no-secrets PASS; agent and core suites unchanged; validate-all with no new failure beyond the two known; the ECC SECURITY review of the allowlist change with no unresolved critical or high finding."
+      ],
+      "riskLevel": "low",
+      "autonomyLevel": "gated-execution",
+      "requiredValidators": [
+        "val-projectos-boot-continue1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC SECURITY review"
+      ],
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
         "secrets-handling",
         "payment-or-live-charge"
       ]
