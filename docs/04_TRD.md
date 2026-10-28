@@ -91,3 +91,9 @@ knowledge/      reports and the reports index
     external sends, payments, credential disclosure or rotation, service install,
     ACL/registry/ProgramData changes, force push, merge, phase closure (unless delegated), and push or
     commit where reserved.
+
+## 5. Kernel contract (V4)
+
+Every operation carries the task envelope and falls into one of six permission classes defined in
+`docs/adr/ADR-K1-kernel-contract.md`. Unknown actions default to the protected class; no flag,
+setting or model judgement can lower a class.
