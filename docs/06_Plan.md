@@ -51,6 +51,10 @@ is a **direction, not an implementation approval**. Each stage below still goes 
 
 **Critical path:** 0 → 1 → 2 → (3 ∥ 4) → 5 → 6 → 7 → 8. The spikes S1–S4 run alongside Stage 1.
 
+**Capability backlog:** `docs/recon/V4_Capability_Recon.md` lists C1–C22, the "same or better"
+capabilities to take from Hermes, OpenClaw and OpenBot / Grok Bot, each mapped to a stage below,
+plus the patterns ProjectOS refuses to copy.
+
 ## What exists versus V4 (gap summary)
 
 | V4 layer | Exists today | Main gap |
@@ -86,8 +90,9 @@ Postgres holds tenant operational data only, and never authority.
       Every stage after this needs a gatekeeper key.
 - [ ] 0.4 **[APPROVED: delta]** Agency `.projectops/gatekeeper.json` `enabled: false`. Only if 0.3
       revokes without a replacement.
-- [ ] 0.5 Completion record `docs/finish/PROJECTOS-COMPLETION1A.md`: "V3 finish programme complete;
-      V4 baseline". Then owner-direct closure on the owner's word.
+- [x] 0.5 Completion record `docs/finish/PROJECTOS-COMPLETION1A.md`: "V3 finish programme complete;
+      V4 baseline". Then owner-direct closure on the owner's word. 2026-10-28: record `ec652ee`,
+      closed `41460c5`. Plan v1.16 is 9/9; validate-all 145/147 (the two known failures).
 
 ## Stage 1 — Kernel hardening (Develop is the reference domain)
 
