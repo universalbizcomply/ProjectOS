@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-COMPLETION1A",
+  "project": "ProjectOS",
+  "objective": "Retire the temporary pieces created for the live proofs and record completion: remove the seo-agency entry (marked temporary) from the installation project allowlist and update the validator pin AG-5 to match, disable the agency project's gatekeeper until a new key is stored, and write the completion record. No feature and no change to how ProjectOS governs.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-10-28T23:07:53.374Z",
+      "note": "Owner-approved plan v1.16 (PLANDEC-af4f9b82af55880c783a5ee5, activation 3448395). Implemented by Claude (lead) directly on the owner's instruction of 2026-10-28 (\"Proceed: finish Stage 0 (0.2 allowlist + AG-5, completion record) ...\"), not dispatched to a governed worker. The phase record is created after the implementation commits; the transitions below record the work already done, in order."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-10-28T23:07:53.750Z",
+      "note": "Implementation from 3448395: 737bccc removes the temporary seo-agency entry from the installation allowlist and pins AG-5 to exactly ProjectOS."
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-10-28T23:07:54.155Z",
+      "note": "At 737bccc: AG-5 FAIL before the pin edit, PASS after; val-projectos-boot-continue1a PASS; validate-no-secrets PASS; agent 2544/2544, core 772/772; installationAllowsProject refuses seo-agency and allows projectos against the committed bytes."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-10-28T23:07:54.520Z",
+      "note": "Evidence: docs/finish/PROJECTOS-COMPLETION1A.md (ec652ee). No live provider run for this phase."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-10-28T23:07:54.953Z",
+      "note": "closure tail only - no implementation, no source. Reviews complete at 737bccc: Claude self-review; ECC SECURITY APPROVE (0 CRITICAL/HIGH/MEDIUM, 4 LOW non-actionable)."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-10-28T23:07:55.562Z",
+      "note": "closure tail only - no implementation, no source. Owner-direct closure route on the owner's words of 2026-10-28; no gatekeeper closure ruling obtained or claimed. Evidence .projectops/closure/PROJECTOS-COMPLETION1A.json at subject ec652ee."
+    }
+  ]
+}
