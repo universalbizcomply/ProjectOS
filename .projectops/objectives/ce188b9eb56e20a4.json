@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "objectiveId": "ce188b9eb56e20a4",
+  "objective": "Plan v1.17 (V4 Stage 1): kernel hardening — kernel contract ADR, D11 role-separated review (owner-approved as written), hard spend cap, platform-wide stop, truth fixes, validator and toolchain hygiene, and a live exit proof.",
+  "authoritative": false,
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "607a9aa960f13235a5f71220b3446a21a923a07f",
+  "submittedAt": "2026-10-28T23:32:57.717Z",
+  "submittedBy": "owner",
+  "instructionShaped": false
+}
