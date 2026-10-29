@@ -1,5 +1,5 @@
 /**
- * The Claude Code CLI adapter — the one worker kind ProjectOS ships.
+ * The Claude Code CLI adapter — the one IMPLEMENTER kind ProjectOS ships (`codex-cli` only reviews).
  *
  * WHAT CROSSES THE ARGV. A path and a fixed sentence that says "read the governed brief at this
  * path". Nothing else. The phase contract — description, acceptance criteria, required validators,
@@ -21,6 +21,7 @@ import type { ExecResult, System } from '../../system.js';
 import type { WorkerBrief } from '../brief.js';
 import { PROTECTED_EFFECT_FIELDS } from '../outcome.js';
 import type { AuthorisedWorker, WorkerAdapter, WorkerOutcome, WorkerSession } from '../workers.js';
+import { CODEX_CLI, codexCliAdapter } from './codexCli.js';
 
 export const CLAUDE_CODE_CLI = 'claude-code-cli';
 
@@ -275,7 +276,11 @@ export const claudeCodeCliAdapter: WorkerAdapter = {
   },
 };
 
-/** The adapters built in. A new KIND is a new entry here; a new WORKER is configuration only. */
+/**
+ * The adapters built in. A new KIND is a new entry here; a new WORKER is configuration only.
+ * `codex-cli` is a reviewer kind only (PROJECTOS-KERNEL-FOLLOWUP1A): its start and rejoin refuse.
+ */
 export const BUILT_IN_ADAPTERS: Readonly<Record<string, WorkerAdapter>> = {
   [CLAUDE_CODE_CLI]: claudeCodeCliAdapter,
+  [CODEX_CLI]: codexCliAdapter,
 };
