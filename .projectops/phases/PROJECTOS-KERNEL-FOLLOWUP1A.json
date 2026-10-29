@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-KERNEL-FOLLOWUP1A",
   "project": "ProjectOS",
   "objective": "Finishes what Stage 1 carried: the closure-route halves of D9 (broker provenance as a positive class through closureTurn, the closure wait and closure.ts, with a transitional rule for unstamped waits) and D3 (the closure funding sentence derived from the receipt question scope); a pin and named mutations for validate-all's registry rule; the cached-runner resync with validate-speed-validation-cache registered; the validate-claude-worker inv50 repair. Adds a Codex CLI worker adapter so the Stage 1 exit proof can use a reviewer from a different provider (owner: \"Codex CLI (OpenAI)\").",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-10-29T22:18:55.214Z",
       "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-10-29T22:18:56.654Z",
+      "note": "Owner-direct closure under the owner's grant. — closed by owner Murad, decision projectos:PROJECTOS-KERNEL-FOLLOWUP1A:owner-closure:610f3314"
     }
   ]
 }
