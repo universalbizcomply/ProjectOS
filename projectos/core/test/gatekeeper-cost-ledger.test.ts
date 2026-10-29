@@ -14,6 +14,10 @@ import {
   evaluateBudget,
   authoriseRequestSpend,
   formatMicroUsd,
+  capProblems,
+  ledgerPeriod,
+  policyProblems,
+  rateCardProblems,
   BUDGET_OK,
   BUDGET_WARNING,
   BUDGET_STOPPED,
@@ -261,5 +265,41 @@ describe('KERNEL-COST-CAP1A: day totals and unreadable totals', () => {
     const said = authoriseRequestSpend(1, totals, CAPPED).reasons.join(' ');
     expect(said).toContain('the per-phase cap of $2.00');
     expect(said).toContain('the per-day cap of $3.00');
+  });
+});
+
+/** PROJECTOS-KERNEL-COST-CAP1A, ECC SECURITY H1/H2/M1/M3 — prices, unreadable costs, UTC, display. */
+describe('KERNEL-COST-CAP1A: what the caps are judged against', () => {
+  const CAPPED: BudgetPolicy = { warnAtMicroUsd: 40_000_000, hardStopAtMicroUsd: 50_000_000, phaseHardStopAtMicroUsd: 2_000_000, dayHardStopAtMicroUsd: 3_000_000 };
+
+  it('prices a call with an unusable rate card as NaN, never as free (H1)', () => {
+    for (const bad of [{ ...STRONG, inputMicroUsdPerMillion: 0 }, { ...STRONG, outputMicroUsdPerMillion: -1 }, { ...STRONG, inputMicroUsdPerMillion: '5' as never }]) {
+      expect(rateCardProblems(bad).length).toBeGreaterThan(0);
+      expect(Number.isNaN(estimateCostMicroUsd({ inputTokens: 1000, outputTokens: 10 }, bad))).toBe(true);
+    }
+    expect(rateCardProblems(STRONG)).toEqual([]);
+  });
+
+  it('makes every total unreadable when one entry cost is unreadable, and the gate refuses (H2)', () => {
+    const t = summariseLedger([entry({ requestId: 'a' }), entry({ requestId: 'b', costMicroUsd: '1' as never })], { ...SCOPE, day: '2026-08-17' });
+    expect(Number.isNaN(t.monthMicroUsd)).toBe(true);
+    expect(evaluateBudget(t, CAPPED).status).toBe('STOPPED');
+    expect(authoriseRequestSpend(1, t, CAPPED).allowed).toBe(false);
+  });
+
+  it('groups days and months by the UTC instant, not the written prefix (M1)', () => {
+    const entries = [entry({ requestId: 'a', at: '2026-08-01T00:30:00+01:00', costMicroUsd: 5 })];
+    expect(summariseLedger(entries, { ...SCOPE, month: '2026-07', day: '2026-07-31' }).dayMicroUsd).toBe(5);
+    expect(summariseLedger(entries, { ...SCOPE, month: '2026-08', day: '2026-08-01' }).dayMicroUsd).toBe(0);
+    expect(ledgerPeriod('2026-08-01T00:30:00+01:00')).toEqual({ month: '2026-07', day: '2026-07-31' });
+    expect(ledgerPeriod('garbage')).toBeNull();
+  });
+
+  it('keeps a month-only display policy usable, while spend still refuses without the caps (M3)', () => {
+    const display: BudgetPolicy = { warnAtMicroUsd: 2_000_000, hardStopAtMicroUsd: 5_000_000 };
+    expect(policyProblems(display)).toEqual([]);
+    expect(capProblems(display).length).toBe(2);
+    const zero = summariseLedger([], { ...SCOPE, day: '2026-08-17' });
+    expect(authoriseRequestSpend(1, zero, display).allowed).toBe(false);
   });
 });

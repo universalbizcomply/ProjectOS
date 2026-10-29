@@ -55,6 +55,7 @@ import {
   recordCall,
   selectGatekeeperTransport,
   selectTier,
+  ledgerPeriod,
   summariseLedger,
   type BudgetPolicy,
   type ClosureDecisionRecord,
@@ -459,8 +460,8 @@ export function takeClosureTurn(input: ClosureTurnInput, deps: ClosureTurnDeps):
   const totals = summariseLedger(deps.ledger, {
     projectId: input.projectId,
     phaseId: input.phaseId,
-    month: input.at.slice(0, 7),
-    day: input.at.slice(0, 10),
+    // The UTC period of a canonical instant; without one, no day is named, so the day counts the month.
+    ...(ledgerPeriod(input.at) ?? { month: input.at.slice(0, 7) }),
   });
   const spend =
     deps.admitSpend === undefined

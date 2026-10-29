@@ -264,10 +264,15 @@ export interface BudgetPolicy {
    * PROJECTOS-KERNEL-COST-CAP1A. The most one PHASE of one project may spend, and the most the account
    * may spend in one DAY. A month-only stop let a single runaway phase, or a single bad night, spend
    * the whole month before anything refused. Both are required: an absent cap is a refusal, never
-   * "unlimited" (`policyProblems`).
+   * "unlimited": `authoriseRequestSpend` refuses through `capProblems`, and the gatekeeper config
+   * loader refuses a committed budget without them.
+   *
+   * OPTIONAL IN THE TYPE, NOT IN ENFORCEMENT. `policyProblems` answers "can the month be shown and
+   * judged", which a display-only policy (the Control Center's) must keep answering; making these
+   * required there turned every project's status into "not gated" (ECC SECURITY M3).
    */
-  readonly phaseHardStopAtMicroUsd: number;
-  readonly dayHardStopAtMicroUsd: number;
+  readonly phaseHardStopAtMicroUsd?: number;
+  readonly dayHardStopAtMicroUsd?: number;
 }
 
 export const BUDGET_OK = 'OK';
@@ -287,6 +292,9 @@ function nonNegative(n: unknown): number {
  * usage report must not be able to reduce a running total.
  */
 export function estimateCostMicroUsd(usage: TokenUsage, rate: RateCard): number {
+  // AN UNUSABLE PRICE IS NOT A FREE CALL (ECC SECURITY H1). NaN reaches `authoriseRequestSpend`, which
+  // refuses an estimate it cannot trust, and `summariseLedger`, which refuses a cost it cannot read.
+  if (rateCardProblems(rate).length > 0) return Number.NaN;
   const cachedRate =
     typeof rate.cachedInputMicroUsdPerMillion === 'number'
       ? rate.cachedInputMicroUsdPerMillion
@@ -298,6 +306,20 @@ export function estimateCostMicroUsd(usage: TokenUsage, rate: RateCard): number 
     nonNegative(usage.outputTokens) * nonNegative(rate.outputMicroUsdPerMillion);
 
   return Math.round(total / 1_000_000);
+}
+
+/** Why this rate card cannot price a call, or `[]`. A missing, zero or negative price would price it at $0. */
+export function rateCardProblems(rate: RateCard): readonly string[] {
+  const priced = (n: unknown): boolean => typeof n === 'number' && Number.isFinite(n) && n > 0;
+  const e: string[] = [];
+  if (typeof rate?.model !== 'string' || rate.model === '') e.push('the rate card names no model');
+  if (!priced(rate?.inputMicroUsdPerMillion)) e.push(`the rate card for ${JSON.stringify(rate?.model)} has no usable input price`);
+  if (!priced(rate?.outputMicroUsdPerMillion)) e.push(`the rate card for ${JSON.stringify(rate?.model)} has no usable output price`);
+  const cached = rate?.cachedInputMicroUsdPerMillion;
+  if (cached !== undefined && !(typeof cached === 'number' && Number.isFinite(cached) && cached >= 0)) {
+    e.push(`the rate card for ${JSON.stringify(rate?.model)} has an unusable cached-input price`);
+  }
+  return e;
 }
 
 /** Build a ledger entry with its cost already computed from the supplied rate card. */
@@ -354,9 +376,28 @@ export interface LedgerTotals {
  * The month is matched on the entry's `YYYY-MM` prefix rather than by parsing a date, because parsing
  * would silently reinterpret a malformed timestamp into some real month and attribute spend to it.
  */
+/** An ISO-8601 instant with an explicit zone, and nothing looser. */
+const CANONICAL_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/;
+
 /**
- * `day` is `YYYY-MM-DD`, matched on the entry's timestamp prefix exactly as the month is (ProjectOS
- * writes UTC timestamps, so this is the UTC day). A scope that names NO
+ * The instant in UTC, or null when it is not a canonical ISO-8601 instant. Day and month totals group
+ * on THIS, so `2026-10-30T00:30+01:00` and `2026-10-29T23:45Z` fall on the same day (ECC SECURITY M1).
+ */
+export function utcInstant(at: unknown): string | null {
+  if (typeof at !== 'string' || !CANONICAL_INSTANT.test(at)) return null;
+  const ms = Date.parse(at);
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
+}
+
+/** The month and day a request at `at` is judged in, or null when `at` is not a canonical instant. */
+export function ledgerPeriod(at: string): { readonly month: string; readonly day: string } | null {
+  const utc = utcInstant(at);
+  return utc === null ? null : { month: utc.slice(0, 7), day: utc.slice(0, 10) };
+}
+
+/**
+ * `day` is `YYYY-MM-DD` and `month` `YYYY-MM`, both UTC, matched against each entry's instant in UTC.
+ * An entry whose timestamp is not a canonical instant belongs to no month or day, as before. A scope that names NO
  * day counts the whole month as the day: an upper bound, so a caller that cannot say which day it is
  * can only be refused more, never less.
  */
@@ -369,17 +410,33 @@ export function summariseLedger(
   let project = 0;
   let month = 0;
   let day = 0;
+  // A COST THAT CANNOT BE READ IS NOT ZERO (ECC SECURITY H2). One unreadable entry makes every total
+  // unreadable, which `authoriseRequestSpend` refuses and `evaluateBudget` reports as stopped.
+  let unreadable = false;
 
   for (const entry of unique) {
-    const cost = nonNegative(entry.costMicroUsd);
+    const raw = entry.costMicroUsd;
+    if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < 0) unreadable = true;
+    const cost = nonNegative(raw);
     const inProject = entry.projectId === scope.projectId;
     if (inProject) {
       project += cost;
       if (entry.phaseId === scope.phaseId) phase += cost;
     }
     // The monthly total is the SPEND LIMIT's total, and a spend limit is per account, not per project.
-    if (typeof entry.at === 'string' && entry.at.startsWith(scope.month)) month += cost;
-    if (scope.day !== undefined && typeof entry.at === 'string' && entry.at.startsWith(scope.day)) day += cost;
+    const instant = utcInstant(entry.at);
+    if (instant !== null && instant.startsWith(scope.month)) month += cost;
+    if (scope.day !== undefined && instant !== null && instant.startsWith(scope.day)) day += cost;
+  }
+  if (unreadable) {
+    return {
+      phaseMicroUsd: Number.NaN,
+      projectMicroUsd: Number.NaN,
+      monthMicroUsd: Number.NaN,
+      dayMicroUsd: Number.NaN,
+      callCount: unique.length,
+      duplicatesIgnored: entries.length - unique.length,
+    };
   }
 
   return {
@@ -416,6 +473,16 @@ export function policyProblems(policy: BudgetPolicy): readonly string[] {
   if (!usable(policy?.warnAtMicroUsd)) {
     e.push(`the budget policy has no usable warning threshold (${JSON.stringify(policy?.warnAtMicroUsd)})`);
   }
+  return e;
+}
+
+/**
+ * Why the per-phase and per-day caps cannot be enforced, or `[]`. Separate from `policyProblems` so a
+ * display-only policy keeps its month status; every spend authorisation checks both.
+ */
+export function capProblems(policy: BudgetPolicy): readonly string[] {
+  const e: string[] = [];
+  const usable = (n: unknown): boolean => typeof n === 'number' && Number.isFinite(n) && n >= 0;
   if (!usable(policy?.phaseHardStopAtMicroUsd)) {
     e.push(`the budget policy has no usable per-phase cap (${JSON.stringify(policy?.phaseHardStopAtMicroUsd)})`);
   }
@@ -439,6 +506,14 @@ export function evaluateBudget(totals: LedgerTotals, policy: BudgetPolicy): Budg
     };
   }
   const spent = totals.monthMicroUsd;
+  if (typeof spent !== 'number' || !Number.isFinite(spent)) {
+    return {
+      status: BUDGET_STOPPED,
+      spentMicroUsd: 0,
+      remainingMicroUsd: 0,
+      reasons: ['the spend ledger could not be read, so what has been spent is unknown; no gatekeeper call may be made'],
+    };
+  }
   const remaining = Math.max(0, policy.hardStopAtMicroUsd - spent);
   const reasons: string[] = [];
 
@@ -482,6 +557,10 @@ export function authoriseRequestSpend(
   if (verdict.status === BUDGET_STOPPED) {
     return { allowed: false, reasons };
   }
+  const caps = capProblems(policy);
+  if (caps.length > 0) {
+    return { allowed: false, reasons: [...reasons, ...caps, 'no gatekeeper call may be made against caps that cannot be enforced'] };
+  }
   /*
    * AN ESTIMATE THAT CANNOT BE TRUSTED IS REFUSED, NOT CLAMPED.
    *
@@ -502,8 +581,8 @@ export function authoriseRequestSpend(
   // EVERY BOUND, NOT THE FIRST. Each refusal names the cap and the ledger total it was judged against,
   // so the owner can see which limit stopped the call and how much had already been spent.
   const bounds: readonly (readonly [string, number, string, number])[] = [
-    ['the phase', totals.phaseMicroUsd, 'the per-phase cap', policy.phaseHardStopAtMicroUsd],
-    ['the day', totals.dayMicroUsd, 'the per-day cap', policy.dayHardStopAtMicroUsd],
+    ['the phase', totals.phaseMicroUsd, 'the per-phase cap', policy.phaseHardStopAtMicroUsd as number],
+    ['the day', totals.dayMicroUsd, 'the per-day cap', policy.dayHardStopAtMicroUsd as number],
     ['the month', verdict.spentMicroUsd, 'the hard stop', policy.hardStopAtMicroUsd],
   ];
   const crossed: string[] = [];

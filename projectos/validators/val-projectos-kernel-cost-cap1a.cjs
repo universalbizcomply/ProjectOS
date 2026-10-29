@@ -14,6 +14,14 @@
  *   CC-6 "the config loader need not check the caps"   — and a broken policy reaches the loop
  *   CC-7 "the day can be left out of the scope"        — and the serialised admission never sees it
  *
+ * Added after the ECC SECURITY review (H1, H2, M1, M3, L1):
+ *
+ *   CC-8  "prices are just configuration"              — and a $0 working-copy price makes every cap unlimited
+ *   CC-9  "an unreadable ledger is an empty one"        — and the caps reset and the history is overwritten
+ *   CC-10 "any timestamp will do"                       — and a call is booked outside every day and month
+ *   CC-11 "the display check is the enforcement check"  — and the caps are optional again
+ *   CC-12 "the raise authority can live in the working copy" — and the pilot ceiling is self-raised
+ *
  * Each rule has a NAMED MUTATION; `selfTest` applies it in memory and counts it killed only when THAT
  * rule fires. Comments are stripped first. Reads files; runs nothing, calls no provider.
  *
@@ -41,28 +49,52 @@ const TESTS = {
   "projectos/agent/test/gatekeeperDelegationAuthority.test.ts": [
     "[COST-CAP] a cap raised in the working copy alone is refused; limits are read from the committed file",
     "[COST-CAP] a committed budget with no per-day cap is a refusal, not unlimited",
+    "[COST-CAP] a price changed in the working copy alone is refused (ECC SECURITY H1)",
+    "[COST-CAP] a committed price of zero is refused, because it would price every call at $0",
+  ],
+  "projectos/agent/test/gatekeeperSpendAdmission.test.ts": [
+    "refuses a call that would cross the per-phase cap, naming the cap and what the phase has spent",
+    "refuses a call that would cross the per-day cap, counting an offset timestamp on the same UTC day",
+    "refuses an UNREADABLE ledger and leaves it exactly as it was",
+    "refuses a request time that is not a canonical instant, so nothing can be booked outside every total",
   ],
   "projectos/core/test/gatekeeper-cost-ledger.test.ts": [
     "counts only the named day's spend, across every phase and project",
     "refuses a total it cannot read rather than reading it as nothing spent",
+    "prices a call with an unusable rate card as NaN, never as free (H1)",
+    "makes every total unreadable when one entry cost is unreadable, and the gate refuses (H2)",
+    "groups days and months by the UTC instant, not the written prefix (M1)",
+    "keeps a month-only display policy usable, while spend still refuses without the caps (M3)",
   ],
 };
 
 const PIN = {
   phaseCapRequired: "if (!usable(policy?.phaseHardStopAtMicroUsd)) {",
   dayCapRequired: "if (!usable(policy?.dayHardStopAtMicroUsd)) {",
-  phaseBound: "['the phase', totals.phaseMicroUsd, 'the per-phase cap', policy.phaseHardStopAtMicroUsd],",
-  dayBound: "['the day', totals.dayMicroUsd, 'the per-day cap', policy.dayHardStopAtMicroUsd],",
+  phaseBound: "['the phase', totals.phaseMicroUsd, 'the per-phase cap', policy.phaseHardStopAtMicroUsd as number],",
+  dayBound: "['the day', totals.dayMicroUsd, 'the per-day cap', policy.dayHardStopAtMicroUsd as number],",
   monthBound: "['the month', verdict.spentMicroUsd, 'the hard stop', policy.hardStopAtMicroUsd],",
   allowedOnlyIfNoneCrossed: "return { allowed: crossed.length === 0, reasons: [...reasons, ...crossed] };",
   unreadable: "if (typeof spent !== 'number' || !Number.isFinite(spent) || spent < 0) {",
   dayTotal: "dayMicroUsd: scope.day === undefined ? month : day,",
-  dayMatch: "if (scope.day !== undefined && typeof entry.at === 'string' && entry.at.startsWith(scope.day)) day += cost;",
+  dayMatch: "if (scope.day !== undefined && instant !== null && instant.startsWith(scope.day)) day += cost;",
   capsCompared: "const capsDiffer = BUDGET_CAP_FIELDS.filter((f) => budgetRaw[f] !== committedBudget[f]);",
   committedPolicy: "budget: budgetPolicyFrom(committedBudget),",
-  configRefusesBroken: "reasons.push(...policyProblems(budgetPolicyFrom(committedBudget)));",
-  admissionDay: "day: request.at.slice(0, 10),",
-  turnDay: "day: input.at.slice(0, 10),",
+  configRefusesBroken: "reasons.push(...policyProblems(budgetPolicyFrom(committedBudget)), ...capProblems(budgetPolicyFrom(committedBudget)));",
+  admissionDay: "day: period.day,",
+  turnDay: "...(ledgerPeriod(input.at) ?? { month: input.at.slice(0, 7) }),",
+  pricingCompared: "const pricingDiffers = PRICING_FIELDS.filter((f) => JSON.stringify(raw[f]) !== JSON.stringify(committedGatekeeper?.[f]));",
+  pricingCommitted: "rateCards: committedRateCards,",
+  cardsValidated: "reasons.push(...rateCardProblems(card));",
+  unusablePriceNaN: "if (rateCardProblems(rate).length > 0) return Number.NaN;",
+  strictAdmission: "const read = readLedgerStrict(sys, root);\n      if (!read.ok) return { allowed: false,",
+  unreadableCost: "if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < 0) unreadable = true;",
+  unreadableTotals: "if (unreadable) {",
+  canonicalTime: "if (period === null) return { allowed: false,",
+  utcGrouping: "const instant = utcInstant(entry.at);",
+  capsEnforced: "const caps = capProblems(policy);",
+  committedPilot: "initialCreditMicroUsd: committedBudget['initialCreditMicroUsd'],",
+  committedAuthorities: "const authorities = Array.isArray(committedGatekeeper?.['budgetRaiseAuthorities'])",
 };
 
 const MUTATIONS = [
@@ -77,7 +109,17 @@ const MUTATIONS = [
   { name: "caps-not-compared", rule: "CC-5", rel: CONFIG_REL, from: PIN.capsCompared, to: "const capsDiffer: string[] = [];" },
   { name: "config-accepts-broken-policy", rule: "CC-6", rel: CONFIG_REL, from: PIN.configRefusesBroken, to: "" },
   { name: "admission-without-day", rule: "CC-7", rel: CONFIG_REL, from: PIN.admissionDay, to: "" },
-  { name: "turn-without-day", rule: "CC-7", rel: TURN_REL, from: PIN.turnDay, to: "" },
+  { name: "turn-without-day", rule: "CC-7", rel: TURN_REL, from: PIN.turnDay, to: "month: input.at.slice(0, 7)," },
+  { name: "working-copy-prices", rule: "CC-8", rel: CONFIG_REL, from: PIN.pricingCommitted, to: "rateCards," },
+  { name: "prices-not-compared", rule: "CC-8", rel: CONFIG_REL, from: PIN.pricingCompared, to: "const pricingDiffers: string[] = [];" },
+  { name: "cards-not-validated", rule: "CC-8", rel: CONFIG_REL, from: PIN.cardsValidated, to: "" },
+  { name: "unusable-price-is-free", rule: "CC-8", rel: LEDGER_REL, from: PIN.unusablePriceNaN, to: "" },
+  { name: "lenient-admission-read", rule: "CC-9", rel: CONFIG_REL, from: "const read = readLedgerStrict(sys, root);\n      if (!read.ok) return { allowed: false,", to: "const read = { ok: true, entries: readLedger(sys, root) } as const;\n      if (!read.ok) return { allowed: false," },
+  { name: "unreadable-cost-is-zero", rule: "CC-9", rel: LEDGER_REL, from: PIN.unreadableCost, to: "" },
+  { name: "any-request-time", rule: "CC-10", rel: CONFIG_REL, from: PIN.canonicalTime, to: "if (false) return { allowed: false," },
+  { name: "prefix-grouping", rule: "CC-10", rel: LEDGER_REL, from: PIN.utcGrouping, to: "const instant = typeof entry.at === 'string' ? entry.at : null;" },
+  { name: "caps-not-enforced", rule: "CC-11", rel: LEDGER_REL, from: PIN.capsEnforced, to: "const caps: string[] = [];" },
+  { name: "working-copy-pilot", rule: "CC-12", rel: CONFIG_REL, from: PIN.committedPilot, to: "initialCreditMicroUsd: budgetRaw['initialCreditMicroUsd']," },
 ];
 
 function read(rel) {
@@ -150,6 +192,19 @@ function check(raw) {
   if (!config.includes(PIN.configRefusesBroken)) E("CC-6", "the config loader no longer refuses a missing or unusable cap");
   if (!config.includes(PIN.admissionDay) || !src[TURN_REL].includes(PIN.turnDay) || !src[CLOSURE_TURN_REL].includes(PIN.turnDay)) {
     E("CC-7", "the admission or a turn no longer passes the day into the ledger scope");
+  }
+  if (![PIN.pricingCompared, PIN.pricingCommitted, PIN.cardsValidated].every((p) => config.includes(p)) || !ledger.includes(PIN.unusablePriceNaN)) {
+    E("CC-8", "prices are not committed-only and validated, or an unusable price is not refused");
+  }
+  if (!config.includes(PIN.strictAdmission.replace('\\n', '\n')) || !ledger.includes(PIN.unreadableCost) || !ledger.includes(PIN.unreadableTotals)) {
+    E("CC-9", "an unreadable ledger or cost is read as empty or zero");
+  }
+  if (!config.includes(PIN.canonicalTime) || !ledger.includes(PIN.utcGrouping)) {
+    E("CC-10", "a non-canonical request time is admitted, or days are grouped by the written prefix");
+  }
+  if (!ledger.includes(PIN.capsEnforced)) E("CC-11", "authoriseRequestSpend no longer refuses without enforceable caps");
+  if (!config.includes(PIN.committedPilot) || !config.includes(PIN.committedAuthorities)) {
+    E("CC-12", "the pilot ceiling or its raise authority is read from the working copy");
   }
   return errors;
 }

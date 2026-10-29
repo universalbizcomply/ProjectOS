@@ -16,7 +16,7 @@
  * NO REAL SPEND. The provider is a counter, not a network client.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, mkdirSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, readFileSync, existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { nodeSystem } from '../src/system.js';
@@ -178,5 +178,55 @@ describe('single-process behaviour is preserved', () => {
     // And it wrote nothing: a refused call must not leave a reservation counted against the month.
     const path = join(root, ...GATEKEEPER_LEDGER_REL.split('/'));
     if (existsSync(path)) expect(JSON.parse(readFileSync(path, 'utf8')).entries).toHaveLength(0);
+  });
+});
+
+/**
+ * PROJECTOS-KERNEL-COST-CAP1A, ECC SECURITY M5 — the caps through the PRODUCTION admission, over a real
+ * ledger file, not the inline fallback. `admitGatekeeperSpend` is the gate every paid path uses when a
+ * durable ledger exists; refusing here is refusing before the transport is ever called.
+ */
+describe('KERNEL-COST-CAP1A: the serialised admission enforces the caps', () => {
+  const CAPPED: BudgetPolicy = { warnAtMicroUsd: 40_000_000, hardStopAtMicroUsd: 50_000_000, phaseHardStopAtMicroUsd: 1_000, dayHardStopAtMicroUsd: 2_000 };
+  const at = (r: ReturnType<typeof request>, when: string) => ({ ...r, at: when });
+  const ledgerPath = () => join(root, ...GATEKEEPER_LEDGER_REL.split('/'));
+
+  it('refuses a call that would cross the per-phase cap, naming the cap and what the phase has spent', () => {
+    appendLedger(sys, root, paid('earlier', 1_000));
+    const r = admitGatekeeperSpend(sys, root, request('next', 1), CAPPED);
+    expect(r.allowed).toBe(false);
+    expect(r.reasons.join(' ')).toContain('the per-phase cap of $0.001000');
+    expect(readLedger(sys, root).map((e) => e.requestId)).toEqual(['earlier']);
+  });
+
+  it('refuses a call that would cross the per-day cap, counting an offset timestamp on the same UTC day', () => {
+    // 00:30 at +01:00 on the 23rd is 23:30Z on the 22nd: the same UTC day as the request.
+    appendLedger(sys, root, { ...paid('late-night', 2_000), phaseId: 'OTHER1A', at: '2026-08-23T00:30:00+01:00' } as LedgerEntry);
+    const r = admitGatekeeperSpend(sys, root, at(request('next', 1), '2026-08-22T23:45:00.000Z'), CAPPED);
+    expect(r.allowed).toBe(false);
+    expect(r.reasons.join(' ')).toContain('the per-day cap');
+  });
+
+  it('refuses an UNREADABLE ledger and leaves it exactly as it was', () => {
+    const corrupt = '{"schemaVersion":"1.0.0","entries":[\n<<<<<<< HEAD\n';
+    writeFileSync(ledgerPath(), corrupt);
+    const r = admitGatekeeperSpend(sys, root, request('next', 1), CAPPED);
+    expect(r.allowed).toBe(false);
+    expect(r.reasons.join(' ')).toContain('not valid JSON');
+    expect(readFileSync(ledgerPath(), 'utf8')).toBe(corrupt);
+  });
+
+  it('refuses a ledger entry whose cost cannot be read, rather than counting it as nothing', () => {
+    writeFileSync(ledgerPath(), JSON.stringify({ schemaVersion: '1.0.0', entries: [{ ...paid('x', 1), costMicroUsd: '1000000' }] }));
+    const r = admitGatekeeperSpend(sys, root, request('next', 1), CAPPED);
+    expect(r.allowed).toBe(false);
+    expect(r.reasons.join(' ')).toContain('entry 0 is malformed');
+  });
+
+  it('refuses a request time that is not a canonical instant, so nothing can be booked outside every total', () => {
+    const r = admitGatekeeperSpend(sys, root, at(request('next', 1), 'garbage'), CAPPED);
+    expect(r.allowed).toBe(false);
+    expect(r.reasons.join(' ')).toContain('not a canonical ISO-8601 instant');
+    expect(existsSync(ledgerPath())).toBe(false);
   });
 });

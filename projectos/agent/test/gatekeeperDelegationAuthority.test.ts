@@ -607,6 +607,26 @@ describe('loadGatekeeperConfig — the programme is committed, and refusals name
     expect(r.ok ? '' : r.reasons.join(' | ')).toContain('no usable per-day cap');
   });
 
+  test('[COST-CAP] a price changed in the working copy alone is refused (ECC SECURITY H1)', () => {
+    const w = world();
+    withConfig(w);
+    w.commitDelegation(reviewDelegation());
+    const cheap = gatekeeperConfig({ rateCards: { 'test-model': { model: 'test-model', inputMicroUsdPerMillion: 1, outputMicroUsdPerMillion: 1 } } });
+    writeFileSync(pjoin(w.root, '.projectops', 'gatekeeper.json'), JSON.stringify(cheap, null, 2));
+    const r = loadGatekeeperConfig(w.sys, w.root);
+    expect(r.ok).toBe(false);
+    expect(r.ok ? '' : r.reasons.join(' | ')).toContain('pricing in the working copy differs from the committed .projectops/gatekeeper.json (rateCards)');
+  });
+
+  test('[COST-CAP] a committed price of zero is refused, because it would price every call at $0', () => {
+    const w = world();
+    withConfig(w, { rateCards: { 'test-model': { model: 'test-model', inputMicroUsdPerMillion: 0, outputMicroUsdPerMillion: 400000 } } });
+    w.commitDelegation(reviewDelegation());
+    const r = loadGatekeeperConfig(w.sys, w.root);
+    expect(r.ok).toBe(false);
+    expect(r.ok ? '' : r.reasons.join(' | ')).toContain('has no usable input price');
+  });
+
   test('[COST-CAP] the committed caps are the policy the loop is handed', () => {
     const w = world();
     withConfig(w, { budget: { initialCreditMicroUsd: 5000000, warnAtMicroUsd: 2000000, hardStopAtMicroUsd: 5000000, phaseHardStopAtMicroUsd: 1000000, dayHardStopAtMicroUsd: 2000000, autoRecharge: false } });

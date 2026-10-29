@@ -24,7 +24,10 @@ import {
   checkTransportDescriptor,
   checkPilotBudget,
   authoriseRequestSpend,
+  capProblems,
+  ledgerPeriod,
   policyProblems,
+  rateCardProblems,
   summariseLedger,
   BUDGET_RAISE_SCOPE,
   GATEKEEPER_REVIEW_SCOPE,
@@ -59,6 +62,9 @@ export const GATEKEEPER_CONFIG_REL = '.projectops/gatekeeper.json';
 export const GATEKEEPER_LEDGER_REL = '.projectops/gatekeeper-ledger.json';
 export const GATEKEEPER_LEDGER_LOCK_REL = '.projectops/gatekeeper-ledger.lock';
 export const GATEKEEPER_THREAD_REL = '.projectops/gatekeeper-thread.json';
+
+/** What prices a call: read from the COMMITTED gatekeeper config only, like the caps. */
+const PRICING_FIELDS = ['modelPolicy', 'rateCards'] as const;
 
 /** The spending limits, read from the COMMITTED gatekeeper config only (PROJECTOS-KERNEL-COST-CAP1A). */
 const BUDGET_CAP_FIELDS = ['warnAtMicroUsd', 'hardStopAtMicroUsd', 'phaseHardStopAtMicroUsd', 'dayHardStopAtMicroUsd'] as const;
@@ -505,22 +511,46 @@ export function loadGatekeeperConfig(
 
   // THE OWNER'S CEILING IS CHECKED HERE, not only at call time: a configuration above the approved
   // pilot is refused before anything reads it, and a budget raise must name a decision scoped to it.
+  // ...AND JUDGED ON THE COMMITTED BLOCK AND THE COMMITTED AUTHORITIES (ECC SECURITY L1): a raise
+  // authority that exists only in the working copy is not one the owner's commit gate has seen.
+  const committedGatekeeper = readCommittedJson(sys, root, GATEKEEPER_CONFIG_REL);
   const budgetRaw = (raw['budget'] ?? {}) as Record<string, unknown>;
-  const authorities = Array.isArray(raw['budgetRaiseAuthorities'])
-    ? (raw['budgetRaiseAuthorities'] as { decisionId: string; scope: string }[])
+  const committedBudget = (committedGatekeeper?.['budget'] ?? {}) as Record<string, unknown>;
+  const authorities = Array.isArray(committedGatekeeper?.['budgetRaiseAuthorities'])
+    ? (committedGatekeeper['budgetRaiseAuthorities'] as { decisionId: string; scope: string }[])
     : [];
   reasons.push(
     ...checkPilotBudget(
       {
-        initialCreditMicroUsd: budgetRaw['initialCreditMicroUsd'],
-        warnAtMicroUsd: budgetRaw['warnAtMicroUsd'],
-        hardStopAtMicroUsd: budgetRaw['hardStopAtMicroUsd'],
-        autoRecharge: budgetRaw['autoRecharge'],
-        raisedByOwnerDecisionId: budgetRaw['raisedByOwnerDecisionId'],
+        initialCreditMicroUsd: committedBudget['initialCreditMicroUsd'],
+        warnAtMicroUsd: committedBudget['warnAtMicroUsd'],
+        hardStopAtMicroUsd: committedBudget['hardStopAtMicroUsd'],
+        autoRecharge: committedBudget['autoRecharge'],
+        raisedByOwnerDecisionId: committedBudget['raisedByOwnerDecisionId'],
       },
       authorities.filter((a) => a && typeof a.decisionId === 'string' && a.scope === BUDGET_RAISE_SCOPE),
     ),
   );
+
+  // PRICES ARE SPENDING LIMITS TOO (ECC SECURITY H1). A cap is only as good as the estimate judged
+  // against it, so the model policy and rate cards are read from the committed file exactly as the
+  // caps are, and every card that can be chosen must be able to price a call above $0.
+  const pricingDiffers = PRICING_FIELDS.filter((f) => JSON.stringify(raw[f]) !== JSON.stringify(committedGatekeeper?.[f]));
+  if (pricingDiffers.length > 0) {
+    reasons.push(
+      `the pricing in the working copy differs from the committed ${GATEKEEPER_CONFIG_REL} (${pricingDiffers.join(', ')}); ` +
+        'prices are read from the committed file only, so commit the change or restore it',
+    );
+  }
+  const committedRateCards = (committedGatekeeper?.['rateCards'] ?? {}) as Record<string, RateCard>;
+  const committedModelPolicy = committedGatekeeper?.['modelPolicy'] as ModelPolicy | undefined;
+  for (const model of new Set([committedModelPolicy?.routineModel, committedModelPolicy?.strongModel])) {
+    const card = typeof model === 'string' ? committedRateCards[model] : undefined;
+    if (card !== undefined) {
+      if (card.model !== model) reasons.push(`the rate card under '${model}' prices '${String(card.model)}'`);
+      reasons.push(...rateCardProblems(card));
+    }
+  }
 
   const transportRaw = (raw['transport'] ?? {}) as Record<string, unknown>;
   const transportDecider =
@@ -535,7 +565,6 @@ export function loadGatekeeperConfig(
   // let an edit nobody reviewed revive a retired programme's delegation, and with it a decider who
   // should no longer hold that authority. The committed value is the one the owner's commit gate saw;
   // a working copy that disagrees is refused rather than silently preferred either way.
-  const committedGatekeeper = readCommittedJson(sys, root, GATEKEEPER_CONFIG_REL);
   const committedProgramme =
     typeof committedGatekeeper?.['programmeId'] === 'string' ? (committedGatekeeper['programmeId'] as string).trim() : '';
   const programmeIsCommitted = programmeId !== '' && programmeId === committedProgramme;
@@ -568,7 +597,6 @@ export function loadGatekeeperConfig(
   // PROJECTOS-KERNEL-COST-CAP1A: THE CAPS ARE READ FROM THE COMMITTED FILE ONLY. A working-copy edit
   // could otherwise raise any of them (below the pilot ceiling) without passing the owner's commit gate,
   // and every cap must be present: a missing one is a refusal, never "unlimited" (`policyProblems`).
-  const committedBudget = (committedGatekeeper?.['budget'] ?? {}) as Record<string, unknown>;
   const capsDiffer = BUDGET_CAP_FIELDS.filter((f) => budgetRaw[f] !== committedBudget[f]);
   if (capsDiffer.length > 0) {
     reasons.push(
@@ -576,7 +604,7 @@ export function loadGatekeeperConfig(
         'spending limits are read from the committed file only, so commit the change or restore it',
     );
   }
-  reasons.push(...policyProblems(budgetPolicyFrom(committedBudget)));
+  reasons.push(...policyProblems(budgetPolicyFrom(committedBudget)), ...capProblems(budgetPolicyFrom(committedBudget)));
 
   const threadBinding = raw['threadBinding'] as GovernanceThreadBinding | undefined;
   if (threadBinding === undefined) reasons.push('gatekeeper config declares no threadBinding');
@@ -587,8 +615,8 @@ export function loadGatekeeperConfig(
     ok: true,
     config: {
       transport: transport as GatekeeperTransportDescriptor,
-      modelPolicy: modelPolicy as ModelPolicy,
-      rateCards,
+      modelPolicy: committedModelPolicy as ModelPolicy,
+      rateCards: committedRateCards,
       budget: budgetPolicyFrom(committedBudget),
       threadBinding: threadBinding as GovernanceThreadBinding,
       // EMPTY WHEN NONE WAS ASKED FOR. A caller that requested no decider and then compared a verdict
@@ -701,7 +729,13 @@ export function admitGatekeeperSpend(
     sys,
     root,
     () => {
-      const fresh = readLedger(sys, root);
+      const read = readLedgerStrict(sys, root);
+      if (!read.ok) return { allowed: false, reasons: [`${read.problem}; spend cannot be judged against a ledger that cannot be read, so no call was made`] };
+      // ONE CANONICAL INSTANT (ECC SECURITY M1): a timestamp that is not one belongs to no day or month,
+      // so a call admitted at it would be invisible to every later total.
+      const period = ledgerPeriod(request.at);
+      if (period === null) return { allowed: false, reasons: [`the request time ${JSON.stringify(request.at)} is not a canonical ISO-8601 instant`] };
+      const fresh = read.entries;
       // ALREADY PAID FOR IS NOT PAID FOR TWICE. A restarted run re-derives the same request id; if it
       // is already in the ledger the call was made, and admitting it again would both double-charge
       // and double-count.
@@ -759,8 +793,8 @@ export function admitGatekeeperSpend(
       const totals = summariseLedger(others, {
         projectId: request.projectId,
         phaseId: request.phaseId,
-        month: request.at.slice(0, 7),
-        day: request.at.slice(0, 10),
+        month: period.month,
+        day: period.day,
       });
       const spend = authoriseRequestSpend(request.estimateMicroUsd, totals, budget);
       if (!spend.allowed) return { allowed: false, reasons: spend.reasons };
@@ -810,7 +844,9 @@ export function settleGatekeeperSpend(
     sys,
     root,
     () => {
-      const fresh = readLedger(sys, root);
+      const read = readLedgerStrict(sys, root);
+      if (!read.ok) return;
+      const fresh = read.entries;
       const without = fresh.filter((e) => e.requestId !== requestId);
       writeLedger(sys, root, entry === null ? without : [...without, entry]);
     },
@@ -877,7 +913,9 @@ export function resolveGatekeeperSpend(
       // AND THE INSTALLATION MUST AGREE THAT NOTHING WAS ANSWERED. Retaining on `answered` or on
       // `unknown` keeps a real charge; releasing wrongly loses one. Only one of those is recoverable.
       if (answered() !== 'not-answered') return;
-      const fresh = readLedger(sys, root);
+      const read = readLedgerStrict(sys, root);
+      if (!read.ok) return;
+      const fresh = read.entries;
       const entry = fresh.find((e) => e.requestId === requestId);
       // Only a reservation is ours to release, and what makes an entry a completed call is RECORDED
       // USAGE — the same rule admission uses, for the same reason. An entry written before the mark
@@ -921,7 +959,9 @@ export function releaseUndispatchedReservation(sys: System, root: string, reques
     sys,
     root,
     () => {
-      const fresh = readLedger(sys, root);
+      const read = readLedgerStrict(sys, root);
+      if (!read.ok) return;
+      const fresh = read.entries;
       const entry = fresh.find((e) => e.requestId === requestId);
       if (entry === undefined || entry.usage.inputTokens !== 0 || entry.usage.outputTokens !== 0) return;
       writeLedger(sys, root, fresh.filter((e) => e.requestId !== requestId));
@@ -963,6 +1003,39 @@ export function settleUnansweredGatekeeperSpend(
   resolveGatekeeperSpend(sys, root, requestId, cause, answered);
 }
 
+/**
+ * The ledger for a path that will WRITE it, or why it cannot be read (ECC SECURITY H2).
+ *
+ * An absent file is an empty ledger. A present one that does not parse, has the wrong shape or holds a
+ * malformed entry is NOT empty: reading it as empty reset every cap, and the next write then replaced
+ * the history with one entry. Every locked writer refuses instead, and leaves the file as it is.
+ */
+export function readLedgerStrict(
+  sys: System,
+  root: string,
+): { readonly ok: true; readonly entries: readonly LedgerEntry[] } | { readonly ok: false; readonly problem: string } {
+  const text = sys.readText(join(root, ...GATEKEEPER_LEDGER_REL.split('/')));
+  if (text === null) return { ok: true, entries: [] };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return { ok: false, problem: `${GATEKEEPER_LEDGER_REL} exists but is not valid JSON` };
+  }
+  const entries = (parsed as Record<string, unknown> | null)?.['entries'];
+  if (!Array.isArray(entries)) return { ok: false, problem: `${GATEKEEPER_LEDGER_REL} has no entries list` };
+  const bad = entries.findIndex((e) => {
+    const r = e as Record<string, unknown> | null;
+    const usage = r?.['usage'] as Record<string, unknown> | undefined;
+    const cost = r?.['costMicroUsd'];
+    return r === null || typeof r !== 'object' || typeof r['requestId'] !== 'string' ||
+      typeof cost !== 'number' || !Number.isFinite(cost) || cost < 0 ||
+      usage === undefined || typeof usage['inputTokens'] !== 'number' || typeof usage['outputTokens'] !== 'number';
+  });
+  if (bad >= 0) return { ok: false, problem: `${GATEKEEPER_LEDGER_REL} entry ${bad} is malformed` };
+  return { ok: true, entries: entries as LedgerEntry[] };
+}
+
 export function readLedger(sys: System, root: string): readonly LedgerEntry[] {
   const raw = readJson(sys, join(root, ...GATEKEEPER_LEDGER_REL.split('/')));
   const entries = raw?.['entries'];
@@ -977,7 +1050,9 @@ export function readLedger(sys: System, root: string): readonly LedgerEntry[] {
  * that a repeat happened, which is exactly what a restart proof needs to show.
  */
 export function appendLedger(sys: System, root: string, entry: LedgerEntry): void {
-  writeLedger(sys, root, [...readLedger(sys, root), entry]);
+  const read = readLedgerStrict(sys, root);
+  if (!read.ok) throw new Error(`the spend ledger was not appended to: ${read.problem}`);
+  writeLedger(sys, root, [...read.entries, entry]);
 }
 
 /**
