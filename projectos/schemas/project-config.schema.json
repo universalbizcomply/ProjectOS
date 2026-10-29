@@ -187,7 +187,7 @@
               "workerId": { "type": "string", "minLength": 1 },
               "kind": {
                 "type": "string",
-                "enum": ["claude-code-cli"],
+                "enum": ["claude-code-cli", "codex-cli"],
                 "description": "The adapter that knows how to start this worker. A new kind is a new adapter; a new worker of an existing kind is configuration only."
               },
               "command": {

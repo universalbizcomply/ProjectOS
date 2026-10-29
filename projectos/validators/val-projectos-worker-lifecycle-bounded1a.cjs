@@ -102,14 +102,21 @@ function run() {
     E(`${ADAPTER_DIR} is missing — it holds the one worker adapter`);
     return errors;
   }
+  // PROJECTOS-KERNEL-FOLLOWUP1A added the Codex REVIEWER adapter (owner-approved plan v1.19). The set is
+  // still closed: an unlisted file is still a second channel nobody reconciled, and every listed adapter is
+  // held to the same bound rules below.
+  const KNOWN_ADAPTERS = ["claudeCodeCli.ts", "codexCli.ts"];
   const adapterFiles = fs.readdirSync(adapterDirAbs).filter((f) => f.endsWith(".ts"));
-  if (adapterFiles.length !== 1 || adapterFiles[0] !== "claudeCodeCli.ts") {
+  const unknown = adapterFiles.filter((f) => !KNOWN_ADAPTERS.includes(f));
+  if (unknown.length > 0 || !adapterFiles.includes("claudeCodeCli.ts")) {
     E(
       `${ADAPTER_DIR} holds ${adapterFiles.length} adapter(s) (${adapterFiles.join(", ") || "none"}); ` +
-        "exactly one canonical Claude adapter may exist",
+        `only ${KNOWN_ADAPTERS.join(", ")} may exist, and the canonical Claude adapter must`,
     );
   }
 
+  for (const file of adapterFiles.filter((f) => KNOWN_ADAPTERS.includes(f))) {
+  const ADAPTER_REL = `${ADAPTER_DIR}/${file}`;
   const adapterRaw = read(ADAPTER_REL);
   if (adapterRaw === null) {
     E(`${ADAPTER_REL} is missing — it is the one way a worker is started`);
@@ -149,6 +156,7 @@ function run() {
   // AND IT REFUSES A WORKER THAT CARRIES NO BOUND, rather than spawning it unbounded.
   if (!/boundProblem\(/.test(adapter)) {
     E(`${ADAPTER_REL} no longer refuses a worker that declares no attempt bound`);
+  }
   }
 
   // 3. THE PROCESS RUNNER HONOURS THE BOUND AND REPORTS WHAT HAPPENED.

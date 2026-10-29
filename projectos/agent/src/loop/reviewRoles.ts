@@ -21,8 +21,9 @@
  * WHAT "DIFFERENT PROVIDER OR AGENT" MEANS HERE, honestly. R3 requires a different AGENT: a separate
  * authorised worker, a separate session that never saw the implementer's context, started by the loop
  * after the implementer exited. Whether the PROVIDER also differs (a Codex reviewer for a Claude
- * implementer) is recorded as `providerDistinct` on every record and is not refused, because only one
- * worker kind is built in today. The Stage 1 exit proof requires it to be true.
+ * implementer) is recorded as `providerDistinct` on every record and is not refused: a project may run
+ * a same-provider reviewer. The `codex-cli` adapter (reviewer only) makes a distinct provider available;
+ * the Stage 1 exit proof requires it to be true.
  */
 import type { ReviewFinding, Severity } from './outcome.js';
 import type { AuthorisedWorker } from './workers.js';
