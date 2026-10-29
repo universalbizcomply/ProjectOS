@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-KERNEL-COST-CAP1A",
+  "project": "ProjectOS",
+  "objective": "Replace the budget reservation (measured 21.9x under real spend) with a hard per-phase and per-day bound that refuses a gatekeeper or worker provider call before it is sent when the projected or recorded spend would exceed the cap. The refusal names the cap and the ledger total.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-10-29T11:45:04.421Z",
+      "note": "Owner-approved plan v1.17 (PLANDEC-5fb44adb067b3d368f744369, activation 04bcd4a). Implemented by Claude (lead) directly under the owner's grant (\"You have full authority\"; \"continue work without me\"), not dispatched to a governed worker. The phase record is created after the work; transitions record it in order."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-10-29T11:45:04.875Z",
+      "note": "core gatekeeperCostLedger, agent gatekeeperConfig/gatekeeperTurn/closureTurn, Rust Host gatekeeper-ledger (owner-approved: \"Update it now\"), committed caps, tests, validator (f0efaec..2eff5e7)."
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-10-29T11:45:05.310Z",
+      "note": "val-projectos-kernel-cost-cap1a PASS (26 mutations), boot-continue PASS, no-secrets PASS; core 780/780, agent 2596/2597 (one pre-existing failure), Rust 78+10+1 and 369+11+6+39."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-10-29T11:45:05.727Z",
+      "note": "Evidence: docs/finish/PROJECTOS-KERNEL-COST-CAP1A.md (1056a5c)."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-10-29T11:45:06.189Z",
+      "note": "closure tail only - no implementation. Reviews: Claude self-review; ECC SECURITY two rounds (0 CRITICAL/HIGH open); Rust review APPROVE WITH WARNINGS."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-10-29T11:45:06.569Z",
+      "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    }
+  ]
+}
