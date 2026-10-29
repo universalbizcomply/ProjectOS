@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-KERNEL-PLATFORM-STOP1A",
+  "project": "ProjectOS",
+  "objective": "One owner command halts every loop, suspends technical delegations and refuses new operations until the owner lifts it, and says honestly that it cannot undo sends, payments, pushes or provider calls already made. Owner decision, 2026-10-29: \"Full stop, all files\" — the check reaches every entry point, including the protected closure, run, plan, reconcile, phase, gatekeeper-config, technical-continuation and Control Center sidecar paths, so nothing that bypasses the CLI or the run loop keeps working.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-10-29T15:52:47.113Z",
+      "note": "Owner-approved plan v1.18 (PLANDEC-cf8eafee0ef2759c4e8efadb, activation e1e1e72). Implemented by agents under the lead (Claude) in a parallel worktree, under the owner's grant; the phase record is created after the work."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-10-29T15:52:47.534Z",
+      "note": "platform emergency stop: loop/platformStop.ts, commands/stop.ts, CLI gate and checks at every entry point incl. the Control Center sidecar; typed-confirmation lift (d77f20a..f3690e4)"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-10-29T15:52:47.940Z",
+      "note": "agent 2729/2729 on the stacked branch; validators PASS via run(); validate-all 151/153 (baseline)."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-10-29T15:52:48.358Z",
+      "note": "Evidence: docs/finish/PROJECTOS-KERNEL-PLATFORM-STOP1A.md (d086042)."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-10-29T15:52:48.780Z",
+      "note": "closure tail only - no implementation. Reviews: Claude self-review; ECC SECURITY review (d77f20a: 0C/2H/6M fixed in 8cbd784) and recheck (no new CRITICAL/HIGH; residual MEDIUMs fixed in f3690e4); Agency identity-access-engineer (BLOCK on \"in person\" claim; resolved by owner decision and relabelled wording)."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-10-29T15:52:49.375Z",
+      "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    }
+  ]
+}
