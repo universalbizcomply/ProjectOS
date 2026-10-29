@@ -130,9 +130,12 @@ export function mayContinueAfter(attempt: PhaseAttempt, previousPhaseId: string 
         continue: false,
         end: 'AWAITING_CLOSURE',
         closurePhaseId: sel.phaseId,
+        // TRUE WHETHER OR NOT CLOSURE CARRIES ON (PROJECTOS-KERNEL-TRUTH1A). This said "closure is never
+        // continued through" just before `run --continue` handed the phase to the closure route and that
+        // route closed it. This loop closes nothing; what happens next is the closure route's to decide.
         reasons: [
           `phase '${sel.phaseId}' has finished its work and is awaiting closure`,
-          'closure is never continued through: it goes to the existing closure route, and the owner-only floor still decides it',
+          'the programme loop does not close it itself: the next step is the existing closure route, whose own gates decide whether closure carries on or stops for the owner',
         ],
       };
     }

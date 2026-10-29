@@ -75,7 +75,6 @@ import {
   checkHostAttestation,
   hostCorrelationFor,
   type DecisionProvenanceStamp,
-  type GatekeeperProvenance,
   type HostAttestationSummary,
   type HostReviewOutcome,
   type HostReviewPort,
@@ -236,7 +235,7 @@ export interface GatekeeperTurnDeps {
   readonly recordDecisionEvidence?: (
     record: GatekeeperDecisionRecord,
     /** How the decision was obtained, stamped by this route. Absent for the pre-hybrid composition. */
-    provenance?: DecisionProvenanceStamp,
+    provenance?: LoopDecisionProvenance,
   ) => 'written' | 'already-recorded' | string;
 
   readonly admitSpend?: (request: {
@@ -312,8 +311,27 @@ export interface GatekeeperTurnResult {
    * The evidence class of an ACCEPTED decision, stamped by the route that obtained it. Absent whenever
    * no decision was accepted, and for the pre-hybrid composition.
    */
-  readonly provenance?: GatekeeperProvenance;
+  readonly provenance?: LoopDecisionProvenance['kind'];
 }
+
+/**
+ * The trusted installation broker's evidence class — PROJECTOS-KERNEL-TRUTH1A (EXTERNAL-PROOF2A D9).
+ *
+ * A POSITIVE CLASS, NOT AN ABSENCE. `GatekeeperProvenance` in core names the interactive and the
+ * Host-attested routes; a broker answer carried neither, and that silence was the only record of the
+ * route. It is an agent-side class because only the loop composes the broker. It vouches for nothing the
+ * Host attests: it says which route made the call, and carries the provider's response id (null when
+ * the provider returned none) so the answer can be traced to the call that produced it.
+ */
+export const INSTALLATION_BROKER_PROVENANCE = 'InstallationBrokerProviderAnswer';
+
+export interface BrokerProvenanceStamp {
+  readonly kind: typeof INSTALLATION_BROKER_PROVENANCE;
+  readonly providerResponseId: string | null;
+}
+
+/** Every evidence class a loop turn may stamp: core's two, and the broker's. */
+export type LoopDecisionProvenance = DecisionProvenanceStamp | BrokerProvenanceStamp;
 
 function ownerAction(reasons: readonly string[]): NextLoopAction {
   return { kind: 'owner', reasons };
@@ -686,10 +704,13 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
       body: requestBody,
     }) ?? null;
   const attestation: HostAttestationSummary | null = hosted !== null && hosted.kind === 'attested' ? hosted.attestation : null;
+  const rehearsed = deps.rehearsalOnly === true && deps.rehearsalReviewer !== undefined;
+  // WHICH ROUTE ANSWERED, decided here where the call is made rather than inferred later from what is missing.
+  const viaBroker = hosted === null && !rehearsed && deps.broker !== undefined;
   const outcome: TransportOutcome =
     hosted !== null
       ? fromHost(hosted)
-      : deps.rehearsalOnly === true && deps.rehearsalReviewer !== undefined
+      : rehearsed && deps.rehearsalReviewer !== undefined
       ? deps.rehearsalReviewer(request, input.evidenceText)
       : submitToOpenAi(
           request,
@@ -771,10 +792,16 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
   const checkedWithAnomaly = outputAnomaly === null ? checked : [outputAnomaly, ...checked];
   const problems = [...checkedWithAnomaly, ...attestationProblems];
   // The route's own statement of how this decision was obtained. Never read from the record.
-  const provenanceStamp: DecisionProvenanceStamp | undefined =
+  //
+  // THE BROKER IS A CLASS OF ITS OWN (PROJECTOS-KERNEL-TRUTH1A, EXTERNAL-PROOF2A D9). Its answers used to
+  // carry no stamp at all, so "the broker answered" was an inference from the absence of the other two
+  // classes, and the provider's response id was recorded nowhere. Now the route that made the call says so.
+  const provenanceStamp: LoopDecisionProvenance | undefined =
     deps.mode === 'unattended' && attestation !== null && typeof attestation.attestationId === 'string'
       ? { kind: 'HostIndependentProviderAttestation', hostAttestationId: attestation.attestationId }
-      : undefined;
+      : viaBroker
+        ? { kind: INSTALLATION_BROKER_PROVENANCE, providerResponseId: outcome.providerResponseId }
+        : undefined;
 
   // 7. WRITE DOWN WHAT WAS DECIDED — AND DO NOT ACT UNTIL THAT SUCCEEDED.
   //

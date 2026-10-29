@@ -824,6 +824,26 @@ describe('cross-phase continuation carries selection stops as results', () => {
     expect(git(w.root, 'status', '--porcelain').trim()).toBe('');
   });
 
+  // PROJECTOS-KERNEL-TRUTH1A (EXTERNAL-PROOF1A D5): for a phase with work left, `continue --dry-run` is a real
+  // `run --dry-run`, which walks the phase twice before NO_PROGRESS. Each pass used to leave a brief in
+  // .projectops/execution/, and the owner removed them by hand before the real run.
+  // The programme is driven exactly as `run --dry-run --continue` drives it, with the fixture's worker in place
+  // of the built-in adapters this disposable project cannot resolve.
+  it('continue --dry-run on a phase with work left writes no execution brief or other run record', () => {
+    const sys = fixedClock();
+    const w = world();
+    const adapters = adapterWriting(w.root, () => '', () => {
+      throw new Error('a dry run must start no worker');
+    });
+    const continued = continueProgramme({ runPhase: () => phaseAttemptOf(runLoop(sys, w.root, { dryRun: true, adapters })) });
+    const text = [...continued.lines, ...continued.reasons].join('\n');
+    expect(continued.end).toBe('NO_PROGRESS');
+    expect(text.split('DRY RUN: nothing was written and no worker was started.').length - 1).toBe(2);
+    const exec = join(w.root, '.projectops', 'execution');
+    expect(existsSync(exec) ? readdirSync(exec) : []).toEqual([]);
+    expect(git(w.root, 'status', '--porcelain', '--ignored', '--untracked-files=all').trim()).toBe('');
+  });
+
   it('a finished plan ends PROGRAMME_COMPLETE, exit 0', () => {
     const w = world({ phaseStatus: 'closed', completed: true });
     const r = runCommand({ sys: fixedClock(), root: w.root }, { execute: true, continue: true });
@@ -1209,6 +1229,24 @@ describe('closure prepare generates the closure records from the run', () => {
     expect(text).toContain(`closure prepared for ${PHASE}`);
     const next = continueCommand({ sys, root: w.root }, { 'dry-run': true });
     expect(next.lines.join('\n')).toContain(`closure-request → projectos closure request --id ${PHASE} --execute`);
+  });
+
+  // PROJECTOS-KERNEL-TRUTH1A: the clean-tree condition inside `closurePrepared`, on its own. The records are
+  // current, passing and committed, so the ONLY difference between the two routes below is one untracked file.
+  it('records prepared and committed route to the request only on a clean tree; one untracked file routes back to prepare', () => {
+    const sys = fixedClock();
+    const w = world();
+    runToAwaitingClosure(w, sys);
+    ownerCommitsAll(w, 'owner: lifecycle');
+    continueCommand({ sys, root: w.root }, { execute: true });
+    const request = `closure-request → projectos closure request --id ${PHASE} --execute`;
+    expect(continueCommand({ sys, root: w.root }, { 'dry-run': true }).lines.join('\n')).toContain(request);
+    writeFileSync(join(w.root, 'unreviewed.txt'), 'x\n');
+    const dirty = continueCommand({ sys, root: w.root }, { 'dry-run': true }).lines.join('\n');
+    expect(dirty).toContain(`closure-prepare → projectos closure prepare --id ${PHASE}`);
+    expect(dirty).not.toContain(request);
+    rmSync(join(w.root, 'unreviewed.txt'));
+    expect(continueCommand({ sys, root: w.root }, { 'dry-run': true }).lines.join('\n')).toContain(request);
   });
   // PROJECTOS-FINISH-CONTINUE-INTEGRITY1A (EXTERNAL-PROOF2A D7): one continue carries a phase through a
   // preparation that committed its records into the closure question, instead of stopping there.

@@ -35,6 +35,17 @@
  *   - "the agent may as well resolve it"               — and the key enters the agent process
  *   - "allowlist everything while we are here"         — and the credential pays for any project
  *
+ * PROJECTOS-KERNEL-TRUTH1A adds section (15), five truth fixes carried from plan v1.15:
+ *
+ *   - "the stop line can say closure is never continued" — and it denies the close that follows it
+ *   - "the broker is whatever carries no stamp"        — and the route is inferred, never recorded (D9)
+ *   - "a dry run may as well write the brief"         — and the owner deletes run records by hand (D5)
+ *   - "one funding sentence fits every receipt"        — and it is false for a receipt naming closure (D3)
+ *   - "the route line already pins closurePrepared"     — and its clean-tree condition goes silently
+ *
+ * Each section (15) rule has a NAMED MUTATION; `selfTest` applies it in memory and counts it killed only
+ * when THAT rule, and no other rule in this validator, fires.
+ *
  * Every rule names one file and one construct. Comments are stripped first, so prose describing a rule
  * can neither satisfy nor break it. Reads files; runs nothing, calls no provider, mutates nothing.
  */
@@ -70,6 +81,8 @@ const CLOSURE_WAIT_REL = "projectos/agent/src/closureWait.ts";
 const CLOSURE_TURN_REL = "projectos/agent/src/loop/closureTurn.ts";
 const GK_CONFIG_REL = "projectos/agent/src/loop/gatekeeperConfig.ts";
 const CLOSURE_RESPONSES_REL = "projectos/agent/src/loop/transports/closureResponses.ts";
+const GK_TURN_REL = "projectos/agent/src/loop/gatekeeperTurn.ts";
+const RECEIPTS_REL = "projectos/agent/src/loop/ownerGateReceipts.ts";
 
 /** The proofs. A pinned shape whose behaviour nobody runs is a shape, not a protection. */
 const TESTS = {
@@ -95,7 +108,7 @@ const TESTS = {
   ],
   "projectos/agent/test/closureEndToEnd.test.ts": ["waits, boundedly, for the owner commit", "projectos continue routes on recorded state"],
   "projectos/agent/test/loopToolGrants.test.ts": ["passes through a link", "differs in case", "the retired source grant", "the execution records directory", "a star glob", "a sentence as an entry", "git-ignored output", "the closure delegation", "governed files", "the list alone decides", "not a non-empty path string", "Every plan v1.9 phase carries writePaths", "an agent instruction file", "flags a hook or settings directory", "FILE grant the worker made into a directory"],
-  "projectos/agent/test/loopRunner.test.ts": ["FIRST dispatch only"],
+  "projectos/agent/test/loopRunner.test.ts": ["FIRST dispatch only", "a dry run writes NOTHING — not even the brief — and starts nothing"],
   // PROJECTOS-FINISH-WRITEPATHS1A.
   "projectos/agent/test/pinnedValidators.test.ts": [
     "does NOT change the check result",
@@ -123,14 +136,25 @@ const TESTS = {
   "projectos/agent/test/hybridClosureReconcile.test.ts": ["closure composes the trusted broker only on the committed opt-in with no Host route; reconcile composes none", "on the broker opt-in, a project the installation does not allowlist is refused before the closure request", "ProjectOS commits the decision, the phase closes and the close is persisted", "an INTERACTIVE answer is never committed by ProjectOS, grant or not", "without the grant the owner commit is required exactly as before, and a ProjectOS-identity commit is refused", "a delegation ProjectOS committed itself grants nothing", "a wait whose provenance was stripped is not an answer produced in the call", "with the grant but no technical delegation, nothing is committed"],
   // PROJECTOS-FINISH-CONTINUE-INTEGRITY1A.
   "projectos/agent/test/continueIntegrity.test.ts": ["is added for a required validator the write paths name exactly", "is NOT added when the write paths do not cover the validator", "never turns an unsafe validator name into a path", "a phase copy that changes the checkout while it runs FAILS", "reads the checkout picture with a buffer large enough for a real checkout"],
-  "projectos/agent/test/continuationEndToEnd.test.ts": ["one continue carries on from a preparation that committed its records", "a preparation that only GENERATES its records (no technical delegation) stops there", "that BREAKS it fails on the phase copy", "CHANGES it and keeps it passing runs BOTH copies, in the run and in closure preparation"],
+  "projectos/agent/test/continuationEndToEnd.test.ts": ["one continue carries on from a preparation that committed its records", "a preparation that only GENERATES its records (no technical delegation) stops there", "that BREAKS it fails on the phase copy", "CHANGES it and keeps it passing runs BOTH copies, in the run and in closure preparation",
+    // PROJECTOS-KERNEL-TRUTH1A.
+    "continue --dry-run on a phase with work left writes no execution brief or other run record", "route to the request only on a clean tree; one untracked file routes back to prepare"],
   // PROJECTOS-FINISH-ZERO-TOUCH-CLOSURE1A.
   "projectos/agent/test/zeroTouchClosure.test.ts": ["with the grant, commits and pushes exactly the closure decision", "without the grant — absent, refused or judged invalid — commits nothing", "the grant never lifts a reserved commit or push", "with the grant, every other implementer-shaped or foreign identity is still refused"],
   "projectos/agent/test/closureTurn.test.ts": ["an invented decision time", "the request actually sent names the time of the question"],
   "projectos/core/test/closure-transport.test.ts": ["refuses the invented time the live agency closure carried", "an interactive answer saved while an earlier run waited has no lower bound"],
+  // PROJECTOS-KERNEL-TRUTH1A.
+  "projectos/agent/test/programmeContinuation.test.ts": ["never that closure is not continued through"],
+  "projectos/agent/test/gatekeeperTurn.test.ts": ["stamps an accepted broker answer InstallationBrokerProviderAnswer, with the provider response id", "stamps nothing for the pre-hybrid direct route"],
+  "projectos/agent/test/gatekeeperDecisionEvidence.test.ts": ["writes the class and the response id, and refuses to relabel it"],
+  "projectos/agent/test/ownerGateReceipts.test.ts": ["reads questionKinds as a closed, non-empty list", "says a receipt covers closure questions only when its scope names them"],
 };
 
+/** In-memory replacements for named files, set only while `selfTest` applies one named mutation. */
+let MUTATED = null;
+
 function read(rel) {
+  if (MUTATED !== null && Object.prototype.hasOwnProperty.call(MUTATED, rel)) return MUTATED[rel];
   const abs = path.join(ROOT, ...rel.split("/"));
   return fs.existsSync(abs) ? fs.readFileSync(abs, "utf8") : null;
 }
@@ -187,7 +211,7 @@ function fnBody(src, name) {
   return next < 0 ? src.slice(start) : src.slice(start, start + 1 + next);
 }
 
-function run() {
+function check() {
   const errors = [];
   const E = (m) => errors.push(m);
   const files = {};
@@ -749,6 +773,55 @@ function run() {
     E("CI-3: the phase copy is not added to the pinned checks in both the run and closure preparation, or a copy that changed the checkout can pass");
   }
 
+  // (15) TRUTH FIXES CARRIED FROM PLAN v1.15 — PROJECTOS-KERNEL-TRUTH1A.
+  const tr = {};
+  for (const rel of [GK_TURN_REL, GK_CONFIG_REL, RECEIPTS_REL]) {
+    const raw = read(rel);
+    tr[rel] = raw === null ? "" : code(raw.replace(/\r\n/g, "\n"));
+    if (raw === null) E(`TR: ${rel} is missing`);
+  }
+  // TR-1: the awaiting-closure line is true whether or not the closure route carries on and closes the phase.
+  const may15 = fnBody(files[CONTINUATION_REL], "mayContinueAfter") || "";
+  const sel15 = may15.slice(may15.indexOf("if (sel !== null)"), may15.indexOf("if (!attempt.ok)"));
+  if (/never continued through/.test(files[CONTINUATION_REL]) ||
+      !sel15.includes("'the programme loop does not close it itself: the next step is the existing closure route, whose own gates decide whether closure carries on or stops for the owner',")) {
+    E("TR-1: the awaiting-closure line denies the closure that the closure route may carry on to");
+  }
+  // TR-2 (D9): the route that made the call stamps a broker answer as its own class, with the response id,
+  // and the evidence writer keeps both.
+  const turn15 = tr[GK_TURN_REL];
+  const writer15 = fnBody(tr[GK_CONFIG_REL], "recordGatekeeperDecisionEvidence") || "";
+  if (!/export const INSTALLATION_BROKER_PROVENANCE = 'InstallationBrokerProviderAnswer';/.test(turn15) ||
+      !/const viaBroker = hosted === null && !rehearsed && deps\.broker !== undefined;/.test(turn15) ||
+      !/: viaBroker\s*\? \{ kind: INSTALLATION_BROKER_PROVENANCE, providerResponseId: outcome\.providerResponseId \}\s*: undefined;/.test(turn15) ||
+      !/provenance\.kind === INSTALLATION_BROKER_PROVENANCE\s*\? \{ provenance: provenance\.kind, providerResponseId: provenance\.providerResponseId \}/.test(writer15)) {
+    E("TR-2: a broker answer is no longer recorded as its own provenance class with the provider response id");
+  }
+  // TR-3 (D5): a dry run writes no brief, and returns before the invocation record is written.
+  const runner15 = files[RUNNER_REL];
+  const dryAt = runner15.search(/if \(dryRun\) \{\s*lines\.push\('DRY RUN: nothing was written and no worker was started\.'\);\s*return \{ ok: true,/);
+  const invocationAt = runner15.indexOf("const invocation = writeInvocation(");
+  if (!/const dryRun = options\.dryRun === true;\s*if \(!dryRun\) store\.writeBrief\(sys, root, sessionId, brief\);/.test(runner15) ||
+      (runner15.match(/store\.writeBrief\(/g) || []).length !== 1 ||
+      dryAt < 0 || invocationAt < 0 || dryAt > invocationAt) {
+    E("TR-3: a dry run writes the brief or another run record before it returns");
+  }
+  // TR-4 (D3): the receipt's question scope is a closed list read from the committed, approving receipt,
+  // and the funding line claims closure coverage only when that list names closure.
+  const receipts15 = tr[RECEIPTS_REL];
+  const funding15 = fnBody(receipts15, "closureFundingLine") || "";
+  if (!/export const RECEIPT_QUESTION_KINDS = \['technical', 'closure'\] as const;/.test(receipts15) ||
+      !/if \(known === undefined \|\| kinds\.includes\(known\)\) return null;/.test(fnBody(receipts15, "receiptQuestionScope") || "") ||
+      !/if \(!ownerApprovedSecretsHandling\(sys, root, phaseId\)\) return null;\s*return receiptQuestionScope\(readCommittedReceipt\(sys, root, phaseId, 'secrets-handling'\)\);/.test(fnBody(receipts15, "secretsHandlingReceiptScope") || "") ||
+      !/return scope\.questionKinds\.includes\('closure'\)\s*\? `\$\{lead\}, whose recorded scope \(\$\{named\}\) covers closure questions`/.test(funding15) ||
+      (funding15.match(/covers closure questions/g) || []).length !== 1 || /did not when it was written/.test(receipts15)) {
+    E("TR-4: the closure funding line is no longer derived from the receipt's machine-readable question scope");
+  }
+  // TR-5: the clean-tree condition inside closurePrepared, pinned on its own (CI-1 pins only the route line).
+  if (!/^function closurePrepared\(ctx: CommandContext, context: GovernedContext, phaseId: string\): boolean \{\s*if \(!gitFacts\(ctx\.sys, ctx\.root\)\.clean\) return false;/.test(fnBody(files[RUN_REL], "closurePrepared") || "")) {
+    E("TR-5: closurePrepared no longer requires a clean tree before routing to the closure request");
+  }
+
   // (9) PROVEN.
   for (const [rel, needles] of Object.entries(TESTS)) {
     const t = read(rel);
@@ -761,6 +834,65 @@ function run() {
   return errors;
 }
 
+/** Section (15)'s named mutations. Each must make its own rule fire, and no other. */
+const TRUTH_MUTATIONS = [
+  // TR-1
+  { name: "awaiting-closure-denies-continuation", rule: "TR-1", rel: CONTINUATION_REL,
+    from: "'the programme loop does not close it itself: the next step is the existing closure route, whose own gates decide whether closure carries on or stops for the owner',",
+    to: "'closure is never continued through: it goes to the existing closure route, and the owner-only floor still decides it'," },
+  // TR-2
+  { name: "broker-answer-unstamped", rule: "TR-2", rel: GK_TURN_REL,
+    from: "      : viaBroker\n        ? { kind: INSTALLATION_BROKER_PROVENANCE, providerResponseId: outcome.providerResponseId }\n        : undefined;",
+    to: "      : undefined;" },
+  { name: "broker-evidence-drops-response-id", rule: "TR-2", rel: GK_CONFIG_REL,
+    from: "? { provenance: provenance.kind, providerResponseId: provenance.providerResponseId }",
+    to: "? { provenance: provenance.kind }" },
+  // TR-3
+  { name: "dry-run-writes-brief", rule: "TR-3", rel: RUNNER_REL,
+    from: "  if (!dryRun) store.writeBrief(sys, root, sessionId, brief);",
+    to: "  store.writeBrief(sys, root, sessionId, brief);" },
+  // TR-4
+  { name: "funding-line-always-covers-closure", rule: "TR-4", rel: RECEIPTS_REL,
+    from: "  return scope.questionKinds.includes('closure')\n",
+    to: "  return true\n" },
+  { name: "unknown-question-kind-skipped", rule: "TR-4", rel: RECEIPTS_REL,
+    from: "    if (known === undefined || kinds.includes(known)) return null;",
+    to: "    if (known === undefined || kinds.includes(known)) continue;" },
+  // TR-5
+  { name: "closure-prepared-ignores-dirty-tree", rule: "TR-5", rel: RUN_REL,
+    from: "  if (!gitFacts(ctx.sys, ctx.root).clean) return false;\n",
+    to: "" },
+];
+
+/** Every named mutation must be killed by its own rule, and only by it. */
+function selfTest() {
+  const errors = [];
+  for (const m of TRUTH_MUTATIONS) {
+    const raw = read(m.rel);
+    const text = raw === null ? null : raw.replace(/\r\n/g, "\n");
+    if (text === null || text.split(m.from).length !== 2) {
+      errors.push(`TR-M: mutation '${m.name}' no longer applies exactly once to ${m.rel}; update the mutation with the rule`);
+      continue;
+    }
+    MUTATED = { [m.rel]: text.replace(m.from, () => m.to) };
+    let fired;
+    try {
+      fired = [...new Set(check().map((e) => e.split(":")[0]))];
+    } finally {
+      MUTATED = null;
+    }
+    if (!fired.includes(m.rule)) errors.push(`TR-M: mutation '${m.name}' survived; ${m.rule} did not fire`);
+    else if (fired.length !== 1) errors.push(`TR-M: mutation '${m.name}' is killed by more than ${m.rule}: ${fired.join(", ")}`);
+  }
+  return errors;
+}
+
+function run() {
+  const errors = check();
+  if (errors.length === 0) errors.push(...selfTest());
+  return errors;
+}
+
 if (require.main === module) {
   const e = run();
   if (e.length) {
@@ -768,7 +900,7 @@ if (require.main === module) {
     console.error("val-projectos-boot-continue1a: " + e.length + " error(s)");
     process.exit(1);
   }
-  console.log("val-projectos-boot-continue1a: PASS");
+  console.log(`val-projectos-boot-continue1a: PASS (${TRUTH_MUTATIONS.length} named mutations killed)`);
 }
 
-module.exports = { run, TESTS };
+module.exports = { run, check, selfTest, TESTS, TRUTH_MUTATIONS };

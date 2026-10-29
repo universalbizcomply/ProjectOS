@@ -36,7 +36,6 @@ import {
   CLOSURE_DECISION_COMMIT_SCOPE,
   GATEKEEPER_DECISION_SCHEMA_VERSION,
   type BudgetPolicy,
-  type DecisionProvenanceStamp,
   type DelegableScope,
   type TechnicalDelegationState,
   type GatekeeperDecisionRecord,
@@ -50,6 +49,7 @@ import type { System } from '../system.js';
 import type { BrokerAnsweredState } from '../installation/brokerAnsweredState.js';
 import { commitIdentityOf, ownerCommitIdentityProblems } from '../closureWait.js';
 import { platformStopRefusal } from './platformStop.js';
+import { INSTALLATION_BROKER_PROVENANCE, type LoopDecisionProvenance } from './gatekeeperTurn.js';
 // The canonical delegation validator and the canonical owner resolution — imported rather than
 // re-implemented, because a second opinion about either is the defect this file was corrected for.
 import {
@@ -137,9 +137,10 @@ export function recordGatekeeperDecisionEvidence(
    * How the decision was obtained, as the ROUTE that received it says — never the record's own claim.
    * Absent for the pre-hybrid composition, which keeps its evidence byte-identical to before. Because
    * the stamp is part of the bytes, the same request id recorded under a different provenance is a
-   * conflict, never a silent relabel.
+   * conflict, never a silent relabel. A broker answer is stamped as its own class, with the provider's
+   * response id (PROJECTOS-KERNEL-TRUTH1A, D9).
    */
-  provenance?: DecisionProvenanceStamp,
+  provenance?: LoopDecisionProvenance,
 ): DecisionEvidenceOutcome {
   const requestId = typeof record.decisionId === 'string' ? record.decisionId : null;
   if (requestId === null) return { kind: 'refused', detail: 'decision carries no usable decisionId' };
@@ -164,10 +165,12 @@ export function recordGatekeeperDecisionEvidence(
     decidedAt: record.decidedAt,
     ...(provenance === undefined
       ? {}
-      : {
-          provenance: provenance.kind,
-          ...(provenance.hostAttestationId === undefined ? {} : { hostAttestationId: provenance.hostAttestationId }),
-        }),
+      : provenance.kind === INSTALLATION_BROKER_PROVENANCE
+        ? { provenance: provenance.kind, providerResponseId: provenance.providerResponseId }
+        : {
+            provenance: provenance.kind,
+            ...(provenance.hostAttestationId === undefined ? {} : { hostAttestationId: provenance.hostAttestationId }),
+          }),
   };
   const content = `${JSON.stringify(evidence, null, 2)}\n`;
   const path = join(root, ...rel.split('/'));

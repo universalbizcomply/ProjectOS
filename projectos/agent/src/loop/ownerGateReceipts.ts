@@ -132,6 +132,71 @@ export function ownerApprovedSecretsHandling(sys: System, root: string, phaseId:
 }
 
 /**
+ * The question kinds a secrets-handling receipt may say it funds — PROJECTOS-KERNEL-TRUTH1A
+ * (EXTERNAL-PROOF1A D3). CLOSED: an unknown kind makes the scope unreadable, never wider.
+ */
+export const RECEIPT_QUESTION_KINDS = ['technical', 'closure'] as const;
+export type ReceiptQuestionKind = (typeof RECEIPT_QUESTION_KINDS)[number];
+
+/** What a receipt says it funds, in a form a program can read. */
+export interface ReceiptQuestionScope {
+  readonly questionKinds: readonly ReceiptQuestionKind[];
+}
+
+/**
+ * The machine-readable scope a receipt records, or `null` when it records none or records it badly.
+ *
+ * WHY A FIELD OF ITS OWN. A receipt's scope used to be prose in its `note`, so what it funded could be
+ * read only by a person. `scope` itself is taken: core pins it to `"owner-gate-only"`. So the kinds live
+ * in `questionKinds` — a non-empty list of known kinds, each named once. Anything else is "unrecorded",
+ * which every caller must treat as covering nothing it does not name.
+ *
+ * Pure. It reads what it is given; `secretsHandlingReceiptScope` supplies the committed bytes.
+ */
+export function receiptQuestionScope(receipt: Record<string, unknown> | null): ReceiptQuestionScope | null {
+  const raw = receipt === null ? undefined : receipt['questionKinds'];
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const kinds: ReceiptQuestionKind[] = [];
+  for (const kind of raw) {
+    const known = RECEIPT_QUESTION_KINDS.find((k) => k === kind);
+    if (known === undefined || kinds.includes(known)) return null;
+    kinds.push(known);
+  }
+  return { questionKinds: kinds };
+}
+
+/**
+ * The scope of THIS phase's committed secrets-handling receipt — and only of one that approves
+ * credential use, by the same predicate that releases the credential.
+ */
+export function secretsHandlingReceiptScope(sys: System, root: string, phaseId: string): ReceiptQuestionScope | null {
+  if (!ownerApprovedSecretsHandling(sys, root, phaseId)) return null;
+  return receiptQuestionScope(readCommittedReceipt(sys, root, phaseId, 'secrets-handling'));
+}
+
+/**
+ * The line that says which authority funds a closure question, DERIVED from the receipt's scope.
+ *
+ * THE LINE IT REPLACES WAS WRITTEN ONCE FOR EVERY RECEIPT: "that receipt now also covers closure
+ * questions, which it did not when it was written". It was printed for a receipt that named closure
+ * questions, where it was false. This says what the receipt records, and when it records nothing, says so.
+ */
+export function closureFundingLine(phaseId: string, scope: ReceiptQuestionScope | null): string {
+  const lead = `this call is funded by the committed secrets-handling receipt for ${phaseId}`;
+  if (scope === null) {
+    return (
+      `${lead}; the receipt records no machine-readable question scope, so nothing in it names closure ` +
+      'questions — the broker admits them under it all the same'
+    );
+  }
+  const named = scope.questionKinds.join(', ');
+  return scope.questionKinds.includes('closure')
+    ? `${lead}, whose recorded scope (${named}) covers closure questions`
+    : `${lead}, whose recorded scope (${named}) does not name closure questions — the broker admits this one ` +
+        'under it all the same, a widening the receipt does not record';
+}
+
+/**
  * Every gate's receipt, keyed by gate name, read as committed.
  *
  * A gate whose receipt is absent, unparseable, uncommitted or dirty maps to `null` — the checker

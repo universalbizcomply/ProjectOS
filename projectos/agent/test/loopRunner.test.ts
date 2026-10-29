@@ -244,7 +244,9 @@ function runLoop(sys: Parameters<typeof runLoopRaw>[0], root: string, options: P
 }
 
 describe('runLoop', () => {
-  it('a dry run writes the brief and starts nothing', () => {
+  // PROJECTOS-KERNEL-TRUTH1A (EXTERNAL-PROOF1A D5): a dry run used to write the brief, and those leftover
+  // execution records had to be removed by hand before every real run.
+  it('a dry run writes NOTHING — not even the brief — and starts nothing', () => {
     const sys = world();
     const { calls, registry } = fakeAdapter();
     const r = runLoop(sys, ROOT, { dryRun: true, adapters: registry });
@@ -252,14 +254,16 @@ describe('runLoop', () => {
     if (!r.ok) return;
     expect(calls).toEqual([]);
     expect(r.phaseId).toBe(PHASE);
-    expect(sys.writes).toContain(`${ROOT}/.projectops/execution/${SESSION}.brief.json`);
-    expect(r.lines.join('\n')).toContain('DRY RUN');
+    expect(sys.writes).toEqual([]);
+    expect(sys.read(`${ROOT}/.projectops/execution/${SESSION}.brief.json`)).toBeNull();
+    expect(r.lines.join('\n')).toContain('DRY RUN: nothing was written and no worker was started.');
+    expect(r.lines.join('\n')).toContain('not written on a dry run');
   });
 
   it('the brief it writes is the approved plan phase, not something the loop composed', () => {
-    const sys = world();
+    const sys = world({ files: cleanFindings(SESSION) });
     const { registry } = fakeAdapter();
-    runLoop(sys, ROOT, { dryRun: true, adapters: registry });
+    runLoop(sys, ROOT, { adapters: registry });
     const written = JSON.parse(String(sys.read(`${ROOT}/.projectops/execution/${SESSION}.brief.json`))) as {
       phase: { phaseId: string; acceptanceCriteria: string[] };
     };
@@ -387,9 +391,9 @@ describe('runLoop', () => {
   });
 
   it('tells the worker where to write the records the loop will demand', () => {
-    const sys = world();
+    const sys = world({ files: cleanFindings(SESSION) });
     const { registry } = fakeAdapter();
-    runLoop(sys, ROOT, { dryRun: true, adapters: registry });
+    runLoop(sys, ROOT, { adapters: registry });
     const written = JSON.parse(String(sys.read(`${ROOT}/.projectops/execution/${SESSION}.brief.json`))) as {
       records: { findingsPath: string; effectsPath: string };
     };

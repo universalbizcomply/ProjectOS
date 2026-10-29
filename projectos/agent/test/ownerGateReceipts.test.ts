@@ -14,6 +14,9 @@ import {
   receiptIsCommitted,
   readCommittedReceipt,
   readCommittedReceipts,
+  receiptQuestionScope,
+  secretsHandlingReceiptScope,
+  closureFundingLine,
 } from '../src/loop/ownerGateReceipts.js';
 
 const PHASE = 'PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A';
@@ -163,5 +166,51 @@ describe('reading every gate at once', () => {
   it('returns an empty map when the plan requires no owner gate', () => {
     const { sys } = fakeGit(COMMITTED);
     expect(readCommittedReceipts(sys, ROOT, PHASE, []).size).toBe(0);
+  });
+});
+
+/**
+ * PROJECTOS-KERNEL-TRUTH1A (EXTERNAL-PROOF1A D3): a receipt's scope is data a program can read, and the line
+ * naming what funds a closure question is derived from it. The old line was one fixed sentence, printed
+ * even for a receipt that named closure questions, where it was false.
+ */
+describe('the receipt question scope, and the funding line derived from it', () => {
+  const approving = (extra: Record<string, unknown>) => ({
+    ...COMMITTED,
+    show: {
+      code: 0,
+      stdout: JSON.stringify({ gateName: 'secrets-handling', phaseId: PHASE, ownerChoice: 'APPROVE', scope: 'owner-gate-only', ...extra }),
+    },
+  });
+
+  it('reads questionKinds as a closed, non-empty list of known kinds, each named once', () => {
+    expect(receiptQuestionScope({ questionKinds: ['technical', 'closure'] })).toEqual({ questionKinds: ['technical', 'closure'] });
+    expect(receiptQuestionScope({ questionKinds: ['technical'] })).toEqual({ questionKinds: ['technical'] });
+    for (const bad of [undefined, [], 'closure', ['closure', 'closure'], ['closure', 'payments'], [1]]) {
+      expect(receiptQuestionScope({ questionKinds: bad })).toBeNull();
+    }
+    expect(receiptQuestionScope(null)).toBeNull();
+  });
+
+  it('reads the scope only from a committed receipt that approves credential use', () => {
+    expect(secretsHandlingReceiptScope(fakeGit(approving({ questionKinds: ['technical', 'closure'] })).sys, ROOT, PHASE)).toEqual({
+      questionKinds: ['technical', 'closure'],
+    });
+    expect(secretsHandlingReceiptScope(fakeGit(approving({ ownerChoice: 'REFUSE', questionKinds: ['closure'] })).sys, ROOT, PHASE)).toBeNull();
+    expect(
+      secretsHandlingReceiptScope(fakeGit({ ...approving({ questionKinds: ['closure'] }), diff: { code: 0, stdout: 'dirty' } }).sys, ROOT, PHASE),
+    ).toBeNull();
+  });
+
+  it('says a receipt covers closure questions only when its scope names them, and says when it records none', () => {
+    const covered = closureFundingLine(PHASE, { questionKinds: ['technical', 'closure'] });
+    expect(covered).toContain(`receipt for ${PHASE}, whose recorded scope (technical, closure) covers closure questions`);
+    expect(covered).not.toContain('did not when it was written');
+    const narrow = closureFundingLine(PHASE, { questionKinds: ['technical'] });
+    expect(narrow).toContain('does not name closure questions');
+    expect(narrow).not.toContain('covers closure questions');
+    const unrecorded = closureFundingLine(PHASE, null);
+    expect(unrecorded).toContain('records no machine-readable question scope');
+    expect(unrecorded).not.toContain('covers closure questions');
   });
 });

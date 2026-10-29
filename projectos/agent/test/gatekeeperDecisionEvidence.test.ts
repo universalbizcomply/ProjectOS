@@ -168,3 +168,17 @@ describe('the store grants nothing — no path turns a file into authority', () 
     expect(threw).toBe(true);
   });
 });
+
+// PROJECTOS-KERNEL-TRUTH1A (EXTERNAL-PROOF2A D9): the broker's answer is written down as its own class.
+describe('a broker answer is recorded as the broker, with the provider response id', () => {
+  it('writes the class and the response id, and refuses to relabel it as an unstamped decision', () => {
+    const dir = root();
+    const stamp = { kind: 'InstallationBrokerProviderAnswer', providerResponseId: 'resp_abc123def456' } as const;
+    expect(recordGatekeeperDecisionEvidence(sys, dir, accepted(), stamp)).toEqual({ kind: 'written' });
+    const e = readEvidence(dir, 'GKDEC-abc123def456');
+    expect(e['provenance']).toBe('InstallationBrokerProviderAnswer');
+    expect(e['providerResponseId']).toBe('resp_abc123def456');
+    expect(e['hostAttestationId']).toBeUndefined();
+    expect(recordGatekeeperDecisionEvidence(sys, dir, accepted()).kind).toBe('conflict');
+  });
+});

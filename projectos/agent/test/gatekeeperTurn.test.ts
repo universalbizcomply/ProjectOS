@@ -593,6 +593,51 @@ describe('an accepted decision is kept as evidence, and a refused one is not', (
 });
 
 /**
+ * PROJECTOS-KERNEL-TRUTH1A (EXTERNAL-PROOF2A D9) — the trusted installation broker is a POSITIVE evidence
+ * class, stamped by the route that made the call and carrying the provider's response id. It used to carry
+ * no stamp, so "the broker answered" could only be inferred from the absence of the other two classes.
+ */
+describe('KERNEL-TRUTH1A: a broker answer is recorded as its own class, with its response id', () => {
+  function stamps() {
+    const kept: unknown[] = [];
+    return {
+      kept,
+      port: (_record: unknown, provenance?: unknown) => {
+        kept.push(provenance);
+        return 'written' as const;
+      },
+    };
+  }
+  const broker = (reply: HttpResponse) => ({
+    transport: { post: () => reply },
+    governedRoot: ROOT,
+    installationAllows: () => ({ allowed: true, reasons: [] as readonly string[] }),
+  });
+
+  it('stamps an accepted broker answer InstallationBrokerProviderAnswer, with the provider response id', () => {
+    const c = stamps();
+    const result = takeGatekeeperTurn(
+      input(),
+      deps({
+        broker: broker(okReply(AMENDMENT)),
+        resolver: unprovisionedResolver('the broker resolves the credential, never the agent'),
+        recordDecisionEvidence: c.port as never,
+      }),
+    );
+    expect(result.action).toEqual({ kind: 'retry', instruction: 'Add the tenant predicate and re-run validate-all.' });
+    expect(c.kept).toEqual([{ kind: 'InstallationBrokerProviderAnswer', providerResponseId: 'resp_abc123def456' }]);
+    expect(result.provenance).toBe('InstallationBrokerProviderAnswer');
+  });
+
+  it('stamps nothing for the pre-hybrid direct route, which was not the broker', () => {
+    const c = stamps();
+    const result = takeGatekeeperTurn(input(), deps({ recordDecisionEvidence: c.port as never }));
+    expect(c.kept).toEqual([undefined]);
+    expect(result.provenance).toBeUndefined();
+  });
+});
+
+/**
  * PROJECTOS-KERNEL-COST-CAP1A — per-phase and per-day hard caps, refused BEFORE the network.
  *
  * Each case sets the month far above the spend so only the cap under test can stop the call, puts the

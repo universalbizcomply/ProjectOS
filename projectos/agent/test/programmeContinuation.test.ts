@@ -84,6 +84,19 @@ describe('the rule, on its own', () => {
       expect(v.closurePhaseId).toBe('phase-1');
     });
 
+    // PROJECTOS-KERNEL-TRUTH1A: the line printed just before `run --continue` hands the phase to the
+    // closure route, which may then close it. It must not deny what happens next.
+    it('awaiting_closure says the closure route decides what happens next, and never that closure is not continued through', () => {
+      const v = mayContinueAfter(
+        refusedBySelection({ code: 'OWNER_DECISION_REQUIRED', detail: 'd', phaseId: 'phase-1', phaseStatus: 'awaiting_closure' }),
+        'phase-1',
+      );
+      const said = v.reasons.join('\n');
+      expect(said).not.toMatch(/never continued through/);
+      expect(said).toContain('the next step is the existing closure route');
+      expect(said).toContain('whether closure carries on or stops for the owner');
+    });
+
     it('PROGRAMME_COMPLETE from selection ends complete, not REFUSED', () => {
       const v = mayContinueAfter(refusedBySelection({ code: 'PROGRAMME_COMPLETE', detail: 'all done' }), 'phase-2');
       expect(v.continue).toBe(false);

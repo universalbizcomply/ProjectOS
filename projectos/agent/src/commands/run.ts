@@ -34,7 +34,7 @@ import {
   resolveDelegatedDecider,
 } from '../loop/gatekeeperConfig.js';
 import { composeHostReview } from '../loop/hostReviewComposition.js';
-import type { DecisionProvenanceStamp, GatekeeperDecisionRecord, GatekeeperMode, HostReviewPort } from '@projectos/core';
+import type { GatekeeperDecisionRecord, GatekeeperMode, HostReviewPort } from '@projectos/core';
 import {
   beginWork,
   advanceWork,
@@ -42,7 +42,7 @@ import {
   type WorkRecord,
 } from '../loop/workRecord.js';
 import type { WorkStateReport } from '../loop/runner.js';
-import type { GatekeeperTurnDeps } from '../loop/gatekeeperTurn.js';
+import type { GatekeeperTurnDeps, LoopDecisionProvenance } from '../loop/gatekeeperTurn.js';
 import type { InteractiveGatekeeperDeps } from '../loop/interactiveGatekeeper.js';
 import { nodeInteractivePort, resolveGatekeeperMode } from '../loop/gatekeeperHandoff.js';
 import { unprovisionedResolver } from '../loop/credentialResolver.js';
@@ -182,7 +182,7 @@ export function composeGatekeeper(
   // THE DECISION ITSELF IS KEPT, AS EVIDENCE, stamped with the route's provenance. The ledger records
   // that a call happened; this records what was decided. It grants nothing — see
   // `recordGatekeeperDecisionEvidence`. One writer for both modes.
-  const recordEvidence = (record: GatekeeperDecisionRecord, provenance?: DecisionProvenanceStamp): string => {
+  const recordEvidence = (record: GatekeeperDecisionRecord, provenance?: LoopDecisionProvenance): string => {
     const outcome = recordGatekeeperDecisionEvidence(ctx.sys, ctx.root, record, provenance);
     return outcome.kind === 'written' || outcome.kind === 'already-recorded' ? outcome.kind : `${outcome.kind}: ${outcome.detail}`;
   };

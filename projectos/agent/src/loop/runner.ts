@@ -626,12 +626,17 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
   // PERSISTED ONLY NOW. Writing the brief before the checks above meant a refused resume had already
   // overwritten the historical session's brief by the time it was refused — the record of the run
   // being recovered was damaged by the act of failing to recover it.
-  store.writeBrief(sys, root, sessionId, brief);
+  //
+  // AND NEVER ON A DRY RUN (PROJECTOS-KERNEL-TRUTH1A, EXTERNAL-PROOF1A D5). A dry run builds and checks
+  // the brief and stops; writing it left execution records behind that the owner had to delete by hand
+  // before the real run. A run that starts nothing writes nothing.
+  const dryRun = options.dryRun === true;
+  if (!dryRun) store.writeBrief(sys, root, sessionId, brief);
 
   const lines: string[] = [
     `${selection.kind === 'continue' ? 'Continuing' : 'Starting'} ${phaseId} on ${verification.observed.branch} at ${String(brief.repository.head).slice(0, 12)}`,
     `Worker: ${resolution.worker.workerId} (${resolution.worker.kind})`,
-    `Brief:  ${briefFile}`,
+    dryRun ? `Brief:  ${briefFile} (built and checked; not written on a dry run)` : `Brief:  ${briefFile}`,
     writeGrant.paths.length === 0
       ? 'Write grant: the worker-owned records only (the approved phase declares no writePaths)'
       : `Write grant (from the approved writePaths): ${writeGrant.paths.join(', ')}`,
@@ -652,13 +657,13 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
         scopeText: phaseScopeText(context.plan, phaseId),
         objective: brief.phase.description,
         candidate: verification.observed.head,
-        dryRun: options.dryRun === true,
+        dryRun,
       }),
     );
   }
 
-  if (options.dryRun === true) {
-    lines.push('DRY RUN: the brief is written and no worker was started.');
+  if (dryRun) {
+    lines.push('DRY RUN: nothing was written and no worker was started.');
     return { ok: true, lines, phaseId, sessionId, stop: null, attempts: 0 };
   }
 
