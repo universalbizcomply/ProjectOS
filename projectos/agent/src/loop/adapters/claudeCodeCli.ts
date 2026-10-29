@@ -181,6 +181,15 @@ function boundProblem(worker: AuthorisedWorker): string | null {
  */
 const WORKER_MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
 
+/**
+ * Denied to every reviewer whatever its configured args say. A deny wins over an allow in the CLI, so
+ * the read-only property does not rest on `roleBindingProblems` reading the config correctly.
+ */
+const REVIEWER_DENIED: readonly string[] = [
+  '--disallowedTools',
+  'Bash,Write,Edit,MultiEdit,NotebookEdit,Task,Agent,WebFetch,WebSearch',
+];
+
 /** Structured output is requested so the run reports a handle that a rejoin can name. */
 const OUTPUT_ARGS: readonly string[] = ['--output-format', 'json'];
 
@@ -221,7 +230,7 @@ export const claudeCodeCliAdapter: WorkerAdapter = {
     const unbounded = boundProblem(worker);
     if (unbounded !== null) return { kind: 'refused', detail: unbounded };
     return outcomeFrom(
-      sys.exec(worker.command, [...worker.args, ...OUTPUT_ARGS, '-p', instruction], {
+      sys.exec(worker.command, [...worker.args, ...REVIEWER_DENIED, ...OUTPUT_ARGS, '-p', instruction], {
         scrubCredentials: true, ensureSystemPath: true, cwd: brief.repository.root,
         timeoutMs: worker.timeoutMs, maxOutputBytes: WORKER_MAX_OUTPUT_BYTES,
       }),

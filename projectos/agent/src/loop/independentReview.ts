@@ -17,12 +17,13 @@ import type { System } from '../system.js';
 import type { WorkerBrief } from './brief.js';
 import { computeCandidateIdentity } from './candidateIdentity.js';
 import {
-  independentReviews,
   parseReviewerVerdict,
+  reviewerConfigPaths,
   reviewInstruction,
   reviewerRecordProblems,
   reviewerText,
   roleBindingProblems,
+  workerReviewable,
   type ReviewSubject,
   type ReviewerRecord,
 } from './reviewRoles.js';
@@ -46,9 +47,21 @@ export type IndependentReviewResult =
   | { readonly ok: true; readonly record: ReviewerRecord }
   | { readonly ok: false; readonly problems: readonly string[] };
 
+/** `num_turns` from the CLI's structured output, or null when it reported none. */
+function reviewerTurns(stdout: string): number | null {
+  try {
+    const turns = (JSON.parse(stdout.trim()) as Record<string, unknown>)['num_turns'];
+    return typeof turns === 'number' ? turns : null;
+  } catch {
+    return null;
+  }
+}
+
 export function runIndependentReview(sys: System, root: string, input: IndependentReviewInput): IndependentReviewResult {
-  const requested = independentReviews(input.outstanding);
-  if (requested.length === 0) return { ok: false, problems: ['no independent review is outstanding'] };
+  const requested = workerReviewable(input.outstanding);
+  if (requested.length === 0) {
+    return { ok: false, problems: ['no outstanding review is one a reviewer worker may give; the rest are the owner\'s or the gatekeeper\'s'] };
+  }
   const binding = roleBindingProblems(input.implementer, input.reviewer?.worker ?? null);
   if (binding.length > 0 || input.reviewer === null) return { ok: false, problems: binding };
   const { worker, adapter } = input.reviewer;
@@ -69,6 +82,13 @@ export function runIndependentReview(sys: System, root: string, input: Independe
   };
   const nonce = input.nonce ?? randomBytes(16).toString('hex');
   const paths = before.identity.entries.map((e) => e.path);
+  const armed = reviewerConfigPaths(paths);
+  if (armed.length > 0) {
+    return {
+      ok: false,
+      problems: [`the candidate changes files the reviewer would load as its own configuration (${armed.join(', ')}); it is not reviewed in-loop`],
+    };
+  }
   const outcome = adapter.review(sys, worker, input.brief, reviewInstruction(input.brief.records.briefPath, subject, paths, requested, nonce));
 
   const after = computeCandidateIdentity(sys, root);
@@ -80,6 +100,9 @@ export function runIndependentReview(sys: System, root: string, input: Independe
     return { ok: false, problems: [`the reviewer '${worker.workerId}' ${why}`] };
   }
   if (outcome.exitCode !== 0) return { ok: false, problems: [`the reviewer '${worker.workerId}' exited ${outcome.exitCode}`] };
+  if (reviewerTurns(outcome.stdout) === 1) {
+    return { ok: false, problems: [`the reviewer '${worker.workerId}' answered without reading anything, which is not a review`] };
+  }
   const parsed = parseReviewerVerdict(reviewerText(outcome.stdout), nonce);
   if (!parsed.ok) return { ok: false, problems: [parsed.problem] };
 

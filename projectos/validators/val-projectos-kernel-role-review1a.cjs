@@ -14,6 +14,14 @@
  *   RR-7 "the gatekeeper can be asked first"          — and the reviewer's record is not in what it reads
  *   RR-8 "the reviewer can double as the default"     — and the same worker implements and reviews
  *
+ * Added after the independent reviews (ECC SECURITY H1/H2/M4/M5, Agency IAM F1/F2):
+ *
+ *   RR-10 "a rejection is just a HIGH finding"        — and the gatekeeper approves past the reviewer
+ *   RR-11 "no stop means done"                         — and a decoy finding skips the review entirely
+ *   RR-12 "any review name is the reviewer's"          — and a worker satisfies an owner review
+ *   RR-13 "the grant is the next argument"             — and `--allowedTools Read Bash` grants a shell
+ *   RR-14 "the reviewer reads what it is given"        — and the candidate arms or steers the reviewer
+ *
  * Each rule has a NAMED MUTATION below; `selfTest` applies it in memory and counts it killed only when
  * THAT rule fires. Comments are stripped first. Reads files; runs nothing, calls no provider.
  *
@@ -32,8 +40,9 @@ const RUNNER_REL = "projectos/agent/src/loop/runner.ts";
 const OUTCOME_REL = "projectos/agent/src/loop/outcome.ts";
 const APPROVAL_REL = "projectos/agent/src/planApproval.ts";
 const WORKERS_REL = "projectos/agent/src/loop/workers.ts";
+const ADAPTER_REL = "projectos/agent/src/loop/adapters/claudeCodeCli.ts";
 const CLOSURE_REL = "projectos/agent/src/commands/closure.ts";
-const SOURCES = [ROLES_REL, REVIEW_REL, RUNNER_REL, OUTCOME_REL, APPROVAL_REL, WORKERS_REL];
+const SOURCES = [ROLES_REL, REVIEW_REL, RUNNER_REL, OUTCOME_REL, APPROVAL_REL, WORKERS_REL, ADAPTER_REL];
 
 const TESTS = {
   "projectos/agent/test/kernelRoleReview.test.ts": [
@@ -41,12 +50,17 @@ const TESTS = {
     "refuses a missing reviewer, the implementer as reviewer, and a reviewer with write grants",
     "refuses a record about other bytes, another nonce, or by the implementer",
     "materialisePlan refuses a draft whose phase has only a worker self-review",
+    "credits nothing from a REJECT or from a review that found something CRITICAL or HIGH (ECC SECURITY H1)",
+    "never credits a reviewer worker with an owner, gatekeeper or maintainer review (ECC SECURITY M4)",
+    "sees every grant form the CLI accepts: variadic, space-separated, repeated and bare (ECC M5, IAM F1)",
+    "names a candidate that changes files the reviewer CLI loads as its own configuration",
   ],
   "projectos/agent/test/loopRunner.test.ts": [
     "[R2] a worker that NAMES the independent reviews itself does not get past REVIEW_OUTSTANDING without a reviewer",
     "[R4] a reviewer record PLANTED by the worker credits nothing",
     "[R2+R4] an approving reviewer satisfies the reviews, and the loop writes a record bound to the candidate and its nonce",
-    "[R2] a REJECT from the reviewer is a blocking finding, not a pass",
+    "[R2] a REJECT from the reviewer leaves the review outstanding, a stop no verdict can approve past",
+    "[H2] a reviewer that answered without reading anything has not reviewed",
   ],
   "projectos/agent/test/loopOutcome.test.ts": [
     "stops a phase whose only review is a self-review, even with that review recorded",
@@ -56,7 +70,7 @@ const TESTS = {
 /** Named mutations: each must make its own rule fire. */
 const MUTATIONS = [
   { name: "credit-any-claim", rule: "RR-1", rel: ROLES_REL,
-    from: "isSelfReview(r) ? implementerClaims.includes(r) : performed.includes(r)",
+    from: "isSelfReview(r) ? implementerClaims.includes(r) : reviewable.includes(r) && performed.includes(r)",
     to: "implementerClaims.includes(r) || performed.includes(r)" },
   { name: "raw-worker-list", rule: "RR-2", rel: RUNNER_REL,
     from: "reviewsRecorded: creditedReviews(required, findings.value.reviews, null),",
@@ -64,7 +78,7 @@ const MUTATIONS = [
   { name: "implementer-may-review", rule: "RR-3", rel: ROLES_REL,
     from: "if (reviewer.workerId === implementer.workerId) {", to: "if (false) {" },
   { name: "reviewer-may-write", rule: "RR-3", rel: ROLES_REL,
-    from: "const grants = grantedPaths(argvGrants(reviewer.args));", to: "const grants: string[] = [];" },
+    from: "const grants = argvGrants(reviewer.args).filter((g) => !READ_ONLY_GRANT.test(g));", to: "const grants: string[] = [];" },
   { name: "ignore-tree-drift", rule: "RR-4", rel: REVIEW_REL,
     from: "after.identity.digest !== before.identity.digest", to: "after.identity.digest !== after.identity.digest" },
   { name: "fixed-nonce", rule: "RR-4", rel: REVIEW_REL,
@@ -77,6 +91,22 @@ const MUTATIONS = [
     from: "independentReview: reviewerRecord !== null", to: "unrelated: reviewerRecord !== null" },
   { name: "reviewer-is-default", rule: "RR-8", rel: WORKERS_REL,
     from: "if (declaredReviewer !== null && declaredReviewer === declaredDefault) {", to: "if (false) {" },
+  { name: "credit-a-rejection", rule: "RR-10", rel: ROLES_REL,
+    from: "record === null || !reviewPassed(record)", to: "record === null" },
+  { name: "complete-without-review", rule: "RR-11", rel: RUNNER_REL,
+    from: "if (stop === null && (unreviewed.length > 0 || independentReviews(brief.phase.requiredReviews).length === 0)) {",
+    to: "if (false) {" },
+  { name: "worker-gives-owner-review", rule: "RR-12", rel: ROLES_REL,
+    from: ": reviewable.includes(r) && performed.includes(r)", to: ": performed.includes(r)" },
+  { name: "next-argument-only", rule: "RR-13", rel: WORKERS_REL,
+    from: "for (let j = i + 1; j < args.length && !(args[j] as string).startsWith('-'); j += 1) add(args[j] as string);",
+    to: "if (args[i + 1] !== undefined) add(args[i + 1] as string);" },
+  { name: "bare-grant-invisible", rule: "RR-13", rel: WORKERS_REL,
+    from: "/^(Write|Edit|MultiEdit|NotebookEdit|Bash|Task|Agent)\\s*(\\(|$)/i", to: "/^(Write|Edit|MultiEdit|NotebookEdit|Bash|Task|Agent)\\s*\\(/i" },
+  { name: "reviewer-loads-candidate-config", rule: "RR-14", rel: REVIEW_REL,
+    from: "const armed = reviewerConfigPaths(paths);", to: "const armed: string[] = [];" },
+  { name: "reviewer-not-denied", rule: "RR-14", rel: ADAPTER_REL,
+    from: "[...worker.args, ...REVIEWER_DENIED, ...OUTPUT_ARGS, '-p', instruction]", to: "[...worker.args, ...OUTPUT_ARGS, '-p', instruction]" },
 ];
 
 function read(rel) {
@@ -135,7 +165,7 @@ function check(raw) {
   const review = src[REVIEW_REL];
   const runner = src[RUNNER_REL];
 
-  if (!roles.includes("isSelfReview(r) ? implementerClaims.includes(r) : performed.includes(r)")) {
+  if (!/isSelfReview\(r\) \? implementerClaims\.includes\(r\) : [^;]*performed\.includes\(r\)/.test(roles)) {
     E("RR-1", "creditedReviews no longer limits the implementer's claims to self-reviews");
   }
   if (!runner.includes("reviewsRecorded: creditedReviews(required, findings.value.reviews, null),") ||
@@ -143,7 +173,7 @@ function check(raw) {
     E("RR-2", "the runner passes the worker's own review list to the decision instead of creditedReviews");
   }
   if (!roles.includes("if (reviewer.workerId === implementer.workerId) {") ||
-      !roles.includes("const grants = grantedPaths(argvGrants(reviewer.args));")) {
+      !roles.includes("const grants = argvGrants(reviewer.args).filter((g) => !READ_ONLY_GRANT.test(g));")) {
     E("RR-3", "roleBindingProblems no longer refuses the implementer as reviewer, or a reviewer with write grants");
   }
   if (!review.includes("after.identity.digest !== before.identity.digest") ||
@@ -169,6 +199,25 @@ function check(raw) {
   }
   if (!src[WORKERS_REL].includes("if (declaredReviewer !== null && declaredReviewer === declaredDefault) {")) {
     E("RR-8", "the configured reviewer may also be the default implementer");
+  }
+  if (!roles.includes("record === null || !reviewPassed(record)")) {
+    E("RR-10", "creditedReviews credits a rejected review, so the stop becomes one the gatekeeper may approve past");
+  }
+  if (!runner.includes("if (stop === null && (unreviewed.length > 0 || independentReviews(brief.phase.requiredReviews).length === 0)) {")) {
+    E("RR-11", "the run may end COMPLETE with an independent review outstanding");
+  }
+  if (!roles.includes(": reviewable.includes(r) && performed.includes(r)")) {
+    E("RR-12", "a reviewer worker may be credited with an owner, gatekeeper or maintainer review");
+  }
+  const workers = src[WORKERS_REL];
+  if (!workers.includes("for (let j = i + 1; j < args.length && !(args[j] as string).startsWith('-'); j += 1) add(args[j] as string);") ||
+      !workers.includes("/^(Write|Edit|MultiEdit|NotebookEdit|Bash|Task|Agent)\\s*(\\(|$)/i")) {
+    E("RR-13", "argvGrants reads only the next argument, or a bare write-capable tool name is not seen");
+  }
+  if (!review.includes("const armed = reviewerConfigPaths(paths);") ||
+      !src[ADAPTER_REL].includes("[...worker.args, ...REVIEWER_DENIED, ...OUTPUT_ARGS, '-p', instruction]") ||
+      !roles.includes("UNTRUSTED DATA WRITTEN BY THE IMPLEMENTER")) {
+    E("RR-14", "the reviewer may load candidate-written configuration, is not deny-listed, or is not told the repository is untrusted");
   }
   return errors;
 }

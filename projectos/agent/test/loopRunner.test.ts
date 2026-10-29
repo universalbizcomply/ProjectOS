@@ -1806,7 +1806,7 @@ describe('D11: role-separated independent review inside the loop', () => {
     expect(record['providerDistinct']).toBe(false);
   });
 
-  it('[R2] a REJECT from the reviewer is a blocking finding, not a pass', () => {
+  it('[R2] a REJECT from the reviewer leaves the review outstanding, a stop no verdict can approve past', () => {
     const { registry } = fakeAdapter();
     const base = registry[WORKER_KIND] as WorkerAdapter;
     const rejecting: AdapterRegistry = { [WORKER_KIND]: { ...base, ...reviewing('REJECT') } };
@@ -1814,8 +1814,30 @@ describe('D11: role-separated independent review inside the loop', () => {
     const r = runLoop(sys, ROOT, { adapters: rejecting });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.stop?.code).toBe('UNRESOLVED_CRITICAL_OR_HIGH');
-    expect(r.stop?.detail).toContain('reviewer:REJECT');
+    expect(r.stop?.code).toBe('REVIEW_OUTSTANDING');
+    expect(r.stop?.detail).toContain('returned REJECT');
+  });
+
+  it('[H2] a reviewer that answered without reading anything has not reviewed', () => {
+    const { registry } = fakeAdapter();
+    const base = registry[WORKER_KIND] as WorkerAdapter;
+    const lazy: AdapterRegistry = {
+      [WORKER_KIND]: {
+        ...base,
+        review: (_s, _w, _b, instruction) => {
+          const reply = reviewerReply(instruction);
+          if (reply.kind !== 'completed') return reply;
+          const body = JSON.parse(reply.stdout) as Record<string, unknown>;
+          return { ...reply, stdout: JSON.stringify({ ...body, num_turns: 1 }) };
+        },
+      },
+    };
+    const sys = world({ files: cleanFindings(SESSION) });
+    const r = runLoop(sys, ROOT, { adapters: lazy });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.stop?.code).toBe('REVIEW_OUTSTANDING');
+    expect(r.stop?.detail).toContain('without reading anything');
   });
 
   it('[R2] a reviewer reply without this dispatch’s nonce is not a verdict', () => {

@@ -362,11 +362,43 @@ export function fileGrantsNotFiles(root: string, grants: readonly string[]): rea
   return out.sort();
 }
 
-/** The `Write(...)`/`Edit(...)` grants on a worker's argv (its `--allowedTools` value). */
+const ALLOWED_TOOLS_FLAGS: readonly string[] = ['--allowedTools', '--allowed-tools'];
+
+/**
+ * Every tool grant on a worker's argv, in every form the CLI accepts.
+ *
+ * THE CLI'S FLAG IS VARIADIC: `--allowedTools <tools...>`, "comma or space-separated", repeatable.
+ * Reading only the next argument and splitting only on commas let `--allowedTools Read Bash` grant a
+ * shell this check never saw (ECC SECURITY M5, Agency IAM F1). So every argument after the flag, up to
+ * the next flag, is read, each split on commas AND whitespace, for every occurrence. The `--flag=value`
+ * form is read too, and refused separately by `toolGrantProblems`.
+ */
 export function argvGrants(args: readonly string[]): readonly string[] {
-  const i = args.findIndex((a) => a === '--allowedTools' || a === '--allowed-tools');
-  const value = i >= 0 ? args[i + 1] : undefined;
-  return value === undefined ? [] : value.split(',').map((g) => g.trim()).filter((g) => g !== '');
+  const out: string[] = [];
+  // Separators inside a grant's parentheses belong to the grant: `Bash(rm -rf:*)` is ONE grant.
+  const add = (value: string): void => {
+    let depth = 0;
+    let current = '';
+    for (const ch of value) {
+      if (ch === '(') depth += 1;
+      if (ch === ')') depth = Math.max(0, depth - 1);
+      if (depth === 0 && (ch === ',' || /\s/.test(ch))) {
+        if (current !== '') out.push(current);
+        current = '';
+      } else {
+        current += ch;
+      }
+    }
+    if (current !== '') out.push(current);
+  };
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i] as string;
+    const eq = ALLOWED_TOOLS_FLAGS.find((f) => arg.startsWith(`${f}=`));
+    if (eq !== undefined) add(arg.slice(eq.length + 1));
+    if (!ALLOWED_TOOLS_FLAGS.includes(arg)) continue;
+    for (let j = i + 1; j < args.length && !(args[j] as string).startsWith('-'); j += 1) add(args[j] as string);
+  }
+  return out;
 }
 
 /** The repository paths a set of `Write(...)`/`Edit(...)` grants covers, as git pathspecs. */
@@ -556,7 +588,14 @@ export const PROJECTOS_OWNED_RECORD_SUFFIXES: readonly string[] = ['.brief.json'
  * ProjectOS. The boundary it enforces is "the project cannot widen worker authority quietly", not
  * "the worker can do nothing else".
  */
-const WRITE_CAPABLE_GRANT = /^(Write|Edit|MultiEdit|NotebookEdit|Bash|Task|Agent)\s*\(/i;
+const WRITE_CAPABLE_GRANT = /^(Write|Edit|MultiEdit|NotebookEdit|Bash|Task|Agent)\s*(\(|$)/i;
+
+/**
+ * Flags that hand a worker authority no grant list can take back: skipping permission checks
+ * altogether, or a permission mode that accepts edits or bypasses checks. Refused outright.
+ */
+const AUTHORITY_FLAGS = /^--(dangerously-skip-permissions|allow-dangerously-skip-permissions)$/;
+const UNSAFE_PERMISSION_MODES: readonly string[] = ['bypassPermissions', 'acceptEdits', 'auto'];
 
 /**
  * Why this worker's tool grants are unacceptable, or empty when they are fine.
@@ -567,21 +606,25 @@ const WRITE_CAPABLE_GRANT = /^(Write|Edit|MultiEdit|NotebookEdit|Bash|Task|Agent
 export function toolGrantProblems(args: readonly string[]): readonly string[] {
   const problems: string[] = [];
   for (const [i, arg] of args.entries()) {
-    if (arg !== '--allowedTools' && arg !== '--allowed-tools') continue;
-    const value = args[i + 1];
-    if (value === undefined) {
+    if (AUTHORITY_FLAGS.test(arg)) problems.push(`'${arg}' removes the permission checks every grant relies on`);
+    if (arg === '--permission-mode' && UNSAFE_PERMISSION_MODES.includes(args[i + 1] ?? '')) {
+      problems.push(`'--permission-mode ${args[i + 1]}' lets a worker act beyond its grants`);
+    }
+    if (ALLOWED_TOOLS_FLAGS.some((f) => arg.startsWith(`${f}=`))) {
+      problems.push(`'${arg.split('=')[0]}=' is not accepted; give the grant list as its own argument`);
+    }
+    if (ALLOWED_TOOLS_FLAGS.includes(arg) && (args[i + 1] === undefined || (args[i + 1] as string).startsWith('-'))) {
       problems.push('--allowedTools is given with no value');
-      continue;
     }
-    for (const grant of value.split(',').map((g) => g.trim()).filter((g) => g.length > 0)) {
-      if (!WRITE_CAPABLE_GRANT.test(grant)) continue;
-      if (WORKER_OWNED_RECORD_GRANTS.includes(grant)) continue;
-      problems.push(
-        `tool grant '${grant}' gives a worker write authority beyond the records it owns; ` +
-          `permitted: ${WORKER_OWNED_RECORD_GRANTS.join(', ')}. A phase's source grant comes from its ` +
-          'approved writePaths at dispatch, never from configuration',
-      );
-    }
+  }
+  for (const grant of argvGrants(args)) {
+    if (!WRITE_CAPABLE_GRANT.test(grant)) continue;
+    if (WORKER_OWNED_RECORD_GRANTS.includes(grant)) continue;
+    problems.push(
+      `tool grant '${grant}' gives a worker write authority beyond the records it owns; ` +
+        `permitted: ${WORKER_OWNED_RECORD_GRANTS.join(', ')}. A phase's source grant comes from its ` +
+        'approved writePaths at dispatch, never from configuration',
+    );
   }
   return problems;
 }

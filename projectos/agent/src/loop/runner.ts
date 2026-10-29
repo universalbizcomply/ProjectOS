@@ -56,6 +56,7 @@ import {
   decideContinuation,
   loopStopLines,
   MAX_CORRECTION_ATTEMPTS,
+  outstandingReviews,
   type EffectsRecord,
   type LoopStop,
   type LoopStopCode,
@@ -87,7 +88,7 @@ import {
   type LedgerEntry,
 } from '@projectos/core';
 import * as store from './session.js';
-import { creditedReviews, independentReviews, reviewerFindings, type ReviewerRecord } from './reviewRoles.js';
+import { creditedReviews, independentReviews, reviewPassed, reviewerObjection, type ReviewerRecord } from './reviewRoles.js';
 import { runIndependentReview } from './independentReview.js';
 import {
   digestOf,
@@ -719,6 +720,8 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
   let attestationReasks = 0;
   const MAX_ATTESTATION_REASKS = 1;
   let stop: LoopStop | null = null;
+  /** D11: the reviews the most recent decision credited; the completion guard reads it. */
+  let creditedAtLastDecision: readonly string[] = [];
   /** Grants for the NEXT attempt only. Cleared after use so authority never outlives its amendment. */
   let correctionGrants: readonly string[] = [];
   /** The instruction and decision the last gatekeeper turn produced, for the correction that follows. */
@@ -1926,12 +1929,12 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
       if (reviewed.ok) {
         reviewerRecord = reviewed.record;
         lines.push(`  independent review by ${reviewed.record.reviewerWorkerId}: ${reviewed.record.verdict}`);
-        turnFacts = {
-          ...turnFacts,
-          findings: [...findings.value.findings, ...reviewerFindings(reviewerRecord)],
-          reviewsRecorded: creditedReviews(required, findings.value.reviews, reviewerRecord),
-        };
+        turnFacts = { ...turnFacts, reviewsRecorded: creditedReviews(required, findings.value.reviews, reviewerRecord) };
         decision = decideContinuation({ ...turnFacts, ownerGatesSatisfied: [...paidOwnerGates.keys()] });
+        // A REJECTION STAYS REVIEW_OUTSTANDING, whose route offers no "proceed" (ECC SECURITY H1).
+        if (!reviewPassed(reviewed.record) && decision.kind === 'stop' && decision.reason.code === 'REVIEW_OUTSTANDING') {
+          decision = { kind: 'stop', reason: { code: 'REVIEW_OUTSTANDING', detail: `${decision.reason.detail}. ${reviewerObjection(reviewed.record)}` } };
+        }
       } else {
         reviewerProblems = reviewed.problems;
         for (const p of reviewed.problems) lines.push(`  independent review not obtained: ${p}`);
@@ -1944,6 +1947,7 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     if (decision.kind === 'stop' && decision.reason.code === 'OWNER_GATE' && payForPendingOwnerGates()) {
       decision = decideContinuation({ ...turnFacts, ownerGatesSatisfied: [...paidOwnerGates.keys()] });
     }
+    creditedAtLastDecision = turnFacts.reviewsRecorded;
 
 
     if (decision.kind === 'stop') {
@@ -2048,6 +2052,16 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     lines.push(`  correcting (attempt ${attempts} of ${MAX_CORRECTION_ATTEMPTS}): ${decision.detail}`);
   }
 
+  // D11 AT COMPLETION. Whatever a verdict cleared on the way, a run never ends COMPLETE while an
+  // independent review is outstanding or none is declared — a gatekeeper approving past a decoy HIGH
+  // finding must not carry the phase to awaiting_closure without the review (ECC SECURITY H1).
+  const unreviewed = outstandingReviews(brief, creditedAtLastDecision);
+  if (stop === null && (unreviewed.length > 0 || independentReviews(brief.phase.requiredReviews).length === 0)) {
+    stop = {
+      code: 'REVIEW_OUTSTANDING',
+      detail: `the run would have completed with ${unreviewed.length > 0 ? `${unreviewed.join(', ')} outstanding` : 'no independent review declared'}; D11 refuses completion without one`,
+    };
+  }
   if (stop !== null) lines.push(...loopStopLines(stop));
   lines.push(`Evidence: ${store.evidencePath(root, sessionId)}`);
   // WHERE THE RUN ACTUALLY ENDED. A standing stop is BLOCKED; no stop is this phase's work
