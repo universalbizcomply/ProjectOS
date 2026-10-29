@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "projectos:PROJECTOS-KERNEL-ROLE-REVIEW1A:owner-closure:732db621",
+  "phaseId": "PROJECTOS-KERNEL-ROLE-REVIEW1A",
+  "projectId": "projectos",
+  "scope": "phase-closure",
+  "decidedBy": "Murad",
+  "decidedAt": "2026-10-28T23:31:00.000Z",
+  "evidenceSubjectHead": "732db621fdc8f02721de87f62774e5af9ae49e07",
+  "decision": "close",
+  "note": "OWNER-DIRECT CLOSURE of PROJECTOS-KERNEL-ROLE-REVIEW1A, phase 11 of 16 of plan v1.17, bound to evidence subject 732db621fdc8f02721de87f62774e5af9ae49e07. AUTHORITY: the owner's own words, verbatim: \"You are running on Admin mode, continue work without me.\" (2026-10-28), \"You have full authority\" (2026-10-28) and \"D11 approved as written in 06_Plan 1.1\" (2026-10-28); for the commands/closure.ts change, \"go for it\" (2026-10-29). The implementer (Claude) carried out this closure on that grant and recorded it here; no gatekeeper closure ruling was obtained for this phase and none is claimed. ACCEPTED PROOF: all four acceptance criteria met (docs/finish/PROJECTOS-KERNEL-ROLE-REVIEW1A.md); ECC CODE APPROVE; ECC SECURITY 0 CRITICAL/HIGH open after two rounds; validator 17 rules / 37 mutations; agent suite 2579/2580 with the one pre-existing failure. OWNER STATEMENT on rotation, carried forward verbatim from 2026-09-28: \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\" Carried forward: the items in the closure evidence and docs/finish/PROJECTOS-KERNEL-ROLE-REVIEW1A.md. decidedAt is the time of the owner's grant. Authorises nothing beyond this closure tail and its normal fast-forward push: no production, further provider spend, credential, messaging, payment, database or live specialist activity.",
+  "ownerAcceptedFindings": []
+}
