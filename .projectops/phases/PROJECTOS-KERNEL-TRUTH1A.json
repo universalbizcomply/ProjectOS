@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-KERNEL-TRUTH1A",
   "project": "ProjectOS",
   "objective": "Small truthfulness fixes carried from v1.15: the run loop STOPPED wording when closure carries on; the broker as a positive provenance class with its response id (D9); continue --dry-run writes no execution briefs (D5); machine-readable receipt scope and removal of the hard-coded line (D3); pin the clean-tree condition inside closurePrepared on its own.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-10-29T15:52:54.880Z",
       "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-10-29T15:52:56.503Z",
+      "note": "Owner-direct closure under the owner's grant. — closed by owner Murad, decision projectos:PROJECTOS-KERNEL-TRUTH1A:owner-closure:d0860425"
     }
   ]
 }

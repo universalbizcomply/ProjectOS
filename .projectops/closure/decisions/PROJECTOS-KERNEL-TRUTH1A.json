@@ -9,5 +9,6 @@
   "evidenceSubjectHead": "d0860425867fedbbd740d5c8f94864a8877c9586",
   "decision": "close",
   "note": "OWNER-DIRECT CLOSURE of PROJECTOS-KERNEL-TRUTH1A, phase 14 of 16 of plan v1.18, bound to evidence subject d0860425867fedbbd740d5c8f94864a8877c9586. AUTHORITY: the owner's own words, verbatim: \"You are running on Admin mode, continue work without me.\" (2026-10-28) and \"You have full authority\" (2026-10-28); plan v1.18 approved on \"Full stop, all files (Recommended)\" (2026-10-29); pace \"Faster, keep safety\" (2026-10-29). The implementer (Claude) carried out this closure on that grant and recorded it here; no gatekeeper closure ruling was obtained for this phase and none is claimed. ACCEPTED PROOF: acceptance criteria met as recorded in docs/finish/PROJECTOS-KERNEL-TRUTH1A.md; one combined independent review per phase with no CRITICAL/HIGH open; agent 2729/2729 on the stacked branch; validate-all 151/153 (baseline). OWNER STATEMENT on rotation, carried forward verbatim from 2026-09-28: \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\" Carried forward: the items in the closure evidence and docs/finish/PROJECTOS-KERNEL-TRUTH1A.md. decidedAt is the time of the owner's grant. Authorises nothing beyond this closure tail and its normal fast-forward push: no production, further provider spend, credential, messaging, payment, database or live specialist activity.",
-  "ownerAcceptedFindings": []
+  "ownerAcceptedFindings": [],
+  "consumedAt": "2026-10-29T15:52:56.504Z"
 }
