@@ -111,7 +111,8 @@ architecture ADR goes to `software-architect`.
       A hard cost cap: a per-phase and per-day spend bound that refuses the call before it is made.
       (The "21.9× under" reservation was already fixed in `daa9c00`; the missing parts were the per-phase
       and per-day bounds and committed-only reading.)
-- [ ] 1.3 A platform-wide emergency stop: one owner command halts every loop, suspends delegations
+- [x] 1.3 (2026-10-29, `d77f20a`..`f3690e4`: deny-by-default stop at every entry point incl. the Control Center;
+      typed-confirmation owner lift; ECC SECURITY round + recheck, Agency IAM; 101 mutations) A platform-wide emergency stop: one owner command halts every loop, suspends delegations
       and refuses new operations. It states honestly that it cannot undo sends or payments already
       made.
 - [x] 1.4 (2026-10-29, `aa1353b`: ADR-K1 revision 3.1; Agency software-architect review APPROVE
@@ -120,13 +121,15 @@ architecture ADR goes to `software-architect`.
       environment, action class, scope, expiry, idempotency key}`, and the six permission classes
       (read-only, local reversible, technical gate, business operation, protected, prohibited)
       mapped onto today's gates.
-- [ ] 1.5 Small truth fixes, in one batch:
+- [x] 1.5 (2026-10-29, `dd1c1f7`..`eb2bf8e`: 3 of 5 delivered; the closure-route halves of D3 and D9 are carried to
+      the Stage 1 follow-up; ECC CODE APPROVE) Small truth fixes, in one batch:
       - the run loop's "STOPPED … closure is never continued through" wording;
       - the broker as a positive provenance class (D9);
       - `continue --dry-run` writes no briefs (D5);
       - machine-readable receipt scope (D3);
       - pin the clean-tree condition inside `closurePrepared`.
-- [ ] 1.6 Register or retire the six unregistered validators. Add `engines` (Node 24) and
+- [x] 1.6 (2026-10-29, `426bcbc`..`aefd3b0`: 153 registered, 3 retired with reasons, registry check; Node 24 and
+      Rust 1.96.1 pinned; ECC CODE APPROVE) Register or retire the six unregistered validators. Add `engines` (Node 24) and
       `rust-toolchain.toml` (1.96.1).
 - [ ] 1.7 **[OWNER]** Signed commits for the authority paths (`.projectops/authority`, `gates`,
       `plan-decisions`), so the audit ledger is tamper-evident.
@@ -244,3 +247,7 @@ Forge, the signed installer, and the Host unattended-review route.
 - 2026-10-29: PROJECTOS-KERNEL-COST-CAP1A implemented, `f0efaec`..`2eff5e7`. Owner decisions: caps "Confirm",
   then "Raise to $1.50"; Host ledger "Update it now". Must close before the Host service starts: committed-bytes
   policy in the Host, and phase-label parity (`docs/finish/PROJECTOS-KERNEL-COST-CAP1A.md`).
+- 2026-10-29: plan v1.18 activated (`e1e1e72`). PLATFORM-STOP1A, TRUTH1A and HYGIENE1A built in parallel worktrees,
+  each with one combined review (owner: "Faster, keep safety"), stacked and verified together: agent 2729/2729,
+  validate-all 151/153 (the 2 baseline failures). Carried to a Stage 1 follow-up: the closure-route halves of D3/D9,
+  the registry-rule pin, the cached-runner resync and the validate-claude-worker inv50 repair.
