@@ -128,7 +128,10 @@ const MODULES = [
   "val-projectos-kernel-role-review1a",
   "val-projectos-kernel-cost-cap1a",
   // PROJECTOS-KERNEL-PLATFORM-STOP1A — the platform emergency stop.
-  "val-projectos-kernel-platform-stop1a"
+  "val-projectos-kernel-platform-stop1a",
+  // PROJECTOS-KERNEL-FOLLOWUP1A — the registry pin and Codex reviewer rules; the cache validator once cached-runner was resynced.
+  "val-projectos-kernel-followup1a",
+  "validate-speed-validation-cache"
 ];
 
 // RETIRED: validator files that are deliberately NOT run by this suite, each with its recorded reason.
@@ -141,14 +144,12 @@ const RETIRED = [
       "watchdog core, not this repository; run() without a target returns an error by design. Run it " +
       "with `npm run watchdog:conformance -- --target <checkout>`." },
   { name: "validate-claude-worker",
-    reason: "Opt-in owner-machine security evidence (its header: NOT part of `npm run validate`). Its " +
-      "run() is async, which this synchronous runner cannot await (a Promise would read as a vacuous " +
-      "PASS). It also fails inv50 standalone: the self-pin still expects mkdtempSync(path.join(os.tmpdir " +
-      "after 1d25cc8 moved it to lib/scratch.cjs; that fix belongs to the validator file itself." },
-  { name: "validate-speed-validation-cache",
-    reason: "Blocked, not superseded: it requires projectos/speed/cached-runner.cjs to carry this exact " +
-      "MODULES list, and that list has drifted (143 entries at e1e1e72). Register it in the phase that " +
-      "resyncs cached-runner.cjs; that file is outside PROJECTOS-KERNEL-HYGIENE1A's writePaths." },
+    reason: "Opt-in owner-machine security evidence: its own header says it is NOT part of `npm run validate`, " +
+      "which is this suite. Its run() is async, and this synchronous runner (and cached-runner) cannot await " +
+      "it: a Promise would read as a vacuous PASS, so it is reported as a CRASH instead. It PASSES standalone " +
+      "(55 invariants) since PROJECTOS-KERNEL-FOLLOWUP1A repaired inv50 (scratch-owned repos under the OS " +
+      "tmpdir, after 1d25cc8) and inv27 (timed against the backstop, not this machine's git speed). Run it " +
+      "with `node projectos/validators/validate-claude-worker.cjs`." },
 ];
 
 const scratch = require("./lib/scratch.cjs");

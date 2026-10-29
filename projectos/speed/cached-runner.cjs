@@ -147,6 +147,23 @@ const MODULES = [
   // RUN-TO-COMPLETION HOST ATTESTATION §10I — first-start durable store custody.
   "val-host-store-custody-10i",
   "val-projectos-host-review-path1a",
+  "val-projectos-host-review-path1b",
+  "val-projectos-agent-workforce1a",
+  // PROJECTOS-BOOT-CONTINUE1A — safe continuation across approved phases.
+  "val-projectos-boot-continue1a",
+  // ProjectOS Watchdog Core (merged from main).
+  "val-watchdog-core1a",
+  // PROJECTOS-KERNEL-HYGIENE1A — validators that existed in the tree but were never run here.
+  "val-host-state-activation-wiring-10h",
+  "validate-v2-closure-evidence",
+  "validate-wsl2-provider",
+  "val-projectos-kernel-role-review1a",
+  "val-projectos-kernel-cost-cap1a",
+  // PROJECTOS-KERNEL-PLATFORM-STOP1A — the platform emergency stop.
+  "val-projectos-kernel-platform-stop1a",
+  // PROJECTOS-KERNEL-FOLLOWUP1A — the registry pin and Codex reviewer rules; the cache validator once cached-runner was resynced.
+  "val-projectos-kernel-followup1a",
+  "validate-speed-validation-cache"
 ];
 
 const REGISTERED_MODULE_COUNT = MODULES.length;
@@ -166,7 +183,11 @@ const SECRET_SCANNER = "validate-no-secrets";
 
 function runValidator(name) {
   try {
-    return require("../validators/" + name + ".cjs").run();
+    const errs = require("../validators/" + name + ".cjs").run();
+    // The same rule as validate-all: a result that is not an array (an async run() returns a Promise,
+    // whose `.length` is undefined) is a CRASH, never a silent PASS.
+    if (!Array.isArray(errs)) throw new Error("run() did not return an array of errors (async or malformed validator)");
+    return errs;
   } catch (e) {
     console.error("[" + name + "] CRASH: " + e.message);
     return null; // null = crash
@@ -398,6 +419,11 @@ function run(options) {
   return { results, cacheHits, cacheMisses, elapsed: benchmark ? Date.now() - startTime : null };
 }
 
+// EXPORTED BEFORE THE CLI RUNS. `validate-speed-validation-cache` is now in MODULES and requires this
+// file for MODULES and SECRET_SCANNER; run as the CLI, this module is that require's answer, and an
+// export assigned after the sweep would hand it an empty object and crash it.
+module.exports = { run, MODULES, REGISTERED_MODULE_COUNT, SECRET_SCANNER };
+
 // ---------------------------------------------------------------------------
 // CLI
 // ---------------------------------------------------------------------------
@@ -448,5 +474,3 @@ if (require.main === module) {
     exit: true,
   });
 }
-
-module.exports = { run, MODULES, REGISTERED_MODULE_COUNT, SECRET_SCANNER };
