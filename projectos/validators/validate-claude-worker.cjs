@@ -136,8 +136,10 @@ async function run() {
   // ── §11 provider wait cancellation ──────────────────────────────────────────────────────────────────
   // 26 host timeout cancels the provider wait (provider wait resolves only on abort)
   await withRepo(async (repo) => { const prov = mkProvider({ provOver: { waitForOperationExit: (h, opts) => new Promise((res) => { if (opts && opts.signal) opts.signal.addEventListener("abort", () => res({ exitStatus: null, killedFor: "host-cancelled" }), { once: true }); }) } }); const cfg = baseCfg(repo, { provider: prov }); cfg.policy.timeoutMs = 50; const a = await runClaudeWorker(REQ, cfg); if (a.reason !== "timeout") fail("inv26", "host timeout did not cancel provider wait", a.reason); });
-  // 27 completed provider wait clears the host timeout (a benign run returns promptly, not after the backstop)
-  await withRepo(async (repo) => { const t0 = Date.now(); const a = await runClaudeWorker(REQ, baseCfg(repo, { behavior: writeApp("n.txt") })); const dt = Date.now() - t0; if (a.decision !== "COMPLETED") fail("inv27", "benign run failed", a.reason); if (dt > 1500) fail("inv27", "benign run waited on the host backstop", dt); });
+  // 27 completed provider wait clears the host timeout (a benign run returns promptly, not after the backstop). The
+  // backstop is set far above the run's real git cost and the run must finish in under half of it: a fixed 1500 ms
+  // against a 2000 ms backstop measured this machine's git speed (2.7 s observed, COMPLETED), not the backstop.
+  await withRepo(async (repo) => { const BACKSTOP = 30000; const cfg = baseCfg(repo, { behavior: writeApp("n.txt") }); cfg.policy.timeoutMs = BACKSTOP; const t0 = Date.now(); const a = await runClaudeWorker(REQ, cfg); const dt = Date.now() - t0; if (a.decision !== "COMPLETED") fail("inv27", "benign run failed", a.reason); if (dt >= BACKSTOP / 2) fail("inv27", "benign run waited on the host backstop", dt); });
   // 28 no provider callback runs after disposal (an aborted wait settles; the operation is disposed cleanly)
   { const prov = mkProvider(); const h = prov.spawnOperation({ operationId: "x", bin: "b", argv: [], cwd: ".", env: {} }); h._child = {}; h._alive = true; const ac = new AbortController(); const wp = prov.waitForOperationExit(h, { timeoutMs: 60000, signal: ac.signal }); ac.abort(); const settled = await Promise.race([wp.then(() => true), new Promise((r) => setTimeout(() => r(false), 300))]); if (settled !== true) fail("inv28", "aborted provider wait did not settle (callback would run after disposal)"); prov.disposeOperation(h); }
 
@@ -208,8 +210,13 @@ async function run() {
   await withRepo(async (repo) => { const before = worker.monitorSnapshot(repo); const a = await runClaudeWorker(REQ, baseCfg(repo, { behavior: writeApp("n.txt") })); if (a.result.residualDriftStatus !== "no-residual-drift-detected") fail("inv48", "drift on benign run", a.result.residualDriftStatus); if (worker.monitorDrift(before, worker.monitorSnapshot(repo)).length) fail("inv48", "canonical drifted"); });
   // 49 all temporary residue is accounted for
   await withRepo(async (repo) => { const a = await runClaudeWorker(REQ, baseCfg(repo, { behavior: writeApp("n.txt") })); if (a.result.residue.length !== 0) fail("inv49", "benign residue", a.result.residue); const b = await runClaudeWorker(REQ, baseCfg(repo, { behavior: writeApp("n.txt"), keepWorkspace: true })); const kept = (b.result.residue || []).find((x) => String(x).startsWith("kept-by-config:")); if (!kept) fail("inv49", "kept workspace not reported"); else rmRepo(kept.slice("kept-by-config:".length)); });
-  // 50 working tree stays clean — the validator writes ONLY under the OS tmpdir
-  { const self = fs.readFileSync(__filename, "utf8"); if (!/mkdtempSync\(path\.join\(os\.tmpdir/.test(self)) fail("inv50", "validator not tmpdir-only (could dirty the working tree)"); }
+  // 50 working tree stays clean — the validator writes ONLY under the OS tmpdir. Since 1d25cc8 its repos come from
+  // lib/scratch.cjs (scratch.owned), so the pin is: every repo is scratch-owned, and an owned dir really lands in tmpdir.
+  { const self = fs.readFileSync(__filename, "utf8"); const lib = fs.readFileSync(path.join(__dirname, "lib", "scratch.cjs"), "utf8");
+    if (!/const dir = scratch\.owned\("claude-worker"\);/.test(self) || /mkdtempSync\(/.test(self.replace(/\/[^/\n]*mkdtempSync[^/\n]*\//g, ""))) fail("inv50", "validator repos are not all scratch-owned (could dirty the working tree)");
+    if (!/mkdtempSync\(path\.join\(tempRoot\(\)/.test(lib) || !/realpathSync\(os\.tmpdir\(\)\)/.test(lib)) fail("inv50", "lib/scratch.cjs no longer creates under the OS tmpdir");
+    const probe = scratch.owned("claude-worker-inv50"); const rel = path.relative(fs.realpathSync(os.tmpdir()), probe); scratch.cleanup(probe);
+    if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) fail("inv50", "a scratch-owned dir is not under the OS tmpdir", probe); }
   // 51 remote remains frozen — the validator never references a real remote
   { if (!/example\.invalid/.test(ORIGIN) || /github\.com|universalbizcomply/i.test(ORIGIN)) fail("inv51", "validator references a real remote"); }
 
