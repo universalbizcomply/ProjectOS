@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "objectiveId": "ec03d3fa0fd70df2",
+  "objective": "Plan v1.21: append PROJECTOS-KERNEL-CODEX-LIVE1A (Codex reviewer fixes found by the live sandbox probe); the exit proof runs after it.",
+  "authoritative": false,
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "cd5fc8835f99474034534899331766f6a0eaa6fb",
+  "submittedAt": "2026-10-29T22:34:52.644Z",
+  "submittedBy": "owner",
+  "instructionShaped": false
+}
