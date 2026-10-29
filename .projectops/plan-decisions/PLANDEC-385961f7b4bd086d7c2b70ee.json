@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "PLANDEC-385961f7b4bd086d7c2b70ee",
+  "decision": "approve",
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "9585b87a7874bcf00e13efc4b058883f354bfa75",
+  "draftId": "ec03d3fa0fd70df2",
+  "planDigest": "sha256:b9b7236534c14606a55db6317536632c642318cf7c92a11539ea26601091cd3d",
+  "decidedBy": "Murad",
+  "decidedAt": "2026-10-29T22:35:13.806Z",
+  "note": "Owner (Murad), 2026-10-29, verbatim: \"Yes, run it (Recommended)\" (live exit proof: Codex probe, then a governed phase under the caps); \"Accept tripwires (Recommended)\" (the Codex-reads-login residual); \"Yes, temporarily (Recommended)\" (agency spend for the proof only). The live probe showed the Codex reviewer cannot run without a fixed Windows sandbox mode and misreads its shell wrapper; this small phase fixes both before the proof. Standing grant: \"You have full authority\" (2026-10-28).",
+  "recordedBy": "projectos plan decide"
+}
