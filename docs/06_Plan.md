@@ -99,7 +99,9 @@ Postgres holds tenant operational data only, and never authority.
 Goal: the kernel is safe to share across domains. Independent reviewer: ECC security-reviewer. The
 architecture ADR goes to `software-architect`.
 
-- [ ] 1.1 **[OWNER: scope]** D11, the role-based review. The implementer, reviewer and gatekeeper
+- [x] 1.1 (2026-10-29, `d500f82`..`3eef861`: loop-dispatched independent reviewer, loop-written record bound
+      to the candidate and a nonce; closure G4-9 bound by `reviewerSha256`; ECC SECURITY 2 rounds and ECC CODE
+      APPROVE, 0 CRITICAL/HIGH open; validator 17 rules / 37 mutations) **[OWNER: scope]** D11, the role-based review. The implementer, reviewer and gatekeeper
       roles are bound to *different* providers or agents. An implementer can never author a reviewer
       or gatekeeper decision. The reviewer is recorded before the gatekeeper is asked. A plan with
       only a worker self-review cannot close.
@@ -232,3 +234,6 @@ Forge, the signed installer, and the Host unattended-review route.
 - 2026-10-28: plan v1.16 activated (`3448395`). This plan was re-sequenced toward the V4.0 target
   (owner direction: "This is what I want to achieve from this. Now optimise the plan."). The earlier
   Phase 1–4 items are folded into Stages 0, 1, 2 and 6.
+- 2026-10-29: PROJECTOS-KERNEL-ROLE-REVIEW1A (D11) implemented, `d500f82`..`3eef861`. The owner approved the
+  `commands/closure.ts` change ("go for it"). Owner action open: commit a `reviewerWorkerId` before the next
+  loop run (`docs/finish/PROJECTOS-KERNEL-ROLE-REVIEW1A.md`).
