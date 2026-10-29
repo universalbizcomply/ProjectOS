@@ -11,5 +11,6 @@
   "decidedBy": "Murad",
   "decidedAt": "2026-10-29T22:35:13.806Z",
   "note": "Owner (Murad), 2026-10-29, verbatim: \"Yes, run it (Recommended)\" (live exit proof: Codex probe, then a governed phase under the caps); \"Accept tripwires (Recommended)\" (the Codex-reads-login residual); \"Yes, temporarily (Recommended)\" (agency spend for the proof only). The live probe showed the Codex reviewer cannot run without a fixed Windows sandbox mode and misreads its shell wrapper; this small phase fixes both before the proof. Standing grant: \"You have full authority\" (2026-10-28).",
-  "recordedBy": "projectos plan decide"
+  "recordedBy": "projectos plan decide",
+  "consumedAt": "2026-10-29T22:35:16.753Z"
 }
