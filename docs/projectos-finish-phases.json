@@ -20,7 +20,8 @@
     "By the owner's approval of the completion delta in Plan Mode (2026-10-28): retire the temporary seo-agency installation allowlist entry, update its validator pin, disable the agency gatekeeper, and record ProjectOS's completion.",
     "Proposed for owner approval (plan v1.17, V4 Stage 1): kernel hardening per docs/06_Plan.md Stage 1. D11 is owner-approved as written in 06_Plan 1.1 (\"D11 approved as written in 06_Plan 1.1\", 2026-10-28); the rest of v1.17 awaits plan decide.",
     "Proposed for owner approval (plan v1.18): amends KERNEL-PLATFORM-STOP1A to the full scope the owner chose (\"Full stop, all files\", 2026-10-29), repairs KERNEL-HYGIENE1A writePaths and reviews, and records that the exit proof's second provider is not Grok.",
-    "Proposed for owner approval (plan v1.19): one Stage 1 follow-up phase before the exit proof — closure-route halves of D3/D9, validator registry pin, cached-runner resync, validate-claude-worker repair, and a Codex CLI reviewer adapter (owner: \"Yes, add and do it\"; \"Codex CLI (OpenAI)\")."
+    "Proposed for owner approval (plan v1.19): one Stage 1 follow-up phase before the exit proof — closure-route halves of D3/D9, validator registry pin, cached-runner resync, validate-claude-worker repair, and a Codex CLI reviewer adapter (owner: \"Yes, add and do it\"; \"Codex CLI (OpenAI)\").",
+    "Plan v1.20 writePath repair for PROJECTOS-KERNEL-FOLLOWUP1A (no new scope): the approved Codex reviewer adapter also needs the worker-lifecycle validator to admit a closed list of two adapters, the project-config schema to accept the codex-cli worker kind, and a stale comment in reviewRoles.ts corrected (owner: \"Yes, add and do it\"; \"Codex CLI (OpenAI)\")."
   ],
   "environments": [
     {
@@ -810,7 +811,10 @@
         "projectos/validators/val-projectos-kernel-followup1a.cjs",
         "docs/02_AppFlow.md",
         "docs/finish/",
-        "docs/06_Plan.md"
+        "docs/06_Plan.md",
+        "projectos/validators/val-projectos-worker-lifecycle-bounded1a.cjs",
+        "projectos/schemas/project-config.schema.json",
+        "projectos/agent/src/loop/reviewRoles.ts"
       ],
       "exclusions": [
         "No relaxation of any owner gate, closure eligibility predicate or ownerOnlyActions.",
