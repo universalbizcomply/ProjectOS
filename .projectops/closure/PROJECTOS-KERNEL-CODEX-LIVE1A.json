@@ -1,0 +1,25 @@
+{
+  "phaseId": "PROJECTOS-KERNEL-CODEX-LIVE1A",
+  "evidenceSubjectHead": "d11eabdac6589e00a9006ec830a33c90dc7a5f40",
+  "baselineCommit": "37af3b7d2a6a8cce99f1ee4130e275a87bc9dcc4",
+  "validatorsPass": true,
+  "checksPass": true,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "unresolvedCritical": 0,
+  "unresolvedHighIds": [],
+  "headedProofPass": null,
+  "protectedEffects": "NONE",
+  "establishedAt": "2026-10-29T23:13:51.400Z",
+  "notes": [
+    "THIS RECORD CLOSES NOTHING. Closure evidence for PROJECTOS-KERNEL-CODEX-LIVE1A, phase 18 of 18 of plan v1.21, closed owner-direct under the owner's general grant of full authority (see the decision record). NO gatekeeper closure ruling was obtained for THIS phase and none is claimed. No code writes this file; the convention follows PROJECTOS-FOUNDATION-GAPS1A.",
+    "SUBJECT. d11eabd on 37af3b7 (plan v1.21 activation): b350f2d (fix), 65c42d6 (review items), d11eabd (evidence).",
+    "validatorsPass: val-projectos-kernel-followup1a (66 named mutations) and validate-no-secrets PASS; validate-all 153/155 PASS (the 2 known baseline failures: validate-desktop-e2e, val-cd-b4-sealed-expected-window-facts1a).",
+    "checksPass: agent 2877/2877; tsc and typecheck:tests clean; live smoke of the real adapter path: exit 0, 3 turns, no denials.",
+    "reviewsComplete: Claude self-review; ECC SECURITY review (b350f2d: APPROVE WITH CHANGES, no CRITICAL/HIGH; MEDIUM 2 probed and fetch commands made denials, LOW 4-8 fixed in 65c42d6; MEDIUM 1 undetectable and inside the owner-accepted residual; MEDIUM 3 carried); no second round, every post-review change only tightens and is pinned.",
+    "unresolved: zero CRITICAL/HIGH. Owner-accepted residual: the reviewer can read the owner profile and reach loopback; MEDIUM 3 (unprovisioned host) carried. See docs/finish/PROJECTOS-KERNEL-CODEX-LIVE1A.md.",
+    "protected files: none changed.",
+    "protectedEffects NONE beyond 7 owner-approved Codex probe/smoke runs on the owner ChatGPT plan: no API spend, deployment, credential, message, payment, database, service, ACL, registry, force push or merge commit.",
+    "OWNER STATEMENT on credential and token rotation, carried forward verbatim from 2026-09-28 (not newly given): \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\""
+  ]
+}
