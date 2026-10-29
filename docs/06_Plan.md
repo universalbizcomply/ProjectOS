@@ -108,7 +108,9 @@ architecture ADR goes to `software-architect`.
 - [ ] 1.3 A platform-wide emergency stop: one owner command halts every loop, suspends delegations
       and refuses new operations. It states honestly that it cannot undo sends or payments already
       made.
-- [ ] 1.4 Kernel contract ADR: the domain-neutral task envelope `{principal, tenant, domain, project,
+- [x] 1.4 (2026-10-29, `aa1353b`: ADR-K1 revision 3.1; Agency software-architect review APPROVE
+      after 3 rounds, 18/18 findings accepted; the ADR stays Proposed until the owner accepts it)
+      Kernel contract ADR: the domain-neutral task envelope `{principal, tenant, domain, project,
       environment, action class, scope, expiry, idempotency key}`, and the six permission classes
       (read-only, local reversible, technical gate, business operation, protected, prohibited)
       mapped onto today's gates.
