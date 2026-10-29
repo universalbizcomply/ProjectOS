@@ -809,9 +809,9 @@
         "secrets-handling",
         "payment-or-live-charge"
       ],
-      "phaseId": "PROJECTOS-KERNEL-EXIT-PROOF1A",
+      "phaseId": "PROJECTOS-KERNEL-EXIT-PROOF2A",
       "title": "Stage 1 exit proof: cross-provider review and a refusing cap, live",
-      "description": "One governed Develop phase closes from one continue where the reviewer (Codex CLI, OpenAI) is a different provider from the implementer (Claude Code), and a deliberately low cap is shown to refuse a provider call. Evidence only. The second provider is not xAI/Grok (owner, 2026-10-29). The gatekeeper uses the current OpenAI key (owner: \"Keep the current key\"; rotation after project completion).",
+      "description": "One governed Develop phase closes from one continue where the reviewer (Codex CLI, OpenAI) is a different provider from the implementer (Claude Code), and a deliberately low cap is shown to refuse a provider call. Evidence only. The second provider is not xAI/Grok (owner, 2026-10-29). The gatekeeper uses the current OpenAI key (owner: \"Keep the current key\"; rotation after project completion). Replaces PROJECTOS-KERNEL-EXIT-PROOF1A (never started), re-added after the follow-up because the planning engine keeps existing phases in their original order.",
       "scope": "Add the evidence record under docs/finish/.",
       "writePaths": [
         "docs/finish/",
