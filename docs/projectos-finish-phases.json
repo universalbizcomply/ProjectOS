@@ -743,6 +743,43 @@
       ]
     },
     {
+      "riskLevel": "medium",
+      "autonomyLevel": "gated-execution",
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ],
+      "phaseId": "PROJECTOS-KERNEL-EXIT-PROOF1A",
+      "title": "Stage 1 exit proof: cross-provider review and a refusing cap, live",
+      "description": "One governed Develop phase closes from one continue where the reviewer (Codex CLI, OpenAI) is a different provider from the implementer (Claude Code), and a deliberately low cap is shown to refuse a provider call. Evidence only. Runs AFTER PROJECTOS-KERNEL-FOLLOWUP1A, which builds the Codex reviewer adapter (the planning engine keeps this phase before the appended follow-up). The second provider is not xAI/Grok (owner, 2026-10-29); the gatekeeper uses the current OpenAI key (owner: \"Keep the current key\"; rotation after project completion).",
+      "scope": "Add the evidence record under docs/finish/.",
+      "writePaths": [
+        "docs/finish/",
+        "docs/06_Plan.md"
+      ],
+      "exclusions": [
+        "No source change. Provider spend only under the owner-approved cap."
+      ],
+      "dependsOn": [
+        "PROJECTOS-KERNEL-HYGIENE1A"
+      ],
+      "acceptanceCriteria": [
+        "Recorded reviewer provider differs from the implementer provider for the proof phase.",
+        "A cap refusal is recorded before any network call.",
+        "Zero owner acts for the proof phase beyond the gates the plan names."
+      ],
+      "requiredValidators": [
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC SECURITY review"
+      ]
+    },
+    {
       "riskLevel": "high",
       "autonomyLevel": "gated-execution",
       "requiredBrowserProof": false,
@@ -792,43 +829,6 @@
       "requiredValidators": [
         "val-projectos-kernel-followup1a",
         "val-projectos-boot-continue1a",
-        "validate-no-secrets"
-      ],
-      "requiredReviews": [
-        "Claude self-review",
-        "ECC SECURITY review"
-      ]
-    },
-    {
-      "riskLevel": "medium",
-      "autonomyLevel": "gated-execution",
-      "requiredBrowserProof": false,
-      "requiredOwnerGates": [
-        "commit",
-        "push",
-        "secrets-handling",
-        "payment-or-live-charge"
-      ],
-      "phaseId": "PROJECTOS-KERNEL-EXIT-PROOF2A",
-      "title": "Stage 1 exit proof: cross-provider review and a refusing cap, live",
-      "description": "One governed Develop phase closes from one continue where the reviewer (Codex CLI, OpenAI) is a different provider from the implementer (Claude Code), and a deliberately low cap is shown to refuse a provider call. Evidence only. The second provider is not xAI/Grok (owner, 2026-10-29). The gatekeeper uses the current OpenAI key (owner: \"Keep the current key\"; rotation after project completion). Replaces PROJECTOS-KERNEL-EXIT-PROOF1A (never started), re-added after the follow-up because the planning engine keeps existing phases in their original order.",
-      "scope": "Add the evidence record under docs/finish/.",
-      "writePaths": [
-        "docs/finish/",
-        "docs/06_Plan.md"
-      ],
-      "exclusions": [
-        "No source change. Provider spend only under the owner-approved cap."
-      ],
-      "dependsOn": [
-        "PROJECTOS-KERNEL-FOLLOWUP1A"
-      ],
-      "acceptanceCriteria": [
-        "Recorded reviewer provider differs from the implementer provider for the proof phase.",
-        "A cap refusal is recorded before any network call.",
-        "Zero owner acts for the proof phase beyond the gates the plan names."
-      ],
-      "requiredValidators": [
         "validate-no-secrets"
       ],
       "requiredReviews": [
