@@ -21,13 +21,13 @@
  *   RR-12 "any review name is the reviewer's"          — and a worker satisfies an owner review
  *   RR-13 "the grant is the next argument"             — and `--allowedTools Read Bash` grants a shell
  *   RR-14 "the reviewer reads what it is given"        — and the candidate arms or steers the reviewer
+ *   RR-15 "closure can trust the worker's list"        — and G4-9 credits the self-claim the loop refuses
  *
  * Each rule has a NAMED MUTATION below; `selfTest` applies it in memory and counts it killed only when
  * THAT rule fires. Comments are stripped first. Reads files; runs nothing, calls no provider.
  *
- * KNOWN GAP, REPORTED NOT PINNED (D11-C1): `closure prepare` (commands/closure.ts, protected in plan
- * v1.17) still derives G4-9 from the worker-attested findings list. The loop no longer credits that
- * list, so the gap cannot let a run REACH closure on a self-claim; it can only refuse an honest one.
+ * RR-15 closes D11-C1. `closure prepare` (commands/closure.ts) was protected in plan v1.17; the owner
+ * approved this change on 2026-10-29 in the words "go for it".
  */
 
 const fs = require("fs");
@@ -42,7 +42,7 @@ const APPROVAL_REL = "projectos/agent/src/planApproval.ts";
 const WORKERS_REL = "projectos/agent/src/loop/workers.ts";
 const ADAPTER_REL = "projectos/agent/src/loop/adapters/claudeCodeCli.ts";
 const CLOSURE_REL = "projectos/agent/src/commands/closure.ts";
-const SOURCES = [ROLES_REL, REVIEW_REL, RUNNER_REL, OUTCOME_REL, APPROVAL_REL, WORKERS_REL, ADAPTER_REL];
+const SOURCES = [ROLES_REL, REVIEW_REL, RUNNER_REL, OUTCOME_REL, APPROVAL_REL, WORKERS_REL, ADAPTER_REL, CLOSURE_REL];
 
 const TESTS = {
   "projectos/agent/test/kernelRoleReview.test.ts": [
@@ -64,6 +64,11 @@ const TESTS = {
   ],
   "projectos/agent/test/loopOutcome.test.ts": [
     "stops a phase whose only review is a self-review, even with that review recorded",
+  ],
+  "projectos/agent/test/continuationEndToEnd.test.ts": [
+    "[D11-C1] credits the independent review from the bound reviewer record, with the worker claiming nothing",
+    "[D11-C1] REFUSES a reviewer record edited after the run (a REJECT rewritten to APPROVE)",
+    "[D11-C1] a run that bound no reviewer record does not satisfy G4-9 on the worker\\'s own claim",
   ],
 };
 
@@ -105,6 +110,13 @@ const MUTATIONS = [
     from: "/^(Write|Edit|MultiEdit|NotebookEdit|Bash|Task|Agent)\\s*(\\(|$)/i", to: "/^(Write|Edit|MultiEdit|NotebookEdit|Bash|Task|Agent)\\s*\\(/i" },
   { name: "reviewer-loads-candidate-config", rule: "RR-14", rel: REVIEW_REL,
     from: "const armed = reviewerConfigPaths(paths);", to: "const armed: string[] = [];" },
+  { name: "closure-credits-worker-list", rule: "RR-15", rel: CLOSURE_REL,
+    from: "reviewsComplete: independentReviews(required).length > 0 && required.every((r) => credited.includes(r)),",
+    to: "reviewsComplete: required.every((r) => recorded.reviews.includes(r))," },
+  { name: "closure-ignores-reviewer-binding", rule: "RR-15", rel: CLOSURE_REL,
+    from: "sha256(reviewerText) !== recordedReviewer", to: "false" },
+  { name: "runner-binds-no-reviewer-digest", rule: "RR-15", rel: RUNNER_REL,
+    from: "store.writeEvidence(sys, root, { ...evidence, reviewerSha256: reviewed.recordSha256 });", to: "" },
   { name: "reviewer-not-denied", rule: "RR-14", rel: ADAPTER_REL,
     from: "[...worker.args, ...REVIEWER_DENIED, ...OUTPUT_ARGS, '-p', instruction]", to: "[...worker.args, ...OUTPUT_ARGS, '-p', instruction]" },
 ];
@@ -219,6 +231,13 @@ function check(raw) {
       !roles.includes("UNTRUSTED DATA WRITTEN BY THE IMPLEMENTER")) {
     E("RR-14", "the reviewer may load candidate-written configuration, is not deny-listed, or is not told the repository is untrusted");
   }
+  const closure = src[CLOSURE_REL];
+  if (!closure.includes("const credited = creditedReviews(required, recorded.reviews, reviewer);") ||
+      !closure.includes("reviewsComplete: independentReviews(required).length > 0 && required.every((r) => credited.includes(r)),") ||
+      !closure.includes("sha256(reviewerText) !== recordedReviewer") ||
+      !runner.includes("store.writeEvidence(sys, root, { ...evidence, reviewerSha256: reviewed.recordSha256 });")) {
+    E("RR-15", "closure G4-9 credits the worker's own list, or a reviewer record not bound by the runner's reviewerSha256");
+  }
   return errors;
 }
 
@@ -253,15 +272,6 @@ function run() {
   return errors;
 }
 
-/** D11-C1, reported each run so it is not forgotten. */
-function knownGapNote() {
-  const closure = read(CLOSURE_REL);
-  if (closure !== null && closure.includes("reviewsComplete: required.every((r) => recorded.reviews.includes(r)),")) {
-    return "NOTE D11-C1: closure prepare still derives G4-9 from the worker-attested findings list (commands/closure.ts)";
-  }
-  return null;
-}
-
 if (require.main === module) {
   const e = run();
   if (e.length) {
@@ -269,8 +279,6 @@ if (require.main === module) {
     console.error("val-projectos-kernel-role-review1a: " + e.length + " error(s)");
     process.exit(1);
   }
-  const note = knownGapNote();
-  if (note !== null) console.log(note);
   console.log(`val-projectos-kernel-role-review1a: PASS (${MUTATIONS.length} named mutations killed)`);
 }
 

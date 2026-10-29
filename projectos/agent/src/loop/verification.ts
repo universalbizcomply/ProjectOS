@@ -432,6 +432,12 @@ export interface ExecutionEvidence {
    * the run was judged.
    */
   readonly findingsSha256?: string | null;
+  /**
+   * D11 — the sha256 of the reviewer record AS THE LOOP WROTE IT, added once an independent review was
+   * obtained. Closure preparation credits independent reviews only from a reviewer record that still
+   * hashes to this value; absent means no review was obtained, so a planted record credits nothing.
+   */
+  readonly reviewerSha256?: string | null;
 }
 
 export const EVIDENCE_SCHEMA_VERSION = '1.0.0';

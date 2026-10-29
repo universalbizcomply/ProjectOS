@@ -770,7 +770,7 @@ function adapter(root: string, sessionOf: () => string): AdapterRegistry {
     const dir = join(root, '.projectops', 'execution');
     mkdirSync(dir, { recursive: true });
     if (session !== '') {
-      writeFileSync(join(dir, `${session}.findings.json`), JSON.stringify({ reviews: ['independent review'], findings: [] })); // D11-C1: see continuationEndToEnd
+      writeFileSync(join(dir, `${session}.findings.json`), JSON.stringify({ reviews: [], findings: [] }));
       writeFileSync(
         join(dir, `${session}.effects.json`),
         JSON.stringify({

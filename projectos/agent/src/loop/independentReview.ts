@@ -12,7 +12,7 @@
  * working tree, because `.projectops/execution/` is not ignored, so the gatekeeper later seals a
  * candidate that INCLUDES the record — which is what it should be shown.)
  */
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import type { System } from '../system.js';
 import type { WorkerBrief } from './brief.js';
 import { computeCandidateIdentity } from './candidateIdentity.js';
@@ -44,7 +44,7 @@ export interface IndependentReviewInput {
 }
 
 export type IndependentReviewResult =
-  | { readonly ok: true; readonly record: ReviewerRecord }
+  | { readonly ok: true; readonly record: ReviewerRecord; readonly recordSha256: string }
   | { readonly ok: false; readonly problems: readonly string[] };
 
 /** `num_turns` from the CLI's structured output, or null when it reported none. */
@@ -126,6 +126,6 @@ export function runIndependentReview(sys: System, root: string, input: Independe
   };
   const problems = reviewerRecordProblems(record, subject, nonce);
   if (problems.length > 0) return { ok: false, problems };
-  writeReviewerRecord(sys, root, record);
-  return { ok: true, record };
+  const written = writeReviewerRecord(sys, root, record);
+  return { ok: true, record, recordSha256: createHash('sha256').update(written, 'utf8').digest('hex') };
 }

@@ -215,7 +215,7 @@ function worker(root: string, sessionOf: () => string): AdapterRegistry {
     writeFileSync(join(root, 'delivered.txt'), 'the work\n');
     const session = sessionOf();
     mkdirSync(join(root, '.projectops', 'execution'), { recursive: true });
-    writeFileSync(join(root, '.projectops', 'execution', `${session}.findings.json`), JSON.stringify({ reviews: ['independent review'], findings: [] })); // D11-C1: see continuationEndToEnd
+    writeFileSync(join(root, '.projectops', 'execution', `${session}.findings.json`), JSON.stringify({ reviews: [], findings: [] }));
     writeFileSync(
       join(root, '.projectops', 'execution', `${session}.effects.json`),
       JSON.stringify({

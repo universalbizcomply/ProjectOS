@@ -58,7 +58,8 @@ import {
   type OwnRecordsKind,
   type OwnRecordsOutcome,
 } from '../loop/technicalContinuation.js';
-import { findingsPath, readFindings, type FindingsRecord } from '../loop/session.js';
+import { findingsPath, readFindings, readReviewerRecord, reviewerPath, type FindingsRecord } from '../loop/session.js';
+import { creditedReviews, independentReviews, type ReviewerRecord } from '../loop/reviewRoles.js';
 import { createHash } from 'node:crypto';
 import { blockingFindings } from '../loop/outcome.js';
 import { isClosureTailPath } from '@projectos/core';
@@ -577,7 +578,9 @@ function boundRun(
   context: GovernedContext,
   id: string,
   subject: string,
-): { ok: true; run: Record<string, unknown>; findings: FindingsRecord } | { ok: false; result: CommandResult } {
+):
+  | { ok: true; run: Record<string, unknown>; findings: FindingsRecord; reviewer: ReviewerRecord | null }
+  | { ok: false; result: CommandResult } {
   const refuse = (lines: readonly string[]) => ({ ok: false as const, result: fail(2, lines) });
   const run = latestRunEvidence(sys, root, id);
   if (run === null) return refuse([`REFUSED (NO_RUN_EVIDENCE): no runner-recorded run exists for ${id}; there is no run to prepare closure from.`]);
@@ -596,6 +599,23 @@ function boundRun(
   }
   const findings = readFindings(sys, root, sessionId);
   if (!findings.ok) return refuse([`REFUSED (FINDINGS_UNREADABLE): ${findings.problem}`]);
+  // D11-C1: THE REVIEWER RECORD COUNTS ONLY WHILE IT HASHES TO WHAT THE RUNNER RECORDED after writing it.
+  // A run that obtained no review recorded no digest, and then any reviewer file present is ignored.
+  let reviewer: ReviewerRecord | null = null;
+  const recordedReviewer = run['reviewerSha256'];
+  if (typeof recordedReviewer === 'string') {
+    const reviewerText = sys.readText(reviewerPath(root, sessionId));
+    const read = readReviewerRecord(sys, root, sessionId);
+    if (reviewerText === null || sha256(reviewerText) !== recordedReviewer || !read.ok || read.value === null ||
+        read.value.sessionId !== sessionId || read.value.baseHead !== base ||
+        read.value.reviewerWorkerId === read.value.implementerWorkerId) {
+      return refuse([
+        'REFUSED (REVIEWER_NOT_BOUND): the reviewer record is not the one the loop wrote for this run, or it does not',
+        '  describe this run; a review changed after the run was judged is not closure evidence.',
+      ]);
+    }
+    reviewer = read.value;
+  }
   const changed = new Set(Array.isArray(run['changedFiles']) ? (run['changedFiles'] as unknown[]).map(String) : []);
   const tail = programmeStateTailPaths(context);
   const since = sys.exec('git', ['-C', root, 'diff', '--name-only', `${base}..${subject}`]);
@@ -610,7 +630,7 @@ function boundRun(
       ...foreign.map((f) => `  ${f}`),
     ]);
   }
-  return { ok: true, run, findings: findings.value };
+  return { ok: true, run, findings: findings.value, reviewer };
 }
 
 /**
@@ -659,7 +679,7 @@ export function closurePrepare(ctx: CommandContext, flags: Flags): CommandResult
 
   const bound = boundRun(sys, root, gc.context, id, subject);
   if (!bound.ok) return bound.result;
-  const { run, findings: recorded } = bound;
+  const { run, findings: recorded, reviewer } = bound;
 
   const planPhase = (Array.isArray(gc.context.plan['phases']) ? (gc.context.plan['phases'] as Record<string, unknown>[]) : [])
     .find((ph) => ph['phaseId'] === id);
@@ -703,7 +723,7 @@ export function closurePrepare(ctx: CommandContext, flags: Flags): CommandResult
   if (after.head !== subject || !after.reconciled) {
     return fail(2, ['REFUSED (SUBJECT_MOVED): HEAD or its upstream moved while the checks ran, so they did not run against one subject.']);
   }
-  const written = writePreparedRecords(sys, root, id, subject, results, names('requiredReviews'), recorded, run);
+  const written = writePreparedRecords(sys, root, id, subject, results, names('requiredReviews'), recorded, reviewer, run);
   // THE THREE RECORDS, COMMITTED BY PROJECTOS WHEN THE PHASE LEAVES COMMIT AND PUSH DELEGATED —
   // PROJECTOS-FINISH-MULTIPROJECT1A. Exactly these three paths and nothing else; when either gate is the
   // owner's, they are only generated and the owner commits them, as before. The closure DECISION is never
@@ -751,6 +771,7 @@ function writePreparedRecords(
   results: readonly CheckResult[],
   required: readonly string[],
   recorded: FindingsRecord,
+  reviewer: ReviewerRecord | null,
   run: Record<string, unknown>,
 ): CommandResult {
   const at = sys.now();
@@ -768,7 +789,10 @@ function writePreparedRecords(
     aggregate: { name: PREPARED_AGGREGATE_NAME, passed: allPassed },
     aggregatePassed: allPassed,
   };
-  const reviews = recorded.reviews.map(inert);
+  // D11: the same credit rule the loop applies — the implementer's claims satisfy only its self-reviews,
+  // and an independent review only the bound reviewer record that passed it.
+  const credited = creditedReviews(required, recorded.reviews, reviewer);
+  const reviews = credited.map(inert);
   const unresolved = blockingFindings(recorded.findings);
   const evidence = {
     schemaVersion: '1.0.0',
@@ -776,8 +800,8 @@ function writePreparedRecords(
     evidenceSubjectHead: subject,
     validatorsPass: validators.every((r) => r.passed),
     checksPass: others.every((r) => r.passed),
-    reviewsComplete: required.every((r) => recorded.reviews.includes(r)),
-    reviewsSource: 'worker-attested: the findings record the run wrote, bound to the run by the runner-recorded findingsSha256',
+    reviewsComplete: independentReviews(required).length > 0 && required.every((r) => credited.includes(r)),
+    reviewsSource: 'worker-attested self-reviews from the findings record (bound by findingsSha256); independent reviews only from the reviewer record the loop wrote (bound by reviewerSha256)',
     unresolvedCriticalOrHigh: unresolved.length,
     unresolvedCritical: unresolved.filter((f) => f.severity === 'CRITICAL').length,
     unresolvedHighIds: unresolved.filter((f) => f.severity === 'HIGH').map((f) => inert(f.id)),
@@ -798,7 +822,7 @@ function writePreparedRecords(
   return ok([
     `closure prepared for ${id} at subject ${subject}`,
     ...results.map((r) => `  ${r.passed ? 'PASS' : 'FAIL'} ${r.kind} ${r.id}${r.timedOut === true ? ' (timed out)' : ''}`),
-    `  reviews (worker-attested): ${evidence.reviewsComplete ? 'complete' : `missing ${required.filter((r) => !recorded.reviews.includes(r)).join(', ')}`}`,
+    `  reviews (credited): ${evidence.reviewsComplete ? 'complete' : `missing ${required.filter((r) => !credited.includes(r)).join(', ') || 'an independent review'}`}`,
     `  unresolved CRITICAL/HIGH: ${evidence.unresolvedCriticalOrHigh}`,
     '',
     'generated (closure-tail records; nobody was asked):',

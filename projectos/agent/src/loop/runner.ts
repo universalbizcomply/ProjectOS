@@ -1928,6 +1928,9 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
       });
       if (reviewed.ok) {
         reviewerRecord = reviewed.record;
+        // The runner's own record now names the reviewer record's digest; closure believes the reviewer
+        // record only while it still hashes to this (D11-C1).
+        store.writeEvidence(sys, root, { ...evidence, reviewerSha256: reviewed.recordSha256 });
         lines.push(`  independent review by ${reviewed.record.reviewerWorkerId}: ${reviewed.record.verdict}`);
         turnFacts = { ...turnFacts, reviewsRecorded: creditedReviews(required, findings.value.reviews, reviewerRecord) };
         decision = decideContinuation({ ...turnFacts, ownerGatesSatisfied: [...paidOwnerGates.keys()] });

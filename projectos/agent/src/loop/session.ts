@@ -69,8 +69,40 @@ export function writeEvidence(sys: System, root: string, evidence: ExecutionEvid
   writeJson(sys, evidencePath(root, evidence.sessionId), evidence);
 }
 
-export function writeReviewerRecord(sys: System, root: string, record: ReviewerRecord): void {
-  writeJson(sys, reviewerPath(root, record.sessionId), record);
+/** Writes the record and returns the exact text written, so its digest can be recorded by the runner. */
+export function writeReviewerRecord(sys: System, root: string, record: ReviewerRecord): string {
+  const text = `${JSON.stringify(record, null, 2)}\n`;
+  sys.writeText(reviewerPath(root, record.sessionId), text);
+  return text;
+}
+
+/**
+ * The reviewer record for a session, or null when there is none. Read only by closure preparation, and
+ * only after the caller has checked the file against the runner-recorded `reviewerSha256`; the shape is
+ * checked here so a malformed record is a problem, never an empty review.
+ */
+export function readReviewerRecord(sys: System, root: string, sessionId: string): ReadResult<ReviewerRecord | null> {
+  const p = reviewerPath(root, sessionId);
+  const text = sys.readText(p);
+  if (text === null) return { ok: true, value: null };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return { ok: false, problem: `the reviewer record at ${p} is not valid JSON` };
+  }
+  const rec = parsed as Record<string, unknown> | null;
+  const strings = ['sessionId', 'phaseId', 'implementerWorkerId', 'reviewerWorkerId', 'baseHead', 'candidateDigest', 'verdict'];
+  const lists = ['reviewsRequested', 'reviewsPerformed'];
+  if (rec === null || typeof rec !== 'object' || Array.isArray(rec) ||
+      strings.some((k) => typeof rec[k] !== 'string') ||
+      lists.some((k) => !Array.isArray(rec[k]) || (rec[k] as unknown[]).some((v) => typeof v !== 'string')) ||
+      !['APPROVE', 'CONCERNS', 'REJECT'].includes(String(rec['verdict'])) ||
+      !Array.isArray(rec['findings']) ||
+      (rec['findings'] as unknown[]).some((f) => f === null || typeof f !== 'object' || !SEVERITIES.has(String((f as Record<string, unknown>)['severity'])))) {
+    return { ok: false, problem: `the reviewer record at ${p} does not have the shape the loop writes` };
+  }
+  return { ok: true, value: rec as unknown as ReviewerRecord };
 }
 
 /**

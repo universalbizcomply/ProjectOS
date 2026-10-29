@@ -35,6 +35,7 @@ It ends with one live exit proof. There are no new domains, and no owner gate is
 |---|---|---|
 | `projectos/agent/src/loop/` (`verification.ts`, `outcome.ts`, `brief.ts`, `runner.ts`, `gatekeeperTurn.ts`, `closureTurn.ts`, `gatekeeperConfig.ts`, `ownerGateReceipts.ts`) | ROLE-REVIEW, COST-CAP, PLATFORM-STOP, TRUTH | Record the reviewer before the gatekeeper; refuse calls over the cap; check the stop at entry; apply the truth fixes |
 | `projectos/agent/src/workforce/`, `projectos/agent/src/planApproval.ts` | ROLE-REVIEW | Refuse a plan whose only review is a self-review; bind roles to providers |
+| `projectos/agent/src/commands/closure.ts` (closure prepare only: G4-9 `reviewsComplete` and the reviewer-record binding) | ROLE-REVIEW | D11-C1: G4-9 credited the worker's own review claims. **Moved out of PROTECTED by the owner, 2026-10-29: "go for it".** No change to closure authority, eligibility predicates or the decision path |
 | `projectos/core/src/gatekeeperCostLedger.ts` | COST-CAP | Make the cap a bound, not a reservation |
 | `projectos/agent/src/cli.ts`, `projectos/agent/src/commands/run.ts` | PLATFORM-STOP, TRUTH | Wire the stop command; fix the dry-run briefs |
 | `projectos/validators/val-projectos-boot-continue1a.cjs` | TRUTH | Add pins for the five truth fixes |
@@ -45,7 +46,7 @@ It ends with one live exit proof. There are no new domains, and no owner gate is
 
 - **Closure authority:** `projectos/core/src/closureAuthority.ts`, `closureEligibility.ts`,
   `closureDecision.ts`, `closureTransport.ts`, `ownerOnlyActions.ts`, `permissions.ts`, `phase.ts`;
-  `projectos/agent/src/closureGate.ts`, `closureWait.ts`, `commands/closure.ts`,
+  `projectos/agent/src/closureGate.ts`, `closureWait.ts`, `commands/closure.ts` (except the D11-C1 change above),
   `commands/phase.ts`.
 - **Broker and credentials:** `projectos/security/**` (including the allowlist just narrowed),
   `projectos/credentials/**`, `projectos/scripts/projectos-credential-router.cjs`.

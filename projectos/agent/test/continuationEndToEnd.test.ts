@@ -265,12 +265,9 @@ function adapterWriting(root: string, sessionOf: () => string, write: () => void
       write();
       const session = sessionOf();
       mkdirSync(join(root, '.projectops', 'execution'), { recursive: true });
-      // D11 CARRY-FORWARD (D11-C1). The worker also NAMES the independent review. The loop ignores that
-      // claim and runs the reviewer regardless; `closure prepare` (commands/closure.ts, protected in plan
-      // v1.17) still derives G4-9 from this worker-attested list. Pinned below; it flips when fixed.
       writeFileSync(
         join(root, '.projectops', 'execution', `${session}.findings.json`),
-        JSON.stringify({ reviews: ['independent review'], findings: [] }),
+        JSON.stringify({ reviews: [], findings: [] }),
       );
       writeFileSync(
         join(root, '.projectops', 'execution', `${session}.effects.json`),
@@ -1115,6 +1112,50 @@ describe('closure prepare generates the closure records from the run', () => {
     const r = closurePrepare({ sys, root: w.root }, { id: PHASE });
     expect(r.code).toBe(2);
     expect(r.lines.join('\n')).toContain('FINDINGS_NOT_BOUND');
+  });
+
+  /** D11-C1 — closure credits independent reviews only from the reviewer record the loop wrote and bound. */
+  it('[D11-C1] credits the independent review from the bound reviewer record, with the worker claiming nothing', () => {
+    const sys = fixedClock();
+    const w = world();
+    runToAwaitingClosure(w, sys);
+    ownerCommitsAll(w, 'owner: lifecycle records');
+    const r = closurePrepare({ sys, root: w.root }, { id: PHASE });
+    expect(r.code).toBe(0);
+    const evidence = JSON.parse(readFileSync(join(w.root, '.projectops', 'closure', `${PHASE}.json`), 'utf8')) as Record<string, unknown>;
+    expect(evidence['reviewsComplete']).toBe(true);
+    expect(String(evidence['reviewsSource'])).toContain('reviewerSha256');
+  });
+
+  it('[D11-C1] REFUSES a reviewer record edited after the run (a REJECT rewritten to APPROVE)', () => {
+    const sys = fixedClock();
+    const w = world();
+    runToAwaitingClosure(w, sys);
+    const exec = join(w.root, '.projectops', 'execution');
+    const file = readdirSync(exec).find((f) => f.endsWith('.reviewer.json')) as string;
+    const record = JSON.parse(readFileSync(join(exec, file), 'utf8')) as Record<string, unknown>;
+    writeFileSync(join(exec, file), JSON.stringify({ ...record, reviewsPerformed: ['independent review', 'ECC SECURITY review'] }));
+    ownerCommitsAll(w, 'owner: lifecycle records, with the reviewer record rewritten after the run');
+    const r = closurePrepare({ sys, root: w.root }, { id: PHASE });
+    expect(r.code).toBe(2);
+    expect(r.lines.join('\n')).toContain('REVIEWER_NOT_BOUND');
+  });
+
+  it('[D11-C1] a run that bound no reviewer record does not satisfy G4-9 on the worker\'s own claim', () => {
+    const sys = fixedClock();
+    const w = world();
+    runToAwaitingClosure(w, sys);
+    const exec = join(w.root, '.projectops', 'execution');
+    // The run as it would look had no review been obtained: the runner recorded no reviewer digest.
+    const evidenceFile = readdirSync(exec).find((f) => f.endsWith('.evidence.json')) as string;
+    const runEvidence = JSON.parse(readFileSync(join(exec, evidenceFile), 'utf8')) as Record<string, unknown>;
+    delete runEvidence['reviewerSha256'];
+    writeFileSync(join(exec, evidenceFile), `${JSON.stringify(runEvidence, null, 2)}\n`);
+    ownerCommitsAll(w, 'owner: lifecycle records of a run with no bound review');
+    const r = closurePrepare({ sys, root: w.root }, { id: PHASE });
+    expect(r.code).toBe(0);
+    const evidence = JSON.parse(readFileSync(join(w.root, '.projectops', 'closure', `${PHASE}.json`), 'utf8')) as Record<string, unknown>;
+    expect(evidence['reviewsComplete']).toBe(false);
   });
 
   it('says at prepare time that an unattested earlier run makes G4-11 refuse, and names it (ECC round 2 N4)', () => {
