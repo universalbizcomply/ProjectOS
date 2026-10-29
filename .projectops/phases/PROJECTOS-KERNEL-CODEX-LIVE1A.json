@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-KERNEL-CODEX-LIVE1A",
+  "project": "ProjectOS",
+  "objective": "The EXIT-PROOF1A precondition probe (2026-10-29, live Codex CLI 0.165.0 on this host) showed: with --ignore-user-config and no Windows sandbox mode Codex can run no command at all (every read \"rejected: blocked by policy\"), so the reviewer could never review; with windows.sandbox set (elevated or unelevated) reads work and writes inside and outside the checkout are blocked (\"Access to the path ... is denied\"); Codex reports every command wrapped in an absolute powershell.exe -Command, which the out-of-checkout heuristic reads as a path outside the repository, refusing every review; both sandbox modes can still read the owner profile (the residual the owner accepted as tripwire-only: \"Accept tripwires (Recommended)\"). This phase makes the adapter set the Windows sandbox mode itself (fixed, not configurable) and analyse the command inside a known shell wrapper.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-10-29T23:13:48.769Z",
+      "note": "Owner-approved plan v1.21 (PLANDEC-385961f7b4bd086d7c2b70ee, activation 37af3b7). Implemented by the lead (Claude); the phase record is created after the work."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-10-29T23:13:49.200Z",
+      "note": "Codex reviewer fixes from the live sandbox probe: fixed elevated Windows sandbox mode, inner-command judging, fetch/decode tripwire (b350f2d, 65c42d6)"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-10-29T23:13:49.646Z",
+      "note": "agent 2877/2877; validators PASS; validate-all 153/155 PASS (the 2 known baseline failures: validate-desktop-e2e, val-cd-b4-sealed-expected-window-facts1a)."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-10-29T23:13:50.059Z",
+      "note": "Evidence: docs/finish/PROJECTOS-KERNEL-CODEX-LIVE1A.md (d11eabd)."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-10-29T23:13:50.490Z",
+      "note": "closure tail only - no implementation. Reviews: Claude self-review; ECC SECURITY review (b350f2d: APPROVE WITH CHANGES, no CRITICAL/HIGH; MEDIUM 2 probed and fetch commands made denials, LOW 4-8 fixed in 65c42d6; MEDIUM 1 undetectable and inside the owner-accepted residual; MEDIUM 3 carried); no second round, every post-review change only tightens and is pinned."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-10-29T23:13:50.917Z",
+      "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    }
+  ]
+}
