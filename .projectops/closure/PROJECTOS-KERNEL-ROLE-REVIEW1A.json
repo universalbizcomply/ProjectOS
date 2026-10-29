@@ -1,0 +1,25 @@
+{
+  "phaseId": "PROJECTOS-KERNEL-ROLE-REVIEW1A",
+  "evidenceSubjectHead": "732db621fdc8f02721de87f62774e5af9ae49e07",
+  "baselineCommit": "f53aa57705690e212581147d949265bc15f8a3d8",
+  "validatorsPass": true,
+  "checksPass": true,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "unresolvedCritical": 0,
+  "unresolvedHighIds": [],
+  "headedProofPass": null,
+  "protectedEffects": "NONE",
+  "establishedAt": "2026-10-29T08:35:56.620Z",
+  "notes": [
+    "THIS RECORD CLOSES NOTHING. Closure evidence for PROJECTOS-KERNEL-ROLE-REVIEW1A, phase 11 of 16 of plan v1.17, closed owner-direct under the owner's general grant of full authority (see the decision record). NO gatekeeper closure ruling was obtained for THIS phase and none is claimed. No code writes this file; the convention follows PROJECTOS-FOUNDATION-GAPS1A.",
+    "SUBJECT. 732db62 on f53aa57: d500f82 (implementation), bdd8a86 (security round 1 fixes), 6d7faf1 (D11-C1 closure G4-9, owner-approved), 359c037 (security round 2 fixes), 3eef861 (code-review fixes), 732db62 (evidence + plan tick).",
+    "validatorsPass: val-projectos-kernel-role-review1a PASS (17 rules, 37 named mutations killed, verified by run()), val-projectos-boot-continue1a PASS, validate-no-secrets PASS.",
+    "checksPass: agent suite 2579/2580; the single failure (loopToolGrants 'Every plan v1.9 phase carries writePaths') is pre-existing since activation 04bcd4a, caused by plan v1.17 KERNEL-HYGIENE1A writePaths, proven red on the base without this change. Typecheck clean.",
+    "reviewsComplete: Claude self-review; ECC SECURITY review (d500f82: 2H/6M/5L, all HIGH fixed; recheck of bdd8a86: 0 CRITICAL/HIGH, H1 and M4 CLOSED, N1-N6 fixed); ECC CODE review (f53aa57..6d7faf1: APPROVE, 0 CRITICAL/HIGH, M1-M3 fixed, M4 partly, M5 owner action, M6 recorded here); Agency identity-access-engineer (AMBER, corpus ad9264e3: CONCERNS, F1/F2 fixed, F3-F5 carried); history.tsv row appended.",
+    "unresolved: zero CRITICAL/HIGH. Carried: same-user TOCTOU (job object), git-quoted paths in candidate identity, review-name to reviewer binding, ADR-K1 actor fields, owner-named reviews creditable only by owner route, completion-guard behavioural test, provider distinctness for the exit proof, validator registration (HYGIENE1A), HYGIENE1A writePaths plan amendment.",
+    "protected file: commands/closure.ts (PROTECTED in plan v1.17) changed for D11-C1 on the owner's words \"go for it\" (2026-10-29); closure authority, eligibility predicates and decision path unchanged.",
+    "protectedEffects NONE: no provider spend, deployment, credential, message, payment, database, service, ACL, registry, force push or merge commit.",
+    "OWNER STATEMENT on credential and token rotation, carried forward verbatim from 2026-09-28 (not newly given): \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\""
+  ]
+}
