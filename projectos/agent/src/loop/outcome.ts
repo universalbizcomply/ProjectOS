@@ -18,6 +18,7 @@
 import { TECHNICAL_ACTIONS } from '@projectos/core';
 import type { CheckResult } from './verification.js';
 import type { WorkerBrief } from './brief.js';
+import { independentReviews } from './reviewRoles.js';
 
 /** Correction attempts on the same phase before the loop hands it back. */
 export const MAX_CORRECTION_ATTEMPTS = 3;
@@ -195,7 +196,11 @@ export interface DecisionInput {
    * happened" and is never treated as such — see `decideContinuation`.
    */
   readonly effects: EffectsRecord | null;
-  /** Which of the plan's required reviews have produced a finding record for this run. */
+  /**
+   * Which of the plan's required reviews this run has SATISFIED, as `creditedReviews` judged them:
+   * a self-review from the implementer's own record, an independent review only from the reviewer
+   * record the loop wrote (D11). Never the implementer's `reviews` list passed straight through.
+   */
   readonly reviewsRecorded: readonly string[];
   /** Correction attempts already spent on this phase. */
   readonly attemptsSpent: number;
@@ -311,6 +316,21 @@ export function decideContinuation(input: DecisionInput): ContinuationDecision {
     };
   }
 
+  // D11 R5. A phase with no independent review has nobody but its author to say the work is done, and
+  // that is how an agency phase closed with its own criteria unmet. Checked here, at certification,
+  // so a plan approved before the rule existed is still held to it.
+  if (independentReviews(input.brief.phase.requiredReviews).length === 0) {
+    return {
+      kind: 'stop',
+      reason: {
+        code: 'REVIEW_OUTSTANDING',
+        detail:
+          "the approved plan names no independent review for this phase, only the implementer's own; " +
+          "D11 forbids certifying work on its author's word, so the plan must add an independent review",
+      },
+    };
+  }
+
   const outstanding = outstandingReviews(input.brief, input.reviewsRecorded);
   if (outstanding.length > 0) {
     return {
@@ -318,8 +338,9 @@ export function decideContinuation(input: DecisionInput): ContinuationDecision {
       reason: {
         code: 'REVIEW_OUTSTANDING',
         detail:
-          `the approved plan requires ${outstanding.join(', ')} for this phase and no finding record exists for ` +
-          'them in this run; a review that did not happen has not passed',
+          `the approved plan requires ${outstanding.join(', ')} for this phase and this run has no record ` +
+          'satisfying them; a review that did not happen has not passed, and an independent review is ' +
+          "satisfied only by the loop's reviewer record, never by the implementer's own claim",
       },
     };
   }

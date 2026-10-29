@@ -18,6 +18,7 @@ import type { WorkerBrief } from './brief.js';
 import type { WorkerSession } from './workers.js';
 import { attestationProblems, type EffectsRecord, type ReviewFinding, type Severity } from './outcome.js';
 import type { ExecutionEvidence } from './verification.js';
+import type { ReviewerRecord } from './reviewRoles.js';
 
 const SAFE_SESSION_ID = /^[A-Za-z0-9_.-]{1,64}$/;
 const SEVERITIES: ReadonlySet<string> = new Set<Severity>(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']);
@@ -47,6 +48,8 @@ export const sessionPath = (root: string, id: string): string => recordPath(root
 export const findingsPath = (root: string, id: string): string => recordPath(root, id, 'findings');
 export const effectsPath = (root: string, id: string): string => recordPath(root, id, 'effects');
 export const evidencePath = (root: string, id: string): string => recordPath(root, id, 'evidence');
+/** D11: written by the loop from the reviewer's output; read back by nothing that credits a review. */
+export const reviewerPath = (root: string, id: string): string => recordPath(root, id, 'reviewer');
 
 function writeJson(sys: System, path: string, value: unknown): void {
   sys.writeText(path, `${JSON.stringify(value, null, 2)}\n`);
@@ -64,6 +67,10 @@ export function writeSession(sys: System, root: string, session: WorkerSession):
 
 export function writeEvidence(sys: System, root: string, evidence: ExecutionEvidence): void {
   writeJson(sys, evidencePath(root, evidence.sessionId), evidence);
+}
+
+export function writeReviewerRecord(sys: System, root: string, record: ReviewerRecord): void {
+  writeJson(sys, reviewerPath(root, record.sessionId), record);
 }
 
 /**

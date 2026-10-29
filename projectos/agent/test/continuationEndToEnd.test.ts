@@ -38,6 +38,7 @@ import { evaluateG4 } from '../src/closureGate.js';
 import { continueProgramme, phaseAttemptOf } from '../src/loop/programmeContinuation.js';
 import { createLifecycleRecorder } from '../src/phaseProgress.js';
 import { loadGovernedContext } from '../src/governedContext.js';
+import { reviewing, withReviewer } from './support/fakeReviewer.js';
 
 const GIT = resolveBoundGit(process.env) as string;
 const REF = 'PROJECTOS_GATEKEEPER_OPENAI_KEY';
@@ -129,7 +130,7 @@ function world(
     allowedActions: ['inspect-repository', 'create-local-files', 'run-local-validation'],
     forbiddenActions: ['production-deploy'],
     secretsPolicy: { allowSecretsInRepo: false, redactionRequired: true },
-    execution: { workers: [{ workerId: 'test', kind: WORKER_KIND, command: '/usr/local/bin/test-worker' }] },
+    execution: withReviewer({ workers: [{ workerId: 'test', kind: WORKER_KIND, command: '/usr/local/bin/test-worker' }] }, WORKER_KIND),
   };
   // DERIVED FROM THE REAL PLAN, NOT HAND-BUILT.
   //
@@ -162,7 +163,7 @@ function world(
         scope: over.scope ?? '',
         ...(over.writePaths === undefined ? {} : { writePaths: over.writePaths }),
         dependsOn: [],
-        requiredReviews: [],
+        requiredReviews: ['independent review'],
         requiredBrowserProof: false,
         // Standing protections by default — never a continuation action, so nothing is pending.
         requiredOwnerGates: over.ownerGates ?? ['secrets-handling', 'payment-or-live-charge'],
@@ -259,13 +260,17 @@ function world(
 function adapterWriting(root: string, sessionOf: () => string, write: () => void): AdapterRegistry {
   const adapter: WorkerAdapter = {
     kind: WORKER_KIND,
+    ...reviewing(),
     start: () => {
       write();
       const session = sessionOf();
       mkdirSync(join(root, '.projectops', 'execution'), { recursive: true });
+      // D11 CARRY-FORWARD (D11-C1). The worker also NAMES the independent review. The loop ignores that
+      // claim and runs the reviewer regardless; `closure prepare` (commands/closure.ts, protected in plan
+      // v1.17) still derives G4-9 from this worker-attested list. Pinned below; it flips when fixed.
       writeFileSync(
         join(root, '.projectops', 'execution', `${session}.findings.json`),
-        JSON.stringify({ reviews: [], findings: [] }),
+        JSON.stringify({ reviews: ['independent review'], findings: [] }),
       );
       writeFileSync(
         join(root, '.projectops', 'execution', `${session}.effects.json`),

@@ -37,6 +37,7 @@ import { STOP_ROUTES } from '../src/loop/gatekeeperRouting.js';
 import { writeWorkRecord, readWorkRecord, beginWork, advanceWork } from '../src/loop/workRecord.js';
 import { unsatisfiedOwnerGates, gateInstanceId, type OwnerGateReceipt } from '@projectos/core';
 import type { WorkerBrief } from '../src/loop/brief.js';
+import { reviewing, withReviewer } from './support/fakeReviewer.js';
 
 const GIT = resolveBoundGit(process.env) as string;
 const PHASE = 'E2E-OWNER-WAIT1A';
@@ -140,7 +141,7 @@ function brief(gates: readonly string[]): WorkerBrief {
       riskLevel: 'low',
       autonomyLevel: 'gated-execution',
       requiredValidators: [],
-      requiredReviews: [],
+      requiredReviews: ['independent review'],
       requiredBrowserProof: false,
       requiredOwnerGates: gates,
     },
@@ -164,7 +165,7 @@ function decide(gates: readonly string[], answered: readonly string[] = []) {
     checks: [PASS],
     findings: [],
     effects: ATTESTED,
-    reviewsRecorded: [],
+    reviewsRecorded: ['independent review'],
     attemptsSpent: 0,
     workerRefusal: null,
     ownerGatesSatisfied: answered,
@@ -684,7 +685,7 @@ function governed(over: { validatorFails?: boolean } = {}): Governed {
     allowedActions: ['inspect-repository', 'create-local-files', 'run-local-validation'],
     forbiddenActions: ['production-deploy'],
     secretsPolicy: { allowSecretsInRepo: false, redactionRequired: true },
-    execution: { workers: [{ workerId: 'test', kind: WORKER_KIND, command: '/usr/local/bin/test-worker' }] },
+    execution: withReviewer({ workers: [{ workerId: 'test', kind: WORKER_KIND, command: '/usr/local/bin/test-worker' }] }, WORKER_KIND),
   };
   // DERIVED FROM THE REAL PLAN. The readiness evaluator checks far more than the schema, and a
   // hand-built fixture would encode its rules a second time, where they rot silently.
@@ -711,7 +712,7 @@ function governed(over: { validatorFails?: boolean } = {}): Governed {
         description: 'prove the owner wait resumes',
         scope: '',
         dependsOn: [],
-        requiredReviews: [],
+        requiredReviews: ['independent review'],
         requiredBrowserProof: false,
         // THE POINT OF THE FIXTURE: a technical action reserved to the owner.
         requiredOwnerGates: ['commit'],
@@ -769,7 +770,7 @@ function adapter(root: string, sessionOf: () => string): AdapterRegistry {
     const dir = join(root, '.projectops', 'execution');
     mkdirSync(dir, { recursive: true });
     if (session !== '') {
-      writeFileSync(join(dir, `${session}.findings.json`), JSON.stringify({ reviews: [], findings: [] }));
+      writeFileSync(join(dir, `${session}.findings.json`), JSON.stringify({ reviews: ['independent review'], findings: [] })); // D11-C1: see continuationEndToEnd
       writeFileSync(
         join(dir, `${session}.effects.json`),
         JSON.stringify({
@@ -784,7 +785,7 @@ function adapter(root: string, sessionOf: () => string): AdapterRegistry {
     }
     return { kind: 'completed', exitCode: 0, stdout: '', stderr: '', providerRef: 'ref-1' };
   };
-  const a = { kind: WORKER_KIND, start: write, rejoin: write } as unknown as WorkerAdapter;
+  const a = { kind: WORKER_KIND, ...reviewing(), start: write, rejoin: write } as unknown as WorkerAdapter;
   return { [WORKER_KIND]: a } as unknown as AdapterRegistry;
 }
 

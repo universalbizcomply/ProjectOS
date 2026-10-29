@@ -133,6 +133,11 @@ export interface WorkerAdapter {
    * where to work and what to read must come from the brief the loop just verified and wrote.
    */
   rejoin(sys: System, worker: AuthorisedWorker, session: WorkerSession, brief: WorkerBrief): WorkerOutcome;
+  /**
+   * Run this worker as the independent REVIEWER (D11) with the loop's fixed review instruction. Its
+   * output is read by the loop; nothing it writes is trusted. Absent on a kind that cannot review.
+   */
+  review?(sys: System, worker: AuthorisedWorker, brief: WorkerBrief, instruction: string): WorkerOutcome;
 }
 
 export type AdapterRegistry = Readonly<Record<string, WorkerAdapter>>;
@@ -584,6 +589,7 @@ export function toolGrantProblems(args: readonly string[]): readonly string[] {
 function readWorkers(context: GovernedContext): {
   readonly workers: readonly AuthorisedWorker[];
   readonly defaultWorkerId: string | null;
+  readonly reviewerWorkerId: string | null;
   readonly problems: readonly string[];
 } {
   const execution = (context.config as unknown as Record<string, unknown>)['execution'];
@@ -591,6 +597,7 @@ function readWorkers(context: GovernedContext): {
     return {
       workers: [],
       defaultWorkerId: null,
+      reviewerWorkerId: null,
       problems: [
         'this project authorises no execution worker (project-config has no `execution.workers`), so the loop has nothing it may start',
       ],
@@ -661,7 +668,16 @@ function readWorkers(context: GovernedContext): {
   if (declaredDefault !== null && !workers.some((w) => w.workerId === declaredDefault)) {
     problems.push(`execution.defaultWorkerId '${declaredDefault}' is not one of the authorised workers`);
   }
-  return { workers, defaultWorkerId: declaredDefault, problems };
+  // D11: the worker that reviews. Optional — a project without one cannot satisfy an independent review
+  // inside the loop, and says so at REVIEW_OUTSTANDING rather than here.
+  const declaredReviewer = typeof block['reviewerWorkerId'] === 'string' ? block['reviewerWorkerId'] : null;
+  if (declaredReviewer !== null && !workers.some((w) => w.workerId === declaredReviewer)) {
+    problems.push(`execution.reviewerWorkerId '${declaredReviewer}' is not one of the authorised workers`);
+  }
+  if (declaredReviewer !== null && declaredReviewer === declaredDefault) {
+    problems.push(`execution.reviewerWorkerId '${declaredReviewer}' is also the default implementer; a worker never reviews its own work`);
+  }
+  return { workers, defaultWorkerId: declaredDefault, reviewerWorkerId: declaredReviewer, problems };
 }
 
 /**
@@ -706,11 +722,31 @@ const CONFIG_RELPATH = '.projectops/project-config.json';
 
 /** The authorised workers, or the reasons the configuration cannot be used. Never throws. */
 export function authorisedWorkers(context: GovernedContext):
-  | { readonly ok: true; readonly workers: readonly AuthorisedWorker[]; readonly defaultWorkerId: string | null }
+  | {
+      readonly ok: true;
+      readonly workers: readonly AuthorisedWorker[];
+      readonly defaultWorkerId: string | null;
+      readonly reviewerWorkerId: string | null;
+    }
   | { readonly ok: false; readonly problems: readonly string[] } {
   const r = readWorkers(context);
   if (r.problems.length > 0) return { ok: false, problems: r.problems };
-  return { ok: true, workers: r.workers, defaultWorkerId: r.defaultWorkerId };
+  return { ok: true, workers: r.workers, defaultWorkerId: r.defaultWorkerId, reviewerWorkerId: r.reviewerWorkerId };
+}
+
+/**
+ * The configured reviewer worker and its adapter (D11), or null when none is configured. Whether it
+ * may review a given implementer is `roleBindingProblems`' question, asked at the point of review.
+ */
+export function resolveReviewer(
+  context: GovernedContext,
+  registry: AdapterRegistry,
+): { readonly worker: AuthorisedWorker; readonly adapter: WorkerAdapter } | null {
+  const loaded = authorisedWorkers(context);
+  if (!loaded.ok || loaded.reviewerWorkerId === null) return null;
+  const worker = loaded.workers.find((w) => w.workerId === loaded.reviewerWorkerId);
+  const adapter = worker === undefined ? undefined : registry[worker.kind];
+  return worker === undefined || adapter === undefined ? null : { worker, adapter };
 }
 
 /**
@@ -741,15 +777,21 @@ export function resolveWorker(
     }
   } else if (loaded.defaultWorkerId !== null) {
     worker = loaded.workers.find((w) => w.workerId === loaded.defaultWorkerId);
-  } else if (loaded.workers.length === 1) {
-    worker = loaded.workers[0];
   } else {
-    return {
-      ok: false,
-      problems: [
-        `${loaded.workers.length} workers are authorised and none is the default; name one rather than letting the loop choose`,
-      ],
-    };
+    // The configured reviewer (D11) is never picked implicitly as the implementer, so adding one to a
+    // single-worker project does not make the choice ambiguous.
+    const implementers = loaded.workers.filter((w) => w.workerId !== loaded.reviewerWorkerId);
+    if (implementers.length !== 1) {
+      return {
+        ok: false,
+        problems: [
+          implementers.length === 0
+            ? 'the only authorised worker is the configured reviewer; D11 needs a separate worker to implement'
+            : `${implementers.length} workers are authorised and none is the default; name one rather than letting the loop choose`,
+        ],
+      };
+    }
+    worker = implementers[0];
   }
   if (worker === undefined) {
     return { ok: false, problems: ['no authorised worker could be resolved'] };

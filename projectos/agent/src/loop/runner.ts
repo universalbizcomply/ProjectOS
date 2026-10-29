@@ -35,6 +35,7 @@ import { workforceForRun } from '../workforce/orchestrator.js';
 import { buildWorkerBrief, briefProvenanceProblems, type WorkerBrief } from './brief.js';
 import {
   committedExecutionProblems,
+  resolveReviewer,
   resolveWorker,
   gitDirectoryInspector,
   argvGrants,
@@ -86,6 +87,8 @@ import {
   type LedgerEntry,
 } from '@projectos/core';
 import * as store from './session.js';
+import { creditedReviews, independentReviews, reviewerFindings, type ReviewerRecord } from './reviewRoles.js';
+import { runIndependentReview } from './independentReview.js';
 import {
   digestOf,
   invocationIdFor,
@@ -1171,6 +1174,8 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
       readonly checks: EvidencePart<readonly CheckResult[]>;
       readonly findings: EvidencePart<{ readonly reviews: readonly string[]; readonly findings: readonly ReviewFinding[] }>;
       readonly effects: EvidencePart<EffectsRecord | null>;
+      /** D11: the loop-written reviewer record, when one was obtained for this stop. */
+      readonly independentReview?: EvidencePart<ReviewerRecord>;
     },
   ): string => {
     // EVERY WRITE THAT BELONGS TO THE CANDIDATE HAPPENS BEFORE THE CANDIDATE IS FROZEN.
@@ -1241,6 +1246,7 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
           passingChecks: c.available ? c.value.filter((x) => x.passed).map((x) => x.id) : c,
         },
         workerReview: f.available ? { reviewsRecorded: f.value.reviews, findings: f.value.findings } : f,
+        ...(parts.independentReview === undefined ? {} : { independentReview: parts.independentReview }),
         effects: parts.effects.available ? parts.effects.value : parts.effects,
         attemptsSpent: attempts,
         // THE EXACT BYTES THIS ANSWER IS ABOUT.
@@ -1874,12 +1880,15 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
       break;
     }
 
-    const turnFacts = {
+    // D11. The implementer's `reviews` list credits only its own self-reviews; an independent review
+    // is credited only from the reviewer record `runIndependentReview` returns below.
+    const required = brief.phase.requiredReviews;
+    let turnFacts = {
       brief,
       checks,
       findings: findings.value.findings,
       effects: effects.value,
-      reviewsRecorded: findings.value.reviews,
+      reviewsRecorded: creditedReviews(required, findings.value.reviews, null),
       attemptsSpent: attempts,
       // NULL, AND THE COMPILER AGREES. Every outcome that ends an attempt — a refusal, a non-zero
       // exit, a bound that was reached — is handled in the branch above, which always leaves this
@@ -1897,6 +1906,41 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     // a gate that has just been paid for is no longer pending. If nothing could be bought, the first
     // decision stands and the run stops on the owner, which is where it already was.
     let decision = decideContinuation({ ...turnFacts, ownerGatesSatisfied: [...paidOwnerGates.keys()] });
+
+    // D11: THE REVIEWER IS ASKED ONLY WHEN THE WORK IS OTHERWISE SOUND. `decideContinuation` raises
+    // REVIEW_OUTSTANDING only after refusals, protected effects, blocking findings, failing checks and
+    // the attestation have had their say, so the reviewer is never paid to look at broken work. Its
+    // record exists before the gatekeeper is asked, because the gatekeeper is asked further down.
+    let reviewerRecord: ReviewerRecord | null = null;
+    let reviewerProblems: readonly string[] = [];
+    const outstandingIndependent = independentReviews(required).filter((r) => !turnFacts.reviewsRecorded.includes(r));
+    if (decision.kind === 'stop' && decision.reason.code === 'REVIEW_OUTSTANDING' && outstandingIndependent.length > 0) {
+      const reviewed = runIndependentReview(sys, root, {
+        sessionId,
+        brief,
+        implementer: resolution.worker,
+        reviewer: resolveReviewer(context, options.adapters ?? BUILT_IN_ADAPTERS),
+        outstanding: outstandingIndependent,
+        now: sys.now(),
+      });
+      if (reviewed.ok) {
+        reviewerRecord = reviewed.record;
+        lines.push(`  independent review by ${reviewed.record.reviewerWorkerId}: ${reviewed.record.verdict}`);
+        turnFacts = {
+          ...turnFacts,
+          findings: [...findings.value.findings, ...reviewerFindings(reviewerRecord)],
+          reviewsRecorded: creditedReviews(required, findings.value.reviews, reviewerRecord),
+        };
+        decision = decideContinuation({ ...turnFacts, ownerGatesSatisfied: [...paidOwnerGates.keys()] });
+      } else {
+        reviewerProblems = reviewed.problems;
+        for (const p of reviewed.problems) lines.push(`  independent review not obtained: ${p}`);
+        decision = {
+          kind: 'stop',
+          reason: { code: 'REVIEW_OUTSTANDING', detail: `${decision.reason.detail}. ${reviewed.problems.join('; ')}` },
+        };
+      }
+    }
     if (decision.kind === 'stop' && decision.reason.code === 'OWNER_GATE' && payForPendingOwnerGates()) {
       decision = decideContinuation({ ...turnFacts, ownerGatesSatisfied: [...paidOwnerGates.keys()] });
     }
@@ -1918,8 +1962,13 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
       // failing check - it does not get its own, and it cannot reset the one that exists.
       const answered = applyReviewerAnswer(decision.reason, evidenceFor(decision.reason, {
         checks: { available: true, value: checks },
-        findings: { available: true, value: findings.value },
+        // What the decision was taken on: credited reviews and the reviewer's findings, not the
+        // implementer's own list.
+        findings: { available: true, value: { reviews: turnFacts.reviewsRecorded, findings: turnFacts.findings } },
         effects: { available: true, value: effects.value },
+        independentReview: reviewerRecord !== null
+          ? { available: true, value: reviewerRecord }
+          : unavailable(reviewerProblems.length > 0 ? reviewerProblems.join('; ') : 'no independent review was run for this stop'),
       }));
       if (answered === 'continue') continue;
       // THE ONE PLACE AN APPROVED SUCCESS STOP BECOMES AN ACT.

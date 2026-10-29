@@ -100,7 +100,7 @@ function activePlan(): Record<string, unknown> {
       planSourceBranch: 'main',
     },
     sourceDocuments: [{ documentPath: 'docs/plan.md', sourceDocumentType: 'human-readable-plan', sourceDocumentChecksum: 'sha256:' + 'd'.repeat(64), authoritative: true, superseded: false }],
-    phases: [{ phaseId: 'ACME-OLD1A', description: 'old', dependsOn: [], acceptanceCriteria: ['done'], riskLevel: 'low', autonomyLevel: 'local-safe', requiredValidators: ['validate-all'], requiredReviews: [], requiredBrowserProof: false, requiredOwnerGates: ['phase-closure'] }],
+    phases: [{ phaseId: 'ACME-OLD1A', description: 'old', dependsOn: [], acceptanceCriteria: ['done'], riskLevel: 'low', autonomyLevel: 'local-safe', requiredValidators: ['validate-all'], requiredReviews: ['ECC CODE review'], requiredBrowserProof: false, requiredOwnerGates: ['phase-closure'] }],
     environments: [{ environmentId: 'local', productionFreeze: true }],
     providers: [],
     governance: {

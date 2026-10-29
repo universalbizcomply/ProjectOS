@@ -34,6 +34,7 @@
  * Created in the post-V3 operational recovery programme (Stage 2).
  */
 import { CLOSURE_SCOPES, DELEGABLE_SCOPES, type DelegableScope } from '@projectos/core';
+import { planReviewProblems } from './loop/reviewRoles.js';
 import { governanceEngines } from './governanceEngines.js';
 import type { System } from './system.js';
 import { join, projectopsDir } from './context.js';
@@ -648,6 +649,8 @@ export function materialisePlan(input: MaterialiseInputs): MaterialiseResult {
     if (risk === null) problems.push(`phase ${id} does not state a risk level`);
     if (autonomy === null) problems.push(`phase ${id} does not state an autonomy level`);
     if (typeof proof !== 'boolean') problems.push(`phase ${id} does not state whether browser proof is required`);
+    // D11 R5: a phase nobody but its implementer reviews is refused here, before it can be approved.
+    problems.push(...planReviewProblems(id, arrOfStrings(c['requiredReviews'])));
     // THE WRITE GRANT IS PROJECTED EXACTLY — PROJECTOS-FINISH-WRITEPATHS1A. It is bound by the approval
     // digest like every other phase field, and a list that is not a list of non-empty strings is refused
     // here, at approval, rather than narrowed into something the owner never saw. Whether each path may

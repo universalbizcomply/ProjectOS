@@ -215,6 +215,20 @@ export const claudeCodeCliAdapter: WorkerAdapter = {
     );
   },
 
+  review(sys: System, worker: AuthorisedWorker, brief: WorkerBrief, instruction: string): WorkerOutcome {
+    // The same bound, scrubbing and placement as a start. The instruction is `reviewInstruction`'s fixed
+    // text; the worker's configured args carry no write grant, which `roleBindingProblems` checked.
+    const unbounded = boundProblem(worker);
+    if (unbounded !== null) return { kind: 'refused', detail: unbounded };
+    return outcomeFrom(
+      sys.exec(worker.command, [...worker.args, ...OUTPUT_ARGS, '-p', instruction], {
+        scrubCredentials: true, ensureSystemPath: true, cwd: brief.repository.root,
+        timeoutMs: worker.timeoutMs, maxOutputBytes: WORKER_MAX_OUTPUT_BYTES,
+      }),
+      worker.timeoutMs,
+    );
+  },
+
   rejoin(sys: System, worker: AuthorisedWorker, session: WorkerSession, brief: WorkerBrief): WorkerOutcome {
     const unbounded = boundProblem(worker);
     if (unbounded !== null) return { kind: 'refused', detail: unbounded };

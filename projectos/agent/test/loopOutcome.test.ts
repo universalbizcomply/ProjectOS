@@ -492,7 +492,7 @@ describe('decideContinuation', () => {
    */
   it('raises the successful-work gate when the phase reserves no continuation action to the owner', () => {
     const phases = (realPlan()['phases'] as Record<string, unknown>[]).map((p) =>
-      p['phaseId'] === PHASE ? { ...p, requiredOwnerGates: [], requiredReviews: [] } : p,
+      p['phaseId'] === PHASE ? { ...p, requiredOwnerGates: [], requiredReviews: ['independent review'] } : p,
     );
     const b = brief(PHASE, { phases });
     const d = decideContinuation({
@@ -500,7 +500,7 @@ describe('decideContinuation', () => {
       checks: [PASS],
       findings: [],
       effects: attested(),
-      reviewsRecorded: [],
+      reviewsRecorded: ['independent review'],
       attemptsSpent: 0,
     });
     expect(d.kind).toBe('stop');
@@ -519,7 +519,7 @@ describe('decideContinuation', () => {
   it('does not treat standing protections as work the owner must now perform', () => {
     const phases = (realPlan()['phases'] as Record<string, unknown>[]).map((p) =>
       p['phaseId'] === PHASE
-        ? { ...p, requiredOwnerGates: ['secrets-handling', 'payment-or-live-charge'], requiredReviews: [] }
+        ? { ...p, requiredOwnerGates: ['secrets-handling', 'payment-or-live-charge'], requiredReviews: ['independent review'] }
         : p,
     );
     const d = decideContinuation({
@@ -527,7 +527,7 @@ describe('decideContinuation', () => {
       checks: [PASS],
       findings: [],
       effects: attested(),
-      reviewsRecorded: [],
+      reviewsRecorded: ['independent review'],
       attemptsSpent: 0,
     });
     expect(d.kind).toBe('stop');
@@ -539,7 +539,7 @@ describe('decideContinuation', () => {
   it.each(['commit', 'push'])('still stops at OWNER_GATE when the phase reserves %s', (gate) => {
     const phases = (realPlan()['phases'] as Record<string, unknown>[]).map((p) =>
       p['phaseId'] === PHASE
-        ? { ...p, requiredOwnerGates: [gate, 'secrets-handling'], requiredReviews: [] }
+        ? { ...p, requiredOwnerGates: [gate, 'secrets-handling'], requiredReviews: ['independent review'] }
         : p,
     );
     const d = decideContinuation({
@@ -547,7 +547,7 @@ describe('decideContinuation', () => {
       checks: [PASS],
       findings: [],
       effects: attested(),
-      reviewsRecorded: [],
+      reviewsRecorded: ['independent review'],
       attemptsSpent: 0,
     });
     expect(d.kind).toBe('stop');
@@ -582,5 +582,33 @@ describe('the classification helpers', () => {
       rawSecretStored: true,
     });
     expect(protectedEffects(allTrue)).toEqual([...PROTECTED_EFFECT_FIELDS]);
+  });
+});
+
+/** D11 R5 at certification — PROJECTOS-KERNEL-ROLE-REVIEW1A. */
+describe('D11: a phase nobody independent reviews cannot be certified', () => {
+  const withReviews = (requiredReviews: string[]) =>
+    brief(PHASE, {
+      phases: (realPlan()['phases'] as Record<string, unknown>[]).map((p) =>
+        p['phaseId'] === PHASE ? { ...p, requiredOwnerGates: [], requiredReviews } : p,
+      ),
+    });
+  const decide = (b: WorkerBrief) =>
+    decideContinuation({ brief: b, checks: [PASS], findings: [], effects: attested(), reviewsRecorded: [...b.phase.requiredReviews], attemptsSpent: 0 });
+
+  it('stops a phase whose only review is a self-review, even with that review recorded', () => {
+    const d = decide(withReviews(['Claude self-review']));
+    expect(d.kind === 'stop' && d.reason.code).toBe('REVIEW_OUTSTANDING');
+    expect(d.kind === 'stop' && d.reason.detail).toContain('D11');
+  });
+
+  it('stops a phase that declares no review at all', () => {
+    const d = decide(withReviews([]));
+    expect(d.kind === 'stop' && d.reason.code).toBe('REVIEW_OUTSTANDING');
+  });
+
+  it('lets a phase with a credited independent review through to the continuation question', () => {
+    const d = decide(withReviews(['Claude self-review', 'ECC SECURITY review']));
+    expect(d.kind === 'stop' && d.reason.code).toBe('CONTINUATION_READY');
   });
 });

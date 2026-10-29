@@ -39,6 +39,7 @@ import { nodeInteractivePort } from '../src/loop/gatekeeperHandoff.js';
 import { nodeSystem, resolveBoundGit } from '../src/system.js';
 import { normaliseRemote } from '../src/loop/observation.js';
 import type { AdapterRegistry, WorkerAdapter } from '../src/loop/workers.js';
+import { reviewing, withReviewer } from './support/fakeReviewer.js';
 import type { System } from '../src/system.js';
 
 const GIT = resolveBoundGit(process.env) as string;
@@ -135,7 +136,7 @@ function world(mode: Mode, over: { gatekeeper?: Record<string, unknown> | null }
     allowedActions: ['inspect-repository', 'create-local-files', 'run-local-validation'],
     forbiddenActions: ['production-deploy'],
     secretsPolicy: { allowSecretsInRepo: false, redactionRequired: true },
-    execution: { workers: [{ workerId: 'test', kind: WORKER_KIND, command: '/usr/local/bin/test-worker' }] },
+    execution: withReviewer({ workers: [{ workerId: 'test', kind: WORKER_KIND, command: '/usr/local/bin/test-worker' }] }, WORKER_KIND),
   };
   const realPlan = JSON.parse(
     readFileSync(new URL('../../../.projectops/plan-98675c78dc8b3175-786d909d1ccb.json', import.meta.url), 'utf8'),
@@ -160,7 +161,7 @@ function world(mode: Mode, over: { gatekeeper?: Record<string, unknown> | null }
         description: 'one representative phase, run through both gatekeeper modes',
         scope: '',
         dependsOn: [],
-        requiredReviews: [],
+        requiredReviews: ['independent review'],
         requiredBrowserProof: false,
         requiredOwnerGates: ['secrets-handling', 'payment-or-live-charge'],
       },
@@ -214,7 +215,7 @@ function worker(root: string, sessionOf: () => string): AdapterRegistry {
     writeFileSync(join(root, 'delivered.txt'), 'the work\n');
     const session = sessionOf();
     mkdirSync(join(root, '.projectops', 'execution'), { recursive: true });
-    writeFileSync(join(root, '.projectops', 'execution', `${session}.findings.json`), JSON.stringify({ reviews: [], findings: [] }));
+    writeFileSync(join(root, '.projectops', 'execution', `${session}.findings.json`), JSON.stringify({ reviews: ['independent review'], findings: [] })); // D11-C1: see continuationEndToEnd
     writeFileSync(
       join(root, '.projectops', 'execution', `${session}.effects.json`),
       JSON.stringify({
@@ -228,7 +229,7 @@ function worker(root: string, sessionOf: () => string): AdapterRegistry {
     );
     return { kind: 'completed', exitCode: 0, stdout: '', stderr: '', providerRef: 'ref-1' };
   };
-  const adapter: WorkerAdapter = { kind: WORKER_KIND, start: work, rejoin: work };
+  const adapter: WorkerAdapter = { kind: WORKER_KIND, ...reviewing(), start: work, rejoin: work };
   return { [WORKER_KIND]: adapter } as unknown as AdapterRegistry;
 }
 
@@ -485,7 +486,7 @@ describe('the interactive records left outside the candidate are never committed
       const adapter = (base as unknown as Record<string, WorkerAdapter>)[WORKER_KIND] as WorkerAdapter;
       return adapter.start(...args);
     };
-    const adapters = { [WORKER_KIND]: { kind: WORKER_KIND, start: planting, rejoin: planting } } as unknown as AdapterRegistry;
+    const adapters = { [WORKER_KIND]: { kind: WORKER_KIND, ...reviewing(), start: planting, rejoin: planting } } as unknown as AdapterRegistry;
     session = sessionFor(sys, w, adapters);
     const run = runOnce(sys, w, adapters, { answer: {} });
     expect(run.finalState).toBe('COMPLETE');
