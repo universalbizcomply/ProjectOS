@@ -572,7 +572,7 @@ describe('loadGatekeeperConfig — the programme is committed, and refusals name
           outputMicroUsdPerMillion: 400000,
         },
       },
-      budget: { initialCreditMicroUsd: 5000000, warnAtMicroUsd: 2000000, hardStopAtMicroUsd: 5000000, autoRecharge: false },
+      budget: { initialCreditMicroUsd: 5000000, warnAtMicroUsd: 2000000, hardStopAtMicroUsd: 5000000, phaseHardStopAtMicroUsd: 5000000, dayHardStopAtMicroUsd: 5000000, autoRecharge: false },
       budgetRaiseAuthorities: [],
       threadBinding: { schemaVersion: '1.0.0', projectId: 'acme', repositoryRoot: 'acme', providerThreadId: 't-1' },
       ...over,
@@ -585,6 +585,36 @@ describe('loadGatekeeperConfig — the programme is committed, and refusals name
     writeFileSync(pjoin(w.root, '.projectops', 'gatekeeper.json'), text);
     w.commitBytes(GATEKEEPER_CONFIG_REL, text);
   }
+
+  /** PROJECTOS-KERNEL-COST-CAP1A: spending limits come from the COMMITTED file, and all must exist. */
+  test('[COST-CAP] a cap raised in the working copy alone is refused; limits are read from the committed file', () => {
+    const w = world();
+    withConfig(w);
+    w.commitDelegation(reviewDelegation());
+    const raised = gatekeeperConfig({ budget: { initialCreditMicroUsd: 5000000, warnAtMicroUsd: 2000000, hardStopAtMicroUsd: 5000000, phaseHardStopAtMicroUsd: 4000000, dayHardStopAtMicroUsd: 5000000, autoRecharge: false } });
+    writeFileSync(pjoin(w.root, '.projectops', 'gatekeeper.json'), JSON.stringify(raised, null, 2));
+    const r = loadGatekeeperConfig(w.sys, w.root);
+    expect(r.ok).toBe(false);
+    expect(r.ok ? '' : r.reasons.join(' | ')).toContain('differ from the committed .projectops/gatekeeper.json (phaseHardStopAtMicroUsd)');
+  });
+
+  test('[COST-CAP] a committed budget with no per-day cap is a refusal, not unlimited', () => {
+    const w = world();
+    withConfig(w, { budget: { initialCreditMicroUsd: 5000000, warnAtMicroUsd: 2000000, hardStopAtMicroUsd: 5000000, phaseHardStopAtMicroUsd: 1000000, autoRecharge: false } });
+    w.commitDelegation(reviewDelegation());
+    const r = loadGatekeeperConfig(w.sys, w.root);
+    expect(r.ok).toBe(false);
+    expect(r.ok ? '' : r.reasons.join(' | ')).toContain('no usable per-day cap');
+  });
+
+  test('[COST-CAP] the committed caps are the policy the loop is handed', () => {
+    const w = world();
+    withConfig(w, { budget: { initialCreditMicroUsd: 5000000, warnAtMicroUsd: 2000000, hardStopAtMicroUsd: 5000000, phaseHardStopAtMicroUsd: 1000000, dayHardStopAtMicroUsd: 2000000, autoRecharge: false } });
+    w.commitDelegation(reviewDelegation());
+    const r = loadGatekeeperConfig(w.sys, w.root);
+    expect(r.ok ? '' : r.reasons.join(' | ')).toBe('');
+    expect(r.ok && r.config.budget).toEqual({ warnAtMicroUsd: 2000000, hardStopAtMicroUsd: 5000000, phaseHardStopAtMicroUsd: 1000000, dayHardStopAtMicroUsd: 2000000 });
+  });
 
   test('a valid review-scoped delegation makes the decider available to the loop', () => {
     const w = world();
@@ -701,7 +731,7 @@ describe('loadGatekeeperConfig — the programme is committed, and refusals name
   test("'not-needed' still refuses a configuration that is broken for any other reason", () => {
     const w = world();
     // The owner's budget ceiling is not a review question, so omitting the decider must not omit it.
-    withConfig(w, { budget: { initialCreditMicroUsd: 5000000, warnAtMicroUsd: 2000000, hardStopAtMicroUsd: 99000000, autoRecharge: false } });
+    withConfig(w, { budget: { initialCreditMicroUsd: 5000000, warnAtMicroUsd: 2000000, hardStopAtMicroUsd: 99000000, phaseHardStopAtMicroUsd: 99000000, dayHardStopAtMicroUsd: 99000000, autoRecharge: false } });
     const r = loadGatekeeperConfig(w.sys, w.root, 'not-needed');
     expect(r.ok).toBe(false);
     expect(r.ok ? '' : r.reasons.join(' | ')).toContain('above the approved pilot figure');

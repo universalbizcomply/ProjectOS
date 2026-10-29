@@ -37,7 +37,7 @@ const NO_CACHE_RATE: RateCard = {
   outputMicroUsdPerMillion: 4_000_000,
 };
 
-const POLICY: BudgetPolicy = { warnAtMicroUsd: 5_000_000, hardStopAtMicroUsd: 10_000_000 };
+const POLICY: BudgetPolicy = { warnAtMicroUsd: 5_000_000, hardStopAtMicroUsd: 10_000_000, phaseHardStopAtMicroUsd: 10_000_000, dayHardStopAtMicroUsd: 10_000_000 };
 
 function entry(over: Partial<LedgerEntry> = {}): LedgerEntry {
   return {
@@ -227,5 +227,39 @@ describe('owner-visible amounts', () => {
 
   it('shows nothing spent as nothing', () => {
     expect(formatMicroUsd(0)).toBe('$0.00');
+  });
+});
+
+/** PROJECTOS-KERNEL-COST-CAP1A — the day total, and totals the gate cannot read. */
+describe('KERNEL-COST-CAP1A: day totals and unreadable totals', () => {
+  const CAPPED: BudgetPolicy = { warnAtMicroUsd: 40_000_000, hardStopAtMicroUsd: 50_000_000, phaseHardStopAtMicroUsd: 2_000_000, dayHardStopAtMicroUsd: 3_000_000 };
+
+  it("counts only the named day's spend, across every phase and project", () => {
+    const entries = [
+      entry({ requestId: 'a', at: '2026-08-17T01:00:00Z', costMicroUsd: 1_000_000 }),
+      entry({ requestId: 'b', at: '2026-08-17T23:00:00Z', phaseId: 'OTHER1A', projectId: 'polygo', costMicroUsd: 500_000 }),
+      entry({ requestId: 'c', at: '2026-08-16T23:59:59Z', costMicroUsd: 7_000_000 }),
+    ];
+    expect(summariseLedger(entries, { ...SCOPE, day: '2026-08-17' }).dayMicroUsd).toBe(1_500_000);
+  });
+
+  it('counts the whole month as the day when no day is named, so it can only refuse more', () => {
+    const entries = [entry({ requestId: 'a', at: '2026-08-01T00:00:00Z' }), entry({ requestId: 'b', at: '2026-08-20T00:00:00Z' })];
+    const t = summariseLedger(entries, SCOPE);
+    expect(t.dayMicroUsd).toBe(t.monthMicroUsd);
+  });
+
+  it('refuses a total it cannot read rather than reading it as nothing spent', () => {
+    const totals = { phaseMicroUsd: 0, projectMicroUsd: 0, monthMicroUsd: 0, callCount: 0, duplicatesIgnored: 0 } as never;
+    const decision = authoriseRequestSpend(1, totals, CAPPED);
+    expect(decision.allowed).toBe(false);
+    expect(decision.reasons.join(' ')).toContain('what the day has spent could not be established');
+  });
+
+  it('names every cap a call would cross, not only the first', () => {
+    const totals = { phaseMicroUsd: 2_000_000, projectMicroUsd: 2_000_000, monthMicroUsd: 3_000_000, dayMicroUsd: 3_000_000, callCount: 2, duplicatesIgnored: 0 };
+    const said = authoriseRequestSpend(1, totals, CAPPED).reasons.join(' ');
+    expect(said).toContain('the per-phase cap of $2.00');
+    expect(said).toContain('the per-day cap of $3.00');
   });
 });

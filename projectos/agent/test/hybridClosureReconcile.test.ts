@@ -121,7 +121,7 @@ function gatekeeperConfig(mode: Mode, root: string): Record<string, unknown> {
     },
     modelPolicy: APPROVED_PILOT_POLICY,
     rateCards: { 'gpt-5.6-terra': RATE, 'gpt-5.6-luna': { ...RATE, model: 'gpt-5.6-luna' } },
-    budget: { initialCreditMicroUsd: 5_000_000, warnAtMicroUsd: 2_000_000, hardStopAtMicroUsd: 5_000_000, autoRecharge: false },
+    budget: { initialCreditMicroUsd: 5_000_000, warnAtMicroUsd: 2_000_000, hardStopAtMicroUsd: 5_000_000, phaseHardStopAtMicroUsd: 5_000_000, dayHardStopAtMicroUsd: 5_000_000, autoRecharge: false },
     budgetRaiseAuthorities: [],
     threadBinding: {
       schemaVersion: '1.0.0',

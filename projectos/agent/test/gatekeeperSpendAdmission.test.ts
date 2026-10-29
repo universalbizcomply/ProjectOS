@@ -36,6 +36,8 @@ let root = '';
 const BUDGET: BudgetPolicy = {
   hardStopAtMicroUsd: 1_000,
   warnAtMicroUsd: 800,
+  phaseHardStopAtMicroUsd: 1_000_000,
+  dayHardStopAtMicroUsd: 1_000_000,
   perPhaseCeilingMicroUsd: 1_000_000,
   perProjectCeilingMicroUsd: 1_000_000,
 } as unknown as BudgetPolicy;

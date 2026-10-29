@@ -260,6 +260,14 @@ export interface BudgetPolicy {
   readonly warnAtMicroUsd: number;
   /** The month's hard stop. Reaching it refuses further calls; it does not merely warn. */
   readonly hardStopAtMicroUsd: number;
+  /**
+   * PROJECTOS-KERNEL-COST-CAP1A. The most one PHASE of one project may spend, and the most the account
+   * may spend in one DAY. A month-only stop let a single runaway phase, or a single bad night, spend
+   * the whole month before anything refused. Both are required: an absent cap is a refusal, never
+   * "unlimited" (`policyProblems`).
+   */
+  readonly phaseHardStopAtMicroUsd: number;
+  readonly dayHardStopAtMicroUsd: number;
 }
 
 export const BUDGET_OK = 'OK';
@@ -334,6 +342,8 @@ export interface LedgerTotals {
   readonly phaseMicroUsd: number;
   readonly projectMicroUsd: number;
   readonly monthMicroUsd: number;
+  /** The account's spend on the scope's day (see `summariseLedger` for a scope that names none). */
+  readonly dayMicroUsd: number;
   readonly callCount: number;
   readonly duplicatesIgnored: number;
 }
@@ -344,14 +354,21 @@ export interface LedgerTotals {
  * The month is matched on the entry's `YYYY-MM` prefix rather than by parsing a date, because parsing
  * would silently reinterpret a malformed timestamp into some real month and attribute spend to it.
  */
+/**
+ * `day` is `YYYY-MM-DD`, matched on the entry's timestamp prefix exactly as the month is (ProjectOS
+ * writes UTC timestamps, so this is the UTC day). A scope that names NO
+ * day counts the whole month as the day: an upper bound, so a caller that cannot say which day it is
+ * can only be refused more, never less.
+ */
 export function summariseLedger(
   entries: readonly LedgerEntry[],
-  scope: { readonly projectId: string; readonly phaseId: string; readonly month: string },
+  scope: { readonly projectId: string; readonly phaseId: string; readonly month: string; readonly day?: string },
 ): LedgerTotals {
   const unique = dedupeEntries(entries);
   let phase = 0;
   let project = 0;
   let month = 0;
+  let day = 0;
 
   for (const entry of unique) {
     const cost = nonNegative(entry.costMicroUsd);
@@ -362,12 +379,14 @@ export function summariseLedger(
     }
     // The monthly total is the SPEND LIMIT's total, and a spend limit is per account, not per project.
     if (typeof entry.at === 'string' && entry.at.startsWith(scope.month)) month += cost;
+    if (scope.day !== undefined && typeof entry.at === 'string' && entry.at.startsWith(scope.day)) day += cost;
   }
 
   return {
     phaseMicroUsd: phase,
     projectMicroUsd: project,
     monthMicroUsd: month,
+    dayMicroUsd: scope.day === undefined ? month : day,
     callCount: unique.length,
     duplicatesIgnored: entries.length - unique.length,
   };
@@ -396,6 +415,12 @@ export function policyProblems(policy: BudgetPolicy): readonly string[] {
   }
   if (!usable(policy?.warnAtMicroUsd)) {
     e.push(`the budget policy has no usable warning threshold (${JSON.stringify(policy?.warnAtMicroUsd)})`);
+  }
+  if (!usable(policy?.phaseHardStopAtMicroUsd)) {
+    e.push(`the budget policy has no usable per-phase cap (${JSON.stringify(policy?.phaseHardStopAtMicroUsd)})`);
+  }
+  if (!usable(policy?.dayHardStopAtMicroUsd)) {
+    e.push(`the budget policy has no usable per-day cap (${JSON.stringify(policy?.dayHardStopAtMicroUsd)})`);
   }
   return e;
 }
@@ -474,15 +499,29 @@ export function authoriseRequestSpend(
     );
     return { allowed: false, reasons };
   }
-  const projected = verdict.spentMicroUsd + estimateMicroUsd;
-  if (projected > policy.hardStopAtMicroUsd) {
-    reasons.push(
-      `this call is estimated at ${formatMicroUsd(estimateMicroUsd)}, which would take the month to ` +
-        `${formatMicroUsd(projected)} and cross the hard stop of ${formatMicroUsd(policy.hardStopAtMicroUsd)}`,
-    );
-    return { allowed: false, reasons };
+  // EVERY BOUND, NOT THE FIRST. Each refusal names the cap and the ledger total it was judged against,
+  // so the owner can see which limit stopped the call and how much had already been spent.
+  const bounds: readonly (readonly [string, number, string, number])[] = [
+    ['the phase', totals.phaseMicroUsd, 'the per-phase cap', policy.phaseHardStopAtMicroUsd],
+    ['the day', totals.dayMicroUsd, 'the per-day cap', policy.dayHardStopAtMicroUsd],
+    ['the month', verdict.spentMicroUsd, 'the hard stop', policy.hardStopAtMicroUsd],
+  ];
+  const crossed: string[] = [];
+  for (const [scope, spent, capName, cap] of bounds) {
+    // A TOTAL THAT CANNOT BE READ IS NOT ZERO. Clamping it would make the cap a free pass.
+    if (typeof spent !== 'number' || !Number.isFinite(spent) || spent < 0) {
+      crossed.push(`what ${scope} has spent could not be established, so this call was not made`);
+      continue;
+    }
+    const projected = spent + estimateMicroUsd;
+    if (projected > cap) {
+      crossed.push(
+        `this call is estimated at ${formatMicroUsd(estimateMicroUsd)}; ${scope} has spent ${formatMicroUsd(spent)}, ` +
+          `so it would reach ${formatMicroUsd(projected)} and cross ${capName} of ${formatMicroUsd(cap)}`,
+      );
+    }
   }
-  return { allowed: true, reasons };
+  return { allowed: crossed.length === 0, reasons: [...reasons, ...crossed] };
 }
 
 /** Micro-USD as an owner-readable amount. */

@@ -119,7 +119,7 @@ function project(opts: { readonly gatekeeper?: boolean } = {}): { root: string; 
           'gpt-5.6-terra': { model: 'gpt-5.6-terra', inputMicroUsdPerMillion: 1250000, cachedInputMicroUsdPerMillion: 125000, outputMicroUsdPerMillion: 10000000 },
           'gpt-5.6-luna': { model: 'gpt-5.6-luna', inputMicroUsdPerMillion: 100000, cachedInputMicroUsdPerMillion: 10000, outputMicroUsdPerMillion: 400000 },
         },
-        budget: { initialCreditMicroUsd: 5000000, warnAtMicroUsd: 2000000, hardStopAtMicroUsd: 5000000, autoRecharge: false },
+        budget: { initialCreditMicroUsd: 5000000, warnAtMicroUsd: 2000000, hardStopAtMicroUsd: 5000000, phaseHardStopAtMicroUsd: 5000000, dayHardStopAtMicroUsd: 5000000, autoRecharge: false },
         budgetRaiseAuthorities: [],
         threadBinding: { schemaVersion: '1.0.0', projectId: 'acme', repositoryRoot: root, providerThreadId: 't-1', transportId: 'openai-primary', createdAt: '2026-08-27T00:00:00+01:00' },
         programmeId: 'acme-v1',

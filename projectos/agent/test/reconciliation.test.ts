@@ -60,7 +60,7 @@ const THREAD: GovernanceThreadBinding = {
   createdAt: '2026-08-18T02:41:00+01:00',
 };
 
-const BUDGET: BudgetPolicy = { warnAtMicroUsd: 2_000_000, hardStopAtMicroUsd: 5_000_000 };
+const BUDGET: BudgetPolicy = { warnAtMicroUsd: 2_000_000, hardStopAtMicroUsd: 5_000_000, phaseHardStopAtMicroUsd: 5_000_000, dayHardStopAtMicroUsd: 5_000_000 };
 
 const RATE: RateCard = {
   model: 'gpt-5.6-terra',

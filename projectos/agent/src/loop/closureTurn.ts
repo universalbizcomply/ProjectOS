@@ -460,6 +460,7 @@ export function takeClosureTurn(input: ClosureTurnInput, deps: ClosureTurnDeps):
     projectId: input.projectId,
     phaseId: input.phaseId,
     month: input.at.slice(0, 7),
+    day: input.at.slice(0, 10),
   });
   const spend =
     deps.admitSpend === undefined

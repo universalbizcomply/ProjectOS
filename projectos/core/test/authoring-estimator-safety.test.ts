@@ -218,9 +218,9 @@ describe('THE GATE ITSELF refuses an estimate it cannot trust', () => {
    * always allowed. Every caller reaches the provider through this function, so the guarantee has to
    * hold HERE, whatever any individual estimator does or is later changed to do.
    */
-  const POLICY: BudgetPolicy = { warnAtMicroUsd: 4_000_000, hardStopAtMicroUsd: 5_000_000 };
+  const POLICY: BudgetPolicy = { warnAtMicroUsd: 4_000_000, hardStopAtMicroUsd: 5_000_000, phaseHardStopAtMicroUsd: 5_000_000, dayHardStopAtMicroUsd: 5_000_000 };
   const totals = (month: number): LedgerTotals => ({
-    phaseMicroUsd: month, projectMicroUsd: month, monthMicroUsd: month,
+    phaseMicroUsd: month, projectMicroUsd: month, monthMicroUsd: month, dayMicroUsd: month,
     callCount: 1, duplicatesIgnored: 0,
   });
 
@@ -282,12 +282,12 @@ describe('the margin is applied to TOKENS, before any currency rounding', () => 
 });
 
 describe('the corrected estimate reaches the real pre-dispatch gate', () => {
-  const POLICY: BudgetPolicy = { warnAtMicroUsd: 4_000_000, hardStopAtMicroUsd: 5_000_000 };
+  const POLICY: BudgetPolicy = { warnAtMicroUsd: 4_000_000, hardStopAtMicroUsd: 5_000_000, phaseHardStopAtMicroUsd: 5_000_000, dayHardStopAtMicroUsd: 5_000_000 };
   // The REAL shape: the monthly figure the gate reads is `monthMicroUsd`. A fixture with the wrong
   // field name left it undefined, every comparison went false, and the gate allowed everything —
   // which is precisely how a budget test can pass while proving nothing.
   const totals = (month: number): LedgerTotals => ({
-    phaseMicroUsd: month, projectMicroUsd: month, monthMicroUsd: month,
+    phaseMicroUsd: month, projectMicroUsd: month, monthMicroUsd: month, dayMicroUsd: month,
     callCount: 1, duplicatesIgnored: 0,
   });
   const reservedCost = estimateCostMicroUsd(

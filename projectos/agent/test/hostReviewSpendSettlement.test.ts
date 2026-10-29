@@ -18,7 +18,7 @@ afterEach(() => {
   for (const dir of created.splice(0)) if (existsSync(dir)) rmSync(dir, { recursive: true, force: true });
 });
 
-const BUDGET: BudgetPolicy = { warnAtMicroUsd: 2_000_000, hardStopAtMicroUsd: 5_000_000 };
+const BUDGET: BudgetPolicy = { warnAtMicroUsd: 2_000_000, hardStopAtMicroUsd: 5_000_000, phaseHardStopAtMicroUsd: 5_000_000, dayHardStopAtMicroUsd: 5_000_000 };
 const REQUEST = { requestId: 'GKREQ-bbbbbbbbbbbbbbbbbbbbbbbb', projectId: 'acme', phaseId: 'ACME-P1A', model: 'test-model', estimateMicroUsd: 8283, at: '2026-09-19T10:00:00.000Z' };
 
 function world(): { root: string; sys: System } {

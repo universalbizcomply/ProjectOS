@@ -150,7 +150,7 @@ function deps(over: Partial<ClosureTurnDeps> = {}, reply: HttpResponse = okReply
       http,
       modelPolicy: APPROVED_PILOT_POLICY,
       rateCards: { 'gpt-5.6-terra': RATE, 'gpt-5.6-luna': { ...RATE, model: 'gpt-5.6-luna' } },
-      budget: { warnAtMicroUsd: 2_000_000, hardStopAtMicroUsd: 5_000_000 },
+      budget: { warnAtMicroUsd: 2_000_000, hardStopAtMicroUsd: 5_000_000, phaseHardStopAtMicroUsd: 5_000_000, dayHardStopAtMicroUsd: 5_000_000 },
       ledger: [],
       threadBinding: BINDING,
       consumedDecisionIds: [],
@@ -213,7 +213,7 @@ describe('nothing is sent when it must not be', () => {
   });
 
   it('refuses before sending when the spend limit is already reached', () => {
-    const d = deps({ budget: { warnAtMicroUsd: 1, hardStopAtMicroUsd: 1 } });
+    const d = deps({ budget: { warnAtMicroUsd: 1, hardStopAtMicroUsd: 1, phaseHardStopAtMicroUsd: 1, dayHardStopAtMicroUsd: 1 } });
     const result = takeClosureTurn(input(), d.deps);
     expect(result.outcome).toBe('NOT_SENT');
     expect(result.problems.join(' ')).toContain('spend limit refused this closure call before it was made');

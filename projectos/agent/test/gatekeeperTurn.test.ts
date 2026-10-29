@@ -127,7 +127,7 @@ function deps(over: Partial<GatekeeperTurnDeps> = {}): GatekeeperTurnDeps {
     http: fakeHttp(okReply(AMENDMENT)).http,
     modelPolicy: APPROVED_PILOT_POLICY,
     rateCards: { 'gpt-5.6-terra': RATE, 'gpt-5.6-luna': LUNA },
-    budget: { warnAtMicroUsd: 2_000_000, hardStopAtMicroUsd: 5_000_000 },
+    budget: { warnAtMicroUsd: 2_000_000, hardStopAtMicroUsd: 5_000_000, phaseHardStopAtMicroUsd: 5_000_000, dayHardStopAtMicroUsd: 5_000_000 },
     ledger: [],
     threadBinding: BINDING,
     transportDecider: 'ChatGPT',
@@ -589,5 +589,61 @@ describe('an accepted decision is kept as evidence, and a refused one is not', (
       deps({ recordDecisionEvidence: (() => 'already-recorded') as never }),
     );
     expect(result.action).toEqual({ kind: 'retry', instruction: 'Add the tenant predicate and re-run validate-all.' });
+  });
+});
+
+/**
+ * PROJECTOS-KERNEL-COST-CAP1A — per-phase and per-day hard caps, refused BEFORE the network.
+ *
+ * Each case sets the month far above the spend so only the cap under test can stop the call, puts the
+ * ledger exactly AT that cap so any positive estimate crosses it, and counts what reached the transport.
+ */
+describe('KERNEL-COST-CAP1A: hard per-phase and per-day caps', () => {
+  const GENEROUS = { warnAtMicroUsd: 40_000_000, hardStopAtMicroUsd: 50_000_000 };
+  const entry = (micro: number, phaseId: string, at: string): LedgerEntry => ({
+    requestId: `GKREQ-${phaseId}-${at}`,
+    projectId: 'projectos',
+    phaseId,
+    model: 'gpt-5.6-terra',
+    usage: { inputTokens: 1, outputTokens: 1 },
+    costMicroUsd: micro,
+    at,
+  });
+
+  it('refuses a call that would cross the PER-PHASE cap, with nothing sent, naming the cap and the total', () => {
+    const fake = fakeHttp(okReply(AMENDMENT));
+    const budget = { ...GENEROUS, phaseHardStopAtMicroUsd: 1_000_000, dayHardStopAtMicroUsd: 50_000_000 };
+    const result = takeGatekeeperTurn(input(), deps({ budget, ledger: [entry(1_000_000, PHASE, '2026-08-10T10:00:00Z')], http: fake.http }));
+    expect(fake.sent).toEqual([]);
+    if (result.action.kind !== 'owner') throw new Error('expected the owner route');
+    const said = result.action.reasons.join(' ');
+    expect(said).toContain('the per-phase cap of $1.00');
+    expect(said).toContain('the phase has spent $1.00');
+  });
+
+  it("refuses a call that would cross the PER-DAY cap, counting another phase's spend that day", () => {
+    const fake = fakeHttp(okReply(AMENDMENT));
+    const budget = { ...GENEROUS, phaseHardStopAtMicroUsd: 50_000_000, dayHardStopAtMicroUsd: 1_000_000 };
+    const today = entry(1_000_000, 'ANOTHER-PHASE1A', '2026-08-17T09:00:00+01:00');
+    const result = takeGatekeeperTurn(input(), deps({ budget, ledger: [today], http: fake.http }));
+    expect(fake.sent).toEqual([]);
+    if (result.action.kind !== 'owner') throw new Error('expected the owner route');
+    expect(result.action.reasons.join(' ')).toContain('the per-day cap of $1.00');
+  });
+
+  it("does not count another day's spend against today's cap", () => {
+    const budget = { ...GENEROUS, phaseHardStopAtMicroUsd: 50_000_000, dayHardStopAtMicroUsd: 1_000_000 };
+    const yesterday = entry(1_000_000, 'ANOTHER-PHASE1A', '2026-08-16T09:00:00+01:00');
+    const result = takeGatekeeperTurn(input(), deps({ budget, ledger: [yesterday] }));
+    expect(result.action.kind).toBe('retry');
+  });
+
+  it('refuses when a cap is MISSING, never treating it as unlimited', () => {
+    const fake = fakeHttp(okReply(AMENDMENT));
+    const budget = { ...GENEROUS, dayHardStopAtMicroUsd: 50_000_000 } as never;
+    const result = takeGatekeeperTurn(input(), deps({ budget, http: fake.http }));
+    expect(fake.sent).toEqual([]);
+    if (result.action.kind !== 'owner') throw new Error('expected the owner route');
+    expect(result.action.reasons.join(' ')).toContain('no usable per-phase cap');
   });
 });

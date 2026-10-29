@@ -456,7 +456,7 @@ function unattendedDeps(over: Partial<GatekeeperTurnDeps> & { sent?: string[]; a
     },
     modelPolicy: APPROVED_PILOT_POLICY,
     rateCards: { 'gpt-5.6-terra': RATE, 'gpt-5.6-luna': RATE },
-    budget: { warnAtMicroUsd: 2_000_000, hardStopAtMicroUsd: 5_000_000 },
+    budget: { warnAtMicroUsd: 2_000_000, hardStopAtMicroUsd: 5_000_000, phaseHardStopAtMicroUsd: 5_000_000, dayHardStopAtMicroUsd: 5_000_000 },
     ledger: [],
     threadBinding: {
       schemaVersion: '1.0.0',

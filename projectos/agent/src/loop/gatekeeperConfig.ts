@@ -24,6 +24,7 @@ import {
   checkTransportDescriptor,
   checkPilotBudget,
   authoriseRequestSpend,
+  policyProblems,
   summariseLedger,
   BUDGET_RAISE_SCOPE,
   GATEKEEPER_REVIEW_SCOPE,
@@ -58,6 +59,20 @@ export const GATEKEEPER_CONFIG_REL = '.projectops/gatekeeper.json';
 export const GATEKEEPER_LEDGER_REL = '.projectops/gatekeeper-ledger.json';
 export const GATEKEEPER_LEDGER_LOCK_REL = '.projectops/gatekeeper-ledger.lock';
 export const GATEKEEPER_THREAD_REL = '.projectops/gatekeeper-thread.json';
+
+/** The spending limits, read from the COMMITTED gatekeeper config only (PROJECTOS-KERNEL-COST-CAP1A). */
+const BUDGET_CAP_FIELDS = ['warnAtMicroUsd', 'hardStopAtMicroUsd', 'phaseHardStopAtMicroUsd', 'dayHardStopAtMicroUsd'] as const;
+
+/** The policy as the ledger reads it. A missing field becomes NaN, which `policyProblems` refuses. */
+function budgetPolicyFrom(budget: Record<string, unknown>): BudgetPolicy {
+  const cap = (f: (typeof BUDGET_CAP_FIELDS)[number]): number => (typeof budget[f] === 'number' ? (budget[f] as number) : Number.NaN);
+  return {
+    warnAtMicroUsd: cap('warnAtMicroUsd'),
+    hardStopAtMicroUsd: cap('hardStopAtMicroUsd'),
+    phaseHardStopAtMicroUsd: cap('phaseHardStopAtMicroUsd'),
+    dayHardStopAtMicroUsd: cap('dayHardStopAtMicroUsd'),
+  };
+}
 
 /**
  * WHERE AN ACCEPTED GATEKEEPER DECISION IS KEPT — AS EVIDENCE, NEVER AS A PERMIT.
@@ -550,6 +565,19 @@ export function loadGatekeeperConfig(
     );
   }
 
+  // PROJECTOS-KERNEL-COST-CAP1A: THE CAPS ARE READ FROM THE COMMITTED FILE ONLY. A working-copy edit
+  // could otherwise raise any of them (below the pilot ceiling) without passing the owner's commit gate,
+  // and every cap must be present: a missing one is a refusal, never "unlimited" (`policyProblems`).
+  const committedBudget = (committedGatekeeper?.['budget'] ?? {}) as Record<string, unknown>;
+  const capsDiffer = BUDGET_CAP_FIELDS.filter((f) => budgetRaw[f] !== committedBudget[f]);
+  if (capsDiffer.length > 0) {
+    reasons.push(
+      `the budget caps in the working copy differ from the committed ${GATEKEEPER_CONFIG_REL} (${capsDiffer.join(', ')}); ` +
+        'spending limits are read from the committed file only, so commit the change or restore it',
+    );
+  }
+  reasons.push(...policyProblems(budgetPolicyFrom(committedBudget)));
+
   const threadBinding = raw['threadBinding'] as GovernanceThreadBinding | undefined;
   if (threadBinding === undefined) reasons.push('gatekeeper config declares no threadBinding');
 
@@ -561,10 +589,7 @@ export function loadGatekeeperConfig(
       transport: transport as GatekeeperTransportDescriptor,
       modelPolicy: modelPolicy as ModelPolicy,
       rateCards,
-      budget: {
-        warnAtMicroUsd: Number(budgetRaw['warnAtMicroUsd']),
-        hardStopAtMicroUsd: Number(budgetRaw['hardStopAtMicroUsd']),
-      },
+      budget: budgetPolicyFrom(committedBudget),
       threadBinding: threadBinding as GovernanceThreadBinding,
       // EMPTY WHEN NONE WAS ASKED FOR. A caller that requested no decider and then compared a verdict
       // against this would compare against '' and refuse every decision — the safe direction, and the
@@ -735,6 +760,7 @@ export function admitGatekeeperSpend(
         projectId: request.projectId,
         phaseId: request.phaseId,
         month: request.at.slice(0, 7),
+        day: request.at.slice(0, 10),
       });
       const spend = authoriseRequestSpend(request.estimateMicroUsd, totals, budget);
       if (!spend.allowed) return { allowed: false, reasons: spend.reasons };

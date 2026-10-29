@@ -42,7 +42,7 @@ afterEach(() => {
   }
 });
 
-const BUDGET: BudgetPolicy = { warnAtMicroUsd: 2_000_000, hardStopAtMicroUsd: 5_000_000 };
+const BUDGET: BudgetPolicy = { warnAtMicroUsd: 2_000_000, hardStopAtMicroUsd: 5_000_000, phaseHardStopAtMicroUsd: 5_000_000, dayHardStopAtMicroUsd: 5_000_000 };
 const REQUEST = {
   requestId: 'GKREQ-aaaaaaaaaaaaaaaaaaaaaaaa',
   projectId: 'acme',
@@ -195,7 +195,7 @@ describe('C11-W2-F6 — closing out a reservation whose call produced no answer'
    */
   test('D two different requests cannot both be admitted past the hard stop', () => {
     const w = world();
-    const budget: BudgetPolicy = { warnAtMicroUsd: 500, hardStopAtMicroUsd: 1000 };
+    const budget: BudgetPolicy = { warnAtMicroUsd: 500, hardStopAtMicroUsd: 1000, phaseHardStopAtMicroUsd: 1000, dayHardStopAtMicroUsd: 1000 };
     writeFileSync(
       pjoin(w.root, ...GATEKEEPER_LEDGER_REL.split('/')),
       JSON.stringify(
@@ -229,7 +229,7 @@ describe('C11-W2-F6 — closing out a reservation whose call produced no answer'
   /** [D2] And an unresolved reservation still counts against the ceiling while it stands. */
   test('D2 a retained unresolved reservation is still counted against the hard stop', () => {
     const w = world();
-    const budget: BudgetPolicy = { warnAtMicroUsd: 500, hardStopAtMicroUsd: 1000 };
+    const budget: BudgetPolicy = { warnAtMicroUsd: 500, hardStopAtMicroUsd: 1000, phaseHardStopAtMicroUsd: 1000, dayHardStopAtMicroUsd: 1000 };
     admitGatekeeperSpend(w.sys, w.root, { ...REQUEST, requestId: 'GKREQ-one', estimateMicroUsd: 900 }, budget, NEVER_ANSWERED);
     resolveGatekeeperSpend(w.sys, w.root, 'GKREQ-one', 'PROVIDER_UNAVAILABLE');
 

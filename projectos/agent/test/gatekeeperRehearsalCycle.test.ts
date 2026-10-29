@@ -60,7 +60,7 @@ const RATE: RateCard = {
   outputMicroUsdPerMillion: 10_000_000,
 };
 
-const BUDGET: BudgetPolicy = { warnAtMicroUsd: 5_000_000, hardStopAtMicroUsd: 10_000_000 };
+const BUDGET: BudgetPolicy = { warnAtMicroUsd: 5_000_000, hardStopAtMicroUsd: 10_000_000, phaseHardStopAtMicroUsd: 10_000_000, dayHardStopAtMicroUsd: 10_000_000 };
 const SCOPE = { projectId: 'projectos', phaseId: PHASE, month: '2026-08' };
 
 function request(over: Partial<GatekeeperRequest> = {}): GatekeeperRequest {

@@ -37,10 +37,10 @@ import { lastBilledUsage } from '../src/loop/gatekeeperTurn.js';
 const TERRA: RateCard = { model: 'gpt-5.6-terra', inputMicroUsdPerMillion: 1_250_000, outputMicroUsdPerMillion: 10_000_000 };
 const LUNA: RateCard = { model: 'gpt-5.6-luna', inputMicroUsdPerMillion: 90_000, outputMicroUsdPerMillion: 720_000 };
 
-const POLICY: BudgetPolicy = { warnAtMicroUsd: 2_000_000, hardStopAtMicroUsd: 5_000_000 };
+const POLICY: BudgetPolicy = { warnAtMicroUsd: 2_000_000, hardStopAtMicroUsd: 5_000_000, phaseHardStopAtMicroUsd: 5_000_000, dayHardStopAtMicroUsd: 5_000_000 };
 
 function totals(spentMicroUsd: number): LedgerTotals {
-  return { monthMicroUsd: spentMicroUsd, projectMicroUsd: spentMicroUsd, phaseMicroUsd: spentMicroUsd, callCount: 1, duplicatesIgnored: 0 };
+  return { monthMicroUsd: spentMicroUsd, projectMicroUsd: spentMicroUsd, phaseMicroUsd: spentMicroUsd, dayMicroUsd: spentMicroUsd, callCount: 1, duplicatesIgnored: 0 };
 }
 
 function billed(inputTokens: number, outputTokens: number): LedgerEntry {
