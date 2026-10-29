@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-KERNEL-CONTRACT1A",
+  "project": "ProjectOS",
+  "objective": "Write the domain-neutral kernel contract every V4 domain will use: the task envelope {principal, tenant, domain, project, environment, actionClass, scope, expiry, idempotencyKey} and the six permission classes (read-only, local reversible, technical gate, business operation, protected, prohibited), each mapped onto the gates ProjectOS has today. Records which existing records already carry each field and which are new. Docs only.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-10-29T00:05:42.809Z",
+      "note": "Owner-approved plan v1.17 (PLANDEC-5fb44adb067b3d368f744369, activation 04bcd4a). Implemented by Claude (lead) directly under the owner's grant (\"You have full authority\"; \"continue work without me\"), not dispatched to a governed worker. The phase record is created after the work; transitions record it in order."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-10-29T00:05:43.269Z",
+      "note": "Docs only: docs/adr/ADR-K1-kernel-contract.md revisions 1-3.1 (19396c8, 900114e, 0608b64, aa1353b) and docs/04_TRD.md section 5."
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-10-29T00:05:43.679Z",
+      "note": "validate-no-secrets PASS at aa1353b. No source, validator, schema or record change (phase exclusions)."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-10-29T00:05:44.140Z",
+      "note": "Evidence: docs/finish/PROJECTOS-KERNEL-CONTRACT1A.md. No live run for a docs phase."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-10-29T00:05:44.497Z",
+      "note": "closure tail only - no implementation. Reviews: Claude self-review; Agency software-architect (AMBER, corpus ad9264e3) three rounds, final APPROVE, 18/18 findings accepted."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-10-29T00:05:44.902Z",
+      "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    }
+  ]
+}
